@@ -1,177 +1,111 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Office } from './Office';
-import { PermissionModal } from './PermissionModal';
-import { TeamPanel } from './TeamPanel';
+import { TopHud } from './TopHud';
+import { BottomBar } from './BottomBar';
+import { Toasts } from './Toasts';
+import { Panel } from './Panel';
+import { ChatPanel } from './ChatPanel';
 import { Board } from './Board';
-import { MeetingModal } from './MeetingModal';
+import { TeamPanel } from './TeamPanel';
 import { AgentDrawer } from './AgentDrawer';
+import { PermissionModal } from './PermissionModal';
 import { SettingsModal } from './SettingsModal';
-import { connect, mergeTask, reset, send, useStore } from './store';
-import type { TaskStatus } from '../shared/types';
+import { MeetingModal } from './MeetingModal';
+import { connect, useStore } from './store';
 
-const STATUS_LABEL: Record<TaskStatus, string> = {
-  backlog: 'бэклог', assigned: 'назначена', in_progress: 'в работе',
-  review: 'на проверке', blocked: 'заблокирована', done: 'готово', failed: 'провал',
-};
+type PanelKind = 'chat' | 'board' | 'log' | 'help' | null;
+type ModalKind = 'settings' | 'meeting' | null;
 
 export function App() {
-  const connected = useStore((s) => s.connected);
-  const busy = useStore((s) => s.busy);
-  const projectDir = useStore((s) => s.projectDir);
-  const tasks = useStore((s) => s.tasks);
-  const chat = useStore((s) => s.chat);
-  const log = useStore((s) => s.log);
-  const instances = useStore((s) => s.instances);
-  const selected = useStore((s) => s.selected);
-  const pending = useStore((s) => s.permissions.length);
-  const [tab, setTab] = useState<'chat' | 'log'>('chat');
-  const [showSettings, setShowSettings] = useState(false);
-  const [showMeeting, setShowMeeting] = useState(false);
-  const meeting = useStore((s) => s.meeting);
-  const settings = useStore((s) => s.settings);
-  const thread = useStore((s) => s.thread);
-  const setThread = useStore((s) => s.setThread);
-  const authSource = useStore((s) => s.authSource);
   const theme = useStore((s) => s.theme);
-  const setTheme = useStore((s) => s.setTheme);
-  const [draft, setDraft] = useState('');
-  const chatEnd = useRef<HTMLDivElement>(null);
-  const logEnd = useRef<HTMLDivElement>(null);
+  const instances = useStore((s) => s.instances);
+  const log = useStore((s) => s.log);
+  const selected = useStore((s) => s.selected);
+  const select = useStore((s) => s.select);
+  const [panel, setPanel] = useState<PanelKind>(null);
+  const [modal, setModal] = useState<ModalKind>(null);
 
   useEffect(() => { connect(); }, []);
-  useEffect(() => { chatEnd.current?.scrollIntoView({ behavior: 'smooth' }); }, [chat.length]);
-  useEffect(() => { logEnd.current?.scrollIntoView({ behavior: 'smooth' }); }, [log.length, tab]);
 
-  const submit = () => {
-    const text = draft.trim();
-    if (!text) return;
-    send(text);
-    setDraft('');
-  };
+  // Тема живёт на корневом элементе: color задаётся на body, а наследуется
+  // он уже вычисленным значением — тема ниже body не подействовала бы.
+  useEffect(() => { document.documentElement.dataset.theme = theme; }, [theme]);
 
-  const totalCost = Object.values(instances).reduce((sum, i) => sum + i.costUsd, 0);
-  const visibleLog = selected ? log.filter((l) => l.agentId === selected) : log;
-  const taskList = Object.values(tasks).sort((a, b) => a.createdAt - b.createdAt);
+  // Горячие клавиши как в макете. В полях ввода не срабатывают.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      const tag = (e.target as HTMLElement)?.tagName;
+      if (tag === 'INPUT' || tag === 'TEXTAREA') return;
+      if (e.key === 'Escape') { setPanel(null); setModal(null); select(null); return; }
+      if (e.key === 'Enter') { setPanel('chat'); return; }
+      const k = e.key.toLowerCase();
+      if (k === 'b' || k === 'и') setPanel('board');
+      else if (k === 'l' || k === 'д') setPanel('log');
+      else if (k === 'm' || k === 'ь') setModal('meeting');
+      else if (/^[1-9]$/.test(k)) {
+        const ids = Object.keys(instances);
+        const id = ids[Number(k) - 1];
+        if (id) select(selected === id ? null : id);
+      }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [instances, selected, select]);
 
   return (
     <div className="app">
-      <PermissionModal />
-      {showSettings && <SettingsModal onClose={() => setShowSettings(false)} />}
-      {showMeeting && <MeetingModal onClose={() => setShowMeeting(false)} />}
-      <AgentDrawer />
-      <header>
-        <h1>🏢 AI Office <span className="muted">MVP-0</span></h1>
-        <div className="head-meta">
-          <span className="muted mono">{projectDir}</span>
-          <button
-            className={`cost ${settings.globalBudgetUsd !== null && totalCost >= settings.globalBudgetUsd ? 'over' : ''}`}
-            onClick={() => setShowSettings(true)}
-            title="Бюджет офиса"
-          >
-            ${totalCost.toFixed(3)}
-            {settings.globalBudgetUsd !== null && ` / $${settings.globalBudgetUsd.toFixed(2)}`}
-          </button>
-          <span
-            className={`auth ${authSource}`}
-            title={authSource === 'api-key'
-              ? 'Задан ANTHROPIC_API_KEY — расход идёт в платный API, а не в подписку'
-              : 'Работает на авторизации Claude Code — расход идёт в лимиты подписки'}
-          >
-            {authSource === 'api-key' ? '💳 API' : '🔑 подписка'}
-          </span>
-          <span className={`dot ${connected ? 'on' : 'off'}`} />
-          {pending > 0 && <span className="ask-pill">ждут решения: {pending}</span>}
-          {busy && <span className="working-pill">команда работает…</span>}
-          <button
-            onClick={() => setTheme(theme === 'day' ? 'night' : 'day')}
-            title={theme === 'day' ? 'Включить ночную тему' : 'Включить дневную тему'}
-          >
-            {theme === 'day' ? '🌙' : '☀️'}
-          </button>
-          <button onClick={() => setShowMeeting(true)}>Совещание</button>
-          <button onClick={reset}>Сброс</button>
-        </div>
-      </header>
+      <div className="stage">
+        <Office />
+        <TopHud
+          onSettings={() => setModal('settings')}
+          onMeeting={() => setModal('meeting')}
+          onHelp={() => setPanel('help')}
+        />
+        <Toasts onOpenTask={() => setPanel('board')} />
+      </div>
+      <BottomBar />
 
-      <main>
-        <section className="left">
-          <Office />
-          <TeamPanel />
+      {panel === 'chat' && <ChatPanel onClose={() => setPanel(null)} />}
+      {panel === 'board' && (
+        <Panel title="Доска задач" wide hint="B" onClose={() => setPanel(null)}>
           <Board />
-        </section>
-
-        <section className="right">
-          <div className="tabs">
-            <button className={tab === 'chat' ? 'on' : ''} onClick={() => setTab('chat')}>
-              {thread === 'pm#1' ? 'Чат с PM' : `Чат: ${instances[thread]?.label ?? thread}`}
-            </button>
-            <button
-              className={thread === 'meeting' ? 'on' : ''}
-              onClick={() => { setTab('chat'); setThread('meeting'); }}
-            >
-              Совещание{meeting?.status === 'running' ? ' •' : ''}
-            </button>
-            <button className={tab === 'log' ? 'on' : ''} onClick={() => setTab('log')}>
-              Лог{selected ? ` · ${selected}` : ''}
-            </button>
+        </Panel>
+      )}
+      {panel === 'log' && (
+        <Panel title="Лог событий" wide hint={selected ? `только ${selected}` : 'весь офис'}
+          onClose={() => setPanel(null)}>
+          <div className="log">
+            {(selected ? log.filter((l) => l.agentId === selected) : log).slice(-200).map((l) => (
+              <div key={l.id} className={`log-row ${l.kind}`}>
+                <span className="log-agent">{l.agentId ?? 'офис'}</span>
+                <span className="log-text">{l.text}</span>
+              </div>
+            ))}
           </div>
+        </Panel>
+      )}
+      {panel === 'help' && (
+        <Panel title="Как этим пользоваться" onClose={() => setPanel(null)}>
+          <div className="help">
+            <p><b>Офис</b> — это вид на доску задач, а не отдельная жизнь. Всё, что делают
+              человечки, отражает реальные сессии агентов.</p>
+            <p><kbd>ENTER</kbd> — написать менеджеру. Он разберёт задачу на части и раздаст
+              команде; исполнители работают параллельно, каждый в своей ветке.</p>
+            <p><kbd>B</kbd> — доска задач, <kbd>L</kbd> — лог, <kbd>M</kbd> — созвать совещание,
+              <kbd>1–9</kbd> — открыть карточку агента, <kbd>ESC</kbd> — закрыть.</p>
+            <p>Клик по человечку открывает панель справа: что он делает, его задачи,
+              живой транскрипт и расходы.</p>
+            <p>Опасные действия — удаление файлов, <code className="mono">kill</code>,
+              запись за пределы рабочей папки — останавливаются и спрашивают разрешения.</p>
+          </div>
+          <TeamPanel />
+        </Panel>
+      )}
 
-          {tab === 'chat' ? (
-            <div className="chat">
-              {thread === 'meeting' && (
-                <div className="thread-bar">
-                  {meeting?.status === 'running'
-                    ? <>Идёт совещание{meeting.speaking ? `, говорит ${instances[meeting.speaking]?.label ?? meeting.speaking}` : ''}…</>
-                    : <>Переговорка. Участники высказываются по очереди, итог менеджер пишет в своём чате.</>}
-                  <button onClick={() => setThread('pm#1')}>К менеджеру</button>
-                </div>
-              )}
-              {thread !== 'pm#1' && thread !== 'meeting' && (
-                <div className="thread-bar">
-                  Прямой разговор с <b>{instances[thread]?.label ?? thread}</b> — мимо менеджера.
-                  Он может смотреть проект, но не менять его.
-                  <button onClick={() => setThread('pm#1')}>К менеджеру</button>
-                </div>
-              )}
-              {chat.filter((m) => m.thread === thread).length === 0 && thread === 'pm#1' && (
-                <p className="empty">
-                  Напишите PM'у, что нужно сделать.<br />
-                  Например: «Сделай CRUD для заметок: JSON API на бэке и страницу на фронте».
-                </p>
-              )}
-              {chat.filter((m) => m.thread === thread).map((m) => (
-                <div key={m.id} className={`msg ${m.from === 'user' ? 'from-user' : 'from-agent'}`}>
-                  <div className="msg-from">{m.from === 'user' ? 'вы' : m.from}</div>
-                  <div className="msg-text">{m.text}</div>
-                </div>
-              ))}
-              <div ref={chatEnd} />
-            </div>
-          ) : (
-            <div className="log">
-              {visibleLog.map((l) => (
-                <div key={l.id} className={`log-row ${l.kind}`}>
-                  <span className="log-agent">{l.agentId ?? 'офис'}</span>
-                  <span className="log-text">{l.text}</span>
-                </div>
-              ))}
-              <div ref={logEnd} />
-            </div>
-          )}
-
-          {thread !== 'meeting' && <div className="composer">
-            <textarea
-              value={draft}
-              placeholder={thread === 'pm#1' ? 'Задача для PM…' : `Вопрос — ${instances[thread]?.label ?? thread}`}
-              onChange={(e) => setDraft(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) submit();
-              }}
-            />
-            <button onClick={submit} disabled={!connected}>Отправить ⌘↵</button>
-          </div>}
-        </section>
-      </main>
+      <AgentDrawer />
+      <PermissionModal />
+      {modal === 'settings' && <SettingsModal onClose={() => setModal(null)} />}
+      {modal === 'meeting' && <MeetingModal onClose={() => setModal(null)} />}
     </div>
   );
 }

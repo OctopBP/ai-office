@@ -8,6 +8,12 @@ import type { AgentState } from '../shared/types';
 const C = GRID.cell;
 const px = (tiles: number) => tiles * C;
 
+const STATE_TEXT: Record<AgentState, string> = {
+  idle: 'свободен', thinking: 'думает', working: 'работает', walking: 'идёт',
+  talking: 'разговор', waiting_approval: 'ждёт разрешения', blocked: 'заблокирован',
+  done: 'сдал работу', failed: 'ошибка',
+};
+
 const STATE_ICON: Record<AgentState, string> = {
   idle: '', thinking: '💭', working: '⌨️', walking: '', talking: '💬',
   waiting_approval: '❗', blocked: '⏸', done: '✅', failed: '⚠️',
@@ -51,6 +57,7 @@ export function Office() {
   const select = useStore((s) => s.select);
   const meeting = useStore((s) => s.meeting);
   const theme = useStore((s) => s.theme);
+  const tasks = useStore((s) => s.tasks);
   const img = (name: string) => spriteOf(theme, name);
   const boxRef = useRef<HTMLDivElement>(null);
   const [scale, setScale] = useState(1);
@@ -62,8 +69,10 @@ export function Office() {
    */
   useLayoutEffect(() => {
     const fit = () => {
-      const w = boxRef.current?.clientWidth ?? 0;
-      setScale(w >= px(GRID.cols) ? 1 : 2 / 3);
+      const box = boxRef.current;
+      if (!box) return;
+      const fits = box.clientWidth >= px(GRID.cols) && box.clientHeight >= px(GRID.cells);
+      setScale(fits ? 1 : 2 / 3);
     };
     fit();
     window.addEventListener('resize', fit);
@@ -147,6 +156,16 @@ export function Office() {
         );
       })}
 
+      {/* таблички с кодом задачи на столах */}
+      {list.filter((i) => i.currentTaskId).map((inst) => (
+        <div
+          key={`plate-${inst.id}`} className="plate"
+          style={{ left: px(inst.desk.x) + C * 0.45, top: px(inst.desk.y) + C * 0.86 }}
+        >
+          {inst.currentTaskId}
+        </div>
+      ))}
+
       {/* человечки: за своим столом рисуются позади него, в проходе — поверх */}
       {list.map((inst) => {
         const p = pos[inst.id] ?? { x: inst.desk.x, y: inst.desk.y };
@@ -179,6 +198,8 @@ export function Office() {
         const p = pos[inst.id] ?? { x: inst.desk.x, y: inst.desk.y };
         const atDesk = p.x === inst.desk.x && p.y === inst.desk.y;
         const role = roleOf(inst.roleId);
+        const task = inst.currentTaskId ? tasks[inst.currentTaskId] : null;
+        const icon = STATE_ICON[inst.state];
         return (
           <div
             key={`tag-${inst.id}`} className="tags"
@@ -187,8 +208,17 @@ export function Office() {
               top: px(p.y) - (atDesk ? C * 0.75 : 0),
             }}
           >
-            {inst.note && <div className="bubble">{inst.note}</div>}
-            <div className="name" style={{ borderBottomColor: role?.color }}>{inst.id}</div>
+            {inst.note && inst.state !== 'idle' && <div className="bubble">{inst.note}</div>}
+            <div className="statuscard pixel">
+              <div className="line1">
+                <b>{inst.id}</b>
+                <span className="muted"> · {STATE_TEXT[inst.state]}</span>
+                {icon && <span className="ico"> {icon}</span>}
+              </div>
+              <div className="line2 muted">
+                {task ? `${task.id} · ${task.title}` : role?.title}
+              </div>
+            </div>
           </div>
         );
       })}

@@ -54,7 +54,6 @@ export function Board() {
 
   return (
     <div className="board">
-      <h2>Доска задач <span className="muted">{list.length}</span></h2>
       {list.length === 0 && <p className="empty">Пусто. Поставьте задачу PM'у справа.</p>}
       {list.length > 0 && (
         <div className="columns">

@@ -8,6 +8,14 @@ import type { Theme } from './sprites';
 
 interface Pos { x: number; y: number }
 
+export interface Toast {
+  id: string;
+  kind: 'done' | 'failed' | 'info';
+  title: string;
+  detail?: string;
+  taskId?: string;
+}
+
 interface State {
   connected: boolean;
   busy: boolean;
@@ -23,6 +31,7 @@ interface State {
   meeting: MeetingView | null;
   theme: Theme;
   setTheme: (t: Theme) => void;
+  toasts: Toast[];
   /** Визуальные позиции — отдельно от логики: ходьба это чистая анимация. */
   pos: Record<string, Pos>;
   selected: string | null;
@@ -48,6 +57,7 @@ export const useStore = create<State>((set, get) => ({
   settings: { globalBudgetUsd: null, taskBudgetUsd: null },
   meeting: null,
   theme: (localStorage.getItem('office-theme') as Theme | null) ?? 'day',
+  toasts: [],
   pos: {},
   selected: null,
   thread: 'pm#1',
@@ -85,9 +95,26 @@ export const useStore = create<State>((set, get) => ({
           return { instances };
         });
         break;
-      case 'task':
-        set((s) => ({ tasks: { ...s.tasks, [e.task.id]: e.task } }));
+      case 'task': {
+        const before = get().tasks[e.task.id];
+        const t = e.task;
+        set((s) => ({ tasks: { ...s.tasks, [t.id]: t } }));
+        // Тост только на смену статуса, иначе он всплывал бы на каждое
+        // обновление стоимости и токенов.
+        if (before?.status !== t.status && (t.status === 'done' || t.status === 'failed')) {
+          const files = t.files.length ? ` · ${t.files.length} файла` : '';
+          pushToast({
+            id: `${t.id}-${t.status}`,
+            kind: t.status === 'done' ? 'done' : 'failed',
+            title: `${t.assigneeId ?? 'кто-то'} ${t.status === 'done' ? 'закончил' : 'провалил'} ${t.id} «${t.title}»`,
+            detail: t.status === 'done'
+              ? `+$${t.costUsd.toFixed(3)}${files}${t.branch && !t.merged ? ' · нужно слияние' : ''}`
+              : (t.result ?? '').slice(0, 120),
+            taskId: t.id,
+          });
+        }
         break;
+      }
       case 'chat':
         set((s) => (s.chat.some((c) => c.id === e.entry.id)
           ? {}
@@ -149,6 +176,17 @@ export const useStore = create<State>((set, get) => ({
 }));
 
 let socket: WebSocket | null = null;
+
+function pushToast(toast: Toast): void {
+  useStore.setState((s) => (s.toasts.some((t) => t.id === toast.id)
+    ? {}
+    : { toasts: [...s.toasts, toast] }));
+  setTimeout(() => dismissToast(toast.id), 20000);
+}
+
+export function dismissToast(id: string): void {
+  useStore.setState((s) => ({ toasts: s.toasts.filter((t) => t.id !== id) }));
+}
 
 export function connect(): void {
   // StrictMode монтирует эффекты дважды, а reconnect может наложиться на живое
