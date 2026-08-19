@@ -48,6 +48,10 @@ const SCENARIOS: Scenario[] = [
       { what: 'вызвал assign_task', ok: (r) => r.toolCalls.filter((t) => t.includes('assign_task')).length >= 2 },
       { what: 'все задачи назначены', ok: (r) => r.tasks.length > 0 && r.tasks.every((t) => t.assigneeId !== null) },
       { what: 'задействовал обе роли', ok: (r) => new Set(r.tasks.map((t) => t.roleId)).size >= 2 },
+      {
+        what: 'роль задачи совпадает с ролью исполнителя',
+        ok: (r) => r.tasks.every((t) => !t.assigneeId || t.assigneeId.split('#')[0] === t.roleId),
+      },
       { what: 'работали параллельно (2+ одновременно)', ok: (r) => r.maxParallel >= 2 },
       {
         what: 'не завёл задачу на проверку чужого результата',
@@ -72,6 +76,10 @@ const SCENARIOS: Scenario[] = [
     prompt: 'Поручи юристу подготовить короткую политику конфиденциальности.',
     checks: [
       { what: 'задача ушла юристу', ok: (r) => r.tasks.some((t) => t.roleId === 'legal') },
+      {
+        what: 'роль задачи совпадает с ролью исполнителя',
+        ok: (r) => r.tasks.every((t) => !t.assigneeId || t.assigneeId.split('#')[0] === t.roleId),
+      },
       {
         what: 'не предлагает смержить то, что не в ветке',
         ok: (r) => !/смерж|влить ветк|в отдельной ветке/i.test(r.pmText),

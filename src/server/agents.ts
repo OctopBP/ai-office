@@ -7,7 +7,7 @@ import { roleById, workerRoles } from './roles';
 import { classify } from './permissions';
 import { commitAll, createWorktree, hasWork, mergeBranch, preserveBranch, removeWorktree } from './git';
 import { resolve } from 'node:path';
-import { mkdirSync } from 'node:fs';
+import { existsSync, mkdirSync, readdirSync, renameSync } from 'node:fs';
 
 const MAX_CONCURRENT_WORKERS = 3;
 const MAX_WORKER_TURNS = 60;
@@ -278,7 +278,9 @@ const teamTools = createSdkMcpServer({
         description: z.string().describe('Полное ТЗ для исполнителя. Он не видит переписку с пользователем — опиши всё: что сделать, в каких файлах, каким стеком.'),
         acceptanceCriteria: z.string().describe('Проверяемый критерий готовности'),
         roleId: z.string().describe(
-          'id роли-исполнителя. Доступные роли и их специализацию смотри в list_team.',
+          `id роли-исполнителя, строго один из: ${workerRoles().map((r) => `${r.id} (${r.title})`).join(', ')}. ` +
+          'Выбирай по специализации, а не по первой попавшейся: неверная роль — это ' +
+          'документ, написанный разработчиком, или код, написанный юристом.',
         ),
       },
       async (args) => {
@@ -697,7 +699,7 @@ function workerTools(instanceId: string, task: Task) {
   });
 }
 
-function workerPrompt(task: Task, artifactsDir: string | null): string {
+function workerPrompt(task: Task, artifactsDir: string | null, projectDir: string): string {
   return [
     `Задача ${task.id}: ${task.title}`,
     '',
@@ -706,10 +708,10 @@ function workerPrompt(task: Task, artifactsDir: string | null): string {
     `Критерий готовности: ${task.acceptanceCriteria}`,
     '',
     artifactsDir
-      ? `Все файлы, которые ты создаёшь по этой задаче, должны лежать ТОЛЬКО в ${artifactsDir}/ — ` +
-        'это твоя папка под эту задачу. Не создавай копий в корне репозитория и в других папках: ' +
-        'рядом параллельно работают коллеги, и файлы вне своей папки затирают чужую работу. ' +
-        'Читать при этом можно что угодно в проекте.'
+      ? `Твоя рабочая директория — ${artifactsDir}/, туда и клади все файлы по этой задаче. ` +
+        `Исходники проекта лежат в ${projectDir} — их можно читать, но не менять: ` +
+        'рядом параллельно работают коллеги. Запись за пределы своей папки будет ' +
+        'остановлена и потребует подтверждения пользователя.'
       : '',
     'Выполни задачу полностью и самостоятельно, затем вызови finish_task.',
   ].filter(Boolean).join('\n');
@@ -784,17 +786,25 @@ function startWorker(task: Task, inst: Instance): void {
       let artifactsDir: string | null = null;
       if (!role.isolate && role.docsDir) {
         artifactsDir = `${role.docsDir}/${task.id}`;
+        const abs = resolve(office.projectDir, artifactsDir);
         try {
-          mkdirSync(resolve(office.projectDir, artifactsDir), { recursive: true });
+          mkdirSync(abs, { recursive: true });
         } catch { /* создаст сам исполнитель */ }
+        // Рабочая директория — папка задачи, а не весь проект. Тогда песочница
+        // не пустит запись наружу через оболочку, а классификатор пометит
+        // запись вне папки как выход за периметр и спросит пользователя.
+        // Раньше это была просьба в промпте, и юрист её уже нарушал.
+        workdir = abs;
       }
 
       const session = query({
-        prompt: workerPrompt(task, artifactsDir),
+        prompt: workerPrompt(task, artifactsDir, office.projectDir),
         options: {
           model: role.model,
           systemPrompt: { type: 'preset', preset: 'claude_code', append: systemPrompt },
           cwd: workdir,
+          // Проект остаётся читаемым: писать нельзя, смотреть можно.
+          additionalDirectories: artifactsDir ? [office.projectDir] : undefined,
           tools: role.tools,
           mcpServers: { office: workerTools(inst.id, task) },
           permissionMode: 'default',
@@ -916,6 +926,25 @@ export async function retryTask(taskId: string): Promise<void> {
   if (!inst) {
     office.addChat('офис', `Все исполнители роли ${roleId} заняты — перезапустить ${taskId} сейчас некому.`);
     return;
+  }
+
+  // У документных ролей роль ветки играет папка задачи — её тоже сохраняем.
+  const assignee = task.assigneeId ? office.instances.get(task.assigneeId) : null;
+  const retryRole = roleById(assignee?.roleId ?? task.roleId ?? '');
+  if (retryRole && !retryRole.isolate && retryRole.docsDir) {
+    const dir = resolve(office.projectDir, retryRole.docsDir, taskId);
+    if (existsSync(dir) && readdirSync(dir).length > 0) {
+      for (let n = 1; n < 50; n += 1) {
+        const target = `${dir}.stopped-${n}`;
+        if (existsSync(target)) continue;
+        try {
+          renameSync(dir, target);
+          office.addChat('офис',
+            `Наработки прошлой попытки ${taskId} сохранены в ${retryRole.docsDir}/${taskId}.stopped-${n}.`);
+        } catch { /* не смогли — не страшно, продолжаем */ }
+        break;
+      }
+    }
   }
 
   // Если в прошлой попытке что-то успели сделать — сохраняем ветку под другим
