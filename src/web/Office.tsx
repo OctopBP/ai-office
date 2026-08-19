@@ -21,8 +21,6 @@ const STATE_ICON: Record<AgentState, string> = {
 
 /** Неподвижная обстановка комнаты: спрайт и место в тайлах. */
 const DECOR: Array<{ img: string; x: number; y: number; z?: number }> = [
-  { img: 'board', x: 12.6, y: 0.1 },
-  { img: 'logscreen', x: 6.2, y: 0.3 },
   { img: 'clock', x: 17.6, y: 0.5 },
   { img: 'window', x: 19.4, y: 0.4 },
   { img: 'bookshelf', x: 22.2, y: 0.2 },
@@ -49,7 +47,13 @@ const DECOR: Array<{ img: string; x: number; y: number; z?: number }> = [
   { img: 'coin', x: 20.2, y: 12.4 },
 ];
 
-export function Office() {
+/** Предметы на стене, которые открывают панели: доска задач и терминал лога. */
+const HOTSPOTS = [
+  { img: 'board', x: 12.6, y: 0.1, key: 'B', panel: 'board' as const, title: 'Доска задач — B' },
+  { img: 'logscreen', x: 6.2, y: 0.3, key: 'L', panel: 'log' as const, title: 'Лог событий — L' },
+];
+
+export function Office({ onOpen }: { onOpen: (panel: 'board' | 'log') => void }) {
   const instances = useStore((s) => s.instances);
   const roles = useStore((s) => s.roles);
   const pos = useStore((s) => s.pos);
@@ -127,6 +131,24 @@ export function Office() {
     >
       <img className="layer floor" src={img('floor')} alt="" />
       <img className="layer wall" src={img('wall')} alt="" />
+
+      {HOTSPOTS.map((h) => {
+        const badge = h.panel === 'board'
+          ? Object.values(tasks).filter((t) => t.status === 'review'
+              || (t.status === 'done' && t.branch && !t.merged)).length
+          : 0;
+        return (
+          <button
+            key={h.key} className="hotspot" title={h.title}
+            style={{ left: px(h.x), top: px(h.y), zIndex: 3 }}
+            onClick={() => onOpen(h.panel)}
+          >
+            <img src={img(h.img)} alt="" />
+            <span className="hot-key">{h.key}</span>
+            {badge > 0 && <span className="hot-badge">{badge}</span>}
+          </button>
+        );
+      })}
 
       {DECOR.map((d, i) => (
         <img

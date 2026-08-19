@@ -55,7 +55,7 @@ export function App() {
   return (
     <div className="app">
       <div className="stage">
-        <Office />
+        <Office onOpen={setPanel} />
         <TopHud
           onSettings={() => setModal('settings')}
           onMeeting={() => setModal('meeting')}
