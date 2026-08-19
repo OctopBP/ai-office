@@ -167,11 +167,13 @@ export type ClientCommand =
   | { c: 'meeting'; topic: string; participants: string[] }
   | { c: 'reset' };
 
-export const GRID = { cols: 24, cells: 15, cell: 40 };
+// Размеры заданы артом: тайл 16 арт-пикселей × SCALE 3 = 48 экранных,
+// комната floor.png ровно 1152×720 = 24×15 тайлов.
+export const GRID = { cols: 24, cells: 15, cell: 48 };
 
 /** Места за столом переговорки — вокруг него садятся участники совещания. */
 export const MEETING_SEATS: MeetingSeat[] = [
-  { x: 1.4, y: 6.2 }, { x: 3.4, y: 6.2 },
-  { x: 1.4, y: 8.2 }, { x: 3.4, y: 8.2 },
-  { x: 2.4, y: 9.6 },
+  { x: 2.1, y: 11.1 }, { x: 4.6, y: 11.1 },
+  { x: 2.1, y: 13.3 }, { x: 4.6, y: 13.3 },
+  { x: 6.3, y: 12.2 },
 ];

@@ -51,55 +51,24 @@ main { display: flex; flex: 1; min-height: 0; }
 }
 
 /* ---------- офис ---------- */
-.office {
-  position: relative; background: var(--floor); border: 1px solid var(--line);
-  border-radius: 10px; overflow: hidden;
-  background-image:
-    linear-gradient(rgba(255,255,255,.028) 1px, transparent 1px),
-    linear-gradient(90deg, rgba(255,255,255,.028) 1px, transparent 1px);
-  background-size: 40px 40px;
-}
-.desk {
-  position: absolute; width: 80px; height: 36px;
-  background: #33404f; border: 1px solid #3d4b5c; border-radius: 5px;
-}
-.desk-screen {
-  position: absolute; right: 8px; top: 7px; width: 26px; height: 20px;
-  background: #10161d; border: 1px solid #4a5a6d; border-radius: 3px;
-}
-.zone {
-  position: absolute; border: 1px dashed #3a4757; border-radius: 8px;
-  color: #56637a; font-size: 11px; display: flex; align-items: center; justify-content: center;
-}
-.meeting { width: 172px; height: 190px; }
+
+
+
+
+
 .cooler { width: 120px; height: 100px; }
 
-.office .agent { position: absolute; width: 44px; cursor: pointer; transition: left .9s ease, top .9s ease; }
-.office .agent .body {
-  width: 32px; height: 32px; margin: 0 auto; border-radius: 9px;
-  display: flex; align-items: center; justify-content: center;
-  font-size: 17px; position: relative; box-shadow: 0 2px 6px rgba(0,0,0,.45);
-}
-.office .agent .body.active { animation: bob .9s ease-in-out infinite; }
+
+
+
 @keyframes bob { 50% { transform: translateY(-3px); } }
-.office .agent .badge {
-  position: absolute; right: -7px; top: -8px; font-size: 12px;
-  background: var(--panel); border-radius: 50%; padding: 1px 2px;
-}
-.office .agent .name {
-  text-align: center; font-size: 10px; color: var(--muted);
-  margin-top: 3px; white-space: nowrap;
-}
+
+
 .office .agent.selected .body { outline: 2px solid var(--accent); outline-offset: 2px; }
 .office .agent.done .body { box-shadow: 0 0 0 2px var(--green); }
 .office .agent.failed .body { box-shadow: 0 0 0 2px var(--red); }
 
-.bubble {
-  position: absolute; bottom: 42px; left: 50%; transform: translateX(-50%);
-  background: var(--panel); border: 1px solid var(--line); border-radius: 8px;
-  padding: 4px 9px; font-size: 11px; white-space: nowrap; max-width: 260px;
-  overflow: hidden; text-overflow: ellipsis; z-index: 5; pointer-events: none;
-}
+
 
 /* ---------- задачи ---------- */
 .tasks { margin-top: 18px; }
@@ -306,3 +275,63 @@ button.cost.over { color: var(--red); border-color: var(--red); }
 .participant.busy { opacity: .5; cursor: default; }
 .office .agent.talking .body { box-shadow: 0 0 0 2px var(--accent); }
 .office .agent.in-meeting .body { box-shadow: 0 0 0 2px var(--accent), 0 0 14px rgba(240, 180, 41, .35); }
+
+/* ---------- комната на спрайтах ---------- */
+.office-box { position: relative; width: 100%; overflow: hidden; }
+.office {
+  position: relative; overflow: hidden; border-radius: 10px;
+  border: 1px solid #2b2233; background: #1a1420;
+  image-rendering: pixelated;          /* пиксель-арт не размывать */
+  flex: none;
+}
+.office img { image-rendering: pixelated; user-select: none; -webkit-user-drag: none; }
+.layer { position: absolute; left: 0; top: 0; }
+.layer.floor { z-index: 0; }
+.layer.wall { z-index: 1; }
+.decor { position: absolute; z-index: 2; }
+.desk-img { position: absolute; }
+
+.office .agent {
+  position: absolute; width: 48px; cursor: pointer;
+  transition: left .9s ease, top .9s ease;
+}
+.office .agent .body { display: block; width: 48px; height: 72px; position: relative; }
+.office .agent.busy .body { animation: bob 1s ease-in-out infinite; }
+@keyframes bob { 50% { transform: translateY(-2px); } }
+.office .agent .shadow { position: absolute; left: 3px; bottom: 12px; opacity: .45; }
+.office .agent .badge {
+  position: absolute; right: -6px; top: -4px; font-size: 13px;
+  background: #2b2233; border-radius: 50%; padding: 1px 3px; line-height: 1;
+}
+
+.office .agent.selected .body { filter: drop-shadow(0 0 0 var(--accent)) drop-shadow(0 0 5px var(--accent)); }
+.office .agent.in-meeting .body { filter: drop-shadow(0 0 4px var(--accent)); }
+.office .agent.failed .body { filter: drop-shadow(0 0 4px var(--red)); }
+.office .agent.waiting_approval .body { filter: drop-shadow(0 0 5px var(--red)); animation: pulse 1s infinite; }
+
+.bubble {
+  position: absolute; bottom: 74px; left: 50%; transform: translateX(-50%);
+  background: #fbf8f2; color: #2b2233; border: 2px solid #2b2233;
+  border-radius: 6px; padding: 3px 8px; font-size: 11px; white-space: nowrap;
+  max-width: 320px; overflow: hidden; text-overflow: ellipsis;
+  z-index: 20; pointer-events: none;
+}
+.bubble::after {
+  content: ''; position: absolute; left: 50%; bottom: -7px; transform: translateX(-50%);
+  border: 5px solid transparent; border-top-color: #2b2233;
+}
+.left { min-width: 0; }
+
+/* ---------- подписи, пузыри и пустые места ---------- */
+.tags { position: absolute; width: 48px; z-index: 8; pointer-events: none; }
+.tags .name {
+  position: absolute; left: 50%; transform: translateX(-50%); top: 76px;
+  font-size: 10px; color: #f3e9d8; background: #2b2233;
+  border-bottom: 2px solid #2b2233; border-radius: 4px;
+  padding: 1px 6px; white-space: nowrap;
+}
+.ghost { position: absolute; z-index: 3; opacity: .55; }
+.ghost span {
+  position: absolute; left: 50%; top: 40%; transform: translate(-50%, -50%);
+  color: #f3e9d8; font-size: 20px; font-weight: 600; text-shadow: 0 1px 0 #2b2233;
+}

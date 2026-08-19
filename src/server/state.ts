@@ -9,10 +9,12 @@ import { load, save, wipe, type Persisted, type PersistedInstance } from './stor
 
 /** Раскладка рабочих мест в комнате (координаты в клетках сетки). */
 export const DESKS: Desk[] = [
-  { index: 0, x: 2, y: 2 },    // PM — отдельно от остальных
-  { index: 1, x: 8, y: 2 },  { index: 2, x: 13, y: 2 },  { index: 3, x: 18, y: 2 },
-  { index: 4, x: 8, y: 6 },  { index: 5, x: 13, y: 6 },  { index: 6, x: 18, y: 6 },
-  { index: 7, x: 8, y: 10 }, { index: 8, x: 13, y: 10 }, { index: 9, x: 18, y: 10 },
+  // Раскладка по макету: два ряда столов под стеной, два места в центре,
+  // низ комнаты занят переговоркой (слева) и кухней (справа).
+  { index: 0, x: 1, y: 4 },   // PM — отдельно, у входа
+  { index: 1, x: 6, y: 4 },  { index: 2, x: 11, y: 4 }, { index: 3, x: 16, y: 4 },
+  { index: 4, x: 1, y: 8 },  { index: 5, x: 6, y: 8 },  { index: 6, x: 11, y: 8 },
+  { index: 7, x: 16, y: 8 }, { index: 8, x: 10, y: 12 }, { index: 9, x: 14, y: 12 },
 ];
 
 type Listener = (e: ServerEvent) => void;
