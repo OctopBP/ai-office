@@ -1,6 +1,6 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { useStore } from './store';
-import { agentSprite, sprite } from './sprites';
+import { agentSpriteName, spriteOf } from './sprites';
 import { DESKS_ALL } from './desks';
 import { GRID } from '../shared/types';
 import type { AgentState } from '../shared/types';
@@ -23,6 +23,8 @@ const DECOR: Array<{ img: string; x: number; y: number; z?: number }> = [
   { img: 'door', x: 0.1, y: 5.6, z: 3 },
   { img: 'doormat', x: 0.9, y: 7.0 },
   { img: 'poster', x: 9.4, y: 2.4 },
+  { img: 'neon_sign', x: 20.4, y: 2.5 },
+  { img: 'server_rack', x: 22.2, y: 3.2 },
   { img: 'plant_big', x: 22.4, y: 6.4 },
   { img: 'plant_small', x: 0.4, y: 2.6 },
   { img: 'plant_small', x: 19.0, y: 8.6 },
@@ -48,6 +50,8 @@ export function Office() {
   const selected = useStore((s) => s.selected);
   const select = useStore((s) => s.select);
   const meeting = useStore((s) => s.meeting);
+  const theme = useStore((s) => s.theme);
+  const img = (name: string) => spriteOf(theme, name);
   const boxRef = useRef<HTMLDivElement>(null);
   const [scale, setScale] = useState(1);
 
@@ -112,12 +116,12 @@ export function Office() {
         transform: `scale(${scale})`, transformOrigin: 'top left',
       }}
     >
-      <img className="layer floor" src={sprite.floor} alt="" />
-      <img className="layer wall" src={sprite.wall} alt="" />
+      <img className="layer floor" src={img('floor')} alt="" />
+      <img className="layer wall" src={img('wall')} alt="" />
 
       {DECOR.map((d, i) => (
         <img
-          key={`${d.img}-${i}`} className="decor" src={sprite[d.img]} alt=""
+          key={`${d.img}-${i}`} className="decor" src={img(d.img)} alt=""
           style={{ left: px(d.x), top: px(d.y), zIndex: d.z ?? 2 }}
         />
       ))}
@@ -125,7 +129,7 @@ export function Office() {
       {/* свободные рабочие места */}
       {DESKS_ALL.filter((d) => !busyDesks.has(d.index)).map((d) => (
         <div key={`ghost-${d.index}`} className="ghost" style={{ left: px(d.x), top: px(d.y) }}>
-          <img src={sprite.desk_ghost} alt="" />
+          <img src={img('desk_ghost')} alt="" />
           <span>+</span>
         </div>
       ))}
@@ -137,7 +141,7 @@ export function Office() {
         return (
           <img
             key={`desk-${index}`} className="desk-img"
-            src={sprite[isPm ? 'desk_pm' : 'desk']} alt=""
+            src={img(isPm ? 'desk_pm' : 'desk')} alt=""
             style={{ left: px(inst.desk.x), top: px(inst.desk.y), zIndex: 4 }}
           />
         );
@@ -163,8 +167,8 @@ export function Office() {
             onClick={() => select(selected === inst.id ? null : inst.id)}
             title={inst.label}
           >
-            <img className="shadow" src={sprite.shadow} alt="" />
-            <img className="body" src={sprite[agentSprite(inst.roleId, inst.id)]} alt="" />
+            <img className="shadow" src={img('shadow')} alt="" />
+            <img className="body" src={img(agentSpriteName(inst.roleId, inst.id))} alt="" />
             {icon && <span className="badge">{icon}</span>}
           </div>
         );

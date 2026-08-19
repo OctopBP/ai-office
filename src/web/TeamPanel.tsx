@@ -1,14 +1,11 @@
 import { useState } from 'react';
-import { fire, hire, useStore } from './store';
+import { hire, useStore } from './store';
 import { RoleEditor } from './RoleEditor';
 
 export function TeamPanel() {
   const roles = useStore((s) => s.roles);
   const instances = useStore((s) => s.instances);
-  const selected = useStore((s) => s.selected);
   const [editing, setEditing] = useState<string | null>(null);
-
-  const selectedInst = selected ? instances[selected] : null;
 
   return (
     <div className="team">
@@ -35,15 +32,6 @@ export function TeamPanel() {
         );
       })}
 
-      {selectedInst && (
-        <div className="team-selected">
-          Выбран <b>{selectedInst.label}</b>
-          <span className="muted"> · ${selectedInst.costUsd.toFixed(3)}</span>
-          {selectedInst.currentTaskId && <span className="muted"> · {selectedInst.currentTaskId}</span>}
-          <button onClick={() => useStore.getState().setThread(selectedInst.id)}>Поговорить</button>
-          <button className="fire" onClick={() => fire(selectedInst.id)}>Уволить</button>
-        </div>
-      )}
 
       {editing && <RoleEditor roleId={editing} onClose={() => setEditing(null)} />}
     </div>

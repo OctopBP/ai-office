@@ -4,6 +4,7 @@ import { PermissionModal } from './PermissionModal';
 import { TeamPanel } from './TeamPanel';
 import { Board } from './Board';
 import { MeetingModal } from './MeetingModal';
+import { AgentDrawer } from './AgentDrawer';
 import { SettingsModal } from './SettingsModal';
 import { connect, mergeTask, reset, send, useStore } from './store';
 import type { TaskStatus } from '../shared/types';
@@ -31,6 +32,8 @@ export function App() {
   const thread = useStore((s) => s.thread);
   const setThread = useStore((s) => s.setThread);
   const authSource = useStore((s) => s.authSource);
+  const theme = useStore((s) => s.theme);
+  const setTheme = useStore((s) => s.setTheme);
   const [draft, setDraft] = useState('');
   const chatEnd = useRef<HTMLDivElement>(null);
   const logEnd = useRef<HTMLDivElement>(null);
@@ -55,6 +58,7 @@ export function App() {
       <PermissionModal />
       {showSettings && <SettingsModal onClose={() => setShowSettings(false)} />}
       {showMeeting && <MeetingModal onClose={() => setShowMeeting(false)} />}
+      <AgentDrawer />
       <header>
         <h1>🏢 AI Office <span className="muted">MVP-0</span></h1>
         <div className="head-meta">
@@ -78,6 +82,12 @@ export function App() {
           <span className={`dot ${connected ? 'on' : 'off'}`} />
           {pending > 0 && <span className="ask-pill">ждут решения: {pending}</span>}
           {busy && <span className="working-pill">команда работает…</span>}
+          <button
+            onClick={() => setTheme(theme === 'day' ? 'night' : 'day')}
+            title={theme === 'day' ? 'Включить ночную тему' : 'Включить дневную тему'}
+          >
+            {theme === 'day' ? '🌙' : '☀️'}
+          </button>
           <button onClick={() => setShowMeeting(true)}>Совещание</button>
           <button onClick={reset}>Сброс</button>
         </div>

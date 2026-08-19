@@ -4,6 +4,7 @@ import type {
   MeetingView, RoleEditable, RoleView, ServerEvent, Settings, TaskView,
 } from '../shared/types';
 import { MEETING_SEATS } from '../shared/types';
+import type { Theme } from './sprites';
 
 interface Pos { x: number; y: number }
 
@@ -20,6 +21,8 @@ interface State {
   permissions: PermissionRequest[];
   settings: Settings;
   meeting: MeetingView | null;
+  theme: Theme;
+  setTheme: (t: Theme) => void;
   /** Визуальные позиции — отдельно от логики: ходьба это чистая анимация. */
   pos: Record<string, Pos>;
   selected: string | null;
@@ -44,11 +47,13 @@ export const useStore = create<State>((set, get) => ({
   permissions: [],
   settings: { globalBudgetUsd: null, taskBudgetUsd: null },
   meeting: null,
+  theme: (localStorage.getItem('office-theme') as Theme | null) ?? 'day',
   pos: {},
   selected: null,
   thread: 'pm#1',
 
   setThread: (t) => set({ thread: t }),
+  setTheme: (t) => { localStorage.setItem('office-theme', t); set({ theme: t }); },
   select: (id) => set({ selected: id }),
   setConnected: (v) => set({ connected: v }),
 
@@ -84,10 +89,14 @@ export const useStore = create<State>((set, get) => ({
         set((s) => ({ tasks: { ...s.tasks, [e.task.id]: e.task } }));
         break;
       case 'chat':
-        set((s) => ({ chat: [...s.chat, e.entry] }));
+        set((s) => (s.chat.some((c) => c.id === e.entry.id)
+          ? {}
+          : { chat: [...s.chat, e.entry] }));
         break;
       case 'log':
-        set((s) => ({ log: [...s.log.slice(-300), e.entry] }));
+        set((s) => (s.log.some((l) => l.id === e.entry.id)
+          ? {}
+          : { log: [...s.log.slice(-300), e.entry] }));
         break;
       case 'busy':
         set({ busy: e.busy });
@@ -142,6 +151,12 @@ export const useStore = create<State>((set, get) => ({
 let socket: WebSocket | null = null;
 
 export function connect(): void {
+  // StrictMode монтирует эффекты дважды, а reconnect может наложиться на живое
+  // соединение. Без этой защиты образуется второй сокет, и каждое событие
+  // применяется дважды — в чате появляются дубли записей.
+  if (socket && (socket.readyState === WebSocket.OPEN || socket.readyState === WebSocket.CONNECTING)) {
+    return;
+  }
   const url = `ws://${location.hostname}:3001`;
   socket = new WebSocket(url);
   socket.onopen = () => useStore.getState().setConnected(true);
@@ -194,6 +209,10 @@ export function retryTask(taskId: string): void {
 
 export function callMeeting(topic: string, participants: string[]): void {
   socket?.send(JSON.stringify({ c: 'meeting', topic, participants }));
+}
+
+export function assignDirect(taskId: string, instanceId: string): void {
+  socket?.send(JSON.stringify({ c: 'assign_direct', taskId, instanceId }));
 }
 
 export function reset(): void {

@@ -116,7 +116,11 @@ function consume(instanceId: string, msg: SDKMessage): void {
   }
 
   if (msg.type === 'result') {
-    office.addCost(instanceId, msg.total_cost_usd ?? 0);
+    const usage = 'usage' in msg ? msg.usage : undefined;
+    office.addCost(instanceId, msg.total_cost_usd ?? 0, {
+      input: (usage?.input_tokens ?? 0) + (usage?.cache_read_input_tokens ?? 0),
+      output: usage?.output_tokens ?? 0,
+    });
     if (!isOk(msg)) {
       const reason = resultReason(msg);
       office.addLog(instanceId, 'error', `Сессия завершилась ошибкой: ${clip(reason, 200)}`);
@@ -722,7 +726,9 @@ function startWorker(task: Task, inst: Instance): void {
   if (!role) return;
 
   inst.currentTaskId = task.id;
-  office.updateTask(task.id, { assigneeId: inst.id, status: 'in_progress' });
+  office.updateTask(task.id, {
+    assigneeId: inst.id, status: 'in_progress', startedAt: Date.now(), finishedAt: null,
+  });
   office.emit({ t: 'handoff', from: 'pm#1', to: inst.id, text: task.title });
   office.setState(inst.id, 'working', 'берётся за задачу');
 
@@ -845,7 +851,7 @@ function startWorker(task: Task, inst: Instance): void {
         }
       }
 
-      office.updateTask(task.id, { status: 'done', result: summary });
+      office.updateTask(task.id, { status: 'done', result: summary, finishedAt: Date.now() });
       office.setState(inst.id, 'done', 'готово ✅');
       notifyPm(
         `[СИСТЕМА] Задача ${task.id} «${task.title}» завершена исполнителем ${inst.id}.\n` +
@@ -866,7 +872,7 @@ function startWorker(task: Task, inst: Instance): void {
             ? ` Сделанное закоммичено в ${fresh.branch}.`
             : ' Изменений в рабочей копии не было.';
         }
-        office.updateTask(task.id, { status: 'blocked', result: note });
+        office.updateTask(task.id, { status: 'blocked', result: note, finishedAt: Date.now() });
         office.addLog(inst.id, 'system', `Задача ${task.id} остановлена пользователем`);
         office.setState(inst.id, 'idle', null);
         notifyPm(
@@ -875,7 +881,7 @@ function startWorker(task: Task, inst: Instance): void {
         );
       } else {
         office.addLog(inst.id, 'error', `Задача ${task.id} упала: ${message}`);
-        office.updateTask(task.id, { status: 'failed', result: `Ошибка: ${message}` });
+        office.updateTask(task.id, { status: 'failed', result: `Ошибка: ${message}`, finishedAt: Date.now() });
         office.setState(inst.id, 'failed', 'ошибка');
         notifyPm(`[СИСТЕМА] Задача ${task.id} провалилась у ${inst.id}. Ошибка: ${message}`);
       }
@@ -967,10 +973,41 @@ export async function retryTask(taskId: string): Promise<void> {
   office.updateTask(taskId, {
     status: 'backlog', assigneeId: null, result: null, files: [],
     branch: null, baseBranch: null, worktreePath: null, merged: false,
+    startedAt: null, finishedAt: null, costUsd: 0, tokensIn: 0, tokensOut: 0,
   });
   const fresh = office.tasks.get(taskId);
   if (fresh) startWorker(fresh, inst);
   office.addLog(null, 'system', `Задача ${taskId} перезапущена на ${inst.id}`);
+}
+
+/**
+ * Отдать задачу конкретному исполнителю мимо менеджера.
+ * PM об этом узнаёт: иначе доска и его представление о мире разойдутся.
+ */
+export function assignDirect(taskId: string, instanceId: string): void {
+  const task = office.tasks.get(taskId);
+  const inst = office.instances.get(instanceId);
+  if (!task || !inst) return;
+  if (task.assigneeId && task.status === 'in_progress') {
+    office.addChat('офис', `${taskId} уже выполняется (${task.assigneeId}).`);
+    return;
+  }
+  if (inst.currentTaskId) {
+    office.addChat('офис', `${inst.label} занят задачей ${inst.currentTaskId}.`);
+    return;
+  }
+  if (office.budgetExhausted()) {
+    office.addChat('офис', 'Бюджет офиса исчерпан — задача не запускается.');
+    return;
+  }
+  office.updateTask(taskId, { roleId: inst.roleId });
+  const fresh = office.tasks.get(taskId);
+  if (!fresh) return;
+  startWorker(fresh, inst);
+  notifyPm(
+    `[СИСТЕМА] Пользователь отдал задачу ${taskId} «${task.title}» напрямую исполнителю ${inst.id}, ` +
+    'минуя тебя. Учти это в планах и не назначай её повторно.',
+  );
 }
 
 /** Влить ветку задачи в основную и убрать worktree. Вызывается кнопкой из UI. */

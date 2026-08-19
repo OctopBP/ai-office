@@ -335,3 +335,63 @@ button.cost.over { color: var(--red); border-color: var(--red); }
   position: absolute; left: 50%; top: 40%; transform: translate(-50%, -50%);
   color: #f3e9d8; font-size: 20px; font-weight: 600; text-shadow: 0 1px 0 #2b2233;
 }
+
+/* ---------- дровер агента ---------- */
+.drawer {
+  position: fixed; right: 0; top: 0; bottom: 0; width: 430px; z-index: 60;
+  background: var(--panel); border-left: 1px solid var(--line);
+  box-shadow: -16px 0 40px rgba(0, 0, 0, .45);
+  overflow-y: auto; padding: 14px 16px 24px;
+  animation: slide-in .18s ease-out;
+}
+@keyframes slide-in { from { transform: translateX(24px); opacity: .4; } }
+.drawer-head { display: flex; gap: 12px; align-items: flex-start; margin-bottom: 18px; }
+.drawer-head .ava {
+  width: 48px; height: 72px; image-rendering: pixelated;
+  background: var(--panel-2); border: 1px solid var(--line); border-radius: 8px;
+}
+.drawer-who { flex: 1; min-width: 0; }
+.drawer-who h2 { margin: 0; font-size: 17px; }
+.drawer-who .chip { display: inline-block; margin-top: 6px; }
+.drawer .icon { background: none; border: none; color: var(--muted); font-size: 15px; padding: 2px 6px; }
+.drawer .icon:hover { color: var(--text); }
+
+.drawer section { margin-bottom: 20px; }
+.drawer h3 { font-size: 12px; text-transform: uppercase; letter-spacing: .05em;
+  color: var(--muted); margin: 0 0 8px; font-weight: 600; }
+.drawer .small { font-size: 12px; }
+.drawer .dim { color: #56607220; color: var(--muted); }
+
+.card { border: 1px solid var(--line); border-radius: 8px; padding: 10px 12px; background: var(--panel-2); }
+.card-head { margin-bottom: 5px; }
+.card-head b { color: var(--accent); margin-right: 6px; font-size: 12px; }
+.criteria { margin-top: 7px; font-size: 12px; color: #c2ccd8; }
+.budget { margin-top: 9px; }
+.bar { height: 5px; background: var(--line); border-radius: 3px; overflow: hidden; margin-bottom: 4px; }
+.bar i { display: block; height: 100%; background: var(--accent); }
+
+.drawer .row {
+  display: flex; align-items: center; gap: 8px; padding: 6px 8px;
+  border-bottom: 1px solid #1b2129; font-size: 13px;
+}
+.drawer .row:last-of-type { border-bottom: none; }
+.row-title { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.drawer .row.done .row-title { color: var(--muted); }
+.drawer .row.in_progress { background: rgba(240, 180, 41, .07); }
+.mini { padding: 2px 8px; font-size: 11px; }
+.mini.stop { border-color: var(--red); color: var(--red); }
+.mini.go { border-color: var(--green); color: var(--green); }
+
+.trail { border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; background: #0b0f14; }
+.trail-row { display: flex; gap: 8px; font-size: 12px; padding: 2px 0; align-items: baseline; }
+.trail-row .ico { width: 14px; flex: none; }
+.trail-text { flex: 1; word-break: break-word; color: #c2ccd8; }
+.trail-row.error .trail-text { color: var(--red); }
+.trail-row.system .trail-text { color: var(--muted); }
+
+.drawer-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 10px; }
+.drawer-actions button { flex: 1 1 45%; padding: 8px; font-size: 13px; }
+.drawer-actions .danger { flex-basis: 100%; border-color: var(--red); color: var(--red); }
+.drawer-actions .danger:hover { background: rgba(248, 81, 73, .12); }
+.link-danger { background: none; border: none; color: var(--muted); font-size: 12px; padding: 4px 0; }
+.link-danger:hover { color: var(--red); }

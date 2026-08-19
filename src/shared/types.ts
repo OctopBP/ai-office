@@ -82,6 +82,13 @@ export interface TaskView {
   worktreePath: string | null;
   merged: boolean;
   createdAt: number;
+  /** Когда исполнитель реально взялся за задачу и когда закончил. */
+  startedAt: number | null;
+  finishedAt: number | null;
+  /** Расход именно на эту задачу, а не на агента вообще. */
+  costUsd: number;
+  tokensIn: number;
+  tokensOut: number;
 }
 
 export type RiskLevel = 'safe' | 'write' | 'danger';
@@ -165,6 +172,7 @@ export type ClientCommand =
   | { c: 'stop_task'; taskId: string }
   | { c: 'retry_task'; taskId: string }
   | { c: 'meeting'; topic: string; participants: string[] }
+  | { c: 'assign_direct'; taskId: string; instanceId: string }
   | { c: 'reset' };
 
 // Размеры заданы артом: тайл 16 арт-пикселей × SCALE 3 = 48 экранных,

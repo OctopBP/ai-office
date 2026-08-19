@@ -48,6 +48,11 @@ export interface Task {
   worktreePath: string | null;
   merged: boolean;
   createdAt: number;
+  startedAt: number | null;
+  finishedAt: number | null;
+  costUsd: number;
+  tokensIn: number;
+  tokensOut: number;
 }
 
 interface Pending {
@@ -232,9 +237,21 @@ class OfficeState {
     this.emit({ t: 'instance', instance: toInstanceView(inst) });
   }
 
-  addCost(id: string, usd: number): void {
+  addCost(id: string, usd: number, tokens?: { input: number; output: number }): void {
     const inst = this.instances.get(id);
-    if (!inst || !usd) return;
+    if (!inst) return;
+    // Расход пишем и агенту, и его текущей задаче: «сколько стоил агент»
+    // и «сколько стоила задача» — разные вопросы, оба нужны в дровере.
+    if (inst.currentTaskId) {
+      const task = this.tasks.get(inst.currentTaskId);
+      if (task) {
+        task.costUsd += usd;
+        task.tokensIn += tokens?.input ?? 0;
+        task.tokensOut += tokens?.output ?? 0;
+        this.emit({ t: 'task', task: toTaskView(task) });
+      }
+    }
+    if (!usd) return;
     inst.costUsd += usd;
     this.emit({ t: 'instance', instance: toInstanceView(inst) });
     this.markDirty();
@@ -268,6 +285,11 @@ class OfficeState {
       worktreePath: null,
       merged: false,
       createdAt: Date.now(),
+      startedAt: null,
+      finishedAt: null,
+      costUsd: 0,
+      tokensIn: 0,
+      tokensOut: 0,
     };
     this.tasks.set(task.id, task);
     this.emit({ t: 'task', task: toTaskView(task) });
@@ -458,6 +480,8 @@ export const toTaskView = (t: Task): TaskView => ({
   assigneeId: t.assigneeId, status: t.status, result: t.result,
   files: t.files, branch: t.branch, baseBranch: t.baseBranch,
   worktreePath: t.worktreePath, merged: t.merged, createdAt: t.createdAt,
+  startedAt: t.startedAt, finishedAt: t.finishedAt,
+  costUsd: t.costUsd, tokensIn: t.tokensIn, tokensOut: t.tokensOut,
 });
 
 export const office = new OfficeState();

@@ -1,19 +1,30 @@
 /**
- * Спрайты офиса. Файлы лежат в design/sprites/out и генерируются
- * design/sprites/gen.py: 1 арт-пиксель = 3 экранных, тайл = 48px.
+ * Спрайты офиса из design/sprites/out, генерируются design/sprites/gen.py:
+ * 1 арт-пиксель = 3 экранных, тайл = 48px. Две темы — day и night,
+ * наборы имён в них одинаковые.
  */
-const modules = import.meta.glob('../../design/sprites/out/*.png', {
+const modules = import.meta.glob('../../design/sprites/out/*/*.png', {
   eager: true,
   query: '?url',
   import: 'default',
 }) as Record<string, string>;
 
-export const sprite: Record<string, string> = Object.fromEntries(
-  Object.entries(modules).map(([path, url]) => [
-    path.split('/').pop()!.replace('.png', ''),
-    url,
-  ]),
-);
+export type Theme = 'day' | 'night';
+
+const byTheme: Record<string, Record<string, string>> = {};
+for (const [path, url] of Object.entries(modules)) {
+  const parts = path.split('/');
+  const name = parts.pop()!.replace('.png', '');
+  const theme = parts.pop()!;
+  (byTheme[theme] ??= {})[name] = url;
+}
+
+export const THEMES = Object.keys(byTheme).sort() as Theme[];
+
+/** Спрайт по имени в выбранной теме; если его там нет — берём из day. */
+export function spriteOf(theme: Theme, name: string): string {
+  return byTheme[theme]?.[name] ?? byTheme.day?.[name] ?? '';
+}
 
 /** Какой человечек рисуется для роли. Спрайтов пока меньше, чем ролей. */
 export const AGENT_SPRITE: Record<string, string> = {
@@ -26,11 +37,9 @@ export const AGENT_SPRITE: Record<string, string> = {
 };
 
 /** Второй и последующие клоны роли — другим спрайтом, чтобы различались. */
-export const CLONE_SPRITE: Record<string, string> = {
-  backend: 'agent_backend2',
-};
+const CLONE_SPRITE: Record<string, string> = { backend: 'agent_backend2' };
 
-export function agentSprite(roleId: string, instanceId: string): string {
+export function agentSpriteName(roleId: string, instanceId: string): string {
   const n = Number(instanceId.split('#')[1] ?? '1');
   if (n > 1 && CLONE_SPRITE[roleId]) return CLONE_SPRITE[roleId];
   return AGENT_SPRITE[roleId] ?? 'agent_backend1';
