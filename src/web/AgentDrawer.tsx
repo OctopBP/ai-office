@@ -1,4 +1,4 @@
-import { assignDirect, fire, hire, mergeTask, retryTask, stopTask, useStore } from './store';
+import { assignDirect, fire, hire, mergeTask, retryTask, showDiff, stopTask, useStore } from './store';
 import { agentSpriteName, spriteOf } from './sprites';
 import type { TaskView } from '../shared/types';
 
@@ -113,6 +113,9 @@ export function AgentDrawer() {
             )}
             {(t.status === 'failed' || t.status === 'blocked') && (
               <button className="mini" onClick={() => retryTask(t.id)}>заново</button>
+            )}
+            {t.branch && !t.merged && (
+              <button className="mini" onClick={() => showDiff(t.id)}>diff</button>
             )}
             {t.status === 'done' && t.branch && !t.merged && (
               <button className="mini" onClick={() => mergeTask(t.id)}>смержить</button>

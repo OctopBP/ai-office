@@ -84,6 +84,8 @@ class OfficeState {
   private pending = new Map<string, Pending>();
   /** Ключи вида «roleId:Bash:rm», разрешённые пользователем до конца сессии. */
   private alwaysAllowed = new Set<string>();
+  /** Те же ключи, но запрещённые: симметрично «разрешить всегда». */
+  private alwaysDenied = new Set<string>();
 
   subscribe(fn: Listener): () => void {
     this.listeners.add(fn);
@@ -186,6 +188,7 @@ class OfficeState {
     }
     this.pending.clear();
     this.alwaysAllowed.clear();
+    this.alwaysDenied.clear();
     for (const role of allRoles()) this.spawn(role.id);
   }
 
@@ -329,6 +332,10 @@ class OfficeState {
     return this.alwaysAllowed.has(`${roleId}:${key}`);
   }
 
+  isAlwaysDenied(roleId: string, key: string): boolean {
+    return this.alwaysDenied.has(`${roleId}:${key}`);
+  }
+
   /** Создаёт запрос, показывает его в UI и ждёт решения пользователя. */
   requestPermission(
     input: Omit<PermissionRequest, 'id' | 'createdAt'>,
@@ -361,9 +368,14 @@ class OfficeState {
     clearTimeout(entry.timer);
     this.pending.delete(id);
 
-    if (decision === 'always') {
-      const roleId = this.instances.get(entry.request.agentId)?.roleId;
-      if (roleId) this.alwaysAllowed.add(`${roleId}:${entry.request.key}`);
+    const roleId = this.instances.get(entry.request.agentId)?.roleId;
+    if (roleId && decision === 'always') {
+      this.alwaysAllowed.add(`${roleId}:${entry.request.key}`);
+    }
+    if (roleId && decision === 'never') {
+      this.alwaysDenied.add(`${roleId}:${entry.request.key}`);
+      this.addLog(entry.request.agentId, 'system',
+        `Запрет до конца сессии: ${entry.request.key} для роли ${roleId}`);
     }
     if (byTimeout) {
       this.addLog(entry.request.agentId, 'system',

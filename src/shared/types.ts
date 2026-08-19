@@ -110,7 +110,7 @@ export interface PermissionRequest {
   createdAt: number;
 }
 
-export type PermissionDecision = 'allow' | 'deny' | 'always';
+export type PermissionDecision = 'allow' | 'deny' | 'always' | 'never';
 
 export interface MeetingSeat { x: number; y: number }
 
@@ -157,7 +157,8 @@ export type ServerEvent =
   | { t: 'settings'; settings: Settings }
   | { t: 'permission.request'; request: PermissionRequest }
   | { t: 'permission.resolved'; id: string; decision: PermissionDecision }
-  | { t: 'meeting'; meeting: MeetingView | null };
+  | { t: 'meeting'; meeting: MeetingView | null }
+  | { t: 'task.diff'; taskId: string; stat: string; patch: string; truncated: boolean; error?: string };
 
 /** Всё, что UI шлёт на сервер. */
 export type ClientCommand =
@@ -173,6 +174,7 @@ export type ClientCommand =
   | { c: 'retry_task'; taskId: string }
   | { c: 'meeting'; topic: string; participants: string[] }
   | { c: 'assign_direct'; taskId: string; instanceId: string }
+  | { c: 'task_diff'; taskId: string }
   | { c: 'reset' };
 
 // Размеры заданы артом: тайл 16 арт-пикселей × SCALE 3 = 48 экранных,

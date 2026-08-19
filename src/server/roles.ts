@@ -83,7 +83,7 @@ const BASE_ROLES: Role[] = [
     isManager: false,
     maxInstances: 2,
     permissionMode: 'ask-risky',
-    isolate: false,
+    isolate: true,
     tools: ['Read', 'Write', 'Edit', 'Glob', 'Grep', 'WebSearch', 'WebFetch', 'TodoWrite'],
     docsDir: 'docs/design',
     brief: [
@@ -103,7 +103,7 @@ const BASE_ROLES: Role[] = [
     isManager: false,
     maxInstances: 2,
     permissionMode: 'ask-risky',
-    isolate: false,
+    isolate: true,
     tools: ['Read', 'Write', 'Edit', 'Glob', 'Grep', 'WebSearch', 'WebFetch', 'TodoWrite'],
     docsDir: 'docs/smm',
     brief: [
@@ -123,7 +123,7 @@ const BASE_ROLES: Role[] = [
     isManager: false,
     maxInstances: 1,
     permissionMode: 'ask-risky',
-    isolate: false,
+    isolate: true,
     tools: ['Read', 'Write', 'Edit', 'Glob', 'Grep', 'WebSearch', 'WebFetch', 'TodoWrite'],
     docsDir: 'docs/legal',
     brief: [

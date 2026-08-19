@@ -32,6 +32,8 @@ interface State {
   theme: Theme;
   setTheme: (t: Theme) => void;
   toasts: Toast[];
+  /** Показанный сейчас дифф задачи. */
+  diff: { taskId: string; stat: string; patch: string; truncated: boolean; error?: string } | null;
   /** Визуальные позиции — отдельно от логики: ходьба это чистая анимация. */
   pos: Record<string, Pos>;
   selected: string | null;
@@ -58,6 +60,7 @@ export const useStore = create<State>((set, get) => ({
   meeting: null,
   theme: (localStorage.getItem('office-theme') as Theme | null) ?? 'day',
   toasts: [],
+  diff: null,
   pos: {},
   selected: null,
   thread: 'pm#1',
@@ -133,6 +136,9 @@ export const useStore = create<State>((set, get) => ({
         break;
       case 'settings':
         set({ settings: e.settings });
+        break;
+      case 'task.diff':
+        set({ diff: { taskId: e.taskId, stat: e.stat, patch: e.patch, truncated: e.truncated, error: e.error } });
         break;
       case 'meeting': {
         set({ meeting: e.meeting });
@@ -247,6 +253,15 @@ export function retryTask(taskId: string): void {
 
 export function callMeeting(topic: string, participants: string[]): void {
   socket?.send(JSON.stringify({ c: 'meeting', topic, participants }));
+}
+
+export function showDiff(taskId: string): void {
+  useStore.setState({ diff: { taskId, stat: '', patch: '', truncated: false } });
+  socket?.send(JSON.stringify({ c: 'task_diff', taskId }));
+}
+
+export function closeDiff(): void {
+  useStore.setState({ diff: null });
 }
 
 export function assignDirect(taskId: string, instanceId: string): void {

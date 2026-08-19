@@ -9,6 +9,7 @@ import { Board } from './Board';
 import { TeamPanel } from './TeamPanel';
 import { AgentDrawer } from './AgentDrawer';
 import { PermissionModal } from './PermissionModal';
+import { DiffPanel } from './DiffPanel';
 import { SettingsModal } from './SettingsModal';
 import { MeetingModal } from './MeetingModal';
 import { connect, useStore } from './store';
@@ -102,6 +103,7 @@ export function App() {
         </Panel>
       )}
 
+      <DiffPanel />
       <AgentDrawer />
       <PermissionModal />
       {modal === 'settings' && <SettingsModal onClose={() => setModal(null)} />}

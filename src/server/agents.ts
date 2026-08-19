@@ -5,7 +5,7 @@ import { MessageQueue } from './queue';
 import { office, type Instance, type Task } from './state';
 import { roleById, workerRoles } from './roles';
 import { classify } from './permissions';
-import { commitAll, createWorktree, hasWork, mergeBranch, preserveBranch, removeWorktree } from './git';
+import { commitAll, createWorktree, diffBranch, hasWork, mergeBranch, preserveBranch, removeWorktree } from './git';
 import { resolve } from 'node:path';
 import { existsSync, mkdirSync, readdirSync, renameSync } from 'node:fs';
 
@@ -160,6 +160,14 @@ function permissionHandler(
       };
     }
 
+    if (role && office.isAlwaysDenied(role.id, verdict.key)) {
+      return {
+        behavior: 'deny',
+        message: `Пользователь запретил «${verdict.key}» для этой роли до конца сессии. ` +
+          'Не пытайся обойти запрет другим способом — реши задачу иначе или объясни в отчёте, почему нельзя.',
+      };
+    }
+
     if (role && office.isAlwaysAllowed(role.id, verdict.key)) {
       return { behavior: 'allow', updatedInput: input };
     }
@@ -188,7 +196,7 @@ function permissionHandler(
 
     office.setState(instanceId, prevState, prevNote);
 
-    if (decision === 'deny') {
+    if (decision === 'deny' || decision === 'never') {
       office.addLog(instanceId, 'system', `Пользователь запретил: ${verdict.summary}`);
       return {
         behavior: 'deny',
@@ -232,15 +240,14 @@ const PM_PROMPT = `Ты — проектный менеджер (PM) в кома
 Когда все задачи по просьбе закрыты — дай короткое финальное резюме.
 
 Как устроена изоляция (важно, иначе будешь ставить невыполнимые задачи и врать про результат):
-- Роли, меняющие КОД (backend, frontend), работают каждая в СВОЕЙ ветке и своей рабочей копии.
-  Они не видят изменений друг друга, и в основной директории этих изменений пока нет.
-  Их результат пользователь вводит в основную ветку кнопкой «Смержить» на карточке задачи.
-- Роли, работающие с ДОКУМЕНТАМИ (design, smm, legal), веток НЕ используют: они пишут файлы
-  сразу в рабочую директорию, в свою папку docs/<роль>/<задача>/. Никакого слияния для них
-  не нужно, и предлагать «Смержить» по таким задачам — ошибка.
+- КАЖДЫЙ исполнитель работает в своей ветке и своей рабочей копии — и разработчики,
+  и документные роли (дизайнер, SMM, юрист). Они не видят изменений друг друга,
+  и в основной директории этих изменений пока нет.
+- Результат попадает в основную ветку, когда пользователь нажмёт «Смержить» на карточке
+  задачи. Так и говори: «готово, лежит в ветке задачи, нужно слияние».
 - Не создавай задачу «проверить, что результаты обеих задач на месте»: до слияния веток
   проверять нечего, и исполнитель честно ничего не найдёт.
-- Если сомневаешься, есть ли у задачи ветка, посмотри get_board, а не выдумывай.
+- Документные роли складывают файлы в docs/<роль>/<задача>/ внутри своей ветки.
 
 Правила декомпозиции:
 - Исполнитель НЕ видит вашу переписку с пользователем. Всё нужное пиши в description задачи:
@@ -713,9 +720,8 @@ function workerPrompt(task: Task, artifactsDir: string | null, projectDir: strin
     '',
     artifactsDir
       ? `Твоя рабочая директория — ${artifactsDir}/, туда и клади все файлы по этой задаче. ` +
-        `Исходники проекта лежат в ${projectDir} — их можно читать, но не менять: ` +
-        'рядом параллельно работают коллеги. Запись за пределы своей папки будет ' +
-        'остановлена и потребует подтверждения пользователя.'
+        `Исходники проекта лежат в ${projectDir} — их можно читать, но не менять. ` +
+        'Запись за пределы своей папки будет остановлена и потребует подтверждения пользователя.'
       : '',
     'Выполни задачу полностью и самостоятельно, затем вызови finish_task.',
   ].filter(Boolean).join('\n');
@@ -770,6 +776,9 @@ function startWorker(task: Task, inst: Instance): void {
 
   (async () => {
     let workdir = office.projectDir;
+    // Корень рабочей копии нужен и в catch (коммит наработок при остановке),
+    // поэтому объявлен снаружи try.
+    let workRoot = office.projectDir;
     try {
       // Изоляция: своя ветка и свой worktree, чтобы параллельные исполнители
       // физически не могли затереть друг другу файлы.
@@ -777,6 +786,7 @@ function startWorker(task: Task, inst: Instance): void {
         const wt = await createWorktree(office.projectDir, WORKTREES_ROOT, task.id);
         if (wt) {
           workdir = wt.path;
+          workRoot = wt.path;
           office.updateTask(task.id, {
             branch: wt.branch, baseBranch: wt.base, worktreePath: wt.path,
           });
@@ -787,19 +797,17 @@ function startWorker(task: Task, inst: Instance): void {
         }
       }
 
-      // Роли без изоляции веткой складывают артефакты в свою папку —
-      // так двое SMM или дизайнеров не пишут в один и тот же файл.
+      // Документные роли пишут в свою папку задачи ВНУТРИ рабочей копии.
+      // Рабочей директорией становится именно она: тогда песочница не пустит
+      // запись наружу через оболочку, а классификатор пометит запись вне папки
+      // как выход за периметр. Раньше это была просьба в промпте, и юрист её нарушал.
       let artifactsDir: string | null = null;
-      if (!role.isolate && role.docsDir) {
+      if (role.docsDir) {
         artifactsDir = `${role.docsDir}/${task.id}`;
-        const abs = resolve(office.projectDir, artifactsDir);
+        const abs = resolve(workRoot, artifactsDir);
         try {
           mkdirSync(abs, { recursive: true });
         } catch { /* создаст сам исполнитель */ }
-        // Рабочая директория — папка задачи, а не весь проект. Тогда песочница
-        // не пустит запись наружу через оболочку, а классификатор пометит
-        // запись вне папки как выход за периметр и спросит пользователя.
-        // Раньше это была просьба в промпте, и юрист её уже нарушал.
         workdir = abs;
       }
 
@@ -810,7 +818,7 @@ function startWorker(task: Task, inst: Instance): void {
           systemPrompt: { type: 'preset', preset: 'claude_code', append: systemPrompt },
           cwd: workdir,
           // Проект остаётся читаемым: писать нельзя, смотреть можно.
-          additionalDirectories: artifactsDir ? [office.projectDir] : undefined,
+          additionalDirectories: artifactsDir ? [workRoot] : undefined,
           tools: role.tools,
           mcpServers: { office: workerTools(inst.id, task) },
           permissionMode: 'default',
@@ -840,7 +848,7 @@ function startWorker(task: Task, inst: Instance): void {
 
       // Коммитим сами: полагаться на то, что исполнитель не забудет, нельзя.
       if (fresh?.branch) {
-        const outcome = await commitAll(workdir, `${task.id}: ${task.title}`);
+        const outcome = await commitAll(workRoot, `${task.id}: ${task.title}`);
         if (outcome === 'committed') {
           office.addLog(inst.id, 'system', `Изменения закоммичены в ${fresh.branch}`);
         } else if (outcome === 'empty') {
@@ -867,7 +875,7 @@ function startWorker(task: Task, inst: Instance): void {
         const fresh = office.tasks.get(task.id);
         let note = '⏹ Остановлена пользователем.';
         if (fresh?.branch) {
-          const outcome = await commitAll(workdir, `${task.id}: частичная работа (остановлено)`);
+          const outcome = await commitAll(workRoot, `${task.id}: частичная работа (остановлено)`);
           note += outcome === 'committed'
             ? ` Сделанное закоммичено в ${fresh.branch}.`
             : ' Изменений в рабочей копии не было.';
@@ -934,24 +942,9 @@ export async function retryTask(taskId: string): Promise<void> {
     return;
   }
 
-  // У документных ролей роль ветки играет папка задачи — её тоже сохраняем.
   const assignee = task.assigneeId ? office.instances.get(task.assigneeId) : null;
   const retryRole = roleById(assignee?.roleId ?? task.roleId ?? '');
-  if (retryRole && !retryRole.isolate && retryRole.docsDir) {
-    const dir = resolve(office.projectDir, retryRole.docsDir, taskId);
-    if (existsSync(dir) && readdirSync(dir).length > 0) {
-      for (let n = 1; n < 50; n += 1) {
-        const target = `${dir}.stopped-${n}`;
-        if (existsSync(target)) continue;
-        try {
-          renameSync(dir, target);
-          office.addChat('офис',
-            `Наработки прошлой попытки ${taskId} сохранены в ${retryRole.docsDir}/${taskId}.stopped-${n}.`);
-        } catch { /* не смогли — не страшно, продолжаем */ }
-        break;
-      }
-    }
-  }
+  void retryRole;
 
   // Если в прошлой попытке что-то успели сделать — сохраняем ветку под другим
   // именем, а не удаляем: при остановке офис обещал, что работа не пропадёт.
@@ -1008,6 +1001,28 @@ export function assignDirect(taskId: string, instanceId: string): void {
     `[СИСТЕМА] Пользователь отдал задачу ${taskId} «${task.title}» напрямую исполнителю ${inst.id}, ` +
     'минуя тебя. Учти это в планах и не назначай её повторно.',
   );
+}
+
+/** Показать, что задача изменила: дифф её ветки против базовой. */
+export async function taskDiff(taskId: string): Promise<void> {
+  const task = office.tasks.get(taskId);
+  const send = (patch: Partial<{ stat: string; patch: string; truncated: boolean; error: string }>) =>
+    office.emit({ t: 'task.diff', taskId, stat: '', patch: '', truncated: false, ...patch });
+
+  if (!task) return;
+  if (!task.branch || !task.baseBranch) {
+    send({ error: 'У задачи нет своей ветки — сравнивать не с чем.' });
+    return;
+  }
+  if (task.merged) {
+    send({ error: `Задача уже влита в ${task.baseBranch}, её ветка удалена. Смотрите историю основной ветки.` });
+    return;
+  }
+
+  const result = await diffBranch(office.projectDir, task.baseBranch, task.branch);
+  if ('error' in result) send({ error: result.error });
+  else if (!result.stat) send({ error: 'Изменений в ветке нет.' });
+  else send(result);
 }
 
 /** Влить ветку задачи в основную и убрать worktree. Вызывается кнопкой из UI. */

@@ -72,7 +72,7 @@ const SCENARIOS: Scenario[] = [
     ],
   },
   {
-    name: 'Не врёт про ветки у документных ролей',
+    name: 'Документная роль и её ветка',
     prompt: 'Поручи юристу подготовить короткую политику конфиденциальности.',
     checks: [
       { what: 'задача ушла юристу', ok: (r) => r.tasks.some((t) => t.roleId === 'legal') },
@@ -81,8 +81,10 @@ const SCENARIOS: Scenario[] = [
         ok: (r) => r.tasks.every((t) => !t.assigneeId || t.assigneeId.split('#')[0] === t.roleId),
       },
       {
-        what: 'не предлагает смержить то, что не в ветке',
-        ok: (r) => !/смерж|влить ветк|в отдельной ветке/i.test(r.pmText),
+        // Раньше проверка была обратной: документные роли работали без веток,
+        // и предложение «смержить» считалось враньём. Теперь ветки есть у всех.
+        what: 'не утверждает, что файл уже в основной директории',
+        ok: (r) => !/(уже|лежит).{0,30}в (рабочей|основной) директории|мержить не нужно/i.test(r.pmText),
       },
     ],
   },
@@ -135,12 +137,27 @@ async function runScenario(sc: Scenario): Promise<Run> {
   ws.send(JSON.stringify({ c: 'reset' }));
   await new Promise((r) => setTimeout(r, 800));
 
+  // Ждём не первой реплики, а тишины: в сухом режиме исполнитель отрабатывает
+  // мгновенно, и PM отвечает дважды — «назначил», затем «готово».
+  const waitQuiet = async (limit: number) => {
+    const started = Date.now();
+    while (Date.now() - started < limit) {
+      const quiet = Date.now() - last;
+      if (sawReply && quiet > QUIET_MS) break;
+      if (quiet > SILENCE_LIMIT_MS) break;
+      await new Promise((r) => setTimeout(r, 500));
+    }
+  };
+
   if (sc.warmup) {
     ws.send(JSON.stringify({ c: 'user_message', text: sc.warmup }));
-    const warmStart = Date.now();
-    while (!sawReply && Date.now() - warmStart < 120000) await new Promise((r) => setTimeout(r, 500));
-    await new Promise((r) => setTimeout(r, 4000));
+    await waitQuiet(150000);
+    // Ответы на прогрев не должны попадать в проверки: они про другую задачу,
+    // и законное «готово» ломало проверку «не выдал невыполненное за сделанное».
     sawReply = false;
+    run.pmText = '';
+    run.toolCalls = [];
+    byId.clear();
   }
 
   sc.before?.(ws);
@@ -151,13 +168,7 @@ async function runScenario(sc: Scenario): Promise<Run> {
   last = Date.now();
   ws.send(JSON.stringify({ c: 'user_message', text: sc.prompt }));
 
-  const started = Date.now();
-  while (Date.now() - started < MAX_MS) {
-    const quiet = Date.now() - last;
-    if (sawReply && quiet > QUIET_MS) break;
-    if (quiet > SILENCE_LIMIT_MS) break;
-    await new Promise((r) => setTimeout(r, 500));
-  }
+  await waitQuiet(MAX_MS);
   ws.close();
   run.tasks = [...byId.values()];
   return run;

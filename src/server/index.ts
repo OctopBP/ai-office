@@ -3,7 +3,7 @@ import { mkdirSync, existsSync, writeFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import type { ClientCommand, ServerEvent } from '../shared/types';
 import { office } from './state';
-import { assignDirect, holdMeeting, mergeTask, retryTask, sendUserMessage, stopTask, talkTo } from './agents';
+import { assignDirect, holdMeeting, mergeTask, retryTask, sendUserMessage, stopTask, taskDiff, talkTo } from './agents';
 import { hasCommits, initRepo, isRepo } from './git';
 import { flush } from './store';
 
@@ -107,6 +107,8 @@ wss.on('connection', (ws) => {
       stopTask(cmd.taskId);
     } else if (cmd.c === 'retry_task') {
       void retryTask(cmd.taskId);
+    } else if (cmd.c === 'task_diff') {
+      void taskDiff(cmd.taskId);
     } else if (cmd.c === 'assign_direct') {
       assignDirect(cmd.taskId, cmd.instanceId);
     } else if (cmd.c === 'meeting' && cmd.topic.trim()) {

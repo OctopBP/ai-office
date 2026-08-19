@@ -119,6 +119,36 @@ export async function mergeBranch(
   };
 }
 
+/** Ограничение на размер патча: гигантский дифф незачем гнать в браузер. */
+const MAX_PATCH = 200_000;
+
+export interface Diff {
+  stat: string;
+  patch: string;
+  truncated: boolean;
+}
+
+/** Что задача изменила относительно базовой ветки. */
+export async function diffBranch(
+  repoDir: string, base: string, branch: string,
+): Promise<Diff | { error: string }> {
+  const exists = await git(repoDir, ['rev-parse', '--verify', branch]);
+  if (!exists.ok) return { error: `Ветки ${branch} больше нет — возможно, она уже влита и удалена.` };
+
+  // Три точки: изменения ветки от точки расхождения, без чужих коммитов из base.
+  const stat = await git(repoDir, ['diff', '--stat', `${base}...${branch}`]);
+  if (!stat.ok) return { error: stat.stderr || 'git diff не отработал' };
+  if (!stat.stdout) return { stat: '', patch: '', truncated: false };
+
+  const patch = await git(repoDir, ['diff', `${base}...${branch}`]);
+  const full = patch.stdout;
+  return {
+    stat: stat.stdout,
+    patch: full.slice(0, MAX_PATCH),
+    truncated: full.length > MAX_PATCH,
+  };
+}
+
 export async function removeWorktree(
   repoDir: string, path: string, branch: string,
   options: { keepBranch?: boolean } = {},

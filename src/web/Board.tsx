@@ -1,4 +1,4 @@
-import { mergeTask, retryTask, stopTask, useStore } from './store';
+import { mergeTask, retryTask, showDiff, stopTask, useStore } from './store';
 import type { TaskStatus, TaskView } from '../shared/types';
 
 const COLUMNS: Array<{ title: string; statuses: TaskStatus[] }> = [
@@ -39,9 +39,14 @@ function Card({ t }: { t: TaskView }) {
           <span className="mono">{t.branch}</span>
           {t.merged ? (
             <span className="merged">влита</span>
-          ) : t.status === 'done' ? (
-            <button className="merge" onClick={() => mergeTask(t.id)}>Смержить</button>
-          ) : null}
+          ) : (
+            <>
+              <button className="mini" onClick={() => showDiff(t.id)}>Показать diff</button>
+              {t.status === 'done' && (
+                <button className="merge" onClick={() => mergeTask(t.id)}>Смержить</button>
+              )}
+            </>
+          )}
         </div>
       )}
     </div>

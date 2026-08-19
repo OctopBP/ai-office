@@ -39,12 +39,15 @@ export function PermissionModal() {
             Разрешить один раз
           </button>
           <button className="always" onClick={() => decide(req.id, 'always')}>
-            Всегда для этой роли
+            Всегда разрешать
+          </button>
+          <button className="never" onClick={() => decide(req.id, 'never')}>
+            Всегда запрещать
           </button>
         </div>
         <p className="modal-hint muted">
-          «Всегда» запомнит <code className="mono">{req.key}</code> до перезапуска сервера.
-          Без ответа запрос отклонится через 10 минут.
+          «Всегда» запомнит <code className="mono">{req.key}</code> для этой роли до перезапуска
+          сервера — разрешая или запрещая без вопросов. Без ответа запрос отклонится через 10 минут.
         </p>
       </div>
     </div>

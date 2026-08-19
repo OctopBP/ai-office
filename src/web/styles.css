@@ -519,3 +519,24 @@ kbd {
   background: var(--red); color: #fff; border: 2px solid var(--line);
   border-radius: 50%; padding: 0 2px;
 }
+.modal-actions .never { border-color: var(--red); color: var(--red); }
+.modal-actions .never:hover { background: rgba(217, 79, 61, .12); }
+
+/* ---------- просмотр диффа ---------- */
+.diff-stat {
+  margin: 0 0 10px; padding: 8px 10px; background: var(--panel-2);
+  border: 2px solid var(--line-soft); border-radius: 6px;
+  font: 11px/1.5 ui-monospace, Menlo, monospace; white-space: pre-wrap; color: var(--text);
+}
+.diff {
+  overflow: auto; border: 2px solid var(--line-soft); border-radius: 6px;
+  background: var(--panel-2); padding: 6px 0; flex: 1; min-height: 0;
+}
+.dl {
+  font: 12px/1.45 ui-monospace, Menlo, monospace; white-space: pre;
+  padding: 0 10px; color: var(--text);
+}
+.dl.add { background: rgba(79, 157, 74, .16); }
+.dl.del { background: rgba(217, 79, 61, .14); }
+.dl.hunk { color: var(--muted); background: var(--panel); }
+.dl.meta { color: var(--muted); }
