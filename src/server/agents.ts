@@ -5,7 +5,7 @@ import { MessageQueue } from './queue';
 import { office, type Instance, type Task } from './state';
 import { roleById, workerRoles } from './roles';
 import { classify } from './permissions';
-import { commitAll, createWorktree, mergeBranch, removeWorktree } from './git';
+import { commitAll, createWorktree, hasWork, mergeBranch, preserveBranch, removeWorktree } from './git';
 import { resolve } from 'node:path';
 import { mkdirSync } from 'node:fs';
 
@@ -37,6 +37,8 @@ const SANDBOX = {
 } as const;
 
 let running = 0;
+/** Задачи, которые пользователь остановил вручную — чтобы отличить это от падения. */
+const stoppedByUser = new Set<string>();
 
 // ---------------------------------------------------------------- утилиты
 
@@ -259,7 +261,9 @@ const teamTools = createSdkMcpServer({
         const lines = workerRoles().map((role) => {
           const insts = [...office.instances.values()].filter((i) => i.roleId === role.id);
           const desc = insts.map((i) => `${i.id} — ${i.currentTaskId ? `занят (${i.currentTaskId})` : 'свободен'}`).join(', ');
-          return `- ${role.id} (${role.title}): ${desc}`;
+          const first = role.brief.split('\n')[0] ?? '';
+          return `- ${role.id} (${role.title})${first ? ` — ${first}` : ''}\n  ${desc}` +
+            `\n  результат: ${role.isolate ? 'в отдельной ветке, нужно слияние' : 'сразу в рабочей директории'}`;
         });
         return { content: [{ type: 'text', text: `Команда:\n${lines.join('\n')}` }] };
       },
@@ -273,9 +277,24 @@ const teamTools = createSdkMcpServer({
         title: z.string().describe('Короткий заголовок, до 60 символов'),
         description: z.string().describe('Полное ТЗ для исполнителя. Он не видит переписку с пользователем — опиши всё: что сделать, в каких файлах, каким стеком.'),
         acceptanceCriteria: z.string().describe('Проверяемый критерий готовности'),
-        roleId: z.enum(['backend', 'frontend']).describe('Какая роль должна это делать'),
+        roleId: z.string().describe(
+          'id роли-исполнителя. Доступные роли и их специализацию смотри в list_team.',
+        ),
       },
       async (args) => {
+        // Список ролей не дублируем в схеме: перечисление в enum уже один раз
+        // разошлось с реальным реестром, и новые роли молча стали недоступны.
+        const valid = workerRoles().map((r) => r.id);
+        if (!valid.includes(args.roleId)) {
+          return {
+            content: [{
+              type: 'text',
+              text: `Неизвестная роль «${args.roleId}». Доступные: ${valid.join(', ')}. ` +
+                'Посмотри list_team, там указано, кто чем занимается.',
+            }],
+            isError: true,
+          };
+        }
         const task = office.createTask({
           title: args.title,
           description: args.description,
@@ -442,6 +461,124 @@ function notifyPm(text: string): void {
   pmQueue?.push(text);
 }
 
+// ---------------------------------------------------------------- совещание
+
+let meetingRunning = false;
+
+/**
+ * Совещание: участники высказываются по очереди, каждый видит сказанное до него.
+ * Это не свободный чат всех со всеми — такой формат быстро уходит в бесконечное
+ * согласование. Итог уходит менеджеру: действовать по результату всё равно ему.
+ */
+export async function holdMeeting(topic: string, participantIds: string[]): Promise<void> {
+  if (meetingRunning) {
+    office.addChat('офис', 'Совещание уже идёт — дождитесь окончания.', 'meeting');
+    return;
+  }
+  const participants = participantIds
+    .map((id) => office.instances.get(id))
+    .filter((i): i is NonNullable<typeof i> => Boolean(i) && i!.roleId !== 'pm');
+
+  if (participants.length < 2) {
+    office.addChat('офис', 'Для совещания нужно минимум два участника, кроме менеджера.', 'meeting');
+    return;
+  }
+  const busy = participants.find((i) => i.currentTaskId);
+  if (busy) {
+    office.addChat('офис',
+      `${busy.label} занят задачей ${busy.currentTaskId}. Дождитесь окончания или остановите задачу.`,
+      'meeting');
+    return;
+  }
+  if (office.budgetExhausted()) {
+    office.addChat('офис', 'Бюджет офиса исчерпан — совещание не запускается.', 'meeting');
+    return;
+  }
+
+  meetingRunning = true;
+  const id = `M-${Date.now().toString(36)}`;
+  office.setMeeting({ id, topic, participants: participants.map((p) => p.id), speaking: null, status: 'running' });
+  office.addChat('user', `Тема совещания: ${topic}`, 'meeting');
+  for (const p of participants) office.setState(p.id, 'talking', 'на совещании');
+
+  const said: Array<{ id: string; title: string; text: string }> = [];
+
+  try {
+    for (const inst of participants) {
+      const role = roleById(inst.roleId);
+      if (!role) continue;
+      office.setMeeting({ id, topic, participants: participants.map((p) => p.id), speaking: inst.id, status: 'running' });
+      office.setState(inst.id, 'talking', 'говорит');
+
+      const before = said.length
+        ? `Уже высказались:\n${said.map((s) => `— ${s.title} (${s.id}): ${s.text}`).join('\n\n')}\n\n`
+        : '';
+
+      const prompt =
+        `Тема совещания: ${topic}\n\n${before}` +
+        'Твоя очередь. Ответь по существу, 3–6 предложений: что важно с точки зрения твоей роли, ' +
+        'с чем согласен или не согласен из сказанного, что предлагаешь конкретно. ' +
+        'Не повторяй уже сказанное и не пересказывай тему.';
+
+      let text = '';
+      const session = query({
+        prompt,
+        options: {
+          model: role.model,
+          systemPrompt: [
+            `Ты — ${role.title} в команде AI-агентов.`,
+            role.brief,
+            '',
+            'Ты на рабочем совещании с коллегами. Говори как специалист своей роли: коротко,',
+            'предметно, без вежливых вступлений. Можешь посмотреть файлы проекта, чтобы',
+            'говорить по делу, но менять ничего нельзя.',
+          ].join('\n'),
+          cwd: office.projectDir,
+          tools: ['Read', 'Glob', 'Grep'],
+          permissionMode: 'default',
+          canUseTool: permissionHandler(inst.id),
+          settingSources: [],
+          sandbox: SANDBOX,
+          maxTurns: 8,
+        },
+      });
+
+      for await (const msg of session) {
+        consume(inst.id, msg);
+        if (msg.type === 'result' && isOk(msg)) text = msg.result?.trim() ?? '';
+      }
+
+      if (text) {
+        said.push({ id: inst.id, title: role.title, text });
+        office.addChat(inst.id, text, 'meeting');
+      } else {
+        office.addChat('офис', `${inst.label} не смог высказаться.`, 'meeting');
+      }
+      office.setState(inst.id, 'talking', 'на совещании');
+    }
+
+    office.setMeeting({ id, topic, participants: participants.map((p) => p.id), speaking: null, status: 'done' });
+    office.addChat('офис',
+      'Совещание окончено. Итог и решения менеджер напишет в чате с ним.', 'meeting');
+
+    notifyPm(
+      `[СИСТЕМА] Прошло совещание по теме «${topic}».\n\n` +
+      said.map((s) => `${s.title} (${s.id}):\n${s.text}`).join('\n\n') +
+      '\n\nПодведи короткий итог для пользователя: к чему пришли, где расходятся мнения ' +
+      'и какие задачи из этого следуют. Задачи пока НЕ создавай — сначала дождись согласия пользователя.',
+    );
+  } catch (err) {
+    office.addChat('офис', `⚠️ Совещание оборвалось: ${clip((err as Error).message, 200)}`, 'meeting');
+    office.setMeeting({ id, topic, participants: participants.map((p) => p.id), speaking: null, status: 'failed' });
+  } finally {
+    meetingRunning = false;
+    for (const p of participants) {
+      if (!p.currentTaskId) office.setState(p.id, 'idle', null);
+    }
+    setTimeout(() => { if (office.meeting?.id === id) office.setMeeting(null); }, 20000);
+  }
+}
+
 // ---------------------------------------------------------------- прямой разговор
 
 /** Живые разговоры пользователя с конкретными исполнителями, мимо PM. */
@@ -586,6 +723,25 @@ function startWorker(task: Task, inst: Instance): void {
   office.updateTask(task.id, { assigneeId: inst.id, status: 'in_progress' });
   office.emit({ t: 'handoff', from: 'pm#1', to: inst.id, text: task.title });
   office.setState(inst.id, 'working', 'берётся за задачу');
+
+  // Режим проверки поведения менеджера: настоящую сессию исполнителя не поднимаем.
+  // Так сценарии прогоняются за секунды и стоят только токенов PM.
+  if (office.dryRun) {
+    setTimeout(() => {
+      inst.currentTaskId = null;
+      office.setState(inst.id, 'idle', null);
+      office.updateTask(task.id, {
+        status: 'done',
+        result: `[заглушка] Задача «${task.title}» выполнена.`,
+      });
+      notifyPm(
+        `[СИСТЕМА] Задача ${task.id} «${task.title}» завершена исполнителем ${inst.id}.\n` +
+        `Отчёт: [заглушка] Задача выполнена.\nОцени результат и реши, что делать дальше.`,
+      );
+    }, 250);
+    return;
+  }
+
   running += 1;
   office.setBusy(true);
 
@@ -689,10 +845,30 @@ function startWorker(task: Task, inst: Instance): void {
       );
     } catch (err) {
       const message = (err as Error).message;
-      office.addLog(inst.id, 'error', `Задача ${task.id} упала: ${message}`);
-      office.updateTask(task.id, { status: 'failed', result: `Ошибка: ${message}` });
-      office.setState(inst.id, 'failed', 'ошибка');
-      notifyPm(`[СИСТЕМА] Задача ${task.id} провалилась у ${inst.id}. Ошибка: ${message}`);
+
+      if (stoppedByUser.delete(task.id)) {
+        // Наработки не выбрасываем: то, что успели сделать, коммитим в ветку задачи.
+        const fresh = office.tasks.get(task.id);
+        let note = '⏹ Остановлена пользователем.';
+        if (fresh?.branch) {
+          const outcome = await commitAll(workdir, `${task.id}: частичная работа (остановлено)`);
+          note += outcome === 'committed'
+            ? ` Сделанное закоммичено в ${fresh.branch}.`
+            : ' Изменений в рабочей копии не было.';
+        }
+        office.updateTask(task.id, { status: 'blocked', result: note });
+        office.addLog(inst.id, 'system', `Задача ${task.id} остановлена пользователем`);
+        office.setState(inst.id, 'idle', null);
+        notifyPm(
+          `[СИСТЕМА] Задача ${task.id} остановлена пользователем вручную. ` +
+          'Не назначай её заново по своей инициативе — дождись указания.',
+        );
+      } else {
+        office.addLog(inst.id, 'error', `Задача ${task.id} упала: ${message}`);
+        office.updateTask(task.id, { status: 'failed', result: `Ошибка: ${message}` });
+        office.setState(inst.id, 'failed', 'ошибка');
+        notifyPm(`[СИСТЕМА] Задача ${task.id} провалилась у ${inst.id}. Ошибка: ${message}`);
+      }
     } finally {
       inst.currentTaskId = null;
       inst.abort = null;
@@ -703,6 +879,69 @@ function startWorker(task: Task, inst: Instance): void {
       }, 4000);
     }
   })().catch(() => { /* обработано выше */ });
+}
+
+/** Прервать работу над задачей. Наработки сохраняются. */
+export function stopTask(taskId: string): void {
+  const task = office.tasks.get(taskId);
+  if (!task) return;
+  const inst = [...office.instances.values()].find((i) => i.currentTaskId === taskId);
+  if (!inst?.abort) {
+    office.addChat('офис', `${taskId} сейчас никто не выполняет — останавливать нечего.`);
+    return;
+  }
+  stoppedByUser.add(taskId);
+  inst.abort.abort();
+}
+
+/** Запустить задачу заново: с нуля, но с тем же ТЗ. */
+export async function retryTask(taskId: string): Promise<void> {
+  const task = office.tasks.get(taskId);
+  if (!task) return;
+  if (task.status === 'in_progress') {
+    office.addChat('офис', `${taskId} уже выполняется. Сначала остановите её.`);
+    return;
+  }
+  if (task.merged) {
+    office.addChat('офис', `${taskId} уже влита в основную ветку — перезапуск создал бы дубль.`);
+    return;
+  }
+  if (office.budgetExhausted()) {
+    office.addChat('офис', 'Бюджет офиса исчерпан — поднимите лимит, прежде чем перезапускать задачи.');
+    return;
+  }
+
+  const roleId = task.roleId ?? 'backend';
+  const inst = office.findFree(roleId) ?? office.spawn(roleId) ?? office.findFree(roleId);
+  if (!inst) {
+    office.addChat('офис', `Все исполнители роли ${roleId} заняты — перезапустить ${taskId} сейчас некому.`);
+    return;
+  }
+
+  // Если в прошлой попытке что-то успели сделать — сохраняем ветку под другим
+  // именем, а не удаляем: при остановке офис обещал, что работа не пропадёт.
+  if (task.branch && task.baseBranch && office.gitReady) {
+    const worthKeeping = await hasWork(office.projectDir, task.branch, task.baseBranch);
+    if (task.worktreePath) {
+      await removeWorktree(office.projectDir, task.worktreePath, task.branch,
+        { keepBranch: worthKeeping });
+    }
+    if (worthKeeping) {
+      const kept = await preserveBranch(office.projectDir, task.branch);
+      if (kept) {
+        office.addChat('офис',
+          `Наработки прошлой попытки ${taskId} сохранены в ветке ${kept} — она никуда не денется.`);
+      }
+    }
+  }
+
+  office.updateTask(taskId, {
+    status: 'backlog', assigneeId: null, result: null, files: [],
+    branch: null, baseBranch: null, worktreePath: null, merged: false,
+  });
+  const fresh = office.tasks.get(taskId);
+  if (fresh) startWorker(fresh, inst);
+  office.addLog(null, 'system', `Задача ${taskId} перезапущена на ${inst.id}`);
 }
 
 /** Влить ветку задачи в основную и убрать worktree. Вызывается кнопкой из UI. */

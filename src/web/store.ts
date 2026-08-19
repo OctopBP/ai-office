@@ -1,8 +1,9 @@
 import { create } from 'zustand';
 import type {
   ChatEntry, InstanceView, LogEntry, PermissionDecision, PermissionRequest,
-  RoleEditable, RoleView, ServerEvent, Settings, TaskView,
+  MeetingView, RoleEditable, RoleView, ServerEvent, Settings, TaskView,
 } from '../shared/types';
+import { MEETING_SEATS } from '../shared/types';
 
 interface Pos { x: number; y: number }
 
@@ -18,6 +19,7 @@ interface State {
   log: LogEntry[];
   permissions: PermissionRequest[];
   settings: Settings;
+  meeting: MeetingView | null;
   /** Визуальные позиции — отдельно от логики: ходьба это чистая анимация. */
   pos: Record<string, Pos>;
   selected: string | null;
@@ -41,6 +43,7 @@ export const useStore = create<State>((set, get) => ({
   log: [],
   permissions: [],
   settings: { globalBudgetUsd: null, taskBudgetUsd: null },
+  meeting: null,
   pos: {},
   selected: null,
   thread: 'pm#1',
@@ -58,7 +61,7 @@ export const useStore = create<State>((set, get) => ({
           roles: e.roles, instances, pos,
           tasks: Object.fromEntries(e.tasks.map((t) => [t.id, t])),
           chat: e.chat, log: e.log, permissions: e.permissions, settings: e.settings,
-          projectDir: e.projectDir, authSource: e.authSource, busy: e.busy,
+          projectDir: e.projectDir, authSource: e.authSource, meeting: e.meeting, busy: e.busy,
         });
         break;
       }
@@ -95,6 +98,26 @@ export const useStore = create<State>((set, get) => ({
       case 'settings':
         set({ settings: e.settings });
         break;
+      case 'meeting': {
+        set({ meeting: e.meeting });
+        // Рассаживаем участников за стол переговорки и возвращаем на места после.
+        const insts = get().instances;
+        set((s) => {
+          const pos = { ...s.pos };
+          if (e.meeting) {
+            e.meeting.participants.forEach((id, i) => {
+              const seat = MEETING_SEATS[i % MEETING_SEATS.length];
+              pos[id] = { x: seat.x, y: seat.y };
+            });
+          } else {
+            for (const inst of Object.values(insts)) {
+              pos[inst.id] = { x: inst.desk.x, y: inst.desk.y };
+            }
+          }
+          return { pos };
+        });
+        break;
+      }
       case 'permission.request':
         set((s) => ({ permissions: [...s.permissions, e.request] }));
         break;
@@ -159,6 +182,18 @@ export function updateRole(roleId: string, patch: Partial<RoleEditable>): void {
 
 export function updateSettings(settings: Partial<Settings>): void {
   socket?.send(JSON.stringify({ c: 'settings', settings }));
+}
+
+export function stopTask(taskId: string): void {
+  socket?.send(JSON.stringify({ c: 'stop_task', taskId }));
+}
+
+export function retryTask(taskId: string): void {
+  socket?.send(JSON.stringify({ c: 'retry_task', taskId }));
+}
+
+export function callMeeting(topic: string, participants: string[]): void {
+  socket?.send(JSON.stringify({ c: 'meeting', topic, participants }));
 }
 
 export function reset(): void {

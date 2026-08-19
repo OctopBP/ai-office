@@ -4,7 +4,9 @@ import type { ChatEntry, LogEntry, Settings } from '../shared/types';
 import type { Task } from './state';
 import type { Role } from './roles';
 
-const FILE = resolve(process.cwd(), '.office/state.json');
+// Путь вынесен в переменную окружения: тестовый сервер не должен
+// затирать состояние рабочего офиса.
+const FILE = resolve(process.env.OFFICE_STATE_FILE ?? '.office/state.json');
 const SAVE_DEBOUNCE_MS = 400;
 
 export interface PersistedInstance {

@@ -1,3 +1,4 @@
+import { useEffect } from 'react';
 import { useStore } from './store';
 import { GRID } from '../shared/types';
 import type { AgentState } from '../shared/types';
@@ -16,8 +17,45 @@ export function Office() {
   const selected = useStore((s) => s.selected);
   const select = useStore((s) => s.select);
 
+  const meeting = useStore((s) => s.meeting);
+
+  /**
+   * Живость офиса: свободный агент иногда отходит к кулеру и возвращается.
+   * Чистая анимация на клиенте — сервер об этом не знает, состояние агента
+   * не меняется, событий не порождается.
+   */
+  useEffect(() => {
+    const timer = setInterval(() => {
+      const st = useStore.getState();
+      if (st.meeting?.status === 'running') return;
+      const free = Object.values(st.instances).filter(
+        (i) => i.state === 'idle' && !i.currentTaskId,
+      );
+      if (free.length === 0 || Math.random() > 0.3) return;
+
+      const who = free[Math.floor(Math.random() * free.length)];
+      const atDesk = st.pos[who.id]?.x === who.desk.x && st.pos[who.id]?.y === who.desk.y;
+      if (!atDesk) return;
+
+      useStore.setState((s) => ({
+        pos: { ...s.pos, [who.id]: { x: 1.6 + Math.random() * 1.2, y: 11.2 } },
+      }));
+      setTimeout(() => {
+        useStore.setState((s) => {
+          const inst = s.instances[who.id];
+          // За время прогулки агенту могли дать задачу — тогда он уже занят,
+          // и возвращать его анимацией не нужно: позицию задаст другой код.
+          if (!inst || inst.currentTaskId) return {};
+          return { pos: { ...s.pos, [who.id]: { x: inst.desk.x, y: inst.desk.y } } };
+        });
+      }, 5000 + Math.random() * 4000);
+    }, 7000);
+    return () => clearInterval(timer);
+  }, []);
+
   const roleOf = (id: string) => roles.find((r) => r.id === id);
   const list = Object.values(instances);
+  const inMeeting = new Set(meeting?.status === 'running' ? meeting.participants : []);
 
   return (
     <div className="office" style={{ width: GRID.cols * CELL, height: GRID.cells * CELL }}>
@@ -49,7 +87,8 @@ export function Office() {
         return (
           <div
             key={inst.id}
-            className={`agent ${inst.state} ${selected === inst.id ? 'selected' : ''}`}
+            className={`agent ${inst.state} ${selected === inst.id ? 'selected' : ''}` +
+              `${inMeeting.has(inst.id) ? ' in-meeting' : ''}`}
             style={{ left: p.x * CELL, top: (p.y + 1) * CELL, borderColor: role?.color }}
             onClick={() => select(selected === inst.id ? null : inst.id)}
             title={inst.label}

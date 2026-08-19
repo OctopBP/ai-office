@@ -3,6 +3,7 @@ import { Office } from './Office';
 import { PermissionModal } from './PermissionModal';
 import { TeamPanel } from './TeamPanel';
 import { Board } from './Board';
+import { MeetingModal } from './MeetingModal';
 import { SettingsModal } from './SettingsModal';
 import { connect, mergeTask, reset, send, useStore } from './store';
 import type { TaskStatus } from '../shared/types';
@@ -24,6 +25,8 @@ export function App() {
   const pending = useStore((s) => s.permissions.length);
   const [tab, setTab] = useState<'chat' | 'log'>('chat');
   const [showSettings, setShowSettings] = useState(false);
+  const [showMeeting, setShowMeeting] = useState(false);
+  const meeting = useStore((s) => s.meeting);
   const settings = useStore((s) => s.settings);
   const thread = useStore((s) => s.thread);
   const setThread = useStore((s) => s.setThread);
@@ -51,6 +54,7 @@ export function App() {
     <div className="app">
       <PermissionModal />
       {showSettings && <SettingsModal onClose={() => setShowSettings(false)} />}
+      {showMeeting && <MeetingModal onClose={() => setShowMeeting(false)} />}
       <header>
         <h1>🏢 AI Office <span className="muted">MVP-0</span></h1>
         <div className="head-meta">
@@ -74,6 +78,7 @@ export function App() {
           <span className={`dot ${connected ? 'on' : 'off'}`} />
           {pending > 0 && <span className="ask-pill">ждут решения: {pending}</span>}
           {busy && <span className="working-pill">команда работает…</span>}
+          <button onClick={() => setShowMeeting(true)}>Совещание</button>
           <button onClick={reset}>Сброс</button>
         </div>
       </header>
@@ -90,6 +95,12 @@ export function App() {
             <button className={tab === 'chat' ? 'on' : ''} onClick={() => setTab('chat')}>
               {thread === 'pm#1' ? 'Чат с PM' : `Чат: ${instances[thread]?.label ?? thread}`}
             </button>
+            <button
+              className={thread === 'meeting' ? 'on' : ''}
+              onClick={() => { setTab('chat'); setThread('meeting'); }}
+            >
+              Совещание{meeting?.status === 'running' ? ' •' : ''}
+            </button>
             <button className={tab === 'log' ? 'on' : ''} onClick={() => setTab('log')}>
               Лог{selected ? ` · ${selected}` : ''}
             </button>
@@ -97,7 +108,15 @@ export function App() {
 
           {tab === 'chat' ? (
             <div className="chat">
-              {thread !== 'pm#1' && (
+              {thread === 'meeting' && (
+                <div className="thread-bar">
+                  {meeting?.status === 'running'
+                    ? <>Идёт совещание{meeting.speaking ? `, говорит ${instances[meeting.speaking]?.label ?? meeting.speaking}` : ''}…</>
+                    : <>Переговорка. Участники высказываются по очереди, итог менеджер пишет в своём чате.</>}
+                  <button onClick={() => setThread('pm#1')}>К менеджеру</button>
+                </div>
+              )}
+              {thread !== 'pm#1' && thread !== 'meeting' && (
                 <div className="thread-bar">
                   Прямой разговор с <b>{instances[thread]?.label ?? thread}</b> — мимо менеджера.
                   Он может смотреть проект, но не менять его.
@@ -130,7 +149,7 @@ export function App() {
             </div>
           )}
 
-          <div className="composer">
+          {thread !== 'meeting' && <div className="composer">
             <textarea
               value={draft}
               placeholder={thread === 'pm#1' ? 'Задача для PM…' : `Вопрос — ${instances[thread]?.label ?? thread}`}
@@ -140,7 +159,7 @@ export function App() {
               }}
             />
             <button onClick={submit} disabled={!connected}>Отправить ⌘↵</button>
-          </div>
+          </div>}
         </section>
       </main>
     </div>

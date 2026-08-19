@@ -121,8 +121,30 @@ export async function mergeBranch(
 
 export async function removeWorktree(
   repoDir: string, path: string, branch: string,
+  options: { keepBranch?: boolean } = {},
 ): Promise<void> {
   await git(repoDir, ['worktree', 'remove', path, '--force']);
   await git(repoDir, ['worktree', 'prune']);
-  await git(repoDir, ['branch', '-D', branch]);
+  if (!options.keepBranch) await git(repoDir, ['branch', '-D', branch]);
+}
+
+/** Есть ли в ветке коммиты сверх базовой. */
+export async function hasWork(repoDir: string, branch: string, base: string): Promise<boolean> {
+  const r = await git(repoDir, ['rev-list', '--count', `${base}..${branch}`]);
+  return r.ok && r.stdout !== '0';
+}
+
+/**
+ * Сохранить ветку под новым именем вместо удаления.
+ * Нужно при перезапуске задачи: обещали, что сделанное не пропадёт.
+ */
+export async function preserveBranch(repoDir: string, branch: string): Promise<string | null> {
+  for (let n = 1; n < 50; n += 1) {
+    const target = `${branch}.stopped-${n}`;
+    const exists = await git(repoDir, ['rev-parse', '--verify', target]);
+    if (exists.ok) continue;
+    const renamed = await git(repoDir, ['branch', '-m', branch, target]);
+    return renamed.ok ? target : null;
+  }
+  return null;
 }

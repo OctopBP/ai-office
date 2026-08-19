@@ -1,4 +1,4 @@
-import { mergeTask, useStore } from './store';
+import { mergeTask, retryTask, stopTask, useStore } from './store';
 import type { TaskStatus, TaskView } from '../shared/types';
 
 const COLUMNS: Array<{ title: string; statuses: TaskStatus[] }> = [
@@ -25,6 +25,14 @@ function Card({ t }: { t: TaskView }) {
         <span className="muted">{t.assigneeId ?? '—'}</span>
       </div>
       {t.result && <div className="task-result">{t.result}</div>}
+      <div className="task-controls">
+        {t.status === 'in_progress' && (
+          <button className="stop" onClick={() => stopTask(t.id)}>Остановить</button>
+        )}
+        {(t.status === 'failed' || t.status === 'blocked') && (
+          <button className="retry" onClick={() => retryTask(t.id)}>Перезапустить</button>
+        )}
+      </div>
       {t.files.length > 0 && <div className="task-files mono">{t.files.join('  ·  ')}</div>}
       {t.branch && (
         <div className="task-branch">

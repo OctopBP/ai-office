@@ -1,8 +1,8 @@
 import { randomUUID } from 'node:crypto';
 import type {
   AgentState, ChatEntry, Desk, InstanceView, LogEntry, PermissionDecision,
-  AuthSource, PermissionRequest, RoleEditable, RoleView, ServerEvent, Settings,
-  TaskStatus, TaskView,
+  AuthSource, MeetingView, PermissionRequest, RoleEditable, RoleView, ServerEvent,
+  Settings, TaskStatus, TaskView,
 } from '../shared/types';
 import { allRoles, getRoleOverrides, roleById, setRoleOverrides, type Role } from './roles';
 import { load, save, wipe, type Persisted, type PersistedInstance } from './store';
@@ -66,6 +66,9 @@ class OfficeState {
   projectDir = '';
   /** Доступна ли изоляция через worktree (рабочая директория — git-репозиторий). */
   gitReady = false;
+  /** Режим проверки поведения PM: исполнители заглушены, задачи закрываются мгновенно. */
+  dryRun = false;
+  meeting: MeetingView | null = null;
   settings: Settings = { globalBudgetUsd: null, taskBudgetUsd: null };
   authSource: AuthSource = 'unknown';
   private listeners = new Set<Listener>();
@@ -413,6 +416,11 @@ class OfficeState {
     return null;
   }
 
+  setMeeting(meeting: MeetingView | null): void {
+    this.meeting = meeting;
+    this.emit({ t: 'meeting', meeting });
+  }
+
   setBusy(busy: boolean): void {
     if (this.busy === busy) return;
     this.busy = busy;
@@ -431,6 +439,7 @@ class OfficeState {
       settings: this.settings,
       projectDir: this.projectDir,
       authSource: this.authSource,
+      meeting: this.meeting,
       busy: this.busy,
     };
   }

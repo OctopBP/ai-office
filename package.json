@@ -11,7 +11,8 @@
     "smoke": "tsx scripts/smoke.ts",
     "probe": "tsx scripts/probe.ts",
     "test:perm": "tsx scripts/test-permissions.ts",
-    "restart": "bash scripts/restart-server.sh"
+    "restart": "bash scripts/restart-server.sh",
+    "test:pm": "bash scripts/run-pm-tests.sh"
   },
   "dependencies": {
     "@anthropic-ai/claude-agent-sdk": "^0.3.234",

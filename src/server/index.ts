@@ -3,7 +3,7 @@ import { mkdirSync, existsSync, writeFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import type { ClientCommand, ServerEvent } from '../shared/types';
 import { office } from './state';
-import { mergeTask, sendUserMessage, talkTo } from './agents';
+import { holdMeeting, mergeTask, retryTask, sendUserMessage, stopTask, talkTo } from './agents';
 import { hasCommits, initRepo, isRepo } from './git';
 import { flush } from './store';
 
@@ -21,6 +21,8 @@ if (weCreatedIt) {
   );
 }
 office.projectDir = PROJECT_DIR;
+office.dryRun = process.env.OFFICE_DRY_RUN === '1';
+if (office.dryRun) console.log('🧪 Режим проверки PM: исполнители заглушены');
 
 /**
  * Изоляция задач через git worktree работает только в репозитории.
@@ -101,6 +103,12 @@ wss.on('connection', (ws) => {
       office.updateSettings(cmd.settings);
     } else if (cmd.c === 'talk' && cmd.text.trim()) {
       talkTo(cmd.instanceId, cmd.text.trim());
+    } else if (cmd.c === 'stop_task') {
+      stopTask(cmd.taskId);
+    } else if (cmd.c === 'retry_task') {
+      void retryTask(cmd.taskId);
+    } else if (cmd.c === 'meeting' && cmd.topic.trim()) {
+      void holdMeeting(cmd.topic.trim(), cmd.participants);
     } else if (cmd.c === 'reset') {
       office.hardReset();
       for (const client of clients) {

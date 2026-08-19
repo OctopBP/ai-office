@@ -286,3 +286,23 @@ button.cost.over { color: var(--red); border-color: var(--red); }
   border: 1px solid var(--line); color: var(--muted); white-space: nowrap;
 }
 .auth.api-key { color: var(--red); border-color: var(--red); }
+
+/* ---------- управление задачей ---------- */
+.task-controls { display: flex; gap: 6px; margin-top: 8px; }
+.task-controls:empty { display: none; }
+.task-controls button { padding: 3px 10px; font-size: 12px; }
+.task-controls .stop { border-color: var(--red); color: var(--red); }
+.task-controls .stop:hover { background: rgba(248, 81, 73, .12); }
+.task-controls .retry { border-color: var(--accent); color: var(--accent); }
+.task-controls .retry:hover { background: rgba(240, 180, 41, .12); }
+
+/* ---------- совещание ---------- */
+.participants { display: flex; flex-direction: column; gap: 6px; margin-bottom: 16px; }
+.participant {
+  display: flex; align-items: center; gap: 8px; margin: 0; color: var(--text);
+  padding: 6px 10px; border: 1px solid var(--line); border-radius: 6px; cursor: pointer;
+}
+.participant input { width: auto; margin: 0; }
+.participant.busy { opacity: .5; cursor: default; }
+.office .agent.talking .body { box-shadow: 0 0 0 2px var(--accent); }
+.office .agent.in-meeting .body { box-shadow: 0 0 0 2px var(--accent), 0 0 14px rgba(240, 180, 41, .35); }

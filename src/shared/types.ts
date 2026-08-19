@@ -105,6 +105,17 @@ export interface PermissionRequest {
 
 export type PermissionDecision = 'allow' | 'deny' | 'always';
 
+export interface MeetingSeat { x: number; y: number }
+
+export interface MeetingView {
+  id: string;
+  topic: string;
+  participants: string[];
+  /** Кто говорит прямо сейчас. */
+  speaking: string | null;
+  status: 'running' | 'done' | 'failed';
+}
+
 export interface ChatEntry {
   id: string;
   /** Ветка разговора: 'pm#1' — чат с менеджером, иначе id агента. */
@@ -126,7 +137,8 @@ export interface LogEntry {
 export type ServerEvent =
   | { t: 'snapshot'; roles: RoleView[]; instances: InstanceView[]; tasks: TaskView[];
       chat: ChatEntry[]; log: LogEntry[]; permissions: PermissionRequest[];
-      settings: Settings; projectDir: string; authSource: AuthSource; busy: boolean }
+      settings: Settings; projectDir: string; authSource: AuthSource;
+      meeting: MeetingView | null; busy: boolean }
   | { t: 'instance'; instance: InstanceView }
   | { t: 'instance.remove'; id: string }
   | { t: 'task'; task: TaskView }
@@ -137,7 +149,8 @@ export type ServerEvent =
   | { t: 'roles'; roles: RoleView[] }
   | { t: 'settings'; settings: Settings }
   | { t: 'permission.request'; request: PermissionRequest }
-  | { t: 'permission.resolved'; id: string; decision: PermissionDecision };
+  | { t: 'permission.resolved'; id: string; decision: PermissionDecision }
+  | { t: 'meeting'; meeting: MeetingView | null };
 
 /** Всё, что UI шлёт на сервер. */
 export type ClientCommand =
@@ -149,6 +162,16 @@ export type ClientCommand =
   | { c: 'update_role'; roleId: string; patch: Partial<RoleEditable> }
   | { c: 'settings'; settings: Partial<Settings> }
   | { c: 'talk'; instanceId: string; text: string }
+  | { c: 'stop_task'; taskId: string }
+  | { c: 'retry_task'; taskId: string }
+  | { c: 'meeting'; topic: string; participants: string[] }
   | { c: 'reset' };
 
 export const GRID = { cols: 24, cells: 15, cell: 40 };
+
+/** Места за столом переговорки — вокруг него садятся участники совещания. */
+export const MEETING_SEATS: MeetingSeat[] = [
+  { x: 1.4, y: 6.2 }, { x: 3.4, y: 6.2 },
+  { x: 1.4, y: 8.2 }, { x: 3.4, y: 8.2 },
+  { x: 2.4, y: 9.6 },
+];
