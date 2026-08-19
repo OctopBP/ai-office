@@ -1,0 +1,161 @@
+/**
+ * auto        — ничего не спрашивать
+ * ask-risky   — спрашивать только необратимые действия (по умолчанию)
+ * ask-writes  — спрашивать про любую запись и любую команду оболочки
+ * readonly    — запрещать всё, что меняет состояние
+ */
+export type PermissionMode = 'auto' | 'ask-risky' | 'ask-writes' | 'readonly';
+
+export interface Role {
+  id: string;
+  title: string;
+  color: string;
+  emoji: string;
+  model: string;
+  isManager: boolean;
+  maxInstances: number;
+  permissionMode: PermissionMode;
+  /** Работать в отдельном git worktree на задачу (для ролей, меняющих код). */
+  isolate: boolean;
+  /**
+   * Ограничение набора встроенных инструментов. undefined — все.
+   * Юристу и SMM оболочка не нужна: чем уже поверхность, тем меньше поводов
+   * для подтверждений и меньше шансов сделать что-то необратимое.
+   */
+  tools?: string[];
+  /** Папка для артефактов у ролей без изоляции веткой. */
+  docsDir?: string;
+  /** Дополнение к системному промпту исполнителя (специфика роли). */
+  brief: string;
+}
+
+const BASE_ROLES: Role[] = [
+  {
+    id: 'pm',
+    title: 'Проектный менеджер',
+    color: '#f0b429',
+    emoji: '📋',
+    model: 'claude-opus-5',
+    isManager: true,
+    maxInstances: 1,
+    permissionMode: 'auto',
+    isolate: false,
+    brief: '',
+  },
+  {
+    id: 'backend',
+    title: 'Backend разработчик',
+    color: '#3b82f6',
+    emoji: '⚙️',
+    model: 'claude-sonnet-5',
+    isManager: false,
+    maxInstances: 3,
+    permissionMode: 'ask-risky',
+    isolate: true,
+    brief: [
+      'Ты отвечаешь за серверную часть: API, бизнес-логику, данные, скрипты.',
+      'Пиши рабочий код, а не заглушки. Если нужен файл — создай его.',
+      'Не трогай файлы фронтенда, если задача явно этого не требует.',
+    ].join('\n'),
+  },
+  {
+    id: 'frontend',
+    title: 'Frontend разработчик',
+    color: '#ec4899',
+    emoji: '🎨',
+    model: 'claude-sonnet-5',
+    isManager: false,
+    maxInstances: 3,
+    permissionMode: 'ask-risky',
+    isolate: true,
+    brief: [
+      'Ты отвечаешь за клиентскую часть: разметку, стили, клиентскую логику.',
+      'Пиши рабочий код, а не заглушки. Если нужен файл — создай его.',
+      'Не трогай серверный код, если задача явно этого не требует.',
+    ].join('\n'),
+  },
+  {
+    id: 'design',
+    title: 'UI/UX дизайнер',
+    color: '#a855f7',
+    emoji: '🎨',
+    model: 'claude-sonnet-5',
+    isManager: false,
+    maxInstances: 2,
+    permissionMode: 'ask-risky',
+    isolate: false,
+    tools: ['Read', 'Write', 'Edit', 'Glob', 'Grep', 'WebSearch', 'WebFetch', 'TodoWrite'],
+    docsDir: 'docs/design',
+    brief: [
+      'Ты отвечаешь за интерфейс и пользовательский опыт: структуру экранов, состояния,',
+      'тексты интерфейса, визуальные решения и обоснования к ним.',
+      'Ты работаешь текстом и разметкой, а не картинками: описывай макеты словами,',
+      'при необходимости — HTML/CSS-прототипом.',
+      'Изучай существующий код и интерфейс, прежде чем предлагать изменения.',
+    ].join('\n'),
+  },
+  {
+    id: 'smm',
+    title: 'SMM-менеджер',
+    color: '#14b8a6',
+    emoji: '📣',
+    model: 'claude-haiku-4-5',
+    isManager: false,
+    maxInstances: 2,
+    permissionMode: 'ask-risky',
+    isolate: false,
+    tools: ['Read', 'Write', 'Edit', 'Glob', 'Grep', 'WebSearch', 'WebFetch', 'TodoWrite'],
+    docsDir: 'docs/smm',
+    brief: [
+      'Ты отвечаешь за продвижение: тексты постов, анонсы, описания, рассылки.',
+      'Пиши готовый к публикации текст, а не план текста.',
+      'Сверяйся с фактами о продукте по коду и документации в репозитории —',
+      'не выдумывай возможностей, которых нет.',
+      'НИЧЕГО НЕ ПУБЛИКУЙ: ты готовишь материалы, публикует человек.',
+    ].join('\n'),
+  },
+  {
+    id: 'legal',
+    title: 'Юрист',
+    color: '#94a3b8',
+    emoji: '⚖️',
+    model: 'claude-sonnet-5',
+    isManager: false,
+    maxInstances: 1,
+    permissionMode: 'ask-risky',
+    isolate: false,
+    tools: ['Read', 'Write', 'Edit', 'Glob', 'Grep', 'WebSearch', 'WebFetch', 'TodoWrite'],
+    docsDir: 'docs/legal',
+    brief: [
+      'Ты готовишь юридические тексты: политику конфиденциальности, пользовательское',
+      'соглашение, оферту, тексты о лицензиях и обработке данных.',
+      'Всегда указывай явно, какие места требуют проверки живым юристом и почему.',
+      'Не выдавай шаблон за проверенный документ: это черновик для последующей проверки.',
+      'Никогда не утверждай, что документ соответствует конкретному закону, если не',
+      'проверил формулировку по первоисточнику.',
+    ].join('\n'),
+  },
+];
+
+/**
+ * Пользовательские правки ролей поверх базовых. Хранятся в состоянии офиса и
+ * применяются к НОВЫМ сессиям: у уже запущенного исполнителя промпт и модель
+ * зафиксированы на момент старта.
+ */
+let overrides: Record<string, Partial<Role>> = {};
+
+export function setRoleOverrides(next: Record<string, Partial<Role>>): void {
+  overrides = next;
+}
+
+export function getRoleOverrides(): Record<string, Partial<Role>> {
+  return overrides;
+}
+
+export const allRoles = (): Role[] =>
+  BASE_ROLES.map((r) => ({ ...r, ...(overrides[r.id] ?? {}) }));
+
+export const roleById = (id: string): Role | undefined =>
+  allRoles().find((r) => r.id === id);
+
+export const workerRoles = (): Role[] => allRoles().filter((r) => !r.isManager);

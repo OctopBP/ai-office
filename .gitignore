@@ -1,0 +1,5 @@
+node_modules/
+dist/
+.office/
+.env
+workspace/
