@@ -7,10 +7,12 @@
  */
 import { tmpdir } from 'node:os';
 import { resolve } from 'node:path';
-import { office } from '../src/server/state';
+import {
+  DEFAULT_SETTINGS, getOffice, office, openOfficeState, subscribeOffices,
+} from '../src/server/state';
+import { flushAll, load, save, wipe, type Persisted } from '../src/server/store';
 import { cloudProblem, setGithubToken } from '../src/server/cloud';
 import { noStaffReason, teamSummary } from '../src/server/agents';
-import { flush, setStateFile, wipe } from '../src/server/store';
 
 async function main(): Promise<void> {
   office.seed();
@@ -89,7 +91,7 @@ async function main(): Promise<void> {
   // 7. Состав команды: увольнение последнего, наём обратно, лимит и защиты.
   // Состояние с этого момента пишем во временный файл: дальше проверяется
   // восстановление состава, и настоящее сохранение офиса трогать нельзя.
-  setStateFile(resolve(tmpdir(), `office-test-state-${process.pid}.json`));
+  office.setStateFile(resolve(tmpdir(), `office-test-state-${process.pid}.json`));
   const fireLast = office.fire('smm#1');
   results.push(
     `последнего сотрудника роли можно уволить: ${fireLast === null}`,
@@ -129,7 +131,7 @@ async function main(): Promise<void> {
   for (const i of office.staffOf('smm')) office.fire(i.id);
   const extraBackend = office.hire('backend') === null;
   office.projectDir = office.projectDir || process.cwd();
-  flush();
+  office.flush();
   const restored = office.restore();
   results.push(
     `состояние восстановлено: ${restored}`,
@@ -137,7 +139,58 @@ async function main(): Promise<void> {
     `нанятые сверх одного сохранились: ${extraBackend && office.staffOf('backend').length === 2}`,
     `столы не разъехались: ${new Set([...office.instances.values()].map((i) => i.desk.index)).size === office.instances.size}`,
   );
-  wipe();
+  office.wipe();
+
+  // 8. Хранилище пер-офисное: сохранение одного офиса не отменяет сохранение
+  // другого. С общим на процесс таймером второй save() просто заменял первый
+  // снимок, и данные офиса A не доезжали до диска.
+  const fileA = resolve(tmpdir(), `office-test-store-a-${process.pid}.json`);
+  const fileB = resolve(tmpdir(), `office-test-store-b-${process.pid}.json`);
+  const stamp = (dir: string): Persisted => ({
+    version: 1, projectDir: dir, taskSeq: 0, tasks: [], chat: [], log: [],
+    instances: [], settings: { ...DEFAULT_SETTINGS }, roleOverrides: {}, savedAt: Date.now(),
+  });
+  save(fileA, () => stamp('/office-a'));
+  save(fileB, () => stamp('/office-b'));
+  flushAll();
+  results.push(
+    `запись офиса A не потерялась: ${load(fileA)?.projectDir === '/office-a'}`,
+    `запись офиса B не потерялась: ${load(fileB)?.projectDir === '/office-b'}`,
+  );
+  wipe(fileA);
+  wipe(fileB);
+
+  // 9. Реестр офисов: повторное открытие берёт то же состояние, а подписчик
+  // рассылки не теряется при переключении и не удваивается.
+  const regA = resolve(tmpdir(), `office-test-reg-a-${process.pid}.json`);
+  const regB = resolve(tmpdir(), `office-test-reg-b-${process.pid}.json`);
+  let heard = 0;
+  const ear = (): void => { heard += 1; };
+  subscribeOffices(ear);
+  subscribeOffices(ear);   // повторная подписка тем же обработчиком — не дубль
+
+  const a = openOfficeState({ id: 'o-test-a', projectDir: resolve(tmpdir(), 'office-a'), stateFile: regA });
+  const heardBefore = heard;
+  a.state.addLog(null, 'system', 'проверка рассылки');
+  const onceNotTwice = heard - heardBefore === 1;
+  const taskInA = a.state.createTask({ title: 'в офисе A', description: '', criteria: [], roleId: null });
+
+  const b = openOfficeState({ id: 'o-test-b', projectDir: resolve(tmpdir(), 'office-b'), stateFile: regB });
+  const heardBeforeB = heard;
+  b.state.addLog(null, 'system', 'проверка рассылки после переключения');
+  const heardFromB = heard - heardBeforeB === 1;
+
+  const backToA = openOfficeState({ id: 'o-test-a', projectDir: resolve(tmpdir(), 'office-a'), stateFile: regA });
+  results.push(
+    `один OfficeState на офис: ${getOffice('o-test-a') === a.state && a.state !== b.state}`,
+    `повторное открытие не пересоздаёт состояние: ${backToA.reused && backToA.state === a.state}`,
+    `доска офиса переживает переключение: ${backToA.state.tasks.has(taskInA.id)}`,
+    `office указывает на текущий офис: ${office.officeId === 'o-test-a'}`,
+    `подписчик рассылки не дублируется: ${onceNotTwice}`,
+    `события офиса, открытого позже, доходят: ${heardFromB}`,
+  );
+  wipe(regA);
+  wipe(regB);
 
   const failed = results.filter((r) => r.endsWith('false'));
   for (const r of results) console.log(`  ${r.endsWith('false') ? '❌' : '✅'} ${r}`);
