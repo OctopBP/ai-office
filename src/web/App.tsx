@@ -28,10 +28,17 @@ export function App() {
   const selected = useStore((s) => s.selected);
   const select = useStore((s) => s.select);
   const paused = useStore((s) => s.paused);
+  const pending = useStore((s) => s.pending);
   const [panel, setPanel] = useState<PanelKind>(null);
   const [modal, setModal] = useState<ModalKind>(null);
 
   useEffect(() => { connect(); }, []);
+
+  // Переключаемся на другой офис: закрываем всё, что открыто поверх сцены,
+  // иначе доска, лог или дифф прежнего офиса повисли бы в новом.
+  useEffect(() => {
+    if (pending === 'enter') { setPanel(null); setModal(null); }
+  }, [pending]);
 
   // Тема живёт на корневом элементе: color задаётся на body, а наследуется
   // он уже вычисленным значением — тема ниже body не подействовала бы.

@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { createOffice, renameOffice, switchOffice, useStore } from './store';
+import { createOffice, renameOffice, useStore } from './store';
 
 /**
  * Дверь офиса: список проектов и создание нового. Офис = проект: своя
@@ -7,12 +7,10 @@ import { createOffice, renameOffice, switchOffice, useStore } from './store';
  */
 export function OfficesModal({ onClose }: { onClose: () => void }) {
   const offices = useStore((s) => s.offices);
-  const tasks = useStore((s) => s.tasks);
+  const enterOffice = useStore((s) => s.enterOffice);
   const [name, setName] = useState('');
   const [dir, setDir] = useState('');
   const [creating, setCreating] = useState(false);
-
-  const busy = Object.values(tasks).some((t) => t.status === 'in_progress');
 
   const create = () => {
     if (!dir.trim()) return;
@@ -26,7 +24,7 @@ export function OfficesModal({ onClose }: { onClose: () => void }) {
         <h3>Офисы и проекты</h3>
         <p className="modal-reason">
           Офис — это проект: своя рабочая директория, доска, расходы и история.
-          Переключение не перезапускает сервер, но задачи в работе трогать нельзя.
+          Переключение не перезапускает сервер и не останавливает задачи в работе.
         </p>
 
         <div className="offices">
@@ -39,9 +37,8 @@ export function OfficesModal({ onClose }: { onClose: () => void }) {
               {o.current ? (
                 <span className="chip done">открыт</span>
               ) : (
-                <button className="mini go" disabled={busy}
-                  title={busy ? 'Сначала дождитесь или остановите задачи в работе' : 'Открыть этот офис'}
-                  onClick={() => { switchOffice(o.id); onClose(); }}>
+                <button className="mini go" title="Открыть этот офис"
+                  onClick={() => { enterOffice(o.id); onClose(); }}>
                   открыть
                 </button>
               )}
@@ -55,12 +52,6 @@ export function OfficesModal({ onClose }: { onClose: () => void }) {
             </div>
           ))}
         </div>
-
-        {busy && (
-          <p className="hint muted">
-            Пока идут задачи, переключаться нельзя: их сессии живут в директории этого офиса.
-          </p>
-        )}
 
         {creating ? (
           <>

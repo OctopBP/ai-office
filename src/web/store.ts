@@ -127,21 +127,14 @@ export const useStore = create<State>((set, get) => ({
     const office = s.offices.find((o) => o.id === officeId);
     if (!office) return;
     if (office.current) { set({ screen: 'office' }); return; }
-    // Блокировку входа видно уже по снапшоту текущего офиса — не обязательно
-    // спрашивать сервер и ждать ответа, чтобы узнать то, что мы уже знаем.
-    if (s.busy) {
-      const running = Object.values(s.tasks)
-        .filter((t) => t.status === 'in_progress')
-        .map((t) => t.id);
-      set({
-        menuNotice: {
-          kind: 'blocked',
-          text: `Сначала дождитесь или остановите задачи в работе: ${running.join(', ')}.`,
-        },
-      });
-      return;
-    }
-    set({ pending: 'enter', pendingLabel: office.name, menuNotice: null });
+    // Переключение больше не требует остановки задач в работе — сервер сам
+    // держит их сессии поверх смены офиса, поэтому клиент их не проверяет.
+    // Сбрасываем UI прежнего офиса, чтобы выделение, чат-ветка и открытый
+    // дифф не «протекали» в новый: панели закрывает App при входе в pending.
+    set({
+      pending: 'enter', pendingLabel: office.name, menuNotice: null,
+      selected: null, thread: 'pm#1', diff: null,
+    });
     switchOffice(officeId);
   },
 

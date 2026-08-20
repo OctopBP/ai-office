@@ -1,4 +1,5 @@
 import { reset, setPaused, useStore } from './store';
+import { OfficeSwitcher } from './OfficeSwitcher';
 
 const money = (v: number) => `$${v.toFixed(2)}`;
 
@@ -9,7 +10,6 @@ export function TopHud({ onSettings, onMeeting, onHelp, onUsage }: {
   const tasks = useStore((s) => s.tasks);
   const permissions = useStore((s) => s.permissions);
   const settings = useStore((s) => s.settings);
-  const projectDir = useStore((s) => s.projectDir);
   const authSource = useStore((s) => s.authSource);
   const theme = useStore((s) => s.theme);
   const setTheme = useStore((s) => s.setTheme);
@@ -27,15 +27,7 @@ export function TopHud({ onSettings, onMeeting, onHelp, onUsage }: {
 
   return (
     <>
-      <div className="hud project pixel">
-        <span className="ico">🏢</span>
-        <div>
-          <b>{projectDir.split('/').pop()}</b>
-          <div className="muted mono">
-            {projectDir} · тема «{theme === 'day' ? 'Лофт' : 'Ночь / неон'}»
-          </div>
-        </div>
-      </div>
+      <OfficeSwitcher />
 
       <div className="hud right">
         <button className={`pixel money ${over ? 'over' : ''}`} onClick={onUsage}
