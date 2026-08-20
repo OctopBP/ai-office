@@ -1,6 +1,6 @@
 import { create } from 'zustand';
 import type {
-  ChatEntry, DayUsage, InstanceView, LogEntry, PermissionDecision, PermissionRequest,
+  ChatEntry, DayUsage, InstanceView, LogEntry, PermissionDecision, PermissionMode, PermissionRequest,
   MeetingView, RoleEditable, RoleView, ServerEvent, Settings, TaskView, Usage,
   CloudStatus, OfficeView,
 } from '../shared/types';
@@ -108,7 +108,10 @@ export const useStore = create<State>((set, get) => ({
   chat: [],
   log: [],
   permissions: [],
-  settings: { globalBudgetUsd: null, taskBudgetUsd: null, engine: 'local', cloudRepoUrl: null },
+  settings: {
+    globalBudgetUsd: null, taskBudgetUsd: null, engine: 'local', cloudRepoUrl: null,
+    officePermissionMode: 'ask-risky',
+  },
   meeting: null,
   theme: (localStorage.getItem('office-theme') as Theme | null) ?? 'day',
   toasts: [],
@@ -373,6 +376,32 @@ export function sortedOffices(offices: OfficeView[]): OfficeView[] {
   return [...offices].sort((a, b) => (
     a.current !== b.current ? (a.current ? -1 : 1) : b.lastOpenedAt - a.lastOpenedAt
   ));
+}
+
+/** Три уровня общего режима доступа офиса — id, подпись и честное объяснение для UI. */
+export const ACCESS_MODES: Array<[PermissionMode, string, string]> = [
+  ['ask-writes', 'Спрашивать всегда', 'Любая запись файла и любая команда оболочки требует подтверждения.'],
+  ['ask-risky', 'Спрашивать про необратимое', 'Подтверждение только для удаления, push и других необратимых действий.'],
+  ['auto', 'Полный доступ', 'Ничего не спрашивать — включая необратимые действия.'],
+];
+
+export const ACCESS_LABEL: Record<PermissionMode, string> = {
+  'ask-writes': 'спрашивать всегда',
+  'ask-risky': 'спрашивать про необратимое',
+  auto: 'полный доступ',
+  readonly: 'только чтение',
+};
+
+/** Честный текст подтверждения перед включением полного доступа — офисного или ролевого. */
+export const FULL_ACCESS_WARNING = 'Агенты смогут выполнять необратимые действия — удалять файлы, '
+  + 'пушить в репозиторий, выполнять произвольные команды — вообще без вопросов. Включить полный доступ?';
+
+/** Режим роли, если он задан явно, иначе общий режим офиса. */
+export function effectivePermissionMode(
+  role: { permissionMode: PermissionMode | null },
+  settings: Settings,
+): PermissionMode {
+  return role.permissionMode ?? settings.officePermissionMode;
 }
 
 /** Отправляет в активную ветку: менеджеру или напрямую агенту. */

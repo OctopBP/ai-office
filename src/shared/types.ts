@@ -59,13 +59,23 @@ export interface Desk {
   y: number;
 }
 
+/**
+ * Режим доступа: что можно агенту без вопросов.
+ * auto        — ничего не спрашивать, включая необратимое (полный доступ)
+ * ask-risky   — спрашивать только необратимые действия
+ * ask-writes  — спрашивать про любую запись и любую команду оболочки
+ * readonly    — запрещать всё, что меняет состояние
+ */
+export type PermissionMode = 'auto' | 'ask-risky' | 'ask-writes' | 'readonly';
+
 /** Поля роли, которые пользователь может менять из UI. */
 export interface RoleEditable {
   title: string;
   emoji: string;
   color: string;
   model: string;
-  permissionMode: 'auto' | 'ask-risky' | 'ask-writes' | 'readonly';
+  /** null — роль следует общему режиму доступа офиса, Settings.officePermissionMode. */
+  permissionMode: PermissionMode | null;
   maxInstances: number;
   isolate: boolean;
   /** Свой репозиторий роли; пусто — общий репозиторий офиса. */
@@ -95,6 +105,8 @@ export interface Settings {
   engine: Engine;
   /** Репозиторий на GitHub, который монтируется в облачный контейнер. */
   cloudRepoUrl: string | null;
+  /** Общий режим доступа офиса: чем рискует агент без подтверждения, если роль не переопределила его. */
+  officePermissionMode: PermissionMode;
 }
 
 /** Что из облачной обвязки уже готово — ключ и токен в состояние не пишутся. */
@@ -200,6 +212,8 @@ export interface LogEntry {
   agentId: string | null;
   kind: 'tool' | 'text' | 'system' | 'error';
   text: string;
+  /** Действие прошло без вопроса благодаря режиму доступа — не запрос, а факт постфактум. */
+  autoApproved?: boolean;
 }
 
 /** Всё, что сервер шлёт в UI. Единственный интерфейс между логикой и картинкой. */
