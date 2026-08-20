@@ -30,6 +30,8 @@ interface Run {
   officeText: string;
   /** Сколько реплик прозвучало в переговорке. */
   meetingLines: number;
+  /** Кто высказался в переговорке — менеджер тоже полноправный участник. */
+  meetingSpeakers: string[];
   maxParallel: number;
   /** Задачи на текущий момент — нужны сценариям, которые вмешиваются по ходу. */
   snapshot: () => TaskView[];
@@ -119,11 +121,14 @@ const SCENARIOS: Scenario[] = [
       ws.send(JSON.stringify({
         c: 'meeting',
         topic: 'Стоит ли переносить заметки из файла в базу данных?',
-        participants: ['backend#1', 'frontend#1'],
+        // Менеджера зовём наравне с остальными: он такой же участник, а не
+        // только адресат итога.
+        participants: ['pm#1', 'backend#1', 'frontend#1'],
       }));
     },
     checks: [
-      { what: 'участники высказались', ok: (r) => r.meetingLines >= 2 },
+      { what: 'участники высказались', ok: (r) => r.meetingLines >= 3 },
+      { what: 'менеджера пустили на совещание', ok: (r) => r.meetingSpeakers.includes('pm#1') },
       { what: 'менеджер подвёл итог', ok: (r) => r.pmText.trim().length > 40 },
       {
         what: 'не создал задачи без спроса',
@@ -263,7 +268,8 @@ async function runScenario(sc: Scenario): Promise<Run> {
   const ws = await connect();
   const byId = new Map<string, TaskView>();
   const run: Run = {
-    tasks: [], toolCalls: [], pmText: '', officeText: '', meetingLines: 0, maxParallel: 0,
+    tasks: [], toolCalls: [], pmText: '', officeText: '', meetingLines: 0, meetingSpeakers: [],
+    maxParallel: 0,
     snapshot: () => [...byId.values()],
   };
   let last = Date.now();
@@ -283,6 +289,7 @@ async function runScenario(sc: Scenario): Promise<Run> {
     if (e.t === 'chat') {
       if (e.entry.thread === 'meeting' && e.entry.from !== 'user' && e.entry.from !== 'офис') {
         run.meetingLines += 1;
+        run.meetingSpeakers.push(e.entry.from);
       }
       if (e.entry.from === 'офис') run.officeText += `\n${e.entry.text}`;
       if (e.entry.from === 'pm#1' || e.entry.from === 'офис') {

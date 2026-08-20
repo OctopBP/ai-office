@@ -138,11 +138,17 @@ function resultReason(msg: Extract<SDKMessage, { type: 'result' }>): string {
   return msg.subtype;
 }
 
-/** Разбор потока сообщений SDK в состояние офиса и события UI. */
-function consume(instanceId: string, msg: SDKMessage): void {
+/**
+ * Разбор потока сообщений SDK в состояние офиса и события UI.
+ *
+ * `rememberSession` выключают короткоживущие сессии, которые не должны стать
+ * «главным разговором» агента: иначе после перезапуска офис продолжит их,
+ * а не переписку, ради которой сессия заводилась (см. совещание).
+ */
+function consume(instanceId: string, msg: SDKMessage, rememberSession = true): void {
   // Запоминаем id сессии, чтобы продолжить разговор после перезапуска сервера.
   if (msg.type === 'system' && msg.subtype === 'init') {
-    office.setSessionId(instanceId, msg.session_id);
+    if (rememberSession) office.setSessionId(instanceId, msg.session_id);
     return;
   }
 
@@ -286,6 +292,23 @@ function permissionHandler(
 }
 
 // ---------------------------------------------------------------- PM
+
+/**
+ * Доска задач текстом — по строке на задачу. Нужна в двух местах: инструменту
+ * get_board и реплике менеджера на совещании. Файлов менеджер не видит, и доска
+ * для него — единственный способ говорить о делах предметно, а не общими словами.
+ */
+function boardSummary(): string {
+  const tasks = [...office.tasks.values()];
+  if (!tasks.length) return 'Доска пуста.';
+  return tasks.map((t) => {
+    const { done, total } = criteriaProgress(t);
+    const marks = t.criteria.map((c) => `${c.done ? '✓' : '·'} ${c.text}`).join('; ');
+    return `${t.id} [${t.status}] ${t.title} → ${t.assigneeId ?? '—'}` +
+      (total ? `\n    критерии ${done}/${total}: ${clip(marks, 200)}` : '') +
+      (t.result ? `\n    результат: ${clip(t.result, 160)}` : '');
+  }).join('\n');
+}
 
 const PM_PROMPT = `Ты — проектный менеджер (PM) в команде AI-агентов. Ты управляешь командой, но НЕ пишешь код сам — у тебя нет доступа к файлам.
 
@@ -487,18 +510,7 @@ const teamTools = createSdkMcpServer({
       'get_board',
       'Текущее состояние доски задач со статусами и результатами.',
       {},
-      async () => {
-        const tasks = [...office.tasks.values()];
-        if (!tasks.length) return { content: [{ type: 'text', text: 'Доска пуста.' }] };
-        const lines = tasks.map((t) => {
-          const { done, total } = criteriaProgress(t);
-          const marks = t.criteria.map((c) => `${c.done ? '✓' : '·'} ${c.text}`).join('; ');
-          return `${t.id} [${t.status}] ${t.title} → ${t.assigneeId ?? '—'}` +
-            (total ? `\n    критерии ${done}/${total}: ${clip(marks, 200)}` : '') +
-            (t.result ? `\n    результат: ${clip(t.result, 160)}` : '');
-        });
-        return { content: [{ type: 'text', text: lines.join('\n') }] };
-      },
+      async () => ({ content: [{ type: 'text', text: boardSummary() }] }),
       { annotations: { readOnlyHint: true } },
     ),
 
@@ -606,6 +618,9 @@ function notifyPm(text: string): void {
 
 let meetingRunning = false;
 
+/** Менеджер ли это — спрашиваем у роли: признак задан флагом isManager, а не id. */
+const isManager = (inst: Instance): boolean => roleById(inst.roleId)?.isManager ?? false;
+
 /**
  * Совещание: участники высказываются по очереди, каждый видит сказанное до него.
  * Это не свободный чат всех со всеми — такой формат быстро уходит в бесконечное
@@ -616,15 +631,23 @@ export async function holdMeeting(topic: string, participantIds: string[]): Prom
     office.addChat('офис', 'Совещание уже идёт — дождитесь окончания.', 'meeting');
     return;
   }
-  const participants = participantIds
+  // Раньше менеджер отсеивался здесь по роли: считалось, что он не участник,
+  // а адресат итога. На практике половина тем — про приоритеты и сроки, и
+  // обсуждать их без него бессмысленно. Теперь он такой же участник: реплику
+  // на совещании он даёт отдельной короткой сессией, а его основная сессия
+  // (переписка с пользователем и раздача задач) при этом продолжает работать.
+  // Дубликаты в списке убираем — иначе агент высказался бы дважды подряд.
+  const participants = [...new Set(participantIds)]
     .map((id) => office.instances.get(id))
-    .filter((i): i is NonNullable<typeof i> => Boolean(i) && i!.roleId !== 'pm');
+    .filter((i): i is Instance => Boolean(i));
 
   if (participants.length < 2) {
-    office.addChat('офис', 'Для совещания нужно минимум два участника, кроме менеджера.', 'meeting');
+    office.addChat('офис', 'Для совещания нужно минимум два участника.', 'meeting');
     return;
   }
-  const busy = participants.find((i) => i.currentTaskId);
+  // Занятость проверяем только у исполнителей: у менеджера задач на руках не
+  // бывает, а прерывать из-за совещания обработку доски мы и не хотим.
+  const busy = participants.find((i) => !isManager(i) && i.currentTaskId);
   if (busy) {
     office.addChat('офис',
       `${busy.label} занят задачей ${busy.currentTaskId}. Дождитесь окончания или остановите задачу.`,
@@ -644,6 +667,10 @@ export async function holdMeeting(topic: string, participantIds: string[]): Prom
   const id = `M-${Date.now().toString(36)}`;
   office.setMeeting({ id, topic, participants: participants.map((p) => p.id), speaking: null, status: 'running' });
   office.addChat('user', `Тема совещания: ${topic}`, 'meeting');
+  // Что было до совещания — чтобы вернуть менеджера ровно туда, откуда позвали:
+  // его сессия живёт своей жизнью, и «свободен» после совещания было бы враньём,
+  // если он в это время разбирал сообщение пользователя.
+  const stateBefore = new Map(participants.map((p) => [p.id, { state: p.state, note: p.note }]));
   for (const p of participants) office.setState(p.id, 'talking', 'на совещании');
 
   const said: Array<{ id: string; title: string; text: string }> = [];
@@ -659,11 +686,16 @@ export async function holdMeeting(topic: string, participantIds: string[]): Prom
         ? `Уже высказались:\n${said.map((s) => `— ${s.title} (${s.id}): ${s.text}`).join('\n\n')}\n\n`
         : '';
 
-      const prompt =
-        `Тема совещания: ${topic}\n\n${before}` +
+      const turn =
         'Твоя очередь. Ответь по существу, 3–6 предложений: что важно с точки зрения твоей роли, ' +
         'с чем согласен или не согласен из сказанного, что предлагаешь конкретно. ' +
         'Не повторяй уже сказанное и не пересказывай тему.';
+
+      // Менеджеру вместо файлов даём доску: файлов он не видит по устройству роли,
+      // и предметно говорить ему позволяет именно состояние задач.
+      const prompt = isManager(inst)
+        ? `Тема совещания: ${topic}\n\n${before}Доска задач сейчас:\n${boardSummary()}\n\n${turn}`
+        : `Тема совещания: ${topic}\n\n${before}${turn}`;
 
       let text = '';
       if (office.dryRun) {
@@ -676,20 +708,36 @@ export async function holdMeeting(topic: string, participantIds: string[]): Prom
         continue;
       }
 
-      const session = query({
-        prompt,
-        options: {
-          model: role.model,
-          systemPrompt: [
+      // Реплика на совещании — всегда отдельная короткая сессия, в том числе у
+      // менеджера. Его основную сессию мы не трогаем и не ставим в очередь:
+      // очередь бы задержала разбор задач, а совещание — визуализация поверх
+      // работы офиса, а не её замена. Всё сказанное менеджер всё равно получит
+      // стенограммой в свой разговор, когда совещание закончится.
+      const systemPrompt = isManager(inst)
+        ? [
+            'Ты — проектный менеджер в команде AI-агентов. Кода ты не пишешь и файлов не видишь:',
+            'твоё — люди, приоритеты, порядок работ и то, чем решение обернётся для пользователя.',
+            '',
+            'Ты на рабочем совещании с командой. Говори коротко и предметно, без вежливых',
+            'вступлений. Задач здесь не создавай и не раздавай — инструментов доски в этой',
+            'сессии нет, решения примешь после совещания.',
+          ]
+        : [
             `Ты — ${role.title} в команде AI-агентов.`,
             role.brief,
             '',
             'Ты на рабочем совещании с коллегами. Говори как специалист своей роли: коротко,',
             'предметно, без вежливых вступлений. Можешь посмотреть файлы проекта, чтобы',
             'говорить по делу, но менять ничего нельзя.',
-          ].join('\n') + projectBrief(),
+          ];
+
+      const session = query({
+        prompt,
+        options: {
+          model: role.model,
+          systemPrompt: systemPrompt.join('\n') + projectBrief(),
           cwd: office.repoFor(role),
-          tools: ['Read', 'Glob', 'Grep'],
+          tools: isManager(inst) ? [] : ['Read', 'Glob', 'Grep'],
           permissionMode: 'default',
           canUseTool: permissionHandler(inst.id),
           settingSources: [],
@@ -699,7 +747,10 @@ export async function holdMeeting(topic: string, participantIds: string[]): Prom
       });
 
       for await (const msg of session) {
-        consume(inst.id, msg);
+        // Расход этой сессии пишем на агента, а её id — не запоминаем: у
+        // менеджера он затёр бы id основного разговора с пользователем, и после
+        // перезапуска офис продолжил бы совещание вместо переписки.
+        consume(inst.id, msg, !isManager(inst));
         if (msg.type === 'result' && isOk(msg)) text = msg.result?.trim() ?? '';
       }
 
@@ -716,8 +767,14 @@ export async function holdMeeting(topic: string, participantIds: string[]): Prom
     office.addChat('офис',
       'Совещание окончено. Итог и решения менеджер напишет в чате с ним.', 'meeting');
 
+    // Стенограмма уходит менеджеру в любом случае — итог подводит он. Если он
+    // сам был на совещании, предупреждаем об этом: иначе он примет собственную
+    // реплику за чужую и станет спорить сам с собой.
+    const pmWasThere = participants.some(isManager);
     notifyPm(
-      `[СИСТЕМА] Прошло совещание по теме «${topic}».\n\n` +
+      `[СИСТЕМА] Прошло совещание по теме «${topic}».` +
+      (pmWasThere ? ' Ты был на нём — в стенограмме есть и твоя реплика.' : '') +
+      '\n\n' +
       said.map((s) => `${s.title} (${s.id}):\n${s.text}`).join('\n\n') +
       '\n\nПодведи короткий итог для пользователя: к чему пришли, где расходятся мнения ' +
       'и какие задачи из этого следуют. Задачи пока НЕ создавай — сначала дождись согласия пользователя.',
@@ -728,6 +785,14 @@ export async function holdMeeting(topic: string, participantIds: string[]): Prom
   } finally {
     meetingRunning = false;
     for (const p of participants) {
+      if (isManager(p)) {
+        // Менеджера возвращаем в то состояние, в котором позвали. Но только если
+        // совещание — последнее, что его меняло: его собственная сессия могла за
+        // это время взять новое сообщение, и её «думает…» затирать нельзя.
+        const prev = stateBefore.get(p.id);
+        if (prev && p.state === 'talking') office.setState(p.id, prev.state, prev.note);
+        continue;
+      }
       if (!p.currentTaskId) office.setState(p.id, 'idle', null);
     }
     setTimeout(() => { if (office.meeting?.id === id) office.setMeeting(null); }, 20000);
