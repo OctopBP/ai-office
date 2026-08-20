@@ -58,6 +58,10 @@ button.primary { background: var(--accent); color: var(--accent-ink); }
 .stage {
   position: relative; flex: 1; min-height: 0;
   display: flex; align-items: center; justify-content: center;
+  /* отступ сверху — под HUD (он абсолютно спозиционирован поверх сцены и не
+     участвует в потоке), по бокам и снизу — просто воздух вокруг комнаты */
+  padding: 84px 16px 16px;
+  overflow: hidden;
 }
 
 
@@ -315,6 +319,14 @@ button
 
 /* ---------- комната на спрайтах ---------- */
 
+/* заполняет всю доступную область .stage (за вычетом её padding) и
+   центрирует внутри себя комнату, отмасштабированную под целый шаг арта —
+   излишек по краю остаётся фоном сцены, а не белым полем или обрезкой */
+.office-box {
+  position: relative; width: 100%; height: 100%;
+  display: flex; align-items: center; justify-content: center;
+  overflow: hidden;
+}
 .office {
   position: relative; overflow: hidden; border-radius: 10px;
   border: 2px solid var(--line); background: var(--bg);
