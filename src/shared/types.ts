@@ -22,6 +22,32 @@ export type TaskStatus =
   | 'failed';
 
 /**
+ * Результат предварительной проверки, сольётся ли ветка задачи без конфликтов.
+ * Поле на TaskView сделано опциональным: сервер пока эту проверку не считает,
+ * и до её появления клиент должен трактовать отсутствие поля как 'unknown'.
+ */
+export type MergeCheckState = 'unknown' | 'checking' | 'clean' | 'conflict' | 'merged' | 'nothing';
+
+export interface TaskMergeability {
+  state: MergeCheckState;
+  /** Конфликтующие файлы — заполнено только при state === 'conflict'. */
+  conflicts: string[];
+  checkedAt: number;
+}
+
+/** Состояние одной задачи в очереди слияния, отражаемое событием 'merge.queue'. */
+export type MergeQueueState = 'pending' | 'merging' | 'typecheck' | 'done' | 'failed' | 'skipped';
+
+export interface MergeQueueItem {
+  taskId: string;
+  state: MergeQueueState;
+  /** Итог git-слияния — как MergeOutcome.kind на сервере. */
+  kind?: 'merged' | 'conflict' | 'nothing' | 'wrong-branch' | 'failed';
+  conflicts?: string[];
+  message?: string;
+}
+
+/**
  * Расход одной сессии, агента, задачи или всего офиса.
  * Ввод и кеш разнесены: кеш стоит в десять раз дешевле обычного ввода,
  * и без разделения непонятно, почему 200k токенов стоили копейки.
@@ -145,6 +171,8 @@ export interface TaskView {
   /** В каком репозитории выполнялась задача: у ролей он может отличаться. */
   repoDir: string | null;
   merged: boolean;
+  /** Итог предварительной проверки слияния; null/отсутствует — ещё не проверяли. */
+  mergeability?: TaskMergeability | null;
   createdAt: number;
   /** Когда исполнитель реально взялся за задачу и когда закончил. */
   startedAt: number | null;
@@ -226,13 +254,22 @@ export type ServerEvent =
   | { t: 'permission.request'; request: PermissionRequest }
   | { t: 'permission.resolved'; id: string; decision: PermissionDecision }
   | { t: 'meeting'; meeting: MeetingView | null }
-  | { t: 'task.diff'; taskId: string; stat: string; patch: string; truncated: boolean; error?: string };
+  | { t: 'task.diff'; taskId: string; stat: string; patch: string; truncated: boolean; error?: string }
+  /** Полное состояние очереди слияния — не инкремент, чтобы клиенту не пришлось её собирать. */
+  | { t: 'merge.queue'; items: MergeQueueItem[]; running: boolean }
+  /** Результат npm run typecheck после слияния одной задачи из очереди. */
+  | { t: 'merge.typecheck'; taskId: string; ok: boolean; output: string };
 
 /** Всё, что UI шлёт на сервер. */
 export type ClientCommand =
   | { c: 'user_message'; text: string }
   | { c: 'permission'; id: string; decision: PermissionDecision }
   | { c: 'merge_task'; taskId: string }
+  /** Предпроверка мержабельности без изменения рабочего дерева. */
+  | { c: 'check_merge'; taskIds: string[] }
+  /** Слить задачи по очереди в заданном порядке; остановится на первом конфликте/ошибке. */
+  | { c: 'merge_queue'; taskIds: string[] }
+  | { c: 'merge_queue_stop' }
   /** Нанять сотрудника роли: и первого в пустую роль, и очередного клона. */
   | { c: 'spawn'; roleId: string }
   /** То же самое под говорящим именем — сервер принимает оба варианта. */

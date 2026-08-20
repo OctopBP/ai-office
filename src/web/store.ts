@@ -1,8 +1,8 @@
 import { create } from 'zustand';
 import type {
-  ChatEntry, DayUsage, InstanceView, LogEntry, PermissionDecision, PermissionRequest,
-  MeetingView, RoleEditable, RoleView, ServerEvent, Settings, TaskView, Usage,
-  CloudStatus, OfficeView,
+  ChatEntry, DayUsage, InstanceView, LogEntry, MergeCheckState, MergeQueueItem, MergeQueueState,
+  PermissionDecision, PermissionRequest, MeetingView, RoleEditable, RoleView, ServerEvent, Settings,
+  TaskView, Usage, CloudStatus, OfficeView,
 } from '../shared/types';
 import { emptyUsage } from '../shared/types';
 import type { Theme } from './sprites';
@@ -65,6 +65,15 @@ interface State {
   permissions: PermissionRequest[];
   settings: Settings;
   meeting: MeetingView | null;
+  /** Порядок задач, которые пользователь набрал для следующего запуска очереди слияния. */
+  mergeSelection: string[];
+  /** Состояние уже запущенной (или последней) очереди слияния — приходит от сервера целиком. */
+  mergeQueue: { items: MergeQueueItem[]; running: boolean } | null;
+  /** Результаты typecheck после слияния, по taskId. */
+  mergeTypechecks: Record<string, { ok: boolean; output: string }>;
+  toggleMergeSelect: (taskId: string) => void;
+  moveMergeSelect: (taskId: string, dir: -1 | 1) => void;
+  clearMergeSelection: () => void;
   theme: Theme;
   setTheme: (t: Theme) => void;
   toasts: Toast[];
@@ -110,6 +119,23 @@ export const useStore = create<State>((set, get) => ({
   permissions: [],
   settings: { globalBudgetUsd: null, taskBudgetUsd: null, engine: 'local', cloudRepoUrl: null },
   meeting: null,
+  mergeSelection: [],
+  mergeQueue: null,
+  mergeTypechecks: {},
+  toggleMergeSelect: (taskId) => set((s) => ({
+    mergeSelection: s.mergeSelection.includes(taskId)
+      ? s.mergeSelection.filter((id) => id !== taskId)
+      : [...s.mergeSelection, taskId],
+  })),
+  moveMergeSelect: (taskId, dir) => set((s) => {
+    const i = s.mergeSelection.indexOf(taskId);
+    const j = i + dir;
+    if (i < 0 || j < 0 || j >= s.mergeSelection.length) return {};
+    const next = [...s.mergeSelection];
+    [next[i], next[j]] = [next[j], next[i]];
+    return { mergeSelection: next };
+  }),
+  clearMergeSelection: () => set({ mergeSelection: [] }),
   theme: (localStorage.getItem('office-theme') as Theme | null) ?? 'day',
   toasts: [],
   diff: null,
@@ -263,6 +289,16 @@ export const useStore = create<State>((set, get) => ({
       case 'task.diff':
         set({ diff: { taskId: e.taskId, stat: e.stat, patch: e.patch, truncated: e.truncated, error: e.error } });
         break;
+      case 'merge.queue':
+        // Очередь запущена сервером — дальше её ход виден по этому событию,
+        // локальный черновик выбора больше не нужен.
+        set({ mergeQueue: { items: e.items, running: e.running }, mergeSelection: [] });
+        break;
+      case 'merge.typecheck':
+        set((s) => ({
+          mergeTypechecks: { ...s.mergeTypechecks, [e.taskId]: { ok: e.ok, output: e.output } },
+        }));
+        break;
       case 'meeting': {
         set({ meeting: e.meeting });
         // Рассаживаем участников за стол переговорки и возвращаем на места после.
@@ -389,6 +425,69 @@ export function decide(id: string, decision: PermissionDecision): void {
 
 export function mergeTask(taskId: string): void {
   socket?.send(JSON.stringify({ c: 'merge_task', taskId }));
+}
+
+/** Предпроверка мержабельности набора задач — не меняет рабочее дерево. */
+export function checkMergeability(taskIds: string[]): void {
+  if (taskIds.length === 0) return;
+  socket?.send(JSON.stringify({ c: 'check_merge', taskIds }));
+}
+
+/** Слить задачи по очереди в заданном порядке. */
+export function startMergeQueue(taskIds: string[]): void {
+  if (taskIds.length === 0) return;
+  socket?.send(JSON.stringify({ c: 'merge_queue', taskIds }));
+}
+
+export function stopMergeQueue(): void {
+  socket?.send(JSON.stringify({ c: 'merge_queue_stop' }));
+}
+
+const MERGE_STATE_LABEL: Record<MergeCheckState, string> = {
+  unknown: 'не проверено',
+  checking: 'проверяется…',
+  clean: 'сольётся чисто',
+  conflict: 'конфликт',
+  merged: 'слита',
+  nothing: 'нечего сливать',
+};
+
+export const QUEUE_STATE_LABEL: Record<MergeQueueState, string> = {
+  pending: 'в очереди',
+  merging: 'сливается…',
+  typecheck: 'проверка сборки…',
+  done: 'слита',
+  failed: 'ошибка',
+  skipped: 'пропущена',
+};
+
+/** Человекочитаемая строка причины конфликта/провала для пункта очереди. */
+export function mergeItemReason(item: MergeQueueItem): string {
+  if (item.kind === 'conflict') {
+    return `конфликтует: ${(item.conflicts ?? []).join(', ') || 'файлы не определены'}`;
+  }
+  return item.message ?? 'слияние не удалось';
+}
+
+/**
+ * Компактный бейдж для карточки задачи: пока очередь слияния идёт (или
+ * только что закончилась), её статус важнее статичной предпроверки —
+ * он и приоритетнее.
+ */
+export function mergeBadge(t: TaskView, queueItem?: MergeQueueItem): { label: string; cls: string } | null {
+  if (!t.branch) return null;
+  if (t.merged) return { label: 'влита', cls: 'merged' };
+  if (t.status !== 'done') return null;
+  if (queueItem) {
+    if (queueItem.state === 'failed') {
+      return { label: queueItem.kind === 'conflict' ? 'конфликт' : 'ошибка слияния', cls: 'conflict' };
+    }
+    if (queueItem.state === 'done') return { label: 'слита', cls: 'merged' };
+    if (queueItem.state === 'skipped') return { label: 'пропущена', cls: 'unknown' };
+    return { label: QUEUE_STATE_LABEL[queueItem.state], cls: 'checking' };
+  }
+  const state = t.mergeability?.state ?? 'unknown';
+  return { label: MERGE_STATE_LABEL[state], cls: state === 'merged' ? 'clean' : state };
 }
 
 export function hire(roleId: string): void {
