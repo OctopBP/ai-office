@@ -41,17 +41,32 @@ const DECOR: Array<{ img: string; x: number; y: number; z?: number; scale?: numb
   { img: 'chair', x: 3.8, y: 12.8 },
   { img: 'chair', x: 2.2, y: 12.3 },
   { img: 'chair', x: 2.2, y: 11.3 },
-  // кухня — зона отдыха для свободных агентов, места см. KITCHEN_SEATS в desks.ts
-  { img: 'kitchen_tiles', x: 19.0, y: 10.6 },
-  { img: 'counter', x: 19.2, y: 12.9 },
-  { img: 'fridge', x: 22.6, y: 10.9 },
-  { img: 'cooler', x: 21.4, y: 11.2 },
-  { img: 'coin', x: 20.2, y: 12.4 },
-  { img: 'round_table', x: 20.9, y: 13.4 },
-  { img: 'chair', x: 19.6, y: 13.0 },
-  { img: 'chair', x: 22.2, y: 13.0 },
-  { img: 'chair', x: 20.1, y: 14.4 },
-  { img: 'chair', x: 21.9, y: 14.4 },
+  // кухня — зона отдыха для свободных агентов, места считаются динамически
+  // от штата (см. KITCHEN_SEATS в desks.ts), здесь только неподвижная обстановка.
+  // Зона расширена (8×6 тайлов) под весь гарнитур и длинный стол с запасом
+  // на проход; координаты мебели ниже согласованы с TABLE в desks.ts
+  { img: 'kitchen_tiles', x: 16.0, y: 9.0 },
+  { img: 'fridge', x: 16.1, y: 9.0 },
+  { img: 'cooler', x: 17.1, y: 9.2 },
+  // ряд тумб вдоль верхней стены зоны: прямые секции, мойка и угол на конце
+  { img: 'counter_straight', x: 17.8, y: 9.1 },
+  { img: 'coffee_machine', x: 17.8, y: 9.1 },
+  { img: 'sink_counter', x: 19.8, y: 9.1 },
+  { img: 'counter_corner', x: 21.8, y: 9.1 },
+  // длинный обеденный стол в нижней части зоны — под ним достаточно места
+  // для мест по обе стороны (buildKitchenSeats в desks.ts), стулья ниже —
+  // просто декор, реальные места считаются отдельно
+  { img: 'dining_table', x: 17.0, y: 12.2 },
+  { img: 'chair', x: 17.75, y: 11.45 },
+  { img: 'chair', x: 19.25, y: 11.45 },
+  { img: 'chair', x: 20.75, y: 11.45 },
+  { img: 'chair', x: 22.25, y: 11.45 },
+  { img: 'chair', x: 17.75, y: 13.475 },
+  { img: 'chair', x: 19.25, y: 13.475 },
+  { img: 'chair', x: 20.75, y: 13.475 },
+  { img: 'chair', x: 22.25, y: 13.475 },
+  { img: 'kitchen_mugs', x: 19.6, y: 12.5 },
+  { img: 'kitchen_snack', x: 21.3, y: 12.5 },
 ];
 
 /** Предметы на стене, которые открывают панели: доска задач и терминал лога. */
@@ -77,20 +92,27 @@ export function Office({ onOpen, onDoor }: {
   const [scale, setScale] = useState(1);
 
   /**
-   * Комната масштабируется только кратно арту: спрайты нарисованы при
-   * SCALE = 3, поэтому 1 и 2/3 дают целое число экранных пикселей на
-   * арт-пиксель. Произвольный масштаб замылил бы пиксель-арт.
+   * Комната растягивается на всю доступную область (.office-box уже не
+   * перекрыт HUD и нижней панелью — отступы под них заданы в CSS), но
+   * масштабируется только кратно арту: спрайты нарисованы при SCALE = 3,
+   * поэтому любой шаг вида k/3 даёт целое число экранных пикселей на
+   * арт-пиксель. Произвольный масштаб замылил бы пиксель-арт. Берём
+   * наибольший k, при котором комната ещё умещается по обеим осям —
+   * так офис заполняет экран без прокрутки и без обрезки.
    */
   useLayoutEffect(() => {
+    const box = boxRef.current;
+    if (!box) return;
     const fit = () => {
-      const box = boxRef.current;
-      if (!box) return;
-      const fits = box.clientWidth >= px(GRID.cols) && box.clientHeight >= px(GRID.cells);
-      setScale(fits ? 1 : 2 / 3);
+      const kByWidth = Math.floor((box.clientWidth * 3) / px(GRID.cols));
+      const kByHeight = Math.floor((box.clientHeight * 3) / px(GRID.cells));
+      const k = Math.max(1, Math.min(kByWidth, kByHeight));
+      setScale(k / 3);
     };
     fit();
-    window.addEventListener('resize', fit);
-    return () => window.removeEventListener('resize', fit);
+    const ro = new ResizeObserver(fit);
+    ro.observe(box);
+    return () => ro.disconnect();
   }, []);
 
   const list = Object.values(instances);
@@ -99,15 +121,12 @@ export function Office({ onOpen, onDoor }: {
   const roleOf = (id: string) => roles.find((r) => r.id === id);
 
   return (
-    <div
-      className="office-box" ref={boxRef}
-      style={{ height: px(GRID.cells) * scale }}
-    >
+    <div className="office-box" ref={boxRef}>
     <div
       className="office"
       style={{
         width: px(GRID.cols), height: px(GRID.cells),
-        transform: `scale(${scale})`, transformOrigin: 'top left',
+        transform: `scale(${scale})`,
       }}
     >
       <img className="layer floor" src={img('floor')} alt="" />

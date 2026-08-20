@@ -733,7 +733,7 @@ def build(theme):
     agent('agent_uiux', '#a06cd5', '#1f1b24', SKIN[2], glasses=True)
     board(); logscreen(); window(); clock(); door(); doormat()
     plant('plant_small'); plant('plant_big', big=True)
-    cooler(); counter(); fridge(); kitchen_tiles(); rug(); round_table(); bookshelf(); poster()
+    cooler(); counter(); fridge(); kitchen_tiles(cols=8, rows=6); rug(); round_table(); bookshelf(); poster()
     neon_sign(); server_rack(); shadow(); coin()
     game_rug(); tv(); console(); arcade(); sofa(); beanbag(); gamepad()
 
