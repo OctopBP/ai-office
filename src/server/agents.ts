@@ -361,6 +361,41 @@ const PM_PROMPT = `Ты — проектный менеджер (PM) в кома
 
 Отвечай пользователю по-русски и коротко.`;
 
+/**
+ * Почему роли сейчас нельзя отдать задачу: в ней не осталось сотрудников.
+ * Причину спрашивают и менеджер, и перезапуск задачи, а текст отказа должен
+ * быть один — иначе пользователь получит два разных объяснения одного и того же.
+ */
+export function noStaffReason(roleId: string): string | null {
+  if (office.staffOf(roleId).length > 0) return null;
+  const title = roleById(roleId)?.title ?? roleId;
+  return `В роли ${roleId} (${title}) сейчас нет ни одного сотрудника — вакансия открыта, работать некому.`;
+}
+
+/**
+ * Состав команды словами — то, что менеджер видит в list_team.
+ * Вынесено из инструмента, чтобы регрессии этого текста ловились проверкой,
+ * а не сценарием с живой моделью: от него зависит, кому PM раздаёт задачи.
+ */
+export function teamSummary(): string {
+  const lines = workerRoles().map((role) => {
+    const insts = office.staffOf(role.id);
+    // Роль без сотрудников — открытая вакансия: она есть в реестре, но
+    // работать некому, пока пользователь не наймёт человека.
+    const desc = insts.length
+      ? insts.map((i) => `${i.id} — ${i.currentTaskId ? `занят (${i.currentTaskId})` : 'свободен'}`).join(', ')
+      : 'сотрудников нет (можно нанять) — задачи этой роли выполнять некому';
+    const first = role.brief.split('\n')[0] ?? '';
+    const repo = office.repoFor(role);
+    // Репозиторий называем, только если он свой: иначе строка одинаковая
+    // у всех и лишь удлиняет ответ.
+    const where = repo === office.projectDir ? '' : `\n  репозиторий: ${repo}`;
+    return `- ${role.id} (${role.title})${first ? ` — ${first}` : ''}\n  ${desc}${where}` +
+      `\n  результат: ${role.isolate ? 'в отдельной ветке, нужно слияние' : 'сразу в рабочей директории'}`;
+  });
+  return `Команда:\n${lines.join('\n')}`;
+}
+
 const teamTools = createSdkMcpServer({
   name: 'team',
   version: '1.0.0',
@@ -370,20 +405,7 @@ const teamTools = createSdkMcpServer({
       'list_team',
       'Показать состав команды: роли, конкретных исполнителей и кто сейчас свободен. Вызывай это первым делом, прежде чем создавать и раздавать задачи.',
       {},
-      async () => {
-        const lines = workerRoles().map((role) => {
-          const insts = [...office.instances.values()].filter((i) => i.roleId === role.id);
-          const desc = insts.map((i) => `${i.id} — ${i.currentTaskId ? `занят (${i.currentTaskId})` : 'свободен'}`).join(', ');
-          const first = role.brief.split('\n')[0] ?? '';
-          const repo = office.repoFor(role);
-          // Репозиторий называем, только если он свой: иначе строка одинаковая
-          // у всех и лишь удлиняет ответ.
-          const where = repo === office.projectDir ? '' : `\n  репозиторий: ${repo}`;
-          return `- ${role.id} (${role.title})${first ? ` — ${first}` : ''}\n  ${desc}${where}` +
-            `\n  результат: ${role.isolate ? 'в отдельной ветке, нужно слияние' : 'сразу в рабочей директории'}`;
-        });
-        return { content: [{ type: 'text', text: `Команда:\n${lines.join('\n')}` }] };
-      },
+      async () => ({ content: [{ type: 'text', text: teamSummary() }] }),
       { annotations: { readOnlyHint: true } },
     ),
 
@@ -434,7 +456,13 @@ const teamTools = createSdkMcpServer({
           criteria,
           roleId: args.roleId,
         });
-        return { content: [{ type: 'text', text: `Создана задача ${task.id}: ${task.title} (роль ${args.roleId}), критериев ${criteria.length}` }] };
+        // Предупреждаем сразу: иначе менеджер узнает о пустой роли только из
+        // отказа assign_task и успеет пообещать пользователю работу.
+        const empty = office.staffOf(args.roleId).length === 0
+          ? `. Внимание: в роли ${args.roleId} сейчас нет сотрудников — назначить задачу будет некому,` +
+            ' пока пользователь не наймёт человека на эту роль'
+          : '';
+        return { content: [{ type: 'text', text: `Создана задача ${task.id}: ${task.title} (роль ${args.roleId}), критериев ${criteria.length}${empty}` }] };
       },
     ),
 
@@ -487,13 +515,35 @@ const teamTools = createSdkMcpServer({
           return { content: [{ type: 'text', text: `${task.id} уже назначена на ${task.assigneeId}` }], isError: true };
         }
         const roleId = task.roleId ?? 'backend';
+        // Роль, из которой уволили всех, не доукомплектовываем молча: сотрудников
+        // убрал пользователь, и нанять обратно — тоже его решение, а не наше.
+        // Явно названного исполнителя это не касается: он живой человек в офисе.
+        const noStaff = args.instanceId ? null : noStaffReason(roleId);
+        if (noStaff) {
+          return {
+            content: [{
+              type: 'text',
+              text: `${noStaff} ${task.id} остаётся на доске. Скажи пользователю, что на эту роль ` +
+                'нужно кого-то нанять, либо переназначь задачу роли, которой она по силам. ' +
+                'Повторно вызывать assign_task на эту роль бессмысленно.',
+            }],
+            isError: true,
+          };
+        }
+
         const inst = args.instanceId
           ? office.instances.get(args.instanceId) ?? null
           : office.findFree(roleId) ?? office.spawn(roleId) ?? office.findFree(roleId);
 
         if (!inst) {
           return {
-            content: [{ type: 'text', text: `Все исполнители роли ${roleId} заняты, свободных рабочих мест нет. Дождись завершения текущих задач.` }],
+            content: [{
+              type: 'text',
+              text: args.instanceId
+                ? `Исполнителя ${args.instanceId} нет в офисе — возможно, его уволили. ` +
+                  'Посмотри list_team и назови того, кто есть, или оставь поле пустым.'
+                : `Все исполнители роли ${roleId} заняты, свободных рабочих мест нет. Дождись завершения текущих задач.`,
+            }],
             isError: true,
           };
         }
@@ -1438,6 +1488,11 @@ export async function retryTask(taskId: string): Promise<void> {
   }
 
   const roleId = task.roleId ?? 'backend';
+  const noStaff = noStaffReason(roleId);
+  if (noStaff) {
+    office.addChat('офис', `${noStaff} Наймите сотрудника, чтобы перезапустить ${taskId}.`);
+    return;
+  }
   const inst = office.findFree(roleId) ?? office.spawn(roleId) ?? office.findFree(roleId);
   if (!inst) {
     office.addChat('офис', `Все исполнители роли ${roleId} заняты — перезапустить ${taskId} сейчас некому.`);

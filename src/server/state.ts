@@ -226,19 +226,17 @@ class OfficeState {
       this.tasks.set(t.id, t);
     }
 
-    // Восстанавливаем нанятых клонов: seed() создаёт по одному на роль,
-    // без этого их расходы потерялись бы и общая сумма занижалась.
-    for (const pi of data.instances ?? []) {
-      if (!this.instances.has(pi.id)) this.spawn(pi.roleId);
-    }
-    for (const pi of data.instances ?? []) {
-      const inst = this.instances.get(pi.id);
-      if (inst) {
-        // Сохранения до детализации расходов знали только сумму — токенов
-        // в них нет, и придумывать их нельзя: пусть остаются нулями.
-        inst.usage = { ...emptyUsage(), ...(pi.usage ?? { costUsd: pi.costUsd ?? 0 }) };
-        inst.daily = pi.daily ?? {};
-        inst.sessionId = pi.sessionId;
+    // Состав команды берём из сохранения целиком, а не дополняем им seed():
+    // seed() сажает по одному сотруднику на роль и ничего не знает ни про
+    // нанятых сверх того клонов, ни про уволенных. Иначе роль, из которой
+    // всех уволили, воскресала бы при каждом перезапуске.
+    const roster = data.instances ?? [];
+    if (roster.length) {
+      this.instances.clear();
+      for (const pi of roster) this.rehire(pi);
+      // PM уволить нельзя, но сохранение могло прийти из версии без него.
+      for (const role of allRoles()) {
+        if (role.isManager && this.staffOf(role.id).length === 0) this.spawn(role.id);
       }
     }
     // Офисной суммы в старых сохранениях тоже нет — собираем её из агентов.
@@ -246,6 +244,36 @@ class OfficeState {
       for (const inst of this.instances.values()) accumulate(this.usage, inst.usage);
     }
     return true;
+  }
+
+  /**
+   * Вернуть сотрудника из сохранения как есть: тот же id, тот же стол,
+   * те же расходы. Стол берём прежний, если он свободен, — иначе офис
+   * «разъезжается» после смены раскладки.
+   */
+  private rehire(pi: PersistedInstance): void {
+    const role = roleById(pi.roleId);
+    if (!role) return;   // роль исчезла из реестра — восстанавливать некого
+    const taken = new Set([...this.instances.values()].map((i) => i.desk.index));
+    const desk = (!taken.has(pi.deskIndex) && DESKS.find((d) => d.index === pi.deskIndex))
+      || this.freeDesk();
+    if (!desk) return;
+    const n = pi.id.split('#')[1] ?? '1';
+    this.instances.set(pi.id, {
+      id: pi.id,
+      roleId: pi.roleId,
+      label: `${role.title}${role.maxInstances > 1 ? ` #${n}` : ''}`,
+      desk,
+      state: 'idle',
+      currentTaskId: null,
+      note: null,
+      // Сохранения до детализации расходов знали только сумму — токенов
+      // в них нет, и придумывать их нельзя: пусть остаются нулями.
+      usage: { ...emptyUsage(), ...(pi.usage ?? { costUsd: pi.costUsd ?? 0 }) },
+      daily: pi.daily ?? {},
+      sessionId: pi.sessionId,
+      abort: null,
+    });
   }
 
   setSessionId(instanceId: string, sessionId: string): void {
@@ -290,16 +318,33 @@ class OfficeState {
     return DESKS.find((d) => !taken.has(d.index)) ?? null;
   }
 
+  /** Сотрудники роли: пустой список — вакансия открыта, никого не нанято. */
+  staffOf(roleId: string): Instance[] {
+    return [...this.instances.values()].filter((i) => i.roleId === roleId);
+  }
+
+  /**
+   * Наименьший свободный номер в роли. Считать по количеству нельзя:
+   * после увольнения backend#1 у роли снова «один сотрудник», и новый
+   * получил бы id уже занятого backend#2, затерев живого агента.
+   */
+  private nextNumber(roleId: string): number {
+    const taken = new Set(this.staffOf(roleId).map((i) => Number(i.id.split('#')[1] ?? 0)));
+    let n = 1;
+    while (taken.has(n)) n += 1;
+    return n;
+  }
+
   spawn(roleId: string): Instance | null {
     const role = roleById(roleId);
     if (!role) return null;
-    const existing = [...this.instances.values()].filter((i) => i.roleId === roleId);
+    const existing = this.staffOf(roleId);
     if (existing.length >= role.maxInstances) return null;
     // PM всегда садится за нулевой стол, остальные — на любой свободный.
     const desk = role.isManager ? DESKS[0] : this.freeDesk();
     if (!desk) return null;
 
-    const n = existing.length + 1;
+    const n = this.nextNumber(roleId);
     const inst: Instance = {
       id: `${roleId}#${n}`,
       roleId,
@@ -573,19 +618,52 @@ class OfficeState {
     return cap !== null && this.totalCost() >= cap;
   }
 
-  /** Убрать клона. Нельзя уволить занятого, менеджера и последнего в роли. */
+  /**
+   * Нанять сотрудника роли. Возвращает причину отказа по-русски или null,
+   * если наняли. Роль без сотрудников — это открытая вакансия, а не удалённая
+   * роль: нанять обратно можно в любой момент.
+   */
+  hire(roleId: string): string | null {
+    const role = roleById(roleId);
+    if (!role) return `Роли «${roleId}» нет в офисе.`;
+    const staff = this.staffOf(roleId);
+    if (staff.length >= role.maxInstances) {
+      return `${role.title}: уже нанято ${staff.length} из ${role.maxInstances} — ` +
+        'больше эта роль не вмещает. Лимит меняется в настройках роли.';
+    }
+    const inst = this.spawn(roleId);
+    if (!inst) {
+      return `Некуда посадить: в офисе ${DESKS.length} рабочих мест и все заняты. ` +
+        'Сначала увольте кого-нибудь.';
+    }
+    this.addLog(null, 'system', `Нанят ${inst.label} (${inst.id})`);
+    this.emit({ t: 'roles', roles: this.roleViews() });
+    return null;
+  }
+
+  /**
+   * Уволить сотрудника. Нельзя уволить менеджера и занятого задачей.
+   * Последнего в роли уволить можно: роль остаётся в реестре с нулём
+   * сотрудников — «вакансия открыта, никого не нанято».
+   */
   fire(instanceId: string): string | null {
     const inst = this.instances.get(instanceId);
     if (!inst) return 'Такого сотрудника нет.';
     const role = roleById(inst.roleId);
     if (role?.isManager) return 'PM — единственный, кого нельзя уволить.';
-    if (inst.currentTaskId) return `${inst.id} сейчас занят задачей ${inst.currentTaskId}.`;
-    const sameRole = [...this.instances.values()].filter((i) => i.roleId === inst.roleId);
-    if (sameRole.length <= 1) return `${inst.id} — последний в своей роли.`;
+    if (inst.currentTaskId) {
+      return `${inst.label} сейчас работает над задачей ${inst.currentTaskId}. ` +
+        'Дождитесь её или остановите задачу — тогда сотрудника можно будет уволить.';
+    }
     inst.abort?.abort();
     this.instances.delete(instanceId);
+    // Стол освобождается вместе с инстансом: свободные места считаются
+    // по живым сотрудникам, отдельного реестра занятости нет.
     this.emit({ t: 'instance.remove', id: instanceId });
     this.emit({ t: 'roles', roles: this.roleViews() });
+    const left = this.staffOf(inst.roleId).length;
+    this.addLog(null, 'system', `Уволен ${inst.label} (${inst.id})` +
+      (left === 0 ? `. В роли «${role?.title ?? inst.roleId}» больше никого — вакансия открыта` : ''));
     this.markDirty();
     return null;
   }
