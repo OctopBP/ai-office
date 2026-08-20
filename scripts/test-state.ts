@@ -7,10 +7,10 @@
  */
 import { tmpdir } from 'node:os';
 import { resolve } from 'node:path';
-import { office } from '../src/server/state';
+import { DEFAULT_SETTINGS, office } from '../src/server/state';
+import { flushAll, load, save, wipe, type Persisted } from '../src/server/store';
 import { cloudProblem, setGithubToken } from '../src/server/cloud';
 import { noStaffReason, teamSummary } from '../src/server/agents';
-import { flush, setStateFile, wipe } from '../src/server/store';
 
 async function main(): Promise<void> {
   office.seed();
@@ -89,7 +89,7 @@ async function main(): Promise<void> {
   // 7. Состав команды: увольнение последнего, наём обратно, лимит и защиты.
   // Состояние с этого момента пишем во временный файл: дальше проверяется
   // восстановление состава, и настоящее сохранение офиса трогать нельзя.
-  setStateFile(resolve(tmpdir(), `office-test-state-${process.pid}.json`));
+  office.setStateFile(resolve(tmpdir(), `office-test-state-${process.pid}.json`));
   const fireLast = office.fire('smm#1');
   results.push(
     `последнего сотрудника роли можно уволить: ${fireLast === null}`,
@@ -129,7 +129,7 @@ async function main(): Promise<void> {
   for (const i of office.staffOf('smm')) office.fire(i.id);
   const extraBackend = office.hire('backend') === null;
   office.projectDir = office.projectDir || process.cwd();
-  flush();
+  office.flush();
   const restored = office.restore();
   results.push(
     `состояние восстановлено: ${restored}`,
@@ -137,7 +137,26 @@ async function main(): Promise<void> {
     `нанятые сверх одного сохранились: ${extraBackend && office.staffOf('backend').length === 2}`,
     `столы не разъехались: ${new Set([...office.instances.values()].map((i) => i.desk.index)).size === office.instances.size}`,
   );
-  wipe();
+  office.wipe();
+
+  // 8. Хранилище пер-офисное: сохранение одного офиса не отменяет сохранение
+  // другого. С общим на процесс таймером второй save() просто заменял первый
+  // снимок, и данные офиса A не доезжали до диска.
+  const fileA = resolve(tmpdir(), `office-test-store-a-${process.pid}.json`);
+  const fileB = resolve(tmpdir(), `office-test-store-b-${process.pid}.json`);
+  const stamp = (dir: string): Persisted => ({
+    version: 1, projectDir: dir, taskSeq: 0, tasks: [], chat: [], log: [],
+    instances: [], settings: { ...DEFAULT_SETTINGS }, roleOverrides: {}, savedAt: Date.now(),
+  });
+  save(fileA, () => stamp('/office-a'));
+  save(fileB, () => stamp('/office-b'));
+  flushAll();
+  results.push(
+    `запись офиса A не потерялась: ${load(fileA)?.projectDir === '/office-a'}`,
+    `запись офиса B не потерялась: ${load(fileB)?.projectDir === '/office-b'}`,
+  );
+  wipe(fileA);
+  wipe(fileB);
 
   const failed = results.filter((r) => r.endsWith('false'));
   for (const r of results) console.log(`  ${r.endsWith('false') ? '❌' : '✅'} ${r}`);

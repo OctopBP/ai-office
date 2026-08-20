@@ -9,7 +9,7 @@ import { githubToken, setGithubToken } from './cloud';
 import { clearInitFlag, createOffice, currentOffice, ensureOffice, loadRegistry, officeById, renameOffice, setCurrent, type OfficeEntry } from './offices';
 import { hasCommits, initRepo, isRepo } from './git';
 import { allRoles } from './roles';
-import { flush, setStateFile } from './store';
+import { flushAll } from './store';
 
 const PORT = Number(process.env.OFFICE_PORT ?? 3001);
 const DEFAULT_DIR = resolve(process.env.OFFICE_PROJECT_DIR ?? './workspace');
@@ -68,7 +68,7 @@ async function openOffice(entry: OfficeEntry): Promise<void> {
     );
   }
 
-  setStateFile(entry.stateFile);
+  office.setStateFile(entry.stateFile);
   office.officeId = entry.id;
   office.projectDir = entry.projectDir;
   office.unload();
@@ -95,9 +95,9 @@ const startup = openOffice(opened);
 
 // Досохранить перед выходом, чтобы не потерять последние события.
 for (const sig of ['SIGINT', 'SIGTERM'] as const) {
-  process.on(sig, () => { flush(); process.exit(0); });
+  process.on(sig, () => { flushAll(); process.exit(0); });
 }
-process.on('exit', () => flush());
+process.on('exit', () => flushAll());
 
 /**
  * Собранный веб (`npm run build`) раздаётся тем же сервером, что держит
@@ -197,7 +197,8 @@ async function switchOffice(officeId: string, ws?: WebSocket): Promise<void> {
 
   setCurrent(target.id);
   resetSessions();
-  flush();
+  // Досохраняем именно закрываемый офис: openOffice ниже переключит файл.
+  office.flush();
   await openOffice(target);
   office.addLog(null, 'system', `Открыт офис «${target.name}» (${target.projectDir})`);
   if (ws && clients.has(ws)) clients.set(ws, office.officeId);

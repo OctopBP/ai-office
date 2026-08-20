@@ -153,12 +153,22 @@ export function createOffice(input: { name: string; projectDir: string; mustExis
     }
   }
 
-  registry.seq += 1;
+  // Файл состояния — ключ, по которому идёт запись на диск: два офиса с одним
+  // путём затирали бы друг друга. Реестр правят и руками, поэтому занятый
+  // номер пропускаем, а не полагаемся на то, что счётчик всегда свободен.
+  const usedFiles = new Set(registry.offices.map((o) => resolve(o.stateFile)));
+  const usedIds = new Set(registry.offices.map((o) => o.id));
+  let stateFile: string;
+  do {
+    registry.seq += 1;
+    stateFile = resolve(dirname(FILE), 'offices', `o-${registry.seq}.json`);
+  } while (usedFiles.has(stateFile) || usedIds.has(`o-${registry.seq}`));
+
   const office: OfficeEntry = {
     id: `o-${registry.seq}`,
     name,
     projectDir,
-    stateFile: resolve(dirname(FILE), 'offices', `o-${registry.seq}.json`),
+    stateFile,
     createdAt: Date.now(),
     lastOpenedAt: 0,
     initGit: ours,

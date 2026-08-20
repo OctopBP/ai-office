@@ -5,15 +5,11 @@ import type { Task } from './state';
 import type { Role } from './roles';
 
 // Путь вынесен в переменную окружения: тестовый сервер не должен
-// затирать состояние рабочего офиса. У каждого офиса файл свой —
-// переключение проекта меняет его на лету.
-let FILE = resolve(process.env.OFFICE_STATE_FILE ?? '.office/state.json');
+// затирать состояние рабочего офиса. Это только путь по умолчанию —
+// у каждого офиса файл состояния свой, и хранилище всегда получает его
+// явным аргументом, а не читает общую на процесс переменную.
+export const DEFAULT_STATE_FILE = resolve(process.env.OFFICE_STATE_FILE ?? '.office/state.json');
 
-/** Переключить хранилище на другой офис. Хвост прошлой записи сбрасываем. */
-export function setStateFile(path: string): void {
-  flush();
-  FILE = resolve(path);
-}
 const SAVE_DEBOUNCE_MS = 400;
 
 export interface PersistedInstance {
@@ -44,34 +40,47 @@ export interface Persisted {
   savedAt: number;
 }
 
-export function load(): Persisted | null {
-  if (!existsSync(FILE)) return null;
+export function load(file: string): Persisted | null {
+  const path = resolve(file);
+  if (!existsSync(path)) return null;
   try {
-    const data = JSON.parse(readFileSync(FILE, 'utf8')) as Persisted;
+    const data = JSON.parse(readFileSync(path, 'utf8')) as Persisted;
     if (data.version !== 1) {
       console.log(`⚠️  Состояние офиса версии ${data.version} не поддерживается, начинаю с чистого листа`);
       return null;
     }
     return data;
   } catch (err) {
-    console.log(`⚠️  Не удалось прочитать ${FILE}: ${(err as Error).message}. Начинаю с чистого листа.`);
+    console.log(`⚠️  Не удалось прочитать ${path}: ${(err as Error).message}. Начинаю с чистого листа.`);
     return null;
   }
 }
 
-let timer: NodeJS.Timeout | null = null;
-let pendingWrite: (() => Persisted) | null = null;
+/** Отложенная запись одного файла состояния. */
+interface Writer {
+  timer: NodeJS.Timeout | null;
+  snapshot: (() => Persisted) | null;
+}
+
+/**
+ * Своя отложенная запись на каждый файл состояния. Один таймер на процесс
+ * означал бы, что офис, сохранившийся вторым, отменяет снимок первого
+ * (`if (timer) return` ниже) и его данные не доезжают до диска. Ключ —
+ * абсолютный путь: в него же и пишем, так что запись одного офиса не может
+ * уйти в файл другого, даже если офис переключили, пока таймер тикал.
+ */
+const writers = new Map<string, Writer>();
 
 /** Запись атомарная: сначала во временный файл, потом переименование. */
-function writeNow(): void {
-  if (!pendingWrite) return;
-  const data = pendingWrite();
-  pendingWrite = null;
+function writeNow(path: string, w: Writer): void {
+  if (!w.snapshot) return;
+  const data = w.snapshot();
+  w.snapshot = null;
   try {
-    mkdirSync(dirname(FILE), { recursive: true });
-    const tmp = `${FILE}.tmp`;
+    mkdirSync(dirname(path), { recursive: true });
+    const tmp = `${path}.tmp`;
     writeFileSync(tmp, JSON.stringify(data, null, 2), 'utf8');
-    renameSync(tmp, FILE);
+    renameSync(tmp, path);
   } catch (err) {
     console.log(`⚠️  Не удалось сохранить состояние: ${(err as Error).message}`);
   }
@@ -81,26 +90,44 @@ function writeNow(): void {
  * Сохранение с дебаунсом: за один ход агента прилетают десятки событий,
  * писать файл на каждое — расточительно.
  */
-export function save(snapshot: () => Persisted): void {
-  pendingWrite = snapshot;
-  if (timer) return;
-  timer = setTimeout(() => {
-    timer = null;
-    writeNow();
+export function save(file: string, snapshot: () => Persisted): void {
+  const path = resolve(file);
+  let w = writers.get(path);
+  if (!w) {
+    w = { timer: null, snapshot: null };
+    writers.set(path, w);
+  }
+  w.snapshot = snapshot;
+  if (w.timer) return;
+  w.timer = setTimeout(() => {
+    w!.timer = null;
+    writeNow(path, w!);
   }, SAVE_DEBOUNCE_MS);
 }
 
-/** Сбросить на диск немедленно — при выключении сервера. */
-export function flush(): void {
-  if (timer) {
-    clearTimeout(timer);
-    timer = null;
+/** Сбросить на диск немедленно: перед переключением офиса и при выключении. */
+export function flush(file: string): void {
+  const path = resolve(file);
+  const w = writers.get(path);
+  if (!w) return;
+  if (w.timer) {
+    clearTimeout(w.timer);
+    w.timer = null;
   }
-  writeNow();
+  writeNow(path, w);
 }
 
-export function wipe(): void {
-  if (timer) { clearTimeout(timer); timer = null; }
-  pendingWrite = null;
-  try { rmSync(FILE, { force: true }); } catch { /* нечего удалять */ }
+/** Досохранить все офисы разом — только при выключении сервера. */
+export function flushAll(): void {
+  for (const path of [...writers.keys()]) flush(path);
+}
+
+export function wipe(file: string): void {
+  const path = resolve(file);
+  const w = writers.get(path);
+  if (w) {
+    if (w.timer) { clearTimeout(w.timer); w.timer = null; }
+    w.snapshot = null;
+  }
+  try { rmSync(path, { force: true }); } catch { /* нечего удалять */ }
 }

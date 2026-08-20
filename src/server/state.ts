@@ -9,7 +9,10 @@ import type {
 import { emptyUsage } from '../shared/types';
 import { currentOffice, offices } from './offices';
 import { allRoles, getRoleOverrides, roleById, setRoleOverrides, type Role } from './roles';
-import { load, save, wipe, type Persisted, type PersistedInstance } from './store';
+import {
+  DEFAULT_STATE_FILE, flush as flushFile, load, save, wipe as wipeFile,
+  type Persisted, type PersistedInstance,
+} from './store';
 
 /** Раскладка рабочих мест в комнате (координаты в клетках сетки). */
 export const DESKS: Desk[] = [
@@ -131,6 +134,12 @@ class OfficeState {
   authSource: AuthSource = 'unknown';
   /** Какой офис сейчас открыт: от него зависят worktree и файл состояния. */
   officeId = 'o-1';
+  /**
+   * Файл состояния этого офиса. Хранится здесь, а не в store.ts: сохранение
+   * привязано к офису, а не к процессу, поэтому два офиса не делят ни путь,
+   * ни таймер записи.
+   */
+  private stateFile = DEFAULT_STATE_FILE;
   /** Готовность облачного режима. Ключ и токен в состояние не пишутся. */
   cloud: CloudStatus = { hasKey: false, hasToken: false };
   /**
@@ -165,7 +174,29 @@ class OfficeState {
 
   /** Пометить состояние изменившимся — запись на диск идёт с дебаунсом. */
   private markDirty(): void {
-    save(() => this.toPersisted());
+    save(this.stateFile, () => this.toPersisted());
+  }
+
+  /**
+   * Переключить офис на другой файл состояния. Хвост записи прежнего офиса
+   * дописываем до переключения: снимок берётся отложенно, и после смены
+   * файла он собрал бы уже чужие данные.
+   */
+  setStateFile(path: string): void {
+    const next = resolve(path);
+    if (next === this.stateFile) return;
+    flushFile(this.stateFile);
+    this.stateFile = next;
+  }
+
+  /** Досохранить состояние этого офиса немедленно. */
+  flush(): void {
+    flushFile(this.stateFile);
+  }
+
+  /** Стереть сохранение этого офиса вместе с отложенной записью. */
+  wipe(): void {
+    wipeFile(this.stateFile);
   }
 
   toPersisted(): Persisted {
@@ -193,7 +224,7 @@ class OfficeState {
    * или оно относится к другой рабочей директории.
    */
   restore(): boolean {
-    const data = load();
+    const data = load(this.stateFile);
     if (!data) return false;
     if (data.projectDir !== this.projectDir) {
       console.log('⚠️  Сохранение относится к другой рабочей директории — начинаю с чистого листа');
@@ -306,7 +337,7 @@ class OfficeState {
 
   /** Полный сброс по кнопке: стереть сохранение и начать с чистого листа. */
   hardReset(): void {
-    wipe();
+    this.wipe();
     this.seed();
     // Забываем и id сессий: разговор начинается с чистого листа.
     for (const inst of this.instances.values()) inst.sessionId = null;
