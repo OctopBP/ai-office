@@ -7,6 +7,7 @@ import type {
   CloudStatus, OfficeView,
 } from '../shared/types';
 import { emptyUsage } from '../shared/types';
+import { activityFromFile, summarize } from './activity';
 import { currentOffice, offices } from './offices';
 import { allRoles, getRoleOverrides, roleById, setRoleOverrides, type Role } from './roles';
 import { load, save, wipe, type Persisted, type PersistedInstance } from './store';
@@ -763,12 +764,19 @@ class OfficeState {
   }
 }
 
-/** Список офисов для UI: реестр плюс отметка текущего. */
+/**
+ * Список офисов для UI: реестр, отметка текущего и сводка активности.
+ * У текущего офиса берём её из памяти — файл отстаёт на дебаунс записи,
+ * у остальных читаем их сохранение.
+ */
 export const officeViews = (): OfficeView[] => {
   const current = currentOffice();
   return offices().map((o) => ({
     id: o.id, name: o.name, projectDir: o.projectDir,
     current: o.id === current?.id, lastOpenedAt: o.lastOpenedAt,
+    activity: o.id === current?.id
+      ? summarize({ tasks: [...office.tasks.values()], chat: office.chat, log: office.log })
+      : activityFromFile(o.stateFile),
   }));
 };
 

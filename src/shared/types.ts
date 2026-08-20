@@ -105,6 +105,19 @@ export interface CloudStatus {
   hasToken: boolean;
 }
 
+/**
+ * Сводка активности офиса для списка: она считается и по неоткрытым офисам,
+ * поэтому берётся из их файла состояния, а не из живой доски.
+ */
+export interface OfficeActivity {
+  /** Задачи, которые кто-то уже взял и ещё не закрыл. */
+  inProgress: number;
+  /** Сделаны, но ветка не слита — работа висит и ждёт человека. */
+  doneUnmerged: number;
+  /** Когда в офисе последний раз что-то происходило. null — ничего не было. */
+  lastEventAt: number | null;
+}
+
 /** Офис = проект: своя директория, доска, расходы и файл состояния. */
 export interface OfficeView {
   id: string;
@@ -112,6 +125,8 @@ export interface OfficeView {
   projectDir: string;
   current: boolean;
   lastOpenedAt: number;
+  /** Нет поля — сводку посчитать не удалось; ноль и «нет данных» разные вещи. */
+  activity?: OfficeActivity;
 }
 
 export interface InstanceView {
