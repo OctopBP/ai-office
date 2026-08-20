@@ -98,12 +98,8 @@ button:disabled { opacity: .5; cursor: default; }
 
 
 
-@keyframes bob { 50% { transform: translateY(-3px); } }
 
 
-.office .agent.selected .
-.office .agent.done .
-.office .agent.failed .
 
 
 
@@ -194,7 +190,6 @@ button:disabled { opacity: .5; cursor: default; }
 .modal-actions .allow:hover { background: rgba(63, 185, 80, .12); }
 .modal-actions .always:hover { background: var(--line); }
 .modal-hint { font-size: 11px; margin: 12px 0 0; line-height: 1.45; }
-.office .agent.waiting_approval .
 
 /* ---------- ветки задач ---------- */
 .task-branch {
@@ -304,8 +299,6 @@ button
 }
 .participant input { width: auto; margin: 0; }
 .participant.busy { opacity: .5; cursor: default; }
-.office .agent.talking .
-.office .agent.in-meeting .
 
 /* ---------- комната на спрайтах ---------- */
 
@@ -326,8 +319,8 @@ button
   position: absolute; width: 48px; cursor: pointer;
   transition: left .9s ease, top .9s ease;
 }
-.office .agent .
-.office .agent.busy .
+.office .agent .body { display: block; width: 48px; height: 72px; position: relative; }
+.office .agent.busy .body { animation: bob 1s ease-in-out infinite; }
 @keyframes bob { 50% { transform: translateY(-2px); } }
 .office .agent .shadow { position: absolute; left: 3px; bottom: 12px; opacity: .45; }
 .office .agent .badge {
@@ -335,10 +328,18 @@ button
   background: var(--panel); border: 1px solid var(--line); border-radius: 50%; padding: 0 2px; line-height: 1.2;
 }
 
-.office .agent.selected .
-.office .agent.in-meeting .
-.office .agent.failed .
-.office .agent.waiting_approval .
+/* Спрайты с прозрачным фоном: подсвечиваем свечением, а не рамкой.
+   Порядок = приоритет, последнее правило перекрывает предыдущие. */
+.office .agent.done .body { filter: drop-shadow(0 0 4px var(--green)); }
+.office .agent.talking .body { filter: drop-shadow(0 0 4px var(--accent)); }
+.office .agent.selected .body {
+  filter: drop-shadow(1px 0 0 var(--accent)) drop-shadow(-1px 0 0 var(--accent))
+          drop-shadow(0 1px 0 var(--accent)) drop-shadow(0 -1px 0 var(--accent))
+          drop-shadow(0 0 6px var(--accent));
+}
+.office .agent.in-meeting .body { filter: drop-shadow(0 0 4px var(--accent)); }
+.office .agent.failed .body { filter: drop-shadow(0 0 4px var(--red)); }
+.office .agent.waiting_approval .body { filter: drop-shadow(0 0 5px var(--red)); animation: pulse 1s infinite; }
 
 .bubble {
   position: absolute; bottom: 74px; left: 50%; transform: translateX(-50%);
@@ -545,3 +546,85 @@ kbd {
   background: none; border: none; padding: 3px 0; color: var(--muted); font-size: 12px;
 }
 .drawer-links .link:hover { color: var(--accent); }
+
+/* ================= пауза офиса ================= */
+/* Пауза видна и в мире, и в HUD: замерший агент сереет, как в макете 08. */
+.office .agent.paused .body { filter: grayscale(1); opacity: .55; }
+.app.paused .office::after {
+  content: ''; position: absolute; inset: 0; z-index: 20; pointer-events: none;
+  background: var(--shadow);
+}
+.hud .paused-chip {
+  display: flex; align-items: center; padding: 6px 11px;
+  color: var(--accent); font-size: 12px; letter-spacing: .06em;
+  border-color: var(--accent);
+}
+button.sq.on { background: var(--accent); color: var(--accent-ink); }
+
+/* ================= критерии готовности ================= */
+.criteria-head {
+  font-size: 11px; text-transform: uppercase; letter-spacing: .05em;
+  color: var(--muted); margin-bottom: 3px;
+}
+.criterion { display: flex; gap: 6px; align-items: baseline; font-size: 12px; color: var(--muted); }
+.criterion .mark { color: var(--line-soft); width: 10px; flex: none; text-align: center; }
+.criterion.done { color: var(--text); }
+.criterion.done .mark { color: var(--green); }
+.task .criteria { margin-top: 6px; }
+
+/* ================= расходы ================= */
+.hud .money { cursor: pointer; text-align: left; padding: 6px 13px; }
+.usage-total {
+  display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px;
+  margin: 12px 0 16px;
+}
+.usage-total > div {
+  display: flex; flex-direction: column; gap: 2px;
+  background: var(--panel-2); border: 1px solid var(--line); border-radius: 7px; padding: 8px 10px;
+}
+.usage-total b { font-size: 16px; font-variant-numeric: tabular-nums; }
+.modal h4 {
+  margin: 14px 0 6px; font-size: 12px; text-transform: uppercase;
+  letter-spacing: .05em; color: var(--muted);
+}
+.usage-days { display: flex; gap: 8px; align-items: flex-end; }
+.usage-day {
+  flex: 1; display: flex; flex-direction: column; align-items: center; gap: 2px;
+  justify-content: flex-end;
+}
+.usage-bar { width: 100%; background: var(--accent); border: 1px solid var(--line); border-radius: 3px 3px 0 0; }
+.usage-rows { display: flex; flex-direction: column; }
+.usage-row {
+  display: flex; align-items: center; gap: 10px; padding: 5px 2px;
+  border-bottom: 1px solid var(--line-soft); font-size: 13px;
+}
+.usage-row:last-child { border-bottom: none; }
+.usage-row .row-title { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.usage-row b { margin-left: auto; font-variant-numeric: tabular-nums; }
+.usage-lines { display: flex; flex-direction: column; gap: 3px; font-size: 12px; }
+.small { font-size: 11px; }
+
+/* ================= офисы и облако ================= */
+.hotspot.door { padding: 0; border: none; background: none; }
+.offices { display: flex; flex-direction: column; margin: 12px 0; }
+.office-row {
+  display: flex; align-items: center; gap: 10px; padding: 8px 6px;
+  border-bottom: 1px solid var(--line-soft);
+}
+.office-row:last-child { border-bottom: none; }
+.office-row.current { background: rgba(240, 180, 41, .1); border-radius: 6px; }
+.office-who { flex: 1; min-width: 0; }
+.office-who .mono { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.engine { display: flex; gap: 8px; margin-bottom: 12px; }
+.engine button {
+  flex: 1; display: flex; flex-direction: column; gap: 3px;
+  align-items: flex-start; text-align: left; padding: 9px 11px;
+}
+.engine button.on { background: var(--accent); color: var(--accent-ink); }
+.engine button.on .muted { color: var(--accent-ink); opacity: .75; }
+.ready {
+  font-size: 12px; padding: 7px 10px; border-radius: 6px; margin-bottom: 12px;
+  border: 1px solid var(--line-soft);
+}
+.ready.ok { color: var(--green); border-color: var(--green); }
+.ready.bad { color: var(--red); border-color: var(--red); }

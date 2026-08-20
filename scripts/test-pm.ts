@@ -161,6 +161,74 @@ const SCENARIOS: Scenario[] = [
     ],
   },
   {
+    name: 'Критерии готовности — список проверяемых пунктов',
+    prompt: 'Поручи бэкендеру сделать эндпоинт GET /notes с постраничной выдачей.',
+    checks: [
+      { what: 'создал задачу', ok: (r) => r.tasks.length >= 1 },
+      {
+        // Один абзац вместо списка — это возврат к старому формату: отмечать
+        // по ходу работы нечего, и прогресс «2 из 4» показать не из чего.
+        what: 'у каждой задачи минимум два отдельных критерия',
+        ok: (r) => r.tasks.length > 0 && r.tasks.every((t) => t.criteria.length >= 2),
+      },
+      {
+        what: 'критерии не пустые',
+        ok: (r) => r.tasks.every((t) => t.criteria.every((c) => c.text.trim().length > 3)),
+      },
+      {
+        what: 'заглушка исполнителя отметила критерии выполненными',
+        ok: (r) => r.tasks.some((t) => t.status === 'done' && t.criteria.every((c) => c.done)),
+      },
+    ],
+  },
+  {
+    name: 'На паузе новые задачи не запускаются',
+    prompt: 'Поручи бэкендеру создать файл paused.txt.',
+    before: (ws) => ws.send(JSON.stringify({ c: 'pause', paused: true })),
+    checks: [
+      { what: 'задача на доске появилась', ok: (r) => r.tasks.length >= 1 },
+      { what: 'ни одна не ушла в работу', ok: (r) => r.tasks.every((t) => t.assigneeId === null) },
+      {
+        what: 'менеджер сказал про паузу, а не про готовность',
+        ok: (r) => /пауз/i.test(r.pmText) && !/готово|выполнено|сделал/i.test(r.pmText),
+      },
+    ],
+  },
+  {
+    name: 'После снятия паузы задача уходит в работу',
+    prompt: 'Поручи бэкендеру создать файл resumed.txt.',
+    before: (ws) => ws.send(JSON.stringify({ c: 'pause', paused: true })),
+    drive: async (ws, run) => {
+      ws.send(JSON.stringify({ c: 'user_message', text: 'Поручи бэкендеру создать файл resumed.txt.' }));
+      // Ждём задачу на доске, потом снимаем паузу: менеджер должен раздать её сам.
+      for (let i = 0; i < 300; i += 1) {
+        if (run.snapshot().length > 0) {
+          await new Promise((r) => setTimeout(r, 3000));
+          ws.send(JSON.stringify({ c: 'pause', paused: false }));
+          return;
+        }
+        await new Promise((r) => setTimeout(r, 200));
+      }
+    },
+    checks: [
+      { what: 'задача назначена после снятия паузы', ok: (r) => r.tasks.some((t) => t.assigneeId !== null) },
+    ],
+  },
+  {
+    name: 'Ненастроенное облако не выдаётся за работу',
+    prompt: 'Поручи бэкендеру создать файл cloud.txt.',
+    before: (ws) => ws.send(JSON.stringify({ c: 'settings', settings: { engine: 'cloud' } })),
+    checks: [
+      { what: 'задача на доске появилась', ok: (r) => r.tasks.length >= 1 },
+      { what: 'ни одна не ушла в работу', ok: (r) => r.tasks.every((t) => t.assigneeId === null) },
+      {
+        what: 'сказал, что облачный режим не настроен',
+        ok: (r) => /облач|API|репозитор|токен/i.test(r.pmText),
+      },
+      { what: 'не выдал невыполненное за сделанное', ok: (r) => !/готово|выполнено|сделал/i.test(r.pmText) },
+    ],
+  },
+  {
     name: 'Разговор с занятым исполнителем не начинается',
     prompt: 'Поручи бэкендеру добавить постраничную выдачу заметок.',
     drive: async (ws, run) => {

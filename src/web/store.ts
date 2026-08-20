@@ -1,9 +1,10 @@
 import { create } from 'zustand';
 import type {
-  ChatEntry, InstanceView, LogEntry, PermissionDecision, PermissionRequest,
-  MeetingView, RoleEditable, RoleView, ServerEvent, Settings, TaskView,
+  ChatEntry, DayUsage, InstanceView, LogEntry, PermissionDecision, PermissionRequest,
+  MeetingView, RoleEditable, RoleView, ServerEvent, Settings, TaskView, Usage,
+  CloudStatus, OfficeView,
 } from '../shared/types';
-import { MEETING_SEATS } from '../shared/types';
+import { emptyUsage, MEETING_SEATS } from '../shared/types';
 import type { Theme } from './sprites';
 
 interface Pos { x: number; y: number }
@@ -19,6 +20,15 @@ export interface Toast {
 interface State {
   connected: boolean;
   busy: boolean;
+  /** Офис на паузе: новая работа не запускается, исполнители замирают. */
+  paused: boolean;
+  /** Офисы = проекты: список и текущий. */
+  offices: OfficeView[];
+  /** Готовность облачного режима: ключ API и токен GitHub. */
+  cloud: CloudStatus;
+  /** Расход офиса за всё время и по дням — для HUD и панели расходов. */
+  usage: Usage;
+  usageDays: DayUsage[];
   projectDir: string;
   authSource: 'subscription' | 'api-key' | 'unknown';
   roles: RoleView[];
@@ -48,6 +58,11 @@ interface State {
 export const useStore = create<State>((set, get) => ({
   connected: false,
   busy: false,
+  paused: false,
+  offices: [],
+  cloud: { hasKey: false, hasToken: false },
+  usage: emptyUsage(),
+  usageDays: [],
   projectDir: '',
   authSource: 'unknown',
   roles: [],
@@ -56,7 +71,7 @@ export const useStore = create<State>((set, get) => ({
   chat: [],
   log: [],
   permissions: [],
-  settings: { globalBudgetUsd: null, taskBudgetUsd: null },
+  settings: { globalBudgetUsd: null, taskBudgetUsd: null, engine: 'local', cloudRepoUrl: null },
   meeting: null,
   theme: (localStorage.getItem('office-theme') as Theme | null) ?? 'day',
   toasts: [],
@@ -80,6 +95,8 @@ export const useStore = create<State>((set, get) => ({
           tasks: Object.fromEntries(e.tasks.map((t) => [t.id, t])),
           chat: e.chat, log: e.log, permissions: e.permissions, settings: e.settings,
           projectDir: e.projectDir, authSource: e.authSource, meeting: e.meeting, busy: e.busy,
+          paused: e.paused, usage: e.usage.total, usageDays: e.usage.days,
+          offices: e.offices, cloud: e.cloud,
         });
         break;
       }
@@ -111,7 +128,7 @@ export const useStore = create<State>((set, get) => ({
             kind: t.status === 'done' ? 'done' : 'failed',
             title: `${t.assigneeId ?? 'кто-то'} ${t.status === 'done' ? 'закончил' : 'провалил'} ${t.id} «${t.title}»`,
             detail: t.status === 'done'
-              ? `+$${t.costUsd.toFixed(3)}${files}${t.branch && !t.merged ? ' · нужно слияние' : ''}`
+              ? `+$${t.usage.costUsd.toFixed(3)}${files}${t.branch && !t.merged ? ' · нужно слияние' : ''}`
               : (t.result ?? '').slice(0, 120),
             taskId: t.id,
           });
@@ -130,6 +147,18 @@ export const useStore = create<State>((set, get) => ({
         break;
       case 'busy':
         set({ busy: e.busy });
+        break;
+      case 'paused':
+        set({ paused: e.paused });
+        break;
+      case 'offices':
+        set({ offices: e.offices });
+        break;
+      case 'cloud':
+        set({ cloud: e.cloud });
+        break;
+      case 'usage':
+        set({ usage: e.total, usageDays: e.days });
         break;
       case 'roles':
         set({ roles: e.roles });
@@ -266,6 +295,27 @@ export function closeDiff(): void {
 
 export function assignDirect(taskId: string, instanceId: string): void {
   socket?.send(JSON.stringify({ c: 'assign_direct', taskId, instanceId }));
+}
+
+export function switchOffice(officeId: string): void {
+  socket?.send(JSON.stringify({ c: 'switch_office', officeId }));
+}
+
+export function createOffice(name: string, projectDir: string): void {
+  socket?.send(JSON.stringify({ c: 'create_office', name, projectDir }));
+}
+
+export function renameOffice(officeId: string, name: string): void {
+  socket?.send(JSON.stringify({ c: 'rename_office', officeId, name }));
+}
+
+/** Токен GitHub уходит на сервер и живёт только в памяти процесса. */
+export function setCloudToken(token: string): void {
+  socket?.send(JSON.stringify({ c: 'cloud_token', token }));
+}
+
+export function setPaused(paused: boolean): void {
+  socket?.send(JSON.stringify({ c: 'pause', paused }));
 }
 
 export function reset(): void {

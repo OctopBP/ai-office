@@ -1,9 +1,12 @@
 import { randomUUID } from 'node:crypto';
 import type {
-  AgentState, ChatEntry, Desk, InstanceView, LogEntry, PermissionDecision,
-  AuthSource, MeetingView, PermissionRequest, RoleEditable, RoleView, ServerEvent,
-  Settings, TaskStatus, TaskView,
+  AgentState, ChatEntry, Criterion, DayUsage, Desk, InstanceView, LogEntry,
+  PermissionDecision, AuthSource, MeetingView, PermissionRequest, RoleEditable,
+  RoleView, ServerEvent, Settings, TaskStatus, TaskView, Usage,
+  CloudStatus, OfficeView,
 } from '../shared/types';
+import { emptyUsage } from '../shared/types';
+import { currentOffice, offices } from './offices';
 import { allRoles, getRoleOverrides, roleById, setRoleOverrides, type Role } from './roles';
 import { load, save, wipe, type Persisted, type PersistedInstance } from './store';
 
@@ -19,6 +22,51 @@ export const DESKS: Desk[] = [
 
 type Listener = (e: ServerEvent) => void;
 
+/** Сколько дней истории расходов держим — на «за день» и недельный график. */
+const DAYS_KEPT = 14;
+
+/** Настройки офиса по умолчанию — они же дополняют старые сохранения. */
+export const DEFAULT_SETTINGS: Settings = {
+  globalBudgetUsd: null,
+  taskBudgetUsd: null,
+  engine: 'local',
+  cloudRepoUrl: null,
+};
+
+/** Ключ дня в местном времени: расход «за сегодня» считается по часам пользователя. */
+export function dayKey(at = Date.now()): string {
+  const d = new Date(at);
+  const pad = (n: number) => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+}
+
+/** Складывает расход в накопитель. Возвращает его же — удобно в цепочках. */
+function accumulate(into: Usage, delta: Usage): Usage {
+  into.costUsd += delta.costUsd;
+  into.tokensIn += delta.tokensIn;
+  into.tokensOut += delta.tokensOut;
+  into.cacheRead += delta.cacheRead;
+  into.cacheWrite += delta.cacheWrite;
+  return into;
+}
+
+/** Расход за день из журнала: отсутствующий день — это нули, а не пропуск. */
+function dayOf(journal: Record<string, Usage>, day: string): Usage {
+  const found = journal[day];
+  if (found) return found;
+  const fresh = emptyUsage();
+  journal[day] = fresh;
+  return fresh;
+}
+
+/** Обрезает журнал до DAYS_KEPT последних дней: иначе он растёт бесконечно. */
+function trimJournal(journal: Record<string, Usage>): void {
+  const days = Object.keys(journal).sort();
+  for (const day of days.slice(0, Math.max(0, days.length - DAYS_KEPT))) {
+    delete journal[day];
+  }
+}
+
 export interface Instance {
   id: string;
   roleId: string;
@@ -29,7 +77,9 @@ export interface Instance {
   state: AgentState;
   currentTaskId: string | null;
   note: string | null;
-  costUsd: number;
+  usage: Usage;
+  /** Расход по дням: «сколько агент стоил сегодня» без пересчёта всей истории. */
+  daily: Record<string, Usage>;
   abort: AbortController | null;
 }
 
@@ -37,7 +87,7 @@ export interface Task {
   id: string;
   title: string;
   description: string;
-  acceptanceCriteria: string;
+  criteria: Criterion[];
   roleId: string | null;
   assigneeId: string | null;
   status: TaskStatus;
@@ -50,9 +100,7 @@ export interface Task {
   createdAt: number;
   startedAt: number | null;
   finishedAt: number | null;
-  costUsd: number;
-  tokensIn: number;
-  tokensOut: number;
+  usage: Usage;
 }
 
 interface Pending {
@@ -76,8 +124,24 @@ class OfficeState {
   /** Режим проверки поведения PM: исполнители заглушены, задачи закрываются мгновенно. */
   dryRun = false;
   meeting: MeetingView | null = null;
-  settings: Settings = { globalBudgetUsd: null, taskBudgetUsd: null };
+  settings: Settings = { ...DEFAULT_SETTINGS };
   authSource: AuthSource = 'unknown';
+  /** Какой офис сейчас открыт: от него зависят worktree и файл состояния. */
+  officeId = 'o-1';
+  /** Готовность облачного режима. Ключ и токен в состояние не пишутся. */
+  cloud: CloudStatus = { hasKey: false, hasToken: false };
+  /**
+   * Пауза офиса: новая работа не запускается, а живые сессии замирают
+   * на следующем вызове инструмента. Не сохраняется на диск — пауза
+   * относится к живым сессиям, а после перезапуска их всё равно нет.
+   */
+  paused = false;
+  /** Расход офиса за всё время — считается отдельно, чтобы увольнение клона не обнуляло сумму. */
+  usage: Usage = emptyUsage();
+  /** Расход офиса по дням. */
+  daily: Record<string, Usage> = {};
+  /** Кого разбудить, когда паузу снимут. */
+  private resumeWaiters = new Set<() => void>();
   private listeners = new Set<Listener>();
   private taskSeq = 0;
   private permSeq = 0;
@@ -113,8 +177,10 @@ class OfficeState {
       roleOverrides: getRoleOverrides(),
       instances: [...this.instances.values()].map<PersistedInstance>((i) => ({
         id: i.id, roleId: i.roleId, deskIndex: i.desk.index,
-        costUsd: i.costUsd, sessionId: i.sessionId,
+        usage: i.usage, daily: i.daily, sessionId: i.sessionId,
       })),
+      usage: this.usage,
+      daily: this.daily,
       savedAt: Date.now(),
     };
   }
@@ -133,14 +199,19 @@ class OfficeState {
 
     // Роли восстанавливаем ДО seed: от них зависят названия и лимиты инстансов.
     setRoleOverrides(data.roleOverrides ?? {});
-    this.settings = data.settings ?? { globalBudgetUsd: null, taskBudgetUsd: null };
+    // Сохранения старше настройки движка не знают про облако — дополняем.
+    this.settings = { ...DEFAULT_SETTINGS, ...(data.settings ?? {}) };
     this.seed();
     this.taskSeq = data.taskSeq;
     // Записи из версий до появления веток чата относим к разговору с менеджером.
     this.chat = (data.chat ?? []).map((c) => ({ ...c, thread: c.thread ?? 'pm#1' }));
     this.log = data.log ?? [];
 
-    for (const t of data.tasks ?? []) {
+    this.usage = { ...emptyUsage(), ...(data.usage ?? {}) };
+    this.daily = data.daily ?? {};
+
+    for (const raw of data.tasks ?? []) {
+      const t = migrateTask(raw);
       // Задачу, прерванную перезапуском, нельзя выдавать за выполненную:
       // сессия исполнителя умерла вместе с процессом.
       if (t.status === 'in_progress' || t.status === 'assigned') {
@@ -160,9 +231,16 @@ class OfficeState {
     for (const pi of data.instances ?? []) {
       const inst = this.instances.get(pi.id);
       if (inst) {
-        inst.costUsd = pi.costUsd;
+        // Сохранения до детализации расходов знали только сумму — токенов
+        // в них нет, и придумывать их нельзя: пусть остаются нулями.
+        inst.usage = { ...emptyUsage(), ...(pi.usage ?? { costUsd: pi.costUsd ?? 0 }) };
+        inst.daily = pi.daily ?? {};
         inst.sessionId = pi.sessionId;
       }
+    }
+    // Офисной суммы в старых сохранениях тоже нет — собираем её из агентов.
+    if (!data.usage) {
+      for (const inst of this.instances.values()) accumulate(this.usage, inst.usage);
     }
     return true;
   }
@@ -189,6 +267,9 @@ class OfficeState {
     this.pending.clear();
     this.alwaysAllowed.clear();
     this.alwaysDenied.clear();
+    this.usage = emptyUsage();
+    this.daily = {};
+    this.setPaused(false);
     for (const role of allRoles()) this.spawn(role.id);
   }
 
@@ -224,7 +305,8 @@ class OfficeState {
       state: 'idle',
       currentTaskId: null,
       note: null,
-      costUsd: 0,
+      usage: emptyUsage(),
+      daily: {},
       sessionId: null,
       abort: null,
     };
@@ -242,24 +324,45 @@ class OfficeState {
     this.emit({ t: 'instance', instance: toInstanceView(inst) });
   }
 
-  addCost(id: string, usd: number, tokens?: { input: number; output: number }): void {
+  /**
+   * Записать расход сессии. Одно и то же попадает в четыре места:
+   * задача, агент, день агента и офис. «Сколько стоила задача»,
+   * «сколько стоил агент» и «сколько потрачено сегодня» — разные вопросы,
+   * и ответ на каждый нужен в своём месте интерфейса.
+   */
+  addUsage(id: string, delta: Usage): void {
     const inst = this.instances.get(id);
     if (!inst) return;
-    // Расход пишем и агенту, и его текущей задаче: «сколько стоил агент»
-    // и «сколько стоила задача» — разные вопросы, оба нужны в дровере.
+    const day = dayKey();
+
     if (inst.currentTaskId) {
       const task = this.tasks.get(inst.currentTaskId);
       if (task) {
-        task.costUsd += usd;
-        task.tokensIn += tokens?.input ?? 0;
-        task.tokensOut += tokens?.output ?? 0;
+        accumulate(task.usage, delta);
         this.emit({ t: 'task', task: toTaskView(task) });
       }
     }
-    if (!usd) return;
-    inst.costUsd += usd;
+
+    accumulate(inst.usage, delta);
+    accumulate(dayOf(inst.daily, day), delta);
+    trimJournal(inst.daily);
     this.emit({ t: 'instance', instance: toInstanceView(inst) });
+
+    accumulate(this.usage, delta);
+    accumulate(dayOf(this.daily, day), delta);
+    trimJournal(this.daily);
+    this.emit({ t: 'usage', total: this.usage, days: this.usageDays() });
     this.markDirty();
+  }
+
+  /** История расходов офиса по дням, от старых к новым. */
+  usageDays(): DayUsage[] {
+    return Object.keys(this.daily).sort().map((day) => ({ day, usage: this.daily[day] }));
+  }
+
+  /** Расход офиса за сегодня. */
+  todayUsage(): Usage {
+    return this.daily[dayKey()] ?? emptyUsage();
   }
 
   /** Свободный исполнитель нужной роли, иначе null. */
@@ -272,14 +375,14 @@ class OfficeState {
   // ---------- задачи ----------
 
   createTask(input: {
-    title: string; description: string; acceptanceCriteria: string; roleId: string | null;
+    title: string; description: string; criteria: string[]; roleId: string | null;
   }): Task {
     this.taskSeq += 1;
     const task: Task = {
       id: `T-${this.taskSeq}`,
       title: input.title,
       description: input.description,
-      acceptanceCriteria: input.acceptanceCriteria,
+      criteria: input.criteria.map((text) => ({ text, done: false })),
       roleId: input.roleId,
       assigneeId: null,
       status: 'backlog',
@@ -292,9 +395,7 @@ class OfficeState {
       createdAt: Date.now(),
       startedAt: null,
       finishedAt: null,
-      costUsd: 0,
-      tokensIn: 0,
-      tokensOut: 0,
+      usage: emptyUsage(),
     };
     this.tasks.set(task.id, task);
     this.emit({ t: 'task', task: toTaskView(task) });
@@ -309,6 +410,27 @@ class OfficeState {
     this.emit({ t: 'task', task: toTaskView(task) });
     this.markDirty();
     return task;
+  }
+
+  /**
+   * Отметить критерий выполненным. Возвращает описание прогресса или
+   * причину отказа — исполнитель видит её как результат вызова инструмента.
+   */
+  checkCriterion(taskId: string, index: number, done = true): { ok: boolean; text: string } {
+    const task = this.tasks.get(taskId);
+    if (!task) return { ok: false, text: `Задачи ${taskId} нет на доске.` };
+    const item = task.criteria[index - 1];
+    if (!item) {
+      return {
+        ok: false,
+        text: `У задачи ${taskId} нет критерия №${index}. Всего критериев: ${task.criteria.length}.`,
+      };
+    }
+    item.done = done;
+    this.emit({ t: 'task', task: toTaskView(task) });
+    this.markDirty();
+    const { done: ready, total } = criteriaProgress(task);
+    return { ok: true, text: `Критерий №${index} «${clipText(item.text, 60)}» — ${done ? 'выполнен' : 'снова не выполнен'}. Готово ${ready} из ${total}.` };
   }
 
   // ---------- чат и лог ----------
@@ -428,7 +550,7 @@ class OfficeState {
   }
 
   totalCost(): number {
-    return [...this.instances.values()].reduce((sum, i) => sum + i.costUsd, 0);
+    return this.usage.costUsd;
   }
 
   /** Исчерпан ли общий бюджет офиса. */
@@ -459,6 +581,68 @@ class OfficeState {
     this.emit({ t: 'meeting', meeting });
   }
 
+  /**
+   * Пауза и снятие паузы. Пауза не трогает уже начатые вызовы инструментов:
+   * агент замирает на следующем — прервать вызов на середине означало бы
+   * потерять сделанное, а это работа кнопки «Остановить», а не паузы.
+   */
+  setPaused(paused: boolean): void {
+    if (this.paused === paused) return;
+    this.paused = paused;
+    this.emit({ t: 'paused', paused });
+    if (!paused) {
+      for (const wake of this.resumeWaiters) wake();
+      this.resumeWaiters.clear();
+    }
+  }
+
+  /** Ждать снятия паузы. Прерванная сессия просыпается сразу. */
+  whenResumed(signal?: AbortSignal): Promise<void> {
+    if (!this.paused || signal?.aborted) return Promise.resolve();
+    return new Promise<void>((resolve) => {
+      const wake = () => {
+        this.resumeWaiters.delete(wake);
+        resolve();
+      };
+      this.resumeWaiters.add(wake);
+      signal?.addEventListener('abort', wake, { once: true });
+    });
+  }
+
+  /** Сообщить UI о готовности облачного режима. */
+  setCloud(patch: Partial<CloudStatus>): void {
+    this.cloud = { ...this.cloud, ...patch };
+    this.emit({ t: 'cloud', cloud: this.cloud });
+  }
+
+  /**
+   * Забыть всё, что относится к прежнему офису, не трогая файл на диске:
+   * состояние другого проекта восстанавливается отдельно.
+   */
+  unload(): void {
+    for (const p of this.pending.values()) {
+      clearTimeout(p.timer);
+      p.resolve('deny');
+    }
+    this.pending.clear();
+    this.instances.clear();
+    this.tasks.clear();
+    this.chat = [];
+    this.log = [];
+    this.meeting = null;
+    this.busy = false;
+    this.paused = false;
+    this.usage = emptyUsage();
+    this.daily = {};
+    this.alwaysAllowed.clear();
+    this.alwaysDenied.clear();
+    this.settings = { ...DEFAULT_SETTINGS };
+    this.taskSeq = 0;
+    // Правки ролей принадлежат офису, а не процессу: без сброса настройки
+    // одного проекта переезжали бы в другой.
+    setRoleOverrides({});
+  }
+
   setBusy(busy: boolean): void {
     if (this.busy === busy) return;
     this.busy = busy;
@@ -479,23 +663,66 @@ class OfficeState {
       authSource: this.authSource,
       meeting: this.meeting,
       busy: this.busy,
+      paused: this.paused,
+      usage: { total: this.usage, days: this.usageDays() },
+      offices: officeViews(),
+      cloud: this.cloud,
     };
   }
 }
 
+/** Список офисов для UI: реестр плюс отметка текущего. */
+export const officeViews = (): OfficeView[] => {
+  const current = currentOffice();
+  return offices().map((o) => ({
+    id: o.id, name: o.name, projectDir: o.projectDir,
+    current: o.id === current?.id, lastOpenedAt: o.lastOpenedAt,
+  }));
+};
+
 export const toInstanceView = (i: Instance): InstanceView => ({
   id: i.id, roleId: i.roleId, label: i.label, desk: i.desk,
-  state: i.state, currentTaskId: i.currentTaskId, note: i.note, costUsd: i.costUsd,
+  state: i.state, currentTaskId: i.currentTaskId, note: i.note,
+  usage: i.usage, today: i.daily[dayKey()] ?? emptyUsage(),
 });
 
 export const toTaskView = (t: Task): TaskView => ({
   id: t.id, title: t.title, description: t.description,
-  acceptanceCriteria: t.acceptanceCriteria, roleId: t.roleId,
+  criteria: t.criteria, roleId: t.roleId,
   assigneeId: t.assigneeId, status: t.status, result: t.result,
   files: t.files, branch: t.branch, baseBranch: t.baseBranch,
   worktreePath: t.worktreePath, merged: t.merged, createdAt: t.createdAt,
   startedAt: t.startedAt, finishedAt: t.finishedAt,
-  costUsd: t.costUsd, tokensIn: t.tokensIn, tokensOut: t.tokensOut,
+  usage: t.usage,
 });
+
+/** Сколько критериев отмечено — одна формулировка на весь офис. */
+export const criteriaProgress = (t: Task | TaskView): { done: number; total: number } => ({
+  done: t.criteria.filter((c) => c.done).length,
+  total: t.criteria.length,
+});
+
+const clipText = (s: string, n: number): string => (s.length > n ? `${s.slice(0, n - 1)}…` : s);
+
+/**
+ * Сохранения до структурированных критериев держали один текст, а расход —
+ * тремя плоскими полями. Читаем и то и другое: терять доску из-за смены
+ * формата нельзя.
+ */
+function migrateTask(raw: Task & {
+  acceptanceCriteria?: string; costUsd?: number; tokensIn?: number; tokensOut?: number;
+}): Task {
+  const criteria: Criterion[] = raw.criteria ?? (raw.acceptanceCriteria
+    ? raw.acceptanceCriteria.split(/\n+/).map((line) => line.replace(/^[-—•*\d.)\s]+/, '').trim())
+      .filter(Boolean).map((text) => ({ text, done: false }))
+    : []);
+  const usage: Usage = raw.usage ?? {
+    ...emptyUsage(),
+    costUsd: raw.costUsd ?? 0,
+    tokensIn: raw.tokensIn ?? 0,
+    tokensOut: raw.tokensOut ?? 0,
+  };
+  return { ...raw, criteria, usage };
+}
 
 export const office = new OfficeState();

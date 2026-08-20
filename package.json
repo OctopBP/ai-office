@@ -11,11 +11,13 @@
     "smoke": "tsx scripts/smoke.ts",
     "probe": "tsx scripts/probe.ts",
     "test:perm": "tsx scripts/test-permissions.ts",
+    "test:state": "tsx scripts/test-state.ts",
     "restart": "bash scripts/restart-server.sh",
     "test:pm": "bash scripts/run-pm-tests.sh"
   },
   "dependencies": {
     "@anthropic-ai/claude-agent-sdk": "^0.3.234",
+    "@anthropic-ai/sdk": "^0.117.1",
     "react": "^19.2.8",
     "react-dom": "^19.2.8",
     "ws": "^8.21.3",

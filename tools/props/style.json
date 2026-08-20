@@ -1,0 +1,54 @@
+{
+  "models": {
+    "flash": "gemini-3.1-flash-image",
+    "pro": "gemini-3-pro-image"
+  },
+  "tile_px": 32,
+  "scale": 4,
+  "image_size": "1K",
+  "variants": 3,
+  "concurrency": 2,
+
+  "key_color": "#FF00FF",
+  "key_hard": 60,
+  "key_soft": 110,
+  "palette_colors": 32,
+
+  "style_prefix": "cozy pixel-art game asset, 3/4 top-down view with a slight isometric tilt (camera about 35 degrees above the horizon, front face and top surface both visible, top:front ratio about 2:1), simple rounded shapes, thick dark-brown outline (#3A2C24), soft warm pastel palette, flat two-tone shading with light from the top-left, tiny highlights, no gradients, no text, no letters, no watermark, single isolated object centered with generous margin, consistent scale where one floor tile is 32 px, crisp pixels, no anti-aliasing blur",
+
+  "tile_prefix": "seamless tileable pixel-art texture, straight top-down orthographic view, no perspective, no outline on the tile border, soft warm pastel palette, subtle two-tone pattern, no text, exact square, the texture fills the entire canvas edge to edge and repeats without visible seams",
+
+  "wall_prefix": "cozy pixel-art game asset, interior wall segment seen straight from the front (the wall stands vertically, we see its face and the top edge as a thin lighter strip), thick dark-brown outline (#3A2C24), soft warm pastel palette, flat two-tone shading, no gradients, no text, tileable horizontally (left and right edges continue seamlessly), the segment fills the canvas width",
+
+  "char_rules": "chibi proportions, head about 40% of the total height, standing on a one-tile footprint, simple dot eyes, small smile, thick dark-brown outline, flat colors, transparent-looking plain background, the character centered with margin, full body visible including feet",
+
+  "ref_hint": "Match EXACTLY the art style, outline thickness, camera tilt, level of detail and palette of the reference image(s); the new object must look like it belongs to the same set.",
+
+  "bg_hint": "The entire background is one flat solid color {BG} covering the whole canvas, nothing else in the frame, no shadow or gradient on the background, the object never touches the canvas edges.",
+
+  "avoid": "Avoid: photorealism, 3D render, blur, soft focus, strong perspective, vanishing point, gradients, background shadow, text, letters, numbers, watermark, logo, cropping, multiple objects, extra limbs.",
+
+  "themes": {
+    "A": {
+      "name": "Лофт / день",
+      "palette": "light oak wood #D9B98A, warm grey floor #D9D6DE, cream walls #F4F3F7, sage green plants #5DAE6A, accents mustard #F6C445 and terracotta #E07A5F"
+    },
+    "B": {
+      "name": "Ночь / неон",
+      "palette": "dark indigo floor #2B2D45, slate walls #3D4066, navy furniture #4A4E7A, neon cyan #7EE0F5 and neon pink #F55CB0 accents, warm lamp glow #FFD27A"
+    },
+    "C": {
+      "name": "Ретро-пиксель",
+      "palette": "beige tiles #CFC7A4, cream walls #E9E4D0, warm brown wood #B98A5A, dusty teal #7FB0A8, red accents #D95F4B"
+    }
+  },
+
+  "roles": {
+    "pm":       { "color": "#E9A23B", "desc": "warm orange (#E9A23B) knitted vest over a white shirt, round glasses, short brown hair, holds a small clipboard" },
+    "backend":  { "color": "#4C8DF6", "desc": "blue (#4C8DF6) hoodie with the hood down, dark jeans, messy dark hair, small headphones around the neck" },
+    "frontend": { "color": "#E05C7A", "desc": "pink-red (#E05C7A) t-shirt, light jeans, bright dyed hair with a teal streak, a sticker-covered laptop under one arm in walking poses", "bg": "#00FF00" },
+    "uiux":     { "color": "#9B6BF2", "desc": "purple (#9B6BF2) oversized sweater, a beret, holds a small tablet with a stylus", "bg": "#00FF00" },
+    "smm":      { "color": "#4CC38A", "desc": "green (#4CC38A) bomber jacket, cap worn backwards, holds a smartphone" },
+    "lawyer":   { "color": "#C7CBD9", "desc": "light grey (#C7CBD9) blazer over a dark turtleneck, neat hair, holds a folder" }
+  }
+}

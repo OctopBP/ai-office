@@ -178,3 +178,19 @@ export async function preserveBranch(repoDir: string, branch: string): Promise<s
   }
   return null;
 }
+
+/** URL origin — по нему облачный режим понимает, какой репозиторий монтировать. */
+export async function remoteUrl(dir: string): Promise<string | null> {
+  const res = await git(dir, ['remote', 'get-url', 'origin']);
+  return res.ok && res.stdout ? res.stdout : null;
+}
+
+/**
+ * Забрать ветку из origin в локальный репозиторий. Облачный исполнитель
+ * пушит результат в GitHub, и без этого «Показать diff» и «Смержить»
+ * не с чем работать.
+ */
+export async function fetchBranch(dir: string, branch: string): Promise<boolean> {
+  const res = await git(dir, ['fetch', 'origin', `+${branch}:${branch}`]);
+  return res.ok;
+}

@@ -1,0 +1,15 @@
+{
+  "name": "chars_backend",
+  "items": [
+    {
+      "key": "backend/idle_south",
+      "kind": "char",
+      "role": "backend",
+      "pose": "idle_south",
+      "file": "raw/characters/backend/idle_south/N.png",
+      "aspect": "2:3",
+      "bg": "#FF00FF",
+      "prompt": "cozy pixel-art game asset, 3/4 top-down view with a slight isometric tilt (camera about 35 degrees above the horizon, front face and top surface both visible, top:front ratio about 2:1), simple rounded shapes, thick dark-brown outline (#3A2C24), soft warm pastel palette, flat two-tone shading with light from the top-left, tiny highlights, no gradients, no text, no letters, no watermark, single isolated object centered with generous margin, consistent scale where one floor tile is 32 px, crisp pixels, no anti-aliasing blur. pixel-art character: blue (#4C8DF6) hoodie with the hood down, dark jeans, messy dark hair, small headphones around the neck. chibi proportions, head about 40% of the total height, standing on a one-tile footprint, simple dot eyes, small smile, thick dark-brown outline, flat colors, transparent-looking plain background, the character centered with margin, full body visible including feet. Pose: standing still, facing the camera (south), relaxed arms, weight on both feet. The entire background is one flat solid color #FF00FF covering the whole canvas, nothing else in the frame, no shadow or gradient on the background, the object never touches the canvas edges. Match EXACTLY the art style, outline thickness, camera tilt, level of detail and palette of the reference image(s); the new object must look like it belongs to the same set. No props except what the character holds, no floor, no shadow. Avoid: photorealism, 3D render, blur, soft focus, strong perspective, vanishing point, gradients, background shadow, text, letters, numbers, watermark, logo, cropping, multiple objects, extra limbs. Output aspect ratio 2:3."
+    }
+  ]
+}

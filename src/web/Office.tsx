@@ -10,13 +10,13 @@ const px = (tiles: number) => tiles * C;
 
 const STATE_TEXT: Record<AgentState, string> = {
   idle: 'свободен', thinking: 'думает', working: 'работает', walking: 'идёт',
-  talking: 'разговор', waiting_approval: 'ждёт разрешения', blocked: 'заблокирован',
-  done: 'сдал работу', failed: 'ошибка',
+  talking: 'разговор', waiting_approval: 'ждёт разрешения', paused: 'на паузе',
+  blocked: 'заблокирован', done: 'сдал работу', failed: 'ошибка',
 };
 
 const STATE_ICON: Record<AgentState, string> = {
   idle: '', thinking: '💭', working: '⌨️', walking: '', talking: '💬',
-  waiting_approval: '❗', blocked: '⏸', done: '✅', failed: '⚠️',
+  waiting_approval: '❗', paused: '⏸', blocked: '⏳', done: '✅', failed: '⚠️',
 };
 
 /** Неподвижная обстановка комнаты: спрайт и место в тайлах. */
@@ -24,7 +24,6 @@ const DECOR: Array<{ img: string; x: number; y: number; z?: number }> = [
   { img: 'clock', x: 17.6, y: 0.5 },
   { img: 'window', x: 19.4, y: 0.4 },
   { img: 'bookshelf', x: 22.2, y: 0.2 },
-  { img: 'door', x: 0.1, y: 5.6, z: 3 },
   { img: 'doormat', x: 0.9, y: 7.0 },
   { img: 'poster', x: 9.4, y: 2.4 },
   { img: 'neon_sign', x: 20.4, y: 2.5 },
@@ -53,7 +52,10 @@ const HOTSPOTS = [
   { img: 'logscreen', x: 6.2, y: 0.3, key: 'L', panel: 'log' as const, title: 'Лог событий — L' },
 ];
 
-export function Office({ onOpen }: { onOpen: (panel: 'board' | 'log') => void }) {
+export function Office({ onOpen, onDoor }: {
+  onOpen: (panel: 'board' | 'log') => void;
+  onDoor: () => void;
+}) {
   const instances = useStore((s) => s.instances);
   const roles = useStore((s) => s.roles);
   const pos = useStore((s) => s.pos);
@@ -149,6 +151,12 @@ export function Office({ onOpen }: { onOpen: (panel: 'board' | 'log') => void })
           </button>
         );
       })}
+
+      {/* дверь: за ней другие проекты — офис на проект */}
+      <button className="hotspot door" title="Офисы и проекты" onClick={onDoor}
+        style={{ left: px(0.1), top: px(5.6), zIndex: 3 }}>
+        <img src={img('door')} alt="" />
+      </button>
 
       {DECOR.map((d, i) => (
         <img

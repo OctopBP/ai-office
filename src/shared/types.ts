@@ -7,6 +7,7 @@ export type AgentState =
   | 'walking'
   | 'talking'
   | 'waiting_approval'
+  | 'paused'
   | 'blocked'
   | 'done'
   | 'failed';
@@ -19,6 +20,38 @@ export type TaskStatus =
   | 'blocked'
   | 'done'
   | 'failed';
+
+/**
+ * Расход одной сессии, агента, задачи или всего офиса.
+ * Ввод и кеш разнесены: кеш стоит в десять раз дешевле обычного ввода,
+ * и без разделения непонятно, почему 200k токенов стоили копейки.
+ */
+export interface Usage {
+  costUsd: number;
+  /** Свежий ввод — то, что модель читает по полной цене. */
+  tokensIn: number;
+  tokensOut: number;
+  /** Прочитано из кеша промпта. */
+  cacheRead: number;
+  /** Записано в кеш промпта. */
+  cacheWrite: number;
+}
+
+export interface DayUsage {
+  /** Дата в местном времени, 'ГГГГ-ММ-ДД'. */
+  day: string;
+  usage: Usage;
+}
+
+export const emptyUsage = (): Usage => ({
+  costUsd: 0, tokensIn: 0, tokensOut: 0, cacheRead: 0, cacheWrite: 0,
+});
+
+/** Пункт критерия готовности: исполнитель отмечает их по ходу работы. */
+export interface Criterion {
+  text: string;
+  done: boolean;
+}
 
 export interface Desk {
   index: number;
@@ -48,11 +81,35 @@ export interface RoleView extends RoleEditable {
 /** Откуда SDK берёт доступ: подписка Claude Code или платный ключ API. */
 export type AuthSource = 'subscription' | 'api-key' | 'unknown';
 
+/** Где выполняется задача: локальный Claude Code или Managed Agents в облаке. */
+export type Engine = 'local' | 'cloud';
+
 export interface Settings {
   /** Общий потолок расходов офиса, $. null — без ограничения. */
   globalBudgetUsd: number | null;
   /** Потолок на одну задачу, $. null — без ограничения. */
   taskBudgetUsd: number | null;
+  /** Движок исполнителей. Облачный работает только на платном API. */
+  engine: Engine;
+  /** Репозиторий на GitHub, который монтируется в облачный контейнер. */
+  cloudRepoUrl: string | null;
+}
+
+/** Что из облачной обвязки уже готово — ключ и токен в состояние не пишутся. */
+export interface CloudStatus {
+  /** Задан ANTHROPIC_API_KEY: без него Managed Agents недоступны. */
+  hasKey: boolean;
+  /** Известен токен GitHub с доступом к репозиторию. */
+  hasToken: boolean;
+}
+
+/** Офис = проект: своя директория, доска, расходы и файл состояния. */
+export interface OfficeView {
+  id: string;
+  name: string;
+  projectDir: string;
+  current: boolean;
+  lastOpenedAt: number;
 }
 
 export interface InstanceView {
@@ -63,14 +120,17 @@ export interface InstanceView {
   state: AgentState;
   currentTaskId: string | null;
   note: string | null; // текущая реплика/действие
-  costUsd: number;
+  /** Расход за всё время жизни агента. */
+  usage: Usage;
+  /** Он же за сегодня — «сколько этот агент стоил сегодня». */
+  today: Usage;
 }
 
 export interface TaskView {
   id: string;
   title: string;
   description: string;
-  acceptanceCriteria: string;
+  criteria: Criterion[];
   roleId: string | null;
   assigneeId: string | null;
   status: TaskStatus;
@@ -86,9 +146,7 @@ export interface TaskView {
   startedAt: number | null;
   finishedAt: number | null;
   /** Расход именно на эту задачу, а не на агента вообще. */
-  costUsd: number;
-  tokensIn: number;
-  tokensOut: number;
+  usage: Usage;
 }
 
 export type RiskLevel = 'safe' | 'write' | 'danger';
@@ -145,7 +203,9 @@ export type ServerEvent =
   | { t: 'snapshot'; roles: RoleView[]; instances: InstanceView[]; tasks: TaskView[];
       chat: ChatEntry[]; log: LogEntry[]; permissions: PermissionRequest[];
       settings: Settings; projectDir: string; authSource: AuthSource;
-      meeting: MeetingView | null; busy: boolean }
+      meeting: MeetingView | null; busy: boolean; paused: boolean;
+      usage: { total: Usage; days: DayUsage[] };
+      offices: OfficeView[]; cloud: CloudStatus }
   | { t: 'instance'; instance: InstanceView }
   | { t: 'instance.remove'; id: string }
   | { t: 'task'; task: TaskView }
@@ -153,6 +213,10 @@ export type ServerEvent =
   | { t: 'log'; entry: LogEntry }
   | { t: 'handoff'; from: string; to: string; text: string }
   | { t: 'busy'; busy: boolean }
+  | { t: 'paused'; paused: boolean }
+  | { t: 'offices'; offices: OfficeView[] }
+  | { t: 'cloud'; cloud: CloudStatus }
+  | { t: 'usage'; total: Usage; days: DayUsage[] }
   | { t: 'roles'; roles: RoleView[] }
   | { t: 'settings'; settings: Settings }
   | { t: 'permission.request'; request: PermissionRequest }
@@ -175,6 +239,11 @@ export type ClientCommand =
   | { c: 'meeting'; topic: string; participants: string[] }
   | { c: 'assign_direct'; taskId: string; instanceId: string }
   | { c: 'task_diff'; taskId: string }
+  | { c: 'pause'; paused: boolean }
+  | { c: 'switch_office'; officeId: string }
+  | { c: 'create_office'; name: string; projectDir: string }
+  | { c: 'rename_office'; officeId: string; name: string }
+  | { c: 'cloud_token'; token: string }
   | { c: 'reset' };
 
 // Размеры заданы артом: тайл 16 арт-пикселей × SCALE 3 = 48 экранных,

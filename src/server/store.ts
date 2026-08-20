@@ -1,20 +1,31 @@
 import { mkdirSync, readFileSync, renameSync, writeFileSync, existsSync, rmSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
-import type { ChatEntry, LogEntry, Settings } from '../shared/types';
+import type { ChatEntry, LogEntry, Settings, Usage } from '../shared/types';
 import type { Task } from './state';
 import type { Role } from './roles';
 
 // Путь вынесен в переменную окружения: тестовый сервер не должен
-// затирать состояние рабочего офиса.
-const FILE = resolve(process.env.OFFICE_STATE_FILE ?? '.office/state.json');
+// затирать состояние рабочего офиса. У каждого офиса файл свой —
+// переключение проекта меняет его на лету.
+let FILE = resolve(process.env.OFFICE_STATE_FILE ?? '.office/state.json');
+
+/** Переключить хранилище на другой офис. Хвост прошлой записи сбрасываем. */
+export function setStateFile(path: string): void {
+  flush();
+  FILE = resolve(path);
+}
 const SAVE_DEBOUNCE_MS = 400;
 
 export interface PersistedInstance {
   id: string;
   roleId: string;
   deskIndex: number;
-  costUsd: number;
+  usage: Usage;
+  /** Расход по дням, ключ — 'ГГГГ-ММ-ДД'. */
+  daily: Record<string, Usage>;
   sessionId: string | null;
+  /** Формат до детализации расходов: только сумма, без токенов. */
+  costUsd?: number;
 }
 
 export interface Persisted {
@@ -25,6 +36,9 @@ export interface Persisted {
   chat: ChatEntry[];
   log: LogEntry[];
   instances: PersistedInstance[];
+  /** Расход офиса за всё время и по дням. В старых сохранениях их нет. */
+  usage?: Usage;
+  daily?: Record<string, Usage>;
   settings: Settings;
   roleOverrides: Record<string, Partial<Role>>;
   savedAt: number;

@@ -1,0 +1,38 @@
+{
+  "_doc": "Позы генерируются по одной картинке на кадр: сначала anchor (idle_south), затем каждая поза с anchor как референсом («the SAME character»). cell = размер ячейки спрайт-листа в тайлах [w,h] (32×48 px @1x → 128×192 @4x). rows — порядок сборки листа в sheet.mjs.",
+
+  "cell": [1, 1.5],
+  "anchor": "idle_south",
+
+  "poses": {
+    "idle_south":     { "p": 1, "prompt": "standing still, facing the camera (south), relaxed arms, weight on both feet" },
+    "idle_south_2":   { "p": 2, "prompt": "standing still, facing the camera (south), same pose as the reference but the chest slightly raised as if inhaling (subtle breathing frame)" },
+    "idle_north":     { "p": 1, "prompt": "standing still, seen from behind (facing north, back to the camera), relaxed arms" },
+    "idle_east":      { "p": 1, "prompt": "standing still, facing right (east), side view, relaxed arms" },
+    "walk_south_1":   { "p": 1, "prompt": "walking toward the camera (south), mid-step, left foot forward, arms swinging" },
+    "walk_south_2":   { "p": 1, "prompt": "walking toward the camera (south), mid-step, right foot forward, arms swinging the other way" },
+    "walk_north_1":   { "p": 1, "prompt": "walking away from the camera (north, back visible), mid-step, left foot forward" },
+    "walk_north_2":   { "p": 1, "prompt": "walking away from the camera (north, back visible), mid-step, right foot forward" },
+    "walk_east_1":    { "p": 1, "prompt": "walking to the right (east), side view, mid-step, front leg forward" },
+    "walk_east_2":    { "p": 1, "prompt": "walking to the right (east), side view, mid-step, legs crossing" },
+    "sit_south":      { "p": 1, "prompt": "sitting on an invisible chair facing the camera (south), hands resting on an invisible desk in front, legs hidden behind the desk line, only upper body and knees visible" },
+    "sit_type_1":     { "p": 1, "prompt": "sitting facing the camera (south) at an invisible desk, hands on an invisible keyboard, typing, hands slightly raised" },
+    "sit_type_2":     { "p": 1, "prompt": "sitting facing the camera (south) at an invisible desk, typing, hands lowered onto the invisible keyboard (second animation frame)" },
+    "sit_north":      { "p": 1, "prompt": "sitting on an invisible chair seen from behind (facing north), back visible, hands forward on an invisible desk" },
+    "talk_1":         { "p": 2, "prompt": "standing facing the camera (south), talking, one hand raised in a small gesture" },
+    "talk_2":         { "p": 2, "prompt": "standing facing the camera (south), talking, both hands slightly open in a gesture" },
+    "alert":          { "p": 1, "prompt": "standing upright and alert facing the camera (south), arms straight down, wide eyes (waiting for approval)" },
+    "think":          { "p": 2, "prompt": "standing facing the camera (south), one hand on the chin, thinking" },
+    "celebrate":      { "p": 2, "prompt": "standing facing the camera (south), both arms raised up in celebration, happy face" },
+    "error_dizzy":    { "p": 2, "prompt": "standing facing the camera (south), hunched over, dizzy face with small swirl eyes" }
+  },
+
+  "rows": [
+    ["idle_south", "idle_south_2", "idle_north", "idle_east"],
+    ["walk_south_1", "walk_south_2", "walk_north_1", "walk_north_2"],
+    ["walk_east_1", "walk_east_2"],
+    ["sit_south", "sit_type_1", "sit_type_2", "sit_north"],
+    ["talk_1", "talk_2", "alert", "think", "celebrate"],
+    ["error_dizzy"]
+  ]
+}

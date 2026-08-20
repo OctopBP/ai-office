@@ -23,7 +23,22 @@ function Card({ t }: { t: TaskView }) {
       <div className="task-meta">
         <span className={`chip ${t.status}`}>{STATUS_LABEL[t.status]}</span>
         <span className="muted">{t.assigneeId ?? '—'}</span>
+        {t.criteria.length > 0 && (
+          <span className="muted">
+            критерии {t.criteria.filter((c) => c.done).length}/{t.criteria.length}
+          </span>
+        )}
+        {t.usage.costUsd > 0 && <span className="muted">{`$${t.usage.costUsd.toFixed(3)}`}</span>}
       </div>
+      {t.criteria.length > 0 && (
+        <div className="criteria">
+          {t.criteria.map((c, i) => (
+            <div key={i} className={`criterion ${c.done ? 'done' : ''}`}>
+              <span className="mark">{c.done ? '✓' : '·'}</span>{c.text}
+            </div>
+          ))}
+        </div>
+      )}
       {t.result && <div className="task-result">{t.result}</div>}
       <div className="task-controls">
         {t.status === 'in_progress' && (

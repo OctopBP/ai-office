@@ -12,10 +12,12 @@ import { PermissionModal } from './PermissionModal';
 import { DiffPanel } from './DiffPanel';
 import { SettingsModal } from './SettingsModal';
 import { MeetingModal } from './MeetingModal';
-import { connect, useStore } from './store';
+import { UsageModal } from './UsageModal';
+import { OfficesModal } from './OfficesModal';
+import { connect, setPaused, useStore } from './store';
 
 type PanelKind = 'chat' | 'board' | 'log' | 'help' | null;
-type ModalKind = 'settings' | 'meeting' | null;
+type ModalKind = 'settings' | 'meeting' | 'usage' | 'offices' | null;
 
 export function App() {
   const theme = useStore((s) => s.theme);
@@ -23,6 +25,7 @@ export function App() {
   const log = useStore((s) => s.log);
   const selected = useStore((s) => s.selected);
   const select = useStore((s) => s.select);
+  const paused = useStore((s) => s.paused);
   const [panel, setPanel] = useState<PanelKind>(null);
   const [modal, setModal] = useState<ModalKind>(null);
 
@@ -39,6 +42,8 @@ export function App() {
       if (tag === 'INPUT' || tag === 'TEXTAREA') return;
       if (e.key === 'Escape') { setPanel(null); setModal(null); select(null); return; }
       if (e.key === 'Enter') { setPanel('chat'); return; }
+      // Пробел листает страницу по умолчанию — здесь он ставит офис на паузу.
+      if (e.key === ' ') { e.preventDefault(); setPaused(!paused); return; }
       const k = e.key.toLowerCase();
       if (k === 'b' || k === 'и') setPanel('board');
       else if (k === 'l' || k === 'д') setPanel('log');
@@ -51,16 +56,17 @@ export function App() {
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [instances, selected, select]);
+  }, [instances, selected, select, paused]);
 
   return (
-    <div className="app">
+    <div className={`app${paused ? ' paused' : ''}`}>
       <div className="stage">
-        <Office onOpen={setPanel} />
+        <Office onOpen={setPanel} onDoor={() => setModal('offices')} />
         <TopHud
           onSettings={() => setModal('settings')}
           onMeeting={() => setModal('meeting')}
           onHelp={() => setPanel('help')}
+          onUsage={() => setModal('usage')}
         />
         <Toasts onOpenTask={() => setPanel('board')} />
       </div>
@@ -93,7 +99,15 @@ export function App() {
             <p><kbd>ENTER</kbd> — написать менеджеру. Он разберёт задачу на части и раздаст
               команде; исполнители работают параллельно, каждый в своей ветке.</p>
             <p><kbd>B</kbd> — доска задач, <kbd>L</kbd> — лог, <kbd>M</kbd> — созвать совещание,
-              <kbd>1–9</kbd> — открыть карточку агента, <kbd>ESC</kbd> — закрыть.</p>
+              <kbd>SPACE</kbd> — пауза, <kbd>1–9</kbd> — открыть карточку агента,
+              <kbd>ESC</kbd> — закрыть.</p>
+            <p><b>Пауза</b> не убивает сессии: исполнители замирают на следующем вызове
+              инструмента и продолжают с того же места, когда вы нажмёте ▶. Новые задачи
+              на паузе не запускаются, а с менеджером по-прежнему можно разговаривать.</p>
+            <p>Клик по сумме в шапке — расходы по дням, агентам и задачам: свежий ввод,
+              вывод и доля кеша считаются отдельно.</p>
+            <p><b>Дверь</b> открывает список офисов. Офис — это проект: своя рабочая
+              директория, доска и расходы; переключение не требует перезапуска.</p>
             <p>Клик по человечку открывает панель справа: что он делает, его задачи,
               живой транскрипт и расходы.</p>
             <p>Опасные действия — удаление файлов, <code className="mono">kill</code>,
@@ -108,6 +122,8 @@ export function App() {
       <PermissionModal />
       {modal === 'settings' && <SettingsModal onClose={() => setModal(null)} />}
       {modal === 'meeting' && <MeetingModal onClose={() => setModal(null)} />}
+      {modal === 'usage' && <UsageModal onClose={() => setModal(null)} />}
+      {modal === 'offices' && <OfficesModal onClose={() => setModal(null)} />}
     </div>
   );
 }

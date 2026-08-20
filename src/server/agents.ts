@@ -2,8 +2,10 @@ import { query, tool, createSdkMcpServer } from '@anthropic-ai/claude-agent-sdk'
 import type { SDKMessage, PermissionResult, SDKResultSuccess } from '@anthropic-ai/claude-agent-sdk';
 import { z } from 'zod';
 import { MessageQueue } from './queue';
-import { office, type Instance, type Task } from './state';
-import { roleById, workerRoles } from './roles';
+import { criteriaProgress, office, type Instance, type Task } from './state';
+import { emptyUsage } from '../shared/types';
+import { cloudProblem, runCloudTask, stopCloudTask } from './cloud';
+import { roleById, workerRoles, type Role } from './roles';
 import { classify } from './permissions';
 import { commitAll, createWorktree, diffBranch, hasWork, mergeBranch, preserveBranch, removeWorktree } from './git';
 import { resolve } from 'node:path';
@@ -21,8 +23,13 @@ const MAX_WORKER_TURNS = 60;
  * По умолчанию запись разрешена только в рабочую директорию сессии (cwd) и
  * временную папку — то есть в workspace/, и никуда больше.
  */
-/** Куда складываем worktree задач — вне репозитория пользователя, чтобы не сорить в нём. */
-const WORKTREES_ROOT = resolve(process.cwd(), '.office/worktrees');
+/**
+ * Куда складываем worktree задач — вне репозитория пользователя, чтобы не
+ * сорить в нём. У каждого офиса своя папка: номера задач в разных проектах
+ * совпадают, и общий корень склеил бы чужие рабочие копии.
+ */
+const worktreesRoot = (): string =>
+  resolve(process.cwd(), '.office/worktrees', office.officeId);
 
 const SANDBOX = {
   enabled: true,
@@ -117,9 +124,14 @@ function consume(instanceId: string, msg: SDKMessage): void {
 
   if (msg.type === 'result') {
     const usage = 'usage' in msg ? msg.usage : undefined;
-    office.addCost(instanceId, msg.total_cost_usd ?? 0, {
-      input: (usage?.input_tokens ?? 0) + (usage?.cache_read_input_tokens ?? 0),
-      output: usage?.output_tokens ?? 0,
+    // Кеш держим отдельной строкой, а не подмешиваем во ввод: он в разы
+    // дешевле, и без разделения расход выглядит необъяснимым.
+    office.addUsage(instanceId, {
+      costUsd: msg.total_cost_usd ?? 0,
+      tokensIn: usage?.input_tokens ?? 0,
+      tokensOut: usage?.output_tokens ?? 0,
+      cacheRead: usage?.cache_read_input_tokens ?? 0,
+      cacheWrite: usage?.cache_creation_input_tokens ?? 0,
     });
     if (!isOk(msg)) {
       const reason = resultReason(msg);
@@ -147,6 +159,26 @@ function permissionHandler(
     const inst = office.instances.get(instanceId);
     const role = inst ? roleById(inst.roleId) : undefined;
     const mode = role?.permissionMode ?? 'ask-risky';
+
+    // Пауза офиса: сессия не убивается, а замирает перед следующим действием.
+    // Это единственная точка, через которую проходит любой вызов инструмента,
+    // поэтому здесь пауза и живёт — отдельного «стоп-крана» не нужно.
+    //
+    // Менеджер не замирает: на паузе с ним по-прежнему можно разговаривать
+    // и планировать. Запускать работу он всё равно не сможет — assign_task
+    // на паузе отказывает и объясняет почему.
+    if (office.paused && inst && !role?.isManager) {
+      const wasState = inst.state;
+      const wasNote = inst.note;
+      office.setState(instanceId, 'paused', 'офис на паузе');
+      office.addLog(instanceId, 'system', `Пауза офиса: ${toolName} ждёт продолжения`);
+      await office.whenResumed(options.signal);
+      if (options.signal.aborted) {
+        return { behavior: 'deny', message: 'Работа прервана, пока офис стоял на паузе.' };
+      }
+      office.setState(instanceId, wasState, wasNote);
+    }
+
     const verdict = classify(toolName, input, workdir);
 
     if (verdict.risk === 'safe' || mode === 'auto') {
@@ -252,8 +284,10 @@ const PM_PROMPT = `Ты — проектный менеджер (PM) в кома
 Правила декомпозиции:
 - Исполнитель НЕ видит вашу переписку с пользователем. Всё нужное пиши в description задачи:
   что сделать, где, в каком стиле, какие файлы и технологии.
-- В acceptanceCriteria пиши проверяемый результат («файл api/notes.js экспортирует CRUD-роуты»),
-  а не «сделано хорошо».
+- acceptanceCriteria — СПИСОК отдельных проверяемых пунктов (2–5), каждый из которых можно
+  отметить галочкой независимо: «файл api/notes.js экспортирует CRUD-роуты», «GET /notes
+  возвращает список». Не пиши один абзац: исполнитель отмечает пункты по ходу работы,
+  и пользователь видит прогресс «2 из 4».
 - Не создавай задачи «обсудить», «подумать», «спланировать» — только те, у которых есть артефакт.
 - Не дроби на микрозадачи: 2–4 задачи на типичную просьбу.
 
@@ -287,7 +321,10 @@ const teamTools = createSdkMcpServer({
       {
         title: z.string().describe('Короткий заголовок, до 60 символов'),
         description: z.string().describe('Полное ТЗ для исполнителя. Он не видит переписку с пользователем — опиши всё: что сделать, в каких файлах, каким стеком.'),
-        acceptanceCriteria: z.string().describe('Проверяемый критерий готовности'),
+        acceptanceCriteria: z.array(z.string()).describe(
+          'Список проверяемых пунктов готовности, 2–5 штук. Каждый — отдельная строка, ' +
+          'которую исполнитель отметит выполненной по ходу работы.',
+        ),
         roleId: z.string().describe(
           `id роли-исполнителя, строго один из: ${workerRoles().map((r) => `${r.id} (${r.title})`).join(', ')}. ` +
           'Выбирай по специализации, а не по первой попавшейся: неверная роль — это ' +
@@ -308,13 +345,24 @@ const teamTools = createSdkMcpServer({
             isError: true,
           };
         }
+        const criteria = (args.acceptanceCriteria ?? []).map((c) => c.trim()).filter(Boolean);
+        if (criteria.length === 0) {
+          return {
+            content: [{
+              type: 'text',
+              text: 'Нужен хотя бы один проверяемый критерий готовности — без него ' +
+                'исполнителю нечего отмечать, а пользователю нечего проверять.',
+            }],
+            isError: true,
+          };
+        }
         const task = office.createTask({
           title: args.title,
           description: args.description,
-          acceptanceCriteria: args.acceptanceCriteria,
+          criteria,
           roleId: args.roleId,
         });
-        return { content: [{ type: 'text', text: `Создана задача ${task.id}: ${task.title} (роль ${args.roleId})` }] };
+        return { content: [{ type: 'text', text: `Создана задача ${task.id}: ${task.title} (роль ${args.roleId}), критериев ${criteria.length}` }] };
       },
     ),
 
@@ -326,6 +374,27 @@ const teamTools = createSdkMcpServer({
         instanceId: z.string().default('').describe('Конкретный исполнитель, например backend#1. Пусто — выбрать свободного автоматически.'),
       },
       async (args) => {
+        if (office.paused) {
+          return {
+            content: [{
+              type: 'text',
+              text: 'Офис на паузе — новые задачи не запускаются. Задача остаётся на доске; ' +
+                'скажи пользователю, что она ждёт снятия паузы, и не пытайся назначить её снова.',
+            }],
+            isError: true,
+          };
+        }
+        const cloudBlocked = office.settings.engine === 'cloud' ? cloudProblem() : null;
+        if (cloudBlocked) {
+          return {
+            content: [{
+              type: 'text',
+              text: `Офис работает в облачном режиме, но он не настроен: ${cloudBlocked} ` +
+                'Задача остаётся на доске — скажи об этом пользователю.',
+            }],
+            isError: true,
+          };
+        }
         if (office.budgetExhausted()) {
           const cap = office.settings.globalBudgetUsd;
           return {
@@ -372,8 +441,13 @@ const teamTools = createSdkMcpServer({
       async () => {
         const tasks = [...office.tasks.values()];
         if (!tasks.length) return { content: [{ type: 'text', text: 'Доска пуста.' }] };
-        const lines = tasks.map((t) =>
-          `${t.id} [${t.status}] ${t.title} → ${t.assigneeId ?? '—'}${t.result ? `\n    результат: ${clip(t.result, 160)}` : ''}`);
+        const lines = tasks.map((t) => {
+          const { done, total } = criteriaProgress(t);
+          const marks = t.criteria.map((c) => `${c.done ? '✓' : '·'} ${c.text}`).join('; ');
+          return `${t.id} [${t.status}] ${t.title} → ${t.assigneeId ?? '—'}` +
+            (total ? `\n    критерии ${done}/${total}: ${clip(marks, 200)}` : '') +
+            (t.result ? `\n    результат: ${clip(t.result, 160)}` : '');
+        });
         return { content: [{ type: 'text', text: lines.join('\n') }] };
       },
       { annotations: { readOnlyHint: true } },
@@ -506,6 +580,10 @@ export async function holdMeeting(topic: string, participantIds: string[]): Prom
     office.addChat('офис',
       `${busy.label} занят задачей ${busy.currentTaskId}. Дождитесь окончания или остановите задачу.`,
       'meeting');
+    return;
+  }
+  if (office.paused) {
+    office.addChat('офис', 'Офис на паузе — совещание не начинается. Снимите паузу (SPACE).', 'meeting');
     return;
   }
   if (office.budgetExhausted()) {
@@ -710,6 +788,18 @@ function workerTools(instanceId: string, task: Task) {
         },
       ),
       tool(
+        'check_criterion',
+        'Отметить критерий готовности выполненным. Вызывай сразу, как пункт действительно сделан и проверен, — пользователь видит прогресс «2 из 4» в реальном времени.',
+        {
+          index: z.number().describe('Номер критерия из списка в задаче, начиная с 1'),
+          done: z.boolean().default(true).describe('false — снять отметку, если пункт снова сломался'),
+        },
+        async (args) => {
+          const outcome = office.checkCriterion(task.id, args.index, args.done);
+          return { content: [{ type: 'text', text: outcome.text }], isError: !outcome.ok };
+        },
+      ),
+      tool(
         'finish_task',
         'Сдать выполненную задачу. Вызывай ровно один раз, когда работа полностью закончена.',
         {
@@ -717,8 +807,25 @@ function workerTools(instanceId: string, task: Task) {
           files: z.array(z.string()).default([]).describe('Пути к созданным и изменённым файлам'),
         },
         async (args) => {
-          office.updateTask(task.id, { result: args.summary, files: args.files, status: 'review' });
-          return { content: [{ type: 'text', text: 'Работа принята офисом.' }] };
+          const fresh = office.tasks.get(task.id);
+          const { done, total } = fresh ? criteriaProgress(fresh) : { done: 0, total: 0 };
+          // Неотмеченные пункты не «дожимаем» за исполнителя: расхождение между
+          // «сдал» и «отмечено» — это и есть сигнал пользователю посмотреть внимательнее.
+          const gap = total && done < total
+            ? `\n\n⚠️ Отмечено критериев: ${done} из ${total}.`
+            : '';
+          office.updateTask(task.id, {
+            result: args.summary + gap, files: args.files, status: 'review',
+          });
+          return {
+            content: [{
+              type: 'text',
+              text: gap
+                ? `Работа принята офисом. Внимание: отмечено ${done} из ${total} критериев — ` +
+                  'если остальные тоже выполнены, отметь их через check_criterion.'
+                : 'Работа принята офисом.',
+            }],
+          };
         },
       ),
     ],
@@ -731,7 +838,11 @@ function workerPrompt(task: Task, artifactsDir: string | null, projectDir: strin
     '',
     task.description,
     '',
-    `Критерий готовности: ${task.acceptanceCriteria}`,
+    task.criteria.length
+      ? 'Критерии готовности — отмечай каждый через check_criterion({index}), как только он ' +
+        'выполнен и проверен:\n' +
+        task.criteria.map((c, i) => `${i + 1}. ${c.text}`).join('\n')
+      : '',
     '',
     artifactsDir
       ? `Твоя рабочая директория — ${artifactsDir}/, туда и клади все файлы по этой задаче. ` +
@@ -778,6 +889,7 @@ function startWorker(task: Task, inst: Instance): void {
         status: 'done',
         result: `[заглушка] Задача «${task.title}» выполнена.`,
         finishedAt: Date.now(),
+        criteria: task.criteria.map((c) => ({ ...c, done: true })),
       });
       notifyPm(
         `[СИСТЕМА] Задача ${task.id} «${task.title}» завершена исполнителем ${inst.id}.\n` +
@@ -807,6 +919,11 @@ function startWorker(task: Task, inst: Instance): void {
     'Когда всё готово — вызови finish_task({summary, files}).',
   ].join('\n');
 
+  if (office.settings.engine === 'cloud') {
+    startCloudWorker(task, inst, role, systemPrompt);
+    return;
+  }
+
   const abort = new AbortController();
   inst.abort = abort;
 
@@ -819,7 +936,7 @@ function startWorker(task: Task, inst: Instance): void {
       // Изоляция: своя ветка и свой worktree, чтобы параллельные исполнители
       // физически не могли затереть друг другу файлы.
       if (role.isolate && office.gitReady) {
-        const wt = await createWorktree(office.projectDir, WORKTREES_ROOT, task.id);
+        const wt = await createWorktree(office.projectDir, worktreesRoot(), task.id);
         if (wt) {
           workdir = wt.path;
           workRoot = wt.path;
@@ -897,9 +1014,11 @@ function startWorker(task: Task, inst: Instance): void {
 
       office.updateTask(task.id, { status: 'done', result: summary, finishedAt: Date.now() });
       office.setState(inst.id, 'done', 'готово ✅');
+      const progress = fresh ? criteriaProgress(fresh) : { done: 0, total: 0 };
       notifyPm(
         `[СИСТЕМА] Задача ${task.id} «${task.title}» завершена исполнителем ${inst.id}.\n` +
         `Отчёт: ${summary}\n` +
+        (progress.total ? `Критерии: отмечено ${progress.done} из ${progress.total}.\n` : '') +
         (fresh?.files.length ? `Файлы: ${fresh.files.join(', ')}\n` : '') +
         'Оцени результат и реши, что делать дальше.',
       );
@@ -939,6 +1058,70 @@ function startWorker(task: Task, inst: Instance): void {
       }, 4000);
     }
   })().catch(() => { /* обработано выше */ });
+}
+
+/**
+ * Исполнитель в облаке. Отличий от локального два: работу делает контейнер
+ * Anthropic, а результат приезжает готовой веткой из GitHub — своей рабочей
+ * копии и коммита от офиса тут нет.
+ */
+function startCloudWorker(task: Task, inst: Instance, role: Role, systemPrompt: string): void {
+  // Прерывание идёт событием в сессию, а не сигналом процессу.
+  inst.abort = { abort: () => { void stopCloudTask(task.id); } } as AbortController;
+
+  void (async () => {
+    try {
+      const outcome = await runCloudTask(task, inst, role, systemPrompt);
+
+      if (stoppedByUser.delete(task.id)) {
+        office.updateTask(task.id, {
+          status: 'blocked',
+          result: `⏹ Остановлена пользователем. ${outcome.branch
+            ? `Сделанное осталось в ветке ${outcome.branch}.`
+            : 'Ветка в origin, если исполнитель успел запушить.'}`,
+          finishedAt: Date.now(),
+          branch: outcome.branch, baseBranch: outcome.baseBranch,
+        });
+        office.setState(inst.id, 'idle', null);
+        notifyPm(
+          `[СИСТЕМА] Задача ${task.id} остановлена пользователем вручную. ` +
+          'Не назначай её заново по своей инициативе — дождись указания.',
+        );
+        return;
+      }
+
+      if (!outcome.ok) throw new Error(outcome.summary);
+
+      office.updateTask(task.id, {
+        status: 'done', result: outcome.summary, finishedAt: Date.now(),
+        branch: outcome.branch, baseBranch: outcome.baseBranch,
+      });
+      office.setState(inst.id, 'done', 'готово ✅');
+      const fresh = office.tasks.get(task.id);
+      const progress = fresh ? criteriaProgress(fresh) : { done: 0, total: 0 };
+      notifyPm(
+        `[СИСТЕМА] Задача ${task.id} «${task.title}» выполнена в облаке исполнителем ${inst.id}.\n` +
+        `Отчёт: ${outcome.summary}\n` +
+        (progress.total ? `Критерии: отмечено ${progress.done} из ${progress.total}.\n` : '') +
+        (outcome.branch ? `Результат в ветке ${outcome.branch}, нужно слияние.\n` : '') +
+        'Оцени результат и реши, что делать дальше.',
+      );
+    } catch (err) {
+      const message = clip((err as Error).message, 300);
+      office.addLog(inst.id, 'error', `Облачная задача ${task.id} упала: ${message}`);
+      office.updateTask(task.id, { status: 'failed', result: `Ошибка: ${message}`, finishedAt: Date.now() });
+      office.setState(inst.id, 'failed', 'ошибка');
+      notifyPm(`[СИСТЕМА] Задача ${task.id} провалилась в облаке у ${inst.id}. Ошибка: ${message}`);
+    } finally {
+      inst.currentTaskId = null;
+      inst.abort = null;
+      running = Math.max(0, running - 1);
+      if (running === 0) office.setBusy(false);
+      setTimeout(() => {
+        if (!inst.currentTaskId) office.setState(inst.id, 'idle', null);
+      }, 4000);
+    }
+  })();
 }
 
 /**
@@ -984,6 +1167,15 @@ export async function retryTask(taskId: string): Promise<void> {
     office.addChat('офис', `${taskId} уже влита в основную ветку — перезапуск создал бы дубль.`);
     return;
   }
+  if (office.paused) {
+    office.addChat('офис', `Офис на паузе — ${taskId} не перезапускается. Снимите паузу (SPACE).`);
+    return;
+  }
+  const cloudBlocked = office.settings.engine === 'cloud' ? cloudProblem() : null;
+  if (cloudBlocked) {
+    office.addChat('офис', `Облачный режим не настроен: ${cloudBlocked}`);
+    return;
+  }
   if (office.budgetExhausted()) {
     office.addChat('офис', 'Бюджет офиса исчерпан — поднимите лимит, прежде чем перезапускать задачи.');
     return;
@@ -1020,7 +1212,9 @@ export async function retryTask(taskId: string): Promise<void> {
   office.updateTask(taskId, {
     status: 'backlog', assigneeId: null, result: null, files: [],
     branch: null, baseBranch: null, worktreePath: null, merged: false,
-    startedAt: null, finishedAt: null, costUsd: 0, tokensIn: 0, tokensOut: 0,
+    startedAt: null, finishedAt: null, usage: emptyUsage(),
+    // Отметки прошлой попытки к новой не относятся: работа начинается с нуля.
+    criteria: task.criteria.map((c) => ({ ...c, done: false })),
   });
   const fresh = office.tasks.get(taskId);
   if (fresh) startWorker(fresh, inst);
@@ -1041,6 +1235,15 @@ export function assignDirect(taskId: string, instanceId: string): void {
   }
   if (inst.currentTaskId) {
     office.addChat('офис', `${inst.label} занят задачей ${inst.currentTaskId}.`);
+    return;
+  }
+  if (office.paused) {
+    office.addChat('офис', `Офис на паузе — ${taskId} не запускается. Снимите паузу (SPACE).`);
+    return;
+  }
+  const cloudBlocked = office.settings.engine === 'cloud' ? cloudProblem() : null;
+  if (cloudBlocked) {
+    office.addChat('офис', `Облачный режим не настроен: ${cloudBlocked}`);
     return;
   }
   if (office.budgetExhausted()) {
@@ -1101,6 +1304,31 @@ export async function mergeTask(taskId: string): Promise<void> {
       await removeWorktree(office.projectDir, task.worktreePath, task.branch);
     }
     office.updateTask(taskId, { merged: true, worktreePath: null });
+  }
+}
+
+/**
+ * Пауза и снятие паузы офиса.
+ * На паузе исполнители замирают на следующем вызове инструмента, а новая
+ * работа не запускается. Уже начатый вызов доводится до конца: обрывать его
+ * на середине — это «Остановить», а не пауза.
+ */
+export function setPaused(paused: boolean): void {
+  if (office.paused === paused) return;
+  office.setPaused(paused);
+  office.addLog(null, 'system', paused ? 'Офис поставлен на паузу' : 'Офис снят с паузы');
+  office.addChat('офис', paused
+    ? '⏸ Офис на паузе: исполнители замрут на следующем действии, новые задачи не запускаются.'
+    : '▶ Офис снова работает.');
+
+  // Задачи, которые менеджер завёл на паузе, сами собой не поедут: он получил
+  // отказ на assign_task и ждёт. Без этого напоминания доска молча стоит.
+  const waiting = [...office.tasks.values()].filter((t) => t.status === 'backlog' && !t.assigneeId);
+  if (!paused && waiting.length > 0) {
+    notifyPm(
+      `[СИСТЕМА] Пользователь снял офис с паузы. Ждут раздачи: ${waiting.map((t) => t.id).join(', ')}. ` +
+      'Назначь их через assign_task.',
+    );
   }
 }
 

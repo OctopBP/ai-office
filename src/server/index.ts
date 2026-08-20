@@ -2,55 +2,77 @@ import { WebSocketServer, WebSocket } from 'ws';
 import { mkdirSync, existsSync, writeFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import type { ClientCommand, ServerEvent } from '../shared/types';
-import { office } from './state';
-import { assignDirect, holdMeeting, mergeTask, resetSessions, retryTask, sendUserMessage, stopTask, taskDiff, talkTo } from './agents';
+import { office, officeViews } from './state';
+import { assignDirect, holdMeeting, mergeTask, resetSessions, retryTask, sendUserMessage, setPaused, stopTask, taskDiff, talkTo } from './agents';
+import { githubToken, setGithubToken } from './cloud';
+import { clearInitFlag, createOffice, currentOffice, ensureOffice, loadRegistry, renameOffice, setCurrent, type OfficeEntry } from './offices';
 import { hasCommits, initRepo, isRepo } from './git';
-import { flush } from './store';
+import { flush, setStateFile } from './store';
 
 const PORT = Number(process.env.OFFICE_PORT ?? 3001);
-const PROJECT_DIR = resolve(process.env.OFFICE_PROJECT_DIR ?? './workspace');
+const DEFAULT_DIR = resolve(process.env.OFFICE_PROJECT_DIR ?? './workspace');
 
-// Директория, в которой работает команда. По умолчанию отдельная папка,
-// чтобы агенты не редактировали исходники самого офиса.
-const weCreatedIt = !existsSync(PROJECT_DIR);
-if (weCreatedIt) {
-  mkdirSync(PROJECT_DIR, { recursive: true });
-  writeFileSync(
-    resolve(PROJECT_DIR, 'README.md'),
-    '# Рабочая директория офиса\n\nЗдесь работает команда AI-агентов.\n',
-  );
-}
-office.projectDir = PROJECT_DIR;
 office.dryRun = process.env.OFFICE_DRY_RUN === '1';
 if (office.dryRun) console.log('🧪 Режим проверки PM: исполнители заглушены');
 
 /**
  * Изоляция задач через git worktree работает только в репозитории.
- * Свою собственную директорию мы инициализируем сами; чужую — не трогаем,
+ * Директорию, которую создали мы сами, инициализируем; чужую — не трогаем,
  * только сообщаем, что изоляция выключена.
  */
-async function setupGit(): Promise<void> {
-  if (weCreatedIt && !(await isRepo(PROJECT_DIR))) {
-    const ok = await initRepo(PROJECT_DIR);
+async function setupGit(dir: string, ours: boolean): Promise<void> {
+  if (ours && !(await isRepo(dir))) {
+    const ok = await initRepo(dir);
     console.log(ok
       ? '🌱 Рабочая директория инициализирована как git-репозиторий'
       : '⚠️  Не удалось инициализировать git — изоляция задач выключена');
   }
-  office.gitReady = (await isRepo(PROJECT_DIR)) && (await hasCommits(PROJECT_DIR));
+  office.gitReady = (await isRepo(dir)) && (await hasCommits(dir));
   console.log(office.gitReady
     ? '🌿 Изоляция задач включена: каждая задача получает свой worktree'
-    : `⚠️  ${PROJECT_DIR} — не git-репозиторий с коммитами. Параллельные исполнители` +
+    : `⚠️  ${dir} — не git-репозиторий с коммитами. Параллельные исполнители` +
       ' будут работать в общей директории и могут конфликтовать.' +
       ' Включить изоляцию: git init в этой директории.');
 }
 
-// Восстанавливаем доску, чат и расходы с прошлого запуска.
-if (office.restore()) {
-  console.log(`💾 Состояние офиса восстановлено: задач ${office.tasks.size}, сообщений ${office.chat.length}`);
-} else {
-  office.seed();
+/** Открыть офис: своё состояние, своя рабочая директория, свой git. */
+async function openOffice(entry: OfficeEntry): Promise<void> {
+  // Свою директорию офис заводит сам, чужую не трогает: от этого зависит,
+  // можно ли делать в ней git init.
+  const ours = entry.initGit || !existsSync(entry.projectDir);
+  if (!existsSync(entry.projectDir)) {
+    mkdirSync(entry.projectDir, { recursive: true });
+  }
+  if (ours && !existsSync(resolve(entry.projectDir, 'README.md'))) {
+    writeFileSync(
+      resolve(entry.projectDir, 'README.md'),
+      '# Рабочая директория офиса\n\nЗдесь работает команда AI-агентов.\n',
+    );
+  }
+
+  setStateFile(entry.stateFile);
+  office.officeId = entry.id;
+  office.projectDir = entry.projectDir;
+  office.unload();
+  if (office.restore()) {
+    console.log(`💾 Офис «${entry.name}» восстановлен: задач ${office.tasks.size}, сообщений ${office.chat.length}`);
+  } else {
+    office.seed();
+  }
+  await setupGit(entry.projectDir, ours);
+  clearInitFlag(entry.id);
 }
-void setupGit();
+
+loadRegistry(DEFAULT_DIR);
+// Переменная окружения по-прежнему решает, с каким проектом открыться:
+// на неё опираются тесты и запуск «в другой папке» одной командой.
+if (process.env.OFFICE_PROJECT_DIR) {
+  const wanted = ensureOffice({ name: DEFAULT_DIR.split('/').pop() ?? 'Офис', projectDir: DEFAULT_DIR });
+  setCurrent(wanted.id);
+}
+const opened = currentOffice();
+if (!opened) throw new Error('Не удалось определить офис для запуска');
+const startup = openOffice(opened);
 
 // Досохранить перед выходом, чтобы не потерять последние события.
 for (const sig of ['SIGINT', 'SIGTERM'] as const) {
@@ -68,9 +90,43 @@ office.subscribe((event: ServerEvent) => {
   }
 });
 
+function broadcastSnapshot(): void {
+  const payload = JSON.stringify(office.snapshot());
+  for (const ws of clients) {
+    if (ws.readyState === WebSocket.OPEN) ws.send(payload);
+  }
+}
+
+/**
+ * Переключение проекта на ходу. Идущие задачи не бросаем: их сессии живут
+ * в рабочей директории этого офиса, и оборвать их переключением значило бы
+ * потерять работу молча.
+ */
+async function switchOffice(officeId: string): Promise<void> {
+  const target = setCurrent(officeId);
+  if (!target) return;
+  if (target.id === office.officeId) return;
+
+  const running = [...office.tasks.values()].filter((t) => t.status === 'in_progress');
+  if (running.length) {
+    setCurrent(office.officeId);
+    office.addChat('офис',
+      `Сначала дождитесь или остановите задачи в работе: ${running.map((t) => t.id).join(', ')}.`);
+    return;
+  }
+
+  resetSessions();
+  flush();
+  await openOffice(target);
+  office.addLog(null, 'system', `Открыт офис «${target.name}» (${target.projectDir})`);
+  broadcastSnapshot();
+}
+
 wss.on('connection', (ws) => {
   clients.add(ws);
-  ws.send(JSON.stringify(office.snapshot()));
+  void startup.then(() => {
+    if (ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify(office.snapshot()));
+  });
 
   ws.on('message', (raw) => {
     let cmd: ClientCommand;
@@ -111,14 +167,31 @@ wss.on('connection', (ws) => {
       void taskDiff(cmd.taskId);
     } else if (cmd.c === 'assign_direct') {
       assignDirect(cmd.taskId, cmd.instanceId);
+    } else if (cmd.c === 'pause') {
+      setPaused(cmd.paused);
+    } else if (cmd.c === 'switch_office') {
+      void switchOffice(cmd.officeId);
+    } else if (cmd.c === 'create_office' && cmd.projectDir.trim()) {
+      const made = createOffice({ name: cmd.name, projectDir: cmd.projectDir.trim() });
+      if ('error' in made) {
+        office.addChat('офис', made.error);
+      } else {
+        office.emit({ t: 'offices', offices: officeViews() });
+        void switchOffice(made.office.id);
+      }
+    } else if (cmd.c === 'rename_office') {
+      if (renameOffice(cmd.officeId, cmd.name)) {
+        office.emit({ t: 'offices', offices: officeViews() });
+      }
+    } else if (cmd.c === 'cloud_token') {
+      setGithubToken(cmd.token);
+      office.setCloud({ hasToken: Boolean(githubToken()) });
     } else if (cmd.c === 'meeting' && cmd.topic.trim()) {
       void holdMeeting(cmd.topic.trim(), cmd.participants);
     } else if (cmd.c === 'reset') {
       resetSessions();
       office.hardReset();
-      for (const client of clients) {
-        if (client.readyState === WebSocket.OPEN) client.send(JSON.stringify(office.snapshot()));
-      }
+      broadcastSnapshot();
     }
   });
 
@@ -126,11 +199,12 @@ wss.on('connection', (ws) => {
 });
 
 console.log(`🏢 AI Office — сервер на ws://localhost:${PORT}`);
-console.log(`📁 Команда работает в: ${PROJECT_DIR}`);
+console.log(`📁 Команда работает в: ${opened.projectDir}`);
 // Источник доступа важен: с ключом расход идёт в платный API, без него —
 // в лимиты подписки Claude Code. Ключ имеет приоритет и подменяет подписку молча.
 const usingKey = Boolean(process.env.ANTHROPIC_API_KEY || process.env.ANTHROPIC_AUTH_TOKEN);
 office.authSource = usingKey ? 'api-key' : 'subscription';
+office.cloud = { hasKey: usingKey, hasToken: Boolean(githubToken()) };
 console.log(usingKey
   ? '💳 Задан ANTHROPIC_API_KEY — расход идёт в ПЛАТНЫЙ API, а не в подписку Claude Code'
   : '🔑 Ключ API не задан — работаем на авторизации Claude Code (лимиты подписки)');

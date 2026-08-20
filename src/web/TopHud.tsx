@@ -1,9 +1,9 @@
-import { reset, useStore } from './store';
+import { reset, setPaused, useStore } from './store';
 
 const money = (v: number) => `$${v.toFixed(2)}`;
 
-export function TopHud({ onSettings, onMeeting, onHelp }: {
-  onSettings: () => void; onMeeting: () => void; onHelp: () => void;
+export function TopHud({ onSettings, onMeeting, onHelp, onUsage }: {
+  onSettings: () => void; onMeeting: () => void; onHelp: () => void; onUsage: () => void;
 }) {
   const instances = useStore((s) => s.instances);
   const tasks = useStore((s) => s.tasks);
@@ -14,12 +14,16 @@ export function TopHud({ onSettings, onMeeting, onHelp }: {
   const theme = useStore((s) => s.theme);
   const setTheme = useStore((s) => s.setTheme);
   const connected = useStore((s) => s.connected);
+  const usage = useStore((s) => s.usage);
+  const paused = useStore((s) => s.paused);
 
   const list = Object.values(tasks);
-  const spent = Object.values(instances).reduce((sum, i) => sum + i.costUsd, 0);
+  // «Сегодня» — это сегодня, а не всё время: раньше в HUD стояла общая сумма
+  // с подписью «сегодня», и после перезапуска она врала.
+  const today = Object.values(instances).reduce((sum, i) => sum + i.today.costUsd, 0);
   const working = list.filter((t) => t.status === 'in_progress').length;
   const review = list.filter((t) => (t.status === 'review' || t.status === 'done') && t.branch && !t.merged).length;
-  const over = settings.globalBudgetUsd !== null && spent >= settings.globalBudgetUsd;
+  const over = settings.globalBudgetUsd !== null && usage.costUsd >= settings.globalBudgetUsd;
 
   return (
     <>
@@ -34,15 +38,17 @@ export function TopHud({ onSettings, onMeeting, onHelp }: {
       </div>
 
       <div className="hud right">
-        <div className={`pixel money ${over ? 'over' : ''}`}>
+        <button className={`pixel money ${over ? 'over' : ''}`} onClick={onUsage}
+          title="Расходы: токены, кеш, дни">
           <span className="ico">🪙</span>
           <div>
-            <b>{money(spent)}</b>
+            <b>{money(today)}</b>
             <div className="muted small">
-              сегодня · бюджет {settings.globalBudgetUsd !== null ? money(settings.globalBudgetUsd) : '—'}
+              сегодня · всего {money(usage.costUsd)}
+              {settings.globalBudgetUsd !== null && ` из ${money(settings.globalBudgetUsd)}`}
             </div>
           </div>
-        </div>
+        </button>
 
         <div className="pixel counters">
           <div>👥 {Object.keys(instances).length} агента · {working} в работе</div>
@@ -52,7 +58,13 @@ export function TopHud({ onSettings, onMeeting, onHelp }: {
           </div>
         </div>
 
-        <button className="sq" onClick={onMeeting} title="Созвать совещание">▶</button>
+        {paused && <div className="pixel paused-chip" title="Исполнители замирают на следующем действии">⏸ ПАУЗА</div>}
+
+        <button className={`sq ${paused ? 'on' : ''}`} onClick={() => setPaused(!paused)}
+          title={paused ? 'Продолжить работу — SPACE' : 'Пауза: остановить всех исполнителей — SPACE'}>
+          {paused ? '▶' : '⏸'}
+        </button>
+        <button className="sq" onClick={onMeeting} title="Созвать совещание — M">👥</button>
         <button className="sq" onClick={() => setTheme(theme === 'day' ? 'night' : 'day')}
           title="Светлая или тёмная тема">{theme === 'day' ? '🌙' : '☀️'}</button>
         <button className="sq" onClick={onSettings} title="Бюджет офиса">⚙</button>

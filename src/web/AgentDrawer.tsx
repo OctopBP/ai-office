@@ -2,10 +2,28 @@ import { useState } from 'react';
 import { assignDirect, fire, hire, mergeTask, retryTask, showDiff, stopTask, useStore } from './store';
 import { RoleEditor } from './RoleEditor';
 import { agentSpriteName, spriteOf } from './sprites';
-import type { TaskView } from '../shared/types';
+import { usageLine } from './UsageModal';
+import type { Criterion, TaskView } from '../shared/types';
 
 const money = (v: number) => `$${v.toFixed(v < 1 ? 3 : 2)}`;
 const tokens = (v: number) => (v >= 1000 ? `${Math.round(v / 1000)}k` : String(v));
+const progress = (list: Criterion[]) => ({ done: list.filter((c) => c.done).length, total: list.length });
+
+/** Критерии готовности с отметками — то же представление, что и на доске. */
+function Criteria({ list }: { list: Criterion[] }) {
+  if (list.length === 0) return null;
+  const { done, total } = progress(list);
+  return (
+    <div className="criteria">
+      <div className="criteria-head">Критерии {done}/{total}</div>
+      {list.map((c, i) => (
+        <div key={i} className={`criterion ${c.done ? 'done' : ''}`}>
+          <span className="mark">{c.done ? '✓' : '·'}</span>{c.text}
+        </div>
+      ))}
+    </div>
+  );
+}
 
 function elapsed(from: number | null, to: number | null): string {
   if (!from) return '';
@@ -53,7 +71,7 @@ export function AgentDrawer() {
   const running = mine.filter((t) => t.status === 'in_progress').length;
 
   const cap = settings.taskBudgetUsd;
-  const usedShare = cap && current ? Math.min(100, (current.costUsd / cap) * 100) : 0;
+  const usedShare = cap && current ? Math.min(100, (current.usage.costUsd / cap) * 100) : 0;
 
   return (
     <aside className="drawer">
@@ -78,13 +96,11 @@ export function AgentDrawer() {
           <div className="card">
             <div className="card-head"><b>{current.id}</b> {current.title}</div>
             <div className="muted small">
-              {elapsed(current.startedAt, null)} · {money(current.costUsd)} ·{' '}
-              {tokens(current.tokensIn + current.tokensOut)} tok
+              {elapsed(current.startedAt, null)} · {money(current.usage.costUsd)} ·{' '}
+              {tokens(current.usage.tokensIn + current.usage.tokensOut)} tok
               {current.branch && <> · ветка <code className="mono">{current.branch}</code></>}
             </div>
-            {current.acceptanceCriteria && (
-              <div className="criteria">Критерий: {current.acceptanceCriteria}</div>
-            )}
+            <Criteria list={current.criteria} />
             {cap !== null && (
               <div className="budget">
                 <div className="bar"><i style={{ width: `${usedShare}%` }} /></div>
@@ -110,7 +126,10 @@ export function AgentDrawer() {
             <span className="mono dim">{t.id}</span>
             <span className="row-title">{t.title}</span>
             <span className="muted small">{STATUS_RU[t.status]}</span>
-            {t.costUsd > 0 && <span className="muted small">{money(t.costUsd)}</span>}
+            {t.criteria.length > 0 && (
+              <span className="muted small">{progress(t.criteria).done}/{progress(t.criteria).total} крит.</span>
+            )}
+            {t.usage.costUsd > 0 && <span className="muted small">{money(t.usage.costUsd)}</span>}
             {t.status === 'in_progress' && (
               <button className="mini stop" onClick={() => stopTask(t.id)}>стоп</button>
             )}
@@ -158,9 +177,20 @@ export function AgentDrawer() {
 
       <section>
         <h3>Расходы</h3>
-        <div className="muted small">
-          {money(inst.costUsd)} за всё время агента
-          {current && <> · {money(current.costUsd)} на текущую задачу</>}
+        <div className="usage-lines">
+          {current && (
+            <div>
+              <b>{money(current.usage.costUsd)}</b> за текущую задачу ·{' '}
+              <span className="muted">{usageLine(current.usage)}</span>
+            </div>
+          )}
+          <div>
+            <b>{money(inst.today.costUsd)}</b> за сегодня ·{' '}
+            <span className="muted">{usageLine(inst.today)}</span>
+          </div>
+          <div className="muted">
+            {money(inst.usage.costUsd)} за всё время агента · {usageLine(inst.usage)}
+          </div>
         </div>
       </section>
 

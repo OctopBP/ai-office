@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { updateSettings, useStore } from './store';
+import { setCloudToken, updateSettings, useStore } from './store';
 
 const parse = (v: string): number | null => {
   const n = Number(v.replace(',', '.'));
@@ -8,19 +8,29 @@ const parse = (v: string): number | null => {
 
 export function SettingsModal({ onClose }: { onClose: () => void }) {
   const settings = useStore((s) => s.settings);
+  const cloud = useStore((s) => s.cloud);
   const [global, setGlobal] = useState(settings.globalBudgetUsd?.toString() ?? '');
   const [perTask, setPerTask] = useState(settings.taskBudgetUsd?.toString() ?? '');
+  const [engine, setEngine] = useState(settings.engine);
+  const [repo, setRepo] = useState(settings.cloudRepoUrl ?? '');
+  const [token, setToken] = useState('');
 
   const save = () => {
-    updateSettings({ globalBudgetUsd: parse(global), taskBudgetUsd: parse(perTask) });
+    updateSettings({
+      globalBudgetUsd: parse(global),
+      taskBudgetUsd: parse(perTask),
+      engine,
+      cloudRepoUrl: repo.trim() || null,
+    });
+    if (token.trim()) setCloudToken(token.trim());
     onClose();
   };
 
   return (
     <div className="modal-backdrop" onClick={onClose}>
       <div className="modal wide" onClick={(e) => e.stopPropagation()}>
-        <h3>Бюджет офиса</h3>
-        <p className="modal-reason">Пустое поле — без ограничения.</p>
+        <h3>Настройки офиса</h3>
+        <p className="modal-reason">Пустое поле бюджета — без ограничения.</p>
 
         <label>Общий потолок, $
           <input value={global} placeholder="без ограничения"
@@ -35,10 +45,59 @@ export function SettingsModal({ onClose }: { onClose: () => void }) {
           <input value={perTask} placeholder="без ограничения"
             onChange={(e) => setPerTask(e.target.value)} />
           <span className="hint muted">
-            Жёсткий стоп внутри сессии исполнителя: превысив лимит, он остановится
-            и вернёт задачу с пометкой о бюджете.
+            Локально это лимит внутри сессии исполнителя; в облаке — жёсткий потолок
+            сессии: дойдя до него, она встаёт на паузу.
           </span>
         </label>
+
+        <h4>Где работают исполнители</h4>
+        <div className="engine">
+          <button className={engine === 'local' ? 'on' : ''} onClick={() => setEngine('local')}>
+            💻 Локально
+            <span className="muted small">Claude Code на этой машине, расход в лимиты подписки</span>
+          </button>
+          <button className={engine === 'cloud' ? 'on' : ''} onClick={() => setEngine('cloud')}>
+            ☁️ В облаке
+            <span className="muted small">Managed Agents, расход в платный API</span>
+          </button>
+        </div>
+
+        {engine === 'cloud' && (
+          <>
+            <p className="hint muted">
+              В облаке цикл агента и контейнер держит Anthropic. Файлы рождаются не в вашей
+              папке, поэтому проект должен лежать на GitHub: контейнер монтирует репозиторий,
+              исполнитель пушит ветку задачи, а офис забирает её к себе. Песочница ОС и
+              классификатор рисков к контейнеру не применяются — границу держит он сам;
+              подтверждения по режиму роли остаются.
+            </p>
+
+            <div className={`ready ${cloud.hasKey ? 'ok' : 'bad'}`}>
+              {cloud.hasKey
+                ? '✓ ANTHROPIC_API_KEY задан — облачный режим доступен'
+                : '✗ Нет ANTHROPIC_API_KEY: задайте ключ и перезапустите сервер'}
+            </div>
+
+            <label>Репозиторий на GitHub
+              <input value={repo} placeholder="https://github.com/owner/repo"
+                onChange={(e) => setRepo(e.target.value)} />
+              <span className="hint muted">
+                Тот же репозиторий, что открыт локально, — иначе ветку задачи будет некуда забрать.
+              </span>
+            </label>
+
+            <label>Токен GitHub {cloud.hasToken && <span className="chip done">задан</span>}
+              <input value={token} type="password" placeholder={cloud.hasToken ? '••••••• (оставьте пустым, чтобы не менять)' : 'ghp_…'}
+                onChange={(e) => setToken(e.target.value)} />
+              <span className="hint muted">
+                Нужен доступ Contents: Read and write. Токен живёт только в памяти сервера и
+                на диск не пишется — после перезапуска введите заново или задайте
+                <code className="mono"> OFFICE_GITHUB_TOKEN</code>. В контейнер он не попадает:
+                git-запросы проксируются, и токен подставляется уже за его пределами.
+              </span>
+            </label>
+          </>
+        )}
 
         <div className="modal-actions">
           <button onClick={onClose}>Отмена</button>
