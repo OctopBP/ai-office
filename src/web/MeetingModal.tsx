@@ -6,7 +6,9 @@ export function MeetingModal({ onClose }: { onClose: () => void }) {
   const [topic, setTopic] = useState('');
   const [picked, setPicked] = useState<string[]>([]);
 
-  const candidates = Object.values(instances).filter((i) => i.roleId !== 'pm');
+  // Менеджер — такой же участник совещания, как и исполнители: раньше он был
+  // скрыт этим фильтром, хотя позвать его на обсуждение темы вполне уместно.
+  const candidates = Object.values(instances);
   const toggle = (id: string) =>
     setPicked((p) => (p.includes(id) ? p.filter((x) => x !== id) : [...p, id]));
 
