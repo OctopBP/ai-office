@@ -3,7 +3,7 @@ import { createServer } from 'node:http';
 import { mkdirSync, existsSync, writeFileSync, readFileSync, statSync } from 'node:fs';
 import { extname, resolve } from 'node:path';
 import type { ClientCommand, ServerEvent } from '../shared/types';
-import { office, officeViews } from './state';
+import { office, officeViews, openOfficeState, subscribeOffices } from './state';
 import { assignDirect, holdMeeting, mergeTask, resetSessions, retryTask, sendUserMessage, setPaused, stopTask, taskDiff, talkTo } from './agents';
 import { githubToken, setGithubToken } from './cloud';
 import { clearInitFlag, createOffice, currentOffice, ensureOffice, loadRegistry, officeById, renameOffice, setCurrent, type OfficeEntry } from './offices';
@@ -14,8 +14,9 @@ import { flushAll } from './store';
 const PORT = Number(process.env.OFFICE_PORT ?? 3001);
 const DEFAULT_DIR = resolve(process.env.OFFICE_PROJECT_DIR ?? './workspace');
 
-office.dryRun = process.env.OFFICE_DRY_RUN === '1';
-if (office.dryRun) console.log('🧪 Режим проверки PM: исполнители заглушены');
+/** Режим проверки PM — свойство запуска, а не офиса: он же и у следующего. */
+const DRY_RUN = process.env.OFFICE_DRY_RUN === '1';
+if (DRY_RUN) console.log('🧪 Режим проверки PM: исполнители заглушены');
 
 /**
  * Изоляция задач через git worktree работает только в репозитории.
@@ -68,15 +69,13 @@ async function openOffice(entry: OfficeEntry): Promise<void> {
     );
   }
 
-  office.setStateFile(entry.stateFile);
-  office.officeId = entry.id;
-  office.projectDir = entry.projectDir;
-  office.unload();
-  if (office.restore()) {
-    console.log(`💾 Офис «${entry.name}» восстановлен: задач ${office.tasks.size}, сообщений ${office.chat.length}`);
-  } else {
-    office.seed();
-  }
+  // Состояние берётся из реестра: у каждого офиса оно своё и живёт до конца
+  // процесса, поэтому `office` здесь просто переставляется на нужное.
+  const { state, restored, reused } = openOfficeState(entry);
+  state.dryRun = DRY_RUN;
+  const board = `задач ${state.tasks.size}, сообщений ${state.chat.length}`;
+  if (reused) console.log(`🔁 Офис «${entry.name}» уже открыт в этом запуске: ${board}`);
+  else if (restored) console.log(`💾 Офис «${entry.name}» восстановлен: ${board}`);
   await setupGit(entry.projectDir, ours);
   await reportRoleRepos();
   clearInitFlag(entry.id);
@@ -152,7 +151,9 @@ function broadcast(payload: string): void {
   }
 }
 
-office.subscribe((event: ServerEvent) => broadcast(JSON.stringify(event)));
+// Подписка на реестр, а не на один OfficeState: после переключения офиса
+// события идут уже от другого состояния, а сокеты остаются те же.
+subscribeOffices((event: ServerEvent) => broadcast(JSON.stringify(event)));
 
 function broadcastSnapshot(): void {
   broadcast(JSON.stringify(office.snapshot()));

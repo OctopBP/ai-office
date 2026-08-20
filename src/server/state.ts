@@ -118,7 +118,7 @@ interface Pending {
 /** Сколько ждём ответа пользователя, прежде чем отказать. */
 const PERMISSION_TIMEOUT_MS = 10 * 60 * 1000;
 
-class OfficeState {
+export class OfficeState {
   instances = new Map<string, Instance>();
   tasks = new Map<string, Task>();
   chat: ChatEntry[] = [];
@@ -132,8 +132,20 @@ class OfficeState {
   meeting: MeetingView | null = null;
   settings: Settings = { ...DEFAULT_SETTINGS };
   authSource: AuthSource = 'unknown';
-  /** Какой офис сейчас открыт: от него зависят worktree и файл состояния. */
-  officeId = 'o-1';
+  /** Чей это офис: от него зависят worktree и файл состояния. */
+  readonly officeId: string;
+  /**
+   * Правки ролей этого офиса. Реестр ролей в roles.ts — общий на процесс,
+   * поэтому офис держит свою копию и возвращает её, когда снова становится
+   * текущим: иначе настройки одного проекта уезжали бы в другой.
+   */
+  roleOverrides: Record<string, Partial<Role>> = {};
+  /**
+   * Поднимали ли уже это состояние с диска. Пустая заготовка (её заводит
+   * стартовое значение `office`) от открытого офиса отличается именно этим:
+   * заготовку надо восстановить, открытый офис — переиспользовать как есть.
+   */
+  opened = false;
   /**
    * Файл состояния этого офиса. Хранится здесь, а не в store.ts: сохранение
    * привязано к офису, а не к процессу, поэтому два офиса не делят ни путь,
@@ -162,6 +174,10 @@ class OfficeState {
   private alwaysAllowed = new Set<string>();
   /** Те же ключи, но запрещённые: симметрично «разрешить всегда». */
   private alwaysDenied = new Set<string>();
+
+  constructor(officeId: string) {
+    this.officeId = officeId;
+  }
 
   subscribe(fn: Listener): () => void {
     this.listeners.add(fn);
@@ -738,34 +754,6 @@ class OfficeState {
     this.emit({ t: 'cloud', cloud: this.cloud });
   }
 
-  /**
-   * Забыть всё, что относится к прежнему офису, не трогая файл на диске:
-   * состояние другого проекта восстанавливается отдельно.
-   */
-  unload(): void {
-    for (const p of this.pending.values()) {
-      clearTimeout(p.timer);
-      p.resolve('deny');
-    }
-    this.pending.clear();
-    this.instances.clear();
-    this.tasks.clear();
-    this.chat = [];
-    this.log = [];
-    this.meeting = null;
-    this.busy = false;
-    this.paused = false;
-    this.usage = emptyUsage();
-    this.daily = {};
-    this.alwaysAllowed.clear();
-    this.alwaysDenied.clear();
-    this.settings = { ...DEFAULT_SETTINGS };
-    this.taskSeq = 0;
-    // Правки ролей принадлежат офису, а не процессу: без сброса настройки
-    // одного проекта переезжали бы в другой.
-    setRoleOverrides({});
-  }
-
   setBusy(busy: boolean): void {
     if (this.busy === busy) return;
     this.busy = busy;
@@ -849,4 +837,82 @@ function migrateTask(raw: Task & {
   return { ...raw, criteria, usage };
 }
 
-export const office = new OfficeState();
+/**
+ * Реестр состояний: один OfficeState на офис за всё время жизни процесса.
+ * Ленивый — состояние заводится при первом обращении и дальше живёт в памяти.
+ * Пересоздавать его на каждом открытии нельзя: тогда возврат в офис читал бы
+ * доску заново с диска и терял всё, что не успело до него доехать.
+ */
+const states = new Map<string, OfficeState>();
+
+/**
+ * Слушатели, которые следуют за офисом, а не за конкретным состоянием:
+ * сокет живёт дольше открытого офиса. Держим их отдельно, чтобы подписать
+ * каждое новое состояние ровно один раз и не копить дубли при переключениях.
+ */
+const followers = new Set<Listener>();
+
+/** Состояние офиса по id: уже поднятое либо пустое, заведённое сейчас. */
+export function getOffice(officeId: string): OfficeState {
+  const found = states.get(officeId);
+  if (found) return found;
+  const created = new OfficeState(officeId);
+  for (const fn of followers) created.subscribe(fn);
+  states.set(officeId, created);
+  return created;
+}
+
+/**
+ * Подписка на события текущего офиса и всех, которые откроются позже.
+ * Отписки нет намеренно: подписчик здесь один — рассылка по сокетам,
+ * и живёт она столько же, сколько процесс.
+ */
+export function subscribeOffices(fn: Listener): void {
+  followers.add(fn);
+  // Set в subscribe() делает повторную подписку тем же обработчиком пустой,
+  // так что второй вызов не удваивает рассылку.
+  for (const state of states.values()) state.subscribe(fn);
+}
+
+/**
+ * Текущий открытый офис. Именно ссылка, а не константа: переключение офиса
+ * переставляет её, и весь код, читающий `office`, продолжает работать без
+ * правок — импорт в ES-модуле живой.
+ */
+export let office = getOffice('o-1');
+
+/** Сделать состояние текущим, передав ему общие на процесс правки ролей. */
+function activate(next: OfficeState): void {
+  if (next === office) return;
+  office.roleOverrides = getRoleOverrides();
+  office = next;
+  setRoleOverrides(next.roleOverrides);
+}
+
+/**
+ * Открыть офис и сделать его текущим. Первое открытие поднимает состояние
+ * из своего файла, повторное — берёт уже поднятое из памяти: доска, расходы
+ * и разговоры офиса переживают переключение туда и обратно.
+ *
+ * `restored` — подняли с диска сейчас, `reused` — офис уже был открыт в этом
+ * процессе; оба false означают новый офис, начатый с чистого листа.
+ */
+export function openOfficeState(entry: { id: string; projectDir: string; stateFile: string }):
+  { state: OfficeState; restored: boolean; reused: boolean } {
+  const state = getOffice(entry.id);
+  activate(state);
+  if (state.opened) return { state, restored: false, reused: true };
+
+  state.projectDir = entry.projectDir;
+  state.setStateFile(entry.stateFile);
+  state.opened = true;
+  const restored = state.restore();
+  if (!restored) {
+    // Офис с чистого листа начинается и с чистых ролей: правки ролей
+    // принадлежат офису, а их реестр в roles.ts — общий на процесс.
+    setRoleOverrides({});
+    state.seed();
+  }
+  state.roleOverrides = getRoleOverrides();
+  return { state, restored, reused: false };
+}
