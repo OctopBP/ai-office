@@ -3,7 +3,8 @@
  * свои расходы и свой файл состояния. Раньше проект задавался переменной
  * окружения и менялся только перезапуском сервера.
  */
-import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, renameSync, statSync, writeFileSync } from 'node:fs';
+import { homedir } from 'node:os';
 import { dirname, resolve } from 'node:path';
 
 export interface OfficeEntry {
@@ -105,18 +106,45 @@ export function setCurrent(id: string): OfficeEntry | null {
   return office;
 }
 
-/** Завести новый офис. Директорию создаём, если её нет. */
-export function createOffice(input: { name: string; projectDir: string }):
+/** Путь пользователь пишет руками, и «~/Projects/x» — обычная форма записи. */
+function expandHome(path: string): string {
+  if (path === '~') return homedir();
+  if (path.startsWith('~/')) return resolve(homedir(), path.slice(2));
+  return path;
+}
+
+/**
+ * Завести новый офис.
+ *
+ * `mustExist` — путь пришёл от человека: тогда опечатка не должна молча
+ * создавать пустую папку, о ней надо сказать. Со старта сервера офис
+ * заводится без этого флага, и директорию мы создаём сами.
+ */
+export function createOffice(input: { name: string; projectDir: string; mustExist?: boolean }):
   { office: OfficeEntry } | { error: string } {
   if (!registry) return { error: 'Реестр офисов не загружен.' };
-  const projectDir = resolve(input.projectDir);
+  if (!input.projectDir.trim()) return { error: 'Укажите путь к директории проекта.' };
+  const projectDir = resolve(expandHome(input.projectDir.trim()));
   const name = input.name.trim() || projectDir.split('/').filter(Boolean).pop() || 'Офис';
 
   const taken = registry.offices.find((o) => o.projectDir === projectDir);
   if (taken) return { error: `Офис «${taken.name}» уже работает в этой директории.` };
 
   let ours = false;
-  if (!existsSync(projectDir)) {
+  if (input.mustExist) {
+    let dir: boolean;
+    try {
+      dir = statSync(projectDir).isDirectory();
+    } catch (err) {
+      const code = (err as NodeJS.ErrnoException).code;
+      return {
+        error: code === 'ENOENT'
+          ? `Директория ${projectDir} не найдена. Создайте её или укажите другой путь.`
+          : `Не удалось прочитать ${projectDir}: ${(err as Error).message}`,
+      };
+    }
+    if (!dir) return { error: `${projectDir} — это файл, а не директория.` };
+  } else if (!existsSync(projectDir)) {
     try {
       mkdirSync(projectDir, { recursive: true });
       ours = true;
