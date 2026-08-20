@@ -1,4 +1,4 @@
-import { mergeTask, retryTask, showDiff, stopTask, useStore } from './store';
+import { mergeBadge, mergeStepFor, mergeTask, retryTask, showDiff, stopTask, useStore } from './store';
 import type { TaskStatus, TaskView } from '../shared/types';
 
 const COLUMNS: Array<{ title: string; statuses: TaskStatus[] }> = [
@@ -14,6 +14,10 @@ const STATUS_LABEL: Record<TaskStatus, string> = {
 };
 
 function Card({ t }: { t: TaskView }) {
+  const run = useStore((s) => s.mergeRun);
+  const check = useStore((s) => s.mergeChecks[t.id]);
+  const step = mergeStepFor(run, t.id);
+  const badge = mergeBadge(t, step, check);
   return (
     <div className={`task ${t.status}`}>
       <div className="task-head">
@@ -22,6 +26,14 @@ function Card({ t }: { t: TaskView }) {
       </div>
       <div className="task-meta">
         <span className={`chip ${t.status}`}>{STATUS_LABEL[t.status]}</span>
+        {badge && (
+          <span
+            className={`chip merge-chip ${badge.cls}`}
+            title={check?.state === 'conflict' ? check.conflicts.join(', ') : undefined}
+          >
+            {badge.label}
+          </span>
+        )}
         <span className="muted">{t.assigneeId ?? '—'}</span>
         {t.criteria.length > 0 && (
           <span className="muted">
