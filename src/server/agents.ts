@@ -821,6 +821,122 @@ export function talkTo(instanceId: string, text: string): void {
 
 // ---------------------------------------------------------------- исполнители
 
+/**
+ * Сколько раз за задачу можно спросить коллег. Ограничение не про деньги, а
+ * про то, чтобы исполнитель не заменял работу перепиской: пять вопросов — это
+ * уже разговор, а не справка.
+ */
+const MAX_CONSULTS_PER_TASK = 5;
+const consultsByTask = new Map<string, number>();
+
+/**
+ * Вопрос коллеге другой роли. Нужен, потому что роли работают в разных
+ * репозиториях: лезть в чужой код — и медленно, и опасно (можно поправить
+ * то, за что отвечает другой), а гадать — ещё хуже.
+ *
+ * Отвечает НАСТОЯЩАЯ сессия той роли в ЕЁ репозитории, только на чтение и без
+ * офисных инструментов: тогда отвечающий не может ни изменить свой проект, ни
+ * позвать третьего — цепочка вопросов не уходит в бесконечность.
+ */
+async function consultRole(
+  askerId: string, roleId: string, question: string, taskId: string,
+): Promise<{ ok: boolean; text: string }> {
+  const asker = office.instances.get(askerId);
+  const role = roleById(roleId);
+  if (!asker) return { ok: false, text: 'Спрашивающий не найден.' };
+  if (!role || role.isManager) {
+    const names = workerRoles().map((r) => r.id).join(', ');
+    return { ok: false, text: `Роли «${roleId}» нет. Есть: ${names}.` };
+  }
+  if (role.id === asker.roleId) {
+    return { ok: false, text: 'Это твоя собственная роль — отвечать на такой вопрос тебе.' };
+  }
+
+  const used = consultsByTask.get(taskId) ?? 0;
+  if (used >= MAX_CONSULTS_PER_TASK) {
+    return {
+      ok: false,
+      text: `Лимит вопросов по задаче исчерпан (${MAX_CONSULTS_PER_TASK}). ` +
+        'Прими решение сам и опиши допущение в отчёте.',
+    };
+  }
+
+  // Отвечает только свободный коллега. Занятого не отвлекаем: у него своя
+  // сессия и своя задача, а списывать разговор на её стоимость — враньё в
+  // расходах. Офис так же поступает с прямым разговором пользователя.
+  const answerer = [...office.instances.values()].find(
+    (i) => i.roleId === roleId && !i.currentTaskId && i.state !== 'talking',
+  );
+  if (!answerer) {
+    return {
+      ok: false,
+      text: `Все исполнители роли «${role.title}» сейчас заняты. Реши сам и опиши ` +
+        'в отчёте, на какое предположение опирался.',
+    };
+  }
+
+  consultsByTask.set(taskId, used + 1);
+  const askerRole = roleById(asker.roleId);
+  office.addLog(askerId, 'system', `Вопрос к ${answerer.id}: ${clip(question, 120)}`);
+  office.emit({ t: 'handoff', from: askerId, to: answerer.id, text: clip(question, 60) });
+
+  const prevState = asker.state;
+  const prevNote = asker.note;
+  office.setState(askerId, 'talking', `спрашивает ${answerer.label}`);
+  office.setState(answerer.id, 'talking', `отвечает ${asker.label}`);
+
+  let text = '';
+  try {
+    const session = query({
+      prompt: [
+        `К тебе обратился коллега — ${askerRole?.title ?? asker.roleId}. Вопрос:`,
+        '',
+        question,
+        '',
+        'Ответь по существу и коротко. Если ответ есть в твоём коде — посмотри и назови',
+        'конкретные файлы, функции и формат данных, а не общие слова. Если чего-то не',
+        'знаешь — так и скажи, не выдумывай.',
+      ].join('\n'),
+      options: {
+        model: role.model,
+        systemPrompt: [
+          `Ты — ${role.title} в команде AI-агентов.`,
+          role.brief,
+          '',
+          'Коллега из другой роли задаёт тебе вопрос по твоей части работы. Ты отвечаешь',
+          'как человек, который её писал: смотришь свой код и объясняешь, как есть.',
+          'Менять ничего нельзя — это разговор, а не задача.',
+        ].join('\n') + projectBrief(),
+        cwd: office.repoFor(role),
+        // Только чтение и никаких офисных инструментов: отвечающий не должен
+        // ни править свой проект, ни звать третьего.
+        tools: ['Read', 'Glob', 'Grep'],
+        permissionMode: 'default',
+        canUseTool: permissionHandler(answerer.id),
+        settingSources: [],
+        sandbox: SANDBOX,
+        maxTurns: 12,
+      },
+    });
+    for await (const msg of session) {
+      consume(answerer.id, msg);
+      if (msg.type === 'result' && isOk(msg)) text = msg.result?.trim() ?? '';
+    }
+  } catch (err) {
+    text = '';
+    office.addLog(answerer.id, 'error', `Не удалось ответить: ${(err as Error).message}`);
+  }
+
+  office.setState(answerer.id, 'idle', null);
+  office.setState(askerId, prevState, prevNote);
+
+  if (!text) {
+    return { ok: false, text: `${answerer.label} не смог ответить. Реши сам и опиши допущение в отчёте.` };
+  }
+  office.addLog(answerer.id, 'text', `Ответ ${asker.id}: ${clip(text, 300)}`);
+  return { ok: true, text: `Ответил ${answerer.label} (${role.title}):\n\n${text}` };
+}
+
 function workerTools(instanceId: string, task: Task) {
   return createSdkMcpServer({
     name: 'office',
@@ -846,6 +962,20 @@ function workerTools(instanceId: string, task: Task) {
         async (args) => {
           const outcome = office.checkCriterion(task.id, args.index, args.done);
           return { content: [{ type: 'text', text: outcome.text }], isError: !outcome.ok };
+        },
+      ),
+      tool(
+        'ask_colleague',
+        'Спросить коллегу другой роли о его части работы: как устроен его код, какой формат данных, ' +
+        'почему сделано так. Отвечает живой исполнитель этой роли, глядя в свой проект. ' +
+        'Используй это ВМЕСТО того, чтобы лезть в чужой репозиторий или гадать.',
+        {
+          role: z.string().describe('id роли: backend, frontend, design, reviewer, artist, smm, legal'),
+          question: z.string().describe('Один конкретный вопрос. Не «расскажи про бэкенд», а «какой формат ответа у GET /notes».'),
+        },
+        async (args) => {
+          const answer = await consultRole(instanceId, args.role, args.question, task.id);
+          return { content: [{ type: 'text', text: answer.text }], isError: !answer.ok };
         },
       ),
       tool(
@@ -963,6 +1093,11 @@ function startWorker(task: Task, inst: Instance): void {
     'Тебе выдана ровно одна задача. Ты НЕ видишь переписку PM с пользователем — вся нужная',
     'информация в тексте задачи. Если чего-то не хватает, прими разумное решение сам и опиши его',
     'в отчёте, а не останавливайся.',
+    '',
+    'Ты работаешь в своей рабочей копии. Соседние репозитории — чужая ответственность:',
+    'без крайней необходимости туда не ходи даже смотреть. Нужно знать, как устроена часть',
+    'другой роли — спроси через ask_colleague({role, question}): ответит живой коллега,',
+    'глядя в свой код. Это быстрее и честнее, чем догадываться.',
     '',
     'Перед каждым логическим шагом вызывай say({text}) — пользователь видит это над твоей головой.',
     'Когда всё готово — вызови finish_task({summary, files}).',
@@ -1106,6 +1241,7 @@ function startWorker(task: Task, inst: Instance): void {
     } finally {
       inst.currentTaskId = null;
       inst.abort = null;
+      consultsByTask.delete(task.id);
       running = Math.max(0, running - 1);
       if (running === 0) office.setBusy(false);
       setTimeout(() => {
