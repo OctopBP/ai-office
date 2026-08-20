@@ -15,41 +15,59 @@ export const DESKS_ALL: Desk[] = [
 interface Pos { x: number; y: number }
 
 /**
- * Зона кухни в тайлах — совпадает с площадью, которую в Office.tsx занимают
- * плитка пола (kitchen_tiles), стойка, холодильник и столы. Задана
- * прямоугольником, а не списком точек, чтобы места ниже можно было
- * раскладывать сеткой любой плотности.
+ * Обеденный стол на кухне — координаты и размер совпадают с dining_table
+ * в DECOR (Office.tsx): 6 тайлов в ширину, стоит по центру нижней части
+ * кухонной зоны. Места раскладываются вдоль его длинных (верхней и нижней)
+ * сторон, а не сеткой по всей зоне — так они не попадают ни в стол, ни в
+ * ряд тумб над ним.
  */
-const KITCHEN_AREA = { x0: 19.0, y0: 10.75, x1: 23.75, y1: 14.5 };
+const TABLE = { x0: 17.0, y0: 12.2, x1: 23.0, y1: 13.575 };
+/** Минимальный шаг между соседними местами вдоль стола. */
+const SEAT_STEP = 0.85;
+/** Отступ дополнительного ряда мест от предыдущего, если один ряд не вмещает всех. */
+const ROW_GAP = 0.9;
+/** Место у стороны стола, ближней к тумбам — стоит перед ними, не залезая внутрь. */
+const NORTH_Y = TABLE.y0 - 0.75;
+/** Место у противоположной стороны — там до края зоны больше свободного места. */
+const SOUTH_Y = TABLE.y1 + 0.3;
 
 /**
  * Посадочные места на кухне — там сидят свободные исполнители, пока им не
  * назначили задачу. Количество мест считается от числа рабочих столов
  * исполнителей (все DESKS_ALL, кроме стола PM с индексом 0), а не задано
  * жёстким списком координат: если столов в офисе станет больше, кухня
- * подстроится сама и место найдётся каждому. Раскладка — равномерная сетка
- * внутри зоны кухни, поэтому места не накладываются ни при каком количестве.
+ * подстроится сама и место найдётся каждому.
  */
 export const KITCHEN_SEATS: Pos[] = buildKitchenSeats(
   DESKS_ALL.filter((d) => d.index !== 0).length,
 );
 
+/**
+ * Раскладка мест: сначала поровну на обе длинные стороны стола, при
+ * нехватке — дополнительными рядами со стороны прохода (там больше запаса
+ * до края зоны, чем со стороны тумб). Раскладка детерминированная, поэтому
+ * место конкретного стола остаётся стабильным, пока не меняется штат.
+ */
 function buildKitchenSeats(count: number): Pos[] {
   const n = Math.max(count, 1);
-  const areaW = KITCHEN_AREA.x1 - KITCHEN_AREA.x0;
-  const areaH = KITCHEN_AREA.y1 - KITCHEN_AREA.y0;
-  // Число колонок подбирается так, чтобы ячейка сетки была близка к квадрату —
-  // тогда места распределены равномерно, а не вытянуты в одну длинную полосу.
-  const cols = Math.max(1, Math.round(Math.sqrt((n * areaW) / areaH)));
-  const rows = Math.ceil(n / cols);
+  const width = TABLE.x1 - TABLE.x0;
+  const perRow = Math.max(1, Math.floor(width / SEAT_STEP) + 1);
   const seats: Pos[] = [];
-  for (let i = 0; i < n; i++) {
-    const col = i % cols;
-    const row = Math.floor(i / cols);
-    seats.push({
-      x: KITCHEN_AREA.x0 + (col + 0.5) * (areaW / cols),
-      y: KITCHEN_AREA.y0 + (row + 0.5) * (areaH / rows),
-    });
+  const addRow = (y: number, k: number) => {
+    for (let i = 0; i < k; i++) {
+      seats.push({ x: TABLE.x0 + (i + 0.5) * (width / k), y });
+    }
+  };
+  let remaining = n;
+  const northCount = Math.min(perRow, Math.ceil(n / 2));
+  addRow(NORTH_Y, northCount);
+  remaining -= northCount;
+  let ring = 0;
+  while (remaining > 0) {
+    const k = Math.min(perRow, remaining);
+    addRow(SOUTH_Y + ring * ROW_GAP, k);
+    remaining -= k;
+    ring++;
   }
   return seats;
 }
