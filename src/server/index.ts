@@ -198,15 +198,11 @@ wss.on('connection', (ws) => {
       office.resolvePermission(cmd.id, cmd.decision);
     } else if (cmd.c === 'merge_task') {
       void mergeTask(cmd.taskId);
-    } else if (cmd.c === 'spawn') {
-      const inst = office.spawn(cmd.roleId);
-      if (!inst) {
-        office.addChat('офис',
-          'Не удалось нанять: либо достигнут лимит клонов роли, либо в офисе нет свободных рабочих мест.');
-      } else {
-        office.addLog(null, 'system', `Нанят ${inst.id}`);
-        office.emit({ t: 'roles', roles: office.roleViews() });
-      }
+    } else if (cmd.c === 'spawn' || cmd.c === 'hire') {
+      // Наём: и первый сотрудник в пустую роль, и очередной клон — одно и то же
+      // действие, отличается только тем, сколько народу в роли уже сидит.
+      const problem = office.hire(cmd.roleId);
+      if (problem) office.addChat('офис', problem);
     } else if (cmd.c === 'fire') {
       const problem = office.fire(cmd.instanceId);
       if (problem) office.addChat('офис', problem);

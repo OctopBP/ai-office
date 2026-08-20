@@ -233,7 +233,11 @@ export type ClientCommand =
   | { c: 'user_message'; text: string }
   | { c: 'permission'; id: string; decision: PermissionDecision }
   | { c: 'merge_task'; taskId: string }
+  /** Нанять сотрудника роли: и первого в пустую роль, и очередного клона. */
   | { c: 'spawn'; roleId: string }
+  /** То же самое под говорящим именем — сервер принимает оба варианта. */
+  | { c: 'hire'; roleId: string }
+  /** Уволить сотрудника. Последнего в роли — можно: роль остаётся вакансией. */
   | { c: 'fire'; instanceId: string }
   | { c: 'update_role'; roleId: string; patch: Partial<RoleEditable> }
   | { c: 'settings'; settings: Partial<Settings> }

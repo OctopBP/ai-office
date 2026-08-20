@@ -5,8 +5,12 @@
  *
  * Запуск: npm run test:state
  */
+import { tmpdir } from 'node:os';
+import { resolve } from 'node:path';
 import { office } from '../src/server/state';
 import { cloudProblem, setGithubToken } from '../src/server/cloud';
+import { noStaffReason, teamSummary } from '../src/server/agents';
+import { flush, setStateFile, wipe } from '../src/server/store';
 
 async function main(): Promise<void> {
   office.seed();
@@ -81,6 +85,59 @@ async function main(): Promise<void> {
     `без токена отказывает: ${/токен/i.test(withoutToken ?? '')}`,
     `со всеми тремя — готово: ${ready === null}`,
   );
+
+  // 7. Состав команды: увольнение последнего, наём обратно, лимит и защиты.
+  // Состояние с этого момента пишем во временный файл: дальше проверяется
+  // восстановление состава, и настоящее сохранение офиса трогать нельзя.
+  setStateFile(resolve(tmpdir(), `office-test-state-${process.pid}.json`));
+  const fireLast = office.fire('smm#1');
+  results.push(
+    `последнего сотрудника роли можно уволить: ${fireLast === null}`,
+    `роль осталась с нулём сотрудников: ${office.staffOf('smm').length === 0}`,
+    `роль не исчезла из реестра: ${office.roleViews().some((r) => r.id === 'smm' && r.active === 0)}`,
+    // Менеджер должен увидеть пустую роль как вакансию, а не решить, что её нет.
+    `list_team показывает роль без сотрудников: ${/smm[\s\S]*?сотрудников нет \(можно нанять\)/.test(teamSummary())}`,
+    // Назначение на пустую роль обязано быть понятным отказом, а не падением.
+    `assign_task на роль без сотрудников отказывает: ${/вакансия открыта/.test(noStaffReason('smm') ?? '')}`,
+    `роль с сотрудниками задачи берёт: ${noStaffReason('backend') === null}`,
+    `PM уволить нельзя: ${/PM/.test(office.fire('pm#1') ?? '')}`,
+    // backend#1 занят задачей из проверки расходов выше.
+    `занятого не увольняем и объясняем почему: ${/работает над задачей/.test(office.fire('backend#1') ?? '')}`,
+  );
+
+  const hireBack = office.hire('smm');
+  const smmLimit = office.roleViews().find((r) => r.id === 'smm')!.maxInstances;
+  results.push(
+    `нанять обратно можно: ${hireBack === null && office.staffOf('smm').length === 1}`,
+    `нанятый получил рабочее место: ${office.staffOf('smm')[0]?.desk !== undefined}`,
+  );
+  while (office.staffOf('smm').length < smmLimit) office.hire('smm');
+  results.push(
+    `лимит клонов соблюдён: ${/лимит|уже нанято/.test(office.hire('smm') ?? '')}`,
+    `несуществующая роль отклонена: ${/нет в офисе/.test(office.hire('нет-такой') ?? '')}`,
+  );
+
+  // Номер освобождается вместе с сотрудником и не затирает живого соседа.
+  const second = office.staffOf('smm')[1]!.id;
+  office.fire('smm#1');
+  office.hire('smm');
+  results.push(
+    `новый сотрудник не затёр соседа: ${office.instances.has(second) && office.staffOf('smm').length === 2}`,
+  );
+
+  // Уволенная роль не воскресает при перезапуске: состав берётся из сохранения.
+  for (const i of office.staffOf('smm')) office.fire(i.id);
+  const extraBackend = office.hire('backend') === null;
+  office.projectDir = office.projectDir || process.cwd();
+  flush();
+  const restored = office.restore();
+  results.push(
+    `состояние восстановлено: ${restored}`,
+    `уволенная роль не воскресла после перезапуска: ${office.staffOf('smm').length === 0}`,
+    `нанятые сверх одного сохранились: ${extraBackend && office.staffOf('backend').length === 2}`,
+    `столы не разъехались: ${new Set([...office.instances.values()].map((i) => i.desk.index)).size === office.instances.size}`,
+  );
+  wipe();
 
   const failed = results.filter((r) => r.endsWith('false'));
   for (const r of results) console.log(`  ${r.endsWith('false') ? '❌' : '✅'} ${r}`);
