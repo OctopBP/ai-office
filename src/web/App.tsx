@@ -16,7 +16,7 @@ import { MeetingModal } from './MeetingModal';
 import { UsageModal } from './UsageModal';
 import { OfficesModal } from './OfficesModal';
 import { MenuScreen } from './MenuScreen';
-import { connect, setPaused, useStore } from './store';
+import { closeDiff, connect, setPaused, useStore } from './store';
 
 type PanelKind = 'chat' | 'board' | 'log' | 'help' | 'merge' | null;
 type ModalKind = 'settings' | 'meeting' | 'usage' | 'offices' | null;
@@ -29,6 +29,8 @@ export function App() {
   const selected = useStore((s) => s.selected);
   const select = useStore((s) => s.select);
   const paused = useStore((s) => s.paused);
+  const diff = useStore((s) => s.diff);
+  const leaveOffice = useStore((s) => s.leaveOffice);
   const [panel, setPanel] = useState<PanelKind>(null);
   const [modal, setModal] = useState<ModalKind>(null);
 
@@ -38,12 +40,27 @@ export function App() {
   // он уже вычисленным значением — тема ниже body не подействовала бы.
   useEffect(() => { document.documentElement.dataset.theme = theme; }, [theme]);
 
+  // App не размонтируется при уходе в меню — только меняется JSX-ветка ниже.
+  // Без этого открытые панель/модалка «протекли» бы в следующий открытый офис.
+  useEffect(() => {
+    if (screen === 'menu') { setPanel(null); setModal(null); }
+  }, [screen]);
+
   // Горячие клавиши как в макете. В полях ввода не срабатывают.
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       const tag = (e.target as HTMLElement)?.tagName;
       if (tag === 'INPUT' || tag === 'TEXTAREA') return;
-      if (e.key === 'Escape') { setPanel(null); setModal(null); select(null); return; }
+      if (e.key === 'Escape') {
+        // Сначала закрываем всё открытое поверх комнаты, и только если
+        // закрывать было нечего — уходим в меню.
+        if (panel || modal || diff || selected) {
+          setPanel(null); setModal(null); closeDiff(); select(null);
+        } else {
+          leaveOffice();
+        }
+        return;
+      }
       if (e.key === 'Enter') { setPanel('chat'); return; }
       // Пробел листает страницу по умолчанию — здесь он ставит офис на паузу.
       if (e.key === ' ') { e.preventDefault(); setPaused(!paused); return; }
@@ -60,7 +77,7 @@ export function App() {
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [instances, selected, select, paused]);
+  }, [instances, selected, select, paused, panel, modal, diff, leaveOffice]);
 
   // До выбора офиса в меню комната вообще не монтируется — это отдельный
   // экран приложения, а не оверлей поверх неё.
@@ -114,7 +131,9 @@ export function App() {
               команде; исполнители работают параллельно, каждый в своей ветке.</p>
             <p><kbd>B</kbd> — доска задач, <kbd>L</kbd> — лог, <kbd>M</kbd> — созвать совещание,
               <kbd>SPACE</kbd> — пауза, <kbd>1–9</kbd> — открыть карточку агента,
-              <kbd>ESC</kbd> — закрыть.</p>
+              <kbd>ESC</kbd> — закрыть, а если закрывать нечего — выйти в меню офисов.</p>
+            <p>🏠 в шапке — выйти в меню: офис остаётся открытым на сервере, агенты
+              продолжают работать, это только смена экрана.</p>
             <p><b>Пауза</b> не убивает сессии: исполнители замирают на следующем вызове
               инструмента и продолжают с того же места, когда вы нажмёте ▶. Новые задачи
               на паузе не запускаются, а с менеджером по-прежнему можно разговаривать.</p>

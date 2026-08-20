@@ -92,6 +92,13 @@ interface State {
   setConnected: (v: boolean) => void;
   /** Войти в офис из меню: текущий — сразу, иначе переключение на сервере. */
   enterOffice: (officeId: string) => void;
+  /**
+   * Выйти в меню — офис на сервере при этом не меняется, поэтому дёргать
+   * switch_office незачем: это только локальная смена экрана. Соединение
+   * остаётся подписанным на тот же офис, агенты продолжают работать и
+   * события по-прежнему долетают до стора, просто пока не отрисовываются.
+   */
+  leaveOffice: () => void;
   /** Отправить создание офиса из меню и ждать снапшот или ошибку. */
   requestCreateOffice: (name: string, projectDir: string) => void;
   dismissMenuNotice: () => void;
@@ -174,6 +181,16 @@ export const useStore = create<State>((set, get) => ({
     switchOffice(officeId);
   },
 
+  leaveOffice: () => set({
+    screen: 'menu',
+    // UI-состояние привязано к конкретному офису: не должно протекать ни в
+    // меню, ни в следующий открытый офис.
+    selected: null,
+    thread: 'pm#1',
+    diff: null,
+    menuNotice: null,
+  }),
+
   requestCreateOffice: (name, projectDir) => {
     set({ pending: 'create', pendingLabel: name.trim() || projectDir.trim(), menuNotice: null });
     createOffice(name, projectDir);
@@ -199,6 +216,13 @@ export const useStore = create<State>((set, get) => ({
           // Снапшот пришёл во время входа/создания — офис открыт, показываем комнату.
           screen: s.pending ? 'office' : s.screen,
           pending: null, pendingLabel: null,
+          // Снапшот — это либо переподключение, либо реальное переключение
+          // офиса (switch_office шлёт именно snapshot, не точечный patch):
+          // выделение, ветка чата и открытый дифф предыдущего офиса тут
+          // больше не про что.
+          selected: null,
+          thread: 'pm#1',
+          diff: null,
         }));
         break;
       }
