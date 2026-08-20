@@ -10,6 +10,7 @@ import { emptyUsage } from '../shared/types';
 import { activityFromFile, summarize } from './activity';
 import { currentOffice, offices } from './offices';
 import { effectiveMode } from './permissions';
+import type { MessageQueue } from './queue';
 import { allRoles, getRoleOverrides, roleById, setRoleOverrides, type Role } from './roles';
 import {
   DEFAULT_STATE_FILE, flush as flushFile, load, save, wipe as wipeFile,
@@ -173,6 +174,18 @@ export class OfficeState {
    * относится к живым сессиям, а после перезапуска их всё равно нет.
    */
   paused = false;
+  /**
+   * Живая сессия менеджера этого офиса: очередь сообщений и цикл её чтения.
+   * Принадлежат офису, а не процессу: иначе второй открытый офис не поднял бы
+   * своего PM (цикл уже не пуст), а сообщения ушли бы в чужую очередь.
+   */
+  pmQueue: MessageQueue | null = null;
+  pmLoop: Promise<void> | null = null;
+  /**
+   * Задачи, которые пользователь остановил вручную — чтобы отличить это от
+   * падения. Ключ — id задачи, а он уникален только внутри офиса.
+   */
+  stoppedByUser = new Set<string>();
   /** Расход офиса за всё время — считается отдельно, чтобы увольнение клона не обнуляло сумму. */
   usage: Usage = emptyUsage();
   /** Расход офиса по дням. */

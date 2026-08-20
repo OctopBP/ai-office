@@ -2,7 +2,7 @@ import { query, tool, createSdkMcpServer } from '@anthropic-ai/claude-agent-sdk'
 import type { SDKMessage, PermissionResult, SDKResultSuccess } from '@anthropic-ai/claude-agent-sdk';
 import { z } from 'zod';
 import { MessageQueue } from './queue';
-import { criteriaProgress, DEFAULT_SETTINGS, office, taskRepo, type Instance, type Task } from './state';
+import { criteriaProgress, DEFAULT_SETTINGS, office, taskRepo, type Instance, type OfficeState, type Task } from './state';
 import { emptyUsage } from '../shared/types';
 import { cloudProblem, runCloudTask, stopCloudTask } from './cloud';
 import { roleById, workerRoles, type Role } from './roles';
@@ -77,8 +77,6 @@ const SANDBOX = {
 } as const;
 
 let running = 0;
-/** Задачи, которые пользователь остановил вручную — чтобы отличить это от падения. */
-const stoppedByUser = new Set<string>();
 
 // ---------------------------------------------------------------- утилиты
 
@@ -583,18 +581,16 @@ const teamTools = createSdkMcpServer({
   ],
 });
 
-let pmQueue: MessageQueue | null = null;
-let pmLoop: Promise<void> | null = null;
-
-function startPm(): void {
-  if (pmLoop) return;
+/** Поднять сессию менеджера конкретного офиса. У каждого офиса она своя. */
+function startPm(state: OfficeState): void {
+  if (state.pmLoop) return;
   const queue = new MessageQueue();
-  pmQueue = queue;
+  state.pmQueue = queue;
 
   // Продолжаем прошлую сессию, если она известна: так PM помнит, о чём шла речь
   // до перезапуска, и не платит за пересборку контекста.
-  const resumeId = office.instances.get('pm#1')?.sessionId ?? undefined;
-  if (resumeId) office.addLog('pm#1', 'system', `Продолжаю сессию ${resumeId.slice(0, 8)}…`);
+  const resumeId = state.instances.get('pm#1')?.sessionId ?? undefined;
+  if (resumeId) state.addLog('pm#1', 'system', `Продолжаю сессию ${resumeId.slice(0, 8)}…`);
 
   const session = query({
     prompt: queue,
@@ -602,7 +598,7 @@ function startPm(): void {
       resume: resumeId,
       model: roleById('pm')!.model,
       systemPrompt: PM_PROMPT + projectBrief(),
-      cwd: office.projectDir,
+      cwd: state.projectDir,
       tools: [],                         // у PM нет доступа к файлам — только командные инструменты
       mcpServers: { team: teamTools },
       permissionMode: 'default',
@@ -612,63 +608,68 @@ function startPm(): void {
     },
   });
 
-  pmLoop = (async () => {
+  state.pmLoop = (async () => {
     try {
       for await (const msg of session) {
         consume('pm#1', msg);
         if (msg.type === 'result') {
           if (isOk(msg) && msg.result?.trim()) {
-            office.addChat('pm#1', msg.result.trim());
+            state.addChat('pm#1', msg.result.trim());
           } else if (!isOk(msg)) {
             const reason = resultReason(msg);
-            office.addChat('офис', `⚠️ PM не смог ответить: ${clip(reason, 300)}`);
-            office.setState('pm#1', 'failed', 'ошибка');
+            state.addChat('офис', `⚠️ PM не смог ответить: ${clip(reason, 300)}`);
+            state.setState('pm#1', 'failed', 'ошибка');
           }
-          if (office.instances.get('pm#1')?.state !== 'failed') {
-            office.setState('pm#1', 'idle', null);
+          if (state.instances.get('pm#1')?.state !== 'failed') {
+            state.setState('pm#1', 'idle', null);
           }
-          office.setBusy(running > 0);
+          state.setBusy(running > 0);
         }
       }
     } catch (err) {
       const message = (err as Error).message;
-      office.addLog('pm#1', 'error', `Сессия PM упала: ${message}`);
+      state.addLog('pm#1', 'error', `Сессия PM упала: ${message}`);
       if (resumeId) {
         // Скорее всего прошлой сессии уже нет на диске — забываем её,
         // чтобы следующее сообщение начало разговор заново.
-        office.setSessionId('pm#1', '');
-        office.addChat('офис',
+        state.setSessionId('pm#1', '');
+        state.addChat('офис',
           '⚠️ Не удалось продолжить прошлую сессию PM. Она забыта — отправьте сообщение ещё раз, ' +
           'разговор начнётся заново (доска задач при этом сохранена).');
       } else {
-        office.addChat('офис', `⚠️ Сессия PM упала: ${clip(message, 200)}`);
+        state.addChat('офис', `⚠️ Сессия PM упала: ${clip(message, 200)}`);
       }
-      office.setState('pm#1', 'failed', 'сессия упала');
+      state.setState('pm#1', 'failed', 'сессия упала');
     } finally {
       // Сессию могли уже заменить (например сбросом офиса) — тогда очередь
       // принадлежит новой сессии, и обнулять ссылки нельзя: её сообщения
       // ушли бы в никуда.
-      if (pmQueue === queue) {
-        pmLoop = null;
-        pmQueue = null;
+      if (state.pmQueue === queue) {
+        state.pmLoop = null;
+        state.pmQueue = null;
       }
     }
   })();
 }
 
-/** Сообщение пользователя PM'у. */
+/** Сообщение пользователя PM'у текущего офиса — того, в котором он его написал. */
 export function sendUserMessage(text: string): void {
-  startPm();
-  office.addChat('user', text);
-  office.setState('pm#1', 'thinking', 'читает задачу…');
-  office.setBusy(true);
-  pmQueue?.push(text);
+  const state = office;
+  startPm(state);
+  state.addChat('user', text);
+  state.setState('pm#1', 'thinking', 'читает задачу…');
+  state.setBusy(true);
+  state.pmQueue?.push(text);
 }
 
-/** Системное уведомление PM'у (например, о завершении задачи). */
-function notifyPm(text: string): void {
-  startPm();
-  pmQueue?.push(text);
+/**
+ * Системное уведомление PM'у (например, о завершении задачи).
+ * Офис передаётся явно: уведомление приходит из работы, которая могла начаться
+ * задолго до того, как пользователь ушёл в другой офис.
+ */
+function notifyPm(state: OfficeState, text: string): void {
+  startPm(state);
+  state.pmQueue?.push(text);
 }
 
 // ---------------------------------------------------------------- совещание
@@ -684,6 +685,9 @@ const isManager = (inst: Instance): boolean => roleById(inst.roleId)?.isManager 
  * согласование. Итог уходит менеджеру: действовать по результату всё равно ему.
  */
 export async function holdMeeting(topic: string, participantIds: string[]): Promise<void> {
+  // Совещание длится долго — офис фиксируем на входе, чтобы итог ушёл менеджеру
+  // того офиса, где совещание созвали, даже если пользователь ушёл в другой.
+  const meetingOffice = office;
   if (meetingRunning) {
     office.addChat('офис', 'Совещание уже идёт — дождитесь окончания.', 'meeting');
     return;
@@ -828,7 +832,7 @@ export async function holdMeeting(topic: string, participantIds: string[]): Prom
     // сам был на совещании, предупреждаем об этом: иначе он примет собственную
     // реплику за чужую и станет спорить сам с собой.
     const pmWasThere = participants.some(isManager);
-    notifyPm(
+    notifyPm(meetingOffice,
       `[СИСТЕМА] Прошло совещание по теме «${topic}».` +
       (pmWasThere ? ' Ты был на нём — в стенограмме есть и твоя реплика.' : '') +
       '\n\n' +
@@ -1158,6 +1162,10 @@ function startWorker(task: Task, inst: Instance): void {
   const role = roleById(inst.roleId);
   if (!role) return;
 
+  // Офис задачи фиксируется на старте: работа идёт минутами, а пользователь за
+  // это время может открыть другой офис — отчёт обязан уйти менеджеру своего.
+  const taskOffice = office;
+
   inst.currentTaskId = task.id;
   office.updateTask(task.id, {
     assigneeId: inst.id, status: 'in_progress', startedAt: Date.now(), finishedAt: null,
@@ -1176,11 +1184,11 @@ function startWorker(task: Task, inst: Instance): void {
       inst.abort = null;
       office.setState(inst.id, 'idle', null);
       if (stopped) {
-        stoppedByUser.delete(task.id);
+        taskOffice.stoppedByUser.delete(task.id);
         office.updateTask(task.id, {
           status: 'blocked', result: '⏹ Остановлена пользователем.', finishedAt: Date.now(),
         });
-        notifyPm(
+        notifyPm(taskOffice,
           `[СИСТЕМА] Задача ${task.id} остановлена пользователем вручную. ` +
           'Не назначай её заново по своей инициативе — дождись указания.',
         );
@@ -1192,7 +1200,7 @@ function startWorker(task: Task, inst: Instance): void {
         finishedAt: Date.now(),
         criteria: task.criteria.map((c) => ({ ...c, done: true })),
       });
-      notifyPm(
+      notifyPm(taskOffice,
         `[СИСТЕМА] Задача ${task.id} «${task.title}» завершена исполнителем ${inst.id}.\n` +
         'Отчёт: [заглушка] Задача выполнена.\nОцени результат и реши, что делать дальше.',
       );
@@ -1226,7 +1234,7 @@ function startWorker(task: Task, inst: Instance): void {
   ].join('\n') + projectBrief();
 
   if (office.settings.engine === 'cloud') {
-    startCloudWorker(task, inst, role, systemPrompt);
+    startCloudWorker(task, inst, role, systemPrompt, taskOffice);
     return;
   }
 
@@ -1327,7 +1335,7 @@ function startWorker(task: Task, inst: Instance): void {
       office.updateTask(task.id, { status: 'done', result: summary, finishedAt: Date.now() });
       office.setState(inst.id, 'done', 'готово ✅');
       const progress = fresh ? criteriaProgress(fresh) : { done: 0, total: 0 };
-      notifyPm(
+      notifyPm(taskOffice,
         `[СИСТЕМА] Задача ${task.id} «${task.title}» завершена исполнителем ${inst.id}.\n` +
         `Отчёт: ${summary}\n` +
         (progress.total ? `Критерии: отмечено ${progress.done} из ${progress.total}.\n` : '') +
@@ -1337,7 +1345,7 @@ function startWorker(task: Task, inst: Instance): void {
     } catch (err) {
       const message = (err as Error).message;
 
-      if (stoppedByUser.delete(task.id)) {
+      if (taskOffice.stoppedByUser.delete(task.id)) {
         // Наработки не выбрасываем: то, что успели сделать, коммитим в ветку задачи.
         const fresh = office.tasks.get(task.id);
         let note = '⏹ Остановлена пользователем.';
@@ -1350,7 +1358,7 @@ function startWorker(task: Task, inst: Instance): void {
         office.updateTask(task.id, { status: 'blocked', result: note, finishedAt: Date.now() });
         office.addLog(inst.id, 'system', `Задача ${task.id} остановлена пользователем`);
         office.setState(inst.id, 'idle', null);
-        notifyPm(
+        notifyPm(taskOffice,
           `[СИСТЕМА] Задача ${task.id} остановлена пользователем вручную. ` +
           'Не назначай её заново по своей инициативе — дождись указания.',
         );
@@ -1358,7 +1366,7 @@ function startWorker(task: Task, inst: Instance): void {
         office.addLog(inst.id, 'error', `Задача ${task.id} упала: ${message}`);
         office.updateTask(task.id, { status: 'failed', result: `Ошибка: ${message}`, finishedAt: Date.now() });
         office.setState(inst.id, 'failed', 'ошибка');
-        notifyPm(`[СИСТЕМА] Задача ${task.id} провалилась у ${inst.id}. Ошибка: ${message}`);
+        notifyPm(taskOffice, `[СИСТЕМА] Задача ${task.id} провалилась у ${inst.id}. Ошибка: ${message}`);
       }
     } finally {
       inst.currentTaskId = null;
@@ -1378,7 +1386,9 @@ function startWorker(task: Task, inst: Instance): void {
  * Anthropic, а результат приезжает готовой веткой из GitHub — своей рабочей
  * копии и коммита от офиса тут нет.
  */
-function startCloudWorker(task: Task, inst: Instance, role: Role, systemPrompt: string): void {
+function startCloudWorker(
+  task: Task, inst: Instance, role: Role, systemPrompt: string, taskOffice: OfficeState,
+): void {
   // Прерывание идёт событием в сессию, а не сигналом процессу.
   inst.abort = { abort: () => { void stopCloudTask(task.id); } } as AbortController;
 
@@ -1386,7 +1396,7 @@ function startCloudWorker(task: Task, inst: Instance, role: Role, systemPrompt: 
     try {
       const outcome = await runCloudTask(task, inst, role, systemPrompt);
 
-      if (stoppedByUser.delete(task.id)) {
+      if (taskOffice.stoppedByUser.delete(task.id)) {
         office.updateTask(task.id, {
           status: 'blocked',
           result: `⏹ Остановлена пользователем. ${outcome.branch
@@ -1396,7 +1406,7 @@ function startCloudWorker(task: Task, inst: Instance, role: Role, systemPrompt: 
           branch: outcome.branch, baseBranch: outcome.baseBranch,
         });
         office.setState(inst.id, 'idle', null);
-        notifyPm(
+        notifyPm(taskOffice,
           `[СИСТЕМА] Задача ${task.id} остановлена пользователем вручную. ` +
           'Не назначай её заново по своей инициативе — дождись указания.',
         );
@@ -1412,7 +1422,7 @@ function startCloudWorker(task: Task, inst: Instance, role: Role, systemPrompt: 
       office.setState(inst.id, 'done', 'готово ✅');
       const fresh = office.tasks.get(task.id);
       const progress = fresh ? criteriaProgress(fresh) : { done: 0, total: 0 };
-      notifyPm(
+      notifyPm(taskOffice,
         `[СИСТЕМА] Задача ${task.id} «${task.title}» выполнена в облаке исполнителем ${inst.id}.\n` +
         `Отчёт: ${outcome.summary}\n` +
         (progress.total ? `Критерии: отмечено ${progress.done} из ${progress.total}.\n` : '') +
@@ -1424,7 +1434,7 @@ function startCloudWorker(task: Task, inst: Instance, role: Role, systemPrompt: 
       office.addLog(inst.id, 'error', `Облачная задача ${task.id} упала: ${message}`);
       office.updateTask(task.id, { status: 'failed', result: `Ошибка: ${message}`, finishedAt: Date.now() });
       office.setState(inst.id, 'failed', 'ошибка');
-      notifyPm(`[СИСТЕМА] Задача ${task.id} провалилась в облаке у ${inst.id}. Ошибка: ${message}`);
+      notifyPm(taskOffice, `[СИСТЕМА] Задача ${task.id} провалилась в облаке у ${inst.id}. Ошибка: ${message}`);
     } finally {
       inst.currentTaskId = null;
       inst.abort = null;
@@ -1443,15 +1453,16 @@ function startCloudWorker(task: Task, inst: Instance, role: Role, systemPrompt: 
  * оказывается сброшен наполовину.
  */
 export function resetSessions(): void {
-  pmQueue?.close();
-  pmQueue = null;
-  pmLoop = null;
+  // Сбрасывается текущий офис — чужие сессии трогать нельзя.
+  office.pmQueue?.close();
+  office.pmQueue = null;
+  office.pmLoop = null;
   for (const [id, talk] of talks) {
     talk.queue.close();
     talks.delete(id);
   }
   for (const inst of office.instances.values()) inst.abort?.abort();
-  stoppedByUser.clear();
+  office.stoppedByUser.clear();
   meetingRunning = false;
 }
 
@@ -1464,7 +1475,7 @@ export function stopTask(taskId: string): void {
     office.addChat('офис', `${taskId} сейчас никто не выполняет — останавливать нечего.`);
     return;
   }
-  stoppedByUser.add(taskId);
+  office.stoppedByUser.add(taskId);
   inst.abort.abort();
 }
 
@@ -1569,7 +1580,7 @@ export function assignDirect(taskId: string, instanceId: string): void {
   const fresh = office.tasks.get(taskId);
   if (!fresh) return;
   startWorker(fresh, inst);
-  notifyPm(
+  notifyPm(office,
     `[СИСТЕМА] Пользователь отдал задачу ${taskId} «${task.title}» напрямую исполнителю ${inst.id}, ` +
     'минуя тебя. Учти это в планах и не назначай её повторно.',
   );
@@ -1615,7 +1626,7 @@ export function setPaused(paused: boolean): void {
   // отказ на assign_task и ждёт. Без этого напоминания доска молча стоит.
   const waiting = [...office.tasks.values()].filter((t) => t.status === 'backlog' && !t.assigneeId);
   if (!paused && waiting.length > 0) {
-    notifyPm(
+    notifyPm(office,
       `[СИСТЕМА] Пользователь снял офис с паузы. Ждут раздачи: ${waiting.map((t) => t.id).join(', ')}. ` +
       'Назначь их через assign_task.',
     );
