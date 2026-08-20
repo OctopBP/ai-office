@@ -232,7 +232,14 @@ function permissionHandler(
 
     const verdict = classify(toolName, input, workdir);
 
-    if (verdict.risk === 'safe' || mode === 'auto') {
+    if (verdict.risk === 'safe') {
+      return { behavior: 'allow', updatedInput: input };
+    }
+
+    // Действие небезопасно само по себе, но режим доступа разрешает его без
+    // вопроса — это стоит зафиксировать в логе отдельной строкой, а не молчать.
+    if (mode === 'auto') {
+      office.addLog(instanceId, 'system', `Разрешено автоматически (полный доступ): ${verdict.summary}`, true);
       return { behavior: 'allow', updatedInput: input };
     }
 
@@ -256,7 +263,11 @@ function permissionHandler(
     }
 
     const mustAsk = mode === 'ask-writes' ? true : verdict.risk === 'danger';
-    if (!mustAsk) return { behavior: 'allow', updatedInput: input };
+    if (!mustAsk) {
+      office.addLog(instanceId, 'system',
+        `Разрешено автоматически (режим «спрашивать про необратимое»): ${verdict.summary}`, true);
+      return { behavior: 'allow', updatedInput: input };
+    }
 
     const prevState = inst?.state ?? 'working';
     const prevNote = inst?.note ?? null;

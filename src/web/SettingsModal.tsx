@@ -1,5 +1,6 @@
 import { useState } from 'react';
-import { setCloudToken, updateSettings, useStore } from './store';
+import { ACCESS_MODES, FULL_ACCESS_WARNING, setCloudToken, updateSettings, useStore } from './store';
+import type { PermissionMode } from '../shared/types';
 
 const parse = (v: string): number | null => {
   const n = Number(v.replace(',', '.'));
@@ -14,6 +15,14 @@ export function SettingsModal({ onClose }: { onClose: () => void }) {
   const [engine, setEngine] = useState(settings.engine);
   const [repo, setRepo] = useState(settings.cloudRepoUrl ?? '');
   const [token, setToken] = useState('');
+  const [access, setAccess] = useState(settings.officePermissionMode);
+  const [confirmAuto, setConfirmAuto] = useState(false);
+
+  const chooseAccess = (mode: PermissionMode) => {
+    // Полный доступ — опасное состояние, включаем только после явного подтверждения.
+    if (mode === 'auto' && access !== 'auto') { setConfirmAuto(true); return; }
+    setAccess(mode);
+  };
 
   const save = () => {
     updateSettings({
@@ -21,6 +30,7 @@ export function SettingsModal({ onClose }: { onClose: () => void }) {
       taskBudgetUsd: parse(perTask),
       engine,
       cloudRepoUrl: repo.trim() || null,
+      officePermissionMode: access,
     });
     if (token.trim()) setCloudToken(token.trim());
     onClose();
@@ -49,6 +59,32 @@ export function SettingsModal({ onClose }: { onClose: () => void }) {
             сессии: дойдя до него, она встаёт на паузу.
           </span>
         </label>
+
+        <h4>Режим доступа</h4>
+        <div className="engine access-modes">
+          {ACCESS_MODES.map(([id, label, hint]) => (
+            <button key={id} className={`${access === id ? 'on' : ''} ${id}`.trim()}
+              onClick={() => chooseAccess(id)}>
+              {label}
+              <span className="muted small">{hint}</span>
+            </button>
+          ))}
+        </div>
+        {confirmAuto && (
+          <div className="access-confirm">
+            <p>{FULL_ACCESS_WARNING}</p>
+            <div className="modal-actions">
+              <button onClick={() => setConfirmAuto(false)}>Отмена</button>
+              <button className="danger" onClick={() => { setAccess('auto'); setConfirmAuto(false); }}>
+                Да, включить полный доступ
+              </button>
+            </div>
+          </div>
+        )}
+        <p className="hint muted">
+          Это правило по умолчанию для всех ролей. У конкретной роли можно выставить свой режим
+          в настройке роли — он переопределит общий.
+        </p>
 
         <h4>Где работают исполнители</h4>
         <div className="engine">

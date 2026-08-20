@@ -1,6 +1,8 @@
-import { reset, setPaused, useStore } from './store';
+import { ACCESS_LABEL, reset, setPaused, useStore } from './store';
 
 const money = (v: number) => `$${v.toFixed(2)}`;
+
+const ACCESS_ICON: Record<string, string> = { auto: '🔓', 'ask-risky': '🔐', 'ask-writes': '🔒', readonly: '🚫' };
 
 export function TopHud({ onSettings, onMeeting, onHelp, onUsage }: {
   onSettings: () => void; onMeeting: () => void; onHelp: () => void; onUsage: () => void;
@@ -56,6 +58,11 @@ export function TopHud({ onSettings, onMeeting, onHelp, onUsage }: {
             {permissions.length > 0 && <>{permissions.length} ждёт решения ❗ · </>}
             {review} на ревью
           </div>
+        </div>
+
+        <div className={`pixel access-chip ${settings.officePermissionMode}`}
+          title="Общий режим доступа офиса — настраивается в ⚙">
+          {ACCESS_ICON[settings.officePermissionMode]} {ACCESS_LABEL[settings.officePermissionMode]}
         </div>
 
         {paused && <div className="pixel paused-chip" title="Исполнители замирают на следующем действии">⏸ ПАУЗА</div>}

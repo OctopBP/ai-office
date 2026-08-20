@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { fire, hire, useStore } from './store';
+import { ACCESS_LABEL, fire, hire, useStore } from './store';
 import { RoleEditor } from './RoleEditor';
 import { useActionNotice } from './useActionNotice';
 
@@ -46,6 +46,12 @@ export function TeamPanel() {
                 {r.title}
                 <span className="muted mono"> {r.model.replace('claude-', '')}</span>
               </span>
+              {r.permissionMode && (
+                <span className={`perm-badge ${r.permissionMode}`}
+                  title="Роль работает не по общему режиму доступа офиса, а по своему">
+                  {r.permissionMode === 'auto' ? '🔓' : '🔐'} {ACCESS_LABEL[r.permissionMode]}
+                </span>
+              )}
               <span className="muted">{r.active}/{r.maxInstances}</span>
               <button onClick={() => setEditing(r.id)}>Настроить</button>
               <button disabled={!canHire} title={hireTitle} onClick={() => doHire(r.id)}>

@@ -492,8 +492,8 @@ class OfficeState {
     this.markDirty();
   }
 
-  addLog(agentId: string | null, kind: LogEntry['kind'], text: string): void {
-    const entry: LogEntry = { id: randomUUID(), at: Date.now(), agentId, kind, text };
+  addLog(agentId: string | null, kind: LogEntry['kind'], text: string, autoApproved?: boolean): void {
+    const entry: LogEntry = { id: randomUUID(), at: Date.now(), agentId, kind, text, autoApproved };
     this.log.push(entry);
     if (this.log.length > 500) this.log.splice(0, this.log.length - 500);
     this.emit({ t: 'log', entry });

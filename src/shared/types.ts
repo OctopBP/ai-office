@@ -213,6 +213,8 @@ export interface LogEntry {
   agentId: string | null;
   kind: 'tool' | 'text' | 'system' | 'error';
   text: string;
+  /** Действие прошло без вопроса благодаря режиму доступа — не запрос, а факт постфактум. */
+  autoApproved?: boolean;
 }
 
 /** Всё, что сервер шлёт в UI. Единственный интерфейс между логикой и картинкой. */
