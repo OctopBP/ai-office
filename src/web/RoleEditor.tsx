@@ -1,6 +1,6 @@
 import { useState } from 'react';
-import { updateRole, useStore } from './store';
-import type { RoleEditable } from '../shared/types';
+import { ACCESS_LABEL, FULL_ACCESS_WARNING, updateRole, useStore } from './store';
+import type { PermissionMode, RoleEditable } from '../shared/types';
 
 const MODELS = [
   ['claude-opus-5', 'Opus 5 — $5/$25, сложные задачи'],
@@ -8,26 +8,36 @@ const MODELS = [
   ['claude-haiku-4-5', 'Haiku 4.5 — $1/$5, простое и быстрое'],
 ] as const;
 
-const MODES: Array<[RoleEditable['permissionMode'], string]> = [
-  ['auto', 'ничего не спрашивать'],
-  ['ask-risky', 'спрашивать необратимое (по умолчанию)'],
-  ['ask-writes', 'спрашивать любую запись и команду'],
+const MODES: Array<[PermissionMode, string]> = [
   ['readonly', 'только чтение'],
+  ['ask-writes', 'спрашивать про все изменения'],
+  ['ask-risky', 'спрашивать про необратимое (по умолчанию)'],
+  ['auto', 'полный доступ'],
 ];
 
 export function RoleEditor({ roleId, onClose }: { roleId: string; onClose: () => void }) {
   const role = useStore((s) => s.roles.find((r) => r.id === roleId));
+  const settings = useStore((s) => s.settings);
   const [draft, setDraft] = useState<Partial<RoleEditable>>({});
+  const [confirmAuto, setConfirmAuto] = useState(false);
   if (!role) return null;
 
   const value = { ...role, ...draft };
   const set = <K extends keyof RoleEditable>(k: K, v: RoleEditable[K]) =>
     setDraft((d) => ({ ...d, [k]: v }));
 
+  const chooseMode = (mode: PermissionMode | null) => {
+    // Полный доступ для роли — то же опасное состояние, что и для офиса целиком.
+    if (mode === 'auto') { setConfirmAuto(true); return; }
+    set('permissionMode', mode);
+  };
+
   const save = () => {
     if (Object.keys(draft).length) updateRole(roleId, draft);
     onClose();
   };
+
+  const officeLabel = ACCESS_LABEL[settings.officePermissionMode];
 
   return (
     <div className="modal-backdrop" onClick={onClose}>
@@ -50,12 +60,30 @@ export function RoleEditor({ roleId, onClose }: { roleId: string; onClose: () =>
 
         <label>Разрешения
           <select
-            value={value.permissionMode}
-            onChange={(e) => set('permissionMode', e.target.value as RoleEditable['permissionMode'])}
+            value={value.permissionMode ?? ''}
+            onChange={(e) => chooseMode(e.target.value === '' ? null : e.target.value as PermissionMode)}
           >
+            <option value="">Как в офисе (сейчас: {officeLabel})</option>
             {MODES.map(([id, label]) => <option key={id} value={id}>{label}</option>)}
           </select>
+          <span className="hint">
+            {value.permissionMode
+              ? `Роль работает не по общему правилу офиса — переопределено на «${ACCESS_LABEL[value.permissionMode]}».`
+              : `Роль использует общий режим доступа офиса: «${officeLabel}».`}
+          </span>
         </label>
+
+        {confirmAuto && (
+          <div className="access-confirm">
+            <p>{FULL_ACCESS_WARNING}</p>
+            <div className="modal-actions">
+              <button onClick={() => setConfirmAuto(false)}>Отмена</button>
+              <button className="danger" onClick={() => { set('permissionMode', 'auto'); setConfirmAuto(false); }}>
+                Да, включить полный доступ
+              </button>
+            </div>
+          </div>
+        )}
 
         <div className="row2">
           <label>Максимум клонов

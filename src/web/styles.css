@@ -441,6 +441,12 @@ button
 .trail-row.error .trail-text { color: var(--red); }
 .trail-row.system .trail-text { color: var(--muted); }
 
+.auto-tag {
+  display: inline-block; margin-right: 6px; padding: 0 5px; border-radius: 4px;
+  font-size: 10px; font-weight: 600; letter-spacing: .03em;
+  color: var(--accent-ink); background: var(--accent);
+}
+
 .drawer-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 10px; }
 .drawer-actions button { flex: 1 1 45%; padding: 8px; font-size: 13px; }
 .drawer-actions .danger { flex-basis: 100%; border-color: var(--red); color: var(--red); }
@@ -690,6 +696,29 @@ button.sq.on { background: var(--accent); color: var(--accent-ink); }
 }
 .ready.ok { color: var(--green); border-color: var(--green); }
 .ready.bad { color: var(--red); border-color: var(--red); }
+
+/* ================= режим доступа (T-22) ================= */
+/* «Полный доступ» — опасное состояние: выделяем его красным, а не общим
+   акцентом, и там, где он выбран (тумблер офиса, тумблер роли, HUD, значок
+   роли в панели команды) — везде одной и той же меткой. */
+.access-modes button.on.auto { background: var(--red); color: #fff; border-color: var(--red); }
+.access-modes button.on.auto .muted { color: #fff; opacity: .85; }
+.access-confirm {
+  padding: 10px 12px; margin: -4px 0 14px; border: 1px solid var(--red);
+  border-radius: 7px; background: rgba(217, 79, 61, .08);
+}
+.access-confirm p { margin: 0 0 10px; font-size: 13px; line-height: 1.45; }
+.access-confirm .modal-actions .danger { border-color: var(--red); color: var(--red); }
+.access-confirm .modal-actions .danger:hover { background: rgba(217, 79, 61, .12); }
+.hud .access-chip {
+  display: flex; align-items: center; gap: 6px; padding: 6px 11px; font-size: 12px;
+}
+.hud .access-chip.auto { color: var(--red); border-color: var(--red); }
+.perm-badge {
+  display: inline-flex; align-items: center; gap: 5px; padding: 2px 8px;
+  border: 1px solid var(--line-soft); border-radius: 12px; font-size: 11px; color: var(--muted);
+}
+.perm-badge.auto { color: var(--red); border-color: var(--red); }
 
 /* ================= стартовое меню (T-9) ================= */
 /* Меню — вечерняя улица перед офисом, вне тем дня/ночи комнаты: своя

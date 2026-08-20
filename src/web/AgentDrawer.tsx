@@ -1,5 +1,8 @@
 import { useState } from 'react';
-import { assignDirect, fire, hire, mergeTask, retryTask, showDiff, stopTask, useStore } from './store';
+import {
+  ACCESS_LABEL, assignDirect, effectivePermissionMode, fire, hire, mergeTask,
+  retryTask, showDiff, stopTask, useStore,
+} from './store';
 import { RoleEditor } from './RoleEditor';
 import { useActionNotice } from './useActionNotice';
 import { agentSpriteName, spriteOf } from './sprites';
@@ -84,6 +87,16 @@ export function AgentDrawer() {
           <div className="muted">
             {role?.title} · {role?.model.replace('claude-', '')} · место #{inst.desk.index}
           </div>
+          {role && (
+            <span className={`perm-badge ${effectivePermissionMode(role, settings)}`}
+              title={role.permissionMode
+                ? 'Роль работает не по общему режиму доступа офиса, а по своему'
+                : 'Роль следует общему режиму доступа офиса'}>
+              {effectivePermissionMode(role, settings) === 'auto' ? '🔓' : '🔐'}{' '}
+              {ACCESS_LABEL[effectivePermissionMode(role, settings)]}
+              {role.permissionMode && ' · переопределено для роли'}
+            </span>
+          )}
           <div className={`chip ${inst.state}`}>
             {inst.note ?? STATUS_RU[current?.status ?? 'backlog'] ?? inst.state}
             {current && ` · ${elapsed(current.startedAt, null)} · ${current.id}`}
@@ -165,12 +178,15 @@ export function AgentDrawer() {
           {trail.map((l) => {
             const tool = l.text.split(':')[0];
             return (
-              <div key={l.id} className={`trail-row ${l.kind}`}>
+              <div key={l.id} className={`trail-row ${l.kind}${l.autoApproved ? ' auto-approved' : ''}`}>
                 <span className="dim mono">
                   {new Date(l.at).toLocaleTimeString('ru', { hour: '2-digit', minute: '2-digit' })}
                 </span>
                 <span className="ico">{l.kind === 'tool' ? TOOL_ICON[tool] ?? '•' : l.kind === 'error' ? '⚠️' : '💬'}</span>
-                <span className="trail-text">{l.text}</span>
+                <span className="trail-text">
+                  {l.autoApproved && <span className="auto-tag" title="Разрешено без вопроса по режиму доступа">✓ авто</span>}
+                  {l.text}
+                </span>
               </div>
             );
           })}

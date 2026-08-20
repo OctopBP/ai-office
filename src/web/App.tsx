@@ -121,9 +121,12 @@ export function App() {
           onClose={() => setPanel(null)}>
           <div className="log">
             {(selected ? log.filter((l) => l.agentId === selected) : log).slice(-200).map((l) => (
-              <div key={l.id} className={`log-row ${l.kind}`}>
+              <div key={l.id} className={`log-row ${l.kind}${l.autoApproved ? ' auto-approved' : ''}`}>
                 <span className="log-agent">{l.agentId ?? 'офис'}</span>
-                <span className="log-text">{l.text}</span>
+                <span className="log-text">
+                  {l.autoApproved && <span className="auto-tag" title="Разрешено без вопроса по режиму доступа">✓ авто</span>}
+                  {l.text}
+                </span>
               </div>
             ))}
           </div>
