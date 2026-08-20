@@ -1,6 +1,10 @@
-import { useMemo, useState } from 'react';
+import { useMemo, useState, type CSSProperties } from 'react';
 import menuBg from '../../design/sprites/out/menu_bg.png';
 import { formatLastOpened, retryConnect, sortedOffices, useStore } from './store';
+import { spriteOf } from './sprites';
+
+/** Кадры спиннера как CSS-переменные — рамка панели и кнопки заводятся так же. */
+const SPINNER_FRAMES = 8;
 
 /**
  * Стартовый экран приложения: выбор существующего офиса или создание нового.
@@ -9,6 +13,7 @@ import { formatLastOpened, retryConnect, sortedOffices, useStore } from './store
  * отрисовка её состояний. См. docs/design/T-6/office-menu/spec.md.
  */
 export function MenuScreen() {
+  const theme = useStore((s) => s.theme);
   const offices = useStore((s) => s.offices);
   const booted = useStore((s) => s.booted);
   const connected = useStore((s) => s.connected);
@@ -27,6 +32,23 @@ export function MenuScreen() {
   const list = useMemo(() => sortedOffices(offices), [offices]);
   const empty = booted && list.length === 0;
   const showForm = creating || empty;
+
+  // Рамка панели, кнопки и кадры спиннера — пиксель-арт в двух темах;
+  // прокидываем url() через CSS-переменные, чтобы сама раскладка 9-slice
+  // и переключение состояний (:hover/:active/:disabled) оставались в CSS.
+  const spriteVars = useMemo(() => {
+    const v: Record<string, string> = {
+      '--menu-panel-img': `url(${spriteOf(theme, 'menu_panel')})`,
+      '--menu-btn-img': `url(${spriteOf(theme, 'menu_button')})`,
+      '--menu-btn-hover-img': `url(${spriteOf(theme, 'menu_button_hover')})`,
+      '--menu-btn-active-img': `url(${spriteOf(theme, 'menu_button_active')})`,
+      '--menu-btn-disabled-img': `url(${spriteOf(theme, 'menu_button_disabled')})`,
+    };
+    for (let i = 0; i < SPINNER_FRAMES; i++) {
+      v[`--menu-spinner-${i}`] = `url(${spriteOf(theme, `menu_spinner_${i}`)})`;
+    }
+    return v as CSSProperties;
+  }, [theme]);
 
   const startCreate = () => {
     setName(''); setDir(''); dismissMenuNotice(); setCreating(true);
@@ -48,11 +70,11 @@ export function MenuScreen() {
         <p>выберите или создайте офис</p>
       </header>
 
-      <div className="menu-panel pixel">
+      <div className="menu-panel" style={spriteVars}>
         {!booted && !connectFailed && (
           <>
             <h2>Ваши офисы</h2>
-            <p className="muted menu-loading">Открываем офис<Dots /></p>
+            <p className="muted menu-loading">Открываем офис<Spinner /></p>
           </>
         )}
 
@@ -67,7 +89,7 @@ export function MenuScreen() {
         {booted && pending === 'enter' && (
           <>
             <h2>Ваши офисы</h2>
-            <p className="muted menu-loading">Входим в «{pendingLabel}»<Dots /></p>
+            <p className="muted menu-loading">Входим в «{pendingLabel}»<Spinner /></p>
           </>
         )}
 
@@ -84,7 +106,7 @@ export function MenuScreen() {
                       className={`office-row menu-office-row ${o.current ? 'current' : ''}`}
                       onClick={() => enterOffice(o.id)}
                     >
-                      <div className="menu-office-icon" aria-hidden>🏢</div>
+                      <img className="menu-office-icon" src={spriteOf(theme, 'menu_icon_office')} alt="" />
                       <div className="office-who">
                         <b>{o.name}</b>
                         <div className="muted mono" title={o.projectDir}>{o.projectDir}</div>
@@ -133,7 +155,7 @@ export function MenuScreen() {
                     <button onClick={cancelCreate} disabled={pending === 'create'}>Отмена</button>
                   )}
                   <button className="primary" disabled={!dir.trim() || pending === 'create'} onClick={submitCreate}>
-                    {pending === 'create' ? <Dots /> : 'Создать и открыть'}
+                    {pending === 'create' ? <Spinner /> : 'Создать и открыть'}
                   </button>
                 </div>
               </>
@@ -149,6 +171,7 @@ export function MenuScreen() {
   );
 }
 
-function Dots() {
-  return <span className="menu-dots"><span /><span /><span /></span>;
+/** Покадровая анимация загрузки — 8 спрайтов, кадры листаются в CSS (menu-spin-frames). */
+function Spinner() {
+  return <span className="menu-spinner" aria-hidden />;
 }
