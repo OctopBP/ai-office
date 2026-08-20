@@ -14,6 +14,7 @@
     "probe": "tsx scripts/probe.ts",
     "test:perm": "tsx scripts/test-permissions.ts",
     "test:state": "tsx scripts/test-state.ts",
+    "test:merge": "tsx scripts/test-merge.ts",
     "restart": "bash scripts/restart-server.sh",
     "test:pm": "bash scripts/run-pm-tests.sh"
   },

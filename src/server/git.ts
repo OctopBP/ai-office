@@ -1,8 +1,9 @@
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
-import { resolve } from 'node:path';
+import { join, resolve } from 'node:path';
+import { tmpdir } from 'node:os';
 import { existsSync, symlinkSync } from 'node:fs';
-import { rm } from 'node:fs/promises';
+import { mkdtemp, rm } from 'node:fs/promises';
 
 const run = promisify(execFile);
 
@@ -10,16 +11,23 @@ export interface GitResult {
   ok: boolean;
   stdout: string;
   stderr: string;
+  /** Код выхода: у merge-tree единица означает конфликт, а не поломку. */
+  code: number;
 }
 
 /** Все вызовы git идут через execFile с массивом аргументов — без оболочки. */
 async function git(cwd: string, args: string[]): Promise<GitResult> {
   try {
     const { stdout, stderr } = await run('git', args, { cwd, maxBuffer: 10 * 1024 * 1024 });
-    return { ok: true, stdout: stdout.trim(), stderr: stderr.trim() };
+    return { ok: true, stdout: stdout.trim(), stderr: stderr.trim(), code: 0 };
   } catch (err) {
-    const e = err as { stdout?: string; stderr?: string; message?: string };
-    return { ok: false, stdout: (e.stdout ?? '').trim(), stderr: (e.stderr ?? e.message ?? '').trim() };
+    const e = err as { stdout?: string; stderr?: string; message?: string; code?: number };
+    return {
+      ok: false,
+      stdout: (e.stdout ?? '').trim(),
+      stderr: (e.stderr ?? e.message ?? '').trim(),
+      code: typeof e.code === 'number' ? e.code : 1,
+    };
   }
 }
 
@@ -114,6 +122,8 @@ export interface MergeOutcome {
   /** 'merged' | 'conflict' | 'nothing' | 'wrong-branch' | 'failed' */
   kind: 'merged' | 'conflict' | 'nothing' | 'wrong-branch' | 'failed';
   message: string;
+  /** Файлы, на которых встало слияние. Пусто, если конфликта не было. */
+  conflicts: string[];
 }
 
 export async function mergeBranch(
@@ -124,27 +134,129 @@ export async function mergeBranch(
     return {
       ok: false, kind: 'wrong-branch',
       message: `Основной репозиторий сейчас на ветке «${now}», а задача ответвлялась от «${base}». Переключитесь на «${base}» и повторите.`,
+      conflicts: [],
     };
   }
 
   const ahead = await git(repoDir, ['rev-list', '--count', `${base}..${branch}`]);
   if (ahead.ok && ahead.stdout === '0') {
-    return { ok: true, kind: 'nothing', message: 'Изменений нет — сливать нечего.' };
+    return { ok: true, kind: 'nothing', message: 'Изменений нет — сливать нечего.', conflicts: [] };
   }
 
   const merge = await git(repoDir, ['merge', '--no-ff', '--no-edit', branch]);
   if (merge.ok) {
-    return { ok: true, kind: 'merged', message: `Ветка ${branch} влита в ${base}.` };
+    return { ok: true, kind: 'merged', message: `Ветка ${branch} влита в ${base}.`, conflicts: [] };
   }
 
   const conflicted = await git(repoDir, ['diff', '--name-only', '--diff-filter=U']);
+  const files = splitLines(conflicted.stdout);
   await git(repoDir, ['merge', '--abort']);
   return {
     ok: false, kind: 'conflict',
-    message: conflicted.stdout
-      ? `Конфликт при слиянии, слияние отменено. Файлы: ${conflicted.stdout.split('\n').join(', ')}`
+    message: files.length
+      ? `Конфликт при слиянии, слияние отменено. Файлы: ${files.join(', ')}`
       : `Слияние не удалось: ${merge.stderr || merge.stdout}`,
+    conflicts: files,
   };
+}
+
+const splitLines = (s: string): string[] => s.split('\n').map((l) => l.trim()).filter(Boolean);
+
+export interface MergeCheckResult {
+  /** 'clean' — сольётся без конфликтов, 'nothing' — сливать нечего. */
+  state: 'clean' | 'conflict' | 'nothing' | 'unknown';
+  conflicts: string[];
+  /** Готовая фраза для интерфейса. */
+  message: string;
+}
+
+/**
+ * Сухая проверка: сольётся ли ветка задачи в базовую. Ничего не меняет —
+ * ни рабочую копию, ни базовую ветку, ни индекс.
+ *
+ * Основной путь — `git merge-tree --write-tree`: слияние считается целиком
+ * в объектной базе, рабочая копия не участвует. На git старше 2.38 этой формы
+ * нет — там пробуем то же самое во временном отсоединённом worktree
+ * (`merge --no-commit --no-ff` с последующим `merge --abort`), он тоже никак
+ * не трогает основную ветку.
+ */
+export async function checkMergeable(
+  repoDir: string, branch: string, base: string,
+): Promise<MergeCheckResult> {
+  for (const ref of [base, branch]) {
+    if (!(await git(repoDir, ['rev-parse', '--verify', `${ref}^{commit}`])).ok) {
+      return { state: 'unknown', conflicts: [], message: `Ветки ${ref} нет в репозитории — проверить нечего.` };
+    }
+  }
+
+  const ahead = await git(repoDir, ['rev-list', '--count', `${base}..${branch}`]);
+  if (ahead.ok && ahead.stdout === '0') {
+    return { state: 'nothing', conflicts: [], message: `Сливать нечего: в ${branch} нет коммитов сверх ${base}.` };
+  }
+
+  const tree = await git(repoDir, ['merge-tree', '--write-tree', '--name-only', base, branch]);
+  if (tree.ok) {
+    return { state: 'clean', conflicts: [], message: `Сливается чисто в ${base}.` };
+  }
+  // Единица и хеш дерева первой строкой — это конфликт, а не сбой команды.
+  const lines = tree.stdout.split('\n');
+  if (tree.code === 1 && /^[0-9a-f]{40,64}$/.test(lines[0]?.trim() ?? '')) {
+    const conflicts = collectConflictNames(lines.slice(1));
+    return { state: 'conflict', conflicts, message: conflictMessage(base, conflicts) };
+  }
+
+  return checkMergeableInWorktree(repoDir, branch, base, tree.stderr || tree.stdout);
+}
+
+/**
+ * У `merge-tree --name-only` после списка файлов идёт пустая строка,
+ * а за ней пояснения вида «CONFLICT (content): …» — они не имена файлов.
+ */
+function collectConflictNames(lines: string[]): string[] {
+  const names: string[] = [];
+  for (const raw of lines) {
+    const line = raw.trim();
+    if (!line) break;
+    names.push(line);
+  }
+  return names;
+}
+
+const conflictMessage = (base: string, conflicts: string[]): string => (conflicts.length
+  ? `Конфликтует с ${base} в файлах: ${conflicts.join(', ')}`
+  : `Конфликтует с ${base}.`);
+
+/** Запасной путь для старого git: слияние во временном worktree с откатом. */
+async function checkMergeableInWorktree(
+  repoDir: string, branch: string, base: string, reason: string,
+): Promise<MergeCheckResult> {
+  let dir: string;
+  try {
+    dir = await mkdtemp(join(tmpdir(), 'office-merge-check-'));
+  } catch {
+    return { state: 'unknown', conflicts: [], message: `Проверить слияние не удалось: ${reason}` };
+  }
+  const path = resolve(dir, 'wt');
+  const added = await git(repoDir, ['worktree', 'add', '--detach', path, base]);
+  if (!added.ok) {
+    await rm(dir, { recursive: true, force: true });
+    return { state: 'unknown', conflicts: [], message: `Проверить слияние не удалось: ${added.stderr || reason}` };
+  }
+  try {
+    const merge = await git(path, ['merge', '--no-commit', '--no-ff', branch]);
+    if (merge.ok) return { state: 'clean', conflicts: [], message: `Сливается чисто в ${base}.` };
+    const conflicted = await git(path, ['diff', '--name-only', '--diff-filter=U']);
+    const conflicts = splitLines(conflicted.stdout);
+    if (!conflicts.length) {
+      return { state: 'unknown', conflicts: [], message: `Проверить слияние не удалось: ${merge.stderr || merge.stdout}` };
+    }
+    return { state: 'conflict', conflicts, message: conflictMessage(base, conflicts) };
+  } finally {
+    await git(path, ['merge', '--abort']);
+    await git(repoDir, ['worktree', 'remove', path, '--force']);
+    await git(repoDir, ['worktree', 'prune']);
+    await rm(dir, { recursive: true, force: true });
+  }
 }
 
 /** Ограничение на размер патча: гигантский дифф незачем гнать в браузер. */
