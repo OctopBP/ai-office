@@ -1,0 +1,289 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8" />
+<title>Прототип: меню офисов (спека docs/design/office-menu/spec.md, исходно T-6)</title>
+<style>
+  /*
+    Статический прототип структуры и состояний, без реального пиксель-арта:
+    фон здесь — приближение градиентом вместо design/sprites/out/menu_bg.png,
+    которое я не смог скопировать сюда (нет инструмента для бинарного копирования
+    файлов в этой рабочей директории). Реальный PNG лежит в исходниках проекта:
+    design/sprites/out/menu_bg.png — при интеграции подставить его как фон.
+  */
+  * { box-sizing: border-box; }
+  html, body {
+    margin: 0; height: 100%; font-family: 'Segoe UI', Inter, system-ui, sans-serif;
+  }
+  body {
+    display: flex; align-items: center; justify-content: center;
+    background:
+      radial-gradient(circle at 88% 10%, #f7ecc6 0 10px, transparent 11px),
+      linear-gradient(180deg, #12102a 0%, #221a3d 30%, #3d2547 55%, #6b3550 78%, #a85a4f 92%, #d08a53 100%);
+    background-color: #12102a;
+    min-height: 100vh;
+  }
+  .stage {
+    position: relative; width: 1440px; height: 900px; max-width: 100vw;
+    overflow: hidden; box-shadow: 0 0 0 2px #000 inset;
+  }
+  .stage::after {
+    /* затемнение поверх фона под панель, см. §2 спеки */
+    content: ''; position: absolute; inset: 0; background: #12102a; opacity: .35;
+  }
+  .stage::before {
+    /* грубая имитация площадки внизу кадра */
+    content: ''; position: absolute; left: 0; right: 0; bottom: 0; height: 40%;
+    background: #241d33;
+  }
+  header.title {
+    position: absolute; top: 64px; left: 0; right: 0; text-align: center; z-index: 2;
+  }
+  header.title h1 {
+    margin: 0; color: #FFF8E8; font-size: 40px; letter-spacing: 4px;
+    text-shadow: 3px 3px 0 #4A3728;
+  }
+  header.title p { margin: 10px 0 0; color: #dfd6c4; font-size: 14px; letter-spacing: 1px; }
+
+  .panel {
+    position: absolute; top: 200px; left: 50%; transform: translateX(-50%);
+    width: 560px; z-index: 2;
+    background: #FFF8E8; border: 3px solid #4A3728;
+    box-shadow: 8px 8px 0 rgba(0,0,0,.35);
+    padding: 24px; color: #2F2419;
+  }
+  .panel h2 { margin: 0 0 14px; font-size: 18px; }
+  .muted { color: #7a6d5a; font-size: 12px; }
+  .mono { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 11px; }
+
+  .office-row {
+    display: grid; grid-template-columns: 32px 1fr auto; gap: 4px 10px;
+    align-items: center; padding: 10px 8px; border: 1px solid #d8c39d; margin-bottom: 8px;
+    background: #fffdf6; cursor: pointer;
+  }
+  .office-row .icon { grid-row: span 2; font-size: 20px; text-align: center; }
+  .office-row b { grid-column: 2; }
+  .office-row .path { grid-column: 2; }
+  .office-row .meta { grid-column: 2; }
+  .office-row .action { grid-column: 3; grid-row: span 2; align-self: center; }
+  .office-row.current { border-color: #f0b429; background: #fff6df; cursor: default; }
+
+  button {
+    font: inherit; cursor: pointer; border: 2px solid #4A3728; background: #f1ece0;
+    color: #2F2419; padding: 7px 14px;
+  }
+  button:hover { filter: brightness(1.05); }
+  button.primary { background: #f0b429; color: #2b2233; border-color: #2b2233; }
+  button.primary:disabled { opacity: .5; cursor: not-allowed; }
+  button.ghost { background: transparent; }
+  .chip { font-size: 11px; padding: 3px 8px; border: 1px solid #f0b429; color: #a97a12; }
+
+  .row-actions { display: flex; justify-content: space-between; align-items: center; margin-top: 16px; }
+
+  label { display: block; font-size: 13px; margin-bottom: 12px; }
+  input[type=text] {
+    display: block; width: 100%; margin-top: 5px; padding: 8px; font: inherit;
+    border: 2px solid #d8c39d; background: #fffdf6; color: #2F2419;
+  }
+  .hint { display: block; margin-top: 4px; font-size: 11px; color: #7a6d5a; }
+  .error { color: #a53939; font-size: 12px; margin-top: 6px; }
+
+  .footer-hint {
+    position: absolute; bottom: 20px; left: 0; right: 0; text-align: center;
+    color: #a99; font-size: 11px; z-index: 2;
+  }
+
+  .switcher {
+    position: fixed; top: 10px; left: 10px; z-index: 10; background: #fff;
+    padding: 8px; display: flex; gap: 6px; flex-wrap: wrap; max-width: 320px;
+    font-family: system-ui, sans-serif; font-size: 12px;
+  }
+  .switcher button { padding: 4px 8px; font-size: 11px; }
+
+  .state { display: none; }
+  .state.active { display: block; }
+
+  .dots span { display: inline-block; width: 6px; height: 6px; background: #4A3728; margin: 0 2px; animation: blink 1.2s infinite; }
+  .dots span:nth-child(2) { animation-delay: .2s; }
+  .dots span:nth-child(3) { animation-delay: .4s; }
+  @keyframes blink { 0%, 80%, 100% { opacity: .2; } 40% { opacity: 1; } }
+</style>
+</head>
+<body>
+
+<div class="switcher">
+  <b style="width:100%">Состояния (демо, не часть макета):</b>
+  <button onclick="show('connecting')">Подключение</button>
+  <button onclick="show('list')">Список</button>
+  <button onclick="show('empty')">Пусто</button>
+  <button onclick="show('create')">Форма создания</button>
+  <button onclick="show('creating')">Создаётся</button>
+  <button onclick="show('create-error')">Ошибка создания</button>
+  <button onclick="show('blocked')">Вход заблокирован</button>
+  <button onclick="show('opening')">Открывается</button>
+  <button onclick="show('conn-error')">Ошибка подключения</button>
+</div>
+
+<div class="stage">
+  <header class="title">
+    <h1>AI OFFICE</h1>
+    <p>выберите или создайте офис</p>
+  </header>
+
+  <!-- Подключение -->
+  <div class="panel state active" id="connecting">
+    <h2>Ваши офисы</h2>
+    <p class="muted">Открываем офис<span class="dots"><span></span><span></span><span></span></span></p>
+  </div>
+
+  <!-- Список -->
+  <div class="panel state" id="list">
+    <h2>Ваши офисы</h2>
+
+    <div class="office-row current">
+      <div class="icon">🏢</div>
+      <b>AI Office</b>
+      <div class="path mono muted">/Users/you/projects/ai-office</div>
+      <div class="meta muted">Открывался: сегодня в 14:32</div>
+      <span class="chip">открыт сейчас</span>
+    </div>
+
+    <div class="office-row">
+      <div class="icon">🏢</div>
+      <b>Каталог заказов</b>
+      <div class="path mono muted">/Users/you/projects/orders-app</div>
+      <div class="meta muted">Открывался: вчера в 09:10</div>
+      <button class="action">Открыть</button>
+    </div>
+
+    <div class="office-row">
+      <div class="icon">🏢</div>
+      <b>Личный сайт</b>
+      <div class="path mono muted">/Users/you/projects/site</div>
+      <div class="meta muted">ещё не открывался</div>
+      <button class="action">Открыть</button>
+    </div>
+
+    <div class="row-actions">
+      <span></span>
+      <button class="primary">+ Новый офис</button>
+    </div>
+  </div>
+
+  <!-- Пусто -->
+  <div class="panel state" id="empty">
+    <h2>Ваши офисы</h2>
+    <p class="muted">Офисов пока нет.</p>
+    <label>Название
+      <input type="text" placeholder="Новый проект" />
+    </label>
+    <label>Директория проекта
+      <input type="text" placeholder="/Users/you/projects/my-app" />
+      <span class="hint">Абсолютный путь. Если папки нет, офис создаст её и заведёт git-репозиторий — без него не работает изоляция задач по веткам.</span>
+    </label>
+    <div class="row-actions">
+      <span></span>
+      <button class="primary">Создать и открыть</button>
+    </div>
+  </div>
+
+  <!-- Форма создания -->
+  <div class="panel state" id="create">
+    <h2>Новый офис</h2>
+    <label>Название
+      <input type="text" placeholder="Новый проект" />
+    </label>
+    <label>Директория проекта
+      <input type="text" value="/Users/you/projects/my-app" />
+      <span class="hint">Абсолютный путь. Если папки нет, офис создаст её и заведёт git-репозиторий — без него не работает изоляция задач по веткам.</span>
+    </label>
+    <div class="row-actions">
+      <button class="ghost">Отмена</button>
+      <button class="primary">Создать и открыть</button>
+    </div>
+  </div>
+
+  <!-- Создаётся -->
+  <div class="panel state" id="creating">
+    <h2>Новый офис</h2>
+    <label>Название
+      <input type="text" placeholder="Новый проект" disabled />
+    </label>
+    <label>Директория проекта
+      <input type="text" value="/Users/you/projects/my-app" disabled />
+    </label>
+    <div class="row-actions">
+      <button class="ghost" disabled>Отмена</button>
+      <button class="primary" disabled>
+        <span class="dots"><span></span><span></span><span></span></span>
+      </button>
+    </div>
+  </div>
+
+  <!-- Ошибка создания -->
+  <div class="panel state" id="create-error">
+    <h2>Новый офис</h2>
+    <label>Название
+      <input type="text" placeholder="Новый проект" />
+    </label>
+    <label>Директория проекта
+      <input type="text" value="/Users/you/projects/ai-office" />
+      <span class="error">Офис «AI Office» уже работает в этой директории.</span>
+    </label>
+    <div class="row-actions">
+      <button class="ghost">Отмена</button>
+      <button class="primary">Создать и открыть</button>
+    </div>
+  </div>
+
+  <!-- Вход заблокирован -->
+  <div class="panel state" id="blocked">
+    <h2>Ваши офисы</h2>
+    <div class="office-row current">
+      <div class="icon">🏢</div>
+      <b>AI Office</b>
+      <div class="path mono muted">/Users/you/projects/ai-office</div>
+      <div class="meta muted">Открывался: сегодня в 14:32</div>
+      <span class="chip">открыт сейчас</span>
+    </div>
+    <div class="office-row">
+      <div class="icon">🏢</div>
+      <b>Каталог заказов</b>
+      <div class="path mono muted">/Users/you/projects/orders-app</div>
+      <div class="meta muted">Открывался: вчера в 09:10</div>
+      <button class="action">Открыть</button>
+    </div>
+    <p class="error">Сначала дождитесь или остановите задачи в работе: T-3, T-7.</p>
+    <div class="row-actions">
+      <span></span>
+      <button class="primary">+ Новый офис</button>
+    </div>
+  </div>
+
+  <!-- Открывается -->
+  <div class="panel state" id="opening">
+    <h2>Ваши офисы</h2>
+    <p class="muted">Входим в «Каталог заказов»<span class="dots"><span></span><span></span><span></span></span></p>
+  </div>
+
+  <!-- Ошибка подключения -->
+  <div class="panel state" id="conn-error">
+    <h2>Ваши офисы</h2>
+    <p class="error">Не удаётся подключиться к серверу офиса.</p>
+    <div class="row-actions">
+      <span></span>
+      <button class="primary">Повторить</button>
+    </div>
+  </div>
+
+  <div class="footer-hint">AI Office · сервер: localhost:3001</div>
+</div>
+
+<script>
+  function show(id) {
+    document.querySelectorAll('.state').forEach(el => el.classList.remove('active'));
+    document.getElementById(id).classList.add('active');
+  }
+</script>
+</body>
+</html>
