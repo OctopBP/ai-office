@@ -3,3 +3,4 @@ dist/
 .office/
 .env
 workspace/
+.figma-preview/
