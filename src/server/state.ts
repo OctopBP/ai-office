@@ -9,6 +9,7 @@ import type {
 import { emptyUsage } from '../shared/types';
 import { activityFromFile, summarize } from './activity';
 import { currentOffice, offices } from './offices';
+import { effectiveMode } from './permissions';
 import { allRoles, getRoleOverrides, roleById, setRoleOverrides, type Role } from './roles';
 import {
   DEFAULT_STATE_FILE, flush as flushFile, load, save, wipe as wipeFile,
@@ -634,11 +635,13 @@ export class OfficeState {
   }
 
   roleViews(): RoleView[] {
+    const officeMode = this.settings.officePermissionMode ?? DEFAULT_SETTINGS.officePermissionMode;
     return allRoles().map<RoleView>((r) => ({
       id: r.id, title: r.title, emoji: r.emoji, color: r.color, model: r.model,
       permissionMode: r.permissionMode, maxInstances: r.maxInstances,
       isolate: r.isolate, repoDir: r.repoDir ?? '', brief: r.brief, isManager: r.isManager,
       active: [...this.instances.values()].filter((i) => i.roleId === r.id).length,
+      effectivePermissionMode: effectiveMode(r.permissionMode, officeMode),
     }));
   }
 
@@ -662,8 +665,14 @@ export class OfficeState {
   }
 
   updateSettings(patch: Partial<Settings>): void {
+    const prevMode = this.settings.officePermissionMode;
     this.settings = { ...this.settings, ...patch };
     this.emit({ t: 'settings', settings: this.settings });
+    // Смена режима офиса меняет эффективный режим всех ролей-наследников —
+    // без этого UI показывал бы старое до следующего снимка.
+    if (this.settings.officePermissionMode !== prevMode) {
+      this.emit({ t: 'roles', roles: this.roleViews() });
+    }
     this.markDirty();
   }
 

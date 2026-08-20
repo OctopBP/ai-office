@@ -1,5 +1,5 @@
 import { resolve, isAbsolute } from 'node:path';
-import type { RiskLevel } from '../shared/types';
+import type { PermissionMode, RiskLevel } from '../shared/types';
 
 export interface Verdict {
   risk: RiskLevel;
@@ -118,4 +118,62 @@ export function classify(
     detail: clip(JSON.stringify(input), 400),
     key: toolName,
   };
+}
+
+// ------------------------------------------------------- режим доступа
+
+/** Что делать с вызовом: пропустить молча, спросить человека или запретить. */
+export type Decision = 'allow' | 'ask' | 'deny';
+
+/**
+ * Эффективный режим агента. Режим роли сильнее офисного, null у роли —
+ * «наследовать офис». Отдельная функция, потому что то же вычисление нужно и
+ * обработчику разрешений, и снимку состояния для UI: расходиться им нельзя.
+ */
+export function effectiveMode(
+  roleMode: PermissionMode | null | undefined,
+  officeMode: PermissionMode,
+): PermissionMode {
+  return roleMode ?? officeMode;
+}
+
+/** Решение по уже классифицированному вызову в заданном режиме. */
+export function decide(mode: PermissionMode, risk: RiskLevel): Decision {
+  // Читающие инструменты не спрашиваем ни в одном режиме, включая readonly.
+  if (risk === 'safe') return 'allow';
+  switch (mode) {
+    case 'auto':       return 'allow';
+    case 'readonly':   return 'deny';
+    case 'ask-writes': return 'ask';
+    // Необратимое спрашиваем, обычную запись и команды пропускаем.
+    case 'ask-risky':  return risk === 'danger' ? 'ask' : 'allow';
+  }
+}
+
+const MODE_LABEL: Record<PermissionMode, string> = {
+  auto: 'полный доступ',
+  'ask-risky': 'спрашивать только про необратимое',
+  'ask-writes': 'спрашивать про любую запись',
+  readonly: 'только чтение',
+};
+
+export function modeLabel(mode: PermissionMode): string {
+  return MODE_LABEL[mode];
+}
+
+/**
+ * Строка в ленту офиса про действие, прошедшее без вопроса. Человек видит её
+ * постфактум, поэтому в ней должно быть видно и инструмент, и что он сделал.
+ */
+export function autoApprovedText(
+  mode: PermissionMode,
+  toolName: string,
+  verdict: Verdict,
+): string {
+  // У Write/Edit summary уже начинается с имени инструмента — не дублируем.
+  const what = verdict.summary.startsWith(toolName)
+    ? verdict.summary
+    : `${toolName}: ${verdict.summary || '—'}`;
+  const why = verdict.reason ? ` (${verdict.reason})` : '';
+  return `Без вопроса, режим «${MODE_LABEL[mode]}» — ${what}${why}`;
 }

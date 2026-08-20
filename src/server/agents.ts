@@ -6,7 +6,7 @@ import { criteriaProgress, DEFAULT_SETTINGS, office, taskRepo, type Instance, ty
 import { emptyUsage } from '../shared/types';
 import { cloudProblem, runCloudTask, stopCloudTask } from './cloud';
 import { roleById, workerRoles, type Role } from './roles';
-import { classify } from './permissions';
+import { autoApprovedText, classify, decide, effectiveMode } from './permissions';
 import { commitAll, createWorktree, diffBranch, hasCommits, hasWork, isRepo, preserveBranch, removeWorktree } from './git';
 import { resolve } from 'node:path';
 import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync } from 'node:fs';
@@ -199,9 +199,10 @@ function permissionHandler(
     const role = inst ? roleById(inst.roleId) : undefined;
     // Режим роли сильнее режима офиса: офисный — это фолбэк для ролей,
     // у которых своего нет (permissionMode === null).
-    const mode = role?.permissionMode
-      ?? office.settings.officePermissionMode
-      ?? DEFAULT_SETTINGS.officePermissionMode;
+    const mode = effectiveMode(
+      role?.permissionMode,
+      office.settings.officePermissionMode ?? DEFAULT_SETTINGS.officePermissionMode,
+    );
 
     // Пауза офиса: сессия не убивается, а замирает перед следующим действием.
     // Это единственная точка, через которую проходит любой вызов инструмента,
@@ -228,20 +229,8 @@ function permissionHandler(
       return { behavior: 'allow', updatedInput: input };
     }
 
-    // Действие небезопасно само по себе, но режим доступа разрешает его без
-    // вопроса — это стоит зафиксировать в логе отдельной строкой, а не молчать.
-    if (mode === 'auto') {
-      office.addLog(instanceId, 'system', `Разрешено автоматически (полный доступ): ${verdict.summary}`, true);
-      return { behavior: 'allow', updatedInput: input };
-    }
-
-    if (mode === 'readonly') {
-      return {
-        behavior: 'deny',
-        message: 'Эта роль работает в режиме «только чтение» и не может менять файлы или запускать команды.',
-      };
-    }
-
+    // Явный запрет пользователя сильнее любого режима: режим — это про то,
+    // о чём не спрашивать, а не про право отменить уже сказанное «никогда».
     if (role && office.isAlwaysDenied(role.id, verdict.key)) {
       return {
         behavior: 'deny',
@@ -250,14 +239,25 @@ function permissionHandler(
       };
     }
 
-    if (role && office.isAlwaysAllowed(role.id, verdict.key)) {
+    const byMode = decide(mode, verdict.risk);
+
+    if (byMode === 'deny') {
+      return {
+        behavior: 'deny',
+        message: 'Эта роль работает в режиме «только чтение» и не может менять файлы или запускать команды.',
+      };
+    }
+
+    // Действие небезопасно само по себе, но режим доступа разрешает его без
+    // вопроса — это стоит зафиксировать в ленте отдельной строкой, а не молчать.
+    if (byMode === 'allow') {
+      office.addLog(instanceId, 'system', autoApprovedText(mode, toolName, verdict), true);
       return { behavior: 'allow', updatedInput: input };
     }
 
-    const mustAsk = mode === 'ask-writes' ? true : verdict.risk === 'danger';
-    if (!mustAsk) {
-      office.addLog(instanceId, 'system',
-        `Разрешено автоматически (режим «спрашивать про необратимое»): ${verdict.summary}`, true);
+    // «Разрешать всегда» пользователь нажал сам — такие вызовы в ленту не пишем:
+    // это не автоодобрение по режиму, а его же решение, уже записанное раньше.
+    if (role && office.isAlwaysAllowed(role.id, verdict.key)) {
       return { behavior: 'allow', updatedInput: input };
     }
 
