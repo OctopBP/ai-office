@@ -16,6 +16,7 @@ export function TopHud({ onSettings, onMeeting, onHelp, onUsage }: {
   const connected = useStore((s) => s.connected);
   const usage = useStore((s) => s.usage);
   const paused = useStore((s) => s.paused);
+  const leaveOffice = useStore((s) => s.leaveOffice);
 
   const list = Object.values(tasks);
   // «Сегодня» — это сегодня, а не всё время: раньше в HUD стояла общая сумма
@@ -60,6 +61,8 @@ export function TopHud({ onSettings, onMeeting, onHelp, onUsage }: {
 
         {paused && <div className="pixel paused-chip" title="Исполнители замирают на следующем действии">⏸ ПАУЗА</div>}
 
+        <button className="sq" onClick={leaveOffice}
+          title="В меню — офис остаётся открытым, агенты продолжат работать — ESC">🏠</button>
         <button className={`sq ${paused ? 'on' : ''}`} onClick={() => setPaused(!paused)}
           title={paused ? 'Продолжить работу — SPACE' : 'Пауза: остановить всех исполнителей — SPACE'}>
           {paused ? '▶' : '⏸'}
