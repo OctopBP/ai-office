@@ -467,6 +467,37 @@ button.sq { padding: 5px 9px; line-height: 1.2; }
 .link-dot.on { background: var(--green); }
 .auth { font-size: 13px; }
 
+/* ---------- переключатель офисов (бейдж проекта) ---------- */
+.office-switcher { padding: 0; }
+.office-switcher-trigger {
+  display: flex; align-items: center; gap: 10px; width: 100%;
+  padding: 7px 14px 7px 10px; background: none; border: none; text-align: left; cursor: pointer;
+}
+.office-switcher-trigger:hover { background: var(--panel-2); border-radius: 6px; }
+.office-switcher-trigger:active { transform: none; }
+.office-switcher-trigger.lone { cursor: default; }
+.office-switcher-trigger.lone:hover { background: none; }
+.hud.project.switching { cursor: default; }
+.hud.project.switching .ico.spin { animation: office-switcher-spin 1s linear infinite; display: inline-block; }
+@keyframes office-switcher-spin { to { transform: rotate(360deg); } }
+.office-switcher-list {
+  position: absolute; top: calc(100% + 6px); left: 0; min-width: 260px; max-width: 360px;
+  padding: 4px; display: flex; flex-direction: column; z-index: 31;
+}
+.office-switcher-row {
+  display: flex; align-items: center; gap: 8px; width: 100%; padding: 7px 8px;
+  background: none; border: none; border-radius: 4px; text-align: left; font-size: 13px;
+}
+.office-switcher-row:hover { background: var(--panel-2); }
+.office-switcher-row:active { transform: none; }
+.office-switcher-row.current { background: rgba(240, 180, 41, .12); }
+.office-switcher-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.office-switcher-dot {
+  flex: none; width: 8px; height: 8px; border-radius: 50%; background: var(--line-soft);
+}
+.office-switcher-dot.busy { background: var(--accent); }
+.office-switcher-dot.unknown { background: transparent; border: 1px dashed var(--line-soft); }
+
 /* ================= нижняя строка ================= */
 .bottom {
   display: flex; align-items: center; justify-content: space-between;
