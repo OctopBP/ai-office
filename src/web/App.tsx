@@ -6,6 +6,7 @@ import { Toasts } from './Toasts';
 import { Panel } from './Panel';
 import { ChatPanel } from './ChatPanel';
 import { Board } from './Board';
+import { MergeQueue } from './MergeQueue';
 import { TeamPanel } from './TeamPanel';
 import { AgentDrawer } from './AgentDrawer';
 import { PermissionModal } from './PermissionModal';
@@ -17,7 +18,7 @@ import { OfficesModal } from './OfficesModal';
 import { MenuScreen } from './MenuScreen';
 import { connect, setPaused, useStore } from './store';
 
-type PanelKind = 'chat' | 'board' | 'log' | 'help' | null;
+type PanelKind = 'chat' | 'board' | 'log' | 'help' | 'merge' | null;
 type ModalKind = 'settings' | 'meeting' | 'usage' | 'offices' | null;
 
 export function App() {
@@ -50,6 +51,7 @@ export function App() {
       if (k === 'b' || k === 'и') setPanel('board');
       else if (k === 'l' || k === 'д') setPanel('log');
       else if (k === 'm' || k === 'ь') setModal('meeting');
+      else if (k === 'q' || k === 'й') setPanel('merge');
       else if (/^[1-9]$/.test(k)) {
         const ids = Object.keys(instances);
         const id = ids[Number(k) - 1];
@@ -73,6 +75,7 @@ export function App() {
           onMeeting={() => setModal('meeting')}
           onHelp={() => setPanel('help')}
           onUsage={() => setModal('usage')}
+          onMergeQueue={() => setPanel('merge')}
         />
         <Toasts onOpenTask={() => setPanel('board')} />
       </div>
@@ -82,6 +85,11 @@ export function App() {
       {panel === 'board' && (
         <Panel title="Доска задач" wide hint="B" onClose={() => setPanel(null)}>
           <Board />
+        </Panel>
+      )}
+      {panel === 'merge' && (
+        <Panel title="Очередь слияния" wide hint="Q" onClose={() => setPanel(null)}>
+          <MergeQueue />
         </Panel>
       )}
       {panel === 'log' && (

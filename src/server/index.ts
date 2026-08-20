@@ -4,7 +4,8 @@ import { mkdirSync, existsSync, writeFileSync, readFileSync, statSync } from 'no
 import { extname, resolve } from 'node:path';
 import type { ClientCommand, ServerEvent } from '../shared/types';
 import { office, officeViews } from './state';
-import { assignDirect, holdMeeting, mergeTask, resetSessions, retryTask, sendUserMessage, setPaused, stopTask, taskDiff, talkTo } from './agents';
+import { assignDirect, holdMeeting, resetSessions, retryTask, sendUserMessage, setPaused, stopTask, taskDiff, talkTo } from './agents';
+import { mergeQueue, refreshMergeChecks } from './merge';
 import { githubToken, setGithubToken } from './cloud';
 import { clearInitFlag, createOffice, currentOffice, ensureOffice, loadRegistry, officeById, renameOffice, setCurrent, type OfficeEntry } from './offices';
 import { hasCommits, initRepo, isRepo } from './git';
@@ -223,7 +224,13 @@ wss.on('connection', (ws) => {
     } else if (cmd.c === 'permission') {
       office.resolvePermission(cmd.id, cmd.decision);
     } else if (cmd.c === 'merge_task') {
-      void mergeTask(cmd.taskId);
+      // Слияние одной задачи — та же очередь длиной в один шаг: и проверка
+      // сборки после, и пересчёт статусов работают одинаково.
+      void mergeQueue([cmd.taskId]);
+    } else if (cmd.c === 'merge_check') {
+      void refreshMergeChecks();
+    } else if (cmd.c === 'merge_queue') {
+      void mergeQueue(cmd.taskIds);
     } else if (cmd.c === 'spawn' || cmd.c === 'hire') {
       // Наём: и первый сотрудник в пустую роль, и очередной клон — одно и то же
       // действие, отличается только тем, сколько народу в роли уже сидит.

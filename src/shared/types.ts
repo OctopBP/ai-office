@@ -153,6 +153,62 @@ export interface TaskView {
   usage: Usage;
 }
 
+/**
+ * Сухая проверка ветки задачи против базовой: сольётся ли и с чем конфликтует.
+ * 'nothing' — в ветке нет коммитов сверх базовой, 'unknown' — проверить
+ * не удалось (нет ветки, нет репозитория).
+ */
+export type MergeCheckState = 'clean' | 'conflict' | 'nothing' | 'unknown';
+
+export interface MergeCheck {
+  taskId: string;
+  state: MergeCheckState;
+  /** Файлы, из-за которых слияние встанет. */
+  conflicts: string[];
+  /** Готовая фраза для интерфейса. */
+  message: string;
+  /** Когда считали: порядок слияний меняет результат, и статус быстро стареет. */
+  checkedAt: number;
+}
+
+/** Прогон проверки сборки (npm run typecheck) после слияния. */
+export interface TypecheckResult {
+  ok: boolean;
+  /** Хвост вывода: гнать в браузер весь лог tsc незачем. */
+  output: string;
+  /** Проверку не запускали (нет скрипта или npm недоступен) — это не провал. */
+  skipped: boolean;
+  message: string;
+  durationMs: number;
+}
+
+/**
+ * Что случилось с одной задачей в очереди слияния.
+ * 'pending' — до неё не дошли, потому что очередь встала раньше.
+ */
+export type MergeStepStatus =
+  | 'merged' | 'nothing' | 'conflict' | 'typecheck-failed' | 'failed' | 'skipped' | 'pending';
+
+export interface MergeStep {
+  taskId: string;
+  title: string;
+  status: MergeStepStatus;
+  message: string;
+  conflicts: string[];
+  typecheck: TypecheckResult | null;
+}
+
+/** Один запуск очереди слияния: идёт по списку и встаёт на первой беде. */
+export interface MergeRun {
+  id: string;
+  running: boolean;
+  steps: MergeStep[];
+  /** Итог по-русски: что слито и на чём встали. */
+  summary: string;
+  startedAt: number;
+  finishedAt: number | null;
+}
+
 export type RiskLevel = 'safe' | 'write' | 'danger';
 
 export interface PermissionRequest {
@@ -209,7 +265,9 @@ export type ServerEvent =
       settings: Settings; projectDir: string; authSource: AuthSource;
       meeting: MeetingView | null; busy: boolean; paused: boolean;
       usage: { total: Usage; days: DayUsage[] };
-      offices: OfficeView[]; cloud: CloudStatus }
+      offices: OfficeView[]; cloud: CloudStatus;
+      /** Статусы слияния по завершённым задачам и последний прогон очереди. */
+      mergeChecks: MergeCheck[]; mergeRun: MergeRun | null }
   | { t: 'instance'; instance: InstanceView }
   | { t: 'instance.remove'; id: string }
   | { t: 'task'; task: TaskView }
@@ -226,13 +284,21 @@ export type ServerEvent =
   | { t: 'permission.request'; request: PermissionRequest }
   | { t: 'permission.resolved'; id: string; decision: PermissionDecision }
   | { t: 'meeting'; meeting: MeetingView | null }
-  | { t: 'task.diff'; taskId: string; stat: string; patch: string; truncated: boolean; error?: string };
+  | { t: 'task.diff'; taskId: string; stat: string; patch: string; truncated: boolean; error?: string }
+  /** Пересчитанные статусы мержабельности: приходят целым списком. */
+  | { t: 'merge.checks'; checks: MergeCheck[]; checking: boolean }
+  /** Ход и итог очереди слияния. */
+  | { t: 'merge.run'; run: MergeRun };
 
 /** Всё, что UI шлёт на сервер. */
 export type ClientCommand =
   | { c: 'user_message'; text: string }
   | { c: 'permission'; id: string; decision: PermissionDecision }
   | { c: 'merge_task'; taskId: string }
+  /** Пересчитать статусы мержабельности завершённых задач. */
+  | { c: 'merge_check' }
+  /** Слить выбранные задачи по порядку списка, останавливаясь на первой беде. */
+  | { c: 'merge_queue'; taskIds: string[] }
   /** Нанять сотрудника роли: и первого в пустую роль, и очередного клона. */
   | { c: 'spawn'; roleId: string }
   /** То же самое под говорящим именем — сервер принимает оба варианта. */

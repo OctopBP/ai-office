@@ -4,7 +4,7 @@ import type {
   AgentState, ChatEntry, Criterion, DayUsage, Desk, InstanceView, LogEntry,
   PermissionDecision, AuthSource, MeetingView, PermissionRequest, RoleEditable,
   RoleView, ServerEvent, Settings, TaskStatus, TaskView, Usage,
-  CloudStatus, OfficeView,
+  CloudStatus, OfficeView, MergeCheck, MergeRun,
 } from '../shared/types';
 import { emptyUsage } from '../shared/types';
 import { currentOffice, offices } from './offices';
@@ -133,6 +133,16 @@ class OfficeState {
   officeId = 'o-1';
   /** Готовность облачного режима. Ключ и токен в состояние не пишутся. */
   cloud: CloudStatus = { hasKey: false, hasToken: false };
+  /**
+   * Статусы мержабельности завершённых задач, ключ — id задачи. На диск
+   * не сохраняются: порядок слияний и чужие коммиты меняют результат,
+   * а восстановленный из файла статус врал бы с уверенным видом.
+   */
+  mergeChecks = new Map<string, MergeCheck>();
+  /** Идёт ли пересчёт статусов прямо сейчас. */
+  mergeChecking = false;
+  /** Последний прогон очереди слияния — он же текущий, пока running. */
+  mergeRun: MergeRun | null = null;
   /**
    * Пауза офиса: новая работа не запускается, а живые сессии замирают
    * на следующем вызове инструмента. Не сохраняется на диск — пауза
@@ -724,6 +734,10 @@ class OfficeState {
     this.meeting = null;
     this.busy = false;
     this.paused = false;
+    // Статусы слияния относятся к задачам закрываемого офиса — в новом они ложь.
+    this.mergeChecks.clear();
+    this.mergeChecking = false;
+    this.mergeRun = null;
     this.usage = emptyUsage();
     this.daily = {};
     this.alwaysAllowed.clear();
@@ -733,6 +747,27 @@ class OfficeState {
     // Правки ролей принадлежат офису, а не процессу: без сброса настройки
     // одного проекта переезжали бы в другой.
     setRoleOverrides({});
+  }
+
+  // ---------- слияние ----------
+
+  /** Заменить статусы мержабельности целиком и разослать их клиентам. */
+  setMergeChecks(checks: MergeCheck[], checking = false): void {
+    this.mergeChecks = new Map(checks.map((c) => [c.taskId, c]));
+    this.mergeChecking = checking;
+    this.emit({ t: 'merge.checks', checks, checking });
+  }
+
+  /** Отметить, что пересчёт пошёл: UI показывает это, пока не пришли новые статусы. */
+  setMergeChecking(checking: boolean): void {
+    this.mergeChecking = checking;
+    this.emit({ t: 'merge.checks', checks: [...this.mergeChecks.values()], checking });
+  }
+
+  /** Сохранить и разослать состояние прогона очереди. */
+  setMergeRun(run: MergeRun): void {
+    this.mergeRun = run;
+    this.emit({ t: 'merge.run', run });
   }
 
   setBusy(busy: boolean): void {
@@ -759,6 +794,8 @@ class OfficeState {
       usage: { total: this.usage, days: this.usageDays() },
       offices: officeViews(),
       cloud: this.cloud,
+      mergeChecks: [...this.mergeChecks.values()],
+      mergeRun: this.mergeRun,
     };
   }
 }
@@ -788,6 +825,14 @@ export const toTaskView = (t: Task): TaskView => ({
   startedAt: t.startedAt, finishedAt: t.finishedAt,
   usage: t.usage,
 });
+
+/**
+ * Репозиторий, в котором велась задача. Путь берётся с самой задачи: настройка
+ * роли могла с тех пор смениться, а результат лежит там, где его сделали.
+ * У задач, заведённых до появления репозиториев на роль, поля нет — для них
+ * это директория офиса.
+ */
+export const taskRepo = (t: Task): string => t.repoDir ?? office.projectDir;
 
 /** Сколько критериев отмечено — одна формулировка на весь офис. */
 export const criteriaProgress = (t: Task | TaskView): { done: number; total: number } => ({

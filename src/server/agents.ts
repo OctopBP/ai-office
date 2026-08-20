@@ -2,12 +2,12 @@ import { query, tool, createSdkMcpServer } from '@anthropic-ai/claude-agent-sdk'
 import type { SDKMessage, PermissionResult, SDKResultSuccess } from '@anthropic-ai/claude-agent-sdk';
 import { z } from 'zod';
 import { MessageQueue } from './queue';
-import { criteriaProgress, office, type Instance, type Task } from './state';
+import { criteriaProgress, office, taskRepo, type Instance, type Task } from './state';
 import { emptyUsage } from '../shared/types';
 import { cloudProblem, runCloudTask, stopCloudTask } from './cloud';
 import { roleById, workerRoles, type Role } from './roles';
 import { classify } from './permissions';
-import { commitAll, createWorktree, diffBranch, hasCommits, hasWork, isRepo, mergeBranch, preserveBranch, removeWorktree } from './git';
+import { commitAll, createWorktree, diffBranch, hasCommits, hasWork, isRepo, preserveBranch, removeWorktree } from './git';
 import { resolve } from 'node:path';
 import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync } from 'node:fs';
 
@@ -29,14 +29,6 @@ const BRIEF_LIMIT = 8000;
  * одного флага на офис, но у ролей репозитории разные, и проверять надо тот,
  * в котором роль работает.
  */
-/**
- * Репозиторий, в котором велась задача. У задач, заведённых до появления
- * репозиториев на роль, поля нет — для них это директория офиса.
- */
-function taskRepo(task: Task): string {
-  return task.repoDir ?? office.projectDir;
-}
-
 async function repoReady(dir: string): Promise<boolean> {
   if (dir === office.projectDir) return office.gitReady;
   return (await isRepo(dir)) && (await hasCommits(dir));
@@ -1588,32 +1580,6 @@ export async function taskDiff(taskId: string): Promise<void> {
   if ('error' in result) send({ error: result.error });
   else if (!result.stat) send({ error: 'Изменений в ветке нет.' });
   else send(result);
-}
-
-/** Влить ветку задачи в основную и убрать worktree. Вызывается кнопкой из UI. */
-export async function mergeTask(taskId: string): Promise<void> {
-  const task = office.tasks.get(taskId);
-  if (!task) return;
-  if (!task.branch || !task.baseBranch) {
-    office.addChat('офис', `У задачи ${taskId} нет отдельной ветки — сливать нечего.`);
-    return;
-  }
-  if (task.merged) {
-    office.addChat('офис', `${taskId} уже влита в ${task.baseBranch}.`);
-    return;
-  }
-
-  const repo = taskRepo(task);
-  const outcome = await mergeBranch(repo, task.branch, task.baseBranch);
-  office.addChat('офис', `${taskId}: ${outcome.message}`);
-  office.addLog(null, outcome.ok ? 'system' : 'error', `merge ${task.branch}: ${outcome.kind}`);
-
-  if (outcome.ok) {
-    if (task.worktreePath) {
-      await removeWorktree(repo, task.worktreePath, task.branch);
-    }
-    office.updateTask(taskId, { merged: true, worktreePath: null });
-  }
 }
 
 /**

@@ -2,8 +2,9 @@ import { reset, setPaused, useStore } from './store';
 
 const money = (v: number) => `$${v.toFixed(2)}`;
 
-export function TopHud({ onSettings, onMeeting, onHelp, onUsage }: {
+export function TopHud({ onSettings, onMeeting, onHelp, onUsage, onMergeQueue }: {
   onSettings: () => void; onMeeting: () => void; onHelp: () => void; onUsage: () => void;
+  onMergeQueue: () => void;
 }) {
   const instances = useStore((s) => s.instances);
   const tasks = useStore((s) => s.tasks);
@@ -23,6 +24,7 @@ export function TopHud({ onSettings, onMeeting, onHelp, onUsage }: {
   const today = Object.values(instances).reduce((sum, i) => sum + i.today.costUsd, 0);
   const working = list.filter((t) => t.status === 'in_progress').length;
   const review = list.filter((t) => (t.status === 'review' || t.status === 'done') && t.branch && !t.merged).length;
+  const readyToMerge = list.filter((t) => t.status === 'done' && t.branch && !t.merged).length;
   const over = settings.globalBudgetUsd !== null && usage.costUsd >= settings.globalBudgetUsd;
 
   return (
@@ -65,6 +67,10 @@ export function TopHud({ onSettings, onMeeting, onHelp, onUsage }: {
           {paused ? '▶' : '⏸'}
         </button>
         <button className="sq" onClick={onMeeting} title="Созвать совещание — M">👥</button>
+        <button className={`sq ${readyToMerge > 0 ? 'alert' : ''}`} onClick={onMergeQueue}
+          title="Очередь слияния — Q">
+          🔀{readyToMerge > 0 && ` ${readyToMerge}`}
+        </button>
         <button className="sq" onClick={() => setTheme(theme === 'day' ? 'night' : 'day')}
           title="Светлая или тёмная тема">{theme === 'day' ? '🌙' : '☀️'}</button>
         <button className="sq" onClick={onSettings} title="Бюджет офиса">⚙</button>
