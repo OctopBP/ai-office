@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { assignDirect, fire, hire, mergeTask, retryTask, showDiff, stopTask, useStore } from './store';
 import { RoleEditor } from './RoleEditor';
+import { useActionNotice } from './useActionNotice';
 import { agentSpriteName, spriteOf } from './sprites';
 import { usageLine } from './UsageModal';
 import type { Criterion, TaskView } from '../shared/types';
@@ -55,6 +56,7 @@ export function AgentDrawer() {
   const setThread = useStore((s) => s.setThread);
   const theme = useStore((s) => s.theme);
   const [editRole, setEditRole] = useState(false);
+  const { notice, markPending, clear } = useActionNotice();
 
   const inst = selected ? instances[selected] : null;
   if (!inst) return null;
@@ -215,11 +217,24 @@ export function AgentDrawer() {
           </div>
         )}
         {role && !role.isManager && (
-          <button className="link-danger" onClick={() => { fire(inst.id); select(null); }}>
+          <button
+            className="link-danger"
+            disabled={Boolean(inst.currentTaskId)}
+            title={inst.currentTaskId
+              ? `Занят задачей ${inst.currentTaskId} — сначала остановите или дождитесь`
+              : 'Уволить сотрудника'}
+            onClick={() => { markPending(); fire(inst.id); }}
+          >
             Уволить
           </button>
         )}
       </div>
+      {notice && (
+        <div className="drawer-notice">
+          <span>{notice}</span>
+          <button className="sq" onClick={clear}>✕</button>
+        </div>
+      )}
 
       {editRole && <RoleEditor roleId={inst.roleId} onClose={() => setEditRole(false)} />}
     </aside>
