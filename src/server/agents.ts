@@ -76,8 +76,6 @@ const SANDBOX = {
   autoAllowBashIfSandboxed: false,
 } as const;
 
-let running = 0;
-
 // ---------------------------------------------------------------- утилиты
 
 const base = (p: unknown): string => String(p ?? '').split('/').filter(Boolean).pop() ?? String(p ?? '');
@@ -131,31 +129,37 @@ function resultReason(msg: Extract<SDKMessage, { type: 'result' }>): string {
 /**
  * Разбор потока сообщений SDK в состояние офиса и события UI.
  *
+ * Офис передаётся явно, а не берётся из `office`: сессия живёт минутами, и
+ * пользователь за это время может открыть другой офис — тогда состояние агента
+ * и его расход уехали бы в чужой офис, где такого исполнителя может и не быть.
+ *
  * `rememberSession` выключают короткоживущие сессии, которые не должны стать
  * «главным разговором» агента: иначе после перезапуска офис продолжит их,
  * а не переписку, ради которой сессия заводилась (см. совещание).
  */
-function consume(instanceId: string, msg: SDKMessage, rememberSession = true): void {
+function consume(
+  state: OfficeState, instanceId: string, msg: SDKMessage, rememberSession = true,
+): void {
   // Запоминаем id сессии, чтобы продолжить разговор после перезапуска сервера.
   if (msg.type === 'system' && msg.subtype === 'init') {
-    if (rememberSession) office.setSessionId(instanceId, msg.session_id);
+    if (rememberSession) state.setSessionId(instanceId, msg.session_id);
     return;
   }
 
   if (msg.type === 'assistant') {
     for (const block of msg.message.content ?? []) {
       if (block.type === 'thinking') {
-        office.setState(instanceId, 'thinking', 'думает…');
+        state.setState(instanceId, 'thinking', 'думает…');
       } else if (block.type === 'text') {
         const text = block.text?.trim();
-        if (text) office.addLog(instanceId, 'text', clip(text, 400));
+        if (text) state.addLog(instanceId, 'text', clip(text, 400));
       } else if (block.type === 'tool_use') {
         const brief = toolBrief(block.name, block.input as Record<string, unknown>);
-        office.setState(instanceId, 'working', brief);
-        office.addLog(instanceId, 'tool', `${block.name}: ${brief}`);
+        state.setState(instanceId, 'working', brief);
+        state.addLog(instanceId, 'tool', `${block.name}: ${brief}`);
       }
     }
-    if (msg.error) office.addLog(instanceId, 'error', `Ошибка модели: ${msg.error}`);
+    if (msg.error) state.addLog(instanceId, 'error', `Ошибка модели: ${msg.error}`);
     return;
   }
 
@@ -163,7 +167,7 @@ function consume(instanceId: string, msg: SDKMessage, rememberSession = true): v
     const usage = 'usage' in msg ? msg.usage : undefined;
     // Кеш держим отдельной строкой, а не подмешиваем во ввод: он в разы
     // дешевле, и без разделения расход выглядит необъяснимым.
-    office.addUsage(instanceId, {
+    state.addUsage(instanceId, {
       costUsd: msg.total_cost_usd ?? 0,
       tokensIn: usage?.input_tokens ?? 0,
       tokensOut: usage?.output_tokens ?? 0,
@@ -172,7 +176,7 @@ function consume(instanceId: string, msg: SDKMessage, rememberSession = true): v
     });
     if (!isOk(msg)) {
       const reason = resultReason(msg);
-      office.addLog(instanceId, 'error', `Сессия завершилась ошибкой: ${clip(reason, 200)}`);
+      state.addLog(instanceId, 'error', `Сессия завершилась ошибкой: ${clip(reason, 200)}`);
     }
   }
 }
@@ -611,7 +615,7 @@ function startPm(state: OfficeState): void {
   state.pmLoop = (async () => {
     try {
       for await (const msg of session) {
-        consume('pm#1', msg);
+        consume(state, 'pm#1', msg);
         if (msg.type === 'result') {
           if (isOk(msg) && msg.result?.trim()) {
             state.addChat('pm#1', msg.result.trim());
@@ -623,7 +627,7 @@ function startPm(state: OfficeState): void {
           if (state.instances.get('pm#1')?.state !== 'failed') {
             state.setState('pm#1', 'idle', null);
           }
-          state.setBusy(running > 0);
+          state.setBusy(state.running > 0);
         }
       }
     } catch (err) {
@@ -674,8 +678,6 @@ function notifyPm(state: OfficeState, text: string): void {
 
 // ---------------------------------------------------------------- совещание
 
-let meetingRunning = false;
-
 /** Менеджер ли это — спрашиваем у роли: признак задан флагом isManager, а не id. */
 const isManager = (inst: Instance): boolean => roleById(inst.roleId)?.isManager ?? false;
 
@@ -688,7 +690,7 @@ export async function holdMeeting(topic: string, participantIds: string[]): Prom
   // Совещание длится долго — офис фиксируем на входе, чтобы итог ушёл менеджеру
   // того офиса, где совещание созвали, даже если пользователь ушёл в другой.
   const meetingOffice = office;
-  if (meetingRunning) {
+  if (meetingOffice.meetingRunning) {
     office.addChat('офис', 'Совещание уже идёт — дождитесь окончания.', 'meeting');
     return;
   }
@@ -724,7 +726,7 @@ export async function holdMeeting(topic: string, participantIds: string[]): Prom
     return;
   }
 
-  meetingRunning = true;
+  meetingOffice.meetingRunning = true;
   const id = `M-${Date.now().toString(36)}`;
   office.setMeeting({ id, topic, participants: participants.map((p) => p.id), speaking: null, status: 'running' });
   office.addChat('user', `Тема совещания: ${topic}`, 'meeting');
@@ -811,7 +813,7 @@ export async function holdMeeting(topic: string, participantIds: string[]): Prom
         // Расход этой сессии пишем на агента, а её id — не запоминаем: у
         // менеджера он затёр бы id основного разговора с пользователем, и после
         // перезапуска офис продолжил бы совещание вместо переписки.
-        consume(inst.id, msg, !isManager(inst));
+        consume(meetingOffice, inst.id, msg, !isManager(inst));
         if (msg.type === 'result' && isOk(msg)) text = msg.result?.trim() ?? '';
       }
 
@@ -844,7 +846,7 @@ export async function holdMeeting(topic: string, participantIds: string[]): Prom
     office.addChat('офис', `⚠️ Совещание оборвалось: ${clip((err as Error).message, 200)}`, 'meeting');
     office.setMeeting({ id, topic, participants: participants.map((p) => p.id), speaking: null, status: 'failed' });
   } finally {
-    meetingRunning = false;
+    meetingOffice.meetingRunning = false;
     for (const p of participants) {
       if (isManager(p)) {
         // Менеджера возвращаем в то состояние, в котором позвали. Но только если
@@ -862,38 +864,39 @@ export async function holdMeeting(topic: string, participantIds: string[]): Prom
 
 // ---------------------------------------------------------------- прямой разговор
 
-/** Живые разговоры пользователя с конкретными исполнителями, мимо PM. */
-const talks = new Map<string, { queue: MessageQueue; loop: Promise<void> }>();
-
 /**
  * Прямой диалог с агентом. Это отдельная сессия, не связанная с задачами:
  * можно спросить совета, уточнить решение, обсудить подход.
+ *
+ * Офис фиксируем на входе: разговор идёт минутами, а пользователь за это время
+ * может уйти в другой — ответ обязан вернуться в тот, где спрашивали.
  */
 export function talkTo(instanceId: string, text: string): void {
-  const inst = office.instances.get(instanceId);
+  const talkOffice = office;
+  const inst = talkOffice.instances.get(instanceId);
   if (!inst) return;
   const role = roleById(inst.roleId);
   if (!role) return;
 
   if (inst.currentTaskId) {
-    office.addChat('офис',
+    talkOffice.addChat('офис',
       `${inst.label} сейчас занят задачей ${inst.currentTaskId}. Дождитесь окончания — ` +
       'прерывать работу посреди задачи дороже, чем подождать.', instanceId);
     return;
   }
 
-  office.addChat('user', text, instanceId);
+  talkOffice.addChat('user', text, instanceId);
 
-  const existing = talks.get(instanceId);
+  const existing = talkOffice.talks.get(instanceId);
   if (existing) {
-    office.setState(instanceId, 'talking', 'разговор с вами');
+    talkOffice.setState(instanceId, 'talking', 'разговор с вами');
     existing.queue.push(text);
     return;
   }
 
   const queue = new MessageQueue();
   queue.push(text);
-  office.setState(instanceId, 'talking', 'разговор с вами');
+  talkOffice.setState(instanceId, 'talking', 'разговор с вами');
 
   const systemPrompt = [
     `Ты — ${role.title} в команде AI-агентов.`,
@@ -911,7 +914,7 @@ export function talkTo(instanceId: string, text: string): void {
     options: {
       model: role.model,
       systemPrompt,
-      cwd: office.repoFor(role),
+      cwd: talkOffice.repoFor(role),
       tools: ['Read', 'Glob', 'Grep', 'WebSearch', 'WebFetch'],
       permissionMode: 'default',
       canUseTool: permissionHandler(instanceId),
@@ -923,26 +926,26 @@ export function talkTo(instanceId: string, text: string): void {
   const loop = (async () => {
     try {
       for await (const msg of session) {
-        consume(instanceId, msg);
+        consume(talkOffice, instanceId, msg);
         if (msg.type === 'result') {
           if (isOk(msg) && msg.result?.trim()) {
-            office.addChat(instanceId, msg.result.trim(), instanceId);
+            talkOffice.addChat(instanceId, msg.result.trim(), instanceId);
           } else if (!isOk(msg)) {
-            office.addChat('офис', `⚠️ ${clip(resultReason(msg), 200)}`, instanceId);
+            talkOffice.addChat('офис', `⚠️ ${clip(resultReason(msg), 200)}`, instanceId);
           }
-          if (!office.instances.get(instanceId)?.currentTaskId) {
-            office.setState(instanceId, 'idle', null);
+          if (!talkOffice.instances.get(instanceId)?.currentTaskId) {
+            talkOffice.setState(instanceId, 'idle', null);
           }
         }
       }
     } catch (err) {
-      office.addChat('офис', `⚠️ Разговор оборвался: ${clip((err as Error).message, 200)}`, instanceId);
+      talkOffice.addChat('офис', `⚠️ Разговор оборвался: ${clip((err as Error).message, 200)}`, instanceId);
     } finally {
-      talks.delete(instanceId);
+      talkOffice.talks.delete(instanceId);
     }
   })();
 
-  talks.set(instanceId, { queue, loop });
+  talkOffice.talks.set(instanceId, { queue, loop });
 }
 
 // ---------------------------------------------------------------- исполнители
@@ -953,7 +956,6 @@ export function talkTo(instanceId: string, text: string): void {
  * уже разговор, а не справка.
  */
 const MAX_CONSULTS_PER_TASK = 5;
-const consultsByTask = new Map<string, number>();
 
 /**
  * Вопрос коллеге другой роли. Нужен, потому что роли работают в разных
@@ -963,11 +965,14 @@ const consultsByTask = new Map<string, number>();
  * Отвечает НАСТОЯЩАЯ сессия той роли в ЕЁ репозитории, только на чтение и без
  * офисных инструментов: тогда отвечающий не может ни изменить свой проект, ни
  * позвать третьего — цепочка вопросов не уходит в бесконечность.
+ *
+ * Офис приходит от задачи спрашивающего: отвечать должен коллега из того же
+ * офиса, а не тот, кто сидит в открытом сейчас.
  */
 async function consultRole(
-  askerId: string, roleId: string, question: string, taskId: string,
+  state: OfficeState, askerId: string, roleId: string, question: string, taskId: string,
 ): Promise<{ ok: boolean; text: string }> {
-  const asker = office.instances.get(askerId);
+  const asker = state.instances.get(askerId);
   const role = roleById(roleId);
   if (!asker) return { ok: false, text: 'Спрашивающий не найден.' };
   if (!role || role.isManager) {
@@ -978,7 +983,7 @@ async function consultRole(
     return { ok: false, text: 'Это твоя собственная роль — отвечать на такой вопрос тебе.' };
   }
 
-  const used = consultsByTask.get(taskId) ?? 0;
+  const used = state.consultsByTask.get(taskId) ?? 0;
   if (used >= MAX_CONSULTS_PER_TASK) {
     return {
       ok: false,
@@ -990,7 +995,7 @@ async function consultRole(
   // Отвечает только свободный коллега. Занятого не отвлекаем: у него своя
   // сессия и своя задача, а списывать разговор на её стоимость — враньё в
   // расходах. Офис так же поступает с прямым разговором пользователя.
-  const answerer = [...office.instances.values()].find(
+  const answerer = [...state.instances.values()].find(
     (i) => i.roleId === roleId && !i.currentTaskId && i.state !== 'talking',
   );
   if (!answerer) {
@@ -1001,15 +1006,15 @@ async function consultRole(
     };
   }
 
-  consultsByTask.set(taskId, used + 1);
+  state.consultsByTask.set(taskId, used + 1);
   const askerRole = roleById(asker.roleId);
-  office.addLog(askerId, 'system', `Вопрос к ${answerer.id}: ${clip(question, 120)}`);
-  office.emit({ t: 'handoff', from: askerId, to: answerer.id, text: clip(question, 60) });
+  state.addLog(askerId, 'system', `Вопрос к ${answerer.id}: ${clip(question, 120)}`);
+  state.emit({ t: 'handoff', from: askerId, to: answerer.id, text: clip(question, 60) });
 
   const prevState = asker.state;
   const prevNote = asker.note;
-  office.setState(askerId, 'talking', `спрашивает ${answerer.label}`);
-  office.setState(answerer.id, 'talking', `отвечает ${asker.label}`);
+  state.setState(askerId, 'talking', `спрашивает ${answerer.label}`);
+  state.setState(answerer.id, 'talking', `отвечает ${asker.label}`);
 
   let text = '';
   try {
@@ -1033,7 +1038,7 @@ async function consultRole(
           'как человек, который её писал: смотришь свой код и объясняешь, как есть.',
           'Менять ничего нельзя — это разговор, а не задача.',
         ].join('\n') + projectBrief(),
-        cwd: office.repoFor(role),
+        cwd: state.repoFor(role),
         // Только чтение и никаких офисных инструментов: отвечающий не должен
         // ни править свой проект, ни звать третьего.
         tools: ['Read', 'Glob', 'Grep'],
@@ -1045,25 +1050,30 @@ async function consultRole(
       },
     });
     for await (const msg of session) {
-      consume(answerer.id, msg);
+      consume(state, answerer.id, msg);
       if (msg.type === 'result' && isOk(msg)) text = msg.result?.trim() ?? '';
     }
   } catch (err) {
     text = '';
-    office.addLog(answerer.id, 'error', `Не удалось ответить: ${(err as Error).message}`);
+    state.addLog(answerer.id, 'error', `Не удалось ответить: ${(err as Error).message}`);
   }
 
-  office.setState(answerer.id, 'idle', null);
-  office.setState(askerId, prevState, prevNote);
+  state.setState(answerer.id, 'idle', null);
+  state.setState(askerId, prevState, prevNote);
 
   if (!text) {
     return { ok: false, text: `${answerer.label} не смог ответить. Реши сам и опиши допущение в отчёте.` };
   }
-  office.addLog(answerer.id, 'text', `Ответ ${asker.id}: ${clip(text, 300)}`);
+  state.addLog(answerer.id, 'text', `Ответ ${asker.id}: ${clip(text, 300)}`);
   return { ok: true, text: `Ответил ${answerer.label} (${role.title}):\n\n${text}` };
 }
 
-function workerTools(instanceId: string, task: Task) {
+/**
+ * Инструменты офиса для сессии исполнителя. Офис задачи передаётся сюда явно:
+ * инструмент вызывается из живой сессии, и «текущий» офис к этому моменту может
+ * быть уже другим — тогда отметка критерия ушла бы на чужую доску.
+ */
+function workerTools(state: OfficeState, instanceId: string, task: Task) {
   return createSdkMcpServer({
     name: 'office',
     version: '1.0.0',
@@ -1074,7 +1084,7 @@ function workerTools(instanceId: string, task: Task) {
         'Сказать одной строкой, что ты делаешь прямо сейчас. Появится пузырём над твоей головой в офисе. Вызывай перед каждым логическим шагом работы.',
         { text: z.string().describe('До 70 символов, настоящее время: «читаю схему БД»') },
         async (args) => {
-          office.setState(instanceId, 'working', clip(args.text));
+          state.setState(instanceId, 'working', clip(args.text));
           return { content: [{ type: 'text', text: 'ок' }] };
         },
       ),
@@ -1086,7 +1096,7 @@ function workerTools(instanceId: string, task: Task) {
           done: z.boolean().default(true).describe('false — снять отметку, если пункт снова сломался'),
         },
         async (args) => {
-          const outcome = office.checkCriterion(task.id, args.index, args.done);
+          const outcome = state.checkCriterion(task.id, args.index, args.done);
           return { content: [{ type: 'text', text: outcome.text }], isError: !outcome.ok };
         },
       ),
@@ -1100,7 +1110,7 @@ function workerTools(instanceId: string, task: Task) {
           question: z.string().describe('Один конкретный вопрос. Не «расскажи про бэкенд», а «какой формат ответа у GET /notes».'),
         },
         async (args) => {
-          const answer = await consultRole(instanceId, args.role, args.question, task.id);
+          const answer = await consultRole(state, instanceId, args.role, args.question, task.id);
           return { content: [{ type: 'text', text: answer.text }], isError: !answer.ok };
         },
       ),
@@ -1112,14 +1122,14 @@ function workerTools(instanceId: string, task: Task) {
           files: z.array(z.string()).default([]).describe('Пути к созданным и изменённым файлам'),
         },
         async (args) => {
-          const fresh = office.tasks.get(task.id);
+          const fresh = state.tasks.get(task.id);
           const { done, total } = fresh ? criteriaProgress(fresh) : { done: 0, total: 0 };
           // Неотмеченные пункты не «дожимаем» за исполнителя: расхождение между
           // «сдал» и «отмечено» — это и есть сигнал пользователю посмотреть внимательнее.
           const gap = total && done < total
             ? `\n\n⚠️ Отмечено критериев: ${done} из ${total}.`
             : '';
-          office.updateTask(task.id, {
+          state.updateTask(task.id, {
             result: args.summary + gap, files: args.files, status: 'review',
           });
           return {
@@ -1213,8 +1223,8 @@ function startWorker(task: Task, inst: Instance): void {
     return;
   }
 
-  running += 1;
-  office.setBusy(true);
+  taskOffice.running += 1;
+  taskOffice.setBusy(true);
 
   const systemPrompt = [
     `Ты — ${role.title} в команде AI-агентов, работаешь в директории проекта.`,
@@ -1293,7 +1303,7 @@ function startWorker(task: Task, inst: Instance): void {
           // Проект остаётся читаемым: писать нельзя, смотреть можно.
           additionalDirectories: artifactsDir ? [workRoot] : undefined,
           tools: role.tools,
-          mcpServers: { office: workerTools(inst.id, task) },
+          mcpServers: { office: workerTools(taskOffice, inst.id, task) },
           permissionMode: 'default',
           canUseTool: permissionHandler(inst.id, task.id, workdir),
           settingSources: [],
@@ -1307,7 +1317,7 @@ function startWorker(task: Task, inst: Instance): void {
       let finalText = '';
       let sessionFailed: string | null = null;
       for await (const msg of session) {
-        consume(inst.id, msg);
+        consume(taskOffice, inst.id, msg);
         if (msg.type === 'result') {
           if (isOk(msg)) finalText = msg.result ?? '';
           else sessionFailed = clip(resultReason(msg), 300);
@@ -1371,9 +1381,9 @@ function startWorker(task: Task, inst: Instance): void {
     } finally {
       inst.currentTaskId = null;
       inst.abort = null;
-      consultsByTask.delete(task.id);
-      running = Math.max(0, running - 1);
-      if (running === 0) office.setBusy(false);
+      taskOffice.consultsByTask.delete(task.id);
+      taskOffice.running = Math.max(0, taskOffice.running - 1);
+      if (taskOffice.running === 0) taskOffice.setBusy(false);
       setTimeout(() => {
         if (!inst.currentTaskId) office.setState(inst.id, 'idle', null);
       }, 4000);
@@ -1438,8 +1448,8 @@ function startCloudWorker(
     } finally {
       inst.currentTaskId = null;
       inst.abort = null;
-      running = Math.max(0, running - 1);
-      if (running === 0) office.setBusy(false);
+      taskOffice.running = Math.max(0, taskOffice.running - 1);
+      if (taskOffice.running === 0) taskOffice.setBusy(false);
       setTimeout(() => {
         if (!inst.currentTaskId) office.setState(inst.id, 'idle', null);
       }, 4000);
@@ -1457,13 +1467,13 @@ export function resetSessions(): void {
   office.pmQueue?.close();
   office.pmQueue = null;
   office.pmLoop = null;
-  for (const [id, talk] of talks) {
+  for (const [id, talk] of office.talks) {
     talk.queue.close();
-    talks.delete(id);
+    office.talks.delete(id);
   }
   for (const inst of office.instances.values()) inst.abort?.abort();
   office.stoppedByUser.clear();
-  meetingRunning = false;
+  office.meetingRunning = false;
 }
 
 /** Прервать работу над задачей. Наработки сохраняются. */
@@ -1633,6 +1643,7 @@ export function setPaused(paused: boolean): void {
   }
 }
 
+/** Загрузка текущего офиса: у каждого офиса свои живые сессии исполнителей. */
 export function concurrency(): { running: number; max: number } {
-  return { running, max: MAX_CONCURRENT_WORKERS };
+  return { running: office.running, max: MAX_CONCURRENT_WORKERS };
 }
