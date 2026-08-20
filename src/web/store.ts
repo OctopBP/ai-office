@@ -36,6 +36,18 @@ interface State {
   busy: boolean;
   /** Офис на паузе: новая работа не запускается, исполнители замирают. */
   paused: boolean;
+  /** Стартовое меню выбора офиса или уже открытая комната. */
+  screen: 'menu' | 'office';
+  /** Пришёл ли хоть один snapshot — до этого момента список офисов неизвестен. */
+  booted: boolean;
+  /** За 8 секунд после подключения snapshot не пришёл — сервер, видимо, недоступен. */
+  connectFailed: boolean;
+  /** Идёт вход в другой офис или создание нового: ждём новый snapshot или ошибку. */
+  pending: 'enter' | 'create' | null;
+  /** Название офиса, к которому относится pending — для «Входим в «Х»…». */
+  pendingLabel: string | null;
+  /** Ошибка входа или создания офиса, которую нужно показать в меню. */
+  menuNotice: { kind: 'blocked' | 'create-error'; text: string } | null;
   /** Офисы = проекты: список и текущий. */
   offices: OfficeView[];
   /** Готовность облачного режима: ключ API и токен GitHub. */
@@ -67,12 +79,23 @@ interface State {
   select: (id: string | null) => void;
   apply: (e: ServerEvent) => void;
   setConnected: (v: boolean) => void;
+  /** Войти в офис из меню: текущий — сразу, иначе переключение на сервере. */
+  enterOffice: (officeId: string) => void;
+  /** Отправить создание офиса из меню и ждать снапшот или ошибку. */
+  requestCreateOffice: (name: string, projectDir: string) => void;
+  dismissMenuNotice: () => void;
 }
 
 export const useStore = create<State>((set, get) => ({
   connected: false,
   busy: false,
   paused: false,
+  screen: 'menu',
+  booted: false,
+  connectFailed: false,
+  pending: null,
+  pendingLabel: null,
+  menuNotice: null,
   offices: [],
   cloud: { hasKey: false, hasToken: false },
   usage: emptyUsage(),
@@ -99,19 +122,53 @@ export const useStore = create<State>((set, get) => ({
   select: (id) => set({ selected: id }),
   setConnected: (v) => set({ connected: v }),
 
+  enterOffice: (officeId) => {
+    const s = get();
+    const office = s.offices.find((o) => o.id === officeId);
+    if (!office) return;
+    if (office.current) { set({ screen: 'office' }); return; }
+    // Блокировку входа видно уже по снапшоту текущего офиса — не обязательно
+    // спрашивать сервер и ждать ответа, чтобы узнать то, что мы уже знаем.
+    if (s.busy) {
+      const running = Object.values(s.tasks)
+        .filter((t) => t.status === 'in_progress')
+        .map((t) => t.id);
+      set({
+        menuNotice: {
+          kind: 'blocked',
+          text: `Сначала дождитесь или остановите задачи в работе: ${running.join(', ')}.`,
+        },
+      });
+      return;
+    }
+    set({ pending: 'enter', pendingLabel: office.name, menuNotice: null });
+    switchOffice(officeId);
+  },
+
+  requestCreateOffice: (name, projectDir) => {
+    set({ pending: 'create', pendingLabel: name.trim() || projectDir.trim(), menuNotice: null });
+    createOffice(name, projectDir);
+  },
+
+  dismissMenuNotice: () => set({ menuNotice: null }),
+
   apply: (e) => {
     switch (e.t) {
       case 'snapshot': {
         const instances = Object.fromEntries(e.instances.map((i) => [i.id, i]));
         const pos = Object.fromEntries(e.instances.map((i) => [i.id, homePos(i, e.roles)]));
-        set({
+        set((s) => ({
           roles: e.roles, instances, pos,
           tasks: Object.fromEntries(e.tasks.map((t) => [t.id, t])),
           chat: e.chat, log: e.log, permissions: e.permissions, settings: e.settings,
           projectDir: e.projectDir, authSource: e.authSource, meeting: e.meeting, busy: e.busy,
           paused: e.paused, usage: e.usage.total, usageDays: e.usage.days,
           offices: e.offices, cloud: e.cloud,
-        });
+          booted: true, connectFailed: false,
+          // Снапшот пришёл во время входа/создания — офис открыт, показываем комнату.
+          screen: s.pending ? 'office' : s.screen,
+          pending: null, pendingLabel: null,
+        }));
         break;
       }
       case 'instance': {
@@ -159,9 +216,23 @@ export const useStore = create<State>((set, get) => ({
         break;
       }
       case 'chat':
-        set((s) => (s.chat.some((c) => c.id === e.entry.id)
-          ? {}
-          : { chat: [...s.chat, e.entry] }));
+        set((s) => {
+          if (s.chat.some((c) => c.id === e.entry.id)) return {};
+          const chat = [...s.chat, e.entry];
+          // Сервер сообщает об отказе входа/создания офиса обычной репликой
+          // «офис» в общий чат — отдельного события протокол пока не даёт
+          // (см. docs/design/T-6/office-menu/spec.md, §4). Пока мы ждём ответ
+          // на вход или создание, такая реплика — это и есть ошибка меню.
+          if (e.entry.from === 'офис' && s.pending) {
+            return {
+              chat,
+              pending: null,
+              pendingLabel: null,
+              menuNotice: { kind: s.pending === 'create' ? 'create-error' : 'blocked', text: e.entry.text },
+            };
+          }
+          return { chat };
+        });
         break;
       case 'log':
         set((s) => (s.log.some((l) => l.id === e.entry.id)
@@ -266,6 +337,42 @@ export function connect(): void {
     setTimeout(connect, 1500);
   };
   socket.onmessage = (ev) => useStore.getState().apply(JSON.parse(ev.data) as ServerEvent);
+  // Сокет может открыться, а snapshot — не прийти (сервер завис на старте).
+  // Без этого таймаута экран меню молча висел бы на «Открываем офис…» вечно.
+  setTimeout(() => {
+    if (!useStore.getState().booted) useStore.setState({ connectFailed: true });
+  }, 8000);
+}
+
+/** Кнопка «Повторить» на экране меню при ошибке подключения. */
+export function retryConnect(): void {
+  useStore.setState({ connectFailed: false });
+  connect();
+}
+
+/** «сегодня в 14:32» / «вчера в 09:10» / «3 дня назад» / «12 мая» / «ещё не открывался». */
+export function formatLastOpened(ts: number): string {
+  if (!ts) return 'ещё не открывался';
+  const startOfDay = (t: number) => { const d = new Date(t); d.setHours(0, 0, 0, 0); return d.getTime(); };
+  const time = new Date(ts).toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' });
+  const daysAgo = Math.max(0, Math.round((startOfDay(Date.now()) - startOfDay(ts)) / 86400000));
+  if (daysAgo === 0) return `сегодня в ${time}`;
+  if (daysAgo === 1) return `вчера в ${time}`;
+  if (daysAgo < 7) {
+    const mod10 = daysAgo % 10;
+    const mod100 = daysAgo % 100;
+    const word = mod10 === 1 && mod100 !== 11 ? 'день'
+      : [2, 3, 4].includes(mod10) && ![12, 13, 14].includes(mod100) ? 'дня' : 'дней';
+    return `${daysAgo} ${word} назад`;
+  }
+  return new Date(ts).toLocaleDateString('ru-RU', { day: 'numeric', month: 'long' });
+}
+
+/** Текущий офис — всегда первой строкой, остальные по убыванию времени открытия. */
+export function sortedOffices(offices: OfficeView[]): OfficeView[] {
+  return [...offices].sort((a, b) => (
+    a.current !== b.current ? (a.current ? -1 : 1) : b.lastOpenedAt - a.lastOpenedAt
+  ));
 }
 
 /** Отправляет в активную ветку: менеджеру или напрямую агенту. */

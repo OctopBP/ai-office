@@ -14,6 +14,7 @@ import { SettingsModal } from './SettingsModal';
 import { MeetingModal } from './MeetingModal';
 import { UsageModal } from './UsageModal';
 import { OfficesModal } from './OfficesModal';
+import { MenuScreen } from './MenuScreen';
 import { connect, setPaused, useStore } from './store';
 
 type PanelKind = 'chat' | 'board' | 'log' | 'help' | null;
@@ -21,6 +22,7 @@ type ModalKind = 'settings' | 'meeting' | 'usage' | 'offices' | null;
 
 export function App() {
   const theme = useStore((s) => s.theme);
+  const screen = useStore((s) => s.screen);
   const instances = useStore((s) => s.instances);
   const log = useStore((s) => s.log);
   const selected = useStore((s) => s.selected);
@@ -57,6 +59,10 @@ export function App() {
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
   }, [instances, selected, select, paused]);
+
+  // До выбора офиса в меню комната вообще не монтируется — это отдельный
+  // экран приложения, а не оверлей поверх неё.
+  if (screen === 'menu') return <MenuScreen />;
 
   return (
     <div className={`app${paused ? ' paused' : ''}`}>
