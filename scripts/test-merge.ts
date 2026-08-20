@@ -12,7 +12,6 @@ import { resolve } from 'node:path';
 import { office } from '../src/server/state';
 import { checkMergeable } from '../src/server/git';
 import { mergeQueue, refreshMergeChecks } from '../src/server/merge';
-import { setStateFile, wipe } from '../src/server/store';
 
 /** Тестовый репозиторий: main, три ветки задач, свой скрипт typecheck. */
 function fixture(): string {
@@ -45,7 +44,7 @@ function fixture(): string {
 }
 
 async function main(): Promise<void> {
-  setStateFile(resolve(tmpdir(), `office-merge-state-${process.pid}.json`));
+  office.setStateFile(resolve(tmpdir(), `office-merge-state-${process.pid}.json`));
   const dir = fixture();
   const git = (...args: string[]) => execFileSync('git', args, { cwd: dir, encoding: 'utf8' }).trim();
   const results: string[] = [];
@@ -106,7 +105,7 @@ async function main(): Promise<void> {
   );
 
   rmSync(dir, { recursive: true, force: true });
-  wipe();
+  office.wipe();
 
   const failed = results.filter((r) => r.endsWith('false'));
   for (const r of results) console.log(`  ${r.endsWith('false') ? '❌' : '✅'} ${r}`);
