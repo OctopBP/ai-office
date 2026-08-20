@@ -230,7 +230,11 @@ export function connect(): void {
   if (socket && (socket.readyState === WebSocket.OPEN || socket.readyState === WebSocket.CONNECTING)) {
     return;
   }
-  const url = `ws://${location.hostname}:3001`;
+  // Собранный веб приходит с того же порта, что и WebSocket, — адрес берём
+  // из страницы. В dev странице отдаёт vite (:5173), а сервер живёт отдельно.
+  const url = import.meta.env.DEV
+    ? `ws://${location.hostname}:${import.meta.env.VITE_OFFICE_PORT ?? 3001}`
+    : `${location.protocol === 'https:' ? 'wss' : 'ws'}://${location.host}`;
   socket = new WebSocket(url);
   socket.onopen = () => useStore.getState().setConnected(true);
   socket.onclose = () => {

@@ -33,6 +33,8 @@ export const AGENT_SPRITE: Record<string, string> = {
   frontend: 'agent_frontend1',
   design: 'agent_uiux',
   smm: 'agent_backend2',
+  reviewer: 'agent_backend2',
+  artist: 'agent_uiux',
   legal: 'agent_frontend1',
 };
 

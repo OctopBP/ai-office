@@ -7,6 +7,8 @@
     "dev": "concurrently -n server,web -c cyan,magenta \"npm:dev:server\" \"npm:dev:web\"",
     "dev:server": "tsx watch src/server/index.ts",
     "dev:web": "vite",
+    "build": "vite build",
+    "office": "bash scripts/office.sh",
     "typecheck": "tsc --noEmit",
     "smoke": "tsx scripts/smoke.ts",
     "probe": "tsx scripts/probe.ts",

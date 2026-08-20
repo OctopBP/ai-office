@@ -307,11 +307,20 @@ async function runScenario(sc: Scenario): Promise<Run> {
     }
   };
 
+  let warmupIds = new Set<string>();
   if (sc.warmup) {
     ws.send(JSON.stringify({ c: 'user_message', text: sc.warmup }));
     await waitQuiet(150000);
-    // Ответы на прогрев не должны попадать в проверки: они про другую задачу,
-    // и законное «готово» ломало проверку «не выдал невыполненное за сделанное».
+    // Первая тишина наступает на ответе «раздал»: заглушка исполнителя
+    // закрывает задачу прогрева уже после него, и реакция менеджера на её
+    // завершение прилетала в окно измерения — законное «готово» про прогрев
+    // ломало проверку «не выдал невыполненное за сделанное». Ждём и её.
+    sawReply = false;
+    last = Date.now();
+    await waitQuiet(30000);
+    // Задачи прогрева назначены законно, и в проверках сценария им не место:
+    // события по ним приходят и после очистки, возвращая их на доску.
+    warmupIds = new Set(byId.keys());
     sawReply = false;
     run.pmText = '';
     run.toolCalls = [];
@@ -329,7 +338,7 @@ async function runScenario(sc: Scenario): Promise<Run> {
 
   await waitQuiet(MAX_MS);
   ws.close();
-  run.tasks = [...byId.values()];
+  run.tasks = [...byId.values()].filter((t) => !warmupIds.has(t.id));
   return run;
 }
 

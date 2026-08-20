@@ -9,10 +9,33 @@ import { roleById, workerRoles, type Role } from './roles';
 import { classify } from './permissions';
 import { commitAll, createWorktree, diffBranch, hasWork, mergeBranch, preserveBranch, removeWorktree } from './git';
 import { resolve } from 'node:path';
-import { existsSync, mkdirSync, readdirSync, renameSync } from 'node:fs';
+import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync } from 'node:fs';
 
 const MAX_CONCURRENT_WORKERS = 3;
 const MAX_WORKER_TURNS = 60;
+
+/**
+ * Бриф проекта — OFFICE.md в рабочей директории. Он идёт во все сессии: у PM
+ * вообще нет доступа к файлам, и без брифа он декомпозирует вслепую, а
+ * исполнителю CLAUDE.md проекта не достаётся (settingSources пуст намеренно).
+ *
+ * Читаем на каждом старте сессии, а не при запуске сервера: правку брифа
+ * подхватит следующая задача, перезапускать офис не нужно.
+ */
+const BRIEF_LIMIT = 8000;
+
+function projectBrief(): string {
+  try {
+    const text = readFileSync(resolve(office.projectDir, 'OFFICE.md'), 'utf8').trim();
+    if (!text) return '';
+    const body = text.length > BRIEF_LIMIT
+      ? `${text.slice(0, BRIEF_LIMIT)}\n… (бриф обрезан, полностью — в OFFICE.md)`
+      : text;
+    return `\n\nО ПРОЕКТЕ — из OFFICE.md рабочей директории:\n${body}`;
+  } catch {
+    return '';   // брифа нет — работаем как раньше
+  }
+}
 
 /**
  * Песочница ОС для исполнителей (на macOS — встроенный Seatbelt, ставить нечего).
@@ -483,7 +506,7 @@ function startPm(): void {
     options: {
       resume: resumeId,
       model: roleById('pm')!.model,
-      systemPrompt: PM_PROMPT,
+      systemPrompt: PM_PROMPT + projectBrief(),
       cwd: office.projectDir,
       tools: [],                         // у PM нет доступа к файлам — только командные инструменты
       mcpServers: { team: teamTools },
@@ -638,7 +661,7 @@ export async function holdMeeting(topic: string, participantIds: string[]): Prom
             'Ты на рабочем совещании с коллегами. Говори как специалист своей роли: коротко,',
             'предметно, без вежливых вступлений. Можешь посмотреть файлы проекта, чтобы',
             'говорить по делу, но менять ничего нельзя.',
-          ].join('\n'),
+          ].join('\n') + projectBrief(),
           cwd: office.projectDir,
           tools: ['Read', 'Glob', 'Grep'],
           permissionMode: 'default',
@@ -729,7 +752,7 @@ export function talkTo(instanceId: string, text: string): void {
     'предметно, но НЕ меняй их: правки делаются только в рамках поставленной задачи.',
     'Если пользователь просит что-то изменить — скажи, что для этого нужно поставить',
     'задачу через менеджера.',
-  ].join('\n');
+  ].join('\n') + projectBrief();
 
   const session = query({
     prompt: queue,
@@ -917,7 +940,7 @@ function startWorker(task: Task, inst: Instance): void {
     '',
     'Перед каждым логическим шагом вызывай say({text}) — пользователь видит это над твоей головой.',
     'Когда всё готово — вызови finish_task({summary, files}).',
-  ].join('\n');
+  ].join('\n') + projectBrief();
 
   if (office.settings.engine === 'cloud') {
     startCloudWorker(task, inst, role, systemPrompt);

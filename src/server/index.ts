@@ -1,6 +1,7 @@
 import { WebSocketServer, WebSocket } from 'ws';
-import { mkdirSync, existsSync, writeFileSync } from 'node:fs';
-import { resolve } from 'node:path';
+import { createServer } from 'node:http';
+import { mkdirSync, existsSync, writeFileSync, readFileSync, statSync } from 'node:fs';
+import { extname, resolve } from 'node:path';
 import type { ClientCommand, ServerEvent } from '../shared/types';
 import { office, officeViews } from './state';
 import { assignDirect, holdMeeting, mergeTask, resetSessions, retryTask, sendUserMessage, setPaused, stopTask, taskDiff, talkTo } from './agents';
@@ -80,7 +81,45 @@ for (const sig of ['SIGINT', 'SIGTERM'] as const) {
 }
 process.on('exit', () => flush());
 
-const wss = new WebSocketServer({ port: PORT });
+/**
+ * Собранный веб (`npm run build`) раздаётся тем же сервером, что держит
+ * WebSocket: один процесс, один порт, никакого vite рядом. Так офис можно
+ * запустить как приложение и спокойно работать над его же исходниками —
+ * запущенный процесс держит код в памяти и от правок в репозитории не зависит.
+ */
+const DIST = resolve(process.cwd(), 'dist');
+const MIME: Record<string, string> = {
+  '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8',
+  '.css': 'text/css; charset=utf-8', '.json': 'application/json; charset=utf-8',
+  '.png': 'image/png', '.jpg': 'image/jpeg', '.svg': 'image/svg+xml',
+  '.ico': 'image/x-icon', '.woff2': 'font/woff2', '.webp': 'image/webp',
+};
+
+const httpServer = createServer((req, res) => {
+  const url = (req.url ?? '/').split('?')[0];
+  // Путь считаем от dist и проверяем, что не выбрались наружу: запрос
+  // приходит из сети, и «../» в нём — обычное дело.
+  const wanted = resolve(DIST, `.${decodeURIComponent(url)}`);
+  const inside = wanted === DIST || wanted.startsWith(`${DIST}/`);
+  let file = inside ? wanted : DIST;
+  try {
+    if (statSync(file).isDirectory()) file = resolve(file, 'index.html');
+  } catch {
+    file = resolve(DIST, 'index.html');   // маршрутов нет, но SPA есть SPA
+  }
+  try {
+    const body = readFileSync(file);
+    res.writeHead(200, { 'Content-Type': MIME[extname(file)] ?? 'application/octet-stream' });
+    res.end(body);
+  } catch {
+    res.writeHead(existsSync(DIST) ? 404 : 503, { 'Content-Type': 'text/plain; charset=utf-8' });
+    res.end(existsSync(DIST)
+      ? 'Не найдено'
+      : 'Веб не собран. Соберите его: npm run build (или откройте vite на :5173).');
+  }
+});
+
+const wss = new WebSocketServer({ server: httpServer });
 const clients = new Set<WebSocket>();
 
 office.subscribe((event: ServerEvent) => {
@@ -198,7 +237,12 @@ wss.on('connection', (ws) => {
   ws.on('close', () => clients.delete(ws));
 });
 
-console.log(`🏢 AI Office — сервер на ws://localhost:${PORT}`);
+httpServer.listen(PORT);
+
+const built = existsSync(resolve(DIST, 'index.html'));
+console.log(built
+  ? `🏢 AI Office — откройте http://localhost:${PORT}`
+  : `🏢 AI Office — сервер на ws://localhost:${PORT} (веб не собран: npm run build)`);
 console.log(`📁 Команда работает в: ${opened.projectDir}`);
 // Источник доступа важен: с ключом расход идёт в платный API, без него —
 // в лимиты подписки Claude Code. Ключ имеет приоритет и подменяет подписку молча.

@@ -1,6 +1,7 @@
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import { resolve } from 'node:path';
+import { existsSync, symlinkSync } from 'node:fs';
 import { rm } from 'node:fs/promises';
 
 const run = promisify(execFile);
@@ -66,7 +67,34 @@ export async function createWorktree(
   await git(repoDir, ['branch', '-D', branch]);
 
   const r = await git(repoDir, ['worktree', 'add', '-b', branch, path, base]);
-  return r.ok ? { path, branch, base } : null;
+  if (!r.ok) return null;
+  await linkNodeModules(repoDir, path);
+  return { path, branch, base };
+}
+
+/**
+ * Зависимости в worktree — симлинком на основной node_modules. Свежий worktree
+ * пуст, и без этого исполнитель не может ни собрать проект, ни прогнать
+ * проверки: он видит исходники, но не то, чем они запускаются.
+ *
+ * Проверяем игнор УЖЕ ПОСЛЕ создания симлинка и в самом worktree: правило
+ * вида `node_modules/` со слэшем матчит каталог, но не симлинк на него, —
+ * такой симлинк ушёл бы в коммит задачи и уехал в основную ветку при слиянии.
+ * Не игнорируется — убираем: остаться без зависимостей лучше, чем насорить
+ * в чужом репозитории.
+ */
+async function linkNodeModules(repoDir: string, worktreePath: string): Promise<void> {
+  const src = resolve(repoDir, 'node_modules');
+  const dest = resolve(worktreePath, 'node_modules');
+  if (!existsSync(src) || existsSync(dest)) return;
+  try {
+    symlinkSync(src, dest, 'dir');
+  } catch {
+    return;   // не вышло — исполнитель просто останется без зависимостей
+  }
+  if (!(await git(worktreePath, ['check-ignore', '-q', 'node_modules'])).ok) {
+    await rm(dest, { force: true });
+  }
 }
 
 /** Коммитим за исполнителя сами: так надёжнее, чем надеяться, что он не забудет. */
