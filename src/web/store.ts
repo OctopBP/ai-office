@@ -6,8 +6,21 @@ import type {
 } from '../shared/types';
 import { emptyUsage, MEETING_SEATS } from '../shared/types';
 import type { Theme } from './sprites';
+import { kitchenSeatFor } from './desks';
 
 interface Pos { x: number; y: number }
+
+/**
+ * «Домашняя» позиция агента, когда он не на совещании и не в момент передачи
+ * задачи: PM и занятые задачей исполнители сидят за своим столом, свободные —
+ * на кухне. Источник истины — currentTaskId из InstanceView, отдельного
+ * флага занятости на клиенте не заводим.
+ */
+function homePos(inst: InstanceView, roles: RoleView[]): Pos {
+  const isManager = roles.find((r) => r.id === inst.roleId)?.isManager ?? false;
+  if (isManager || inst.currentTaskId) return { x: inst.desk.x, y: inst.desk.y };
+  return kitchenSeatFor(inst.desk.index);
+}
 
 export interface Toast {
   id: string;
@@ -89,7 +102,7 @@ export const useStore = create<State>((set, get) => ({
     switch (e.t) {
       case 'snapshot': {
         const instances = Object.fromEntries(e.instances.map((i) => [i.id, i]));
-        const pos = Object.fromEntries(e.instances.map((i) => [i.id, { x: i.desk.x, y: i.desk.y }]));
+        const pos = Object.fromEntries(e.instances.map((i) => [i.id, homePos(i, e.roles)]));
         set({
           roles: e.roles, instances, pos,
           tasks: Object.fromEntries(e.tasks.map((t) => [t.id, t])),
@@ -101,10 +114,19 @@ export const useStore = create<State>((set, get) => ({
         break;
       }
       case 'instance': {
-        const prev = get().pos[e.instance.id];
+        const s0 = get();
+        const prevInst = s0.instances[e.instance.id];
+        const wasBusy = !!prevInst?.currentTaskId;
+        const isBusy = !!e.instance.currentTaskId;
+        // Место меняем только когда реально сменился статус занятости —
+        // иначе каждое обновление расхода/заметки дёргало бы человечка.
+        // На совещании стол/кухня подождут: место освободится, когда оно закончится.
+        const inMeetingNow = s0.meeting?.status === 'running'
+          && s0.meeting.participants.includes(e.instance.id);
+        const shouldMove = !s0.pos[e.instance.id] || (wasBusy !== isBusy && !inMeetingNow);
         set((s) => ({
           instances: { ...s.instances, [e.instance.id]: e.instance },
-          pos: prev ? s.pos : { ...s.pos, [e.instance.id]: { x: e.instance.desk.x, y: e.instance.desk.y } },
+          pos: shouldMove ? { ...s.pos, [e.instance.id]: homePos(e.instance, s.roles) } : s.pos,
         }));
         break;
       }
@@ -182,7 +204,7 @@ export const useStore = create<State>((set, get) => ({
             });
           } else {
             for (const inst of Object.values(insts)) {
-              pos[inst.id] = { x: inst.desk.x, y: inst.desk.y };
+              pos[inst.id] = homePos(inst, s.roles);
             }
           }
           return { pos };

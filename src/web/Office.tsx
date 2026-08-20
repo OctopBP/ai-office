@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { useLayoutEffect, useRef, useState } from 'react';
 import { useStore } from './store';
 import { agentSpriteName, spriteOf } from './sprites';
 import { DESKS_ALL } from './desks';
@@ -38,12 +38,17 @@ const DECOR: Array<{ img: string; x: number; y: number; z?: number }> = [
   { img: 'chair', x: 3.2, y: 13.6 },
   { img: 'chair', x: 1.7, y: 12.2 },
   { img: 'chair', x: 4.8, y: 12.2 },
-  // кухня
+  // кухня — зона отдыха для свободных агентов, места см. KITCHEN_SEATS в desks.ts
   { img: 'kitchen_tiles', x: 19.0, y: 10.6 },
   { img: 'counter', x: 19.2, y: 12.9 },
   { img: 'fridge', x: 22.6, y: 10.9 },
   { img: 'cooler', x: 21.4, y: 11.2 },
   { img: 'coin', x: 20.2, y: 12.4 },
+  { img: 'round_table', x: 20.9, y: 13.4 },
+  { img: 'chair', x: 19.6, y: 13.0 },
+  { img: 'chair', x: 22.2, y: 13.0 },
+  { img: 'chair', x: 20.1, y: 14.4 },
+  { img: 'chair', x: 21.9, y: 14.4 },
 ];
 
 /** Предметы на стене, которые открывают панели: доска задач и терминал лога. */
@@ -83,35 +88,6 @@ export function Office({ onOpen, onDoor }: {
     fit();
     window.addEventListener('resize', fit);
     return () => window.removeEventListener('resize', fit);
-  }, []);
-
-  /**
-   * Живость офиса: свободный агент иногда отходит к кулеру и возвращается.
-   * Чистая анимация на клиенте — сервер об этом не знает и событий нет.
-   */
-  useEffect(() => {
-    const timer = setInterval(() => {
-      const st = useStore.getState();
-      if (st.meeting?.status === 'running') return;
-      const free = Object.values(st.instances).filter((i) => i.state === 'idle' && !i.currentTaskId);
-      if (free.length === 0 || Math.random() > 0.3) return;
-
-      const who = free[Math.floor(Math.random() * free.length)];
-      const at = st.pos[who.id];
-      if (!at || at.x !== who.desk.x || at.y !== who.desk.y) return;
-
-      useStore.setState((s) => ({
-        pos: { ...s.pos, [who.id]: { x: 20.2 + Math.random() * 1.4, y: 12.6 } },
-      }));
-      setTimeout(() => {
-        useStore.setState((s) => {
-          const inst = s.instances[who.id];
-          if (!inst || inst.currentTaskId) return {};
-          return { pos: { ...s.pos, [who.id]: { x: inst.desk.x, y: inst.desk.y } } };
-        });
-      }, 5000 + Math.random() * 4000);
-    }, 7000);
-    return () => clearInterval(timer);
   }, []);
 
   const list = Object.values(instances);
