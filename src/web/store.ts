@@ -4,9 +4,10 @@ import type {
   MeetingView, RoleEditable, RoleView, ServerEvent, Settings, TaskView, Usage,
   CloudStatus, OfficeView,
 } from '../shared/types';
-import { emptyUsage, MEETING_SEATS } from '../shared/types';
+import { emptyUsage } from '../shared/types';
 import type { Theme } from './sprites';
 import { kitchenSeatFor } from './desks';
+import { meetingSeat } from './meetingSeats';
 
 interface Pos { x: number; y: number }
 
@@ -198,8 +199,9 @@ export const useStore = create<State>((set, get) => ({
         set((s) => {
           const pos = { ...s.pos };
           if (e.meeting) {
+            const total = e.meeting.participants.length;
             e.meeting.participants.forEach((id, i) => {
-              const seat = MEETING_SEATS[i % MEETING_SEATS.length];
+              const seat = meetingSeat(i, total);
               pos[id] = { x: seat.x, y: seat.y };
             });
           } else {

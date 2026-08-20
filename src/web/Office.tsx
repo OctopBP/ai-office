@@ -19,8 +19,8 @@ const STATE_ICON: Record<AgentState, string> = {
   waiting_approval: '❗', paused: '⏸', blocked: '⏳', done: '✅', failed: '⚠️',
 };
 
-/** Неподвижная обстановка комнаты: спрайт и место в тайлах. */
-const DECOR: Array<{ img: string; x: number; y: number; z?: number }> = [
+/** Неподвижная обстановка комнаты: спрайт, место в тайлах и необязательный масштаб. */
+const DECOR: Array<{ img: string; x: number; y: number; z?: number; scale?: number }> = [
   { img: 'clock', x: 17.6, y: 0.5 },
   { img: 'window', x: 19.4, y: 0.4 },
   { img: 'bookshelf', x: 22.2, y: 0.2 },
@@ -31,13 +31,16 @@ const DECOR: Array<{ img: string; x: number; y: number; z?: number }> = [
   { img: 'plant_big', x: 22.4, y: 6.4 },
   { img: 'plant_small', x: 0.4, y: 2.6 },
   { img: 'plant_small', x: 19.0, y: 8.6 },
-  // переговорка
-  { img: 'rug', x: 0.6, y: 10.6 },
-  { img: 'round_table', x: 3.1, y: 11.9 },
-  { img: 'chair', x: 3.2, y: 10.8 },
-  { img: 'chair', x: 3.2, y: 13.6 },
-  { img: 'chair', x: 1.7, y: 12.2 },
-  { img: 'chair', x: 4.8, y: 12.2 },
+  // переговорка — стол расширен под переменное число участников совещания,
+  // сами места (см. meetingSeats.ts) считаются отдельно от этой картинки
+  { img: 'rug', x: 0.4, y: 10.0, scale: 1.2 },
+  { img: 'round_table', x: 2.7, y: 11.1, scale: 1.6 },
+  { img: 'chair', x: 3.8, y: 10.7 },
+  { img: 'chair', x: 5.3, y: 11.3 },
+  { img: 'chair', x: 5.3, y: 12.3 },
+  { img: 'chair', x: 3.8, y: 12.8 },
+  { img: 'chair', x: 2.2, y: 12.3 },
+  { img: 'chair', x: 2.2, y: 11.3 },
   // кухня — зона отдыха для свободных агентов, места см. KITCHEN_SEATS в desks.ts
   { img: 'kitchen_tiles', x: 19.0, y: 10.6 },
   { img: 'counter', x: 19.2, y: 12.9 },
@@ -137,7 +140,10 @@ export function Office({ onOpen, onDoor }: {
       {DECOR.map((d, i) => (
         <img
           key={`${d.img}-${i}`} className="decor" src={img(d.img)} alt=""
-          style={{ left: px(d.x), top: px(d.y), zIndex: d.z ?? 2 }}
+          style={{
+            left: px(d.x), top: px(d.y), zIndex: d.z ?? 2,
+            ...(d.scale ? { transform: `scale(${d.scale})`, transformOrigin: 'top left' } : {}),
+          }}
         />
       ))}
 
