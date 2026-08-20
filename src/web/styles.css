@@ -225,6 +225,19 @@ button:disabled { opacity: .5; cursor: default; }
   border-color: var(--red); color: var(--red);
 }
 .team-selected .fire:hover { background: rgba(248, 81, 73, .12); }
+.team-role { margin-bottom: 8px; }
+.team-vacancy {
+  display: flex; align-items: center; justify-content: space-between; gap: 10px;
+  padding: 4px 10px 10px 46px; font-size: 12px;
+}
+.team-members { display: flex; flex-direction: column; gap: 3px; padding: 2px 0 6px 46px; }
+.team-member { display: flex; align-items: center; gap: 10px; font-size: 12px; }
+.team-member button { margin-left: auto; }
+.team-notice {
+  display: flex; align-items: center; gap: 8px; padding: 7px 10px; margin-bottom: 8px;
+  border: 1px solid var(--red); border-radius: 7px; font-size: 12px; color: var(--red);
+}
+.team-notice button { margin-left: auto; }
 
 /* ---------- бюджет в шапке ---------- */
 button
@@ -546,6 +559,11 @@ kbd {
   background: none; border: none; padding: 3px 0; color: var(--muted); font-size: 12px;
 }
 .drawer-links .link:hover { color: var(--accent); }
+.drawer-notice {
+  display: flex; align-items: center; gap: 8px; padding: 7px 10px; margin-top: 8px;
+  border: 1px solid var(--red); border-radius: 7px; font-size: 12px; color: var(--red);
+}
+.drawer-notice button { margin-left: auto; }
 
 /* ================= пауза офиса ================= */
 /* Пауза видна и в мире, и в HUD: замерший агент сереет, как в макете 08. */
