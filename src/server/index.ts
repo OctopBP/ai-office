@@ -3,7 +3,7 @@ import { mkdirSync, existsSync, writeFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import type { ClientCommand, ServerEvent } from '../shared/types';
 import { office } from './state';
-import { assignDirect, holdMeeting, mergeTask, retryTask, sendUserMessage, stopTask, taskDiff, talkTo } from './agents';
+import { assignDirect, holdMeeting, mergeTask, resetSessions, retryTask, sendUserMessage, stopTask, taskDiff, talkTo } from './agents';
 import { hasCommits, initRepo, isRepo } from './git';
 import { flush } from './store';
 
@@ -114,6 +114,7 @@ wss.on('connection', (ws) => {
     } else if (cmd.c === 'meeting' && cmd.topic.trim()) {
       void holdMeeting(cmd.topic.trim(), cmd.participants);
     } else if (cmd.c === 'reset') {
+      resetSessions();
       office.hardReset();
       for (const client of clients) {
         if (client.readyState === WebSocket.OPEN) client.send(JSON.stringify(office.snapshot()));

@@ -196,6 +196,8 @@ class OfficeState {
   hardReset(): void {
     wipe();
     this.seed();
+    // Забываем и id сессий: разговор начинается с чистого листа.
+    for (const inst of this.instances.values()) inst.sessionId = null;
     this.markDirty();
   }
 

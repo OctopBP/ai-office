@@ -453,8 +453,13 @@ function startPm(): void {
       }
       office.setState('pm#1', 'failed', 'сессия упала');
     } finally {
-      pmLoop = null;
-      pmQueue = null;
+      // Сессию могли уже заменить (например сбросом офиса) — тогда очередь
+      // принадлежит новой сессии, и обнулять ссылки нельзя: её сообщения
+      // ушли бы в никуда.
+      if (pmQueue === queue) {
+        pmLoop = null;
+        pmQueue = null;
+      }
     }
   })();
 }
@@ -534,6 +539,16 @@ export async function holdMeeting(topic: string, participantIds: string[]): Prom
         'Не повторяй уже сказанное и не пересказывай тему.';
 
       let text = '';
+      if (office.dryRun) {
+        // Проверяем поведение менеджера, а не содержательность реплик:
+        // настоящие сессии участников тут не нужны и стоили бы дорого.
+        text = `[заглушка] Мнение роли ${role.title} по теме «${topic}».`;
+        said.push({ id: inst.id, title: role.title, text });
+        office.addChat(inst.id, text, 'meeting');
+        office.setState(inst.id, 'talking', 'на совещании');
+        continue;
+      }
+
       const session = query({
         prompt,
         options: {
@@ -741,18 +756,39 @@ function startWorker(task: Task, inst: Instance): void {
   // Режим проверки поведения менеджера: настоящую сессию исполнителя не поднимаем.
   // Так сценарии прогоняются за секунды и стоят только токенов PM.
   if (office.dryRun) {
-    setTimeout(() => {
+    // Задержку поднимают в тестах, где нужно успеть вмешаться в работу.
+    const delay = Number(process.env.OFFICE_DRY_RUN_DELAY ?? 250);
+
+    const finish = (stopped: boolean) => {
       inst.currentTaskId = null;
+      inst.abort = null;
       office.setState(inst.id, 'idle', null);
+      if (stopped) {
+        stoppedByUser.delete(task.id);
+        office.updateTask(task.id, {
+          status: 'blocked', result: '⏹ Остановлена пользователем.', finishedAt: Date.now(),
+        });
+        notifyPm(
+          `[СИСТЕМА] Задача ${task.id} остановлена пользователем вручную. ` +
+          'Не назначай её заново по своей инициативе — дождись указания.',
+        );
+        return;
+      }
       office.updateTask(task.id, {
         status: 'done',
         result: `[заглушка] Задача «${task.title}» выполнена.`,
+        finishedAt: Date.now(),
       });
       notifyPm(
         `[СИСТЕМА] Задача ${task.id} «${task.title}» завершена исполнителем ${inst.id}.\n` +
-        `Отчёт: [заглушка] Задача выполнена.\nОцени результат и реши, что делать дальше.`,
+        'Отчёт: [заглушка] Задача выполнена.\nОцени результат и реши, что делать дальше.',
       );
-    }, 250);
+    };
+
+    const timer = setTimeout(() => finish(false), delay);
+    // Прерывание должно ЗАВЕРШИТЬ задачу как остановленную, а не просто снять
+    // таймер: иначе она навсегда зависала бы в статусе «в работе».
+    inst.abort = { abort: () => { clearTimeout(timer); finish(true); } } as AbortController;
     return;
   }
 
@@ -903,6 +939,24 @@ function startWorker(task: Task, inst: Instance): void {
       }, 4000);
     }
   })().catch(() => { /* обработано выше */ });
+}
+
+/**
+ * Закрыть все живые сессии офиса. Нужно при сбросе: иначе доска пуста,
+ * а менеджер продолжает помнить прошлые задачи и обсуждения — офис
+ * оказывается сброшен наполовину.
+ */
+export function resetSessions(): void {
+  pmQueue?.close();
+  pmQueue = null;
+  pmLoop = null;
+  for (const [id, talk] of talks) {
+    talk.queue.close();
+    talks.delete(id);
+  }
+  for (const inst of office.instances.values()) inst.abort?.abort();
+  stoppedByUser.clear();
+  meetingRunning = false;
 }
 
 /** Прервать работу над задачей. Наработки сохраняются. */

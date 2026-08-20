@@ -540,3 +540,8 @@ kbd {
 .dl.del { background: rgba(217, 79, 61, .14); }
 .dl.hunk { color: var(--muted); background: var(--panel); }
 .dl.meta { color: var(--muted); }
+.drawer-links { display: flex; flex-direction: column; gap: 6px; align-items: flex-start; }
+.drawer-links .link {
+  background: none; border: none; padding: 3px 0; color: var(--muted); font-size: 12px;
+}
+.drawer-links .link:hover { color: var(--accent); }

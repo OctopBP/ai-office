@@ -1,4 +1,6 @@
+import { useState } from 'react';
 import { assignDirect, fire, hire, mergeTask, retryTask, showDiff, stopTask, useStore } from './store';
+import { RoleEditor } from './RoleEditor';
 import { agentSpriteName, spriteOf } from './sprites';
 import type { TaskView } from '../shared/types';
 
@@ -34,6 +36,7 @@ export function AgentDrawer() {
   const select = useStore((s) => s.select);
   const setThread = useStore((s) => s.setThread);
   const theme = useStore((s) => s.theme);
+  const [editRole, setEditRole] = useState(false);
 
   const inst = selected ? instances[selected] : null;
   if (!inst) return null;
@@ -172,11 +175,23 @@ export function AgentDrawer() {
           <button className="danger" onClick={() => stopTask(current.id)}>⏹ Остановить задачу</button>
         )}
       </div>
-      {role && !role.isManager && (
-        <button className="link-danger" onClick={() => { fire(inst.id); select(null); }}>
-          Уволить
+      <div className="drawer-links">
+        <button className="link" onClick={() => setEditRole(true)}>
+          Рабочее место #{inst.desk.index} — роль, модель, права →
         </button>
-      )}
+        {current?.worktreePath && (
+          <div className="muted small mono" title="Рабочая копия задачи на диске">
+            {current.worktreePath}
+          </div>
+        )}
+        {role && !role.isManager && (
+          <button className="link-danger" onClick={() => { fire(inst.id); select(null); }}>
+            Уволить
+          </button>
+        )}
+      </div>
+
+      {editRole && <RoleEditor roleId={inst.roleId} onClose={() => setEditRole(false)} />}
     </aside>
   );
 }
