@@ -11,3 +11,24 @@ export const DESKS_ALL: Desk[] = [
   { index: 4, x: 1, y: 8 }, { index: 5, x: 6, y: 8 },  { index: 6, x: 11, y: 8 },
   { index: 7, x: 16, y: 8 }, { index: 8, x: 10, y: 12 }, { index: 9, x: 14, y: 12 },
 ];
+
+interface Pos { x: number; y: number }
+
+/**
+ * Посадочные места на кухне — там сидят свободные исполнители, пока им не
+ * назначили задачу. Мест ровно столько же, сколько рабочих столов у
+ * исполнителей (все DESKS_ALL, кроме стола PM с индексом 0), поэтому у
+ * каждого агента есть своё персональное место и они не накладываются друг
+ * на друга.
+ */
+export const KITCHEN_SEATS: Pos[] = [
+  { x: 19.3, y: 11.8 }, { x: 20.6, y: 11.6 }, { x: 23.3, y: 12.0 },
+  { x: 19.6, y: 13.1 }, { x: 20.8, y: 13.1 }, { x: 22.0, y: 13.1 }, { x: 23.2, y: 13.3 },
+  { x: 20.2, y: 14.3 }, { x: 21.6, y: 14.3 },
+];
+
+/** Место на кухне для стола с данным индексом — привязка стабильная, один в один. */
+export function kitchenSeatFor(deskIndex: number): Pos {
+  const i = (deskIndex - 1 + KITCHEN_SEATS.length) % KITCHEN_SEATS.length;
+  return KITCHEN_SEATS[i];
+}
