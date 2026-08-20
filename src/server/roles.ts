@@ -1,10 +1,6 @@
-/**
- * auto        — ничего не спрашивать
- * ask-risky   — спрашивать только необратимые действия (по умолчанию)
- * ask-writes  — спрашивать про любую запись и любую команду оболочки
- * readonly    — запрещать всё, что меняет состояние
- */
-export type PermissionMode = 'auto' | 'ask-risky' | 'ask-writes' | 'readonly';
+// Режим доступа живёт в общем контракте: его правит UI и наследует офис.
+export type { PermissionMode } from '../shared/types';
+import type { PermissionMode } from '../shared/types';
 
 export interface Role {
   id: string;
@@ -14,7 +10,8 @@ export interface Role {
   model: string;
   isManager: boolean;
   maxInstances: number;
-  permissionMode: PermissionMode;
+  /** null — своего режима у роли нет, берётся режим офиса. */
+  permissionMode: PermissionMode | null;
   /** Работать в отдельном git worktree на задачу (для ролей, меняющих код). */
   isolate: boolean;
   /**

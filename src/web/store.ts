@@ -108,7 +108,10 @@ export const useStore = create<State>((set, get) => ({
   chat: [],
   log: [],
   permissions: [],
-  settings: { globalBudgetUsd: null, taskBudgetUsd: null, engine: 'local', cloudRepoUrl: null },
+  settings: {
+    globalBudgetUsd: null, taskBudgetUsd: null, engine: 'local', cloudRepoUrl: null,
+    officePermissionMode: 'ask-risky',
+  },
   meeting: null,
   theme: (localStorage.getItem('office-theme') as Theme | null) ?? 'day',
   toasts: [],

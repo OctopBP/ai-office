@@ -59,13 +59,24 @@ export interface Desk {
   y: number;
 }
 
+/**
+ * Насколько свободно агент действует без человека.
+ *
+ * auto        — ничего не спрашивать (полный доступ)
+ * ask-risky   — спрашивать только необратимое
+ * ask-writes  — спрашивать про любую запись и любую команду оболочки
+ * readonly    — запрещать всё, что меняет состояние
+ */
+export type PermissionMode = 'auto' | 'ask-risky' | 'ask-writes' | 'readonly';
+
 /** Поля роли, которые пользователь может менять из UI. */
 export interface RoleEditable {
   title: string;
   emoji: string;
   color: string;
   model: string;
-  permissionMode: 'auto' | 'ask-risky' | 'ask-writes' | 'readonly';
+  /** null — наследовать режим офиса (Settings.officePermissionMode). */
+  permissionMode: PermissionMode | null;
   maxInstances: number;
   isolate: boolean;
   /** Свой репозиторий роли; пусто — общий репозиторий офиса. */
@@ -95,6 +106,8 @@ export interface Settings {
   engine: Engine;
   /** Репозиторий на GitHub, который монтируется в облачный контейнер. */
   cloudRepoUrl: string | null;
+  /** Режим доступа офиса: его наследуют роли без собственного режима. */
+  officePermissionMode: PermissionMode;
 }
 
 /** Что из облачной обвязки уже готово — ключ и токен в состояние не пишутся. */

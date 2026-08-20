@@ -32,6 +32,7 @@ export const DEFAULT_SETTINGS: Settings = {
   taskBudgetUsd: null,
   engine: 'local',
   cloudRepoUrl: null,
+  officePermissionMode: 'ask-risky',
 };
 
 /** Ключ дня в местном времени: расход «за сегодня» считается по часам пользователя. */

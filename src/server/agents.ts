@@ -2,7 +2,7 @@ import { query, tool, createSdkMcpServer } from '@anthropic-ai/claude-agent-sdk'
 import type { SDKMessage, PermissionResult, SDKResultSuccess } from '@anthropic-ai/claude-agent-sdk';
 import { z } from 'zod';
 import { MessageQueue } from './queue';
-import { criteriaProgress, office, type Instance, type Task } from './state';
+import { criteriaProgress, DEFAULT_SETTINGS, office, type Instance, type Task } from './state';
 import { emptyUsage } from '../shared/types';
 import { cloudProblem, runCloudTask, stopCloudTask } from './cloud';
 import { roleById, workerRoles, type Role } from './roles';
@@ -205,7 +205,11 @@ function permissionHandler(
   ): Promise<PermissionResult> => {
     const inst = office.instances.get(instanceId);
     const role = inst ? roleById(inst.roleId) : undefined;
-    const mode = role?.permissionMode ?? 'ask-risky';
+    // Режим роли сильнее режима офиса: офисный — это фолбэк для ролей,
+    // у которых своего нет (permissionMode === null).
+    const mode = role?.permissionMode
+      ?? office.settings.officePermissionMode
+      ?? DEFAULT_SETTINGS.officePermissionMode;
 
     // Пауза офиса: сессия не убивается, а замирает перед следующим действием.
     // Это единственная точка, через которую проходит любой вызов инструмента,

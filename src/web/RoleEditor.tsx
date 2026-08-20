@@ -8,7 +8,7 @@ const MODELS = [
   ['claude-haiku-4-5', 'Haiku 4.5 — $1/$5, простое и быстрое'],
 ] as const;
 
-const MODES: Array<[RoleEditable['permissionMode'], string]> = [
+const MODES: Array<[NonNullable<RoleEditable['permissionMode']>, string]> = [
   ['auto', 'ничего не спрашивать'],
   ['ask-risky', 'спрашивать необратимое (по умолчанию)'],
   ['ask-writes', 'спрашивать любую запись и команду'],
@@ -50,7 +50,7 @@ export function RoleEditor({ roleId, onClose }: { roleId: string; onClose: () =>
 
         <label>Разрешения
           <select
-            value={value.permissionMode}
+            value={value.permissionMode ?? ''}
             onChange={(e) => set('permissionMode', e.target.value as RoleEditable['permissionMode'])}
           >
             {MODES.map(([id, label]) => <option key={id} value={id}>{label}</option>)}
