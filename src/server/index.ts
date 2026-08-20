@@ -6,7 +6,7 @@ import type { ClientCommand, ServerEvent } from '../shared/types';
 import { office, officeViews } from './state';
 import { assignDirect, holdMeeting, mergeTask, resetSessions, retryTask, sendUserMessage, setPaused, stopTask, taskDiff, talkTo } from './agents';
 import { githubToken, setGithubToken } from './cloud';
-import { clearInitFlag, createOffice, currentOffice, ensureOffice, loadRegistry, renameOffice, setCurrent, type OfficeEntry } from './offices';
+import { clearInitFlag, createOffice, currentOffice, ensureOffice, loadRegistry, officeById, renameOffice, setCurrent, type OfficeEntry } from './offices';
 import { hasCommits, initRepo, isRepo } from './git';
 import { allRoles } from './roles';
 import { flush, setStateFile } from './store';
@@ -138,51 +138,77 @@ const httpServer = createServer((req, res) => {
 });
 
 const wss = new WebSocketServer({ server: httpServer });
-const clients = new Set<WebSocket>();
+/**
+ * Клиент смотрит ровно один офис — тот, который выбрал. Значение в карте
+ * и есть его выбор: события другого офиса ему не уходят, иначе в открытой
+ * вкладке смешались бы доски двух разных проектов.
+ */
+const clients = new Map<WebSocket, string>();
 
-office.subscribe((event: ServerEvent) => {
-  const payload = JSON.stringify(event);
-  for (const ws of clients) {
+function broadcast(payload: string): void {
+  for (const [ws, watching] of clients) {
+    if (watching !== office.officeId) continue;
     if (ws.readyState === WebSocket.OPEN) ws.send(payload);
   }
-});
+}
+
+office.subscribe((event: ServerEvent) => broadcast(JSON.stringify(event)));
 
 function broadcastSnapshot(): void {
-  const payload = JSON.stringify(office.snapshot());
-  for (const ws of clients) {
-    if (ws.readyState === WebSocket.OPEN) ws.send(payload);
-  }
+  broadcast(JSON.stringify(office.snapshot()));
+}
+
+/**
+ * Отдать клиенту открытый офис целиком и записать, что он смотрит именно его.
+ * Закрытый сокет в карту не возвращаем: между командой и ответом вкладку
+ * успевают закрыть, а карта живёт до конца процесса.
+ */
+function sendSnapshot(ws: WebSocket): void {
+  if (ws.readyState !== WebSocket.OPEN) return;
+  clients.set(ws, office.officeId);
+  ws.send(JSON.stringify(office.snapshot()));
 }
 
 /**
  * Переключение проекта на ходу. Идущие задачи не бросаем: их сессии живут
  * в рабочей директории этого офиса, и оборвать их переключением значило бы
- * потерять работу молча.
+ * потерять работу молча. `ws` — клиент, который попросил: снапшот выбранного
+ * офиса уходит ему в любом случае, даже если офис уже был открыт, — иначе
+ * экран входа остался бы ждать ответа, которого нет.
  */
-async function switchOffice(officeId: string): Promise<void> {
-  const target = setCurrent(officeId);
-  if (!target) return;
-  if (target.id === office.officeId) return;
+async function switchOffice(officeId: string, ws?: WebSocket): Promise<void> {
+  const target = officeById(officeId);
+  if (!target) {
+    office.addChat('офис', `Офис ${officeId} не найден — похоже, список устарел.`);
+    return;
+  }
+  if (target.id === office.officeId) {
+    setCurrent(target.id);
+    if (ws) sendSnapshot(ws);
+    return;
+  }
 
   const running = [...office.tasks.values()].filter((t) => t.status === 'in_progress');
   if (running.length) {
-    setCurrent(office.officeId);
     office.addChat('офис',
       `Сначала дождитесь или остановите задачи в работе: ${running.map((t) => t.id).join(', ')}.`);
     return;
   }
 
+  setCurrent(target.id);
   resetSessions();
   flush();
   await openOffice(target);
   office.addLog(null, 'system', `Открыт офис «${target.name}» (${target.projectDir})`);
+  if (ws && clients.has(ws)) clients.set(ws, office.officeId);
   broadcastSnapshot();
 }
 
 wss.on('connection', (ws) => {
-  clients.add(ws);
+  clients.set(ws, office.officeId);
+  // Пока офис открывается, снапшота ещё нет: первый уходит после старта.
   void startup.then(() => {
-    if (ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify(office.snapshot()));
+    if (clients.has(ws)) sendSnapshot(ws);
   });
 
   ws.on('message', (raw) => {
@@ -223,14 +249,16 @@ wss.on('connection', (ws) => {
     } else if (cmd.c === 'pause') {
       setPaused(cmd.paused);
     } else if (cmd.c === 'switch_office') {
-      void switchOffice(cmd.officeId);
-    } else if (cmd.c === 'create_office' && cmd.projectDir.trim()) {
-      const made = createOffice({ name: cmd.name, projectDir: cmd.projectDir.trim() });
+      void switchOffice(cmd.officeId, ws);
+    } else if (cmd.c === 'create_office') {
+      // Путь пришёл от человека: несуществующую папку не заводим молча,
+      // а объясняем, что не так.
+      const made = createOffice({ name: cmd.name, projectDir: cmd.projectDir, mustExist: true });
       if ('error' in made) {
         office.addChat('офис', made.error);
       } else {
         office.emit({ t: 'offices', offices: officeViews() });
-        void switchOffice(made.office.id);
+        void switchOffice(made.office.id, ws);
       }
     } else if (cmd.c === 'rename_office') {
       if (renameOffice(cmd.officeId, cmd.name)) {
