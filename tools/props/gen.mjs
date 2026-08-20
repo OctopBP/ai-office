@@ -49,15 +49,21 @@ function listProps() {
 
 /** Очередь с ограничением параллелизма */
 async function runQueue(jobs, limit) {
-  let i = 0, done = 0, failed = 0;
+  let i = 0, done = 0, failed = 0, stop = null;
   const workers = Array.from({ length: Math.min(limit, jobs.length) }, async () => {
-    while (i < jobs.length) {
+    while (i < jobs.length && !stop) {
       const job = jobs[i++];
-      try { await job(); done++; } catch (e) { failed++; console.error(`  ✗ ${e.message || e}`); }
+      try { await job(); done++; }
+      catch (e) {
+        failed++;
+        if (e?.fatal) { stop = e; break; }        // квота/ключ — дальше бессмысленно
+        console.error(`  ✗ ${e.message || e}`);
+      }
     }
   });
   await Promise.all(workers);
-  return { done, failed };
+  if (stop) console.error(`\n✗ ${stop.message}`);
+  return { done, failed, stopped: !!stop };
 }
 
 /** Референсы для пропса: style_ref + до 2 принятых ассетов той же категории/темы */

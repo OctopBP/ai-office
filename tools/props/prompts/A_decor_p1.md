@@ -1,0 +1,47 @@
+# Тема A (Лофт / день) · decor_p1 · 7 пропсов
+
+Как пользоваться: прикрепите refs/style_ref.png, вставьте блок промпта, дождитесь картинки, скачайте.
+Скачивайте В ТОМ ЖЕ ПОРЯДКЕ, что и промпты (import.mjs раскладывает файлы по времени скачивания),
+либо переименуйте файл в указанное имя (тогда порядок не важен). Соотношение сторон — если чат позволяет его задать.
+
+## 1. plant_floor_large   →   файл: raw/A/plant_floor_large/N.png   ·   aspect 9:16   ·   фон #FF00FF
+
+```
+cozy pixel-art game asset, 3/4 top-down view with a slight isometric tilt (camera about 35 degrees above the horizon, front face and top surface both visible, top:front ratio about 2:1), simple rounded shapes, thick dark-brown outline (#3A2C24), soft warm pastel palette, flat two-tone shading with light from the top-left, tiny highlights, no gradients, no text, no letters, no watermark, single isolated object centered with generous margin, consistent scale where one floor tile is 32 px, crisp pixels, no anti-aliasing blur. tall leafy potted plant in monstera style in a woven basket pot, light oak wood #D9B98A, warm grey floor #D9D6DE, cream walls #F4F3F7, sage green plants #5DAE6A, accents mustard #F6C445 and terracotta #E07A5F. The entire background is one flat solid color #FF00FF covering the whole canvas, nothing else in the frame, no shadow or gradient on the background, the object never touches the canvas edges. Match EXACTLY the art style, outline thickness, camera tilt, level of detail and palette of the reference image(s); the new object must look like it belongs to the same set. Avoid: photorealism, 3D render, blur, soft focus, strong perspective, vanishing point, gradients, background shadow, text, letters, numbers, watermark, logo, cropping, multiple objects, extra limbs. Output aspect ratio 9:16.
+```
+
+## 2. plant_floor_medium   →   файл: raw/A/plant_floor_medium/N.png   ·   aspect 2:3   ·   фон #FF00FF
+
+```
+cozy pixel-art game asset, 3/4 top-down view with a slight isometric tilt (camera about 35 degrees above the horizon, front face and top surface both visible, top:front ratio about 2:1), simple rounded shapes, thick dark-brown outline (#3A2C24), soft warm pastel palette, flat two-tone shading with light from the top-left, tiny highlights, no gradients, no text, no letters, no watermark, single isolated object centered with generous margin, consistent scale where one floor tile is 32 px, crisp pixels, no anti-aliasing blur. medium bushy potted plant in a terracotta pot, light oak wood #D9B98A, warm grey floor #D9D6DE, cream walls #F4F3F7, sage green plants #5DAE6A, accents mustard #F6C445 and terracotta #E07A5F. The entire background is one flat solid color #FF00FF covering the whole canvas, nothing else in the frame, no shadow or gradient on the background, the object never touches the canvas edges. Match EXACTLY the art style, outline thickness, camera tilt, level of detail and palette of the reference image(s); the new object must look like it belongs to the same set. Avoid: photorealism, 3D render, blur, soft focus, strong perspective, vanishing point, gradients, background shadow, text, letters, numbers, watermark, logo, cropping, multiple objects, extra limbs. Output aspect ratio 2:3.
+```
+
+## 3. plant_cactus   →   файл: raw/A/plant_cactus/N.png   ·   aspect 9:16   ·   фон #FF00FF
+
+```
+cozy pixel-art game asset, 3/4 top-down view with a slight isometric tilt (camera about 35 degrees above the horizon, front face and top surface both visible, top:front ratio about 2:1), simple rounded shapes, thick dark-brown outline (#3A2C24), soft warm pastel palette, flat two-tone shading with light from the top-left, tiny highlights, no gradients, no text, no letters, no watermark, single isolated object centered with generous margin, consistent scale where one floor tile is 32 px, crisp pixels, no anti-aliasing blur. tall cactus in a small pot. The entire background is one flat solid color #FF00FF covering the whole canvas, nothing else in the frame, no shadow or gradient on the background, the object never touches the canvas edges. Match EXACTLY the art style, outline thickness, camera tilt, level of detail and palette of the reference image(s); the new object must look like it belongs to the same set. Avoid: photorealism, 3D render, blur, soft focus, strong perspective, vanishing point, gradients, background shadow, text, letters, numbers, watermark, logo, cropping, multiple objects, extra limbs. Output aspect ratio 9:16.
+```
+
+## 4. poster_a   →   файл: raw/A/poster_a/N.png   ·   aspect 4:5   ·   фон #FF00FF
+
+```
+cozy pixel-art game asset, interior wall segment seen straight from the front (the wall stands vertically, we see its face and the top edge as a thin lighter strip), thick dark-brown outline (#3A2C24), soft warm pastel palette, flat two-tone shading, no gradients, no text, tileable horizontally (left and right edges continue seamlessly), the segment fills the canvas width. framed abstract wall poster with two overlapping circles, thin wooden frame, no text, light oak wood #D9B98A, warm grey floor #D9D6DE, cream walls #F4F3F7, sage green plants #5DAE6A, accents mustard #F6C445 and terracotta #E07A5F. The entire background is one flat solid color #FF00FF covering the whole canvas, nothing else in the frame, no shadow or gradient on the background, the object never touches the canvas edges. Match EXACTLY the art style, outline thickness, camera tilt, level of detail and palette of the reference image(s); the new object must look like it belongs to the same set. Avoid: photorealism, 3D render, blur, soft focus, strong perspective, vanishing point, gradients, background shadow, text, letters, numbers, watermark, logo, cropping, multiple objects, extra limbs. Output aspect ratio 4:5.
+```
+
+## 5. poster_b   →   файл: raw/A/poster_b/N.png   ·   aspect 4:5   ·   фон #FF00FF
+
+```
+cozy pixel-art game asset, interior wall segment seen straight from the front (the wall stands vertically, we see its face and the top edge as a thin lighter strip), thick dark-brown outline (#3A2C24), soft warm pastel palette, flat two-tone shading, no gradients, no text, tileable horizontally (left and right edges continue seamlessly), the segment fills the canvas width. framed abstract wall poster with a mountain silhouette, thin wooden frame, no text, light oak wood #D9B98A, warm grey floor #D9D6DE, cream walls #F4F3F7, sage green plants #5DAE6A, accents mustard #F6C445 and terracotta #E07A5F. The entire background is one flat solid color #FF00FF covering the whole canvas, nothing else in the frame, no shadow or gradient on the background, the object never touches the canvas edges. Match EXACTLY the art style, outline thickness, camera tilt, level of detail and palette of the reference image(s); the new object must look like it belongs to the same set. Avoid: photorealism, 3D render, blur, soft focus, strong perspective, vanishing point, gradients, background shadow, text, letters, numbers, watermark, logo, cropping, multiple objects, extra limbs. Output aspect ratio 4:5.
+```
+
+## 6. poster_c   →   файл: raw/A/poster_c/N.png   ·   aspect 4:5   ·   фон #FF00FF
+
+```
+cozy pixel-art game asset, interior wall segment seen straight from the front (the wall stands vertically, we see its face and the top edge as a thin lighter strip), thick dark-brown outline (#3A2C24), soft warm pastel palette, flat two-tone shading, no gradients, no text, tileable horizontally (left and right edges continue seamlessly), the segment fills the canvas width. framed abstract wall poster with a simple color-block grid, thin wooden frame, no text, light oak wood #D9B98A, warm grey floor #D9D6DE, cream walls #F4F3F7, sage green plants #5DAE6A, accents mustard #F6C445 and terracotta #E07A5F. The entire background is one flat solid color #FF00FF covering the whole canvas, nothing else in the frame, no shadow or gradient on the background, the object never touches the canvas edges. Match EXACTLY the art style, outline thickness, camera tilt, level of detail and palette of the reference image(s); the new object must look like it belongs to the same set. Avoid: photorealism, 3D render, blur, soft focus, strong perspective, vanishing point, gradients, background shadow, text, letters, numbers, watermark, logo, cropping, multiple objects, extra limbs. Output aspect ratio 4:5.
+```
+
+## 7. clock_wall   →   файл: raw/A/clock_wall/N.png   ·   aspect 1:1   ·   фон #FF00FF
+
+```
+cozy pixel-art game asset, interior wall segment seen straight from the front (the wall stands vertically, we see its face and the top edge as a thin lighter strip), thick dark-brown outline (#3A2C24), soft warm pastel palette, flat two-tone shading, no gradients, no text, tileable horizontally (left and right edges continue seamlessly), the segment fills the canvas width. round wall clock with a white face and simple dark hands, no numerals. The entire background is one flat solid color #FF00FF covering the whole canvas, nothing else in the frame, no shadow or gradient on the background, the object never touches the canvas edges. Match EXACTLY the art style, outline thickness, camera tilt, level of detail and palette of the reference image(s); the new object must look like it belongs to the same set. Avoid: photorealism, 3D render, blur, soft focus, strong perspective, vanishing point, gradients, background shadow, text, letters, numbers, watermark, logo, cropping, multiple objects, extra limbs. Output aspect ratio 1:1.
+```

@@ -72,10 +72,18 @@ npm run gen -- chars --role backend --priority 2     # добить позы в�
 - Размер: `box` в тайлах × 32 px × `scale` 4 → например стол 2×1.5 → 256×192 px, якорь по нижнему краю. Тайлы пола — точный ресайз без хромакея.
 - Seed у модели нет: воспроизводимость = промпт + референсы + `.json` рядом с каждым raw.
 
+## Статус доступа к API (проверено)
+
+Ключ в `.env` валиден для текстовых моделей, но **все image-модели Gemini на free tier имеют квоту 0** —
+`gen.mjs` теперь сразу останавливает батч с понятным сообщением. Чтобы включить API-путь:
+[aistudio.google.com/apikey](https://aistudio.google.com/apikey) → у проекта ключа «Set up billing».
+Ориентир цены ★-набора темы A: ~30 пропсов × 3 варианта ≈ $4–6.
+
 ## Без API-биллинга: ручная генерация через чат (T3 Chat, Gemini, …)
 
 ```bash
-npm run prompts -- --theme A --cat floor,wall --priority 1   # → prompts/A_floor-wall_p1.md (блоки для вставки) + .json
+# пакеты для темы A уже сгенерированы: prompts/A_floor-wall_p1.md, A_desk_p1.md, A_object_p1.md, A_decor_p1.md, A_p1.md, chars_backend.md
+npm run prompts -- --theme A --cat floor,wall --priority 1   # пересобрать пакет после правок props.json
 npm run prompts -- chars --role backend --poses idle_south   # anchor персонажа
 # … генерите в чате с прикреплённым refs/style_ref.png, скачиваете картинки в ~/Downloads в том же порядке …
 npm run import -- --pack A_floor-wall_p1 --from ~/Downloads --since 1h [--per 3] [--dry]

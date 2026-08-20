@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto';
+import { isAbsolute, resolve } from 'node:path';
 import type {
   AgentState, ChatEntry, Criterion, DayUsage, Desk, InstanceView, LogEntry,
   PermissionDecision, AuthSource, MeetingView, PermissionRequest, RoleEditable,
@@ -96,6 +97,8 @@ export interface Task {
   branch: string | null;
   baseBranch: string | null;
   worktreePath: string | null;
+  /** Репозиторий, в котором выполнялась задача: у ролей они могут отличаться. */
+  repoDir: string | null;
   merged: boolean;
   createdAt: number;
   startedAt: number | null;
@@ -391,6 +394,7 @@ class OfficeState {
       branch: null,
       baseBranch: null,
       worktreePath: null,
+      repoDir: null,
       merged: false,
       createdAt: Date.now(),
       startedAt: null,
@@ -515,11 +519,21 @@ class OfficeState {
 
   // ---------- роли и настройки ----------
 
+  /**
+   * Репозиторий роли: свой, если задан, иначе общий репозиторий офиса.
+   * Относительный путь считается от директории офиса.
+   */
+  repoFor(role: Role | null | undefined): string {
+    const dir = role?.repoDir?.trim();
+    if (!dir) return this.projectDir;
+    return isAbsolute(dir) ? resolve(dir) : resolve(this.projectDir, dir);
+  }
+
   roleViews(): RoleView[] {
     return allRoles().map<RoleView>((r) => ({
       id: r.id, title: r.title, emoji: r.emoji, color: r.color, model: r.model,
       permissionMode: r.permissionMode, maxInstances: r.maxInstances,
-      isolate: r.isolate, brief: r.brief, isManager: r.isManager,
+      isolate: r.isolate, repoDir: r.repoDir ?? '', brief: r.brief, isManager: r.isManager,
       active: [...this.instances.values()].filter((i) => i.roleId === r.id).length,
     }));
   }
@@ -691,7 +705,8 @@ export const toTaskView = (t: Task): TaskView => ({
   criteria: t.criteria, roleId: t.roleId,
   assigneeId: t.assigneeId, status: t.status, result: t.result,
   files: t.files, branch: t.branch, baseBranch: t.baseBranch,
-  worktreePath: t.worktreePath, merged: t.merged, createdAt: t.createdAt,
+  worktreePath: t.worktreePath, repoDir: t.repoDir ?? null, merged: t.merged,
+  createdAt: t.createdAt,
   startedAt: t.startedAt, finishedAt: t.finishedAt,
   usage: t.usage,
 });

@@ -7,7 +7,7 @@ import { emptyUsage } from '../shared/types';
 import { cloudProblem, runCloudTask, stopCloudTask } from './cloud';
 import { roleById, workerRoles, type Role } from './roles';
 import { classify } from './permissions';
-import { commitAll, createWorktree, diffBranch, hasWork, mergeBranch, preserveBranch, removeWorktree } from './git';
+import { commitAll, createWorktree, diffBranch, hasCommits, hasWork, isRepo, mergeBranch, preserveBranch, removeWorktree } from './git';
 import { resolve } from 'node:path';
 import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync } from 'node:fs';
 
@@ -23,6 +23,24 @@ const MAX_WORKER_TURNS = 60;
  * подхватит следующая задача, перезапускать офис не нужно.
  */
 const BRIEF_LIMIT = 8000;
+
+/**
+ * Изоляция веткой возможна только в репозитории с историей. Раньше хватало
+ * одного флага на офис, но у ролей репозитории разные, и проверять надо тот,
+ * в котором роль работает.
+ */
+/**
+ * Репозиторий, в котором велась задача. У задач, заведённых до появления
+ * репозиториев на роль, поля нет — для них это директория офиса.
+ */
+function taskRepo(task: Task): string {
+  return task.repoDir ?? office.projectDir;
+}
+
+async function repoReady(dir: string): Promise<boolean> {
+  if (dir === office.projectDir) return office.gitReady;
+  return (await isRepo(dir)) && (await hasCommits(dir));
+}
 
 function projectBrief(): string {
   try {
@@ -303,6 +321,10 @@ const PM_PROMPT = `Ты — проектный менеджер (PM) в кома
 - Не создавай задачу «проверить, что результаты обеих задач на месте»: до слияния веток
   проверять нечего, и исполнитель честно ничего не найдёт.
 - Документные роли складывают файлы в docs/<роль>/<задача>/ внутри своей ветки.
+- Роли могут работать в РАЗНЫХ репозиториях: у такой роли в list_team указан её
+  репозиторий. Одна задача живёт ровно в одном репозитории. Работу, которая задевает
+  два, разбивай на две задачи разным ролям и в описании каждой пиши, на что со стороны
+  соседа она опирается. Не поручай роли править чужой репозиторий — она его не видит.
 
 Правила декомпозиции:
 - Исполнитель НЕ видит вашу переписку с пользователем. Всё нужное пиши в description задачи:
@@ -330,7 +352,11 @@ const teamTools = createSdkMcpServer({
           const insts = [...office.instances.values()].filter((i) => i.roleId === role.id);
           const desc = insts.map((i) => `${i.id} — ${i.currentTaskId ? `занят (${i.currentTaskId})` : 'свободен'}`).join(', ');
           const first = role.brief.split('\n')[0] ?? '';
-          return `- ${role.id} (${role.title})${first ? ` — ${first}` : ''}\n  ${desc}` +
+          const repo = office.repoFor(role);
+          // Репозиторий называем, только если он свой: иначе строка одинаковая
+          // у всех и лишь удлиняет ответ.
+          const where = repo === office.projectDir ? '' : `\n  репозиторий: ${repo}`;
+          return `- ${role.id} (${role.title})${first ? ` — ${first}` : ''}\n  ${desc}${where}` +
             `\n  результат: ${role.isolate ? 'в отдельной ветке, нужно слияние' : 'сразу в рабочей директории'}`;
         });
         return { content: [{ type: 'text', text: `Команда:\n${lines.join('\n')}` }] };
@@ -662,7 +688,7 @@ export async function holdMeeting(topic: string, participantIds: string[]): Prom
             'предметно, без вежливых вступлений. Можешь посмотреть файлы проекта, чтобы',
             'говорить по делу, но менять ничего нельзя.',
           ].join('\n') + projectBrief(),
-          cwd: office.projectDir,
+          cwd: office.repoFor(role),
           tools: ['Read', 'Glob', 'Grep'],
           permissionMode: 'default',
           canUseTool: permissionHandler(inst.id),
@@ -759,7 +785,7 @@ export function talkTo(instanceId: string, text: string): void {
     options: {
       model: role.model,
       systemPrompt,
-      cwd: office.projectDir,
+      cwd: office.repoFor(role),
       tools: ['Read', 'Glob', 'Grep', 'WebSearch', 'WebFetch'],
       permissionMode: 'default',
       canUseTool: permissionHandler(instanceId),
@@ -950,16 +976,22 @@ function startWorker(task: Task, inst: Instance): void {
   const abort = new AbortController();
   inst.abort = abort;
 
+  // Роль может работать в своём репозитории: ветка, diff и слияние задачи
+  // пойдут именно в него. Фиксируем его на задаче — потом по ней мержат и
+  // сравнивают, а правку роли к тому времени могли уже поменять.
+  const repoDir = office.repoFor(role);
+  office.updateTask(task.id, { repoDir });
+
   (async () => {
-    let workdir = office.projectDir;
+    let workdir = repoDir;
     // Корень рабочей копии нужен и в catch (коммит наработок при остановке),
     // поэтому объявлен снаружи try.
-    let workRoot = office.projectDir;
+    let workRoot = repoDir;
     try {
       // Изоляция: своя ветка и свой worktree, чтобы параллельные исполнители
       // физически не могли затереть друг другу файлы.
-      if (role.isolate && office.gitReady) {
-        const wt = await createWorktree(office.projectDir, worktreesRoot(), task.id);
+      if (role.isolate && await repoReady(repoDir)) {
+        const wt = await createWorktree(repoDir, worktreesRoot(), task.id);
         if (wt) {
           workdir = wt.path;
           workRoot = wt.path;
@@ -988,7 +1020,7 @@ function startWorker(task: Task, inst: Instance): void {
       }
 
       const session = query({
-        prompt: workerPrompt(task, artifactsDir, office.projectDir),
+        prompt: workerPrompt(task, artifactsDir, repoDir),
         options: {
           model: role.model,
           systemPrompt: { type: 'preset', preset: 'claude_code', append: systemPrompt },
@@ -1211,20 +1243,17 @@ export async function retryTask(taskId: string): Promise<void> {
     return;
   }
 
-  const assignee = task.assigneeId ? office.instances.get(task.assigneeId) : null;
-  const retryRole = roleById(assignee?.roleId ?? task.roleId ?? '');
-  void retryRole;
-
   // Если в прошлой попытке что-то успели сделать — сохраняем ветку под другим
   // именем, а не удаляем: при остановке офис обещал, что работа не пропадёт.
-  if (task.branch && task.baseBranch && office.gitReady) {
-    const worthKeeping = await hasWork(office.projectDir, task.branch, task.baseBranch);
+  const repo = taskRepo(task);
+  if (task.branch && task.baseBranch && await repoReady(repo)) {
+    const worthKeeping = await hasWork(repo, task.branch, task.baseBranch);
     if (task.worktreePath) {
-      await removeWorktree(office.projectDir, task.worktreePath, task.branch,
+      await removeWorktree(repo, task.worktreePath, task.branch,
         { keepBranch: worthKeeping });
     }
     if (worthKeeping) {
-      const kept = await preserveBranch(office.projectDir, task.branch);
+      const kept = await preserveBranch(repo, task.branch);
       if (kept) {
         office.addChat('офис',
           `Наработки прошлой попытки ${taskId} сохранены в ветке ${kept} — она никуда не денется.`);
@@ -1299,7 +1328,7 @@ export async function taskDiff(taskId: string): Promise<void> {
     return;
   }
 
-  const result = await diffBranch(office.projectDir, task.baseBranch, task.branch);
+  const result = await diffBranch(taskRepo(task), task.baseBranch, task.branch);
   if ('error' in result) send({ error: result.error });
   else if (!result.stat) send({ error: 'Изменений в ветке нет.' });
   else send(result);
@@ -1318,13 +1347,14 @@ export async function mergeTask(taskId: string): Promise<void> {
     return;
   }
 
-  const outcome = await mergeBranch(office.projectDir, task.branch, task.baseBranch);
+  const repo = taskRepo(task);
+  const outcome = await mergeBranch(repo, task.branch, task.baseBranch);
   office.addChat('офис', `${taskId}: ${outcome.message}`);
   office.addLog(null, outcome.ok ? 'system' : 'error', `merge ${task.branch}: ${outcome.kind}`);
 
   if (outcome.ok) {
     if (task.worktreePath) {
-      await removeWorktree(office.projectDir, task.worktreePath, task.branch);
+      await removeWorktree(repo, task.worktreePath, task.branch);
     }
     office.updateTask(taskId, { merged: true, worktreePath: null });
   }

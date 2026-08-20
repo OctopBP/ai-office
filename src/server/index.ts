@@ -8,6 +8,7 @@ import { assignDirect, holdMeeting, mergeTask, resetSessions, retryTask, sendUse
 import { githubToken, setGithubToken } from './cloud';
 import { clearInitFlag, createOffice, currentOffice, ensureOffice, loadRegistry, renameOffice, setCurrent, type OfficeEntry } from './offices';
 import { hasCommits, initRepo, isRepo } from './git';
+import { allRoles } from './roles';
 import { flush, setStateFile } from './store';
 
 const PORT = Number(process.env.OFFICE_PORT ?? 3001);
@@ -36,6 +37,22 @@ async function setupGit(dir: string, ours: boolean): Promise<void> {
       ' Включить изоляцию: git init в этой директории.');
 }
 
+/**
+ * Роли могут работать в своих репозиториях. Проверяем их на старте: узнать,
+ * что путь неверный, из проваленной задачи — слишком поздно.
+ */
+async function reportRoleRepos(): Promise<void> {
+  for (const role of allRoles()) {
+    const dir = office.repoFor(role);
+    if (dir === office.projectDir) continue;
+    const ready = (await isRepo(dir)) && (await hasCommits(dir));
+    console.log(ready
+      ? `   ${role.emoji} ${role.title} → ${dir}`
+      : `⚠️  ${role.title}: ${dir} — не git-репозиторий с коммитами.` +
+        ' Задачи этой роли пойдут без изоляции веткой.');
+  }
+}
+
 /** Открыть офис: своё состояние, своя рабочая директория, свой git. */
 async function openOffice(entry: OfficeEntry): Promise<void> {
   // Свою директорию офис заводит сам, чужую не трогает: от этого зависит,
@@ -61,6 +78,7 @@ async function openOffice(entry: OfficeEntry): Promise<void> {
     office.seed();
   }
   await setupGit(entry.projectDir, ours);
+  await reportRoleRepos();
   clearInitFlag(entry.id);
 }
 

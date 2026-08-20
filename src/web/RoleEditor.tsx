@@ -73,6 +73,18 @@ export function RoleEditor({ roleId, onClose }: { roleId: string; onClose: () =>
           </label>
         </div>
 
+        <label>Репозиторий роли
+          <input
+            value={value.repoDir}
+            placeholder="общий репозиторий офиса"
+            onChange={(e) => set('repoDir', e.target.value)}
+          />
+          <span className="hint">
+            Путь к репозиторию, в котором работает эта роль. Пусто — общий репозиторий
+            офиса. Ветка задачи, её diff и слияние идут туда же.
+          </span>
+        </label>
+
         <label>Инструкция роли
           <textarea rows={6} value={value.brief} onChange={(e) => set('brief', e.target.value)} />
         </label>

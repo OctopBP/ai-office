@@ -25,6 +25,26 @@ function fileToRef(p) {
 
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 
+/** Ошибка, которую бессмысленно ретраить и с которой бессмысленно продолжать батч */
+export class FatalApiError extends Error {
+  constructor(message, cause) { super(message); this.name = 'FatalApiError'; this.fatal = true; this.cause = cause; }
+}
+
+/** Квота free tier на image-модели = 0 → нужен биллинг; отличаем от обычного rate limit */
+function classify(err) {
+  const msg = String(err?.message || err);
+  if (/free_tier[a-z_]*.*limit: 0|limit: 0.*free_tier/is.test(msg)) {
+    return new FatalApiError(
+      'Image-модели Gemini недоступны на free tier (квота 0). Нужен проект с включённым биллингом: ' +
+      'https://aistudio.google.com/apikey → Set up billing. ' +
+      'Пока биллинга нет — ручной путь: npm run prompts → генерация в чате → npm run import.', err);
+  }
+  if (/API key not valid|API_KEY_INVALID|PERMISSION_DENIED/i.test(msg)) {
+    return new FatalApiError('Ключ не принят API (проверьте GEMINI_API_KEY в tools/props/.env).', err);
+  }
+  return null;
+}
+
 /**
  * Сгенерировать одну картинку.
  * @returns {Promise<{png: Buffer, model: string, api: string, text?: string}>}
@@ -68,6 +88,8 @@ export async function generateImage({ prompt, refPaths = [], model = 'flash', as
       if (!part) throw new Error('В ответе нет изображения (generateContent): ' + (parts.map(p => p.text).filter(Boolean).join(' ') || 'пусто'));
       return { png: await toPng(Buffer.from(part.inlineData.data, 'base64')), model: mid, api: 'generateContent' };
     } catch (err) {
+      const fatal = classify(err);
+      if (fatal) throw fatal;
       lastErr = err;
       const msg = String(err?.message || err);
       const retriable = /429|RESOURCE_EXHAUSTED|503|500|deadline|ECONNRESET|fetch failed|unusable/i.test(msg);

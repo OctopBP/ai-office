@@ -68,6 +68,8 @@ export interface RoleEditable {
   permissionMode: 'auto' | 'ask-risky' | 'ask-writes' | 'readonly';
   maxInstances: number;
   isolate: boolean;
+  /** Свой репозиторий роли; пусто — общий репозиторий офиса. */
+  repoDir: string;
   brief: string;
 }
 
@@ -140,6 +142,8 @@ export interface TaskView {
   branch: string | null;
   baseBranch: string | null;
   worktreePath: string | null;
+  /** В каком репозитории выполнялась задача: у ролей он может отличаться. */
+  repoDir: string | null;
   merged: boolean;
   createdAt: number;
   /** Когда исполнитель реально взялся за задачу и когда закончил. */
