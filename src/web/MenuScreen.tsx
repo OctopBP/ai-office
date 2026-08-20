@@ -6,7 +6,7 @@ import { formatLastOpened, retryConnect, sortedOffices, useStore } from './store
  * Стартовый экран приложения: выбор существующего офиса или создание нового.
  * До входа в офис комната (Office.tsx) не монтируется — вся логика входа
  * и создания живёт в сторе (enterOffice/requestCreateOffice), здесь только
- * отрисовка её состояний. См. docs/design/T-6/office-menu/spec.md.
+ * отрисовка её состояний. См. docs/design/office-menu/spec.md.
  */
 export function MenuScreen() {
   const offices = useStore((s) => s.offices);

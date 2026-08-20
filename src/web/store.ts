@@ -221,7 +221,7 @@ export const useStore = create<State>((set, get) => ({
           const chat = [...s.chat, e.entry];
           // Сервер сообщает об отказе входа/создания офиса обычной репликой
           // «офис» в общий чат — отдельного события протокол пока не даёт
-          // (см. docs/design/T-6/office-menu/spec.md, §4). Пока мы ждём ответ
+          // (см. docs/design/office-menu/spec.md, §4). Пока мы ждём ответ
           // на вход или создание, такая реплика — это и есть ошибка меню.
           if (e.entry.from === 'офис' && s.pending) {
             return {
