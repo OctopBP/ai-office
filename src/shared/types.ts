@@ -108,12 +108,6 @@ export interface Settings {
   globalBudgetUsd: number | null;
   /** Потолок на одну задачу, $. null — без ограничения. */
   taskBudgetUsd: number | null;
-  /**
-   * Потолок ходов исполнителя на одну задачу. Ход — это шаг агента, а не
-   * реплика в разговоре: чтение файла, правка, команда оболочки. null — без
-   * ограничения; тогда зациклившегося исполнителя остановят только бюджет и вы.
-   */
-  taskMaxTurns: number | null;
   /** Движок исполнителей. Облачный работает только на платном API. */
   engine: Engine;
   /** Репозиторий на GitHub, который монтируется в облачный контейнер. */
@@ -143,6 +137,9 @@ export interface OfficeActivity {
   lastEventAt: number | null;
 }
 
+/** Что клиент просил сделать с офисом — на случай отказа сервера. */
+export type OfficeOp = 'create' | 'switch' | 'rename' | 'remove';
+
 /** Офис = проект: своя директория, доска, расходы и файл состояния. */
 export interface OfficeView {
   id: string;
@@ -166,6 +163,13 @@ export interface InstanceView {
   usage: Usage;
   /** Он же за сегодня — «сколько этот агент стоил сегодня». */
   today: Usage;
+  /**
+   * Свой режим доступа этого сотрудника. null — своего нет, работает по
+   * режиму роли, а та — по режиму офиса.
+   */
+  permissionMode: PermissionMode | null;
+  /** По какому режиму агент работает на самом деле: агент → роль → офис. */
+  effectivePermissionMode: PermissionMode;
 }
 
 export interface TaskView {
@@ -319,6 +323,12 @@ export type ServerEvent =
   | { t: 'busy'; busy: boolean }
   | { t: 'paused'; paused: boolean }
   | { t: 'offices'; offices: OfficeView[] }
+  /**
+   * Отказ по операции с офисом. Уходит только тому клиенту, который её
+   * просил: меню показывает текст в форме, а не ищет его в чате чужого
+   * проекта. Текст готов к показу как есть, переформулировать не нужно.
+   */
+  | { t: 'office.error'; op: OfficeOp; officeId: string | null; message: string }
   | { t: 'cloud'; cloud: CloudStatus }
   | { t: 'usage'; total: Usage; days: DayUsage[] }
   | { t: 'roles'; roles: RoleView[] }
@@ -348,6 +358,8 @@ export type ClientCommand =
   /** Уволить сотрудника. Последнего в роли — можно: роль остаётся вакансией. */
   | { c: 'fire'; instanceId: string }
   | { c: 'update_role'; roleId: string; patch: Partial<RoleEditable> }
+  /** Режим доступа конкретного сотрудника. null — вернуть его к режиму роли. */
+  | { c: 'agent_permission'; instanceId: string; mode: PermissionMode | null }
   | { c: 'settings'; settings: Partial<Settings> }
   | { c: 'talk'; instanceId: string; text: string }
   | { c: 'stop_task'; taskId: string }
@@ -359,6 +371,10 @@ export type ClientCommand =
   | { c: 'switch_office'; officeId: string }
   | { c: 'create_office'; name: string; projectDir: string }
   | { c: 'rename_office'; officeId: string; name: string }
+  /** Запросить список офисов, не дожидаясь снапшота: меню открывается раньше офиса. */
+  | { c: 'list_offices' }
+  /** Убрать офис из списка. Файлы проекта и его сохранение остаются на диске. */
+  | { c: 'remove_office'; officeId: string }
   | { c: 'cloud_token'; token: string }
   | { c: 'reset' };
 

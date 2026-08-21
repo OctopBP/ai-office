@@ -1,4 +1,4 @@
-// Проверка классификатора рисков. npm run test:perm
+// Проверка классификатора рисков и режимов доступа. npm run test:perm
 import { autoApprovedText, classify, decide, effectiveMode } from '../src/server/permissions';
 import type { PermissionMode, RiskLevel } from '../src/shared/types';
 
@@ -56,9 +56,10 @@ for (const [tool, input, expect] of cases) {
 }
 // ---------------------------------------------------------- режимы доступа
 
-/** Уровни режима: у роли, у офиса — и что должно получиться. */
+/** Уровни режима: у сотрудника, у роли, у офиса — и что должно получиться. */
 type ModeCase = [
   what: string,
+  agent: PermissionMode | null,
   role: PermissionMode | null,
   office: PermissionMode,
   risk: RiskLevel,
@@ -67,20 +68,23 @@ type ModeCase = [
 
 const modeCases: ModeCase[] = [
   // Поведение по умолчанию: роли спрашивают про необратимое и молчат про запись.
-  ['по умолчанию: запись',      'ask-risky',  'ask-risky',  'write',  'allow'],
-  ['по умолчанию: удаление',    'ask-risky',  'ask-risky',  'danger', 'ask'],
-  ['по умолчанию: чтение',      'ask-risky',  'ask-risky',  'safe',   'allow'],
+  ['по умолчанию: запись',      null, 'ask-risky',  'ask-risky',  'write',  'allow'],
+  ['по умолчанию: удаление',    null, 'ask-risky',  'ask-risky',  'danger', 'ask'],
+  ['по умолчанию: чтение',      null, 'ask-risky',  'ask-risky',  'safe',   'allow'],
   // Офис спрашивает про всё — роль без своего режима наследует это.
-  ['офис ask-writes, роль как офис', null,     'ask-writes', 'write',  'ask'],
-  ['офис ask-writes, роль как офис', null,     'ask-writes', 'danger', 'ask'],
+  ['офис ask-writes, роль как офис', null, null,     'ask-writes', 'write',  'ask'],
+  ['офис ask-writes, роль как офис', null, null,     'ask-writes', 'danger', 'ask'],
   // Полный доступ офиса: не спрашиваем ни про что, кроме явных запретов.
-  ['офис auto',                 null,         'auto',       'danger', 'allow'],
+  ['офис auto',                 null, null,         'auto',       'danger', 'allow'],
   // Роль сильнее офиса в обе стороны.
-  ['роль auto при строгом офисе', 'auto',     'ask-writes', 'danger', 'allow'],
-  ['роль ask-writes при auto-офисе', 'ask-writes', 'auto',  'write',  'ask'],
-  ['роль readonly при auto-офисе', 'readonly', 'auto',      'write',  'deny'],
+  ['роль auto при строгом офисе', null, 'auto',     'ask-writes', 'danger', 'allow'],
+  ['роль ask-writes при auto-офисе', null, 'ask-writes', 'auto',  'write',  'ask'],
+  // Сотрудник сильнее роли: «бэкенду #2 полный доступ, остальным нет».
+  ['агент auto при строгой роли', 'auto', 'ask-writes', 'ask-writes', 'danger', 'allow'],
+  ['агент ask-writes при auto-роли', 'ask-writes', 'auto', 'auto', 'write', 'ask'],
+  ['агент readonly',            'readonly', 'auto',   'auto',     'write',  'deny'],
   // Чтение не спрашиваем и не запрещаем ни в одном режиме.
-  ['readonly не мешает читать', 'readonly',   'ask-risky',  'safe',   'allow'],
+  ['readonly не мешает читать', 'readonly', null,     'ask-risky', 'safe',   'allow'],
 ];
 
 if (modeCases.length === 0) {
@@ -89,8 +93,8 @@ if (modeCases.length === 0) {
 }
 
 let modeFailed = 0;
-for (const [what, role, officeMode, risk, expect] of modeCases) {
-  const mode = effectiveMode(role, officeMode);
+for (const [what, agent, role, officeMode, risk, expect] of modeCases) {
+  const mode = effectiveMode(agent, role, officeMode);
   const got = decide(mode, risk);
   const ok = got === expect;
   if (!ok) modeFailed += 1;

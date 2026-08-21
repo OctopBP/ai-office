@@ -126,15 +126,28 @@ export function classify(
 export type Decision = 'allow' | 'ask' | 'deny';
 
 /**
- * Эффективный режим агента. Режим роли сильнее офисного, null у роли —
- * «наследовать офис». Отдельная функция, потому что то же вычисление нужно и
- * обработчику разрешений, и снимку состояния для UI: расходиться им нельзя.
+ * Эффективный режим агента: чем ближе уровень к конкретному сотруднику, тем
+ * он сильнее — агент важнее роли, роль важнее офиса. null на уровне означает
+ * «своего режима нет, наследовать следующий». Отдельная функция, потому что то
+ * же вычисление нужно и обработчику разрешений, и снимку состояния для UI:
+ * расходиться им нельзя.
  */
 export function effectiveMode(
+  agentMode: PermissionMode | null | undefined,
   roleMode: PermissionMode | null | undefined,
   officeMode: PermissionMode,
 ): PermissionMode {
-  return roleMode ?? officeMode;
+  return agentMode ?? roleMode ?? officeMode;
+}
+
+const MODES: readonly PermissionMode[] = ['auto', 'ask-risky', 'ask-writes', 'readonly'];
+
+/**
+ * Режим пришёл по сети от клиента, а не из нашего кода: чужое значение
+ * попало бы в файл состояния и осталось бы там навсегда.
+ */
+export function isPermissionMode(value: unknown): value is PermissionMode {
+  return typeof value === 'string' && (MODES as readonly string[]).includes(value);
 }
 
 /** Решение по уже классифицированному вызову в заданном режиме. */
