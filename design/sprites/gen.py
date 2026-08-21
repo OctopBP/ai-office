@@ -13,6 +13,7 @@ T = 16
 ROOT = os.path.join(os.path.dirname(__file__), 'out')
 CATALOG_PATH = os.path.join(ROOT, 'catalog.json')
 CATALOG = {}  # имя спрайта → размер в тайлах, копится за время работы процесса
+SPRITE_SLOTS = {}  # имя спрайта → список слотов (спека §3.1), заполняется таблицами рядом с build()
 
 # ---------- палитры ----------
 PAL_DAY = dict(
@@ -91,7 +92,11 @@ def dump_catalog():
     if os.path.exists(CATALOG_PATH):
         with open(CATALOG_PATH) as f:
             sprites = json.load(f).get('sprites', {})
-    sprites.update({name: {'size': size} for name, size in CATALOG.items()})
+    for name, size in CATALOG.items():
+        entry = {'size': size}
+        if name in SPRITE_SLOTS:
+            entry['slots'] = SPRITE_SLOTS[name]
+        sprites[name] = entry
     data = {'version': 1, 'tile': T, 'scale': SCALE, 'sprites': dict(sorted(sprites.items()))}
     with open(CATALOG_PATH, 'w') as f:
         json.dump(data, f, ensure_ascii=False, indent=2)
@@ -744,6 +749,26 @@ def coin():
     d.ellipse([0, 0, w - 1, w - 1], fill='#f7d774'); d.ellipse([2, 2, w - 3, w - 3], fill='#e0b53a'); R(d, 4, 3, 5, 6, '#f7d774')
     im = outline_alpha(im, '#8a6a12')
     save(im, 'coin')
+
+
+# Слоты — посадочные/рабочие точки у мебели (спека §3.1, раздел «Каталог
+# спрайтов»). Числа у desk/desk_pm — те же, что были вшиты в Office.tsx
+# (DESK_WORK_SLOT/DESK_PLATE_SLOT); у round_table — из meetingSeats.ts
+# (TABLE_CENTER/BASE_RADIUS/BASE_CAPACITY). desk_ghost слотов не получает:
+# это плейсхолдер пустого стола, там никто не сидит и нет таблички.
+SPRITE_SLOTS.update({
+    'desk': [
+        {'kind': 'work', 'x': 0.55, 'y': -0.75},
+        {'kind': 'plate', 'x': 0.45, 'y': 0.86},
+    ],
+    'desk_pm': [
+        {'kind': 'work', 'x': 0.55, 'y': -0.75},
+        {'kind': 'plate', 'x': 0.45, 'y': 0.86},
+    ],
+    'round_table': [
+        {'kind': 'seat', 'ring': 8, 'rx': 2.6, 'ry': 1.5, 'grow': True},
+    ],
+})
 
 
 def build(theme):

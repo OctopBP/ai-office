@@ -19,65 +19,95 @@ const STATE_ICON: Record<AgentState, string> = {
   waiting_approval: '❗', paused: '⏸', blocked: '⏳', done: '✅', failed: '⚠️',
 };
 
-/** Неподвижная обстановка комнаты: спрайт, место в тайлах и необязательный масштаб. */
-const DECOR: Array<{ img: string; x: number; y: number; z?: number; scale?: number }> = [
-  { img: 'clock', x: 17.6, y: 0.5 },
-  { img: 'window', x: 19.4, y: 0.4 },
-  { img: 'bookshelf', x: 22.2, y: 0.2 },
-  { img: 'doormat', x: 0.9, y: 7.0 },
-  { img: 'poster', x: 9.4, y: 2.4 },
-  { img: 'neon_sign', x: 20.4, y: 2.5 },
-  { img: 'server_rack', x: 22.2, y: 3.2 },
-  { img: 'plant_big', x: 22.4, y: 6.4 },
-  { img: 'plant_small', x: 0.4, y: 2.6 },
-  { img: 'plant_small', x: 19.0, y: 8.6 },
-  // переговорка — стол расширен под переменное число участников совещания,
-  // сами места (см. meetingSeats.ts) считаются отдельно от этой картинки
-  { img: 'rug', x: 0.4, y: 10.0, scale: 1.2 },
-  { img: 'round_table', x: 2.7, y: 11.1, scale: 1.6 },
-  { img: 'chair', x: 3.8, y: 10.7 },
-  { img: 'chair', x: 5.3, y: 11.3 },
-  { img: 'chair', x: 5.3, y: 12.3 },
-  { img: 'chair', x: 3.8, y: 12.8 },
-  { img: 'chair', x: 2.2, y: 12.3 },
-  { img: 'chair', x: 2.2, y: 11.3 },
-  // кухня — зона отдыха для свободных агентов, места считаются динамически
-  // от штата (см. KITCHEN_SEATS в desks.ts), здесь только неподвижная обстановка.
-  // Зона расширена (8×6 тайлов) под весь гарнитур и длинный стол с запасом
-  // на проход; координаты мебели ниже согласованы с TABLE в desks.ts
-  { img: 'kitchen_tiles', x: 16.0, y: 9.0 },
-  // холодильник и кулер опущены ниже верхней кромки зоны — впритык к ней
-  // они пересекались бы со столом №7 (16,8), который стоит прямо над углом
-  // кухни (проверено композитом реальных спрайтов, а не только по рамкам)
-  { img: 'fridge', x: 16.1, y: 9.5 },
-  { img: 'cooler', x: 17.1, y: 9.5 },
-  // ряд тумб вдоль верхней стены зоны: прямые секции, мойка и угол на конце;
-  // ряд сдвинут вправо на 0.2 тайла от исходного, чтобы не залезать под стол №7
-  { img: 'counter_straight', x: 18.0, y: 9.1 },
-  { img: 'coffee_machine', x: 18.0, y: 9.1 },
-  { img: 'sink_counter', x: 20.0, y: 9.1 },
-  { img: 'counter_corner', x: 22.0, y: 9.1 },
-  // длинный обеденный стол в нижней части зоны — под ним достаточно места
-  // для мест по обе стороны (buildKitchenSeats в desks.ts), стулья ниже —
-  // просто декор, реальные места считаются отдельно
-  { img: 'dining_table', x: 17.0, y: 12.2 },
-  { img: 'chair', x: 17.75, y: 11.45 },
-  { img: 'chair', x: 19.25, y: 11.45 },
-  { img: 'chair', x: 20.75, y: 11.45 },
-  { img: 'chair', x: 22.25, y: 11.45 },
-  { img: 'chair', x: 17.75, y: 13.475 },
-  { img: 'chair', x: 19.25, y: 13.475 },
-  { img: 'chair', x: 20.75, y: 13.475 },
-  { img: 'chair', x: 22.25, y: 13.475 },
-  { img: 'kitchen_mugs', x: 19.6, y: 12.5 },
-  { img: 'kitchen_snack', x: 21.3, y: 12.5 },
-];
+// --- Планировка комнаты: данные, не код (docs/design/office-layout/spec.md §3, §5) ---
 
-/** Предметы на стене, которые открывают панели: доска задач и терминал лога. */
-const HOTSPOTS = [
-  { img: 'board', x: 12.6, y: 0.1, key: 'B', panel: 'board' as const, title: 'Доска задач — B' },
-  { img: 'logscreen', x: 6.2, y: 0.3, key: 'L', panel: 'log' as const, title: 'Лог событий — L' },
-];
+interface CatalogSprite { size: [number, number] }
+interface Catalog { version: number; tile: number; scale: number; sprites: Record<string, CatalogSprite> }
+
+interface LayoutProp { sprite: string; at: [number, number]; scale?: number; id?: string }
+interface LayoutZone { kind: string; at?: [number, number]; sprite?: string; title?: string }
+interface LayoutHotspot { panel: 'board' | 'log'; sprite: string; at: [number, number]; key: string; title: string }
+interface Layout {
+  version: number; id: string; title: string; size: [number, number];
+  props: LayoutProp[]; zones: LayoutZone[]; hotspots: LayoutHotspot[];
+}
+
+// Как и спрайты (sprites.ts), каталог и раскладка читаются прямо из design/ —
+// на этом этапе сервер их вебу ещё не отдаёт (§8 — задача следующего этапа).
+const catalogModules = import.meta.glob('../../design/sprites/out/catalog.json', {
+  eager: true, import: 'default',
+}) as Record<string, Catalog>;
+const catalog = Object.values(catalogModules)[0];
+
+const layoutModules = import.meta.glob('../../design/layouts/classic.json', {
+  eager: true, import: 'default',
+}) as Record<string, Layout>;
+const layout = Object.values(layoutModules)[0];
+
+function spriteSize(name: string): [number, number] {
+  return catalog.sprites[name]?.size ?? [1, 1];
+}
+
+/** Порядок отрисовки мебели вместо ручных zIndex (спека §5): чем ниже нижняя кромка спрайта, тем позже рисуем. */
+function furnitureZ(x: number, y: number, sprite: string): number {
+  const [, h] = spriteSize(sprite);
+  return 100 + Math.round((y + h) * 10);
+}
+
+interface RenderProp { key: string; sprite: string; x: number; y: number; scale?: number; z: number }
+
+function bbox(x: number, y: number, sprite: string) {
+  const [w, h] = spriteSize(sprite);
+  return { x0: x, y0: y, x1: x + w, y1: y + h };
+}
+
+/**
+ * Предметы, накрытые другой мебелью (кофемашина на тумбе, кружки на столе):
+ * своя высота у них меньше, чем у мебели под ними, поэтому чистый y-сорт
+ * задвинул бы их назад. Если bbox предмета целиком внутри чужого — рисуем
+ * его следом за этим предметом, а не по формуле.
+ */
+function liftToppings(items: RenderProp[]): void {
+  for (const item of items) {
+    const ib = bbox(item.x, item.y, item.sprite);
+    for (const host of items) {
+      if (host === item) continue;
+      const hb = bbox(host.x, host.y, host.sprite);
+      const inside = ib.x0 >= hb.x0 && ib.x1 <= hb.x1 && ib.y0 >= hb.y0 && ib.y1 <= hb.y1;
+      if (inside && item.z <= host.z) item.z = host.z + 1;
+    }
+  }
+}
+
+// Настенное — окна, доска, экран, часы (спека §5): рисуются поверх всей
+// мебели и людей, стена от их положения не зависит.
+const WALL_MOUNTED = new Set(['clock', 'window', 'board', 'logscreen']);
+// Наложения на пол — ковры и плитка: всегда под мебелью, что на них стоит.
+const FLOOR_OVERLAY = new Set(['rug', 'kitchen_tiles']);
+
+const PLACED_PROPS: RenderProp[] = (() => {
+  const fixed: RenderProp[] = [];
+  const sorted: RenderProp[] = [];
+  layout.props.forEach((p, i) => {
+    const item: RenderProp = {
+      key: `${p.sprite}-${i}`, sprite: p.sprite, x: p.at[0], y: p.at[1], scale: p.scale, z: 0,
+    };
+    if (WALL_MOUNTED.has(p.sprite)) fixed.push({ ...item, z: 900 });
+    else if (FLOOR_OVERLAY.has(p.sprite)) fixed.push({ ...item, z: 1 });
+    else sorted.push({ ...item, z: furnitureZ(item.x, item.y, item.sprite) });
+  });
+  liftToppings(sorted);
+  return [...fixed, ...sorted];
+})();
+
+const ENTRANCE = layout.zones.find((z) => z.kind === 'entrance')!;
+const DOOR_Z = furnitureZ(ENTRANCE.at![0], ENTRANCE.at![1], ENTRANCE.sprite!);
+
+// Слот work у стола (человечек стоит правее и выше стола) и слот plate
+// (табличка с кодом задачи) — переезжают в каталог со слотами на этапе 1,
+// пока те же числа, что были в коде (спека §3.1, Приложение Б).
+const DESK_WORK_SLOT = { x: 0.55, y: -0.75 };
+const DESK_PLATE_SLOT = { x: 0.45, y: 0.86 };
 
 export function Office({ onOpen, onDoor }: {
   onOpen: (panel: 'board' | 'log') => void;
@@ -136,7 +166,7 @@ export function Office({ onOpen, onDoor }: {
       <img className="layer floor" src={img('floor')} alt="" />
       <img className="layer wall" src={img('wall')} alt="" />
 
-      {HOTSPOTS.map((h) => {
+      {layout.hotspots.map((h) => {
         const badge = h.panel === 'board'
           ? Object.values(tasks).filter((t) => t.status === 'review'
               || (t.status === 'done' && t.branch && !t.merged)).length
@@ -144,10 +174,10 @@ export function Office({ onOpen, onDoor }: {
         return (
           <button
             key={h.key} className="hotspot" title={h.title}
-            style={{ left: px(h.x), top: px(h.y), zIndex: 3 }}
+            style={{ left: px(h.at[0]), top: px(h.at[1]), zIndex: 900 }}
             onClick={() => onOpen(h.panel)}
           >
-            <img src={img(h.img)} alt="" />
+            <img src={img(h.sprite)} alt="" />
             <span className="hot-key">{h.key}</span>
             {badge > 0 && <span className="hot-badge">{badge}</span>}
           </button>
@@ -155,24 +185,27 @@ export function Office({ onOpen, onDoor }: {
       })}
 
       {/* дверь: за ней другие проекты — офис на проект */}
-      <button className="hotspot door" title="Офисы и проекты" onClick={onDoor}
-        style={{ left: px(0.1), top: px(5.6), zIndex: 3 }}>
-        <img src={img('door')} alt="" />
+      <button className="hotspot door" title={ENTRANCE.title} onClick={onDoor}
+        style={{ left: px(ENTRANCE.at![0]), top: px(ENTRANCE.at![1]), zIndex: DOOR_Z }}>
+        <img src={img(ENTRANCE.sprite!)} alt="" />
       </button>
 
-      {DECOR.map((d, i) => (
+      {PLACED_PROPS.map((p) => (
         <img
-          key={`${d.img}-${i}`} className="decor" src={img(d.img)} alt=""
+          key={p.key} className="decor" src={img(p.sprite)} alt=""
           style={{
-            left: px(d.x), top: px(d.y), zIndex: d.z ?? 2,
-            ...(d.scale ? { transform: `scale(${d.scale})`, transformOrigin: 'top left' } : {}),
+            left: px(p.x), top: px(p.y), zIndex: p.z,
+            ...(p.scale ? { transform: `scale(${p.scale})`, transformOrigin: 'top left' } : {}),
           }}
         />
       ))}
 
       {/* свободные рабочие места */}
       {DESKS_ALL.filter((d) => !busyDesks.has(d.index)).map((d) => (
-        <div key={`ghost-${d.index}`} className="ghost" style={{ left: px(d.x), top: px(d.y) }}>
+        <div
+          key={`ghost-${d.index}`} className="ghost"
+          style={{ left: px(d.x), top: px(d.y), zIndex: furnitureZ(d.x, d.y, 'desk_ghost') }}
+        >
           <img src={img('desk_ghost')} alt="" />
           <span>+</span>
         </div>
@@ -182,11 +215,15 @@ export function Office({ onOpen, onDoor }: {
       {[...busyDesks].map((index) => {
         const inst = list.find((i) => i.desk.index === index)!;
         const isPm = inst.roleId === 'pm';
+        const sprite = isPm ? 'desk_pm' : 'desk';
         return (
           <img
             key={`desk-${index}`} className="desk-img"
-            src={img(isPm ? 'desk_pm' : 'desk')} alt=""
-            style={{ left: px(inst.desk.x), top: px(inst.desk.y), zIndex: 4 }}
+            src={img(sprite)} alt=""
+            style={{
+              left: px(inst.desk.x), top: px(inst.desk.y),
+              zIndex: furnitureZ(inst.desk.x, inst.desk.y, sprite),
+            }}
           />
         );
       })}
@@ -195,28 +232,33 @@ export function Office({ onOpen, onDoor }: {
       {list.filter((i) => i.currentTaskId).map((inst) => (
         <div
           key={`plate-${inst.id}`} className="plate"
-          style={{ left: px(inst.desk.x) + C * 0.45, top: px(inst.desk.y) + C * 0.86 }}
+          style={{
+            left: px(inst.desk.x) + C * DESK_PLATE_SLOT.x,
+            top: px(inst.desk.y) + C * DESK_PLATE_SLOT.y,
+          }}
         >
           {inst.currentTaskId}
         </div>
       ))}
 
-      {/* человечки: за своим столом рисуются позади него, в проходе — поверх */}
+      {/* человечки: за своим столом рисуются позади него, в проходе — поверх (y-сортировка, спека §5) */}
       {list.map((inst) => {
         const p = pos[inst.id] ?? { x: inst.desk.x, y: inst.desk.y };
         const atDesk = p.x === inst.desk.x && p.y === inst.desk.y;
         const role = roleOf(inst.roleId);
         const icon = STATE_ICON[inst.state];
         const busy = inst.state === 'working' || inst.state === 'thinking';
+        const slotY = atDesk ? p.y + DESK_WORK_SLOT.y : p.y;
+        const [, agentH] = spriteSize(agentSpriteName(inst.roleId, inst.id));
         return (
           <div
             key={inst.id}
             className={`agent ${inst.state}${selected === inst.id ? ' selected' : ''}` +
               `${inMeeting.has(inst.id) ? ' in-meeting' : ''}${busy ? ' busy' : ''}`}
             style={{
-              left: px(p.x) + (atDesk ? C * 0.55 : 0),
-              top: px(p.y) - (atDesk ? C * 0.75 : 0),
-              zIndex: atDesk ? 3 : 6,
+              left: px(p.x) + (atDesk ? C * DESK_WORK_SLOT.x : 0),
+              top: px(slotY),
+              zIndex: 100 + Math.round((slotY + agentH) * 10),
             }}
             onClick={() => select(selected === inst.id ? null : inst.id)}
             title={inst.label}
@@ -239,8 +281,8 @@ export function Office({ onOpen, onDoor }: {
           <div
             key={`tag-${inst.id}`} className="tags"
             style={{
-              left: px(p.x) + (atDesk ? C * 0.55 : 0),
-              top: px(p.y) - (atDesk ? C * 0.75 : 0),
+              left: px(p.x) + (atDesk ? C * DESK_WORK_SLOT.x : 0),
+              top: px(p.y) + (atDesk ? C * DESK_WORK_SLOT.y : 0),
             }}
           >
             {inst.note && inst.state !== 'idle' && <div className="bubble">{inst.note}</div>}
