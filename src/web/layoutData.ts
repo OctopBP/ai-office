@@ -1,5 +1,6 @@
 import { desks, kitchenSeats } from '../shared/layout';
 import type { Catalog, Layout, Pos } from '../shared/layout';
+import { GRID } from '../shared/types';
 
 /**
  * Каталог спрайтов и раскладка офиса читаются прямо из design/ (как и
@@ -21,15 +22,40 @@ export const layout: Layout = Object.values(layoutModules)[0];
 const ROW_GAP = 0.9;
 
 /**
+ * Высота фигуры агента: все agent_* спрайты одного размера по арту (§3.1
+ * места не знают про высоту фигуры, это отрисовка Office.tsx). Нужна, чтобы
+ * прижать нижний ряд мест кухни к границе комнаты — иначе он в неё утыкается.
+ */
+const AGENT_H = Math.max(
+  ...Object.entries(catalog.sprites)
+    .filter(([name]) => name.startsWith('agent_'))
+    .map(([, sprite]) => sprite.size[1]),
+);
+
+/**
+ * Запас между низом фигуры и стеной, тайлов. Комната обрезана `overflow:
+ * hidden` ровно по GRID.cells (styles.css `.office`), а место указывает
+ * верхний левый угол фигуры без офсета (Office.tsx: `top: px(work.y)`),
+ * поэтому нижний край уходит на seat.y + AGENT_H и может вылезти за стену.
+ * Тот самый SOUTH_Y-хак старого кода (desks.ts) — но не в общем
+ * src/shared/layout.ts (спека §4 явно не пускает размеры комнаты в общий
+ * модуль), а здесь, в веб-модуле, где GRID уже используется (layoutData.ts).
+ */
+const MAX_SEAT_Y = GRID.cells - AGENT_H - 0.2;
+
+/** Не даёт месту уехать ниже видимой области комнаты. */
+function clampToRoom(seat: Pos): Pos {
+  return seat.y > MAX_SEAT_Y ? { x: seat.x, y: MAX_SEAT_Y } : seat;
+}
+
+/**
  * Добирает места кухни вторым (третьим, ...) рядом, если базовых мест из
  * слотов стола не хватает на всех: обеденный стол даёт фиксированные 8
  * мест (по слотам в каталоге), а рабочих столов в раскладке может быть
  * больше (в classic — 9 у исполнителей, не считая стол PM). Ряды
  * достраиваются в ту же сторону, в которую уже «смотрит» исходный ряд
- * (прочь от центра стола), с тем же шагом по x — без хардкода границ
- * комнаты (тот самый SOUTH_Y-хак из старого кода сюда не переезжает,
- * спека §4 явно его убирает). Раскладка детерминированная и зависит
- * только от need, поэтому у конкретного стола место не прыгает.
+ * (прочь от центра стола), с тем же шагом по x. Раскладка детерминированная
+ * и зависит только от need, поэтому у конкретного стола место не прыгает.
  */
 function extendSeats(base: Pos[], need: number): Pos[] {
   if (base.length === 0 || need <= base.length) return base;
@@ -66,7 +92,7 @@ function extendSeats(base: Pos[], need: number): Pos[] {
 export const KITCHEN_SEATS: Pos[] = extendSeats(
   kitchenSeats(layout, catalog),
   Math.max(desks(layout, catalog).length - 1, 1),
-);
+).map(clampToRoom);
 
 /** Место на кухне для стола с данным индексом — привязка стабильная, один в один. */
 export function kitchenSeatFor(deskIndex: number): Pos {
