@@ -319,13 +319,22 @@ async function main(): Promise<void> {
   leaving.flush();
   rmSync(ROOT, { recursive: true, force: true });
 
-  const failed = results.filter((r) => r.endsWith('false'));
-  for (const r of results) console.log(`  ${r.endsWith('false') ? '❌' : '✅'} ${r}`);
-  console.log(failed.length ? `ПРОВАЛЕНО: ${failed.length}` : 'Все проверки прошли');
+  // Прошедшей считается только строка, кончающаяся на true: «не false» пропускало
+  // в зачёт всё, что вообще не булево, — например undefined из-за опечатки.
+  const failed = results.filter((r) => !r.endsWith('true'));
+  for (const r of results) console.log(`  ${r.endsWith('true') ? '✅' : '❌'} ${r}`);
+  if (results.length === 0) {
+    console.error('не выполнено ни одной проверки — прогону верить нельзя');
+    process.exit(2);
+  }
+  console.log(failed.length
+    ? `ПРОВАЛЕНО: ${failed.length} из ${results.length}`
+    : `Все проверки прошли: ${results.length}`);
   process.exit(failed.length ? 1 : 0);
 }
 
+// Прогон, оборвавшийся на середине, — не успех: часть проверок не выполнялась.
 void main().catch((err) => {
-  console.error(err);
-  process.exit(1);
+  console.error(`прогон сорвался: ${err instanceof Error ? err.stack ?? err.message : String(err)}`);
+  process.exit(2);
 });
