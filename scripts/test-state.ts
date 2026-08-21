@@ -11,6 +11,7 @@ import {
   DEFAULT_SETTINGS, getOffice, office, openOfficeState, subscribeOffices,
 } from '../src/server/state';
 import { flushAll, load, save, wipe, type Persisted } from '../src/server/store';
+import { MAX_TASK_MAX_TURNS } from '../src/shared/types';
 import { cloudProblem, setGithubToken } from '../src/server/cloud';
 import { noStaffReason, teamSummary } from '../src/server/agents';
 
@@ -145,6 +146,21 @@ async function main(): Promise<void> {
   office.setAgentPermissionMode('backend#1', 'auto');
   const personal = office.instanceViews().find((i) => i.id === 'backend#1');
 
+  // 7c. Лимит шагов исполнителя: он настраивается, но нулём и мусором его
+  // испортить нельзя — с ними сессия падала бы на первом же ходу.
+  const turnsDefault = office.settings.taskMaxTurns === 60;
+  office.updateSettings({ taskMaxTurns: 200 });
+  office.updateSettings({ taskMaxTurns: 0 });
+  const zeroIgnored = office.settings.taskMaxTurns === 200;
+  office.updateSettings({ taskMaxTurns: -5 });
+  office.updateSettings({ taskMaxTurns: '120' as never });
+  const junkTurnsIgnored = office.settings.taskMaxTurns === 200;
+  office.updateSettings({ taskMaxTurns: 99999 });
+  const cappedTurns = office.settings.taskMaxTurns === MAX_TASK_MAX_TURNS;
+  office.updateSettings({ taskMaxTurns: null });
+  const unlimitedTurns = office.settings.taskMaxTurns === null;
+  office.updateSettings({ taskMaxTurns: 150 });
+
   office.flush();
   const restored = office.restore();
   const afterRestart = office.instanceViews().find((i) => i.id === 'backend#1');
@@ -160,10 +176,19 @@ async function main(): Promise<void> {
     `сосед по роли остался на режиме роли: ${office.instanceViews().find((i) => i.id === 'backend#2')?.effectivePermissionMode === 'ask-risky'}`,
     `личный режим пережил перезапуск: ${afterRestart?.permissionMode === 'auto'}`,
     `режим офиса пережил перезапуск: ${office.settings.officePermissionMode === 'ask-writes'}`,
+    `лимит шагов по умолчанию прежний: ${turnsDefault}`,
+    `ноль не становится лимитом шагов: ${zeroIgnored}`,
+    `мусор не становится лимитом шагов: ${junkTurnsIgnored}`,
+    `слишком большой лимит шагов срезан: ${cappedTurns}`,
+    `лимит шагов можно снять совсем: ${unlimitedTurns}`,
+    `лимит шагов пережил перезапуск: ${office.settings.taskMaxTurns === 150}`,
     // Смена режима — не тихая настройка: человек должен видеть её в ленте.
     `смена режима записана в ленту: ${office.log.some((e) => /Режим доступа офиса/.test(e.text))}`,
   );
-  office.updateSettings({ officePermissionMode: DEFAULT_SETTINGS.officePermissionMode });
+  office.updateSettings({
+    officePermissionMode: DEFAULT_SETTINGS.officePermissionMode,
+    taskMaxTurns: DEFAULT_SETTINGS.taskMaxTurns,
+  });
   office.setAgentPermissionMode('backend#1', null);
   office.updateRole('reviewer', { permissionMode: 'ask-risky' });
   office.wipe();
