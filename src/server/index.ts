@@ -9,6 +9,7 @@ import { mergeQueue, refreshMergeChecks } from './merge';
 import { githubToken, setGithubToken } from './cloud';
 import { clearInitFlag, createOffice, currentOffice, ensureOffice, loadRegistry, officeById, renameOffice, setCurrent, type OfficeEntry } from './offices';
 import { hasCommits, initRepo, isRepo } from './git';
+import { isPermissionMode } from './permissions';
 import { allRoles } from './roles';
 import { flushAll } from './store';
 
@@ -243,6 +244,12 @@ wss.on('connection', (ws) => {
       if (problem) office.addChat('офис', problem);
     } else if (cmd.c === 'update_role') {
       office.updateRole(cmd.roleId, cmd.patch);
+    } else if (cmd.c === 'agent_permission') {
+      // null — снять личное правило и вернуть сотрудника к режиму роли;
+      // мусорное значение молча игнорируем, а не выдаём за режим.
+      if (cmd.mode === null || isPermissionMode(cmd.mode)) {
+        office.setAgentPermissionMode(cmd.instanceId, cmd.mode);
+      }
     } else if (cmd.c === 'settings') {
       office.updateSettings(cmd.settings);
     } else if (cmd.c === 'talk' && cmd.text.trim()) {

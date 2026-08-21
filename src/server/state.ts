@@ -2,14 +2,14 @@ import { randomUUID } from 'node:crypto';
 import { isAbsolute, resolve } from 'node:path';
 import type {
   AgentState, ChatEntry, Criterion, DayUsage, Desk, InstanceView, LogEntry,
-  PermissionDecision, AuthSource, MeetingView, PermissionRequest, RoleEditable,
+  PermissionDecision, AuthSource, MeetingView, PermissionMode, PermissionRequest, RoleEditable,
   RoleView, ServerEvent, Settings, TaskStatus, TaskView, Usage,
   CloudStatus, OfficeView, MergeCheck, MergeRun,
 } from '../shared/types';
 import { emptyUsage } from '../shared/types';
 import { activityFromFile, summarize } from './activity';
 import { currentOffice, offices } from './offices';
-import { effectiveMode } from './permissions';
+import { effectiveMode, isPermissionMode, modeLabel } from './permissions';
 import { allRoles, getRoleOverrides, roleById, setRoleOverrides, type Role } from './roles';
 import {
   DEFAULT_STATE_FILE, flush as flushFile, load, save, wipe as wipeFile,
@@ -87,6 +87,11 @@ export interface Instance {
   usage: Usage;
   /** Расход по дням: «сколько агент стоил сегодня» без пересчёта всей истории. */
   daily: Record<string, Usage>;
+  /**
+   * Свой режим доступа этого сотрудника, сильнее режима роли.
+   * null — своего нет: работает по режиму роли, а та — по режиму офиса.
+   */
+  permissionMode: PermissionMode | null;
   abort: AbortController | null;
 }
 
@@ -241,6 +246,7 @@ export class OfficeState {
       instances: [...this.instances.values()].map<PersistedInstance>((i) => ({
         id: i.id, roleId: i.roleId, deskIndex: i.desk.index,
         usage: i.usage, daily: i.daily, sessionId: i.sessionId,
+        permissionMode: i.permissionMode,
       })),
       usage: this.usage,
       daily: this.daily,
@@ -332,6 +338,9 @@ export class OfficeState {
       usage: { ...emptyUsage(), ...(pi.usage ?? { costUsd: pi.costUsd ?? 0 }) },
       daily: pi.daily ?? {},
       sessionId: pi.sessionId,
+      // Персональный режим переживает перезапуск: иначе выданный сотруднику
+      // полный доступ молча пропадал бы, а человек об этом не узнал.
+      permissionMode: pi.permissionMode ?? null,
       abort: null,
     });
   }
@@ -416,10 +425,13 @@ export class OfficeState {
       usage: emptyUsage(),
       daily: {},
       sessionId: null,
+      // Нового сотрудника нанимают без личных послаблений: режим он берёт
+      // у роли. Права не должны появляться сами при найме.
+      permissionMode: null,
       abort: null,
     };
     this.instances.set(inst.id, inst);
-    this.emit({ t: 'instance', instance: toInstanceView(inst) });
+    this.emit({ t: 'instance', instance: toInstanceView(inst, this.officeMode()) });
     this.markDirty();
     return inst;
   }
@@ -429,7 +441,7 @@ export class OfficeState {
     if (!inst) return;
     inst.state = state;
     if (note !== undefined) inst.note = note;
-    this.emit({ t: 'instance', instance: toInstanceView(inst) });
+    this.emit({ t: 'instance', instance: toInstanceView(inst, this.officeMode()) });
   }
 
   /**
@@ -454,7 +466,7 @@ export class OfficeState {
     accumulate(inst.usage, delta);
     accumulate(dayOf(inst.daily, day), delta);
     trimJournal(inst.daily);
-    this.emit({ t: 'instance', instance: toInstanceView(inst) });
+    this.emit({ t: 'instance', instance: toInstanceView(inst, this.officeMode()) });
 
     accumulate(this.usage, delta);
     accumulate(dayOf(this.daily, day), delta);
@@ -634,45 +646,99 @@ export class OfficeState {
     return isAbsolute(dir) ? resolve(dir) : resolve(this.projectDir, dir);
   }
 
+  /** Состав офиса для UI: у каждого сотрудника посчитан эффективный режим. */
+  instanceViews(): InstanceView[] {
+    return [...this.instances.values()].map((i) => toInstanceView(i, this.officeMode()));
+  }
+
+  /**
+   * Режим доступа офиса. Метод, а не поле: в сохранениях старше режима поля
+   * нет, и подстраховку значением по умолчанию не должен повторять каждый,
+   * кому нужен режим.
+   */
+  officeMode(): PermissionMode {
+    return this.settings.officePermissionMode ?? DEFAULT_SETTINGS.officePermissionMode;
+  }
+
   roleViews(): RoleView[] {
-    const officeMode = this.settings.officePermissionMode ?? DEFAULT_SETTINGS.officePermissionMode;
+    const officeMode = this.officeMode();
     return allRoles().map<RoleView>((r) => ({
       id: r.id, title: r.title, emoji: r.emoji, color: r.color, model: r.model,
       permissionMode: r.permissionMode, maxInstances: r.maxInstances,
       isolate: r.isolate, repoDir: r.repoDir ?? '', brief: r.brief, isManager: r.isManager,
       active: [...this.instances.values()].filter((i) => i.roleId === r.id).length,
-      effectivePermissionMode: effectiveMode(r.permissionMode, officeMode),
+      effectivePermissionMode: effectiveMode(null, r.permissionMode, officeMode),
     }));
   }
 
   updateRole(roleId: string, patch: Partial<RoleEditable>): void {
     const base = roleById(roleId);
     if (!base) return;
+    // Режим роли правит человек из UI — значение проверяем, как и офисное.
+    const clean = { ...patch };
+    if ('permissionMode' in clean
+        && clean.permissionMode !== null && !isPermissionMode(clean.permissionMode)) {
+      delete clean.permissionMode;
+    }
     const next = { ...getRoleOverrides() };
-    next[roleId] = { ...(next[roleId] ?? {}), ...(patch as Partial<Role>) };
+    next[roleId] = { ...(next[roleId] ?? {}), ...(clean as Partial<Role>) };
     setRoleOverrides(next);
+    if ('permissionMode' in clean && clean.permissionMode !== base.permissionMode) {
+      this.addLog(null, 'system', clean.permissionMode
+        ? `Режим доступа роли ${base.title}: «${modeLabel(clean.permissionMode)}»`
+        : `Роль ${base.title} снова по режиму офиса: «${modeLabel(this.officeMode())}»`);
+    }
     // Ярлыки инстансов зависят от названия роли.
     for (const inst of this.instances.values()) {
       if (inst.roleId !== roleId) continue;
       const role = roleById(roleId)!;
       const n = inst.id.split('#')[1] ?? '1';
       inst.label = `${role.title}${role.maxInstances > 1 ? ` #${n}` : ''}`;
-      this.emit({ t: 'instance', instance: toInstanceView(inst) });
+      this.emit({ t: 'instance', instance: toInstanceView(inst, this.officeMode()) });
     }
     this.emit({ t: 'roles', roles: this.roleViews() });
-    this.addLog(null, 'system', `Роль ${roleId} изменена: ${Object.keys(patch).join(', ')}`);
+    this.addLog(null, 'system', `Роль ${roleId} изменена: ${Object.keys(clean).join(', ')}`);
     this.markDirty();
   }
 
   updateSettings(patch: Partial<Settings>): void {
     const prevMode = this.settings.officePermissionMode;
-    this.settings = { ...this.settings, ...patch };
+    const next = { ...patch };
+    // Режим приходит от клиента: чужое значение испортило бы решение по
+    // каждому вызову инструмента, поэтому непонятное просто не берём.
+    if ('officePermissionMode' in next && !isPermissionMode(next.officePermissionMode)) {
+      delete next.officePermissionMode;
+    }
+    this.settings = { ...this.settings, ...next };
     this.emit({ t: 'settings', settings: this.settings });
-    // Смена режима офиса меняет эффективный режим всех ролей-наследников —
+    // Смена режима офиса меняет эффективный режим всех, кто его наследует, —
     // без этого UI показывал бы старое до следующего снимка.
     if (this.settings.officePermissionMode !== prevMode) {
       this.emit({ t: 'roles', roles: this.roleViews() });
+      for (const inst of this.instances.values()) {
+        this.emit({ t: 'instance', instance: toInstanceView(inst, this.officeMode()) });
+      }
+      // Смена режима — событие для человека, а не деталь настроек: с этой
+      // минуты меняется, о чём офис перестаёт спрашивать.
+      this.addLog(null, 'system',
+        `Режим доступа офиса: «${modeLabel(this.officeMode())}»`);
     }
+    this.markDirty();
+  }
+
+  /**
+   * Личный режим доступа сотрудника: он сильнее режима роли и офиса.
+   * null возвращает сотрудника к режиму роли.
+   */
+  setAgentPermissionMode(instanceId: string, mode: PermissionMode | null): void {
+    const inst = this.instances.get(instanceId);
+    if (!inst || inst.permissionMode === mode) return;
+    inst.permissionMode = mode;
+    const view = toInstanceView(inst, this.officeMode());
+    this.emit({ t: 'instance', instance: view });
+    this.addLog(instanceId, 'system', mode
+      ? `Режим доступа сотрудника: «${modeLabel(mode)}» (личное правило)`
+      : `Личное правило снято — работает по режиму роли: «${modeLabel(view.effectivePermissionMode)}»`);
     this.markDirty();
   }
 
@@ -806,7 +872,7 @@ export class OfficeState {
     return {
       t: 'snapshot',
       roles: this.roleViews(),
-      instances: [...this.instances.values()].map(toInstanceView),
+      instances: this.instanceViews(),
       tasks: [...this.tasks.values()].map(toTaskView),
       chat: this.chat,
       log: this.log.slice(-200),
@@ -842,10 +908,21 @@ export const officeViews = (): OfficeView[] => {
   }));
 };
 
-export const toInstanceView = (i: Instance): InstanceView => ({
+export const toInstanceView = (
+  i: Instance,
+  /**
+   * Режим офиса передаёт вызывающий: `office` указывает на открытый офис,
+   * а вид сотрудника собирается и для другого — тот бы получил чужой режим.
+   */
+  officeMode: PermissionMode = office.officeMode(),
+): InstanceView => ({
   id: i.id, roleId: i.roleId, label: i.label, desk: i.desk,
   state: i.state, currentTaskId: i.currentTaskId, note: i.note,
   usage: i.usage, today: i.daily[dayKey()] ?? emptyUsage(),
+  permissionMode: i.permissionMode,
+  effectivePermissionMode: effectiveMode(
+    i.permissionMode, roleById(i.roleId)?.permissionMode, officeMode,
+  ),
 });
 
 export const toTaskView = (t: Task): TaskView => ({

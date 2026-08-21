@@ -160,6 +160,13 @@ export interface InstanceView {
   usage: Usage;
   /** Он же за сегодня — «сколько этот агент стоил сегодня». */
   today: Usage;
+  /**
+   * Свой режим доступа этого сотрудника. null — своего нет, работает по
+   * режиму роли, а та — по режиму офиса.
+   */
+  permissionMode: PermissionMode | null;
+  /** По какому режиму агент работает на самом деле: агент → роль → офис. */
+  effectivePermissionMode: PermissionMode;
 }
 
 export interface TaskView {
@@ -342,6 +349,8 @@ export type ClientCommand =
   /** Уволить сотрудника. Последнего в роли — можно: роль остаётся вакансией. */
   | { c: 'fire'; instanceId: string }
   | { c: 'update_role'; roleId: string; patch: Partial<RoleEditable> }
+  /** Режим доступа конкретного сотрудника. null — вернуть его к режиму роли. */
+  | { c: 'agent_permission'; instanceId: string; mode: PermissionMode | null }
   | { c: 'settings'; settings: Partial<Settings> }
   | { c: 'talk'; instanceId: string; text: string }
   | { c: 'stop_task'; taskId: string }

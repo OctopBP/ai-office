@@ -1,5 +1,6 @@
-// Проверка классификатора рисков. npm run test:perm
-import { classify } from '../src/server/permissions';
+// Проверка классификатора рисков и режимов доступа. npm run test:perm
+import { autoApprovedText, classify, decide, effectiveMode } from '../src/server/permissions';
+import type { PermissionMode, RiskLevel } from '../src/shared/types';
 
 const DIR = '/Users/x/project';
 type Case = [tool: string, input: Record<string, unknown>, expect: string];
@@ -46,5 +47,62 @@ for (const [tool, input, expect] of cases) {
     `→ ${v.risk}${ok ? '' : ` (ждали ${expect})`}${v.reason ? `  [${v.reason}]` : ''}`,
   );
 }
-console.log(failed === 0 ? `\nвсе ${cases.length} кейсов прошли` : `\nПРОВАЛЕНО: ${failed} из ${cases.length}`);
-process.exit(failed === 0 ? 0 : 1);
+// ---------------------------------------------------------- режимы доступа
+
+/** Уровни режима: у сотрудника, у роли, у офиса — и что должно получиться. */
+type ModeCase = [
+  what: string,
+  agent: PermissionMode | null,
+  role: PermissionMode | null,
+  office: PermissionMode,
+  risk: RiskLevel,
+  expect: 'allow' | 'ask' | 'deny',
+];
+
+const modeCases: ModeCase[] = [
+  // Поведение по умолчанию: роли спрашивают про необратимое и молчат про запись.
+  ['по умолчанию: запись',      null, 'ask-risky',  'ask-risky',  'write',  'allow'],
+  ['по умолчанию: удаление',    null, 'ask-risky',  'ask-risky',  'danger', 'ask'],
+  ['по умолчанию: чтение',      null, 'ask-risky',  'ask-risky',  'safe',   'allow'],
+  // Офис спрашивает про всё — роль без своего режима наследует это.
+  ['офис ask-writes, роль как офис', null, null,     'ask-writes', 'write',  'ask'],
+  ['офис ask-writes, роль как офис', null, null,     'ask-writes', 'danger', 'ask'],
+  // Полный доступ офиса: не спрашиваем ни про что, кроме явных запретов.
+  ['офис auto',                 null, null,         'auto',       'danger', 'allow'],
+  // Роль сильнее офиса в обе стороны.
+  ['роль auto при строгом офисе', null, 'auto',     'ask-writes', 'danger', 'allow'],
+  ['роль ask-writes при auto-офисе', null, 'ask-writes', 'auto',  'write',  'ask'],
+  // Сотрудник сильнее роли: «бэкенду #2 полный доступ, остальным нет».
+  ['агент auto при строгой роли', 'auto', 'ask-writes', 'ask-writes', 'danger', 'allow'],
+  ['агент ask-writes при auto-роли', 'ask-writes', 'auto', 'auto', 'write', 'ask'],
+  ['агент readonly',            'readonly', 'auto',   'auto',     'write',  'deny'],
+  // Чтение не спрашиваем и не запрещаем ни в одном режиме.
+  ['readonly не мешает читать', 'readonly', null,     'ask-risky', 'safe',   'allow'],
+];
+
+let modeFailed = 0;
+for (const [what, agent, role, officeMode, risk, expect] of modeCases) {
+  const mode = effectiveMode(agent, role, officeMode);
+  const got = decide(mode, risk);
+  const ok = got === expect;
+  if (!ok) modeFailed += 1;
+  console.log(
+    `${ok ? '  ok  ' : '  FAIL'} ${what.padEnd(34)} ${`${mode}/${risk}`.padEnd(20)} ` +
+    `→ ${got}${ok ? '' : ` (ждали ${expect})`}`,
+  );
+}
+
+// Автоодобренное действие обязано быть узнаваемо в ленте: и инструмент,
+// и что именно он сделал, и по какому режиму его пропустили.
+const trace = autoApprovedText('auto', 'Bash', classify('Bash', { command: 'rm -rf build' }, DIR));
+const traceOk = trace.includes('Bash')
+  && trace.includes('rm -rf build')
+  && trace.includes('полный доступ')
+  && trace.includes('удаляет файлы');
+if (!traceOk) modeFailed += 1;
+console.log(`${traceOk ? '  ok  ' : '  FAIL'} след в ленте: ${trace}`);
+
+const total = cases.length + modeCases.length + 1;
+const bad = failed + modeFailed;
+console.log(bad === 0 ? `\nвсе ${total} кейсов прошли` : `\nПРОВАЛЕНО: ${bad} из ${total}`);
+process.exit(bad === 0 ? 0 : 1);
