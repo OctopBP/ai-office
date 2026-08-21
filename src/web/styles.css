@@ -262,6 +262,7 @@ button
   outline: none; border-color: var(--accent);
 }
 .modal .hint { display: block; margin-top: 5px; font-size: 11px; line-height: 1.45; }
+.modal .hint.error { color: var(--red); }
 .modal .row2 { display: flex; gap: 16px; align-items: flex-start; }
 .modal .row2 > label { flex: 1; }
 .modal label.checkbox {
