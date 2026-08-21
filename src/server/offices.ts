@@ -21,6 +21,13 @@ export interface OfficeEntry {
    * инициализировать как git-репозиторий. Чужую папку мы не трогаем.
    */
   initGit?: boolean;
+  /**
+   * Убран из списка. Запись остаётся в реестре намеренно: за ней закреплён
+   * файл состояния, и если тот же проект заведут снова, доска и расходы
+   * вернутся, а не начнутся с нуля. Ни папку проекта, ни файл состояния
+   * скрытие не трогает.
+   */
+  hidden?: boolean;
 }
 
 interface Registry {
@@ -35,10 +42,11 @@ interface Registry {
  * пользуются тесты. Реестр живёт рядом с ним, иначе тестовый прогон
  * переписывал бы список рабочих офисов.
  */
-const STATE_FILE = resolve(process.env.OFFICE_STATE_FILE ?? '.office/state.json');
-const FILE = resolve(dirname(STATE_FILE), 'offices.json');
+const DEFAULT_STATE_FILE = resolve(process.env.OFFICE_STATE_FILE ?? '.office/state.json');
 
 let registry: Registry | null = null;
+/** Куда пишется реестр. Задаётся при загрузке — см. loadRegistry. */
+let FILE = resolve(dirname(DEFAULT_STATE_FILE), 'offices.json');
 
 function write(): void {
   if (!registry) return;
@@ -57,8 +65,13 @@ function write(): void {
  * директории и отдаём ему уже существующий файл состояния: у тех, кто
  * работал до появления списка офисов, доска и расходы остаются на месте.
  */
-export function loadRegistry(defaultProjectDir: string): Registry {
+export function loadRegistry(defaultProjectDir: string, stateFile = DEFAULT_STATE_FILE): Registry {
   if (registry) return registry;
+  // Реестр ложится рядом с файлом состояния, а путь приходит аргументом,
+  // а не читается из окружения на весь процесс: так проверки не переписывают
+  // список рабочих офисов, и правило то же, что у store.ts.
+  const stateAt = resolve(stateFile);
+  FILE = resolve(dirname(stateAt), 'offices.json');
   if (existsSync(FILE)) {
     try {
       const data = JSON.parse(readFileSync(FILE, 'utf8')) as Registry;
@@ -74,7 +87,7 @@ export function loadRegistry(defaultProjectDir: string): Registry {
     id: 'o-1',
     name: defaultProjectDir.split('/').filter(Boolean).pop() ?? 'Офис',
     projectDir: defaultProjectDir,
-    stateFile: STATE_FILE,
+    stateFile: stateAt,
     createdAt: Date.now(),
     lastOpenedAt: Date.now(),
   };
@@ -83,16 +96,19 @@ export function loadRegistry(defaultProjectDir: string): Registry {
   return registry;
 }
 
+/** Список для клиента: скрытые офисы в него не попадают. */
 export function offices(): OfficeEntry[] {
-  return registry?.offices ?? [];
+  return registry?.offices.filter((o) => !o.hidden) ?? [];
 }
 
 /** Текущий офис. null — реестр ещё не загружен (так живут юнит-проверки). */
 export function currentOffice(): OfficeEntry | null {
   if (!registry) return null;
-  return registry.offices.find((o) => o.id === registry!.currentId) ?? registry.offices[0] ?? null;
+  return registry.offices.find((o) => o.id === registry!.currentId)
+    ?? offices()[0] ?? registry.offices[0] ?? null;
 }
 
+/** Поиск по всему реестру, включая скрытые: id мог прийти из устаревшего списка. */
 export function officeById(id: string): OfficeEntry | null {
   return registry?.offices.find((o) => o.id === id) ?? null;
 }
@@ -121,13 +137,21 @@ function expandHome(path: string): string {
  * заводится без этого флага, и директорию мы создаём сами.
  */
 export function createOffice(input: { name: string; projectDir: string; mustExist?: boolean }):
-  { office: OfficeEntry } | { error: string } {
+  { office: OfficeEntry; restored?: boolean } | { error: string } {
   if (!registry) return { error: 'Реестр офисов не загружен.' };
   if (!input.projectDir.trim()) return { error: 'Укажите путь к директории проекта.' };
   const projectDir = resolve(expandHome(input.projectDir.trim()));
   const name = input.name.trim() || projectDir.split('/').filter(Boolean).pop() || 'Офис';
 
   const taken = registry.offices.find((o) => o.projectDir === projectDir);
+  // Скрытый офис на том же пути — это тот же самый проект: возвращаем его
+  // в список вместе с доской, а не заводим рядом пустой дубль.
+  if (taken?.hidden) {
+    taken.hidden = false;
+    taken.name = name;
+    write();
+    return { office: taken, restored: true };
+  }
   if (taken) return { error: `Офис «${taken.name}» уже работает в этой директории.` };
 
   let ours = false;
@@ -185,7 +209,15 @@ export function createOffice(input: { name: string; projectDir: string; mustExis
 export function ensureOffice(input: { name: string; projectDir: string }): OfficeEntry {
   const projectDir = resolve(input.projectDir);
   const found = registry?.offices.find((o) => o.projectDir === projectDir);
-  if (found) return found;
+  if (found) {
+    // Открываемый офис не может оставаться скрытым: иначе его не видно
+    // в списке, из которого в него же предлагается вернуться.
+    if (found.hidden) {
+      found.hidden = false;
+      write();
+    }
+    return found;
+  }
   const made = createOffice({ ...input, projectDir });
   if ('office' in made) return made.office;
   // Директорию уже занял другой офис — открываем его, а не плодим дубль.
@@ -201,11 +233,31 @@ export function clearInitFlag(id: string): void {
   write();
 }
 
-/** Переименовать офис. */
-export function renameOffice(id: string, name: string): boolean {
+/** Переименовать офис. Возвращает причину отказа по-русски или null. */
+export function renameOffice(id: string, name: string): string | null {
   const office = officeById(id);
-  if (!office || !name.trim()) return false;
+  if (!office) return `Офис ${id} не найден — похоже, список устарел.`;
+  if (!name.trim()) return 'Название офиса не может быть пустым.';
   office.name = name.trim();
   write();
-  return true;
+  return null;
+}
+
+/**
+ * Убрать офис из списка. Файлы не трогаем: ни папку проекта, ни сохранение
+ * доски — «убрать из списка» и «стереть работу» это разные действия, и
+ * второго в офисе сознательно нет. Возвращает причину отказа или null.
+ */
+export function removeOffice(id: string): string | null {
+  if (!registry) return 'Реестр офисов не загружен.';
+  const office = officeById(id);
+  if (!office || office.hidden) return `Офис ${id} не найден — похоже, список устарел.`;
+  if (office.id === registry.currentId) {
+    return `Офис «${office.name}» сейчас открыт. Перейдите в другой офис, ` +
+      'а потом уберите этот из списка.';
+  }
+  if (offices().length <= 1) return 'Это единственный офис — убирать из списка нечего.';
+  office.hidden = true;
+  write();
+  return null;
 }

@@ -131,14 +131,41 @@ async function main(): Promise<void> {
   for (const i of office.staffOf('smm')) office.fire(i.id);
   const extraBackend = office.hire('backend') === null;
   office.projectDir = office.projectDir || process.cwd();
+
+  // 7b. Режим доступа: офисный, личный режим сотрудника и наследование.
+  // Права не должны появляться сами, а выданные — молча пропадать.
+  const defaultMode = office.roleViews().find((r) => r.id === 'backend')!.effectivePermissionMode;
+  office.updateRole('reviewer', { permissionMode: null });
+  office.updateSettings({ officePermissionMode: 'auto' });
+  const inheritedAuto = office.roleViews().find((r) => r.id === 'reviewer')?.effectivePermissionMode;
+  // Мусор из сети не должен становиться режимом офиса.
+  office.updateSettings({ officePermissionMode: 'всё можно' as never });
+  const junkIgnored = office.settings.officePermissionMode === 'auto';
+  office.updateSettings({ officePermissionMode: 'ask-writes' });
+  office.setAgentPermissionMode('backend#1', 'auto');
+  const personal = office.instanceViews().find((i) => i.id === 'backend#1');
+
   office.flush();
   const restored = office.restore();
+  const afterRestart = office.instanceViews().find((i) => i.id === 'backend#1');
   results.push(
     `состояние восстановлено: ${restored}`,
     `уволенная роль не воскресла после перезапуска: ${office.staffOf('smm').length === 0}`,
     `нанятые сверх одного сохранились: ${extraBackend && office.staffOf('backend').length === 2}`,
     `столы не разъехались: ${new Set([...office.instances.values()].map((i) => i.desk.index)).size === office.instances.size}`,
+    `по умолчанию у роли прежний режим: ${defaultMode === 'ask-risky'}`,
+    `роль без своего режима наследует офисный: ${inheritedAuto === 'auto'}`,
+    `неизвестный режим не принимается: ${junkIgnored}`,
+    `личный режим сильнее офисного: ${personal?.effectivePermissionMode === 'auto'}`,
+    `сосед по роли остался на режиме роли: ${office.instanceViews().find((i) => i.id === 'backend#2')?.effectivePermissionMode === 'ask-risky'}`,
+    `личный режим пережил перезапуск: ${afterRestart?.permissionMode === 'auto'}`,
+    `режим офиса пережил перезапуск: ${office.settings.officePermissionMode === 'ask-writes'}`,
+    // Смена режима — не тихая настройка: человек должен видеть её в ленте.
+    `смена режима записана в ленту: ${office.log.some((e) => /Режим доступа офиса/.test(e.text))}`,
   );
+  office.updateSettings({ officePermissionMode: DEFAULT_SETTINGS.officePermissionMode });
+  office.setAgentPermissionMode('backend#1', null);
+  office.updateRole('reviewer', { permissionMode: 'ask-risky' });
   office.wipe();
 
   // 8. Хранилище пер-офисное: сохранение одного офиса не отменяет сохранение
@@ -165,7 +192,9 @@ async function main(): Promise<void> {
   const regA = resolve(tmpdir(), `office-test-reg-a-${process.pid}.json`);
   const regB = resolve(tmpdir(), `office-test-reg-b-${process.pid}.json`);
   let heard = 0;
-  const ear = (): void => { heard += 1; };
+  // Метка офиса — то, по чему сервер решает, какому сокету слать событие.
+  const from: string[] = [];
+  const ear = (_e: unknown, officeId: string): void => { heard += 1; from.push(officeId); };
   subscribeOffices(ear);
   subscribeOffices(ear);   // повторная подписка тем же обработчиком — не дубль
 
@@ -173,21 +202,45 @@ async function main(): Promise<void> {
   const heardBefore = heard;
   a.state.addLog(null, 'system', 'проверка рассылки');
   const onceNotTwice = heard - heardBefore === 1;
+  const labelledA = from[from.length - 1] === 'o-test-a';
   const taskInA = a.state.createTask({ title: 'в офисе A', description: '', criteria: [], roleId: null });
 
   const b = openOfficeState({ id: 'o-test-b', projectDir: resolve(tmpdir(), 'office-b'), stateFile: regB });
   const heardBeforeB = heard;
   b.state.addLog(null, 'system', 'проверка рассылки после переключения');
-  const heardFromB = heard - heardBeforeB === 1;
+  const heardFromB = heard - heardBeforeB === 1 && from[from.length - 1] === 'o-test-b';
+
+  // Покинутый офис продолжает работать: его сессии пишут в него, а не в тот,
+  // который человек открыл сейчас. Это и есть свободное переключение.
+  const heardBeforeBg = heard;
+  a.state.addLog(null, 'system', 'задача в покинутом офисе продолжается');
+  const taskInBackground = a.state.createTask({
+    title: 'начата без клиента', description: '', criteria: [], roleId: null,
+  });
+  const bgLabelled = heard - heardBeforeBg === 2 && from[from.length - 1] === 'o-test-a';
+  // Текущий офис — B, а работа легла в A: именно так ведёт себя сессия,
+  // начатая до переключения.
+  const bgStayedHome = office.officeId === 'o-test-b'
+    && a.state.tasks.has(taskInBackground.id) && !b.state.tasks.has(taskInBackground.id);
 
   const backToA = openOfficeState({ id: 'o-test-a', projectDir: resolve(tmpdir(), 'office-a'), stateFile: regA });
+  // Повторный вход не должен удваивать доставку: подписка ставится один раз
+  // на состояние, а не заново при каждом открытии офиса.
+  const heardBeforeReturn = heard;
+  backToA.state.addLog(null, 'system', 'после возвращения');
+  const noDoubleAfterReturn = heard - heardBeforeReturn === 1;
+
   results.push(
     `один OfficeState на офис: ${getOffice('o-test-a') === a.state && a.state !== b.state}`,
     `повторное открытие не пересоздаёт состояние: ${backToA.reused && backToA.state === a.state}`,
     `доска офиса переживает переключение: ${backToA.state.tasks.has(taskInA.id)}`,
     `office указывает на текущий офис: ${office.officeId === 'o-test-a'}`,
     `подписчик рассылки не дублируется: ${onceNotTwice}`,
+    `событие помечено своим офисом: ${labelledA}`,
     `события офиса, открытого позже, доходят: ${heardFromB}`,
+    `покинутый офис продолжает слать события под своей меткой: ${bgLabelled}`,
+    `работа покинутого офиса остаётся в нём: ${bgStayedHome}`,
+    `повторный вход не удваивает рассылку: ${noDoubleAfterReturn}`,
   );
   wipe(regA);
   wipe(regB);

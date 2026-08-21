@@ -462,6 +462,25 @@ export function effectivePermissionMode(
   return role.permissionMode ?? settings.officePermissionMode;
 }
 
+/** Откуда фактический режим доступа сотрудника: свой, от роли или от офиса. */
+export type PermissionSource = 'agent' | 'role' | 'office';
+
+export const PERMISSION_SOURCE_LABEL: Record<PermissionSource, string> = {
+  agent: 'личный',
+  role: 'от роли',
+  office: 'от офиса',
+};
+
+/** Первое звено в цепочке «сотрудник → роль → офис», где задано своё правило. */
+export function permissionSource(
+  inst: { permissionMode: PermissionMode | null },
+  role: { permissionMode: PermissionMode | null } | undefined,
+): PermissionSource {
+  if (inst.permissionMode) return 'agent';
+  if (role?.permissionMode) return 'role';
+  return 'office';
+}
+
 /** Отправляет в активную ветку: менеджеру или напрямую агенту. */
 export function send(text: string): void {
   const thread = useStore.getState().thread;
@@ -568,6 +587,11 @@ export function updateRole(roleId: string, patch: Partial<RoleEditable>): void {
 
 export function updateSettings(settings: Partial<Settings>): void {
   socket?.send(JSON.stringify({ c: 'settings', settings }));
+}
+
+/** Личный режим доступа сотрудника; null — вернуть к режиму роли. */
+export function setAgentPermission(instanceId: string, mode: PermissionMode | null): void {
+  socket?.send(JSON.stringify({ c: 'agent_permission', instanceId, mode }));
 }
 
 export function stopTask(taskId: string): void {
