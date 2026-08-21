@@ -10,6 +10,7 @@ import { emptyUsage } from '../shared/types';
 import { activityFromFile, summarize } from './activity';
 import { currentOffice, offices } from './offices';
 import { effectiveMode } from './permissions';
+import type { MessageQueue } from './queue';
 import { allRoles, getRoleOverrides, roleById, setRoleOverrides, type Role } from './roles';
 import {
   DEFAULT_STATE_FILE, flush as flushFile, load, save, wipe as wipeFile,
@@ -27,6 +28,14 @@ export const DESKS: Desk[] = [
 ];
 
 type Listener = (e: ServerEvent) => void;
+
+/**
+ * Слушатель рассылки по всем офисам. Офис приходит вторым аргументом, а не
+ * внутри события: события — общий контракт с вебом, и клиенту знать чужие
+ * id офисов незачем. Отправителю же метка нужна, чтобы не слать событие
+ * одного офиса тому, кто открыл другой.
+ */
+type OfficeListener = (e: ServerEvent, officeId: string) => void;
 
 /** Сколько дней истории расходов держим — на «за день» и недельный график. */
 const DAYS_KEPT = 14;
@@ -173,6 +182,34 @@ export class OfficeState {
    * относится к живым сессиям, а после перезапуска их всё равно нет.
    */
   paused = false;
+  /**
+   * Живая сессия менеджера этого офиса: очередь сообщений и цикл её чтения.
+   * Принадлежат офису, а не процессу: иначе второй открытый офис не поднял бы
+   * своего PM (цикл уже не пуст), а сообщения ушли бы в чужую очередь.
+   */
+  pmQueue: MessageQueue | null = null;
+  pmLoop: Promise<void> | null = null;
+  /**
+   * Задачи, которые пользователь остановил вручную — чтобы отличить это от
+   * падения. Ключ — id задачи, а он уникален только внутри офиса.
+   */
+  stoppedByUser = new Set<string>();
+  /**
+   * Сколько сессий исполнителей этого офиса живы прямо сейчас. Счётчик офисный,
+   * а не процессный: по нему гаснет индикатор занятости, и чужие задачи держали
+   * бы его зажжённым в офисе, где никто не работает.
+   */
+  running = 0;
+  /**
+   * Живые прямые разговоры пользователя с исполнителями этого офиса.
+   * Ключ — instanceId, а он уникален только внутри офиса: в соседнем офисе
+   * сидит свой backend#1 со своей сессией.
+   */
+  talks = new Map<string, { queue: MessageQueue; loop: Promise<void> }>();
+  /** Сколько раз спрашивали коллег по каждой задаче — лимит считается по офису. */
+  consultsByTask = new Map<string, number>();
+  /** Идёт ли совещание в этом офисе: в соседнем своё и мешать не должно. */
+  meetingRunning = false;
   /** Расход офиса за всё время — считается отдельно, чтобы увольнение клона не обнуляло сумму. */
   usage: Usage = emptyUsage();
   /** Расход офиса по дням. */
@@ -828,18 +865,22 @@ export class OfficeState {
 
 /**
  * Список офисов для UI: реестр, отметка текущего и сводка активности.
- * У текущего офиса берём её из памяти — файл отстаёт на дебаунс записи,
- * у остальных читаем их сохранение.
+ * Из памяти берём сводку по КАЖДОМУ поднятому офису, а не только по текущему:
+ * покинутый офис продолжает работать, и его файл отстаёт на дебаунс записи —
+ * счётчик «в работе» в списке иначе врал бы про идущие там задачи.
  */
 export const officeViews = (): OfficeView[] => {
   const current = currentOffice();
-  return offices().map((o) => ({
-    id: o.id, name: o.name, projectDir: o.projectDir,
-    current: o.id === current?.id, lastOpenedAt: o.lastOpenedAt,
-    activity: o.id === current?.id
-      ? summarize({ tasks: [...office.tasks.values()], chat: office.chat, log: office.log })
-      : activityFromFile(o.stateFile),
-  }));
+  return offices().map((o) => {
+    const live = states.get(o.id);
+    return {
+      id: o.id, name: o.name, projectDir: o.projectDir,
+      current: o.id === current?.id, lastOpenedAt: o.lastOpenedAt,
+      activity: live?.opened
+        ? summarize({ tasks: [...live.tasks.values()], chat: live.chat, log: live.log })
+        : activityFromFile(o.stateFile),
+    };
+  });
 };
 
 export const toInstanceView = (i: Instance): InstanceView => ({
@@ -863,9 +904,11 @@ export const toTaskView = (t: Task): TaskView => ({
  * Репозиторий, в котором велась задача. Путь берётся с самой задачи: настройка
  * роли могла с тех пор смениться, а результат лежит там, где его сделали.
  * У задач, заведённых до появления репозиториев на роль, поля нет — для них
- * это директория офиса.
+ * это директория офиса. Офис передаётся явно там, где работа переживает
+ * переключение: у покинутого офиса директория своя.
  */
-export const taskRepo = (t: Task): string => t.repoDir ?? office.projectDir;
+export const taskRepo = (t: Task, state: OfficeState = office): string =>
+  t.repoDir ?? state.projectDir;
 
 /** Сколько критериев отмечено — одна формулировка на весь офис. */
 export const criteriaProgress = (t: Task | TaskView): { done: number; total: number } => ({
@@ -906,31 +949,50 @@ const states = new Map<string, OfficeState>();
 
 /**
  * Слушатели, которые следуют за офисом, а не за конкретным состоянием:
- * сокет живёт дольше открытого офиса. Держим их отдельно, чтобы подписать
- * каждое новое состояние ровно один раз и не копить дубли при переключениях.
+ * сокет живёт дольше открытого офиса. Держим их отдельно от подписчиков
+ * состояния: состояние подписывается на них один раз при создании, поэтому
+ * ни переключение, ни повторный вход в офис не копят дубли рассылки.
  */
-const followers = new Set<Listener>();
+const followers = new Set<OfficeListener>();
 
 /** Состояние офиса по id: уже поднятое либо пустое, заведённое сейчас. */
 export function getOffice(officeId: string): OfficeState {
   const found = states.get(officeId);
   if (found) return found;
   const created = new OfficeState(officeId);
-  for (const fn of followers) created.subscribe(fn);
+  // Одна переходная подписка на состояние — она и раздаёт событие всем
+  // подписчикам с меткой офиса. Подписывать каждого follower отдельно нельзя:
+  // метку пришлось бы добавлять обёрткой, а обёртка каждый раз новая — и
+  // повторный вход в офис копил бы дубли рассылки.
+  created.subscribe((e) => {
+    for (const fn of followers) fn(e, officeId);
+  });
   states.set(officeId, created);
   return created;
 }
 
 /**
- * Подписка на события текущего офиса и всех, которые откроются позже.
- * Отписки нет намеренно: подписчик здесь один — рассылка по сокетам,
- * и живёт она столько же, сколько процесс.
+ * Задачи, которые прямо сейчас выполняются в офисе. Смотрим только на уже
+ * поднятое состояние: не открытый офис ничего не выполняет, и заводить ему
+ * состояние ради проверки незачем. Нужно тем, кто трогает офис со стороны, —
+ * покинутый офис продолжает работать, и «в нём никого нет» больше не следует
+ * из того, что открыт другой.
  */
-export function subscribeOffices(fn: Listener): void {
+export function runningTasksOf(officeId: string): string[] {
+  const state = states.get(officeId);
+  if (!state?.opened) return [];
+  return [...state.tasks.values()].filter((t) => t.status === 'in_progress').map((t) => t.id);
+}
+
+/**
+ * Подписка на события всех офисов — и открытых сейчас, и тех, которые
+ * откроются позже. Отписки нет намеренно: подписчик здесь один — рассылка
+ * по сокетам, и живёт она столько же, сколько процесс.
+ */
+export function subscribeOffices(fn: OfficeListener): void {
+  // Set делает повторную подписку тем же обработчиком пустой, так что второй
+  // вызов не удваивает рассылку.
   followers.add(fn);
-  // Set в subscribe() делает повторную подписку тем же обработчиком пустой,
-  // так что второй вызов не удваивает рассылку.
-  for (const state of states.values()) state.subscribe(fn);
 }
 
 /**

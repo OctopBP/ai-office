@@ -16,7 +16,7 @@
  *   и «спросить» приходит в ту же модалку, что и локально.
  */
 import Anthropic from '@anthropic-ai/sdk';
-import { criteriaProgress, office, type Instance, type Task } from './state';
+import { criteriaProgress, office, type Instance, type OfficeState, type Task } from './state';
 import type { Role } from './roles';
 import { currentBranch, fetchBranch, remoteUrl } from './git';
 
@@ -34,7 +34,12 @@ export const setGithubToken = (value: string): void => {
 
 let client: Anthropic | null = null;
 const agentIds = new Map<string, string>();   // ключ конфигурации роли → id агента
-let environmentId: string | null = null;
+/**
+ * Контейнер на офис, ключ — id офиса. Одной переменной хватало, пока офис был
+ * один: с несколькими открытыми второй офис получал бы контейнер первого,
+ * смонтированный на его репозиторий.
+ */
+const environmentIds = new Map<string, string>();
 /** Сессии идущих облачных задач — по ним работает «Остановить». */
 const sessions = new Map<string, string>();
 
@@ -44,11 +49,11 @@ const clip = (s: unknown, n = 70): string => {
 };
 
 /** Почему облачный режим сейчас не запустится. null — всё готово. */
-export function cloudProblem(): string | null {
+export function cloudProblem(state: OfficeState = office): string | null {
   if (!process.env.ANTHROPIC_API_KEY && !process.env.ANTHROPIC_AUTH_TOKEN) {
     return 'Облачный режим работает только на платном API: задайте ANTHROPIC_API_KEY и перезапустите сервер.';
   }
-  if (!office.settings.cloudRepoUrl) {
+  if (!state.settings.cloudRepoUrl) {
     return 'Не указан репозиторий на GitHub — контейнеру нечего монтировать. Укажите его в настройках.';
   }
   if (!token) {
@@ -63,22 +68,25 @@ function api(): Anthropic {
 }
 
 /** Контейнер один на офис: настройки одинаковые, а создание стоит времени. */
-async function ensureEnvironment(): Promise<string> {
-  if (environmentId) return environmentId;
-  const name = `ai-office-${office.officeId}`;
+async function ensureEnvironment(state: OfficeState): Promise<string> {
+  const known = environmentIds.get(state.officeId);
+  if (known) return known;
+  const name = `ai-office-${state.officeId}`;
+  let id: string;
   try {
     const env = await api().beta.environments.create({
       name,
       config: { type: 'cloud', networking: { type: 'unrestricted' } },
     });
-    environmentId = env.id;
+    id = env.id;
   } catch (err) {
     // Имя окружения уникально: после перезапуска сервера оно уже создано.
     const existing = await findEnvironment(name);
     if (!existing) throw err;
-    environmentId = existing;
+    id = existing;
   }
-  return environmentId;
+  environmentIds.set(state.officeId, id);
+  return id;
 }
 
 async function findEnvironment(name: string): Promise<string | null> {
@@ -232,19 +240,19 @@ export interface CloudOutcome {
  * агента по ходу дела обновляются здесь же, как и у локального движка.
  */
 export async function runCloudTask(
-  task: Task, inst: Instance, role: Role, systemPrompt: string,
+  task: Task, inst: Instance, role: Role, systemPrompt: string, state: OfficeState,
 ): Promise<CloudOutcome> {
-  const repoUrl = office.settings.cloudRepoUrl!;
-  const base = (await currentBranch(office.projectDir)) ?? 'main';
+  const repoUrl = state.settings.cloudRepoUrl!;
+  const base = (await currentBranch(state.projectDir)) ?? 'main';
   const branch = `task/${task.id}`;
   const mount = '/workspace/repo';
 
   const [environment, agentId] = await Promise.all([
-    ensureEnvironment(),
+    ensureEnvironment(state),
     ensureAgent(role, systemPrompt),
   ]);
 
-  const cap = office.settings.taskBudgetUsd;
+  const cap = state.settings.taskBudgetUsd;
   const session = await api().beta.sessions.create({
     agent: agentId,
     environment_id: environment,
@@ -266,7 +274,7 @@ export async function runCloudTask(
   });
 
   sessions.set(task.id, session.id);
-  office.addLog(inst.id, 'system', `Облачная сессия ${session.id.slice(0, 12)}… (${repoUrl})`);
+  state.addLog(inst.id, 'system', `Облачная сессия ${session.id.slice(0, 12)}… (${repoUrl})`);
 
   let finished: string | null = null;
   let files: string[] = [];
@@ -282,7 +290,7 @@ export async function runCloudTask(
     const handled: string[] = [];
 
     const step = (e: CloudEvent) =>
-      consume(e, task, inst, session.id, (s, f) => { finished = s; files = f; }, handled);
+      consume(e, state, task, inst, session.id, (s, f) => { finished = s; files = f; }, handled);
 
     for await (const past of api().beta.sessions.events.list(session.id)) {
       const e = past as unknown as CloudEvent;
@@ -311,7 +319,7 @@ export async function runCloudTask(
       const fresh = await api().beta.sessions.retrieve(session.id);
       const usage = fresh.usage;
       const cents = Number(usage?.list_cost?.amount ?? 0);
-      office.addUsage(inst.id, {
+      state.addUsage(inst.id, {
         costUsd: Math.max(0, cents / 100 - costRecorded),
         tokensIn: usage?.input_tokens ?? 0,
         tokensOut: usage?.output_tokens ?? 0,
@@ -325,12 +333,12 @@ export async function runCloudTask(
     if (failure) return { ok: false, summary: failure, branch: null, baseBranch: null };
 
     // Ветку тянем к себе: без неё «Показать diff» и «Смержить» пусты.
-    const pulled = await fetchBranch(office.projectDir, branch);
+    const pulled = await fetchBranch(state.projectDir, branch);
     const note = pulled
       ? ''
       : `\n\n⚠️ Ветка ${branch} не подтянулась из origin — посмотрите её на GitHub.`;
     const summary = (finished ?? 'Сессия завершилась без отчёта.') + note;
-    if (files.length) office.updateTask(task.id, { files });
+    if (files.length) state.updateTask(task.id, { files });
     return {
       ok: finished !== null,
       summary,
@@ -349,6 +357,7 @@ type CloudEvent = { type: string; id?: string } & Record<string, unknown>;
 
 async function consume(
   event: CloudEvent,
+  state: OfficeState,
   task: Task,
   inst: Instance,
   sessionId: string,
@@ -362,20 +371,20 @@ async function consume(
     case 'agent.message': {
       const blocks = (event.content ?? []) as Array<{ type: string; text?: string }>;
       const text = blocks.filter((b) => b.type === 'text').map((b) => b.text ?? '').join(' ').trim();
-      if (text) office.addLog(inst.id, 'text', clip(text, 400));
+      if (text) state.addLog(inst.id, 'text', clip(text, 400));
       return false;
     }
     case 'agent.thinking':
-      office.setState(inst.id, 'thinking', 'думает…');
+      state.setState(inst.id, 'thinking', 'думает…');
       return false;
     case 'agent.tool_use': {
       const name = String(event.name ?? '');
       const brief = clip(JSON.stringify(event.input ?? {}), 60);
-      office.setState(inst.id, 'working', `${name}: ${brief}`);
-      office.addLog(inst.id, 'tool', `${name}: ${brief}`);
+      state.setState(inst.id, 'working', `${name}: ${brief}`);
+      state.addLog(inst.id, 'tool', `${name}: ${brief}`);
       if (event.evaluated_permission === 'ask' && event.id && !handled.includes(event.id)) {
         handled.push(event.id);
-        const decision = await office.requestPermission({
+        const decision = await state.requestPermission({
           agentId: inst.id,
           taskId: task.id,
           toolName: name,
@@ -402,13 +411,13 @@ async function consume(
       let isError = false;
 
       if (name === 'say') {
-        office.setState(inst.id, 'working', clip(input.text));
+        state.setState(inst.id, 'working', clip(input.text));
       } else if (name === 'check_criterion') {
-        const outcome = office.checkCriterion(task.id, Number(input.index), input.done !== false);
+        const outcome = state.checkCriterion(task.id, Number(input.index), input.done !== false);
         text = outcome.text;
         isError = !outcome.ok;
       } else if (name === 'finish_task') {
-        const fresh = office.tasks.get(task.id);
+        const fresh = state.tasks.get(task.id);
         const { done, total } = fresh ? criteriaProgress(fresh) : { done: 0, total: 0 };
         const gap = total && done < total ? `\n\n⚠️ Отмечено критериев: ${done} из ${total}.` : '';
         onFinish(String(input.summary ?? '') + gap, (input.files as string[] | undefined) ?? []);
@@ -427,7 +436,7 @@ async function consume(
       return false;
     }
     case 'session.error':
-      office.addLog(inst.id, 'error', `Облако: ${clip(JSON.stringify(event.error ?? event), 200)}`);
+      state.addLog(inst.id, 'error', `Облако: ${clip(JSON.stringify(event.error ?? event), 200)}`);
       return false;
     case 'session.status_idle': {
       const stop = (event.stop_reason ?? {}) as { type?: string };

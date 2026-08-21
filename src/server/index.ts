@@ -1,13 +1,17 @@
-import { WebSocketServer, WebSocket } from 'ws';
+import { WebSocketServer } from 'ws';
 import { createServer } from 'node:http';
 import { mkdirSync, existsSync, writeFileSync, readFileSync, statSync } from 'node:fs';
 import { extname, resolve } from 'node:path';
 import type { ClientCommand, ServerEvent } from '../shared/types';
 import { office, officeViews, openOfficeState, subscribeOffices } from './state';
+import {
+  broadcast, broadcastSnapshot, handleOfficeCommand, initOfficeApi, sendSnapshot,
+  unwatch, watch, watching,
+} from './office-api';
 import { assignDirect, holdMeeting, resetSessions, retryTask, sendUserMessage, setPaused, stopTask, taskDiff, talkTo } from './agents';
 import { mergeQueue, refreshMergeChecks } from './merge';
 import { githubToken, setGithubToken } from './cloud';
-import { clearInitFlag, createOffice, currentOffice, ensureOffice, loadRegistry, officeById, renameOffice, setCurrent, type OfficeEntry } from './offices';
+import { clearInitFlag, currentOffice, ensureOffice, loadRegistry, setCurrent, type OfficeEntry } from './offices';
 import { hasCommits, initRepo, isRepo } from './git';
 import { allRoles } from './roles';
 import { flushAll } from './store';
@@ -115,6 +119,28 @@ const MIME: Record<string, string> = {
 
 const httpServer = createServer((req, res) => {
   const url = (req.url ?? '/').split('?')[0];
+
+  // Список офисов доступен и по HTTP: меню открывается раньше, чем офис,
+  // и ему хватает реестра — поднимать ради списка WebSocket не обязательно.
+  // Меняют офисы только командами по сокету: создание и переключение
+  // трогают живое состояние процесса, и делать это запросом без сессии
+  // (а значит, без адресата для ответа и ошибки) было бы хуже.
+  if (url === '/api/offices') {
+    if (req.method !== 'GET') {
+      res.writeHead(405, { 'Content-Type': 'application/json; charset=utf-8', Allow: 'GET' });
+      res.end(JSON.stringify({ error: 'Список офисов отдаётся только по GET.' }));
+      return;
+    }
+    res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' });
+    res.end(JSON.stringify({ offices: officeViews() }));
+    return;
+  }
+  if (url.startsWith('/api/')) {
+    res.writeHead(404, { 'Content-Type': 'application/json; charset=utf-8' });
+    res.end(JSON.stringify({ error: `Метода ${url} нет.` }));
+    return;
+  }
+
   // Путь считаем от dist и проверяем, что не выбрались наружу: запрос
   // приходит из сети, и «../» в нём — обычное дело.
   const wanted = resolve(DIST, `.${decodeURIComponent(url)}`);
@@ -138,80 +164,21 @@ const httpServer = createServer((req, res) => {
 });
 
 const wss = new WebSocketServer({ server: httpServer });
-/**
- * Клиент смотрит ровно один офис — тот, который выбрал. Значение в карте
- * и есть его выбор: события другого офиса ему не уходят, иначе в открытой
- * вкладке смешались бы доски двух разных проектов.
- */
-const clients = new Map<WebSocket, string>();
 
-function broadcast(payload: string): void {
-  for (const [ws, watching] of clients) {
-    if (watching !== office.officeId) continue;
-    if (ws.readyState === WebSocket.OPEN) ws.send(payload);
-  }
-}
+// Кто какой офис смотрит, рассылка и команды офисов — в office-api.ts:
+// index.ts остаётся про транспорт, а не про правила выбора офиса.
+initOfficeApi({ openOffice });
 
-// Подписка на реестр, а не на один OfficeState: после переключения офиса
-// события идут уже от другого состояния, а сокеты остаются те же.
-subscribeOffices((event: ServerEvent) => broadcast(JSON.stringify(event)));
-
-function broadcastSnapshot(): void {
-  broadcast(JSON.stringify(office.snapshot()));
-}
-
-/**
- * Отдать клиенту открытый офис целиком и записать, что он смотрит именно его.
- * Закрытый сокет в карту не возвращаем: между командой и ответом вкладку
- * успевают закрыть, а карта живёт до конца процесса.
- */
-function sendSnapshot(ws: WebSocket): void {
-  if (ws.readyState !== WebSocket.OPEN) return;
-  clients.set(ws, office.officeId);
-  ws.send(JSON.stringify(office.snapshot()));
-}
-
-/**
- * Переключение проекта на ходу. Идущие задачи не бросаем: их сессии живут
- * в рабочей директории этого офиса, и оборвать их переключением значило бы
- * потерять работу молча. `ws` — клиент, который попросил: снапшот выбранного
- * офиса уходит ему в любом случае, даже если офис уже был открыт, — иначе
- * экран входа остался бы ждать ответа, которого нет.
- */
-async function switchOffice(officeId: string, ws?: WebSocket): Promise<void> {
-  const target = officeById(officeId);
-  if (!target) {
-    office.addChat('офис', `Офис ${officeId} не найден — похоже, список устарел.`);
-    return;
-  }
-  if (target.id === office.officeId) {
-    setCurrent(target.id);
-    if (ws) sendSnapshot(ws);
-    return;
-  }
-
-  const running = [...office.tasks.values()].filter((t) => t.status === 'in_progress');
-  if (running.length) {
-    office.addChat('офис',
-      `Сначала дождитесь или остановите задачи в работе: ${running.map((t) => t.id).join(', ')}.`);
-    return;
-  }
-
-  setCurrent(target.id);
-  resetSessions();
-  // Досохраняем именно закрываемый офис: openOffice ниже переключит файл.
-  office.flush();
-  await openOffice(target);
-  office.addLog(null, 'system', `Открыт офис «${target.name}» (${target.projectDir})`);
-  if (ws && clients.has(ws)) clients.set(ws, office.officeId);
-  broadcastSnapshot();
-}
+// Подписка на реестр, а не на один OfficeState: покинутый офис продолжает
+// работать и слать события, поэтому подписчик один на все офисы, а разбирает
+// их по адресатам метка officeId.
+subscribeOffices((event: ServerEvent, officeId: string) => broadcast(event, officeId));
 
 wss.on('connection', (ws) => {
-  clients.set(ws, office.officeId);
+  watch(ws);
   // Пока офис открывается, снапшота ещё нет: первый уходит после старта.
   void startup.then(() => {
-    if (clients.has(ws)) sendSnapshot(ws);
+    if (watching(ws)) sendSnapshot(ws);
   });
 
   ws.on('message', (raw) => {
@@ -221,6 +188,10 @@ wss.on('connection', (ws) => {
     } catch {
       return;
     }
+    // Офисы разбираются отдельно: список, создание, переключение и скрытие
+    // живут в своём модуле вместе с правилами рассылки.
+    if (handleOfficeCommand(cmd, ws)) return;
+
     if (cmd.c === 'user_message' && cmd.text.trim()) {
       sendUserMessage(cmd.text.trim());
     } else if (cmd.c === 'permission') {
@@ -257,22 +228,6 @@ wss.on('connection', (ws) => {
       assignDirect(cmd.taskId, cmd.instanceId);
     } else if (cmd.c === 'pause') {
       setPaused(cmd.paused);
-    } else if (cmd.c === 'switch_office') {
-      void switchOffice(cmd.officeId, ws);
-    } else if (cmd.c === 'create_office') {
-      // Путь пришёл от человека: несуществующую папку не заводим молча,
-      // а объясняем, что не так.
-      const made = createOffice({ name: cmd.name, projectDir: cmd.projectDir, mustExist: true });
-      if ('error' in made) {
-        office.addChat('офис', made.error);
-      } else {
-        office.emit({ t: 'offices', offices: officeViews() });
-        void switchOffice(made.office.id, ws);
-      }
-    } else if (cmd.c === 'rename_office') {
-      if (renameOffice(cmd.officeId, cmd.name)) {
-        office.emit({ t: 'offices', offices: officeViews() });
-      }
     } else if (cmd.c === 'cloud_token') {
       setGithubToken(cmd.token);
       office.setCloud({ hasToken: Boolean(githubToken()) });
@@ -285,7 +240,7 @@ wss.on('connection', (ws) => {
     }
   });
 
-  ws.on('close', () => clients.delete(ws));
+  ws.on('close', () => unwatch(ws));
 });
 
 httpServer.listen(PORT);

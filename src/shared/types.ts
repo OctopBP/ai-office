@@ -137,6 +137,9 @@ export interface OfficeActivity {
   lastEventAt: number | null;
 }
 
+/** Что клиент просил сделать с офисом — на случай отказа сервера. */
+export type OfficeOp = 'create' | 'switch' | 'rename' | 'remove';
+
 /** Офис = проект: своя директория, доска, расходы и файл состояния. */
 export interface OfficeView {
   id: string;
@@ -313,6 +316,12 @@ export type ServerEvent =
   | { t: 'busy'; busy: boolean }
   | { t: 'paused'; paused: boolean }
   | { t: 'offices'; offices: OfficeView[] }
+  /**
+   * Отказ по операции с офисом. Уходит только тому клиенту, который её
+   * просил: меню показывает текст в форме, а не ищет его в чате чужого
+   * проекта. Текст готов к показу как есть, переформулировать не нужно.
+   */
+  | { t: 'office.error'; op: OfficeOp; officeId: string | null; message: string }
   | { t: 'cloud'; cloud: CloudStatus }
   | { t: 'usage'; total: Usage; days: DayUsage[] }
   | { t: 'roles'; roles: RoleView[] }
@@ -353,6 +362,10 @@ export type ClientCommand =
   | { c: 'switch_office'; officeId: string }
   | { c: 'create_office'; name: string; projectDir: string }
   | { c: 'rename_office'; officeId: string; name: string }
+  /** Запросить список офисов, не дожидаясь снапшота: меню открывается раньше офиса. */
+  | { c: 'list_offices' }
+  /** Убрать офис из списка. Файлы проекта и его сохранение остаются на диске. */
+  | { c: 'remove_office'; officeId: string }
   | { c: 'cloud_token'; token: string }
   | { c: 'reset' };
 
