@@ -8,7 +8,9 @@ import type {
 } from '../shared/types';
 import { emptyUsage, MAX_TASK_MAX_TURNS, MIN_TASK_MAX_TURNS } from '../shared/types';
 import { activityFromFile, summarize } from './activity';
-import { DEFAULT_LAYOUT_ID, DESKS, hasLayout, layoutOptions, PM_DESK_INDEX } from './layout';
+import {
+  DEFAULT_LAYOUT_ID, deskPlan, hasLayout, layoutOptions, layoutTitle, type DeskPlan,
+} from './layout';
 import { currentOffice, offices } from './offices';
 import { effectiveMode, isPermissionMode, modeLabel } from './permissions';
 import type { MessageQueue } from './queue';
@@ -378,7 +380,8 @@ export class OfficeState {
     const role = roleById(pi.roleId);
     if (!role) return;   // роль исчезла из реестра — восстанавливать некого
     const taken = new Set([...this.instances.values()].map((i) => i.desk.index));
-    const desk = (!taken.has(pi.deskIndex) && DESKS.find((d) => d.index === pi.deskIndex))
+    const desks = this.deskPlan().desks;
+    const desk = (!taken.has(pi.deskIndex) && desks.find((d) => d.index === pi.deskIndex))
       || this.freeDesk();
     if (!desk) return;
     const n = pi.id.split('#')[1] ?? '1';
@@ -439,9 +442,17 @@ export class OfficeState {
     this.markDirty();
   }
 
+  /**
+   * Столы этого офиса — по его раскладке. Общей на процесс «текущей
+   * раскладки» нет: офисов в памяти несколько, и у каждого свой layoutId.
+   */
+  private deskPlan(): DeskPlan {
+    return deskPlan(this.settings.layoutId);
+  }
+
   private freeDesk(): Desk | null {
     const taken = new Set([...this.instances.values()].map((i) => i.desk.index));
-    return DESKS.find((d) => !taken.has(d.index)) ?? null;
+    return this.deskPlan().desks.find((d) => !taken.has(d.index)) ?? null;
   }
 
   /** Сотрудники роли: пустой список — вакансия открыта, никого не нанято. */
@@ -467,7 +478,9 @@ export class OfficeState {
     const existing = this.staffOf(roleId);
     if (existing.length >= role.maxInstances) return null;
     // PM всегда садится за свой стол, остальные — на любой свободный.
-    const desk = role.isManager ? DESKS[PM_DESK_INDEX] : this.freeDesk();
+    // Стол PM закреплён раскладкой этого офиса, а не общим на процесс числом.
+    const plan = this.deskPlan();
+    const desk = role.isManager ? plan.desks[plan.pmIndex] ?? null : this.freeDesk();
     if (!desk) return null;
 
     const n = this.nextNumber(roleId);
@@ -790,10 +803,9 @@ export class OfficeState {
     this.emit({ t: 'settings', settings: this.settings });
     if (this.settings.layoutId !== prevLayout) {
       // Раскладка меняет офис на глаз, а не одно число в форме, — это событие
-      // для ленты. Столы по ней пока не пересчитываются: это следующая задача.
-      const title = layoutOptions().find((l) => l.id === this.settings.layoutId)?.title
-        ?? this.settings.layoutId;
-      this.addLog(null, 'system', `Раскладка офиса: «${title}»`);
+      // для ленты. Новые столы уже считаются по ней, но пересадка тех, кто
+      // сидит за старыми, — следующая задача.
+      this.addLog(null, 'system', `Раскладка офиса: «${layoutTitle(this.settings.layoutId)}»`);
     }
     // Смена режима офиса меняет эффективный режим всех, кто его наследует, —
     // без этого UI показывал бы старое до следующего снимка.
@@ -852,8 +864,10 @@ export class OfficeState {
     }
     const inst = this.spawn(roleId);
     if (!inst) {
-      return `Некуда посадить: в офисе ${DESKS.length} рабочих мест и все заняты. ` +
-        'Сначала увольте кого-нибудь.';
+      // Верхняя граница штата — число столов в раскладке ЭТОГО офиса:
+      // в тесной раскладке офис вмещает меньше людей, чем в просторной.
+      return `Некуда посадить: в раскладке «${layoutTitle(this.settings.layoutId)}» ` +
+        `${this.deskPlan().desks.length} рабочих мест и все заняты. Сначала увольте кого-нибудь.`;
     }
     this.addLog(null, 'system', `Нанят ${inst.label} (${inst.id})`);
     this.emit({ t: 'roles', roles: this.roleViews() });
