@@ -36,6 +36,13 @@ const cases: Case[] = [
   ['Bash',  { command: 'node server.js --port 3000' },           'write'],
 ];
 
+// Пустой список кейсов дал бы «все 0 кейсов прошли» — зелёный прогон, в котором
+// ничего не проверялось. Такому результату верить нельзя, это провал.
+if (cases.length === 0) {
+  console.error('кейсов классификатора не найдено — прогону верить нельзя');
+  process.exit(2);
+}
+
 let failed = 0;
 for (const [tool, input, expect] of cases) {
   const v = classify(tool, input, DIR);
@@ -79,6 +86,11 @@ const modeCases: ModeCase[] = [
   // Чтение не спрашиваем и не запрещаем ни в одном режиме.
   ['readonly не мешает читать', 'readonly', null,     'ask-risky', 'safe',   'allow'],
 ];
+
+if (modeCases.length === 0) {
+  console.error('кейсов режимов доступа не найдено — прогону верить нельзя');
+  process.exit(2);
+}
 
 let modeFailed = 0;
 for (const [what, agent, role, officeMode, risk, expect] of modeCases) {

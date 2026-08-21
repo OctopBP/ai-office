@@ -15,6 +15,10 @@ import WebSocket from 'ws';
 import type { ServerEvent, TaskView } from '../src/shared/types';
 
 const PORT = Number(process.env.OFFICE_PORT ?? 3002);
+// Код возврата «прогона не было»: обёртка обязана отличать его от честного
+// провала проверок (1). Зелёный прогон, в котором не выполнено ни одного
+// сценария, — худшее из возможного: ему верят, а проверять он ничего не мог.
+const NOT_RUN = 2;
 // Ход считается законченным, только когда PM УЖЕ ответил в чат и после этого
 // наступила тишина. Просто «N секунд тишины» не годится: пауза до первого
 // вызова инструмента легко больше любого разумного порога.
@@ -354,16 +358,44 @@ async function main(): Promise<void> {
   // иначе хвост предыдущего хода менеджера попадает на свежую доску и
   // проверки начинают плавать между прогонами.
   if (process.argv[2] === '--list') {
+    if (SCENARIOS.length === 0) {
+      console.error('сценариев не найдено: список SCENARIOS пуст');
+      process.exit(NOT_RUN);
+    }
     console.log(SCENARIOS.map((s) => s.name).join('\n'));
+    // Метка для обёртки: по ней видно, что список дошёл целиком, а не оборвался
+    // на середине и не подменился чужим выводом.
+    console.log(`#total=${SCENARIOS.length}`);
     return;
   }
   const only = process.argv[2];
   const list = only ? SCENARIOS.filter((s) => s.name.toLowerCase().includes(only.toLowerCase())) : SCENARIOS;
+  if (list.length === 0) {
+    console.error(only
+      ? `сценариев не найдено: под «${only}» не подошёл ни один из ${SCENARIOS.length}`
+      : 'сценариев не найдено: список SCENARIOS пуст');
+    process.exit(NOT_RUN);
+  }
   let failed = 0;
+  let ran = 0;
 
   for (const sc of list) {
     process.stdout.write(`\n▶ ${sc.name}\n`);
-    const run = await runScenario(sc);
+    let run: Run;
+    try {
+      run = await runScenario(sc);
+    } catch (err) {
+      // Сценарий не состоялся (сервер не отвечает, сокет оборвался) — это не
+      // «проверки не прошли», а «прогона не было»: молчать об этом нельзя.
+      console.error(`   ⚠ сценарий не прогнан: ${err instanceof Error ? err.message : String(err)}`);
+      continue;
+    }
+    ran += 1;
+    if (sc.checks.length === 0) {
+      console.log('   ❌ у сценария нет ни одной проверки');
+      failed += 1;
+      continue;
+    }
     for (const check of sc.checks) {
       const ok = check.ok(run);
       if (!ok) failed += 1;
@@ -375,8 +407,16 @@ async function main(): Promise<void> {
     }
   }
 
-  console.log(failed === 0 ? '\nВсе проверки прошли' : `\nПРОВАЛЕНО проверок: ${failed}`);
+  const tail = `прогнано сценариев: ${ran} из ${list.length}`;
+  if (ran < list.length) {
+    console.log(`\n${tail} — часть не прогнана, прогону верить нельзя`);
+    process.exit(NOT_RUN);
+  }
+  console.log(failed === 0 ? `\n${tail}, все проверки прошли` : `\n${tail}, ПРОВАЛЕНО проверок: ${failed}`);
   process.exit(failed === 0 ? 0 : 1);
 }
 
-void main();
+void main().catch((err) => {
+  console.error(`прогон сорвался: ${err instanceof Error ? err.stack ?? err.message : String(err)}`);
+  process.exit(NOT_RUN);
+});

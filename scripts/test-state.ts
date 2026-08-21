@@ -245,10 +245,23 @@ async function main(): Promise<void> {
   wipe(regA);
   wipe(regB);
 
-  const failed = results.filter((r) => r.endsWith('false'));
-  for (const r of results) console.log(`  ${r.endsWith('false') ? '❌' : '✅'} ${r}`);
-  console.log(failed.length ? `ПРОВАЛЕНО: ${failed.length}` : 'Все проверки прошли');
+  // Прошедшей считается только строка, кончающаяся на true. Раньше проверялось
+  // обратное — «не false», — и любая строка, где вместо булева оказалось
+  // undefined или текст, молча шла в зачёт.
+  const failed = results.filter((r) => !r.endsWith('true'));
+  for (const r of results) console.log(`  ${r.endsWith('true') ? '✅' : '❌'} ${r}`);
+  if (results.length === 0) {
+    console.error('не выполнено ни одной проверки — прогону верить нельзя');
+    process.exit(2);
+  }
+  console.log(failed.length
+    ? `ПРОВАЛЕНО: ${failed.length} из ${results.length}`
+    : `Все проверки прошли: ${results.length}`);
   process.exit(failed.length ? 1 : 0);
 }
 
-void main();
+// Упавший прогон обязан быть виден как провал, а не как тихо оборванный успех.
+void main().catch((err) => {
+  console.error(`прогон сорвался: ${err instanceof Error ? err.stack ?? err.message : String(err)}`);
+  process.exit(2);
+});
