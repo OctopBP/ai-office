@@ -352,6 +352,7 @@ button
 .layer { position: absolute; left: 0; top: 0; }
 .layer.floor { z-index: 0; }
 .layer.wall { z-index: 1; }
+.floor-tile { position: absolute; z-index: 0; }
 .decor { position: absolute; z-index: 2; }
 .desk-img { position: absolute; }
 

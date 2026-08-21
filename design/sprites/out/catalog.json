@@ -189,6 +189,78 @@
         15.0
       ]
     },
+    "floor_carpet_0": {
+      "size": [
+        1.0,
+        1.0
+      ]
+    },
+    "floor_carpet_1": {
+      "size": [
+        1.0,
+        1.0
+      ]
+    },
+    "floor_carpet_2": {
+      "size": [
+        1.0,
+        1.0
+      ]
+    },
+    "floor_carpet_3": {
+      "size": [
+        1.0,
+        1.0
+      ]
+    },
+    "floor_parquet_0": {
+      "size": [
+        1.0,
+        1.0
+      ]
+    },
+    "floor_parquet_1": {
+      "size": [
+        1.0,
+        1.0
+      ]
+    },
+    "floor_parquet_2": {
+      "size": [
+        1.0,
+        1.0
+      ]
+    },
+    "floor_parquet_3": {
+      "size": [
+        1.0,
+        1.0
+      ]
+    },
+    "floor_tile_0": {
+      "size": [
+        1.0,
+        1.0
+      ]
+    },
+    "floor_tile_1": {
+      "size": [
+        1.0,
+        1.0
+      ]
+    },
+    "floor_tile_2": {
+      "size": [
+        1.0,
+        1.0
+      ]
+    },
+    "floor_tile_3": {
+      "size": [
+        1.0,
+        1.0
+      ]
+    },
     "fridge": {
       "size": [
         0.875,
@@ -317,6 +389,253 @@
         24.0,
         2.0
       ]
+    },
+    "wall_0": {
+      "size": [
+        1.0,
+        1.5
+      ],
+      "footprint": [
+        0,
+        0.5,
+        1,
+        1
+      ],
+      "layer": "wall"
+    },
+    "wall_1": {
+      "size": [
+        1.0,
+        1.5
+      ],
+      "footprint": [
+        0,
+        0.5,
+        1,
+        1
+      ],
+      "layer": "wall"
+    },
+    "wall_10": {
+      "size": [
+        1.0,
+        1.5
+      ],
+      "footprint": [
+        0,
+        0.5,
+        1,
+        1
+      ],
+      "layer": "wall"
+    },
+    "wall_11": {
+      "size": [
+        1.0,
+        1.5
+      ],
+      "footprint": [
+        0,
+        0.5,
+        1,
+        1
+      ],
+      "layer": "wall"
+    },
+    "wall_12": {
+      "size": [
+        1.0,
+        1.5
+      ],
+      "footprint": [
+        0,
+        0.5,
+        1,
+        1
+      ],
+      "layer": "wall"
+    },
+    "wall_13": {
+      "size": [
+        1.0,
+        1.5
+      ],
+      "footprint": [
+        0,
+        0.5,
+        1,
+        1
+      ],
+      "layer": "wall"
+    },
+    "wall_14": {
+      "size": [
+        1.0,
+        1.5
+      ],
+      "footprint": [
+        0,
+        0.5,
+        1,
+        1
+      ],
+      "layer": "wall"
+    },
+    "wall_15": {
+      "size": [
+        1.0,
+        1.5
+      ],
+      "footprint": [
+        0,
+        0.5,
+        1,
+        1
+      ],
+      "layer": "wall"
+    },
+    "wall_2": {
+      "size": [
+        1.0,
+        1.5
+      ],
+      "footprint": [
+        0,
+        0.5,
+        1,
+        1
+      ],
+      "layer": "wall"
+    },
+    "wall_3": {
+      "size": [
+        1.0,
+        1.5
+      ],
+      "footprint": [
+        0,
+        0.5,
+        1,
+        1
+      ],
+      "layer": "wall"
+    },
+    "wall_4": {
+      "size": [
+        1.0,
+        1.5
+      ],
+      "footprint": [
+        0,
+        0.5,
+        1,
+        1
+      ],
+      "layer": "wall"
+    },
+    "wall_5": {
+      "size": [
+        1.0,
+        1.5
+      ],
+      "footprint": [
+        0,
+        0.5,
+        1,
+        1
+      ],
+      "layer": "wall"
+    },
+    "wall_6": {
+      "size": [
+        1.0,
+        1.5
+      ],
+      "footprint": [
+        0,
+        0.5,
+        1,
+        1
+      ],
+      "layer": "wall"
+    },
+    "wall_7": {
+      "size": [
+        1.0,
+        1.5
+      ],
+      "footprint": [
+        0,
+        0.5,
+        1,
+        1
+      ],
+      "layer": "wall"
+    },
+    "wall_8": {
+      "size": [
+        1.0,
+        1.5
+      ],
+      "footprint": [
+        0,
+        0.5,
+        1,
+        1
+      ],
+      "layer": "wall"
+    },
+    "wall_9": {
+      "size": [
+        1.0,
+        1.5
+      ],
+      "footprint": [
+        0,
+        0.5,
+        1,
+        1
+      ],
+      "layer": "wall"
+    },
+    "wall_door_l": {
+      "size": [
+        1.0,
+        1.5
+      ],
+      "footprint": [
+        0,
+        0.5,
+        1,
+        1
+      ],
+      "layer": "wall"
+    },
+    "wall_door_r": {
+      "size": [
+        1.0,
+        1.5
+      ],
+      "footprint": [
+        0,
+        0.5,
+        1,
+        1
+      ],
+      "layer": "wall"
+    },
+    "wall_window": {
+      "size": [
+        1.0,
+        1.5
+      ],
+      "footprint": [
+        0,
+        0.5,
+        1,
+        1
+      ],
+      "layer": "wall"
     },
     "window": {
       "size": [
