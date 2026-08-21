@@ -125,6 +125,23 @@ export interface Settings {
   cloudRepoUrl: string | null;
   /** Режим доступа офиса: его наследуют роли без собственного режима. */
   officePermissionMode: PermissionMode;
+  /**
+   * Расстановка мебели: id пресета `design/layouts/<id>.json`. В старых
+   * сохранениях поля нет — там подставляется `classic`, и заведённые раньше
+   * офисы выглядят ровно так же, как выглядели.
+   */
+  layoutId: string;
+}
+
+/**
+ * Пресет раскладки для выбора в интерфейсе. Сама раскладка клиенту отсюда не
+ * едет: веб читает design/layouts через import.meta.glob, а списку нужны только
+ * id и подпись, чтобы было из чего выбирать.
+ */
+export interface LayoutOption {
+  id: string;
+  /** Человекочитаемое название — поле `title` раскладки. */
+  title: string;
 }
 
 /**
@@ -333,6 +350,12 @@ export type ServerEvent =
       meeting: MeetingView | null; busy: boolean; paused: boolean;
       usage: { total: Usage; days: DayUsage[] };
       offices: OfficeView[]; cloud: CloudStatus;
+      /**
+       * Из чего можно выбирать раскладку. Список читается с диска на каждый
+       * снапшот, так что новый файл в design/layouts появляется в нём без
+       * перезапуска. Какая раскладка выбрана — в `settings.layoutId`.
+       */
+      layouts: LayoutOption[];
       /** Статусы слияния по завершённым задачам и последний прогон очереди. */
       mergeChecks: MergeCheck[]; mergeRun: MergeRun | null }
   | { t: 'instance'; instance: InstanceView }

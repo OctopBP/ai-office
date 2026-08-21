@@ -222,7 +222,10 @@ wss.on('connection', (ws) => {
         office.setAgentPermissionMode(cmd.instanceId, cmd.mode);
       }
     } else if (cmd.c === 'settings') {
-      office.updateSettings(cmd.settings);
+      // Отказ по настройкам говорим тем же способом, что и по найму: текст
+      // готов к показу, придумывать формулировку клиенту не нужно.
+      const problem = office.updateSettings(cmd.settings);
+      if (problem) office.addChat('офис', problem);
     } else if (cmd.c === 'talk' && cmd.text.trim()) {
       talkTo(cmd.instanceId, cmd.text.trim());
     } else if (cmd.c === 'stop_task') {

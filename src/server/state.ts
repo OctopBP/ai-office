@@ -4,11 +4,11 @@ import type {
   AgentState, ChatEntry, Criterion, DayUsage, Desk, InstanceView, LogEntry,
   PermissionDecision, AuthSource, MeetingView, PermissionMode, PermissionRequest, RoleEditable,
   RoleView, ServerEvent, Settings, TaskStatus, TaskView, Usage,
-  CloudStatus, OfficeView, MergeCheck, MergeRun,
+  CloudStatus, OfficeView, MergeCheck, MergeRun, LayoutOption,
 } from '../shared/types';
 import { emptyUsage, MAX_TASK_MAX_TURNS, MIN_TASK_MAX_TURNS } from '../shared/types';
 import { activityFromFile, summarize } from './activity';
-import { DESKS, PM_DESK_INDEX } from './layout';
+import { DEFAULT_LAYOUT_ID, DESKS, hasLayout, layoutOptions, PM_DESK_INDEX } from './layout';
 import { currentOffice, offices } from './offices';
 import { effectiveMode, isPermissionMode, modeLabel } from './permissions';
 import type { MessageQueue } from './queue';
@@ -41,6 +41,7 @@ export const DEFAULT_SETTINGS: Settings = {
   engine: 'local',
   cloudRepoUrl: null,
   officePermissionMode: 'ask-risky',
+  layoutId: DEFAULT_LAYOUT_ID,
 };
 
 /**
@@ -314,6 +315,13 @@ export class OfficeState {
     setRoleOverrides(data.roleOverrides ?? {});
     // Сохранения старше настройки движка не знают про облако — дополняем.
     this.settings = { ...DEFAULT_SETTINGS, ...(data.settings ?? {}) };
+    // Файл раскладки могли удалить между запусками. Офис без мебели — не
+    // состояние, в котором его можно оставить: молча возвращаем к classic.
+    if (!hasLayout(this.settings.layoutId)) {
+      console.log(`⚠️  Раскладка «${this.settings.layoutId}» не найдена — ` +
+        `офис ${this.officeId} открыт по «${DEFAULT_LAYOUT_ID}»`);
+      this.settings = { ...this.settings, layoutId: DEFAULT_LAYOUT_ID };
+    }
     // Файл состояния правят руками: испорченный лимит ходов обрушил бы каждую
     // задачу офиса, поэтому непригодное значение откатываем к умолчанию.
     // null здесь законен («без ограничения»), поэтому отличаем его от undefined.
@@ -750,8 +758,14 @@ export class OfficeState {
     this.markDirty();
   }
 
-  updateSettings(patch: Partial<Settings>): void {
+  /**
+   * Обновить настройки офиса. Возвращает причину отказа по-русски или null.
+   * Отказ означает, что не применено ничего: настройки сохраняются одной
+   * формой, и «половина приехала» человеку не объяснить.
+   */
+  updateSettings(patch: Partial<Settings>): string | null {
     const prevMode = this.settings.officePermissionMode;
+    const prevLayout = this.settings.layoutId;
     const next = { ...patch };
     // Режим приходит от клиента: чужое значение испортило бы решение по
     // каждому вызову инструмента, поэтому непонятное просто не берём.
@@ -765,8 +779,22 @@ export class OfficeState {
       if (clean === undefined) delete next.taskMaxTurns;
       else next.taskMaxTurns = clean;
     }
+    // Раскладку, наоборот, молча отбросить нельзя: человек выбрал её сам и
+    // ждёт, что офис переставится. Тихо оставленная прежняя выглядела бы как
+    // «кнопка не работает», поэтому про неизвестный id говорим прямо.
+    if (next.layoutId !== undefined && next.layoutId !== prevLayout && !hasLayout(next.layoutId)) {
+      const known = layoutOptions().map((l) => l.id).join(', ') || 'ни одной';
+      return `Раскладки «${next.layoutId}» нет в design/layouts. Доступны: ${known}.`;
+    }
     this.settings = { ...this.settings, ...next };
     this.emit({ t: 'settings', settings: this.settings });
+    if (this.settings.layoutId !== prevLayout) {
+      // Раскладка меняет офис на глаз, а не одно число в форме, — это событие
+      // для ленты. Столы по ней пока не пересчитываются: это следующая задача.
+      const title = layoutOptions().find((l) => l.id === this.settings.layoutId)?.title
+        ?? this.settings.layoutId;
+      this.addLog(null, 'system', `Раскладка офиса: «${title}»`);
+    }
     // Смена режима офиса меняет эффективный режим всех, кто его наследует, —
     // без этого UI показывал бы старое до следующего снимка.
     if (this.settings.officePermissionMode !== prevMode) {
@@ -780,6 +808,7 @@ export class OfficeState {
         `Режим доступа офиса: «${modeLabel(this.officeMode())}»`);
     }
     this.markDirty();
+    return null;
   }
 
   /**
@@ -924,6 +953,14 @@ export class OfficeState {
     this.emit({ t: 'busy', busy });
   }
 
+  /**
+   * Из чего офис может выбрать раскладку. Читается с диска, а не хранится:
+   * пресеты в этом проекте добавляют не выключая офис.
+   */
+  layouts(): LayoutOption[] {
+    return layoutOptions();
+  }
+
   snapshot(): ServerEvent {
     return {
       t: 'snapshot',
@@ -941,6 +978,7 @@ export class OfficeState {
       paused: this.paused,
       usage: { total: this.usage, days: this.usageDays() },
       offices: officeViews(),
+      layouts: this.layouts(),
       cloud: this.cloud,
       mergeChecks: [...this.mergeChecks.values()],
       mergeRun: this.mergeRun,
