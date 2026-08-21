@@ -1,0 +1,283 @@
+{
+  "version": 1,
+  "tile": 16,
+  "scale": 3,
+  "sprites": {
+    "agent_backend1": {
+      "size": [
+        1.0,
+        1.5
+      ]
+    },
+    "agent_backend2": {
+      "size": [
+        1.0,
+        1.5
+      ]
+    },
+    "agent_frontend1": {
+      "size": [
+        1.0,
+        1.5
+      ]
+    },
+    "agent_pm": {
+      "size": [
+        1.0,
+        1.5
+      ]
+    },
+    "agent_uiux": {
+      "size": [
+        1.0,
+        1.5
+      ]
+    },
+    "arcade": {
+      "size": [
+        1.0,
+        2.0
+      ]
+    },
+    "beanbag": {
+      "size": [
+        1.0,
+        0.6875
+      ]
+    },
+    "board": {
+      "size": [
+        3.25,
+        1.875
+      ]
+    },
+    "bookshelf": {
+      "size": [
+        1.625,
+        1.875
+      ]
+    },
+    "chair": {
+      "size": [
+        0.875,
+        0.8125
+      ]
+    },
+    "clock": {
+      "size": [
+        0.75,
+        0.75
+      ]
+    },
+    "coffee_machine": {
+      "size": [
+        0.75,
+        1.125
+      ]
+    },
+    "coin": {
+      "size": [
+        0.625,
+        0.625
+      ]
+    },
+    "console": {
+      "size": [
+        1.375,
+        0.75
+      ]
+    },
+    "cooler": {
+      "size": [
+        0.625,
+        1.5
+      ]
+    },
+    "counter": {
+      "size": [
+        2.5,
+        1.375
+      ]
+    },
+    "counter_corner": {
+      "size": [
+        2.0,
+        2.0
+      ]
+    },
+    "counter_straight": {
+      "size": [
+        2.0,
+        1.375
+      ]
+    },
+    "desk": {
+      "size": [
+        2.0,
+        1.375
+      ]
+    },
+    "desk_ghost": {
+      "size": [
+        2.0,
+        1.375
+      ]
+    },
+    "desk_pm": {
+      "size": [
+        2.0,
+        1.375
+      ]
+    },
+    "dining_table": {
+      "size": [
+        6.0,
+        1.375
+      ]
+    },
+    "door": {
+      "size": [
+        0.75,
+        1.875
+      ]
+    },
+    "doormat": {
+      "size": [
+        1.0,
+        0.5
+      ]
+    },
+    "floor": {
+      "size": [
+        24.0,
+        15.0
+      ]
+    },
+    "fridge": {
+      "size": [
+        0.875,
+        1.875
+      ]
+    },
+    "game_rug": {
+      "size": [
+        10.0,
+        4.0
+      ]
+    },
+    "gamepad": {
+      "size": [
+        0.625,
+        0.375
+      ]
+    },
+    "kitchen_mugs": {
+      "size": [
+        0.75,
+        0.5
+      ]
+    },
+    "kitchen_snack": {
+      "size": [
+        0.875,
+        0.5
+      ]
+    },
+    "kitchen_tiles": {
+      "size": [
+        8.0,
+        6.0
+      ]
+    },
+    "logscreen": {
+      "size": [
+        2.75,
+        1.625
+      ]
+    },
+    "neon_sign": {
+      "size": [
+        1.625,
+        1.0
+      ]
+    },
+    "plant_big": {
+      "size": [
+        1.0,
+        1.625
+      ]
+    },
+    "plant_small": {
+      "size": [
+        0.75,
+        1.125
+      ]
+    },
+    "poster": {
+      "size": [
+        0.875,
+        1.125
+      ]
+    },
+    "round_table": {
+      "size": [
+        1.875,
+        1.375
+      ]
+    },
+    "rug": {
+      "size": [
+        7.0,
+        4.0
+      ]
+    },
+    "server_rack": {
+      "size": [
+        0.875,
+        1.875
+      ]
+    },
+    "shadow": {
+      "size": [
+        0.875,
+        0.3125
+      ]
+    },
+    "sink_counter": {
+      "size": [
+        2.0,
+        1.375
+      ]
+    },
+    "sofa": {
+      "size": [
+        3.25,
+        1.75
+      ]
+    },
+    "sofa_front": {
+      "size": [
+        3.25,
+        0.8125
+      ]
+    },
+    "tv": {
+      "size": [
+        2.0,
+        1.875
+      ]
+    },
+    "wall": {
+      "size": [
+        24.0,
+        2.0
+      ]
+    },
+    "window": {
+      "size": [
+        2.125,
+        1.5
+      ]
+    }
+  }
+}

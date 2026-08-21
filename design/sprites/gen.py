@@ -6,11 +6,13 @@
     python3 design/sprites/gen.py night      → только ночь
 """
 from PIL import Image, ImageDraw
-import os, random, sys
+import json, os, random, sys
 
 SCALE = 3
 T = 16
 ROOT = os.path.join(os.path.dirname(__file__), 'out')
+CATALOG_PATH = os.path.join(ROOT, 'catalog.json')
+CATALOG = {}  # имя спрайта → размер в тайлах, копится за время работы процесса
 
 # ---------- палитры ----------
 PAL_DAY = dict(
@@ -72,6 +74,29 @@ def save(im, name):
     big = im.resize((im.width * SCALE, im.height * SCALE), Image.NEAREST)
     big.save(os.path.join(OUT, name + '.png'))
     print(os.path.basename(OUT), name, big.size)
+    size = [round(im.width / T, 4), round(im.height / T, 4)]
+    prev = CATALOG.get(name)
+    if prev is not None and prev != size:
+        raise ValueError(f'{name}: размер разошёлся между темами: {prev} vs {size}')
+    CATALOG[name] = size
+
+
+def dump_catalog():
+    """Слить накопленные за этот запуск размеры в общий design/sprites/out/catalog.json.
+
+    Файл мержится, а не перезаписывается целиком: gen.py и gen_kitchen.py
+    запускаются отдельными процессами и каждый знает только свои спрайты.
+    """
+    sprites = {}
+    if os.path.exists(CATALOG_PATH):
+        with open(CATALOG_PATH) as f:
+            sprites = json.load(f).get('sprites', {})
+    sprites.update({name: {'size': size} for name, size in CATALOG.items()})
+    data = {'version': 1, 'tile': T, 'scale': SCALE, 'sprites': dict(sorted(sprites.items()))}
+    with open(CATALOG_PATH, 'w') as f:
+        json.dump(data, f, ensure_ascii=False, indent=2)
+        f.write('\n')
+    print('catalog', CATALOG_PATH, len(sprites), 'спрайтов')
 
 
 def R(d, x0, y0, x1, y1, fill, outline=None):
@@ -742,3 +767,4 @@ if __name__ == '__main__':
     themes = sys.argv[1:] or ['day', 'night']
     for t in themes:
         build(t)
+    dump_catalog()

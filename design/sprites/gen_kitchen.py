@@ -198,3 +198,4 @@ if __name__ == '__main__':
     themes = sys.argv[1:] or ['day', 'night']
     for t in themes:
         build(t)
+    gen.dump_catalog()

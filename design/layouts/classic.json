@@ -1,0 +1,51 @@
+{
+  "version": 1,
+  "id": "classic",
+  "title": "Классический офис",
+  "size": [24, 15],
+  "props": [
+    { "sprite": "clock", "at": [17.6, 0.5] },
+    { "sprite": "window", "at": [19.4, 0.4] },
+    { "sprite": "bookshelf", "at": [22.2, 0.2] },
+    { "sprite": "doormat", "at": [0.9, 7.0] },
+    { "sprite": "poster", "at": [9.4, 2.4] },
+    { "sprite": "neon_sign", "at": [20.4, 2.5] },
+    { "sprite": "server_rack", "at": [22.2, 3.2] },
+    { "sprite": "plant_big", "at": [22.4, 6.4] },
+    { "sprite": "plant_small", "at": [0.4, 2.6] },
+    { "sprite": "plant_small", "at": [19.0, 8.6] },
+    { "sprite": "rug", "at": [0.4, 10.0], "scale": 1.2 },
+    { "sprite": "round_table", "at": [2.7, 11.1], "scale": 1.6 },
+    { "sprite": "chair", "at": [3.8, 10.7] },
+    { "sprite": "chair", "at": [5.3, 11.3] },
+    { "sprite": "chair", "at": [5.3, 12.3] },
+    { "sprite": "chair", "at": [3.8, 12.8] },
+    { "sprite": "chair", "at": [2.2, 12.3] },
+    { "sprite": "chair", "at": [2.2, 11.3] },
+    { "sprite": "kitchen_tiles", "at": [16.0, 9.0] },
+    { "sprite": "fridge", "at": [16.1, 9.5] },
+    { "sprite": "cooler", "at": [17.1, 9.5] },
+    { "sprite": "counter_straight", "at": [18.0, 9.1] },
+    { "sprite": "coffee_machine", "at": [18.0, 9.1] },
+    { "sprite": "sink_counter", "at": [20.0, 9.1] },
+    { "sprite": "counter_corner", "at": [22.0, 9.1] },
+    { "sprite": "dining_table", "at": [17.0, 12.2] },
+    { "sprite": "chair", "at": [17.75, 11.45] },
+    { "sprite": "chair", "at": [19.25, 11.45] },
+    { "sprite": "chair", "at": [20.75, 11.45] },
+    { "sprite": "chair", "at": [22.25, 11.45] },
+    { "sprite": "chair", "at": [17.75, 13.475] },
+    { "sprite": "chair", "at": [19.25, 13.475] },
+    { "sprite": "chair", "at": [20.75, 13.475] },
+    { "sprite": "chair", "at": [22.25, 13.475] },
+    { "sprite": "kitchen_mugs", "at": [19.6, 12.5] },
+    { "sprite": "kitchen_snack", "at": [21.3, 12.5] }
+  ],
+  "zones": [
+    { "kind": "entrance", "at": [0.1, 5.6], "sprite": "door", "title": "Офисы и проекты" }
+  ],
+  "hotspots": [
+    { "panel": "board", "sprite": "board", "at": [12.6, 0.1], "key": "B", "title": "Доска задач — B" },
+    { "panel": "log", "sprite": "logscreen", "at": [6.2, 0.3], "key": "L", "title": "Лог событий — L" }
+  ]
+}
