@@ -4,7 +4,7 @@ import type {
   MergeStepStatus, PermissionDecision, PermissionMode, PermissionRequest, MeetingView, RoleEditable,
   RoleView, ServerEvent, Settings, TaskView, Usage, CloudStatus, OfficeView,
 } from '../shared/types';
-import { emptyUsage } from '../shared/types';
+import { emptyUsage, MIN_TASK_MAX_TURNS, MAX_TASK_MAX_TURNS } from '../shared/types';
 import type { Theme } from './sprites';
 import { catalog, kitchenSeatFor, layout } from './layoutData';
 import { meetingSeat } from '../shared/layout';
@@ -587,6 +587,24 @@ export function updateRole(roleId: string, patch: Partial<RoleEditable>): void {
 
 export function updateSettings(settings: Partial<Settings>): void {
   socket?.send(JSON.stringify({ c: 'settings', settings }));
+}
+
+/**
+ * Разбирает поле лимита шагов исполнителя. Пустая строка — «без ограничения»
+ * (null, отправлять можно). Значение вне [MIN_TASK_MAX_TURNS; MAX_TASK_MAX_TURNS]
+ * или нецелое — ошибка, value в этом случае отправлять нельзя.
+ */
+export function parseTaskMaxTurns(v: string): { value: number | null; error: string | null } {
+  const trimmed = v.trim();
+  if (trimmed === '') return { value: null, error: null };
+  const n = Number(trimmed);
+  if (!Number.isInteger(n) || n < MIN_TASK_MAX_TURNS || n > MAX_TASK_MAX_TURNS) {
+    return {
+      value: null,
+      error: `Целое число от ${MIN_TASK_MAX_TURNS} до ${MAX_TASK_MAX_TURNS} или пусто — без ограничения`,
+    };
+  }
+  return { value: n, error: null };
 }
 
 /** Личный режим доступа сотрудника; null — вернуть к режиму роли. */

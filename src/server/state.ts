@@ -6,7 +6,7 @@ import type {
   RoleView, ServerEvent, Settings, TaskStatus, TaskView, Usage,
   CloudStatus, OfficeView, MergeCheck, MergeRun, LayoutOption,
 } from '../shared/types';
-import { emptyUsage } from '../shared/types';
+import { emptyUsage, MAX_TASK_MAX_TURNS, MIN_TASK_MAX_TURNS } from '../shared/types';
 import { activityFromFile, summarize } from './activity';
 import { DEFAULT_LAYOUT_ID, DESKS, hasLayout, layoutOptions, PM_DESK_INDEX } from './layout';
 import { currentOffice, offices } from './offices';
@@ -35,11 +35,27 @@ const DAYS_KEPT = 14;
 export const DEFAULT_SETTINGS: Settings = {
   globalBudgetUsd: null,
   taskBudgetUsd: null,
+  // 60 — то, что и так стояло в коде константой MAX_WORKER_TURNS: возврат
+  // настройки не должен менять поведение офисов, где её никто не трогал.
+  taskMaxTurns: 60,
   engine: 'local',
   cloudRepoUrl: null,
   officePermissionMode: 'ask-risky',
   layoutId: DEFAULT_LAYOUT_ID,
 };
+
+/**
+ * Привести лимит ходов к допустимому: целое в границах либо null («без
+ * ограничения»). undefined — значение непригодно и его надо игнорировать,
+ * а не превращать в null: пустое поле и опечатка означают разное.
+ */
+export function sanitizeMaxTurns(value: unknown): number | null | undefined {
+  if (value === null) return null;
+  if (typeof value !== 'number' || !Number.isFinite(value)) return undefined;
+  const n = Math.floor(value);
+  if (n < MIN_TASK_MAX_TURNS) return undefined;
+  return Math.min(n, MAX_TASK_MAX_TURNS);
+}
 
 /** Ключ дня в местном времени: расход «за сегодня» считается по часам пользователя. */
 export function dayKey(at = Date.now()): string {
@@ -306,6 +322,11 @@ export class OfficeState {
         `офис ${this.officeId} открыт по «${DEFAULT_LAYOUT_ID}»`);
       this.settings = { ...this.settings, layoutId: DEFAULT_LAYOUT_ID };
     }
+    // Файл состояния правят руками: испорченный лимит ходов обрушил бы каждую
+    // задачу офиса, поэтому непригодное значение откатываем к умолчанию.
+    // null здесь законен («без ограничения»), поэтому отличаем его от undefined.
+    const turns = sanitizeMaxTurns(this.settings.taskMaxTurns);
+    this.settings.taskMaxTurns = turns === undefined ? DEFAULT_SETTINGS.taskMaxTurns : turns;
     this.seed();
     this.taskSeq = data.taskSeq;
     // Записи из версий до появления веток чата относим к разговору с менеджером.
@@ -750,6 +771,13 @@ export class OfficeState {
     // каждому вызову инструмента, поэтому непонятное просто не берём.
     if ('officePermissionMode' in next && !isPermissionMode(next.officePermissionMode)) {
       delete next.officePermissionMode;
+    }
+    if ('taskMaxTurns' in next) {
+      const clean = sanitizeMaxTurns(next.taskMaxTurns);
+      // undefined — прислали мусор (строку, NaN, ноль). Прежнее значение
+      // надёжнее: с нулём исполнитель падал бы на первом же ходу.
+      if (clean === undefined) delete next.taskMaxTurns;
+      else next.taskMaxTurns = clean;
     }
     // Раскладку, наоборот, молча отбросить нельзя: человек выбрал её сам и
     // ждёт, что офис переставится. Тихо оставленная прежняя выглядела бы как

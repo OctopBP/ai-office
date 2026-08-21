@@ -12,7 +12,6 @@ import { resolve } from 'node:path';
 import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync } from 'node:fs';
 
 const MAX_CONCURRENT_WORKERS = 3;
-const MAX_WORKER_TURNS = 60;
 
 /**
  * Бриф проекта — OFFICE.md в рабочей директории. Он идёт во все сессии: у PM
@@ -121,6 +120,12 @@ function isOk(msg: Extract<SDKMessage, { type: 'result' }>): msg is SDKResultSuc
 function resultReason(msg: Extract<SDKMessage, { type: 'result' }>): string {
   if (msg.subtype === 'error_max_budget_usd') {
     return 'исчерпан бюджет задачи — повысьте лимит в настройках офиса или разбейте задачу на части';
+  }
+  // Про лимит ходов SDK пишет «Reached maximum number of turns (60)», и по
+  // этой строке не догадаться, что цифра настраивается. Говорим прямо — иначе
+  // человек решает, что упёрся в потолок Claude Code.
+  if (msg.subtype === 'error_max_turns') {
+    return 'исчерпан лимит шагов исполнителя — поднимите его в настройках офиса («Модели и лимиты») или разбейте задачу на части';
   }
   if ('result' in msg && typeof msg.result === 'string' && msg.result.trim()) return msg.result;
   return msg.subtype;
@@ -1330,7 +1335,10 @@ function startWorker(taskOffice: OfficeState, task: Task, inst: Instance): void 
           canUseTool: permissionHandler(taskOffice, inst.id, task.id, workdir),
           settingSources: [],
           sandbox: SANDBOX,
-          maxTurns: MAX_WORKER_TURNS,
+          // Лимит ходов берём из настроек офиса задачи, а не из константы:
+          // задачи разной величины упираются в него по-разному, и поднять его
+          // должно быть можно без правки кода. null — без ограничения.
+          maxTurns: taskOffice.settings.taskMaxTurns ?? undefined,
           maxBudgetUsd: taskOffice.settings.taskBudgetUsd ?? undefined,
           abortController: abort,
         },
