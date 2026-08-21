@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { ACCESS_MODES, FULL_ACCESS_WARNING, setCloudToken, updateSettings, useStore } from './store';
+import { ACCESS_MODES, FULL_ACCESS_WARNING, parseTaskMaxTurns, setCloudToken, updateSettings, useStore } from './store';
 import type { PermissionMode } from '../shared/types';
 
 const parse = (v: string): number | null => {
@@ -25,11 +25,13 @@ export function SettingsModal({ onClose }: { onClose: () => void }) {
   const [section, setSection] = useState<Section>(lastSection);
   const [global, setGlobal] = useState(settings.globalBudgetUsd?.toString() ?? '');
   const [perTask, setPerTask] = useState(settings.taskBudgetUsd?.toString() ?? '');
+  const [maxTurns, setMaxTurns] = useState(settings.taskMaxTurns?.toString() ?? '');
   const [engine, setEngine] = useState(settings.engine);
   const [repo, setRepo] = useState(settings.cloudRepoUrl ?? '');
   const [token, setToken] = useState('');
   const [access, setAccess] = useState(settings.officePermissionMode);
   const [confirmAuto, setConfirmAuto] = useState(false);
+  const maxTurnsParsed = parseTaskMaxTurns(maxTurns);
 
   const chooseSection = (id: Section) => {
     lastSection = id;
@@ -47,6 +49,8 @@ export function SettingsModal({ onClose }: { onClose: () => void }) {
     updateSettings({
       globalBudgetUsd: parse(global),
       taskBudgetUsd: parse(perTask),
+      // Значение вне диапазона не отправляем — на месте останется то, что было в настройках.
+      ...(maxTurnsParsed.error ? {} : { taskMaxTurns: maxTurnsParsed.value }),
       engine,
       cloudRepoUrl: repo.trim() || null,
       officePermissionMode: access,
@@ -121,8 +125,17 @@ export function SettingsModal({ onClose }: { onClose: () => void }) {
                     сессии: дойдя до него, она встаёт на паузу.
                   </span>
                 </label>
-                {/* Сюда же ляжет лимит шагов исполнителя (MAX_WORKER_TURNS), когда
-                    он появится в контракте Settings — раздел для него уже готов. */}
+                <label>Лимит шагов исполнителя
+                  <input value={maxTurns} placeholder="без ограничения"
+                    onChange={(e) => setMaxTurns(e.target.value)} />
+                  <span className="hint muted">
+                    Потолок ходов одной сессии исполнителя: инструмент, ответ модели, снова
+                    инструмент — и так далее. Пустое поле — без ограничения. Именно этот лимит
+                    даёт ошибку «Reached maximum number of turns», если сессия упирается в потолок
+                    посреди задачи.
+                  </span>
+                  {maxTurnsParsed.error && <span className="hint error">{maxTurnsParsed.error}</span>}
+                </label>
               </>
             )}
 
