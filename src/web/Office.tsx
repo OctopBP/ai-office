@@ -2,7 +2,7 @@ import { useLayoutEffect, useRef, useState } from 'react';
 import { useStore } from './store';
 import { agentSpriteName, spriteOf } from './sprites';
 import { catalog, layout } from './layoutData';
-import { desks, deskPoint } from '../shared/layout';
+import { desks, deskPoint, floorTiles, wallTiles } from '../shared/layout';
 import { GRID } from '../shared/types';
 import type { AgentState } from '../shared/types';
 
@@ -90,6 +90,21 @@ const HOTSPOTS = (layout.hotspots ?? []) as LayoutHotspot[];
 // рисуются самим столом-предметом из PLACED_PROPS, дважды не рисуем).
 const ALL_DESKS = desks(layout, catalog);
 
+// --- Пол и стены поштучными тайлами из данных (спека §6, §3.2) ---
+// Раскладки без rooms/walls (пока только classic) остаются на цельных
+// floor.png/wall.png — тайловый путь включается только когда секции есть.
+const FLOOR_TILES = floorTiles(layout);
+interface WallRenderTile { key: string; sprite: string; x: number; y: number; z: number }
+const WALL_TILES: WallRenderTile[] = wallTiles(layout).map((t) => {
+  // Якорь спрайта — верхний левый угол; footprint стены сдвинут на 0.5 тайла
+  // вниз от якоря (§6.2), поэтому клетка сетки (t.x, t.y) рисуется с
+  // якорем на полтайла выше. z считается той же формулой y-сортировки
+  // (спека §5), что и для остальной мебели — по нижней кромке спрайта.
+  const x = t.x;
+  const y = t.y - 0.5;
+  return { key: `wall-${t.x}-${t.y}`, sprite: t.sprite, x, y, z: furnitureZ(x, y, t.sprite) };
+});
+
 export function Office({ onOpen, onDoor }: {
   onOpen: (panel: 'board' | 'log') => void;
   onDoor: () => void;
@@ -144,8 +159,27 @@ export function Office({ onOpen, onDoor }: {
         transform: `scale(${scale})`,
       }}
     >
-      <img className="layer floor" src={img('floor')} alt="" />
-      <img className="layer wall" src={img('wall')} alt="" />
+      {FLOOR_TILES.length > 0 ? (
+        FLOOR_TILES.map((t) => (
+          <img
+            key={`floor-${t.x}-${t.y}`} className="floor-tile" src={img(t.sprite)} alt=""
+            style={{ left: px(t.x), top: px(t.y) }}
+          />
+        ))
+      ) : (
+        <img className="layer floor" src={img('floor')} alt="" />
+      )}
+
+      {WALL_TILES.length > 0 ? (
+        WALL_TILES.map((t) => (
+          <img
+            key={t.key} className="decor" src={img(t.sprite)} alt=""
+            style={{ left: px(t.x), top: px(t.y), zIndex: t.z }}
+          />
+        ))
+      ) : (
+        <img className="layer wall" src={img('wall')} alt="" />
+      )}
 
       {HOTSPOTS.map((h) => {
         const badge = h.panel === 'board'
