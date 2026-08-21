@@ -1,7 +1,8 @@
 import { useLayoutEffect, useRef, useState } from 'react';
 import { useStore } from './store';
 import { agentSpriteName, spriteOf } from './sprites';
-import { DESKS_ALL } from './desks';
+import { catalog, layout } from './layoutData';
+import { desks, deskPoint, floorTiles, wallTiles } from '../shared/layout';
 import { GRID } from '../shared/types';
 import type { AgentState } from '../shared/types';
 
@@ -20,29 +21,10 @@ const STATE_ICON: Record<AgentState, string> = {
 };
 
 // --- Планировка комнаты: данные, не код (docs/design/office-layout/spec.md §3, §5) ---
-
-interface CatalogSprite { size: [number, number] }
-interface Catalog { version: number; tile: number; scale: number; sprites: Record<string, CatalogSprite> }
-
-interface LayoutProp { sprite: string; at: [number, number]; scale?: number; id?: string }
-interface LayoutZone { kind: string; at?: [number, number]; sprite?: string; title?: string }
+// Каталог и раскладка — общие для веба (layoutData.ts), хотспоты пока не
+// формализованы в src/shared/layout.ts (§8 — задача следующего этапа),
+// поэтому их форма описана здесь же, локально.
 interface LayoutHotspot { panel: 'board' | 'log'; sprite: string; at: [number, number]; key: string; title: string }
-interface Layout {
-  version: number; id: string; title: string; size: [number, number];
-  props: LayoutProp[]; zones: LayoutZone[]; hotspots: LayoutHotspot[];
-}
-
-// Как и спрайты (sprites.ts), каталог и раскладка читаются прямо из design/ —
-// на этом этапе сервер их вебу ещё не отдаёт (§8 — задача следующего этапа).
-const catalogModules = import.meta.glob('../../design/sprites/out/catalog.json', {
-  eager: true, import: 'default',
-}) as Record<string, Catalog>;
-const catalog = Object.values(catalogModules)[0];
-
-const layoutModules = import.meta.glob('../../design/layouts/classic.json', {
-  eager: true, import: 'default',
-}) as Record<string, Layout>;
-const layout = Object.values(layoutModules)[0];
 
 function spriteSize(name: string): [number, number] {
   return catalog.sprites[name]?.size ?? [1, 1];
@@ -100,14 +82,28 @@ const PLACED_PROPS: RenderProp[] = (() => {
   return [...fixed, ...sorted];
 })();
 
-const ENTRANCE = layout.zones.find((z) => z.kind === 'entrance')!;
+const ENTRANCE = layout.zones!.find((z) => z.kind === 'entrance')!;
 const DOOR_Z = furnitureZ(ENTRANCE.at![0], ENTRANCE.at![1], ENTRANCE.sprite!);
+const HOTSPOTS = (layout.hotspots ?? []) as LayoutHotspot[];
 
-// Слот work у стола (человечек стоит правее и выше стола) и слот plate
-// (табличка с кодом задачи) — переезжают в каталог со слотами на этапе 1,
-// пока те же числа, что были в коде (спека §3.1, Приложение Б).
-const DESK_WORK_SLOT = { x: 0.55, y: -0.75 };
-const DESK_PLATE_SLOT = { x: 0.45, y: 0.86 };
+// Все рабочие столы раскладки — для свободных мест-«призраков» (заняты
+// рисуются самим столом-предметом из PLACED_PROPS, дважды не рисуем).
+const ALL_DESKS = desks(layout, catalog);
+
+// --- Пол и стены поштучными тайлами из данных (спека §6, §3.2) ---
+// Раскладки без rooms/walls (пока только classic) остаются на цельных
+// floor.png/wall.png — тайловый путь включается только когда секции есть.
+const FLOOR_TILES = floorTiles(layout);
+interface WallRenderTile { key: string; sprite: string; x: number; y: number; z: number }
+const WALL_TILES: WallRenderTile[] = wallTiles(layout).map((t) => {
+  // Якорь спрайта — верхний левый угол; footprint стены сдвинут на 0.5 тайла
+  // вниз от якоря (§6.2), поэтому клетка сетки (t.x, t.y) рисуется с
+  // якорем на полтайла выше. z считается той же формулой y-сортировки
+  // (спека §5), что и для остальной мебели — по нижней кромке спрайта.
+  const x = t.x;
+  const y = t.y - 0.5;
+  return { key: `wall-${t.x}-${t.y}`, sprite: t.sprite, x, y, z: furnitureZ(x, y, t.sprite) };
+});
 
 export function Office({ onOpen, onDoor }: {
   onOpen: (panel: 'board' | 'log') => void;
@@ -163,10 +159,29 @@ export function Office({ onOpen, onDoor }: {
         transform: `scale(${scale})`,
       }}
     >
-      <img className="layer floor" src={img('floor')} alt="" />
-      <img className="layer wall" src={img('wall')} alt="" />
+      {FLOOR_TILES.length > 0 ? (
+        FLOOR_TILES.map((t) => (
+          <img
+            key={`floor-${t.x}-${t.y}`} className="floor-tile" src={img(t.sprite)} alt=""
+            style={{ left: px(t.x), top: px(t.y) }}
+          />
+        ))
+      ) : (
+        <img className="layer floor" src={img('floor')} alt="" />
+      )}
 
-      {layout.hotspots.map((h) => {
+      {WALL_TILES.length > 0 ? (
+        WALL_TILES.map((t) => (
+          <img
+            key={t.key} className="decor" src={img(t.sprite)} alt=""
+            style={{ left: px(t.x), top: px(t.y), zIndex: t.z }}
+          />
+        ))
+      ) : (
+        <img className="layer wall" src={img('wall')} alt="" />
+      )}
+
+      {HOTSPOTS.map((h) => {
         const badge = h.panel === 'board'
           ? Object.values(tasks).filter((t) => t.status === 'review'
               || (t.status === 'done' && t.branch && !t.merged)).length
@@ -200,8 +215,9 @@ export function Office({ onOpen, onDoor }: {
         />
       ))}
 
-      {/* свободные рабочие места */}
-      {DESKS_ALL.filter((d) => !busyDesks.has(d.index)).map((d) => (
+      {/* свободные рабочие места: сам стол уже нарисован как предмет из
+          PLACED_PROPS — здесь только «призрак»-подсказка поверх пустующих */}
+      {ALL_DESKS.filter((d) => !busyDesks.has(d.index)).map((d) => (
         <div
           key={`ghost-${d.index}`} className="ghost"
           style={{ left: px(d.x), top: px(d.y), zIndex: furnitureZ(d.x, d.y, 'desk_ghost') }}
@@ -211,44 +227,27 @@ export function Office({ onOpen, onDoor }: {
         </div>
       ))}
 
-      {/* столы: занятые и свободные места */}
-      {[...busyDesks].map((index) => {
-        const inst = list.find((i) => i.desk.index === index)!;
-        const isPm = inst.roleId === 'pm';
-        const sprite = isPm ? 'desk_pm' : 'desk';
+      {/* таблички с кодом задачи на столах */}
+      {list.filter((i) => i.currentTaskId).map((inst) => {
+        const plate = deskPoint(layout, catalog, inst.desk.index, 'plate');
         return (
-          <img
-            key={`desk-${index}`} className="desk-img"
-            src={img(sprite)} alt=""
-            style={{
-              left: px(inst.desk.x), top: px(inst.desk.y),
-              zIndex: furnitureZ(inst.desk.x, inst.desk.y, sprite),
-            }}
-          />
+          <div
+            key={`plate-${inst.id}`} className="plate"
+            style={{ left: px(plate.x), top: px(plate.y) }}
+          >
+            {inst.currentTaskId}
+          </div>
         );
       })}
-
-      {/* таблички с кодом задачи на столах */}
-      {list.filter((i) => i.currentTaskId).map((inst) => (
-        <div
-          key={`plate-${inst.id}`} className="plate"
-          style={{
-            left: px(inst.desk.x) + C * DESK_PLATE_SLOT.x,
-            top: px(inst.desk.y) + C * DESK_PLATE_SLOT.y,
-          }}
-        >
-          {inst.currentTaskId}
-        </div>
-      ))}
 
       {/* человечки: за своим столом рисуются позади него, в проходе — поверх (y-сортировка, спека §5) */}
       {list.map((inst) => {
         const p = pos[inst.id] ?? { x: inst.desk.x, y: inst.desk.y };
         const atDesk = p.x === inst.desk.x && p.y === inst.desk.y;
+        const work = atDesk ? deskPoint(layout, catalog, inst.desk.index, 'work') : p;
         const role = roleOf(inst.roleId);
         const icon = STATE_ICON[inst.state];
         const busy = inst.state === 'working' || inst.state === 'thinking';
-        const slotY = atDesk ? p.y + DESK_WORK_SLOT.y : p.y;
         const [, agentH] = spriteSize(agentSpriteName(inst.roleId, inst.id));
         return (
           <div
@@ -256,9 +255,9 @@ export function Office({ onOpen, onDoor }: {
             className={`agent ${inst.state}${selected === inst.id ? ' selected' : ''}` +
               `${inMeeting.has(inst.id) ? ' in-meeting' : ''}${busy ? ' busy' : ''}`}
             style={{
-              left: px(p.x) + (atDesk ? C * DESK_WORK_SLOT.x : 0),
-              top: px(slotY),
-              zIndex: 100 + Math.round((slotY + agentH) * 10),
+              left: px(work.x),
+              top: px(work.y),
+              zIndex: 100 + Math.round((work.y + agentH) * 10),
             }}
             onClick={() => select(selected === inst.id ? null : inst.id)}
             title={inst.label}
@@ -274,16 +273,14 @@ export function Office({ onOpen, onDoor }: {
       {list.map((inst) => {
         const p = pos[inst.id] ?? { x: inst.desk.x, y: inst.desk.y };
         const atDesk = p.x === inst.desk.x && p.y === inst.desk.y;
+        const work = atDesk ? deskPoint(layout, catalog, inst.desk.index, 'work') : p;
         const role = roleOf(inst.roleId);
         const task = inst.currentTaskId ? tasks[inst.currentTaskId] : null;
         const icon = STATE_ICON[inst.state];
         return (
           <div
             key={`tag-${inst.id}`} className="tags"
-            style={{
-              left: px(p.x) + (atDesk ? C * DESK_WORK_SLOT.x : 0),
-              top: px(p.y) + (atDesk ? C * DESK_WORK_SLOT.y : 0),
-            }}
+            style={{ left: px(work.x), top: px(work.y) }}
           >
             {inst.note && inst.state !== 'idle' && <div className="bubble">{inst.note}</div>}
             <div className="statuscard pixel">

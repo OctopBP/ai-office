@@ -66,12 +66,35 @@ export interface LayoutZone {
   room?: string;
 }
 
+/** Комната — прямоугольник (углы [x0,y0,x1,y1] в тайлах) и материал пола (§3.2, §6.1). */
+export interface LayoutRoom {
+  id: string;
+  rect: [number, number, number, number];
+  floor: 'parquet' | 'carpet' | 'tile';
+}
+
+/**
+ * Отрезок стены по сетке (только горизонтальный или вертикальный), толщина
+ * всегда 1 тайл (§3.2). `doors` — проёмы `[смещение, длина]` от точки `a`
+ * вдоль отрезка. `windows` — одиночные тайлы-окна (смещение от `a`); art
+ * `wall_window` нарисован только для горизонтального ракурса (§6.2), поэтому
+ * на вертикальных отрезках смещения из `windows` игнорируются.
+ */
+export interface LayoutWall {
+  a: [number, number];
+  b: [number, number];
+  doors?: [number, number][];
+  windows?: number[];
+}
+
 export interface Layout {
   version: number;
   id: string;
   title: string;
   size: [number, number];
   props: LayoutProp[];
+  rooms?: LayoutRoom[];
+  walls?: LayoutWall[];
   zones?: LayoutZone[];
   hotspots?: unknown[];
 }
@@ -223,4 +246,124 @@ export function kitchenSeats(layout: Layout, catalog: Catalog, propId?: string):
     return sideSlots.flatMap((slot) => sideSeats(prop, sprite!, slot));
   }
   return [];
+}
+
+// ---------- Пол и стены поштучными тайлами (§6, §3.2) ----------
+
+export interface FloorTile { x: number; y: number; sprite: string }
+export interface WallTile { x: number; y: number; sprite: string }
+
+/** Число нарисованных вариантов на материал пола — по 4 у parquet/carpet/tile (§6.1). */
+const FLOOR_VARIANTS = 4;
+
+/**
+ * Детерминированный хеш координаты тайла — целочисленный, без Math.random,
+ * чтобы вариант пола не «дрожал» между перерисовками (§6.1). Формула — из
+ * стандартного приёма хеширования 2D-сетки (умножение на большие простые,
+ * XOR координат), тут важна только детерминированность и разброс по модулю.
+ */
+function tileHash(x: number, y: number): number {
+  const h = (x * 374761393 + y * 668265263) | 0;
+  return Math.abs(h ^ (h >>> 13));
+}
+
+/**
+ * Пол комнат раскладки — поштучные тайлы материала на каждую клетку
+ * прямоугольника комнаты, вариант выбран детерминированно от координаты
+ * (§6.1). Раскладки без `rooms` (пока это `classic`, §6.1) возвращают
+ * пустой список — рендер остаётся на цельном `floor.png`.
+ */
+export function floorTiles(layout: Layout): FloorTile[] {
+  const tiles: FloorTile[] = [];
+  for (const room of layout.rooms ?? []) {
+    const [x0, y0, x1, y1] = room.rect;
+    for (let y = y0; y < y1; y++) {
+      for (let x = x0; x < x1; x++) {
+        const variant = tileHash(x, y) % FLOOR_VARIANTS;
+        tiles.push({ x, y, sprite: `floor_${room.floor}_${variant}` });
+      }
+    }
+  }
+  return tiles;
+}
+
+const WALL_N = 1;
+const WALL_E = 2;
+const WALL_S = 4;
+const WALL_W = 8;
+
+function cellKey(x: number, y: number): string {
+  return `${x},${y}`;
+}
+
+/**
+ * Автотайлинг стен по 4-битной маске соседей (§6.2): разрывы дверей не
+ * считаются соседями, поэтому клетки проёма просто не попадают в множество
+ * `present`, а маска у их соседей естественно теряет соответствующий бит.
+ * Края проёма на горизонтальных отрезках дополнительно помечаются
+ * `wall_door_l`/`wall_door_r` (наличник), окна — `wall_window`. Оба спрайта
+ * нарисованы только для горизонтального ракурса (E/W, §6.2) — на
+ * вертикальных отрезках проём режет стену корректно (клетки нет в `present`,
+ * ходьба и маска соседей это увидят), но без наличника: своего арта для
+ * вертикального проёма пока нет (см. отчёт задачи).
+ */
+export function wallTiles(layout: Layout): WallTile[] {
+  const walls = layout.walls ?? [];
+  const present = new Set<string>();
+  const doorEdge = new Map<string, 'l' | 'r'>();
+  const windowCell = new Set<string>();
+
+  for (const wall of walls) {
+    const [ax, ay] = wall.a;
+    const [bx, by] = wall.b;
+    const horizontal = ay === by;
+    const rawLen = horizontal ? bx - ax : by - ay;
+    const dir = rawLen < 0 ? -1 : 1;
+    const len = Math.abs(rawLen);
+    const gap = new Array<boolean>(len).fill(false);
+    for (const [offset, span] of wall.doors ?? []) {
+      for (let i = Math.max(offset, 0); i < Math.min(offset + span, len); i++) gap[i] = true;
+    }
+    const cellAt = (i: number): [number, number] => (horizontal ? [ax + i * dir, ay] : [ax, ay + i * dir]);
+    for (let i = 0; i < len; i++) {
+      if (gap[i]) continue;
+      const [x, y] = cellAt(i);
+      present.add(cellKey(x, y));
+    }
+    if (horizontal) {
+      for (const [offset, span] of wall.doors ?? []) {
+        const gapXs: number[] = [];
+        for (let i = Math.max(offset, 0); i < Math.min(offset + span, len); i++) gapXs.push(cellAt(i)[0]);
+        if (gapXs.length === 0) continue;
+        const gapMinX = Math.min(...gapXs);
+        const before = offset - 1;
+        const after = offset + span;
+        if (before >= 0 && before < len && !gap[before]) {
+          const [x, y] = cellAt(before);
+          doorEdge.set(cellKey(x, y), x < gapMinX ? 'l' : 'r');
+        }
+        if (after < len && !gap[after]) {
+          const [x, y] = cellAt(after);
+          doorEdge.set(cellKey(x, y), x < gapMinX ? 'l' : 'r');
+        }
+      }
+      for (const offset of wall.windows ?? []) {
+        if (offset >= 0 && offset < len && !gap[offset]) windowCell.add(cellKey(...cellAt(offset)));
+      }
+    }
+  }
+
+  const tiles: WallTile[] = [];
+  for (const key of present) {
+    const [x, y] = key.split(',').map(Number);
+    let mask = 0;
+    if (present.has(cellKey(x, y - 1))) mask |= WALL_N;
+    if (present.has(cellKey(x + 1, y))) mask |= WALL_E;
+    if (present.has(cellKey(x, y + 1))) mask |= WALL_S;
+    if (present.has(cellKey(x - 1, y))) mask |= WALL_W;
+    const edge = doorEdge.get(key);
+    const sprite = edge ? `wall_door_${edge}` : windowCell.has(key) ? 'wall_window' : `wall_${mask}`;
+    tiles.push({ x, y, sprite });
+  }
+  return tiles;
 }

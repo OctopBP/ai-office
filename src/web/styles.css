@@ -269,6 +269,21 @@ button
 }
 .modal label.checkbox input { width: auto; margin: 0; }
 
+/* ---------- настройки: меню разделов слева, контент прокручивается отдельно ---------- */
+.modal.wide.settings-modal {
+  display: flex; flex-direction: column; max-height: 86vh; overflow: hidden;
+}
+.settings-layout { display: flex; gap: 18px; flex: 1; min-height: 0; margin-top: 4px; }
+.settings-nav { display: flex; flex-direction: column; gap: 4px; width: 172px; flex: none; }
+.settings-nav button { text-align: left; padding: 9px 12px; font-size: 13px; }
+.settings-nav button.on { background: var(--accent); color: var(--accent-ink); }
+.settings-content { flex: 1; min-width: 0; overflow-y: auto; padding-right: 6px; }
+.settings-content label:last-child, .settings-content > .hint:last-child { margin-bottom: 0; }
+@media (max-width: 560px) {
+  .settings-layout { flex-direction: column; }
+  .settings-nav { flex-direction: row; width: auto; overflow-x: auto; }
+}
+
 /* ---------- канбан ---------- */
 .board { margin-top: 18px; }
 .board h2 { font-size: 14px; margin: 0 0 10px; }
@@ -337,6 +352,7 @@ button
 .layer { position: absolute; left: 0; top: 0; }
 .layer.floor { z-index: 0; }
 .layer.wall { z-index: 1; }
+.floor-tile { position: absolute; z-index: 0; }
 .decor { position: absolute; z-index: 2; }
 .desk-img { position: absolute; }
 
