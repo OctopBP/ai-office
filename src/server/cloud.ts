@@ -16,9 +16,7 @@
  *   и «спросить» приходит в ту же модалку, что и локально.
  */
 import Anthropic from '@anthropic-ai/sdk';
-import { criteriaProgress, office, type Instance, type OfficeState, type Task } from './state';
-import type { PermissionMode } from '../shared/types';
-import { effectiveMode } from './permissions';
+import { criteriaProgress, office, type Instance, type Task } from './state';
 import type { Role } from './roles';
 import { currentBranch, fetchBranch, remoteUrl } from './git';
 
@@ -36,12 +34,7 @@ export const setGithubToken = (value: string): void => {
 
 let client: Anthropic | null = null;
 const agentIds = new Map<string, string>();   // ключ конфигурации роли → id агента
-/**
- * Контейнер на офис, ключ — id офиса. Одной переменной хватало, пока офис был
- * один: с несколькими открытыми второй офис получал бы контейнер первого,
- * смонтированный на его репозиторий.
- */
-const environmentIds = new Map<string, string>();
+let environmentId: string | null = null;
 /** Сессии идущих облачных задач — по ним работает «Остановить». */
 const sessions = new Map<string, string>();
 
@@ -51,11 +44,11 @@ const clip = (s: unknown, n = 70): string => {
 };
 
 /** Почему облачный режим сейчас не запустится. null — всё готово. */
-export function cloudProblem(state: OfficeState = office): string | null {
+export function cloudProblem(): string | null {
   if (!process.env.ANTHROPIC_API_KEY && !process.env.ANTHROPIC_AUTH_TOKEN) {
     return 'Облачный режим работает только на платном API: задайте ANTHROPIC_API_KEY и перезапустите сервер.';
   }
-  if (!state.settings.cloudRepoUrl) {
+  if (!office.settings.cloudRepoUrl) {
     return 'Не указан репозиторий на GitHub — контейнеру нечего монтировать. Укажите его в настройках.';
   }
   if (!token) {
@@ -70,25 +63,22 @@ function api(): Anthropic {
 }
 
 /** Контейнер один на офис: настройки одинаковые, а создание стоит времени. */
-async function ensureEnvironment(state: OfficeState): Promise<string> {
-  const known = environmentIds.get(state.officeId);
-  if (known) return known;
-  const name = `ai-office-${state.officeId}`;
-  let id: string;
+async function ensureEnvironment(): Promise<string> {
+  if (environmentId) return environmentId;
+  const name = `ai-office-${office.officeId}`;
   try {
     const env = await api().beta.environments.create({
       name,
       config: { type: 'cloud', networking: { type: 'unrestricted' } },
     });
-    id = env.id;
+    environmentId = env.id;
   } catch (err) {
     // Имя окружения уникально: после перезапуска сервера оно уже создано.
     const existing = await findEnvironment(name);
     if (!existing) throw err;
-    id = existing;
+    environmentId = existing;
   }
-  environmentIds.set(state.officeId, id);
-  return id;
+  return environmentId;
 }
 
 async function findEnvironment(name: string): Promise<string | null> {
@@ -99,19 +89,18 @@ async function findEnvironment(name: string): Promise<string | null> {
 }
 
 /**
- * Набор инструментов агента. Эффективный режим разрешений (агент → роль →
- * офис) раскладывается в политики: readonly вообще не получает запись и
- * оболочку, ask-writes спрашивает про любую правку, ask-risky — только про
- * оболочку, auto не спрашивает ни о чём.
+ * Набор инструментов агента. Режим разрешений роли раскладывается в политики:
+ * readonly вообще не получает запись и оболочку, ask-writes спрашивает про
+ * любую правку, ask-risky — только про оболочку.
  */
 /** Имена встроенных инструментов контейнера — так их знает Managed Agents. */
 type ToolName = 'bash' | 'edit' | 'glob' | 'grep' | 'read' | 'web_fetch' | 'web_search' | 'write';
 
-function toolset(role: Role, mode: PermissionMode) {
+function toolset(role: Role) {
   const writeTools: ToolName[] = ['write', 'edit', 'bash'];
   const ask = { type: 'always_ask' as const };
 
-  if (mode === 'readonly') {
+  if (role.permissionMode === 'readonly') {
     return {
       type: 'agent_toolset_20260401' as const,
       default_config: { enabled: true },
@@ -122,11 +111,11 @@ function toolset(role: Role, mode: PermissionMode) {
   const configs: Array<{ name: ToolName; enabled?: boolean; permission_policy?: typeof ask }> =
     role.docsDir ? [{ name: 'bash', enabled: false }] : [];
 
-  if (mode === 'ask-writes') {
+  if (role.permissionMode === 'ask-writes') {
     for (const name of writeTools) {
       if (!configs.some((c) => c.name === name)) configs.push({ name, permission_policy: ask });
     }
-  } else if (mode === 'ask-risky' && !role.docsDir) {
+  } else if (role.permissionMode === 'ask-risky' && !role.docsDir) {
     configs.push({ name: 'bash', permission_policy: ask });
   }
 
@@ -178,10 +167,8 @@ const OFFICE_TOOLS = [
  * переиспользуем. Ключ включает всё, что попадает в агента, — поменяли
  * промпт или модель в редакторе ролей, появится новый агент.
  */
-async function ensureAgent(role: Role, systemPrompt: string, mode: PermissionMode): Promise<string> {
-  // В ключе именно эффективный режим: у двух сотрудников одной роли он может
-  // отличаться, и агент с чужими политиками инструментов им не подойдёт.
-  const key = `${role.id}:${role.model}:${mode}:${systemPrompt.length}:${systemPrompt.slice(0, 64)}`;
+async function ensureAgent(role: Role, systemPrompt: string): Promise<string> {
+  const key = `${role.id}:${role.model}:${role.permissionMode}:${systemPrompt.length}:${systemPrompt.slice(0, 64)}`;
   const known = agentIds.get(key);
   if (known) return known;
 
@@ -189,7 +176,7 @@ async function ensureAgent(role: Role, systemPrompt: string, mode: PermissionMod
     name: `AI Office — ${role.title}`,
     model: role.model,
     system: systemPrompt,
-    tools: [toolset(role, mode), ...OFFICE_TOOLS],
+    tools: [toolset(role), ...OFFICE_TOOLS],
   });
   agentIds.set(key, agent.id);
   return agent.id;
@@ -245,24 +232,19 @@ export interface CloudOutcome {
  * агента по ходу дела обновляются здесь же, как и у локального движка.
  */
 export async function runCloudTask(
-  task: Task, inst: Instance, role: Role, systemPrompt: string, state: OfficeState,
+  task: Task, inst: Instance, role: Role, systemPrompt: string,
 ): Promise<CloudOutcome> {
-  const repoUrl = state.settings.cloudRepoUrl!;
-  const base = (await currentBranch(state.projectDir)) ?? 'main';
+  const repoUrl = office.settings.cloudRepoUrl!;
+  const base = (await currentBranch(office.projectDir)) ?? 'main';
   const branch = `task/${task.id}`;
   const mount = '/workspace/repo';
 
-  // Режим считаем так же, как локальный обработчик разрешений: личный режим
-  // сотрудника сильнее режима роли, роль — сильнее офиса.
-  // Режим офиса берём из state задачи, а не из глобального office: в
-  // мультиофисном рантайме текущий офис может быть уже другим.
-  const mode = effectiveMode(inst.permissionMode, role.permissionMode, state.officeMode());
   const [environment, agentId] = await Promise.all([
-    ensureEnvironment(state),
-    ensureAgent(role, systemPrompt, mode),
+    ensureEnvironment(),
+    ensureAgent(role, systemPrompt),
   ]);
 
-  const cap = state.settings.taskBudgetUsd;
+  const cap = office.settings.taskBudgetUsd;
   const session = await api().beta.sessions.create({
     agent: agentId,
     environment_id: environment,
@@ -284,7 +266,7 @@ export async function runCloudTask(
   });
 
   sessions.set(task.id, session.id);
-  state.addLog(inst.id, 'system', `Облачная сессия ${session.id.slice(0, 12)}… (${repoUrl})`);
+  office.addLog(inst.id, 'system', `Облачная сессия ${session.id.slice(0, 12)}… (${repoUrl})`);
 
   let finished: string | null = null;
   let files: string[] = [];
@@ -300,7 +282,7 @@ export async function runCloudTask(
     const handled: string[] = [];
 
     const step = (e: CloudEvent) =>
-      consume(e, state, task, inst, session.id, (s, f) => { finished = s; files = f; }, handled);
+      consume(e, task, inst, session.id, (s, f) => { finished = s; files = f; }, handled);
 
     for await (const past of api().beta.sessions.events.list(session.id)) {
       const e = past as unknown as CloudEvent;
@@ -329,7 +311,7 @@ export async function runCloudTask(
       const fresh = await api().beta.sessions.retrieve(session.id);
       const usage = fresh.usage;
       const cents = Number(usage?.list_cost?.amount ?? 0);
-      state.addUsage(inst.id, {
+      office.addUsage(inst.id, {
         costUsd: Math.max(0, cents / 100 - costRecorded),
         tokensIn: usage?.input_tokens ?? 0,
         tokensOut: usage?.output_tokens ?? 0,
@@ -343,12 +325,12 @@ export async function runCloudTask(
     if (failure) return { ok: false, summary: failure, branch: null, baseBranch: null };
 
     // Ветку тянем к себе: без неё «Показать diff» и «Смержить» пусты.
-    const pulled = await fetchBranch(state.projectDir, branch);
+    const pulled = await fetchBranch(office.projectDir, branch);
     const note = pulled
       ? ''
       : `\n\n⚠️ Ветка ${branch} не подтянулась из origin — посмотрите её на GitHub.`;
     const summary = (finished ?? 'Сессия завершилась без отчёта.') + note;
-    if (files.length) state.updateTask(task.id, { files });
+    if (files.length) office.updateTask(task.id, { files });
     return {
       ok: finished !== null,
       summary,
@@ -367,7 +349,6 @@ type CloudEvent = { type: string; id?: string } & Record<string, unknown>;
 
 async function consume(
   event: CloudEvent,
-  state: OfficeState,
   task: Task,
   inst: Instance,
   sessionId: string,
@@ -381,20 +362,20 @@ async function consume(
     case 'agent.message': {
       const blocks = (event.content ?? []) as Array<{ type: string; text?: string }>;
       const text = blocks.filter((b) => b.type === 'text').map((b) => b.text ?? '').join(' ').trim();
-      if (text) state.addLog(inst.id, 'text', clip(text, 400));
+      if (text) office.addLog(inst.id, 'text', clip(text, 400));
       return false;
     }
     case 'agent.thinking':
-      state.setState(inst.id, 'thinking', 'думает…');
+      office.setState(inst.id, 'thinking', 'думает…');
       return false;
     case 'agent.tool_use': {
       const name = String(event.name ?? '');
       const brief = clip(JSON.stringify(event.input ?? {}), 60);
-      state.setState(inst.id, 'working', `${name}: ${brief}`);
-      state.addLog(inst.id, 'tool', `${name}: ${brief}`);
+      office.setState(inst.id, 'working', `${name}: ${brief}`);
+      office.addLog(inst.id, 'tool', `${name}: ${brief}`);
       if (event.evaluated_permission === 'ask' && event.id && !handled.includes(event.id)) {
         handled.push(event.id);
-        const decision = await state.requestPermission({
+        const decision = await office.requestPermission({
           agentId: inst.id,
           taskId: task.id,
           toolName: name,
@@ -421,13 +402,13 @@ async function consume(
       let isError = false;
 
       if (name === 'say') {
-        state.setState(inst.id, 'working', clip(input.text));
+        office.setState(inst.id, 'working', clip(input.text));
       } else if (name === 'check_criterion') {
-        const outcome = state.checkCriterion(task.id, Number(input.index), input.done !== false);
+        const outcome = office.checkCriterion(task.id, Number(input.index), input.done !== false);
         text = outcome.text;
         isError = !outcome.ok;
       } else if (name === 'finish_task') {
-        const fresh = state.tasks.get(task.id);
+        const fresh = office.tasks.get(task.id);
         const { done, total } = fresh ? criteriaProgress(fresh) : { done: 0, total: 0 };
         const gap = total && done < total ? `\n\n⚠️ Отмечено критериев: ${done} из ${total}.` : '';
         onFinish(String(input.summary ?? '') + gap, (input.files as string[] | undefined) ?? []);
@@ -446,7 +427,7 @@ async function consume(
       return false;
     }
     case 'session.error':
-      state.addLog(inst.id, 'error', `Облако: ${clip(JSON.stringify(event.error ?? event), 200)}`);
+      office.addLog(inst.id, 'error', `Облако: ${clip(JSON.stringify(event.error ?? event), 200)}`);
       return false;
     case 'session.status_idle': {
       const stop = (event.stop_reason ?? {}) as { type?: string };

@@ -3,7 +3,7 @@ import { promisify } from 'node:util';
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import type { MergeCheck, MergeRun, MergeStep, TypecheckResult } from '../shared/types';
-import { office, taskRepo, type OfficeState, type Task } from './state';
+import { office, taskRepo, type Task } from './state';
 import { checkMergeable, mergeBranch, removeWorktree } from './git';
 
 const run = promisify(execFile);
@@ -19,18 +19,13 @@ const run = promisify(execFile);
  * в основную ещё не влита. «review» — исполнитель сдал, менеджер ещё смотрит;
  * такие ветки пользователь тоже сливает, дожидаться закрытия не обязательно.
  */
-export function mergeableTasks(state: OfficeState = office): Task[] {
-  return [...state.tasks.values()].filter(
+export function mergeableTasks(): Task[] {
+  return [...office.tasks.values()].filter(
     (t) => !t.merged && t.branch && t.baseBranch && (t.status === 'done' || t.status === 'review'),
   );
 }
 
-/**
- * Офисы, в которых проверка идёт прямо сейчас. Раньше флаг был один на процесс:
- * с несколькими живыми офисами проверка в одном молча отменяла бы проверку
- * в другом.
- */
-const checking = new Set<string>();
+let checking = false;
 
 /**
  * Пересчитать статусы мержабельности всех завершённых задач.
@@ -38,17 +33,17 @@ const checking = new Set<string>();
  * параллельно, — запасной путь проверки создаёт worktree, а два worktree
  * одного репозитория одновременно только мешают друг другу.
  */
-export async function refreshMergeChecks(state: OfficeState = office): Promise<MergeCheck[]> {
-  if (checking.has(state.officeId)) return [...state.mergeChecks.values()];
-  checking.add(state.officeId);
-  state.setMergeChecking(true);
+export async function refreshMergeChecks(): Promise<MergeCheck[]> {
+  if (checking) return [...office.mergeChecks.values()];
+  checking = true;
+  office.setMergeChecking(true);
   const checks: MergeCheck[] = [];
   try {
-    for (const task of mergeableTasks(state)) {
+    for (const task of mergeableTasks()) {
       const branch = task.branch;
       const base = task.baseBranch;
       if (!branch || !base) continue;
-      const result = await checkMergeable(taskRepo(task, state), branch, base);
+      const result = await checkMergeable(taskRepo(task), branch, base);
       checks.push({
         taskId: task.id,
         state: result.state,
@@ -57,14 +52,14 @@ export async function refreshMergeChecks(state: OfficeState = office): Promise<M
         checkedAt: Date.now(),
       });
     }
-    state.setMergeChecks(checks);
+    office.setMergeChecks(checks);
     return checks;
   } catch (err) {
-    state.setMergeChecking(false);
-    state.addLog(null, 'error', `Проверка слияний не удалась: ${(err as Error).message}`);
-    return [...state.mergeChecks.values()];
+    office.setMergeChecking(false);
+    office.addLog(null, 'error', `Проверка слияний не удалась: ${(err as Error).message}`);
+    return [...office.mergeChecks.values()];
   } finally {
-    checking.delete(state.officeId);
+    checking = false;
   }
 }
 
@@ -137,11 +132,7 @@ export async function runTypecheck(repoDir: string): Promise<TypecheckResult> {
   }
 }
 
-/**
- * Офисы, где очередь слияния идёт прямо сейчас. Как и с проверками: офисов
- * несколько, а флаг на процесс не пустил бы второй офис слить свою работу.
- */
-const queueRunning = new Set<string>();
+let queueRunning = false;
 
 const pendingStep = (task: Task): MergeStep => ({
   taskId: task.id,
@@ -157,21 +148,21 @@ const pendingStep = (task: Task): MergeStep => ({
  * конфликте, отказе git или упавшей проверке сборки — и говорим, где встали.
  * Уже слитое не откатываем: откат чужой работы был бы хуже остановки.
  */
-export async function mergeQueue(taskIds: string[], state: OfficeState = office): Promise<MergeRun | null> {
-  if (queueRunning.has(state.officeId)) {
-    state.addChat('офис', 'Очередь слияния уже идёт — дождитесь, пока она закончится.');
-    return state.mergeRun;
+export async function mergeQueue(taskIds: string[]): Promise<MergeRun | null> {
+  if (queueRunning) {
+    office.addChat('офис', 'Очередь слияния уже идёт — дождитесь, пока она закончится.');
+    return office.mergeRun;
   }
 
   const tasks = taskIds
-    .map((id) => state.tasks.get(id))
+    .map((id) => office.tasks.get(id))
     .filter((t): t is Task => Boolean(t));
   if (!tasks.length) {
-    state.addChat('офис', 'Сливать нечего: ни одной из выбранных задач нет на доске.');
+    office.addChat('офис', 'Сливать нечего: ни одной из выбранных задач нет на доске.');
     return null;
   }
 
-  queueRunning.add(state.officeId);
+  queueRunning = true;
   const runState: MergeRun = {
     id: `merge-${Date.now()}`,
     running: true,
@@ -180,7 +171,7 @@ export async function mergeQueue(taskIds: string[], state: OfficeState = office)
     startedAt: Date.now(),
     finishedAt: null,
   };
-  state.setMergeRun(runState);
+  office.setMergeRun(runState);
 
   let merged = 0;
   let stoppedAt: MergeStep | null = null;
@@ -193,23 +184,23 @@ export async function mergeQueue(taskIds: string[], state: OfficeState = office)
       const base = task.baseBranch;
 
       if (task.merged) {
-        finishStep(state, runState, step, 'skipped', `${task.id} уже влита в ${task.baseBranch ?? 'основную ветку'}.`);
+        finishStep(runState, step, 'skipped', `${task.id} уже влита в ${task.baseBranch ?? 'основную ветку'}.`);
         continue;
       }
       if (!branch || !base) {
-        finishStep(state, runState, step, 'skipped', `У ${task.id} нет своей ветки — сливать нечего.`);
+        finishStep(runState, step, 'skipped', `У ${task.id} нет своей ветки — сливать нечего.`);
         continue;
       }
 
       // Репозиторий берём с задачи: у ролей они разные, а настройка роли
       // могла смениться уже после того, как задачу сделали.
-      const repo = taskRepo(task, state);
+      const repo = taskRepo(task);
       const outcome = await mergeBranch(repo, branch, base);
-      state.addChat('офис', `${task.id}: ${outcome.message}`);
-      state.addLog(null, outcome.ok ? 'system' : 'error', `merge ${branch}: ${outcome.kind}`);
+      office.addChat('офис', `${task.id}: ${outcome.message}`);
+      office.addLog(null, outcome.ok ? 'system' : 'error', `merge ${branch}: ${outcome.kind}`);
 
       if (outcome.kind === 'conflict') {
-        finishStep(state, runState, step, 'conflict',
+        finishStep(runState, step, 'conflict',
           `Конфликт с веткой ${base}. ${outcome.conflicts.length
             ? `Разойтись не дали файлы: ${outcome.conflicts.join(', ')}.`
             : outcome.message}`,
@@ -218,17 +209,17 @@ export async function mergeQueue(taskIds: string[], state: OfficeState = office)
         break;
       }
       if (!outcome.ok) {
-        finishStep(state, runState, step, 'failed', outcome.message);
+        finishStep(runState, step, 'failed', outcome.message);
         stoppedAt = step;
         break;
       }
 
       // Слияние прошло (или сливать было нечего) — worktree задаче больше не нужен.
       if (task.worktreePath) await removeWorktree(repo, task.worktreePath, branch);
-      state.updateTask(task.id, { merged: true, worktreePath: null });
+      office.updateTask(task.id, { merged: true, worktreePath: null });
 
       if (outcome.kind === 'nothing') {
-        finishStep(state, runState, step, 'nothing', `В ветке ${branch} не было коммитов сверх ${base} — слияние не потребовалось.`);
+        finishStep(runState, step, 'nothing', `В ветке ${branch} не было коммитов сверх ${base} — слияние не потребовалось.`);
         continue;
       }
 
@@ -236,49 +227,48 @@ export async function mergeQueue(taskIds: string[], state: OfficeState = office)
       const typecheck = await runTypecheck(repo);
       step.typecheck = typecheck;
       if (!typecheck.ok) {
-        finishStep(state, runState, step, 'typecheck-failed',
+        finishStep(runState, step, 'typecheck-failed',
           `Ветка влита в ${base}, но проверка сборки после этого падает: ${typecheck.message} ` +
           'Очередь остановлена — чинить поломку удобнее, пока сверху не легли другие задачи.',
           [], typecheck);
         stoppedAt = step;
         break;
       }
-      finishStep(state, runState, step, 'merged',
+      finishStep(runState, step, 'merged',
         `Влита в ${base}. ${typecheck.skipped ? typecheck.message : 'Проверка сборки прошла.'}`,
         [], typecheck);
 
       // Порядок слияний меняет картину: после каждого успешного пересчитываем,
       // что теперь с чем конфликтует.
-      await refreshMergeChecks(state);
+      await refreshMergeChecks();
     }
 
     runState.summary = summarize(runState, merged, stoppedAt);
   } catch (err) {
     runState.summary = `Очередь слияния оборвалась с ошибкой: ${(err as Error).message}`;
-    state.addLog(null, 'error', runState.summary);
+    office.addLog(null, 'error', runState.summary);
   } finally {
-    queueRunning.delete(state.officeId);
+    queueRunning = false;
     runState.running = false;
     runState.finishedAt = Date.now();
-    state.setMergeRun(runState);
-    state.addChat('офис', runState.summary);
+    office.setMergeRun(runState);
+    office.addChat('офис', runState.summary);
     // Финальный пересчёт: после остановки статусы остальных задач тоже другие.
-    await refreshMergeChecks(state);
+    await refreshMergeChecks();
   }
 
   return runState;
 }
 
 function finishStep(
-  state: OfficeState, runState: MergeRun, step: MergeStep,
-  status: MergeStep['status'], message: string,
+  runState: MergeRun, step: MergeStep, status: MergeStep['status'], message: string,
   conflicts: string[] = [], typecheck: TypecheckResult | null = null,
 ): void {
   step.status = status;
   step.message = message;
   step.conflicts = conflicts;
   if (typecheck) step.typecheck = typecheck;
-  state.setMergeRun(runState);
+  office.setMergeRun(runState);
 }
 
 /** Итог очереди одной фразой — её пользователь и читает первой. */

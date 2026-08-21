@@ -1,6 +1,6 @@
 import { mkdirSync, readFileSync, renameSync, writeFileSync, existsSync, rmSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
-import type { ChatEntry, LogEntry, PermissionMode, Settings, Usage } from '../shared/types';
+import type { ChatEntry, LogEntry, Settings, Usage } from '../shared/types';
 import type { Task } from './state';
 import type { Role } from './roles';
 
@@ -20,11 +20,6 @@ export interface PersistedInstance {
   /** Расход по дням, ключ — 'ГГГГ-ММ-ДД'. */
   daily: Record<string, Usage>;
   sessionId: string | null;
-  /**
-   * Свой режим доступа сотрудника. Нет поля или null — своего режима нет:
-   * в старых сохранениях его и не было, и это то же самое, что «как у роли».
-   */
-  permissionMode?: PermissionMode | null;
   /** Формат до детализации расходов: только сумма, без токенов. */
   costUsd?: number;
 }

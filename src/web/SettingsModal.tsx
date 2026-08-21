@@ -12,6 +12,7 @@ export function SettingsModal({ onClose }: { onClose: () => void }) {
   const cloud = useStore((s) => s.cloud);
   const [global, setGlobal] = useState(settings.globalBudgetUsd?.toString() ?? '');
   const [perTask, setPerTask] = useState(settings.taskBudgetUsd?.toString() ?? '');
+  const [turns, setTurns] = useState(settings.taskMaxTurns?.toString() ?? '');
   const [engine, setEngine] = useState(settings.engine);
   const [repo, setRepo] = useState(settings.cloudRepoUrl ?? '');
   const [token, setToken] = useState('');
@@ -25,9 +26,11 @@ export function SettingsModal({ onClose }: { onClose: () => void }) {
   };
 
   const save = () => {
+    const maxTurns = parse(turns);
     updateSettings({
       globalBudgetUsd: parse(global),
       taskBudgetUsd: parse(perTask),
+      taskMaxTurns: maxTurns === null ? null : Math.round(maxTurns),
       engine,
       cloudRepoUrl: repo.trim() || null,
       officePermissionMode: access,
@@ -57,6 +60,19 @@ export function SettingsModal({ onClose }: { onClose: () => void }) {
           <span className="hint muted">
             Локально это лимит внутри сессии исполнителя; в облаке — жёсткий потолок
             сессии: дойдя до него, она встаёт на паузу.
+          </span>
+        </label>
+
+        <label>Потолок ходов на задачу
+          <input value={turns} placeholder="без ограничения"
+            onChange={(e) => setTurns(e.target.value)} />
+          <span className="hint muted">
+            Ход — это шаг исполнителя (чтение, правка, команда), а не реплика в разговоре.
+            Упёршись в потолок, задача падает; сделанное к тому моменту офис коммитит
+            в её ветку. Лимит страхует от зацикливания и ничего не стоит сам по себе:
+            задача, которой хватило тридцати ходов, при потолке в двести потратит те же
+            тридцать. Пусто — без ограничения, и тогда упорного исполнителя остановят
+            только бюджет и вы.
           </span>
         </label>
 
