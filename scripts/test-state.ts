@@ -131,14 +131,41 @@ async function main(): Promise<void> {
   for (const i of office.staffOf('smm')) office.fire(i.id);
   const extraBackend = office.hire('backend') === null;
   office.projectDir = office.projectDir || process.cwd();
+
+  // 7b. Режим доступа: офисный, личный режим сотрудника и наследование.
+  // Права не должны появляться сами, а выданные — молча пропадать.
+  const defaultMode = office.roleViews().find((r) => r.id === 'backend')!.effectivePermissionMode;
+  office.updateRole('reviewer', { permissionMode: null });
+  office.updateSettings({ officePermissionMode: 'auto' });
+  const inheritedAuto = office.roleViews().find((r) => r.id === 'reviewer')?.effectivePermissionMode;
+  // Мусор из сети не должен становиться режимом офиса.
+  office.updateSettings({ officePermissionMode: 'всё можно' as never });
+  const junkIgnored = office.settings.officePermissionMode === 'auto';
+  office.updateSettings({ officePermissionMode: 'ask-writes' });
+  office.setAgentPermissionMode('backend#1', 'auto');
+  const personal = office.instanceViews().find((i) => i.id === 'backend#1');
+
   office.flush();
   const restored = office.restore();
+  const afterRestart = office.instanceViews().find((i) => i.id === 'backend#1');
   results.push(
     `состояние восстановлено: ${restored}`,
     `уволенная роль не воскресла после перезапуска: ${office.staffOf('smm').length === 0}`,
     `нанятые сверх одного сохранились: ${extraBackend && office.staffOf('backend').length === 2}`,
     `столы не разъехались: ${new Set([...office.instances.values()].map((i) => i.desk.index)).size === office.instances.size}`,
+    `по умолчанию у роли прежний режим: ${defaultMode === 'ask-risky'}`,
+    `роль без своего режима наследует офисный: ${inheritedAuto === 'auto'}`,
+    `неизвестный режим не принимается: ${junkIgnored}`,
+    `личный режим сильнее офисного: ${personal?.effectivePermissionMode === 'auto'}`,
+    `сосед по роли остался на режиме роли: ${office.instanceViews().find((i) => i.id === 'backend#2')?.effectivePermissionMode === 'ask-risky'}`,
+    `личный режим пережил перезапуск: ${afterRestart?.permissionMode === 'auto'}`,
+    `режим офиса пережил перезапуск: ${office.settings.officePermissionMode === 'ask-writes'}`,
+    // Смена режима — не тихая настройка: человек должен видеть её в ленте.
+    `смена режима записана в ленту: ${office.log.some((e) => /Режим доступа офиса/.test(e.text))}`,
   );
+  office.updateSettings({ officePermissionMode: DEFAULT_SETTINGS.officePermissionMode });
+  office.setAgentPermissionMode('backend#1', null);
+  office.updateRole('reviewer', { permissionMode: 'ask-risky' });
   office.wipe();
 
   // 8. Хранилище пер-офисное: сохранение одного офиса не отменяет сохранение

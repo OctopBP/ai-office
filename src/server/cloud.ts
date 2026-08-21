@@ -17,6 +17,8 @@
  */
 import Anthropic from '@anthropic-ai/sdk';
 import { criteriaProgress, office, type Instance, type OfficeState, type Task } from './state';
+import type { PermissionMode } from '../shared/types';
+import { effectiveMode } from './permissions';
 import type { Role } from './roles';
 import { currentBranch, fetchBranch, remoteUrl } from './git';
 
@@ -97,18 +99,19 @@ async function findEnvironment(name: string): Promise<string | null> {
 }
 
 /**
- * Набор инструментов агента. Режим разрешений роли раскладывается в политики:
- * readonly вообще не получает запись и оболочку, ask-writes спрашивает про
- * любую правку, ask-risky — только про оболочку.
+ * Набор инструментов агента. Эффективный режим разрешений (агент → роль →
+ * офис) раскладывается в политики: readonly вообще не получает запись и
+ * оболочку, ask-writes спрашивает про любую правку, ask-risky — только про
+ * оболочку, auto не спрашивает ни о чём.
  */
 /** Имена встроенных инструментов контейнера — так их знает Managed Agents. */
 type ToolName = 'bash' | 'edit' | 'glob' | 'grep' | 'read' | 'web_fetch' | 'web_search' | 'write';
 
-function toolset(role: Role) {
+function toolset(role: Role, mode: PermissionMode) {
   const writeTools: ToolName[] = ['write', 'edit', 'bash'];
   const ask = { type: 'always_ask' as const };
 
-  if (role.permissionMode === 'readonly') {
+  if (mode === 'readonly') {
     return {
       type: 'agent_toolset_20260401' as const,
       default_config: { enabled: true },
@@ -119,11 +122,11 @@ function toolset(role: Role) {
   const configs: Array<{ name: ToolName; enabled?: boolean; permission_policy?: typeof ask }> =
     role.docsDir ? [{ name: 'bash', enabled: false }] : [];
 
-  if (role.permissionMode === 'ask-writes') {
+  if (mode === 'ask-writes') {
     for (const name of writeTools) {
       if (!configs.some((c) => c.name === name)) configs.push({ name, permission_policy: ask });
     }
-  } else if (role.permissionMode === 'ask-risky' && !role.docsDir) {
+  } else if (mode === 'ask-risky' && !role.docsDir) {
     configs.push({ name: 'bash', permission_policy: ask });
   }
 
@@ -175,8 +178,10 @@ const OFFICE_TOOLS = [
  * переиспользуем. Ключ включает всё, что попадает в агента, — поменяли
  * промпт или модель в редакторе ролей, появится новый агент.
  */
-async function ensureAgent(role: Role, systemPrompt: string): Promise<string> {
-  const key = `${role.id}:${role.model}:${role.permissionMode}:${systemPrompt.length}:${systemPrompt.slice(0, 64)}`;
+async function ensureAgent(role: Role, systemPrompt: string, mode: PermissionMode): Promise<string> {
+  // В ключе именно эффективный режим: у двух сотрудников одной роли он может
+  // отличаться, и агент с чужими политиками инструментов им не подойдёт.
+  const key = `${role.id}:${role.model}:${mode}:${systemPrompt.length}:${systemPrompt.slice(0, 64)}`;
   const known = agentIds.get(key);
   if (known) return known;
 
@@ -184,7 +189,7 @@ async function ensureAgent(role: Role, systemPrompt: string): Promise<string> {
     name: `AI Office — ${role.title}`,
     model: role.model,
     system: systemPrompt,
-    tools: [toolset(role), ...OFFICE_TOOLS],
+    tools: [toolset(role, mode), ...OFFICE_TOOLS],
   });
   agentIds.set(key, agent.id);
   return agent.id;
@@ -247,9 +252,14 @@ export async function runCloudTask(
   const branch = `task/${task.id}`;
   const mount = '/workspace/repo';
 
+  // Режим считаем так же, как локальный обработчик разрешений: личный режим
+  // сотрудника сильнее режима роли, роль — сильнее офиса.
+  // Режим офиса берём из state задачи, а не из глобального office: в
+  // мультиофисном рантайме текущий офис может быть уже другим.
+  const mode = effectiveMode(inst.permissionMode, role.permissionMode, state.officeMode());
   const [environment, agentId] = await Promise.all([
     ensureEnvironment(state),
-    ensureAgent(role, systemPrompt),
+    ensureAgent(role, systemPrompt, mode),
   ]);
 
   const cap = state.settings.taskBudgetUsd;

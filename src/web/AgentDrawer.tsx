@@ -1,17 +1,21 @@
 import { useState } from 'react';
 import {
-  ACCESS_LABEL, assignDirect, effectivePermissionMode, fire, hire, mergeTask,
-  retryTask, showDiff, stopTask, useStore,
+  ACCESS_LABEL, PERMISSION_SOURCE_LABEL, assignDirect, effectivePermissionMode, fire, hire,
+  mergeTask, permissionSource, retryTask, setAgentPermission, showDiff, stopTask, useStore,
+  FULL_ACCESS_WARNING,
 } from './store';
 import { RoleEditor } from './RoleEditor';
 import { useActionNotice } from './useActionNotice';
 import { agentSpriteName, spriteOf } from './sprites';
 import { usageLine } from './UsageModal';
-import type { Criterion, TaskView } from '../shared/types';
+import type { Criterion, PermissionMode, TaskView } from '../shared/types';
 
 const money = (v: number) => `$${v.toFixed(v < 1 ? 3 : 2)}`;
 const tokens = (v: number) => (v >= 1000 ? `${Math.round(v / 1000)}k` : String(v));
 const progress = (list: Criterion[]) => ({ done: list.filter((c) => c.done).length, total: list.length });
+
+/** Тот же порядок и подписи, что и в настройке роли. */
+const PERM_OPTIONS: PermissionMode[] = ['readonly', 'ask-writes', 'ask-risky', 'auto'];
 
 /** Критерии готовности с отметками — то же представление, что и на доске. */
 function Criteria({ list }: { list: Criterion[] }) {
@@ -59,11 +63,19 @@ export function AgentDrawer() {
   const setThread = useStore((s) => s.setThread);
   const theme = useStore((s) => s.theme);
   const [editRole, setEditRole] = useState(false);
+  const [confirmAuto, setConfirmAuto] = useState(false);
   const { notice, markPending, clear } = useActionNotice();
 
   const inst = selected ? instances[selected] : null;
   if (!inst) return null;
   const role = roles.find((r) => r.id === inst.roleId);
+
+  const roleFallbackLabel = role ? ACCESS_LABEL[effectivePermissionMode(role, settings)] : '';
+  const chooseAgentMode = (mode: PermissionMode | null) => {
+    // Полный доступ для сотрудника — то же опасное состояние, что и для роли и офиса.
+    if (mode === 'auto') { setConfirmAuto(true); return; }
+    setAgentPermission(inst.id, mode);
+  };
 
   const all = Object.values(tasksMap);
   const mine = all.filter((t) => t.assigneeId === inst.id).sort((a, b) => a.createdAt - b.createdAt);
@@ -87,16 +99,11 @@ export function AgentDrawer() {
           <div className="muted">
             {role?.title} · {role?.model.replace('claude-', '')} · место #{inst.desk.index}
           </div>
-          {role && (
-            <span className={`perm-badge ${effectivePermissionMode(role, settings)}`}
-              title={role.permissionMode
-                ? 'Роль работает не по общему режиму доступа офиса, а по своему'
-                : 'Роль следует общему режиму доступа офиса'}>
-              {effectivePermissionMode(role, settings) === 'auto' ? '🔓' : '🔐'}{' '}
-              {ACCESS_LABEL[effectivePermissionMode(role, settings)]}
-              {role.permissionMode && ' · переопределено для роли'}
-            </span>
-          )}
+          <span className={`perm-badge ${inst.effectivePermissionMode}`}
+            title="Фактический режим доступа этого сотрудника и откуда он взялся">
+            {inst.effectivePermissionMode === 'auto' ? '🔓' : '🔐'}{' '}
+            {ACCESS_LABEL[inst.effectivePermissionMode]} · {PERMISSION_SOURCE_LABEL[permissionSource(inst, role)]}
+          </span>
           <div className={`chip ${inst.state}`}>
             {inst.note ?? STATUS_RU[current?.status ?? 'backlog'] ?? inst.state}
             {current && ` · ${elapsed(current.startedAt, null)} · ${current.id}`}
@@ -104,6 +111,35 @@ export function AgentDrawer() {
         </div>
         <button className="icon" onClick={() => select(null)} title="Закрыть">✕</button>
       </header>
+
+      <section>
+        <h3>Доступ</h3>
+        <label>Личный режим доступа
+          <select
+            value={inst.permissionMode ?? ''}
+            onChange={(e) => chooseAgentMode(e.target.value === '' ? null : e.target.value as PermissionMode)}
+          >
+            <option value="">Как у роли (сейчас: {roleFallbackLabel})</option>
+            {PERM_OPTIONS.map((m) => <option key={m} value={m}>{ACCESS_LABEL[m]}</option>)}
+          </select>
+          <span className="hint">
+            {inst.permissionMode
+              ? `У сотрудника своё правило — переопределено на «${ACCESS_LABEL[inst.permissionMode]}».`
+              : `Сотрудник использует режим роли: «${roleFallbackLabel}».`}
+          </span>
+        </label>
+        {confirmAuto && (
+          <div className="access-confirm">
+            <p>{FULL_ACCESS_WARNING}</p>
+            <div className="modal-actions">
+              <button onClick={() => setConfirmAuto(false)}>Отмена</button>
+              <button className="danger" onClick={() => { setAgentPermission(inst.id, 'auto'); setConfirmAuto(false); }}>
+                Да, включить полный доступ
+              </button>
+            </div>
+          </div>
+        )}
+      </section>
 
       <section>
         <h3>Сейчас делает</h3>

@@ -2,7 +2,7 @@ import { query, tool, createSdkMcpServer } from '@anthropic-ai/claude-agent-sdk'
 import type { SDKMessage, PermissionResult, SDKResultSuccess } from '@anthropic-ai/claude-agent-sdk';
 import { z } from 'zod';
 import { MessageQueue } from './queue';
-import { criteriaProgress, DEFAULT_SETTINGS, office, taskRepo, type Instance, type OfficeState, type Task } from './state';
+import { criteriaProgress, office, taskRepo, type Instance, type OfficeState, type Task } from './state';
 import { emptyUsage } from '../shared/types';
 import { cloudProblem, runCloudTask, stopCloudTask } from './cloud';
 import { roleById, workerRoles, type Role } from './roles';
@@ -205,12 +205,15 @@ function permissionHandler(
   ): Promise<PermissionResult> => {
     const inst = state.instances.get(instanceId);
     const role = inst ? roleById(inst.roleId) : undefined;
-    // Режим роли сильнее режима офиса: офисный — это фолбэк для ролей,
-    // у которых своего нет (permissionMode === null).
-    const mode = effectiveMode(
-      role?.permissionMode,
-      state.settings.officePermissionMode ?? DEFAULT_SETTINGS.officePermissionMode,
-    );
+    // Режим сотрудника сильнее режима роли, режим роли — сильнее офисного:
+    // офис здесь фолбэк для тех, у кого своего нет (permissionMode === null).
+    // Так «бэкенду полный доступ, остальные спрашивают» задаётся одной ролью
+    // или одним человеком, не трогая офис целиком.
+    //
+    // Офисный режим берём у state сессии, а не у глобального office: пока
+    // сессия работает, пользователь может уйти в другой офис, и его режим
+    // к этой работе отношения не имеет.
+    const mode = effectiveMode(inst?.permissionMode, role?.permissionMode, state.officeMode());
 
     // Пауза офиса: сессия не убивается, а замирает перед следующим действием.
     // Это единственная точка, через которую проходит любой вызов инструмента,
@@ -258,8 +261,15 @@ function permissionHandler(
 
     // Действие небезопасно само по себе, но режим доступа разрешает его без
     // вопроса — это стоит зафиксировать в ленте отдельной строкой, а не молчать.
+    //
+    // Отдельной строкой отмечаем только необратимое (risk === 'danger'):
+    // обычная запись и обычная команда и так видны в ленте строкой вызова
+    // инструмента, а вторая строка на каждый Write превратила бы след
+    // в шум, в котором настоящее «удалил файлы» уже не разглядеть.
     if (byMode === 'allow') {
-      state.addLog(instanceId, 'system', autoApprovedText(mode, toolName, verdict), true);
+      if (verdict.risk === 'danger') {
+        state.addLog(instanceId, 'system', autoApprovedText(mode, toolName, verdict), true);
+      }
       return { behavior: 'allow', updatedInput: input };
     }
 
