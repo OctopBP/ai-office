@@ -380,7 +380,7 @@ button
 
 
 /* ---------- подписи, пузыри и пустые места ---------- */
-.tags { position: absolute; width: 48px; z-index: 8; pointer-events: none; }
+.tags { position: absolute; width: 48px; z-index: 1000; pointer-events: none; }
 
 .ghost { position: absolute; z-index: 3; opacity: .55; }
 .ghost span {
@@ -549,7 +549,7 @@ kbd {
 .help kbd { margin-right: 2px; }
 
 /* ---------- подписи в комнате ---------- */
-.tags { position: absolute; width: 48px; z-index: 8; pointer-events: none; }
+.tags { position: absolute; width: 48px; z-index: 1000; pointer-events: none; }
 .statuscard {
   position: absolute; left: 50%; transform: translateX(-50%); top: 82px;
   padding: 3px 9px; white-space: nowrap; font-size: 11px; line-height: 1.35;
@@ -558,7 +558,7 @@ kbd {
 .statuscard .line1 b { font-size: 11px; }
 .statuscard .line2 { font-size: 10px; max-width: 210px; overflow: hidden; text-overflow: ellipsis; }
 .plate {
-  position: absolute; z-index: 5; font: 700 10px/1.5 ui-monospace, Menlo, monospace;
+  position: absolute; z-index: 1000; font: 700 10px/1.5 ui-monospace, Menlo, monospace;
   color: var(--panel); background: var(--line); border-radius: 3px; padding: 0 5px;
   pointer-events: none; letter-spacing: .04em;
 }
