@@ -1,0 +1,87 @@
+{
+  "version": 1,
+  "id": "studio",
+  "title": "Студия",
+  "size": [30, 20],
+  "rooms": [
+    { "id": "meeting", "rect": [1, 1, 10, 7], "floor": "parquet" },
+    { "id": "lounge", "rect": [1, 8, 10, 19], "floor": "parquet" },
+    { "id": "open", "rect": [11, 1, 29, 19], "floor": "carpet" }
+  ],
+  "walls": [
+    { "a": [0, 0], "b": [30, 0], "windows": [4, 16, 25] },
+    { "a": [0, 0], "b": [0, 20] },
+    { "a": [0, 19], "b": [30, 19], "doors": [[19, 2]], "windows": [3, 27] },
+    { "a": [29, 0], "b": [29, 20] },
+    { "a": [11, 0], "b": [11, 20], "doors": [[7, 2]] },
+    { "a": [0, 8], "b": [11, 8], "doors": [[4, 2]] }
+  ],
+  "props": [
+    { "sprite": "clock", "at": [15.0, 0.4] },
+    { "sprite": "poster", "at": [4.0, 1.3] },
+    { "sprite": "bookshelf", "at": [1.2, 8.3] },
+    { "sprite": "server_rack", "at": [27.0, 1.2] },
+    { "sprite": "plant_big", "at": [27.0, 3.0] },
+    { "sprite": "plant_small", "at": [12.0, 2.0] },
+    { "sprite": "plant_small", "at": [12.0, 17.0] },
+    { "sprite": "doormat", "at": [19.9, 18.1] },
+
+    { "sprite": "desk_pm", "at": [23, 15] },
+    { "sprite": "desk", "at": [13, 3] },
+    { "sprite": "desk", "at": [18, 3] },
+    { "sprite": "desk", "at": [23, 3] },
+    { "sprite": "desk", "at": [13, 7] },
+    { "sprite": "desk", "at": [18, 7] },
+    { "sprite": "desk", "at": [23, 7] },
+    { "sprite": "desk", "at": [13, 11] },
+    { "sprite": "desk", "at": [18, 11] },
+    { "sprite": "desk", "at": [23, 11] },
+
+    { "sprite": "round_table", "at": [3.0, 2.5], "id": "meeting_table", "scale": 1.6 },
+    { "sprite": "chair", "at": [4.1, 2.1] },
+    { "sprite": "chair", "at": [5.6, 2.7] },
+    { "sprite": "chair", "at": [5.6, 3.7] },
+    { "sprite": "chair", "at": [4.1, 4.2] },
+    { "sprite": "chair", "at": [2.5, 3.7] },
+    { "sprite": "chair", "at": [2.5, 2.7] },
+
+    { "sprite": "sofa", "at": [2.0, 9.0] },
+    { "sprite": "tv", "at": [5.5, 8.5] },
+    { "sprite": "console", "at": [5.7, 9.6] },
+    { "sprite": "rug", "at": [2.0, 13.0] },
+    { "sprite": "arcade", "at": [7.5, 13.0] },
+    { "sprite": "beanbag", "at": [3.0, 14.2] },
+    { "sprite": "beanbag", "at": [4.5, 14.2] },
+    { "sprite": "gamepad", "at": [4.0, 14.9] },
+    { "sprite": "coin", "at": [7.7, 15.3] },
+    { "sprite": "plant_small", "at": [1.2, 17.0] },
+
+    { "sprite": "kitchen_tiles", "at": [21.0, 13.0] },
+    { "sprite": "fridge", "at": [21.1, 13.5] },
+    { "sprite": "cooler", "at": [22.1, 13.5] },
+    { "sprite": "counter_straight", "at": [23.0, 13.1] },
+    { "sprite": "coffee_machine", "at": [23.0, 13.1] },
+    { "sprite": "sink_counter", "at": [25.0, 13.1] },
+    { "sprite": "counter_corner", "at": [27.0, 13.1] },
+    { "sprite": "dining_table", "at": [22.0, 16.2] },
+    { "sprite": "chair", "at": [22.75, 15.45] },
+    { "sprite": "chair", "at": [24.25, 15.45] },
+    { "sprite": "chair", "at": [25.75, 15.45] },
+    { "sprite": "chair", "at": [27.25, 15.45] },
+    { "sprite": "chair", "at": [22.75, 18.325] },
+    { "sprite": "chair", "at": [24.25, 18.325] },
+    { "sprite": "chair", "at": [25.75, 18.325] },
+    { "sprite": "chair", "at": [27.25, 18.325] },
+    { "sprite": "kitchen_mugs", "at": [24.6, 16.5] },
+    { "sprite": "kitchen_snack", "at": [26.3, 16.5] }
+  ],
+  "zones": [
+    { "kind": "entrance", "at": [19.6, 18.4], "sprite": "door", "title": "Офисы и проекты" },
+    { "kind": "meeting", "prop": "meeting_table" },
+    { "kind": "idle", "room": "lounge" }
+  ],
+  "hotspots": [
+    { "panel": "board", "sprite": "board", "at": [12.6, 0.1], "key": "B", "title": "Доска задач — B" },
+    { "panel": "log", "sprite": "logscreen", "at": [6.2, 0.3], "key": "L", "title": "Лог событий — L" }
+  ]
+}
