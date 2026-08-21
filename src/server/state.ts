@@ -8,6 +8,7 @@ import type {
 } from '../shared/types';
 import { emptyUsage } from '../shared/types';
 import { activityFromFile, summarize } from './activity';
+import { DESKS, PM_DESK_INDEX } from './layout';
 import { currentOffice, offices } from './offices';
 import { effectiveMode, isPermissionMode, modeLabel } from './permissions';
 import type { MessageQueue } from './queue';
@@ -16,16 +17,6 @@ import {
   DEFAULT_STATE_FILE, flush as flushFile, load, save, wipe as wipeFile,
   type Persisted, type PersistedInstance,
 } from './store';
-
-/** Раскладка рабочих мест в комнате (координаты в клетках сетки). */
-export const DESKS: Desk[] = [
-  // Раскладка по макету: два ряда столов под стеной, два места в центре,
-  // низ комнаты занят переговоркой (слева) и кухней (справа).
-  { index: 0, x: 1, y: 4 },   // PM — отдельно, у входа
-  { index: 1, x: 6, y: 4 },  { index: 2, x: 11, y: 4 }, { index: 3, x: 16, y: 4 },
-  { index: 4, x: 1, y: 8 },  { index: 5, x: 6, y: 8 },  { index: 6, x: 11, y: 8 },
-  { index: 7, x: 16, y: 8 }, { index: 8, x: 10, y: 12 }, { index: 9, x: 14, y: 12 },
-];
 
 type Listener = (e: ServerEvent) => void;
 
@@ -446,8 +437,8 @@ export class OfficeState {
     if (!role) return null;
     const existing = this.staffOf(roleId);
     if (existing.length >= role.maxInstances) return null;
-    // PM всегда садится за нулевой стол, остальные — на любой свободный.
-    const desk = role.isManager ? DESKS[0] : this.freeDesk();
+    // PM всегда садится за свой стол, остальные — на любой свободный.
+    const desk = role.isManager ? DESKS[PM_DESK_INDEX] : this.freeDesk();
     if (!desk) return null;
 
     const n = this.nextNumber(roleId);
