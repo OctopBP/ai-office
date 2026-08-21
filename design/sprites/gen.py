@@ -341,7 +341,50 @@ def wall_door(side):
     save(im, f'wall_door_{side}')
 
 
-_WALL_AUTOTILE_NAMES = [f'wall_{m}' for m in range(16)] + ['wall_window', 'wall_door_l', 'wall_door_r']
+def wall_door_v(edge):
+    """Наличник вертикального проёма — тот же приём, что в wall_door(), но
+    открытая грань горизонтальная (верх/низ), а не боковая: там, где
+    _draw_wall_tile рисует карниз или плинтус во всю ширину тайла, кладём
+    вместо них полосу дверной рамы. 't' — тайл над разрывом, стена
+    продолжается на север (плинтусная грань снизу заменяется рамой); 'b' —
+    тайл под разрывом, стена продолжается на юг (карниз сверху заменяется
+    рамой)."""
+    mask = WALL_N if edge == 't' else WALL_S
+    im = _draw_wall_tile(mask)
+    d = ImageDraw.Draw(im)
+    w, h = im.size
+    if edge == 't':
+        R(d, 0, h - 9, w - 1, h - 1, BASEBOARD_L)
+        R(d, 0, h - 9, w - 1, h - 9, _light(BASEBOARD_L))
+    else:
+        R(d, 0, 0, w - 1, 3, BASEBOARD_L)
+        R(d, 0, 3, w - 1, 3, _light(BASEBOARD_L))
+    save(im, f'wall_door_{edge}')
+
+
+def wall_window_v():
+    """Окно на вертикальном участке стены — по мотивам wall_window(), но вырез
+    вытянут вдоль тайла (по Y) и узкий поперёк (по X), поскольку у
+    вертикальной стены грань-«лицо» идёт вдоль тайла сверху вниз, а не
+    слева направо."""
+    im = _draw_wall_tile(WALL_N | WALL_S)
+    d = ImageDraw.Draw(im)
+    w, h = im.size
+    frame = WHITE if not NIGHT else '#8f97b3'
+    glass = '#8fd3ff' if not NIGHT else '#0e1636'
+    R(d, 4, 3, w - 5, h - 4, frame)
+    R(d, 5, 4, w - 6, h - 5, glass)
+    R(d, 5, h // 2 - 1, w - 6, h // 2, frame)
+    if NIGHT:
+        for sx, sy in [(7, 7), (9, 12), (7, 17)]:
+            P(d, sx, sy, '#dfe8ff')
+    save(im, 'wall_window_v')
+
+
+_WALL_AUTOTILE_NAMES = [f'wall_{m}' for m in range(16)] + [
+    'wall_window', 'wall_door_l', 'wall_door_r',
+    'wall_window_v', 'wall_door_t', 'wall_door_b',
+]
 SPRITE_FOOTPRINT.update({name: [0, 0.5, 1, 1] for name in _WALL_AUTOTILE_NAMES})
 SPRITE_LAYER.update({name: 'wall' for name in _WALL_AUTOTILE_NAMES})
 
@@ -920,6 +963,7 @@ def build(theme):
     for m in range(16):
         wall_tile(m)
     wall_window(); wall_door('l'); wall_door('r')
+    wall_window_v(); wall_door_v('t'); wall_door_v('b')
     desk('desk'); desk('desk_pm', pm=True); desk('desk_ghost', ghost=True)
     chair()
     agent('agent_pm', '#f2a33a', '#4a2f1e', SKIN[0], glasses=True, tie=True)

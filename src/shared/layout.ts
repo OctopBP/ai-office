@@ -76,9 +76,9 @@ export interface LayoutRoom {
 /**
  * Отрезок стены по сетке (только горизонтальный или вертикальный), толщина
  * всегда 1 тайл (§3.2). `doors` — проёмы `[смещение, длина]` от точки `a`
- * вдоль отрезка. `windows` — одиночные тайлы-окна (смещение от `a`); art
- * `wall_window` нарисован только для горизонтального ракурса (§6.2), поэтому
- * на вертикальных отрезках смещения из `windows` игнорируются.
+ * вдоль отрезка. `windows` — одиночные тайлы-окна (смещение от `a`);
+ * ориентация арта (`wall_window`/`wall_window_v`) определяется ориентацией
+ * отрезка автоматически (§6.2).
  */
 export interface LayoutWall {
   a: [number, number];
@@ -300,18 +300,17 @@ function cellKey(x: number, y: number): string {
  * Автотайлинг стен по 4-битной маске соседей (§6.2): разрывы дверей не
  * считаются соседями, поэтому клетки проёма просто не попадают в множество
  * `present`, а маска у их соседей естественно теряет соответствующий бит.
- * Края проёма на горизонтальных отрезках дополнительно помечаются
- * `wall_door_l`/`wall_door_r` (наличник), окна — `wall_window`. Оба спрайта
- * нарисованы только для горизонтального ракурса (E/W, §6.2) — на
- * вертикальных отрезках проём режет стену корректно (клетки нет в `present`,
- * ходьба и маска соседей это увидят), но без наличника: своего арта для
- * вертикального проёма пока нет (см. отчёт задачи).
+ * Края проёма дополнительно помечаются наличником: на горизонтальном
+ * отрезке — `wall_door_l`/`wall_door_r`, на вертикальном — `wall_door_t`
+ * (верхний край, стена продолжается на север) / `wall_door_b` (нижний край,
+ * стена продолжается на юг). Окна — `wall_window` на горизонтальном отрезке,
+ * `wall_window_v` на вертикальном.
  */
 export function wallTiles(layout: Layout): WallTile[] {
   const walls = layout.walls ?? [];
   const present = new Set<string>();
-  const doorEdge = new Map<string, 'l' | 'r'>();
-  const windowCell = new Set<string>();
+  const doorEdge = new Map<string, 'l' | 'r' | 't' | 'b'>();
+  const windowOrient = new Map<string, 'h' | 'v'>();
 
   for (const wall of walls) {
     const [ax, ay] = wall.a;
@@ -325,30 +324,35 @@ export function wallTiles(layout: Layout): WallTile[] {
       for (let i = Math.max(offset, 0); i < Math.min(offset + span, len); i++) gap[i] = true;
     }
     const cellAt = (i: number): [number, number] => (horizontal ? [ax + i * dir, ay] : [ax, ay + i * dir]);
+    const alongCoord = (i: number): number => (horizontal ? cellAt(i)[0] : cellAt(i)[1]);
     for (let i = 0; i < len; i++) {
       if (gap[i]) continue;
       const [x, y] = cellAt(i);
       present.add(cellKey(x, y));
     }
-    if (horizontal) {
-      for (const [offset, span] of wall.doors ?? []) {
-        const gapXs: number[] = [];
-        for (let i = Math.max(offset, 0); i < Math.min(offset + span, len); i++) gapXs.push(cellAt(i)[0]);
-        if (gapXs.length === 0) continue;
-        const gapMinX = Math.min(...gapXs);
-        const before = offset - 1;
-        const after = offset + span;
-        if (before >= 0 && before < len && !gap[before]) {
-          const [x, y] = cellAt(before);
-          doorEdge.set(cellKey(x, y), x < gapMinX ? 'l' : 'r');
-        }
-        if (after < len && !gap[after]) {
-          const [x, y] = cellAt(after);
-          doorEdge.set(cellKey(x, y), x < gapMinX ? 'l' : 'r');
-        }
+    for (const [offset, span] of wall.doors ?? []) {
+      const gapCoords: number[] = [];
+      for (let i = Math.max(offset, 0); i < Math.min(offset + span, len); i++) gapCoords.push(alongCoord(i));
+      if (gapCoords.length === 0) continue;
+      const gapMin = Math.min(...gapCoords);
+      const before = offset - 1;
+      const after = offset + span;
+      const edgeFor = (i: number): 'l' | 'r' | 't' | 'b' => {
+        const near = alongCoord(i) < gapMin;
+        return horizontal ? (near ? 'l' : 'r') : (near ? 't' : 'b');
+      };
+      if (before >= 0 && before < len && !gap[before]) {
+        const [x, y] = cellAt(before);
+        doorEdge.set(cellKey(x, y), edgeFor(before));
       }
-      for (const offset of wall.windows ?? []) {
-        if (offset >= 0 && offset < len && !gap[offset]) windowCell.add(cellKey(...cellAt(offset)));
+      if (after < len && !gap[after]) {
+        const [x, y] = cellAt(after);
+        doorEdge.set(cellKey(x, y), edgeFor(after));
+      }
+    }
+    for (const offset of wall.windows ?? []) {
+      if (offset >= 0 && offset < len && !gap[offset]) {
+        windowOrient.set(cellKey(...cellAt(offset)), horizontal ? 'h' : 'v');
       }
     }
   }
@@ -362,7 +366,12 @@ export function wallTiles(layout: Layout): WallTile[] {
     if (present.has(cellKey(x, y + 1))) mask |= WALL_S;
     if (present.has(cellKey(x - 1, y))) mask |= WALL_W;
     const edge = doorEdge.get(key);
-    const sprite = edge ? `wall_door_${edge}` : windowCell.has(key) ? 'wall_window' : `wall_${mask}`;
+    const orient = windowOrient.get(key);
+    const sprite = edge
+      ? `wall_door_${edge}`
+      : orient
+        ? (orient === 'v' ? 'wall_window_v' : 'wall_window')
+        : `wall_${mask}`;
     tiles.push({ x, y, sprite });
   }
   return tiles;
