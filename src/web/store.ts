@@ -6,8 +6,8 @@ import type {
 } from '../shared/types';
 import { emptyUsage } from '../shared/types';
 import type { Theme } from './sprites';
-import { kitchenSeatFor } from './desks';
-import { meetingSeat } from './meetingSeats';
+import { catalog, kitchenSeatFor, layout } from './layoutData';
+import { meetingSeat } from '../shared/layout';
 
 interface Pos { x: number; y: number }
 
@@ -332,7 +332,7 @@ export const useStore = create<State>((set, get) => ({
           if (e.meeting) {
             const total = e.meeting.participants.length;
             e.meeting.participants.forEach((id, i) => {
-              const seat = meetingSeat(i, total);
+              const seat = meetingSeat(layout, catalog, i, total);
               pos[id] = { x: seat.x, y: seat.y };
             });
           } else {

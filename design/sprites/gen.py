@@ -13,6 +13,9 @@ T = 16
 ROOT = os.path.join(os.path.dirname(__file__), 'out')
 CATALOG_PATH = os.path.join(ROOT, 'catalog.json')
 CATALOG = {}  # имя спрайта → размер в тайлах, копится за время работы процесса
+SPRITE_SLOTS = {}  # имя спрайта → список слотов (спека §3.1), заполняется таблицами рядом с build()
+SPRITE_FOOTPRINT = {}  # имя спрайта → footprint [x,y,w,h] от якоря, тайлы (спека §3.1)
+SPRITE_LAYER = {}  # имя спрайта → слой для сортировки (спека §5)
 
 # ---------- палитры ----------
 PAL_DAY = dict(
@@ -91,7 +94,15 @@ def dump_catalog():
     if os.path.exists(CATALOG_PATH):
         with open(CATALOG_PATH) as f:
             sprites = json.load(f).get('sprites', {})
-    sprites.update({name: {'size': size} for name, size in CATALOG.items()})
+    for name, size in CATALOG.items():
+        entry = {'size': size}
+        if name in SPRITE_FOOTPRINT:
+            entry['footprint'] = SPRITE_FOOTPRINT[name]
+        if name in SPRITE_LAYER:
+            entry['layer'] = SPRITE_LAYER[name]
+        if name in SPRITE_SLOTS:
+            entry['slots'] = SPRITE_SLOTS[name]
+        sprites[name] = entry
     data = {'version': 1, 'tile': T, 'scale': SCALE, 'sprites': dict(sorted(sprites.items()))}
     with open(CATALOG_PATH, 'w') as f:
         json.dump(data, f, ensure_ascii=False, indent=2)
@@ -181,6 +192,60 @@ def floor(cols=24, rows=15, seed=7):
     save(im, 'floor')
 
 
+# ---------- пол: тайлы материалов (спека §6.1) ----------
+# Вместо цельной картинки комнаты — тайл 16×16 арт-px по 4 варианта на
+# материал; какой вариант куда класть, решает раскладка (хеш от x,y), здесь
+# только рисуем сами варианты. kitchen_tiles (8×6) остаётся отдельным
+# крупным спрайтом для classic — тайл 'tile' лишь даёт тот же паттерн поштучно.
+def floor_parquet(variant):
+    """Паркетная доска: 4 варианта — оттенок доски плюс случайные (но
+    детерминированные по variant) сучки, чтобы полы не «мигали» при перегенерации."""
+    im = canvas(T, T)
+    d = ImageDraw.Draw(im)
+    rnd = random.Random(1000 + variant)
+    base = FLOOR[variant % len(FLOOR)]
+    R(d, 0, 0, T - 1, T - 1, base)
+    R(d, 0, 0, T - 1, 0, _mix(base, 0.10))
+    R(d, 0, T - 1, T - 1, T - 1, FLOOR_LINE)
+    R(d, T - 1, 0, T - 1, T - 1, FLOOR_LINE)
+    for _ in range(3):
+        gx, gy = rnd.randrange(1, T - 1), rnd.randrange(1, T - 1)
+        P(d, gx, gy, _mix(base, -0.08))
+    save(im, f'floor_parquet_{variant}')
+
+
+def floor_carpet(variant):
+    """Ковролин переговорки: два тона RUG вперемешку с редким крапом."""
+    im = canvas(T, T)
+    d = ImageDraw.Draw(im)
+    c1, c2, _edge = RUG
+    base, fleck = (c1, c2) if variant % 2 == 0 else (c2, c1)
+    R(d, 0, 0, T - 1, T - 1, base)
+    rnd = random.Random(2000 + variant)
+    for _ in range(6):
+        gx, gy = rnd.randrange(0, T), rnd.randrange(0, T)
+        P(d, gx, gy, fleck)
+    save(im, f'floor_carpet_{variant}')
+
+
+def floor_tile(variant):
+    """Кухонная плитка (материал 'tile') — тот же шахматный узор, что у
+    kitchen_tiles, но поштучным тайлом 16×16 с чётностью по variant."""
+    im = canvas(T, T)
+    d = ImageDraw.Draw(im)
+    off = variant % 2
+    for r in range(2):
+        for c in range(2):
+            x, y = c * 8, r * 8
+            R(d, x, y, x + 7, y + 7, KTILE[(r + c + off) % 2])
+            R(d, x, y + 7, x + 7, y + 7, KTILE_LINE)
+            R(d, x + 7, y, x + 7, y + 7, KTILE_LINE)
+    if variant >= 2:
+        P(d, 3 + off * 8, 3, KTILE_LINE)
+        P(d, 11 - off * 8, 11, KTILE_LINE)
+    save(im, f'floor_tile_{variant}')
+
+
 # ---------- стена ----------
 def wall(cols=24, h=32):
     im = canvas(cols * T, h)
@@ -198,6 +263,87 @@ def wall(cols=24, h=32):
     R(d, 0, h - 3, im.width - 1, h - 1, BASEBOARD)
     R(d, 0, h - 3, im.width - 1, h - 3, BASEBOARD_L)
     save(im, 'wall')
+
+
+# ---------- стена: автотайлинг по 4 соседям (спека §6.2) ----------
+# Биты соседства: N=1, E=2, S=4, W=8, имя тайла — wall_<маска>, 16 штук.
+# Тайл — 1×1.5 тайла (16×24 арт-px): нижний тайл — footprint на карте, верхняя
+# половина — козырёк, рисуется со сдвигом вверх на 0.5 тайла (как «лицевая
+# стенка с плинтусом» на концепте). Грань без соседа получает отделку (сверху
+# карниз, снизу плинтус, по бокам торец); грань с соседом остаётся сплошной
+# заливкой, поэтому соседние тайлы стыкуются без шва — так одна процедура даёт
+# прямые, углы, T-стыки, крест, тупики и одиночный тайл.
+WALL_N, WALL_E, WALL_S, WALL_W = 1, 2, 4, 8
+WALL_TILE_W, WALL_TILE_H = T, T + T // 2
+
+
+def _draw_wall_tile(mask):
+    w, h = WALL_TILE_W, WALL_TILE_H
+    im = canvas(w, h)
+    d = ImageDraw.Draw(im)
+    has_n, has_e, has_s, has_w = mask & WALL_N, mask & WALL_E, mask & WALL_S, mask & WALL_W
+    R(d, 0, 0, w - 1, h - 1, WALL)
+    for x in range(2, w, 8):
+        for y in range(6, h - 8, 8):
+            P(d, x + (y // 8 % 2) * 4, y, WALL_SHADE)
+    if not has_n:
+        R(d, 0, 0, w - 1, 2, CEIL)
+        R(d, 0, 3, w - 1, 3, CEIL_L)
+    if not has_s:
+        R(d, 0, h - 9, w - 1, h - 4, WAINSCOT)
+        R(d, 0, h - 9, w - 1, h - 9, WAINSCOT_LINE)
+        for x in range(0, w, 8):
+            R(d, x, h - 8, x, h - 5, WAINSCOT_LINE)
+        R(d, 0, h - 3, w - 1, h - 1, BASEBOARD)
+        R(d, 0, h - 3, w - 1, h - 3, BASEBOARD_L)
+    if not has_w:
+        R(d, 0, 0, 1, h - 1, _dark(WALL))
+        P(d, 0, 0, _light(WALL))
+    if not has_e:
+        R(d, w - 2, 0, w - 1, h - 1, _dark(WALL))
+        P(d, w - 1, 0, _light(WALL))
+    return im
+
+
+def wall_tile(mask):
+    save(_draw_wall_tile(mask), f'wall_{mask}')
+
+
+def wall_window():
+    """Окно, врезанное в прямую стену (лицевая грань открыта на юг, соседи по
+    E/W — как обычная стена периметра): застеклённая ниша в теле стены, а не
+    отдельно висящая картинка."""
+    im = _draw_wall_tile(WALL_E | WALL_W)
+    d = ImageDraw.Draw(im)
+    w, h = im.size
+    frame = WHITE if not NIGHT else '#8f97b3'
+    glass = '#8fd3ff' if not NIGHT else '#0e1636'
+    R(d, 3, 5, w - 4, h - 12, frame)
+    R(d, 4, 6, w - 5, h - 13, glass)
+    R(d, w // 2 - 1, 6, w // 2, h - 13, frame)
+    if NIGHT:
+        for sx, sy in [(6, 8), (10, 10), (8, 13)]:
+            P(d, sx, sy, '#dfe8ff')
+    save(im, 'wall_window')
+
+
+def wall_door(side):
+    """Наличник проёма: торцевой тайл стены с деревянной рамкой на открытой
+    грани — ставится сразу у разрыва wall.doors (спека §6.2). 'l' — стена
+    продолжается на запад, проём открыт справа; 'r' — зеркально."""
+    mask = WALL_W if side == 'l' else WALL_E
+    im = _draw_wall_tile(mask)
+    d = ImageDraw.Draw(im)
+    w, h = im.size
+    x = w - 2 if side == 'l' else 0
+    R(d, x, 0, x + 1, h - 1, BASEBOARD_L)
+    P(d, x, 0, _light(BASEBOARD_L))
+    save(im, f'wall_door_{side}')
+
+
+_WALL_AUTOTILE_NAMES = [f'wall_{m}' for m in range(16)] + ['wall_window', 'wall_door_l', 'wall_door_r']
+SPRITE_FOOTPRINT.update({name: [0, 0.5, 1, 1] for name in _WALL_AUTOTILE_NAMES})
+SPRITE_LAYER.update({name: 'wall' for name in _WALL_AUTOTILE_NAMES})
 
 
 # ---------- стол ----------
@@ -746,9 +892,34 @@ def coin():
     save(im, 'coin')
 
 
+# Слоты — посадочные/рабочие точки у мебели (спека §3.1, раздел «Каталог
+# спрайтов»). Числа у desk/desk_pm — те же, что были вшиты в Office.tsx
+# (DESK_WORK_SLOT/DESK_PLATE_SLOT); у round_table — из meetingSeats.ts
+# (TABLE_CENTER/BASE_RADIUS/BASE_CAPACITY). desk_ghost слотов не получает:
+# это плейсхолдер пустого стола, там никто не сидит и нет таблички.
+SPRITE_SLOTS.update({
+    'desk': [
+        {'kind': 'work', 'x': 0.55, 'y': -0.75},
+        {'kind': 'plate', 'x': 0.45, 'y': 0.86},
+    ],
+    'desk_pm': [
+        {'kind': 'work', 'x': 0.55, 'y': -0.75},
+        {'kind': 'plate', 'x': 0.45, 'y': 0.86},
+    ],
+    'round_table': [
+        {'kind': 'seat', 'ring': 8, 'rx': 2.6, 'ry': 1.5, 'grow': True},
+    ],
+})
+
+
 def build(theme):
     use_theme(theme)
     floor(); wall()
+    for v in range(4):
+        floor_parquet(v); floor_carpet(v); floor_tile(v)
+    for m in range(16):
+        wall_tile(m)
+    wall_window(); wall_door('l'); wall_door('r')
     desk('desk'); desk('desk_pm', pm=True); desk('desk_ghost', ghost=True)
     chair()
     agent('agent_pm', '#f2a33a', '#4a2f1e', SKIN[0], glasses=True, tie=True)

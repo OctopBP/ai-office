@@ -182,6 +182,17 @@ def kitchen_snack():
     gen.save(im, 'kitchen_snack')
 
 
+# Слоты обеденного стола (спека §3.1): ряды мест вдоль длинных сторон,
+# те же 4+4, что сейчас расставлены стульями в classic.json вокруг
+# dining_table (было в desks.ts — TABLE/SEAT_STEP/NORTH_Y).
+gen.SPRITE_SLOTS.update({
+    'dining_table': [
+        {'kind': 'seat', 'side': 'n', 'count': 4},
+        {'kind': 'seat', 'side': 's', 'count': 4},
+    ],
+})
+
+
 def build(theme):
     gen.use_theme(theme)
     globals().update(gen.THEME)          # DESK_TOP, DESK_SIDE, WHITE, GREEN, NIGHT и т.д.
