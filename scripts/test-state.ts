@@ -5,8 +5,11 @@
  *
  * Запуск: npm run test:state
  */
+import { rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { resolve } from 'node:path';
+import { dirname, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { deskPlan } from '../src/server/layout';
 import {
   DEFAULT_SETTINGS, getOffice, office, openOfficeState, subscribeOffices,
 } from '../src/server/state';
@@ -146,9 +149,9 @@ async function main(): Promise<void> {
   office.setAgentPermissionMode('backend#1', 'auto');
   const personal = office.instanceViews().find((i) => i.id === 'backend#1');
 
-  // 7c. Раскладка офиса: значение по умолчанию, отказ по неизвестному id и
-  // список пресетов, из которого выбирают. Пересадку за столы новой раскладки
-  // проверять пока нечего — столы считаются по classic до следующей задачи.
+  // 7c. Раскладка офиса как настройка: значение по умолчанию, отказ по
+  // неизвестному id и список пресетов, из которого выбирают. Что по ней
+  // считаются столы — отдельно, в разделе 10.
   const layoutByDefault = office.settings.layoutId === 'classic';
   const badLayout = office.updateSettings({ layoutId: 'нет-такой' });
   const layoutKept = office.settings.layoutId === 'classic';
@@ -289,6 +292,69 @@ async function main(): Promise<void> {
   );
   wipe(regA);
   wipe(regB);
+
+  // 10. Столы считаются по раскладке ТОГО офиса, который спрашивает. Два офиса
+  // с разными раскладками живут в памяти одновременно, и общей на процесс
+  // «текущей раскладки» быть не должно: иначе второй офис переставлял бы мебель
+  // первому. Заодно проверяем, что classic остался прежним.
+  const layA = resolve(tmpdir(), `office-test-lay-a-${process.pid}.json`);
+  const layB = resolve(tmpdir(), `office-test-lay-b-${process.pid}.json`);
+  const classicPlan = deskPlan('classic');
+  const studioPlan = deskPlan('studio');
+  const oc = openOfficeState({ id: 'o-lay-classic', projectDir: resolve(tmpdir(), 'lay-a'), stateFile: layA }).state;
+  const os_ = openOfficeState({ id: 'o-lay-studio', projectDir: resolve(tmpdir(), 'lay-b'), stateFile: layB }).state;
+  os_.updateSettings({ layoutId: 'studio' });
+  // Набираем штат заново уже на studio: пересадка тех, кто сидел за столами
+  // прежней раскладки, — следующая задача, здесь проверяется сам расчёт.
+  os_.seed();
+  // Нанятый после смены раскладки садится за стол новой раскладки: место
+  // выбирает уже studio, а не зашитый classic.
+  os_.fire(os_.staffOf('backend')[0]!.id);
+  const hiredInStudio = os_.spawn('backend');
+  const classicPm = oc.staffOf('pm')[0]!.desk;
+  const studioPm = os_.staffOf('pm')[0]!.desk;
+  // Сравниваем со столом того же индекса в обеих раскладках: совпасть с studio
+  // и разойтись с classic — это ровно «место взято из раскладки офиса».
+  const sameIdxStudio = hiredInStudio ? studioPlan.desks[hiredInStudio.desk.index] : undefined;
+  const sameIdxClassic = hiredInStudio ? classicPlan.desks[hiredInStudio.desk.index] : undefined;
+  const atStudioDesk = !!hiredInStudio && !!sameIdxStudio && !!sameIdxClassic
+    && hiredInStudio.desk.x === sameIdxStudio.x && hiredInStudio.desk.y === sameIdxStudio.y
+    && (sameIdxClassic.x !== sameIdxStudio.x || sameIdxClassic.y !== sameIdxStudio.y);
+  const classicUntouched = oc.staffOf('backend').every((i) => classicPlan.desks
+    .some((d) => d.index === i.desk.index && d.x === i.desk.x && d.y === i.desk.y));
+  results.push(
+    `classic сажает PM за свой стол, как раньше: ${classicPm.index === classicPlan.pmIndex
+      && classicPm.x === classicPlan.desks[classicPlan.pmIndex].x
+      && classicPm.y === classicPlan.desks[classicPlan.pmIndex].y}`,
+    `studio сажает PM за стол своей раскладки: ${studioPm.x === studioPlan.desks[studioPlan.pmIndex].x
+      && studioPm.y === studioPlan.desks[studioPlan.pmIndex].y}`,
+    `раскладки правда разные, проверка не вырождена: ${classicPlan.desks
+      .some((d, i) => d.x !== studioPlan.desks[i]?.x || d.y !== studioPlan.desks[i]?.y)}`,
+    `новичок садится за стол раскладки своего офиса: ${atStudioDesk}`,
+    `соседний офис не переставил мебель первому: ${classicUntouched}`,
+  );
+
+  // Лимит штата — число столов в раскладке офиса, а не константа. Проверяем на
+  // временной тесной раскладке: в ней мест меньше, чем уже нанятых людей.
+  const layoutsDir = resolve(dirname(fileURLToPath(import.meta.url)), '..', 'design/layouts');
+  const tightFile = resolve(layoutsDir, 'tight-test.json');
+  writeFileSync(tightFile, JSON.stringify({
+    version: 1, id: 'tight-test', title: 'Тесная', size: [8, 6],
+    props: [{ sprite: 'desk_pm', at: [1, 2] }, { sprite: 'desk', at: [4, 2] }],
+  }));
+  try {
+    oc.updateSettings({ layoutId: 'tight-test' });
+    const refusal = oc.hire('backend') ?? '';
+    results.push(
+      `отказ в найме считает места по раскладке офиса: ${/«Тесная» 2 рабочих мест/.test(refusal)}`,
+      `в соседнем офисе лимит остался свой: ${deskPlan(os_.settings.layoutId).desks.length === studioPlan.desks.length}`,
+    );
+  } finally {
+    // Пресет — временный: оставленный файл попал бы в список выбора раскладок.
+    rmSync(tightFile, { force: true });
+  }
+  wipe(layA);
+  wipe(layB);
 
   // Прошедшей считается только строка, кончающаяся на true. Раньше проверялось
   // обратное — «не false», — и любая строка, где вместо булева оказалось

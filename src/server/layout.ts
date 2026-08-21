@@ -1,4 +1,4 @@
-import { readdirSync, readFileSync } from 'node:fs';
+import { readdirSync, readFileSync, statSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { desks as deskList, pmDeskIndex } from '../shared/layout';
@@ -14,9 +14,8 @@ import type { Desk, LayoutOption } from '../shared/types';
  * Путь считаем от файла модуля, а не от cwd: рабочий каталог процесса —
  * не обязательно корень репозитория офиса.
  *
- * Столы пока считаются по classic и от настройки офиса не зависят: перевод
- * рассадки на выбранную раскладку — следующая задача. Здесь сейчас только то,
- * что нужно настройке: список пресетов и проверка выбранного id.
+ * Здесь нет ни одной величины «текущая раскладка»: офисов в памяти несколько,
+ * у каждого свой layoutId, и любая функция получает его аргументом.
  */
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '../..');
 const LAYOUTS_DIR = resolve(ROOT, 'design/layouts');
@@ -31,36 +30,57 @@ export const DEFAULT_LAYOUT_ID = 'classic';
  */
 const ID_RE = /^[a-z0-9][a-z0-9_-]*$/;
 
-function readJson<T>(rel: string): T {
-  return JSON.parse(readFileSync(resolve(ROOT, rel), 'utf8')) as T;
+function readJson<T>(path: string): T {
+  return JSON.parse(readFileSync(path, 'utf8')) as T;
 }
 
-const catalog = readJson<Catalog>('design/sprites/out/catalog.json');
-const layout = readJson<Layout>('design/layouts/classic.json');
+const catalog = readJson<Catalog>(resolve(ROOT, 'design/sprites/out/catalog.json'));
 
-/** Разобранные пресеты по id: файлы за время работы процесса не меняются. */
-const parsed = new Map<string, Layout>();
+/**
+ * Разобранные пресеты и посчитанные по ним столы. Ключ — id раскладки, а не
+ * офис: содержимое файла от офиса не зависит, и двум офисам с одной раскладкой
+ * обязаны достаться одинаковые столы. Раскладки в этом проекте правят прямо во
+ * время работы офиса, поэтому запись сверяется с mtime файла, а не живёт до
+ * перезапуска процесса.
+ */
+const parsed = new Map<string, { mtimeMs: number; layout: Layout; plan?: DeskPlan }>();
 
-/** Раскладка по id. Бросает, если пресета нет или он не читается. */
-export function loadLayout(id: string): Layout {
-  const cached = parsed.get(id);
-  if (cached) return cached;
+/** Свежая запись кэша по id или undefined, если файл изменился с прошлого раза. */
+function cached(id: string, mtimeMs: number) {
+  const hit = parsed.get(id);
+  return hit && hit.mtimeMs === mtimeMs ? hit : undefined;
+}
+
+/** Время правки файла раскладки. Бросает, если пресета нет или он не читается. */
+function layoutMtime(id: string): number {
   if (!ID_RE.test(id)) throw new Error(`недопустимый id раскладки «${id}»`);
-  let data: Layout;
   try {
-    data = readJson<Layout>(`design/layouts/${id}.json`);
+    return statSync(resolve(LAYOUTS_DIR, `${id}.json`)).mtimeMs;
   } catch (err) {
     throw new Error(`раскладка «${id}» не читается: ${(err as Error).message}`);
   }
-  parsed.set(id, data);
+}
+
+/** Раскладка по id. Бросает, если пресета нет или он не читается. */
+export function loadLayout(id: string): Layout {
+  const mtimeMs = layoutMtime(id);
+  const hit = cached(id, mtimeMs);
+  if (hit) return hit.layout;
+  let data: Layout;
+  try {
+    data = readJson<Layout>(resolve(LAYOUTS_DIR, `${id}.json`));
+  } catch (err) {
+    throw new Error(`раскладка «${id}» не читается: ${(err as Error).message}`);
+  }
+  parsed.set(id, { mtimeMs, layout: data });
   return data;
 }
 
 /**
  * Пресеты из design/layouts для выбора в интерфейсе. Директорию перечитываем
  * на каждый вызов: список короткий, а раскладки в этом проекте добавляют прямо
- * во время работы офиса — кэш показывал бы вчерашний набор. Разбор самих файлов
- * при этом закэширован, так что вызов стоит одного readdir.
+ * во время работы офиса — кэш показывал бы вчерашний набор. Разбор файлов при
+ * этом закэширован по mtime, так что вызов стоит readdir и одного stat на пресет.
  */
 export function layoutOptions(): LayoutOption[] {
   let files: string[];
@@ -98,11 +118,57 @@ export function hasLayout(id: string): boolean {
   }
 }
 
-/**
- * Рабочие места офиса. Индекс — порядок объявления столов в раскладке (§3.3)
- * и контракт с сохранением состояния (`PersistedInstance.deskIndex`).
- */
-export const DESKS: Desk[] = deskList(layout, catalog);
+/** Подпись раскладки для сообщений человеку; у нечитаемой — её же id. */
+export function layoutTitle(id: string): string {
+  try {
+    return loadLayout(id).title || id;
+  } catch {
+    return id;
+  }
+}
 
-/** Индекс стола менеджера: спрайт desk_pm, иначе место 0 (§3.3). */
-export const PM_DESK_INDEX = pmDeskIndex(layout, catalog);
+/** Рабочие места одной раскладки: всё, что офису нужно знать о рассадке. */
+export interface DeskPlan {
+  /** id раскладки, по которой посчитан план: может отличаться от запрошенного (см. deskPlan). */
+  layoutId: string;
+  /**
+   * Рабочие места. Индекс — порядок объявления столов в раскладке (§3.3)
+   * и контракт с сохранением состояния (`PersistedInstance.deskIndex`).
+   */
+  desks: Desk[];
+  /** Индекс стола менеджера: спрайт desk_pm, иначе место 0 (§3.3). */
+  pmIndex: number;
+}
+
+/**
+ * Столы конкретной раскладки. Считается один раз на файл и лежит в том же
+ * кэше, что и разобранная раскладка, — спрашивают план на каждый найм и на
+ * каждого сотрудника из сохранения.
+ *
+ * Раскладку, которая перестала читаться (файл удалили из-под работающего
+ * офиса), подменяем на classic: офис без мебели — не то состояние, в котором
+ * его можно оставить. Если и classic не читается, бросаем: без столов сажать
+ * людей некуда, и молчать об этом нельзя.
+ */
+export function deskPlan(layoutId: string): DeskPlan {
+  let id = layoutId;
+  let layout: Layout;
+  try {
+    layout = loadLayout(id);
+  } catch (err) {
+    if (id === DEFAULT_LAYOUT_ID) throw err;
+    console.log(`⚠️  ${(err as Error).message} — считаю столы по «${DEFAULT_LAYOUT_ID}»`);
+    id = DEFAULT_LAYOUT_ID;
+    layout = loadLayout(id);
+  }
+  // loadLayout выше уже положил свежую запись в кэш — она здесь всегда есть.
+  const entry = parsed.get(id)!;
+  if (!entry.plan) {
+    entry.plan = {
+      layoutId: id,
+      desks: deskList(layout, catalog),
+      pmIndex: pmDeskIndex(layout, catalog),
+    };
+  }
+  return entry.plan;
+}
