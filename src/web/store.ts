@@ -128,7 +128,7 @@ export const useStore = create<State>((set, get) => ({
   permissions: [],
   settings: {
     globalBudgetUsd: null, taskBudgetUsd: null, engine: 'local', cloudRepoUrl: null,
-    officePermissionMode: 'ask-risky',
+    officePermissionMode: 'ask-risky', layoutId: 'classic',
   },
   meeting: null,
   mergeSelection: [],

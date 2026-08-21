@@ -145,6 +145,24 @@ async function main(): Promise<void> {
   office.setAgentPermissionMode('backend#1', 'auto');
   const personal = office.instanceViews().find((i) => i.id === 'backend#1');
 
+  // 7c. Раскладка офиса: значение по умолчанию, отказ по неизвестному id и
+  // список пресетов, из которого выбирают. Пересадку за столы новой раскладки
+  // проверять пока нечего — столы считаются по classic до следующей задачи.
+  const layoutByDefault = office.settings.layoutId === 'classic';
+  const badLayout = office.updateSettings({ layoutId: 'нет-такой' });
+  const layoutKept = office.settings.layoutId === 'classic';
+  const okLayout = office.updateSettings({ layoutId: 'studio' });
+  const layoutList = office.layouts();
+  results.push(
+    `по умолчанию офис работает по classic: ${layoutByDefault}`,
+    `неизвестная раскладка отклонена по-русски: ${/нет в design\/layouts/.test(badLayout ?? '')}`,
+    `после отказа раскладка прежняя: ${layoutKept}`,
+    `известная раскладка принята: ${okLayout === null && office.settings.layoutId === 'studio'}`,
+    `смена раскладки записана в ленту: ${office.log.some((e) => /Раскладка офиса/.test(e.text))}`,
+    `список раскладок несёт classic и studio: ${['classic', 'studio'].every((id) => layoutList.some((l) => l.id === id))}`,
+    `у каждой раскладки есть подпись: ${layoutList.length > 0 && layoutList.every((l) => l.title.length > 0)}`,
+  );
+
   office.flush();
   const restored = office.restore();
   const afterRestart = office.instanceViews().find((i) => i.id === 'backend#1');
@@ -160,10 +178,14 @@ async function main(): Promise<void> {
     `сосед по роли остался на режиме роли: ${office.instanceViews().find((i) => i.id === 'backend#2')?.effectivePermissionMode === 'ask-risky'}`,
     `личный режим пережил перезапуск: ${afterRestart?.permissionMode === 'auto'}`,
     `режим офиса пережил перезапуск: ${office.settings.officePermissionMode === 'ask-writes'}`,
+    `раскладка пережила перезапуск: ${office.settings.layoutId === 'studio'}`,
     // Смена режима — не тихая настройка: человек должен видеть её в ленте.
     `смена режима записана в ленту: ${office.log.some((e) => /Режим доступа офиса/.test(e.text))}`,
   );
-  office.updateSettings({ officePermissionMode: DEFAULT_SETTINGS.officePermissionMode });
+  office.updateSettings({
+    officePermissionMode: DEFAULT_SETTINGS.officePermissionMode,
+    layoutId: DEFAULT_SETTINGS.layoutId,
+  });
   office.setAgentPermissionMode('backend#1', null);
   office.updateRole('reviewer', { permissionMode: 'ask-risky' });
   office.wipe();
