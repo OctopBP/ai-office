@@ -598,6 +598,19 @@
       ],
       "layer": "wall"
     },
+    "wall_door_b": {
+      "size": [
+        1.0,
+        1.5
+      ],
+      "footprint": [
+        0,
+        0.5,
+        1,
+        1
+      ],
+      "layer": "wall"
+    },
     "wall_door_l": {
       "size": [
         1.0,
@@ -624,7 +637,33 @@
       ],
       "layer": "wall"
     },
+    "wall_door_t": {
+      "size": [
+        1.0,
+        1.5
+      ],
+      "footprint": [
+        0,
+        0.5,
+        1,
+        1
+      ],
+      "layer": "wall"
+    },
     "wall_window": {
+      "size": [
+        1.0,
+        1.5
+      ],
+      "footprint": [
+        0,
+        0.5,
+        1,
+        1
+      ],
+      "layer": "wall"
+    },
+    "wall_window_v": {
       "size": [
         1.0,
         1.5
