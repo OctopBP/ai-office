@@ -145,38 +145,58 @@ const wss = new WebSocketServer({ server: httpServer });
  */
 const clients = new Map<WebSocket, string>();
 
-function broadcast(payload: string): void {
+/** Событие офиса — только тем, кто этот офис открыл. */
+function broadcast(payload: string, officeId: string): void {
   for (const [ws, watching] of clients) {
-    if (watching !== office.officeId) continue;
+    if (watching !== officeId) continue;
     if (ws.readyState === WebSocket.OPEN) ws.send(payload);
   }
 }
 
-// Подписка на реестр, а не на один OfficeState: после переключения офиса
-// события идут уже от другого состояния, а сокеты остаются те же.
-subscribeOffices((event: ServerEvent) => broadcast(JSON.stringify(event)));
+// Подписка на реестр, а не на один OfficeState: покинутый офис продолжает
+// работать и слать события, поэтому подписчик один на все офисы, а разбирает
+// их по адресатам метка officeId.
+subscribeOffices((event: ServerEvent, officeId: string) => {
+  broadcast(JSON.stringify(event), officeId);
+});
 
 function broadcastSnapshot(): void {
-  broadcast(JSON.stringify(office.snapshot()));
+  broadcast(JSON.stringify(office.snapshot()), office.officeId);
 }
 
 /**
- * Отдать клиенту открытый офис целиком и записать, что он смотрит именно его.
+ * Список офисов уходит всем без разбора: в нём меняется отметка текущего и
+ * сводка активности чужих офисов — это ровно то, что клиент должен видеть
+ * про соседей, не открывая их.
+ */
+function broadcastOffices(): void {
+  const payload = JSON.stringify({ t: 'offices', offices: officeViews() } satisfies ServerEvent);
+  for (const ws of clients.keys()) {
+    if (ws.readyState === WebSocket.OPEN) ws.send(payload);
+  }
+}
+
+/**
+ * Отдать клиенту офис целиком и записать, что он смотрит именно его.
  * Закрытый сокет в карту не возвращаем: между командой и ответом вкладку
  * успевают закрыть, а карта живёт до конца процесса.
  */
-function sendSnapshot(ws: WebSocket): void {
+function sendSnapshot(ws: WebSocket, state = office): void {
   if (ws.readyState !== WebSocket.OPEN) return;
-  clients.set(ws, office.officeId);
-  ws.send(JSON.stringify(office.snapshot()));
+  clients.set(ws, state.officeId);
+  ws.send(JSON.stringify(state.snapshot()));
 }
 
 /**
- * Переключение проекта на ходу. Идущие задачи не бросаем: их сессии живут
- * в рабочей директории этого офиса, и оборвать их переключением значило бы
- * потерять работу молча. `ws` — клиент, который попросил: снапшот выбранного
- * офиса уходит ему в любом случае, даже если офис уже был открыт, — иначе
- * экран входа остался бы ждать ответа, которого нет.
+ * Переключение проекта на ходу. Уйти можно всегда, в том числе из офиса с
+ * задачами в работе: сессии покинутого офиса не трогаем — они продолжают
+ * писать в своё состояние и отчитываться своему менеджеру, а состояние
+ * сохраняется в свой файл. Переключение — это смена того, что видит человек,
+ * а не остановка работы.
+ *
+ * `ws` — клиент, который попросил: снапшот выбранного офиса уходит ему в любом
+ * случае, даже если офис уже был открыт, — иначе экран входа остался бы ждать
+ * ответа, которого нет.
  */
 async function switchOffice(officeId: string, ws?: WebSocket): Promise<void> {
   const target = officeById(officeId);
@@ -187,24 +207,23 @@ async function switchOffice(officeId: string, ws?: WebSocket): Promise<void> {
   if (target.id === office.officeId) {
     setCurrent(target.id);
     if (ws) sendSnapshot(ws);
-    return;
-  }
-
-  const running = [...office.tasks.values()].filter((t) => t.status === 'in_progress');
-  if (running.length) {
-    office.addChat('офис',
-      `Сначала дождитесь или остановите задачи в работе: ${running.map((t) => t.id).join(', ')}.`);
+    broadcastOffices();
     return;
   }
 
   setCurrent(target.id);
-  resetSessions();
-  // Досохраняем именно закрываемый офис: openOffice ниже переключит файл.
+  // Досохраняем именно покидаемый офис: openOffice ниже переставит `office`.
+  // Хвост его записи после этого идёт в его собственный файл — путь хранится
+  // в самом состоянии, а не в общем на процесс хранилище.
   office.flush();
   await openOffice(target);
   office.addLog(null, 'system', `Открыт офис «${target.name}» (${target.projectDir})`);
-  if (ws && clients.has(ws)) clients.set(ws, office.officeId);
+  // Сначала тем, кто уже смотрел этот офис, потом просившему: он до сих пор
+  // числится за прежним офисом, и sendSnapshot заодно перепишет его выбор —
+  // иначе он получил бы снапшот дважды.
   broadcastSnapshot();
+  if (ws) sendSnapshot(ws);
+  broadcastOffices();
 }
 
 wss.on('connection', (ws) => {
@@ -266,12 +285,12 @@ wss.on('connection', (ws) => {
       if ('error' in made) {
         office.addChat('офис', made.error);
       } else {
-        office.emit({ t: 'offices', offices: officeViews() });
+        broadcastOffices();
         void switchOffice(made.office.id, ws);
       }
     } else if (cmd.c === 'rename_office') {
       if (renameOffice(cmd.officeId, cmd.name)) {
-        office.emit({ t: 'offices', offices: officeViews() });
+        broadcastOffices();
       }
     } else if (cmd.c === 'cloud_token') {
       setGithubToken(cmd.token);

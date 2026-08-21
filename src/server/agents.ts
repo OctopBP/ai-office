@@ -29,14 +29,14 @@ const BRIEF_LIMIT = 8000;
  * одного флага на офис, но у ролей репозитории разные, и проверять надо тот,
  * в котором роль работает.
  */
-async function repoReady(dir: string): Promise<boolean> {
-  if (dir === office.projectDir) return office.gitReady;
+async function repoReady(state: OfficeState, dir: string): Promise<boolean> {
+  if (dir === state.projectDir) return state.gitReady;
   return (await isRepo(dir)) && (await hasCommits(dir));
 }
 
-function projectBrief(): string {
+function projectBrief(state: OfficeState): string {
   try {
-    const text = readFileSync(resolve(office.projectDir, 'OFFICE.md'), 'utf8').trim();
+    const text = readFileSync(resolve(state.projectDir, 'OFFICE.md'), 'utf8').trim();
     if (!text) return '';
     const body = text.length > BRIEF_LIMIT
       ? `${text.slice(0, BRIEF_LIMIT)}\n… (бриф обрезан, полностью — в OFFICE.md)`
@@ -61,8 +61,8 @@ function projectBrief(): string {
  * сорить в нём. У каждого офиса своя папка: номера задач в разных проектах
  * совпадают, и общий корень склеил бы чужие рабочие копии.
  */
-const worktreesRoot = (): string =>
-  resolve(process.cwd(), '.office/worktrees', office.officeId);
+const worktreesRoot = (state: OfficeState): string =>
+  resolve(process.cwd(), '.office/worktrees', state.officeId);
 
 const SANDBOX = {
   enabled: true,
@@ -187,23 +187,29 @@ function consume(
  * и блокирует агента до ответа.
  */
 function permissionHandler(
+  /**
+   * Офис сессии. Передаётся явно: сессия живёт минутами, а пользователь за это
+   * время может уйти в другой офис — вопрос о разрешении обязан всплыть там,
+   * где идёт работа, и в его же ленте.
+   */
+  state: OfficeState,
   instanceId: string,
   taskId: string | null = null,
   /** Рабочая директория агента: у изолированной задачи это её worktree. */
-  workdir: string = office.projectDir,
+  workdir: string = state.projectDir,
 ) {
   return async (
     toolName: string,
     input: Record<string, unknown>,
     options: { signal: AbortSignal },
   ): Promise<PermissionResult> => {
-    const inst = office.instances.get(instanceId);
+    const inst = state.instances.get(instanceId);
     const role = inst ? roleById(inst.roleId) : undefined;
     // Режим роли сильнее режима офиса: офисный — это фолбэк для ролей,
     // у которых своего нет (permissionMode === null).
     const mode = effectiveMode(
       role?.permissionMode,
-      office.settings.officePermissionMode ?? DEFAULT_SETTINGS.officePermissionMode,
+      state.settings.officePermissionMode ?? DEFAULT_SETTINGS.officePermissionMode,
     );
 
     // Пауза офиса: сессия не убивается, а замирает перед следующим действием.
@@ -213,16 +219,16 @@ function permissionHandler(
     // Менеджер не замирает: на паузе с ним по-прежнему можно разговаривать
     // и планировать. Запускать работу он всё равно не сможет — assign_task
     // на паузе отказывает и объясняет почему.
-    if (office.paused && inst && !role?.isManager) {
+    if (state.paused && inst && !role?.isManager) {
       const wasState = inst.state;
       const wasNote = inst.note;
-      office.setState(instanceId, 'paused', 'офис на паузе');
-      office.addLog(instanceId, 'system', `Пауза офиса: ${toolName} ждёт продолжения`);
-      await office.whenResumed(options.signal);
+      state.setState(instanceId, 'paused', 'офис на паузе');
+      state.addLog(instanceId, 'system', `Пауза офиса: ${toolName} ждёт продолжения`);
+      await state.whenResumed(options.signal);
       if (options.signal.aborted) {
         return { behavior: 'deny', message: 'Работа прервана, пока офис стоял на паузе.' };
       }
-      office.setState(instanceId, wasState, wasNote);
+      state.setState(instanceId, wasState, wasNote);
     }
 
     const verdict = classify(toolName, input, workdir);
@@ -233,7 +239,7 @@ function permissionHandler(
 
     // Явный запрет пользователя сильнее любого режима: режим — это про то,
     // о чём не спрашивать, а не про право отменить уже сказанное «никогда».
-    if (role && office.isAlwaysDenied(role.id, verdict.key)) {
+    if (role && state.isAlwaysDenied(role.id, verdict.key)) {
       return {
         behavior: 'deny',
         message: `Пользователь запретил «${verdict.key}» для этой роли до конца сессии. ` +
@@ -253,22 +259,22 @@ function permissionHandler(
     // Действие небезопасно само по себе, но режим доступа разрешает его без
     // вопроса — это стоит зафиксировать в ленте отдельной строкой, а не молчать.
     if (byMode === 'allow') {
-      office.addLog(instanceId, 'system', autoApprovedText(mode, toolName, verdict), true);
+      state.addLog(instanceId, 'system', autoApprovedText(mode, toolName, verdict), true);
       return { behavior: 'allow', updatedInput: input };
     }
 
     // «Разрешать всегда» пользователь нажал сам — такие вызовы в ленту не пишем:
     // это не автоодобрение по режиму, а его же решение, уже записанное раньше.
-    if (role && office.isAlwaysAllowed(role.id, verdict.key)) {
+    if (role && state.isAlwaysAllowed(role.id, verdict.key)) {
       return { behavior: 'allow', updatedInput: input };
     }
 
     const prevState = inst?.state ?? 'working';
     const prevNote = inst?.note ?? null;
-    office.setState(instanceId, 'waiting_approval', `ждёт разрешения: ${verdict.summary}`);
-    office.addLog(instanceId, 'system', `Просит разрешение — ${toolName}: ${verdict.reason}`);
+    state.setState(instanceId, 'waiting_approval', `ждёт разрешения: ${verdict.summary}`);
+    state.addLog(instanceId, 'system', `Просит разрешение — ${toolName}: ${verdict.reason}`);
 
-    const decision = await office.requestPermission(
+    const decision = await state.requestPermission(
       {
         agentId: instanceId,
         taskId,
@@ -282,10 +288,10 @@ function permissionHandler(
       options.signal,
     );
 
-    office.setState(instanceId, prevState, prevNote);
+    state.setState(instanceId, prevState, prevNote);
 
     if (decision === 'deny' || decision === 'never') {
-      office.addLog(instanceId, 'system', `Пользователь запретил: ${verdict.summary}`);
+      state.addLog(instanceId, 'system', `Пользователь запретил: ${verdict.summary}`);
       return {
         behavior: 'deny',
         message:
@@ -295,7 +301,7 @@ function permissionHandler(
       };
     }
 
-    office.addLog(instanceId, 'system', `Пользователь разрешил: ${verdict.summary}`);
+    state.addLog(instanceId, 'system', `Пользователь разрешил: ${verdict.summary}`);
     return { behavior: 'allow', updatedInput: input };
   };
 }
@@ -307,8 +313,8 @@ function permissionHandler(
  * get_board и реплике менеджера на совещании. Файлов менеджер не видит, и доска
  * для него — единственный способ говорить о делах предметно, а не общими словами.
  */
-function boardSummary(): string {
-  const tasks = [...office.tasks.values()];
+function boardSummary(state: OfficeState): string {
+  const tasks = [...state.tasks.values()];
   if (!tasks.length) return 'Доска пуста.';
   return tasks.map((t) => {
     const { done, total } = criteriaProgress(t);
@@ -375,8 +381,8 @@ const PM_PROMPT = `Ты — проектный менеджер (PM) в кома
  * Причину спрашивают и менеджер, и перезапуск задачи, а текст отказа должен
  * быть один — иначе пользователь получит два разных объяснения одного и того же.
  */
-export function noStaffReason(roleId: string): string | null {
-  if (office.staffOf(roleId).length > 0) return null;
+export function noStaffReason(roleId: string, state: OfficeState = office): string | null {
+  if (state.staffOf(roleId).length > 0) return null;
   const title = roleById(roleId)?.title ?? roleId;
   return `В роли ${roleId} (${title}) сейчас нет ни одного сотрудника — вакансия открыта, работать некому.`;
 }
@@ -386,26 +392,31 @@ export function noStaffReason(roleId: string): string | null {
  * Вынесено из инструмента, чтобы регрессии этого текста ловились проверкой,
  * а не сценарием с живой моделью: от него зависит, кому PM раздаёт задачи.
  */
-export function teamSummary(): string {
+export function teamSummary(state: OfficeState = office): string {
   const lines = workerRoles().map((role) => {
-    const insts = office.staffOf(role.id);
+    const insts = state.staffOf(role.id);
     // Роль без сотрудников — открытая вакансия: она есть в реестре, но
     // работать некому, пока пользователь не наймёт человека.
     const desc = insts.length
       ? insts.map((i) => `${i.id} — ${i.currentTaskId ? `занят (${i.currentTaskId})` : 'свободен'}`).join(', ')
       : 'сотрудников нет (можно нанять) — задачи этой роли выполнять некому';
     const first = role.brief.split('\n')[0] ?? '';
-    const repo = office.repoFor(role);
+    const repo = state.repoFor(role);
     // Репозиторий называем, только если он свой: иначе строка одинаковая
     // у всех и лишь удлиняет ответ.
-    const where = repo === office.projectDir ? '' : `\n  репозиторий: ${repo}`;
+    const where = repo === state.projectDir ? '' : `\n  репозиторий: ${repo}`;
     return `- ${role.id} (${role.title})${first ? ` — ${first}` : ''}\n  ${desc}${where}` +
       `\n  результат: ${role.isolate ? 'в отдельной ветке, нужно слияние' : 'сразу в рабочей директории'}`;
   });
   return `Команда:\n${lines.join('\n')}`;
 }
 
-const teamTools = createSdkMcpServer({
+/**
+ * Инструменты менеджера. Собираются на каждый офис свои: менеджер покинутого
+ * офиса продолжает разбирать отчёты, и его create_task/assign_task обязаны
+ * ложиться на его доску, а не на ту, что человек открыл сейчас.
+ */
+const teamTools = (state: OfficeState) => createSdkMcpServer({
   name: 'team',
   version: '1.0.0',
   instructions: 'Инструменты управления командой офиса.',
@@ -414,7 +425,7 @@ const teamTools = createSdkMcpServer({
       'list_team',
       'Показать состав команды: роли, конкретных исполнителей и кто сейчас свободен. Вызывай это первым делом, прежде чем создавать и раздавать задачи.',
       {},
-      async () => ({ content: [{ type: 'text', text: teamSummary() }] }),
+      async () => ({ content: [{ type: 'text', text: teamSummary(state) }] }),
       { annotations: { readOnlyHint: true } },
     ),
 
@@ -459,7 +470,7 @@ const teamTools = createSdkMcpServer({
             isError: true,
           };
         }
-        const task = office.createTask({
+        const task = state.createTask({
           title: args.title,
           description: args.description,
           criteria,
@@ -467,7 +478,7 @@ const teamTools = createSdkMcpServer({
         });
         // Предупреждаем сразу: иначе менеджер узнает о пустой роли только из
         // отказа assign_task и успеет пообещать пользователю работу.
-        const empty = office.staffOf(args.roleId).length === 0
+        const empty = state.staffOf(args.roleId).length === 0
           ? `. Внимание: в роли ${args.roleId} сейчас нет сотрудников — назначить задачу будет некому,` +
             ' пока пользователь не наймёт человека на эту роль'
           : '';
@@ -483,7 +494,7 @@ const teamTools = createSdkMcpServer({
         instanceId: z.string().default('').describe('Конкретный исполнитель, например backend#1. Пусто — выбрать свободного автоматически.'),
       },
       async (args) => {
-        if (office.paused) {
+        if (state.paused) {
           return {
             content: [{
               type: 'text',
@@ -493,7 +504,7 @@ const teamTools = createSdkMcpServer({
             isError: true,
           };
         }
-        const cloudBlocked = office.settings.engine === 'cloud' ? cloudProblem() : null;
+        const cloudBlocked = state.settings.engine === 'cloud' ? cloudProblem(state) : null;
         if (cloudBlocked) {
           return {
             content: [{
@@ -504,19 +515,19 @@ const teamTools = createSdkMcpServer({
             isError: true,
           };
         }
-        if (office.budgetExhausted()) {
-          const cap = office.settings.globalBudgetUsd;
+        if (state.budgetExhausted()) {
+          const cap = state.settings.globalBudgetUsd;
           return {
             content: [{
               type: 'text',
-              text: `Общий бюджет офиса исчерпан: потрачено $${office.totalCost().toFixed(2)} из $${cap?.toFixed(2)}. ` +
+              text: `Общий бюджет офиса исчерпан: потрачено $${state.totalCost().toFixed(2)} из $${cap?.toFixed(2)}. ` +
                 'Новые задачи не запускаются. Сообщи об этом пользователю — он поднимет лимит в настройках.',
             }],
             isError: true,
           };
         }
 
-        const task = office.tasks.get(args.taskId);
+        const task = state.tasks.get(args.taskId);
         if (!task) {
           return { content: [{ type: 'text', text: `Задачи ${args.taskId} нет на доске` }], isError: true };
         }
@@ -527,7 +538,7 @@ const teamTools = createSdkMcpServer({
         // Роль, из которой уволили всех, не доукомплектовываем молча: сотрудников
         // убрал пользователь, и нанять обратно — тоже его решение, а не наше.
         // Явно названного исполнителя это не касается: он живой человек в офисе.
-        const noStaff = args.instanceId ? null : noStaffReason(roleId);
+        const noStaff = args.instanceId ? null : noStaffReason(roleId, state);
         if (noStaff) {
           return {
             content: [{
@@ -541,8 +552,8 @@ const teamTools = createSdkMcpServer({
         }
 
         const inst = args.instanceId
-          ? office.instances.get(args.instanceId) ?? null
-          : office.findFree(roleId) ?? office.spawn(roleId) ?? office.findFree(roleId);
+          ? state.instances.get(args.instanceId) ?? null
+          : state.findFree(roleId) ?? state.spawn(roleId) ?? state.findFree(roleId);
 
         if (!inst) {
           return {
@@ -560,7 +571,7 @@ const teamTools = createSdkMcpServer({
           return { content: [{ type: 'text', text: `${inst.id} сейчас занят задачей ${inst.currentTaskId}` }], isError: true };
         }
 
-        startWorker(task, inst);
+        startWorker(state, task, inst);
         return { content: [{ type: 'text', text: `${task.id} назначена на ${inst.id}, работа началась. Не жди — раздавай остальные задачи.` }] };
       },
     ),
@@ -569,7 +580,7 @@ const teamTools = createSdkMcpServer({
       'get_board',
       'Текущее состояние доски задач со статусами и результатами.',
       {},
-      async () => ({ content: [{ type: 'text', text: boardSummary() }] }),
+      async () => ({ content: [{ type: 'text', text: boardSummary(state) }] }),
       { annotations: { readOnlyHint: true } },
     ),
 
@@ -578,7 +589,7 @@ const teamTools = createSdkMcpServer({
       'Сказать короткую реплику, которая появится пузырём над твоей головой в офисе. Используй, чтобы пользователь видел, чем ты занят.',
       { text: z.string().describe('До 70 символов') },
       async (args) => {
-        office.setState('pm#1', office.instances.get('pm#1')?.state ?? 'working', clip(args.text));
+        state.setState('pm#1', state.instances.get('pm#1')?.state ?? 'working', clip(args.text));
         return { content: [{ type: 'text', text: 'ок' }] };
       },
     ),
@@ -601,12 +612,12 @@ function startPm(state: OfficeState): void {
     options: {
       resume: resumeId,
       model: roleById('pm')!.model,
-      systemPrompt: PM_PROMPT + projectBrief(),
+      systemPrompt: PM_PROMPT + projectBrief(state),
       cwd: state.projectDir,
       tools: [],                         // у PM нет доступа к файлам — только командные инструменты
-      mcpServers: { team: teamTools },
+      mcpServers: { team: teamTools(state) },
       permissionMode: 'default',
-      canUseTool: permissionHandler('pm#1'),
+      canUseTool: permissionHandler(state, 'pm#1'),
       settingSources: [],                // не наследовать настройки Claude Code пользователя
       includePartialMessages: false,
     },
@@ -691,7 +702,7 @@ export async function holdMeeting(topic: string, participantIds: string[]): Prom
   // того офиса, где совещание созвали, даже если пользователь ушёл в другой.
   const meetingOffice = office;
   if (meetingOffice.meetingRunning) {
-    office.addChat('офис', 'Совещание уже идёт — дождитесь окончания.', 'meeting');
+    meetingOffice.addChat('офис', 'Совещание уже идёт — дождитесь окончания.', 'meeting');
     return;
   }
   // Раньше менеджер отсеивался здесь по роли: считалось, что он не участник,
@@ -701,40 +712,40 @@ export async function holdMeeting(topic: string, participantIds: string[]): Prom
   // (переписка с пользователем и раздача задач) при этом продолжает работать.
   // Дубликаты в списке убираем — иначе агент высказался бы дважды подряд.
   const participants = [...new Set(participantIds)]
-    .map((id) => office.instances.get(id))
+    .map((id) => meetingOffice.instances.get(id))
     .filter((i): i is Instance => Boolean(i));
 
   if (participants.length < 2) {
-    office.addChat('офис', 'Для совещания нужно минимум два участника.', 'meeting');
+    meetingOffice.addChat('офис', 'Для совещания нужно минимум два участника.', 'meeting');
     return;
   }
   // Занятость проверяем только у исполнителей: у менеджера задач на руках не
   // бывает, а прерывать из-за совещания обработку доски мы и не хотим.
   const busy = participants.find((i) => !isManager(i) && i.currentTaskId);
   if (busy) {
-    office.addChat('офис',
+    meetingOffice.addChat('офис',
       `${busy.label} занят задачей ${busy.currentTaskId}. Дождитесь окончания или остановите задачу.`,
       'meeting');
     return;
   }
-  if (office.paused) {
-    office.addChat('офис', 'Офис на паузе — совещание не начинается. Снимите паузу (SPACE).', 'meeting');
+  if (meetingOffice.paused) {
+    meetingOffice.addChat('офис', 'Офис на паузе — совещание не начинается. Снимите паузу (SPACE).', 'meeting');
     return;
   }
-  if (office.budgetExhausted()) {
-    office.addChat('офис', 'Бюджет офиса исчерпан — совещание не запускается.', 'meeting');
+  if (meetingOffice.budgetExhausted()) {
+    meetingOffice.addChat('офис', 'Бюджет офиса исчерпан — совещание не запускается.', 'meeting');
     return;
   }
 
   meetingOffice.meetingRunning = true;
   const id = `M-${Date.now().toString(36)}`;
-  office.setMeeting({ id, topic, participants: participants.map((p) => p.id), speaking: null, status: 'running' });
-  office.addChat('user', `Тема совещания: ${topic}`, 'meeting');
+  meetingOffice.setMeeting({ id, topic, participants: participants.map((p) => p.id), speaking: null, status: 'running' });
+  meetingOffice.addChat('user', `Тема совещания: ${topic}`, 'meeting');
   // Что было до совещания — чтобы вернуть менеджера ровно туда, откуда позвали:
   // его сессия живёт своей жизнью, и «свободен» после совещания было бы враньём,
   // если он в это время разбирал сообщение пользователя.
   const stateBefore = new Map(participants.map((p) => [p.id, { state: p.state, note: p.note }]));
-  for (const p of participants) office.setState(p.id, 'talking', 'на совещании');
+  for (const p of participants) meetingOffice.setState(p.id, 'talking', 'на совещании');
 
   const said: Array<{ id: string; title: string; text: string }> = [];
 
@@ -742,8 +753,8 @@ export async function holdMeeting(topic: string, participantIds: string[]): Prom
     for (const inst of participants) {
       const role = roleById(inst.roleId);
       if (!role) continue;
-      office.setMeeting({ id, topic, participants: participants.map((p) => p.id), speaking: inst.id, status: 'running' });
-      office.setState(inst.id, 'talking', 'говорит');
+      meetingOffice.setMeeting({ id, topic, participants: participants.map((p) => p.id), speaking: inst.id, status: 'running' });
+      meetingOffice.setState(inst.id, 'talking', 'говорит');
 
       const before = said.length
         ? `Уже высказались:\n${said.map((s) => `— ${s.title} (${s.id}): ${s.text}`).join('\n\n')}\n\n`
@@ -757,17 +768,17 @@ export async function holdMeeting(topic: string, participantIds: string[]): Prom
       // Менеджеру вместо файлов даём доску: файлов он не видит по устройству роли,
       // и предметно говорить ему позволяет именно состояние задач.
       const prompt = isManager(inst)
-        ? `Тема совещания: ${topic}\n\n${before}Доска задач сейчас:\n${boardSummary()}\n\n${turn}`
+        ? `Тема совещания: ${topic}\n\n${before}Доска задач сейчас:\n${boardSummary(meetingOffice)}\n\n${turn}`
         : `Тема совещания: ${topic}\n\n${before}${turn}`;
 
       let text = '';
-      if (office.dryRun) {
+      if (meetingOffice.dryRun) {
         // Проверяем поведение менеджера, а не содержательность реплик:
         // настоящие сессии участников тут не нужны и стоили бы дорого.
         text = `[заглушка] Мнение роли ${role.title} по теме «${topic}».`;
         said.push({ id: inst.id, title: role.title, text });
-        office.addChat(inst.id, text, 'meeting');
-        office.setState(inst.id, 'talking', 'на совещании');
+        meetingOffice.addChat(inst.id, text, 'meeting');
+        meetingOffice.setState(inst.id, 'talking', 'на совещании');
         continue;
       }
 
@@ -798,11 +809,11 @@ export async function holdMeeting(topic: string, participantIds: string[]): Prom
         prompt,
         options: {
           model: role.model,
-          systemPrompt: systemPrompt.join('\n') + projectBrief(),
-          cwd: office.repoFor(role),
+          systemPrompt: systemPrompt.join('\n') + projectBrief(meetingOffice),
+          cwd: meetingOffice.repoFor(role),
           tools: isManager(inst) ? [] : ['Read', 'Glob', 'Grep'],
           permissionMode: 'default',
-          canUseTool: permissionHandler(inst.id),
+          canUseTool: permissionHandler(meetingOffice, inst.id),
           settingSources: [],
           sandbox: SANDBOX,
           maxTurns: 8,
@@ -819,15 +830,15 @@ export async function holdMeeting(topic: string, participantIds: string[]): Prom
 
       if (text) {
         said.push({ id: inst.id, title: role.title, text });
-        office.addChat(inst.id, text, 'meeting');
+        meetingOffice.addChat(inst.id, text, 'meeting');
       } else {
-        office.addChat('офис', `${inst.label} не смог высказаться.`, 'meeting');
+        meetingOffice.addChat('офис', `${inst.label} не смог высказаться.`, 'meeting');
       }
-      office.setState(inst.id, 'talking', 'на совещании');
+      meetingOffice.setState(inst.id, 'talking', 'на совещании');
     }
 
-    office.setMeeting({ id, topic, participants: participants.map((p) => p.id), speaking: null, status: 'done' });
-    office.addChat('офис',
+    meetingOffice.setMeeting({ id, topic, participants: participants.map((p) => p.id), speaking: null, status: 'done' });
+    meetingOffice.addChat('офис',
       'Совещание окончено. Итог и решения менеджер напишет в чате с ним.', 'meeting');
 
     // Стенограмма уходит менеджеру в любом случае — итог подводит он. Если он
@@ -843,8 +854,8 @@ export async function holdMeeting(topic: string, participantIds: string[]): Prom
       'и какие задачи из этого следуют. Задачи пока НЕ создавай — сначала дождись согласия пользователя.',
     );
   } catch (err) {
-    office.addChat('офис', `⚠️ Совещание оборвалось: ${clip((err as Error).message, 200)}`, 'meeting');
-    office.setMeeting({ id, topic, participants: participants.map((p) => p.id), speaking: null, status: 'failed' });
+    meetingOffice.addChat('офис', `⚠️ Совещание оборвалось: ${clip((err as Error).message, 200)}`, 'meeting');
+    meetingOffice.setMeeting({ id, topic, participants: participants.map((p) => p.id), speaking: null, status: 'failed' });
   } finally {
     meetingOffice.meetingRunning = false;
     for (const p of participants) {
@@ -853,12 +864,12 @@ export async function holdMeeting(topic: string, participantIds: string[]): Prom
         // совещание — последнее, что его меняло: его собственная сессия могла за
         // это время взять новое сообщение, и её «думает…» затирать нельзя.
         const prev = stateBefore.get(p.id);
-        if (prev && p.state === 'talking') office.setState(p.id, prev.state, prev.note);
+        if (prev && p.state === 'talking') meetingOffice.setState(p.id, prev.state, prev.note);
         continue;
       }
-      if (!p.currentTaskId) office.setState(p.id, 'idle', null);
+      if (!p.currentTaskId) meetingOffice.setState(p.id, 'idle', null);
     }
-    setTimeout(() => { if (office.meeting?.id === id) office.setMeeting(null); }, 20000);
+    setTimeout(() => { if (meetingOffice.meeting?.id === id) meetingOffice.setMeeting(null); }, 20000);
   }
 }
 
@@ -907,7 +918,7 @@ export function talkTo(instanceId: string, text: string): void {
     'предметно, но НЕ меняй их: правки делаются только в рамках поставленной задачи.',
     'Если пользователь просит что-то изменить — скажи, что для этого нужно поставить',
     'задачу через менеджера.',
-  ].join('\n') + projectBrief();
+  ].join('\n') + projectBrief(talkOffice);
 
   const session = query({
     prompt: queue,
@@ -917,7 +928,7 @@ export function talkTo(instanceId: string, text: string): void {
       cwd: talkOffice.repoFor(role),
       tools: ['Read', 'Glob', 'Grep', 'WebSearch', 'WebFetch'],
       permissionMode: 'default',
-      canUseTool: permissionHandler(instanceId),
+      canUseTool: permissionHandler(talkOffice, instanceId),
       settingSources: [],
       sandbox: SANDBOX,
     },
@@ -1037,13 +1048,13 @@ async function consultRole(
           'Коллега из другой роли задаёт тебе вопрос по твоей части работы. Ты отвечаешь',
           'как человек, который её писал: смотришь свой код и объясняешь, как есть.',
           'Менять ничего нельзя — это разговор, а не задача.',
-        ].join('\n') + projectBrief(),
+        ].join('\n') + projectBrief(state),
         cwd: state.repoFor(role),
         // Только чтение и никаких офисных инструментов: отвечающий не должен
         // ни править свой проект, ни звать третьего.
         tools: ['Read', 'Glob', 'Grep'],
         permissionMode: 'default',
-        canUseTool: permissionHandler(answerer.id),
+        canUseTool: permissionHandler(state, answerer.id),
         settingSources: [],
         sandbox: SANDBOX,
         maxTurns: 12,
@@ -1168,34 +1179,35 @@ function workerPrompt(task: Task, artifactsDir: string | null, projectDir: strin
   ].filter(Boolean).join('\n');
 }
 
-function startWorker(task: Task, inst: Instance): void {
+/**
+ * Запустить исполнителя. Офис задачи передаётся явно и дальше используется
+ * ВЕЗДЕ вместо текущего: работа идёт минутами, а пользователь за это время
+ * может уйти в другой офис — доска, лента и отчёт обязаны остаться в своём.
+ */
+function startWorker(taskOffice: OfficeState, task: Task, inst: Instance): void {
   const role = roleById(inst.roleId);
   if (!role) return;
 
-  // Офис задачи фиксируется на старте: работа идёт минутами, а пользователь за
-  // это время может открыть другой офис — отчёт обязан уйти менеджеру своего.
-  const taskOffice = office;
-
   inst.currentTaskId = task.id;
-  office.updateTask(task.id, {
+  taskOffice.updateTask(task.id, {
     assigneeId: inst.id, status: 'in_progress', startedAt: Date.now(), finishedAt: null,
   });
-  office.emit({ t: 'handoff', from: 'pm#1', to: inst.id, text: task.title });
-  office.setState(inst.id, 'working', 'берётся за задачу');
+  taskOffice.emit({ t: 'handoff', from: 'pm#1', to: inst.id, text: task.title });
+  taskOffice.setState(inst.id, 'working', 'берётся за задачу');
 
   // Режим проверки поведения менеджера: настоящую сессию исполнителя не поднимаем.
   // Так сценарии прогоняются за секунды и стоят только токенов PM.
-  if (office.dryRun) {
+  if (taskOffice.dryRun) {
     // Задержку поднимают в тестах, где нужно успеть вмешаться в работу.
     const delay = Number(process.env.OFFICE_DRY_RUN_DELAY ?? 250);
 
     const finish = (stopped: boolean) => {
       inst.currentTaskId = null;
       inst.abort = null;
-      office.setState(inst.id, 'idle', null);
+      taskOffice.setState(inst.id, 'idle', null);
       if (stopped) {
         taskOffice.stoppedByUser.delete(task.id);
-        office.updateTask(task.id, {
+        taskOffice.updateTask(task.id, {
           status: 'blocked', result: '⏹ Остановлена пользователем.', finishedAt: Date.now(),
         });
         notifyPm(taskOffice,
@@ -1204,7 +1216,7 @@ function startWorker(task: Task, inst: Instance): void {
         );
         return;
       }
-      office.updateTask(task.id, {
+      taskOffice.updateTask(task.id, {
         status: 'done',
         result: `[заглушка] Задача «${task.title}» выполнена.`,
         finishedAt: Date.now(),
@@ -1241,9 +1253,9 @@ function startWorker(task: Task, inst: Instance): void {
     '',
     'Перед каждым логическим шагом вызывай say({text}) — пользователь видит это над твоей головой.',
     'Когда всё готово — вызови finish_task({summary, files}).',
-  ].join('\n') + projectBrief();
+  ].join('\n') + projectBrief(taskOffice);
 
-  if (office.settings.engine === 'cloud') {
+  if (taskOffice.settings.engine === 'cloud') {
     startCloudWorker(task, inst, role, systemPrompt, taskOffice);
     return;
   }
@@ -1254,8 +1266,8 @@ function startWorker(task: Task, inst: Instance): void {
   // Роль может работать в своём репозитории: ветка, diff и слияние задачи
   // пойдут именно в него. Фиксируем его на задаче — потом по ней мержат и
   // сравнивают, а правку роли к тому времени могли уже поменять.
-  const repoDir = office.repoFor(role);
-  office.updateTask(task.id, { repoDir });
+  const repoDir = taskOffice.repoFor(role);
+  taskOffice.updateTask(task.id, { repoDir });
 
   (async () => {
     let workdir = repoDir;
@@ -1265,17 +1277,17 @@ function startWorker(task: Task, inst: Instance): void {
     try {
       // Изоляция: своя ветка и свой worktree, чтобы параллельные исполнители
       // физически не могли затереть друг другу файлы.
-      if (role.isolate && await repoReady(repoDir)) {
-        const wt = await createWorktree(repoDir, worktreesRoot(), task.id);
+      if (role.isolate && await repoReady(taskOffice, repoDir)) {
+        const wt = await createWorktree(repoDir, worktreesRoot(taskOffice), task.id);
         if (wt) {
           workdir = wt.path;
           workRoot = wt.path;
-          office.updateTask(task.id, {
+          taskOffice.updateTask(task.id, {
             branch: wt.branch, baseBranch: wt.base, worktreePath: wt.path,
           });
-          office.addLog(inst.id, 'system', `Рабочая копия: ${wt.branch}`);
+          taskOffice.addLog(inst.id, 'system', `Рабочая копия: ${wt.branch}`);
         } else {
-          office.addLog(inst.id, 'error',
+          taskOffice.addLog(inst.id, 'error',
             `Не удалось создать worktree для ${task.id}, работаю в общей директории`);
         }
       }
@@ -1305,11 +1317,11 @@ function startWorker(task: Task, inst: Instance): void {
           tools: role.tools,
           mcpServers: { office: workerTools(taskOffice, inst.id, task) },
           permissionMode: 'default',
-          canUseTool: permissionHandler(inst.id, task.id, workdir),
+          canUseTool: permissionHandler(taskOffice, inst.id, task.id, workdir),
           settingSources: [],
           sandbox: SANDBOX,
           maxTurns: MAX_WORKER_TURNS,
-          maxBudgetUsd: office.settings.taskBudgetUsd ?? undefined,
+          maxBudgetUsd: taskOffice.settings.taskBudgetUsd ?? undefined,
           abortController: abort,
         },
       });
@@ -1326,24 +1338,24 @@ function startWorker(task: Task, inst: Instance): void {
 
       if (sessionFailed) throw new Error(sessionFailed);
 
-      const fresh = office.tasks.get(task.id);
+      const fresh = taskOffice.tasks.get(task.id);
       let summary = fresh?.result ?? clip(finalText, 600) ?? 'Задача завершена без отчёта.';
 
       // Коммитим сами: полагаться на то, что исполнитель не забудет, нельзя.
       if (fresh?.branch) {
         const outcome = await commitAll(workRoot, `${task.id}: ${task.title}`);
         if (outcome === 'committed') {
-          office.addLog(inst.id, 'system', `Изменения закоммичены в ${fresh.branch}`);
+          taskOffice.addLog(inst.id, 'system', `Изменения закоммичены в ${fresh.branch}`);
         } else if (outcome === 'empty') {
           summary += '\n\n⚠️ Файлы не изменились — коммитить нечего.';
-          office.addLog(inst.id, 'system', 'Изменений в рабочей копии нет');
+          taskOffice.addLog(inst.id, 'system', 'Изменений в рабочей копии нет');
         } else {
-          office.addLog(inst.id, 'error', `Не удалось закоммитить ветку ${fresh.branch}`);
+          taskOffice.addLog(inst.id, 'error', `Не удалось закоммитить ветку ${fresh.branch}`);
         }
       }
 
-      office.updateTask(task.id, { status: 'done', result: summary, finishedAt: Date.now() });
-      office.setState(inst.id, 'done', 'готово ✅');
+      taskOffice.updateTask(task.id, { status: 'done', result: summary, finishedAt: Date.now() });
+      taskOffice.setState(inst.id, 'done', 'готово ✅');
       const progress = fresh ? criteriaProgress(fresh) : { done: 0, total: 0 };
       notifyPm(taskOffice,
         `[СИСТЕМА] Задача ${task.id} «${task.title}» завершена исполнителем ${inst.id}.\n` +
@@ -1357,7 +1369,7 @@ function startWorker(task: Task, inst: Instance): void {
 
       if (taskOffice.stoppedByUser.delete(task.id)) {
         // Наработки не выбрасываем: то, что успели сделать, коммитим в ветку задачи.
-        const fresh = office.tasks.get(task.id);
+        const fresh = taskOffice.tasks.get(task.id);
         let note = '⏹ Остановлена пользователем.';
         if (fresh?.branch) {
           const outcome = await commitAll(workRoot, `${task.id}: частичная работа (остановлено)`);
@@ -1365,17 +1377,17 @@ function startWorker(task: Task, inst: Instance): void {
             ? ` Сделанное закоммичено в ${fresh.branch}.`
             : ' Изменений в рабочей копии не было.';
         }
-        office.updateTask(task.id, { status: 'blocked', result: note, finishedAt: Date.now() });
-        office.addLog(inst.id, 'system', `Задача ${task.id} остановлена пользователем`);
-        office.setState(inst.id, 'idle', null);
+        taskOffice.updateTask(task.id, { status: 'blocked', result: note, finishedAt: Date.now() });
+        taskOffice.addLog(inst.id, 'system', `Задача ${task.id} остановлена пользователем`);
+        taskOffice.setState(inst.id, 'idle', null);
         notifyPm(taskOffice,
           `[СИСТЕМА] Задача ${task.id} остановлена пользователем вручную. ` +
           'Не назначай её заново по своей инициативе — дождись указания.',
         );
       } else {
-        office.addLog(inst.id, 'error', `Задача ${task.id} упала: ${message}`);
-        office.updateTask(task.id, { status: 'failed', result: `Ошибка: ${message}`, finishedAt: Date.now() });
-        office.setState(inst.id, 'failed', 'ошибка');
+        taskOffice.addLog(inst.id, 'error', `Задача ${task.id} упала: ${message}`);
+        taskOffice.updateTask(task.id, { status: 'failed', result: `Ошибка: ${message}`, finishedAt: Date.now() });
+        taskOffice.setState(inst.id, 'failed', 'ошибка');
         notifyPm(taskOffice, `[СИСТЕМА] Задача ${task.id} провалилась у ${inst.id}. Ошибка: ${message}`);
       }
     } finally {
@@ -1385,7 +1397,7 @@ function startWorker(task: Task, inst: Instance): void {
       taskOffice.running = Math.max(0, taskOffice.running - 1);
       if (taskOffice.running === 0) taskOffice.setBusy(false);
       setTimeout(() => {
-        if (!inst.currentTaskId) office.setState(inst.id, 'idle', null);
+        if (!inst.currentTaskId) taskOffice.setState(inst.id, 'idle', null);
       }, 4000);
     }
   })().catch(() => { /* обработано выше */ });
@@ -1404,10 +1416,10 @@ function startCloudWorker(
 
   void (async () => {
     try {
-      const outcome = await runCloudTask(task, inst, role, systemPrompt);
+      const outcome = await runCloudTask(task, inst, role, systemPrompt, taskOffice);
 
       if (taskOffice.stoppedByUser.delete(task.id)) {
-        office.updateTask(task.id, {
+        taskOffice.updateTask(task.id, {
           status: 'blocked',
           result: `⏹ Остановлена пользователем. ${outcome.branch
             ? `Сделанное осталось в ветке ${outcome.branch}.`
@@ -1415,7 +1427,7 @@ function startCloudWorker(
           finishedAt: Date.now(),
           branch: outcome.branch, baseBranch: outcome.baseBranch,
         });
-        office.setState(inst.id, 'idle', null);
+        taskOffice.setState(inst.id, 'idle', null);
         notifyPm(taskOffice,
           `[СИСТЕМА] Задача ${task.id} остановлена пользователем вручную. ` +
           'Не назначай её заново по своей инициативе — дождись указания.',
@@ -1425,12 +1437,12 @@ function startCloudWorker(
 
       if (!outcome.ok) throw new Error(outcome.summary);
 
-      office.updateTask(task.id, {
+      taskOffice.updateTask(task.id, {
         status: 'done', result: outcome.summary, finishedAt: Date.now(),
         branch: outcome.branch, baseBranch: outcome.baseBranch,
       });
-      office.setState(inst.id, 'done', 'готово ✅');
-      const fresh = office.tasks.get(task.id);
+      taskOffice.setState(inst.id, 'done', 'готово ✅');
+      const fresh = taskOffice.tasks.get(task.id);
       const progress = fresh ? criteriaProgress(fresh) : { done: 0, total: 0 };
       notifyPm(taskOffice,
         `[СИСТЕМА] Задача ${task.id} «${task.title}» выполнена в облаке исполнителем ${inst.id}.\n` +
@@ -1441,9 +1453,9 @@ function startCloudWorker(
       );
     } catch (err) {
       const message = clip((err as Error).message, 300);
-      office.addLog(inst.id, 'error', `Облачная задача ${task.id} упала: ${message}`);
-      office.updateTask(task.id, { status: 'failed', result: `Ошибка: ${message}`, finishedAt: Date.now() });
-      office.setState(inst.id, 'failed', 'ошибка');
+      taskOffice.addLog(inst.id, 'error', `Облачная задача ${task.id} упала: ${message}`);
+      taskOffice.updateTask(task.id, { status: 'failed', result: `Ошибка: ${message}`, finishedAt: Date.now() });
+      taskOffice.setState(inst.id, 'failed', 'ошибка');
       notifyPm(taskOffice, `[СИСТЕМА] Задача ${task.id} провалилась в облаке у ${inst.id}. Ошибка: ${message}`);
     } finally {
       inst.currentTaskId = null;
@@ -1451,7 +1463,7 @@ function startCloudWorker(
       taskOffice.running = Math.max(0, taskOffice.running - 1);
       if (taskOffice.running === 0) taskOffice.setBusy(false);
       setTimeout(() => {
-        if (!inst.currentTaskId) office.setState(inst.id, 'idle', null);
+        if (!inst.currentTaskId) taskOffice.setState(inst.id, 'idle', null);
       }, 4000);
     }
   })();
@@ -1491,46 +1503,49 @@ export function stopTask(taskId: string): void {
 
 /** Запустить задачу заново: с нуля, но с тем же ТЗ. */
 export async function retryTask(taskId: string): Promise<void> {
-  const task = office.tasks.get(taskId);
+  // Перезапуск ходит в git и потому длится: офис фиксируем на входе, иначе
+  // после переключения задача уехала бы на доску соседнего проекта.
+  const state = office;
+  const task = state.tasks.get(taskId);
   if (!task) return;
   if (task.status === 'in_progress') {
-    office.addChat('офис', `${taskId} уже выполняется. Сначала остановите её.`);
+    state.addChat('офис', `${taskId} уже выполняется. Сначала остановите её.`);
     return;
   }
   if (task.merged) {
-    office.addChat('офис', `${taskId} уже влита в основную ветку — перезапуск создал бы дубль.`);
+    state.addChat('офис', `${taskId} уже влита в основную ветку — перезапуск создал бы дубль.`);
     return;
   }
-  if (office.paused) {
-    office.addChat('офис', `Офис на паузе — ${taskId} не перезапускается. Снимите паузу (SPACE).`);
+  if (state.paused) {
+    state.addChat('офис', `Офис на паузе — ${taskId} не перезапускается. Снимите паузу (SPACE).`);
     return;
   }
-  const cloudBlocked = office.settings.engine === 'cloud' ? cloudProblem() : null;
+  const cloudBlocked = state.settings.engine === 'cloud' ? cloudProblem(state) : null;
   if (cloudBlocked) {
-    office.addChat('офис', `Облачный режим не настроен: ${cloudBlocked}`);
+    state.addChat('офис', `Облачный режим не настроен: ${cloudBlocked}`);
     return;
   }
-  if (office.budgetExhausted()) {
-    office.addChat('офис', 'Бюджет офиса исчерпан — поднимите лимит, прежде чем перезапускать задачи.');
+  if (state.budgetExhausted()) {
+    state.addChat('офис', 'Бюджет офиса исчерпан — поднимите лимит, прежде чем перезапускать задачи.');
     return;
   }
 
   const roleId = task.roleId ?? 'backend';
-  const noStaff = noStaffReason(roleId);
+  const noStaff = noStaffReason(roleId, state);
   if (noStaff) {
-    office.addChat('офис', `${noStaff} Наймите сотрудника, чтобы перезапустить ${taskId}.`);
+    state.addChat('офис', `${noStaff} Наймите сотрудника, чтобы перезапустить ${taskId}.`);
     return;
   }
-  const inst = office.findFree(roleId) ?? office.spawn(roleId) ?? office.findFree(roleId);
+  const inst = state.findFree(roleId) ?? state.spawn(roleId) ?? state.findFree(roleId);
   if (!inst) {
-    office.addChat('офис', `Все исполнители роли ${roleId} заняты — перезапустить ${taskId} сейчас некому.`);
+    state.addChat('офис', `Все исполнители роли ${roleId} заняты — перезапустить ${taskId} сейчас некому.`);
     return;
   }
 
   // Если в прошлой попытке что-то успели сделать — сохраняем ветку под другим
   // именем, а не удаляем: при остановке офис обещал, что работа не пропадёт.
-  const repo = taskRepo(task);
-  if (task.branch && task.baseBranch && await repoReady(repo)) {
+  const repo = taskRepo(task, state);
+  if (task.branch && task.baseBranch && await repoReady(state, repo)) {
     const worthKeeping = await hasWork(repo, task.branch, task.baseBranch);
     if (task.worktreePath) {
       await removeWorktree(repo, task.worktreePath, task.branch,
@@ -1539,22 +1554,22 @@ export async function retryTask(taskId: string): Promise<void> {
     if (worthKeeping) {
       const kept = await preserveBranch(repo, task.branch);
       if (kept) {
-        office.addChat('офис',
+        state.addChat('офис',
           `Наработки прошлой попытки ${taskId} сохранены в ветке ${kept} — она никуда не денется.`);
       }
     }
   }
 
-  office.updateTask(taskId, {
+  state.updateTask(taskId, {
     status: 'backlog', assigneeId: null, result: null, files: [],
     branch: null, baseBranch: null, worktreePath: null, merged: false,
     startedAt: null, finishedAt: null, usage: emptyUsage(),
     // Отметки прошлой попытки к новой не относятся: работа начинается с нуля.
     criteria: task.criteria.map((c) => ({ ...c, done: false })),
   });
-  const fresh = office.tasks.get(taskId);
-  if (fresh) startWorker(fresh, inst);
-  office.addLog(null, 'system', `Задача ${taskId} перезапущена на ${inst.id}`);
+  const fresh = state.tasks.get(taskId);
+  if (fresh) startWorker(state, fresh, inst);
+  state.addLog(null, 'system', `Задача ${taskId} перезапущена на ${inst.id}`);
 }
 
 /**
@@ -1589,7 +1604,7 @@ export function assignDirect(taskId: string, instanceId: string): void {
   office.updateTask(taskId, { roleId: inst.roleId });
   const fresh = office.tasks.get(taskId);
   if (!fresh) return;
-  startWorker(fresh, inst);
+  startWorker(office, fresh, inst);
   notifyPm(office,
     `[СИСТЕМА] Пользователь отдал задачу ${taskId} «${task.title}» напрямую исполнителю ${inst.id}, ` +
     'минуя тебя. Учти это в планах и не назначай её повторно.',
@@ -1598,9 +1613,12 @@ export function assignDirect(taskId: string, instanceId: string): void {
 
 /** Показать, что задача изменила: дифф её ветки против базовой. */
 export async function taskDiff(taskId: string): Promise<void> {
-  const task = office.tasks.get(taskId);
+  // git на большой ветке думает заметно: офис фиксируем на входе, иначе ответ
+  // ушёл бы подписчикам того офиса, который человек успел открыть.
+  const state = office;
+  const task = state.tasks.get(taskId);
   const send = (patch: Partial<{ stat: string; patch: string; truncated: boolean; error: string }>) =>
-    office.emit({ t: 'task.diff', taskId, stat: '', patch: '', truncated: false, ...patch });
+    state.emit({ t: 'task.diff', taskId, stat: '', patch: '', truncated: false, ...patch });
 
   if (!task) return;
   if (!task.branch || !task.baseBranch) {
@@ -1612,7 +1630,7 @@ export async function taskDiff(taskId: string): Promise<void> {
     return;
   }
 
-  const result = await diffBranch(taskRepo(task), task.baseBranch, task.branch);
+  const result = await diffBranch(taskRepo(task, state), task.baseBranch, task.branch);
   if ('error' in result) send({ error: result.error });
   else if (!result.stat) send({ error: 'Изменений в ветке нет.' });
   else send(result);
