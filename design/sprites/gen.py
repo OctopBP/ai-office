@@ -6,11 +6,14 @@
     python3 design/sprites/gen.py night      → только ночь
 """
 from PIL import Image, ImageDraw
-import os, random, sys
+import json, os, random, sys
 
 SCALE = 3
 T = 16
 ROOT = os.path.join(os.path.dirname(__file__), 'out')
+CATALOG_PATH = os.path.join(ROOT, 'catalog.json')
+CATALOG = {}  # имя спрайта → размер в тайлах, копится за время работы процесса
+SPRITE_SLOTS = {}  # имя спрайта → список слотов (спека §3.1), заполняется таблицами рядом с build()
 
 # ---------- палитры ----------
 PAL_DAY = dict(
@@ -72,6 +75,33 @@ def save(im, name):
     big = im.resize((im.width * SCALE, im.height * SCALE), Image.NEAREST)
     big.save(os.path.join(OUT, name + '.png'))
     print(os.path.basename(OUT), name, big.size)
+    size = [round(im.width / T, 4), round(im.height / T, 4)]
+    prev = CATALOG.get(name)
+    if prev is not None and prev != size:
+        raise ValueError(f'{name}: размер разошёлся между темами: {prev} vs {size}')
+    CATALOG[name] = size
+
+
+def dump_catalog():
+    """Слить накопленные за этот запуск размеры в общий design/sprites/out/catalog.json.
+
+    Файл мержится, а не перезаписывается целиком: gen.py и gen_kitchen.py
+    запускаются отдельными процессами и каждый знает только свои спрайты.
+    """
+    sprites = {}
+    if os.path.exists(CATALOG_PATH):
+        with open(CATALOG_PATH) as f:
+            sprites = json.load(f).get('sprites', {})
+    for name, size in CATALOG.items():
+        entry = {'size': size}
+        if name in SPRITE_SLOTS:
+            entry['slots'] = SPRITE_SLOTS[name]
+        sprites[name] = entry
+    data = {'version': 1, 'tile': T, 'scale': SCALE, 'sprites': dict(sorted(sprites.items()))}
+    with open(CATALOG_PATH, 'w') as f:
+        json.dump(data, f, ensure_ascii=False, indent=2)
+        f.write('\n')
+    print('catalog', CATALOG_PATH, len(sprites), 'спрайтов')
 
 
 def R(d, x0, y0, x1, y1, fill, outline=None):
@@ -721,6 +751,26 @@ def coin():
     save(im, 'coin')
 
 
+# Слоты — посадочные/рабочие точки у мебели (спека §3.1, раздел «Каталог
+# спрайтов»). Числа у desk/desk_pm — те же, что были вшиты в Office.tsx
+# (DESK_WORK_SLOT/DESK_PLATE_SLOT); у round_table — из meetingSeats.ts
+# (TABLE_CENTER/BASE_RADIUS/BASE_CAPACITY). desk_ghost слотов не получает:
+# это плейсхолдер пустого стола, там никто не сидит и нет таблички.
+SPRITE_SLOTS.update({
+    'desk': [
+        {'kind': 'work', 'x': 0.55, 'y': -0.75},
+        {'kind': 'plate', 'x': 0.45, 'y': 0.86},
+    ],
+    'desk_pm': [
+        {'kind': 'work', 'x': 0.55, 'y': -0.75},
+        {'kind': 'plate', 'x': 0.45, 'y': 0.86},
+    ],
+    'round_table': [
+        {'kind': 'seat', 'ring': 8, 'rx': 2.6, 'ry': 1.5, 'grow': True},
+    ],
+})
+
+
 def build(theme):
     use_theme(theme)
     floor(); wall()
@@ -742,3 +792,4 @@ if __name__ == '__main__':
     themes = sys.argv[1:] or ['day', 'night']
     for t in themes:
         build(t)
+    dump_catalog()
