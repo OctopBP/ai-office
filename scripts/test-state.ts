@@ -390,6 +390,89 @@ async function main(): Promise<void> {
   );
   wipe(ovFile);
 
+  // 12. Раскладка как контракт с клиентом (§8): команды правки и сброса ходят
+  // через те же методы, что дёргает index.ts на layout_edit/layout_reset.
+  // Проверяем ровно то, что видит веб: событие при изменении, снапшот при
+  // подключении и отказ по-русски вместо испорченной расстановки.
+  const cmdFile = resolve(tmpdir(), `office-test-cmd-${process.pid}.json`);
+  const olc = openOfficeState({
+    id: 'o-cmd', projectDir: resolve(tmpdir(), 'cmd-office'), stateFile: cmdFile,
+  }).state;
+  olc.seed();
+  const layoutEvents: { props: number; override: number | null }[] = [];
+  const unsubscribe = olc.subscribe((e) => {
+    if (e.t === 'layout') {
+      layoutEvents.push({ props: e.layout.props.length, override: e.override?.props.length ?? null });
+    }
+  });
+
+  // Невалидное отклоняем целиком: ни одна из правок пачки не должна осесть в
+  // оверрайде, иначе половина мебели переехала бы, а половина нет.
+  const noSuchProp = olc.editLayout([{ key: 'дивана-тут-нет', at: [2, 2] }]);
+  const outOfRoom = olc.editLayout([{ key: MOVED_KEY, at: [999, 4] }]);
+  const notANumber = olc.editLayout([{ key: MOVED_KEY, at: [Number.NaN, 4] }]);
+  const emptyEdits = olc.editLayout([]);
+  const partialBatch = olc.editLayout([{ key: MOVED_KEY, at: [7, 5] }, { key: 'мусор', at: [1, 1] }]);
+  results.push(
+    `неизвестный предмет отклонён по-русски: ${/нет в раскладке/.test(noSuchProp ?? '')}`,
+    `позиция за пределами комнаты отклонена: ${/за пределы комнаты/.test(outOfRoom ?? '')}`,
+    `нечисловая позиция отклонена: ${/не число/.test(notANumber ?? '')}`,
+    `пустая правка отклонена: ${/ни одного предмета/.test(emptyEdits ?? '')}`,
+    `плохая правка в пачке отменяет всю пачку: ${partialBatch !== null && olc.override() === null}`,
+    `отклонённые правки не породили событий: ${layoutEvents.length === 0}`,
+  );
+
+  // Принятая правка: и событие с итоговой раскладкой, и снапшот новому клиенту.
+  const applied = olc.editLayout([{ key: MOVED_KEY, at: [7, 5] }]);
+  const cmdSnap = olc.snapshot();
+  const inSnapshot = cmdSnap.t === 'snapshot'
+    && cmdSnap.layout.props.some((p) => p.at[0] === 7 && p.at[1] === 5)
+    && cmdSnap.layoutOverride?.props.length === 1;
+  const presetProps = effectiveLayout('classic', null).props.length;
+  results.push(
+    `правка расстановки принята: ${applied === null}`,
+    `правка прислала событие с итоговой раскладкой: ${layoutEvents.length === 1
+      && layoutEvents[0].props === presetProps && layoutEvents[0].override === 1}`,
+    `итоговая раскладка и оверрайд едут в снапшоте: ${inSnapshot}`,
+    `в снапшоте именно итоговая, а не пресет: ${cmdSnap.t === 'snapshot'
+      && !cmdSnap.layout.props.some((p) => p.at[0] === 6 && p.at[1] === 4)}`,
+  );
+
+  // Перезапуск: правленая раскладка поднимается с диска и снова едет клиенту.
+  olc.flush();
+  const cmdRestored = olc.restore();
+  const afterLayoutRestart = olc.snapshot();
+  results.push(
+    `правка пережила перезапуск: ${cmdRestored && afterLayoutRestart.t === 'snapshot'
+      && afterLayoutRestart.layout.props.some((p) => p.at[0] === 7 && p.at[1] === 5)}`,
+  );
+
+  // Сброс: сначала один предмет, потом — весь оверрайд. Оба возвращают пресет.
+  olc.editLayout([{ key: 'plant_small#1', flip: true }]);
+  const resetUnknown = olc.resetLayout('дивана-тут-нет');
+  const resetOne = olc.resetLayout(MOVED_KEY);
+  const afterResetOne = olc.snapshot();
+  const resetAll = olc.resetLayout();
+  const afterResetAll = olc.snapshot();
+  const resetTwice = olc.resetLayout();
+  results.push(
+    `сброс несуществующего предмета отклонён: ${/и так стоит там/.test(resetUnknown ?? '')}`,
+    `сброс одного предмета принят: ${resetOne === null}`,
+    `сброшенный предмет вернулся на место пресета: ${afterResetOne.t === 'snapshot'
+      && afterResetOne.layout.props.some((p) => p.at[0] === 6 && p.at[1] === 4)
+      && afterResetOne.layoutOverride?.props.length === 1}`,
+    `сброс целиком вернул пресет: ${resetAll === null && afterResetAll.t === 'snapshot'
+      && afterResetAll.layoutOverride === null
+      && afterResetAll.layout.props.length === presetProps}`,
+    `сбрасывать нечего — говорим об этом: ${/совпадает с пресетом/.test(resetTwice ?? '')}`,
+    `сброс тоже прислал событие с раскладкой: ${layoutEvents.length === 4
+      && layoutEvents[3].override === null}`,
+    `файл пресета не переписан ни правкой, ни сбросом: ${
+      readFileSync(classicFile, 'utf8') === presetBefore}`,
+  );
+  unsubscribe();
+  wipe(cmdFile);
+
   // Прошедшей считается только строка, кончающаяся на true. Раньше проверялось
   // обратное — «не false», — и любая строка, где вместо булева оказалось
   // undefined или текст, молча шла в зачёт.
