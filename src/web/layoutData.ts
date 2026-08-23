@@ -1,5 +1,7 @@
-import { desks, floorTiles as sharedFloorTiles, kitchenSeats, wallTiles as sharedWallTiles } from '../shared/layout';
-import type { Catalog, FloorTile, Layout, LayoutZone, Pos } from '../shared/layout';
+import {
+  desks, floorTiles as sharedFloorTiles, kitchenSeats, passability, wallTiles as sharedWallTiles,
+} from '../shared/layout';
+import type { Catalog, FloorTile, Layout, LayoutZone, Passability, Pos } from '../shared/layout';
 import type { Desk } from '../shared/types';
 
 /**
@@ -118,6 +120,22 @@ export function kitchenSeatFor(layoutId: string, deskIndex: number): Pos {
   const seats = kitchenSeatsFor(layoutFor(layoutId));
   const i = (deskIndex - 1 + seats.length) % seats.length;
   return seats[i];
+}
+
+/**
+ * Сетка проходимости раскладки (docs/design/office-layout/spec.md §7) — нужна
+ * ходьбе по ломаной в store.ts. Раскладок мало и они статичны на время жизни
+ * вкладки, поэтому считаем один раз на layoutId, тем же приёмом, что и
+ * `roomFor`/`kitchenSeatsFor`, а не на каждый шаг агента.
+ */
+const passabilityCache = new Map<string, Passability>();
+export function passabilityFor(layoutId: string): Passability {
+  const layout = layoutFor(layoutId);
+  const cached = passabilityCache.get(layout.id);
+  if (cached) return cached;
+  const grid = passability(layout, catalog);
+  passabilityCache.set(layout.id, grid);
+  return grid;
 }
 
 // --- Планировка комнаты для отрисовки (docs/design/office-layout/spec.md §3, §5) ---
