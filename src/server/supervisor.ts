@@ -148,7 +148,7 @@ async function watchBoard(state: OfficeState, now: number): Promise<void> {
     if (!state.findFree(task.roleId ?? 'backend')) continue;
     started += 1;
     state.addChat('офис', `${task.id}: работу оборвал перезапуск — возобновляю, сделанное сохранено в ветке.`);
-    await retryTask(task.id, state);
+    await retryTask(state, task.id);
   }
 
   // 2. Задачи, которые завели и не раздали.

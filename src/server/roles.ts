@@ -198,24 +198,23 @@ const BASE_ROLES: Role[] = [
 ];
 
 /**
- * Пользовательские правки ролей поверх базовых. Хранятся в состоянии офиса и
- * применяются к НОВЫМ сессиям: у уже запущенного исполнителя промпт и модель
- * зафиксированы на момент старта.
+ * Пользовательские правки ролей поверх базовых. Применяются к НОВЫМ сессиям:
+ * у уже запущенного исполнителя промпт и модель зафиксированы на момент старта.
  */
-let overrides: Record<string, Partial<Role>> = {};
+export type RoleOverrides = Record<string, Partial<Role>>;
 
-export function setRoleOverrides(next: Record<string, Partial<Role>>): void {
-  overrides = next;
-}
-
-export function getRoleOverrides(): Record<string, Partial<Role>> {
-  return overrides;
-}
-
-export const allRoles = (): Role[] =>
+/**
+ * Роли считаются от переданных правок, а не от общего на процесс значения.
+ * В памяти одновременно живут несколько офисов, и у каждого свои модели,
+ * лимиты клонов и репозитории ролей: общий реестр отдавал бы сессиям
+ * покинутого офиса настройки того, который человек открыл последним.
+ */
+export const rolesWith = (overrides: RoleOverrides = {}): Role[] =>
   BASE_ROLES.map((r) => ({ ...r, ...(overrides[r.id] ?? {}) }));
 
-export const roleById = (id: string): Role | undefined =>
-  allRoles().find((r) => r.id === id);
+export const roleWith = (overrides: RoleOverrides, id: string): Role | undefined =>
+  rolesWith(overrides).find((r) => r.id === id);
 
-export const workerRoles = (): Role[] => allRoles().filter((r) => !r.isManager);
+/** Роли без менеджера: те, кому можно отдать задачу с доски. */
+export const workerRolesWith = (overrides: RoleOverrides = {}): Role[] =>
+  rolesWith(overrides).filter((r) => !r.isManager);

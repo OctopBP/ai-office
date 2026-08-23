@@ -18,7 +18,7 @@ import {
 import { currentOffice, offices } from './offices';
 import { effectiveMode, isPermissionMode, modeLabel } from './permissions';
 import type { MessageQueue } from './queue';
-import { allRoles, getRoleOverrides, roleById, setRoleOverrides, type Role } from './roles';
+import { roleWith, rolesWith, workerRolesWith, type Role, type RoleOverrides } from './roles';
 import {
   DEFAULT_STATE_FILE, flush as flushFile, load, save, wipe as wipeFile,
   type Persisted, type PersistedInstance,
@@ -198,11 +198,11 @@ export class OfficeState {
   /** Чей это офис: от него зависят worktree и файл состояния. */
   readonly officeId: string;
   /**
-   * Правки ролей этого офиса. Реестр ролей в roles.ts — общий на процесс,
-   * поэтому офис держит свою копию и возвращает её, когда снова становится
-   * текущим: иначе настройки одного проекта уезжали бы в другой.
+   * Правки ролей этого офиса. Живут в самом офисе, а не в общем на процесс
+   * реестре: офисов в памяти несколько, они работают одновременно, и модель
+   * или репозиторий роли одного проекта не должны попадать в сессии другого.
    */
-  roleOverrides: Record<string, Partial<Role>> = {};
+  roleOverrides: RoleOverrides = {};
   /**
    * Расстановка мебели этого офиса поверх пресетов, ключ — id пресета (§8).
    * Своя у каждого офиса: пресет — общий эталон в репозитории, а подвинутый
@@ -293,6 +293,23 @@ export class OfficeState {
     this.officeId = officeId;
   }
 
+  // ---------- роли этого офиса ----------
+
+  /** Роли офиса: базовые с наложенными правками именно этого офиса. */
+  roles(): Role[] {
+    return rolesWith(this.roleOverrides);
+  }
+
+  /** Роль офиса по id. undefined — такой роли в реестре нет. */
+  role(id: string): Role | undefined {
+    return roleWith(this.roleOverrides, id);
+  }
+
+  /** Роли, которым можно отдать задачу: все, кроме менеджера. */
+  workerRoles(): Role[] {
+    return workerRolesWith(this.roleOverrides);
+  }
+
   subscribe(fn: Listener): () => void {
     this.listeners.add(fn);
     return () => this.listeners.delete(fn);
@@ -339,7 +356,7 @@ export class OfficeState {
       chat: this.chat,
       log: this.log.slice(-500),
       settings: this.settings,
-      roleOverrides: getRoleOverrides(),
+      roleOverrides: this.roleOverrides,
       layoutOverrides: this.layoutOverrides,
       instances: [...this.instances.values()].map<PersistedInstance>((i) => ({
         id: i.id, roleId: i.roleId, deskIndex: i.desk.index,
@@ -365,7 +382,7 @@ export class OfficeState {
     }
 
     // Роли восстанавливаем ДО seed: от них зависят названия и лимиты инстансов.
-    setRoleOverrides(data.roleOverrides ?? {});
+    this.roleOverrides = data.roleOverrides ?? {};
     // Сохранения старше настройки движка не знают про облако — дополняем.
     this.settings = { ...DEFAULT_SETTINGS, ...(data.settings ?? {}) };
     // Файл раскладки могли удалить между запусками. Офис без мебели — не
@@ -437,7 +454,7 @@ export class OfficeState {
       this.instances.clear();
       for (const pi of roster) this.rehire(pi);
       // PM уволить нельзя, но сохранение могло прийти из версии без него.
-      for (const role of allRoles()) {
+      for (const role of this.roles()) {
         if (role.isManager && this.staffOf(role.id).length === 0) this.spawn(role.id);
       }
     }
@@ -454,7 +471,7 @@ export class OfficeState {
    * «разъезжается» после смены раскладки.
    */
   private rehire(pi: PersistedInstance): void {
-    const role = roleById(pi.roleId);
+    const role = this.role(pi.roleId);
     if (!role) return;   // роль исчезла из реестра — восстанавливать некого
     const taken = new Set([...this.instances.values()].map((i) => i.desk.index));
     const desks = this.deskPlan().desks;
@@ -508,7 +525,7 @@ export class OfficeState {
     this.usage = emptyUsage();
     this.daily = {};
     this.setPaused(false);
-    for (const role of allRoles()) this.spawn(role.id);
+    for (const role of this.roles()) this.spawn(role.id);
   }
 
   /** Полный сброс по кнопке: стереть сохранение и начать с чистого листа. */
@@ -632,7 +649,7 @@ export class OfficeState {
       taken.add(same.index);
       if (same.x !== inst.desk.x || same.y !== inst.desk.y) {
         inst.desk = same;
-        this.emit({ t: 'instance', instance: toInstanceView(inst, this.officeMode()) });
+        this.emit({ t: 'instance', instance: this.instanceView(inst) });
       }
     }
     for (const inst of homeless) {
@@ -647,7 +664,7 @@ export class OfficeState {
       }
       taken.add(free.index);
       inst.desk = free;
-      this.emit({ t: 'instance', instance: toInstanceView(inst, this.officeMode()) });
+      this.emit({ t: 'instance', instance: this.instanceView(inst) });
     }
   }
 
@@ -674,7 +691,7 @@ export class OfficeState {
   }
 
   spawn(roleId: string): Instance | null {
-    const role = roleById(roleId);
+    const role = this.role(roleId);
     if (!role) return null;
     const existing = this.staffOf(roleId);
     if (existing.length >= role.maxInstances) return null;
@@ -702,7 +719,7 @@ export class OfficeState {
       abort: null,
     };
     this.instances.set(inst.id, inst);
-    this.emit({ t: 'instance', instance: toInstanceView(inst, this.officeMode()) });
+    this.emit({ t: 'instance', instance: this.instanceView(inst) });
     this.markDirty();
     return inst;
   }
@@ -712,7 +729,7 @@ export class OfficeState {
     if (!inst) return;
     inst.state = state;
     if (note !== undefined) inst.note = note;
-    this.emit({ t: 'instance', instance: toInstanceView(inst, this.officeMode()) });
+    this.emit({ t: 'instance', instance: this.instanceView(inst) });
   }
 
   /**
@@ -737,7 +754,7 @@ export class OfficeState {
     accumulate(inst.usage, delta);
     accumulate(dayOf(inst.daily, day), delta);
     trimJournal(inst.daily);
-    this.emit({ t: 'instance', instance: toInstanceView(inst, this.officeMode()) });
+    this.emit({ t: 'instance', instance: this.instanceView(inst) });
 
     accumulate(this.usage, delta);
     accumulate(dayOf(this.daily, day), delta);
@@ -921,7 +938,24 @@ export class OfficeState {
 
   /** Состав офиса для UI: у каждого сотрудника посчитан эффективный режим. */
   instanceViews(): InstanceView[] {
-    return [...this.instances.values()].map((i) => toInstanceView(i, this.officeMode()));
+    return [...this.instances.values()].map((i) => this.instanceView(i));
+  }
+
+  /**
+   * Вид сотрудника для UI. Метод, а не свободная функция: эффективный режим
+   * доступа считается по ролям и режиму ИМЕННО этого офиса, а офисов в памяти
+   * несколько — из соседнего сотрудник приехал бы с чужими правами.
+   */
+  instanceView(i: Instance): InstanceView {
+    return {
+      id: i.id, roleId: i.roleId, label: i.label, desk: i.desk,
+      state: i.state, currentTaskId: i.currentTaskId, note: i.note,
+      usage: i.usage, today: i.daily[dayKey()] ?? emptyUsage(),
+      permissionMode: i.permissionMode,
+      effectivePermissionMode: effectiveMode(
+        i.permissionMode, this.role(i.roleId)?.permissionMode, this.officeMode(),
+      ),
+    };
   }
 
   /**
@@ -935,7 +969,7 @@ export class OfficeState {
 
   roleViews(): RoleView[] {
     const officeMode = this.officeMode();
-    return allRoles().map<RoleView>((r) => ({
+    return this.roles().map<RoleView>((r) => ({
       id: r.id, title: r.title, emoji: r.emoji, color: r.color, model: r.model,
       permissionMode: r.permissionMode, maxInstances: r.maxInstances,
       isolate: r.isolate, repoDir: r.repoDir ?? '', brief: r.brief, isManager: r.isManager,
@@ -945,7 +979,7 @@ export class OfficeState {
   }
 
   updateRole(roleId: string, patch: Partial<RoleEditable>): void {
-    const base = roleById(roleId);
+    const base = this.role(roleId);
     if (!base) return;
     // Режим роли правит человек из UI — значение проверяем, как и офисное.
     const clean = { ...patch };
@@ -953,9 +987,11 @@ export class OfficeState {
         && clean.permissionMode !== null && !isPermissionMode(clean.permissionMode)) {
       delete clean.permissionMode;
     }
-    const next = { ...getRoleOverrides() };
-    next[roleId] = { ...(next[roleId] ?? {}), ...(clean as Partial<Role>) };
-    setRoleOverrides(next);
+    // Правки ложатся в сам офис: соседний работает со своими ролями.
+    this.roleOverrides = {
+      ...this.roleOverrides,
+      [roleId]: { ...(this.roleOverrides[roleId] ?? {}), ...(clean as Partial<Role>) },
+    };
     if ('permissionMode' in clean && clean.permissionMode !== base.permissionMode) {
       this.addLog(null, 'system', clean.permissionMode
         ? `Режим доступа роли ${base.title}: «${modeLabel(clean.permissionMode)}»`
@@ -964,10 +1000,10 @@ export class OfficeState {
     // Ярлыки инстансов зависят от названия роли.
     for (const inst of this.instances.values()) {
       if (inst.roleId !== roleId) continue;
-      const role = roleById(roleId)!;
+      const role = this.role(roleId)!;
       const n = inst.id.split('#')[1] ?? '1';
       inst.label = `${role.title}${role.maxInstances > 1 ? ` #${n}` : ''}`;
-      this.emit({ t: 'instance', instance: toInstanceView(inst, this.officeMode()) });
+      this.emit({ t: 'instance', instance: this.instanceView(inst) });
     }
     this.emit({ t: 'roles', roles: this.roleViews() });
     this.addLog(null, 'system', `Роль ${roleId} изменена: ${Object.keys(clean).join(', ')}`);
@@ -1017,7 +1053,7 @@ export class OfficeState {
     if (this.settings.officePermissionMode !== prevMode) {
       this.emit({ t: 'roles', roles: this.roleViews() });
       for (const inst of this.instances.values()) {
-        this.emit({ t: 'instance', instance: toInstanceView(inst, this.officeMode()) });
+        this.emit({ t: 'instance', instance: this.instanceView(inst) });
       }
       // Смена режима — событие для человека, а не деталь настроек: с этой
       // минуты меняется, о чём офис перестаёт спрашивать.
@@ -1036,7 +1072,7 @@ export class OfficeState {
     const inst = this.instances.get(instanceId);
     if (!inst || inst.permissionMode === mode) return;
     inst.permissionMode = mode;
-    const view = toInstanceView(inst, this.officeMode());
+    const view = this.instanceView(inst);
     this.emit({ t: 'instance', instance: view });
     this.addLog(instanceId, 'system', mode
       ? `Режим доступа сотрудника: «${modeLabel(mode)}» (личное правило)`
@@ -1060,7 +1096,7 @@ export class OfficeState {
    * роль: нанять обратно можно в любой момент.
    */
   hire(roleId: string): string | null {
-    const role = roleById(roleId);
+    const role = this.role(roleId);
     if (!role) return `Роли «${roleId}» нет в офисе.`;
     const staff = this.staffOf(roleId);
     if (staff.length >= role.maxInstances) {
@@ -1087,7 +1123,7 @@ export class OfficeState {
   fire(instanceId: string): string | null {
     const inst = this.instances.get(instanceId);
     if (!inst) return 'Такого сотрудника нет.';
-    const role = roleById(inst.roleId);
+    const role = this.role(inst.roleId);
     if (role?.isManager) return 'PM — единственный, кого нельзя уволить.';
     if (inst.currentTaskId) {
       return `${inst.label} сейчас работает над задачей ${inst.currentTaskId}. ` +
@@ -1291,28 +1327,25 @@ export const officeViews = (): OfficeView[] => {
       id: o.id, name: o.name, projectDir: o.projectDir,
       current: o.id === current?.id, lastOpenedAt: o.lastOpenedAt,
       activity: live?.opened
-        ? summarize({ tasks: [...live.tasks.values()], chat: live.chat, log: live.log })
+        ? {
+          ...summarize({ tasks: [...live.tasks.values()], chat: live.chat, log: live.log }),
+          // «Кто-то работает прямо сейчас» видно только по живым сессиям:
+          // задача в статусе in_progress остаётся такой и после перезапуска,
+          // а разговор менеджера вообще не заводит задач.
+          live: hasLiveSessions(live),
+          // Запрос доступа в покинутом офисе останавливает там работу: агент
+          // замер на вызове инструмента и ждёт человека, который смотрит
+          // другой проект. В списке это должно быть видно.
+          waiting: live.pendingRequests().length,
+        }
         : activityFromFile(o.stateFile),
     };
   });
 };
 
-export const toInstanceView = (
-  i: Instance,
-  /**
-   * Режим офиса передаёт вызывающий: `office` указывает на открытый офис,
-   * а вид сотрудника собирается и для другого — тот бы получил чужой режим.
-   */
-  officeMode: PermissionMode = office.officeMode(),
-): InstanceView => ({
-  id: i.id, roleId: i.roleId, label: i.label, desk: i.desk,
-  state: i.state, currentTaskId: i.currentTaskId, note: i.note,
-  usage: i.usage, today: i.daily[dayKey()] ?? emptyUsage(),
-  permissionMode: i.permissionMode,
-  effectivePermissionMode: effectiveMode(
-    i.permissionMode, roleById(i.roleId)?.permissionMode, officeMode,
-  ),
-});
+/** Идут ли в офисе живые сессии: исполнители, менеджер или прямые разговоры. */
+const hasLiveSessions = (state: OfficeState): boolean =>
+  state.running > 0 || Boolean(state.pmLoop) || state.talks.size > 0 || state.meetingRunning;
 
 export const toTaskView = (t: Task): TaskView => ({
   id: t.id, title: t.title, description: t.description,
@@ -1423,6 +1456,25 @@ export function runningTasksOf(officeId: string): string[] {
 }
 
 /**
+ * Поднят ли офис: состояние с доской и сессиями уже живёт в памяти.
+ * Заведённая, но не открытая заготовка (её создаёт getOffice) — это ещё
+ * не офис, и командам с ней делать нечего.
+ */
+export function isOpened(officeId: string): boolean {
+  return states.get(officeId)?.opened === true;
+}
+
+/**
+ * Все поднятые офисы. Нужно тому, что относится к процессу целиком, а не к
+ * одному проекту, — например появившемуся токену GitHub: он одинаково меняет
+ * готовность облачного режима у каждого офиса, включая те, что сейчас никто
+ * не смотрит.
+ */
+export function openedOffices(): OfficeState[] {
+  return [...states.values()].filter((s) => s.opened);
+}
+
+/**
  * Подписка на события всех офисов — и открытых сейчас, и тех, которые
  * откроются позже. Отписки нет намеренно: подписчик здесь один — рассылка
  * по сокетам, и живёт она столько же, сколько процесс.
@@ -1434,19 +1486,15 @@ export function subscribeOffices(fn: OfficeListener): void {
 }
 
 /**
- * Текущий открытый офис. Именно ссылка, а не константа: переключение офиса
- * переставляет её, и весь код, читающий `office`, продолжает работать без
- * правок — импорт в ES-модуле живой.
+ * Офис, открытый в этом процессе последним. Именно ссылка, а не константа:
+ * открытие офиса переставляет её, и импорт в ES-модуле остаётся живым.
+ *
+ * Это НЕ «офис пользователя»: клиентов несколько, и каждый смотрит свой.
+ * Всё, что делается по команде клиента, обязано брать состояние по его
+ * подписке (office-api.stateFor), а `office` остаётся значением по умолчанию
+ * для того, у чего клиента нет вообще: старта сервера и одиночных проверок.
  */
 export let office = getOffice('o-1');
-
-/** Сделать состояние текущим, передав ему общие на процесс правки ролей. */
-function activate(next: OfficeState): void {
-  if (next === office) return;
-  office.roleOverrides = getRoleOverrides();
-  office = next;
-  setRoleOverrides(next.roleOverrides);
-}
 
 /**
  * Открыть офис и сделать его текущим. Первое открытие поднимает состояние
@@ -1459,19 +1507,15 @@ function activate(next: OfficeState): void {
 export function openOfficeState(entry: { id: string; projectDir: string; stateFile: string }):
   { state: OfficeState; restored: boolean; reused: boolean } {
   const state = getOffice(entry.id);
-  activate(state);
+  office = state;
   if (state.opened) return { state, restored: false, reused: true };
 
   state.projectDir = entry.projectDir;
   state.setStateFile(entry.stateFile);
   state.opened = true;
   const restored = state.restore();
-  if (!restored) {
-    // Офис с чистого листа начинается и с чистых ролей: правки ролей
-    // принадлежат офису, а их реестр в roles.ts — общий на процесс.
-    setRoleOverrides({});
-    state.seed();
-  }
-  state.roleOverrides = getRoleOverrides();
+  // Офис с чистого листа начинается и с чистых ролей: правки ролей
+  // принадлежат офису, и у нового их просто нет.
+  if (!restored) state.seed();
   return { state, restored, reused: false };
 }

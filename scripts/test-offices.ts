@@ -14,13 +14,15 @@ import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node
 import { tmpdir } from 'node:os';
 import { resolve } from 'node:path';
 import type { ServerEvent } from '../src/shared/types';
-import { getOffice, office, officeViews, openOfficeState, subscribeOffices } from '../src/server/state';
+import {
+  getOffice, officeViews, openedOffices, openOfficeState, subscribeOffices,
+} from '../src/server/state';
 import { MessageQueue } from '../src/server/queue';
 import {
-  broadcast, handleOfficeCommand, initOfficeApi, sendSnapshot, unwatch, watch, watching,
-  type Sink,
+  broadcast, handleOfficeCommand, initOfficeApi, sendSnapshot, stateFor, unwatch, watch,
+  watching, type Sink,
 } from '../src/server/office-api';
-import { currentOffice, loadRegistry, offices } from '../src/server/offices';
+import { createOffice, currentOffice, loadRegistry, offices } from '../src/server/offices';
 
 const ROOT = resolve(tmpdir(), `office-api-test-${process.pid}`);
 const STATE_FILE = resolve(ROOT, 'state.json');
@@ -28,6 +30,7 @@ const REGISTRY = resolve(ROOT, 'offices.json');
 const DIR_A = resolve(ROOT, 'proj-a');
 const DIR_B = resolve(ROOT, 'proj-b');
 const DIR_C = resolve(ROOT, 'proj-c');
+const DIR_D = resolve(ROOT, 'proj-d');
 
 const results: string[] = [];
 const check = (text: string, ok: boolean): void => { results.push(`${text}: ${ok}`); };
@@ -60,7 +63,7 @@ function onDisk(): { currentId: string; offices: Array<{ id: string; name: strin
 
 async function main(): Promise<void> {
   rmSync(ROOT, { recursive: true, force: true });
-  for (const dir of [DIR_A, DIR_B, DIR_C]) mkdirSync(dir, { recursive: true });
+  for (const dir of [DIR_A, DIR_B, DIR_C, DIR_D]) mkdirSync(dir, { recursive: true });
 
   // 1. Холодный старт с уже лежащего на диске реестра — ровно то, что делает
   //    сервер после перезапуска. Второй офис здесь скрыт: он не должен попасть
@@ -86,14 +89,23 @@ async function main(): Promise<void> {
 
   const first = currentOffice()!;
   openOfficeState(first);
-  office.projectDir = DIR_A;
+  // Дальше офисы держим за явные ссылки, а не через `office`: офисов в памяти
+  // несколько, и «текущий на процесс» больше не отвечает на вопрос, в чей
+  // именно офис ушло событие.
+  const stateA = getOffice('o-1');
+  stateA.projectDir = DIR_A;
 
   // Открытие офиса без git и рабочей директории: сервер делает это же плюс
   // проверку репозитория, к списку офисов она отношения не имеет.
+  // Заходы считаем: повторный вход в уже поднятый офис не должен поднимать
+  // его второй раз — это были бы вторые сессии и второй надзор.
+  let opens = 0;
+  let openDelayMs = 0;
   initOfficeApi({
     openOffice: async (entry) => {
+      opens += 1;
+      await sleep(openDelayMs);
       openOfficeState(entry);
-      await sleep(0);
     },
   });
   // Подписчик один на все офисы: покинутый офис продолжает слать события,
@@ -107,11 +119,13 @@ async function main(): Promise<void> {
     && view[0].projectDir === DIR_A);
   check('в списке есть время последней активности',
     view[0].lastOpenedAt === 111 && typeof view[0].activity?.lastEventAt !== 'undefined');
-  office.createTask({ title: 'в работе', description: '', criteria: [], roleId: 'backend' });
-  const inWork = [...office.tasks.values()][0];
-  office.updateTask(inWork.id, { status: 'in_progress' });
+  stateA.createTask({ title: 'в работе', description: '', criteria: [], roleId: 'backend' });
+  const inWork = [...stateA.tasks.values()][0];
+  stateA.updateTask(inWork.id, { status: 'in_progress' });
   check('в списке видно число активных задач', officeViews()[0].activity?.inProgress === 1);
-  office.updateTask(inWork.id, { status: 'done' });
+  check('без живых сессий офис в списке не помечен работающим',
+    officeViews()[0].activity?.live === false);
+  stateA.updateTask(inWork.id, { status: 'done' });
 
   // 3. Клиенты: A остаётся в первом офисе, B уходит во второй.
   const a = new Fake();
@@ -164,12 +178,17 @@ async function main(): Promise<void> {
   check('список офисов дошёл и до клиента другого офиса',
     (a.last('offices', markA)?.offices.length ?? 0) === 2);
   check('чужой снапшот клиенту не пришёл', a.count('snapshot', markA) === 0);
+  const stateB = getOffice(madeId);
+  check('оба офиса подняты в памяти одновременно',
+    stateA.opened && stateB.opened && stateA !== stateB);
+  check('команда каждого клиента идёт в его собственный офис',
+    stateFor(a) === stateA && stateFor(b) === stateB);
 
   // 8. Изоляция потока событий: событие второго офиса не уходит в первый.
   const aBefore = a.events.length;
   const bBefore = b.events.length;
-  office.addChat('офис', 'реплика во втором офисе');
-  office.addLog(null, 'system', 'запись во втором офисе');
+  stateB.addChat('офис', 'реплика во втором офисе');
+  stateB.addLog(null, 'system', 'запись во втором офисе');
   await sleep(20);
   check('события открытого офиса доходят до его клиента',
     b.count('chat', bBefore) === 1 && b.count('log', bBefore) === 1);
@@ -250,11 +269,11 @@ async function main(): Promise<void> {
 
   // 17. Уйти можно всегда, в том числе из офиса с задачами в работе: сессии
   //     покинутого офиса не трогаем, они продолжают писать в своё состояние.
-  const busy = office.createTask({
+  const busy = stateB.createTask({
     title: 'идёт работа', description: '', criteria: [], roleId: 'backend',
   });
-  office.updateTask(busy.id, { status: 'in_progress' });
-  const leaving = office;
+  stateB.updateTask(busy.id, { status: 'in_progress' });
+  const leaving = stateB;
   // Живая сессия менеджера и прерыватель исполнителя: по ним и видно,
   // сбросили сессии при переключении или оставили работать.
   const pmQueue = new MessageQueue();
@@ -269,12 +288,20 @@ async function main(): Promise<void> {
   await sleep(50);
   check('переключение при задаче в работе не отклоняется',
     b.last('office.error', mark) === null);
-  check('офис переключился', office.officeId === 'o-1' && office.projectDir === DIR_A);
+  check('переключение при задаче в работе доводится до снапшота',
+    b.last('snapshot', mark)?.projectDir === DIR_A);
+  check('клиент переехал в запрошенный офис',
+    watching(b) === 'o-1' && stateFor(b) === stateA);
+  check('открытым в реестре записан запрошенный офис', currentOffice()?.id === 'o-1');
   check('сессии покинутого офиса не сброшены',
     leaving.pmQueue === pmQueue && !abort.signal.aborted);
   check('задача покинутого офиса осталась в работе',
     leaving.tasks.get(busy.id)?.status === 'in_progress');
   check('состояние покинутого офиса живёт в памяти', getOffice(madeId) === leaving);
+  check('работающий офис помечен в списке как активный',
+    officeViews().find((o) => o.id === madeId)?.activity?.live === true);
+  check('в сводке покинутого офиса видно задачу в работе',
+    officeViews().find((o) => o.id === madeId)?.activity?.inProgress === 1);
 
   // События покинутого офиса продолжают идти, но только его зрителям:
   // клиент b смотрит уже другой проект и чужой чат видеть не должен.
@@ -292,31 +319,127 @@ async function main(): Promise<void> {
   check('отказ называет идущую задачу', Boolean(working?.message.includes(busy.id)));
   check('офис остался в списке', officeViews().some((o) => o.id === madeId));
 
+  // 19. Работа в покинутом офисе идёт дальше и доезжает до его файла: клиент
+  //     вернётся и должен увидеть всё, что случилось без него.
+  const away = leaving.createTask({
+    title: 'сделано без зрителей', description: '', criteria: [], roleId: 'backend',
+  });
+  leaving.updateTask(away.id, { status: 'done', finishedAt: Date.now(), branch: 'task/away' });
+  leaving.addChat('офис', 'отчёт пришёл, пока никто не смотрел');
+  // Дебаунс записи — 400 мс: ждём его, а не зовём flush, иначе проверка
+  // доказывала бы, что работает flush, а не то, что офис сохраняется сам.
+  await sleep(700);
+  const savedAway = JSON.parse(readFileSync(onDisk().offices.find((o) => o.id === madeId)!.stateFile, 'utf8'));
+  check('покинутый офис сам сохранил работу в свой файл',
+    savedAway.tasks.some((t: { id: string; status: string }) => t.id === away.id && t.status === 'done'));
+  check('в файл покинутого офиса попал и его чат',
+    savedAway.chat.some((c: { text: string }) => c.text === 'отчёт пришёл, пока никто не смотрел'));
+
+  const beforeBack = b.events.length;
+  const opensBeforeBack = opens;
+  handleOfficeCommand({ c: 'switch_office', officeId: madeId }, b);
+  await sleep(50);
+  const back = b.last('snapshot', beforeBack);
+  check('при возврате снапшот содержит сделанное без зрителей',
+    Boolean(back?.tasks.some((t) => t.id === away.id && t.status === 'done')));
+  check('при возврате в снапшоте есть и разговоры без зрителей',
+    Boolean(back?.chat.some((c) => c.text === 'отчёт пришёл, пока никто не смотрел')));
+  check('возврат в поднятый офис его заново не поднимает', opens === opensBeforeBack);
+
+  // 20. Два клиента в разных офисах одновременно: у каждого свой поток.
+  handleOfficeCommand({ c: 'switch_office', officeId: 'o-1' }, a);
+  await sleep(20);
+  check('клиенты смотрят разные офисы', watching(a) === 'o-1' && watching(b) === madeId);
+  const aSplit = a.events.length;
+  const bSplit = b.events.length;
+  stateA.addChat('офис', 'это первому');
+  leaving.addChat('офис', 'это второму');
+  await sleep(20);
+  check('каждый клиент получил только своё',
+    a.count('chat', aSplit) === 1 && b.count('chat', bSplit) === 1);
+  check('первому пришла именно его реплика',
+    a.last('chat', aSplit)?.entry.text === 'это первому');
+  check('второму пришла именно его реплика',
+    b.last('chat', bSplit)?.entry.text === 'это второму');
+
+  // Сводка в списке офисов обновляется от работы ЛЮБОГО офиса, включая тот,
+  // который этот клиент не смотрит: иначе индикатор замирал бы ровно тогда,
+  // когда он и нужен — пока человек занят соседним проектом.
+  const aBoard = a.events.length;
+  const far = leaving.createTask({
+    title: 'заведена в соседнем офисе', description: '', criteria: [], roleId: 'backend',
+  });
+  leaving.updateTask(far.id, { status: 'in_progress' });
+  await sleep(1300);
+  const list = a.last('offices', aBoard);
+  check('список офисов дошёл до клиента чужого офиса', list !== null);
+  check('в сводке видно задачи, начатые в соседнем офисе',
+    (list?.offices.find((o) => o.id === madeId)?.activity?.inProgress ?? 0) >= 2);
+  leaving.updateTask(far.id, { status: 'done' });
+
+  // Запрос доступа в покинутом офисе останавливает там работу: пока человек
+  // смотрит другой проект, в списке должно быть видно, что его ждут.
+  const askBoard = a.events.length;
+  const decision = leaving.requestPermission({
+    agentId: 'backend#1', taskId: null, toolName: 'Bash', key: 'Bash:rm',
+    summary: 'rm -rf build', detail: 'rm -rf build', risk: 'danger',
+    reason: 'команда удаляет файлы',
+  });
+  await sleep(1300);
+  check('в сводке видно, что покинутый офис ждёт решения',
+    (a.last('offices', askBoard)?.offices.find((o) => o.id === madeId)?.activity?.waiting ?? 0) === 1);
+  const pending = leaving.pendingRequests()[0];
+  leaving.resolvePermission(pending.id, 'deny');
+  await decision;
+  check('после ответа офис снова никого не ждёт',
+    officeViews().find((o) => o.id === madeId)?.activity?.waiting === 0);
+
+  // 21. Два клиента входят в один ещё не поднятый офис одновременно: офис
+  //     поднимается один раз, снапшот получают оба.
+  const slow = createOffice({ name: 'Третий', projectDir: DIR_D, mustExist: true });
+  const slowId = 'office' in slow ? slow.office.id : '';
+  openDelayMs = 40;
+  const opensBefore = opens;
+  const aRace = a.events.length;
+  const bRace = b.events.length;
+  handleOfficeCommand({ c: 'switch_office', officeId: slowId }, a);
+  handleOfficeCommand({ c: 'switch_office', officeId: slowId }, b);
+  await sleep(120);
+  openDelayMs = 0;
+  check('одновременный вход поднимает офис один раз', opens - opensBefore === 1);
+  check('снапшот получили оба вошедших',
+    a.count('snapshot', aRace) === 1 && b.count('snapshot', bRace) === 1);
+  check('оба клиента подписаны на новый офис',
+    watching(a) === slowId && watching(b) === slowId);
+
   leaving.updateTask(busy.id, { status: 'done' });
   worker.abort = null;
   leaving.pmQueue = null;
   leaving.pmLoop = null;
 
-  // 19. Отключившийся клиент из рассылки уходит.
+  // 22. Отключившийся клиент из рассылки уходит: ни событий, ни подписки,
+  //     ни офиса, к которому его команды могли бы отнести.
   const closed = new Fake();
   watch(closed);
   unwatch(closed);
-  office.addChat('офис', 'после отключения');
+  check('отключённый клиент офис больше не смотрит', watching(closed) === null);
+  check('команда от неизвестного клиента ни к какому офису не относится',
+    stateFor(closed) === null);
+  stateA.addChat('офис', 'после отключения');
   await sleep(20);
   check('отключённый клиент событий не получает', closed.count('chat') === 0);
 
-  // 20. Всё сделанное записано на диск: следующий запуск увидит то же самое.
+  // 23. Всё сделанное записано на диск: следующий запуск увидит то же самое.
   const saved = onDisk();
-  check('реестр на диске знает все три офиса, включая скрытый',
-    saved.offices.length === 3 && saved.offices.filter((o) => o.hidden).length === 1);
-  check('текущий офис записан', saved.currentId === 'o-1');
+  check('реестр на диске знает все четыре офиса, включая скрытый',
+    saved.offices.length === 4 && saved.offices.filter((o) => o.hidden).length === 1);
+  check('текущий офис записан', saved.currentId === slowId);
   check('возвращённый офис на диске уже не скрыт',
     saved.offices.find((o) => o.id === madeId)?.hidden === false);
 
-  // Досохраняем оба поднятых офиса: у каждого свой файл и свой отложенный
+  // Досохраняем все поднятые офисы: у каждого свой файл и свой отложенный
   // таймер записи, и оставленный хвост дописался бы уже после уборки.
-  office.flush();
-  leaving.flush();
+  for (const open of openedOffices()) open.flush();
   rmSync(ROOT, { recursive: true, force: true });
 
   // Прошедшей считается только строка, кончающаяся на true: «не false» пропускало
