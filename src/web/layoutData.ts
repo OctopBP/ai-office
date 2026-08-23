@@ -1,30 +1,44 @@
-import { desks, kitchenSeats } from '../shared/layout';
-import type { Catalog, Layout, Pos } from '../shared/layout';
-import { GRID } from '../shared/types';
+import { desks, floorTiles as sharedFloorTiles, kitchenSeats, wallTiles as sharedWallTiles } from '../shared/layout';
+import type { Catalog, FloorTile, Layout, LayoutZone, Pos } from '../shared/layout';
+import type { Desk } from '../shared/types';
 
 /**
- * Каталог спрайтов и раскладка офиса читаются прямо из design/ (как и
- * спрайты в sprites.ts) — сервер их вебу пока не отдаёт (§8, задача
- * следующего этапа). Общий модуль src/shared/layout.ts считает из них
- * столы и посадочные места (docs/design/office-layout/spec.md §3, §4).
+ * Каталог спрайтов читается прямо из design/ (как и спрайты в sprites.ts) —
+ * сервер его вебу не отдаёт. Общий модуль src/shared/layout.ts считает из
+ * него столы и посадочные места (docs/design/office-layout/spec.md §3, §4).
  */
 const catalogModules = import.meta.glob('../../design/sprites/out/catalog.json', {
   eager: true, import: 'default',
 }) as Record<string, Catalog>;
 export const catalog: Catalog = Object.values(catalogModules)[0];
 
-const layoutModules = import.meta.glob('../../design/layouts/classic.json', {
+/**
+ * Все раскладки из design/layouts — веб не знает заранее, сколько их и как
+ * называются файлы, поэтому берёт глобом всё сразу и раскладывает по полю
+ * `id` (оно и есть Settings.layoutId). Список для выбора в интерфейсе едет
+ * от сервера отдельно (ServerEvent.layouts) — здесь только сами данные для
+ * отрисовки комнаты.
+ */
+const layoutModules = import.meta.glob('../../design/layouts/*.json', {
   eager: true, import: 'default',
 }) as Record<string, Layout>;
-export const layout: Layout = Object.values(layoutModules)[0];
+const LAYOUTS: Record<string, Layout> = Object.fromEntries(
+  Object.values(layoutModules).map((l) => [l.id, l]),
+);
+
+export const DEFAULT_LAYOUT_ID = 'classic';
+
+/** Раскладка по id; неизвестный (старое сохранение, рассинхрон со списком сервера) — запасной classic. */
+export function layoutFor(layoutId: string): Layout {
+  return LAYOUTS[layoutId] ?? LAYOUTS[DEFAULT_LAYOUT_ID];
+}
 
 /** Отступ дополнительного ряда мест кухни, если базовых из каталога не хватает. */
 const ROW_GAP = 0.9;
 
 /**
  * Высота фигуры агента: все agent_* спрайты одного размера по арту (§3.1
- * места не знают про высоту фигуры, это отрисовка Office.tsx). Нужна, чтобы
- * прижать нижний ряд мест кухни к границе комнаты — иначе он в неё утыкается.
+ * места не знают про высоту фигуры, это отрисовка Office.tsx).
  */
 const AGENT_H = Math.max(
   ...Object.entries(catalog.sprites)
@@ -34,26 +48,23 @@ const AGENT_H = Math.max(
 
 /**
  * Запас между низом фигуры и стеной, тайлов. Комната обрезана `overflow:
- * hidden` ровно по GRID.cells (styles.css `.office`), а место указывает
- * верхний левый угол фигуры без офсета (Office.tsx: `top: px(work.y)`),
- * поэтому нижний край уходит на seat.y + AGENT_H и может вылезти за стену.
- * Тот самый SOUTH_Y-хак старого кода (desks.ts) — но не в общем
- * src/shared/layout.ts (спека §4 явно не пускает размеры комнаты в общий
- * модуль), а здесь, в веб-модуле, где GRID уже используется (layoutData.ts).
+ * hidden` ровно по высоте раскладки (styles.css `.office`), а место
+ * указывает верхний левый угол фигуры без офсета (Office.tsx: `top:
+ * px(work.y)`), поэтому нижний край уходит на seat.y + AGENT_H и может
+ * вылезти за стену. Высота своя у каждой раскладки — тот же SOUTH_Y-хак
+ * старого кода (desks.ts), но не в общем src/shared/layout.ts (спека §4
+ * явно не пускает размеры комнаты в общий модуль), а здесь.
  */
-const MAX_SEAT_Y = GRID.cells - AGENT_H - 0.2;
-
-/** Не даёт месту уехать ниже видимой области комнаты. */
-function clampToRoom(seat: Pos): Pos {
-  return seat.y > MAX_SEAT_Y ? { x: seat.x, y: MAX_SEAT_Y } : seat;
+function clampToRoom(seat: Pos, roomCells: number): Pos {
+  const maxY = roomCells - AGENT_H - 0.2;
+  return seat.y > maxY ? { x: seat.x, y: maxY } : seat;
 }
 
 /**
  * Добирает места кухни вторым (третьим, ...) рядом, если базовых мест из
- * слотов стола не хватает на всех: обеденный стол даёт фиксированные 8
- * мест (по слотам в каталоге), а рабочих столов в раскладке может быть
- * больше (в classic — 9 у исполнителей, не считая стол PM). Ряды
- * достраиваются в ту же сторону, в которую уже «смотрит» исходный ряд
+ * слотов стола не хватает на всех: обеденный стол даёт фиксированные места
+ * по слотам в каталоге, а рабочих столов в раскладке может быть больше.
+ * Ряды достраиваются в ту же сторону, в которую уже «смотрит» исходный ряд
  * (прочь от центра стола), с тем же шагом по x. Раскладка детерминированная
  * и зависит только от need, поэтому у конкретного стола место не прыгает.
  */
@@ -83,19 +94,134 @@ function extendSeats(base: Pos[], need: number): Pos[] {
 }
 
 /**
- * Все места кухни — на случай, если сразу все исполнители окажутся
- * свободными. Число столов исполнителей (без PM) — верхняя граница штата:
- * сервер не даёт нанять больше сотрудников, чем в офисе рабочих мест
- * (`hire()` в state.ts отказывает, если свободных столов нет), поэтому
- * места кухни считаем один раз от числа столов, а не от текущего штата.
+ * Места кухни для конкретной раскладки — на случай, если сразу все
+ * исполнители окажутся свободными. Число столов исполнителей (без PM) —
+ * верхняя граница штата (сервер не даёт нанять больше сотрудников, чем в
+ * офисе рабочих мест), поэтому места считаются один раз от числа столов
+ * раскладки, а не от текущего штата. Раскладок мало и они статичны на
+ * время жизни вкладки, поэтому результат кешируется по id.
  */
-export const KITCHEN_SEATS: Pos[] = extendSeats(
-  kitchenSeats(layout, catalog),
-  Math.max(desks(layout, catalog).length - 1, 1),
-).map(clampToRoom);
+const kitchenSeatsCache = new Map<string, Pos[]>();
+function kitchenSeatsFor(layout: Layout): Pos[] {
+  const cached = kitchenSeatsCache.get(layout.id);
+  if (cached) return cached;
+  const seats = extendSeats(
+    kitchenSeats(layout, catalog),
+    Math.max(desks(layout, catalog).length - 1, 1),
+  ).map((s) => clampToRoom(s, layout.size[1]));
+  kitchenSeatsCache.set(layout.id, seats);
+  return seats;
+}
 
-/** Место на кухне для стола с данным индексом — привязка стабильная, один в один. */
-export function kitchenSeatFor(deskIndex: number): Pos {
-  const i = (deskIndex - 1 + KITCHEN_SEATS.length) % KITCHEN_SEATS.length;
-  return KITCHEN_SEATS[i];
+/** Место на кухне для стола с данным индексом в данной раскладке — привязка стабильная, один в один. */
+export function kitchenSeatFor(layoutId: string, deskIndex: number): Pos {
+  const seats = kitchenSeatsFor(layoutFor(layoutId));
+  const i = (deskIndex - 1 + seats.length) % seats.length;
+  return seats[i];
+}
+
+// --- Планировка комнаты для отрисовки (docs/design/office-layout/spec.md §3, §5) ---
+// Хотспоты пока не формализованы в src/shared/layout.ts (§8 — задача следующего
+// этапа), поэтому их форма описана здесь же.
+export interface LayoutHotspot { panel: 'board' | 'log'; sprite: string; at: [number, number]; key: string; title: string }
+export interface RenderProp { key: string; sprite: string; x: number; y: number; scale?: number; z: number }
+export interface WallRenderTile { key: string; sprite: string; x: number; y: number; z: number }
+
+export function spriteSize(name: string): [number, number] {
+  return catalog.sprites[name]?.size ?? [1, 1];
+}
+
+/** Порядок отрисовки мебели вместо ручных zIndex (спека §5): чем ниже нижняя кромка спрайта, тем позже рисуем. */
+export function furnitureZ(x: number, y: number, sprite: string): number {
+  const [, h] = spriteSize(sprite);
+  return 100 + Math.round((y + h) * 10);
+}
+
+function bbox(x: number, y: number, sprite: string) {
+  const [w, h] = spriteSize(sprite);
+  return { x0: x, y0: y, x1: x + w, y1: y + h };
+}
+
+/**
+ * Предметы, накрытые другой мебелью (кофемашина на тумбе, кружки на столе):
+ * своя высота у них меньше, чем у мебели под ними, поэтому чистый y-сорт
+ * задвинул бы их назад. Если bbox предмета целиком внутри чужого — рисуем
+ * его следом за этим предметом, а не по формуле.
+ */
+function liftToppings(items: RenderProp[]): void {
+  for (const item of items) {
+    const ib = bbox(item.x, item.y, item.sprite);
+    for (const host of items) {
+      if (host === item) continue;
+      const hb = bbox(host.x, host.y, host.sprite);
+      const inside = ib.x0 >= hb.x0 && ib.x1 <= hb.x1 && ib.y0 >= hb.y0 && ib.y1 <= hb.y1;
+      if (inside && item.z <= host.z) item.z = host.z + 1;
+    }
+  }
+}
+
+// Настенное — окна, доска, экран, часы (спека §5): рисуются поверх всей
+// мебели и людей, стена от их положения не зависит.
+const WALL_MOUNTED = new Set(['clock', 'window', 'board', 'logscreen']);
+// Наложения на пол — ковры и плитка: всегда под мебелью, что на них стоит.
+const FLOOR_OVERLAY = new Set(['rug', 'kitchen_tiles']);
+
+export interface RoomData {
+  layout: Layout;
+  placedProps: RenderProp[];
+  entrance: LayoutZone;
+  hotspots: LayoutHotspot[];
+  allDesks: Desk[];
+  floorTiles: FloorTile[];
+  wallTiles: WallRenderTile[];
+  doorZ: number;
+}
+
+/**
+ * Всё, что нужно Office.tsx для отрисовки конкретной раскладки: мебель по
+ * z-порядку, стены/пол поштучными тайлами (если раскладка их описывает —
+ * §6.1), рабочие столы и хотспоты. Раскладок мало и они статичны, поэтому
+ * результат кешируется по id — смена раскладки в настройках не должна
+ * пересчитывать одну и ту же геометрию на каждый рендер.
+ */
+const roomCache = new Map<string, RoomData>();
+export function roomFor(layoutId: string): RoomData {
+  const layout = layoutFor(layoutId);
+  const cached = roomCache.get(layout.id);
+  if (cached) return cached;
+
+  const fixed: RenderProp[] = [];
+  const sorted: RenderProp[] = [];
+  layout.props.forEach((p, i) => {
+    const item: RenderProp = {
+      key: `${p.sprite}-${i}`, sprite: p.sprite, x: p.at[0], y: p.at[1], scale: p.scale, z: 0,
+    };
+    if (WALL_MOUNTED.has(p.sprite)) fixed.push({ ...item, z: 900 });
+    else if (FLOOR_OVERLAY.has(p.sprite)) fixed.push({ ...item, z: 1 });
+    else sorted.push({ ...item, z: furnitureZ(item.x, item.y, item.sprite) });
+  });
+  liftToppings(sorted);
+  const placedProps = [...fixed, ...sorted];
+
+  const entrance = layout.zones!.find((z) => z.kind === 'entrance')!;
+  const doorZ = furnitureZ(entrance.at![0], entrance.at![1], entrance.sprite!);
+  const hotspots = (layout.hotspots ?? []) as LayoutHotspot[];
+  const allDesks = desks(layout, catalog);
+  const floorTilesList = sharedFloorTiles(layout);
+  const wallTilesList: WallRenderTile[] = sharedWallTiles(layout).map((t) => {
+    // Якорь спрайта — верхний левый угол; footprint стены сдвинут на 0.5
+    // тайла вниз от якоря (§6.2), поэтому клетка сетки (t.x, t.y) рисуется
+    // с якорем на полтайла выше. z считается той же формулой y-сортировки
+    // (спека §5), что и для остальной мебели — по нижней кромке спрайта.
+    const x = t.x;
+    const y = t.y - 0.5;
+    return { key: `wall-${t.x}-${t.y}`, sprite: t.sprite, x, y, z: furnitureZ(x, y, t.sprite) };
+  });
+
+  const data: RoomData = {
+    layout, placedProps, entrance, hotspots, allDesks,
+    floorTiles: floorTilesList, wallTiles: wallTilesList, doorZ,
+  };
+  roomCache.set(layout.id, data);
+  return data;
 }

@@ -22,12 +22,14 @@ let lastSection: Section = 'access';
 export function SettingsModal({ onClose }: { onClose: () => void }) {
   const settings = useStore((s) => s.settings);
   const cloud = useStore((s) => s.cloud);
+  const layouts = useStore((s) => s.layouts);
   const [section, setSection] = useState<Section>(lastSection);
   const [global, setGlobal] = useState(settings.globalBudgetUsd?.toString() ?? '');
   const [perTask, setPerTask] = useState(settings.taskBudgetUsd?.toString() ?? '');
   const [maxTurns, setMaxTurns] = useState(settings.taskMaxTurns?.toString() ?? '');
   const [engine, setEngine] = useState(settings.engine);
   const [repo, setRepo] = useState(settings.cloudRepoUrl ?? '');
+  const [layoutId, setLayoutId] = useState(settings.layoutId);
   const [token, setToken] = useState('');
   const [access, setAccess] = useState(settings.officePermissionMode);
   const [confirmAuto, setConfirmAuto] = useState(false);
@@ -54,6 +56,7 @@ export function SettingsModal({ onClose }: { onClose: () => void }) {
       engine,
       cloudRepoUrl: repo.trim() || null,
       officePermissionMode: access,
+      layoutId,
     });
     if (token.trim()) setCloudToken(token.trim());
     onClose();
@@ -141,6 +144,19 @@ export function SettingsModal({ onClose }: { onClose: () => void }) {
 
             {section === 'project' && (
               <>
+                <h4>Раскладка офиса</h4>
+                <div className="engine">
+                  {layouts.map((l) => (
+                    <button key={l.id} className={layoutId === l.id ? 'on' : ''} onClick={() => setLayoutId(l.id)}>
+                      {l.title}
+                    </button>
+                  ))}
+                </div>
+                <p className="hint muted">
+                  Раскладка задаёт планировку комнаты — пол, стены и расстановку мебели. После
+                  сохранения сотрудники пересядут за столы новой раскладки.
+                </p>
+
                 <h4>Где работают исполнители</h4>
                 <div className="engine">
                   <button className={engine === 'local' ? 'on' : ''} onClick={() => setEngine('local')}>
