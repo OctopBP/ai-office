@@ -1,6 +1,7 @@
 import { mkdirSync, readFileSync, renameSync, writeFileSync, existsSync, rmSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import type { ChatEntry, LogEntry, PermissionMode, Settings, Usage } from '../shared/types';
+import type { LayoutOverride } from '../shared/layout';
 import type { Task } from './state';
 import type { Role } from './roles';
 
@@ -42,6 +43,15 @@ export interface Persisted {
   daily?: Record<string, Usage>;
   settings: Settings;
   roleOverrides: Record<string, Partial<Role>>;
+  /**
+   * Расстановка мебели этого офиса поверх пресетов, ключ — id пресета.
+   * Хранится разница, а не копия раскладки: файлы `design/layouts/*.json`
+   * остаются эталоном, и обновление пресета доезжает до офиса везде, где тот
+   * ничего не двигал. Оверрайдов несколько, потому что переключение пресета
+   * туда-обратно не должно стирать уже расставленную мебель.
+   * В сохранениях старше редактора расстановки поля нет.
+   */
+  layoutOverrides?: Record<string, LayoutOverride>;
   savedAt: number;
 }
 

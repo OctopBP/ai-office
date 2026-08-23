@@ -7,9 +7,12 @@ import type {
   CloudStatus, OfficeView, MergeCheck, MergeRun, LayoutOption,
 } from '../shared/types';
 import { emptyUsage, MAX_TASK_MAX_TURNS, MIN_TASK_MAX_TURNS } from '../shared/types';
+import { isEmptyOverride } from '../shared/layout';
+import type { Layout, LayoutOverride, LayoutPropEdit } from '../shared/layout';
 import { activityFromFile, summarize } from './activity';
 import {
-  DEFAULT_LAYOUT_ID, deskPlan, hasLayout, layoutOptions, layoutTitle, type DeskPlan,
+  DEFAULT_LAYOUT_ID, checkPropEdit, deskPlan, effectiveLayout, hasLayout, layoutOptions,
+  layoutTitle, type DeskPlan,
 } from './layout';
 import { currentOffice, offices } from './offices';
 import { effectiveMode, isPermissionMode, modeLabel } from './permissions';
@@ -57,6 +60,26 @@ export function sanitizeMaxTurns(value: unknown): number | null | undefined {
   const n = Math.floor(value);
   if (n < MIN_TASK_MAX_TURNS) return undefined;
   return Math.min(n, MAX_TASK_MAX_TURNS);
+}
+
+/**
+ * Причесать оверрайды расстановки из сохранения. Файл состояния правят руками,
+ * а испорченная координата уехала бы прямо в рендер и в сетку проходимости:
+ * непригодные правки выкидываем поштучно, а не теряем всю расстановку.
+ */
+function sanitizeOverrides(raw: Record<string, LayoutOverride> | undefined): Record<string, LayoutOverride> {
+  const clean: Record<string, LayoutOverride> = {};
+  for (const [layoutId, override] of Object.entries(raw ?? {})) {
+    const props = (override?.props ?? []).filter((p) => {
+      if (!p || typeof p.key !== 'string' || !p.key) return false;
+      if (p.at !== undefined && !(Array.isArray(p.at) && p.at.length === 2 && p.at.every(Number.isFinite))) {
+        return false;
+      }
+      return p.scale === undefined || Number.isFinite(p.scale);
+    });
+    if (props.length) clean[layoutId] = { version: 1, props };
+  }
+  return clean;
 }
 
 /** Ключ дня в местном времени: расход «за сегодня» считается по часам пользователя. */
@@ -167,6 +190,12 @@ export class OfficeState {
    * текущим: иначе настройки одного проекта уезжали бы в другой.
    */
   roleOverrides: Record<string, Partial<Role>> = {};
+  /**
+   * Расстановка мебели этого офиса поверх пресетов, ключ — id пресета (§8).
+   * Своя у каждого офиса: пресет — общий эталон в репозитории, а подвинутый
+   * стол — дело того офиса, где его подвинули.
+   */
+  layoutOverrides: Record<string, LayoutOverride> = {};
   /**
    * Поднимали ли уже это состояние с диска. Пустая заготовка (её заводит
    * стартовое значение `office`) от открытого офиса отличается именно этим:
@@ -290,6 +319,7 @@ export class OfficeState {
       log: this.log.slice(-500),
       settings: this.settings,
       roleOverrides: getRoleOverrides(),
+      layoutOverrides: this.layoutOverrides,
       instances: [...this.instances.values()].map<PersistedInstance>((i) => ({
         id: i.id, roleId: i.roleId, deskIndex: i.desk.index,
         usage: i.usage, daily: i.daily, sessionId: i.sessionId,
@@ -329,6 +359,9 @@ export class OfficeState {
     // null здесь законен («без ограничения»), поэтому отличаем его от undefined.
     const turns = sanitizeMaxTurns(this.settings.taskMaxTurns);
     this.settings.taskMaxTurns = turns === undefined ? DEFAULT_SETTINGS.taskMaxTurns : turns;
+    // Расстановку поднимаем ДО seed: по итоговой раскладке считаются столы,
+    // за которые он сажает сотрудников.
+    this.layoutOverrides = sanitizeOverrides(data.layoutOverrides);
     this.seed();
     this.taskSeq = data.taskSeq;
     // Записи из версий до появления веток чата относим к разговору с менеджером.
@@ -443,11 +476,128 @@ export class OfficeState {
   }
 
   /**
-   * Столы этого офиса — по его раскладке. Общей на процесс «текущей
-   * раскладки» нет: офисов в памяти несколько, и у каждого свой layoutId.
+   * Столы этого офиса — по его итоговой раскладке (пресет плюс оверрайд).
+   * Общей на процесс «текущей раскладки» нет: офисов в памяти несколько, у
+   * каждого свой layoutId и своя расстановка. Оверрайд учитывается здесь, а не
+   * у каждого вызывающего: сдвинутый стол обязан быть сдвинутым для всех — и
+   * для лимита штата, и для стола PM, и для места, за которое садится человечек.
    */
   private deskPlan(): DeskPlan {
-    return deskPlan(this.settings.layoutId);
+    return deskPlan(this.settings.layoutId, this.override());
+  }
+
+  /** Оверрайд расстановки текущего пресета. null — офис живёт по пресету. */
+  override(): LayoutOverride | null {
+    const found = this.layoutOverrides[this.settings.layoutId];
+    return isEmptyOverride(found) ? null : found;
+  }
+
+  /** Итоговая раскладка офиса: пресет с наложенным оверрайдом. */
+  layout(): Layout {
+    return effectiveLayout(this.settings.layoutId, this.override());
+  }
+
+  /**
+   * Сохранить правки расстановки поверх пресета: по одной на предмет.
+   * Присланное накладывается на уже сохранённое, поэтому править можно как
+   * один сдвинутый стол, так и всю расстановку разом. Возвращает причину
+   * отказа по-русски или null.
+   *
+   * Отказ означает, что не применено ничего: половина переехавшей мебели —
+   * не то состояние, которое человек может себе объяснить.
+   */
+  editLayout(edits: LayoutPropEdit[]): string | null {
+    if (!Array.isArray(edits) || edits.length === 0) return 'В правке расстановки нет ни одного предмета.';
+    const layoutId = this.settings.layoutId;
+    const clean: LayoutPropEdit[] = [];
+    for (const edit of edits) {
+      const checked = checkPropEdit(layoutId, this.override(), edit ?? ({} as LayoutPropEdit));
+      if ('error' in checked) return checked.error;
+      clean.push(checked);
+    }
+    const props = [...(this.layoutOverrides[layoutId]?.props ?? [])];
+    for (const edit of clean) {
+      const at = props.findIndex((p) => p.key === edit.key);
+      // Правки одного предмета складываются: править можно только то, что
+      // поменяли, и новый `at` не должен обнулять сохранённые flip и scale.
+      const merged = at === -1 ? edit : { ...props[at], ...edit };
+      if (at === -1) props.push(merged);
+      else props[at] = merged;
+    }
+    this.layoutOverrides[layoutId] = { version: 1, props };
+    this.afterLayoutChange();
+    return null;
+  }
+
+  /**
+   * Вернуть расстановку к пресету: целиком или один предмет.
+   * Возвращает причину отказа по-русски или null.
+   */
+  resetLayout(key?: string): string | null {
+    const layoutId = this.settings.layoutId;
+    const current = this.layoutOverrides[layoutId];
+    if (isEmptyOverride(current)) {
+      return `Расстановка офиса и так совпадает с пресетом «${layoutTitle(layoutId)}».`;
+    }
+    if (key) {
+      const props = current.props.filter((p) => p.key !== key);
+      if (props.length === current.props.length) {
+        return `Предмет «${key}» и так стоит там, где в пресете «${layoutTitle(layoutId)}».`;
+      }
+      this.layoutOverrides[layoutId] = { version: 1, props };
+    } else {
+      delete this.layoutOverrides[layoutId];
+    }
+    this.afterLayoutChange();
+    this.addLog(null, 'system', key
+      ? `Предмет «${key}» возвращён на место из пресета`
+      : `Расстановка офиса возвращена к пресету «${layoutTitle(layoutId)}»`);
+    return null;
+  }
+
+  /**
+   * Оверрайд изменился: пересадить людей по новым координатам столов и
+   * запомнить на диск. Одна точка на все причины правки — иначе какая-нибудь
+   * из них оставила бы человечков сидеть в воздухе.
+   */
+  private afterLayoutChange(): void {
+    this.resyncDesks();
+    this.markDirty();
+  }
+
+  /**
+   * Подтянуть координаты рабочих мест под итоговую раскладку. Индекс места —
+   * контракт (`Desk.index`), поэтому сотрудник остаётся за своим столом, а
+   * едет вслед за ним только позиция. Если стола с таким индексом больше нет
+   * (предмет убрали), сажаем на любой свободный.
+   */
+  private resyncDesks(): void {
+    const desks = this.deskPlan().desks;
+    const taken = new Set<number>();
+    const homeless: Instance[] = [];
+    for (const inst of this.instances.values()) {
+      const same = desks.find((d) => d.index === inst.desk.index);
+      if (!same || taken.has(same.index)) { homeless.push(inst); continue; }
+      taken.add(same.index);
+      if (same.x !== inst.desk.x || same.y !== inst.desk.y) {
+        inst.desk = same;
+        this.emit({ t: 'instance', instance: toInstanceView(inst, this.officeMode()) });
+      }
+    }
+    for (const inst of homeless) {
+      const free = desks.find((d) => !taken.has(d.index));
+      if (!free) {
+        // Мест меньше, чем людей: столы кончились. Оставляем сотрудника там,
+        // где он был, и говорим об этом — молча растворять его нельзя.
+        this.addLog(null, 'system',
+          `${inst.label} остался без рабочего места: в расстановке ${desks.length} мест ` +
+          `на ${this.instances.size} сотрудников. Верните стол или увольте кого-нибудь.`);
+        continue;
+      }
+      taken.add(free.index);
+      inst.desk = free;
+      this.emit({ t: 'instance', instance: toInstanceView(inst, this.officeMode()) });
+    }
   }
 
   private freeDesk(): Desk | null {

@@ -1,8 +1,8 @@
 import { readdirSync, readFileSync, statSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { desks as deskList, pmDeskIndex } from '../shared/layout';
-import type { Catalog, Layout } from '../shared/layout';
+import { applyOverride, desks as deskList, isEmptyOverride, pmDeskIndex, propKeys } from '../shared/layout';
+import type { Catalog, Layout, LayoutOverride, LayoutPropEdit } from '../shared/layout';
 import type { Desk, LayoutOption } from '../shared/types';
 
 /**
@@ -34,7 +34,17 @@ function readJson<T>(path: string): T {
   return JSON.parse(readFileSync(path, 'utf8')) as T;
 }
 
-const catalog = readJson<Catalog>(resolve(ROOT, 'design/sprites/out/catalog.json'));
+/** Каталог спрайтов — свойство арта, общее на процесс: он один на весь репозиторий. */
+export const catalog = readJson<Catalog>(resolve(ROOT, 'design/sprites/out/catalog.json'));
+
+/**
+ * Раскладка с наложенным оверрайдом и посчитанные по ней столы. Пресет без
+ * оверрайда — тот же вариант с пустым ключом.
+ */
+interface Variant {
+  layout: Layout;
+  plan?: DeskPlan;
+}
 
 /**
  * Разобранные пресеты и посчитанные по ним столы. Ключ — id раскладки, а не
@@ -42,8 +52,24 @@ const catalog = readJson<Catalog>(resolve(ROOT, 'design/sprites/out/catalog.json
  * обязаны достаться одинаковые столы. Раскладки в этом проекте правят прямо во
  * время работы офиса, поэтому запись сверяется с mtime файла, а не живёт до
  * перезапуска процесса.
+ *
+ * Оверрайд офиса не ломает это правило: варианты лежат внутри записи пресета
+ * под ключом самого оверрайда, так что два офиса с одинаковой правкой снова
+ * получают один и тот же план, а разные — разные.
  */
-const parsed = new Map<string, { mtimeMs: number; layout: Layout; plan?: DeskPlan }>();
+const parsed = new Map<string, { mtimeMs: number; layout: Layout; variants: Map<string, Variant> }>();
+
+/**
+ * Сколько вариантов оверрайда держим на пресет. Редактор шлёт правку на каждое
+ * отпускание мыши, и без потолка карта росла бы всю сессию; вариантов, которыми
+ * пользуются одновременно, — по одному на офис.
+ */
+const MAX_VARIANTS = 8;
+
+/** Ключ варианта: пустая строка — чистый пресет. */
+function variantKey(override: LayoutOverride | null | undefined): string {
+  return isEmptyOverride(override) ? '' : JSON.stringify(override!.props);
+}
 
 /** Свежая запись кэша по id или undefined, если файл изменился с прошлого раза. */
 function cached(id: string, mtimeMs: number) {
@@ -72,7 +98,7 @@ export function loadLayout(id: string): Layout {
   } catch (err) {
     throw new Error(`раскладка «${id}» не читается: ${(err as Error).message}`);
   }
-  parsed.set(id, { mtimeMs, layout: data });
+  parsed.set(id, { mtimeMs, layout: data, variants: new Map([['', { layout: data }]]) });
   return data;
 }
 
@@ -150,25 +176,118 @@ export interface DeskPlan {
  * его можно оставить. Если и classic не читается, бросаем: без столов сажать
  * людей некуда, и молчать об этом нельзя.
  */
-export function deskPlan(layoutId: string): DeskPlan {
+export function deskPlan(layoutId: string, override?: LayoutOverride | null): DeskPlan {
+  const { id, variant } = variantOf(layoutId, override);
+  if (!variant.plan) {
+    variant.plan = {
+      layoutId: id,
+      desks: deskList(variant.layout, catalog),
+      pmIndex: pmDeskIndex(variant.layout, catalog),
+    };
+  }
+  return variant.plan;
+}
+
+/**
+ * Итоговая раскладка офиса: пресет плюс его оверрайд (§8). Ровно по ней
+ * считаются столы — источник один, иначе сдвинутый стол существовал бы
+ * только в оверрайде, а люди садились бы по голому пресету.
+ */
+export function effectiveLayout(layoutId: string, override?: LayoutOverride | null): Layout {
+  return variantOf(layoutId, override).variant.layout;
+}
+
+/**
+ * Вариант раскладки из кэша: пресет (с той же подменой на classic, что и
+ * раньше, — офис без мебели не то состояние, в котором его можно оставить)
+ * и наложенный на него оверрайд.
+ */
+function variantOf(layoutId: string, override?: LayoutOverride | null):
+  { id: string; variant: Variant } {
   let id = layoutId;
-  let layout: Layout;
+  let preset: Layout;
   try {
-    layout = loadLayout(id);
+    preset = loadLayout(id);
   } catch (err) {
     if (id === DEFAULT_LAYOUT_ID) throw err;
     console.log(`⚠️  ${(err as Error).message} — считаю столы по «${DEFAULT_LAYOUT_ID}»`);
     id = DEFAULT_LAYOUT_ID;
-    layout = loadLayout(id);
+    preset = loadLayout(id);
   }
   // loadLayout выше уже положил свежую запись в кэш — она здесь всегда есть.
   const entry = parsed.get(id)!;
-  if (!entry.plan) {
-    entry.plan = {
-      layoutId: id,
-      desks: deskList(layout, catalog),
-      pmIndex: pmDeskIndex(layout, catalog),
-    };
+  const key = variantKey(override);
+  let variant = entry.variants.get(key);
+  if (!variant) {
+    variant = { layout: applyOverride(preset, override) };
+    // Самый старый вариант вытесняем, кроме чистого пресета: его спрашивают
+    // и офисы без оверрайда, и сравнение «что вообще изменено».
+    for (const old of entry.variants.keys()) {
+      if (entry.variants.size < MAX_VARIANTS) break;
+      if (old !== '') entry.variants.delete(old);
+    }
+    entry.variants.set(key, variant);
   }
-  return entry.plan;
+  return { id, variant };
+}
+
+/** Границы координаты предмета: чуть за кромку комнаты — законно (§3.2, мебель у стен). */
+const OUT_OF_ROOM = 1;
+/** Разумные пределы масштаба предмета: ковёр 1.2, стол переговорки 1.6. */
+const MIN_SCALE = 0.1;
+const MAX_SCALE = 8;
+
+/**
+ * Проверить и причесать одну правку расстановки. Возвращает либо готовую
+ * правку, либо причину отказа по-русски: правка приходит от человека, а мебель
+ * за стеной или NaN в позиции сломали бы и рендер, и сетку проходимости.
+ */
+export function checkPropEdit(
+  layoutId: string, override: LayoutOverride | null, edit: LayoutPropEdit,
+): LayoutPropEdit | { error: string } {
+  // Известными считаем и убранные офисом предметы: правка `removed: false`
+  // возвращает предмет на место, и отказывать ей «такого нет» — неправда.
+  const layout = effectiveLayout(layoutId, override && {
+    ...override,
+    props: override.props.map(({ removed: _removed, ...rest }) => rest),
+  });
+  const key = typeof edit.key === 'string' ? edit.key.trim() : '';
+  if (!key) return { error: 'В правке расстановки не указан предмет.' };
+  const known = propKeys(layout).includes(key);
+  if (!known && !edit.sprite) {
+    return { error: `Предмета «${key}» нет в раскладке «${layout.title || layoutId}».` };
+  }
+  const clean: LayoutPropEdit = { key };
+  if (!known) {
+    if (!catalog.sprites[edit.sprite!]) return { error: `Спрайта «${edit.sprite}» нет в каталоге.` };
+    if (!edit.at) return { error: `Для нового предмета «${key}» нужна позиция.` };
+    clean.sprite = edit.sprite;
+  }
+  if (edit.at !== undefined) {
+    const [x, y] = Array.isArray(edit.at) ? edit.at : [NaN, NaN];
+    const [cols, rows] = layout.size;
+    if (!Number.isFinite(x) || !Number.isFinite(y)) return { error: 'Позиция предмета — не число.' };
+    if (x < -OUT_OF_ROOM || y < -OUT_OF_ROOM || x > cols + OUT_OF_ROOM || y > rows + OUT_OF_ROOM) {
+      return { error: `Позиция [${x}, ${y}] выходит за пределы комнаты ${cols}×${rows}.` };
+    }
+    // Округляем до тысячных: позиция придёт из пикселей мыши, и хвост вроде
+    // 6.000000000000001 попал бы и в сохранение, и в ключ кэша.
+    clean.at = [round3(x), round3(y)];
+  }
+  if (edit.flip !== undefined) clean.flip = Boolean(edit.flip);
+  if (edit.scale !== undefined) {
+    if (!Number.isFinite(edit.scale) || edit.scale < MIN_SCALE || edit.scale > MAX_SCALE) {
+      return { error: `Масштаб предмета «${key}» должен быть числом от ${MIN_SCALE} до ${MAX_SCALE}.` };
+    }
+    clean.scale = round3(edit.scale);
+  }
+  if (edit.removed !== undefined) {
+    if (edit.removed && !known) return { error: `Предмета «${key}» в раскладке и так нет.` };
+    clean.removed = Boolean(edit.removed);
+  }
+  return clean;
+}
+
+function round3(n: number): number {
+  return Math.round(n * 1000) / 1000;
 }
