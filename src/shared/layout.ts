@@ -213,6 +213,26 @@ export function meetingSeat(
   };
 }
 
+/**
+ * Базовые позиции ring-слота — те же `meetingSeat()`, но при `total = ring`
+ * (без роста радиуса сверх заявленной вместимости, §3.1). Нужны, чтобы
+ * расчистить эти клетки в `passability()`: реальный `total` на встрече — из
+ * runtime и заранее неизвестен, но при `total <= ring` места совпадают с
+ * подмножеством этой базовой окружности (шаг угла делит `ring` без остатка
+ * для степеней двух, как у нынешних 4/8), а при `total > ring` радиус только
+ * растёт, унося места дальше от центра и от мебели вокруг него.
+ */
+function ringSeats(prop: LayoutProp, sprite: CatalogSprite, slot: SlotRing): Pos[] {
+  const center = propCenter(prop, sprite);
+  const n = Math.max(slot.ring, 1);
+  const seats: Pos[] = [];
+  for (let i = 0; i < n; i++) {
+    const angle = (i / n) * Math.PI * 2 - Math.PI / 2;
+    seats.push({ x: center.x + Math.cos(angle) * slot.rx, y: center.y + Math.sin(angle) * slot.ry });
+  }
+  return seats;
+}
+
 /** Места вдоль одной стороны предмета — шаг width/count, отступ от кромки SEAT_GAP (§3.1). */
 function sideSeats(prop: LayoutProp, sprite: CatalogSprite, slot: SlotSide): Pos[] {
   const scale = prop.scale ?? 1;
@@ -422,8 +442,9 @@ export function isBlocked(p: Passability, x: number, y: number): boolean {
  * считается вся его площадь `size`. Слоты (`work`/`seat`) у всех предметов
  * расчищаются отдельным проходом следом — иначе агент не встанет на своё
  * место, если оно попало на кромку footprint соседнего предмета. Кольцевые
- * слоты (`ring`, переговорка) не расчищаются: их эллипс у нынешней мебели
- * заведомо больше собственного footprint предмета, пересечения не бывает.
+ * слоты (`ring`, переговорка) расчищаются тем же проходом на позициях по
+ * умолчанию (total = ring): рост эллипса при `total` сверх `ring` — уже
+ * динамика вызова `meetingSeat()`, а не свойство статичной сетки.
  */
 export function passability(layout: Layout, catalog: Catalog): Passability {
   const [cols, rows] = layout.size;
@@ -464,6 +485,8 @@ export function passability(layout: Layout, catalog: Catalog): Passability {
         mark(pt.x, pt.y, 0);
       } else if (isSide(slot)) {
         for (const pt of sideSeats(prop, sprite!, slot)) mark(pt.x, pt.y, 0);
+      } else if (isRing(slot)) {
+        for (const pt of ringSeats(prop, sprite!, slot)) mark(pt.x, pt.y, 0);
       }
     }
   }
