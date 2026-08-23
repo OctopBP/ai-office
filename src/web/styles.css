@@ -364,8 +364,11 @@ button
 .decor.dragging { cursor: grabbing; opacity: .8; filter: drop-shadow(0 0 6px var(--accent)); }
 
 .office .agent {
+  /* Ходьбу анимирует Web Animations API в Office.tsx (§7 спеки) — скорость
+     постоянная (тайлов в секунду), поэтому длительность зависит от длины
+     отрезка и не может быть выражена одним CSS-переходом с фиксированным
+     временем. */
   position: absolute; width: 48px; cursor: pointer;
-  transition: left .9s ease, top .9s ease;
 }
 .office .agent .body { display: block; width: 48px; height: 72px; position: relative; }
 .office .agent.busy .body { animation: bob 1s ease-in-out infinite; }

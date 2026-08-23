@@ -13,6 +13,14 @@ import { findPath, meetingSeat } from '../shared/layout';
 interface Pos { x: number; y: number }
 
 /**
+ * Позиция агента для отрисовки плюс длительность WAAPI-перехода к ней —
+ * считается в walkTo/stepWalk по длине отрезка (§7 спеки), а не константа.
+ * ms = 0 — телепорт без анимации (первое появление, снапшот, неизвестная
+ * текущая позиция).
+ */
+interface WalkPos extends Pos { ms: number }
+
+/**
  * «Домашняя» позиция агента, когда он не на совещании и не в момент передачи
  * задачи: PM и занятые задачей исполнители сидят за своим столом, свободные —
  * на кухне. Источник истины — currentTaskId из InstanceView, отдельного
@@ -131,7 +139,7 @@ interface State {
   /** Показанный сейчас дифф задачи. */
   diff: { taskId: string; stat: string; patch: string; truncated: boolean; error?: string } | null;
   /** Визуальные позиции — отдельно от логики: ходьба это чистая анимация. */
-  pos: Record<string, Pos>;
+  pos: Record<string, WalkPos>;
   selected: string | null;
   /** Активная ветка чата: 'pm#1' или id агента. */
   thread: string;
@@ -258,7 +266,7 @@ export const useStore = create<State>((set, get) => ({
       case 'snapshot': {
         const instances = Object.fromEntries(e.instances.map((i) => [i.id, i]));
         const pos = Object.fromEntries(
-          e.instances.map((i) => [i.id, homePos(i, e.roles, e.layout)]),
+          e.instances.map((i) => [i.id, { ...homePos(i, e.roles, e.layout), ms: 0 }]),
         );
         set((s) => ({
           roles: e.roles, instances, pos,
@@ -460,11 +468,23 @@ export const useStore = create<State>((set, get) => ({
 let socket: WebSocket | null = null;
 
 /**
- * Длительность одного отрезка ломаной — та же, что была у CSS-перехода
- * `.office .agent` (styles.css) на любое расстояние: этап 3 меняет только
- * траекторию (по ломаной вместо прямой), не темп и не саму анимацию ходьбы.
+ * Скорость ходьбы — тайлов в секунду, постоянная для любого отрезка (§7
+ * спеки): длительность отрезка = его длина / эта скорость, а не фиксированные
+ * 900 мс независимо от расстояния. Значение подобрано так, чтобы типичный
+ * (несколько тайлов, часто по диагонали после «протягивания» пути) отрезок
+ * занимал примерно те же ~0.9 с, что и раньше, — общий темп офиса не должен
+ * визуально «поехать».
  */
-const WALK_LEG_MS = 900;
+const WALK_TILES_PER_SEC = 5;
+
+/** Отрезок короче этого не проходится мгновенно — иначе микросдвиги (например,
+ * после правки расстановки) выглядели бы как телепорт без анимации. */
+const MIN_WALK_MS = 120;
+
+function legDurationMs(from: Pos, to: Pos): number {
+  const tiles = Math.hypot(to.x - from.x, to.y - from.y);
+  return Math.max(MIN_WALK_MS, Math.round((tiles / WALK_TILES_PER_SEC) * 1000));
+}
 
 /**
  * Поколение текущего перемещения агента — новый вызов walkTo() отменяет ещё
@@ -474,13 +494,20 @@ const WALK_LEG_MS = 900;
  */
 const walkGen = new Map<string, number>();
 
-/** Один отрезок пути: переносит агента в точку и через WALK_LEG_MS зовёт следующий. */
+/**
+ * Один отрезок пути: переносит агента в точку и через вычисленную по длине
+ * отрезка длительность зовёт следующий. Саму визуальную интерполяцию между
+ * точками рисует WAAPI-анимация в Office.tsx, а не CSS-переход, — здесь
+ * только тайминг и данные (позиция + длительность), как и положено логике
+ * ходьбы в сторе.
+ */
 function stepWalk(instanceId: string, waypoints: Pos[], i: number, gen: number): void {
   if (walkGen.get(instanceId) !== gen) return;
   if (i >= waypoints.length) return;
-  useStore.setState((s) => ({ pos: { ...s.pos, [instanceId]: waypoints[i] } }));
+  const ms = legDurationMs(waypoints[i - 1], waypoints[i]);
+  useStore.setState((s) => ({ pos: { ...s.pos, [instanceId]: { ...waypoints[i], ms } } }));
   if (i + 1 < waypoints.length) {
-    setTimeout(() => stepWalk(instanceId, waypoints, i + 1, gen), WALK_LEG_MS);
+    setTimeout(() => stepWalk(instanceId, waypoints, i + 1, gen), ms);
   }
 }
 
@@ -498,7 +525,7 @@ function walkTo(instanceId: string, target: Pos): void {
   const s = useStore.getState();
   const current = s.pos[instanceId];
   if (!current) {
-    useStore.setState((st) => ({ pos: { ...st.pos, [instanceId]: target } }));
+    useStore.setState((st) => ({ pos: { ...st.pos, [instanceId]: { ...target, ms: 0 } } }));
     return;
   }
   const grid = passabilityFor(s.layout);
