@@ -5,7 +5,10 @@ import {
 } from './store';
 import type { TaskView } from '../shared/types';
 
-/** Готовые к слиянию — завершённые задачи со своей веткой, которая ещё не влита. */
+/**
+ * Ручное слияние — аварийный путь. В обычном порядке ветки вливает конвейер
+ * ревью (см. PrPipeline): сюда лезут, когда он встал и надо разобраться руками.
+ */
 function candidatesOf(tasks: Record<string, TaskView>): TaskView[] {
   return Object.values(tasks)
     .filter((t) => t.status === 'done' && t.branch && !t.merged)
@@ -37,13 +40,13 @@ export function MergeQueue() {
   return (
     <div className="merge-queue">
       {candidates.length === 0 && (
-        <p className="empty">Нет завершённых задач, ожидающих слияния.</p>
+        <p className="empty">Ручного слияния не ждёт ни одна задача.</p>
       )}
 
       {candidates.length > 0 && (
         <div className="mq-candidates">
           <div className="mq-head muted small">
-            Готово к слиянию
+            Слить вручную (аварийный путь)
             {checking && <span className="muted small">проверяется…</span>}
           </div>
           {candidates.map((t) => {

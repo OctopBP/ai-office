@@ -2,7 +2,8 @@ import { create } from 'zustand';
 import type {
   ChatEntry, DayUsage, InstanceView, LogEntry, MergeCheck, MergeCheckState, MergeRun, MergeStep,
   MergeStepStatus, PermissionDecision, PermissionMode, PermissionRequest, MeetingView, RoleEditable,
-  RoleView, ServerEvent, Settings, TaskView, Usage, CloudStatus, OfficeView,
+  RoleView, ServerEvent, Settings, TaskView, Usage, CloudStatus, OfficeView, PullRequestView,
+  PrStage,
 } from '../shared/types';
 import { emptyUsage } from '../shared/types';
 import type { Theme } from './sprites';
@@ -73,6 +74,8 @@ interface State {
   mergeChecking: boolean;
   /** Последний (или ещё идущий) прогон очереди слияния. */
   mergeRun: MergeRun | null;
+  /** Пулл-реквесты конвейера ревью, по taskId. */
+  prs: Record<string, PullRequestView>;
   toggleMergeSelect: (taskId: string) => void;
   moveMergeSelect: (taskId: string, dir: -1 | 1) => void;
   clearMergeSelection: () => void;
@@ -128,13 +131,14 @@ export const useStore = create<State>((set, get) => ({
   permissions: [],
   settings: {
     globalBudgetUsd: null, taskBudgetUsd: null, engine: 'local', cloudRepoUrl: null,
-    officePermissionMode: 'ask-risky',
+    officePermissionMode: 'ask-risky', autoPipeline: true, workerMaxTurns: 60,
   },
   meeting: null,
   mergeSelection: [],
   mergeChecks: {},
   mergeChecking: false,
   mergeRun: null,
+  prs: {},
   toggleMergeSelect: (taskId) => set((s) => ({
     mergeSelection: s.mergeSelection.includes(taskId)
       ? s.mergeSelection.filter((id) => id !== taskId)
@@ -208,6 +212,7 @@ export const useStore = create<State>((set, get) => ({
           offices: e.offices, cloud: e.cloud,
           mergeChecks: Object.fromEntries(e.mergeChecks.map((c) => [c.taskId, c])),
           mergeRun: e.mergeRun,
+          prs: Object.fromEntries(e.prs.map((pr) => [pr.taskId, pr])),
           booted: true, connectFailed: false,
           // Снапшот пришёл во время входа/создания — офис открыт, показываем комнату.
           screen: s.pending ? 'office' : s.screen,
@@ -322,6 +327,9 @@ export const useStore = create<State>((set, get) => ({
         break;
       case 'merge.run':
         set({ mergeRun: e.run });
+        break;
+      case 'pr':
+        set((s) => ({ prs: { ...s.prs, [e.pr.taskId]: e.pr } }));
         break;
       case 'meeting': {
         set({ meeting: e.meeting });
@@ -524,6 +532,22 @@ const MERGE_CHECK_CLASS: Record<MergeCheckState, string> = {
   nothing: 'merged',
 };
 
+/** Стадии конвейера ревью на языке интерфейса. */
+export const PR_STAGE_LABEL: Record<PrStage, string> = {
+  sync: 'подтягиваю main',
+  checks: 'проверки',
+  opening: 'открываю PR',
+  review: 'на ревью',
+  rework: 'доработка',
+  merging: 'вливаю',
+  merged: 'влито',
+  stuck: 'встало',
+};
+
+/** Цвет стадии: зелёный — доехало, красный — встало, остальное в работе. */
+export const prStageClass = (stage: PrStage): string =>
+  (stage === 'merged' ? 'merged' : stage === 'stuck' ? 'conflict' : 'checking');
+
 export const MERGE_STEP_LABEL: Record<MergeStepStatus, string> = {
   merged: 'слита',
   nothing: 'нечего сливать',
@@ -609,6 +633,11 @@ export function callMeeting(topic: string, participants: string[]): void {
 export function showDiff(taskId: string): void {
   useStore.setState({ diff: { taskId, stat: '', patch: '', truncated: false } });
   socket?.send(JSON.stringify({ c: 'task_diff', taskId }));
+}
+
+/** Толкнуть вставший конвейер: он продолжит с той стадии, где встал. */
+export function retryPipeline(taskId: string): void {
+  socket?.send(JSON.stringify({ c: 'pr_retry', taskId }));
 }
 
 export function closeDiff(): void {

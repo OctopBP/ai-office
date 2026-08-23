@@ -193,6 +193,9 @@ export function AgentDrawer() {
             {t.status === 'done' && t.branch && !t.merged && (
               <button className="mini" onClick={() => mergeTask(t.id)}>смержить</button>
             )}
+            {t.status === 'review' && t.branch && (
+              <span className="muted small" title="Ветку ведёт конвейер ревью">на ревью</span>
+            )}
           </div>
         ))}
         {free.map((t) => (

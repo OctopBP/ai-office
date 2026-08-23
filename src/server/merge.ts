@@ -3,15 +3,16 @@ import { promisify } from 'node:util';
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import type { MergeCheck, MergeRun, MergeStep, TypecheckResult } from '../shared/types';
-import { office, taskRepo, type OfficeState, type Task } from './state';
+import { office, taskRepo, worktreesRoot, type OfficeState, type Task } from './state';
 import { checkMergeable, mergeBranch, removeWorktree } from './git';
 
 const run = promisify(execFile);
 
 /**
- * Слияние остаётся решением человека: сервер только показывает, что во что
- * сольётся, и по команде идёт по выбранному списку. Ничего не сливается само,
- * ничего не откатывается задним числом.
+ * Ручная очередь слияния — аварийный путь. В обычном порядке ветку задачи
+ * ведёт конвейер ревью (review.ts): подтягивает базу, открывает пулл-реквест,
+ * зовёт ревьюера и вливает сам. Сюда приходят, когда конвейер встал или его
+ * выключили: здесь ничего не сливается само, всё по команде человека.
  */
 
 /**
@@ -20,9 +21,15 @@ const run = promisify(execFile);
  * такие ветки пользователь тоже сливает, дожидаться закрытия не обязательно.
  */
 export function mergeableTasks(state: OfficeState = office): Task[] {
-  return [...state.tasks.values()].filter(
-    (t) => !t.merged && t.branch && t.baseBranch && (t.status === 'done' || t.status === 'review'),
-  );
+  return [...state.tasks.values()].filter((t) => {
+    if (t.merged || !t.branch || !t.baseBranch) return false;
+    if (t.status !== 'done' && t.status !== 'review') return false;
+    // Задачу, которую прямо сейчас ведёт конвейер, человеку показывать как
+    // «готова к слиянию» нельзя: он сольёт ветку из-под идущего ревью.
+    // Вставший конвейер — наоборот, ровно тот случай, когда сливают руками.
+    const pr = state.prOf(t.id);
+    return !pr || pr.stage === 'stuck';
+  });
 }
 
 /**
@@ -143,6 +150,13 @@ export async function runTypecheck(repoDir: string): Promise<TypecheckResult> {
  */
 const queueRunning = new Set<string>();
 
+/**
+ * Рабочая копия офиса для слияний — своя на офис, рядом с копиями задач.
+ * Имя не может совпасть с задачей: у задач имена вида T-3.
+ */
+export const integrationDir = (state: OfficeState): string =>
+  resolve(worktreesRoot(state), '_base');
+
 const pendingStep = (task: Task): MergeStep => ({
   taskId: task.id,
   title: task.title,
@@ -204,9 +218,27 @@ export async function mergeQueue(taskIds: string[], state: OfficeState = office)
       // Репозиторий берём с задачи: у ролей они разные, а настройка роли
       // могла смениться уже после того, как задачу сделали.
       const repo = taskRepo(task, state);
-      const outcome = await mergeBranch(repo, branch, base);
+      // Проверку гоняем в рабочей копии офиса, где слияние уже собрано, и ДО
+      // того, как сдвинется базовая ветка: не прошла — в базовую ничего не уедет.
+      // Результат проверки достаём из замыкания через объект: присваивание
+      // внутри колбэка компилятор не видит, и простая переменная сузилась бы в never.
+      const checks: { result: TypecheckResult | null } = { result: null };
+      const outcome = await mergeBranch(repo, branch, base, integrationDir(state),
+        async (worktree) => {
+          const result = await runTypecheck(worktree);
+          checks.result = result;
+          return {
+            ok: result.ok,
+            message: `Вместе с ${base} проверка сборки падает: ${result.message} ` +
+              'Слияние отменено — базовая ветка осталась рабочей.',
+          };
+        });
+      if (checks.result) step.typecheck = checks.result;
       state.addChat('офис', `${task.id}: ${outcome.message}`);
       state.addLog(null, outcome.ok ? 'system' : 'error', `merge ${branch}: ${outcome.kind}`);
+      // Рабочая копия человека могла отстать: его незакоммиченные правки — не
+      // повод останавливать очередь, но сказать об этом нужно.
+      if (outcome.checkout.state === 'lagging') state.addChat('офис', outcome.checkout.message);
 
       if (outcome.kind === 'conflict') {
         finishStep(state, runState, step, 'conflict',
@@ -214,6 +246,11 @@ export async function mergeQueue(taskIds: string[], state: OfficeState = office)
             ? `Разойтись не дали файлы: ${outcome.conflicts.join(', ')}.`
             : outcome.message}`,
           outcome.conflicts);
+        stoppedAt = step;
+        break;
+      }
+      if (outcome.kind === 'verify-failed') {
+        finishStep(state, runState, step, 'typecheck-failed', outcome.message, [], checks.result);
         stoppedAt = step;
         break;
       }
@@ -233,19 +270,10 @@ export async function mergeQueue(taskIds: string[], state: OfficeState = office)
       }
 
       merged += 1;
-      const typecheck = await runTypecheck(repo);
-      step.typecheck = typecheck;
-      if (!typecheck.ok) {
-        finishStep(state, runState, step, 'typecheck-failed',
-          `Ветка влита в ${base}, но проверка сборки после этого падает: ${typecheck.message} ` +
-          'Очередь остановлена — чинить поломку удобнее, пока сверху не легли другие задачи.',
-          [], typecheck);
-        stoppedAt = step;
-        break;
-      }
+      const checked = checks.result;
       finishStep(state, runState, step, 'merged',
-        `Влита в ${base}. ${typecheck.skipped ? typecheck.message : 'Проверка сборки прошла.'}`,
-        [], typecheck);
+        `Влита в ${base}. ${!checked || checked.skipped ? (checked?.message ?? '') : 'Проверка сборки прошла.'}`,
+        [], checked);
 
       // Порядок слияний меняет картину: после каждого успешного пересчитываем,
       // что теперь с чем конфликтует.

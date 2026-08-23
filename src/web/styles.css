@@ -272,7 +272,7 @@ button
 /* ---------- канбан ---------- */
 .board { margin-top: 18px; }
 .board h2 { font-size: 14px; margin: 0 0 10px; }
-.columns { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; }
+.columns { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 10px; }
 .column { min-width: 0; }
 .column-head {
   font-size: 12px; color: var(--muted); padding: 5px 8px; margin-bottom: 7px;
@@ -533,6 +533,10 @@ kbd {
 }
 .panel { width: min(660px, 100%); max-height: 100%; display: flex; flex-direction: column; }
 .panel.wide { width: min(1080px, 100%); }
+/* Доска — самая широкая панель: пять колонок в 1080px читаются как список. */
+.panel.board-panel { width: min(1560px, 100%); }
+.column.bad .column-head { color: var(--red); border-color: var(--red); }
+.task-watch { margin-top: 5px; }
 .panel header {
   display: flex; align-items: center; gap: 12px;
   padding: 10px 14px; border-bottom: 2px solid var(--line);
@@ -871,3 +875,17 @@ button.sq.alert { border-color: var(--accent); color: var(--accent); }
   border-radius: 6px; font: 11px/1.5 ui-monospace, Menlo, monospace; white-space: pre-wrap;
   max-height: 200px; overflow: auto; color: var(--text);
 }
+
+/* Конвейер ревью: стадии сданных задач. */
+.pr-list { display: flex; flex-direction: column; gap: 8px; margin-bottom: 14px; }
+.pr-note { color: var(--muted); }
+.mq-item.conflict .pr-note { color: var(--red); }
+.pr-review { margin-top: 6px; font-size: 12px; border-left: 2px solid var(--muted); padding-left: 8px; }
+.pr-review.ok { border-color: var(--green); }
+.pr-review.bad { border-color: var(--red); }
+.pr-review p { margin: 3px 0 0; white-space: pre-wrap; color: var(--muted); }
+.pr-actions { display: flex; align-items: center; gap: 9px; margin-top: 6px; }
+.pr-actions a.mini { text-decoration: none; }
+.pr-hint { margin: 0 0 8px; line-height: 1.4; }
+.pr-watch { margin-top: 5px; font-size: 12px; color: var(--accent); }
+.pr-watch.bad { color: var(--red); }

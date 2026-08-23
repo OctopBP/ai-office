@@ -6,7 +6,7 @@
  * Запуск: npm run test:merge
  */
 import { execFileSync } from 'node:child_process';
-import { mkdtempSync, writeFileSync, rmSync } from 'node:fs';
+import { existsSync, mkdtempSync, readFileSync, writeFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { resolve } from 'node:path';
 import { office } from '../src/server/state';
@@ -26,6 +26,7 @@ function fixture(): string {
   // Проверка сборки падает, если в дереве появился файл boom — так одна из
   // веток «ломает сборку», ничего не собирая по-настоящему.
   write('check.js', "const fs=require('fs');if(fs.existsSync('boom')){console.error('сломано: boom');process.exit(1);}");
+  write('.gitignore', '.office/\n');
   write('shared.txt', 'общая строка\n');
   git('add', '-A');
   git('commit', '-qm', 'Начало');
@@ -46,6 +47,7 @@ function fixture(): string {
 async function main(): Promise<void> {
   office.setStateFile(resolve(tmpdir(), `office-merge-state-${process.pid}.json`));
   const dir = fixture();
+  process.chdir(dir);
   const git = (...args: string[]) => execFileSync('git', args, { cwd: dir, encoding: 'utf8' }).trim();
   const results: string[] = [];
 
@@ -96,13 +98,37 @@ async function main(): Promise<void> {
     `в статусе перечислены файлы: ${after?.conflicts.join(',') === 'shared.txt'}`,
   );
 
-  // 5. Ветка сливается чисто, но ломает сборку — очередь это ловит.
+  // 5. Ветка сливается чисто, но ломает сборку — очередь ловит это ДО того,
+  //    как основная ветка сдвинется: сломанная сборка в main не попадает вовсе.
+  const headBeforeBroken = git('rev-parse', 'main');
   const broken = await mergeQueue(['T-3']);
   const step = broken?.steps[0];
   results.push(
     `падение сборки остановило очередь: ${step?.status === 'typecheck-failed'}`,
     `вывод проверки ушёл в результат: ${Boolean(step?.typecheck && !step.typecheck.ok && step.typecheck.output.includes('boom'))}`,
+    `сломанная ветка в main не влита: ${git('rev-parse', 'main') === headBeforeBroken}`,
+    `T-3 слитой не отмечена: ${office.tasks.get('T-3')?.merged === false}`,
+    `файл, ломающий сборку, в рабочую копию не попал: ${git('status', '--porcelain') === ''}`,
   );
+
+  // 6. Незакоммиченная правка человека больше не мешает слиянию: оно
+  //    собирается в рабочей копии офиса, а не в его.
+  git('checkout', '-q', '-b', 'task/T-4', 'main');
+  writeFileSync(resolve(dir, 'later.txt'), 'работа T-4\n');
+  git('add', '-A');
+  git('commit', '-qm', 'T-4');
+  git('checkout', '-q', 'main');
+  const t4 = office.createTask({ title: 'Задача 4', description: '', criteria: [], roleId: 'backend' });
+  office.updateTask(t4.id, { status: 'done', branch: 'task/T-4', baseBranch: 'main', repoDir: dir });
+  writeFileSync(resolve(dir, 'shared.txt'), 'человек правит и не коммитит\n');
+
+  const withDirty = await mergeQueue([t4.id]);
+  results.push(
+    `грязная копия человека не остановила слияние: ${withDirty?.steps[0]?.status === 'merged'}`,
+    `правка человека цела: ${readFileSync(resolve(dir, 'shared.txt'), 'utf8').includes('человек правит')}`,
+    `влитое доехало до рабочей копии: ${existsSync(resolve(dir, 'later.txt'))}`,
+  );
+  git('checkout', '--', 'shared.txt');
 
   rmSync(dir, { recursive: true, force: true });
   office.wipe();

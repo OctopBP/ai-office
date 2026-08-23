@@ -45,6 +45,21 @@ export async function currentBranch(dir: string): Promise<string | null> {
   return r.ok ? r.stdout : null;
 }
 
+/**
+ * От какой ветки ответвлять задачи. Обычно это та, что сейчас в рабочей копии,
+ * но копия может быть и отцеплена (например, офис увёл её, чтобы сдвинуть базу
+ * мимо незакоммиченных правок) — тогда «HEAD» веткой не является, и брать её
+ * за базу нельзя: задача ответвилась бы от вчерашнего коммита.
+ */
+export async function baseBranch(dir: string): Promise<string | null> {
+  const current = await currentBranch(dir);
+  if (current && current !== 'HEAD') return current;
+  for (const name of ['main', 'master']) {
+    if (await revision(dir, name)) return name;
+  }
+  return null;
+}
+
 /** Инициализировать репозиторий с первым коммитом — только для директории, которую создали мы сами. */
 export async function initRepo(dir: string): Promise<boolean> {
   if (!(await git(dir, ['init', '-b', 'main'])).ok) return false;
@@ -63,7 +78,7 @@ export async function initRepo(dir: string): Promise<boolean> {
 export async function createWorktree(
   repoDir: string, worktreesRoot: string, taskId: string,
 ): Promise<{ path: string; branch: string; base: string } | null> {
-  const base = await currentBranch(repoDir);
+  const base = await baseBranch(repoDir);
   if (!base) return null;
 
   const branch = `task/${taskId}`;
@@ -119,44 +134,201 @@ export async function commitAll(worktreePath: string, message: string): Promise<
 
 export interface MergeOutcome {
   ok: boolean;
-  /** 'merged' | 'conflict' | 'nothing' | 'wrong-branch' | 'failed' */
-  kind: 'merged' | 'conflict' | 'nothing' | 'wrong-branch' | 'failed';
+  /** 'nothing' — в ветке нет коммитов сверх базовой; 'verify-failed' — проверка после слияния. */
+  kind: 'merged' | 'conflict' | 'nothing' | 'verify-failed' | 'failed';
   message: string;
   /** Файлы, на которых встало слияние. Пусто, если конфликта не было. */
   conflicts: string[];
+  /** Рабочая копия офиса, в которой собрано слияние: там же гоняются проверки. */
+  worktree: string | null;
+  /** Что стало с рабочей копией человека после того, как базовая ветка сдвинулась. */
+  checkout: CheckoutSync;
 }
 
-export async function mergeBranch(
-  repoDir: string, branch: string, base: string,
-): Promise<MergeOutcome> {
-  const now = await currentBranch(repoDir);
-  if (now !== base) {
+export interface CheckoutSync {
+  /**
+   * 'updated'  — копия человека подтянута до новой базы, его правки на месте;
+   * 'not-here' — она на другой ветке, обновлять нечего;
+   * 'lagging'  — не подтянули: его незакоммиченные правки в тех же файлах.
+   */
+  state: 'updated' | 'not-here' | 'lagging';
+  /** Файлы, из-за которых копию не удалось подтянуть. */
+  files: string[];
+  message: string;
+}
+
+/**
+ * Рабочая копия офиса для слияний — отдельная от той, в которой сидит человек.
+ *
+ * Раньше офис сливал прямо в директорию проекта, и любая незакоммиченная правка
+ * человека («git не даёт слить поверх ваших изменений») останавливала весь
+ * конвейер. Это неверная зависимость: слияние двух веток — операция над
+ * историей, к тому, что человек в этот момент правит у себя, отношения не имеет.
+ */
+async function integrationWorktree(
+  repoDir: string, dir: string, base: string,
+): Promise<string | null> {
+  if (existsSync(resolve(dir, '.git'))) {
+    // Копия наша, чужого в ней не бывает: приводим к базовой ветке жёстко.
+    await git(dir, ['reset', '--hard']);
+    await git(dir, ['clean', '-fdq']);
+    const moved = await git(dir, ['checkout', '--detach', base]);
+    if (moved.ok) return dir;
+    await rm(dir, { recursive: true, force: true });
+  }
+  await git(repoDir, ['worktree', 'prune']);
+  const added = await git(repoDir, ['worktree', 'add', '--detach', dir, base]);
+  if (!added.ok) return null;
+  await linkNodeModules(repoDir, dir);
+  return dir;
+}
+
+/**
+ * Сдвинуть базовую ветку на собранное слияние — так, чтобы рабочая копия
+ * человека осталась связной, а его незакоммиченные правки не пострадали.
+ *
+ * Три случая:
+ * - копия на другой ветке → просто двигаем ссылку, копии это не касается;
+ * - копия на базовой и правки не мешают → `merge --ff-only`: git сам двигает
+ *   ветку и обновляет файлы, не трогая посторонние правки человека;
+ * - копия на базовой, но правки в тех же файлах → отцепляем её на прежнем
+ *   коммите и двигаем ветку мимо. Правки остаются как были, влитое с ними
+ *   не смешивается, а история едет дальше. Раньше на этом месте офис просто
+ *   вставал и требовал от человека закоммитить.
+ */
+async function advanceBase(
+  repoDir: string, base: string, oldSha: string, newSha: string, overlap: string[],
+): Promise<{ ok: boolean; message: string; checkout: CheckoutSync }> {
+  const onBase = (await currentBranch(repoDir)) === base;
+
+  if (onBase) {
+    const ff = await git(repoDir, ['merge', '--ff-only', newSha]);
+    if (ff.ok) {
+      return {
+        ok: true, message: '',
+        checkout: {
+          state: 'updated', files: [],
+          message: `Рабочая копия офиса подтянута до ${base}.`,
+        },
+      };
+    }
+    const detached = await git(repoDir, ['checkout', '--detach', oldSha]);
+    if (!detached.ok) {
+      return {
+        ok: false,
+        message: `Не удалось сдвинуть ${base}: рабочая копия офиса занята незакоммиченными правками ` +
+          `(${detached.stderr || ff.stderr})`,
+        checkout: { state: 'lagging', files: overlap, message: '' },
+      };
+    }
+  }
+
+  // Старое значение — защита от гонки: если ветку кто-то двинул, пока шло
+  // слияние, update-ref откажет и чужой коммит не потеряется.
+  const moved = await git(repoDir, ['update-ref', `refs/heads/${base}`, newSha, oldSha]);
+  if (!moved.ok) {
     return {
-      ok: false, kind: 'wrong-branch',
-      message: `Основной репозиторий сейчас на ветке «${now}», а задача ответвлялась от «${base}». Переключитесь на «${base}» и повторите.`,
-      conflicts: [],
+      ok: false,
+      message: `Ветка ${base} сдвинулась, пока шло слияние, — оно отменено, чтобы не затереть чужой коммит.`,
+      checkout: { state: 'not-here', files: [], message: '' },
     };
+  }
+
+  return {
+    ok: true, message: '',
+    checkout: onBase
+      ? {
+        state: 'lagging', files: overlap,
+        message: `Ваши незакоммиченные правки${overlap.length ? ` в файлах ${overlap.join(', ')}` : ''} ` +
+          `мешали подтянуть ${base}. Правки целы, но рабочая копия офиса отцеплена от ветки на прежнем ` +
+          `коммите — так влитое не смешается с ними. Вернуться: закоммитить или убрать правки в stash ` +
+          `и сделать git checkout ${base}.`,
+      }
+      : { state: 'not-here', files: [], message: `Рабочая копия офиса не на ${base} — обновлять её не нужно.` },
+  };
+}
+
+/**
+ * Влить ветку задачи в базовую. Слияние собирается в рабочей копии офиса, а
+ * базовая ветка сдвигается атомарно: `update-ref` со старым значением не даст
+ * затереть чужой коммит, если ветка уехала, пока мы сливали.
+ *
+ * verify — проверка собранного слияния ДО того, как базовая ветка сдвинется.
+ * Не прошла — базовая ветка остаётся нетронутой: сломанная сборка в неё
+ * не попадает вовсе, а не «попадает, зато мы про это скажем».
+ */
+export async function mergeBranch(
+  repoDir: string, branch: string, base: string, integrationDir: string,
+  verify?: (worktree: string) => Promise<{ ok: boolean; message: string }>,
+): Promise<MergeOutcome> {
+  const nothingToDo = (message: string, kind: MergeOutcome['kind'] = 'nothing'): MergeOutcome => ({
+    ok: kind === 'nothing', kind, message, conflicts: [], worktree: null,
+    checkout: { state: 'not-here', files: [], message: '' },
+  });
+
+  const baseSha = await revision(repoDir, base);
+  if (!baseSha) return nothingToDo(`Ветки ${base} в репозитории нет — сливать некуда.`, 'failed');
+  if (!(await revision(repoDir, branch))) {
+    return nothingToDo(`Ветки ${branch} больше нет — возможно, её уже влили и убрали.`, 'failed');
   }
 
   const ahead = await git(repoDir, ['rev-list', '--count', `${base}..${branch}`]);
   if (ahead.ok && ahead.stdout === '0') {
-    return { ok: true, kind: 'nothing', message: 'Изменений нет — сливать нечего.', conflicts: [] };
+    return nothingToDo('Изменений нет — сливать нечего.');
   }
 
-  const merge = await git(repoDir, ['merge', '--no-ff', '--no-edit', branch]);
-  if (merge.ok) {
-    return { ok: true, kind: 'merged', message: `Ветка ${branch} влита в ${base}.`, conflicts: [] };
+  const worktree = await integrationWorktree(repoDir, integrationDir, base);
+  if (!worktree) {
+    return nothingToDo('Не удалось поднять рабочую копию офиса для слияния.', 'failed');
   }
 
-  const conflicted = await git(repoDir, ['diff', '--name-only', '--diff-filter=U']);
-  const files = splitLines(conflicted.stdout);
-  await git(repoDir, ['merge', '--abort']);
+  const merge = await git(worktree, [
+    '-c', 'user.name=AI Office', '-c', 'user.email=office@local',
+    'merge', '--no-ff', '--no-edit', branch,
+  ]);
+  if (!merge.ok) {
+    const conflicted = await git(worktree, ['diff', '--name-only', '--diff-filter=U']);
+    const files = splitLines(conflicted.stdout);
+    await git(worktree, ['merge', '--abort']);
+    return {
+      ok: false, kind: 'conflict', worktree,
+      message: files.length
+        ? `Конфликт при слиянии, слияние отменено. Файлы: ${files.join(', ')}`
+        : `Слияние не удалось: ${merge.stderr || merge.stdout}`,
+      conflicts: files,
+      checkout: { state: 'not-here', files: [], message: '' },
+    };
+  }
+
+  if (verify) {
+    const checked = await verify(worktree);
+    if (!checked.ok) {
+      // Базовую ветку не двигаем вовсе: она остаётся ровно такой, какой была.
+      await git(worktree, ['reset', '--hard', base]);
+      return {
+        ok: false, kind: 'verify-failed', worktree, conflicts: [],
+        message: checked.message,
+        checkout: { state: 'not-here', files: [], message: '' },
+      };
+    }
+  }
+
+  const newSha = await revision(worktree, 'HEAD');
+  if (!newSha) return nothingToDo('Слияние собралось, но его коммит не нашёлся.', 'failed');
+
+  // Пересечение «что меняет слияние» и «что человек правит прямо сейчас»
+  // считаем ДО сдвига ветки: после него HEAD уже новый и сравнивать не с чем.
+  const localMods = splitLines((await git(repoDir, ['diff', '--name-only', 'HEAD'])).stdout);
+  const mergedFiles = splitLines((await git(repoDir, ['diff', '--name-only', baseSha, newSha])).stdout);
+  const overlap = mergedFiles.filter((f) => localMods.includes(f));
+
+  const moved = await advanceBase(repoDir, base, baseSha, newSha, overlap);
+  if (!moved.ok) return nothingToDo(moved.message, 'failed');
+
   return {
-    ok: false, kind: 'conflict',
-    message: files.length
-      ? `Конфликт при слиянии, слияние отменено. Файлы: ${files.join(', ')}`
-      : `Слияние не удалось: ${merge.stderr || merge.stdout}`,
-    conflicts: files,
+    ok: true, kind: 'merged', worktree, conflicts: [],
+    message: `Ветка ${branch} влита в ${base}.`,
+    checkout: moved.checkout,
   };
 }
 
@@ -333,4 +505,151 @@ export async function remoteUrl(dir: string): Promise<string | null> {
 export async function fetchBranch(dir: string, branch: string): Promise<boolean> {
   const res = await git(dir, ['fetch', 'origin', `+${branch}:${branch}`]);
   return res.ok;
+}
+
+/** Есть ли в рабочей копии незакоммиченные правки. */
+export async function isDirty(dir: string): Promise<boolean> {
+  const r = await git(dir, ['status', '--porcelain']);
+  return r.ok && r.stdout !== '';
+}
+
+/** Хеш ветки или ревизии. null — такой ревизии нет. */
+export async function revision(dir: string, ref: string): Promise<string | null> {
+  const r = await git(dir, ['rev-parse', '--verify', ref]);
+  return r.ok && r.stdout ? r.stdout : null;
+}
+
+export interface BaseMerge {
+  /** 'nothing' — база не ушла вперёд, сливать нечего. */
+  kind: 'merged' | 'nothing' | 'conflict' | 'failed';
+  conflicts: string[];
+  message: string;
+}
+
+/**
+ * Влить базовую ветку В ветку задачи, прямо в рабочей копии исполнителя.
+ * Обратное направление обычному слиянию: так автор разбирается со своими
+ * конфликтами сам и в своей копии, а основная ветка до самого конца остаётся
+ * нетронутой.
+ *
+ * Конфликт НЕ отменяем: рабочая копия остаётся в состоянии незавершённого
+ * слияния — именно её и чинит автор, а потом коммитит результат.
+ */
+export async function mergeBaseInto(
+  worktreePath: string, base: string,
+): Promise<BaseMerge> {
+  const behind = await git(worktreePath, ['rev-list', '--count', `HEAD..${base}`]);
+  if (behind.ok && behind.stdout === '0') {
+    return { kind: 'nothing', conflicts: [], message: `Ветка уже включает всё из ${base}.` };
+  }
+
+  const merge = await git(worktreePath, [
+    '-c', 'user.name=AI Office', '-c', 'user.email=office@local',
+    'merge', '--no-edit', base,
+  ]);
+  if (merge.ok) {
+    return { kind: 'merged', conflicts: [], message: `Ветка ${base} влита в ветку задачи.` };
+  }
+
+  const conflicted = await git(worktreePath, ['diff', '--name-only', '--diff-filter=U']);
+  const conflicts = splitLines(conflicted.stdout);
+  if (!conflicts.length) {
+    // Не конфликт, а поломка: откатываем, чтобы не оставить копию в полуслиянии.
+    await git(worktreePath, ['merge', '--abort']);
+    return {
+      kind: 'failed', conflicts: [],
+      message: `Не удалось влить ${base} в ветку задачи: ${merge.stderr || merge.stdout}`,
+    };
+  }
+  return {
+    kind: 'conflict', conflicts,
+    message: `Конфликт с ${base} в файлах: ${conflicts.join(', ')}`,
+  };
+}
+
+/** Идёт ли в рабочей копии незавершённое слияние. */
+export async function mergeInProgress(dir: string): Promise<boolean> {
+  const r = await git(dir, ['rev-parse', '--verify', 'MERGE_HEAD']);
+  return r.ok;
+}
+
+/** Бросить незавершённое слияние и вернуть копию как было. */
+export async function abortMerge(dir: string): Promise<void> {
+  await git(dir, ['merge', '--abort']);
+}
+
+/**
+ * URL для походов в origin с токеном. Токен подставляется только в аргументы
+ * одной команды и никогда не пишется в конфиг репозитория: иначе он утечёт
+ * в .git/config вместе с проектом.
+ */
+function authUrl(url: string, token: string | null): string {
+  if (!token) return url;
+  const m = /^https:\/\/(?:[^@/]*@)?([^/]+)\/(.+?)(?:\.git)?$/.exec(url);
+  if (!m) return url;
+  return `https://x-access-token:${token}@${m[1]}/${m[2]}.git`;
+}
+
+/** Отправить ветку в origin. force — ветку задачи переписывает только её автор. */
+export async function pushBranch(
+  repoDir: string, branch: string, token: string | null,
+): Promise<{ ok: boolean; message: string }> {
+  const url = await remoteUrl(repoDir);
+  if (!url) return { ok: false, message: 'У репозитория нет origin — отправлять ветку некуда.' };
+  const r = await git(repoDir, ['push', '--force-with-lease', authUrl(url, token), `${branch}:${branch}`]);
+  return {
+    ok: r.ok,
+    // Токен мог попасть в текст ошибки вместе с URL — вырезаем.
+    message: hideToken(r.ok ? r.stdout : (r.stderr || r.stdout), token),
+  };
+}
+
+/** Убрать ветку задачи из origin — после того как её слили. */
+export async function deleteRemoteBranch(
+  repoDir: string, branch: string, token: string | null,
+): Promise<boolean> {
+  const url = await remoteUrl(repoDir);
+  if (!url) return false;
+  return (await git(repoDir, ['push', authUrl(url, token), '--delete', branch])).ok;
+}
+
+/** Подтянуть origin целиком: база могла уехать не только у нас. */
+export async function fetchRemote(repoDir: string, token: string | null): Promise<boolean> {
+  const url = await remoteUrl(repoDir);
+  if (!url) return false;
+  return (await git(repoDir, ['fetch', authUrl(url, token), '--prune'])).ok;
+}
+
+const hideToken = (s: string, token: string | null): string =>
+  (token ? s.split(token).join('***') : s);
+
+/**
+ * Вернуть рабочую копию ветки задачи. Обычно она уже есть — её сделал
+ * исполнитель; но конвейер переживает перезапуск сервера и уборку каталогов,
+ * а чинить ветку без рабочей копии негде.
+ */
+export async function ensureWorktree(
+  repoDir: string, worktreesRoot: string, taskId: string, branch: string,
+): Promise<string | null> {
+  const path = resolve(worktreesRoot, taskId);
+  if (existsSync(resolve(path, '.git'))) return path;
+
+  await rm(path, { recursive: true, force: true });
+  await git(repoDir, ['worktree', 'prune']);
+  const added = await git(repoDir, ['worktree', 'add', path, branch]);
+  if (!added.ok) return null;
+  await linkNodeModules(repoDir, path);
+  return path;
+}
+
+/**
+ * Подтянуть базовую ветку к удалённой без слияния. Нужно после того, как
+ * пулл-реквест влили на GitHub: локальная копия основной ветки иначе отстаёт,
+ * и следующая задача ответвится от вчерашнего кода.
+ */
+export async function fastForward(repoDir: string, base: string, remoteRef: string): Promise<boolean> {
+  const now = await currentBranch(repoDir);
+  if (now !== base) return false;
+  if (await isDirty(repoDir)) return false;
+  return (await git(repoDir, ['merge', '--ff-only', remoteRef])).ok;
 }

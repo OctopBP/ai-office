@@ -16,6 +16,8 @@ export function SettingsModal({ onClose }: { onClose: () => void }) {
   const [repo, setRepo] = useState(settings.cloudRepoUrl ?? '');
   const [token, setToken] = useState('');
   const [access, setAccess] = useState(settings.officePermissionMode);
+  const [autoPipeline, setAutoPipeline] = useState(settings.autoPipeline);
+  const [turns, setTurns] = useState(String(settings.workerMaxTurns));
   const [confirmAuto, setConfirmAuto] = useState(false);
 
   const chooseAccess = (mode: PermissionMode) => {
@@ -31,6 +33,8 @@ export function SettingsModal({ onClose }: { onClose: () => void }) {
       engine,
       cloudRepoUrl: repo.trim() || null,
       officePermissionMode: access,
+      autoPipeline,
+      workerMaxTurns: Number(turns.replace(/\D/g, '')) || settings.workerMaxTurns,
     });
     if (token.trim()) setCloudToken(token.trim());
     onClose();
@@ -60,6 +64,17 @@ export function SettingsModal({ onClose }: { onClose: () => void }) {
           </span>
         </label>
 
+        <label>Потолок ходов на задачу
+          <input value={turns} inputMode="numeric"
+            onChange={(e) => setTurns(e.target.value.replace(/\D/g, ''))} />
+          <span className="hint muted">
+            Сколько шагов исполнитель может сделать за одну сессию (10–500, по умолчанию 60).
+            Упёршись в потолок, задача падает с «Reached maximum number of turns» — крупной
+            работе шестидесяти ходов не хватает. Это страховка от зацикливания, а не от
+            расходов: деньги ограничены бюджетами выше.
+          </span>
+        </label>
+
         <h4>Режим доступа</h4>
         <div className="engine access-modes">
           {ACCESS_MODES.map(([id, label, hint]) => (
@@ -85,6 +100,39 @@ export function SettingsModal({ onClose }: { onClose: () => void }) {
           Это правило по умолчанию для всех ролей. У конкретной роли можно выставить свой режим
           в настройке роли — он переопределит общий.
         </p>
+
+        <h4>Ревью и слияние</h4>
+        <div className="engine">
+          <button className={autoPipeline ? 'on' : ''} onClick={() => setAutoPipeline(true)}>
+            🔁 Конвейером
+            <span className="muted small">
+              Сдал → подтянуть основную ветку → проверки → пулл-реквест → ревью → слияние. Без вас
+            </span>
+          </button>
+          <button className={autoPipeline ? '' : 'on'} onClick={() => setAutoPipeline(false)}>
+            ✋ Вручную
+            <span className="muted small">Ветки копятся, сливаете сами в панели «Ревью и слияние»</span>
+          </button>
+        </div>
+        <p className="hint muted">
+          Конвейер ведёт сданную задачу сам: подтягивает основную ветку в ветку задачи и отдаёт
+          конфликты автору, гоняет проверки проекта, открывает пулл-реквест, зовёт ревьюера и по
+          одобрению вливает, а ветку и рабочую копию убирает. Вас зовут, только если он встал.
+          Ревьюер должен быть нанят — иначе ревьюить некому и конвейер встанет на первой же задаче.
+          Есть токен GitHub и origin на github.com — пулл-реквест будет настоящим, с обсуждением и
+          слиянием на GitHub; нет — тот же порядок пройдёт локально, внутри офиса.
+        </p>
+
+        <label>Токен GitHub {cloud.hasToken && <span className="chip done">задан</span>}
+          <input value={token} type="password" placeholder={cloud.hasToken ? '••••••• (оставьте пустым, чтобы не менять)' : 'ghp_…'}
+            onChange={(e) => setToken(e.target.value)} />
+          <span className="hint muted">
+            Нужен доступ Contents и Pull requests: Read and write. Токен живёт только в памяти
+            сервера и на диск не пишется — после перезапуска введите заново или задайте
+            <code className="mono"> OFFICE_GITHUB_TOKEN</code>. Без него конвейер работает
+            локально, а облачный режим — не работает вовсе.
+          </span>
+        </label>
 
         <h4>Где работают исполнители</h4>
         <div className="engine">
@@ -122,16 +170,11 @@ export function SettingsModal({ onClose }: { onClose: () => void }) {
               </span>
             </label>
 
-            <label>Токен GitHub {cloud.hasToken && <span className="chip done">задан</span>}
-              <input value={token} type="password" placeholder={cloud.hasToken ? '••••••• (оставьте пустым, чтобы не менять)' : 'ghp_…'}
-                onChange={(e) => setToken(e.target.value)} />
-              <span className="hint muted">
-                Нужен доступ Contents: Read and write. Токен живёт только в памяти сервера и
-                на диск не пишется — после перезапуска введите заново или задайте
-                <code className="mono"> OFFICE_GITHUB_TOKEN</code>. В контейнер он не попадает:
-                git-запросы проксируются, и токен подставляется уже за его пределами.
-              </span>
-            </label>
+            <p className="hint muted">
+              Токен GitHub задаётся выше, в разделе «Ревью и слияние»: он один и тот же и для
+              пулл-реквестов, и для облака. В контейнер он не попадает — git-запросы
+              проксируются, и токен подставляется уже за его пределами.
+            </p>
           </>
         )}
 

@@ -2,17 +2,32 @@ import { query, tool, createSdkMcpServer } from '@anthropic-ai/claude-agent-sdk'
 import type { SDKMessage, PermissionResult, SDKResultSuccess } from '@anthropic-ai/claude-agent-sdk';
 import { z } from 'zod';
 import { MessageQueue } from './queue';
-import { criteriaProgress, office, taskRepo, type Instance, type OfficeState, type Task } from './state';
+import {
+  clampTurns, criteriaProgress, DEFAULT_SETTINGS, office, taskRepo, worktreesRoot,
+  type Instance, type OfficeState, type Task,
+} from './state';
 import { emptyUsage } from '../shared/types';
+import type { PrStage, PullRequestView, ReviewVerdict } from '../shared/types';
 import { cloudProblem, runCloudTask, stopCloudTask } from './cloud';
 import { roleById, workerRoles, type Role } from './roles';
 import { autoApprovedText, classify, decide, effectiveMode } from './permissions';
 import { commitAll, createWorktree, diffBranch, hasCommits, hasWork, isRepo, preserveBranch, removeWorktree } from './git';
+import {
+  prDiff, retryPipeline, runPipeline, setPipelineAgents, MAX_ROUNDS,
+  type ReviewOutcome, type ReworkOutcome,
+} from './review';
 import { resolve } from 'node:path';
 import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync } from 'node:fs';
 
 const MAX_CONCURRENT_WORKERS = 3;
-const MAX_WORKER_TURNS = 60;
+/**
+ * Потолок ходов одной сессии исполнителя — настройка офиса: шестидесяти ходов
+ * хватает обычной задаче и не хватает крупной, а упирается она в него молча,
+ * падением «Reached maximum number of turns». Деньги ограничены отдельно
+ * (бюджет офиса и бюджет задачи), так что это страховка от зацикливания.
+ */
+const workerTurns = (state: OfficeState): number =>
+  clampTurns(state.settings.workerMaxTurns ?? DEFAULT_SETTINGS.workerMaxTurns);
 
 /**
  * Бриф проекта — OFFICE.md в рабочей директории. Он идёт во все сессии: у PM
@@ -56,14 +71,6 @@ function projectBrief(state: OfficeState): string {
  * По умолчанию запись разрешена только в рабочую директорию сессии (cwd) и
  * временную папку — то есть в workspace/, и никуда больше.
  */
-/**
- * Куда складываем worktree задач — вне репозитория пользователя, чтобы не
- * сорить в нём. У каждого офиса своя папка: номера задач в разных проектах
- * совпадают, и общий корень склеил бы чужие рабочие копии.
- */
-const worktreesRoot = (state: OfficeState): string =>
-  resolve(process.cwd(), '.office/worktrees', state.officeId);
-
 const SANDBOX = {
   enabled: true,
   // Не притворяться защищёнными: если песочница недоступна, лучше упасть,
@@ -323,13 +330,27 @@ function permissionHandler(
  * get_board и реплике менеджера на совещании. Файлов менеджер не видит, и доска
  * для него — единственный способ говорить о делах предметно, а не общими словами.
  */
+/** Стадии конвейера словами: их читает менеджер, а не интерфейс. */
+const PR_STAGE_TEXT: Record<PrStage, string> = {
+  sync: 'подтягивается основная ветка',
+  checks: 'идут проверки проекта',
+  opening: 'открывается пулл-реквест',
+  review: 'смотрит ревьюер',
+  rework: 'автор дорабатывает по отзыву',
+  merging: 'вливается в основную ветку',
+  merged: 'влито',
+  stuck: 'ВСТАЛО, нужно твоё решение',
+};
+
 function boardSummary(state: OfficeState): string {
   const tasks = [...state.tasks.values()];
   if (!tasks.length) return 'Доска пуста.';
   return tasks.map((t) => {
     const { done, total } = criteriaProgress(t);
     const marks = t.criteria.map((c) => `${c.done ? '✓' : '·'} ${c.text}`).join('; ');
+    const pr = state.prOf(t.id);
     return `${t.id} [${t.status}] ${t.title} → ${t.assigneeId ?? '—'}` +
+      (pr ? `\n    ревью: ${PR_STAGE_TEXT[pr.stage]} — ${clip(pr.note, 160)}` : '') +
       (total ? `\n    критерии ${done}/${total}: ${clip(marks, 200)}` : '') +
       (t.result ? `\n    результат: ${clip(t.result, 160)}` : '');
   }).join('\n');
@@ -357,16 +378,56 @@ const PM_PROMPT = `Ты — проектный менеджер (PM) в кома
 4. Коротко (2–3 предложения) скажи пользователю, что раздал.
 
 Когда приходит системное сообщение о завершении задачи — оцени результат.
-Всё хорошо → скажи пользователю. Нужна доработка → создай и назначь новую задачу.
+Всё хорошо → скажи пользователю, что сделано и что задача пошла на ревью.
+Нужна доработка по существу → создай и назначь новую задачу.
 Когда все задачи по просьбе закрыты — дай короткое финальное резюме.
+
+Про ревью и слияние. За тем, чтобы сданная работа доехала до основной ветки,
+следишь ТЫ, а не пользователь. Он сказал, что нужно сделать, — дальше это дело офиса.
+- review_status — где сейчас каждая сданная задача: ревьюят её, дорабатывают,
+  офис перезапускает конвейер или ждёт твоего решения. Загляни туда, прежде чем
+  говорить пользователю «готово»: пока задача не влита, она не готова.
+- Вставший конвейер офис перезапускает САМ, до трёх раз с растущей паузой. Пока
+  он пробует — не делай ничего и не пересказывай это пользователю.
+- Системное сообщение приходит только тогда, когда сам он дальше не поедет.
+  Тогда решай и ДЕЙСТВУЙ САМ: заведи задачу на исправление и назначь её,
+  переформулируй эту, отдай другой роли. Не пересказывай беду пользователю и не
+  жди от него указаний — он для того тебя и держит.
+- К пользователю обращайся только за тем, чего никто в офисе сделать не может:
+  нанять сотрудника в пустую роль, поднять бюджет, дать доступ. Одной фразой:
+  что именно нужно и зачем.
+- retry_review({taskId}) — толкнуть конвейер, который ждёт решения, после того как
+  ты устранил причину (например, починил соседнюю задачу). Дёргать его без
+  изменений бессмысленно: он встанет ровно там же.
+- Слить ветку руками ты не можешь и не должен: у тебя нет такого инструмента.
+
+Офис за тобой подстраховывает и сам присылает системные сообщения, когда работа стоит.
+Это не отчёты для пользователя, а работа для тебя:
+- «на доске стоят задачи, которые никто не выполняет» — раздай их (assign_task) или ответь,
+  что ждёшь другую задачу. Промолчишь — через десять минут офис раздаст их сам.
+- «офис отдал задачу N исполнителю» — это уже сделано за тебя, второй раз не раздавай.
+- «на доске лежат провалившиеся задачи» — разбери их сам. Упала по лимиту ходов —
+  поставь заново, разбив на части поменьше; устарела — оставь как есть.
+- «работу оборвал перезапуск» — офис уже возобновил её, делать ничего не нужно.
+Пользователю про всё это не докладывай: он держит тебя ровно для того, чтобы не следить
+за такими вещами. Скажи ему, только если нужен именно он — нанять сотрудника, поднять
+лимит трат, дать доступ.
 
 Как устроена изоляция (важно, иначе будешь ставить невыполнимые задачи и врать про результат):
 - КАЖДЫЙ исполнитель работает в своей ветке и своей рабочей копии — и разработчики,
   и документные роли (дизайнер, SMM, юрист). Они не видят изменений друг друга,
   и в основной директории этих изменений пока нет.
-- Результат попадает в основную ветку, когда пользователь нажмёт «Смержить» на карточке
-  задачи. Так и говори: «готово, лежит в ветке задачи, нужно слияние».
-- Не создавай задачу «проверить, что результаты обеих задач на месте»: до слияния веток
+- Сданную работу офис ведёт дальше САМ, без тебя и без пользователя: подтягивает основную
+  ветку в ветку задачи, просит автора разобрать конфликты, гоняет проверки проекта,
+  открывает пулл-реквест, отдаёт его ревьюеру и по одобрению вливает, а ветку убирает.
+  Поэтому не создавай задачи «сделать ревью», «слить ветку», «разрешить конфликт» —
+  это уже происходит само, и такая задача будет вторым исполнителем в той же ветке.
+- Пока конвейер идёт, задача стоит в статусе review. Говори пользователю честно:
+  «сделано, идёт ревью» — а не «влито», пока не пришло системное сообщение о слиянии.
+- Конвейер зовёт тебя ровно в одном случае: он ВСТАЛ (не разошлись конфликты, не проходят
+  проверки, ревьюер вернул работу больше двух раз подряд). Тогда придёт системное сообщение —
+  реши, что делать: переформулировать задачу, поставить новую, отдать другой роли.
+- Не создавай задачу «проверить, что результаты обеих задач на месте»: пока задача не влита,
   проверять нечего, и исполнитель честно ничего не найдёт.
 - Документные роли складывают файлы в docs/<роль>/<задача>/ внутри своей ветки.
 - Роли могут работать в РАЗНЫХ репозиториях: у такой роли в list_team указан её
@@ -583,6 +644,53 @@ const teamTools = (state: OfficeState) => createSdkMcpServer({
 
         startWorker(state, task, inst);
         return { content: [{ type: 'text', text: `${task.id} назначена на ${inst.id}, работа началась. Не жди — раздавай остальные задачи.` }] };
+      },
+    ),
+
+    tool(
+      'review_status',
+      'Что происходит со сданными задачами: стадия ревью и слияния по каждой. ' +
+      'Смотри сюда, прежде чем отвечать пользователю «готово»: пока задача не влита, она не готова.',
+      {},
+      async () => {
+        const prs = [...state.prs.values()];
+        if (!prs.length) {
+          return { content: [{ type: 'text', text: 'Сданных задач в конвейере нет.' }] };
+        }
+        const text = prs
+          .sort((a, b) => b.updatedAt - a.updatedAt)
+          .map((pr) => `${pr.taskId} «${pr.title}» — ${PR_STAGE_TEXT[pr.stage]}` +
+            `${pr.rounds ? `, кругов доработки: ${pr.rounds}` : ''}` +
+            `${pr.url ? `, ${pr.url}` : ''}\n    ${clip(pr.note, 200)}`)
+          .join('\n');
+        return { content: [{ type: 'text', text }] };
+      },
+      { annotations: { readOnlyHint: true } },
+    ),
+
+    tool(
+      'retry_review',
+      'Толкнуть вставший конвейер по задаче: он продолжит с той стадии, где встал. ' +
+      'Помогает, когда причина остановки уже устранена — например, соседнюю задачу починили ' +
+      'и конфликт больше не возникнет. Если причина осталась, конвейер встанет снова: ' +
+      'дёргать его подряд без изменений бессмысленно.',
+      { taskId: z.string().describe('id задачи, например T-3') },
+      async (args) => {
+        const pr = state.prOf(args.taskId);
+        if (!pr) {
+          return {
+            content: [{ type: 'text', text: `По ${args.taskId} конвейера не было — сдавать на ревью нечего.` }],
+            isError: true,
+          };
+        }
+        if (pr.stage !== 'stuck') {
+          return {
+            content: [{ type: 'text', text: `${args.taskId}: конвейер не стоит — сейчас ${PR_STAGE_TEXT[pr.stage]}. Просто дождись.` }],
+            isError: true,
+          };
+        }
+        void retryPipeline(state, args.taskId);
+        return { content: [{ type: 'text', text: `${args.taskId}: конвейер запущен заново. Результат придёт системным сообщением.` }] };
       },
     ),
 
@@ -1263,6 +1371,11 @@ function startWorker(taskOffice: OfficeState, task: Task, inst: Instance): void 
     '',
     'Перед каждым логическим шагом вызывай say({text}) — пользователь видит это над твоей головой.',
     'Когда всё готово — вызови finish_task({summary, files}).',
+    '',
+    'Что происходит после сдачи: офис сам подтянет основную ветку в твою, прогонит проверки',
+    'проекта, откроет пулл-реквест и отдаст его ревьюеру. Сам НЕ сливай свою ветку в основную,',
+    'не пуш и не переключай ветки — этим занимается офис. Если ревьюер вернёт работу или',
+    'всплывёт конфликт, задачу вернут тебе же, в ту же ветку, с текстом отзыва.',
   ].join('\n') + projectBrief(taskOffice);
 
   if (taskOffice.settings.engine === 'cloud') {
@@ -1330,7 +1443,7 @@ function startWorker(taskOffice: OfficeState, task: Task, inst: Instance): void 
           canUseTool: permissionHandler(taskOffice, inst.id, task.id, workdir),
           settingSources: [],
           sandbox: SANDBOX,
-          maxTurns: MAX_WORKER_TURNS,
+          maxTurns: workerTurns(taskOffice),
           maxBudgetUsd: taskOffice.settings.taskBudgetUsd ?? undefined,
           abortController: abort,
         },
@@ -1364,16 +1477,28 @@ function startWorker(taskOffice: OfficeState, task: Task, inst: Instance): void 
         }
       }
 
-      taskOffice.updateTask(task.id, { status: 'done', result: summary, finishedAt: Date.now() });
-      taskOffice.setState(inst.id, 'done', 'готово ✅');
+      // Ветка есть — работу дальше ведёт конвейер: ревью и слияние идут без
+      // человека. Нет ветки (роль без изоляции, не репозиторий) — задача просто
+      // сделана, как и раньше.
+      const toPipeline = Boolean(fresh?.branch) && taskOffice.settings.autoPipeline;
+      taskOffice.updateTask(task.id, {
+        status: toPipeline ? 'review' : 'done', result: summary, finishedAt: Date.now(),
+      });
+      taskOffice.setState(inst.id, 'done', toPipeline ? 'сдал на ревью' : 'готово ✅');
       const progress = fresh ? criteriaProgress(fresh) : { done: 0, total: 0 };
       notifyPm(taskOffice,
         `[СИСТЕМА] Задача ${task.id} «${task.title}» завершена исполнителем ${inst.id}.\n` +
         `Отчёт: ${summary}\n` +
         (progress.total ? `Критерии: отмечено ${progress.done} из ${progress.total}.\n` : '') +
         (fresh?.files.length ? `Файлы: ${fresh.files.join(', ')}\n` : '') +
-        'Оцени результат и реши, что делать дальше.',
+        (toPipeline
+          ? 'Дальше работу ведёт офис: ревью и слияние идут сами, вмешиваться не нужно. ' +
+            'Системное сообщение придёт, когда задачу вольют или когда конвейер встанет.'
+          : 'Оцени результат и реши, что делать дальше.'),
       );
+      // Исполнитель освобождается в finally — конвейер запускаем после него,
+      // иначе доработку по ревью будет некому взять: автор всё ещё «занят».
+      if (toPipeline) setTimeout(() => runPipeline(taskOffice, task.id), 0);
     } catch (err) {
       const message = (err as Error).message;
 
@@ -1512,44 +1637,44 @@ export function stopTask(taskId: string): void {
 }
 
 /** Запустить задачу заново: с нуля, но с тем же ТЗ. */
-export async function retryTask(taskId: string): Promise<void> {
+export async function retryTask(taskId: string, from: OfficeState = office): Promise<boolean> {
   // Перезапуск ходит в git и потому длится: офис фиксируем на входе, иначе
   // после переключения задача уехала бы на доску соседнего проекта.
-  const state = office;
+  const state = from;
   const task = state.tasks.get(taskId);
-  if (!task) return;
+  if (!task) return false;
   if (task.status === 'in_progress') {
     state.addChat('офис', `${taskId} уже выполняется. Сначала остановите её.`);
-    return;
+    return false;
   }
   if (task.merged) {
     state.addChat('офис', `${taskId} уже влита в основную ветку — перезапуск создал бы дубль.`);
-    return;
+    return false;
   }
   if (state.paused) {
     state.addChat('офис', `Офис на паузе — ${taskId} не перезапускается. Снимите паузу (SPACE).`);
-    return;
+    return false;
   }
   const cloudBlocked = state.settings.engine === 'cloud' ? cloudProblem(state) : null;
   if (cloudBlocked) {
     state.addChat('офис', `Облачный режим не настроен: ${cloudBlocked}`);
-    return;
+    return false;
   }
   if (state.budgetExhausted()) {
     state.addChat('офис', 'Бюджет офиса исчерпан — поднимите лимит, прежде чем перезапускать задачи.');
-    return;
+    return false;
   }
 
   const roleId = task.roleId ?? 'backend';
   const noStaff = noStaffReason(roleId, state);
   if (noStaff) {
     state.addChat('офис', `${noStaff} Наймите сотрудника, чтобы перезапустить ${taskId}.`);
-    return;
+    return false;
   }
   const inst = state.findFree(roleId) ?? state.spawn(roleId) ?? state.findFree(roleId);
   if (!inst) {
     state.addChat('офис', `Все исполнители роли ${roleId} заняты — перезапустить ${taskId} сейчас некому.`);
-    return;
+    return false;
   }
 
   // Если в прошлой попытке что-то успели сделать — сохраняем ветку под другим
@@ -1573,6 +1698,7 @@ export async function retryTask(taskId: string): Promise<void> {
   state.updateTask(taskId, {
     status: 'backlog', assigneeId: null, result: null, files: [],
     branch: null, baseBranch: null, worktreePath: null, merged: false,
+    interrupted: false, attention: null,
     startedAt: null, finishedAt: null, usage: emptyUsage(),
     // Отметки прошлой попытки к новой не относятся: работа начинается с нуля.
     criteria: task.criteria.map((c) => ({ ...c, done: false })),
@@ -1580,6 +1706,7 @@ export async function retryTask(taskId: string): Promise<void> {
   const fresh = state.tasks.get(taskId);
   if (fresh) startWorker(state, fresh, inst);
   state.addLog(null, 'system', `Задача ${taskId} перезапущена на ${inst.id}`);
+  return Boolean(fresh);
 }
 
 /**
@@ -1619,6 +1746,33 @@ export function assignDirect(taskId: string, instanceId: string): void {
     `[СИСТЕМА] Пользователь отдал задачу ${taskId} «${task.title}» напрямую исполнителю ${inst.id}, ` +
     'минуя тебя. Учти это в планах и не назначай её повторно.',
   );
+}
+
+/**
+ * Отдать стоящую задачу свободному исполнителю от имени офиса. Нужно надзору:
+ * задача, которую менеджер завёл и не раздал, иначе стоит на доске вечно —
+ * а пользователь не должен это замечать и тем более чинить.
+ *
+ * Возвращает id исполнителя или причину, по которой запустить нельзя.
+ */
+export function officeAssign(state: OfficeState, taskId: string): { ok: boolean; message: string } {
+  const task = state.tasks.get(taskId);
+  if (!task) return { ok: false, message: `задачи ${taskId} нет на доске` };
+  if (task.status !== 'backlog') return { ok: false, message: `${taskId} уже не в очереди` };
+  if (state.paused) return { ok: false, message: 'офис на паузе' };
+  if (state.budgetExhausted()) return { ok: false, message: 'бюджет офиса исчерпан' };
+  const cloudBlocked = state.settings.engine === 'cloud' ? cloudProblem(state) : null;
+  if (cloudBlocked) return { ok: false, message: cloudBlocked };
+
+  const roleId = task.roleId ?? 'backend';
+  const noStaff = noStaffReason(roleId, state);
+  if (noStaff) return { ok: false, message: noStaff };
+
+  const inst = state.findFree(roleId) ?? state.spawn(roleId) ?? state.findFree(roleId);
+  if (!inst || inst.currentTaskId) return { ok: false, message: `все исполнители роли ${roleId} заняты` };
+
+  startWorker(state, task, inst);
+  return { ok: true, message: inst.id };
 }
 
 /** Показать, что задача изменила: дифф её ветки против базовой. */
@@ -1675,3 +1829,280 @@ export function setPaused(paused: boolean): void {
 export function concurrency(): { running: number; max: number } {
   return { running: office.running, max: MAX_CONCURRENT_WORKERS };
 }
+
+// ---------- конвейер ревью: живые агенты ----------
+
+/**
+ * Дождаться свободного исполнителя роли. Конвейер идёт минутами, и «все заняты»
+ * в этот момент — не повод бросать пулл-реквест: через минуту-другую кто-то
+ * освободится. Ждём с потолком, чтобы не висеть вечно.
+ */
+const FREE_WAIT_MS = 10 * 60 * 1000;
+const FREE_POLL_MS = 3000;
+
+async function waitForFree(
+  state: OfficeState, roleId: string, preferId: string | null,
+): Promise<Instance | null> {
+  const deadline = Date.now() + FREE_WAIT_MS;
+  for (;;) {
+    await state.whenResumed();
+    // Автора берём того же: он знает свою ветку и уже видел эту задачу.
+    const preferred = preferId ? state.instances.get(preferId) : null;
+    if (preferred && !preferred.currentTaskId) return preferred;
+    const free = state.findFree(roleId) ?? state.spawn(roleId) ?? state.findFree(roleId);
+    if (free) return free;
+    if (Date.now() > deadline) return null;
+    if (state.staffOf(roleId).length === 0) return null;   // вакансия — ждать нечего
+    await new Promise((r) => setTimeout(r, FREE_POLL_MS));
+  }
+}
+
+interface SessionRun {
+  ok: boolean;
+  text: string;
+  error: string | null;
+  /** Повтор не поможет: нужен человек или менеджер (бюджет, пустая роль). */
+  needsDecision?: boolean;
+}
+
+/**
+ * Сессия исполнителя вне обычного «взял задачу с доски»: доработка по отзыву,
+ * разбор конфликта, ревью. Отличий от startWorker два — задача уже сделана
+ * и рабочая копия уже есть, поэтому ни ветки, ни статуса «в работе» тут нет.
+ */
+async function runAgentSession(
+  state: OfficeState, inst: Instance, role: Role,
+  opts: {
+    cwd: string; prompt: string; systemPrompt: string; taskId: string;
+    mcp: Record<string, ReturnType<typeof createSdkMcpServer>>;
+    note: string;
+  },
+): Promise<SessionRun> {
+  if (state.budgetExhausted()) {
+    return { ok: false, text: '', error: 'Бюджет офиса исчерпан.', needsDecision: true };
+  }
+  const abort = new AbortController();
+  inst.abort = abort;
+  inst.currentTaskId = opts.taskId;
+  state.setState(inst.id, 'working', opts.note);
+  state.running += 1;
+  state.setBusy(true);
+
+  try {
+    const session = query({
+      prompt: opts.prompt,
+      options: {
+        model: role.model,
+        systemPrompt: { type: 'preset', preset: 'claude_code', append: opts.systemPrompt },
+        cwd: opts.cwd,
+        tools: role.tools,
+        mcpServers: opts.mcp,
+        permissionMode: 'default',
+        canUseTool: permissionHandler(state, inst.id, opts.taskId, opts.cwd),
+        settingSources: [],
+        sandbox: SANDBOX,
+        maxTurns: workerTurns(state),
+        maxBudgetUsd: state.settings.taskBudgetUsd ?? undefined,
+        abortController: abort,
+      },
+    });
+
+    let finalText = '';
+    let failed: string | null = null;
+    for await (const msg of session) {
+      consume(state, inst.id, msg);
+      if (msg.type === 'result') {
+        if (isOk(msg)) finalText = msg.result ?? '';
+        else failed = clip(resultReason(msg), 300);
+      }
+    }
+    return { ok: !failed, text: finalText, error: failed };
+  } catch (err) {
+    return { ok: false, text: '', error: (err as Error).message };
+  } finally {
+    inst.currentTaskId = null;
+    inst.abort = null;
+    state.running = Math.max(0, state.running - 1);
+    if (state.running === 0) state.setBusy(false);
+    state.setState(inst.id, 'idle', null);
+  }
+}
+
+/** Системный промпт исполнителя — один и тот же и для задачи, и для доработки. */
+function workerSystemPrompt(role: Role, state: OfficeState): string {
+  return [
+    `Ты — ${role.title} в команде AI-агентов, работаешь в директории проекта.`,
+    role.brief,
+  ].join('\n') + projectBrief(state);
+}
+
+/**
+ * Доработка: автор правит СВОЮ ветку в СВОЕЙ рабочей копии — по отзыву
+ * ревьюера, по упавшим проверкам или разбирая конфликт с основной веткой.
+ */
+async function reworkTask(
+  state: OfficeState, task: Task, instruction: string,
+): Promise<ReworkOutcome> {
+  const roleId = task.roleId ?? 'backend';
+  const worktree = task.worktreePath;
+  if (!worktree) return { ok: false, message: 'У задачи нет рабочей копии.' };
+
+  const inst = await waitForFree(state, roleId, task.assigneeId);
+  if (!inst) {
+    const empty = state.staffOf(roleId).length === 0;
+    return {
+      ok: false,
+      // Все заняты — пройдёт само, надзор попробует позже. Роль пустая —
+      // не пройдёт никогда: нанимать некому, кроме человека.
+      needsDecision: empty,
+      message: `Свободного исполнителя роли ${roleId} не нашлось: ` +
+        (empty ? 'в роли никого нет, работать некому.' : 'все заняты дольше десяти минут.'),
+    };
+  }
+  const role = roleById(inst.roleId);
+  if (!role) return { ok: false, message: `Роль ${inst.roleId} исчезла из реестра.` };
+
+  state.updateTask(task.id, { assigneeId: inst.id });
+  const run = await runAgentSession(state, inst, role, {
+    cwd: worktree,
+    prompt: instruction,
+    systemPrompt: workerSystemPrompt(role, state),
+    taskId: task.id,
+    mcp: { office: workerTools(state, inst.id, task) },
+    note: 'дорабатывает по ревью',
+  });
+  if (!run.ok) {
+    return {
+      ok: false, message: run.error ?? 'сессия исполнителя не отработала',
+      needsDecision: run.needsDecision,
+    };
+  }
+
+  // Коммитим за автора, как и после обычной задачи: полагаться на то, что
+  // он не забудет, нельзя — а незакоммиченная правка до ревью не доедет.
+  const committed = await commitAll(worktree, `${task.id}: доработка`);
+  if (committed === 'failed') return { ok: false, message: 'не удалось закоммитить доработку' };
+  return { ok: true, message: committed === 'empty' ? 'изменений не потребовалось' : 'доработка закоммичена' };
+}
+
+/** Ревью пулл-реквеста: смотрит живой ревьюер и выносит вердикт инструментом. */
+async function reviewPr(
+  state: OfficeState, task: Task, pr: PullRequestView,
+): Promise<ReviewOutcome> {
+  const role = roleById('reviewer');
+  if (!role) return { verdict: 'changes', text: '', reviewerId: null, error: 'Роли ревьюера нет в реестре.' };
+  const inst = await waitForFree(state, 'reviewer', null);
+  if (!inst) {
+    const empty = state.staffOf('reviewer').length === 0;
+    return {
+      verdict: 'changes', text: '', reviewerId: null,
+      needsDecision: empty,
+      error: empty
+        ? 'В роли ревьюера нет сотрудников — ревьюить некому. Нужно нанять ревьюера.'
+        : 'Ревьюер занят дольше десяти минут.',
+    };
+  }
+
+  let verdict: ReviewVerdict | null = null;
+  let text = '';
+  const tools = createSdkMcpServer({
+    name: 'office',
+    version: '1.0.0',
+    instructions: 'Инструменты ревью.',
+    tools: [
+      tool(
+        'say',
+        'Сказать одной строкой, что ты сейчас смотришь. Появится пузырём над твоей головой.',
+        { text: z.string().describe('До 70 символов') },
+        async (args) => {
+          state.setState(inst.id, 'working', clip(args.text));
+          return { content: [{ type: 'text', text: 'ок' }] };
+        },
+      ),
+      tool(
+        'approve_pr',
+        'Одобрить пулл-реквест. Вызывай, когда работа делает то, что обещала задача, ' +
+        'и ты не нашёл ошибок, из-за которых её нельзя вливать. После этого офис вольёт ветку.',
+        {
+          summary: z.string().describe(
+            'Отзыв: что проверил, что прогнал, почему считаешь, что можно вливать. Это увидит автор и пользователь.',
+          ),
+        },
+        async (args) => {
+          verdict = 'approve';
+          text = args.summary;
+          return { content: [{ type: 'text', text: 'Принято: пулл-реквест уходит на слияние.' }] };
+        },
+      ),
+      tool(
+        'request_changes',
+        'Вернуть работу автору. Вызывай, когда нашёл ошибку, дыру в проверках или расхождение ' +
+        'с тем, что обещала задача. Придирки к стилю ради стиля — не повод возвращать.',
+        {
+          summary: z.string().describe(
+            'По пунктам: что не так, где именно (файл:строка), почему это важно и что сделать. ' +
+            'Это единственное, что увидит автор, — общих слов он починить не сможет.',
+          ),
+        },
+        async (args) => {
+          verdict = 'changes';
+          text = args.summary;
+          return { content: [{ type: 'text', text: 'Принято: работа возвращается автору.' }] };
+        },
+      ),
+    ],
+  });
+
+  const { done, total } = criteriaProgress(task);
+  const diff = await prDiff(pr);
+  const prompt = [
+    `Ревью пулл-реквеста ${pr.branch} → ${pr.base} по задаче ${task.id}.`,
+    pr.url ? `Пулл-реквест: ${pr.url}` : 'Пулл-реквест внутренний, на GitHub его нет.',
+    '',
+    `Задача: ${task.title}`,
+    task.description,
+    task.criteria.length
+      ? `\nКритерии готовности (автор отметил ${done} из ${total}):\n` +
+        task.criteria.map((c, i) => `${i + 1}. [${c.done ? 'x' : ' '}] ${c.text}`).join('\n')
+      : '',
+    task.result ? `\nОтчёт автора:\n${task.result}` : '',
+    pr.rounds ? `\nЭто круг ${pr.rounds + 1}: работу уже возвращали. Проверь, что прошлые замечания закрыты.` : '',
+    pr.reviews.length
+      ? `\nПрошлые отзывы:\n${pr.reviews.map((r) => `— ${r.verdict === 'approve' ? 'одобрено' : 'на доработку'}: ${clip(r.text, 400)}`).join('\n')}`
+      : '',
+    '',
+    'Изменения ветки относительно базовой:',
+    diff,
+    '',
+    `Ты находишься в рабочей копии этой ветки (${pr.repoDir === process.cwd() ? 'репозиторий проекта' : pr.branch}).`,
+    'Прогони проверки проекта, если они есть (npm run typecheck и подобные), и учти их результат.',
+    'Код НЕ правь: твой результат — вердикт, а исправляет автор.',
+    'Закончи ровно одним вызовом: approve_pr({summary}) или request_changes({summary}).',
+    `Возвращать работу можно не бесконечно: после ${MAX_ROUNDS} возвратов подряд задача уходит менеджеру.`,
+    'Поэтому возвращай по существу, а мелкие замечания, не мешающие вливать, пиши в approve_pr.',
+  ].filter(Boolean).join('\n');
+
+  const run = await runAgentSession(state, inst, role, {
+    cwd: task.worktreePath ?? pr.repoDir,
+    prompt,
+    systemPrompt: workerSystemPrompt(role, state),
+    taskId: task.id,
+    mcp: { office: tools },
+    note: `ревью ${task.id}`,
+  });
+
+  if (!verdict) {
+    return {
+      verdict: 'changes', text: '', reviewerId: inst.id,
+      needsDecision: run.needsDecision,
+      error: run.error
+        ? `сессия ревьюера оборвалась: ${run.error}`
+        : 'ревьюер закончил, не вынеся вердикта (ни approve_pr, ни request_changes)',
+    };
+  }
+  return { verdict, text, reviewerId: inst.id };
+}
+
+// Конвейер знает про офис только через эти три действия — сессии агентов
+// живут здесь, а он остаётся про порядок шагов.
+setPipelineAgents({ review: reviewPr, rework: reworkTask, notifyPm });
