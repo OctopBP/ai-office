@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { sortedOffices, useStore } from './store';
+import { sortedOffices, summarizeOfficeActivity, useStore } from './store';
 import type { OfficeView } from '../shared/types';
 
 /**
@@ -11,7 +11,6 @@ import type { OfficeView } from '../shared/types';
  */
 export function OfficeSwitcher() {
   const offices = useStore((s) => s.offices);
-  const tasks = useStore((s) => s.tasks);
   const projectDir = useStore((s) => s.projectDir);
   const theme = useStore((s) => s.theme);
   const pending = useStore((s) => s.pending);
@@ -47,18 +46,6 @@ export function OfficeSwitcher() {
 
   const list = sortedOffices(offices);
   const hasOthers = list.length > 1;
-  const working = Object.values(tasks).filter((t) => t.status === 'in_progress').length;
-
-  const activityOf = (o: OfficeView): { text: string; busy: boolean; known: boolean } => {
-    if (!o.current) {
-      // Сервер пока не шлёт сводку активности по чужим офисам в списке —
-      // видно только то, какой офис открыт сейчас. См. отчёт по задаче.
-      return { text: 'открыт не сейчас', busy: false, known: false };
-    }
-    return working > 0
-      ? { text: `${working} ${working === 1 ? 'задача' : 'задачи'} в работе`, busy: true, known: true }
-      : { text: 'простаивает', busy: false, known: true };
-  };
 
   const pick = (o: OfficeView) => {
     setOpen(false);
@@ -85,16 +72,31 @@ export function OfficeSwitcher() {
       {open && hasOthers && (
         <div className="office-switcher-list pixel">
           {list.map((o) => {
-            const activity = activityOf(o);
+            const activity = summarizeOfficeActivity(o);
+            const dotClass = activity.live
+              ? 'live'
+              : activity.hasQueue
+              ? 'busy'
+              : activity.hasUnmerged
+              ? 'done'
+              : '';
             return (
               <button
                 key={o.id}
                 type="button"
                 className={`office-switcher-row ${o.current ? 'current' : ''}`}
                 onClick={() => pick(o)}
+                title={activity.live ? 'В офисе сейчас идёт живая работа' : undefined}
               >
-                <span className={`office-switcher-dot ${activity.busy ? 'busy' : ''} ${activity.known ? '' : 'unknown'}`} />
-                <span className="office-switcher-name">{o.name}</span>
+                <span className={`office-switcher-dot ${dotClass}`} />
+                <span className="office-switcher-name">
+                  {o.name}
+                  {activity.waiting > 0 && (
+                    <span className="office-switcher-waiting" title="Ждут решения человека">
+                      {activity.waiting}
+                    </span>
+                  )}
+                </span>
                 <span className="muted small">{o.current ? 'этот офис' : activity.text}</span>
               </button>
             );

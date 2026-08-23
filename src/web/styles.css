@@ -535,8 +535,28 @@ button.sq { padding: 5px 9px; line-height: 1.2; }
 .office-switcher-dot {
   flex: none; width: 8px; height: 8px; border-radius: 50%; background: var(--line-soft);
 }
+/* Есть задачи в работе, но живых сессий сейчас нет — ровный акцентный цвет. */
 .office-switcher-dot.busy { background: var(--accent); }
-.office-switcher-dot.unknown { background: transparent; border: 1px dashed var(--line-soft); }
+/* Готово, но не слито — ровный зелёный, отдельно от «в работе». */
+.office-switcher-dot.done { background: var(--green); }
+/* Живая работа прямо сейчас — тот же акцент, но с пульсом, чтобы не путать с «просто висит задача». */
+.office-switcher-dot.live { background: var(--accent); animation: office-switcher-live-pulse 1.6s ease-out infinite; }
+@keyframes office-switcher-live-pulse {
+  0% { box-shadow: 0 0 0 0 rgba(240, 180, 41, .55); }
+  70% { box-shadow: 0 0 0 6px rgba(240, 180, 41, 0); }
+  100% { box-shadow: 0 0 0 0 rgba(240, 180, 41, 0); }
+}
+/* Счётчик запросов, ждущих решения человека, — самое заметное в строке. */
+.office-switcher-waiting {
+  display: inline-flex; align-items: center; justify-content: center;
+  min-width: 15px; height: 15px; padding: 0 4px; margin-left: 6px;
+  border-radius: 999px; background: var(--red); color: #fff; font-size: 10px; font-weight: 700;
+  vertical-align: middle; animation: office-switcher-waiting-pulse 1.4s ease-in-out infinite;
+}
+@keyframes office-switcher-waiting-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: .5; }
+}
 
 /* ================= нижняя строка ================= */
 .bottom {
