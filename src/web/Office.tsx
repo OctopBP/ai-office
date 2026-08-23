@@ -1,8 +1,8 @@
 import { useLayoutEffect, useRef, useState } from 'react';
 import { useStore } from './store';
 import { agentSpriteName, spriteOf } from './sprites';
-import { catalog, layout } from './layoutData';
-import { desks, deskPoint, floorTiles, wallTiles } from '../shared/layout';
+import { catalog, furnitureZ, roomFor, spriteSize } from './layoutData';
+import { deskPoint } from '../shared/layout';
 import { GRID } from '../shared/types';
 import type { AgentState } from '../shared/types';
 
@@ -20,91 +20,6 @@ const STATE_ICON: Record<AgentState, string> = {
   waiting_approval: '❗', paused: '⏸', blocked: '⏳', done: '✅', failed: '⚠️',
 };
 
-// --- Планировка комнаты: данные, не код (docs/design/office-layout/spec.md §3, §5) ---
-// Каталог и раскладка — общие для веба (layoutData.ts), хотспоты пока не
-// формализованы в src/shared/layout.ts (§8 — задача следующего этапа),
-// поэтому их форма описана здесь же, локально.
-interface LayoutHotspot { panel: 'board' | 'log'; sprite: string; at: [number, number]; key: string; title: string }
-
-function spriteSize(name: string): [number, number] {
-  return catalog.sprites[name]?.size ?? [1, 1];
-}
-
-/** Порядок отрисовки мебели вместо ручных zIndex (спека §5): чем ниже нижняя кромка спрайта, тем позже рисуем. */
-function furnitureZ(x: number, y: number, sprite: string): number {
-  const [, h] = spriteSize(sprite);
-  return 100 + Math.round((y + h) * 10);
-}
-
-interface RenderProp { key: string; sprite: string; x: number; y: number; scale?: number; z: number }
-
-function bbox(x: number, y: number, sprite: string) {
-  const [w, h] = spriteSize(sprite);
-  return { x0: x, y0: y, x1: x + w, y1: y + h };
-}
-
-/**
- * Предметы, накрытые другой мебелью (кофемашина на тумбе, кружки на столе):
- * своя высота у них меньше, чем у мебели под ними, поэтому чистый y-сорт
- * задвинул бы их назад. Если bbox предмета целиком внутри чужого — рисуем
- * его следом за этим предметом, а не по формуле.
- */
-function liftToppings(items: RenderProp[]): void {
-  for (const item of items) {
-    const ib = bbox(item.x, item.y, item.sprite);
-    for (const host of items) {
-      if (host === item) continue;
-      const hb = bbox(host.x, host.y, host.sprite);
-      const inside = ib.x0 >= hb.x0 && ib.x1 <= hb.x1 && ib.y0 >= hb.y0 && ib.y1 <= hb.y1;
-      if (inside && item.z <= host.z) item.z = host.z + 1;
-    }
-  }
-}
-
-// Настенное — окна, доска, экран, часы (спека §5): рисуются поверх всей
-// мебели и людей, стена от их положения не зависит.
-const WALL_MOUNTED = new Set(['clock', 'window', 'board', 'logscreen']);
-// Наложения на пол — ковры и плитка: всегда под мебелью, что на них стоит.
-const FLOOR_OVERLAY = new Set(['rug', 'kitchen_tiles']);
-
-const PLACED_PROPS: RenderProp[] = (() => {
-  const fixed: RenderProp[] = [];
-  const sorted: RenderProp[] = [];
-  layout.props.forEach((p, i) => {
-    const item: RenderProp = {
-      key: `${p.sprite}-${i}`, sprite: p.sprite, x: p.at[0], y: p.at[1], scale: p.scale, z: 0,
-    };
-    if (WALL_MOUNTED.has(p.sprite)) fixed.push({ ...item, z: 900 });
-    else if (FLOOR_OVERLAY.has(p.sprite)) fixed.push({ ...item, z: 1 });
-    else sorted.push({ ...item, z: furnitureZ(item.x, item.y, item.sprite) });
-  });
-  liftToppings(sorted);
-  return [...fixed, ...sorted];
-})();
-
-const ENTRANCE = layout.zones!.find((z) => z.kind === 'entrance')!;
-const DOOR_Z = furnitureZ(ENTRANCE.at![0], ENTRANCE.at![1], ENTRANCE.sprite!);
-const HOTSPOTS = (layout.hotspots ?? []) as LayoutHotspot[];
-
-// Все рабочие столы раскладки — для свободных мест-«призраков» (заняты
-// рисуются самим столом-предметом из PLACED_PROPS, дважды не рисуем).
-const ALL_DESKS = desks(layout, catalog);
-
-// --- Пол и стены поштучными тайлами из данных (спека §6, §3.2) ---
-// Раскладки без rooms/walls (пока только classic) остаются на цельных
-// floor.png/wall.png — тайловый путь включается только когда секции есть.
-const FLOOR_TILES = floorTiles(layout);
-interface WallRenderTile { key: string; sprite: string; x: number; y: number; z: number }
-const WALL_TILES: WallRenderTile[] = wallTiles(layout).map((t) => {
-  // Якорь спрайта — верхний левый угол; footprint стены сдвинут на 0.5 тайла
-  // вниз от якоря (§6.2), поэтому клетка сетки (t.x, t.y) рисуется с
-  // якорем на полтайла выше. z считается той же формулой y-сортировки
-  // (спека §5), что и для остальной мебели — по нижней кромке спрайта.
-  const x = t.x;
-  const y = t.y - 0.5;
-  return { key: `wall-${t.x}-${t.y}`, sprite: t.sprite, x, y, z: furnitureZ(x, y, t.sprite) };
-});
-
 export function Office({ onOpen, onDoor }: {
   onOpen: (panel: 'board' | 'log') => void;
   onDoor: () => void;
@@ -117,9 +32,12 @@ export function Office({ onOpen, onDoor }: {
   const meeting = useStore((s) => s.meeting);
   const theme = useStore((s) => s.theme);
   const tasks = useStore((s) => s.tasks);
+  const layoutId = useStore((s) => s.settings.layoutId);
+  const room = roomFor(layoutId);
   const img = (name: string) => spriteOf(theme, name);
   const boxRef = useRef<HTMLDivElement>(null);
   const [scale, setScale] = useState(1);
+  const [roomCols, roomCells] = room.layout.size;
 
   /**
    * Комната растягивается на всю доступную область (.office-box уже не
@@ -134,8 +52,8 @@ export function Office({ onOpen, onDoor }: {
     const box = boxRef.current;
     if (!box) return;
     const fit = () => {
-      const kByWidth = Math.floor((box.clientWidth * 3) / px(GRID.cols));
-      const kByHeight = Math.floor((box.clientHeight * 3) / px(GRID.cells));
+      const kByWidth = Math.floor((box.clientWidth * 3) / px(roomCols));
+      const kByHeight = Math.floor((box.clientHeight * 3) / px(roomCells));
       const k = Math.max(1, Math.min(kByWidth, kByHeight));
       setScale(k / 3);
     };
@@ -143,7 +61,7 @@ export function Office({ onOpen, onDoor }: {
     const ro = new ResizeObserver(fit);
     ro.observe(box);
     return () => ro.disconnect();
-  }, []);
+  }, [roomCols, roomCells]);
 
   const list = Object.values(instances);
   const busyDesks = new Set(list.map((i) => i.desk.index));
@@ -155,12 +73,12 @@ export function Office({ onOpen, onDoor }: {
     <div
       className="office"
       style={{
-        width: px(GRID.cols), height: px(GRID.cells),
+        width: px(roomCols), height: px(roomCells),
         transform: `scale(${scale})`,
       }}
     >
-      {FLOOR_TILES.length > 0 ? (
-        FLOOR_TILES.map((t) => (
+      {room.floorTiles.length > 0 ? (
+        room.floorTiles.map((t) => (
           <img
             key={`floor-${t.x}-${t.y}`} className="floor-tile" src={img(t.sprite)} alt=""
             style={{ left: px(t.x), top: px(t.y) }}
@@ -170,8 +88,8 @@ export function Office({ onOpen, onDoor }: {
         <img className="layer floor" src={img('floor')} alt="" />
       )}
 
-      {WALL_TILES.length > 0 ? (
-        WALL_TILES.map((t) => (
+      {room.wallTiles.length > 0 ? (
+        room.wallTiles.map((t) => (
           <img
             key={t.key} className="decor" src={img(t.sprite)} alt=""
             style={{ left: px(t.x), top: px(t.y), zIndex: t.z }}
@@ -181,7 +99,7 @@ export function Office({ onOpen, onDoor }: {
         <img className="layer wall" src={img('wall')} alt="" />
       )}
 
-      {HOTSPOTS.map((h) => {
+      {room.hotspots.map((h) => {
         const badge = h.panel === 'board'
           ? Object.values(tasks).filter((t) => t.status === 'review'
               || (t.status === 'done' && t.branch && !t.merged)).length
@@ -200,12 +118,12 @@ export function Office({ onOpen, onDoor }: {
       })}
 
       {/* дверь: за ней другие проекты — офис на проект */}
-      <button className="hotspot door" title={ENTRANCE.title} onClick={onDoor}
-        style={{ left: px(ENTRANCE.at![0]), top: px(ENTRANCE.at![1]), zIndex: DOOR_Z }}>
-        <img src={img(ENTRANCE.sprite!)} alt="" />
+      <button className="hotspot door" title={room.entrance.title} onClick={onDoor}
+        style={{ left: px(room.entrance.at![0]), top: px(room.entrance.at![1]), zIndex: room.doorZ }}>
+        <img src={img(room.entrance.sprite!)} alt="" />
       </button>
 
-      {PLACED_PROPS.map((p) => (
+      {room.placedProps.map((p) => (
         <img
           key={p.key} className="decor" src={img(p.sprite)} alt=""
           style={{
@@ -216,8 +134,8 @@ export function Office({ onOpen, onDoor }: {
       ))}
 
       {/* свободные рабочие места: сам стол уже нарисован как предмет из
-          PLACED_PROPS — здесь только «призрак»-подсказка поверх пустующих */}
-      {ALL_DESKS.filter((d) => !busyDesks.has(d.index)).map((d) => (
+          room.placedProps — здесь только «призрак»-подсказка поверх пустующих */}
+      {room.allDesks.filter((d) => !busyDesks.has(d.index)).map((d) => (
         <div
           key={`ghost-${d.index}`} className="ghost"
           style={{ left: px(d.x), top: px(d.y), zIndex: furnitureZ(d.x, d.y, 'desk_ghost') }}
@@ -229,7 +147,7 @@ export function Office({ onOpen, onDoor }: {
 
       {/* таблички с кодом задачи на столах */}
       {list.filter((i) => i.currentTaskId).map((inst) => {
-        const plate = deskPoint(layout, catalog, inst.desk.index, 'plate');
+        const plate = deskPoint(room.layout, catalog, inst.desk.index, 'plate');
         return (
           <div
             key={`plate-${inst.id}`} className="plate"
@@ -244,7 +162,7 @@ export function Office({ onOpen, onDoor }: {
       {list.map((inst) => {
         const p = pos[inst.id] ?? { x: inst.desk.x, y: inst.desk.y };
         const atDesk = p.x === inst.desk.x && p.y === inst.desk.y;
-        const work = atDesk ? deskPoint(layout, catalog, inst.desk.index, 'work') : p;
+        const work = atDesk ? deskPoint(room.layout, catalog, inst.desk.index, 'work') : p;
         const role = roleOf(inst.roleId);
         const icon = STATE_ICON[inst.state];
         const busy = inst.state === 'working' || inst.state === 'thinking';
@@ -273,7 +191,7 @@ export function Office({ onOpen, onDoor }: {
       {list.map((inst) => {
         const p = pos[inst.id] ?? { x: inst.desk.x, y: inst.desk.y };
         const atDesk = p.x === inst.desk.x && p.y === inst.desk.y;
-        const work = atDesk ? deskPoint(layout, catalog, inst.desk.index, 'work') : p;
+        const work = atDesk ? deskPoint(room.layout, catalog, inst.desk.index, 'work') : p;
         const role = roleOf(inst.roleId);
         const task = inst.currentTaskId ? tasks[inst.currentTaskId] : null;
         const icon = STATE_ICON[inst.state];

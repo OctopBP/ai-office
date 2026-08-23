@@ -1,12 +1,12 @@
 import { create } from 'zustand';
 import type {
-  ChatEntry, DayUsage, InstanceView, LogEntry, MergeCheck, MergeCheckState, MergeRun, MergeStep,
-  MergeStepStatus, PermissionDecision, PermissionMode, PermissionRequest, MeetingView, RoleEditable,
-  RoleView, ServerEvent, Settings, TaskView, Usage, CloudStatus, OfficeView,
+  ChatEntry, DayUsage, InstanceView, LayoutOption, LogEntry, MergeCheck, MergeCheckState, MergeRun,
+  MergeStep, MergeStepStatus, PermissionDecision, PermissionMode, PermissionRequest, MeetingView,
+  RoleEditable, RoleView, ServerEvent, Settings, TaskView, Usage, CloudStatus, OfficeView,
 } from '../shared/types';
 import { emptyUsage, MIN_TASK_MAX_TURNS, MAX_TASK_MAX_TURNS } from '../shared/types';
 import type { Theme } from './sprites';
-import { catalog, kitchenSeatFor, layout } from './layoutData';
+import { catalog, kitchenSeatFor, layoutFor } from './layoutData';
 import { meetingSeat } from '../shared/layout';
 
 interface Pos { x: number; y: number }
@@ -17,10 +17,10 @@ interface Pos { x: number; y: number }
  * на кухне. Источник истины — currentTaskId из InstanceView, отдельного
  * флага занятости на клиенте не заводим.
  */
-function homePos(inst: InstanceView, roles: RoleView[]): Pos {
+function homePos(inst: InstanceView, roles: RoleView[], layoutId: string): Pos {
   const isManager = roles.find((r) => r.id === inst.roleId)?.isManager ?? false;
   if (isManager || inst.currentTaskId) return { x: inst.desk.x, y: inst.desk.y };
-  return kitchenSeatFor(inst.desk.index);
+  return kitchenSeatFor(layoutId, inst.desk.index);
 }
 
 export interface Toast {
@@ -64,6 +64,15 @@ interface State {
   log: LogEntry[];
   permissions: PermissionRequest[];
   settings: Settings;
+  /** Пресеты раскладки для выбора в настройках — приходят в снапшоте, читаются сервером с диска. */
+  layouts: LayoutOption[];
+  /**
+   * Идёт ли сейчас сохранение настроек: пока true, ближайшая реплика «офис»
+   * в чате — это отказ по этому сохранению (например, раскладки уже нет на
+   * диске), а не случайное системное сообщение. Показываем его тостом, а не
+   * теряем в общей ленте, которую пользователь мог не открыть (§ SettingsModal).
+   */
+  settingsPending: boolean;
   meeting: MeetingView | null;
   /** Порядок задач, которые пользователь набрал для следующего запуска очереди слияния. */
   mergeSelection: string[];
@@ -130,6 +139,8 @@ export const useStore = create<State>((set, get) => ({
     globalBudgetUsd: null, taskBudgetUsd: null, engine: 'local', cloudRepoUrl: null,
     officePermissionMode: 'ask-risky', layoutId: 'classic',
   },
+  layouts: [],
+  settingsPending: false,
   meeting: null,
   mergeSelection: [],
   mergeChecks: {},
@@ -198,11 +209,14 @@ export const useStore = create<State>((set, get) => ({
     switch (e.t) {
       case 'snapshot': {
         const instances = Object.fromEntries(e.instances.map((i) => [i.id, i]));
-        const pos = Object.fromEntries(e.instances.map((i) => [i.id, homePos(i, e.roles)]));
+        const pos = Object.fromEntries(
+          e.instances.map((i) => [i.id, homePos(i, e.roles, e.settings.layoutId)]),
+        );
         set((s) => ({
           roles: e.roles, instances, pos,
           tasks: Object.fromEntries(e.tasks.map((t) => [t.id, t])),
           chat: e.chat, log: e.log, permissions: e.permissions, settings: e.settings,
+          layouts: e.layouts,
           projectDir: e.projectDir, authSource: e.authSource, meeting: e.meeting, busy: e.busy,
           paused: e.paused, usage: e.usage.total, usageDays: e.usage.days,
           offices: e.offices, cloud: e.cloud,
@@ -235,7 +249,9 @@ export const useStore = create<State>((set, get) => ({
         const shouldMove = !s0.pos[e.instance.id] || (wasBusy !== isBusy && !inMeetingNow);
         set((s) => ({
           instances: { ...s.instances, [e.instance.id]: e.instance },
-          pos: shouldMove ? { ...s.pos, [e.instance.id]: homePos(e.instance, s.roles) } : s.pos,
+          pos: shouldMove
+            ? { ...s.pos, [e.instance.id]: homePos(e.instance, s.roles, s.settings.layoutId) }
+            : s.pos,
         }));
         break;
       }
@@ -282,6 +298,14 @@ export const useStore = create<State>((set, get) => ({
               menuNotice: { kind: s.pending === 'create' ? 'create-error' : 'blocked', text: e.entry.text },
             };
           }
+          // Тот же приём для настроек: отказ (например, неизвестная
+          // раскладка) приходит репликой «офис», а не отдельным событием.
+          // Пока идёт сохранение — эта реплика про него, а не про что-то
+          // ещё; окно настроек уже закрыто, поэтому показываем тостом.
+          if (e.entry.from === 'офис' && s.settingsPending) {
+            pushToast({ id: e.entry.id, kind: 'failed', title: 'Настройки не сохранены', detail: e.entry.text });
+            return { chat, settingsPending: false };
+          }
           return { chat };
         });
         break;
@@ -309,7 +333,7 @@ export const useStore = create<State>((set, get) => ({
         set({ roles: e.roles });
         break;
       case 'settings':
-        set({ settings: e.settings });
+        set({ settings: e.settings, settingsPending: false });
         break;
       case 'task.diff':
         set({ diff: { taskId: e.taskId, stat: e.stat, patch: e.patch, truncated: e.truncated, error: e.error } });
@@ -331,13 +355,14 @@ export const useStore = create<State>((set, get) => ({
           const pos = { ...s.pos };
           if (e.meeting) {
             const total = e.meeting.participants.length;
+            const layout = layoutFor(s.settings.layoutId);
             e.meeting.participants.forEach((id, i) => {
               const seat = meetingSeat(layout, catalog, i, total);
               pos[id] = { x: seat.x, y: seat.y };
             });
           } else {
             for (const inst of Object.values(insts)) {
-              pos[inst.id] = homePos(inst, s.roles);
+              pos[inst.id] = homePos(inst, s.roles, s.settings.layoutId);
             }
           }
           return { pos };
@@ -586,6 +611,7 @@ export function updateRole(roleId: string, patch: Partial<RoleEditable>): void {
 }
 
 export function updateSettings(settings: Partial<Settings>): void {
+  useStore.setState({ settingsPending: true });
   socket?.send(JSON.stringify({ c: 'settings', settings }));
 }
 
