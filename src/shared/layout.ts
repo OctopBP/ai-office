@@ -101,6 +101,97 @@ export interface Layout {
   hotspots?: unknown[];
 }
 
+/**
+ * Правка одного предмета поверх пресета (§8). Поля необязательные: правится
+ * только то, что поменяли, — сдвиг стола это `key` и `at`.
+ */
+export interface LayoutPropEdit {
+  /** Стабильное имя предмета: `id` из пресета либо автоимя `<sprite>#<n>` (§3.2). */
+  key: string;
+  /** Новая позиция якоря в тайлах. */
+  at?: [number, number];
+  flip?: boolean;
+  scale?: number;
+  /** Убрать предмет из расстановки офиса. Пресет при этом не меняется. */
+  removed?: boolean;
+  /**
+   * Спрайт добавленного предмета — того, которого в пресете нет вовсе.
+   * У правки существующего предмета спрайт не меняется: это был бы другой
+   * предмет с тем же именем.
+   */
+  sprite?: string;
+}
+
+/**
+ * Оверрайд расстановки: разница между тем, что видит офис, и пресетом
+ * `design/layouts/<id>.json` (§8). Хранится у офиса, файлы пресетов не
+ * переписываются — иначе правка одного офиса переставляла бы мебель всем.
+ */
+export interface LayoutOverride {
+  version: 1;
+  /** По одной записи на предмет; порядок — порядок правок, на результат не влияет. */
+  props: LayoutPropEdit[];
+}
+
+/** Пустой ли оверрайд — офис с таким выглядит ровно как пресет. */
+export function isEmptyOverride(override: LayoutOverride | null | undefined): boolean {
+  return !override || override.props.length === 0;
+}
+
+/**
+ * Стабильные имена предметов раскладки, по индексам массива `props`.
+ * Без явного `id` предмет получает автоимя `<sprite>#<n>`, где n — его номер
+ * среди предметов того же спрайта, считая с единицы (§3.2). Имя обязано
+ * зависеть только от содержимого пресета: по нему офис узнаёт свой сдвинутый
+ * стол после перезапуска.
+ */
+export function propKeys(layout: Layout): string[] {
+  const seen = new Map<string, number>();
+  return layout.props.map((prop) => {
+    const n = (seen.get(prop.sprite) ?? 0) + 1;
+    seen.set(prop.sprite, n);
+    return prop.id ?? `${prop.sprite}#${n}`;
+  });
+}
+
+/**
+ * Пресет с наложенным оверрайдом — то, как офис выглядит на самом деле (§8).
+ *
+ * Порядок предметов сохраняется, а добавленные уходят в конец: индекс
+ * рабочего места — это номер стола в списке `props` (§3.3) и контракт с
+ * сохранением (`PersistedInstance.deskIndex`), поэтому переставлять список
+ * нельзя. Удаление предмета индексы всё-таки сдвигает — там пересадка
+ * неизбежна, и она делается тем же способом, что при смене пресета.
+ */
+export function applyOverride(layout: Layout, override: LayoutOverride | null | undefined): Layout {
+  if (isEmptyOverride(override)) return layout;
+  const edits = new Map(override!.props.map((e) => [e.key, e]));
+  const keys = propKeys(layout);
+  const props: LayoutProp[] = [];
+  for (let i = 0; i < layout.props.length; i++) {
+    const edit = edits.get(keys[i]);
+    edits.delete(keys[i]);
+    if (edit?.removed) continue;
+    props.push(edit ? editedProp(layout.props[i], edit) : layout.props[i]);
+  }
+  // Осталось то, чего в пресете нет: добавленные офисом предметы. Правку без
+  // спрайта здесь пропускаем молча — предмет, к которому она относилась, мог
+  // исчезнуть из пресета, и падать из-за этого офису незачем.
+  for (const edit of edits.values()) {
+    if (edit.removed || !edit.sprite || !edit.at) continue;
+    props.push(editedProp({ sprite: edit.sprite, at: edit.at, id: edit.key }, edit));
+  }
+  return { ...layout, props };
+}
+
+function editedProp(prop: LayoutProp, edit: LayoutPropEdit): LayoutProp {
+  const next: LayoutProp = { ...prop };
+  if (edit.at) next.at = [edit.at[0], edit.at[1]];
+  if (edit.flip !== undefined) next.flip = edit.flip;
+  if (edit.scale !== undefined) next.scale = edit.scale;
+  return next;
+}
+
 /** Отступ ряда мест от кромки предмета, тайлов (§3.1, по умолчанию). */
 const SEAT_GAP = 0.75;
 

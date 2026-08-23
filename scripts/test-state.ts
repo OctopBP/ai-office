@@ -5,11 +5,12 @@
  *
  * Запуск: npm run test:state
  */
-import { rmSync, writeFileSync } from 'node:fs';
+import { readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { deskPlan } from '../src/server/layout';
+import { catalog, deskPlan, effectiveLayout } from '../src/server/layout';
+import { deskPoint } from '../src/shared/layout';
 import {
   DEFAULT_SETTINGS, getOffice, office, openOfficeState, subscribeOffices,
 } from '../src/server/state';
@@ -355,6 +356,39 @@ async function main(): Promise<void> {
   }
   wipe(layA);
   wipe(layB);
+
+  // 11. Оверрайд расстановки (§8): офис двигает мебель поверх пресета. Пресет
+  // остаётся эталоном на диске, место за столом обязано переехать вместе со
+  // столом (иначе человечек сидел бы в воздухе), а сама правка — пережить
+  // перезапуск, как и остальное состояние офиса.
+  const ovFile = resolve(tmpdir(), `office-test-ov-${process.pid}.json`);
+  const classicFile = resolve(layoutsDir, 'classic.json');
+  const presetBefore = readFileSync(classicFile, 'utf8');
+  const ovDir = resolve(tmpdir(), 'ov-office');
+  const oo = openOfficeState({ id: 'o-ov', projectDir: ovDir, stateFile: ovFile }).state;
+  // desk#1 — первый обычный стол classic (автоимя `<sprite>#<n>`, §3.2).
+  const MOVED_KEY = 'desk#1';
+  const presetPlan = deskPlan('classic');
+  const movedIndex = presetPlan.desks.findIndex((d) => d.x === 6 && d.y === 4);
+  const seatBefore = deskPoint(effectiveLayout('classic', null), catalog, movedIndex, 'work');
+  const moveProblem = oo.editLayout([{ key: MOVED_KEY, at: [7, 5] }]);
+  const seatAfter = deskPoint(oo.layout(), catalog, movedIndex, 'work');
+  results.push(
+    `сдвиг стола двигает и место за ним: ${moveProblem === null
+      && seatAfter.x === seatBefore.x + 1 && seatAfter.y === seatBefore.y + 1}`,
+    `файл пресета не переписан: ${readFileSync(classicFile, 'utf8') === presetBefore}`,
+  );
+
+  // Перезапуск: состояние поднимается с диска заново, и подвинутый стол
+  // обязан остаться подвинутым — иначе мебель разъезжалась бы при каждом старте.
+  oo.flush();
+  const ovRestored = oo.restore();
+  results.push(
+    `оверрайд пережил перезапуск: ${ovRestored
+      && deskPlan('classic', oo.override()).desks[movedIndex].x === 7
+      && deskPlan('classic', oo.override()).desks[movedIndex].y === 5}`,
+  );
+  wipe(ovFile);
 
   // Прошедшей считается только строка, кончающаяся на true. Раньше проверялось
   // обратное — «не false», — и любая строка, где вместо булева оказалось
