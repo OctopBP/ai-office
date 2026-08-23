@@ -602,6 +602,31 @@ export function sortedOffices(offices: OfficeView[]): OfficeView[] {
   ));
 }
 
+/** Сводка активности офиса для переключателя — уже посчитанные тексты и флаги, а не сырые числа. */
+export interface OfficeActivitySummary {
+  /** Короткая строка вида «2 в работе · 1 к слиянию» либо «простаивает»/«нет данных». */
+  text: string;
+  /** Прямо сейчас в офисе есть живая сессия — не просто висящая на доске задача. */
+  live: boolean;
+  /** Есть задачи в работе (не обязательно живые прямо сейчас). */
+  hasQueue: boolean;
+  /** Есть готовые, но не слитые задачи. */
+  hasUnmerged: boolean;
+  /** Сколько запросов доступа ждут решения человека. */
+  waiting: number;
+}
+
+/** Считает сводку по офису из списка `offices` для короткого переключателя. */
+export function summarizeOfficeActivity(o: OfficeView): OfficeActivitySummary {
+  const a = o.activity;
+  if (!a) return { text: 'нет данных', live: false, hasQueue: false, hasUnmerged: false, waiting: 0 };
+  const parts: string[] = [];
+  if (a.inProgress > 0) parts.push(`${a.inProgress} в работе`);
+  if (a.doneUnmerged > 0) parts.push(`${a.doneUnmerged} к слиянию`);
+  const text = parts.length ? parts.join(' · ') : (a.live ? 'идёт работа' : 'простаивает');
+  return { text, live: a.live, hasQueue: a.inProgress > 0, hasUnmerged: a.doneUnmerged > 0, waiting: a.waiting };
+}
+
 /** Четыре уровня общего режима доступа офиса — id, подпись и честное объяснение для UI. */
 export const ACCESS_MODES: Array<[PermissionMode, string, string]> = [
   ['readonly', 'Только чтение', 'Запрещено всё, что меняет состояние: ни записи файла, ни команды оболочки.'],
