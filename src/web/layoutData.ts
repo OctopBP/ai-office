@@ -1,5 +1,5 @@
 import {
-  desks, floorTiles as sharedFloorTiles, kitchenSeats, passability, wallTiles as sharedWallTiles,
+  desks, floorTiles as sharedFloorTiles, kitchenSeats, passability, propKeys, wallTiles as sharedWallTiles,
 } from '../shared/layout';
 import type { Catalog, FloorTile, Layout, LayoutZone, Passability, Pos } from '../shared/layout';
 import type { Desk } from '../shared/types';
@@ -100,41 +100,45 @@ function extendSeats(base: Pos[], need: number): Pos[] {
  * исполнители окажутся свободными. Число столов исполнителей (без PM) —
  * верхняя граница штата (сервер не даёт нанять больше сотрудников, чем в
  * офисе рабочих мест), поэтому места считаются один раз от числа столов
- * раскладки, а не от текущего штата. Раскладок мало и они статичны на
- * время жизни вкладки, поэтому результат кешируется по id.
+ * раскладки, а не от текущего штата.
+ *
+ * Кешируется по ссылке на объект `Layout`, а не по `layoutId`: расстановку
+ * рисуем по итоговому layout из снапшота (пресет с наложенным оверрайдом),
+ * а не по файлу пресета, и сервер шлёт новый объект `layout` при каждой
+ * правке (событие `layout`). WeakMap по ссылке инвалидируется сам — старый
+ * layout просто выпадает из кеша вместе со сборкой мусора, ручного сброса
+ * не нужно.
  */
-const kitchenSeatsCache = new Map<string, Pos[]>();
+const kitchenSeatsCache = new WeakMap<Layout, Pos[]>();
 function kitchenSeatsFor(layout: Layout): Pos[] {
-  const cached = kitchenSeatsCache.get(layout.id);
+  const cached = kitchenSeatsCache.get(layout);
   if (cached) return cached;
   const seats = extendSeats(
     kitchenSeats(layout, catalog),
     Math.max(desks(layout, catalog).length - 1, 1),
   ).map((s) => clampToRoom(s, layout.size[1]));
-  kitchenSeatsCache.set(layout.id, seats);
+  kitchenSeatsCache.set(layout, seats);
   return seats;
 }
 
 /** Место на кухне для стола с данным индексом в данной раскладке — привязка стабильная, один в один. */
-export function kitchenSeatFor(layoutId: string, deskIndex: number): Pos {
-  const seats = kitchenSeatsFor(layoutFor(layoutId));
+export function kitchenSeatFor(layout: Layout, deskIndex: number): Pos {
+  const seats = kitchenSeatsFor(layout);
   const i = (deskIndex - 1 + seats.length) % seats.length;
   return seats[i];
 }
 
 /**
  * Сетка проходимости раскладки (docs/design/office-layout/spec.md §7) — нужна
- * ходьбе по ломаной в store.ts. Раскладок мало и они статичны на время жизни
- * вкладки, поэтому считаем один раз на layoutId, тем же приёмом, что и
- * `roomFor`/`kitchenSeatsFor`, а не на каждый шаг агента.
+ * ходьбе по ломаной в store.ts. Кеш по ссылке на `Layout` — см. пояснение
+ * у `kitchenSeatsCache` выше.
  */
-const passabilityCache = new Map<string, Passability>();
-export function passabilityFor(layoutId: string): Passability {
-  const layout = layoutFor(layoutId);
-  const cached = passabilityCache.get(layout.id);
+const passabilityCache = new WeakMap<Layout, Passability>();
+export function passabilityFor(layout: Layout): Passability {
+  const cached = passabilityCache.get(layout);
   if (cached) return cached;
   const grid = passability(layout, catalog);
-  passabilityCache.set(layout.id, grid);
+  passabilityCache.set(layout, grid);
   return grid;
 }
 
@@ -198,21 +202,26 @@ export interface RoomData {
 /**
  * Всё, что нужно Office.tsx для отрисовки конкретной раскладки: мебель по
  * z-порядку, стены/пол поштучными тайлами (если раскладка их описывает —
- * §6.1), рабочие столы и хотспоты. Раскладок мало и они статичны, поэтому
- * результат кешируется по id — смена раскладки в настройках не должна
- * пересчитывать одну и ту же геометрию на каждый рендер.
+ * §6.1), рабочие столы и хотспоты. Кеш по ссылке на `Layout` — см. пояснение
+ * у `kitchenSeatsCache` в этом же файле: комната рисуется по итоговому
+ * layout из снапшота (с наложенным оверрайдом), и правка расстановки должна
+ * пересчитать геометрию, а не показать старые координаты из кеша.
+ *
+ * `key` каждого предмета — то же стабильное имя, что и в оверрайде сервера
+ * (`propKeys`, src/shared/layout.ts): им редактор расстановки помечает
+ * предмет в команде `layout_edit`, и React использует его же как ключ списка.
  */
-const roomCache = new Map<string, RoomData>();
-export function roomFor(layoutId: string): RoomData {
-  const layout = layoutFor(layoutId);
-  const cached = roomCache.get(layout.id);
+const roomCache = new WeakMap<Layout, RoomData>();
+export function roomFor(layout: Layout): RoomData {
+  const cached = roomCache.get(layout);
   if (cached) return cached;
 
+  const keys = propKeys(layout);
   const fixed: RenderProp[] = [];
   const sorted: RenderProp[] = [];
   layout.props.forEach((p, i) => {
     const item: RenderProp = {
-      key: `${p.sprite}-${i}`, sprite: p.sprite, x: p.at[0], y: p.at[1], scale: p.scale, z: 0,
+      key: keys[i], sprite: p.sprite, x: p.at[0], y: p.at[1], scale: p.scale, z: 0,
     };
     if (WALL_MOUNTED.has(p.sprite)) fixed.push({ ...item, z: 900 });
     else if (FLOOR_OVERLAY.has(p.sprite)) fixed.push({ ...item, z: 1 });
@@ -240,6 +249,6 @@ export function roomFor(layoutId: string): RoomData {
     layout, placedProps, entrance, hotspots, allDesks,
     floorTiles: floorTilesList, wallTiles: wallTilesList, doorZ,
   };
-  roomCache.set(layout.id, data);
+  roomCache.set(layout, data);
   return data;
 }

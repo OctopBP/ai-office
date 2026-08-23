@@ -1,13 +1,13 @@
 import { create } from 'zustand';
 import type {
-  ChatEntry, DayUsage, InstanceView, LayoutOption, LogEntry, MergeCheck, MergeCheckState, MergeRun,
-  MergeStep, MergeStepStatus, PermissionDecision, PermissionMode, PermissionRequest, MeetingView,
-  RoleEditable, RoleView, ServerEvent, Settings, TaskView, Usage, CloudStatus, OfficeView,
-  PullRequestView, PrStage,
+  ChatEntry, DayUsage, InstanceView, Layout, LayoutOption, LayoutOverride, LogEntry, MergeCheck,
+  MergeCheckState, MergeRun, MergeStep, MergeStepStatus, PermissionDecision, PermissionMode,
+  PermissionRequest, MeetingView, RoleEditable, RoleView, ServerEvent, Settings, TaskView, Usage,
+  CloudStatus, OfficeView, PullRequestView, PrStage,
 } from '../shared/types';
 import { emptyUsage, MIN_TASK_MAX_TURNS, MAX_TASK_MAX_TURNS } from '../shared/types';
 import type { Theme } from './sprites';
-import { catalog, kitchenSeatFor, layoutFor, passabilityFor } from './layoutData';
+import { catalog, DEFAULT_LAYOUT_ID, kitchenSeatFor, layoutFor, passabilityFor } from './layoutData';
 import { findPath, meetingSeat } from '../shared/layout';
 
 interface Pos { x: number; y: number }
@@ -18,10 +18,28 @@ interface Pos { x: number; y: number }
  * на кухне. Источник истины — currentTaskId из InstanceView, отдельного
  * флага занятости на клиенте не заводим.
  */
-function homePos(inst: InstanceView, roles: RoleView[], layoutId: string): Pos {
+function homePos(inst: InstanceView, roles: RoleView[], layout: Layout): Pos {
   const isManager = roles.find((r) => r.id === inst.roleId)?.isManager ?? false;
   if (isManager || inst.currentTaskId) return { x: inst.desk.x, y: inst.desk.y };
-  return kitchenSeatFor(layoutId, inst.desk.index);
+  return kitchenSeatFor(layout, inst.desk.index);
+}
+
+/** Привязка перетаскиваемого предмета к сетке — четверть тайла: этого хватает
+ * для ручной расстановки, а целиться пиксель в пиксель незачем. */
+const DRAG_GRID = 0.25;
+function snapToGrid(v: number): number {
+  return Math.round(v / DRAG_GRID) * DRAG_GRID;
+}
+
+/**
+ * Не даёт утащить мебель мышью за пределы комнаты. Сервер такую правку всё
+ * равно отклонит («позиция вне комнаты», см. docs/design/office-layout/spec.md
+ * §8), но клиентский зажим избавляет от бессмысленного круга на сервер и
+ * обратно ради заведомо неверной координаты.
+ */
+function clampToRoom(layout: Layout, x: number, y: number): Pos {
+  const [cols, rows] = layout.size;
+  return { x: Math.min(Math.max(x, 0), cols - DRAG_GRID), y: Math.min(Math.max(y, 0), rows - DRAG_GRID) };
 }
 
 export interface Toast {
@@ -67,6 +85,25 @@ interface State {
   settings: Settings;
   /** Пресеты раскладки для выбора в настройках — приходят в снапшоте, читаются сервером с диска. */
   layouts: LayoutOption[];
+  /**
+   * Итоговая расстановка офиса: пресет с уже наложенным оверрайдом (§8).
+   * Комната рисуется по ней, а не по файлу пресета, — приходит в снапшоте
+   * и целиком обновляется событием `layout` после каждой правки.
+   */
+  layout: Layout;
+  /** Чем расстановка отличается от пресета — для «Сбросить расстановку». null — ничем. */
+  layoutOverride: LayoutOverride | null;
+  /**
+   * Идёт ли сейчас сохранение правки расстановки: пока true, ближайшая
+   * реплика «офис» в чате — это отказ по ней (предмета нет, координата вне
+   * комнаты), а не случайное системное сообщение. Тот же приём, что у
+   * `settingsPending`.
+   */
+  layoutPending: boolean;
+  /** Режим редактирования расстановки: включается кнопкой в HUD, вне него мебель мышью не хватается. */
+  editingLayout: boolean;
+  /** Предмет, который сейчас тащат мышью, и его позиция в тайлах (уже с привязкой к сетке) — превью до отпускания кнопки. */
+  dragItem: { key: string; x: number; y: number } | null;
   /**
    * Идёт ли сейчас сохранение настроек: пока true, ближайшая реплика «офис»
    * в чате — это отказ по этому сохранению (например, раскладки уже нет на
@@ -143,6 +180,13 @@ export const useStore = create<State>((set, get) => ({
     officePermissionMode: 'ask-risky', layoutId: 'classic', autoPipeline: true,
   },
   layouts: [],
+  // До первого снапшота своей раскладки офиса ещё не знаем — берём тот же
+  // classic, что и запасное значение settings.layoutId ниже.
+  layout: layoutFor(DEFAULT_LAYOUT_ID),
+  layoutOverride: null,
+  layoutPending: false,
+  editingLayout: false,
+  dragItem: null,
   settingsPending: false,
   meeting: null,
   mergeSelection: [],
@@ -214,13 +258,13 @@ export const useStore = create<State>((set, get) => ({
       case 'snapshot': {
         const instances = Object.fromEntries(e.instances.map((i) => [i.id, i]));
         const pos = Object.fromEntries(
-          e.instances.map((i) => [i.id, homePos(i, e.roles, e.settings.layoutId)]),
+          e.instances.map((i) => [i.id, homePos(i, e.roles, e.layout)]),
         );
         set((s) => ({
           roles: e.roles, instances, pos,
           tasks: Object.fromEntries(e.tasks.map((t) => [t.id, t])),
           chat: e.chat, log: e.log, permissions: e.permissions, settings: e.settings,
-          layouts: e.layouts,
+          layouts: e.layouts, layout: e.layout, layoutOverride: e.layoutOverride,
           projectDir: e.projectDir, authSource: e.authSource, meeting: e.meeting, busy: e.busy,
           paused: e.paused, usage: e.usage.total, usageDays: e.usage.days,
           offices: e.offices, cloud: e.cloud,
@@ -255,7 +299,7 @@ export const useStore = create<State>((set, get) => ({
         set((s) => ({ instances: { ...s.instances, [e.instance.id]: e.instance } }));
         if (shouldMove) {
           const s1 = get();
-          walkTo(e.instance.id, homePos(e.instance, s1.roles, s1.settings.layoutId));
+          walkTo(e.instance.id, homePos(e.instance, s1.roles, s1.layout));
         }
         break;
       }
@@ -310,6 +354,13 @@ export const useStore = create<State>((set, get) => ({
             pushToast({ id: e.entry.id, kind: 'failed', title: 'Настройки не сохранены', detail: e.entry.text });
             return { chat, settingsPending: false };
           }
+          // Тот же приём для правки расстановки: отказ (предмета нет,
+          // координата вне комнаты) приходит репликой «офис», а не отдельным
+          // событием (см. docs/design/office-layout/spec.md §8).
+          if (e.entry.from === 'офис' && s.layoutPending) {
+            pushToast({ id: e.entry.id, kind: 'failed', title: 'Расстановка не сохранена', detail: e.entry.text });
+            return { chat, layoutPending: false };
+          }
           return { chat };
         });
         break;
@@ -339,6 +390,19 @@ export const useStore = create<State>((set, get) => ({
       case 'settings':
         set({ settings: e.settings, settingsPending: false });
         break;
+      case 'layout': {
+        set({ layout: e.layout, layoutOverride: e.override, layoutPending: false });
+        // Правка могла сдвинуть столы и кухонные места — переставляем всех
+        // на пересчитанные позиции, как при смене раскладки целиком.
+        // Кто на совещании — там и остаётся, вернётся домой после него.
+        const s0 = get();
+        const inMeeting = new Set(s0.meeting?.status === 'running' ? s0.meeting.participants : []);
+        for (const inst of Object.values(s0.instances)) {
+          if (inMeeting.has(inst.id)) continue;
+          walkTo(inst.id, homePos(inst, s0.roles, e.layout));
+        }
+        break;
+      }
       case 'task.diff':
         set({ diff: { taskId: e.taskId, stat: e.stat, patch: e.patch, truncated: e.truncated, error: e.error } });
         break;
@@ -361,14 +425,13 @@ export const useStore = create<State>((set, get) => ({
         const s0 = get();
         if (e.meeting) {
           const total = e.meeting.participants.length;
-          const layout = layoutFor(s0.settings.layoutId);
           e.meeting.participants.forEach((id, i) => {
-            const seat = meetingSeat(layout, catalog, i, total);
+            const seat = meetingSeat(s0.layout, catalog, i, total);
             walkTo(id, { x: seat.x, y: seat.y });
           });
         } else {
           for (const inst of Object.values(s0.instances)) {
-            walkTo(inst.id, homePos(inst, s0.roles, s0.settings.layoutId));
+            walkTo(inst.id, homePos(inst, s0.roles, s0.layout));
           }
         }
         break;
@@ -438,7 +501,7 @@ function walkTo(instanceId: string, target: Pos): void {
     useStore.setState((st) => ({ pos: { ...st.pos, [instanceId]: target } }));
     return;
   }
-  const grid = passabilityFor(s.settings.layoutId);
+  const grid = passabilityFor(s.layout);
   const path = findPath(grid, current, target);
   const waypoints = path ?? [current, target];
   stepWalk(instanceId, waypoints, 1, gen);
@@ -755,6 +818,40 @@ export function setCloudToken(token: string): void {
 
 export function setPaused(paused: boolean): void {
   socket?.send(JSON.stringify({ c: 'pause', paused }));
+}
+
+/** Включить/выключить редактор расстановки. Выключение бросает недотащенный предмет без сохранения. */
+export function setEditingLayout(v: boolean): void {
+  useStore.setState({ editingLayout: v, dragItem: null });
+}
+
+/** Взять предмет мышью — только в режиме редактирования, вне него мебель не хватается. */
+export function startDrag(key: string, x: number, y: number): void {
+  const s = useStore.getState();
+  if (!s.editingLayout) return;
+  useStore.setState({ dragItem: { key, ...clampToRoom(s.layout, snapToGrid(x), snapToGrid(y)) } });
+}
+
+/** Провести взятый предмет к точке курсора — только превью, до отпускания кнопки ничего не уходит на сервер. */
+export function updateDrag(x: number, y: number): void {
+  useStore.setState((s) => (s.dragItem
+    ? { dragItem: { ...s.dragItem, ...clampToRoom(s.layout, snapToGrid(x), snapToGrid(y)) } }
+    : {}));
+}
+
+/** Отпустили кнопку мыши: если что-то тащили — сохраняем новую позицию правкой поверх оверрайда. */
+export function endDrag(): void {
+  const item = useStore.getState().dragItem;
+  useStore.setState({ dragItem: null });
+  if (!item) return;
+  useStore.setState({ layoutPending: true });
+  socket?.send(JSON.stringify({ c: 'layout_edit', edits: [{ key: item.key, at: [item.x, item.y] }] }));
+}
+
+/** Сбросить расстановку офиса к пресету — весь оверрайд целиком. */
+export function resetLayout(): void {
+  useStore.setState({ layoutPending: true });
+  socket?.send(JSON.stringify({ c: 'layout_reset' }));
 }
 
 export function reset(): void {

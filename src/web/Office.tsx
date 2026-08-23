@@ -1,5 +1,5 @@
-import { useLayoutEffect, useRef, useState } from 'react';
-import { useStore } from './store';
+import { useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { endDrag, startDrag, updateDrag, useStore } from './store';
 import { agentSpriteName, spriteOf } from './sprites';
 import { catalog, furnitureZ, roomFor, spriteSize } from './layoutData';
 import { deskPoint } from '../shared/layout';
@@ -32,10 +32,13 @@ export function Office({ onOpen, onDoor }: {
   const meeting = useStore((s) => s.meeting);
   const theme = useStore((s) => s.theme);
   const tasks = useStore((s) => s.tasks);
-  const layoutId = useStore((s) => s.settings.layoutId);
-  const room = roomFor(layoutId);
+  const layout = useStore((s) => s.layout);
+  const editingLayout = useStore((s) => s.editingLayout);
+  const dragItem = useStore((s) => s.dragItem);
+  const room = roomFor(layout);
   const img = (name: string) => spriteOf(theme, name);
   const boxRef = useRef<HTMLDivElement>(null);
+  const officeRef = useRef<HTMLDivElement>(null);
   const [scale, setScale] = useState(1);
   const [roomCols, roomCells] = room.layout.size;
 
@@ -63,6 +66,32 @@ export function Office({ onOpen, onDoor }: {
     return () => ro.disconnect();
   }, [roomCols, roomCells]);
 
+  /**
+   * Пока предмет взят мышью, ведём его за курсором: мировые координаты
+   * считаются от рамки `.office` (она и есть система координат сетки —
+   * левый верхний угол это [0,0] в тайлах) и делятся на текущий масштаб,
+   * потому что сама рамка отрисована через CSS `transform: scale`.
+   * Слушатели вешаются на `window`, а не на предмет, — курсор во время
+   * перетаскивания обычно уходит за его границы.
+   */
+  const draggingKey = dragItem?.key ?? null;
+  useEffect(() => {
+    if (!draggingKey) return;
+    const el = officeRef.current;
+    if (!el) return;
+    const onMove = (e: MouseEvent) => {
+      const rect = el.getBoundingClientRect();
+      updateDrag((e.clientX - rect.left) / (C * scale), (e.clientY - rect.top) / (C * scale));
+    };
+    const onUp = () => endDrag();
+    window.addEventListener('mousemove', onMove);
+    window.addEventListener('mouseup', onUp);
+    return () => {
+      window.removeEventListener('mousemove', onMove);
+      window.removeEventListener('mouseup', onUp);
+    };
+  }, [draggingKey, scale]);
+
   const list = Object.values(instances);
   const busyDesks = new Set(list.map((i) => i.desk.index));
   const inMeeting = new Set(meeting?.status === 'running' ? meeting.participants : []);
@@ -71,7 +100,8 @@ export function Office({ onOpen, onDoor }: {
   return (
     <div className="office-box" ref={boxRef}>
     <div
-      className="office"
+      className={`office${editingLayout ? ' editing' : ''}`}
+      ref={officeRef}
       style={{
         width: px(roomCols), height: px(roomCells),
         transform: `scale(${scale})`,
@@ -123,15 +153,27 @@ export function Office({ onOpen, onDoor }: {
         <img src={img(room.entrance.sprite!)} alt="" />
       </button>
 
-      {room.placedProps.map((p) => (
-        <img
-          key={p.key} className="decor" src={img(p.sprite)} alt=""
-          style={{
-            left: px(p.x), top: px(p.y), zIndex: p.z,
-            ...(p.scale ? { transform: `scale(${p.scale})`, transformOrigin: 'top left' } : {}),
-          }}
-        />
-      ))}
+      {room.placedProps.map((p) => {
+        const dragging = draggingKey === p.key;
+        // Во время перетаскивания позиция превью держится в сторе (dragItem),
+        // а не в самом предмете — так на отпускании кнопки уходит ровно та
+        // точка, которую видел пользователь.
+        const x = dragging && dragItem ? dragItem.x : p.x;
+        const y = dragging && dragItem ? dragItem.y : p.y;
+        const z = dragging ? 9999 : p.z;
+        return (
+          <img
+            key={p.key}
+            className={`decor${editingLayout ? ' edit-target' : ''}${dragging ? ' dragging' : ''}`}
+            src={img(p.sprite)} alt=""
+            style={{
+              left: px(x), top: px(y), zIndex: z,
+              ...(p.scale ? { transform: `scale(${p.scale})`, transformOrigin: 'top left' } : {}),
+            }}
+            onMouseDown={editingLayout ? (e) => { e.preventDefault(); startDrag(p.key, p.x, p.y); } : undefined}
+          />
+        );
+      })}
 
       {/* свободные рабочие места: сам стол уже нарисован как предмет из
           room.placedProps — здесь только «призрак»-подсказка поверх пустующих */}

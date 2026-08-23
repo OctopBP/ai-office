@@ -357,6 +357,12 @@ button
 .decor { position: absolute; z-index: 2; }
 .desk-img { position: absolute; }
 
+/* ---------- редактор расстановки ---------- */
+.office.editing { box-shadow: inset 0 0 0 2px var(--accent); }
+.decor.edit-target { cursor: grab; }
+.decor.edit-target:hover { filter: drop-shadow(0 0 3px var(--accent)); }
+.decor.dragging { cursor: grabbing; opacity: .8; filter: drop-shadow(0 0 6px var(--accent)); }
+
 .office .agent {
   position: absolute; width: 48px; cursor: pointer;
   transition: left .9s ease, top .9s ease;
