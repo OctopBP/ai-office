@@ -470,3 +470,158 @@ export function passability(layout: Layout, catalog: Catalog): Passability {
 
   return p;
 }
+
+// ---------- Поиск пути A* (§7) ----------
+
+/** Ортогональный шаг стоит 1, диагональный — √2 (единицы — тайлы). */
+const STEP_ORTHO = 1;
+const STEP_DIAGONAL = Math.SQRT2;
+
+/** 8 направлений соседей: [dx, dy, цена шага]. */
+const NEIGHBORS: [number, number, number][] = [
+  [1, 0, STEP_ORTHO], [-1, 0, STEP_ORTHO], [0, 1, STEP_ORTHO], [0, -1, STEP_ORTHO],
+  [1, 1, STEP_DIAGONAL], [1, -1, STEP_DIAGONAL], [-1, 1, STEP_DIAGONAL], [-1, -1, STEP_DIAGONAL],
+];
+
+/** Октильная эвристика — согласована с ценой диагонали, не переоценивает путь. */
+function octileHeuristic(ax: number, ay: number, bx: number, by: number): number {
+  const dx = Math.abs(ax - bx);
+  const dy = Math.abs(ay - by);
+  return Math.max(dx, dy) + (STEP_DIAGONAL - 1) * Math.min(dx, dy);
+}
+
+function reconstructCells(cameFrom: Map<number, number>, cols: number, endIdx: number): Pos[] {
+  const path: Pos[] = [];
+  let idx: number | undefined = endIdx;
+  while (idx !== undefined) {
+    path.push({ x: idx % cols, y: Math.floor(idx / cols) });
+    idx = cameFrom.get(idx);
+  }
+  path.reverse();
+  return path;
+}
+
+/** Клетки, которые пересекает отрезок между двумя клетками (алгоритм Брезенхэма). */
+function lineCells(ax: number, ay: number, bx: number, by: number): Pos[] {
+  const cells: Pos[] = [{ x: ax, y: ay }];
+  let x = ax;
+  let y = ay;
+  const dx = Math.abs(bx - ax);
+  const dy = Math.abs(by - ay);
+  const sx = ax < bx ? 1 : -1;
+  const sy = ay < by ? 1 : -1;
+  let err = dx - dy;
+  while (x !== bx || y !== by) {
+    const e2 = 2 * err;
+    if (e2 > -dy) { err -= dy; x += sx; }
+    if (e2 < dx) { err += dx; y += sy; }
+    cells.push({ x, y });
+  }
+  return cells;
+}
+
+/**
+ * Прямая видимость между клетками: ни одна не занята, и ни один диагональный
+ * отрезок трассы не срезает угол (то же правило, что у соседей A*). Нужно
+ * для «протягивания» пути.
+ */
+function hasLineOfSight(p: Passability, a: Pos, b: Pos): boolean {
+  const cells = lineCells(a.x, a.y, b.x, b.y);
+  for (let i = 0; i < cells.length; i++) {
+    const c = cells[i];
+    if (isBlocked(p, c.x, c.y)) return false;
+    if (i > 0) {
+      const prev = cells[i - 1];
+      const ddx = c.x - prev.x;
+      const ddy = c.y - prev.y;
+      if (ddx !== 0 && ddy !== 0 && (isBlocked(p, prev.x + ddx, prev.y) || isBlocked(p, prev.x, prev.y + ddy))) {
+        return false;
+      }
+    }
+  }
+  return true;
+}
+
+/** Упрощение пути «протягиванием»: выкидывает узлы, до которых видно напрямую от якоря. */
+function simplifyCells(p: Passability, path: Pos[]): Pos[] {
+  if (path.length <= 2) return path;
+  const result: Pos[] = [path[0]];
+  let anchor = 0;
+  for (let i = 2; i < path.length; i++) {
+    if (!hasLineOfSight(p, path[anchor], path[i])) {
+      result.push(path[i - 1]);
+      anchor = i - 1;
+    }
+  }
+  result.push(path[path.length - 1]);
+  return result;
+}
+
+/**
+ * Поиск пути A* по сетке проходимости (§7): 8 направлений, диагональ дороже
+ * ортогонали (√2), диагональ запрещена, если хотя бы один из двух
+ * ортогональных соседей угла занят, — иначе путь срезал бы угол сквозь
+ * стену вплотную к её кромке. Путь возвращается ломаной в мировых
+ * координатах: концы — это ровно переданные `start`/`goal` (для плавного
+ * начала и конца анимации), промежуточные точки — центры клеток, лишние из
+ * них уже выкинуты «протягиванием» (простой отрезок без пересечения занятых
+ * клеток не нуждается в промежуточном узле).
+ *
+ * Если старт или цель не входят в сетку либо заняты — возвращает `null`
+ * (не бросает исключение). Если путь физически недостижим (изолированная
+ * зона), тоже возвращает `null`, когда открытый список A* исчерпан.
+ */
+export function findPath(p: Passability, start: Pos, goal: Pos): Pos[] | null {
+  const sx = Math.floor(start.x);
+  const sy = Math.floor(start.y);
+  const gx = Math.floor(goal.x);
+  const gy = Math.floor(goal.y);
+  if (isBlocked(p, sx, sy) || isBlocked(p, gx, gy)) return null;
+
+  if (sx === gx && sy === gy) return [{ ...start }, { ...goal }];
+
+  const startIdx = cellIndex(p, sx, sy);
+  const goalIdx = cellIndex(p, gx, gy);
+
+  const gScore = new Map<number, number>([[startIdx, 0]]);
+  const cameFrom = new Map<number, number>();
+  const open = new Map<number, number>([[startIdx, octileHeuristic(sx, sy, gx, gy)]]);
+  const closed = new Set<number>();
+
+  while (open.size > 0) {
+    let currentIdx = -1;
+    let bestF = Infinity;
+    for (const [idx, f] of open) {
+      if (f < bestF) { bestF = f; currentIdx = idx; }
+    }
+    if (currentIdx === goalIdx) {
+      const cells = simplifyCells(p, reconstructCells(cameFrom, p.cols, currentIdx));
+      return cells.map((c, i) => {
+        if (i === 0) return { ...start };
+        if (i === cells.length - 1) return { ...goal };
+        return { x: c.x + 0.5, y: c.y + 0.5 };
+      });
+    }
+    open.delete(currentIdx);
+    closed.add(currentIdx);
+    const cx = currentIdx % p.cols;
+    const cy = Math.floor(currentIdx / p.cols);
+    const currentG = gScore.get(currentIdx)!;
+
+    for (const [dx, dy, cost] of NEIGHBORS) {
+      const nx = cx + dx;
+      const ny = cy + dy;
+      if (isBlocked(p, nx, ny)) continue;
+      if (dx !== 0 && dy !== 0 && (isBlocked(p, cx + dx, cy) || isBlocked(p, cx, cy + dy))) continue;
+      const nIdx = cellIndex(p, nx, ny);
+      if (closed.has(nIdx)) continue;
+      const tentativeG = currentG + cost;
+      if (tentativeG < (gScore.get(nIdx) ?? Infinity)) {
+        cameFrom.set(nIdx, currentIdx);
+        gScore.set(nIdx, tentativeG);
+        open.set(nIdx, tentativeG + octileHeuristic(nx, ny, gx, gy));
+      }
+    }
+  }
+  return null;
+}
