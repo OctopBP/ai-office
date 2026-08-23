@@ -9,9 +9,10 @@
  * рассылка знает про клиента ровно то, что описано в `Sink`.
  */
 import type { ClientCommand, OfficeOp, ServerEvent } from '../shared/types';
-import { office, officeViews, runningTasksOf } from './state';
+import { getOffice, isOpened, office, officeViews, runningTasksOf, type OfficeState } from './state';
 import {
-  createOffice, officeById, removeOffice, renameOffice, setCurrent, type OfficeEntry,
+  createOffice, currentOffice, officeById, removeOffice, renameOffice, setCurrent,
+  type OfficeEntry,
 } from './offices';
 
 /**
@@ -45,9 +46,20 @@ export function initOfficeApi(hooks: { openOffice: (entry: OfficeEntry) => Promi
   openOffice = hooks.openOffice;
 }
 
-/** Подписать клиента на открытый офис. */
+/**
+ * Офис для только что подключившегося клиента: тот, который человек открывал
+ * последним. Берём его из реестра, а не из `office`: тот показывает, какой
+ * офис последним поднимали в память, а это не одно и то же — вернуться можно
+ * и в уже поднятый, поднимать его при этом не надо.
+ */
+function defaultState(): OfficeState {
+  const current = currentOffice();
+  return current && isOpened(current.id) ? getOffice(current.id) : office;
+}
+
+/** Подписать клиента на офис, который человек открывал последним. */
 export function watch(ws: Sink): void {
-  clients.set(ws, office.officeId);
+  clients.set(ws, defaultState().officeId);
 }
 
 export function unwatch(ws: Sink): void {
@@ -57,6 +69,21 @@ export function unwatch(ws: Sink): void {
 /** Какой офис смотрит клиент. null — клиент не подключён. */
 export function watching(ws: Sink): string | null {
   return clients.get(ws) ?? null;
+}
+
+/**
+ * Офис, на который действует команда клиента, — тот, который он открыл.
+ * null — офис ещё не поднят (клиент прислал команду, пока тот открывается):
+ * применять её не к чему, и вызывающий говорит об этом человеку.
+ *
+ * Брать `office` вместо этого нельзя: клиентов несколько, смотрят они разные
+ * офисы, и «текущий на процесс» отправил бы остановку задачи или сообщение
+ * менеджеру в чужой проект.
+ */
+export function stateFor(ws: Sink): OfficeState | null {
+  const id = clients.get(ws);
+  if (!id || !isOpened(id)) return null;
+  return getOffice(id);
 }
 
 /**
@@ -70,14 +97,43 @@ export function broadcast(event: ServerEvent, officeId: string): void {
     if (seen !== officeId) continue;
     if (ws.readyState === OPEN) ws.send(payload);
   }
+  // Работа любого офиса — включая тот, который сейчас никто не смотрит, —
+  // меняет сводку в списке офисов. Иначе индикатор активности замирал бы
+  // ровно тогда, когда он и нужен: пока человек работает в соседнем проекте.
+  // Запрос доступа важен не меньше задачи: он останавливает работу до
+  // возвращения человека, и в списке это должно быть видно сразу.
+  if (event.t === 'task' || event.t === 'permission.request' || event.t === 'permission.resolved') {
+    scheduleOffices();
+  }
+}
+
+/**
+ * Сколько копим изменения доски, прежде чем разослать список офисов. Список
+ * идёт всем клиентам и считается по всем офисам, а задачи меняются пачками:
+ * без склейки один прогон конвейера рассылал бы его десятки раз.
+ */
+const OFFICES_DEBOUNCE_MS = 1000;
+let officesTimer: NodeJS.Timeout | null = null;
+
+function scheduleOffices(): void {
+  // Некому показывать — незачем и считать: сводка ходит по файлам состояния
+  // неоткрытых офисов, а офис вполне может работать вообще без клиентов.
+  if (officesTimer || clients.size === 0) return;
+  officesTimer = setTimeout(() => {
+    officesTimer = null;
+    broadcastOffices();
+  }, OFFICES_DEBOUNCE_MS);
+  // Не держим процесс живым ради обновления списка.
+  officesTimer.unref?.();
 }
 
 export function send(ws: Sink, event: ServerEvent): void {
   if (ws.readyState === OPEN) ws.send(JSON.stringify(event));
 }
 
-export function broadcastSnapshot(): void {
-  broadcast(office.snapshot(), office.officeId);
+/** Разослать снапшот офиса тем, кто смотрит именно его. */
+export function broadcastSnapshot(state: OfficeState): void {
+  broadcast(state.snapshot(), state.officeId);
 }
 
 /**
@@ -97,10 +153,10 @@ export function broadcastOffices(): void {
  * Закрытый сокет в карту не возвращаем: между командой и ответом вкладку
  * успевают закрыть, а карта живёт до конца процесса.
  */
-export function sendSnapshot(ws: Sink): void {
+export function sendSnapshot(ws: Sink, state: OfficeState = defaultState()): void {
   if (ws.readyState !== OPEN) return;
-  clients.set(ws, office.officeId);
-  ws.send(JSON.stringify(office.snapshot()));
+  clients.set(ws, state.officeId);
+  ws.send(JSON.stringify(state.snapshot()));
 }
 
 /**
@@ -112,7 +168,11 @@ export function sendSnapshot(ws: Sink): void {
  */
 function refuse(op: OfficeOp, officeId: string | null, message: string, ws?: Sink): void {
   if (ws) send(ws, { t: 'office.error', op, officeId, message });
-  office.addChat('офис', message);
+  // Реплика ложится в чат того офиса, где сидит просивший, а не «текущего на
+  // процесс»: у соседнего клиента открыт другой проект, и запись про чужую
+  // неудачу была бы там мусором.
+  const here = ws ? stateFor(ws) : null;
+  (here ?? office).addChat('офис', message);
 }
 
 /**
@@ -132,28 +192,62 @@ export async function switchOffice(officeId: string, ws?: Sink): Promise<void> {
     refuse('switch', officeId, `Офис ${officeId} не найден — похоже, список устарел.`, ws);
     return;
   }
-  if (target.id === office.officeId) {
-    setCurrent(target.id);
-    if (ws) sendSnapshot(ws);
-    broadcastOffices();
-    return;
+
+  // Офис, который человек покидает, продолжает работать: задачи, сессии и
+  // таймеры мы не трогаем. Но хвост его записи дописываем сразу — у каждого
+  // офиса свой файл и свой отложенный таймер, а вкладку закрывают и раньше,
+  // чем тот дотикает.
+  const leaving = ws ? stateFor(ws) : null;
+  if (leaving && leaving.officeId !== target.id) leaving.flush();
+  setCurrent(target.id);
+
+  let firstOpen = false;
+  if (!isOpened(target.id)) {
+    try {
+      firstOpen = await openOnce(target);
+    } catch (err) {
+      refuse('switch', target.id,
+        `Офис «${target.name}» не открылся: ${(err as Error).message}. ` +
+        'Проверьте, что директория проекта на месте и доступна, и попробуйте снова.', ws);
+      return;
+    }
   }
 
-  setCurrent(target.id);
-  // Досохраняем именно покидаемый офис: openOffice ниже переставит `office`.
-  // Хвост его записи после этого идёт в его собственный файл — путь хранится
-  // в самом состоянии, а не в общем на процесс хранилище.
-  office.flush();
-  await openOffice(target);
-  office.addLog(null, 'system', `Открыт офис «${target.name}» (${target.projectDir})`);
-  // Сначала тем, кто уже смотрел этот офис, потом просившему: он до сих пор
-  // числится за прежним офисом, и sendSnapshot заодно перепишет его выбор —
-  // иначе он получил бы снапшот дважды.
-  broadcastSnapshot();
-  if (ws) sendSnapshot(ws);
+  const state = getOffice(target.id);
+  if (firstOpen) {
+    state.addLog(null, 'system', `Открыт офис «${target.name}» (${target.projectDir})`);
+    // Тем, кто уже ждёт этот офис, — целиком: события открытия прошли мимо них.
+    broadcastSnapshot(state);
+  }
+  // Просившему снапшот уходит всегда, даже если офис уже был открыт: иначе
+  // экран входа остался бы ждать ответа, которого нет. sendSnapshot заодно
+  // перепишет его подписку — с этой минуты он смотрит новый офис.
+  if (ws) sendSnapshot(ws, state);
   // Отметка «открыт сейчас» переехала на другую строку — это касается всех,
   // включая тех, кто сидит в меню и офис ещё не выбрал.
   broadcastOffices();
+}
+
+/**
+ * Офисы, которые прямо сейчас открываются. Открытие ходит в файловую систему
+ * и git, поэтому длится, а команд за это время может прийти сколько угодно:
+ * два клиента входят в один офис одновременно, человек жмёт по списку дважды.
+ * Второй заход обязан дождаться первого, а не поднять офису вторую доску,
+ * второго надзирателя и второй набор сессий.
+ */
+const opening = new Map<string, Promise<void>>();
+
+/** Возвращает true, если офис поднял именно этот заход, а не тот, кого он ждал. */
+async function openOnce(entry: OfficeEntry): Promise<boolean> {
+  const already = opening.get(entry.id);
+  if (already) {
+    await already;
+    return false;
+  }
+  const started = openOffice(entry).finally(() => opening.delete(entry.id));
+  opening.set(entry.id, started);
+  await started;
+  return true;
 }
 
 /**
@@ -161,6 +255,8 @@ export async function switchOffice(officeId: string, ws?: Sink): Promise<void> {
  * разбирает общий обработчик в index.ts.
  */
 export function handleOfficeCommand(cmd: ClientCommand, ws: Sink): boolean {
+  // Куда писать в ленту о случившемся: офис просившего. Он же адресат отказов.
+  const here = stateFor(ws) ?? office;
   if (cmd.c === 'list_offices') {
     send(ws, { t: 'offices', offices: officeViews() });
     return true;
@@ -178,7 +274,7 @@ export function handleOfficeCommand(cmd: ClientCommand, ws: Sink): boolean {
       return true;
     }
     if (made.restored) {
-      office.addLog(null, 'system',
+      here.addLog(null, 'system',
         `Офис «${made.office.name}» вернулся в список вместе со своей доской`);
     }
     broadcastOffices();
@@ -210,7 +306,7 @@ export function handleOfficeCommand(cmd: ClientCommand, ws: Sink): boolean {
     if (problem) {
       refuse('remove', cmd.officeId, problem, ws);
     } else {
-      office.addLog(null, 'system',
+      here.addLog(null, 'system',
         `Офис «${name}» убран из списка. Файлы проекта и его доска остались на диске.`);
       broadcastOffices();
     }

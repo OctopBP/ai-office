@@ -3,10 +3,10 @@ import { createServer } from 'node:http';
 import { mkdirSync, existsSync, writeFileSync, readFileSync, statSync } from 'node:fs';
 import { extname, resolve } from 'node:path';
 import type { ClientCommand, ServerEvent } from '../shared/types';
-import { office, officeViews, openOfficeState, subscribeOffices } from './state';
+import { officeViews, openedOffices, openOfficeState, subscribeOffices, type OfficeState } from './state';
 import {
-  broadcast, broadcastSnapshot, handleOfficeCommand, initOfficeApi, sendSnapshot,
-  unwatch, watch, watching,
+  broadcast, broadcastSnapshot, handleOfficeCommand, initOfficeApi, send, sendSnapshot,
+  stateFor, unwatch, watch, watching,
 } from './office-api';
 import { assignDirect, holdMeeting, resetSessions, retryTask, sendUserMessage, setPaused, stopTask, taskDiff, talkTo } from './agents';
 import { mergeQueue, refreshMergeChecks } from './merge';
@@ -16,7 +16,6 @@ import { githubToken, setGithubToken } from './cloud';
 import { clearInitFlag, currentOffice, ensureOffice, loadRegistry, setCurrent, type OfficeEntry } from './offices';
 import { hasCommits, initRepo, isRepo } from './git';
 import { isPermissionMode } from './permissions';
-import { allRoles } from './roles';
 import { flushAll } from './store';
 
 const PORT = Number(process.env.OFFICE_PORT ?? 3001);
@@ -26,20 +25,26 @@ const DEFAULT_DIR = resolve(process.env.OFFICE_PROJECT_DIR ?? './workspace');
 const DRY_RUN = process.env.OFFICE_DRY_RUN === '1';
 if (DRY_RUN) console.log('🧪 Режим проверки PM: исполнители заглушены');
 
+// Источник доступа важен: с ключом расход идёт в платный API, без него —
+// в лимиты подписки Claude Code. Ключ имеет приоритет и подменяет подписку молча.
+// Это тоже свойство запуска: его получает каждый открываемый офис.
+const USING_KEY = Boolean(process.env.ANTHROPIC_API_KEY || process.env.ANTHROPIC_AUTH_TOKEN);
+const AUTH_SOURCE = USING_KEY ? 'api-key' : 'subscription';
+
 /**
  * Изоляция задач через git worktree работает только в репозитории.
  * Директорию, которую создали мы сами, инициализируем; чужую — не трогаем,
  * только сообщаем, что изоляция выключена.
  */
-async function setupGit(dir: string, ours: boolean): Promise<void> {
+async function setupGit(state: OfficeState, dir: string, ours: boolean): Promise<void> {
   if (ours && !(await isRepo(dir))) {
     const ok = await initRepo(dir);
     console.log(ok
       ? '🌱 Рабочая директория инициализирована как git-репозиторий'
       : '⚠️  Не удалось инициализировать git — изоляция задач выключена');
   }
-  office.gitReady = (await isRepo(dir)) && (await hasCommits(dir));
-  console.log(office.gitReady
+  state.gitReady = (await isRepo(dir)) && (await hasCommits(dir));
+  console.log(state.gitReady
     ? '🌿 Изоляция задач включена: каждая задача получает свой worktree'
     : `⚠️  ${dir} — не git-репозиторий с коммитами. Параллельные исполнители` +
       ' будут работать в общей директории и могут конфликтовать.' +
@@ -50,10 +55,10 @@ async function setupGit(dir: string, ours: boolean): Promise<void> {
  * Роли могут работать в своих репозиториях. Проверяем их на старте: узнать,
  * что путь неверный, из проваленной задачи — слишком поздно.
  */
-async function reportRoleRepos(): Promise<void> {
-  for (const role of allRoles()) {
-    const dir = office.repoFor(role);
-    if (dir === office.projectDir) continue;
+async function reportRoleRepos(state: OfficeState): Promise<void> {
+  for (const role of state.roles()) {
+    const dir = state.repoFor(role);
+    if (dir === state.projectDir) continue;
     const ready = (await isRepo(dir)) && (await hasCommits(dir));
     console.log(ready
       ? `   ${role.emoji} ${role.title} → ${dir}`
@@ -62,7 +67,12 @@ async function reportRoleRepos(): Promise<void> {
   }
 }
 
-/** Открыть офис: своё состояние, своя рабочая директория, свой git. */
+/**
+ * Открыть офис: своё состояние, своя рабочая директория, свой git, свой надзор.
+ * Открытых офисов может быть несколько сразу, и каждый работает сам по себе:
+ * уже поднятый второй раз не поднимается — иначе он получил бы второго
+ * надзирателя и лишний поход в git на каждое возвращение человека.
+ */
 async function openOffice(entry: OfficeEntry): Promise<void> {
   // Свою директорию офис заводит сам, чужую не трогает: от этого зависит,
   // можно ли делать в ней git init.
@@ -78,14 +88,19 @@ async function openOffice(entry: OfficeEntry): Promise<void> {
   }
 
   // Состояние берётся из реестра: у каждого офиса оно своё и живёт до конца
-  // процесса, поэтому `office` здесь просто переставляется на нужное.
+  // процесса — вернувшийся офис продолжается, а не читается заново.
   const { state, restored, reused } = openOfficeState(entry);
-  state.dryRun = DRY_RUN;
   const board = `задач ${state.tasks.size}, сообщений ${state.chat.length}`;
-  if (reused) console.log(`🔁 Офис «${entry.name}» уже открыт в этом запуске: ${board}`);
-  else if (restored) console.log(`💾 Офис «${entry.name}» восстановлен: ${board}`);
-  await setupGit(entry.projectDir, ours);
-  await reportRoleRepos();
+  if (reused) {
+    console.log(`🔁 Офис «${entry.name}» уже открыт в этом запуске: ${board}`);
+    return;
+  }
+  if (restored) console.log(`💾 Офис «${entry.name}» восстановлен: ${board}`);
+  state.dryRun = DRY_RUN;
+  state.authSource = AUTH_SOURCE;
+  state.setCloud({ hasKey: USING_KEY, hasToken: Boolean(githubToken()) });
+  await setupGit(state, entry.projectDir, ours);
+  await reportRoleRepos(state);
   clearInitFlag(entry.id);
   // Офис сам следит, что сданная работа доезжает до основной ветки: ветки,
   // оставшиеся с прошлого запуска, поедут без единого нажатия.
@@ -198,72 +213,87 @@ wss.on('connection', (ws) => {
     // живут в своём модуле вместе с правилами рассылки.
     if (handleOfficeCommand(cmd, ws)) return;
 
+    // Всё остальное — про один конкретный офис, и это офис ЭТОГО клиента.
+    // Клиентов несколько, смотрят они разные проекты: брать «открытый на
+    // процесс» значило бы останавливать задачи и писать менеджеру в чужой офис.
+    const state = stateFor(ws);
+    if (!state) {
+      const officeId = watching(ws);
+      send(ws, {
+        t: 'office.error', op: 'open', officeId,
+        message: 'Офис ещё открывается — команда не выполнена. Повторите через секунду.',
+      });
+      return;
+    }
+
     if (cmd.c === 'user_message' && cmd.text.trim()) {
-      sendUserMessage(cmd.text.trim());
+      sendUserMessage(state, cmd.text.trim());
     } else if (cmd.c === 'permission') {
-      office.resolvePermission(cmd.id, cmd.decision);
+      state.resolvePermission(cmd.id, cmd.decision);
     } else if (cmd.c === 'merge_task') {
       // Слияние одной задачи — та же очередь длиной в один шаг: и проверка
       // сборки после, и пересчёт статусов работают одинаково.
-      void mergeQueue([cmd.taskId]);
+      void mergeQueue([cmd.taskId], state);
     } else if (cmd.c === 'merge_check') {
-      void refreshMergeChecks();
+      void refreshMergeChecks(state);
     } else if (cmd.c === 'merge_queue') {
-      void mergeQueue(cmd.taskIds);
+      void mergeQueue(cmd.taskIds, state);
     } else if (cmd.c === 'pr_retry') {
       // Вставший конвейер толкают кнопкой: чинить руками в терминале —
       // ровно то, от чего офис и должен избавлять.
-      retryPipeline(office, cmd.taskId);
+      retryPipeline(state, cmd.taskId);
     } else if (cmd.c === 'spawn' || cmd.c === 'hire') {
       // Наём: и первый сотрудник в пустую роль, и очередной клон — одно и то же
       // действие, отличается только тем, сколько народу в роли уже сидит.
-      const problem = office.hire(cmd.roleId);
-      if (problem) office.addChat('офис', problem);
+      const problem = state.hire(cmd.roleId);
+      if (problem) state.addChat('офис', problem);
     } else if (cmd.c === 'fire') {
-      const problem = office.fire(cmd.instanceId);
-      if (problem) office.addChat('офис', problem);
+      const problem = state.fire(cmd.instanceId);
+      if (problem) state.addChat('офис', problem);
     } else if (cmd.c === 'update_role') {
-      office.updateRole(cmd.roleId, cmd.patch);
+      state.updateRole(cmd.roleId, cmd.patch);
     } else if (cmd.c === 'agent_permission') {
       // null — снять личное правило и вернуть сотрудника к режиму роли;
       // мусорное значение молча игнорируем, а не выдаём за режим.
       if (cmd.mode === null || isPermissionMode(cmd.mode)) {
-        office.setAgentPermissionMode(cmd.instanceId, cmd.mode);
+        state.setAgentPermissionMode(cmd.instanceId, cmd.mode);
       }
     } else if (cmd.c === 'settings') {
       // Отказ по настройкам говорим тем же способом, что и по найму: текст
       // готов к показу, придумывать формулировку клиенту не нужно.
-      const problem = office.updateSettings(cmd.settings);
-      if (problem) office.addChat('офис', problem);
+      const problem = state.updateSettings(cmd.settings);
+      if (problem) state.addChat('офис', problem);
     } else if (cmd.c === 'layout_edit') {
       // Расстановку правит человек мышью: отказ («предмета нет», «позиция за
       // стеной») говорим тем же способом, что и по настройкам — готовым текстом.
-      const problem = office.editLayout(cmd.edits);
-      if (problem) office.addChat('офис', problem);
+      const problem = state.editLayout(cmd.edits);
+      if (problem) state.addChat('офис', problem);
     } else if (cmd.c === 'layout_reset') {
-      const problem = office.resetLayout(cmd.key);
-      if (problem) office.addChat('офис', problem);
+      const problem = state.resetLayout(cmd.key);
+      if (problem) state.addChat('офис', problem);
     } else if (cmd.c === 'talk' && cmd.text.trim()) {
-      talkTo(cmd.instanceId, cmd.text.trim());
+      talkTo(state, cmd.instanceId, cmd.text.trim());
     } else if (cmd.c === 'stop_task') {
-      stopTask(cmd.taskId);
+      stopTask(state, cmd.taskId);
     } else if (cmd.c === 'retry_task') {
-      void retryTask(cmd.taskId);
+      void retryTask(state, cmd.taskId);
     } else if (cmd.c === 'task_diff') {
-      void taskDiff(cmd.taskId);
+      void taskDiff(state, cmd.taskId);
     } else if (cmd.c === 'assign_direct') {
-      assignDirect(cmd.taskId, cmd.instanceId);
+      assignDirect(state, cmd.taskId, cmd.instanceId);
     } else if (cmd.c === 'pause') {
-      setPaused(cmd.paused);
+      setPaused(state, cmd.paused);
     } else if (cmd.c === 'cloud_token') {
+      // Токен один на процесс, поэтому готовность облака меняется сразу во
+      // всех поднятых офисах, а не только в том, из которого его ввели.
       setGithubToken(cmd.token);
-      office.setCloud({ hasToken: Boolean(githubToken()) });
+      for (const open of openedOffices()) open.setCloud({ hasToken: Boolean(githubToken()) });
     } else if (cmd.c === 'meeting' && cmd.topic.trim()) {
-      void holdMeeting(cmd.topic.trim(), cmd.participants);
+      void holdMeeting(state, cmd.topic.trim(), cmd.participants);
     } else if (cmd.c === 'reset') {
-      resetSessions();
-      office.hardReset();
-      broadcastSnapshot();
+      resetSessions(state);
+      state.hardReset();
+      broadcastSnapshot(state);
     }
   });
 
@@ -277,11 +307,6 @@ console.log(built
   ? `🏢 AI Office — откройте http://localhost:${PORT}`
   : `🏢 AI Office — сервер на ws://localhost:${PORT} (веб не собран: npm run build)`);
 console.log(`📁 Команда работает в: ${opened.projectDir}`);
-// Источник доступа важен: с ключом расход идёт в платный API, без него —
-// в лимиты подписки Claude Code. Ключ имеет приоритет и подменяет подписку молча.
-const usingKey = Boolean(process.env.ANTHROPIC_API_KEY || process.env.ANTHROPIC_AUTH_TOKEN);
-office.authSource = usingKey ? 'api-key' : 'subscription';
-office.cloud = { hasKey: usingKey, hasToken: Boolean(githubToken()) };
-console.log(usingKey
+console.log(USING_KEY
   ? '💳 Задан ANTHROPIC_API_KEY — расход идёт в ПЛАТНЫЙ API, а не в подписку Claude Code'
   : '🔑 Ключ API не задан — работаем на авторизации Claude Code (лимиты подписки)');
