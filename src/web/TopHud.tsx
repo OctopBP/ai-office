@@ -1,4 +1,5 @@
-import { ACCESS_LABEL, reset, setPaused, useStore } from './store';
+import { useState } from 'react';
+import { ACCESS_LABEL, reset, resetLayout, setEditingLayout, setPaused, useStore } from './store';
 import { OfficeSwitcher } from './OfficeSwitcher';
 
 const money = (v: number) => `$${v.toFixed(2)}`;
@@ -20,6 +21,9 @@ export function TopHud({ onSettings, onMeeting, onHelp, onUsage, onMergeQueue }:
   const usage = useStore((s) => s.usage);
   const paused = useStore((s) => s.paused);
   const leaveOffice = useStore((s) => s.leaveOffice);
+  const editingLayout = useStore((s) => s.editingLayout);
+  const layouts = useStore((s) => s.layouts);
+  const [confirmReset, setConfirmReset] = useState(false);
 
   const list = Object.values(tasks);
   // «Сегодня» — это сегодня, а не всё время: раньше в HUD стояла общая сумма
@@ -69,6 +73,17 @@ export function TopHud({ onSettings, onMeeting, onHelp, onUsage, onMergeQueue }:
           {paused ? '▶' : '⏸'}
         </button>
         <button className="sq" onClick={onMeeting} title="Созвать совещание — M">👥</button>
+        <button className={`sq ${editingLayout ? 'on' : ''}`}
+          onClick={() => setEditingLayout(!editingLayout)}
+          title={editingLayout
+            ? 'Выключить редактор расстановки'
+            : 'Редактор расстановки: тащите мебель мышью'}>
+          🪑
+        </button>
+        {editingLayout && (
+          <button className="sq" onClick={() => setConfirmReset(true)}
+            title="Сбросить расстановку к пресету">↺</button>
+        )}
         <button className={`sq ${readyToMerge > 0 ? 'alert' : ''}`} onClick={onMergeQueue}
           title="Очередь слияния — Q">
           🔀{readyToMerge > 0 && ` ${readyToMerge}`}
@@ -87,6 +102,25 @@ export function TopHud({ onSettings, onMeeting, onHelp, onUsage, onMergeQueue }:
           {authSource === 'api-key' ? '💳' : '🔑'}
         </span>
       </div>
+
+      {confirmReset && (
+        <div className="modal-backdrop" onClick={() => setConfirmReset(false)}>
+          <div className="modal" onClick={(e) => e.stopPropagation()}>
+            <h3>Сбросить расстановку?</h3>
+            <p>
+              Мебель вернётся туда, где стоит в пресете «
+              {layouts.find((l) => l.id === settings.layoutId)?.title ?? settings.layoutId}
+              ». Все сдвиги мышью пропадут.
+            </p>
+            <div className="modal-actions">
+              <button onClick={() => setConfirmReset(false)}>Отмена</button>
+              <button className="deny" onClick={() => { resetLayout(); setConfirmReset(false); }}>
+                Да, сбросить
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </>
   );
 }
