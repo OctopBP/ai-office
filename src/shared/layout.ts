@@ -38,6 +38,8 @@ export type CatalogSlot = SlotPoint | SlotSide | SlotRing;
 export interface CatalogSprite {
   size: [number, number];
   footprint?: [number, number, number, number];
+  /** footprint блокирует проходимость (§7) — иначе это только визуальный габарит. */
+  blocks?: boolean;
   layer?: string;
   slots?: CatalogSlot[];
 }
@@ -306,7 +308,18 @@ function cellKey(x: number, y: number): string {
  * стена продолжается на юг). Окна — `wall_window` на горизонтальном отрезке,
  * `wall_window_v` на вертикальном.
  */
-export function wallTiles(layout: Layout): WallTile[] {
+interface WallGeometry {
+  present: Set<string>;
+  doorEdge: Map<string, 'l' | 'r' | 't' | 'b'>;
+  windowOrient: Map<string, 'h' | 'v'>;
+}
+
+/**
+ * Геометрия стен раскладки без проёмов дверей — общая для рендера
+ * (`wallTiles`) и сетки проходимости (`passability`, §7): разрывы дверей не
+ * попадают в `present`, поэтому оба потребителя видят один и тот же проход.
+ */
+function wallGeometry(layout: Layout): WallGeometry {
   const walls = layout.walls ?? [];
   const present = new Set<string>();
   const doorEdge = new Map<string, 'l' | 'r' | 't' | 'b'>();
@@ -357,6 +370,11 @@ export function wallTiles(layout: Layout): WallTile[] {
     }
   }
 
+  return { present, doorEdge, windowOrient };
+}
+
+export function wallTiles(layout: Layout): WallTile[] {
+  const { present, doorEdge, windowOrient } = wallGeometry(layout);
   const tiles: WallTile[] = [];
   for (const key of present) {
     const [x, y] = key.split(',').map(Number);
@@ -375,4 +393,80 @@ export function wallTiles(layout: Layout): WallTile[] {
     tiles.push({ x, y, sprite });
   }
   return tiles;
+}
+
+// ---------- Проходимость (§7) ----------
+
+/** Сетка проходимости раскладки: cols×rows, построчно; 1 в `blocked` — тайл занят. */
+export interface Passability {
+  cols: number;
+  rows: number;
+  blocked: Uint8Array;
+}
+
+function cellIndex(p: Passability, x: number, y: number): number {
+  return y * p.cols + x;
+}
+
+/** Тайл вне сетки или помеченный непроходимым (стена, крупная мебель). */
+export function isBlocked(p: Passability, x: number, y: number): boolean {
+  if (x < 0 || y < 0 || x >= p.cols || y >= p.rows) return true;
+  return p.blocked[cellIndex(p, x, y)] === 1;
+}
+
+/**
+ * Сетка проходимости раскладки (§7): непроходимы тайлы стен (те же, что
+ * рисует `wallTiles` — проёмы дверей в `present` не попадают, поэтому там,
+ * где стена разорвана, клетка остаётся свободной) плюс footprint мебели,
+ * помеченной `blocks` в каталоге. Если у такого спрайта нет `footprint`, занятой
+ * считается вся его площадь `size`. Слоты (`work`/`seat`) у всех предметов
+ * расчищаются отдельным проходом следом — иначе агент не встанет на своё
+ * место, если оно попало на кромку footprint соседнего предмета. Кольцевые
+ * слоты (`ring`, переговорка) не расчищаются: их эллипс у нынешней мебели
+ * заведомо больше собственного footprint предмета, пересечения не бывает.
+ */
+export function passability(layout: Layout, catalog: Catalog): Passability {
+  const [cols, rows] = layout.size;
+  const blocked = new Uint8Array(cols * rows);
+  const p: Passability = { cols, rows, blocked };
+  const mark = (x: number, y: number, value: 0 | 1) => {
+    const cx = Math.floor(x);
+    const cy = Math.floor(y);
+    if (cx < 0 || cy < 0 || cx >= cols || cy >= rows) return;
+    blocked[cellIndex(p, cx, cy)] = value;
+  };
+
+  const { present } = wallGeometry(layout);
+  for (const key of present) {
+    const [x, y] = key.split(',').map(Number);
+    mark(x, y, 1);
+  }
+
+  for (const prop of layout.props) {
+    const sprite = spriteOf(catalog, prop.sprite);
+    if (!sprite?.blocks) continue;
+    const scale = prop.scale ?? 1;
+    const [fx, fy, fw, fh] = sprite.footprint ?? [0, 0, sprite.size[0], sprite.size[1]];
+    const x0 = prop.at[0] + fx * scale;
+    const y0 = prop.at[1] + fy * scale;
+    const x1 = x0 + fw * scale;
+    const y1 = y0 + fh * scale;
+    for (let y = Math.floor(y0); y < Math.ceil(y1); y++) {
+      for (let x = Math.floor(x0); x < Math.ceil(x1); x++) mark(x, y, 1);
+    }
+  }
+
+  for (const prop of layout.props) {
+    const sprite = spriteOf(catalog, prop.sprite);
+    for (const slot of sprite?.slots ?? []) {
+      if (isPoint(slot)) {
+        const pt = resolvePoint(prop, slot);
+        mark(pt.x, pt.y, 0);
+      } else if (isSide(slot)) {
+        for (const pt of sideSeats(prop, sprite!, slot)) mark(pt.x, pt.y, 0);
+      }
+    }
+  }
+
+  return p;
 }
