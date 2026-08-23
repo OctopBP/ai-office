@@ -37,7 +37,8 @@
       "size": [
         1.0,
         2.0
-      ]
+      ],
+      "blocks": true
     },
     "beanbag": {
       "size": [
@@ -55,13 +56,15 @@
       "size": [
         1.625,
         1.875
-      ]
+      ],
+      "blocks": true
     },
     "chair": {
       "size": [
         0.875,
         0.8125
-      ]
+      ],
+      "blocks": true
     },
     "clock": {
       "size": [
@@ -91,54 +94,58 @@
       "size": [
         0.625,
         1.5
-      ]
+      ],
+      "blocks": true
     },
     "counter": {
       "size": [
         2.5,
         1.375
-      ]
+      ],
+      "footprint": [
+        0,
+        0.375,
+        2.5,
+        1.0
+      ],
+      "blocks": true
     },
     "counter_corner": {
       "size": [
         2.0,
         2.0
-      ]
+      ],
+      "footprint": [
+        0,
+        0.375,
+        2.0,
+        1.625
+      ],
+      "blocks": true
     },
     "counter_straight": {
       "size": [
         2.0,
         1.375
-      ]
+      ],
+      "footprint": [
+        0,
+        0.375,
+        2.0,
+        1.0
+      ],
+      "blocks": true
     },
     "desk": {
       "size": [
         2.0,
         1.375
       ],
-      "slots": [
-        {
-          "kind": "work",
-          "x": 0.55,
-          "y": -0.75
-        },
-        {
-          "kind": "plate",
-          "x": 0.45,
-          "y": 0.86
-        }
-      ]
-    },
-    "desk_ghost": {
-      "size": [
-        2.0,
-        1.375
-      ]
-    },
-    "desk_pm": {
-      "size": [
-        2.0,
-        1.375
+      "footprint": [
+        0,
+        0.4,
+        2,
+        1.0
       ],
       "slots": [
         {
@@ -151,7 +158,46 @@
           "x": 0.45,
           "y": 0.86
         }
-      ]
+      ],
+      "blocks": true
+    },
+    "desk_ghost": {
+      "size": [
+        2.0,
+        1.375
+      ],
+      "footprint": [
+        0,
+        0.4,
+        2,
+        1.0
+      ],
+      "blocks": true
+    },
+    "desk_pm": {
+      "size": [
+        2.0,
+        1.375
+      ],
+      "footprint": [
+        0,
+        0.4,
+        2,
+        1.0
+      ],
+      "slots": [
+        {
+          "kind": "work",
+          "x": 0.55,
+          "y": -0.75
+        },
+        {
+          "kind": "plate",
+          "x": 0.45,
+          "y": 0.86
+        }
+      ],
+      "blocks": true
     },
     "dining_table": {
       "size": [
@@ -169,7 +215,8 @@
           "side": "s",
           "count": 4
         }
-      ]
+      ],
+      "blocks": true
     },
     "door": {
       "size": [
@@ -265,7 +312,8 @@
       "size": [
         0.875,
         1.875
-      ]
+      ],
+      "blocks": true
     },
     "game_rug": {
       "size": [
@@ -313,13 +361,27 @@
       "size": [
         1.0,
         1.625
-      ]
+      ],
+      "footprint": [
+        0.25,
+        1.1875,
+        0.5,
+        0.4375
+      ],
+      "blocks": true
     },
     "plant_small": {
       "size": [
         0.75,
         1.125
-      ]
+      ],
+      "footprint": [
+        0.125,
+        0.6875,
+        0.5,
+        0.4375
+      ],
+      "blocks": true
     },
     "poster": {
       "size": [
@@ -340,7 +402,8 @@
           "ry": 1.5,
           "grow": true
         }
-      ]
+      ],
+      "blocks": true
     },
     "rug": {
       "size": [
@@ -352,7 +415,8 @@
       "size": [
         0.875,
         1.875
-      ]
+      ],
+      "blocks": true
     },
     "shadow": {
       "size": [
@@ -364,13 +428,21 @@
       "size": [
         2.0,
         1.375
-      ]
+      ],
+      "footprint": [
+        0,
+        0.375,
+        2.0,
+        1.0
+      ],
+      "blocks": true
     },
     "sofa": {
       "size": [
         3.25,
         1.75
-      ]
+      ],
+      "blocks": true
     },
     "sofa_front": {
       "size": [
@@ -382,7 +454,8 @@
       "size": [
         2.0,
         1.875
-      ]
+      ],
+      "blocks": true
     },
     "wall": {
       "size": [
