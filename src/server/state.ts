@@ -5,10 +5,10 @@ import type {
   PermissionDecision, AuthSource, MeetingView, PermissionMode, PermissionRequest, RoleEditable,
   RoleView, ServerEvent, Settings, TaskStatus, TaskView, Usage,
   CloudStatus, OfficeView, MergeCheck, MergeRun, LayoutOption,
+  Layout, LayoutOverride, LayoutPropEdit,
 } from '../shared/types';
 import { emptyUsage, MAX_TASK_MAX_TURNS, MIN_TASK_MAX_TURNS } from '../shared/types';
 import { isEmptyOverride } from '../shared/layout';
-import type { Layout, LayoutOverride, LayoutPropEdit } from '../shared/layout';
 import { activityFromFile, summarize } from './activity';
 import {
   DEFAULT_LAYOUT_ID, checkPropEdit, deskPlan, effectiveLayout, hasLayout, layoutOptions,
@@ -533,7 +533,10 @@ export class OfficeState {
    * Вернуть расстановку к пресету: целиком или один предмет.
    * Возвращает причину отказа по-русски или null.
    */
-  resetLayout(key?: string): string | null {
+  resetLayout(rawKey?: string): string | null {
+    // Имя предмета приходит из сети: не строку считаем «сбросить всё», иначе
+    // в отказ уехало бы «Предмет «[object Object]»».
+    const key = typeof rawKey === 'string' ? rawKey.trim() : '';
     const layoutId = this.settings.layoutId;
     const current = this.layoutOverrides[layoutId];
     if (isEmptyOverride(current)) {
@@ -556,12 +559,15 @@ export class OfficeState {
   }
 
   /**
-   * Оверрайд изменился: пересадить людей по новым координатам столов и
-   * запомнить на диск. Одна точка на все причины правки — иначе какая-нибудь
-   * из них оставила бы человечков сидеть в воздухе.
+   * Раскладка изменилась: разослать её целиком, пересадить людей по новым
+   * координатам столов и запомнить на диск. Одна точка на все причины
+   * (правка предмета, сброс, смена пресета) — иначе какая-нибудь из них
+   * оставила бы клиента рисовать вчерашнюю расстановку, а человечков — сидеть
+   * в воздухе.
    */
   private afterLayoutChange(): void {
     this.resyncDesks();
+    this.emit({ t: 'layout', layout: this.layout(), override: this.override() });
     this.markDirty();
   }
 
@@ -953,9 +959,10 @@ export class OfficeState {
     this.emit({ t: 'settings', settings: this.settings });
     if (this.settings.layoutId !== prevLayout) {
       // Раскладка меняет офис на глаз, а не одно число в форме, — это событие
-      // для ленты. Новые столы уже считаются по ней, но пересадка тех, кто
-      // сидит за старыми, — следующая задача.
+      // для ленты. Вместе с пресетом меняется и оверрайд: у каждого пресета
+      // своя расстановка, и на новом офис показывает то, что правили на нём.
       this.addLog(null, 'system', `Раскладка офиса: «${layoutTitle(this.settings.layoutId)}»`);
+      this.afterLayoutChange();
     }
     // Смена режима офиса меняет эффективный режим всех, кто его наследует, —
     // без этого UI показывал бы старое до следующего снимка.
@@ -1143,6 +1150,8 @@ export class OfficeState {
       usage: { total: this.usage, days: this.usageDays() },
       offices: officeViews(),
       layouts: this.layouts(),
+      layout: this.layout(),
+      layoutOverride: this.override(),
       cloud: this.cloud,
       mergeChecks: [...this.mergeChecks.values()],
       mergeRun: this.mergeRun,

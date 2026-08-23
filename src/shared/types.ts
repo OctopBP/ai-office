@@ -1,5 +1,11 @@
 // Общие типы между сервером и вебом.
 
+// Раскладка и её оверрайд описаны в src/shared/layout.ts — там же, где код,
+// который их считает. Здесь они только перевыставлены: ими пользуются и
+// снапшот, и команды клиента, а разбирать контракт по двум файлам неудобно.
+export type { Layout, LayoutOverride, LayoutPropEdit } from './layout';
+import type { Layout, LayoutOverride, LayoutPropEdit } from './layout';
+
 export type AgentState =
   | 'idle'
   | 'thinking'
@@ -356,6 +362,14 @@ export type ServerEvent =
        * перезапуска. Какая раскладка выбрана — в `settings.layoutId`.
        */
       layouts: LayoutOption[];
+      /**
+       * Итоговая расстановка офиса: пресет с уже наложенным оверрайдом (§8).
+       * Веб рисует комнату по ней, а не по файлу пресета, — иначе сдвинутая
+       * мебель была бы видна только серверу.
+       */
+      layout: Layout;
+      /** Чем расстановка офиса отличается от пресета. null — ничем. */
+      layoutOverride: LayoutOverride | null;
       /** Статусы слияния по завершённым задачам и последний прогон очереди. */
       mergeChecks: MergeCheck[]; mergeRun: MergeRun | null }
   | { t: 'instance'; instance: InstanceView }
@@ -377,6 +391,11 @@ export type ServerEvent =
   | { t: 'usage'; total: Usage; days: DayUsage[] }
   | { t: 'roles'; roles: RoleView[] }
   | { t: 'settings'; settings: Settings }
+  /**
+   * Расстановка офиса изменилась: подвинули предмет, сбросили оверрайд или
+   * сменили пресет. Едет целиком — клиенту нечего доклеивать самому.
+   */
+  | { t: 'layout'; layout: Layout; override: LayoutOverride | null }
   | { t: 'permission.request'; request: PermissionRequest }
   | { t: 'permission.resolved'; id: string; decision: PermissionDecision }
   | { t: 'meeting'; meeting: MeetingView | null }
@@ -405,6 +424,17 @@ export type ClientCommand =
   /** Режим доступа конкретного сотрудника. null — вернуть его к режиму роли. */
   | { c: 'agent_permission'; instanceId: string; mode: PermissionMode | null }
   | { c: 'settings'; settings: Partial<Settings> }
+  /**
+   * Сохранить расстановку: правки поверх выбранного пресета, по одной на
+   * предмет. Присланное накладывается на то, что уже сохранено, — редактор
+   * может слать один сдвинутый стол, а может всю расстановку разом.
+   */
+  | { c: 'layout_edit'; edits: LayoutPropEdit[] }
+  /**
+   * Вернуть расстановку к пресету. С `key` — только этот предмет,
+   * без него — весь оверрайд текущей раскладки.
+   */
+  | { c: 'layout_reset'; key?: string }
   | { c: 'talk'; instanceId: string; text: string }
   | { c: 'stop_task'; taskId: string }
   | { c: 'retry_task'; taskId: string }

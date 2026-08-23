@@ -1,7 +1,6 @@
 import { mkdirSync, readFileSync, renameSync, writeFileSync, existsSync, rmSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
-import type { ChatEntry, LogEntry, PermissionMode, Settings, Usage } from '../shared/types';
-import type { LayoutOverride } from '../shared/layout';
+import type { ChatEntry, LayoutOverride, LogEntry, PermissionMode, Settings, Usage } from '../shared/types';
 import type { Task } from './state';
 import type { Role } from './roles';
 

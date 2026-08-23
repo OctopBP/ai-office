@@ -226,6 +226,14 @@ wss.on('connection', (ws) => {
       // готов к показу, придумывать формулировку клиенту не нужно.
       const problem = office.updateSettings(cmd.settings);
       if (problem) office.addChat('офис', problem);
+    } else if (cmd.c === 'layout_edit') {
+      // Расстановку правит человек мышью: отказ («предмета нет», «позиция за
+      // стеной») говорим тем же способом, что и по настройкам — готовым текстом.
+      const problem = office.editLayout(cmd.edits);
+      if (problem) office.addChat('офис', problem);
+    } else if (cmd.c === 'layout_reset') {
+      const problem = office.resetLayout(cmd.key);
+      if (problem) office.addChat('офис', problem);
     } else if (cmd.c === 'talk' && cmd.text.trim()) {
       talkTo(cmd.instanceId, cmd.text.trim());
     } else if (cmd.c === 'stop_task') {
