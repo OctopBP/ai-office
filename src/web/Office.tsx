@@ -4,7 +4,7 @@ import { agentSpriteName, spriteOf } from './sprites';
 import { catalog, furnitureZ, roomFor, spriteSize } from './layoutData';
 import { deskPoint } from '../shared/layout';
 import { GRID } from '../shared/types';
-import type { AgentState } from '../shared/types';
+import type { AgentState, InstanceView } from '../shared/types';
 
 const C = GRID.cell;
 const px = (tiles: number) => tiles * C;
@@ -96,6 +96,49 @@ export function Office({ onOpen, onDoor }: {
   const busyDesks = new Set(list.map((i) => i.desk.index));
   const inMeeting = new Set(meeting?.status === 'running' ? meeting.participants : []);
   const roleOf = (id: string) => roles.find((r) => r.id === id);
+
+  /** Точка отрисовки агента: если он «дома» за своим столом — нужный отступ
+   * внутри клетки (deskPoint), иначе координата его ходьбы как есть. */
+  const workPointOf = (inst: InstanceView) => {
+    const p = pos[inst.id] ?? { x: inst.desk.x, y: inst.desk.y, ms: 0 };
+    const atDesk = p.x === inst.desk.x && p.y === inst.desk.y;
+    return atDesk ? deskPoint(room.layout, catalog, inst.desk.index, 'work') : p;
+  };
+
+  const agentEls = useRef<Record<string, HTMLDivElement | null>>({});
+  const agentAnims = useRef<Record<string, Animation | undefined>>({});
+  const agentRendered = useRef<Record<string, { left: string; top: string }>>({});
+
+  /**
+   * Ходьба анимируется Web Animations API вместо CSS-перехода с фиксированной
+   * длительностью (§7 спеки docs/design/office-layout/spec.md): длительность
+   * берём из `pos[id].ms`, которую посчитал стор по длине отрезка, — скорость
+   * постоянная, а не «любое расстояние за 900 мс». Если по агенту ещё не
+   * доиграна предыдущая анимация, стартуем новую от его текущей видимой
+   * позиции (getComputedStyle), а не от прежней цели, — иначе прерывание пути
+   * (новая цель на середине отрезка) дёргало бы спрайт назад, чего не было у
+   * CSS-переходов, которые ретаргетятся сами.
+   */
+  useLayoutEffect(() => {
+    list.forEach((inst) => {
+      const el = agentEls.current[inst.id];
+      if (!el) return;
+      const p = pos[inst.id] ?? { x: inst.desk.x, y: inst.desk.y, ms: 0 };
+      const work = workPointOf(inst);
+      const target = { left: `${px(work.x)}px`, top: `${px(work.y)}px` };
+      const prev = agentRendered.current[inst.id];
+      if (prev && prev.left === target.left && prev.top === target.top) return;
+      const cs = prev ? getComputedStyle(el) : null;
+      const from = cs ? { left: cs.left, top: cs.top } : target;
+      agentRendered.current[inst.id] = target;
+      agentAnims.current[inst.id]?.cancel();
+      agentAnims.current[inst.id] = el.animate(
+        [from, target],
+        { duration: Math.max(1, p.ms), easing: 'linear', fill: 'forwards' },
+      );
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pos, instances, room]);
 
   return (
     <div className="office-box" ref={boxRef}>
@@ -202,9 +245,7 @@ export function Office({ onOpen, onDoor }: {
 
       {/* человечки: за своим столом рисуются позади него, в проходе — поверх (y-сортировка, спека §5) */}
       {list.map((inst) => {
-        const p = pos[inst.id] ?? { x: inst.desk.x, y: inst.desk.y };
-        const atDesk = p.x === inst.desk.x && p.y === inst.desk.y;
-        const work = atDesk ? deskPoint(room.layout, catalog, inst.desk.index, 'work') : p;
+        const work = workPointOf(inst);
         const role = roleOf(inst.roleId);
         const icon = STATE_ICON[inst.state];
         const busy = inst.state === 'working' || inst.state === 'thinking';
@@ -212,6 +253,13 @@ export function Office({ onOpen, onDoor }: {
         return (
           <div
             key={inst.id}
+            ref={(el) => {
+              agentEls.current[inst.id] = el;
+              if (!el) {
+                delete agentAnims.current[inst.id];
+                delete agentRendered.current[inst.id];
+              }
+            }}
             className={`agent ${inst.state}${selected === inst.id ? ' selected' : ''}` +
               `${inMeeting.has(inst.id) ? ' in-meeting' : ''}${busy ? ' busy' : ''}`}
             style={{
@@ -231,9 +279,7 @@ export function Office({ onOpen, onDoor }: {
 
       {/* подписи и реплики поверх мебели */}
       {list.map((inst) => {
-        const p = pos[inst.id] ?? { x: inst.desk.x, y: inst.desk.y };
-        const atDesk = p.x === inst.desk.x && p.y === inst.desk.y;
-        const work = atDesk ? deskPoint(room.layout, catalog, inst.desk.index, 'work') : p;
+        const work = workPointOf(inst);
         const role = roleOf(inst.roleId);
         const task = inst.currentTaskId ? tasks[inst.currentTaskId] : null;
         const icon = STATE_ICON[inst.state];
