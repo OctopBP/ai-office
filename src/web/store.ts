@@ -6,8 +6,8 @@ import type {
 } from '../shared/types';
 import { emptyUsage, MIN_TASK_MAX_TURNS, MAX_TASK_MAX_TURNS } from '../shared/types';
 import type { Theme } from './sprites';
-import { catalog, kitchenSeatFor, layoutFor } from './layoutData';
-import { meetingSeat } from '../shared/layout';
+import { catalog, kitchenSeatFor, layoutFor, passabilityFor } from './layoutData';
+import { findPath, meetingSeat } from '../shared/layout';
 
 interface Pos { x: number; y: number }
 
@@ -247,12 +247,11 @@ export const useStore = create<State>((set, get) => ({
         const inMeetingNow = s0.meeting?.status === 'running'
           && s0.meeting.participants.includes(e.instance.id);
         const shouldMove = !s0.pos[e.instance.id] || (wasBusy !== isBusy && !inMeetingNow);
-        set((s) => ({
-          instances: { ...s.instances, [e.instance.id]: e.instance },
-          pos: shouldMove
-            ? { ...s.pos, [e.instance.id]: homePos(e.instance, s.roles, s.settings.layoutId) }
-            : s.pos,
-        }));
+        set((s) => ({ instances: { ...s.instances, [e.instance.id]: e.instance } }));
+        if (shouldMove) {
+          const s1 = get();
+          walkTo(e.instance.id, homePos(e.instance, s1.roles, s1.settings.layoutId));
+        }
         break;
       }
       case 'instance.remove':
@@ -349,24 +348,21 @@ export const useStore = create<State>((set, get) => ({
         break;
       case 'meeting': {
         set({ meeting: e.meeting });
-        // Рассаживаем участников за стол переговорки и возвращаем на места после.
-        const insts = get().instances;
-        set((s) => {
-          const pos = { ...s.pos };
-          if (e.meeting) {
-            const total = e.meeting.participants.length;
-            const layout = layoutFor(s.settings.layoutId);
-            e.meeting.participants.forEach((id, i) => {
-              const seat = meetingSeat(layout, catalog, i, total);
-              pos[id] = { x: seat.x, y: seat.y };
-            });
-          } else {
-            for (const inst of Object.values(insts)) {
-              pos[inst.id] = homePos(inst, s.roles, s.settings.layoutId);
-            }
+        // Рассаживаем участников за стол переговорки и возвращаем на места после —
+        // каждый идёт своей ломаной, а не телепортируется.
+        const s0 = get();
+        if (e.meeting) {
+          const total = e.meeting.participants.length;
+          const layout = layoutFor(s0.settings.layoutId);
+          e.meeting.participants.forEach((id, i) => {
+            const seat = meetingSeat(layout, catalog, i, total);
+            walkTo(id, { x: seat.x, y: seat.y });
+          });
+        } else {
+          for (const inst of Object.values(s0.instances)) {
+            walkTo(inst.id, homePos(inst, s0.roles, s0.settings.layoutId));
           }
-          return { pos };
-        });
+        }
         break;
       }
       case 'permission.request':
@@ -380,9 +376,9 @@ export const useStore = create<State>((set, get) => ({
         const target = get().instances[e.to];
         const home = get().instances[e.from];
         if (!target || !home) break;
-        set((s) => ({ pos: { ...s.pos, [e.from]: { x: target.desk.x - 1.1, y: target.desk.y + 0.9 } } }));
+        walkTo(e.from, { x: target.desk.x - 1.1, y: target.desk.y + 0.9 });
         setTimeout(() => {
-          set((s) => ({ pos: { ...s.pos, [e.from]: { x: home.desk.x, y: home.desk.y } } }));
+          walkTo(e.from, { x: home.desk.x, y: home.desk.y });
         }, 2600);
         break;
       }
@@ -391,6 +387,54 @@ export const useStore = create<State>((set, get) => ({
 }));
 
 let socket: WebSocket | null = null;
+
+/**
+ * Длительность одного отрезка ломаной — та же, что была у CSS-перехода
+ * `.office .agent` (styles.css) на любое расстояние: этап 3 меняет только
+ * траекторию (по ломаной вместо прямой), не темп и не саму анимацию ходьбы.
+ */
+const WALK_LEG_MS = 900;
+
+/**
+ * Поколение текущего перемещения агента — новый вызов walkTo() отменяет ещё
+ * не доигранные отрезки прежнего (например, агент шёл на кухню, а его тут же
+ * позвали на совещание): stepWalk сверяется со своим поколением и молча
+ * останавливается, если оно устарело.
+ */
+const walkGen = new Map<string, number>();
+
+/** Один отрезок пути: переносит агента в точку и через WALK_LEG_MS зовёт следующий. */
+function stepWalk(instanceId: string, waypoints: Pos[], i: number, gen: number): void {
+  if (walkGen.get(instanceId) !== gen) return;
+  if (i >= waypoints.length) return;
+  useStore.setState((s) => ({ pos: { ...s.pos, [instanceId]: waypoints[i] } }));
+  if (i + 1 < waypoints.length) {
+    setTimeout(() => stepWalk(instanceId, waypoints, i + 1, gen), WALK_LEG_MS);
+  }
+}
+
+/**
+ * Ведёт агента к точке по ломаной из findPath (§7 спеки), отрезок за
+ * отрезком, вместо прыжка по прямой. Сетка проходимости берётся из кэша
+ * `passabilityFor` — считается один раз на раскладку, не на каждый шаг.
+ * Если пути нет (изолированная зона, начальная или конечная клетка заняты)
+ * или начальная позиция агента ещё не известна — ведёт себя предсказуемо:
+ * идёт напрямую, как до этого этапа, а не зависает и не телепортируется.
+ */
+function walkTo(instanceId: string, target: Pos): void {
+  const gen = (walkGen.get(instanceId) ?? 0) + 1;
+  walkGen.set(instanceId, gen);
+  const s = useStore.getState();
+  const current = s.pos[instanceId];
+  if (!current) {
+    useStore.setState((st) => ({ pos: { ...st.pos, [instanceId]: target } }));
+    return;
+  }
+  const grid = passabilityFor(s.settings.layoutId);
+  const path = findPath(grid, current, target);
+  const waypoints = path ?? [current, target];
+  stepWalk(instanceId, waypoints, 1, gen);
+}
 
 function pushToast(toast: Toast): void {
   useStore.setState((s) => (s.toasts.some((t) => t.id === toast.id)
