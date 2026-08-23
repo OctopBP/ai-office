@@ -272,14 +272,22 @@ button
 
 /* ---------- настройки: меню разделов слева, контент прокручивается отдельно ---------- */
 .modal.wide.settings-modal {
-  display: flex; flex-direction: column; max-height: 86vh; overflow: hidden;
+  display: flex; flex-direction: column;
+  width: 920px; max-width: calc(100vw - 40px);
+  max-height: 90vh; overflow: hidden;
 }
-.settings-layout { display: flex; gap: 18px; flex: 1; min-height: 0; margin-top: 4px; }
-.settings-nav { display: flex; flex-direction: column; gap: 4px; width: 172px; flex: none; }
+.settings-layout { display: flex; gap: 24px; flex: 1; min-height: 0; margin-top: 4px; }
+.settings-nav { display: flex; flex-direction: column; gap: 4px; width: 180px; flex: none; }
 .settings-nav button { text-align: left; padding: 9px 12px; font-size: 13px; }
 .settings-nav button.on { background: var(--accent); color: var(--accent-ink); }
 .settings-content { flex: 1; min-width: 0; overflow-y: auto; padding-right: 6px; }
 .settings-content label:last-child, .settings-content > .hint:last-child { margin-bottom: 0; }
+/* На типичном 1024px-окне ноутбука колонка меню и рамки модалки не должны съедать
+   место двух столбцов полей — сужаем зазор и поля вместо переноса меню наверх. */
+@media (max-width: 1040px) {
+  .settings-layout { gap: 16px; }
+  .settings-nav { width: 152px; }
+}
 @media (max-width: 560px) {
   .settings-layout { flex-direction: column; }
   .settings-nav { flex-direction: row; width: auto; overflow-x: auto; }

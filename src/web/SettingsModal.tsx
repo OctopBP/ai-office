@@ -113,23 +113,25 @@ export function SettingsModal({ onClose }: { onClose: () => void }) {
               <>
                 <p className="modal-reason">Пустое поле бюджета — без ограничения.</p>
 
-                <label>Общий потолок, $
-                  <input value={global} placeholder="без ограничения"
-                    onChange={(e) => setGlobal(e.target.value)} />
-                  <span className="hint muted">
-                    Когда потрачено больше — PM перестаёт запускать новые задачи. Уже идущие
-                    дорабатывают: обрывать их посреди работы дороже, чем дать закончить.
-                  </span>
-                </label>
+                <div className="row2">
+                  <label>Общий потолок, $
+                    <input value={global} placeholder="без ограничения"
+                      onChange={(e) => setGlobal(e.target.value)} />
+                    <span className="hint muted">
+                      Когда потрачено больше — PM перестаёт запускать новые задачи. Уже идущие
+                      дорабатывают: обрывать их посреди работы дороже, чем дать закончить.
+                    </span>
+                  </label>
 
-                <label>Потолок на одну задачу, $
-                  <input value={perTask} placeholder="без ограничения"
-                    onChange={(e) => setPerTask(e.target.value)} />
-                  <span className="hint muted">
-                    Локально это лимит внутри сессии исполнителя; в облаке — жёсткий потолок
-                    сессии: дойдя до него, она встаёт на паузу.
-                  </span>
-                </label>
+                  <label>Потолок на одну задачу, $
+                    <input value={perTask} placeholder="без ограничения"
+                      onChange={(e) => setPerTask(e.target.value)} />
+                    <span className="hint muted">
+                      Локально это лимит внутри сессии исполнителя; в облаке — жёсткий потолок
+                      сессии: дойдя до него, она встаёт на паузу.
+                    </span>
+                  </label>
+                </div>
                 <label>Лимит шагов исполнителя
                   <input value={maxTurns} placeholder="без ограничения"
                     onChange={(e) => setMaxTurns(e.target.value)} />
