@@ -1,6 +1,8 @@
 import { mkdirSync, readFileSync, renameSync, writeFileSync, existsSync, rmSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
-import type { ChatEntry, LayoutOverride, LogEntry, PermissionMode, Settings, Usage } from '../shared/types';
+import type {
+  ChatEntry, LayoutOverride, LogEntry, PermissionMode, PullRequestView, Settings, Usage,
+} from '../shared/types';
 import type { Task } from './state';
 import type { Role } from './roles';
 
@@ -34,6 +36,8 @@ export interface Persisted {
   projectDir: string;
   taskSeq: number;
   tasks: Task[];
+  /** Пулл-реквесты конвейера ревью. В сохранениях до конвейера их нет. */
+  prs?: PullRequestView[];
   chat: ChatEntry[];
   log: LogEntry[];
   instances: PersistedInstance[];

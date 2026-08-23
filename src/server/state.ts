@@ -6,6 +6,7 @@ import type {
   RoleView, ServerEvent, Settings, TaskStatus, TaskView, Usage,
   CloudStatus, OfficeView, MergeCheck, MergeRun, LayoutOption,
   Layout, LayoutOverride, LayoutPropEdit,
+  PullRequestView, PrStage, ReviewNote,
 } from '../shared/types';
 import { emptyUsage, MAX_TASK_MAX_TURNS, MIN_TASK_MAX_TURNS } from '../shared/types';
 import { isEmptyOverride } from '../shared/layout';
@@ -47,6 +48,7 @@ export const DEFAULT_SETTINGS: Settings = {
   cloudRepoUrl: null,
   officePermissionMode: 'ask-risky',
   layoutId: DEFAULT_LAYOUT_ID,
+  autoPipeline: true,
 };
 
 /**
@@ -153,6 +155,17 @@ export interface Task {
   /** Репозиторий, в котором выполнялась задача: у ролей они могут отличаться. */
   repoDir: string | null;
   merged: boolean;
+  /**
+   * Работу оборвал перезапуск сервера, а не человек. Отличать обязательно:
+   * остановленную человеком задачу возобновлять нельзя, а прибитую
+   * перезапуском — нужно, и делать это должен офис, а не пользователь.
+   */
+  interrupted: boolean;
+  /**
+   * Когда офис в последний раз показывал эту задачу менеджеру, потому что она
+   * стоит. Нужно, чтобы не рассказывать про одно и то же на каждом проходе.
+   */
+  attention: number | null;
   createdAt: number;
   startedAt: number | null;
   finishedAt: number | null;
@@ -220,6 +233,13 @@ export class OfficeState {
   mergeChecking = false;
   /** Последний прогон очереди слияния — он же текущий, пока running. */
   mergeRun: MergeRun | null = null;
+  /**
+   * Пулл-реквесты конвейера ревью, ключ — id задачи: у задачи он ровно один,
+   * и все стадии (синхронизация, ревью, слияние) пишутся в него же.
+   * Сохраняются на диск: конвейер длится минутами, а перезапуск сервера
+   * не должен превращать открытый пулл-реквест в потерянную ветку.
+   */
+  prs = new Map<string, PullRequestView>();
   /**
    * Пауза офиса: новая работа не запускается, а живые сессии замирают
    * на следующем вызове инструмента. Не сохраняется на диск — пауза
@@ -315,6 +335,7 @@ export class OfficeState {
       projectDir: this.projectDir,
       taskSeq: this.taskSeq,
       tasks: [...this.tasks.values()],
+      prs: [...this.prs.values()],
       chat: this.chat,
       log: this.log.slice(-500),
       settings: this.settings,
@@ -377,11 +398,34 @@ export class OfficeState {
       // сессия исполнителя умерла вместе с процессом.
       if (t.status === 'in_progress' || t.status === 'assigned') {
         t.status = 'blocked';
+        // Пометка для надзора: такую задачу офис возобновит сам. Раньше она
+        // молча оставалась заблокированной навсегда — сессия умерла вместе
+        // с процессом, а сказать об этом было некому.
+        t.interrupted = true;
         t.result = (t.result ? `${t.result}\n\n` : '') +
           '⚠️ Работа прервана перезапуском сервера. Ветка и рабочая копия сохранены; ' +
-          'поставьте задачу заново или слейте то, что успели сделать.';
+          'офис возобновит задачу сам.';
       }
       this.tasks.set(t.id, t);
+    }
+
+    // Конвейер живёт в сессиях, а они умерли вместе с процессом: любой PR,
+    // застигнутый перезапуском на ходу, поднимаем как вставший. Врать, что
+    // ревью идёт, нельзя — ревьюера уже нет.
+    for (const pr of data.prs ?? []) {
+      const alive: PrStage[] = ['merged', 'stuck'];
+      const known = {
+        ...pr,
+        retries: pr.retries ?? 0,
+        nextTryAt: pr.nextTryAt ?? null,
+        needsDecision: pr.needsDecision ?? false,
+      };
+      this.prs.set(pr.taskId, alive.includes(pr.stage) ? known : {
+        ...known,
+        stage: 'stuck',
+        note: 'Конвейер прервал перезапуск сервера. Ветка и рабочая копия целы — толкните заново.',
+        updatedAt: Date.now(),
+      });
     }
 
     // Состав команды берём из сохранения целиком, а не дополняем им seed():
@@ -450,6 +494,7 @@ export class OfficeState {
   seed(): void {
     this.instances.clear();
     this.tasks.clear();
+    this.prs.clear();
     this.chat = [];
     this.log = [];
     this.taskSeq = 0;
@@ -739,6 +784,8 @@ export class OfficeState {
       worktreePath: null,
       repoDir: null,
       merged: false,
+      interrupted: false,
+      attention: null,
       createdAt: Date.now(),
       startedAt: null,
       finishedAt: null,
@@ -955,6 +1002,7 @@ export class OfficeState {
       const known = layoutOptions().map((l) => l.id).join(', ') || 'ни одной';
       return `Раскладки «${next.layoutId}» нет в design/layouts. Доступны: ${known}.`;
     }
+
     this.settings = { ...this.settings, ...next };
     this.emit({ t: 'settings', settings: this.settings });
     if (this.settings.layoutId !== prevLayout) {
@@ -1097,6 +1145,75 @@ export class OfficeState {
     this.emit({ t: 'cloud', cloud: this.cloud });
   }
 
+  // ---------- пулл-реквесты ----------
+
+  /** Пулл-реквест задачи. null — конвейер по ней ещё не начинался. */
+  prOf(taskId: string): PullRequestView | null {
+    return this.prs.get(taskId) ?? null;
+  }
+
+  /**
+   * Завести пулл-реквест задачи (или вернуть заведённый). Заводится он в самом
+   * начале конвейера, ещё до похода в GitHub: стадии «подтягиваю базу» и
+   * «жду ревью» тоже надо где-то показывать, и это то же самое дело.
+   */
+  startPr(input: {
+    taskId: string; title: string; branch: string; base: string; repoDir: string;
+  }): PullRequestView {
+    const now = Date.now();
+    const pr: PullRequestView = this.prs.get(input.taskId) ?? {
+      id: `PR-${input.taskId}`,
+      taskId: input.taskId,
+      title: input.title,
+      branch: input.branch,
+      base: input.base,
+      repoDir: input.repoDir,
+      number: null,
+      url: null,
+      stage: 'sync',
+      note: 'Подтягиваю основную ветку.',
+      rounds: 0,
+      retries: 0,
+      nextTryAt: null,
+      needsDecision: false,
+      reviewerId: null,
+      reviews: [],
+      createdAt: now,
+      updatedAt: now,
+    };
+    // Повторный заход (перезапуск конвейера) не заводит второй PR, но
+    // возвращает его к началу: ветка снова расходится с базой.
+    pr.title = input.title;
+    pr.branch = input.branch;
+    pr.base = input.base;
+    pr.repoDir = input.repoDir;
+    this.prs.set(pr.taskId, pr);
+    this.emit({ t: 'pr', pr });
+    this.markDirty();
+    return pr;
+  }
+
+  /** Сдвинуть пулл-реквест по конвейеру. Возвращает обновлённый вид. */
+  patchPr(taskId: string, patch: Partial<PullRequestView>): PullRequestView | null {
+    const pr = this.prs.get(taskId);
+    if (!pr) return null;
+    Object.assign(pr, patch, { updatedAt: Date.now() });
+    this.emit({ t: 'pr', pr });
+    this.markDirty();
+    return pr;
+  }
+
+  /** Записать отзыв ревьюера в историю пулл-реквеста. */
+  addReview(taskId: string, note: ReviewNote): void {
+    const pr = this.prs.get(taskId);
+    if (!pr) return;
+    pr.reviews.push(note);
+    pr.reviewerId = note.reviewerId;
+    pr.updatedAt = Date.now();
+    this.emit({ t: 'pr', pr });
+    this.markDirty();
+  }
+
   // ---------- слияние ----------
 
   /** Заменить статусы мержабельности целиком и разослать их клиентам. */
@@ -1155,6 +1272,7 @@ export class OfficeState {
       cloud: this.cloud,
       mergeChecks: [...this.mergeChecks.values()],
       mergeRun: this.mergeRun,
+      prs: [...this.prs.values()],
     };
   }
 }
@@ -1202,7 +1320,7 @@ export const toTaskView = (t: Task): TaskView => ({
   assigneeId: t.assigneeId, status: t.status, result: t.result,
   files: t.files, branch: t.branch, baseBranch: t.baseBranch,
   worktreePath: t.worktreePath, repoDir: t.repoDir ?? null, merged: t.merged,
-  createdAt: t.createdAt,
+  interrupted: t.interrupted, createdAt: t.createdAt,
   startedAt: t.startedAt, finishedAt: t.finishedAt,
   usage: t.usage,
 });
@@ -1216,6 +1334,17 @@ export const toTaskView = (t: Task): TaskView => ({
  */
 export const taskRepo = (t: Task, state: OfficeState = office): string =>
   t.repoDir ?? state.projectDir;
+
+/**
+ * Куда складываем рабочие копии задач — вне репозитория пользователя, чтобы не
+ * сорить в нём. У каждого офиса своя папка: номера задач в разных проектах
+ * совпадают, и общий корень склеил бы чужие рабочие копии.
+ *
+ * Живёт здесь, а не в agents.ts: путь считают и запуск задачи, и конвейер
+ * ревью, а разойдясь на символ, они начали бы работать с разными копиями.
+ */
+export const worktreesRoot = (state: OfficeState): string =>
+  resolve(process.cwd(), '.office/worktrees', state.officeId);
 
 /** Сколько критериев отмечено — одна формулировка на весь офис. */
 export const criteriaProgress = (t: Task | TaskView): { done: number; total: number } => ({
@@ -1243,7 +1372,9 @@ function migrateTask(raw: Task & {
     tokensIn: raw.tokensIn ?? 0,
     tokensOut: raw.tokensOut ?? 0,
   };
-  return { ...raw, criteria, usage };
+  // Сохранения до надзора этих полей не знают: отсутствие — это «не прерывалась»
+  // и «менеджеру не показывали».
+  return { ...raw, criteria, usage, interrupted: raw.interrupted ?? false, attention: raw.attention ?? null };
 }
 
 /**

@@ -32,6 +32,7 @@ export function SettingsModal({ onClose }: { onClose: () => void }) {
   const [layoutId, setLayoutId] = useState(settings.layoutId);
   const [token, setToken] = useState('');
   const [access, setAccess] = useState(settings.officePermissionMode);
+  const [autoPipeline, setAutoPipeline] = useState(settings.autoPipeline);
   const [confirmAuto, setConfirmAuto] = useState(false);
   const maxTurnsParsed = parseTaskMaxTurns(maxTurns);
 
@@ -57,6 +58,7 @@ export function SettingsModal({ onClose }: { onClose: () => void }) {
       cloudRepoUrl: repo.trim() || null,
       officePermissionMode: access,
       layoutId,
+      autoPipeline,
     });
     if (token.trim()) setCloudToken(token.trim());
     onClose();
@@ -157,6 +159,39 @@ export function SettingsModal({ onClose }: { onClose: () => void }) {
                   сохранения сотрудники пересядут за столы новой раскладки.
                 </p>
 
+                <h4>Ревью и слияние</h4>
+                <div className="engine">
+                  <button className={autoPipeline ? 'on' : ''} onClick={() => setAutoPipeline(true)}>
+                    🔁 Конвейером
+                    <span className="muted small">
+                      Сдал → подтянуть основную ветку → проверки → пулл-реквест → ревью → слияние
+                    </span>
+                  </button>
+                  <button className={autoPipeline ? '' : 'on'} onClick={() => setAutoPipeline(false)}>
+                    ✋ Вручную
+                    <span className="muted small">Ветки копятся, сливаете сами в панели «Ревью и слияние»</span>
+                  </button>
+                </div>
+                <p className="hint muted">
+                  Конвейер ведёт сданную задачу сам: подтягивает основную ветку в ветку задачи и
+                  отдаёт конфликты автору, гоняет проверки проекта, открывает пулл-реквест, зовёт
+                  ревьюера и по одобрению вливает, а ветку и рабочую копию убирает. Вставшее офис
+                  перезапускает сам, а чего не может — передаёт менеджеру. Ревьюер должен быть
+                  нанят: иначе ревьюить некому. Есть токен GitHub и origin на github.com —
+                  пулл-реквест будет настоящим; нет — тот же порядок пройдёт внутри офиса.
+                </p>
+
+                <label>Токен GitHub {cloud.hasToken && <span className="chip done">задан</span>}
+                  <input value={token} type="password" placeholder={cloud.hasToken ? '••••••• (оставьте пустым, чтобы не менять)' : 'ghp_…'}
+                    onChange={(e) => setToken(e.target.value)} />
+                  <span className="hint muted">
+                    Нужен доступ Contents и Pull requests: Read and write. Токен живёт только в
+                    памяти сервера и на диск не пишется — после перезапуска введите заново или
+                    задайте <code className="mono">OFFICE_GITHUB_TOKEN</code>. Без него конвейер
+                    работает локально, а облачный режим — не работает вовсе.
+                  </span>
+                </label>
+
                 <h4>Где работают исполнители</h4>
                 <div className="engine">
                   <button className={engine === 'local' ? 'on' : ''} onClick={() => setEngine('local')}>
@@ -193,16 +228,11 @@ export function SettingsModal({ onClose }: { onClose: () => void }) {
                       </span>
                     </label>
 
-                    <label>Токен GitHub {cloud.hasToken && <span className="chip done">задан</span>}
-                      <input value={token} type="password" placeholder={cloud.hasToken ? '••••••• (оставьте пустым, чтобы не менять)' : 'ghp_…'}
-                        onChange={(e) => setToken(e.target.value)} />
-                      <span className="hint muted">
-                        Нужен доступ Contents: Read and write. Токен живёт только в памяти сервера и
-                        на диск не пишется — после перезапуска введите заново или задайте
-                        <code className="mono"> OFFICE_GITHUB_TOKEN</code>. В контейнер он не попадает:
-                        git-запросы проксируются, и токен подставляется уже за его пределами.
-                      </span>
-                    </label>
+                    <p className="hint muted">
+                      Токен GitHub задаётся выше, в разделе «Ревью и слияние»: он один и тот же и
+                      для пулл-реквестов, и для облака. В контейнер он не попадает — git-запросы
+                      проксируются, и токен подставляется уже за его пределами.
+                    </p>
                   </>
                 )}
               </>

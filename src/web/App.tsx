@@ -7,6 +7,7 @@ import { Panel } from './Panel';
 import { ChatPanel } from './ChatPanel';
 import { Board } from './Board';
 import { MergeQueue } from './MergeQueue';
+import { PrPipeline } from './PrPipeline';
 import { TeamPanel } from './TeamPanel';
 import { AgentDrawer } from './AgentDrawer';
 import { PermissionModal } from './PermissionModal';
@@ -107,12 +108,13 @@ export function App() {
 
       {panel === 'chat' && <ChatPanel onClose={() => setPanel(null)} />}
       {panel === 'board' && (
-        <Panel title="Доска задач" wide hint="B" onClose={() => setPanel(null)}>
+        <Panel title="Доска задач" wide size="board" hint="B" onClose={() => setPanel(null)}>
           <Board />
         </Panel>
       )}
       {panel === 'merge' && (
-        <Panel title="Очередь слияния" wide hint="Q" onClose={() => setPanel(null)}>
+        <Panel title="Ревью и слияние" wide hint="Q" onClose={() => setPanel(null)}>
+          <PrPipeline />
           <MergeQueue />
         </Panel>
       )}

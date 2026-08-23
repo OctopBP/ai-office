@@ -10,6 +10,8 @@ import {
 } from './office-api';
 import { assignDirect, holdMeeting, resetSessions, retryTask, sendUserMessage, setPaused, stopTask, taskDiff, talkTo } from './agents';
 import { mergeQueue, refreshMergeChecks } from './merge';
+import { retryPipeline } from './review';
+import { startSupervisor } from './supervisor';
 import { githubToken, setGithubToken } from './cloud';
 import { clearInitFlag, currentOffice, ensureOffice, loadRegistry, setCurrent, type OfficeEntry } from './offices';
 import { hasCommits, initRepo, isRepo } from './git';
@@ -85,6 +87,9 @@ async function openOffice(entry: OfficeEntry): Promise<void> {
   await setupGit(entry.projectDir, ours);
   await reportRoleRepos();
   clearInitFlag(entry.id);
+  // Офис сам следит, что сданная работа доезжает до основной ветки: ветки,
+  // оставшиеся с прошлого запуска, поедут без единого нажатия.
+  startSupervisor(state);
 }
 
 loadRegistry(DEFAULT_DIR);
@@ -205,6 +210,10 @@ wss.on('connection', (ws) => {
       void refreshMergeChecks();
     } else if (cmd.c === 'merge_queue') {
       void mergeQueue(cmd.taskIds);
+    } else if (cmd.c === 'pr_retry') {
+      // Вставший конвейер толкают кнопкой: чинить руками в терминале —
+      // ровно то, от чего офис и должен избавлять.
+      retryPipeline(office, cmd.taskId);
     } else if (cmd.c === 'spawn' || cmd.c === 'hire') {
       // Наём: и первый сотрудник в пустую роль, и очередной клон — одно и то же
       // действие, отличается только тем, сколько народу в роли уже сидит.

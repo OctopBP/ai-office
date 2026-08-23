@@ -137,6 +137,12 @@ export interface Settings {
    * офисы выглядят ровно так же, как выглядели.
    */
   layoutId: string;
+  /**
+   * Конвейер ревью: сданная задача сама подтягивает базу, открывает
+   * пулл-реквест, проходит ревью и вливается. false — старый порядок,
+   * когда ветку сливает человек из очереди слияния.
+   */
+  autoPipeline: boolean;
 }
 
 /**
@@ -233,12 +239,77 @@ export interface TaskView {
   /** В каком репозитории выполнялась задача: у ролей он может отличаться. */
   repoDir: string | null;
   merged: boolean;
+  /** Работу оборвал перезапуск сервера — офис возобновит её сам. */
+  interrupted: boolean;
   createdAt: number;
   /** Когда исполнитель реально взялся за задачу и когда закончил. */
   startedAt: number | null;
   finishedAt: number | null;
   /** Расход именно на эту задачу, а не на агента вообще. */
   usage: Usage;
+}
+
+/**
+ * Стадия конвейера ревью: что офис делает с работой по задаче прямо сейчас.
+ * 'stuck' — конвейер встал и ждёт решения человека или менеджера; это
+ * единственная стадия, на которой работа не двигается сама.
+ */
+export type PrStage =
+  | 'sync'      // подтягиваем базовую ветку в ветку задачи
+  | 'checks'    // прогоняем проверки проекта в ветке задачи
+  | 'opening'   // открываем пулл-реквест
+  | 'review'    // ревьюер смотрит
+  | 'rework'    // автор правит по отзыву
+  | 'merging'   // вливаем в базовую ветку
+  | 'merged'    // влито, ветка и рабочая копия убраны
+  | 'stuck';    // встали: нужен человек
+
+export type ReviewVerdict = 'approve' | 'changes';
+
+/** Один отзыв ревьюера по пулл-реквесту. */
+export interface ReviewNote {
+  at: number;
+  verdict: ReviewVerdict;
+  reviewerId: string | null;
+  text: string;
+}
+
+/**
+ * Пулл-реквест задачи. Живёт и без GitHub: если у офиса нет удалёнки с
+ * токеном, это внутренняя сущность офиса, а слияние идёт локальным git merge.
+ * С GitHub у него появляются number и url — тот же конвейер, но видимый
+ * снаружи.
+ */
+export interface PullRequestView {
+  id: string;
+  taskId: string;
+  title: string;
+  branch: string;
+  base: string;
+  /** В каком репозитории всё происходит: у ролей они могут отличаться. */
+  repoDir: string;
+  /** Номер и ссылка на GitHub. null — пулл-реквест только внутри офиса. */
+  number: number | null;
+  url: string | null;
+  stage: PrStage;
+  /** Готовая фраза для интерфейса: что происходит или почему встали. */
+  note: string;
+  /** Сколько раз работу возвращали автору. */
+  rounds: number;
+  /** Сколько раз офис сам перезапускал вставший конвейер. */
+  retries: number;
+  /** Когда офис попробует снова. null — пробовать больше не будет. */
+  nextTryAt: number | null;
+  /**
+   * Механически конвейер дальше не поедет: нужно решение менеджера (ревьюер
+   * трижды завернул, некому ревьюить, кончился бюджет). Такие пулл-реквесты
+   * офис не дёргает по кругу — он один раз зовёт PM и ждёт.
+   */
+  needsDecision: boolean;
+  reviewerId: string | null;
+  reviews: ReviewNote[];
+  createdAt: number;
+  updatedAt: number;
 }
 
 /**
@@ -371,7 +442,9 @@ export type ServerEvent =
       /** Чем расстановка офиса отличается от пресета. null — ничем. */
       layoutOverride: LayoutOverride | null;
       /** Статусы слияния по завершённым задачам и последний прогон очереди. */
-      mergeChecks: MergeCheck[]; mergeRun: MergeRun | null }
+      mergeChecks: MergeCheck[]; mergeRun: MergeRun | null;
+      /** Пулл-реквесты конвейера ревью — по одному на сданную задачу. */
+      prs: PullRequestView[] }
   | { t: 'instance'; instance: InstanceView }
   | { t: 'instance.remove'; id: string }
   | { t: 'task'; task: TaskView }
@@ -403,7 +476,9 @@ export type ServerEvent =
   /** Пересчитанные статусы мержабельности: приходят целым списком. */
   | { t: 'merge.checks'; checks: MergeCheck[]; checking: boolean }
   /** Ход и итог очереди слияния. */
-  | { t: 'merge.run'; run: MergeRun };
+  | { t: 'merge.run'; run: MergeRun }
+  /** Пулл-реквест завели или он сдвинулся по конвейеру. */
+  | { t: 'pr'; pr: PullRequestView };
 
 /** Всё, что UI шлёт на сервер. */
 export type ClientCommand =
@@ -441,6 +516,8 @@ export type ClientCommand =
   | { c: 'meeting'; topic: string; participants: string[] }
   | { c: 'assign_direct'; taskId: string; instanceId: string }
   | { c: 'task_diff'; taskId: string }
+  /** Толкнуть застрявший конвейер задачи заново — с той стадии, где он встал. */
+  | { c: 'pr_retry'; taskId: string }
   | { c: 'pause'; paused: boolean }
   | { c: 'switch_office'; officeId: string }
   | { c: 'create_office'; name: string; projectDir: string }
