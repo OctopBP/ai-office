@@ -9,11 +9,14 @@
  * рассылка знает про клиента ровно то, что описано в `Sink`.
  */
 import type { ClientCommand, OfficeOp, ServerEvent } from '../shared/types';
-import { getOffice, isOpened, office, officeViews, runningTasksOf, type OfficeState } from './state';
+import {
+  getOffice, isOpened, office, officeViews, runningTasksOf, unloadOfficeState, type OfficeState,
+} from './state';
 import {
   createOffice, currentOffice, officeById, removeOffice, renameOffice, setCurrent,
   type OfficeEntry,
 } from './offices';
+import { stopSupervisor } from './supervisor';
 
 /**
  * Что рассылке нужно от клиента. Интерфейс вместо класса `ws.WebSocket`:
@@ -69,6 +72,13 @@ export function unwatch(ws: Sink): void {
 /** Какой офис смотрит клиент. null — клиент не подключён. */
 export function watching(ws: Sink): string | null {
   return clients.get(ws) ?? null;
+}
+
+/** Сколько клиентов смотрят офис прямо сейчас. */
+function viewers(officeId: string): number {
+  let n = 0;
+  for (const seen of clients.values()) if (seen === officeId) n += 1;
+  return n;
 }
 
 /**
@@ -157,6 +167,57 @@ export function sendSnapshot(ws: Sink, state: OfficeState = defaultState()): voi
   if (ws.readyState !== OPEN) return;
   clients.set(ws, state.officeId);
   ws.send(JSON.stringify(state.snapshot()));
+}
+
+/**
+ * Первый ответ подключившемуся клиенту. Стартовый офис поднимается один раз
+ * на процесс, а подключений к нему сколько угодно, поэтому сюда передаётся
+ * одно и то же обещание старта: оно отдаёт причину отказа по-русски либо
+ * null, если офис открылся.
+ *
+ * Отказ уходит клиенту событием, а не молчанием: снапшота при неудачном
+ * старте не будет никогда, и экран входа иначе ждал бы ответа до таймаута,
+ * показывая «Открываем офис…». Вместе с причиной отдаём и список офисов —
+ * тогда человеку есть что делать дальше: открыть другой проект или завести
+ * новый, не перезапуская сервер.
+ */
+export async function greet(ws: Sink, startup: Promise<string | null>): Promise<void> {
+  const problem = await startup;
+  // Вкладку успели закрыть, пока офис открывался.
+  if (!watching(ws)) return;
+  if (!problem) {
+    sendSnapshot(ws);
+    return;
+  }
+  send(ws, { t: 'offices', offices: officeViews() });
+  send(ws, { t: 'office.error', op: 'open', officeId: currentOffice()?.id ?? null, message: problem });
+}
+
+/**
+ * Погасить офис целиком: надзор, живые сессии, хвост записи на диск и место
+ * в памяти. Зовётся при скрытии офиса из списка — до этого поднятый офис жил
+ * до конца процесса, и десяток проектов за смену означал десяток досок в
+ * памяти и десяток тикающих надзирателей.
+ *
+ * Первым гасим надзор: его проход перезапускает конвейеры и будит сессии, и
+ * попади он между закрытием сессий и удалением состояния — офис ожил бы уже
+ * выгруженным. Файлы на диске не трогаем: скрытие — не удаление.
+ *
+ * Офисы, которые просто давно никто не смотрит, так НЕ выгружаются, и это
+ * решение, а не недоделка. Покинутый офис в этом проекте продолжает работать:
+ * его надзор доводит сданные ветки до основной, возобновляет прибитые
+ * перезапуском задачи и раздаёт застоявшиеся. Выгрузка по таймауту бездействия
+ * ровно это и выключала бы — причём тем вернее, чем дольше человек занят
+ * соседним проектом, то есть именно тогда, когда фоновая работа и нужна.
+ * «Нет задач и сессий прямо сейчас» этого не спасает: задача в очереди ждёт
+ * своего прохода надзора, а его-то мы бы и остановили. Памяти же офис занимает
+ * доску, чат и обрезанный до 500 записей лог — мегабайты, а не десятки.
+ * Поэтому решение простое и предсказуемое: офис уходит из памяти тогда, когда
+ * человек сам убрал его из списка.
+ */
+function unloadOffice(officeId: string): void {
+  stopSupervisor(officeId);
+  unloadOfficeState(officeId);
 }
 
 /**
@@ -302,12 +363,34 @@ export function handleOfficeCommand(cmd: ClientCommand, ws: Sink): boolean {
         'Дождитесь этих задач или остановите их, а потом убирайте офис из списка.', ws);
       return true;
     }
+    // Скрытие теперь гасит офис, а не только прячет строку в списке, поэтому
+    // убирать тот, на который кто-то смотрит, нельзя: у него бы просто
+    // перестали работать команды. Реестр знает только про «открытый сейчас»,
+    // а вкладок несколько, и смотреть они могут разные проекты.
+    if (viewers(cmd.officeId)) {
+      refuse('remove', cmd.officeId,
+        `Офис «${name}» сейчас открыт — в этой или в другой вкладке. ` +
+        'Перейдите там в другой офис, а потом уберите этот из списка.', ws);
+      return true;
+    }
+    // Офис прямо сейчас поднимается: открытие ходит в файловую систему и git
+    // и потому длится. Выгрузить его посередине значит получить обратно офис
+    // с надзором и сессиями, которого в списке уже нет.
+    if (opening.has(cmd.officeId)) {
+      refuse('remove', cmd.officeId,
+        `Офис «${name}» ещё открывается. Дождитесь, пока он откроется, и уберите его из списка.`, ws);
+      return true;
+    }
     const problem = removeOffice(cmd.officeId);
     if (problem) {
       refuse('remove', cmd.officeId, problem, ws);
     } else {
+      // Из списка офис убран — теперь его надо погасить: иначе он остался бы
+      // в памяти со своим надзором и сессиями, невидимый и неостановимый.
+      unloadOffice(cmd.officeId);
       here.addLog(null, 'system',
-        `Офис «${name}» убран из списка. Файлы проекта и его доска остались на диске.`);
+        `Офис «${name}» убран из списка и выгружен. ` +
+        'Файлы проекта и его доска остались на диске — вернётся вместе с офисом.');
       broadcastOffices();
     }
     return true;
