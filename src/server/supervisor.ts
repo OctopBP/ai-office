@@ -68,7 +68,17 @@ const clip = (s: string, n = 90): string => {
   return line.length > n ? `${line.slice(0, n - 1)}…` : line;
 };
 
-const timers = new Map<string, NodeJS.Timeout>();
+/**
+ * Таймеры надзора за офисом: отложенный первый проход и все дальнейшие.
+ * Держим оба вместе, потому что гасить их надо тоже вместе — офис успевают
+ * выгрузить раньше, чем дотикает первый проход.
+ */
+interface Watch {
+  interval: NodeJS.Timeout;
+  kickoff: NodeJS.Timeout;
+}
+
+const timers = new Map<string, Watch>();
 
 /** Задачи, которые надзор ведёт: сданы, ветка своя, в основную не влиты. */
 function unfinished(state: OfficeState): Task[] {
@@ -227,15 +237,29 @@ export function startSupervisor(state: OfficeState = office): void {
       state.addLog(null, 'error', `Надзор за конвейером споткнулся: ${(err as Error).message}`);
     });
   };
-  const timer = setInterval(tick, TICK_MS);
+  const interval = setInterval(tick, TICK_MS);
   // Не держим процесс живым ради сторожа: он обслуживает работу, а не наоборот.
-  timer.unref?.();
-  timers.set(state.officeId, timer);
-  setTimeout(tick, 3000).unref?.();
+  interval.unref?.();
+  const kickoff = setTimeout(tick, 3000);
+  kickoff.unref?.();
+  timers.set(state.officeId, { interval, kickoff });
 }
 
 export function stopSupervisor(officeId: string): void {
-  const timer = timers.get(officeId);
-  if (timer) clearInterval(timer);
+  const watch = timers.get(officeId);
+  if (!watch) return;
+  clearInterval(watch.interval);
+  // Первый проход отложен на несколько секунд, и снять его обязательно:
+  // иначе выгруженный офис просыпался бы уже после того, как его убрали, —
+  // с сессиями, конвейером и походами в git.
+  clearTimeout(watch.kickoff);
   timers.delete(officeId);
+}
+
+/**
+ * Следит ли офис за своим конвейером прямо сейчас. Нужно тем, кто гасит офис
+ * целиком: «надзор остановлен» — такая же часть выгрузки, как закрытые сессии.
+ */
+export function isSupervised(officeId: string): boolean {
+  return timers.has(officeId);
 }

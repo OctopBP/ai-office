@@ -15,11 +15,12 @@ import { tmpdir } from 'node:os';
 import { resolve } from 'node:path';
 import type { ServerEvent } from '../src/shared/types';
 import {
-  getOffice, officeViews, openedOffices, openOfficeState, subscribeOffices,
+  getOffice, isOpened, officeViews, openedOffices, openOfficeState, subscribeOffices,
 } from '../src/server/state';
 import { MessageQueue } from '../src/server/queue';
+import { isSupervised, startSupervisor } from '../src/server/supervisor';
 import {
-  broadcast, handleOfficeCommand, initOfficeApi, sendSnapshot, stateFor, unwatch, watch,
+  broadcast, greet, handleOfficeCommand, initOfficeApi, sendSnapshot, stateFor, unwatch, watch,
   watching, type Sink,
 } from '../src/server/office-api';
 import { createOffice, currentOffice, loadRegistry, offices } from '../src/server/offices';
@@ -225,7 +226,18 @@ async function main(): Promise<void> {
   check('оба клиента снова смотрят один офис',
     watching(a) === 'o-1' && watching(b) === 'o-1');
 
-  // 13. Скрытие: офис уходит из списка, файлы остаются.
+  // 13. Скрытие: офис уходит из списка и гаснет целиком — надзор, сессии,
+  //     место в памяти. Файлы на диске при этом остаются: скрытие ≠ удаление.
+  //     Заводим заранее всё, что обязано погаснуть.
+  const removedState = getOffice(madeId);
+  const goneQueue = new MessageQueue();
+  removedState.pmQueue = goneQueue;
+  removedState.pmLoop = Promise.resolve();
+  const goneAbort = new AbortController();
+  [...removedState.instances.values()][0].abort = goneAbort;
+  startSupervisor(removedState);
+  check('перед скрытием офис под надзором', isSupervised(madeId));
+
   mark = b.events.length;
   handleOfficeCommand({ c: 'remove_office', officeId: madeId }, b);
   const afterRemove = b.last('offices', mark);
@@ -236,12 +248,28 @@ async function main(): Promise<void> {
     hidden?.hidden === true && Boolean(hidden.stateFile));
   check('директория проекта и сохранение доски на диске целы',
     existsSync(DIR_B) && existsSync(hidden!.stateFile));
-  // Скрытие трогает только список: состояние офиса, поднятое в память, живёт
-  // дальше — иначе вернувшийся офис читал бы доску заново и терял бы то,
-  // что не успело доехать до диска.
-  const removedState = getOffice(madeId);
-  check('поднятый в память офис скрытие не ломает',
-    removedState.opened && removedState.chat.some((c) => c.text === 'реплика во втором офисе'));
+
+  // Надзор скрытого офиса остановлен: иначе он продолжал бы раз в минуту
+  // толкать конвейер офиса, которого человек больше не видит.
+  check('надзиратель скрытого офиса остановлен', !isSupervised(madeId));
+  // Сессии закрыты: очередь менеджера кончилась, а не ждёт нового сообщения,
+  // и исполнителю послан сигнал прерывания.
+  const drained = await Promise.race([
+    goneQueue[Symbol.asyncIterator]().next(),
+    sleep(20).then(() => null),
+  ]);
+  check('очередь менеджера скрытого офиса закрыта', drained?.done === true);
+  check('сессии скрытого офиса погашены',
+    removedState.pmQueue === null && removedState.pmLoop === null && goneAbort.signal.aborted);
+  // Состояние выгружено из памяти — ради этого всё и затевалось.
+  check('состояние скрытого офиса выгружено из памяти',
+    !isOpened(madeId) && !openedOffices().includes(removedState));
+  // И дописано на диск: то, что не успело доехать до отложенной записи,
+  // обязано лежать в файле — иначе выгрузка означала бы потерю работы.
+  const savedHidden = JSON.parse(readFileSync(hidden!.stateFile, 'utf8'));
+  check('состояние скрытого офиса дописано на диск при выгрузке',
+    savedHidden.projectDir === DIR_B
+    && savedHidden.chat.some((c: { text: string }) => c.text === 'реплика во втором офисе'));
 
   // 14. Войти в скрытый офис по устаревшему id нельзя.
   mark = b.events.length;
@@ -264,16 +292,21 @@ async function main(): Promise<void> {
   await sleep(50);
   check('скрытый офис возвращается со своим id',
     b.last('snapshot', mark)?.offices.find((o) => o.projectDir === DIR_B)?.id === madeId);
-  check('вернувшийся офис открылся из памяти, а не с нуля',
+  // Выгруженный офис поднимается заново — из своего файла состояния. Доска и
+  // разговоры при этом на месте: скрытие ничего не стёрло.
+  check('вернувшийся офис поднял свою доску с диска, а не начал с нуля',
     Boolean(b.last('snapshot', mark)?.chat.some((c) => c.text === 'реплика во втором офисе')));
+  const backState = getOffice(madeId);
+  check('вернувшийся офис поднят заново, а не оживил выгруженное состояние',
+    backState !== removedState && backState.opened);
 
   // 17. Уйти можно всегда, в том числе из офиса с задачами в работе: сессии
   //     покинутого офиса не трогаем, они продолжают писать в своё состояние.
-  const busy = stateB.createTask({
+  const busy = backState.createTask({
     title: 'идёт работа', description: '', criteria: [], roleId: 'backend',
   });
-  stateB.updateTask(busy.id, { status: 'in_progress' });
-  const leaving = stateB;
+  backState.updateTask(busy.id, { status: 'in_progress' });
+  const leaving = backState;
   // Живая сессия менеджера и прерыватель исполнителя: по ним и видно,
   // сбросили сессии при переключении или оставили работать.
   const pmQueue = new MessageQueue();
@@ -417,7 +450,33 @@ async function main(): Promise<void> {
   leaving.pmQueue = null;
   leaving.pmLoop = null;
 
-  // 22. Отключившийся клиент из рассылки уходит: ни событий, ни подписки,
+  // 22. Стартовый офис не открылся. Клиенту в этом случае обязана уйти
+  //     причина по-русски, а не тишина: снапшота не будет никогда, и без
+  //     ответа экран входа остаётся в загрузке до таймаута соединения.
+  //     Проверяем ту же функцию, которой отвечает на подключение сервер.
+  const cold = new Fake();
+  watch(cold);
+  await greet(cold, Promise.resolve(
+    'Офис «Первый» не открылся: EACCES, permission denied. Проверьте директорию.',
+  ));
+  const boot = cold.last('office.error');
+  check('при неудачном старте клиент получает отказ, а не тишину', boot?.op === 'open');
+  check('текст отказа при старте по-русски и называет причину',
+    Boolean(boot?.message.includes('не открылся') && boot.message.includes('Проверьте')));
+  check('снапшот при неудачном старте не приходит', cold.count('snapshot') === 0);
+  check('вместе с отказом уходит список офисов — меню есть что показать',
+    (cold.last('offices')?.offices.length ?? 0) > 0);
+  unwatch(cold);
+
+  // Тот же путь при удачном старте — снапшот, как и раньше.
+  const warm = new Fake();
+  watch(warm);
+  await greet(warm, Promise.resolve(null));
+  check('при удачном старте клиент получает снапшот', warm.count('snapshot') === 1);
+  check('при удачном старте отказа не приходит', warm.count('office.error') === 0);
+  unwatch(warm);
+
+  // 23. Отключившийся клиент из рассылки уходит: ни событий, ни подписки,
   //     ни офиса, к которому его команды могли бы отнести.
   const closed = new Fake();
   watch(closed);
@@ -429,7 +488,7 @@ async function main(): Promise<void> {
   await sleep(20);
   check('отключённый клиент событий не получает', closed.count('chat') === 0);
 
-  // 23. Всё сделанное записано на диск: следующий запуск увидит то же самое.
+  // 24. Всё сделанное записано на диск: следующий запуск увидит то же самое.
   const saved = onDisk();
   check('реестр на диске знает все четыре офиса, включая скрытый',
     saved.offices.length === 4 && saved.offices.filter((o) => o.hidden).length === 1);

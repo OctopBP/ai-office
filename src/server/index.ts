@@ -5,7 +5,7 @@ import { extname, resolve } from 'node:path';
 import type { ClientCommand, ServerEvent } from '../shared/types';
 import { officeViews, openedOffices, openOfficeState, subscribeOffices, type OfficeState } from './state';
 import {
-  broadcast, broadcastSnapshot, handleOfficeCommand, initOfficeApi, send, sendSnapshot,
+  broadcast, broadcastSnapshot, greet, handleOfficeCommand, initOfficeApi, send,
   stateFor, unwatch, watch, watching,
 } from './office-api';
 import { assignDirect, holdMeeting, resetSessions, retryTask, sendUserMessage, setPaused, stopTask, taskDiff, talkTo } from './agents';
@@ -116,7 +116,23 @@ if (process.env.OFFICE_PROJECT_DIR) {
 }
 const opened = currentOffice();
 if (!opened) throw new Error('Не удалось определить офис для запуска');
-const startup = openOffice(opened);
+
+/**
+ * Причина, по которой стартовый офис не открылся, — или null, если открылся.
+ * Провал открытия не роняет процесс: сервер и веб продолжают работать, и
+ * человеку надо объяснить, что случилось, а не оставлять его перед пустым
+ * экраном. Держим и переменной, и значением обещания: обещание нужно тем,
+ * кто подключается, пока офис ещё открывается, а переменная — командам,
+ * которые придут уже после.
+ */
+let startupError: string | null = null;
+const startup: Promise<string | null> = openOffice(opened).then(() => null, (err: unknown) => {
+  startupError = `Офис «${opened.name}» не открылся: ${(err as Error).message}. ` +
+    `Проверьте, что директория ${opened.projectDir} на месте и доступна. ` +
+    'Пока что выберите в меню другой офис или заведите новый — сервер работает.';
+  console.log(`⚠️  ${startupError}`);
+  return startupError;
+});
 
 // Досохранить перед выходом, чтобы не потерять последние события.
 for (const sig of ['SIGINT', 'SIGTERM'] as const) {
@@ -198,9 +214,9 @@ subscribeOffices((event: ServerEvent, officeId: string) => broadcast(event, offi
 wss.on('connection', (ws) => {
   watch(ws);
   // Пока офис открывается, снапшота ещё нет: первый уходит после старта.
-  void startup.then(() => {
-    if (watching(ws)) sendSnapshot(ws);
-  });
+  // А если он не открылся — вместо снапшота уходит причина: молчание клиент
+  // разобрать не может и остаётся в загрузке.
+  void greet(ws, startup);
 
   ws.on('message', (raw) => {
     let cmd: ClientCommand;
@@ -219,9 +235,12 @@ wss.on('connection', (ws) => {
     const state = stateFor(ws);
     if (!state) {
       const officeId = watching(ws);
+      // Стартовый офис мог и вовсе не открыться: тогда «повторите через
+      // секунду» — неправда, ждать нечего, и человеку нужна настоящая причина.
       send(ws, {
         t: 'office.error', op: 'open', officeId,
-        message: 'Офис ещё открывается — команда не выполнена. Повторите через секунду.',
+        message: startupError
+          ?? 'Офис ещё открывается — команда не выполнена. Повторите через секунду.',
       });
       return;
     }

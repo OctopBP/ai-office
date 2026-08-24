@@ -1620,16 +1620,9 @@ function startCloudWorker(
  */
 export function resetSessions(state: OfficeState): void {
   // Сбрасывается офис, который попросил клиент, — чужие сессии трогать нельзя.
-  state.pmQueue?.close();
-  state.pmQueue = null;
-  state.pmLoop = null;
-  for (const [id, talk] of state.talks) {
-    talk.queue.close();
-    state.talks.delete(id);
-  }
-  for (const inst of state.instances.values()) inst.abort?.abort();
-  state.stoppedByUser.clear();
-  state.meetingRunning = false;
+  // Само закрытие живёт в состоянии офиса: так же гасят сессии при выгрузке
+  // офиса из памяти, и разойтись эти два пути не должны.
+  state.closeSessions();
 }
 
 /** Прервать работу над задачей. Наработки сохраняются. */

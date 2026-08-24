@@ -346,6 +346,27 @@ export class OfficeState {
     wipeFile(this.stateFile);
   }
 
+  /**
+   * Закрыть живые сессии офиса: менеджера, прямые разговоры и исполнителей.
+   * Одна точка на все причины (сброс доски по кнопке и выгрузка офиса из
+   * памяти) — разойдясь, они оставляли бы за собой то очередь менеджера,
+   * то незакрытый разговор, а тот держит сессию SDK живой.
+   *
+   * Задачи и доску не трогает: это про живые разговоры, а не про работу.
+   */
+  closeSessions(): void {
+    this.pmQueue?.close();
+    this.pmQueue = null;
+    this.pmLoop = null;
+    for (const [id, talk] of this.talks) {
+      talk.queue.close();
+      this.talks.delete(id);
+    }
+    for (const inst of this.instances.values()) inst.abort?.abort();
+    this.stoppedByUser.clear();
+    this.meetingRunning = false;
+  }
+
   toPersisted(): Persisted {
     return {
       version: 1,
@@ -1518,4 +1539,30 @@ export function openOfficeState(entry: { id: string; projectDir: string; stateFi
   // принадлежат офису, и у нового их просто нет.
   if (!restored) state.seed();
   return { state, restored, reused: false };
+}
+
+/**
+ * Выгрузить офис из памяти: дописать состояние на диск, закрыть живые сессии
+ * и убрать состояние из реестра. Обратное к openOfficeState.
+ *
+ * Сохранение на диске остаётся нетронутым: офис убирают из списка, а не
+ * стирают, и вернувшись, он поднимет с диска ту же доску, те же расходы и тот
+ * же разговор. Стирание — это wipe(), и делается оно только по кнопке сброса.
+ *
+ * Возвращает false, если офис в памяти и не жил: выгружать было нечего.
+ */
+export function unloadOfficeState(officeId: string): boolean {
+  const state = states.get(officeId);
+  if (!state) return false;
+  // Хвост отложенной записи дописываем до всего остального: у офиса свой
+  // таймер, и после удаления из реестра снимок брать было бы уже не с чего.
+  // Только у поднятого — у пустой заготовки файл ещё общий по умолчанию.
+  if (state.opened) state.flush();
+  state.closeSessions();
+  states.delete(officeId);
+  // `office` — последний поднятый офис на процесс, и указывать он мог как раз
+  // на выгруженный: оставленная ссылка держала бы в памяти то, что мы только
+  // что убрали, и отдавала бы его состояние всему, у чего клиента нет.
+  if (office === state) office = getOffice(currentOffice()?.id ?? 'o-1');
+  return true;
 }

@@ -386,6 +386,24 @@ export const useStore = create<State>((set, get) => ({
       case 'offices':
         set({ offices: e.offices });
         break;
+      case 'office.error':
+        // Стартовый офис не открылся: снапшота не будет никогда, и меню без
+        // этой ветки висело бы на «Открываем офис…» до таймаута соединения,
+        // а потом врало бы, что сервер недоступен. Список офисов сервер
+        // присылает прямо перед ошибкой, поэтому показываем меню с причиной:
+        // человек может открыть другой проект, не перезапуская сервер.
+        // Отказы остальных операций (создание, вход, переименование) меню
+        // разбирает репликой «офис» в чате — их эта ветка не трогает.
+        set((s) => (e.op === 'open' && !s.booted
+          ? {
+            booted: true,
+            connectFailed: false,
+            pending: null,
+            pendingLabel: null,
+            menuNotice: { kind: 'blocked' as const, text: e.message },
+          }
+          : {}));
+        break;
       case 'cloud':
         set({ cloud: e.cloud });
         break;
