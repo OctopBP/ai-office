@@ -6,9 +6,9 @@ const money = (v: number) => `$${v.toFixed(2)}`;
 
 const ACCESS_ICON: Record<string, string> = { auto: '🔓', 'ask-risky': '🔐', 'ask-writes': '🔒', readonly: '🚫' };
 
-export function TopHud({ onSettings, onMeeting, onHelp, onUsage, onMergeQueue }: {
+export function TopHud({ onSettings, onMeeting, onHelp, onUsage, onMergeQueue, onTeam }: {
   onSettings: () => void; onMeeting: () => void; onHelp: () => void; onUsage: () => void;
-  onMergeQueue: () => void;
+  onMergeQueue: () => void; onTeam: () => void;
 }) {
   const instances = useStore((s) => s.instances);
   const tasks = useStore((s) => s.tasks);
@@ -83,6 +83,9 @@ export function TopHud({ onSettings, onMeeting, onHelp, onUsage, onMergeQueue }:
           <button className={`hud-btn ${paused ? 'on' : ''}`} onClick={() => setPaused(!paused)}
             title={paused ? 'Продолжить работу — SPACE' : 'Пауза: остановить всех исполнителей — SPACE'}>
             {paused ? '▶' : '⏸'}
+          </button>
+          <button className="hud-btn" onClick={onTeam} title="Команда: роли, найм, увольнение">
+            <span className="ico">🧑‍💼</span><span className="hud-label">Команда</span>
           </button>
           <button className="hud-btn" onClick={onMeeting} title="Созвать совещание — M">👥</button>
           <button className={`hud-btn ${editingLayout ? 'on' : ''}`}

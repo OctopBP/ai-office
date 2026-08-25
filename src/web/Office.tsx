@@ -252,7 +252,8 @@ export function Office({ onOpen, onDoor }: {
         const role = roleOf(inst.roleId);
         const icon = STATE_ICON[inst.state];
         const busy = inst.state === 'working' || inst.state === 'thinking';
-        const [, agentH] = spriteSize(agentSpriteName(inst.roleId, inst.id));
+        const spriteName = agentSpriteName(inst.roleId, inst.id, role?.sprite);
+        const [, agentH] = spriteSize(spriteName);
         return (
           <div
             key={inst.id}
@@ -274,7 +275,7 @@ export function Office({ onOpen, onDoor }: {
             title={inst.label}
           >
             <img className="shadow" src={img('shadow')} alt="" />
-            <img className="body" src={img(agentSpriteName(inst.roleId, inst.id))} alt="" />
+            <img className="body" src={img(spriteName)} alt="" />
             {icon && <span className="badge">{icon}</span>}
           </div>
         );
