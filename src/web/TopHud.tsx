@@ -36,71 +36,93 @@ export function TopHud({ onSettings, onMeeting, onHelp, onUsage, onMergeQueue }:
 
   return (
     <>
-      <OfficeSwitcher />
+      <div className="hud-bar pixel">
+        <div className="hud-group hud-left">
+          <OfficeSwitcher />
+          <span className="hud-sep" />
+          <button className="hud-btn" onClick={leaveOffice}
+            title="В меню — офис остаётся открытым, агенты продолжат работать — ESC">
+            <span className="ico">🏠</span><span className="hud-label">Меню</span>
+          </button>
+        </div>
 
-      <div className="hud right">
-        <button className={`pixel money ${over ? 'over' : ''}`} onClick={onUsage}
-          title="Расходы: токены, кеш, дни">
-          <span className="ico">🪙</span>
-          <div>
-            <b>{money(today)}</b>
-            <div className="muted small">
-              сегодня · всего {money(usage.costUsd)}
-              {settings.globalBudgetUsd !== null && ` из ${money(settings.globalBudgetUsd)}`}
+        <span className="hud-sep" />
+
+        <div className="hud-group hud-center">
+          <button className={`hud-btn hud-money ${over ? 'over' : ''}`} onClick={onUsage}
+            title="Расходы: токены, кеш, дни">
+            <span className="ico">🪙</span>
+            <span className="hud-money-text">
+              <b>{money(today)}</b>
+              <span className="muted small hud-label">
+                сегодня · всего {money(usage.costUsd)}
+                {settings.globalBudgetUsd !== null && ` из ${money(settings.globalBudgetUsd)}`}
+              </span>
+            </span>
+          </button>
+
+          <div className="hud-status">
+            <div>👥 {Object.keys(instances).length} агента · {working} в работе</div>
+            <div className={permissions.length ? 'alarm' : 'muted small'}>
+              {permissions.length > 0 && <>{permissions.length} ждёт решения ❗ · </>}
+              {review} на ревью
             </div>
           </div>
-        </button>
 
-        <div className="pixel counters">
-          <div>👥 {Object.keys(instances).length} агента · {working} в работе</div>
-          <div className={permissions.length ? 'alarm' : 'muted small'}>
-            {permissions.length > 0 && <>{permissions.length} ждёт решения ❗ · </>}
-            {review} на ревью
+          <div className={`hud-chip access ${settings.officePermissionMode}`}
+            title="Общий режим доступа офиса — настраивается в ⚙">
+            {ACCESS_ICON[settings.officePermissionMode]} <span className="hud-label">{ACCESS_LABEL[settings.officePermissionMode]}</span>
           </div>
+
+          {paused && <div className="hud-chip paused" title="Исполнители замирают на следующем действии">⏸ ПАУЗА</div>}
         </div>
 
-        <div className={`pixel access-chip ${settings.officePermissionMode}`}
-          title="Общий режим доступа офиса — настраивается в ⚙">
-          {ACCESS_ICON[settings.officePermissionMode]} {ACCESS_LABEL[settings.officePermissionMode]}
+        <span className="hud-sep" />
+
+        <div className="hud-group hud-right">
+          <button className={`hud-btn ${paused ? 'on' : ''}`} onClick={() => setPaused(!paused)}
+            title={paused ? 'Продолжить работу — SPACE' : 'Пауза: остановить всех исполнителей — SPACE'}>
+            {paused ? '▶' : '⏸'}
+          </button>
+          <button className="hud-btn" onClick={onMeeting} title="Созвать совещание — M">👥</button>
+          <button className={`hud-btn ${editingLayout ? 'on' : ''}`}
+            onClick={() => setEditingLayout(!editingLayout)}
+            title={editingLayout
+              ? 'Выключить редактор расстановки'
+              : 'Редактор расстановки: тащите мебель мышью'}>
+            🪑
+          </button>
+          {editingLayout && (
+            <button className="hud-btn" onClick={() => setConfirmReset(true)}
+              title="Сбросить расстановку к пресету">↺</button>
+          )}
+
+          <span className="hud-sep" />
+
+          <button className={`hud-btn ${readyToMerge > 0 ? 'alert' : ''}`} onClick={onMergeQueue}
+            title="Очередь слияния — Q">
+            🔀{readyToMerge > 0 && ` ${readyToMerge}`}
+          </button>
+
+          <span className="hud-sep" />
+
+          <button className="hud-btn" onClick={() => setTheme(theme === 'day' ? 'night' : 'day')}
+            title="Светлая или тёмная тема">{theme === 'day' ? '🌙' : '☀️'}</button>
+          <button className="hud-btn" onClick={onSettings} title="Бюджет офиса">⚙</button>
+          <button className="hud-btn" onClick={onHelp} title="Справка">?</button>
+          <button className="hud-btn" onClick={reset} title="Сбросить офис">⟳</button>
+
+          <span className="hud-sep" />
+
+          <span className={`link-dot ${connected ? 'on' : 'off'}`}
+            title={connected ? 'связь с офисом есть' : 'нет связи с сервером'} />
+          <span className={`auth ${authSource}`}
+            title={authSource === 'api-key'
+              ? 'Задан ключ API — расход идёт в платный API, а не в подписку'
+              : 'Работает на авторизации Claude Code — расход в лимиты подписки'}>
+            {authSource === 'api-key' ? '💳' : '🔑'}
+          </span>
         </div>
-
-        {paused && <div className="pixel paused-chip" title="Исполнители замирают на следующем действии">⏸ ПАУЗА</div>}
-
-        <button className="sq" onClick={leaveOffice}
-          title="В меню — офис остаётся открытым, агенты продолжат работать — ESC">🏠</button>
-        <button className={`sq ${paused ? 'on' : ''}`} onClick={() => setPaused(!paused)}
-          title={paused ? 'Продолжить работу — SPACE' : 'Пауза: остановить всех исполнителей — SPACE'}>
-          {paused ? '▶' : '⏸'}
-        </button>
-        <button className="sq" onClick={onMeeting} title="Созвать совещание — M">👥</button>
-        <button className={`sq ${editingLayout ? 'on' : ''}`}
-          onClick={() => setEditingLayout(!editingLayout)}
-          title={editingLayout
-            ? 'Выключить редактор расстановки'
-            : 'Редактор расстановки: тащите мебель мышью'}>
-          🪑
-        </button>
-        {editingLayout && (
-          <button className="sq" onClick={() => setConfirmReset(true)}
-            title="Сбросить расстановку к пресету">↺</button>
-        )}
-        <button className={`sq ${readyToMerge > 0 ? 'alert' : ''}`} onClick={onMergeQueue}
-          title="Очередь слияния — Q">
-          🔀{readyToMerge > 0 && ` ${readyToMerge}`}
-        </button>
-        <button className="sq" onClick={() => setTheme(theme === 'day' ? 'night' : 'day')}
-          title="Светлая или тёмная тема">{theme === 'day' ? '🌙' : '☀️'}</button>
-        <button className="sq" onClick={onSettings} title="Бюджет офиса">⚙</button>
-        <button className="sq" onClick={onHelp} title="Справка">?</button>
-        <button className="sq" onClick={reset} title="Сбросить офис">⟳</button>
-        <span className={`link-dot ${connected ? 'on' : 'off'}`}
-          title={connected ? 'связь с офисом есть' : 'нет связи с сервером'} />
-        <span className={`auth ${authSource}`}
-          title={authSource === 'api-key'
-            ? 'Задан ключ API — расход идёт в платный API, а не в подписку'
-            : 'Работает на авторизации Claude Code — расход в лимиты подписки'}>
-          {authSource === 'api-key' ? '💳' : '🔑'}
-        </span>
       </div>
 
       {confirmReset && (
