@@ -52,6 +52,7 @@ button:hover { background: var(--panel-2); }
 button:active { border-bottom-width: 2px; transform: translateY(1px); }
 button:disabled { opacity: .45; cursor: default; }
 button.primary { background: var(--accent); color: var(--accent-ink); }
+button.sq { padding: 5px 9px; line-height: 1.2; }
 
 /* ================= сцена ================= */
 .app { position: fixed; inset: 0; display: flex; flex-direction: column; }
@@ -488,41 +489,85 @@ button
 .link-danger { background: none; border: none; color: var(--muted); font-size: 12px; padding: 4px 0; }
 .link-danger:hover { color: var(--red); }
 
-/* ================= HUD ================= */
-.hud { position: absolute; top: 12px; z-index: 30; display: flex; gap: 8px; align-items: stretch; }
-.hud.project { left: 14px; align-items: center; gap: 10px; padding: 7px 14px 7px 10px; max-width: 42%; }
-.hud.project .ico { font-size: 19px; }
-.hud.project b { font-size: 15px; }
-.hud.project .mono { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.hud.right { right: 14px; align-items: center; }
-.hud .money, .hud .counters { display: flex; align-items: center; gap: 9px; padding: 6px 13px; }
-.hud .money b { font-size: 16px; font-variant-numeric: tabular-nums; }
-.hud .money .ico { font-size: 17px; }
-.hud .money.over b { color: var(--red); }
-.hud .counters { flex-direction: column; align-items: flex-start; gap: 1px; font-size: 12px; }
-.hud .counters .alarm { color: var(--red); font-size: 12px; }
-.hud .small { font-size: 11px; }
-button.sq { padding: 5px 9px; line-height: 1.2; }
+/* ================= HUD =================
+   Раньше здесь стояли два отдельных «острова» (бейдж офиса слева и пилюля
+   с кнопками справа), каждый со своей рамкой — визуально разваливалось.
+   Теперь один сплошной .hud-bar на всю ширину (класс .pixel даёт ему общий
+   фон и рамку — тот же язык, что у остальных панелей), внутри три группы
+   (офис/выход · состояние · инструменты), разделённые вертикальными
+   чёрточками .hud-sep. У элементов внутри полосы больше нет своих рамок —
+   состояния (hover/active/on/alert) читаются подсветкой фона. */
+.hud-bar {
+  position: absolute; top: 12px; left: 14px; right: 14px; z-index: 30;
+  display: flex; align-items: center; gap: 10px; padding: 4px 10px;
+}
+.hud-group { display: flex; align-items: center; gap: 4px; min-width: 0; }
+.hud-left { flex: none; }
+.hud-center { flex: 1; justify-content: center; flex-wrap: wrap; row-gap: 2px; min-width: 0; }
+.hud-right { flex: none; }
+.hud-sep { align-self: stretch; width: 2px; margin: 6px 2px; background: var(--line-soft); flex: none; }
+
+/* Кнопки и чипы внутри полосы — без собственной рамки/тени, подсветка фоном. */
+.hud-bar button, .hud-bar .hud-money, .hud-bar .hud-chip {
+  background: none; border: none; border-radius: 5px; box-shadow: none; color: var(--text);
+}
+.hud-bar button:hover:not(:disabled) { background: var(--panel-2); }
+.hud-bar button:active:not(:disabled) { background: var(--line-soft); transform: none; }
+.hud-bar button.hud-btn { padding: 5px 8px; display: flex; align-items: center; gap: 6px; line-height: 1.2; }
+.hud-bar button.on { background: var(--accent); color: var(--accent-ink); }
+.hud-bar button.alert { background: rgba(240, 180, 41, .18); color: var(--accent); }
+
+.hud-money { display: flex; align-items: center; gap: 8px; padding: 4px 10px; cursor: pointer; text-align: left; }
+.hud-money b { font-size: 15px; font-variant-numeric: tabular-nums; }
+.hud-money .ico { font-size: 16px; }
+.hud-money.over b { color: var(--red); }
+.hud-money-text { display: flex; flex-direction: column; align-items: flex-start; }
+
+.hud-status { display: flex; flex-direction: column; align-items: flex-start; gap: 1px; font-size: 12px; padding: 2px 8px; }
+.hud-status .alarm { color: var(--red); font-size: 12px; }
+
+.hud-chip { display: flex; align-items: center; gap: 6px; padding: 5px 10px; font-size: 12px; background: var(--panel-2); border-radius: 5px; }
+.hud-chip.access.auto { color: var(--red); background: rgba(217, 79, 61, .14); }
+.hud-chip.paused { color: var(--accent); background: rgba(240, 180, 41, .16); letter-spacing: .06em; }
+
 .link-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--red); }
 .link-dot.on { background: var(--green); }
 .auth { font-size: 13px; }
 
+/* Подписи рядом со значками — первое, что прячем в узком окне (см. медиа-запрос ниже). */
+.hud-label { white-space: nowrap; }
+
 /* ---------- переключатель офисов (бейдж проекта) ---------- */
-.office-switcher { padding: 0; }
+.office-switcher { position: relative; display: flex; align-items: center; max-width: 260px; min-width: 0; }
+.office-switcher.switching { gap: 10px; padding: 4px 10px; cursor: default; }
+.office-switcher .ico { font-size: 19px; }
+.office-switcher b { font-size: 15px; }
+.office-switcher .mono { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .office-switcher-trigger {
-  display: flex; align-items: center; gap: 10px; width: 100%;
-  padding: 7px 14px 7px 10px; background: none; border: none; text-align: left; cursor: pointer;
+  display: flex; align-items: center; gap: 10px; width: 100%; min-width: 0;
+  padding: 6px 10px; background: none; border: none; text-align: left; cursor: pointer;
 }
-.office-switcher-trigger:hover { background: var(--panel-2); border-radius: 6px; }
+.office-switcher-trigger > div { min-width: 0; overflow: hidden; }
+.office-switcher-trigger:hover { background: var(--panel-2); border-radius: 5px; }
 .office-switcher-trigger:active { transform: none; }
 .office-switcher-trigger.lone { cursor: default; }
 .office-switcher-trigger.lone:hover { background: none; }
-.hud.project.switching { cursor: default; }
-.hud.project.switching .ico.spin { animation: office-switcher-spin 1s linear infinite; display: inline-block; }
+.office-switcher.switching .ico.spin { animation: office-switcher-spin 1s linear infinite; display: inline-block; }
 @keyframes office-switcher-spin { to { transform: rotate(360deg); } }
 .office-switcher-list {
   position: absolute; top: calc(100% + 6px); left: 0; min-width: 260px; max-width: 360px;
   padding: 4px; display: flex; flex-direction: column; z-index: 31;
+}
+
+/* ---------- узкое окно (~1024px): прячем подписи, оставляем значки ---------- */
+@media (max-width: 1180px) {
+  .hud-label { display: none; }
+  .office-switcher-trigger .mono { display: none; }
+  .office-switcher { max-width: 140px; }
+  .hud-bar { gap: 4px; padding: 3px 6px; }
+  .hud-group { gap: 2px; }
+  .hud-bar button.hud-btn { padding: 5px 6px; }
+  .hud-money, .hud-status, .hud-chip { padding-left: 6px; padding-right: 6px; }
 }
 .office-switcher-row {
   display: flex; align-items: center; gap: 8px; width: 100%; padding: 7px 8px;
@@ -691,11 +736,6 @@ kbd {
   content: ''; position: absolute; inset: 0; z-index: 20; pointer-events: none;
   background: var(--shadow);
 }
-.hud .paused-chip {
-  display: flex; align-items: center; padding: 6px 11px;
-  color: var(--accent); font-size: 12px; letter-spacing: .06em;
-  border-color: var(--accent);
-}
 button.sq.on { background: var(--accent); color: var(--accent-ink); }
 
 /* ================= критерии готовности ================= */
@@ -710,7 +750,6 @@ button.sq.on { background: var(--accent); color: var(--accent-ink); }
 .task .criteria { margin-top: 6px; }
 
 /* ================= расходы ================= */
-.hud .money { cursor: pointer; text-align: left; padding: 6px 13px; }
 .usage-total {
   display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px;
   margin: 12px 0 16px;
@@ -779,10 +818,6 @@ button.sq.on { background: var(--accent); color: var(--accent-ink); }
 .access-confirm p { margin: 0 0 10px; font-size: 13px; line-height: 1.45; }
 .access-confirm .modal-actions .danger { border-color: var(--red); color: var(--red); }
 .access-confirm .modal-actions .danger:hover { background: rgba(217, 79, 61, .12); }
-.hud .access-chip {
-  display: flex; align-items: center; gap: 6px; padding: 6px 11px; font-size: 12px;
-}
-.hud .access-chip.auto { color: var(--red); border-color: var(--red); }
 .perm-badge {
   display: inline-flex; align-items: center; gap: 5px; padding: 2px 8px;
   border: 1px solid var(--line-soft); border-radius: 12px; font-size: 11px; color: var(--muted);
@@ -883,7 +918,6 @@ button.sq.on { background: var(--accent); color: var(--accent-ink); }
 }
 
 /* ================= очередь слияния (T-13) ================= */
-button.sq.alert { border-color: var(--accent); color: var(--accent); }
 .chip.merge-chip.clean { color: var(--green); border-color: var(--green); }
 .chip.merge-chip.merged { color: var(--green); border-color: var(--green); }
 .chip.merge-chip.conflict { color: var(--red); border-color: var(--red); }
