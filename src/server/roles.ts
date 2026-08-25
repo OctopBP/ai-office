@@ -204,23 +204,70 @@ const BASE_ROLES: Role[] = [
 ];
 
 /**
- * Пользовательские правки ролей поверх базовых. Применяются к НОВЫМ сессиям:
- * у уже запущенного исполнителя промпт и модель зафиксированы на момент старта.
+ * id роли менеджера. Менеджер есть в каждом офисе и ровно один: на нём
+ * держится раздача задач, и второй такой же роли в наборе быть не может.
+ */
+export const MANAGER_ROLE_ID = 'pm';
+
+/** Копия роли: массив инструментов тоже свой, иначе набор офиса делил бы его с базовым. */
+const cloneRole = (r: Role): Role => (r.tools ? { ...r, tools: [...r.tools] } : { ...r });
+
+/**
+ * Набор ролей по умолчанию — с него начинается новый офис. Каждый вызов
+ * отдаёт свежие объекты: набор принадлежит офису и правится в нём, а общий
+ * на процесс массив разъехался бы правками по чужим офисам.
+ */
+export const defaultRoles = (): Role[] => BASE_ROLES.map(cloneRole);
+
+/** Базовая роль по id. undefined — такой роли среди базовых нет. */
+export const defaultRole = (id: string): Role | undefined => {
+  const found = BASE_ROLES.find((r) => r.id === id);
+  return found ? cloneRole(found) : undefined;
+};
+
+/**
+ * Заготовка роли, которой нет среди базовых. Нужна восстановлению: набор
+ * ролей лежит в файле состояния, и роль оттуда обязана подняться целиком,
+ * даже если базовой пары у неё нет.
+ */
+export const blankRole = (id: string): Role => ({
+  id,
+  title: id,
+  color: '#94a3b8',
+  emoji: '🙂',
+  model: 'claude-sonnet-5',
+  isManager: false,
+  maxInstances: 1,
+  permissionMode: null,
+  isolate: true,
+  brief: '',
+});
+
+/**
+ * Гарантировать менеджера в наборе ролей офиса. PM есть во всех офисах:
+ * потерять его нельзя (без менеджера офис не с кем разговаривать), и
+ * задвоить тоже — второй менеджер сломал бы и раздачу задач, и запрет на
+ * увольнение. Свои настройки PM у офиса при этом остаются: общая только роль.
+ */
+export function withManagerRole(list: Role[]): Role[] {
+  const base = defaultRole(MANAGER_ROLE_ID)!;
+  const saved = list.find((r) => r.id === MANAGER_ROLE_ID);
+  const manager: Role = { ...base, ...saved, id: MANAGER_ROLE_ID, isManager: true };
+  // Менеджер идёт первым — в этом порядке роли показываются в UI и обходятся
+  // при наборе штата, и офис без сохранения выглядит так же, как с ним.
+  const rest = list
+    .filter((r) => r.id !== MANAGER_ROLE_ID)
+    .map((r) => (r.isManager ? { ...r, isManager: false } : r));
+  return [manager, ...rest];
+}
+
+/**
+ * Пользовательские правки ролей поверх базовых — формат сохранений до того,
+ * как набор ролей переехал в состояние офиса. Читается только при
+ * восстановлении такого файла: дальше офис хранит роли целиком.
  */
 export type RoleOverrides = Record<string, Partial<Role>>;
 
-/**
- * Роли считаются от переданных правок, а не от общего на процесс значения.
- * В памяти одновременно живут несколько офисов, и у каждого свои модели,
- * лимиты клонов и репозитории ролей: общий реестр отдавал бы сессиям
- * покинутого офиса настройки того, который человек открыл последним.
- */
-export const rolesWith = (overrides: RoleOverrides = {}): Role[] =>
-  BASE_ROLES.map((r) => ({ ...r, ...(overrides[r.id] ?? {}) }));
-
-export const roleWith = (overrides: RoleOverrides, id: string): Role | undefined =>
-  rolesWith(overrides).find((r) => r.id === id);
-
-/** Роли без менеджера: те, кому можно отдать задачу с доски. */
-export const workerRolesWith = (overrides: RoleOverrides = {}): Role[] =>
-  rolesWith(overrides).filter((r) => !r.isManager);
+/** Базовый набор с наложенными правками — миграция старых сохранений. */
+export const rolesFromOverrides = (overrides: RoleOverrides = {}): Role[] =>
+  defaultRoles().map((r) => ({ ...r, ...(overrides[r.id] ?? {}) }));

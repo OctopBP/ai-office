@@ -22,6 +22,7 @@ import {
   noStaffReason, officeAssign, releaseSlot, resetSessions, sendUserMessage, slotProblem, teamSummary,
 } from '../src/server/agents';
 import { MessageQueue } from '../src/server/queue';
+import { defaultRole, defaultRoles } from '../src/server/roles';
 import { tellPm } from '../src/server/review';
 
 /**
@@ -305,15 +306,114 @@ async function main(): Promise<void> {
   const junkOffice = openOfficeState({
     id: 'o-roleturns', projectDir: junkDir, stateFile: junkFile,
   }).state;
+  // Сохранение сделано в формате до переезда ролей в офис: набора ролей в нём
+  // нет вовсе, а есть только правки поверх базового. Такой файл обязан
+  // подняться без потерь и дальше храниться уже набором целиком.
+  save(junkFile, () => junkOffice.toPersisted());
+  flushAll();
+  const migrated = JSON.parse(readFileSync(junkFile, 'utf8')) as Persisted;
   results.push(
     `испорченный лимит роли из файла не применён: ${junkOffice.role('backend')?.maxTurns == null}`,
     `роль вернулась к офисному лимиту: ${
       junkOffice.turnsFor(junkOffice.role('backend')!) === DEFAULT_SETTINGS.taskMaxTurns}`,
     `остальные правки роли из файла уцелели: ${
       junkOffice.role('backend')?.model === 'claude-haiku-4-5'}`,
+    `старое сохранение подняло весь базовый набор ролей: ${
+      junkOffice.roles().length === defaultRoles().length}`,
+    `перенесённый набор сохранён целиком: ${Array.isArray(migrated.roles)
+      && migrated.roles.some((r) => r.id === 'backend' && r.model === 'claude-haiku-4-5')
+      && migrated.roles.some((r) => r.id === 'reviewer')}`,
+    `в перенесённом наборе ровно один менеджер: ${
+      (migrated.roles ?? []).filter((r) => r.isManager).length === 1}`,
   );
   unloadOfficeState('o-roleturns');
   wipe(junkFile);
+
+  // 7h. Роли принадлежат офису, а не процессу: у каждого проекта свой набор,
+  // он хранится в его состоянии и переживает перезапуск. Ломается тут первым
+  // делом одно из двух — правка роли в одном офисе видна в другом, либо роль
+  // одного офиса появляется в соседнем. Общего реестра ролей нет вовсе: офис
+  // у любой роли спрашивают явно.
+  const roleFileA = resolve(tmpdir(), `office-test-roles-a-${process.pid}.json`);
+  const roleFileB = resolve(tmpdir(), `office-test-roles-b-${process.pid}.json`);
+  const ra = openOfficeState({
+    id: 'o-roles-a', projectDir: resolve(tmpdir(), 'roles-a'), stateFile: roleFileA,
+  }).state;
+  const rb = openOfficeState({
+    id: 'o-roles-b', projectDir: resolve(tmpdir(), 'roles-b'), stateFile: roleFileB,
+  }).state;
+  const baseModel = defaultRole('backend')!.model;
+  ra.updateRole('backend', { model: 'claude-haiku-4-5', title: 'Бэкенд офиса A' });
+  results.push(
+    `правка роли применилась в своём офисе: ${ra.role('backend')?.model === 'claude-haiku-4-5'}`,
+    `в соседнем офисе роль осталась прежней: ${rb.role('backend')?.model === baseModel
+      && rb.role('backend')?.title === defaultRole('backend')!.title}`,
+    `правка не дошла и до базового набора: ${defaultRole('backend')!.model === baseModel}`,
+  );
+
+  // Своя роль офиса A. Из интерфейса их будет заводить следующая задача, а
+  // здесь набор правится в файле состояния — том самом, где он теперь живёт.
+  ra.flush();
+  const savedA = JSON.parse(readFileSync(roleFileA, 'utf8')) as Persisted;
+  savedA.roles = [
+    ...(savedA.roles ?? []),
+    { ...defaultRole('design')!, id: 'writer', title: 'Технический писатель' },
+  ];
+  writeFileSync(roleFileA, JSON.stringify(savedA, null, 2));
+  const rolesRestored = ra.restore();
+  const managers = (o: typeof ra): number => o.roles().filter((r) => r.isManager).length;
+  results.push(
+    `набор ролей поднялся с диска: ${rolesRestored}`,
+    `правка роли пережила перезапуск: ${ra.role('backend')?.model === 'claude-haiku-4-5'
+      && ra.role('backend')?.title === 'Бэкенд офиса A'}`,
+    `своя роль офиса поднялась: ${ra.role('writer')?.title === 'Технический писатель'}`,
+    `в соседнем офисе этой роли нет: ${rb.role('writer') === undefined}`,
+    `наборы ролей офисов разошлись: ${ra.roles().length === rb.roles().length + 1}`,
+    `PM есть в обоих офисах: ${ra.role('pm')?.isManager === true && rb.role('pm')?.isManager === true}`,
+    `и в каждом он ровно один: ${managers(ra) === 1 && managers(rb) === 1}`,
+    // Своя роль офиса — не запись в списке, а рабочее место: в неё нанимают
+    // там, где она есть, и не могут нанять там, где её нет.
+    `в свою роль офиса можно нанять сотрудника: ${ra.hire('writer') === null
+      && ra.staffOf('writer').length === 1}`,
+    `в соседнем офисе такой роли для найма нет: ${/нет в офисе/.test(rb.hire('writer') ?? '')}`,
+  );
+  unloadOfficeState('o-roles-a');
+  unloadOfficeState('o-roles-b');
+  wipe(roleFileA);
+  wipe(roleFileB);
+
+  // Менеджера в наборе нельзя ни потерять, ни задвоить: файл состояния правят
+  // руками, а офис без PM не с кем разговаривать. Дубль роли по id так же
+  // недопустим — половина офиса работала бы по одной роли, половина по другой.
+  const pmRolesFile = resolve(tmpdir(), `office-test-roles-pm-${process.pid}.json`);
+  const pmRolesDir = resolve(tmpdir(), 'roles-pm-office');
+  save(pmRolesFile, () => ({
+    version: 1, projectDir: pmRolesDir, taskSeq: 0, tasks: [], chat: [], log: [],
+    instances: [], settings: { ...DEFAULT_SETTINGS }, savedAt: Date.now(),
+    roles: [
+      // PM в файле нет вовсе, зато менеджером объявлен backend — и он же
+      // записан дважды, вторым разом с другой моделью.
+      { ...defaultRole('backend')!, isManager: true },
+      { ...defaultRole('backend')!, model: 'claude-opus-5' },
+      { ...defaultRole('reviewer')!, maxTurns: 0 },
+    ],
+  }));
+  flushAll();
+  const pmRoles = openOfficeState({
+    id: 'o-roles-pm', projectDir: pmRolesDir, stateFile: pmRolesFile,
+  }).state;
+  results.push(
+    `PM вернулся в набор, где его не было: ${pmRoles.role('pm')?.isManager === true
+      && pmRoles.role('pm')?.title === defaultRole('pm')!.title}`,
+    `второй менеджер разжалован: ${pmRoles.role('backend')?.isManager === false
+      && pmRoles.roles().filter((r) => r.isManager).length === 1}`,
+    `дубль роли по id выкинут: ${pmRoles.roles().filter((r) => r.id === 'backend').length === 1
+      && pmRoles.role('backend')?.model === defaultRole('backend')!.model}`,
+    `испорченный лимит роли из набора не применён: ${pmRoles.role('reviewer')?.maxTurns == null}`,
+    `PM в наборе один и первый: ${pmRoles.roles()[0]?.id === 'pm'}`,
+  );
+  unloadOfficeState('o-roles-pm');
+  wipe(pmRolesFile);
 
   // 8. Хранилище пер-офисное: сохранение одного офиса не отменяет сохранение
   // другого. С общим на процесс таймером второй save() просто заменял первый
