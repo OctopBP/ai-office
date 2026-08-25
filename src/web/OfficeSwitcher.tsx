@@ -34,12 +34,9 @@ export function OfficeSwitcher() {
 
   if (pending === 'enter') {
     return (
-      <div className="office-switcher switching">
+      <div className="office-switcher switching" title="Ждём снапшот нового офиса">
         <span className="ico spin">🔄</span>
-        <div>
-          <b>Переключаемся{pendingLabel ? ` на «${pendingLabel}»` : ''}…</b>
-          <div className="muted mono">ждём снапшот нового офиса</div>
-        </div>
+        <b>Переключаемся{pendingLabel ? ` на «${pendingLabel}»` : ''}…</b>
       </div>
     );
   }
@@ -58,15 +55,11 @@ export function OfficeSwitcher() {
         type="button"
         className={`office-switcher-trigger ${hasOthers ? '' : 'lone'}`}
         onClick={hasOthers ? () => setOpen((v) => !v) : undefined}
-        title={hasOthers ? 'Быстрое переключение между офисами' : 'Единственный офис — переключаться пока не на что'}
+        title={(hasOthers ? 'Быстрое переключение между офисами' : 'Единственный офис — переключаться пока не на что')
+          + ` · ${projectDir} · тема «${theme === 'day' ? 'Лофт' : 'Ночь / неон'}»`}
       >
         <span className="ico">🏢</span>
-        <div>
-          <b>{projectDir.split('/').pop()}{hasOthers ? ' ▾' : ''}</b>
-          <div className="muted mono">
-            {projectDir} · тема «{theme === 'day' ? 'Лофт' : 'Ночь / неон'}»
-          </div>
-        </div>
+        <b>{projectDir.split('/').pop()}{hasOthers ? ' ▾' : ''}</b>
       </button>
 
       {open && hasOthers && (

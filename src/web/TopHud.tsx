@@ -50,28 +50,24 @@ export function TopHud({ onSettings, onMeeting, onHelp, onUsage, onMergeQueue, o
 
         <div className="hud-group hud-center">
           <button className={`hud-btn hud-money ${over ? 'over' : ''}`} onClick={onUsage}
-            title="Расходы: токены, кеш, дни">
-            <span className="ico">🪙</span>
-            <span className="hud-money-text">
-              <b>{money(today)}</b>
-              <span className="muted small hud-label">
-                сегодня · всего {money(usage.costUsd)}
-                {settings.globalBudgetUsd !== null && ` из ${money(settings.globalBudgetUsd)}`}
-              </span>
-            </span>
+            title={`Расходы сегодня: ${money(today)} · всего ${money(usage.costUsd)}`
+              + (settings.globalBudgetUsd !== null ? ` из ${money(settings.globalBudgetUsd)}` : '')}>
+            <span className="ico">🪙</span><b>{money(today)}</b>
           </button>
 
-          <div className="hud-status">
-            <div>👥 {Object.keys(instances).length} агента · {working} в работе</div>
-            <div className={permissions.length ? 'alarm' : 'muted small'}>
-              {permissions.length > 0 && <>{permissions.length} ждёт решения ❗ · </>}
+          <div className="hud-status"
+            title={`${Object.keys(instances).length} агента в офисе, ${working} сейчас в работе`
+              + (permissions.length > 0 ? ` · ${permissions.length} ждёт решения человека` : '')}>
+            <span>👥 {Object.keys(instances).length} · {working} в работе</span>
+            <span className={permissions.length ? 'alarm' : 'muted small'}>
+              {permissions.length > 0 && <>❗ {permissions.length} · </>}
               {review} на ревью
-            </div>
+            </span>
           </div>
 
           <div className={`hud-chip access ${settings.officePermissionMode}`}
-            title="Общий режим доступа офиса — настраивается в ⚙">
-            {ACCESS_ICON[settings.officePermissionMode]} <span className="hud-label">{ACCESS_LABEL[settings.officePermissionMode]}</span>
+            title={`Режим доступа офиса: ${ACCESS_LABEL[settings.officePermissionMode]} — настраивается в ⚙`}>
+            {ACCESS_ICON[settings.officePermissionMode]}
           </div>
 
           {paused && <div className="hud-chip paused" title="Исполнители замирают на следующем действии">⏸ ПАУЗА</div>}
