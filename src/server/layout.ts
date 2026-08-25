@@ -275,6 +275,12 @@ export function checkPropEdit(
     clean.at = [round3(x), round3(y)];
   }
   if (edit.flip !== undefined) clean.flip = Boolean(edit.flip);
+  if (edit.rot !== undefined) {
+    if (!Number.isFinite(edit.rot)) return { error: `Поворот предмета «${key}» — не число.` };
+    // Приводим к [0, 360): поворот на 450° и на 90° — один и тот же предмет,
+    // но в файле состояния это были бы две разные записи.
+    clean.rot = round3(((edit.rot % 360) + 360) % 360);
+  }
   if (edit.scale !== undefined) {
     if (!Number.isFinite(edit.scale) || edit.scale < MIN_SCALE || edit.scale > MAX_SCALE) {
       return { error: `Масштаб предмета «${key}» должен быть числом от ${MIN_SCALE} до ${MAX_SCALE}.` };

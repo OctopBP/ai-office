@@ -57,6 +57,19 @@ export interface LayoutProp {
   id?: string;
   flip?: boolean;
   scale?: number;
+  /**
+   * Поворот предмета вокруг своей оси, градусы по часовой стрелке. Плоский
+   * рендер его не знает и знать не может: развернуть спрайт вида сверху —
+   * это нарисовать его заново, по кадру на сторону. Трёхмерный рендер
+   * поворачивает меш одним числом, ради чего поле и заведено.
+   *
+   * След предмета (`footprint`, а значит и проходимость) считается **без**
+   * поворота: `passability` живёт в общем модуле и обслуживает обоих
+   * рендеров, а повёрнутого следа у плоского не бывает. Пока повёрнутых
+   * предметов в пресетах нет, расхождения не возникает; когда редактор
+   * научится поворачивать (шаг 6), след придётся поворачивать здесь же.
+   */
+  rot?: number;
 }
 
 export interface LayoutZone {
@@ -112,6 +125,8 @@ export interface LayoutPropEdit {
   at?: [number, number];
   flip?: boolean;
   scale?: number;
+  /** Новый поворот в градусах — см. `LayoutProp.rot`. */
+  rot?: number;
   /** Убрать предмет из расстановки офиса. Пресет при этом не меняется. */
   removed?: boolean;
   /**
@@ -188,6 +203,7 @@ function editedProp(prop: LayoutProp, edit: LayoutPropEdit): LayoutProp {
   const next: LayoutProp = { ...prop };
   if (edit.at) next.at = [edit.at[0], edit.at[1]];
   if (edit.flip !== undefined) next.flip = edit.flip;
+  if (edit.rot !== undefined) next.rot = edit.rot;
   if (edit.scale !== undefined) next.scale = edit.scale;
   return next;
 }

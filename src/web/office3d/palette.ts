@@ -10,6 +10,9 @@
  */
 import type { Theme } from '../sprites';
 import type { Floor3 } from './geometry';
+import type { Prop3 } from './props';
+
+type PropTone = NonNullable<Prop3['tone']>;
 
 export interface Palette {
   /** фон за пределами комнаты */
@@ -24,6 +27,12 @@ export interface Palette {
   /** заливка оконного проёма (тонкое «стекло» в дырке) */
   glass: string;
   glassOpacity: number;
+  /**
+   * Материалы обстановки. Не «цвет стола», а «цвет дерева»: предметов три
+   * десятка, а материалов семь, и когда мебель заменят на настоящие модели,
+   * эти семь останутся тем, подо что модели красить.
+   */
+  prop: Record<PropTone, string>;
   light: {
     /** заполняющий свет: цвет неба, цвет отражения от пола, сила */
     skyColor: string;
@@ -65,6 +74,15 @@ export const PALETTES: Record<Theme, Palette> = {
     wallTop: '#dcdfe6',
     glass: '#bcd8e8',
     glassOpacity: 0.25,
+    prop: {
+      wood: '#c9a06b',
+      metal: '#b3bac6',
+      fabric: '#8a93a8',
+      leaf: '#6f9e63',
+      screen: '#39414f',
+      accent: '#d98b6a',
+      light: '#f0e3c2',
+    },
     light: {
       skyColor: '#ffffff',
       groundColor: '#e2e6ec',
@@ -89,6 +107,15 @@ export const PALETTES: Record<Theme, Palette> = {
     wallTop: '#252b36',
     glass: '#1a2634',
     glassOpacity: 0.45,
+    prop: {
+      wood: '#7a6244',
+      metal: '#5f6775',
+      fabric: '#4d5468',
+      leaf: '#456b45',
+      screen: '#242b38',
+      accent: '#8f5c46',
+      light: '#c9b78d',
+    },
     light: {
       skyColor: '#8ea2d0',
       groundColor: '#3a414f',

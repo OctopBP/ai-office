@@ -17,9 +17,14 @@ import { useEffect, useLayoutEffect, useMemo, useRef } from 'react';
 import { Canvas, useFrame, useThree } from '@react-three/fiber';
 import { OrbitControls } from '@react-three/drei';
 import * as THREE from 'three';
+import { propKeys } from '../../shared/layout';
+import type { LayoutProp } from '../../shared/layout';
 import { useStore } from '../store';
+import { catalog } from '../layoutData';
 import { paletteOf, type Palette } from './palette';
 import { WALL_H, scene3, type Box3, type Scene3, type Wall3 } from './geometry';
+import { place3 } from './props';
+import { Props3D } from './Props3D';
 
 /**
  * Наклон и поворот камеры при первом показе. Полярный угол считается от
@@ -296,6 +301,29 @@ export function Office3D() {
   const theme = useStore((s) => s.theme);
   const palette = paletteOf(theme);
   const scene = useMemo(() => scene3(layout), [layout]);
+  /**
+   * Обстановка — это `props` раскладки плюс предметы, которые в плоском
+   * рендере живут отдельными сущностями: дверь входной зоны и спрайты
+   * хотспотов (доска, экран лога). Геометрически они такая же мебель, и
+   * разделять их в 3D незачем — интерактивность им вернёт шаг 5.
+   */
+  const placed = useMemo(() => {
+    const keys = propKeys(layout);
+    const list: (LayoutProp & { key: string })[] = layout.props.map((p, i) => ({
+      ...p, key: keys[i],
+    }));
+    for (const zone of layout.zones ?? []) {
+      if (zone.sprite && zone.at) {
+        list.push({ sprite: zone.sprite, at: zone.at, key: `zone-${zone.kind}` });
+      }
+    }
+    for (const spot of (layout.hotspots ?? []) as { sprite?: string; at?: [number, number]; panel?: string }[]) {
+      if (spot.sprite && spot.at) {
+        list.push({ sprite: spot.sprite, at: spot.at, key: `hotspot-${spot.panel ?? spot.sprite}` });
+      }
+    }
+    return place3(layout, catalog, list);
+  }, [layout]);
   const [w, d] = scene.size;
   const offset = useMemo<[number, number]>(() => [-w / 2, -d / 2], [w, d]);
 
@@ -342,6 +370,7 @@ export function Office3D() {
             <WallSegment key={i} wall={wall} offset={offset} palette={palette} />
           ))}
         </group>
+        <Props3D items={placed} palette={palette} offset={offset} />
       </Canvas>
     </div>
   );
