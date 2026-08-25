@@ -489,52 +489,17 @@ async function main(): Promise<void> {
     rmSync(tightFile, { force: true });
   }
 
-  // Смена раскладки на лету на уже набранном штате: офис жил на classic и
-  // переезжает в studio, где мест столько же. Ломается тут первым делом одно из
-  // двух — либо столы остаются от прежней раскладки (человечки сидят в воздухе),
-  // либо кто-то пропадает из штата, — поэтому проверяем ровно это.
-  const movFile = resolve(tmpdir(), `office-test-move-${process.pid}.json`);
-  const om = openOfficeState({
-    id: 'o-lay-move', projectDir: resolve(tmpdir(), 'lay-move'), stateFile: movFile,
-  }).state;
-  const beforeMove = [...om.instances.values()]
-    .map((i) => ({ id: i.id, index: i.desk.index, x: i.desk.x, y: i.desk.y }));
-  const moveAccepted = om.updateSettings({ layoutId: 'studio' }) === null;
-  const afterMove = [...om.instances.values()];
-  // Место человека обязано совпасть со столом того же индекса в studio: это и
-  // есть «столы пересчитались по новой раскладке», а не по прежней.
-  const atNewDesks = afterMove.every((i) => {
-    const desk = studioPlan.desks[i.desk.index];
-    return !!desk && i.desk.x === desk.x && i.desk.y === desk.y;
-  });
-  const nobodyLost = afterMove.length === beforeMove.length
-    && beforeMove.every((b) => afterMove.some((i) => i.id === b.id));
-  const keptIndexes = beforeMove.every((b) =>
-    afterMove.find((i) => i.id === b.id)?.desk.index === b.index);
-  // Проверка не должна проходить оттого, что раскладки совпали координатами.
-  const reallyMoved = beforeMove.some((b) => {
-    const desk = studioPlan.desks[b.index];
-    return !!desk && (desk.x !== b.x || desk.y !== b.y);
-  });
-  results.push(
-    `смена раскладки принята: ${moveAccepted}`,
-    `после смены все сидят за столами новой раскладки: ${afterMove.length > 0 && atNewDesks}`,
-    `при смене раскладки никто не потерялся: ${nobodyLost}`,
-    `индекс места сохранён за каждым: ${keptIndexes}`,
-    `координаты правда пересчитались, а не совпали: ${reallyMoved}`,
-  );
-  unloadOfficeState('o-lay-move');
-  wipe(movFile);
   wipe(layA);
   wipe(layB);
 
-  // 10б. Пересадка при смене раскладки на живом офисе. Раньше новую раскладку
-  // видела только мебель: люди оставались сидеть по координатам прежней
-  // комнаты. Проверяем три вещи разом — все пересели, номера мест уцелели,
-  // а клиенту про это сказали событиями.
+  // 10б. Смена раскладки на лету на уже набранном штате: офис жил на classic и
+  // переезжает в studio, где мест столько же. Ломается тут первым делом одно из
+  // двух — либо столы остаются от прежней раскладки (человечки сидят в воздухе),
+  // либо кто-то пропадает из штата. Дальше по разделу — стол PM в новой
+  // раскладке и раскладки, в которые штат уже не влезает.
   const moveFile = resolve(tmpdir(), `office-test-move-${process.pid}.json`);
   const om = openOfficeState({
-    id: 'o-move', projectDir: resolve(tmpdir(), 'move-office'), stateFile: moveFile,
+    id: 'o-lay-move', projectDir: resolve(tmpdir(), 'lay-move'), stateFile: moveFile,
   }).state;
   om.seed();
   const beforeMove = [...om.instances.values()].map((i) => [i.id, i.desk.index] as const);
@@ -544,7 +509,16 @@ async function main(): Promise<void> {
     if (e.t === 'instance') movedIds.add(e.instance.id);
     if (e.t === 'layout') layoutEventsOnSwitch += 1;
   });
-  om.updateSettings({ layoutId: 'studio' });
+  const moveAccepted = om.updateSettings({ layoutId: 'studio' }) === null;
+  const afterMove = [...om.instances.values()];
+  // Место человека обязано совпасть со столом того же индекса в studio: это и
+  // есть «столы пересчитались по новой раскладке», а не по прежней.
+  const atNewDesks = afterMove.every((i) => {
+    const desk = studioPlan.desks[i.desk.index];
+    return !!desk && i.desk.x === desk.x && i.desk.y === desk.y;
+  });
+  const nobodyLost = afterMove.length === beforeMove.length
+    && beforeMove.every(([id]) => afterMove.some((i) => i.id === id));
   const seatedInStudio = beforeMove.every(([id, index]) => {
     const inst = om.instances.get(id);
     const desk = studioPlan.desks[index];
@@ -559,6 +533,9 @@ async function main(): Promise<void> {
       || classicPlan.desks[index].y !== inst.desk.y);
   });
   results.push(
+    `смена раскладки принята: ${moveAccepted}`,
+    `после смены все сидят за столами новой раскладки: ${afterMove.length > 0 && atNewDesks}`,
+    `при смене раскладки никто не потерялся: ${nobodyLost}`,
     `смена раскладки пересадила весь штат: ${seatedInStudio}`,
     `номера мест при пересадке уцелели: ${beforeMove.length === om.instances.size && seatedInStudio}`,
     `столы новой раскладки правда другие: ${reallyMoved}`,
@@ -677,6 +654,7 @@ async function main(): Promise<void> {
     rmSync(crampedFile, { force: true });
     rmSync(pmSecondFile, { force: true });
     stopMove();
+    unloadOfficeState('o-lay-move');
     wipe(moveFile);
   }
 
