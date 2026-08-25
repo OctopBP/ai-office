@@ -1,11 +1,9 @@
 import { execFile } from 'node:child_process';
-import { promisify } from 'node:util';
 import { join, resolve } from 'node:path';
 import { tmpdir } from 'node:os';
-import { existsSync, symlinkSync } from 'node:fs';
+import { existsSync, statSync, symlinkSync } from 'node:fs';
 import { mkdtemp, rm } from 'node:fs/promises';
 
-const run = promisify(execFile);
 
 export interface GitResult {
   ok: boolean;
@@ -15,20 +13,28 @@ export interface GitResult {
   code: number;
 }
 
-/** Все вызовы git идут через execFile с массивом аргументов — без оболочки. */
-async function git(cwd: string, args: string[]): Promise<GitResult> {
-  try {
-    const { stdout, stderr } = await run('git', args, { cwd, maxBuffer: 10 * 1024 * 1024 });
-    return { ok: true, stdout: stdout.trim(), stderr: stderr.trim(), code: 0 };
-  } catch (err) {
-    const e = err as { stdout?: string; stderr?: string; message?: string; code?: number };
-    return {
-      ok: false,
-      stdout: (e.stdout ?? '').trim(),
-      stderr: (e.stderr ?? e.message ?? '').trim(),
-      code: typeof e.code === 'number' ? e.code : 1,
-    };
-  }
+/**
+ * Все вызовы git идут через execFile с массивом аргументов — без оболочки.
+ *
+ * Обещание собираем колбэком, а не promisify: у execFile нестандартный колбэк
+ * с двумя значениями, и его свёртка в объект `{stdout, stderr}` — соглашение
+ * ноды, а не часть API. Под bun из promisify приезжает одна строка stdout,
+ * и весь git молча начинал отвечать «не репозиторий» — в том числе проверкам
+ * слияния и ревью. Колбэк одинаков в любой среде запуска.
+ */
+function git(cwd: string, args: string[]): Promise<GitResult> {
+  return new Promise((done) => {
+    execFile('git', args, { cwd, maxBuffer: 10 * 1024 * 1024 }, (err, stdout, stderr) => {
+      const e = err as (Error & { code?: number }) | null;
+      done({
+        ok: !e,
+        stdout: (stdout ?? '').trim(),
+        // Пустой stderr при ошибке ничего не объясняет — берём текст ошибки.
+        stderr: ((stderr || e?.message) ?? '').trim(),
+        code: e ? (typeof e.code === 'number' ? e.code : 1) : 0,
+      });
+    });
+  });
 }
 
 export async function isRepo(dir: string): Promise<boolean> {
@@ -38,6 +44,32 @@ export async function isRepo(dir: string): Promise<boolean> {
 
 export async function hasCommits(dir: string): Promise<boolean> {
   return (await git(dir, ['rev-parse', 'HEAD'])).ok;
+}
+
+/**
+ * Что не так с директорией как с рабочим репозиторием роли. null — всё в
+ * порядке. Одна проверка на всех: её показывает старт офиса в отчёте о
+ * репозиториях ролей и она же не даёт сохранить роль с негодным путём.
+ * Разойдись эти два места — человек заводил бы роль без единого возражения,
+ * а узнавал о неверном пути из строчки в консоли или из проваленной задачи.
+ *
+ * Текст готов к показу человеку: и в консоли, и под полем формы.
+ */
+export async function repoProblem(dir: string): Promise<string | null> {
+  let stat;
+  try {
+    stat = statSync(dir);
+  } catch {
+    return `Директории ${dir} нет — проверьте путь.`;
+  }
+  if (!stat.isDirectory()) return `${dir} — это файл, а не директория.`;
+  if (!(await isRepo(dir))) {
+    return `${dir} — не git-репозиторий. Заведите его командой git init в этой директории.`;
+  }
+  if (!(await hasCommits(dir))) {
+    return `В репозитории ${dir} нет ни одного коммита — ветку задачи от него не отвести.`;
+  }
+  return null;
 }
 
 export async function currentBranch(dir: string): Promise<string | null> {

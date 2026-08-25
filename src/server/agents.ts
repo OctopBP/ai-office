@@ -3,7 +3,7 @@ import type { SDKMessage, PermissionResult, SDKResultSuccess } from '@anthropic-
 import { z } from 'zod';
 import { MessageQueue } from './queue';
 import {
-  criteriaProgress, loadedOffices, onWorkerLimitChanged, taskRepo,
+  criteriaProgress, loadedOffices, onRoleSetChanged, onWorkerLimitChanged, taskRepo,
   totalRunningWorkers, worktreesRoot,
   type Instance, type OfficeState, type Task,
 } from './state';
@@ -874,6 +874,9 @@ function startPm(state: OfficeState): void {
             state.setState('pm#1', 'idle', null);
           }
           state.setBusy(state.running > 0);
+          // Набор ролей меняли, пока менеджер отвечал: ход закончен, обрывать
+          // больше нечего — перезапускаем сессию с новым перечнем.
+          if (pmRestartPending.has(state.officeId)) restartPm(state);
         }
       }
     } catch (err) {
@@ -901,6 +904,50 @@ function startPm(state: OfficeState): void {
     }
   })();
 }
+
+/**
+ * Офисы, у которых набор ролей изменился, пока менеджер был занят ходом.
+ * Ключ — id офиса: перезапуск ждёт конца хода, а офисов в памяти несколько.
+ */
+const pmRestartPending = new Set<string>();
+
+/**
+ * Перезапустить сессию менеджера этого офиса. Нужно после каждой правки
+ * перечня ролей: и описание create_task, и бриф собираются один раз при
+ * старте сессии, поэтому менеджер с прежней сессией продолжал бы назначать
+ * задачи на заархивированную роль и не видел бы только что заведённую.
+ *
+ * Переписка при этом не теряется. Во-первых, сессия не обрывается посреди
+ * хода: пока менеджер думает или ждёт инструмент, перезапуск откладывается до
+ * конца хода. Во-вторых, следующий запуск продолжает ту же сессию SDK по
+ * сохранённому sessionId — разговор для менеджера идёт с того же места, меняются
+ * только инструменты и системный промпт.
+ */
+function restartPm(state: OfficeState): void {
+  if (!state.pmLoop) {
+    // Живой сессии нет — следующая поднимется уже с новым набором ролей.
+    pmRestartPending.delete(state.officeId);
+    return;
+  }
+  const pm = state.instances.get('pm#1');
+  if (pm && pm.state !== 'idle' && pm.state !== 'failed') {
+    pmRestartPending.add(state.officeId);
+    return;
+  }
+  pmRestartPending.delete(state.officeId);
+  // Ссылки обнуляем сразу, а не в finally цикла: иначе следующее сообщение
+  // легло бы в уже закрытую очередь и пропало. Так же гасит сессию сброс офиса.
+  state.pmQueue?.close();
+  state.pmQueue = null;
+  state.pmLoop = null;
+  state.addLog('pm#1', 'system',
+    'Набор ролей изменился — сессия менеджера перезапущена. ' +
+    'Разговор продолжится с того же места, но роли он увидит уже новые.');
+}
+
+// Набор ролей правят из окна управления агентами, а перечень исполнителей
+// вшит в сессию менеджера: без перезапуска он назначал бы задачи вслепую.
+onRoleSetChanged(restartPm);
 
 /** Сообщение пользователя PM'у того офиса, в котором он его написал. */
 export function sendUserMessage(state: OfficeState, text: string): void {

@@ -1,8 +1,8 @@
-import { WebSocketServer } from 'ws';
+import { WebSocketServer, type WebSocket } from 'ws';
 import { createServer } from 'node:http';
 import { mkdirSync, existsSync, writeFileSync, readFileSync, statSync } from 'node:fs';
 import { extname, resolve } from 'node:path';
-import type { ClientCommand, ServerEvent } from '../shared/types';
+import type { ClientCommand, FieldError, RoleOp, ServerEvent } from '../shared/types';
 import { officeViews, openedOffices, openOfficeState, subscribeOffices, type OfficeState } from './state';
 import {
   broadcast, broadcastSnapshot, greet, handleOfficeCommand, initOfficeApi, send,
@@ -14,7 +14,7 @@ import { retryPipeline } from './review';
 import { startSupervisor } from './supervisor';
 import { githubToken, setGithubToken } from './cloud';
 import { clearInitFlag, currentOffice, ensureOffice, loadRegistry, setCurrent, type OfficeEntry } from './offices';
-import { hasCommits, initRepo, isRepo } from './git';
+import { hasCommits, initRepo, isRepo, repoProblem } from './git';
 import { isPermissionMode } from './permissions';
 import { flushAll } from './store';
 
@@ -56,14 +56,17 @@ async function setupGit(state: OfficeState, dir: string, ours: boolean): Promise
  * что путь неверный, из проваленной задачи — слишком поздно.
  */
 async function reportRoleRepos(state: OfficeState): Promise<void> {
-  for (const role of state.roles()) {
+  // Архивные роли пропускаем: работать в них некому, и ходить в git ради
+  // строчки про репозиторий уволенной роли незачем.
+  for (const role of state.activeRoles()) {
     const dir = state.repoFor(role);
     if (dir === state.projectDir) continue;
-    const ready = (await isRepo(dir)) && (await hasCommits(dir));
-    console.log(ready
+    // Та же проверка, что не даёт сохранить роль с негодным путём, — иначе
+    // старт и форма роли расходились бы в том, какой путь считать рабочим.
+    const problem = await repoProblem(dir);
+    console.log(problem === null
       ? `   ${role.emoji} ${role.title} → ${dir}`
-      : `⚠️  ${role.title}: ${dir} — не git-репозиторий с коммитами.` +
-        ' Задачи этой роли пойдут без изоляции веткой.');
+      : `⚠️  ${role.title}: ${problem} Задачи этой роли пойдут без изоляции веткой.`);
   }
 }
 
@@ -200,6 +203,16 @@ const httpServer = createServer((req, res) => {
   }
 });
 
+/**
+ * Ответить на операцию с ролью тому клиенту, который её просил. Отказ уходит
+ * разложенным по полям формы, успех — отдельным событием: список ролей видят
+ * все, кто смотрит офис, а «форму можно закрывать» касается только просившего.
+ */
+function replyRole(ws: WebSocket, op: RoleOp, roleId: string, errors: FieldError[]): void {
+  if (errors.length) send(ws, { t: 'role.error', op, roleId, errors });
+  else send(ws, { t: 'role.saved', op, roleId });
+}
+
 const wss = new WebSocketServer({ server: httpServer });
 
 // Кто какой офис смотрит, рассылка и команды офисов — в office-api.ts:
@@ -270,7 +283,20 @@ wss.on('connection', (ws) => {
       const problem = state.fire(cmd.instanceId);
       if (problem) state.addChat('офис', problem);
     } else if (cmd.c === 'update_role') {
-      state.updateRole(cmd.roleId, cmd.patch);
+      // Проверка репозитория ходит в git и потому длится: отвечаем событием,
+      // когда она закончится, а не задерживаем разбор остальных команд.
+      void state.editRole(cmd.roleId, cmd.patch)
+        .then((errors) => replyRole(ws, 'update', cmd.roleId, errors));
+    } else if (cmd.c === 'create_role') {
+      void state.createRole(cmd.role).then((made) => {
+        if ('errors' in made) send(ws, { t: 'role.error', op: 'create', roleId: null, errors: made.errors });
+        else send(ws, { t: 'role.saved', op: 'create', roleId: made.role.id });
+      });
+    } else if (cmd.c === 'archive_role') {
+      const op = cmd.archived ? 'archive' : 'restore';
+      replyRole(ws, op, cmd.roleId, state.archiveRole(cmd.roleId, cmd.archived));
+    } else if (cmd.c === 'remove_role') {
+      replyRole(ws, 'remove', cmd.roleId, state.removeRole(cmd.roleId));
     } else if (cmd.c === 'agent_permission') {
       // null — снять личное правило и вернуть сотрудника к режиму роли;
       // мусорное значение молча игнорируем, а не выдаём за режим.

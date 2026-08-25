@@ -5,7 +5,8 @@
  *
  * Запуск: npm run test:state
  */
-import { readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { execFileSync } from 'node:child_process';
+import { mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -381,6 +382,262 @@ async function main(): Promise<void> {
   unloadOfficeState('o-roles-b');
   wipe(roleFileA);
   wipe(roleFileB);
+
+  // 7i. Заведение, правка и архивация ролей — то, чем пользуется окно
+  // управления агентами. Ломается тут в первую очередь три вещи: id роли,
+  // собранный по русскому названию, наезжает на уже занятый; архивная роль
+  // перестаёт находиться по id, и история задач разваливается; PM оказывается
+  // архивируемым или переименовываемым — и офис остаётся без менеджера.
+  const crudFile = resolve(tmpdir(), `office-test-roles-crud-${process.pid}.json`);
+  const crudDir = resolve(tmpdir(), `roles-crud-office-${process.pid}`);
+  mkdirSync(crudDir, { recursive: true });
+  const rc = openOfficeState({ id: 'o-roles-crud', projectDir: crudDir, stateFile: crudFile }).state;
+
+  // (а) Создание: id выдаёт сервер, форма присылает только поля.
+  const made = await rc.createRole({
+    title: 'Технический писатель',
+    model: 'claude-haiku-4-5',
+    sprite: 'agent_p3',
+    maxInstances: 2,
+    brief: 'Пишет документацию к тому, что сделала команда.',
+  });
+  const writer = 'role' in made ? made.role : null;
+  const writerId = writer?.id ?? '';
+  results.push(
+    `роль заведена: ${writer !== null}`,
+    `id собран сервером из русского названия: ${writerId === 'tehnicheskiy-pisatel'}`,
+    `поля формы доехали до роли: ${writer?.model === 'claude-haiku-4-5'
+      && writer?.sprite === 'agent_p3' && writer?.maxInstances === 2}`,
+    `новая роль не менеджер и не в архиве: ${writer?.isManager === false && writer?.archived === false}`,
+    `роль видна менеджеру: ${rc.workerRoles().some((r) => r.id === writerId)}`,
+  );
+
+  // (б) В id не должно остаться ничего, кроме латиницы, цифр и дефиса, —
+  // он уезжает в имя ветки, в путь worktree и в id сотрудника «роль#номер».
+  const messy = await rc.createRole({ title: 'Контент /// №1 (черновик)!' });
+  const messyId = 'role' in messy ? messy.role.id : '#';
+  const emptyish = await rc.createRole({ title: '«»— ()' });
+  const emptyishId = 'role' in emptyish ? emptyish.role.id : '#';
+  results.push(
+    `мусор из названия в id не попал: ${/^[a-z0-9-]+$/.test(messyId)
+      && !messyId.startsWith('-') && !messyId.endsWith('-')}`,
+    `решётки в id нет — она делит id сотрудника: ${!messyId.includes('#')}`,
+    `название из одних символов даёт рабочий id: ${/^[a-z0-9-]+$/.test(emptyishId)}`,
+  );
+
+  // (в) Коллизии: разные названия дают одну и ту же основу id, а занятыми
+  // считаются и базовые роли — даже те, которых в этом офисе нет.
+  const clash1 = await rc.createRole({ title: 'Backend' });
+  const clash2 = await rc.createRole({ title: 'Backend!' });
+  const id1 = 'role' in clash1 ? clash1.role.id : '';
+  const id2 = 'role' in clash2 ? clash2.role.id : '';
+  const allIds = rc.roles().map((r) => r.id);
+  results.push(
+    `id не наехал на базовую роль: ${id1 !== 'backend' && id1.startsWith('backend')}`,
+    `второй такой же основе достался свой id: ${id2 !== id1 && id2.startsWith('backend')}`,
+    `в наборе нет двух ролей с одним id: ${new Set(allIds).size === allIds.length}`,
+    `роль с занятым названием не заводится: ${'errors' in await rc.createRole({ title: 'Backend' })}`,
+    `роль без названия не заводится: ${'errors' in await rc.createRole({ title: '   ' })}`,
+  );
+
+  // (г) Архивация не может застать роль врасплох: ни с живым сотрудником,
+  // ни с незакрытой задачей — иначе работа осталась бы без роли.
+  rc.hire(writerId);
+  const withStaff = rc.archiveRole(writerId, true);
+  const fired = rc.fire(`${writerId}#1`);
+  const writerTask = rc.createTask({
+    title: 'описать API', description: '', criteria: ['готово'], roleId: writerId,
+  });
+  rc.updateTask(writerTask.id, { status: 'in_progress' });
+  const withTask = rc.archiveRole(writerId, true);
+  rc.updateTask(writerTask.id, { status: 'done' });
+  const archived = rc.archiveRole(writerId, true);
+  results.push(
+    `с живым сотрудником архивация отклонена: ${withStaff.length === 1
+      && /уволите/.test(withStaff[0].message)}`,
+    `сотрудник уволен: ${fired === null}`,
+    `с незакрытой задачей архивация отклонена: ${withTask.length === 1
+      && withTask[0].message.includes(writerTask.id)}`,
+    `после увольнения и закрытия задачи роль ушла в архив: ${archived.length === 0
+      && rc.role(writerId)?.archived === true}`,
+  );
+
+  // (д) Архив — это «пропала из найма», а не «исчезла»: roleId лежит в
+  // задачах, логах и сохранённых сотрудниках, и находиться по нему обязан.
+  const historyTask = rc.tasks.get(writerTask.id)!;
+  const archivedView = rc.roleViews().find((r) => r.id === writerId);
+  results.push(
+    `архивной роли нет в перечне для менеджера: ${!rc.workerRoles().some((r) => r.id === writerId)}`,
+    `в архивную роль не нанять: ${/архиве/.test(rc.hire(writerId) ?? '')}`,
+    `архивная роль резолвится по id из задачи: ${
+      rc.role(historyTask.roleId!)?.title === 'Технический писатель'}`,
+    `UI видит её отдельно, а не теряет: ${archivedView?.archived === true}`,
+    `в наборе она осталась: ${rc.roles().some((r) => r.id === writerId)}`,
+    `из архива роль возвращается: ${rc.archiveRole(writerId, false).length === 0
+      && rc.workerRoles().some((r) => r.id === writerId)}`,
+  );
+  rc.archiveRole(writerId, true);
+
+  // (д2) Что видит менеджер. Перечень ролей уезжает к нему двумя путями:
+  // текстом list_team и описанием поля roleId у create_task. Оба обязаны
+  // говорить одно и то же, иначе менеджер назначит на роль, которой нет.
+  const summaryWithArchived = teamSummary(rc);
+  const menuIds = rc.workerRoles().map((r) => r.id);
+  const untouched = getOffice('o-1');
+  results.push(
+    `архивной роли нет в составе команды для менеджера: ${
+      !summaryWithArchived.includes(`- ${writerId} (`)}`,
+    `живые роли в составе остались: ${menuIds.includes('backend')
+      && summaryWithArchived.includes('- backend (')}`,
+    `в офисе без архива менеджер видит всех исполнителей: ${
+      untouched.workerRoles().length === defaultRoles().length - 1
+      && untouched.workerRoles().every((r) => teamSummary(untouched).includes(`- ${r.id} (`))}`,
+  );
+
+  // (е) PM защищён со всех сторон: без менеджера офису не с кем разговаривать,
+  // а «Проектный менеджер», переименованный в верстальщика, — это тот же офис
+  // без менеджера, только менеджер в списке ещё числится.
+  const pmArchive = rc.archiveRole('pm', true);
+  const pmRemove = rc.removeRole('pm');
+  const pmRename = await rc.editRole('pm', { title: 'Верстальщик' });
+  const pmEmoji = await rc.editRole('pm', { emoji: '🧭' });
+  results.push(
+    `PM не архивируется: ${pmArchive.length === 1 && rc.role('pm')?.archived !== true}`,
+    `PM не удаляется: ${pmRemove.length === 1 && rc.role('pm') !== undefined}`,
+    `PM не переименовать в другую роль: ${pmRename.length === 1
+      && pmRename[0].field === 'title' && rc.role('pm')?.title === defaultRole('pm')!.title}`,
+    `остальные поля PM править можно: ${pmEmoji.length === 0 && rc.role('pm')?.emoji === '🧭'}`,
+  );
+
+  // (ж) Физическое удаление — только для роли без следа в истории. Всё
+  // остальное уходит в архив, иначе доска перестанет читаться.
+  const removeUsed = rc.removeRole(writerId);
+  const removeFresh = rc.removeRole(messyId);
+  const freshView = rc.roleViews().find((r) => r.id === emptyishId);
+  const usedView = rc.roleViews().find((r) => r.id === writerId);
+  results.push(
+    `роль с задачами насовсем не стереть: ${removeUsed.length === 1
+      && /архив/.test(removeUsed[0].message) && rc.role(writerId) !== undefined}`,
+    `роль без следов стирается насовсем: ${removeFresh.length === 0
+      && rc.role(messyId) === undefined}`,
+    `UI знает, какую роль можно стереть: ${freshView?.removable === true
+      && usedView?.removable === false}`,
+  );
+
+  // (з) Ошибки возвращаются по полям формы, а не общим тостом: человек правит
+  // ровно то, что не так. Репозиторий проверяется той же проверкой, что и на
+  // старте офиса, — путь должен существовать, быть директорией и репозиторием.
+  const noSuchDir = resolve(tmpdir(), `roles-crud-net-takoy-${process.pid}`);
+  const plainFile = resolve(crudDir, 'ne-direktoriya.txt');
+  writeFileSync(plainFile, 'просто файл');
+  const notRepoDir = resolve(tmpdir(), `roles-crud-bez-git-${process.pid}`);
+  mkdirSync(notRepoDir, { recursive: true });
+  const realRepo = resolve(tmpdir(), `roles-crud-repo-${process.pid}`);
+  mkdirSync(realRepo, { recursive: true });
+  execFileSync('git', ['init', '-q', realRepo]);
+  execFileSync('git', [
+    '-C', realRepo, '-c', 'user.email=office@test', '-c', 'user.name=office',
+    'commit', '--allow-empty', '-q', '-m', 'первый',
+  ]);
+  const errMissing = await rc.editRole(emptyishId, { repoDir: noSuchDir });
+  const errFile = await rc.editRole(emptyishId, { repoDir: plainFile });
+  const errNoGit = await rc.editRole(emptyishId, { repoDir: notRepoDir });
+  const okRepo = await rc.editRole(emptyishId, { repoDir: realRepo });
+  const shaped = [errMissing, errFile, errNoGit].every((list) => list.length === 1
+    && list[0].field === 'repoDir' && list[0].message.length > 0);
+  results.push(
+    `несуществующий путь отклонён под полем репозитория: ${errMissing.length === 1
+      && errMissing[0].field === 'repoDir'}`,
+    `файл вместо директории отклонён: ${errFile.length === 1 && errFile[0].field === 'repoDir'}`,
+    `директория без git отклонена: ${errNoGit.length === 1 && errNoGit[0].field === 'repoDir'}`,
+    `все ошибки пришли парой {field, message}: ${shaped}`,
+    `настоящий репозиторий принят: ${okRepo.length === 0
+      && rc.role(emptyishId)?.repoDir === realRepo}`,
+    `негодный путь до роли не доехал: ${rc.role(emptyishId)?.repoDir !== noSuchDir}`,
+  );
+
+  // (и) Правка работает со всеми полями, включая внешность, а несуществующий
+  // пресет спрайта отклоняется — иначе человечек в комнате просто не нарисуется.
+  const badSprite = await rc.editRole(emptyishId, { sprite: 'agent_takogo_net' });
+  const fullEdit = await rc.editRole(emptyishId, {
+    title: 'Аналитик данных', emoji: '📊', color: '#22d3ee', model: 'claude-opus-5',
+    permissionMode: 'readonly', maxInstances: 2, isolate: false, maxTurns: 40,
+    sprite: 'agent_p7', brief: 'Считает метрики.',
+  });
+  const edited = rc.role(emptyishId);
+  results.push(
+    `несуществующий спрайт отклонён под своим полем: ${badSprite.length === 1
+      && badSprite[0].field === 'sprite'}`,
+    `правка приняла все поля разом: ${fullEdit.length === 0
+      && edited?.title === 'Аналитик данных' && edited?.emoji === '📊'
+      && edited?.model === 'claude-opus-5' && edited?.permissionMode === 'readonly'
+      && edited?.maxInstances === 2 && edited?.isolate === false
+      && edited?.maxTurns === 40 && edited?.sprite === 'agent_p7'}`,
+    `лимит клонов ниже уже нанятых не принимается: ${(rc.hire(emptyishId) === null)
+      && (await rc.editRole(emptyishId, { maxInstances: 1 })).length === 0
+      && rc.hire(emptyishId) !== null}`,
+  );
+  // Патч приезжает из сети: с ним доехали бы и архивация, и второй менеджер
+  // в обход всех проверок — белый список полей это отсекает.
+  await rc.editRole(emptyishId, { archived: true, isManager: true } as unknown as Parameters<typeof rc.editRole>[1]);
+  results.push(
+    `правкой роли нельзя ни заархивировать, ни назначить менеджером: ${
+      rc.role(emptyishId)?.archived !== true && rc.role(emptyishId)?.isManager === false}`,
+  );
+
+  // (к) Перечень ролей вшит в описание assign и в бриф PM в момент старта
+  // сессии. Значит, после правки набора сессию надо перезапустить — иначе
+  // менеджер назначает на роль, которой уже нет. Настоящей сессии здесь нет:
+  // очередь с циклом подставлены, проверяется решение о перезапуске.
+  rc.spawn('pm');
+  const idleQueue = new MessageQueue();
+  rc.pmQueue = idleQueue;
+  rc.pmLoop = Promise.resolve();
+  rc.setState('pm#1', 'idle', null);
+  await rc.createRole({ title: 'Тестировщик' });
+  const restartedIdle = rc.pmQueue === null && rc.pmLoop === null;
+
+  const busyQueue = new MessageQueue();
+  rc.pmQueue = busyQueue;
+  rc.pmLoop = Promise.resolve();
+  rc.setState('pm#1', 'thinking', 'думает');
+  const busyRole = await rc.createRole({ title: 'Аудитор' });
+  const busyId = 'role' in busyRole ? busyRole.role.id : '';
+  const keptWhileBusy = rc.pmQueue === busyQueue && rc.pmLoop !== null;
+  rc.setState('pm#1', 'idle', null);
+
+  // Правка, не меняющая перечень (цвет), сессию трогать не должна: перезапуск
+  // не бесплатный, и дёргать его на каждую мелочь незачем.
+  await rc.editRole(busyId, { color: '#111111' });
+  const keptOnCosmetics = rc.pmQueue === busyQueue;
+  // А переименование — меняет: название роли стоит в описании assign.
+  await rc.editRole(busyId, { title: 'Внутренний аудитор' });
+  const restartedOnRename = rc.pmQueue === null;
+  rc.pmQueue = null;
+  rc.pmLoop = null;
+  results.push(
+    `свободный менеджер перезапущен сразу: ${restartedIdle}`,
+    `занятого менеджера не оборвали на полуслове: ${keptWhileBusy}`,
+    `правка цвета сессию не перезапускает: ${keptOnCosmetics}`,
+    `переименование роли перезапускает: ${restartedOnRename}`,
+  );
+
+  // Набор ролей переживает перезапуск целиком — вместе с архивом и внешностью.
+  rc.flush();
+  const crudSaved = JSON.parse(readFileSync(crudFile, 'utf8')) as Persisted;
+  const savedWriter = (crudSaved.roles ?? []).find((r) => r.id === writerId);
+  results.push(
+    `архивная роль сохранена на диск: ${savedWriter?.archived === true}`,
+    `внешность роли сохранена: ${(crudSaved.roles ?? []).some((r) => r.sprite === 'agent_p7')}`,
+    `после восстановления архив остался архивом: ${rc.restore()
+      && rc.role(writerId)?.archived === true
+      && !rc.workerRoles().some((r) => r.id === writerId)}`,
+  );
+  unloadOfficeState('o-roles-crud');
+  wipe(crudFile);
+  rmSync(crudDir, { recursive: true, force: true });
+  rmSync(notRepoDir, { recursive: true, force: true });
+  rmSync(realRepo, { recursive: true, force: true });
 
   // Менеджера в наборе нельзя ни потерять, ни задвоить: файл состояния правят
   // руками, а офис без PM не с кем разговаривать. Дубль роли по id так же
