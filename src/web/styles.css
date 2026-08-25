@@ -606,20 +606,32 @@ button
 }
 
 /* ---------- узкое окно (~1024px): прячем подписи, оставляем значки ----------
-   Кнопки выросли (T-112), поэтому здесь режем только горизонтальные отступы —
-   высота (клик-область) остаётся прежней, чтобы по значкам было так же легко
-   попадать, как на широком экране. Это не даёт полосе перенестись на вторую
-   строку и не выпускает содержимое за край экрана. */
+   Кнопки выросли (T-112), поэтому здесь режем горизонтальные отступы и gap-ы
+   везде, где можно, — высоту (клик-область) не трогаем, чтобы по значкам было
+   так же легко попадать, как на широком экране.
+   Отдельно — .hud-status: это единственный блок в hud-center, чей текст
+   ("N агента · M в работе" и т.п.) не прячется через .hud-label, а его шрифт
+   в этой задаче вырос с 12px до 15px. На узком экране это самый крупный
+   источник лишней ширины, поэтому здесь его явно возвращаем к прежнему
+   размеру — иначе .hud-center рискует перенести часть полосы на вторую
+   строку через flex-wrap (эта «страховка» рассчитана на нехватку пары
+   пикселей, а не на нескомпенсированный рост шрифта). */
 @media (max-width: 1180px) {
   .hud-label { display: none; }
   .office-switcher-trigger .mono { display: none; }
-  .office-switcher { max-width: 128px; }
-  .hud-bar { gap: 5px; padding: 6px 8px; }
-  .hud-group { gap: 3px; }
-  .hud-sep { margin: 8px 2px; }
-  .hud-bar button.hud-btn { padding: 8px 8px; }
-  .hud-money, .hud-status, .hud-chip { padding-left: 8px; padding-right: 8px; }
-  .office-switcher-trigger { padding: 8px 8px; gap: 8px; }
+  .office-switcher { max-width: 110px; }
+  .hud-bar { gap: 4px; padding: 5px 6px; }
+  .hud-group { gap: 2px; }
+  .hud-sep { margin: 6px 1px; }
+  .hud-bar button.hud-btn { padding: 8px 6px; }
+  .hud-money, .hud-status, .hud-chip { padding-left: 6px; padding-right: 6px; }
+  .hud-money b { font-size: 17px; }
+  .hud-status, .hud-status .alarm { font-size: 12px; }
+  /* .hud-chip тоже не прячется через .hud-label целиком: у «⏸ ПАУЗА» подписи
+     нет hud-label вообще, а у чипа доступа остаётся видимым хотя бы значок.
+     Возвращаем к прежнему размеру для того же запаса, что и у .hud-status. */
+  .hud-chip { font-size: 13px; }
+  .office-switcher-trigger { padding: 8px 6px; gap: 6px; }
 }
 .office-switcher-row {
   display: flex; align-items: center; gap: 8px; width: 100%; padding: 7px 8px;
