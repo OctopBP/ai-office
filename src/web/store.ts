@@ -112,6 +112,14 @@ interface State {
   layoutPending: boolean;
   /** Режим редактирования расстановки: включается кнопкой в HUD, вне него мебель мышью не хватается. */
   editingLayout: boolean;
+  /**
+   * Запрос открыть настройки на разделе «Проект» — например, ссылкой из
+   * карточки безместного сотрудника. App открывает по нему модалку настроек,
+   * а SettingsModal сразу после прочтения сбрасывает поле, чтобы обычное
+   * открытие настроек по-прежнему помнило раздел, где пользователь был в
+   * прошлый раз.
+   */
+  settingsSection: 'project' | null;
   /** Предмет, который сейчас тащат мышью, и его позиция в тайлах (уже с привязкой к сетке) — превью до отпускания кнопки. */
   dragItem: { key: string; x: number; y: number } | null;
   /**
@@ -196,6 +204,7 @@ export const useStore = create<State>((set, get) => ({
   layoutOverride: null,
   layoutPending: false,
   editingLayout: false,
+  settingsSection: null,
   dragItem: null,
   settingsPending: false,
   meeting: null,
@@ -943,6 +952,16 @@ export function endDrag(): void {
 export function resetLayout(): void {
   useStore.setState({ layoutPending: true });
   socket?.send(JSON.stringify({ c: 'layout_reset' }));
+}
+
+/** Открыть настройки сразу на разделе «Проект» — там выбор раскладки. */
+export function openLayoutSettings(): void {
+  useStore.setState({ settingsSection: 'project' });
+}
+
+/** SettingsModal прочитал запрос на раздел — сбрасываем, чтобы не залипал. */
+export function clearSettingsSection(): void {
+  useStore.setState({ settingsSection: null });
 }
 
 export function reset(): void {

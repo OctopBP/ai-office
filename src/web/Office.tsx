@@ -297,6 +297,9 @@ export function Office({ onOpen, onDoor }: {
                 <b>{inst.id}</b>
                 <span className="muted"> · {STATE_TEXT[inst.state]}</span>
                 {icon && <span className="ico"> {icon}</span>}
+                {inst.deskless && (
+                  <span className="ico" title="Без рабочего места — не хватило столов в раскладке"> 🪑</span>
+                )}
               </div>
               <div className="line2 muted">
                 {task ? `${task.id} · ${task.title}` : role?.title}

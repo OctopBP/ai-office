@@ -78,6 +78,12 @@ export function TeamPanel() {
                     <div key={m.id} className="team-member">
                       <span className="mono muted">{m.id}</span>
                       <span className="muted small">{STATE_RU[m.state] ?? m.state}</span>
+                      {m.deskless && (
+                        <span className="perm-badge deskless"
+                          title="Столов в раскладке меньше, чем сотрудников — стоит без места, но работает как обычно">
+                          🪑 без стола
+                        </span>
+                      )}
                       {m.permissionMode && (
                         <span className={`perm-badge ${m.permissionMode}`}
                           title="У сотрудника своё правило доступа — сильнее режима роли и офиса">

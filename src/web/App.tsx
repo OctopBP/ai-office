@@ -33,10 +33,17 @@ export function App() {
   const diff = useStore((s) => s.diff);
   const leaveOffice = useStore((s) => s.leaveOffice);
   const pending = useStore((s) => s.pending);
+  const settingsSection = useStore((s) => s.settingsSection);
   const [panel, setPanel] = useState<PanelKind>(null);
   const [modal, setModal] = useState<ModalKind>(null);
 
   useEffect(() => { connect(); }, []);
+
+  // Ссылка «настройки раскладки» из карточки безместного сотрудника: стор
+  // получает запрос на раздел «Проект», а открывает модалку уже здесь.
+  useEffect(() => {
+    if (settingsSection) setModal('settings');
+  }, [settingsSection]);
 
   // Переключаемся на другой офис: закрываем всё, что открыто поверх сцены,
   // иначе доска, лог или дифф прежнего офиса повисли бы в новом.
