@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { Office } from './Office';
+import { Office3D } from './office3d/Office3D';
 import { TopHud } from './TopHud';
 import { BottomBar } from './BottomBar';
 import { Toasts } from './Toasts';
@@ -34,6 +35,8 @@ export function App() {
   const leaveOffice = useStore((s) => s.leaveOffice);
   const pending = useStore((s) => s.pending);
   const settingsSection = useStore((s) => s.settingsSection);
+  const render3d = useStore((s) => s.render3d);
+  const setRender3d = useStore((s) => s.setRender3d);
   const [panel, setPanel] = useState<PanelKind>(null);
   const [modal, setModal] = useState<ModalKind>(null);
 
@@ -80,6 +83,9 @@ export function App() {
       // Пробел листает страницу по умолчанию — здесь он ставит офис на паузу.
       if (e.key === ' ') { e.preventDefault(); setPaused(!paused); return; }
       const k = e.key.toLowerCase();
+      // 0 — переключить плоский офис на трёхмерный и обратно. Цифры 1–9 уже
+      // заняты выбором агента, поэтому ноль.
+      if (k === '0') { setRender3d(!render3d); return; }
       if (k === 'b' || k === 'и') setPanel('board');
       else if (k === 'l' || k === 'д') setPanel('log');
       else if (k === 'm' || k === 'ь') setModal('meeting');
@@ -92,7 +98,7 @@ export function App() {
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [instances, selected, select, paused, panel, modal, diff, leaveOffice]);
+  }, [instances, selected, select, paused, panel, modal, diff, leaveOffice, render3d, setRender3d]);
 
   // До выбора офиса в меню комната вообще не монтируется — это отдельный
   // экран приложения, а не оверлей поверх неё.
@@ -101,7 +107,9 @@ export function App() {
   return (
     <div className={`app${paused ? ' paused' : ''}`}>
       <div className="stage">
-        <Office onOpen={setPanel} onDoor={() => setModal('offices')} />
+        {render3d
+          ? <Office3D />
+          : <Office onOpen={setPanel} onDoor={() => setModal('offices')} />}
         <TopHud
           onSettings={() => setModal('settings')}
           onMeeting={() => setModal('meeting')}
@@ -150,7 +158,8 @@ export function App() {
               команде; исполнители работают параллельно, каждый в своей ветке.</p>
             <p><kbd>B</kbd> — доска задач, <kbd>L</kbd> — лог, <kbd>M</kbd> — созвать совещание,
               <kbd>SPACE</kbd> — пауза, <kbd>1–9</kbd> — открыть карточку агента,
-              <kbd>ESC</kbd> — закрыть, а если закрывать нечего — выйти в меню офисов.</p>
+              <kbd>ESC</kbd> — закрыть, а если закрывать нечего — выйти в меню офисов,
+              <kbd>0</kbd> — переключить вид комнаты на трёхмерный и обратно.</p>
             <p>🏠 в шапке — выйти в меню: офис остаётся открытым на сервере, агенты
               продолжают работать, это только смена экрана.</p>
             <p><b>Пауза</b> не убивает сессии: исполнители замирают на следующем вызове

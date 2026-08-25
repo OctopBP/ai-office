@@ -359,6 +359,12 @@ button
   flex: none;
 }
 .office img { image-rendering: pixelated; user-select: none; -webkit-user-drag: none; }
+
+/* трёхмерный офис: канвас занимает всю область сцены, рамка та же, что у
+   плоской комнаты, — переключение между видами не должно дёргать вёрстку */
+.office3d { border: 2px solid var(--line); border-radius: 10px; }
+.office3d canvas { display: block; border-radius: 8px; }
+
 .layer { position: absolute; left: 0; top: 0; }
 .layer.floor { z-index: 0; }
 .layer.wall { z-index: 1; }

@@ -145,6 +145,11 @@ interface State {
   clearMergeSelection: () => void;
   theme: Theme;
   setTheme: (t: Theme) => void;
+  /** Показывать комнату трёхмерным рендером вместо плоского (клавиша 0).
+   *  Пока 3D догоняет плоский офис по функциям, выбор остаётся за
+   *  пользователем и переживает перезагрузку. */
+  render3d: boolean;
+  setRender3d: (v: boolean) => void;
   toasts: Toast[];
   /** Показанный сейчас дифф задачи. */
   diff: { taskId: string; stat: string; patch: string; truncated: boolean; error?: string } | null;
@@ -228,6 +233,7 @@ export const useStore = create<State>((set, get) => ({
   }),
   clearMergeSelection: () => set({ mergeSelection: [] }),
   theme: (localStorage.getItem('office-theme') as Theme | null) ?? 'day',
+  render3d: localStorage.getItem('office-render3d') === '1',
   toasts: [],
   diff: null,
   pos: {},
@@ -236,6 +242,7 @@ export const useStore = create<State>((set, get) => ({
 
   setThread: (t) => set({ thread: t }),
   setTheme: (t) => { localStorage.setItem('office-theme', t); set({ theme: t }); },
+  setRender3d: (v) => { localStorage.setItem('office-render3d', v ? '1' : '0'); set({ render3d: v }); },
   select: (id) => set({ selected: id }),
   setConnected: (v) => set({ connected: v }),
 
