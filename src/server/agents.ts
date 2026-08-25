@@ -3,10 +3,11 @@ import type { SDKMessage, PermissionResult, SDKResultSuccess } from '@anthropic-
 import { z } from 'zod';
 import { MessageQueue } from './queue';
 import {
-  criteriaProgress, taskRepo, worktreesRoot,
+  criteriaProgress, loadedOffices, onWorkerLimitChanged, taskRepo,
+  totalRunningWorkers, worktreesRoot,
   type Instance, type OfficeState, type Task,
 } from './state';
-import { emptyUsage } from '../shared/types';
+import { DEFAULT_PROCESS_WORKERS, emptyUsage } from '../shared/types';
 import type { PrStage, PullRequestView, ReviewVerdict } from '../shared/types';
 import { cloudProblem, runCloudTask, stopCloudTask } from './cloud';
 import type { Role } from './roles';
@@ -19,7 +20,110 @@ import {
 import { resolve } from 'node:path';
 import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync } from 'node:fs';
 
-const MAX_CONCURRENT_WORKERS = 3;
+/**
+ * Общий потолок одновременных сессий исполнителей на весь процесс. Лимит из
+ * настроек — пер-офисный, и трёх открытых офисов хватало, чтобы платить втрое
+ * больше, ничего для этого не сделав. Здесь считается сумма по всем офисам.
+ *
+ * Значение берётся из окружения при каждой проверке: сервер поднимают
+ * скриптом, и потолок для конкретного прогона задаётся там же, где остальные
+ * переменные, — своей настройки в UI у него нет, потому что настройки живут
+ * в офисе, а этот потолок офису не принадлежит.
+ */
+export function processWorkerCap(): number {
+  const raw = Number(process.env.OFFICE_MAX_WORKERS);
+  if (!Number.isFinite(raw)) return DEFAULT_PROCESS_WORKERS;
+  const n = Math.floor(raw);
+  return n < 1 ? DEFAULT_PROCESS_WORKERS : n;
+}
+
+/**
+ * Есть ли свободный слот исполнителя. Возвращает причину отказа по-русски
+ * (её увидит человек в ленте офиса) или null, если запускать можно.
+ *
+ * Считаются только сессии исполнителей: менеджер под лимит не попадает —
+ * иначе на потолке офис переставал бы отвечать, а это выглядит как поломка,
+ * а не как экономия. Сессии конвейера (ревью, доработка, разбор конфликта)
+ * слот занимают, но через эту проверку не проходят: они продолжают уже
+ * начатую работу, и держать их в очереди значило бы копить незакрытые
+ * пулл-реквесты ради экономии, которой всё равно не будет.
+ */
+export function slotProblem(state: OfficeState): string | null {
+  const limit = state.workerLimit();
+  if (state.running >= limit) {
+    return `в офисе уже работают ${state.running} исполнителей из ${limit} разрешённых ` +
+      '(настройки → «Модели и лимиты» → «Одновременно исполнителей»)';
+  }
+  const total = totalRunningWorkers();
+  const cap = processWorkerCap();
+  if (total >= cap) {
+    return `по всем офисам сразу работают ${total} исполнителей из ${cap} — ` +
+      'это общий потолок на процесс, он считается поверх офисных лимитов';
+  }
+  return null;
+}
+
+/**
+ * Поставить задачу в очередь за слотом. Не отказ: задача остаётся на доске
+ * и стартует сама, как только слот освободится. Сообщение в ленту пишем
+ * один раз на постановку — иначе надзор, дёргающий раздачу каждый проход,
+ * забил бы ленту одним и тем же.
+ */
+function queueForSlot(state: OfficeState, task: Task, problem: string): void {
+  if (state.waitingForSlot.has(task.id)) return;
+  state.waitingForSlot.add(task.id);
+  state.addChat('офис',
+    `⏳ ${task.id} «${task.title}» ждёт очереди: ${problem}. ` +
+    'Задача никуда не делась — она стартует сама, как только освободится слот.');
+  state.addLog(null, 'system', `${task.id}: ждёт свободного слота исполнителя`);
+}
+
+/**
+ * Слот занят/освобождён. Отдельные функции, а не правка счётчика на месте:
+ * освобождение обязано ещё и подтолкнуть очередь, а мест, где сессия
+ * заканчивается, три — и разойтись они не должны. Освобождение экспортируется
+ * ради проверок состояния: они гоняют ровно тот путь, что и живые сессии.
+ */
+function occupySlot(state: OfficeState): void {
+  state.running += 1;
+  state.setBusy(true);
+}
+
+export function releaseSlot(state: OfficeState): void {
+  state.running = Math.max(0, state.running - 1);
+  if (state.running === 0) state.setBusy(false);
+  // Освободившийся слот отдаём ждущим не в этом же тике: сессия ещё
+  // доигрывает свой finally, и стартовать поверх неё рано.
+  setTimeout(startWaiting, 0);
+}
+
+/**
+ * Раздать освободившиеся слоты тем, кто их ждёт. Идём по всем офисам, а не
+ * только по открытому: слот освободился в одном офисе, а ждать его может
+ * задача в соседнем — общий потолок на то и общий.
+ */
+function startWaiting(): void {
+  for (const state of loadedOffices()) {
+    if (state.waitingForSlot.size === 0) continue;
+    for (const taskId of [...state.waitingForSlot]) {
+      const task = state.tasks.get(taskId);
+      // Задачу могли удалить, назначить вручную или закрыть, пока она ждала.
+      if (!task || task.status !== 'backlog' || task.assigneeId) {
+        state.waitingForSlot.delete(taskId);
+        continue;
+      }
+      if (slotProblem(state)) return;      // мест снова нет — ждём следующего освобождения
+      const outcome = officeAssign(state, taskId);
+      if (!outcome.ok) return;             // пауза, бюджет, некому взять — попробуем позже
+      state.addChat('офис',
+        `▶ ${taskId} «${task.title}»: слот освободился — задача пошла в работу (${outcome.message}).`);
+    }
+  }
+}
+
+// Подъём лимита в настройках отпускает очередь сразу: ждать, пока кто-то
+// доработает, человеку, который только что поднял лимит, объяснить нельзя.
+onWorkerLimitChanged(startWaiting);
 
 /**
  * Бриф проекта — OFFICE.md в рабочей директории. Он идёт во все сессии: у PM
@@ -617,6 +721,21 @@ const teamTools = (state: OfficeState) => createSdkMcpServer({
                 'Повторно вызывать assign_task на эту роль бессмысленно.',
             }],
             isError: true,
+          };
+        }
+
+        // Слот проверяем до выбора исполнителя: иначе ради задачи, которая
+        // всё равно встанет в очередь, офис нанял бы ещё одного сотрудника.
+        const noSlot = slotProblem(state);
+        if (noSlot) {
+          queueForSlot(state, task, noSlot);
+          return {
+            content: [{
+              type: 'text',
+              text: `${task.id} поставлена в очередь: ${noSlot}. Офис запустит её сам, ` +
+                'как только освободится слот, — назначать её повторно не нужно. ' +
+                'Скажи пользователю, что задача принята и ждёт очереди.',
+            }],
           };
         }
 
@@ -1312,6 +1431,9 @@ function startWorker(taskOffice: OfficeState, task: Task, inst: Instance): void 
   const role = taskOffice.role(inst.roleId);
   if (!role) return;
 
+  // Задача поехала — из очереди за слотом её надо убрать в любом случае:
+  // сюда приходят и мимо очереди (пользователь отдал задачу руками).
+  taskOffice.waitingForSlot.delete(task.id);
   inst.currentTaskId = task.id;
   taskOffice.updateTask(task.id, {
     assigneeId: inst.id, status: 'in_progress', startedAt: Date.now(), finishedAt: null,
@@ -1359,8 +1481,7 @@ function startWorker(taskOffice: OfficeState, task: Task, inst: Instance): void 
     return;
   }
 
-  taskOffice.running += 1;
-  taskOffice.setBusy(true);
+  occupySlot(taskOffice);
 
   const systemPrompt = [
     `Ты — ${role.title} в команде AI-агентов, работаешь в директории проекта.`,
@@ -1538,8 +1659,7 @@ function startWorker(taskOffice: OfficeState, task: Task, inst: Instance): void 
       inst.currentTaskId = null;
       inst.abort = null;
       taskOffice.consultsByTask.delete(task.id);
-      taskOffice.running = Math.max(0, taskOffice.running - 1);
-      if (taskOffice.running === 0) taskOffice.setBusy(false);
+      releaseSlot(taskOffice);
       setTimeout(() => {
         if (!inst.currentTaskId) taskOffice.setState(inst.id, 'idle', null);
       }, 4000);
@@ -1604,8 +1724,7 @@ function startCloudWorker(
     } finally {
       inst.currentTaskId = null;
       inst.abort = null;
-      taskOffice.running = Math.max(0, taskOffice.running - 1);
-      if (taskOffice.running === 0) taskOffice.setBusy(false);
+      releaseSlot(taskOffice);
       setTimeout(() => {
         if (!inst.currentTaskId) taskOffice.setState(inst.id, 'idle', null);
       }, 4000);
@@ -1672,6 +1791,15 @@ export async function retryTask(state: OfficeState, taskId: string): Promise<boo
   const noStaff = noStaffReason(roleId, state);
   if (noStaff) {
     state.addChat('офис', `${noStaff} Наймите сотрудника, чтобы перезапустить ${taskId}.`);
+    return false;
+  }
+  // Перезапуск ходит в git и переписывает задачу в backlog, поэтому лимит
+  // проверяем до всего этого: на потолке задача просто вернётся в очередь.
+  const noSlot = slotProblem(state);
+  if (noSlot) {
+    state.addChat('офис',
+      `⏳ ${taskId} не перезапускается прямо сейчас: ${noSlot}. Дождитесь свободного слота ` +
+      'или поднимите лимит в настройках офиса.');
     return false;
   }
   const inst = state.findFree(roleId) ?? state.spawn(roleId) ?? state.findFree(roleId);
@@ -1741,6 +1869,19 @@ export function assignDirect(state: OfficeState, taskId: string, instanceId: str
     state.addChat('офис', 'Бюджет офиса исчерпан — задача не запускается.');
     return;
   }
+  // Задачу отдали руками, но лимит одновременных сессий от этого не растёт:
+  // ставим в очередь и говорим об этом — молча проглотить действие человека
+  // хуже, чем объяснить, почему оно случится через минуту. Роль на задаче
+  // остаётся выбранная, а вот конкретного исполнителя очередь не держит:
+  // через минуту свободен будет тот, кто освободился, а не тот, на кого
+  // ткнули. Статус возвращаем в «очередь» — из неё задачу и подхватят.
+  const noSlot = slotProblem(state);
+  if (noSlot) {
+    state.updateTask(taskId, { roleId: inst.roleId, status: 'backlog', assigneeId: null });
+    const fresh = state.tasks.get(taskId);
+    if (fresh) queueForSlot(state, fresh, noSlot);
+    return;
+  }
   state.updateTask(taskId, { roleId: inst.roleId });
   const fresh = state.tasks.get(taskId);
   if (!fresh) return;
@@ -1770,6 +1911,14 @@ export function officeAssign(state: OfficeState, taskId: string): { ok: boolean;
   const roleId = task.roleId ?? 'backend';
   const noStaff = noStaffReason(roleId, state);
   if (noStaff) return { ok: false, message: noStaff };
+
+  // Потолок одновременных сессий — не отказ, а очередь: задача остаётся на
+  // доске и стартует сама. Надзору достаточно знать, что сейчас не вышло.
+  const noSlot = slotProblem(state);
+  if (noSlot) {
+    queueForSlot(state, task, noSlot);
+    return { ok: false, message: noSlot };
+  }
 
   const inst = state.findFree(roleId) ?? state.spawn(roleId) ?? state.findFree(roleId);
   if (!inst || inst.currentTaskId) return { ok: false, message: `все исполнители роли ${roleId} заняты` };
@@ -1829,9 +1978,20 @@ export function setPaused(state: OfficeState, paused: boolean): void {
   }
 }
 
-/** Загрузка офиса: у каждого офиса свои живые сессии исполнителей. */
-export function concurrency(state: OfficeState): { running: number; max: number } {
-  return { running: state.running, max: MAX_CONCURRENT_WORKERS };
+/**
+ * Загрузка офиса и всего процесса: у каждого офиса свои живые сессии, но
+ * потолок у них общий. Отдаётся вместе, потому что порознь картина врёт —
+ * «1 из 3» в офисе ничего не говорит о том, что процесс уже на потолке.
+ */
+export function concurrency(state: OfficeState): {
+  running: number; max: number; total: number; cap: number;
+} {
+  return {
+    running: state.running,
+    max: state.workerLimit(),
+    total: totalRunningWorkers(),
+    cap: processWorkerCap(),
+  };
 }
 
 // ---------- конвейер ревью: живые агенты ----------
@@ -1889,8 +2049,7 @@ async function runAgentSession(
   inst.abort = abort;
   inst.currentTaskId = opts.taskId;
   state.setState(inst.id, 'working', opts.note);
-  state.running += 1;
-  state.setBusy(true);
+  occupySlot(state);
 
   try {
     const session = query({
@@ -1926,8 +2085,7 @@ async function runAgentSession(
   } finally {
     inst.currentTaskId = null;
     inst.abort = null;
-    state.running = Math.max(0, state.running - 1);
-    if (state.running === 0) state.setBusy(false);
+    releaseSlot(state);
     state.setState(inst.id, 'idle', null);
   }
 }
