@@ -9,9 +9,12 @@ import { execFileSync } from 'node:child_process';
 import { existsSync, mkdtempSync, readFileSync, writeFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { resolve } from 'node:path';
-import { office } from '../src/server/state';
+import { getOffice } from '../src/server/state';
 import { checkMergeable } from '../src/server/git';
 import { mergeQueue, refreshMergeChecks } from '../src/server/merge';
+
+/** Офис проверки — по id: общего «текущего офиса» на процесс больше нет. */
+const office = getOffice('o-1');
 
 /** Тестовый репозиторий: main, три ветки задач, свой скрипт typecheck. */
 function fixture(): string {
@@ -70,14 +73,14 @@ async function main(): Promise<void> {
   );
 
   // 2. Статусы по всем завершённым задачам: до слияний конфликтов нет.
-  const before = await refreshMergeChecks();
+  const before = await refreshMergeChecks(office);
   results.push(
     `статус есть у всех трёх задач: ${before.length === 3}`,
     `до слияний все сливаются чисто: ${before.every((c) => c.state === 'clean')}`,
   );
 
   // 3. Очередь: T-1 вливается, после чего T-2 конфликтует с ним по shared.txt.
-  const run = await mergeQueue(['T-1', 'T-2']);
+  const run = await mergeQueue(['T-1', 'T-2'], office);
   const first = run?.steps[0];
   const second = run?.steps[1];
   results.push(
@@ -101,7 +104,7 @@ async function main(): Promise<void> {
   // 5. Ветка сливается чисто, но ломает сборку — очередь ловит это ДО того,
   //    как основная ветка сдвинется: сломанная сборка в main не попадает вовсе.
   const headBeforeBroken = git('rev-parse', 'main');
-  const broken = await mergeQueue(['T-3']);
+  const broken = await mergeQueue(['T-3'], office);
   const step = broken?.steps[0];
   results.push(
     `падение сборки остановило очередь: ${step?.status === 'typecheck-failed'}`,
@@ -122,7 +125,7 @@ async function main(): Promise<void> {
   office.updateTask(t4.id, { status: 'done', branch: 'task/T-4', baseBranch: 'main', repoDir: dir });
   writeFileSync(resolve(dir, 'shared.txt'), 'человек правит и не коммитит\n');
 
-  const withDirty = await mergeQueue([t4.id]);
+  const withDirty = await mergeQueue([t4.id], office);
   results.push(
     `грязная копия человека не остановила слияние: ${withDirty?.steps[0]?.status === 'merged'}`,
     `правка человека цела: ${readFileSync(resolve(dir, 'shared.txt'), 'utf8').includes('человек правит')}`,
