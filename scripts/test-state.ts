@@ -217,6 +217,35 @@ async function main(): Promise<void> {
   const cappedWorkers = office.settings.maxConcurrentWorkers === MAX_OFFICE_WORKERS;
   office.updateSettings({ maxConcurrentWorkers: 2 });
 
+  // 7f. Свой лимит шагов у роли: ревьюеру хватает десятка ходов, а разработчику
+  // на большой задаче не хватает и сотни. Пустое значение у роли — «как в
+  // офисе», а не «без ограничения»: снять лимит совсем можно только офису.
+  const backendView = office.roleViews().find((r) => r.id === 'backend')!;
+  const roleTurnsInherited = backendView.maxTurns === null
+    && backendView.effectiveMaxTurns === office.settings.taskMaxTurns;
+  office.updateRole('backend', { maxTurns: 300 });
+  const roleTurnsWin = office.turnsFor(office.role('backend')!) === 300;
+  const neighbourRoleUntouched =
+    office.turnsFor(office.role('reviewer')!) === office.settings.taskMaxTurns;
+  office.updateRole('backend', { maxTurns: 0 });
+  office.updateRole('backend', { maxTurns: '80' as never });
+  const junkRoleTurnsIgnored = office.role('backend')!.maxTurns === 300;
+  office.updateRole('backend', { maxTurns: 99999 });
+  const cappedRoleTurns = office.role('backend')!.maxTurns === MAX_TASK_MAX_TURNS;
+  office.updateRole('backend', { maxTurns: 300 });
+  office.updateRole('reviewer', { maxTurns: 12 });
+  office.updateRole('reviewer', { maxTurns: null });
+  const roleBackToOffice = office.role('reviewer')!.maxTurns === null
+    && office.turnsFor(office.role('reviewer')!) === office.settings.taskMaxTurns;
+  results.push(
+    `у роли по умолчанию своего лимита шагов нет: ${roleTurnsInherited}`,
+    `лимит роли сильнее офисного: ${roleTurnsWin}`,
+    `соседняя роль осталась на офисном лимите: ${neighbourRoleUntouched}`,
+    `мусор не становится лимитом шагов роли: ${junkRoleTurnsIgnored}`,
+    `слишком большой лимит шагов роли срезан: ${cappedRoleTurns}`,
+    `пустой лимит роли возвращает её к офисному: ${roleBackToOffice}`,
+  );
+
   office.flush();
   const restored = office.restore();
   const afterRestart = office.instanceViews().find((i) => i.id === 'backend#1');
@@ -239,6 +268,7 @@ async function main(): Promise<void> {
     `слишком большой лимит шагов срезан: ${cappedTurns}`,
     `лимит шагов можно снять совсем: ${unlimitedTurns}`,
     `лимит шагов пережил перезапуск: ${office.settings.taskMaxTurns === 150}`,
+    `лимит шагов роли пережил перезапуск: ${office.role('backend')?.maxTurns === 300}`,
     `лимит исполнителей по умолчанию прежний (3): ${workersDefault}`,
     `ноль не становится лимитом исполнителей: ${zeroWorkersIgnored}`,
     `мусор не становится лимитом исполнителей: ${junkWorkersIgnored}`,
@@ -258,7 +288,32 @@ async function main(): Promise<void> {
   });
   office.setAgentPermissionMode('backend#1', null);
   office.updateRole('reviewer', { permissionMode: 'ask-risky' });
+  office.updateRole('backend', { maxTurns: null });
   office.wipe();
+
+  // 7g. Файл состояния правят руками, а лимит шагов роли уезжает прямо в SDK:
+  // испорченное значение обрушило бы каждую задачу этой роли. Такую правку
+  // выкидываем поштучно — остальные настройки роли должны уцелеть.
+  const junkFile = resolve(tmpdir(), `office-test-roleturns-${process.pid}.json`);
+  const junkDir = resolve(tmpdir(), 'roleturns-office');
+  save(junkFile, () => ({
+    version: 1, projectDir: junkDir, taskSeq: 0, tasks: [], chat: [], log: [],
+    instances: [], settings: { ...DEFAULT_SETTINGS }, savedAt: Date.now(),
+    roleOverrides: { backend: { maxTurns: 0, model: 'claude-haiku-4-5' } },
+  }));
+  flushAll();
+  const junkOffice = openOfficeState({
+    id: 'o-roleturns', projectDir: junkDir, stateFile: junkFile,
+  }).state;
+  results.push(
+    `испорченный лимит роли из файла не применён: ${junkOffice.role('backend')?.maxTurns == null}`,
+    `роль вернулась к офисному лимиту: ${
+      junkOffice.turnsFor(junkOffice.role('backend')!) === DEFAULT_SETTINGS.taskMaxTurns}`,
+    `остальные правки роли из файла уцелели: ${
+      junkOffice.role('backend')?.model === 'claude-haiku-4-5'}`,
+  );
+  unloadOfficeState('o-roleturns');
+  wipe(junkFile);
 
   // 8. Хранилище пер-офисное: сохранение одного офиса не отменяет сохранение
   // другого. С общим на процесс таймером второй save() просто заменял первый

@@ -1,6 +1,7 @@
 import { useState } from 'react';
-import { ACCESS_LABEL, FULL_ACCESS_WARNING, updateRole, useStore } from './store';
+import { ACCESS_LABEL, FULL_ACCESS_WARNING, parseTaskMaxTurns, updateRole, useStore } from './store';
 import type { PermissionMode, RoleEditable } from '../shared/types';
+import { MAX_TASK_MAX_TURNS, MIN_TASK_MAX_TURNS } from '../shared/types';
 
 const MODELS = [
   ['claude-opus-5', 'Opus 5 — $5/$25, сложные задачи'],
@@ -19,8 +20,15 @@ export function RoleEditor({ roleId, onClose }: { roleId: string; onClose: () =>
   const role = useStore((s) => s.roles.find((r) => r.id === roleId));
   const settings = useStore((s) => s.settings);
   const [draft, setDraft] = useState<Partial<RoleEditable>>({});
+  // Лимит ходов держим строкой: пустое поле — это «как в офисе», а не ноль.
+  const [turns, setTurns] = useState(role?.maxTurns?.toString() ?? '');
   const [confirmAuto, setConfirmAuto] = useState(false);
   if (!role) return null;
+
+  const turnsParsed = parseTaskMaxTurns(turns);
+  const turnsError = turnsParsed.error
+    ? `Целое число от ${MIN_TASK_MAX_TURNS} до ${MAX_TASK_MAX_TURNS} или пусто — как в офисе`
+    : null;
 
   const value = { ...role, ...draft };
   const set = <K extends keyof RoleEditable>(k: K, v: RoleEditable[K]) =>
@@ -33,7 +41,10 @@ export function RoleEditor({ roleId, onClose }: { roleId: string; onClose: () =>
   };
 
   const save = () => {
-    if (Object.keys(draft).length) updateRole(roleId, draft);
+    if (turnsError) return;
+    const patch: Partial<RoleEditable> = { ...draft };
+    if (turnsParsed.value !== (role.maxTurns ?? null)) patch.maxTurns = turnsParsed.value;
+    if (Object.keys(patch).length) updateRole(roleId, patch);
     onClose();
   };
 
@@ -101,6 +112,21 @@ export function RoleEditor({ roleId, onClose }: { roleId: string; onClose: () =>
           </label>
         </div>
 
+        <label>Лимит шагов исполнителя
+          <input
+            value={turns}
+            placeholder={role.effectiveMaxTurns === null
+              ? 'как в офисе (сейчас без ограничения)'
+              : `как в офисе (сейчас ${role.effectiveMaxTurns})`}
+            onChange={(e) => setTurns(e.target.value)}
+          />
+          <span className="hint">
+            Потолок ходов одной сессии этой роли — тот самый лимит, из-за которого
+            задача падает с «Reached maximum number of turns». Пусто — лимит офиса.
+          </span>
+          {turnsError && <span className="hint error">{turnsError}</span>}
+        </label>
+
         <label>Репозиторий роли
           <input
             value={value.repoDir}
@@ -119,7 +145,7 @@ export function RoleEditor({ roleId, onClose }: { roleId: string; onClose: () =>
 
         <div className="modal-actions">
           <button onClick={onClose}>Отмена</button>
-          <button className="allow" onClick={save}>Сохранить</button>
+          <button className="allow" onClick={save} disabled={!!turnsError}>Сохранить</button>
         </div>
       </div>
     </div>
