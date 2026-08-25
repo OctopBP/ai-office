@@ -170,6 +170,13 @@ async function main(): Promise<void> {
   const layoutKept = office.settings.layoutId === 'classic';
   const okLayout = office.updateSettings({ layoutId: 'studio' });
   const layoutList = office.layouts();
+  // Контракт с вебом: и выбранная раскладка, и список, из которого выбирают,
+  // едут одним снапшотом — UI выбора (задача D2) ничего не запрашивает отдельно.
+  const layoutSnap = office.snapshot();
+  const choiceInSnapshot = layoutSnap.t === 'snapshot'
+    && layoutSnap.settings.layoutId === 'studio'
+    && layoutSnap.layouts.some((l) => l.id === 'studio' && l.title.length > 0)
+    && layoutSnap.layouts.some((l) => l.id === 'classic');
   results.push(
     `по умолчанию офис работает по classic: ${layoutByDefault}`,
     `неизвестная раскладка отклонена по-русски: ${/нет в design\/layouts/.test(badLayout ?? '')}`,
@@ -178,6 +185,7 @@ async function main(): Promise<void> {
     `смена раскладки записана в ленту: ${office.log.some((e) => /Раскладка офиса/.test(e.text))}`,
     `список раскладок несёт classic и studio: ${['classic', 'studio'].every((id) => layoutList.some((l) => l.id === id))}`,
     `у каждой раскладки есть подпись: ${layoutList.length > 0 && layoutList.every((l) => l.title.length > 0)}`,
+    `выбранная раскладка и список выбора едут в снапшоте: ${choiceInSnapshot}`,
   );
 
   // 7d. Лимит шагов исполнителя: он настраивается, но нулём и мусором его
