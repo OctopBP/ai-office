@@ -689,6 +689,32 @@ async function main(): Promise<void> {
       && deskPlan('classic', oo.override()).desks[movedIndex].x === 7
       && deskPlan('classic', oo.override()).desks[movedIndex].y === 5}`,
   );
+
+  // Оверрайд принадлежит офису, а не пресету: сосед на том же classic обязан
+  // видеть голый пресет и хранить свою пустую расстановку. Ломается тут кэш
+  // раскладок — он один на процесс, и вариант с чужой правкой не должен
+  // доставаться офису, который ничего не двигал.
+  const ovNextFile = resolve(tmpdir(), `office-test-ov2-${process.pid}.json`);
+  const onext = openOfficeState({
+    id: 'o-ov2', projectDir: resolve(tmpdir(), 'ov-office-2'), stateFile: ovNextFile,
+  }).state;
+  const nextDesk = deskPlan(onext.settings.layoutId, onext.override()).desks[movedIndex];
+  onext.flush();
+  const nextSaved = JSON.parse(readFileSync(ovNextFile, 'utf8')) as {
+    layoutOverrides?: Record<string, unknown>;
+  };
+  results.push(
+    `у соседнего офиса на том же пресете расстановка своя: ${onext.override() === null
+      && nextDesk.x === presetPlan.desks[movedIndex].x
+      && nextDesk.y === presetPlan.desks[movedIndex].y}`,
+    `в сохранении соседа чужого оверрайда нет: ${
+      Object.keys(nextSaved.layoutOverrides ?? {}).length === 0}`,
+    `правка первого офиса от этого не пропала: ${
+      deskPlan('classic', oo.override()).desks[movedIndex].x === 7}`,
+  );
+  unloadOfficeState('o-ov2');
+  wipe(ovNextFile);
+  unloadOfficeState('o-ov');
   wipe(ovFile);
 
   // 12. Раскладка как контракт с клиентом (§8): команды правки и сброса ходят
