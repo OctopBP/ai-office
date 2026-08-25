@@ -3,7 +3,7 @@ import type { SDKMessage, PermissionResult, SDKResultSuccess } from '@anthropic-
 import { z } from 'zod';
 import { MessageQueue } from './queue';
 import {
-  criteriaProgress, office, taskRepo, worktreesRoot,
+  criteriaProgress, taskRepo, worktreesRoot,
   type Instance, type OfficeState, type Task,
 } from './state';
 import { emptyUsage } from '../shared/types';
@@ -134,7 +134,7 @@ function resultReason(msg: Extract<SDKMessage, { type: 'result' }>): string {
 /**
  * Разбор потока сообщений SDK в состояние офиса и события UI.
  *
- * Офис передаётся явно, а не берётся из `office`: сессия живёт минутами, и
+ * Офис передаётся явно, а не ищется по «текущему»: сессия живёт минутами, и
  * пользователь за это время может открыть другой офис — тогда состояние агента
  * и его расход уехали бы в чужой офис, где такого исполнителя может и не быть.
  *
@@ -450,7 +450,7 @@ const PM_PROMPT = `Ты — проектный менеджер (PM) в кома
  * Причину спрашивают и менеджер, и перезапуск задачи, а текст отказа должен
  * быть один — иначе пользователь получит два разных объяснения одного и того же.
  */
-export function noStaffReason(roleId: string, state: OfficeState = office): string | null {
+export function noStaffReason(roleId: string, state: OfficeState): string | null {
   if (state.staffOf(roleId).length > 0) return null;
   const title = state.role(roleId)?.title ?? roleId;
   return `В роли ${roleId} (${title}) сейчас нет ни одного сотрудника — вакансия открыта, работать некому.`;
@@ -461,7 +461,7 @@ export function noStaffReason(roleId: string, state: OfficeState = office): stri
  * Вынесено из инструмента, чтобы регрессии этого текста ловились проверкой,
  * а не сценарием с живой моделью: от него зависит, кому PM раздаёт задачи.
  */
-export function teamSummary(state: OfficeState = office): string {
+export function teamSummary(state: OfficeState): string {
   const lines = state.workerRoles().map((role) => {
     const insts = state.staffOf(role.id);
     // Роль без сотрудников — открытая вакансия: она есть в реестре, но
@@ -818,8 +818,8 @@ const isManager = (state: OfficeState, inst: Instance): boolean =>
  */
 export async function holdMeeting(
   /**
-   * Офис, в котором созвали совещание. Приходит от клиента, а не берётся из
-   * `office`: клиентов несколько, они смотрят разные офисы, а совещание длится
+   * Офис, в котором созвали совещание. Приходит от клиента, а не от «текущего
+   * на процесс»: клиентов несколько, они смотрят разные офисы, а совещание длится
    * долго — итог обязан уйти менеджеру того офиса, где его созвали.
    */
   meetingOffice: OfficeState,

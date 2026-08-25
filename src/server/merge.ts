@@ -3,7 +3,7 @@ import { promisify } from 'node:util';
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import type { MergeCheck, MergeRun, MergeStep, TypecheckResult } from '../shared/types';
-import { office, taskRepo, worktreesRoot, type OfficeState, type Task } from './state';
+import { taskRepo, worktreesRoot, type OfficeState, type Task } from './state';
 import { checkMergeable, mergeBranch, removeWorktree } from './git';
 
 const run = promisify(execFile);
@@ -20,7 +20,7 @@ const run = promisify(execFile);
  * в основную ещё не влита. «review» — исполнитель сдал, менеджер ещё смотрит;
  * такие ветки пользователь тоже сливает, дожидаться закрытия не обязательно.
  */
-export function mergeableTasks(state: OfficeState = office): Task[] {
+export function mergeableTasks(state: OfficeState): Task[] {
   return [...state.tasks.values()].filter((t) => {
     if (t.merged || !t.branch || !t.baseBranch) return false;
     if (t.status !== 'done' && t.status !== 'review') return false;
@@ -45,7 +45,7 @@ const checking = new Set<string>();
  * параллельно, — запасной путь проверки создаёт worktree, а два worktree
  * одного репозитория одновременно только мешают друг другу.
  */
-export async function refreshMergeChecks(state: OfficeState = office): Promise<MergeCheck[]> {
+export async function refreshMergeChecks(state: OfficeState): Promise<MergeCheck[]> {
   if (checking.has(state.officeId)) return [...state.mergeChecks.values()];
   checking.add(state.officeId);
   state.setMergeChecking(true);
@@ -171,7 +171,7 @@ const pendingStep = (task: Task): MergeStep => ({
  * конфликте, отказе git или упавшей проверке сборки — и говорим, где встали.
  * Уже слитое не откатываем: откат чужой работы был бы хуже остановки.
  */
-export async function mergeQueue(taskIds: string[], state: OfficeState = office): Promise<MergeRun | null> {
+export async function mergeQueue(taskIds: string[], state: OfficeState): Promise<MergeRun | null> {
   if (queueRunning.has(state.officeId)) {
     state.addChat('офис', 'Очередь слияния уже идёт — дождитесь, пока она закончится.');
     return state.mergeRun;

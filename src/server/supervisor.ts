@@ -30,7 +30,7 @@
  * а не следить, дошло ли.
  */
 import type { PullRequestView } from '../shared/types';
-import { office, type OfficeState, type Task } from './state';
+import { type OfficeState, type Task } from './state';
 import { pipelineProblem, runPipeline, tellPm } from './review';
 import { officeAssign, retryTask } from './agents';
 
@@ -89,7 +89,7 @@ function unfinished(state: OfficeState): Task[] {
 }
 
 /** Один проход надзора. Вынесен отдельно ради тестов: их не заставишь ждать минуту. */
-export async function superviseOffice(state: OfficeState = office): Promise<void> {
+export async function superviseOffice(state: OfficeState): Promise<void> {
   if (!state.settings.autoPipeline || state.paused) return;
 
   const now = Date.now();
@@ -230,7 +230,7 @@ function giveUp(state: OfficeState, task: Task, pr: PullRequestView): void {
  * Включить надзор для офиса. Первый проход — сразу: после перезапуска сервера
  * незаведённые ветки и оборванные конвейеры должны поехать без чьей-либо кнопки.
  */
-export function startSupervisor(state: OfficeState = office): void {
+export function startSupervisor(state: OfficeState): void {
   stopSupervisor(state.officeId);
   const tick = () => {
     void superviseOffice(state).catch((err) => {
