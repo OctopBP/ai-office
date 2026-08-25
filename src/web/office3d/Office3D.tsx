@@ -45,9 +45,21 @@ const MAX_POLAR = 1.28;
  *  должен читаться, иначе теряется, где она кончается. */
 const FADED = 0.12;
 
-/** Радиус орбиты. Для ортографической камеры на масштаб не влияет (его задаёт
- *  `zoom`) — только на то, что попадает между near и far. */
-const ORBIT_R = 80;
+/**
+ * Угол обзора камеры, градусы. Камера перспективная, но с длиннофокусным
+ * объективом: узкий угол с большого расстояния почти не искажает планировку —
+ * дальняя стена лишь чуть заметно сходится к ближней, комната по-прежнему
+ * читается как модель на столе. Широкий угол превратил бы её в фотографию
+ * изнутри: план поплыл бы, а прямые ряды столов разъехались веером.
+ *
+ * Ноль здесь означал бы ортографию — ровно то, с чего начинали.
+ */
+const FOV = 25;
+
+/** Пределы наезда колесом, тайлы. Вписанное расстояние для комнаты 30×20
+ *  выходит около сотни, так что запас есть в обе стороны. */
+const MIN_DIST = 25;
+const MAX_DIST = 400;
 
 /** Центр коробки в мире: геометрия задана в тайлах плана, `[x, y]` плана —
  *  это `[x, z]` мира, а высота — ось Y, которой в плане нет. */
@@ -181,22 +193,24 @@ function Floors({ scene, palette }: { scene: Scene3; palette: Palette }) {
 }
 
 /**
- * Подгонка масштаба под размер канваса. Ортографическая камера меряет мир не
- * расстоянием, а `zoom` — сколько экранных пикселей приходится на тайл, —
- * поэтому «вписать комнату» здесь означает посчитать это число.
+ * Подгонка масштаба под размер канваса. У перспективной камеры масштаб — это
+ * расстояние: «вписать комнату» означает отвести камеру ровно настолько,
+ * чтобы комната заполнила кадр. (У ортографической, с которой начинали, для
+ * этого крутили `zoom`, и расстояние ни на что не влияло.)
  *
  * Пересчитывается при каждом изменении размера канваса — ровно как в плоском
- * офисе (`Office.tsx`, ResizeObserver). Задумывалось иначе: постоянный `zoom`
+ * офисе (`Office.tsx`, ResizeObserver). Задумывалось иначе: постоянный масштаб
  * казался честнее, ведь комната не резиновая и в окно побольше просто видно
  * больше. На деле это значит, что масштаб навсегда остаётся тем, каким окно
  * было в момент открытия комнаты, — растянули окно, и офис остался маркой в
- * углу. Плата за пересчёт — сброс зума колесом при изменении размера окна;
+ * углу. Плата за пересчёт — сброс наезда колесом при изменении размера окна;
  * это заметно реже и понятнее.
  *
  * При повороте камеры не пересчитывается: там масштаб дёргался бы под рукой.
  */
 function FitCamera({ size }: { size: [number, number] }) {
   const camera = useThree((s) => s.camera);
+  const controls = useThree((s) => s.controls);
   const viewport = useThree((s) => s.size);
   const width = viewport.width;
   const height = viewport.height;
@@ -228,9 +242,28 @@ function FitCamera({ size }: { size: [number, number] }) {
 
     const spanX = projected.max.x - projected.min.x;
     const spanY = projected.max.y - projected.min.y;
-    camera.zoom = Math.min(width / spanX, height / spanY) * 0.92;
+
+    // Расстояние, с которого коробка такого размера заполняет кадр. Размах
+    // берётся поперёк взгляда, а у комнаты есть и глубина вдоль него: ближний
+    // край окажется чуть крупнее расчётного. При узком угле разница мелкая, и
+    // её съедает те же 8% запаса по краю.
+    const halfFov = ((camera as THREE.PerspectiveCamera).fov * Math.PI) / 360;
+    const aspect = width / height;
+    const dist = Math.max(
+      spanY / 2 / Math.tan(halfFov),
+      spanX / 2 / (Math.tan(halfFov) * aspect),
+    ) / 0.92;
+
+    // Направление взгляда не трогаем — только отъезжаем по нему. Цель облёта
+    // в начале координат, поэтому «расстояние до цели» это длина вектора
+    // позиции. OrbitControls держит своё представление об орбите и должен
+    // перечитать позицию, иначе первый же поворот вернёт прежний отъезд.
+    camera.position.setLength(THREE.MathUtils.clamp(dist, MIN_DIST, MAX_DIST));
+    camera.near = 1;
+    camera.far = dist * 4;
     camera.updateProjectionMatrix();
-  }, [camera, size, width, height]);
+    (controls as { update?: () => void } | null)?.update?.();
+  }, [camera, controls, size, width, height]);
 
   return null;
 }
@@ -326,10 +359,14 @@ export function Office3D() {
   const [w, d] = scene.size;
   const offset = useMemo<[number, number]>(() => [-w / 2, -d / 2], [w, d]);
 
+  // Стартовое расстояние — грубая прикидка по размеру комнаты: точное
+  // значение сейчас же посчитает FitCamera, здесь важно лишь направление и
+  // чтобы камера не оказалась внутри стен на первом кадре.
+  const startDist = Math.hypot(w, d) * 3;
   const start: [number, number, number] = [
-    Math.sin(START_POLAR) * Math.sin(START_AZIMUTH) * ORBIT_R,
-    Math.cos(START_POLAR) * ORBIT_R,
-    Math.sin(START_POLAR) * Math.cos(START_AZIMUTH) * ORBIT_R,
+    Math.sin(START_POLAR) * Math.sin(START_AZIMUTH) * startDist,
+    Math.cos(START_POLAR) * startDist,
+    Math.sin(START_POLAR) * Math.cos(START_AZIMUTH) * startDist,
   ];
 
   return (
@@ -344,8 +381,7 @@ export function Office3D() {
       <Canvas
         flat
         shadows="percentage"
-        orthographic
-        camera={{ position: start, near: -400, far: 800, zoom: 20 }}
+        camera={{ position: start, fov: FOV, near: 1, far: startDist * 4 }}
         style={{ background: palette.backdrop }}
       >
         <FitCamera size={scene.size} />
@@ -355,8 +391,8 @@ export function Office3D() {
           enablePan={false}
           minPolarAngle={MIN_POLAR}
           maxPolarAngle={MAX_POLAR}
-          minZoom={6}
-          maxZoom={160}
+          minDistance={MIN_DIST}
+          maxDistance={MAX_DIST}
           dampingFactor={0.12}
         />
         <Lights scene={scene} palette={palette} />
