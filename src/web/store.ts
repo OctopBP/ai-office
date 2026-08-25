@@ -236,7 +236,11 @@ export const useStore = create<State>((set, get) => ({
   }),
   clearMergeSelection: () => set({ mergeSelection: [] }),
   theme: (localStorage.getItem('office-theme') as Theme | null) ?? 'day',
-  render3d: localStorage.getItem('office-render3d') === '1',
+  // В этой ветке офис по умолчанию трёхмерный — она ради него и заведена.
+  // Явный выбор пользователя (клавиша 0) сильнее умолчания и переживает
+  // перезагрузку; когда 3D догонит плоский рендер по функциям, ключ уйдёт
+  // вместе с самим переключателем.
+  render3d: (localStorage.getItem('office-render3d') ?? '1') === '1',
   toasts: [],
   diff: null,
   pos: {},
