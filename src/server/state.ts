@@ -1,16 +1,16 @@
 import { randomUUID } from 'node:crypto';
 import { isAbsolute, resolve } from 'node:path';
 import type {
-  AgentState, ChatEntry, Criterion, DayUsage, Desk, InstanceView, LogEntry,
-  PermissionDecision, AuthSource, MeetingView, PermissionMode, PermissionRequest, RoleEditable,
-  RoleView, ServerEvent, Settings, TaskStatus, TaskView, Usage,
+  AgentState, ChatEntry, Criterion, DayUsage, Desk, FieldError, InstanceView, LogEntry,
+  PermissionDecision, AuthSource, MeetingView, PermissionMode, PermissionRequest, RoleDraft,
+  RoleEditable, RoleView, ServerEvent, Settings, TaskStatus, TaskView, Usage,
   CloudStatus, OfficeView, MergeCheck, MergeRun, LayoutOption,
   Layout, LayoutOverride, LayoutPropEdit,
   PullRequestView, PrStage, ReviewNote,
 } from '../shared/types';
 import {
-  emptyUsage, DEFAULT_OFFICE_WORKERS, MAX_OFFICE_WORKERS, MAX_TASK_MAX_TURNS,
-  MIN_OFFICE_WORKERS, MIN_TASK_MAX_TURNS,
+  emptyUsage, DEFAULT_OFFICE_WORKERS, MAX_OFFICE_WORKERS, MAX_ROLE_INSTANCES, MAX_TASK_MAX_TURNS,
+  MIN_OFFICE_WORKERS, MIN_ROLE_INSTANCES, MIN_TASK_MAX_TURNS, ROLE_TITLE_LIMIT,
 } from '../shared/types';
 import { isBlocked, isEmptyOverride, passability } from '../shared/layout';
 import { activityFromFile, summarize } from './activity';
@@ -18,11 +18,12 @@ import {
   DEFAULT_LAYOUT_ID, catalog, checkPropEdit, deskPlan, effectiveLayout, hasLayout, layoutOptions,
   layoutTitle, type DeskPlan,
 } from './layout';
+import { repoProblem } from './git';
 import { currentOffice, offices } from './offices';
 import { effectiveMode, isPermissionMode, modeLabel } from './permissions';
 import type { MessageQueue } from './queue';
 import {
-  blankRole, defaultRole, defaultRoles, rolesFromOverrides, withManagerRole,
+  blankRole, defaultRole, defaultRoles, newRoleId, rolesFromOverrides, withManagerRole,
   type Role,
 } from './roles';
 import {
@@ -96,6 +97,39 @@ export function onWorkerLimitChanged(fn: () => void): void {
   workerLimitWatcher = fn;
 }
 
+/**
+ * Кого позвать, когда перечень ролей офиса стал другим. Перечень вшит в
+ * описание create_task и в бриф менеджера в момент старта сессии: не перезапусти
+ * её — и менеджер будет назначать задачи на роль, которой больше нет, либо не
+ * увидит только что заведённую. Живёт здесь по той же причине, что и watcher
+ * лимита: состояние про сессии ничего не знает и знать не должно.
+ */
+let roleSetWatcher: ((state: OfficeState) => void) | null = null;
+
+export function onRoleSetChanged(fn: (state: OfficeState) => void): void {
+  roleSetWatcher = fn;
+}
+
+/**
+ * Поля роли, которые правятся из формы. Список нужен именно перечислением:
+ * патч приезжает из сети, и без белого списка вместе с ним доехали бы
+ * `archived` и `isManager` — архивация и второй менеджер в обход проверок.
+ */
+const ROLE_EDITABLE_KEYS: readonly (keyof RoleEditable)[] = [
+  'title', 'emoji', 'color', 'model', 'permissionMode', 'maxInstances',
+  'isolate', 'maxTurns', 'repoDir', 'sprite', 'brief',
+];
+
+/**
+ * Форма id модели. Точного списка на сервере нет и быть не должно: модели
+ * появляются чаще, чем выходит офис, а выбор из знакомых предлагает UI. Здесь
+ * отсекается мусор — пустое поле и строки, которые SDK не примет.
+ */
+const MODEL_RE = /^[a-z0-9][a-z0-9._-]*$/;
+
+/** Модель новой роли, если форма её не назвала. */
+const DEFAULT_ROLE_MODEL = 'claude-sonnet-5';
+
 /** Непустая строка из файла состояния либо undefined: пустое поле — не значение. */
 const text = (value: unknown): string | undefined =>
   (typeof value === 'string' && value.trim() ? value : undefined);
@@ -132,6 +166,9 @@ function sanitizeRole(raw: Partial<Role>, id: string): Role {
     docsDir: text(raw.docsDir) ?? base.docsDir,
     // Пустой repoDir — законное «общий репозиторий офиса», а не пропуск.
     repoDir: typeof raw.repoDir === 'string' ? raw.repoDir : base.repoDir,
+    // Пустой спрайт — тоже законное значение: «подбери по id роли».
+    sprite: typeof raw.sprite === 'string' ? raw.sprite : base.sprite,
+    archived: raw.archived === true,
     brief: typeof raw.brief === 'string' ? raw.brief : base.brief,
   };
 }
@@ -417,14 +454,27 @@ export class OfficeState {
     return [...this.roleList];
   }
 
-  /** Роль офиса по id. undefined — такой роли в этом офисе нет. */
+  /**
+   * Роль офиса по id — включая архивную. undefined — такой роли в этом офисе
+   * нет. Архив специально не прячется: roleId лежит в задачах, логах и
+   * сохранённых сотрудниках, и история обязана читаться после архивации.
+   */
   role(id: string): Role | undefined {
     return this.roleList.find((r) => r.id === id);
   }
 
-  /** Роли, которым можно отдать задачу: все, кроме менеджера. */
+  /** Роли, с которыми офис работает сейчас: весь набор, кроме архива. */
+  activeRoles(): Role[] {
+    return this.roleList.filter((r) => !r.archived);
+  }
+
+  /**
+   * Роли, которым можно отдать задачу: рабочие, кроме менеджера. Архивных
+   * здесь нет — именно из этого перечня собираются описание assign у PM и
+   * список для найма, и предлагать уволенную роль незачем.
+   */
   workerRoles(): Role[] {
-    return this.roleList.filter((r) => !r.isManager);
+    return this.roleList.filter((r) => !r.isManager && !r.archived);
   }
 
   /**
@@ -691,7 +741,9 @@ export class OfficeState {
     this.usage = emptyUsage();
     this.daily = {};
     this.setPaused(false);
-    for (const role of this.roles()) this.spawn(role.id);
+    // В архивные роли не сажаем никого: их убрали именно затем, чтобы офис
+    // в них не работал, — а seed заново рассаживает штат по умолчанию.
+    for (const role of this.activeRoles()) this.spawn(role.id);
   }
 
   /** Полный сброс по кнопке: стереть сохранение и начать с чистого листа. */
@@ -1194,9 +1246,19 @@ export class OfficeState {
    * Относительный путь считается от директории офиса.
    */
   repoFor(role: Role | null | undefined): string {
-    const dir = role?.repoDir?.trim();
-    if (!dir) return this.projectDir;
-    return isAbsolute(dir) ? resolve(dir) : resolve(this.projectDir, dir);
+    return this.resolveRepoDir(role?.repoDir);
+  }
+
+  /**
+   * Путь репозитория роли в абсолютном виде. Пусто — общий репозиторий офиса.
+   * Отдельно от repoFor: проверять путь из формы приходится до того, как роль
+   * существует, а считаться он обязан ровно так же — иначе форма одобрит одну
+   * директорию, а задача пойдёт в другую.
+   */
+  resolveRepoDir(dir: string | null | undefined): string {
+    const clean = dir?.trim();
+    if (!clean) return this.projectDir;
+    return isAbsolute(clean) ? resolve(clean) : resolve(this.projectDir, clean);
   }
 
   /** Состав офиса для UI: у каждого сотрудника посчитан эффективный режим. */
@@ -1236,18 +1298,315 @@ export class OfficeState {
       id: r.id, title: r.title, emoji: r.emoji, color: r.color, model: r.model,
       permissionMode: r.permissionMode, maxInstances: r.maxInstances,
       isolate: r.isolate, maxTurns: r.maxTurns ?? null,
-      repoDir: r.repoDir ?? '', brief: r.brief, isManager: r.isManager,
+      repoDir: r.repoDir ?? '', sprite: r.sprite ?? '', brief: r.brief,
+      isManager: r.isManager, archived: r.archived === true,
+      removable: this.roleRemovable(r),
       active: [...this.instances.values()].filter((i) => i.roleId === r.id).length,
       effectivePermissionMode: effectiveMode(null, r.permissionMode, officeMode),
       effectiveMaxTurns: this.turnsFor(r),
     }));
   }
 
+  // ---------- создание, правка и архивация ролей ----------
+
+  /**
+   * Задачи роли — любые, включая закрытые. Именно они делают архивацию
+   * обязательной: roleId лежит в каждой такой задаче, и роль, стёртая
+   * насовсем, перестала бы находиться при показе истории.
+   */
+  private tasksOf(roleId: string): Task[] {
+    return [...this.tasks.values()].filter((t) => t.roleId === roleId);
+  }
+
+  /**
+   * Задачи роли, которые прямо сейчас в работе: их нельзя оставить без роли.
+   * Взятые в работу и назначенные считаются одинаково — у обеих уже есть
+   * исполнитель, который вот-вот пойдёт (или уже пошёл) работать.
+   */
+  private liveTasksOf(roleId: string): Task[] {
+    const live: TaskStatus[] = ['assigned', 'in_progress', 'review'];
+    return this.tasksOf(roleId).filter((t) => live.includes(t.status));
+  }
+
+  /**
+   * Можно ли стереть роль насовсем, а не убрать в архив. Можно ровно тогда,
+   * когда её id нигде в истории не встречается: ни одной задачи, ни одного
+   * сотрудника. Менеджер не удаляется никогда — на нём держится весь офис.
+   */
+  private roleRemovable(role: Role): boolean {
+    if (role.isManager) return false;
+    return this.tasksOf(role.id).length === 0 && this.staffOf(role.id).length === 0;
+  }
+
+  /**
+   * Отпечаток перечня ролей, вшитого в сессию менеджера: описание поля roleId
+   * у create_task перечисляет id и названия исполнителей, и собирается оно
+   * один раз, при старте сессии. Пока отпечаток тот же, перезапускать нечего.
+   *
+   * Брифы сюда не входят намеренно: их менеджер читает вызовом list_team, а
+   * тот ходит в состояние офиса на каждый вызов и видит правки сразу.
+   */
+  private roleMenuSignature(): string {
+    return this.workerRoles().map((r) => `${r.id} ${r.title}`).join('');
+  }
+
+  /**
+   * Разослать изменившийся набор ролей и, если перечень для менеджера стал
+   * другим, перезапустить его сессию. Одна точка на все правки набора: разойдись
+   * они — менеджер продолжал бы назначать задачи на заархивированную роль.
+   */
+  private roleSetChanged(before: string): void {
+    this.emit({ t: 'roles', roles: this.roleViews() });
+    this.markDirty();
+    if (this.roleMenuSignature() !== before) roleSetWatcher?.(this);
+  }
+
+  /**
+   * Проверить поля роли, пришедшие из формы. Возвращает ошибки по полям —
+   * пустой список означает «можно применять». Проверяется только то, что в
+   * патче есть: правка одного поля не должна спотыкаться о соседнее.
+   *
+   * `roleId` — чью роль правим; для создания пусто (id ещё не выдан).
+   */
+  private async checkRolePatch(
+    patch: Partial<RoleEditable>, roleId: string | null,
+  ): Promise<FieldError[]> {
+    const errors: FieldError[] = [];
+    if ('title' in patch) {
+      const title = String(patch.title ?? '').trim();
+      if (!title) errors.push({ field: 'title', message: 'Название роли не может быть пустым.' });
+      else if (title.length > ROLE_TITLE_LIMIT) {
+        errors.push({
+          field: 'title',
+          message: `Название длиннее ${ROLE_TITLE_LIMIT} символов — оно не влезет ни в список, ни на бейдж.`,
+        });
+      // Сравниваем без учёта регистра: «Аналитик» и «аналитик» в списке ролей
+      // не различить глазами, а раздавать задачи придётся именно по нему.
+      } else if (this.roles().some((r) => r.id !== roleId
+          && r.title.trim().toLowerCase() === title.toLowerCase())) {
+        errors.push({
+          field: 'title',
+          message: `Роль «${title}» в офисе уже есть — два одинаковых названия в списке не различить.`,
+        });
+      }
+    }
+    if ('model' in patch && !MODEL_RE.test(String(patch.model ?? ''))) {
+      errors.push({ field: 'model', message: 'Выберите модель — без неё сессию роли не запустить.' });
+    }
+    if ('maxInstances' in patch) {
+      const n = patch.maxInstances;
+      if (typeof n !== 'number' || !Number.isFinite(n)
+          || Math.floor(n) < MIN_ROLE_INSTANCES || Math.floor(n) > MAX_ROLE_INSTANCES) {
+        errors.push({
+          field: 'maxInstances',
+          message: `Клонов у роли — от ${MIN_ROLE_INSTANCES} до ${MAX_ROLE_INSTANCES}.`,
+        });
+      } else if (roleId && Math.floor(n) < this.staffOf(roleId).length) {
+        errors.push({
+          field: 'maxInstances',
+          message: `В роли уже ${this.staffOf(roleId).length} сотрудников — ` +
+            'сначала уволите лишних, потом опускайте лимит.',
+        });
+      }
+    }
+    if ('maxTurns' in patch && sanitizeMaxTurns(patch.maxTurns) === undefined) {
+      errors.push({
+        field: 'maxTurns',
+        message: `Лимит ходов — целое от ${MIN_TASK_MAX_TURNS} до ${MAX_TASK_MAX_TURNS}` +
+          ' либо пусто, чтобы взять офисный.',
+      });
+    }
+    if ('permissionMode' in patch
+        && patch.permissionMode !== null && !isPermissionMode(patch.permissionMode)) {
+      errors.push({ field: 'permissionMode', message: 'Неизвестный режим доступа.' });
+    }
+    if ('sprite' in patch) {
+      const sprite = String(patch.sprite ?? '').trim();
+      // Пусто — законно: значит «подбери внешность по id роли».
+      if (sprite && !(sprite.startsWith('agent_') && catalog.sprites[sprite])) {
+        errors.push({
+          field: 'sprite',
+          message: `Внешности «${sprite}» нет в каталоге спрайтов — выберите из пресетов.`,
+        });
+      }
+    }
+    if ('repoDir' in patch) {
+      const dir = String(patch.repoDir ?? '').trim();
+      // Пусто — «работать в общем репозитории офиса», проверять нечего.
+      if (dir) {
+        const problem = await repoProblem(this.resolveRepoDir(dir));
+        if (problem) errors.push({ field: 'repoDir', message: problem });
+      }
+    }
+    return errors;
+  }
+
+  /**
+   * Завести роль. id генерирует офис по названию: только он знает, какие id
+   * заняты у него и в базовом наборе. Возвращает либо созданную роль, либо
+   * ошибки по полям формы.
+   */
+  async createRole(draft: RoleDraft): Promise<{ role: Role } | { errors: FieldError[] }> {
+    // Умолчания добираем ДО проверки: короткая форма (одно название) обязана
+    // проходить её так же, как заполненная целиком.
+    const wanted: RoleEditable = {
+      title: String(draft.title ?? '').trim(),
+      emoji: text(draft.emoji) ?? '🙂',
+      color: text(draft.color) ?? '#94a3b8',
+      model: text(draft.model) ?? DEFAULT_ROLE_MODEL,
+      permissionMode: draft.permissionMode ?? null,
+      maxInstances: typeof draft.maxInstances === 'number' ? Math.floor(draft.maxInstances) : 1,
+      isolate: draft.isolate !== false,
+      maxTurns: draft.maxTurns ?? null,
+      repoDir: typeof draft.repoDir === 'string' ? draft.repoDir.trim() : '',
+      sprite: typeof draft.sprite === 'string' ? draft.sprite.trim() : '',
+      brief: typeof draft.brief === 'string' ? draft.brief : '',
+    };
+    const errors = await this.checkRolePatch(wanted, null);
+    if (errors.length) return { errors };
+
+    const before = this.roleMenuSignature();
+    const role: Role = {
+      id: newRoleId(wanted.title, this.roleList.map((r) => r.id)),
+      title: wanted.title,
+      color: wanted.color,
+      emoji: wanted.emoji,
+      model: wanted.model,
+      isManager: false,          // менеджер в офисе один, и он уже есть
+      maxInstances: wanted.maxInstances,
+      permissionMode: wanted.permissionMode,
+      isolate: wanted.isolate,
+      maxTurns: wanted.maxTurns,
+      repoDir: wanted.repoDir,
+      sprite: wanted.sprite,
+      archived: false,
+      brief: wanted.brief,
+    };
+    this.roleList = [...this.roleList, role];
+    this.addLog(null, 'system', `Заведена роль ${role.title} (${role.id})`);
+    this.roleSetChanged(before);
+    return { role };
+  }
+
+  /**
+   * Правка роли из формы: те же проверки, что и при создании, и тот же формат
+   * ошибок. Пустой список — правка применена.
+   */
+  async editRole(roleId: string, patch: Partial<RoleEditable>): Promise<FieldError[]> {
+    const role = this.role(roleId);
+    if (!role) return [{ field: '', message: `Роли «${roleId}» нет в офисе.` }];
+    // Переименовать PM во что-то другое нельзя: на этой роли держится раздача
+    // задач, и «Проектный менеджер», ставший «Верстальщиком», — это офис,
+    // в котором менеджера больше нет, хотя в списке он есть.
+    if (role.isManager && 'title' in patch && String(patch.title ?? '').trim() !== role.title) {
+      return [{
+        field: 'title',
+        message: 'Менеджера нельзя переименовать в другую роль — на нём держится раздача задач. ' +
+          'Заведите новую роль, если нужен ещё один участник.',
+      }];
+    }
+    const errors = await this.checkRolePatch(patch, roleId);
+    if (errors.length) return errors;
+    this.updateRole(roleId, patch);
+    return [];
+  }
+
+  /**
+   * Убрать роль в архив или вернуть её из архива. Архивная роль пропадает из
+   * найма и из перечня для менеджера, но остаётся в наборе и находится по id:
+   * задачи, логи и сохранённые сотрудники ссылаются на неё именно так.
+   *
+   * Возвращает ошибки формы; пустой список — сделано.
+   */
+  archiveRole(roleId: string, archived: boolean): FieldError[] {
+    const role = this.role(roleId);
+    if (!role) return [{ field: '', message: `Роли «${roleId}» нет в офисе.` }];
+    if (role.isManager) {
+      return [{
+        field: '',
+        message: 'Менеджера нельзя убрать в архив: без него офису не с кем разговаривать.',
+      }];
+    }
+    if (role.archived === archived) return [];
+    if (archived) {
+      const staff = this.staffOf(roleId);
+      if (staff.length) {
+        return [{
+          field: '',
+          message: `В роли «${role.title}» ещё работают: ${staff.map((i) => i.id).join(', ')}. ` +
+            'Сначала уволите их — архивная роль не может держать сотрудников.',
+        }];
+      }
+      const live = this.liveTasksOf(roleId);
+      if (live.length) {
+        return [{
+          field: '',
+          message: `У роли «${role.title}» незакрытые задачи: ${live.map((t) => t.id).join(', ')}. ` +
+            'Дождитесь их или остановите, а потом убирайте роль в архив.',
+        }];
+      }
+    }
+    const before = this.roleMenuSignature();
+    this.roleList = this.roleList.map((r) => (r.id === roleId ? { ...r, archived } : r));
+    this.addLog(null, 'system', archived
+      ? `Роль ${role.title} (${roleId}) убрана в архив — в найме её больше нет, ` +
+        'в истории задач она остаётся'
+      : `Роль ${role.title} (${roleId}) возвращена из архива`);
+    this.roleSetChanged(before);
+    return [];
+  }
+
+  /**
+   * Стереть роль насовсем. Разрешено только там, где её id не встречается
+   * нигде в истории: ни задач, ни сотрудников. Во всех остальных случаях
+   * удаление — это архивация, иначе доска перестала бы читаться.
+   */
+  removeRole(roleId: string): FieldError[] {
+    const role = this.role(roleId);
+    if (!role) return [{ field: '', message: `Роли «${roleId}» нет в офисе.` }];
+    if (role.isManager) {
+      return [{ field: '', message: 'Менеджера удалить нельзя — офис без него не работает.' }];
+    }
+    if (!this.roleRemovable(role)) {
+      const tasks = this.tasksOf(roleId).length;
+      const staff = this.staffOf(roleId).length;
+      const trace = tasks
+        ? `на неё оформлено задач: ${tasks}`
+        : `в ней ещё числятся сотрудники: ${staff}`;
+      return [{
+        field: '',
+        message: `Роль «${role.title}» стереть насовсем нельзя — ${trace}. ` +
+          'Уберите её в архив: из найма она пропадёт, а история останется читаемой.',
+      }];
+    }
+    const before = this.roleMenuSignature();
+    this.roleList = this.roleList.filter((r) => r.id !== roleId);
+    this.addLog(null, 'system', `Роль ${role.title} (${roleId}) удалена — следов в истории у неё не было`);
+    this.roleSetChanged(before);
+    return [];
+  }
+
+  /**
+   * Применить правку роли. Проверки полей — в editRole: сюда правка приходит
+   * уже разобранной, а этот метод отвечает за то, чтобы она легла в набор и
+   * доехала до всех, кого касается.
+   */
   updateRole(roleId: string, patch: Partial<RoleEditable>): void {
     const base = this.role(roleId);
     if (!base) return;
+    const beforeMenu = this.roleMenuSignature();
+    // Берём только те поля, которые человеку и правда можно править. Патч
+    // приходит из сети: с ним доехали бы и `archived`, и `isManager` — то
+    // есть архивация и назначение второго менеджера в обход всех проверок.
+    const clean: Partial<RoleEditable> = {};
+    for (const key of ROLE_EDITABLE_KEYS) {
+      if (key in patch) (clean as Record<string, unknown>)[key] = patch[key];
+    }
+    // Пути и внешность приходят из поля ввода — с пробелами по краям.
+    if (typeof clean.repoDir === 'string') clean.repoDir = clean.repoDir.trim();
+    if (typeof clean.sprite === 'string') clean.sprite = clean.sprite.trim();
+    if (typeof clean.title === 'string') clean.title = clean.title.trim();
     // Режим роли правит человек из UI — значение проверяем, как и офисное.
-    const clean = { ...patch };
     if ('permissionMode' in clean
         && clean.permissionMode !== null && !isPermissionMode(clean.permissionMode)) {
       delete clean.permissionMode;
@@ -1278,9 +1637,10 @@ export class OfficeState {
       inst.label = `${role.title}${role.maxInstances > 1 ? ` #${n}` : ''}`;
       this.emit({ t: 'instance', instance: this.instanceView(inst) });
     }
-    this.emit({ t: 'roles', roles: this.roleViews() });
     this.addLog(null, 'system', `Роль ${roleId} изменена: ${Object.keys(clean).join(', ')}`);
-    this.markDirty();
+    // Название роли вшито в описание assign у менеджера — переименование
+    // меняет перечень так же, как заведение новой роли.
+    this.roleSetChanged(beforeMenu);
   }
 
   /**
@@ -1397,6 +1757,12 @@ export class OfficeState {
   hire(roleId: string): string | null {
     const role = this.role(roleId);
     if (!role) return `Роли «${roleId}» нет в офисе.`;
+    // Архивная роль находится по id ради истории, но нанимать в неё нельзя:
+    // её для того и убрали, чтобы офис перестал в ней работать.
+    if (role.archived) {
+      return `Роль «${role.title}» в архиве — нанимать в неё некого. ` +
+        'Верните её из архива, если работа снова нужна.';
+    }
     const staff = this.staffOf(roleId);
     if (staff.length >= role.maxInstances) {
       return `${role.title}: уже нанято ${staff.length} из ${role.maxInstances} — ` +

@@ -37,6 +37,19 @@ export interface Role {
    * слияние идут в тот репозиторий, где роль работает.
    */
   repoDir?: string;
+  /**
+   * Пресет внешности из каталога спрайтов (`agent_p1`…`agent_p10`).
+   * Пусто или нет поля — веб подбирает спрайт по id роли: у базовых ролей
+   * своя нарисованная внешность, и подставлять им пресет незачем.
+   */
+  sprite?: string;
+  /**
+   * Роль убрана в архив. Архивная роль не показывается в найме и не
+   * предлагается менеджеру, но остаётся в наборе офиса и находится по id:
+   * roleId лежит в задачах, логах и сохранённых сотрудниках, и исчезни роль
+   * совсем — история перестала бы читаться.
+   */
+  archived?: boolean;
   /** Дополнение к системному промпту исполнителя (специфика роли). */
   brief: string;
 }
@@ -209,6 +222,63 @@ const BASE_ROLES: Role[] = [
  */
 export const MANAGER_ROLE_ID = 'pm';
 
+/** id базовых ролей: занятые имена, даже если такой роли в офисе сейчас нет. */
+export const BASE_ROLE_IDS: readonly string[] = BASE_ROLES.map((r) => r.id);
+
+/**
+ * Кириллица в латиницу для id роли. Названия ролей пишут по-русски, а id
+ * уезжает в имя ветки (`task/T-1`), в id сотрудника (`backend#1`) и в пути
+ * worktree — там нужна латиница, и «Технический писатель» обязан превратиться
+ * в `tehnicheskiy-pisatel`, а не в набор дефисов.
+ */
+const TRANSLIT: Record<string, string> = {
+  а: 'a', б: 'b', в: 'v', г: 'g', д: 'd', е: 'e', ё: 'e', ж: 'zh', з: 'z',
+  и: 'i', й: 'y', к: 'k', л: 'l', м: 'm', н: 'n', о: 'o', п: 'p', р: 'r',
+  с: 's', т: 't', у: 'u', ф: 'f', х: 'h', ц: 'c', ч: 'ch', ш: 'sh', щ: 'sch',
+  ъ: '', ы: 'y', ь: '', э: 'e', ю: 'yu', я: 'ya',
+};
+
+/** Потолок длины id: он попадает в имена веток и директорий worktree. */
+const ID_LIMIT = 24;
+
+/** id, который не станет ничьим: сюда падают названия из одних символов. */
+const FALLBACK_ID = 'role';
+
+/**
+ * id роли из её названия: строчная латиница, цифры и дефис — и ничего больше.
+ * Символ «#» отсеивается вместе с остальными: он разделяет id роли и номер
+ * сотрудника (`backend#1`), и роль с решёткой в id разорвала бы каждый такой
+ * разбор.
+ */
+export function slugifyRoleId(title: string): string {
+  let out = '';
+  for (const ch of title.toLowerCase()) {
+    if (/[a-z0-9]/.test(ch)) out += ch;
+    else if (ch in TRANSLIT) out += TRANSLIT[ch];
+    else out += '-';
+  }
+  const clean = out.replace(/-+/g, '-').replace(/^-|-$/g, '').slice(0, ID_LIMIT)
+    // Обрезка по длине могла оставить дефис на конце — он там не нужен.
+    .replace(/-+$/, '');
+  return clean || FALLBACK_ID;
+}
+
+/**
+ * Свободный id для новой роли. Занятыми считаются и роли этого офиса (включая
+ * архивные: их id живёт в истории задач), и все базовые — иначе заведённая
+ * руками роль «Ревьюер» перебила бы `reviewer`, который офис поднимает сам.
+ */
+export function newRoleId(title: string, taken: Iterable<string>): string {
+  const busy = new Set<string>([...BASE_ROLE_IDS, ...taken]);
+  const base = slugifyRoleId(title);
+  if (!busy.has(base)) return base;
+  for (let n = 2; ; n += 1) {
+    // Суффикс приписываем к обрезанной основе, чтобы id не перерос потолок.
+    const candidate = `${base.slice(0, ID_LIMIT - String(n).length - 1)}-${n}`;
+    if (!busy.has(candidate)) return candidate;
+  }
+}
+
 /** Копия роли: массив инструментов тоже свой, иначе набор офиса делил бы его с базовым. */
 const cloneRole = (r: Role): Role => (r.tools ? { ...r, tools: [...r.tools] } : { ...r });
 
@@ -252,7 +322,11 @@ export const blankRole = (id: string): Role => ({
 export function withManagerRole(list: Role[]): Role[] {
   const base = defaultRole(MANAGER_ROLE_ID)!;
   const saved = list.find((r) => r.id === MANAGER_ROLE_ID);
-  const manager: Role = { ...base, ...saved, id: MANAGER_ROLE_ID, isManager: true };
+  // Архивным PM быть не может: без менеджера офису не с кем разговаривать,
+  // а признак архива мог приехать из правленого руками файла состояния.
+  const manager: Role = {
+    ...base, ...saved, id: MANAGER_ROLE_ID, isManager: true, archived: false,
+  };
   // Менеджер идёт первым — в этом порядке роли показываются в UI и обходятся
   // при наборе штата, и офис без сохранения выглядит так же, как с ним.
   const rest = list
