@@ -96,6 +96,33 @@ function extendSeats(base: Pos[], need: number): Pos[] {
 }
 
 /**
+ * Места отдыха по зоне, когда в раскладке нет ни одного предмета с местами.
+ * Так бывает не от недосмотра, а по замыслу: обстановку можно свести к
+ * необходимому — рабочие столы, стол переговорки, диван, — и тогда кухонного
+ * стола со слотами в комнате просто нет. Свободным агентам всё равно нужно
+ * куда-то сесть, а зона `idle` уже говорит, в какой комнате они отдыхают:
+ * рассаживаем их рядами по её середине, отступив от стены.
+ *
+ * Раскладка детерминированная и зависит только от `need` — как и у
+ * `extendSeats`, место конкретного стола не прыгает между перерисовками.
+ */
+function zoneSeats(layout: Layout, need: number): Pos[] {
+  const zone = layout.zones?.find((z) => z.kind === 'idle' && z.room);
+  const room = layout.rooms?.find((r) => r.id === zone?.room);
+  if (!room) return [];
+  const [x0, y0, x1, y1] = room.rect;
+  const perRow = Math.max(1, Math.floor((x1 - x0 - 1) / ROW_GAP));
+  const seats: Pos[] = [];
+  for (let i = 0; i < need; i++) {
+    seats.push({
+      x: x0 + 0.8 + (i % perRow) * ROW_GAP,
+      y: y0 + (y1 - y0) * 0.5 + Math.floor(i / perRow) * ROW_GAP,
+    });
+  }
+  return seats;
+}
+
+/**
  * Места кухни для конкретной раскладки — на случай, если сразу все
  * исполнители окажутся свободными. Число столов исполнителей (без PM) —
  * верхняя граница штата (сервер не даёт нанять больше сотрудников, чем в
@@ -113,17 +140,24 @@ const kitchenSeatsCache = new WeakMap<Layout, Pos[]>();
 function kitchenSeatsFor(layout: Layout): Pos[] {
   const cached = kitchenSeatsCache.get(layout);
   if (cached) return cached;
+  const need = Math.max(desks(layout, catalog).length - 1, 1);
+  const fromProps = kitchenSeats(layout, catalog);
   const seats = extendSeats(
-    kitchenSeats(layout, catalog),
-    Math.max(desks(layout, catalog).length - 1, 1),
+    fromProps.length > 0 ? fromProps : zoneSeats(layout, need),
+    need,
   ).map((s) => clampToRoom(s, layout.size[1]));
   kitchenSeatsCache.set(layout, seats);
   return seats;
 }
 
-/** Место на кухне для стола с данным индексом в данной раскладке — привязка стабильная, один в один. */
-export function kitchenSeatFor(layout: Layout, deskIndex: number): Pos {
+/**
+ * Место на кухне для стола с данным индексом — привязка стабильная, один в
+ * один. `null`, если сесть в раскладке негде вовсе: ни предмета с местами,
+ * ни зоны отдыха. Вызывающий решает, что делать; см. `homePos` в store.ts.
+ */
+export function kitchenSeatFor(layout: Layout, deskIndex: number): Pos | null {
   const seats = kitchenSeatsFor(layout);
+  if (seats.length === 0) return null;
   const i = (deskIndex - 1 + seats.length) % seats.length;
   return seats[i];
 }

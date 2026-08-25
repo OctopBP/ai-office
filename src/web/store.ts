@@ -31,7 +31,10 @@ interface WalkPos extends Pos { ms: number }
 function homePos(inst: InstanceView, roles: RoleView[], layout: Layout): Pos {
   const isManager = roles.find((r) => r.id === inst.roleId)?.isManager ?? false;
   if (isManager || inst.currentTaskId) return { x: inst.desk.x, y: inst.desk.y };
-  return kitchenSeatFor(layout, inst.desk.index);
+  // Сесть может быть негде: в раскладке нет ни предмета с местами, ни зоны
+  // отдыха. Тогда свободный остаётся за своим столом — это хуже по смыслу,
+  // но не ломает сцену пустой координатой.
+  return kitchenSeatFor(layout, inst.desk.index) ?? { x: inst.desk.x, y: inst.desk.y };
 }
 
 /** Привязка перетаскиваемого предмета к сетке — четверть тайла: этого хватает
