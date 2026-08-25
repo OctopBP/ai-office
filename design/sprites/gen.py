@@ -17,6 +17,7 @@ SPRITE_SLOTS = {}  # имя спрайта → список слотов (спе
 SPRITE_FOOTPRINT = {}  # имя спрайта → footprint [x,y,w,h] от якоря, тайлы (спека §3.1)
 SPRITE_LAYER = {}  # имя спрайта → слой для сортировки (спека §5)
 SPRITE_BLOCKS = set()  # имена спрайтов-препятствий для сетки проходимости (спека §7)
+SPRITE_LABEL = {}  # имя спрайта → человекочитаемое русское название (для пресетов внешности, T-109)
 
 # ---------- палитры ----------
 PAL_DAY = dict(
@@ -105,6 +106,8 @@ def dump_catalog():
             entry['slots'] = SPRITE_SLOTS[name]
         if name in SPRITE_BLOCKS:
             entry['blocks'] = True
+        if name in SPRITE_LABEL:
+            entry['label'] = SPRITE_LABEL[name]
         sprites[name] = entry
     data = {'version': 1, 'tile': T, 'scale': SCALE, 'sprites': dict(sorted(sprites.items()))}
     with open(CATALOG_PATH, 'w') as f:
@@ -487,6 +490,38 @@ def agent(name, shirt, hair, skin=SKIN[0], glasses=False, tie=False, headset=Fal
         R(d, 7, 12, 8, 16, '#e94f6c'); R(d, 7, 12, 8, 12, '#ffd0d8')
     im = outline_alpha(im, '#2b2233')
     save(im, name)
+
+
+# ---------- пресеты внешности для формы создания роли (T-109) ----------
+# Готовый набор «человечков» на выбор при создании новой роли — свободный
+# цвет/эмодзи не годится, персонажу нужен настоящий спрайт в обеих темах.
+# Существующие agent_pm/agent_backend1/agent_backend2/agent_frontend1/agent_uiux
+# (роль → спрайт в src/web/sprites.ts) этот набор не трогает — пресеты лежат
+# рядом под именами agent_p1..agent_p10. Различаются в первую очередь цветом
+# одежды (как и у существующих ролей), для части — ещё и мелкой деталью
+# (glasses/tie/headset/hood — те же флаги, что использует agent()); имя на
+# русском уходит в catalog.json как sprites[name].label, форма создания роли
+# берёт его оттуда.
+AGENT_PRESETS = [
+    dict(name='agent_p1', label='Голубой', shirt='#2fb0d6', hair='#1c1a22', skin=SKIN[0]),
+    dict(name='agent_p2', label='Зелёный', shirt='#4fae5c', hair='#5a3a1e', skin=SKIN[1]),
+    dict(name='agent_p3', label='Жёлтый в очках', shirt='#e8c33a', hair='#1c1a22', skin=SKIN[2], glasses=True),
+    dict(name='agent_p4', label='Красный', shirt='#d9483a', hair='#3a2a1a', skin=SKIN[0]),
+    dict(name='agent_p5', label='Тёмно-синий с гарнитурой', shirt='#2f3f8a', hair='#1c1a22', skin=SKIN[1], headset=True),
+    dict(name='agent_p6', label='Бирюзовый', shirt='#2f9d8f', hair='#e0c070', skin=SKIN[2]),
+    dict(name='agent_p7', label='Коричневый в капюшоне', shirt='#8a5a3a', hair='#1c1a22', skin=SKIN[0], hood=True),
+    dict(name='agent_p8', label='Серый с галстуком', shirt='#6b7280', hair='#5a3a1e', skin=SKIN[1], tie=True),
+    dict(name='agent_p9', label='Оливковый', shirt='#8a8f3a', hair='#3a2a1a', skin=SKIN[2]),
+    dict(name='agent_p10', label='Бордовый в очках', shirt='#7a2f3a', hair='#1c1a22', skin=SKIN[0], glasses=True),
+]
+
+
+def agent_presets():
+    for p in AGENT_PRESETS:
+        agent(p['name'], p['shirt'], p['hair'], p['skin'],
+              glasses=p.get('glasses', False), tie=p.get('tie', False),
+              headset=p.get('headset', False), hood=p.get('hood', False))
+        SPRITE_LABEL[p['name']] = p['label']
 
 
 # ---------- доска задач ----------
@@ -1023,6 +1058,7 @@ def build(theme):
     agent('agent_backend2', '#3b82f6', '#d99a3a', SKIN[0], hood=True)
     agent('agent_frontend1', '#e0507a', '#c0392b', SKIN[0])
     agent('agent_uiux', '#a06cd5', '#1f1b24', SKIN[2], glasses=True)
+    agent_presets()
     board(); logscreen(); window(); clock(); door(); doormat()
     plant('plant_small'); plant('plant_big', big=True)
     cooler(); counter(); fridge(); kitchen_tiles(cols=8, rows=6); rug(); round_table(); bookshelf(); poster()
