@@ -392,9 +392,34 @@ async function main(): Promise<void> {
   try {
     oc.updateSettings({ layoutId: 'tight-test' });
     const refusal = oc.hire('backend') ?? '';
+    // Столов меньше, чем людей: кого можно — усадили, остальные стоят внутри
+    // комнаты, а не за её стеной с координатами прежней раскладки.
+    const tightDesks = deskPlan('tight-test').desks;
+    const seated = [...oc.instances.values()]
+      .filter((i) => tightDesks.some((d) => d.index === i.desk.index));
+    const standing = [...oc.instances.values()].filter((i) => !seated.includes(i));
+    const insideRoom = standing.every((i) => i.desk.x >= 0 && i.desk.x < 8 && i.desk.y >= 0 && i.desk.y < 6);
+    const spotsDistinct = new Set([...oc.instances.values()]
+      .map((i) => `${i.desk.x},${i.desk.y}`)).size === oc.instances.size;
+    const toldAboutStanding = standing.every((i) => oc.log
+      .some((e) => e.text.startsWith(`${i.label} остался без рабочего места`)));
+    // Индекс места безместные сохраняют: вернулась просторная раскладка — и
+    // каждый снова за своим столом, а не на случайном свободном.
+    const before = [...oc.instances.values()].map((i) => [i.id, i.desk.index] as const);
+    oc.updateSettings({ layoutId: 'studio' });
+    const backHome = before.every(([id, index]) => {
+      const inst = [...oc.instances.values()].find((i) => i.id === id);
+      const desk = studioPlan.desks[index];
+      return !!inst && inst.desk.index === index && inst.desk.x === desk.x && inst.desk.y === desk.y;
+    });
     results.push(
       `отказ в найме считает места по раскладке офиса: ${/«Тесная» 2 рабочих мест/.test(refusal)}`,
       `в соседнем офисе лимит остался свой: ${deskPlan(os_.settings.layoutId).desks.length === studioPlan.desks.length}`,
+      `в тесной раскладке заняты все её столы: ${seated.length === tightDesks.length}`,
+      `безместные стоят внутри комнаты, а не за стеной: ${standing.length > 0 && insideRoom}`,
+      `никто не стоит на одной клетке с другим: ${spotsDistinct}`,
+      `про каждого безместного сказано по-русски: ${toldAboutStanding}`,
+      `возврат просторной раскладки сажает всех на свои места: ${backHome}`,
     );
   } finally {
     // Пресет — временный: оставленный файл попал бы в список выбора раскладок.
