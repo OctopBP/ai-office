@@ -42,8 +42,15 @@ const agentIds = new Map<string, string>();   // ключ конфигураци
  * смонтированный на его репозиторий.
  */
 const environmentIds = new Map<string, string>();
-/** Сессии идущих облачных задач — по ним работает «Остановить». */
+/**
+ * Сессии идущих облачных задач — по ним работает «Остановить». Ключ составной,
+ * «офис:задача»: id задач уникальны только внутри офиса, и на одном ключе
+ * `T-1` соседний офис затирал бы чужую сессию — «Остановить» уходило бы не
+ * туда, а завершение одной задачи глушило кнопку у другой.
+ */
 const sessions = new Map<string, string>();
+
+const sessionKey = (officeId: string, taskId: string): string => `${officeId}:${taskId}`;
 
 const clip = (s: unknown, n = 70): string => {
   const str = String(s ?? '').replace(/\s+/g, ' ').trim();
@@ -222,8 +229,8 @@ function workerPrompt(task: Task, role: Role, branch: string, base: string, moun
 }
 
 /** Прервать облачную задачу. Сессия остаётся, работа фиксируется в ветке. */
-export async function stopCloudTask(taskId: string): Promise<boolean> {
-  const sessionId = sessions.get(taskId);
+export async function stopCloudTask(officeId: string, taskId: string): Promise<boolean> {
+  const sessionId = sessions.get(sessionKey(officeId, taskId));
   if (!sessionId) return false;
   try {
     await api().beta.sessions.events.send(sessionId, { events: [{ type: 'user.interrupt' }] });
@@ -283,7 +290,7 @@ export async function runCloudTask(
     ...(cap ? { budget: { type: 'limit' as const, max_list_cost: { amount: String(Math.round(cap * 100)), currency: 'USD' } } } : {}),
   });
 
-  sessions.set(task.id, session.id);
+  sessions.set(sessionKey(state.officeId, task.id), session.id);
   state.addLog(inst.id, 'system', `Облачная сессия ${session.id.slice(0, 12)}… (${repoUrl})`);
 
   let finished: string | null = null;
@@ -324,7 +331,7 @@ export async function runCloudTask(
 
   /** Свести итог: расход, ветка и отчёт. */
   async function settle(): Promise<CloudOutcome> {
-    sessions.delete(task.id);
+    sessions.delete(sessionKey(state.officeId, task.id));
     try {
       const fresh = await api().beta.sessions.retrieve(session.id);
       const usage = fresh.usage;

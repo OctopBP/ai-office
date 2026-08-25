@@ -1676,7 +1676,7 @@ function startCloudWorker(
   task: Task, inst: Instance, role: Role, systemPrompt: string, taskOffice: OfficeState,
 ): void {
   // Прерывание идёт событием в сессию, а не сигналом процессу.
-  inst.abort = { abort: () => { void stopCloudTask(task.id); } } as AbortController;
+  inst.abort = { abort: () => { void stopCloudTask(taskOffice.officeId, task.id); } } as AbortController;
 
   void (async () => {
     try {
