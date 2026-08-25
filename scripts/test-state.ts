@@ -488,6 +488,43 @@ async function main(): Promise<void> {
     // Пресет — временный: оставленный файл попал бы в список выбора раскладок.
     rmSync(tightFile, { force: true });
   }
+
+  // Смена раскладки на лету на уже набранном штате: офис жил на classic и
+  // переезжает в studio, где мест столько же. Ломается тут первым делом одно из
+  // двух — либо столы остаются от прежней раскладки (человечки сидят в воздухе),
+  // либо кто-то пропадает из штата, — поэтому проверяем ровно это.
+  const movFile = resolve(tmpdir(), `office-test-move-${process.pid}.json`);
+  const om = openOfficeState({
+    id: 'o-lay-move', projectDir: resolve(tmpdir(), 'lay-move'), stateFile: movFile,
+  }).state;
+  const beforeMove = [...om.instances.values()]
+    .map((i) => ({ id: i.id, index: i.desk.index, x: i.desk.x, y: i.desk.y }));
+  const moveAccepted = om.updateSettings({ layoutId: 'studio' }) === null;
+  const afterMove = [...om.instances.values()];
+  // Место человека обязано совпасть со столом того же индекса в studio: это и
+  // есть «столы пересчитались по новой раскладке», а не по прежней.
+  const atNewDesks = afterMove.every((i) => {
+    const desk = studioPlan.desks[i.desk.index];
+    return !!desk && i.desk.x === desk.x && i.desk.y === desk.y;
+  });
+  const nobodyLost = afterMove.length === beforeMove.length
+    && beforeMove.every((b) => afterMove.some((i) => i.id === b.id));
+  const keptIndexes = beforeMove.every((b) =>
+    afterMove.find((i) => i.id === b.id)?.desk.index === b.index);
+  // Проверка не должна проходить оттого, что раскладки совпали координатами.
+  const reallyMoved = beforeMove.some((b) => {
+    const desk = studioPlan.desks[b.index];
+    return !!desk && (desk.x !== b.x || desk.y !== b.y);
+  });
+  results.push(
+    `смена раскладки принята: ${moveAccepted}`,
+    `после смены все сидят за столами новой раскладки: ${afterMove.length > 0 && atNewDesks}`,
+    `при смене раскладки никто не потерялся: ${nobodyLost}`,
+    `индекс места сохранён за каждым: ${keptIndexes}`,
+    `координаты правда пересчитались, а не совпали: ${reallyMoved}`,
+  );
+  unloadOfficeState('o-lay-move');
+  wipe(movFile);
   wipe(layA);
   wipe(layB);
 
