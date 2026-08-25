@@ -170,6 +170,13 @@ async function main(): Promise<void> {
   const layoutKept = office.settings.layoutId === 'classic';
   const okLayout = office.updateSettings({ layoutId: 'studio' });
   const layoutList = office.layouts();
+  // Контракт с вебом: и выбранная раскладка, и список, из которого выбирают,
+  // едут одним снапшотом — UI выбора (задача D2) ничего не запрашивает отдельно.
+  const layoutSnap = office.snapshot();
+  const choiceInSnapshot = layoutSnap.t === 'snapshot'
+    && layoutSnap.settings.layoutId === 'studio'
+    && layoutSnap.layouts.some((l) => l.id === 'studio' && l.title.length > 0)
+    && layoutSnap.layouts.some((l) => l.id === 'classic');
   results.push(
     `по умолчанию офис работает по classic: ${layoutByDefault}`,
     `неизвестная раскладка отклонена по-русски: ${/нет в design\/layouts/.test(badLayout ?? '')}`,
@@ -178,6 +185,7 @@ async function main(): Promise<void> {
     `смена раскладки записана в ленту: ${office.log.some((e) => /Раскладка офиса/.test(e.text))}`,
     `список раскладок несёт classic и studio: ${['classic', 'studio'].every((id) => layoutList.some((l) => l.id === id))}`,
     `у каждой раскладки есть подпись: ${layoutList.length > 0 && layoutList.every((l) => l.title.length > 0)}`,
+    `выбранная раскладка и список выбора едут в снапшоте: ${choiceInSnapshot}`,
   );
 
   // 7d. Лимит шагов исполнителя: он настраивается, но нулём и мусором его
@@ -392,9 +400,34 @@ async function main(): Promise<void> {
   try {
     oc.updateSettings({ layoutId: 'tight-test' });
     const refusal = oc.hire('backend') ?? '';
+    // Столов меньше, чем людей: кого можно — усадили, остальные стоят внутри
+    // комнаты, а не за её стеной с координатами прежней раскладки.
+    const tightDesks = deskPlan('tight-test').desks;
+    const seated = [...oc.instances.values()]
+      .filter((i) => tightDesks.some((d) => d.index === i.desk.index));
+    const standing = [...oc.instances.values()].filter((i) => !seated.includes(i));
+    const insideRoom = standing.every((i) => i.desk.x >= 0 && i.desk.x < 8 && i.desk.y >= 0 && i.desk.y < 6);
+    const spotsDistinct = new Set([...oc.instances.values()]
+      .map((i) => `${i.desk.x},${i.desk.y}`)).size === oc.instances.size;
+    const toldAboutStanding = standing.every((i) => oc.log
+      .some((e) => e.text.startsWith(`${i.label} остался без рабочего места`)));
+    // Индекс места безместные сохраняют: вернулась просторная раскладка — и
+    // каждый снова за своим столом, а не на случайном свободном.
+    const before = [...oc.instances.values()].map((i) => [i.id, i.desk.index] as const);
+    oc.updateSettings({ layoutId: 'studio' });
+    const backHome = before.every(([id, index]) => {
+      const inst = [...oc.instances.values()].find((i) => i.id === id);
+      const desk = studioPlan.desks[index];
+      return !!inst && inst.desk.index === index && inst.desk.x === desk.x && inst.desk.y === desk.y;
+    });
     results.push(
       `отказ в найме считает места по раскладке офиса: ${/«Тесная» 2 рабочих мест/.test(refusal)}`,
       `в соседнем офисе лимит остался свой: ${deskPlan(os_.settings.layoutId).desks.length === studioPlan.desks.length}`,
+      `в тесной раскладке заняты все её столы: ${seated.length === tightDesks.length}`,
+      `безместные стоят внутри комнаты, а не за стеной: ${standing.length > 0 && insideRoom}`,
+      `никто не стоит на одной клетке с другим: ${spotsDistinct}`,
+      `про каждого безместного сказано по-русски: ${toldAboutStanding}`,
+      `возврат просторной раскладки сажает всех на свои места: ${backHome}`,
     );
   } finally {
     // Пресет — временный: оставленный файл попал бы в список выбора раскладок.
