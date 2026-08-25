@@ -8,7 +8,10 @@ import type {
   Layout, LayoutOverride, LayoutPropEdit,
   PullRequestView, PrStage, ReviewNote,
 } from '../shared/types';
-import { emptyUsage, MAX_TASK_MAX_TURNS, MIN_TASK_MAX_TURNS } from '../shared/types';
+import {
+  emptyUsage, DEFAULT_OFFICE_WORKERS, MAX_OFFICE_WORKERS, MAX_TASK_MAX_TURNS,
+  MIN_OFFICE_WORKERS, MIN_TASK_MAX_TURNS,
+} from '../shared/types';
 import { isEmptyOverride } from '../shared/layout';
 import { activityFromFile, summarize } from './activity';
 import {
@@ -44,6 +47,7 @@ export const DEFAULT_SETTINGS: Settings = {
   // 60 — то, что и так стояло в коде константой MAX_WORKER_TURNS: возврат
   // настройки не должен менять поведение офисов, где её никто не трогал.
   taskMaxTurns: 60,
+  maxConcurrentWorkers: DEFAULT_OFFICE_WORKERS,
   engine: 'local',
   cloudRepoUrl: null,
   officePermissionMode: 'ask-risky',
@@ -62,6 +66,31 @@ export function sanitizeMaxTurns(value: unknown): number | null | undefined {
   const n = Math.floor(value);
   if (n < MIN_TASK_MAX_TURNS) return undefined;
   return Math.min(n, MAX_TASK_MAX_TURNS);
+}
+
+/**
+ * Привести лимит одновременных исполнителей к допустимому. undefined —
+ * значение непригодно и его надо игнорировать: в отличие от лимита ходов,
+ * null здесь не значит «без ограничения», а значит «мусор из сети или из
+ * файла состояния», и прежнее число надёжнее.
+ */
+export function sanitizeWorkers(value: unknown): number | undefined {
+  if (typeof value !== 'number' || !Number.isFinite(value)) return undefined;
+  const n = Math.floor(value);
+  if (n < MIN_OFFICE_WORKERS) return undefined;
+  return Math.min(n, MAX_OFFICE_WORKERS);
+}
+
+/**
+ * Кого позвать, когда лимит исполнителей офиса подняли: ждущие слота задачи
+ * должны поехать сразу, а не после следующего завершения. Живёт здесь, а не
+ * вызовом agents.ts напрямую: состояние про запуск сессий ничего не знает и
+ * знать не должно, иначе модули замкнутся друг на друга.
+ */
+let workerLimitWatcher: (() => void) | null = null;
+
+export function onWorkerLimitChanged(fn: () => void): void {
+  workerLimitWatcher = fn;
 }
 
 /**
@@ -265,6 +294,13 @@ export class OfficeState {
    */
   running = 0;
   /**
+   * Задачи, которые упёрлись в лимит одновременных исполнителей и ждут слота.
+   * Только в памяти и намеренно: после перезапуска они снова просто стоят
+   * в очереди на доске, и разбирается с ними надзор — сохранять «ждала слота»
+   * значило бы обещать очередь, которой уже нет.
+   */
+  waitingForSlot = new Set<string>();
+  /**
    * Живые прямые разговоры пользователя с исполнителями этого офиса.
    * Ключ — instanceId, а он уникален только внутри офиса: в соседнем офисе
    * сидит свой backend#1 со своей сессией.
@@ -364,6 +400,9 @@ export class OfficeState {
     }
     for (const inst of this.instances.values()) inst.abort?.abort();
     this.stoppedByUser.clear();
+    // Очередь за слотом — это обещание запустить задачу, а сессий больше нет:
+    // держать её значило бы ждать освобождения того, что уже освобождено.
+    this.waitingForSlot.clear();
     this.meetingRunning = false;
   }
 
@@ -418,6 +457,10 @@ export class OfficeState {
     // null здесь законен («без ограничения»), поэтому отличаем его от undefined.
     const turns = sanitizeMaxTurns(this.settings.taskMaxTurns);
     this.settings.taskMaxTurns = turns === undefined ? DEFAULT_SETTINGS.taskMaxTurns : turns;
+    // То же и с лимитом исполнителей: ноль из правленого руками файла означал бы
+    // офис, в котором ни одна задача больше не стартует.
+    this.settings.maxConcurrentWorkers = sanitizeWorkers(this.settings.maxConcurrentWorkers)
+      ?? DEFAULT_SETTINGS.maxConcurrentWorkers;
     // Расстановку поднимаем ДО seed: по итоговой раскладке считаются столы,
     // за которые он сажает сотрудников.
     this.layoutOverrides = sanitizeOverrides(data.layoutOverrides);
@@ -1039,6 +1082,7 @@ export class OfficeState {
   updateSettings(patch: Partial<Settings>): string | null {
     const prevMode = this.settings.officePermissionMode;
     const prevLayout = this.settings.layoutId;
+    const prevWorkers = this.workerLimit();
     const next = { ...patch };
     // Режим приходит от клиента: чужое значение испортило бы решение по
     // каждому вызову инструмента, поэтому непонятное просто не берём.
@@ -1051,6 +1095,11 @@ export class OfficeState {
       // надёжнее: с нулём исполнитель падал бы на первом же ходу.
       if (clean === undefined) delete next.taskMaxTurns;
       else next.taskMaxTurns = clean;
+    }
+    if ('maxConcurrentWorkers' in next) {
+      const clean = sanitizeWorkers(next.maxConcurrentWorkers);
+      if (clean === undefined) delete next.maxConcurrentWorkers;
+      else next.maxConcurrentWorkers = clean;
     }
     // Раскладку, наоборот, молча отбросить нельзя: человек выбрал её сам и
     // ждёт, что офис переставится. Тихо оставленная прежняя выглядела бы как
@@ -1068,6 +1117,15 @@ export class OfficeState {
       // своя расстановка, и на новом офис показывает то, что правили на нём.
       this.addLog(null, 'system', `Раскладка офиса: «${layoutTitle(this.settings.layoutId)}»`);
       this.afterLayoutChange();
+    }
+    // Лимит исполнителей меняет, сколько денег офис тратит в минуту, — это
+    // событие для ленты, а не тихое число в форме. Поднятый лимит ещё и
+    // отпускает задачи, стоящие в очереди за слотом: ждать следующего
+    // завершения им уже незачем.
+    if (this.workerLimit() !== prevWorkers) {
+      this.addLog(null, 'system',
+        `Одновременно исполнителей в офисе: ${this.workerLimit()} (было ${prevWorkers})`);
+      if (this.workerLimit() > prevWorkers) workerLimitWatcher?.();
     }
     // Смена режима офиса меняет эффективный режим всех, кто его наследует, —
     // без этого UI показывал бы старое до следующего снимка.
@@ -1109,6 +1167,15 @@ export class OfficeState {
   budgetExhausted(): boolean {
     const cap = this.settings.globalBudgetUsd;
     return cap !== null && this.totalCost() >= cap;
+  }
+
+  /**
+   * Сколько исполнителей офиса могут работать одновременно. Читается на каждой
+   * проверке, а не запоминается: поднятый в настройках лимит обязан подействовать
+   * на следующую же задачу, без перезапуска.
+   */
+  workerLimit(): number {
+    return sanitizeWorkers(this.settings.maxConcurrentWorkers) ?? DEFAULT_OFFICE_WORKERS;
   }
 
   /**
@@ -1461,6 +1528,24 @@ export function getOffice(officeId: string): OfficeState {
   });
   states.set(officeId, created);
   return created;
+}
+
+/**
+ * Сколько сессий исполнителей живо во всём процессе — сумма по всем офисам,
+ * поднятым в память. Именно эта сумма упирается в общий потолок: офисов может
+ * быть открыто сколько угодно, а машина и счёт за токены у пользователя одни.
+ * Считаем по всем состояниям, а не только по «открытым»: покинутый офис
+ * продолжает работать, и его сессии тратят деньги наравне с текущим.
+ */
+export function totalRunningWorkers(): number {
+  let total = 0;
+  for (const state of states.values()) total += state.running;
+  return total;
+}
+
+/** Все офисы, поднятые в память, — в порядке первого обращения к ним. */
+export function loadedOffices(): OfficeState[] {
+  return [...states.values()];
 }
 
 /**

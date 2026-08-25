@@ -12,12 +12,12 @@ import { fileURLToPath } from 'node:url';
 import { catalog, deskPlan, effectiveLayout } from '../src/server/layout';
 import { deskPoint } from '../src/shared/layout';
 import {
-  DEFAULT_SETTINGS, getOffice, office, openOfficeState, subscribeOffices,
+  DEFAULT_SETTINGS, getOffice, office, openOfficeState, subscribeOffices, totalRunningWorkers,
 } from '../src/server/state';
 import { flushAll, load, save, wipe, type Persisted } from '../src/server/store';
-import { MAX_TASK_MAX_TURNS } from '../src/shared/types';
+import { DEFAULT_OFFICE_WORKERS, MAX_OFFICE_WORKERS, MAX_TASK_MAX_TURNS } from '../src/shared/types';
 import { cloudProblem, setGithubToken } from '../src/server/cloud';
-import { noStaffReason, teamSummary } from '../src/server/agents';
+import { noStaffReason, officeAssign, releaseSlot, slotProblem, teamSummary } from '../src/server/agents';
 
 async function main(): Promise<void> {
   office.seed();
@@ -183,6 +183,20 @@ async function main(): Promise<void> {
   const unlimitedTurns = office.settings.taskMaxTurns === null;
   office.updateSettings({ taskMaxTurns: 150 });
 
+  // 7e. Лимит одновременных исполнителей: настраивается, границы держатся,
+  // «без ограничения» здесь не бывает. Ноль означал бы офис, в котором ни одна
+  // задача больше не стартует, — такое значение принимать нельзя.
+  const workersDefault = office.settings.maxConcurrentWorkers === DEFAULT_OFFICE_WORKERS;
+  office.updateSettings({ maxConcurrentWorkers: 5 });
+  office.updateSettings({ maxConcurrentWorkers: 0 });
+  const zeroWorkersIgnored = office.settings.maxConcurrentWorkers === 5;
+  office.updateSettings({ maxConcurrentWorkers: null as never });
+  office.updateSettings({ maxConcurrentWorkers: '4' as never });
+  const junkWorkersIgnored = office.settings.maxConcurrentWorkers === 5;
+  office.updateSettings({ maxConcurrentWorkers: 999 });
+  const cappedWorkers = office.settings.maxConcurrentWorkers === MAX_OFFICE_WORKERS;
+  office.updateSettings({ maxConcurrentWorkers: 2 });
+
   office.flush();
   const restored = office.restore();
   const afterRestart = office.instanceViews().find((i) => i.id === 'backend#1');
@@ -205,6 +219,14 @@ async function main(): Promise<void> {
     `слишком большой лимит шагов срезан: ${cappedTurns}`,
     `лимит шагов можно снять совсем: ${unlimitedTurns}`,
     `лимит шагов пережил перезапуск: ${office.settings.taskMaxTurns === 150}`,
+    `лимит исполнителей по умолчанию прежний (3): ${workersDefault}`,
+    `ноль не становится лимитом исполнителей: ${zeroWorkersIgnored}`,
+    `мусор не становится лимитом исполнителей: ${junkWorkersIgnored}`,
+    `слишком большой лимит исполнителей срезан: ${cappedWorkers}`,
+    `лимит исполнителей пережил перезапуск: ${office.settings.maxConcurrentWorkers === 2}`,
+    // Смена лимита меняет расход офиса в минуту — человек должен видеть её в ленте.
+    `смена лимита исполнителей записана в ленту: ${
+      office.log.some((e) => /Одновременно исполнителей в офисе/.test(e.text))}`,
     // Смена режима — не тихая настройка: человек должен видеть её в ленте.
     `смена режима записана в ленту: ${office.log.some((e) => /Режим доступа офиса/.test(e.text))}`,
   );
@@ -212,6 +234,7 @@ async function main(): Promise<void> {
     officePermissionMode: DEFAULT_SETTINGS.officePermissionMode,
     layoutId: DEFAULT_SETTINGS.layoutId,
     taskMaxTurns: DEFAULT_SETTINGS.taskMaxTurns,
+    maxConcurrentWorkers: DEFAULT_SETTINGS.maxConcurrentWorkers,
   });
   office.setAgentPermissionMode('backend#1', null);
   office.updateRole('reviewer', { permissionMode: 'ask-risky' });
@@ -472,6 +495,105 @@ async function main(): Promise<void> {
   );
   unsubscribe();
   wipe(cmdFile);
+
+  // 13. Лимит одновременных исполнителей на деле. Настоящих сессий тут нет —
+  // считается счётчик running, а запуск заменяет dryRun: проверяется решение
+  // «пускать или ставить в очередь», а не работа Agent SDK.
+  const capA = resolve(tmpdir(), `office-test-cap-a-${process.pid}.json`);
+  const capB = resolve(tmpdir(), `office-test-cap-b-${process.pid}.json`);
+  // Потолок процесса на время проверки — 4: с умолчанием в 6 пришлось бы
+  // держать шесть «работающих» сессий, а проверяется правило, а не число.
+  process.env.OFFICE_MAX_WORKERS = '4';
+  // Задача в dryRun завершается по таймеру: растягиваем его, чтобы успеть
+  // увидеть её именно в работе, а не уже сделанной.
+  const prevDelay = process.env.OFFICE_DRY_RUN_DELAY;
+  process.env.OFFICE_DRY_RUN_DELAY = '5000';
+  const ca = openOfficeState({ id: 'o-cap-a', projectDir: resolve(tmpdir(), 'cap-a'), stateFile: capA }).state;
+  const cb = openOfficeState({ id: 'o-cap-b', projectDir: resolve(tmpdir(), 'cap-b'), stateFile: capB }).state;
+  ca.seed();
+  cb.seed();
+  ca.dryRun = true;
+  cb.dryRun = true;
+  ca.updateSettings({ maxConcurrentWorkers: 3 });
+  cb.updateSettings({ maxConcurrentWorkers: 3 });
+
+  // (а) Пер-офисный лимит: третий исполнитель в офисе — это уже потолок офиса,
+  // и соседний офис на это решение не влияет.
+  ca.running = 2;
+  const underOfficeLimit = slotProblem(ca) === null;
+  ca.running = 3;
+  const officeLimitHolds = /в офисе уже работают 3 исполнителей из 3/.test(slotProblem(ca) ?? '');
+
+  // (б) Общий потолок: у каждого офиса лимит 3, но вместе им нельзя больше 4.
+  // Офис B под своим лимитом (2 из 3) и всё равно не стартует.
+  ca.running = 2;
+  cb.running = 2;
+  const totalCounted = totalRunningWorkers() >= 4;
+  const capHolds = /общий потолок на процесс/.test(slotProblem(cb) ?? '')
+    && /общий потолок на процесс/.test(slotProblem(ca) ?? '');
+  // Менеджера потолок не касается: сессия PM через слоты не проходит вовсе.
+  // Проверяем это на конвейере — он тоже идёт мимо очереди (см. slotProblem).
+
+  // (в) На потолке задача не падает, а встаёт в очередь с объяснением.
+  const capTask = ca.createTask({
+    title: 'ждёт слота', description: '', criteria: [], roleId: 'backend',
+  });
+  const refused = officeAssign(ca, capTask.id);
+  const queued = !refused.ok && ca.waitingForSlot.has(capTask.id)
+    && ca.tasks.get(capTask.id)?.status === 'backlog';
+  const toldWhy = ca.chat.some((c) => c.text.includes(capTask.id) && /ждёт очереди/.test(c.text));
+  // Повторная раздача той же задачи не должна плодить в ленте одно и то же.
+  const chatBefore = ca.chat.length;
+  officeAssign(ca, capTask.id);
+  const noSpam = ca.chat.length === chatBefore;
+
+  // (г) Слот освободился в СОСЕДНЕМ офисе — ждущая задача обязана поехать:
+  // потолок общий, и держать её дальше не за чем.
+  releaseSlot(cb);
+  await new Promise((r) => setTimeout(r, 30));
+  const startedAfterRelease = ca.tasks.get(capTask.id)?.status === 'in_progress'
+    && !ca.waitingForSlot.has(capTask.id);
+  const startAnnounced = ca.chat.some((c) => c.text.includes(capTask.id) && /слот освободился/.test(c.text));
+
+  // (д) Теперь в потолок упирается сам офис: работающих в нём двое, и лимит
+  // офиса тоже двое. Следующая задача снова встаёт в очередь — на этот раз
+  // по офисной причине, а не по общей.
+  ca.updateSettings({ maxConcurrentWorkers: 2 });
+  const nextTask = ca.createTask({
+    title: 'следом за первой', description: '', criteria: [], roleId: 'backend',
+  });
+  const nextRefused = officeAssign(ca, nextTask.id);
+  const stillQueued = !nextRefused.ok && ca.waitingForSlot.has(nextTask.id)
+    && /в офисе уже работают/.test(nextRefused.message);
+
+  // (е) Поднятый лимит офиса действует на лету: очередь едет, не дожидаясь,
+  // пока кто-нибудь доработает.
+  ca.updateSettings({ maxConcurrentWorkers: 4 });
+  await new Promise((r) => setTimeout(r, 30));
+  const startedAfterRaise = ca.tasks.get(nextTask.id)?.status === 'in_progress';
+
+  results.push(
+    `под лимитом офиса слот свободен: ${underOfficeLimit}`,
+    `пер-офисный лимит соблюдён: ${officeLimitHolds}`,
+    `сессии офисов складываются в общий счётчик: ${totalCounted}`,
+    `общий потолок не даёт превысить сумму по офисам: ${capHolds}`,
+    `на потолке задача встаёт в очередь, а не падает: ${queued}`,
+    `в ленте объяснено, почему исполнитель не стартовал: ${toldWhy}`,
+    `повторная раздача не засоряет ленту: ${noSpam}`,
+    `после освобождения слота ждущая задача пошла в работу: ${startedAfterRelease}`,
+    `о старте из очереди сказано в ленте: ${startAnnounced}`,
+    `следующая задача снова ждёт очереди: ${stillQueued}`,
+    `поднятый лимит офиса отпускает очередь сразу: ${startedAfterRaise}`,
+  );
+  // Убираем за собой окружение. Таймеры dryRun не гасим намеренно: их
+  // прерывание — это «остановлено пользователем», а оно зовёт менеджера, и
+  // проверка состояния подняла бы настоящую сессию PM. Прогон заканчивается
+  // раньше, чем таймеры дотикают, и process.exit уносит их с собой.
+  delete process.env.OFFICE_MAX_WORKERS;
+  if (prevDelay === undefined) delete process.env.OFFICE_DRY_RUN_DELAY;
+  else process.env.OFFICE_DRY_RUN_DELAY = prevDelay;
+  wipe(capA);
+  wipe(capB);
 
   // Прошедшей считается только строка, кончающаяся на true. Раньше проверялось
   // обратное — «не false», — и любая строка, где вместо булева оказалось

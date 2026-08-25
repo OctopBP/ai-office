@@ -32,7 +32,7 @@
 import type { PullRequestView } from '../shared/types';
 import { office, type OfficeState, type Task } from './state';
 import { pipelineProblem, runPipeline, tellPm } from './review';
-import { officeAssign, retryTask } from './agents';
+import { officeAssign, retryTask, slotProblem } from './agents';
 
 /** Как часто офис оглядывается на свои ветки. */
 const TICK_MS = 60_000;
@@ -156,6 +156,10 @@ async function watchBoard(state: OfficeState, now: number): Promise<void> {
     // Свободного исполнителя ждём молча: retryTask на занятой роли напишет
     // в чат отказ, и на каждом проходе это был бы один и тот же шум.
     if (!state.findFree(task.roleId ?? 'backend')) continue;
+    // Ровно по той же причине молча ждём и свободный слот: на потолке
+    // одновременных исполнителей возобновлять нечего, а строка в ленте
+    // раз в минуту — это шум, а не сообщение.
+    if (slotProblem(state)) continue;
     started += 1;
     state.addChat('офис', `${task.id}: работу оборвал перезапуск — возобновляю, сделанное сохранено в ветке.`);
     await retryTask(state, task.id);

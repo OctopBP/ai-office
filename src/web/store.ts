@@ -5,7 +5,9 @@ import type {
   PermissionRequest, MeetingView, RoleEditable, RoleView, ServerEvent, Settings, TaskView, Usage,
   CloudStatus, OfficeView, PullRequestView, PrStage,
 } from '../shared/types';
-import { emptyUsage, MIN_TASK_MAX_TURNS, MAX_TASK_MAX_TURNS } from '../shared/types';
+import {
+  emptyUsage, MAX_OFFICE_WORKERS, MAX_TASK_MAX_TURNS, MIN_OFFICE_WORKERS, MIN_TASK_MAX_TURNS,
+} from '../shared/types';
 import type { Theme } from './sprites';
 import { catalog, DEFAULT_LAYOUT_ID, kitchenSeatFor, layoutFor, passabilityFor } from './layoutData';
 import { findPath, meetingSeat } from '../shared/layout';
@@ -829,6 +831,25 @@ export function parseTaskMaxTurns(v: string): { value: number | null; error: str
     return {
       value: null,
       error: `Целое число от ${MIN_TASK_MAX_TURNS} до ${MAX_TASK_MAX_TURNS} или пусто — без ограничения`,
+    };
+  }
+  return { value: n, error: null };
+}
+
+/**
+ * Разбирает поле «Одновременно исполнителей». В отличие от лимита шагов,
+ * пустое поле здесь не значит «без ограничения»: офис без потолка сессий —
+ * это как раз то, от чего настройка и защищает. Пустое поле оставляет
+ * прежнее значение, поэтому value = null и отправлять его нельзя.
+ */
+export function parseMaxWorkers(v: string): { value: number | null; error: string | null } {
+  const trimmed = v.trim();
+  if (trimmed === '') return { value: null, error: null };
+  const n = Number(trimmed);
+  if (!Number.isInteger(n) || n < MIN_OFFICE_WORKERS || n > MAX_OFFICE_WORKERS) {
+    return {
+      value: null,
+      error: `Целое число от ${MIN_OFFICE_WORKERS} до ${MAX_OFFICE_WORKERS}`,
     };
   }
   return { value: n, error: null };

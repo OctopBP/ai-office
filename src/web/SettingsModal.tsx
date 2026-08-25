@@ -1,6 +1,9 @@
 import { useState } from 'react';
-import { ACCESS_MODES, FULL_ACCESS_WARNING, parseTaskMaxTurns, setCloudToken, updateSettings, useStore } from './store';
-import type { PermissionMode } from '../shared/types';
+import {
+  ACCESS_MODES, FULL_ACCESS_WARNING, parseMaxWorkers, parseTaskMaxTurns,
+  setCloudToken, updateSettings, useStore,
+} from './store';
+import { DEFAULT_OFFICE_WORKERS, DEFAULT_PROCESS_WORKERS, type PermissionMode } from '../shared/types';
 
 const parse = (v: string): number | null => {
   const n = Number(v.replace(',', '.'));
@@ -27,6 +30,8 @@ export function SettingsModal({ onClose }: { onClose: () => void }) {
   const [global, setGlobal] = useState(settings.globalBudgetUsd?.toString() ?? '');
   const [perTask, setPerTask] = useState(settings.taskBudgetUsd?.toString() ?? '');
   const [maxTurns, setMaxTurns] = useState(settings.taskMaxTurns?.toString() ?? '');
+  const [maxWorkers, setMaxWorkers] = useState(
+    (settings.maxConcurrentWorkers ?? DEFAULT_OFFICE_WORKERS).toString());
   const [engine, setEngine] = useState(settings.engine);
   const [repo, setRepo] = useState(settings.cloudRepoUrl ?? '');
   const [layoutId, setLayoutId] = useState(settings.layoutId);
@@ -35,6 +40,7 @@ export function SettingsModal({ onClose }: { onClose: () => void }) {
   const [autoPipeline, setAutoPipeline] = useState(settings.autoPipeline);
   const [confirmAuto, setConfirmAuto] = useState(false);
   const maxTurnsParsed = parseTaskMaxTurns(maxTurns);
+  const maxWorkersParsed = parseMaxWorkers(maxWorkers);
 
   const chooseSection = (id: Section) => {
     lastSection = id;
@@ -54,6 +60,9 @@ export function SettingsModal({ onClose }: { onClose: () => void }) {
       taskBudgetUsd: parse(perTask),
       // Значение вне диапазона не отправляем — на месте останется то, что было в настройках.
       ...(maxTurnsParsed.error ? {} : { taskMaxTurns: maxTurnsParsed.value }),
+      // Пустое поле лимита исполнителей — «не менять»: «без ограничения»
+      // здесь не бывает, и null сервер всё равно отбросил бы.
+      ...(maxWorkersParsed.value === null ? {} : { maxConcurrentWorkers: maxWorkersParsed.value }),
       engine,
       cloudRepoUrl: repo.trim() || null,
       officePermissionMode: access,
@@ -142,6 +151,21 @@ export function SettingsModal({ onClose }: { onClose: () => void }) {
                     посреди задачи.
                   </span>
                   {maxTurnsParsed.error && <span className="hint error">{maxTurnsParsed.error}</span>}
+                </label>
+
+                <label>Одновременно исполнителей
+                  <input value={maxWorkers} placeholder={DEFAULT_OFFICE_WORKERS.toString()}
+                    onChange={(e) => setMaxWorkers(e.target.value)} />
+                  <span className="hint muted">
+                    Сколько сессий исполнителей этого офиса работают разом. Лимит действует
+                    на этот офис: остальные задачи ждут очереди на доске и стартуют сами, как
+                    только слот освободится. Поверх офисного действует общий потолок на весь
+                    процесс (по умолчанию {DEFAULT_PROCESS_WORKERS} сессий на все офисы сразу,
+                    меняется переменной окружения <code className="mono">OFFICE_MAX_WORKERS</code>):
+                    он и решает, если открыто несколько офисов. Менеджера и ревью лимит не
+                    трогает — они идут всегда.
+                  </span>
+                  {maxWorkersParsed.error && <span className="hint error">{maxWorkersParsed.error}</span>}
                 </label>
               </>
             )}
