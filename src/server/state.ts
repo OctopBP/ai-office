@@ -705,7 +705,7 @@ export class OfficeState {
       label: `${role.title}${role.maxInstances > 1 ? ` #${n}` : ''}`,
       // Координаты безместного поправит resyncDesks — он же знает, какие
       // клетки уже заняты соседями.
-      desk: desk ?? { index: pi.deskIndex, x: 0, y: 0 },
+      desk: desk ?? { index: pi.deskIndex, x: 0, y: 0, w: 1, h: 1 },
       deskless: !desk,
       state: 'idle',
       currentTaskId: null,
