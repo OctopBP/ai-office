@@ -208,68 +208,106 @@ button:disabled { opacity: .5; cursor: default; }
 }
 .task-branch .merge:hover { background: rgba(63, 185, 80, .12); }
 
-/* ---------- команда ---------- */
-.team { margin-top: 18px; }
-.team h2 { font-size: 14px; margin: 0 0 10px; }
-.team-row {
+/* ---------- окно «Команда»: список слева, настройки справа ---------- */
+.team-window {
+  width: min(1120px, 96vw); height: min(760px, 90vh); display: flex; flex-direction: column;
+  background: var(--panel); border: 1px solid var(--line); border-top: 3px solid var(--accent);
+  border-radius: 12px; box-shadow: 0 20px 60px rgba(0, 0, 0, .6); overflow: hidden;
+}
+.team-window-head {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 12px 16px; border-bottom: 2px solid var(--line); flex: none;
+}
+.team-window-head h2 { margin: 0; font-size: 16px; }
+.team-window-body { display: flex; flex: 1; min-height: 0; }
+.team-list-pane {
+  width: 380px; flex: none; border-right: 1px solid var(--line);
+  display: flex; flex-direction: column; padding: 12px; overflow-y: auto;
+}
+.team-list-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px; gap: 8px; }
+.team-list { display: flex; flex-direction: column; gap: 4px; }
+.team-role-block.archived { opacity: .55; }
+.team-role-row {
   display: flex; align-items: center; gap: 10px; padding: 7px 10px;
-  border: 1px solid var(--line); border-radius: 7px; margin-bottom: 6px; background: var(--panel);
+  border: 1px solid var(--line); border-radius: 7px; background: var(--panel); cursor: pointer;
 }
-.team-emoji {
-  width: 26px; height: 26px; border-radius: 7px; display: flex;
-  align-items: center; justify-content: center; font-size: 14px; flex: none;
+.team-role-row:hover { border-color: var(--accent); }
+.team-role-row.selected { border-color: var(--accent); background: rgba(240, 180, 41, .1); }
+.team-avatar {
+  width: 26px; height: 34px; object-fit: cover; object-position: top;
+  border-radius: 6px; background: var(--panel-2); border: 1px solid var(--line-soft);
+  flex: none; image-rendering: pixelated;
 }
-.team-title { flex: 1; }
-.team-row button { padding: 4px 10px; font-size: 12px; }
-.team-selected {
-  margin-top: 10px; padding: 8px 11px; border: 1px solid var(--accent);
-  border-radius: 7px; font-size: 13px; display: flex; align-items: center; gap: 8px;
+.team-title { flex: 1; display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.team-role-row button, .team-member-row button { padding: 4px 10px; font-size: 12px; }
+.team-members { display: flex; flex-direction: column; gap: 3px; padding: 3px 0 8px 40px; }
+.team-member-row {
+  display: flex; align-items: center; gap: 8px; font-size: 12px; padding: 4px 8px;
+  border-radius: 6px; cursor: pointer;
 }
-.team-selected .fire {
-  margin-left: auto; padding: 3px 10px; font-size: 12px;
-  border-color: var(--red); color: var(--red);
-}
-.team-selected .fire:hover { background: rgba(248, 81, 73, .12); }
-.team-role { margin-bottom: 8px; }
-.team-vacancy {
-  display: flex; align-items: center; justify-content: space-between; gap: 10px;
-  padding: 4px 10px 10px 46px; font-size: 12px;
-}
-.team-members { display: flex; flex-direction: column; gap: 3px; padding: 2px 0 6px 46px; }
-.team-member { display: flex; align-items: center; gap: 10px; font-size: 12px; }
-.team-member button { margin-left: auto; }
+.team-member-row:hover { background: var(--panel-2); }
+.team-member-row.selected { background: rgba(240, 180, 41, .14); }
+.team-member-row button { margin-left: auto; }
 .team-notice {
   display: flex; align-items: center; gap: 8px; padding: 7px 10px; margin-bottom: 8px;
   border: 1px solid var(--red); border-radius: 7px; font-size: 12px; color: var(--red);
 }
 .team-notice button { margin-left: auto; }
+.team-detail { flex: 1; min-width: 0; overflow-y: auto; padding: 18px 22px; }
+.team-detail > .muted { display: block; margin-top: 30px; text-align: center; }
 
 /* ---------- бюджет в шапке ---------- */
 button
 
 
 
-/* ---------- формы в модалках ---------- */
+/* ---------- формы в модалках (и в правой панели окна «Команда») ---------- */
 .modal.wide { width: 620px; max-height: 86vh; overflow-y: auto; }
-.modal label { display: block; margin-bottom: 14px; font-size: 13px; color: var(--muted); }
+.modal label, .team-detail label { display: block; margin-bottom: 14px; font-size: 13px; color: var(--muted); }
 .modal label input[type="text"], .modal label input:not([type]),
-.modal label select, .modal label textarea {
+.modal label select, .modal label textarea,
+.team-detail label input[type="text"], .team-detail label input:not([type]),
+.team-detail label select, .team-detail label textarea {
   display: block; width: 100%; margin-top: 5px; background: var(--panel-2);
   color: var(--text); border: 1px solid var(--line); border-radius: 6px;
   padding: 8px 10px; font: inherit;
 }
-.modal label textarea { font-size: 13px; resize: vertical; }
-.modal label input:focus, .modal label select:focus, .modal label textarea:focus {
+.modal label textarea, .team-detail label textarea { font-size: 13px; resize: vertical; }
+.modal label input:focus, .modal label select:focus, .modal label textarea:focus,
+.team-detail label input:focus, .team-detail label select:focus, .team-detail label textarea:focus {
   outline: none; border-color: var(--accent);
 }
-.modal .hint { display: block; margin-top: 5px; font-size: 11px; line-height: 1.45; }
-.modal .hint.error { color: var(--red); }
-.modal .row2 { display: flex; gap: 16px; align-items: flex-start; }
-.modal .row2 > label { flex: 1; }
-.modal label.checkbox {
+.modal .hint, .team-detail .hint { display: block; margin-top: 5px; font-size: 11px; line-height: 1.45; }
+.modal .hint.error, .team-detail .hint.error { color: var(--red); }
+.modal .row2, .team-detail .row2 { display: flex; gap: 16px; align-items: flex-start; }
+.modal .row2 > label, .team-detail .row2 > label { flex: 1; }
+.modal label.checkbox, .team-detail label.checkbox {
   display: flex; align-items: center; gap: 8px; color: var(--text); margin-top: 22px;
 }
-.modal label.checkbox input { width: auto; margin: 0; }
+.modal label.checkbox input, .team-detail label.checkbox input { width: auto; margin: 0; }
+
+/* ---------- форма роли и карточка сотрудника в правой панели ---------- */
+.role-form h3, .employee-card h3 { margin: 0 0 4px; font-size: 16px; font-weight: 600; }
+.employee-card > .muted { margin: 0 0 14px; }
+.employee-card section { margin-bottom: 18px; }
+.employee-card h4 {
+  font-size: 12px; text-transform: uppercase; letter-spacing: .05em;
+  color: var(--muted); margin: 0 0 8px; font-weight: 600;
+}
+.form-banner.error {
+  padding: 9px 12px; margin-bottom: 14px; font-size: 13px; line-height: 1.45;
+  border: 1px solid var(--red); border-radius: 7px; color: var(--red); background: rgba(217, 79, 61, .08);
+}
+.role-danger { display: flex; gap: 8px; margin-top: 8px; padding-top: 12px; border-top: 1px solid var(--line-soft); }
+.sprite-grid { display: grid; grid-template-columns: repeat(5, 1fr); gap: 8px; margin-top: 6px; }
+.sprite-swatch {
+  display: flex; flex-direction: column; align-items: center; gap: 4px; padding: 8px 4px;
+  background: var(--panel-2); border: 1px solid var(--line); border-radius: 8px; cursor: pointer;
+}
+.sprite-swatch:hover { border-color: var(--accent); }
+.sprite-swatch.on { border-color: var(--accent); background: rgba(240, 180, 41, .14); }
+.sprite-swatch img { width: 32px; height: 48px; object-fit: cover; object-position: top; image-rendering: pixelated; }
+.sprite-swatch span { font-size: 10px; color: var(--muted); text-align: center; line-height: 1.25; }
 
 /* ---------- настройки: меню разделов слева, контент прокручивается отдельно ---------- */
 .modal.wide.settings-modal {

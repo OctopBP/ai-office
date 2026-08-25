@@ -42,6 +42,8 @@ export interface CatalogSprite {
   blocks?: boolean;
   layer?: string;
   slots?: CatalogSlot[];
+  /** Человекочитаемое название пресета внешности — показывается в выборе внешности роли. */
+  label?: string;
 }
 
 export interface Catalog {
