@@ -489,16 +489,26 @@ async function main(): Promise<void> {
     rmSync(tightFile, { force: true });
   }
 
-  // Смена раскладки на лету на уже набранном штате: офис жил на classic и
+  wipe(layA);
+  wipe(layB);
+
+  // 10б. Смена раскладки на лету на уже набранном штате: офис жил на classic и
   // переезжает в studio, где мест столько же. Ломается тут первым делом одно из
   // двух — либо столы остаются от прежней раскладки (человечки сидят в воздухе),
-  // либо кто-то пропадает из штата, — поэтому проверяем ровно это.
-  const movFile = resolve(tmpdir(), `office-test-move-${process.pid}.json`);
+  // либо кто-то пропадает из штата. Дальше по разделу — стол PM в новой
+  // раскладке и раскладки, в которые штат уже не влезает.
+  const moveFile = resolve(tmpdir(), `office-test-move-${process.pid}.json`);
   const om = openOfficeState({
-    id: 'o-lay-move', projectDir: resolve(tmpdir(), 'lay-move'), stateFile: movFile,
+    id: 'o-lay-move', projectDir: resolve(tmpdir(), 'lay-move'), stateFile: moveFile,
   }).state;
-  const beforeMove = [...om.instances.values()]
-    .map((i) => ({ id: i.id, index: i.desk.index, x: i.desk.x, y: i.desk.y }));
+  om.seed();
+  const beforeMove = [...om.instances.values()].map((i) => [i.id, i.desk.index] as const);
+  const movedIds = new Set<string>();
+  let layoutEventsOnSwitch = 0;
+  const stopMove = om.subscribe((e) => {
+    if (e.t === 'instance') movedIds.add(e.instance.id);
+    if (e.t === 'layout') layoutEventsOnSwitch += 1;
+  });
   const moveAccepted = om.updateSettings({ layoutId: 'studio' }) === null;
   const afterMove = [...om.instances.values()];
   // Место человека обязано совпасть со столом того же индекса в studio: это и
@@ -508,25 +518,145 @@ async function main(): Promise<void> {
     return !!desk && i.desk.x === desk.x && i.desk.y === desk.y;
   });
   const nobodyLost = afterMove.length === beforeMove.length
-    && beforeMove.every((b) => afterMove.some((i) => i.id === b.id));
-  const keptIndexes = beforeMove.every((b) =>
-    afterMove.find((i) => i.id === b.id)?.desk.index === b.index);
-  // Проверка не должна проходить оттого, что раскладки совпали координатами.
-  const reallyMoved = beforeMove.some((b) => {
-    const desk = studioPlan.desks[b.index];
-    return !!desk && (desk.x !== b.x || desk.y !== b.y);
+    && beforeMove.every(([id]) => afterMove.some((i) => i.id === id));
+  const seatedInStudio = beforeMove.every(([id, index]) => {
+    const inst = om.instances.get(id);
+    const desk = studioPlan.desks[index];
+    return !!inst && !inst.deskless && inst.desk.index === index
+      && inst.desk.x === desk.x && inst.desk.y === desk.y;
+  });
+  // Проверка не должна пройти «сама собой»: столы classic и studio обязаны
+  // стоять по-разному, иначе пересадку не отличить от бездействия.
+  const reallyMoved = beforeMove.every(([id, index]) => {
+    const inst = om.instances.get(id);
+    return !!inst && (classicPlan.desks[index].x !== inst.desk.x
+      || classicPlan.desks[index].y !== inst.desk.y);
   });
   results.push(
     `смена раскладки принята: ${moveAccepted}`,
     `после смены все сидят за столами новой раскладки: ${afterMove.length > 0 && atNewDesks}`,
     `при смене раскладки никто не потерялся: ${nobodyLost}`,
-    `индекс места сохранён за каждым: ${keptIndexes}`,
-    `координаты правда пересчитались, а не совпали: ${reallyMoved}`,
+    `смена раскладки пересадила весь штат: ${seatedInStudio}`,
+    `номера мест при пересадке уцелели: ${beforeMove.length === om.instances.size && seatedInStudio}`,
+    `столы новой раскладки правда другие: ${reallyMoved}`,
+    `о каждом пересевшем клиенту сказано событием: ${beforeMove
+      .every(([id]) => movedIds.has(id))}`,
+    `клиент получил и саму раскладку: ${layoutEventsOnSwitch === 1}`,
   );
-  unloadOfficeState('o-lay-move');
-  wipe(movFile);
-  wipe(layA);
-  wipe(layB);
+
+  // Стол PM закреплён раскладкой, а не номером места: в пресете ниже desk_pm
+  // объявлен вторым, значит PM обязан переехать на место №1, а тот, кто там
+  // сидел, — на освободившееся. Обе раскладки из design/layouts объявляют
+  // desk_pm первым, и на них эта ошибка была бы не видна.
+  const pmSecondFile = resolve(layoutsDir, 'pm-second-test.json');
+  writeFileSync(pmSecondFile, JSON.stringify({
+    version: 1,
+    id: 'pm-second-test',
+    title: 'PM вторым',
+    size: [24, 15],
+    props: [
+      { sprite: 'desk', at: [1, 4] },
+      { sprite: 'desk_pm', at: [6, 4] },
+      { sprite: 'desk', at: [11, 4] },
+      { sprite: 'desk', at: [16, 4] },
+      { sprite: 'desk', at: [1, 8] },
+      { sprite: 'desk', at: [6, 8] },
+      { sprite: 'desk', at: [11, 8] },
+      { sprite: 'desk', at: [16, 8] },
+    ],
+  }));
+  try {
+    om.updateSettings({ layoutId: 'pm-second-test' });
+    const pmPlan = deskPlan('pm-second-test');
+    const pm = om.staffOf('pm')[0]!;
+    const displaced = om.instances.get('backend#1')!;
+    // Все, кроме PM и вытесненного им соседа, сидят на своих прежних номерах.
+    const keptOthers = beforeMove
+      .filter(([id]) => id !== pm.id && id !== displaced.id)
+      .every(([id, index]) => om.instances.get(id)?.desk.index === index);
+    results.push(
+      `PM сел за стол PM новой раскладки: ${pmPlan.pmIndex === 1
+        && pm.desk.index === pmPlan.pmIndex
+        && pm.desk.x === pmPlan.desks[1].x && pm.desk.y === pmPlan.desks[1].y}`,
+      `вытесненный менеджером не потерялся: ${!displaced.deskless
+        && pmPlan.desks.some((d) => d.index === displaced.desk.index)}`,
+      `остальные остались на своих номерах: ${keptOthers}`,
+      `на одном столе не оказалось двоих: ${new Set([...om.instances.values()]
+        .map((i) => i.desk.index)).size === om.instances.size}`,
+    );
+  } catch (e) {
+    rmSync(pmSecondFile, { force: true });
+    throw e;
+  }
+
+  // Столов меньше, чем людей: посаженные садятся, остальные переходят в
+  // «без стола» — не исчезают и не остаются с координатами чужой комнаты.
+  // Пресет «PM вторым» пока не убираем: офис назовёт его в совете «вернуть
+  // прежнюю раскладку», а безымянный id в этом совете человеку не поможет.
+  const crampedFile = resolve(layoutsDir, 'cramped-test.json');
+  writeFileSync(crampedFile, JSON.stringify({
+    version: 1, id: 'cramped-test', title: 'Каморка', size: [10, 8],
+    props: [
+      { sprite: 'desk_pm', at: [1, 2] },
+      { sprite: 'desk', at: [5, 2] },
+      { sprite: 'desk', at: [1, 5] },
+    ],
+  }));
+  try {
+    const staffBefore = om.instances.size;
+    const chatBefore = om.chat.length;
+    om.updateSettings({ layoutId: 'cramped-test' });
+    const crampedPlan = deskPlan('cramped-test');
+    const all = [...om.instances.values()];
+    const seated = all.filter((i) => !i.deskless);
+    const standing = all.filter((i) => i.deskless);
+    const notice = om.chat.slice(chatBefore).find((c) => c.from === 'офис' && /без стола/i.test(c.text));
+    results.push(
+      `никто не потерян при нехватке столов: ${om.instances.size === staffBefore}`,
+      `заняты все места тесной раскладки: ${seated.length === crampedPlan.desks.length}`,
+      `PM среди посаженных: ${!om.staffOf('pm')[0]!.deskless}`,
+      `остальные помечены «без стола»: ${standing.length === staffBefore - crampedPlan.desks.length}`,
+      `безместные стоят внутри каморки, а не за её стеной: ${standing.length > 0
+        && standing.every((i) => i.desk.x >= 0 && i.desk.x < 10 && i.desk.y >= 0 && i.desk.y < 8)}`,
+      `безместные помнят свой номер места: ${standing
+        .every((i) => beforeMove.some(([id, index]) => id === i.id && index === i.desk.index)
+          || !crampedPlan.desks.some((d) => d.index === i.desk.index))}`,
+      `офис написал в чат, кого не посадили: ${!!notice
+        && standing.every((i) => notice.text.includes(i.label))}`,
+      `в сообщении сказано, что делать: ${!!notice
+        && /уволить/.test(notice.text) && /вернуть прежнюю раскладку «PM вторым»/.test(notice.text)}`,
+    );
+
+    // Безместный обязан пережить перезапуск: раньше restore молча выбрасывал
+    // сотрудника, которому не хватило стола, вместе с его сессией и расходами.
+    om.flush();
+    const restoredCramped = om.restore();
+    results.push(
+      `после перезапуска в тесной раскладке штат цел: ${restoredCramped
+        && om.instances.size === staffBefore}`,
+      `безместные остались безместными: ${[...om.instances.values()]
+        .filter((i) => i.deskless).length === staffBefore - crampedPlan.desks.length}`,
+      `и стоят внутри комнаты, а не в углу-заглушке: ${[...om.instances.values()]
+        .filter((i) => i.deskless).every((i) => i.desk.x > 0 || i.desk.y > 0)}`,
+    );
+
+    // Просторная раскладка возвращает всех за столы, и «без стола» снимается.
+    om.updateSettings({ layoutId: 'classic' });
+    results.push(
+      `просторная раскладка вернула всех за столы: ${[...om.instances.values()]
+        .every((i) => !i.deskless && classicPlan.desks
+          .some((d) => d.index === i.desk.index && d.x === i.desk.x && d.y === i.desk.y))}`,
+      `и снова никто не делит стол с соседом: ${new Set([...om.instances.values()]
+        .map((i) => i.desk.index)).size === om.instances.size}`,
+    );
+  } finally {
+    // Пресеты временные: оставленные файлы попали бы в список выбора раскладок.
+    rmSync(crampedFile, { force: true });
+    rmSync(pmSecondFile, { force: true });
+    stopMove();
+    unloadOfficeState('o-lay-move');
+    wipe(moveFile);
+  }
 
   // 11. Оверрайд расстановки (§8): офис двигает мебель поверх пресета. Пресет
   // остаётся эталоном на диске, место за столом обязано переехать вместе со
