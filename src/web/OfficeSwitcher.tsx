@@ -34,7 +34,7 @@ export function OfficeSwitcher() {
 
   if (pending === 'enter') {
     return (
-      <div className="hud project pixel switching">
+      <div className="office-switcher switching">
         <span className="ico spin">🔄</span>
         <div>
           <b>Переключаемся{pendingLabel ? ` на «${pendingLabel}»` : ''}…</b>
@@ -53,7 +53,7 @@ export function OfficeSwitcher() {
   };
 
   return (
-    <div className="hud project pixel office-switcher" ref={ref}>
+    <div className="office-switcher" ref={ref}>
       <button
         type="button"
         className={`office-switcher-trigger ${hasOthers ? '' : 'lone'}`}
