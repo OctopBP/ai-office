@@ -707,20 +707,19 @@ export class OfficeState {
     const desks = this.deskPlan().desks;
     const taken = new Set<number>();
     const homeless: Instance[] = [];
+    // Клетки, на которых кто-то уже стоит. Заполняется только теми, кто сидит:
+    // координаты безместного относятся к прежней раскладке, и считать их
+    // занятыми в новой значило бы городить призрачные препятствия.
+    const busy = new Set<string>();
     for (const inst of this.instances.values()) {
       const same = desks.find((d) => d.index === inst.desk.index);
       if (!same || taken.has(same.index)) { homeless.push(inst); continue; }
       taken.add(same.index);
+      busy.add(`${same.x},${same.y}`);
       if (same.x !== inst.desk.x || same.y !== inst.desk.y) {
         inst.desk = same;
         this.emit({ t: 'instance', instance: this.instanceView(inst) });
       }
-    }
-    // Клетки, на которых кто-то уже стоит: и занятые столы, и те, кого мы
-    // расставим ниже. Без этого безместные сошлись бы в одну точку.
-    const busy = new Set<string>();
-    for (const inst of this.instances.values()) {
-      if (taken.has(inst.desk.index)) busy.add(`${inst.desk.x},${inst.desk.y}`);
     }
     for (const inst of homeless) {
       const free = desks.find((d) => !taken.has(d.index));
