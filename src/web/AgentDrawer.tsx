@@ -1,8 +1,8 @@
 import { useState } from 'react';
 import {
   ACCESS_LABEL, PERMISSION_SOURCE_LABEL, assignDirect, effectivePermissionMode, fire, hire,
-  mergeTask, permissionSource, retryTask, setAgentPermission, showDiff, stopTask, useStore,
-  FULL_ACCESS_WARNING,
+  mergeTask, openLayoutSettings, permissionSource, retryTask, setAgentPermission, showDiff,
+  stopTask, useStore, FULL_ACCESS_WARNING,
 } from './store';
 import { RoleEditor } from './RoleEditor';
 import { useActionNotice } from './useActionNotice';
@@ -97,7 +97,8 @@ export function AgentDrawer() {
         <div className="drawer-who">
           <h2>{inst.id}</h2>
           <div className="muted">
-            {role?.title} · {role?.model.replace('claude-', '')} · место #{inst.desk.index}
+            {role?.title} · {role?.model.replace('claude-', '')} ·{' '}
+            {inst.deskless ? 'без рабочего места' : `место #${inst.desk.index}`}
           </div>
           <span className={`perm-badge ${inst.effectivePermissionMode}`}
             title="Фактический режим доступа этого сотрудника и откуда он взялся">
@@ -111,6 +112,15 @@ export function AgentDrawer() {
         </div>
         <button className="icon" onClick={() => select(null)} title="Закрыть">✕</button>
       </header>
+
+      {inst.deskless && (
+        <div className="deskless-notice">
+          🪑 Рабочего места сейчас нет — в раскладке не хватило столов на всех. Номер места
+          #{inst.desk.index} за сотрудником сохранён: вернётся раскладка попросторнее — он
+          сядет обратно.{' '}
+          <button className="link" onClick={openLayoutSettings}>Настройки раскладки →</button>
+        </div>
+      )}
 
       <section>
         <h3>Доступ</h3>
@@ -264,7 +274,9 @@ export function AgentDrawer() {
       </div>
       <div className="drawer-links">
         <button className="link" onClick={() => setEditRole(true)}>
-          Рабочее место #{inst.desk.index} — роль, модель, права →
+          {inst.deskless
+            ? 'Роль, модель, права →'
+            : `Рабочее место #${inst.desk.index} — роль, модель, права →`}
         </button>
         {current?.worktreePath && (
           <div className="muted small mono" title="Рабочая копия задачи на диске">

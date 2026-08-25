@@ -673,6 +673,17 @@ kbd {
 }
 .drawer-notice button { margin-left: auto; }
 
+/* Безместный сотрудник — тесная раскладка, не ошибка: цвет акцентный, а не
+   тревожный красный (§T-106). */
+.deskless-notice {
+  padding: 9px 12px; margin-bottom: 16px; font-size: 12px; line-height: 1.5;
+  border: 1px solid var(--accent); border-radius: 7px; background: rgba(240, 180, 41, .1);
+}
+.deskless-notice .link {
+  background: none; border: none; padding: 0; margin-left: 2px; font-size: inherit;
+  font-weight: 600; color: var(--accent); text-decoration: underline; cursor: pointer;
+}
+
 /* ================= пауза офиса ================= */
 /* Пауза видна и в мире, и в HUD: замерший агент сереет, как в макете 08. */
 .office .agent.paused .body { filter: grayscale(1); opacity: .55; }
@@ -777,6 +788,9 @@ button.sq.on { background: var(--accent); color: var(--accent-ink); }
   border: 1px solid var(--line-soft); border-radius: 12px; font-size: 11px; color: var(--muted);
 }
 .perm-badge.auto { color: var(--red); border-color: var(--red); }
+/* Тесная раскладка — не ошибка доступа, поэтому цвет акцентный, а не тревожный. */
+.perm-badge.deskless { color: var(--accent-ink); border-color: var(--accent); background: rgba(240, 180, 41, .18); }
+[data-theme='night'] .perm-badge.deskless { color: var(--text); }
 
 /* ================= стартовое меню (T-9) ================= */
 /* Меню — вечерняя улица перед офисом, вне тем дня/ночи комнаты: своя

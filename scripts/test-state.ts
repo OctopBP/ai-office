@@ -533,36 +533,39 @@ async function main(): Promise<void> {
   // комнаты. Проверяем три вещи разом — все пересели, номера мест уцелели,
   // а клиенту про это сказали событиями.
   const moveFile = resolve(tmpdir(), `office-test-move-${process.pid}.json`);
-  const om = openOfficeState({
+  // Свой om/beforeMove/reallyMoved — с суффиксом 2, чтобы не конфликтовать с
+  // одноимёнными константами проверки «10» выше по функции (та же область
+  // видимости main(), другой сценарий).
+  const om2 = openOfficeState({
     id: 'o-move', projectDir: resolve(tmpdir(), 'move-office'), stateFile: moveFile,
   }).state;
-  om.seed();
-  const beforeMove = [...om.instances.values()].map((i) => [i.id, i.desk.index] as const);
+  om2.seed();
+  const beforeMove2 = [...om2.instances.values()].map((i) => [i.id, i.desk.index] as const);
   const movedIds = new Set<string>();
   let layoutEventsOnSwitch = 0;
-  const stopMove = om.subscribe((e) => {
+  const stopMove = om2.subscribe((e) => {
     if (e.t === 'instance') movedIds.add(e.instance.id);
     if (e.t === 'layout') layoutEventsOnSwitch += 1;
   });
-  om.updateSettings({ layoutId: 'studio' });
-  const seatedInStudio = beforeMove.every(([id, index]) => {
-    const inst = om.instances.get(id);
+  om2.updateSettings({ layoutId: 'studio' });
+  const seatedInStudio = beforeMove2.every(([id, index]) => {
+    const inst = om2.instances.get(id);
     const desk = studioPlan.desks[index];
     return !!inst && !inst.deskless && inst.desk.index === index
       && inst.desk.x === desk.x && inst.desk.y === desk.y;
   });
   // Проверка не должна пройти «сама собой»: столы classic и studio обязаны
   // стоять по-разному, иначе пересадку не отличить от бездействия.
-  const reallyMoved = beforeMove.every(([id, index]) => {
-    const inst = om.instances.get(id);
+  const reallyMoved2 = beforeMove2.every(([id, index]) => {
+    const inst = om2.instances.get(id);
     return !!inst && (classicPlan.desks[index].x !== inst.desk.x
       || classicPlan.desks[index].y !== inst.desk.y);
   });
   results.push(
     `смена раскладки пересадила весь штат: ${seatedInStudio}`,
-    `номера мест при пересадке уцелели: ${beforeMove.length === om.instances.size && seatedInStudio}`,
-    `столы новой раскладки правда другие: ${reallyMoved}`,
-    `о каждом пересевшем клиенту сказано событием: ${beforeMove
+    `номера мест при пересадке уцелели: ${beforeMove2.length === om2.instances.size && seatedInStudio}`,
+    `столы новой раскладки правда другие: ${reallyMoved2}`,
+    `о каждом пересевшем клиенту сказано событием: ${beforeMove2
       .every(([id]) => movedIds.has(id))}`,
     `клиент получил и саму раскладку: ${layoutEventsOnSwitch === 1}`,
   );
@@ -589,14 +592,14 @@ async function main(): Promise<void> {
     ],
   }));
   try {
-    om.updateSettings({ layoutId: 'pm-second-test' });
+    om2.updateSettings({ layoutId: 'pm-second-test' });
     const pmPlan = deskPlan('pm-second-test');
-    const pm = om.staffOf('pm')[0]!;
-    const displaced = om.instances.get('backend#1')!;
+    const pm = om2.staffOf('pm')[0]!;
+    const displaced = om2.instances.get('backend#1')!;
     // Все, кроме PM и вытесненного им соседа, сидят на своих прежних номерах.
-    const keptOthers = beforeMove
+    const keptOthers = beforeMove2
       .filter(([id]) => id !== pm.id && id !== displaced.id)
-      .every(([id, index]) => om.instances.get(id)?.desk.index === index);
+      .every(([id, index]) => om2.instances.get(id)?.desk.index === index);
     results.push(
       `PM сел за стол PM новой раскладки: ${pmPlan.pmIndex === 1
         && pm.desk.index === pmPlan.pmIndex
@@ -604,8 +607,8 @@ async function main(): Promise<void> {
       `вытесненный менеджером не потерялся: ${!displaced.deskless
         && pmPlan.desks.some((d) => d.index === displaced.desk.index)}`,
       `остальные остались на своих номерах: ${keptOthers}`,
-      `на одном столе не оказалось двоих: ${new Set([...om.instances.values()]
-        .map((i) => i.desk.index)).size === om.instances.size}`,
+      `на одном столе не оказалось двоих: ${new Set([...om2.instances.values()]
+        .map((i) => i.desk.index)).size === om2.instances.size}`,
     );
   } catch (e) {
     rmSync(pmSecondFile, { force: true });
@@ -626,23 +629,23 @@ async function main(): Promise<void> {
     ],
   }));
   try {
-    const staffBefore = om.instances.size;
-    const chatBefore = om.chat.length;
-    om.updateSettings({ layoutId: 'cramped-test' });
+    const staffBefore = om2.instances.size;
+    const chatBefore = om2.chat.length;
+    om2.updateSettings({ layoutId: 'cramped-test' });
     const crampedPlan = deskPlan('cramped-test');
-    const all = [...om.instances.values()];
+    const all = [...om2.instances.values()];
     const seated = all.filter((i) => !i.deskless);
     const standing = all.filter((i) => i.deskless);
-    const notice = om.chat.slice(chatBefore).find((c) => c.from === 'офис' && /без стола/i.test(c.text));
+    const notice = om2.chat.slice(chatBefore).find((c) => c.from === 'офис' && /без стола/i.test(c.text));
     results.push(
-      `никто не потерян при нехватке столов: ${om.instances.size === staffBefore}`,
+      `никто не потерян при нехватке столов: ${om2.instances.size === staffBefore}`,
       `заняты все места тесной раскладки: ${seated.length === crampedPlan.desks.length}`,
-      `PM среди посаженных: ${!om.staffOf('pm')[0]!.deskless}`,
+      `PM среди посаженных: ${!om2.staffOf('pm')[0]!.deskless}`,
       `остальные помечены «без стола»: ${standing.length === staffBefore - crampedPlan.desks.length}`,
       `безместные стоят внутри каморки, а не за её стеной: ${standing.length > 0
         && standing.every((i) => i.desk.x >= 0 && i.desk.x < 10 && i.desk.y >= 0 && i.desk.y < 8)}`,
       `безместные помнят свой номер места: ${standing
-        .every((i) => beforeMove.some(([id, index]) => id === i.id && index === i.desk.index)
+        .every((i) => beforeMove2.some(([id, index]) => id === i.id && index === i.desk.index)
           || !crampedPlan.desks.some((d) => d.index === i.desk.index))}`,
       `офис написал в чат, кого не посадили: ${!!notice
         && standing.every((i) => notice.text.includes(i.label))}`,
@@ -652,25 +655,25 @@ async function main(): Promise<void> {
 
     // Безместный обязан пережить перезапуск: раньше restore молча выбрасывал
     // сотрудника, которому не хватило стола, вместе с его сессией и расходами.
-    om.flush();
-    const restoredCramped = om.restore();
+    om2.flush();
+    const restoredCramped = om2.restore();
     results.push(
       `после перезапуска в тесной раскладке штат цел: ${restoredCramped
-        && om.instances.size === staffBefore}`,
-      `безместные остались безместными: ${[...om.instances.values()]
+        && om2.instances.size === staffBefore}`,
+      `безместные остались безместными: ${[...om2.instances.values()]
         .filter((i) => i.deskless).length === staffBefore - crampedPlan.desks.length}`,
-      `и стоят внутри комнаты, а не в углу-заглушке: ${[...om.instances.values()]
+      `и стоят внутри комнаты, а не в углу-заглушке: ${[...om2.instances.values()]
         .filter((i) => i.deskless).every((i) => i.desk.x > 0 || i.desk.y > 0)}`,
     );
 
     // Просторная раскладка возвращает всех за столы, и «без стола» снимается.
-    om.updateSettings({ layoutId: 'classic' });
+    om2.updateSettings({ layoutId: 'classic' });
     results.push(
-      `просторная раскладка вернула всех за столы: ${[...om.instances.values()]
+      `просторная раскладка вернула всех за столы: ${[...om2.instances.values()]
         .every((i) => !i.deskless && classicPlan.desks
           .some((d) => d.index === i.desk.index && d.x === i.desk.x && d.y === i.desk.y))}`,
-      `и снова никто не делит стол с соседом: ${new Set([...om.instances.values()]
-        .map((i) => i.desk.index)).size === om.instances.size}`,
+      `и снова никто не делит стол с соседом: ${new Set([...om2.instances.values()]
+        .map((i) => i.desk.index)).size === om2.instances.size}`,
     );
   } finally {
     // Пресеты временные: оставленные файлы попали бы в список выбора раскладок.

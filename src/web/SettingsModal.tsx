@@ -1,6 +1,6 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import {
-  ACCESS_MODES, FULL_ACCESS_WARNING, parseMaxWorkers, parseTaskMaxTurns,
+  ACCESS_MODES, clearSettingsSection, FULL_ACCESS_WARNING, parseMaxWorkers, parseTaskMaxTurns,
   setCloudToken, updateSettings, useStore,
 } from './store';
 import { DEFAULT_OFFICE_WORKERS, DEFAULT_PROCESS_WORKERS, type PermissionMode } from '../shared/types';
@@ -26,7 +26,17 @@ export function SettingsModal({ onClose }: { onClose: () => void }) {
   const settings = useStore((s) => s.settings);
   const cloud = useStore((s) => s.cloud);
   const layouts = useStore((s) => s.layouts);
-  const [section, setSection] = useState<Section>(lastSection);
+  // Запрос конкретного раздела (например, ссылка «настройки раскладки» из
+  // карточки безместного сотрудника) перебивает запомненный за сессию раздел.
+  const settingsSection = useStore((s) => s.settingsSection);
+  const [section, setSection] = useState<Section>(settingsSection ?? lastSection);
+  useEffect(() => {
+    if (!settingsSection) return;
+    lastSection = settingsSection;
+    setSection(settingsSection);
+    clearSettingsSection();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [settingsSection]);
   const [global, setGlobal] = useState(settings.globalBudgetUsd?.toString() ?? '');
   const [perTask, setPerTask] = useState(settings.taskBudgetUsd?.toString() ?? '');
   const [maxTurns, setMaxTurns] = useState(settings.taskMaxTurns?.toString() ?? '');
