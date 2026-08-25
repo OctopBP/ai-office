@@ -704,8 +704,9 @@ export class OfficeState {
       roleId: pi.roleId,
       label: `${role.title}${role.maxInstances > 1 ? ` #${n}` : ''}`,
       // Координаты безместного поправит resyncDesks — он же знает, какие
-      // клетки уже заняты соседями.
-      desk: desk ?? { index: pi.deskIndex, x: 0, y: 0 },
+      // клетки уже заняты соседями. Габарит у такого места 1×1: стола за ним
+      // нет, а человечек занимает ровно одну клетку, на которую его поставят.
+      desk: desk ?? { index: pi.deskIndex, x: 0, y: 0, w: 1, h: 1 },
       deskless: !desk,
       state: 'idle',
       currentTaskId: null,
