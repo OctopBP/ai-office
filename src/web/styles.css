@@ -61,9 +61,10 @@ button.sq { padding: 5px 9px; line-height: 1.2; }
   display: flex; align-items: center; justify-content: center;
   /* отступ сверху — под HUD (он абсолютно спозиционирован поверх сцены и не
      участвует в потоке), по бокам и снизу — просто воздух вокруг комнаты.
-     Полоса HUD выросла до ~70px (кнопки увеличены под задачу T-112), сверху
-     держим тот же зазор 12px до полосы + 10px после неё, что и было. */
-  padding: 92px 16px 16px;
+     T-113 убрала двухстрочные блоки и раздутый чип доступа — полоса вернулась
+     к ~53px (паддинг .hud-bar 3px + строка кнопок 42px + рамка .pixel 5px).
+     Отступ = 12px до полосы (её top) + 53px сама полоса + 10px воздуха после. */
+  padding: 75px 16px 16px;
   overflow: hidden;
 }
 
@@ -550,13 +551,13 @@ button
    состояния (hover/active/on/alert) читаются подсветкой фона. */
 .hud-bar {
   position: absolute; top: 12px; left: 14px; right: 14px; z-index: 30;
-  display: flex; align-items: center; gap: 14px; padding: 8px 16px;
+  display: flex; align-items: center; gap: 14px; padding: 3px 16px;
 }
 .hud-group { display: flex; align-items: center; gap: 7px; min-width: 0; }
 .hud-left { flex: none; }
 .hud-center { flex: 1; justify-content: center; flex-wrap: wrap; row-gap: 2px; min-width: 0; }
 .hud-right { flex: none; }
-.hud-sep { align-self: stretch; width: 2px; margin: 10px 4px; background: var(--line-soft); flex: none; }
+.hud-sep { align-self: stretch; width: 2px; margin: 7px 4px; background: var(--line-soft); flex: none; }
 
 /* Кнопки и чипы внутри полосы — без собственной рамки/тени, подсветка фоном. */
 .hud-bar button, .hud-bar .hud-money, .hud-bar .hud-chip {
@@ -565,7 +566,9 @@ button
 .hud-bar button:hover:not(:disabled) { background: var(--panel-2); }
 .hud-bar button:active:not(:disabled) { background: var(--line-soft); transform: none; }
 /* Кнопки увеличены под T-112: клик-область ~40×40px и крупнее и на значке,
-   и на подписи — раньше в мелкую иконку было тяжело попадать. */
+   и на подписи — раньше в мелкую иконку было тяжело попадать. Высоту (42px
+   с паддингом) с тех пор не трогаем — лишнюю высоту полосы в T-113 убрали
+   через однострочную вёрстку соседних блоков и паддинг самой .hud-bar. */
 .hud-bar button.hud-btn {
   padding: 9px 14px; display: flex; align-items: center; gap: 9px;
   font-size: 20px; line-height: 1.2;
@@ -573,19 +576,21 @@ button
 .hud-bar button.on { background: var(--accent); color: var(--accent-ink); }
 .hud-bar button.alert { background: rgba(240, 180, 41, .18); color: var(--accent); }
 
-.hud-money { display: flex; align-items: center; gap: 11px; padding: 7px 14px; cursor: pointer; text-align: left; }
-.hud-money b { font-size: 20px; line-height: 1.15; font-variant-numeric: tabular-nums; }
-.hud-money .ico { font-size: 24px; }
-.hud-money.over b { color: var(--red); }
-.hud-money-text { display: flex; flex-direction: column; align-items: flex-start; }
-.hud-money-text .small { font-size: 13px; line-height: 1.15; }
+/* Расходы — теперь просто hud-btn с иконкой и суммой в одну строку;
+   разбивка «сегодня / всего / из бюджета» переехала в title. */
+.hud-money b { font-variant-numeric: tabular-nums; }
+.hud-bar button.hud-money.over { color: var(--red); }
 
-.hud-status { display: flex; flex-direction: column; align-items: flex-start; gap: 2px; font-size: 15px; line-height: 1.15; padding: 6px 12px; }
+.hud-status { display: flex; align-items: center; gap: 10px; font-size: 15px; line-height: 1.2; }
 .hud-status .alarm { color: var(--red); font-size: 15px; }
 
-.hud-chip { display: flex; align-items: center; gap: 8px; padding: 9px 15px; font-size: 15px; line-height: 1.15; background: var(--panel-2); border-radius: 7px; }
+/* Чип доступа — теперь только значок (подпись в title), высота как у кнопки. */
+.hud-chip { display: flex; align-items: center; gap: 8px; padding: 9px 14px; font-size: 15px; line-height: 1.2; background: var(--panel-2); border-radius: 7px; }
+.hud-chip.access { padding: 9px 12px; font-size: 20px; }
 .hud-chip.access.auto { color: var(--red); background: rgba(217, 79, 61, .14); }
-.hud-chip.paused { color: var(--accent); background: rgba(240, 180, 41, .16); letter-spacing: .06em; }
+/* Паддинг чуть больше базового — при font-size 15 добирает те же 42px
+   высоты, что у остальных элементов строки (иначе чип на 6px ниже). */
+.hud-chip.paused { padding: 12px 14px; color: var(--accent); background: rgba(240, 180, 41, .16); letter-spacing: .06em; }
 
 .link-dot { width: 12px; height: 12px; border-radius: 50%; background: var(--red); }
 .link-dot.on { background: var(--green); }
@@ -594,17 +599,20 @@ button
 /* Подписи рядом со значками — первое, что прячем в узком окне (см. медиа-запрос ниже). */
 .hud-label { white-space: nowrap; }
 
-/* ---------- переключатель офисов (бейдж проекта) ---------- */
-.office-switcher { position: relative; display: flex; align-items: center; max-width: 290px; min-width: 0; }
-.office-switcher.switching { gap: 13px; padding: 8px 14px; cursor: default; }
-.office-switcher .ico { font-size: 26px; }
-.office-switcher b { font-size: 19px; }
-.office-switcher .mono { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12px; }
+/* ---------- переключатель офисов (бейдж проекта) ----------
+   Раньше здесь были две строки (имя офиса и путь+тема мельче под ним) —
+   теперь одна строка «значок + имя», путь и тема ушли в title. */
+/* line-height: 1.2 явно — иначе кнопка наследует 1.5 от body (styles.css:34)
+   и становится на 6px выше соседних .hud-btn (см. разбор в ревью T-113). */
+.office-switcher { position: relative; display: flex; align-items: center; max-width: 220px; min-width: 0; line-height: 1.2; }
+.office-switcher.switching { gap: 10px; padding: 9px 13px; cursor: default; }
+.office-switcher .ico { font-size: 20px; }
+.office-switcher b { font-size: 17px; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .office-switcher-trigger {
-  display: flex; align-items: center; gap: 12px; width: 100%; min-width: 0;
-  padding: 8px 13px; background: none; border: none; text-align: left; cursor: pointer;
+  display: flex; align-items: center; gap: 10px; width: 100%; min-width: 0;
+  padding: 9px 13px; background: none; border: none; text-align: left; cursor: pointer;
+  line-height: 1.2;
 }
-.office-switcher-trigger > div { min-width: 0; overflow: hidden; line-height: 1.25; }
 .office-switcher-trigger:hover { background: var(--panel-2); border-radius: 5px; }
 .office-switcher-trigger:active { transform: none; }
 .office-switcher-trigger.lone { cursor: default; }
@@ -629,17 +637,16 @@ button
    пикселей, а не на нескомпенсированный рост шрифта). */
 @media (max-width: 1180px) {
   .hud-label { display: none; }
-  .office-switcher-trigger .mono { display: none; }
   .office-switcher { max-width: 110px; }
-  .hud-bar { gap: 4px; padding: 5px 6px; }
+  .hud-bar { gap: 4px; padding: 3px 6px; }
   .hud-group { gap: 2px; }
-  .hud-sep { margin: 6px 1px; }
+  .hud-sep { margin: 5px 1px; }
   .hud-bar button.hud-btn { padding: 8px 6px; }
-  .hud-money, .hud-status, .hud-chip { padding-left: 6px; padding-right: 6px; }
+  .hud-status, .hud-chip { padding-left: 6px; padding-right: 6px; }
   .hud-money b { font-size: 17px; }
   .hud-status, .hud-status .alarm { font-size: 12px; }
-  /* .hud-chip тоже не прячется через .hud-label целиком: у «⏸ ПАУЗА» подписи
-     нет hud-label вообще, а у чипа доступа остаётся видимым хотя бы значок.
+  /* .hud-chip не прячется через .hud-label: у чипа доступа с T-113 вообще
+     нет текста (только значок + title), у «⏸ ПАУЗА» текст свой, не hud-label.
      Возвращаем к прежнему размеру для того же запаса, что и у .hud-status. */
   .hud-chip { font-size: 13px; }
   .office-switcher-trigger { padding: 8px 6px; gap: 6px; }
