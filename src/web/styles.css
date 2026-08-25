@@ -393,8 +393,7 @@ button
   overflow: hidden;
 }
 .office {
-  position: relative; overflow: hidden; border-radius: 10px;
-  border: 2px solid var(--line); background: var(--bg);
+  position: relative; overflow: hidden; background: var(--bg);
   image-rendering: pixelated;          /* пиксель-арт не размывать */
   flex: none;
 }
@@ -417,12 +416,19 @@ button
      постоянная (тайлов в секунду), поэтому длительность зависит от длины
      отрезка и не может быть выражена одним CSS-переходом с фиксированным
      временем. */
-  position: absolute; width: 48px; cursor: pointer;
+  /* Ширина, высота фигуры и переменные --agent-w/--agent-h приходят из
+     Office.tsx: габарит человечка задаёт каталог спрайтов, а не эти стили, —
+     иначе смена арта (было 48×72, стало 36×72) растягивала бы картинку. */
+  position: absolute; cursor: pointer;
 }
-.office .agent .body { display: block; width: 48px; height: 72px; position: relative; }
+.office .agent .body { display: block; position: relative; }
 .office .agent.busy .body { animation: bob 1s ease-in-out infinite; }
 @keyframes bob { 50% { transform: translateY(-2px); } }
-.office .agent .shadow { position: absolute; left: 3px; bottom: 12px; opacity: .45; }
+/* Тень — под центром фигуры; отступ снизу долей роста, а не в пикселях:
+   ступни у арта на той же высоте в долях спрайта при любом масштабе. */
+.office .agent .shadow {
+  position: absolute; left: 50%; bottom: 16.7%; transform: translateX(-50%); opacity: .45;
+}
 .office .agent .badge {
   position: absolute; right: -6px; top: -4px; font-size: 13px;
   background: var(--panel); border: 1px solid var(--line); border-radius: 50%; padding: 0 2px; line-height: 1.2;
@@ -442,7 +448,7 @@ button
 .office .agent.waiting_approval .body { filter: drop-shadow(0 0 5px var(--red)); animation: pulse 1s infinite; }
 
 .bubble {
-  position: absolute; bottom: 74px; left: 50%; transform: translateX(-50%);
+  position: absolute; bottom: calc(var(--agent-h, 72px) + 2px); left: 50%; transform: translateX(-50%);
   background: var(--panel); color: var(--text); border: 2px solid var(--line);
   border-radius: 6px; padding: 3px 8px; font-size: 11px; white-space: nowrap;
   max-width: 320px; overflow: hidden; text-overflow: ellipsis;
@@ -455,9 +461,14 @@ button
 
 
 /* ---------- подписи, пузыри и пустые места ---------- */
-.tags { position: absolute; width: 48px; z-index: 1000; pointer-events: none; }
+/* Ширина и --agent-h приходят из Office.tsx — пузырь и карточка встают над и
+   под фигурой того роста, который она в этом офисе на самом деле имеет. */
+.tags { position: absolute; z-index: 1000; pointer-events: none; }
 
+/* Подсказка «свободное место» повторяет габарит своего стола: размер стола
+   задаётся раскладкой (§3.2), а картинка призрака нарисована под базовый. */
 .ghost { position: absolute; z-index: 3; opacity: .55; }
+.ghost img { display: block; width: 100%; height: 100%; }
 .ghost span {
   position: absolute; left: 50%; top: 40%; transform: translate(-50%, -50%);
   color: var(--panel); font-size: 20px; font-weight: 700; text-shadow: 0 1px 0 var(--line);
@@ -716,9 +727,11 @@ kbd {
 .help kbd { margin-right: 2px; }
 
 /* ---------- подписи в комнате ---------- */
-.tags { position: absolute; width: 48px; z-index: 1000; pointer-events: none; }
+/* Ширина и --agent-h приходят из Office.tsx — пузырь и карточка встают над и
+   под фигурой того роста, который она в этом офисе на самом деле имеет. */
+.tags { position: absolute; z-index: 1000; pointer-events: none; }
 .statuscard {
-  position: absolute; left: 50%; transform: translateX(-50%); top: 82px;
+  position: absolute; left: 50%; transform: translateX(-50%); top: calc(var(--agent-h, 72px) + 10px);
   padding: 3px 9px; white-space: nowrap; font-size: 11px; line-height: 1.35;
   box-shadow: 0 2px 0 var(--shadow);
 }

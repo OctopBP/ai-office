@@ -176,10 +176,16 @@
   (§6), поэтому комната любого размера бесплатна.
 - **Стена** — отрезок по сетке (только горизонтальные и вертикальные) плюс
   проёмы `[смещение, длина]` в тайлах вдоль отрезка. Толщина всегда 1 тайл.
-- **Предмет** — спрайт, позиция, необязательные `id`, `flip`, `scale`
+- **Предмет** — спрайт, позиция, необязательные `id`, `flip`, `scale`, `size`
   (`scale` уже используется у ковра и стола переговорки, `Office.tsx:33`).
   Без `id` предмет получает автоимя `<sprite>#<n>` по порядку — на него можно
   сослаться из зоны.
+  `size: [w, h]` — явный габарит в тайлах: `{ "sprite": "desk", "at": [6, 4],
+  "size": [2, 3] }` занимает ровно 2×3 тайла независимо от разрешения арта.
+  Габарит главнее `scale` и размера из каталога; коэффициенты растяжения
+  считаются по каждой оси отдельно (`propScale()`, `src/shared/layout.ts`) и
+  применяются ко всему разом — к картинке, к footprint в сетке проходимости,
+  к слотам (`work`, `plate`, `seat`) и к y-сортировке.
 - **Зона** — смысл, а не координаты. `work` — где рабочие места, `meeting` —
   какой стол переговорный, `idle` — где ждут свободные, `entrance` — дверь наружу.
   У `work` есть `fill`: «поставить сетку столов cols×rows с шагом step» — это то,
@@ -214,7 +220,7 @@
 
 ```ts
 export interface Layout { /* формат §3.2 */ }
-export interface PlacedProp { id: string; sprite: string; x: number; y: number; flip?: boolean; scale?: number }
+export interface PlacedProp { id: string; sprite: string; x: number; y: number; flip?: boolean; scale?: number; size?: [number, number] }
 export interface Slot { kind: SlotKind; x: number; y: number; propId: string }
 
 /** Разложить раскладку: предметы из fill развёрнуты, слоты посчитаны. */

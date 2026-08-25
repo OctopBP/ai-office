@@ -297,6 +297,13 @@ export interface Task {
   repoDir: string | null;
   merged: boolean;
   /**
+   * Сессии исполнителя и ревьюера этой задачи — чтобы доработка и повторное
+   * ревью продолжали тот же разговор через `resume`, а не платили за
+   * пересборку контекста заново на каждом круге. Не для вьюхи (см. toTaskView).
+   */
+  workerSessionId: string | null;
+  reviewerSessionId: string | null;
+  /**
    * Работу оборвал перезапуск сервера, а не человек. Отличать обязательно:
    * остановленную человеком задачу возобновлять нельзя, а прибитую
    * перезапуском — нужно, и делать это должен офис, а не пользователь.
@@ -1118,6 +1125,8 @@ export class OfficeState {
       merged: false,
       interrupted: false,
       attention: null,
+      workerSessionId: null,
+      reviewerSessionId: null,
       createdAt: Date.now(),
       startedAt: null,
       finishedAt: null,
@@ -2073,7 +2082,10 @@ function migrateTask(raw: Task & {
   };
   // Сохранения до надзора этих полей не знают: отсутствие — это «не прерывалась»
   // и «менеджеру не показывали».
-  return { ...raw, criteria, usage, interrupted: raw.interrupted ?? false, attention: raw.attention ?? null };
+  return {
+    ...raw, criteria, usage, interrupted: raw.interrupted ?? false, attention: raw.attention ?? null,
+    workerSessionId: raw.workerSessionId ?? null, reviewerSessionId: raw.reviewerSessionId ?? null,
+  };
 }
 
 /**

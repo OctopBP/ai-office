@@ -22,7 +22,7 @@ function readJson<T>(path: string): T {
 }
 
 const catalog = readJson<Catalog>(resolve(ROOT, 'design/sprites/out/catalog.json'));
-const LAYOUT_IDS = ['classic', 'studio'];
+const LAYOUT_IDS = ['classic', 'studio', 'studio_2'];
 
 /** Свободная точка опенспейса — ближайшая к центру сетки, ищем спиралью колец. */
 function findOpenspaceStart(p: ReturnType<typeof passability>): Pos {

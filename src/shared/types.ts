@@ -63,6 +63,9 @@ export interface Desk {
   index: number;
   x: number; // в клетках сетки
   y: number;
+  /** Габарит стола в тайлах — с учётом `size`/`scale` предмета (§3.2). */
+  w: number;
+  h: number;
 }
 
 /**
