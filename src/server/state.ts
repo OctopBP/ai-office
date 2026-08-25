@@ -21,7 +21,10 @@ import {
 import { currentOffice, offices } from './offices';
 import { effectiveMode, isPermissionMode, modeLabel } from './permissions';
 import type { MessageQueue } from './queue';
-import { roleWith, rolesWith, workerRolesWith, type Role, type RoleOverrides } from './roles';
+import {
+  blankRole, defaultRole, defaultRoles, rolesFromOverrides, withManagerRole,
+  type Role,
+} from './roles';
 import {
   DEFAULT_STATE_FILE, flush as flushFile, load, save, wipe as wipeFile,
   type Persisted, type PersistedInstance,
@@ -93,24 +96,74 @@ export function onWorkerLimitChanged(fn: () => void): void {
   workerLimitWatcher = fn;
 }
 
+/** Непустая строка из файла состояния либо undefined: пустое поле — не значение. */
+const text = (value: unknown): string | undefined =>
+  (typeof value === 'string' && value.trim() ? value : undefined);
+
 /**
- * Причесать правки ролей из сохранения. Файл состояния правят руками, а лимит
- * ходов роли уезжает прямо в SDK: испорченное значение обрушило бы каждую
- * задачу этой роли. Непригодный лимит просто выкидываем — роль вернётся к
- * офисному, а остальные правки роли останутся на месте.
+ * Причесать одну роль из сохранения. Файл состояния правят руками, а роль
+ * уезжает прямо в SDK: без модели и названия она обрушила бы и офис, и запуск
+ * сессии. Каждое непригодное поле заменяем базовым значением этой роли —
+ * терять из-за одной опечатки весь набор нельзя.
  */
-function sanitizeRoleOverrides(raw: RoleOverrides | undefined): RoleOverrides {
-  const clean: RoleOverrides = {};
-  for (const [roleId, override] of Object.entries(raw ?? {})) {
-    if (!override) continue;
-    if (!('maxTurns' in override) || sanitizeMaxTurns(override.maxTurns) !== undefined) {
-      clean[roleId] = override;
-      continue;
-    }
-    const { maxTurns: _junk, ...rest } = override;
-    clean[roleId] = rest;
+function sanitizeRole(raw: Partial<Role>, id: string): Role {
+  const base = defaultRole(id) ?? blankRole(id);
+  const turns = sanitizeMaxTurns(raw.maxTurns);
+  const mode = raw.permissionMode;
+  return {
+    id,
+    title: text(raw.title) ?? base.title,
+    color: text(raw.color) ?? base.color,
+    emoji: text(raw.emoji) ?? base.emoji,
+    model: text(raw.model) ?? base.model,
+    isManager: typeof raw.isManager === 'boolean' ? raw.isManager : base.isManager,
+    maxInstances: typeof raw.maxInstances === 'number' && Number.isFinite(raw.maxInstances)
+      ? Math.max(0, Math.floor(raw.maxInstances))
+      : base.maxInstances,
+    // null у режима законен — «как в офисе», поэтому отличаем его от мусора.
+    permissionMode: mode === null || isPermissionMode(mode) ? mode : base.permissionMode,
+    isolate: typeof raw.isolate === 'boolean' ? raw.isolate : base.isolate,
+    // Непригодный лимит ходов выкидываем: роль вернётся к офисному, а
+    // остальные её настройки останутся на месте.
+    maxTurns: turns === undefined ? (base.maxTurns ?? null) : turns,
+    tools: Array.isArray(raw.tools)
+      ? raw.tools.filter((t): t is string => typeof t === 'string')
+      : base.tools,
+    docsDir: text(raw.docsDir) ?? base.docsDir,
+    // Пустой repoDir — законное «общий репозиторий офиса», а не пропуск.
+    repoDir: typeof raw.repoDir === 'string' ? raw.repoDir : base.repoDir,
+    brief: typeof raw.brief === 'string' ? raw.brief : base.brief,
+  };
+}
+
+/**
+ * Причесать набор ролей офиса из сохранения. Роль без id восстанавливать не из
+ * чего — выкидываем её целиком; второй записи с тем же id быть не может, иначе
+ * половина офиса работала бы по одной роли, половина по другой.
+ */
+function sanitizeRoles(raw: unknown): Role[] {
+  const clean: Role[] = [];
+  const seen = new Set<string>();
+  for (const item of Array.isArray(raw) ? raw : []) {
+    if (!item || typeof item !== 'object') continue;
+    const role = item as Partial<Role>;
+    const id = typeof role.id === 'string' ? role.id.trim() : '';
+    if (!id || seen.has(id)) continue;
+    seen.add(id);
+    clean.push(sanitizeRole(role, id));
   }
   return clean;
+}
+
+/**
+ * Набор ролей офиса из сохранения. Новый формат хранит роли целиком. В
+ * сохранениях до переезда ролей в офис их нет — есть только правки поверх
+ * базового набора: накладываем их на умолчания, иначе выставленные человеком
+ * модель, лимит и репозиторий пропали бы при первом же запуске.
+ */
+function rolesFromSave(data: Persisted): Role[] {
+  const stored = Array.isArray(data.roles) ? data.roles : rolesFromOverrides(data.roleOverrides);
+  return withManagerRole(sanitizeRoles(stored));
 }
 
 /**
@@ -249,11 +302,13 @@ export class OfficeState {
   /** Чей это офис: от него зависят worktree и файл состояния. */
   readonly officeId: string;
   /**
-   * Правки ролей этого офиса. Живут в самом офисе, а не в общем на процесс
-   * реестре: офисов в памяти несколько, они работают одновременно, и модель
-   * или репозиторий роли одного проекта не должны попадать в сессии другого.
+   * Набор ролей этого офиса — целиком, а не правками поверх общего реестра.
+   * Живёт в самом офисе и сохраняется вместе с его состоянием: офисов в
+   * памяти несколько, они работают одновременно, и ни модель роли, ни сама
+   * роль одного проекта не должны попадать в другой. Общего на процесс
+   * реестра ролей нет вовсе — офис у любой роли спрашивают явно.
    */
-  roleOverrides: RoleOverrides = {};
+  private roleList: Role[] = defaultRoles();
   /**
    * Расстановка мебели этого офиса поверх пресетов, ключ — id пресета (§8).
    * Своя у каждого офиса: пресет — общий эталон в репозитории, а подвинутый
@@ -353,19 +408,23 @@ export class OfficeState {
 
   // ---------- роли этого офиса ----------
 
-  /** Роли офиса: базовые с наложенными правками именно этого офиса. */
+  /**
+   * Роли этого офиса. Копия списка, а не он сам: набор меняется только через
+   * updateRole, и случайная правка на стороне вызывающего не должна тихо
+   * менять состав офиса.
+   */
   roles(): Role[] {
-    return rolesWith(this.roleOverrides);
+    return [...this.roleList];
   }
 
-  /** Роль офиса по id. undefined — такой роли в реестре нет. */
+  /** Роль офиса по id. undefined — такой роли в этом офисе нет. */
   role(id: string): Role | undefined {
-    return roleWith(this.roleOverrides, id);
+    return this.roleList.find((r) => r.id === id);
   }
 
   /** Роли, которым можно отдать задачу: все, кроме менеджера. */
   workerRoles(): Role[] {
-    return workerRolesWith(this.roleOverrides);
+    return this.roleList.filter((r) => !r.isManager);
   }
 
   /**
@@ -447,7 +506,7 @@ export class OfficeState {
       chat: this.chat,
       log: this.log.slice(-500),
       settings: this.settings,
-      roleOverrides: this.roleOverrides,
+      roles: this.roleList,
       layoutOverrides: this.layoutOverrides,
       instances: [...this.instances.values()].map<PersistedInstance>((i) => ({
         id: i.id, roleId: i.roleId, deskIndex: i.desk.index,
@@ -473,7 +532,7 @@ export class OfficeState {
     }
 
     // Роли восстанавливаем ДО seed: от них зависят названия и лимиты инстансов.
-    this.roleOverrides = sanitizeRoleOverrides(data.roleOverrides);
+    this.roleList = rolesFromSave(data);
     // Сохранения старше настройки движка не знают про облако — дополняем.
     this.settings = { ...DEFAULT_SETTINGS, ...(data.settings ?? {}) };
     // Файл раскладки могли удалить между запусками. Офис без мебели — не
@@ -1201,11 +1260,11 @@ export class OfficeState {
       if (turns === undefined) delete clean.maxTurns;
       else clean.maxTurns = turns;
     }
-    // Правки ложатся в сам офис: соседний работает со своими ролями.
-    this.roleOverrides = {
-      ...this.roleOverrides,
-      [roleId]: { ...(this.roleOverrides[roleId] ?? {}), ...(clean as Partial<Role>) },
-    };
+    // Правка ложится в набор ролей самого офиса: соседний работает со своими.
+    // Роль заменяется новым объектом, а не правится на месте: снимок, который
+    // держит уже запущенная сессия, обязан остаться прежним.
+    this.roleList = this.roleList.map((r) =>
+      (r.id === roleId ? { ...r, ...(clean as Partial<Role>) } : r));
     if ('permissionMode' in clean && clean.permissionMode !== base.permissionMode) {
       this.addLog(null, 'system', clean.permissionMode
         ? `Режим доступа роли ${base.title}: «${modeLabel(clean.permissionMode)}»`
