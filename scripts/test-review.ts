@@ -11,7 +11,7 @@ import { execFileSync } from 'node:child_process';
 import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { resolve } from 'node:path';
-import { office, worktreesRoot, type OfficeState, type Task } from '../src/server/state';
+import { getOffice, worktreesRoot, type OfficeState, type Task } from '../src/server/state';
 import { mergeableTasks } from '../src/server/merge';
 import {
   runPipeline, setPipelineAgents, whenPipelinesIdle,
@@ -19,6 +19,12 @@ import {
 } from '../src/server/review';
 import { superviseOffice } from '../src/server/supervisor';
 import { MessageQueue } from '../src/server/queue';
+
+/**
+ * Офис проверки берём по id: состояния живут в реестре по офисам, общего
+ * «текущего на процесс» нет — конвейер и надзор получают офис аргументом.
+ */
+const office = getOffice('o-1');
 
 const results: string[] = [];
 const check = (what: string, ok: boolean) => {

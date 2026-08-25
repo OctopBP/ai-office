@@ -16,7 +16,7 @@
  *   и «спросить» приходит в ту же модалку, что и локально.
  */
 import Anthropic from '@anthropic-ai/sdk';
-import { criteriaProgress, office, type Instance, type OfficeState, type Task } from './state';
+import { criteriaProgress, type Instance, type OfficeState, type Task } from './state';
 import type { PermissionMode } from '../shared/types';
 import { effectiveMode } from './permissions';
 import type { Role } from './roles';
@@ -51,7 +51,7 @@ const clip = (s: unknown, n = 70): string => {
 };
 
 /** Почему облачный режим сейчас не запустится. null — всё готово. */
-export function cloudProblem(state: OfficeState = office): string | null {
+export function cloudProblem(state: OfficeState): string | null {
   if (!process.env.ANTHROPIC_API_KEY && !process.env.ANTHROPIC_AUTH_TOKEN) {
     return 'Облачный режим работает только на платном API: задайте ANTHROPIC_API_KEY и перезапустите сервер.';
   }

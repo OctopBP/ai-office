@@ -22,7 +22,7 @@
  */
 import type { PullRequestView, ReviewVerdict } from '../shared/types';
 import {
-  office, taskRepo, criteriaProgress, worktreesRoot, type OfficeState, type Task,
+  taskRepo, criteriaProgress, worktreesRoot, type OfficeState, type Task,
 } from './state';
 import {
   abortMerge, commitAll, deleteRemoteBranch, diffBranch, ensureWorktree, fastForward,
@@ -587,5 +587,5 @@ export async function prDiff(pr: PullRequestView): Promise<string> {
 }
 
 /** Пулл-реквесты, по которым конвейер встал: их разбирают менеджер и человек. */
-export const stuckPrs = (state: OfficeState = office): PullRequestView[] =>
+export const stuckPrs = (state: OfficeState): PullRequestView[] =>
   [...state.prs.values()].filter((p) => p.stage === 'stuck');

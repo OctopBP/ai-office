@@ -12,12 +12,20 @@ import { fileURLToPath } from 'node:url';
 import { catalog, deskPlan, effectiveLayout } from '../src/server/layout';
 import { deskPoint } from '../src/shared/layout';
 import {
-  DEFAULT_SETTINGS, getOffice, office, openOfficeState, subscribeOffices, totalRunningWorkers,
+  DEFAULT_SETTINGS, getOffice, openOfficeState, subscribeOffices, totalRunningWorkers,
+  unloadOfficeState,
 } from '../src/server/state';
 import { flushAll, load, save, wipe, type Persisted } from '../src/server/store';
 import { DEFAULT_OFFICE_WORKERS, MAX_OFFICE_WORKERS, MAX_TASK_MAX_TURNS } from '../src/shared/types';
 import { cloudProblem, setGithubToken } from '../src/server/cloud';
 import { noStaffReason, officeAssign, releaseSlot, slotProblem, teamSummary } from '../src/server/agents';
+
+/**
+ * Офис проверок держим за явную ссылку по id: состояния живут в реестре по
+ * офисам, «текущего на процесс» больше нет — и проверка обязана называть тот
+ * офис, о котором говорит, ровно так же, как это делает сервер.
+ */
+const office = getOffice('o-1');
 
 async function main(): Promise<void> {
   office.seed();
@@ -76,14 +84,14 @@ async function main(): Promise<void> {
   );
 
   // 6. Облачный режим не запускается, пока не собраны все три условия.
-  const withoutKey = cloudProblem();
+  const withoutKey = cloudProblem(office);
   const hadKey = Boolean(process.env.ANTHROPIC_API_KEY);
   process.env.ANTHROPIC_API_KEY = 'test-key';
-  const withoutRepo = cloudProblem();
+  const withoutRepo = cloudProblem(office);
   office.updateSettings({ cloudRepoUrl: 'https://github.com/owner/repo' });
-  const withoutToken = cloudProblem();
+  const withoutToken = cloudProblem(office);
   setGithubToken('test-token');
-  const ready = cloudProblem();
+  const ready = cloudProblem(office);
   setGithubToken('');
   if (!hadKey) delete process.env.ANTHROPIC_API_KEY;
   results.push(
@@ -103,10 +111,10 @@ async function main(): Promise<void> {
     `роль осталась с нулём сотрудников: ${office.staffOf('smm').length === 0}`,
     `роль не исчезла из реестра: ${office.roleViews().some((r) => r.id === 'smm' && r.active === 0)}`,
     // Менеджер должен увидеть пустую роль как вакансию, а не решить, что её нет.
-    `list_team показывает роль без сотрудников: ${/smm[\s\S]*?сотрудников нет \(можно нанять\)/.test(teamSummary())}`,
+    `list_team показывает роль без сотрудников: ${/smm[\s\S]*?сотрудников нет \(можно нанять\)/.test(teamSummary(office))}`,
     // Назначение на пустую роль обязано быть понятным отказом, а не падением.
-    `assign_task на роль без сотрудников отказывает: ${/вакансия открыта/.test(noStaffReason('smm') ?? '')}`,
-    `роль с сотрудниками задачи берёт: ${noStaffReason('backend') === null}`,
+    `assign_task на роль без сотрудников отказывает: ${/вакансия открыта/.test(noStaffReason('smm', office) ?? '')}`,
+    `роль с сотрудниками задачи берёт: ${noStaffReason('backend', office) === null}`,
     `PM уволить нельзя: ${/PM/.test(office.fire('pm#1') ?? '')}`,
     // backend#1 занят задачей из проверки расходов выше.
     `занятого не увольняем и объясняем почему: ${/работает над задачей/.test(office.fire('backend#1') ?? '')}`,
@@ -290,10 +298,11 @@ async function main(): Promise<void> {
     title: 'начата без клиента', description: '', criteria: [], roleId: null,
   });
   const bgLabelled = heard - heardBeforeBg === 2 && from[from.length - 1] === 'o-test-a';
-  // Текущий офис — B, а работа легла в A: именно так ведёт себя сессия,
-  // начатая до переключения.
-  const bgStayedHome = office.officeId === 'o-test-b'
-    && a.state.tasks.has(taskInBackground.id) && !b.state.tasks.has(taskInBackground.id);
+  // Работа легла в A, хотя открыт был B: именно так ведёт себя сессия,
+  // начатая до переключения. Общего «текущего офиса» тут нет вовсе — доски
+  // разошлись по своим состояниям, каждое из которых зовут по id.
+  const bgStayedHome = a.state.tasks.has(taskInBackground.id)
+    && !b.state.tasks.has(taskInBackground.id);
 
   const backToA = openOfficeState({ id: 'o-test-a', projectDir: resolve(tmpdir(), 'office-a'), stateFile: regA });
   // Повторный вход не должен удваивать доставку: подписка ставится один раз
@@ -302,17 +311,27 @@ async function main(): Promise<void> {
   backToA.state.addLog(null, 'system', 'после возвращения');
   const noDoubleAfterReturn = heard - heardBeforeReturn === 1;
 
+  // Выгрузка и возвращение офиса подписчиков тоже не копят: состояние уходит
+  // из реестра вместе со своей единственной подпиской, а вернувшийся офис
+  // заводит новое состояние и подписывается ровно один раз.
+  unloadOfficeState('o-test-b');
+  const reborn = openOfficeState({ id: 'o-test-b', projectDir: resolve(tmpdir(), 'office-b'), stateFile: regB });
+  const heardBeforeReborn = heard;
+  reborn.state.addLog(null, 'system', 'после выгрузки и возвращения');
+  const noDoubleAfterReload = heard - heardBeforeReborn === 1 && reborn.state !== b.state;
+
   results.push(
     `один OfficeState на офис: ${getOffice('o-test-a') === a.state && a.state !== b.state}`,
     `повторное открытие не пересоздаёт состояние: ${backToA.reused && backToA.state === a.state}`,
     `доска офиса переживает переключение: ${backToA.state.tasks.has(taskInA.id)}`,
-    `office указывает на текущий офис: ${office.officeId === 'o-test-a'}`,
+    `состояние берётся по id офиса: ${getOffice('o-test-b') === reborn.state}`,
     `подписчик рассылки не дублируется: ${onceNotTwice}`,
     `событие помечено своим офисом: ${labelledA}`,
     `события офиса, открытого позже, доходят: ${heardFromB}`,
     `покинутый офис продолжает слать события под своей меткой: ${bgLabelled}`,
     `работа покинутого офиса остаётся в нём: ${bgStayedHome}`,
     `повторный вход не удваивает рассылку: ${noDoubleAfterReturn}`,
+    `выгрузка и возвращение не удваивают рассылку: ${noDoubleAfterReload}`,
   );
   wipe(regA);
   wipe(regB);
