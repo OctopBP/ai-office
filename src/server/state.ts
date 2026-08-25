@@ -12,10 +12,10 @@ import {
   emptyUsage, DEFAULT_OFFICE_WORKERS, MAX_OFFICE_WORKERS, MAX_TASK_MAX_TURNS,
   MIN_OFFICE_WORKERS, MIN_TASK_MAX_TURNS,
 } from '../shared/types';
-import { isEmptyOverride } from '../shared/layout';
+import { isBlocked, isEmptyOverride, passability } from '../shared/layout';
 import { activityFromFile, summarize } from './activity';
 import {
-  DEFAULT_LAYOUT_ID, checkPropEdit, deskPlan, effectiveLayout, hasLayout, layoutOptions,
+  DEFAULT_LAYOUT_ID, catalog, checkPropEdit, deskPlan, effectiveLayout, hasLayout, layoutOptions,
   layoutTitle, type DeskPlan,
 } from './layout';
 import { currentOffice, offices } from './offices';
@@ -716,20 +716,67 @@ export class OfficeState {
         this.emit({ t: 'instance', instance: this.instanceView(inst) });
       }
     }
+    // Клетки, на которых кто-то уже стоит: и занятые столы, и те, кого мы
+    // расставим ниже. Без этого безместные сошлись бы в одну точку.
+    const busy = new Set<string>();
+    for (const inst of this.instances.values()) {
+      if (taken.has(inst.desk.index)) busy.add(`${inst.desk.x},${inst.desk.y}`);
+    }
     for (const inst of homeless) {
       const free = desks.find((d) => !taken.has(d.index));
       if (!free) {
-        // Мест меньше, чем людей: столы кончились. Оставляем сотрудника там,
-        // где он был, и говорим об этом — молча растворять его нельзя.
+        // Мест меньше, чем людей: столы кончились. Индекс места сотрудник
+        // сохраняет — вернётся раскладка попросторнее, и он снова сядет за
+        // свой стол. А вот координаты чужой раскладки годятся не всегда: стол
+        // с x=23 в комнате шириной 8 оставил бы человечка за стеной. Поэтому
+        // ставим его на свободную клетку новой комнаты и говорим об этом —
+        // молча растворять сотрудника нельзя.
+        const spot = this.standingSpot(busy);
+        if (spot) {
+          busy.add(`${spot.x},${spot.y}`);
+          inst.desk = { ...inst.desk, x: spot.x, y: spot.y };
+          this.emit({ t: 'instance', instance: this.instanceView(inst) });
+        }
         this.addLog(null, 'system',
           `${inst.label} остался без рабочего места: в расстановке ${desks.length} мест ` +
           `на ${this.instances.size} сотрудников. Верните стол или увольте кого-нибудь.`);
         continue;
       }
       taken.add(free.index);
+      busy.add(`${free.x},${free.y}`);
       inst.desk = free;
       this.emit({ t: 'instance', instance: this.instanceView(inst) });
     }
+  }
+
+  /**
+   * Куда поставить сотрудника, которому в раскладке не хватило стола: ближайшая
+   * к центру комнаты проходимая и никем не занятая клетка. Центр, а не угол,
+   * потому что там человечек точно внутри комнаты и заметен — «стоит посреди
+   * офиса без стола» и есть то, что произошло.
+   *
+   * null — свободных клеток не осталось (раскладка из одних стен). Тогда
+   * сотрудник остаётся где стоял: это лучше, чем поставить его в стену.
+   */
+  private standingSpot(busy: Set<string>): { x: number; y: number } | null {
+    const layout = this.layout();
+    const grid = passability(layout, catalog);
+    const cx = Math.floor(grid.cols / 2);
+    const cy = Math.floor(grid.rows / 2);
+    // Обход кольцами от центра: первое же подходящее — оно и ближайшее.
+    const maxRing = Math.max(grid.cols, grid.rows);
+    for (let r = 0; r <= maxRing; r++) {
+      for (let dy = -r; dy <= r; dy++) {
+        for (let dx = -r; dx <= r; dx++) {
+          if (Math.max(Math.abs(dx), Math.abs(dy)) !== r) continue;
+          const x = cx + dx;
+          const y = cy + dy;
+          if (isBlocked(grid, x, y) || busy.has(`${x},${y}`)) continue;
+          return { x, y };
+        }
+      }
+    }
+    return null;
   }
 
   private freeDesk(): Desk | null {
