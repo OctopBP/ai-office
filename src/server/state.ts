@@ -174,6 +174,8 @@ export interface Instance {
   sessionId: string | null;
   label: string;
   desk: Desk;
+  /** Места в текущей раскладке не хватило — см. `InstanceView.deskless`. */
+  deskless: boolean;
   state: AgentState;
   currentTaskId: string | null;
   note: string | null;
@@ -550,6 +552,11 @@ export class OfficeState {
       for (const role of this.roles()) {
         if (role.isManager && this.staffOf(role.id).length === 0) this.spawn(role.id);
       }
+      // Раскладку могли сузить между запусками: кому-то стола не нашлось, и
+      // он поднялся «без стола» с координатами-заглушкой. Пересадка ставит
+      // такого внутрь комнаты и объясняет это в чате — так же, как при живой
+      // смене раскладки.
+      if ([...this.instances.values()].some((i) => i.deskless)) this.resyncDesks();
     }
     // Офисной суммы в старых сохранениях тоже нет — собираем её из агентов.
     if (!data.usage) {
@@ -562,6 +569,11 @@ export class OfficeState {
    * Вернуть сотрудника из сохранения как есть: тот же id, тот же стол,
    * те же расходы. Стол берём прежний, если он свободен, — иначе офис
    * «разъезжается» после смены раскладки.
+   *
+   * Стола может не найтись вовсе: раскладку офиса сузили, а состав команды
+   * остался прежним. Сотрудника всё равно поднимаем — «без стола», с
+   * запомненным номером места. Раньше он тут молча пропадал вместе со своей
+   * сессией и расходами, и объяснить это исчезновение было нечем.
    */
   private rehire(pi: PersistedInstance): void {
     const role = this.role(pi.roleId);
@@ -570,13 +582,15 @@ export class OfficeState {
     const desks = this.deskPlan().desks;
     const desk = (!taken.has(pi.deskIndex) && desks.find((d) => d.index === pi.deskIndex))
       || this.freeDesk();
-    if (!desk) return;
     const n = pi.id.split('#')[1] ?? '1';
     this.instances.set(pi.id, {
       id: pi.id,
       roleId: pi.roleId,
       label: `${role.title}${role.maxInstances > 1 ? ` #${n}` : ''}`,
-      desk,
+      // Координаты безместного поправит resyncDesks — он же знает, какие
+      // клетки уже заняты соседями.
+      desk: desk ?? { index: pi.deskIndex, x: 0, y: 0 },
+      deskless: !desk,
       state: 'idle',
       currentTaskId: null,
       note: null,
@@ -719,62 +733,111 @@ export class OfficeState {
    * (правка предмета, сброс, смена пресета) — иначе какая-нибудь из них
    * оставила бы клиента рисовать вчерашнюю расстановку, а человечков — сидеть
    * в воздухе.
+   *
+   * `prevLayoutId` — пресет, с которого ушли. Нужен только затем, чтобы в
+   * совете «верните прежнюю раскладку» назвать её по имени: человек выбирал
+   * из списка подписей, а не из id.
    */
-  private afterLayoutChange(): void {
-    this.resyncDesks();
+  private afterLayoutChange(prevLayoutId?: string): void {
+    this.resyncDesks(prevLayoutId);
     this.emit({ t: 'layout', layout: this.layout(), override: this.override() });
     this.markDirty();
   }
 
   /**
-   * Подтянуть координаты рабочих мест под итоговую раскладку. Индекс места —
-   * контракт (`Desk.index`), поэтому сотрудник остаётся за своим столом, а
-   * едет вслед за ним только позиция. Если стола с таким индексом больше нет
-   * (предмет убрали), сажаем на любой свободный.
+   * Пересадить всех по итоговой раскладке. Порядок разбора и есть правило
+   * рассадки:
+   *
+   * 1. Менеджер — за стол PM НОВОЙ раскладки. Он закреплён раскладкой, а не
+   *    номером места: иначе после смены пресета PM сидел бы за случайным
+   *    столом, а на его законный сел бы исполнитель.
+   * 2. Остальные — за место со своим прежним индексом, если оно есть и
+   *    свободно. Индекс — контракт (`Desk.index`), поэтому «стол N остаётся
+   *    столом N», а едет вслед за столом только позиция.
+   * 3. Кому прежнего места не досталось (стол убрали, номер занял PM) — на
+   *    любой свободный.
+   * 4. Кому столов не хватило совсем — состояние «без стола», см. ниже.
    */
-  private resyncDesks(): void {
-    const desks = this.deskPlan().desks;
+  private resyncDesks(prevLayoutId?: string): void {
+    const plan = this.deskPlan();
+    const desks = plan.desks;
     const taken = new Set<number>();
+    const queue: Instance[] = [];
     const homeless: Instance[] = [];
     // Клетки, на которых кто-то уже стоит. Заполняется только теми, кто сидит:
     // координаты безместного относятся к прежней раскладке, и считать их
     // занятыми в новой значило бы городить призрачные препятствия.
     const busy = new Set<string>();
-    for (const inst of this.instances.values()) {
-      const same = desks.find((d) => d.index === inst.desk.index);
-      if (!same || taken.has(same.index)) { homeless.push(inst); continue; }
-      taken.add(same.index);
-      busy.add(`${same.x},${same.y}`);
-      if (same.x !== inst.desk.x || same.y !== inst.desk.y) {
-        inst.desk = same;
-        this.emit({ t: 'instance', instance: this.instanceView(inst) });
-      }
-    }
-    for (const inst of homeless) {
-      const free = desks.find((d) => !taken.has(d.index));
-      if (!free) {
-        // Мест меньше, чем людей: столы кончились. Индекс места сотрудник
-        // сохраняет — вернётся раскладка попросторнее, и он снова сядет за
-        // свой стол. А вот координаты чужой раскладки годятся не всегда: стол
-        // с x=23 в комнате шириной 8 оставил бы человечка за стеной. Поэтому
-        // ставим его на свободную клетку новой комнаты и говорим об этом —
-        // молча растворять сотрудника нельзя.
-        const spot = this.standingSpot(busy);
-        if (spot) {
-          busy.add(`${spot.x},${spot.y}`);
-          inst.desk = { ...inst.desk, x: spot.x, y: spot.y };
-          this.emit({ t: 'instance', instance: this.instanceView(inst) });
-        }
-        this.addLog(null, 'system',
-          `${inst.label} остался без рабочего места: в расстановке ${desks.length} мест ` +
-          `на ${this.instances.size} сотрудников. Верните стол или увольте кого-нибудь.`);
-        continue;
-      }
-      taken.add(free.index);
-      busy.add(`${free.x},${free.y}`);
-      inst.desk = free;
+
+    const seat = (inst: Instance, desk: Desk): void => {
+      taken.add(desk.index);
+      busy.add(`${desk.x},${desk.y}`);
+      const moved = inst.desk.index !== desk.index
+        || inst.desk.x !== desk.x || inst.desk.y !== desk.y;
+      if (!moved && !inst.deskless) return;
+      inst.desk = desk;
+      inst.deskless = false;
       this.emit({ t: 'instance', instance: this.instanceView(inst) });
+    };
+
+    // 1. Менеджер садится первым — его стол в новой раскладке занят по праву.
+    const manager = [...this.instances.values()].find((i) => this.role(i.roleId)?.isManager);
+    const pmDesk = desks[plan.pmIndex];
+    if (manager && pmDesk) seat(manager, pmDesk);
+
+    // 2. Каждый на своё прежнее место, если оно уцелело и свободно.
+    for (const inst of this.instances.values()) {
+      if (inst === manager && pmDesk) continue;
+      const same = desks.find((d) => d.index === inst.desk.index);
+      if (!same || taken.has(same.index) || inst.deskless) { queue.push(inst); continue; }
+      seat(inst, same);
     }
+
+    // 3. Вытесненные — на свободные места, по порядку номеров.
+    for (const inst of queue) {
+      // Безместный сначала пробует вернуться на свой запомненный номер: он
+      // мог освободиться вместе с приходом просторной раскладки.
+      const own = inst.deskless ? desks.find((d) => d.index === inst.desk.index && !taken.has(d.index)) : undefined;
+      const free = own ?? desks.find((d) => !taken.has(d.index));
+      if (!free) { homeless.push(inst); continue; }
+      seat(inst, free);
+    }
+
+    // 4. Столы кончились. Индекс места сотрудник сохраняет — вернётся
+    // раскладка попросторнее, и он снова сядет за свой стол. А вот координаты
+    // чужой раскладки годятся не всегда: стол с x=23 в комнате шириной 8
+    // оставил бы человечка за стеной. Поэтому ставим его на свободную клетку
+    // новой комнаты и помечаем «без стола» — молча растворять сотрудника
+    // нельзя, а рисовать за столом, которого нет, тем более.
+    for (const inst of homeless) {
+      const spot = this.standingSpot(busy);
+      if (spot) busy.add(`${spot.x},${spot.y}`);
+      inst.desk = spot ? { ...inst.desk, x: spot.x, y: spot.y } : inst.desk;
+      inst.deskless = true;
+      this.emit({ t: 'instance', instance: this.instanceView(inst) });
+      this.addLog(null, 'system',
+        `${inst.label} остался без рабочего места: в расстановке ${desks.length} мест ` +
+        `на ${this.instances.size} сотрудников. Верните стол или увольте кого-нибудь.`);
+    }
+    if (homeless.length) this.tellAboutHomeless(homeless, desks.length, prevLayoutId);
+  }
+
+  /**
+   * Сказать в чат офиса, кого не посадили и что с этим делать. Лента получает
+   * строку на каждого — она про события; человеку же нужен один разбор с
+   * именами и двумя выходами, иначе «кто-то стоит без стола» останется
+   * замеченным только на картинке.
+   */
+  private tellAboutHomeless(homeless: Instance[], deskCount: number, prevLayoutId?: string): void {
+    const who = homeless.map((i) => i.label).join(', ');
+    const back = prevLayoutId && prevLayoutId !== this.settings.layoutId
+      ? ` или вернуть прежнюю раскладку «${layoutTitle(prevLayoutId)}»`
+      : ' или вернуть прежнюю раскладку';
+    this.addChat('офис',
+      `⚠️ В раскладке «${layoutTitle(this.settings.layoutId)}» ${deskCount} рабочих мест ` +
+      `на ${this.instances.size} сотрудников. Без стола ${homeless.length === 1 ? 'остался' : 'остались'}: ` +
+      `${who}. Работать они не перестали, но сидят не за столом. ` +
+      `Чтобы это исправить, надо уволить кого-нибудь${back}.`);
   }
 
   /**
@@ -846,6 +909,8 @@ export class OfficeState {
       roleId,
       label: `${role.title}${role.maxInstances > 1 ? ` #${n}` : ''}`,
       desk,
+      // Нанимают только когда стол нашёлся: `spawn` без места возвращает null.
+      deskless: false,
       state: 'idle',
       currentTaskId: null,
       note: null,
@@ -1087,7 +1152,7 @@ export class OfficeState {
    */
   instanceView(i: Instance): InstanceView {
     return {
-      id: i.id, roleId: i.roleId, label: i.label, desk: i.desk,
+      id: i.id, roleId: i.roleId, label: i.label, desk: i.desk, deskless: i.deskless,
       state: i.state, currentTaskId: i.currentTaskId, note: i.note,
       usage: i.usage, today: i.daily[dayKey()] ?? emptyUsage(),
       permissionMode: i.permissionMode,
@@ -1201,7 +1266,9 @@ export class OfficeState {
       // для ленты. Вместе с пресетом меняется и оверрайд: у каждого пресета
       // своя расстановка, и на новом офис показывает то, что правили на нём.
       this.addLog(null, 'system', `Раскладка офиса: «${layoutTitle(this.settings.layoutId)}»`);
-      this.afterLayoutChange();
+      // Прежний пресет передаём дальше: если мест в новом не хватит, офис
+      // предложит вернуться именно к нему, по имени.
+      this.afterLayoutChange(prevLayout);
     }
     // Лимит исполнителей меняет, сколько денег офис тратит в минуту, — это
     // событие для ленты, а не тихое число в форме. Поднятый лимит ещё и

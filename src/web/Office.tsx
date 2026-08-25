@@ -98,10 +98,12 @@ export function Office({ onOpen, onDoor }: {
   const roleOf = (id: string) => roles.find((r) => r.id === id);
 
   /** Точка отрисовки агента: если он «дома» за своим столом — нужный отступ
-   * внутри клетки (deskPoint), иначе координата его ходьбы как есть. */
+   * внутри клетки (deskPoint), иначе координата его ходьбы как есть.
+   * У безместного стола с таким номером в раскладке нет — deskPoint по нему
+   * бросил бы и обрушил всю комнату; он просто стоит там, где сказал сервер. */
   const workPointOf = (inst: InstanceView) => {
     const p = pos[inst.id] ?? { x: inst.desk.x, y: inst.desk.y, ms: 0 };
-    const atDesk = p.x === inst.desk.x && p.y === inst.desk.y;
+    const atDesk = !inst.deskless && p.x === inst.desk.x && p.y === inst.desk.y;
     return atDesk ? deskPoint(room.layout, catalog, inst.desk.index, 'work') : p;
   };
 
@@ -230,8 +232,9 @@ export function Office({ onOpen, onDoor }: {
         </div>
       ))}
 
-      {/* таблички с кодом задачи на столах */}
-      {list.filter((i) => i.currentTaskId).map((inst) => {
+      {/* таблички с кодом задачи на столах: у безместного стола нет — вешать
+          табличку не на что */}
+      {list.filter((i) => i.currentTaskId && !i.deskless).map((inst) => {
         const plate = deskPoint(room.layout, catalog, inst.desk.index, 'plate');
         return (
           <div
