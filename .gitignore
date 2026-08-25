@@ -4,3 +4,10 @@ dist/
 .env
 workspace/
 .figma-preview/
+
+# Мусор от прогонов в рабочих копиях исполнителей.
+# .tmp-test/ — сюда node складывает свой compile-cache, когда песочница
+# закрывает системный TMPDIR; каталог уже уезжал в ветку задачи.
+.tmp-test/
+# __pycache__/ — байт-код генераторов спрайтов из design/sprites.
+__pycache__/
