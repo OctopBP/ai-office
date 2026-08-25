@@ -1572,8 +1572,9 @@ function startWorker(taskOffice: OfficeState, task: Task, inst: Instance): void 
           sandbox: SANDBOX,
           // Лимит ходов берём из настроек офиса задачи, а не из константы:
           // задачи разной величины упираются в него по-разному, и поднять его
-          // должно быть можно без правки кода. null — без ограничения.
-          maxTurns: taskOffice.settings.taskMaxTurns ?? undefined,
+          // должно быть можно без правки кода. Свой лимит роли сильнее
+          // офисного, null — без ограничения.
+          maxTurns: taskOffice.turnsFor(role) ?? undefined,
           maxBudgetUsd: taskOffice.settings.taskBudgetUsd ?? undefined,
           abortController: abort,
         },
@@ -2064,7 +2065,9 @@ async function runAgentSession(
         canUseTool: permissionHandler(state, inst.id, opts.taskId, opts.cwd),
         settingSources: [],
         sandbox: SANDBOX,
-        maxTurns: state.settings.taskMaxTurns ?? undefined,
+        // Доработка по отзыву и разбор конфликта — та же работа исполнителя,
+        // и лимит ходов у них тот же: свой у роли, иначе офисный.
+        maxTurns: state.turnsFor(role) ?? undefined,
         maxBudgetUsd: state.settings.taskBudgetUsd ?? undefined,
         abortController: abort,
       },

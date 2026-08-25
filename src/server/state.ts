@@ -94,6 +94,26 @@ export function onWorkerLimitChanged(fn: () => void): void {
 }
 
 /**
+ * Причесать правки ролей из сохранения. Файл состояния правят руками, а лимит
+ * ходов роли уезжает прямо в SDK: испорченное значение обрушило бы каждую
+ * задачу этой роли. Непригодный лимит просто выкидываем — роль вернётся к
+ * офисному, а остальные правки роли останутся на месте.
+ */
+function sanitizeRoleOverrides(raw: RoleOverrides | undefined): RoleOverrides {
+  const clean: RoleOverrides = {};
+  for (const [roleId, override] of Object.entries(raw ?? {})) {
+    if (!override) continue;
+    if (!('maxTurns' in override) || sanitizeMaxTurns(override.maxTurns) !== undefined) {
+      clean[roleId] = override;
+      continue;
+    }
+    const { maxTurns: _junk, ...rest } = override;
+    clean[roleId] = rest;
+  }
+  return clean;
+}
+
+/**
  * Причесать оверрайды расстановки из сохранения. Файл состояния правят руками,
  * а испорченная координата уехала бы прямо в рендер и в сетку проходимости:
  * непригодные правки выкидываем поштучно, а не теряем всю расстановку.
@@ -346,6 +366,15 @@ export class OfficeState {
     return workerRolesWith(this.roleOverrides);
   }
 
+  /**
+   * Потолок ходов сессии этой роли: свой лимит роли сильнее офисного,
+   * null — без ограничения. Одна функция и на показ в UI, и на запуск сессии,
+   * чтобы человек видел ровно то число, которое уедет в SDK.
+   */
+  turnsFor(role: Pick<Role, 'maxTurns'>): number | null {
+    return role.maxTurns ?? this.settings.taskMaxTurns ?? null;
+  }
+
   subscribe(fn: Listener): () => void {
     this.listeners.add(fn);
     return () => this.listeners.delete(fn);
@@ -442,7 +471,7 @@ export class OfficeState {
     }
 
     // Роли восстанавливаем ДО seed: от них зависят названия и лимиты инстансов.
-    this.roleOverrides = data.roleOverrides ?? {};
+    this.roleOverrides = sanitizeRoleOverrides(data.roleOverrides);
     // Сохранения старше настройки движка не знают про облако — дополняем.
     this.settings = { ...DEFAULT_SETTINGS, ...(data.settings ?? {}) };
     // Файл раскладки могли удалить между запусками. Офис без мебели — не
@@ -1082,9 +1111,11 @@ export class OfficeState {
     return this.roles().map<RoleView>((r) => ({
       id: r.id, title: r.title, emoji: r.emoji, color: r.color, model: r.model,
       permissionMode: r.permissionMode, maxInstances: r.maxInstances,
-      isolate: r.isolate, repoDir: r.repoDir ?? '', brief: r.brief, isManager: r.isManager,
+      isolate: r.isolate, maxTurns: r.maxTurns ?? null,
+      repoDir: r.repoDir ?? '', brief: r.brief, isManager: r.isManager,
       active: [...this.instances.values()].filter((i) => i.roleId === r.id).length,
       effectivePermissionMode: effectiveMode(null, r.permissionMode, officeMode),
+      effectiveMaxTurns: this.turnsFor(r),
     }));
   }
 
@@ -1096,6 +1127,14 @@ export class OfficeState {
     if ('permissionMode' in clean
         && clean.permissionMode !== null && !isPermissionMode(clean.permissionMode)) {
       delete clean.permissionMode;
+    }
+    // Лимит ходов роли проверяем теми же границами, что и офисный: с нулём или
+    // строкой сессия роли падала бы на первом ходу. null законен — он значит
+    // «как в офисе», поэтому отличаем его от непригодного значения.
+    if ('maxTurns' in clean) {
+      const turns = sanitizeMaxTurns(clean.maxTurns);
+      if (turns === undefined) delete clean.maxTurns;
+      else clean.maxTurns = turns;
     }
     // Правки ложатся в сам офис: соседний работает со своими ролями.
     this.roleOverrides = {
