@@ -18,7 +18,11 @@ import {
 import { flushAll, load, save, wipe, type Persisted } from '../src/server/store';
 import { DEFAULT_OFFICE_WORKERS, MAX_OFFICE_WORKERS, MAX_TASK_MAX_TURNS } from '../src/shared/types';
 import { cloudProblem, setGithubToken } from '../src/server/cloud';
-import { noStaffReason, officeAssign, releaseSlot, slotProblem, teamSummary } from '../src/server/agents';
+import {
+  noStaffReason, officeAssign, releaseSlot, resetSessions, sendUserMessage, slotProblem, teamSummary,
+} from '../src/server/agents';
+import { MessageQueue } from '../src/server/queue';
+import { tellPm } from '../src/server/review';
 
 /**
  * Офис проверок держим за явную ссылку по id: состояния живут в реестре по
@@ -613,6 +617,76 @@ async function main(): Promise<void> {
   else process.env.OFFICE_DRY_RUN_DELAY = prevDelay;
   wipe(capA);
   wipe(capB);
+
+  // 14. Очередь менеджера принадлежит офису, а не процессу. Настоящей сессии
+  // PM тут нет и быть не должно: очередь с циклом подставляются заранее, и
+  // startPm видит менеджера уже поднятым. Проверяется адресация — в чью
+  // очередь ложится сообщение и чью гасит закрытие сессий.
+  const pmFileA = resolve(tmpdir(), `office-test-pm-a-${process.pid}.json`);
+  const pmFileB = resolve(tmpdir(), `office-test-pm-b-${process.pid}.json`);
+  const pa = openOfficeState({ id: 'o-pm-a', projectDir: resolve(tmpdir(), 'pm-a'), stateFile: pmFileA }).state;
+  const pb = openOfficeState({ id: 'o-pm-b', projectDir: resolve(tmpdir(), 'pm-b'), stateFile: pmFileB }).state;
+  pa.seed();
+  pb.seed();
+  const qa = new MessageQueue();
+  const qb = new MessageQueue();
+  pa.pmQueue = qa;
+  pa.pmLoop = Promise.resolve();
+  pb.pmQueue = qb;
+  pb.pmLoop = Promise.resolve();
+  const ia = qa[Symbol.asyncIterator]();
+  const ib = qb[Symbol.asyncIterator]();
+  /** Прочитать сообщение очереди, не подвесив прогон, если его нет. */
+  const took = async (it: AsyncIterator<{ message: { content: unknown } }>): Promise<string | null> => {
+    const r = await Promise.race([
+      it.next(),
+      new Promise<null>((res) => { setTimeout(() => res(null), 30); }),
+    ]);
+    return r && !r.done ? String(r.value.message.content) : null;
+  };
+
+  // (а) Сообщение пользователя уходит менеджеру того офиса, где его написали.
+  sendUserMessage(pa, 'вопрос в офис A');
+  sendUserMessage(pb, 'вопрос в офис B');
+  const gotA = await took(ia);
+  const gotB = await took(ib);
+  const routedByOffice = gotA === 'вопрос в офис A' && gotB === 'вопрос в офис B';
+  const chatByOffice = pa.chat.some((c) => c.text === 'вопрос в офис A')
+    && !pb.chat.some((c) => c.text === 'вопрос в офис A');
+
+  // (б) Системное уведомление конвейера — тот же адресат: очередь офиса задачи.
+  tellPm(pb, '[СИСТЕМА] отчёт офиса B');
+  const notifiedB = await took(ib) === '[СИСТЕМА] отчёт офиса B';
+  const notLeakedToA = await took(ia) === null;
+
+  // (в) Остановленные вручную задачи считаются по офису: id задач в разных
+  // офисах совпадают, и общий набор путал бы «остановлено» с «упало».
+  pa.stoppedByUser.add('T-1');
+  const stopsByOffice = pa.stoppedByUser.has('T-1') && !pb.stoppedByUser.has('T-1');
+
+  // (г) Сброс сессий гасит очередь своего офиса и не трогает соседнюю:
+  // иначе сброс доски в одном офисе рвал бы разговор в другом.
+  resetSessions(pa);
+  const closedOwn = pa.pmQueue === null && pa.pmLoop === null
+    && (await ia.next()).done === true && pa.stoppedByUser.size === 0;
+  const neighbourAlive = pb.pmQueue === qb && pb.pmLoop !== null;
+  sendUserMessage(pb, 'офис B всё ещё говорит');
+  const neighbourStillTakes = await took(ib) === 'офис B всё ещё говорит';
+
+  results.push(
+    `сообщение пользователя уходит в очередь своего офиса: ${routedByOffice}`,
+    `лента сообщения тоже остаётся в своём офисе: ${chatByOffice}`,
+    `системное уведомление адресуется офису задачи: ${notifiedB}`,
+    `в чужую очередь ничего не протекло: ${notLeakedToA}`,
+    `остановленные вручную задачи считаются по офису: ${stopsByOffice}`,
+    `сброс сессий гасит очередь своего офиса: ${closedOwn}`,
+    `очередь соседнего офиса от этого не пострадала: ${neighbourAlive}`,
+    `и продолжает принимать сообщения: ${neighbourStillTakes}`,
+  );
+  unloadOfficeState('o-pm-a');
+  unloadOfficeState('o-pm-b');
+  wipe(pmFileA);
+  wipe(pmFileB);
 
   // Прошедшей считается только строка, кончающаяся на true. Раньше проверялось
   // обратное — «не false», — и любая строка, где вместо булева оказалось
