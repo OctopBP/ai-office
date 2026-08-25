@@ -304,22 +304,35 @@ export function meetingSeat(
   };
 }
 
-/**
- * Базовые позиции ring-слота — те же `meetingSeat()`, но при `total = ring`
- * (без роста радиуса сверх заявленной вместимости, §3.1). Нужны, чтобы
- * расчистить эти клетки в `passability()`: реальный `total` на встрече — из
- * runtime и заранее неизвестен, но при `total <= ring` места совпадают с
- * подмножеством этой базовой окружности (шаг угла делит `ring` без остатка
- * для степеней двух, как у нынешних 4/8), а при `total > ring` радиус только
- * растёт, унося места дальше от центра и от мебели вокруг него.
- */
-function ringSeats(prop: LayoutProp, sprite: CatalogSprite, slot: SlotRing): Pos[] {
+/** Позиции ring-слота при заданном total — та же формула, что в `meetingSeat()`. */
+function ringSeatsAt(prop: LayoutProp, sprite: CatalogSprite, slot: SlotRing, total: number): Pos[] {
   const center = propCenter(prop, sprite);
-  const n = Math.max(slot.ring, 1);
+  const n = Math.max(total, 1);
+  const grow = slot.grow && n > slot.ring ? n / slot.ring : 1;
   const seats: Pos[] = [];
   for (let i = 0; i < n; i++) {
     const angle = (i / n) * Math.PI * 2 - Math.PI / 2;
-    seats.push({ x: center.x + Math.cos(angle) * slot.rx, y: center.y + Math.sin(angle) * slot.ry });
+    seats.push({ x: center.x + Math.cos(angle) * slot.rx * grow, y: center.y + Math.sin(angle) * slot.ry * grow });
+  }
+  return seats;
+}
+
+/**
+ * Позиции ring-слота по всем реалистичным total, которые нужно расчистить в
+ * `passability()`: реальный `total` на встрече — из runtime и заранее
+ * неизвестен, а расчистка только базовой окружности (`total = ring`) не
+ * покрывает остальные случаи — при `total`, не делящем `ring` нацело (3, 5,
+ * 6, 7…), либо превышающем его (рост эллипса), места ложатся на другие
+ * клетки, которые всё ещё числятся частью footprint предмета (у него нет
+ * своей точной формы — это прямоугольник, у ring-слота — эллипс, и на грубой
+ * сетке тайлов они не всегда совпадают). Верхняя граница `total` — число
+ * рабочих столов в раскладке: больше живых участников одновременно
+ * физически не бывает, у каждого агента свой стол (§3.3).
+ */
+function ringSeatsRange(prop: LayoutProp, sprite: CatalogSprite, slot: SlotRing, maxTotal: number): Pos[] {
+  const seats: Pos[] = [];
+  for (let total = 1; total <= Math.max(maxTotal, slot.ring); total++) {
+    seats.push(...ringSeatsAt(prop, sprite, slot, total));
   }
   return seats;
 }
@@ -533,14 +546,17 @@ export function isBlocked(p: Passability, x: number, y: number): boolean {
  * считается вся его площадь `size`. Слоты (`work`/`seat`) у всех предметов
  * расчищаются отдельным проходом следом — иначе агент не встанет на своё
  * место, если оно попало на кромку footprint соседнего предмета. Кольцевые
- * слоты (`ring`, переговорка) расчищаются тем же проходом на позициях по
- * умолчанию (total = ring): рост эллипса при `total` сверх `ring` — уже
- * динамика вызова `meetingSeat()`, а не свойство статичной сетки.
+ * слоты (`ring`, переговорка) расчищаются тем же проходом по всем
+ * реалистичным `total` — от 1 до числа рабочих столов в раскладке
+ * (`ringSeatsRange`, T-89): расчистка только базовой окружности (total =
+ * ring) оставляла непроходимыми места при других total, не делящих ring
+ * нацело, либо превышающих его.
  */
 export function passability(layout: Layout, catalog: Catalog): Passability {
   const [cols, rows] = layout.size;
   const blocked = new Uint8Array(cols * rows);
   const p: Passability = { cols, rows, blocked };
+  const maxMeetingTotal = deskProps(layout, catalog).length;
   const mark = (x: number, y: number, value: 0 | 1) => {
     const cx = Math.floor(x);
     const cy = Math.floor(y);
@@ -577,7 +593,7 @@ export function passability(layout: Layout, catalog: Catalog): Passability {
       } else if (isSide(slot)) {
         for (const pt of sideSeats(prop, sprite!, slot)) mark(pt.x, pt.y, 0);
       } else if (isRing(slot)) {
-        for (const pt of ringSeats(prop, sprite!, slot)) mark(pt.x, pt.y, 0);
+        for (const pt of ringSeatsRange(prop, sprite!, slot, maxMeetingTotal)) mark(pt.x, pt.y, 0);
       }
     }
   }
