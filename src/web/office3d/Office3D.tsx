@@ -406,7 +406,7 @@ export function Office3D() {
             <WallSegment key={i} wall={wall} offset={offset} palette={palette} />
           ))}
         </group>
-        <Props3D items={placed} palette={palette} offset={offset} />
+        <Props3D items={placed} palette={palette} offset={offset} size={scene.size} />
         <Agents3D offset={offset} />
       </Canvas>
     </div>

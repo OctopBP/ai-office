@@ -14,7 +14,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useThree } from '@react-three/fiber';
 import * as THREE from 'three';
-import { endDrag, rotateDrag, startDrag, updateDrag, useStore } from '../store';
+import { DRAG_GRID, endDrag, rotateDrag, startDrag, updateDrag, useStore } from '../store';
 import type { Palette } from './palette';
 import type { Placed3, Prop3 } from './props';
 
@@ -24,6 +24,53 @@ const ROT_STEP = 15;
 
 /** Цвет подсветки предмета в редакторе — акцент интерфейса. */
 const EDIT_ACCENT = '#f0b429';
+
+/**
+ * Сетка расстановки, которая рисуется на полу, пока предмет несут.
+ *
+ * Шаг у неё ровно тот, к которому предмет прилипает (`DRAG_GRID`): сетка
+ * здесь не украшение, а показ того, куда предмет может встать. Нарисовать её
+ * с другим шагом значило бы обмануть — человек целился бы в линию, а предмет
+ * вставал между.
+ *
+ * Появляется только на время переноса: постоянная сетка на полу превратила бы
+ * офис в чертёж, а нужна она ровно тогда, когда что-то ставят.
+ */
+function EditGrid({ size }: { size: [number, number] }) {
+  const [w, d] = size;
+  const geometry = useMemo(() => {
+    const pts: number[] = [];
+    // Полтайла — мелкая сетка привязки; целые тайлы отрисованы отдельно и
+    // ярче, иначе в частой сетке не найти опорную линию.
+    for (let x = 0; x <= w + 1e-6; x += DRAG_GRID) pts.push(x, 0, 0, x, 0, d);
+    for (let z = 0; z <= d + 1e-6; z += DRAG_GRID) pts.push(0, 0, z, w, 0, z);
+    const g = new THREE.BufferGeometry();
+    g.setAttribute('position', new THREE.Float32BufferAttribute(pts, 3));
+    return g;
+  }, [w, d]);
+
+  const major = useMemo(() => {
+    const pts: number[] = [];
+    for (let x = 0; x <= w + 1e-6; x += 1) pts.push(x, 0, 0, x, 0, d);
+    for (let z = 0; z <= d + 1e-6; z += 1) pts.push(0, 0, z, w, 0, z);
+    const g = new THREE.BufferGeometry();
+    g.setAttribute('position', new THREE.Float32BufferAttribute(pts, 3));
+    return g;
+  }, [w, d]);
+
+  useEffect(() => () => { geometry.dispose(); major.dispose(); }, [geometry, major]);
+
+  return (
+    <>
+      <lineSegments geometry={geometry} position={[0, 0.04, 0]}>
+        <lineBasicMaterial color={EDIT_ACCENT} transparent opacity={0.18} depthWrite={false} />
+      </lineSegments>
+      <lineSegments geometry={major} position={[0, 0.05, 0]}>
+        <lineBasicMaterial color={EDIT_ACCENT} transparent opacity={0.38} depthWrite={false} />
+      </lineSegments>
+    </>
+  );
+}
 
 /** Толщина столешниц, полок и спинок — одна на всю обстановку. */
 const SLAB = 0.12;
@@ -212,11 +259,13 @@ function Prop({ item, materials, editing, dragged, onGrab }: {
  * их семь на три десятка предметов, и общий материал позволяет three
  * складывать меши в один вызов отрисовки.
  */
-export function Props3D({ items, palette, offset }: {
+export function Props3D({ items, palette, offset, size }: {
   items: Placed3[];
   palette: Palette;
   /** сдвиг комнаты в мир — тот же, что у пола и стен */
   offset: [number, number];
+  /** размер раскладки в тайлах — по нему рисуется сетка расстановки */
+  size: [number, number];
 }) {
   const materials = useMemo(() => {
     const made: Record<string, THREE.Material> = {};
@@ -305,6 +354,7 @@ export function Props3D({ items, palette, offset }: {
 
   return (
     <group position={[offset[0], 0, offset[1]]}>
+      {dragItem && <EditGrid size={size} />}
       {items.map((item) => (
         <Prop
           key={item.key}
