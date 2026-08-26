@@ -377,11 +377,33 @@ button
   max-width: 320px; overflow: hidden; text-overflow: ellipsis;
 }
 .tag3d-card {
-  padding: 3px 9px; white-space: nowrap; font-size: 11px; line-height: 1.35;
-  box-shadow: 0 2px 0 var(--shadow); text-align: center;
+  padding: 4px 6px; line-height: 1.2;
+  box-shadow: 0 2px 0 var(--shadow);
 }
-.tag3d-card .line1 b { font-size: 11px; }
-.tag3d-card .line2 { font-size: 10px; max-width: 210px; overflow: hidden; text-overflow: ellipsis; }
+/* Одна строка: слева значок должности с номером, по центру название
+   должности, справа состояние. Всё, что раньше стояло в две строки мелким
+   текстом («backend#1 · свободен», под ним роль), сжалось в этот ряд —
+   читать издалека там было нечего. */
+.tag3d-row { display: flex; align-items: center; gap: 7px; }
+.tag3d-chip {
+  flex: none; font: 700 12px/1 ui-monospace, Menlo, monospace; letter-spacing: .02em;
+  color: var(--green); border: 2px solid var(--green); border-radius: 999px;
+  padding: 3px 6px; min-width: 26px; text-align: center;
+}
+.tag3d-name {
+  flex: 1; font-weight: 700; font-size: 13px; text-align: center;
+  max-width: 150px; overflow: hidden; text-overflow: ellipsis;
+}
+.tag3d-state {
+  flex: none; width: 22px; height: 22px; border-radius: 999px;
+  border: 2px solid var(--line); display: flex; align-items: center;
+  justify-content: center; font-size: 11px; line-height: 1;
+}
+.tag3d-state .dot { width: 9px; height: 9px; border-radius: 999px; display: block; }
+.tag3d-task {
+  margin-top: 3px; font-size: 10px; text-align: center; opacity: .7;
+  max-width: 190px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
 .tag3d-plate {
   font: 700 10px/1.5 ui-monospace, Menlo, monospace; letter-spacing: .04em;
   color: var(--panel); background: var(--line); border-radius: 3px; padding: 0 5px;

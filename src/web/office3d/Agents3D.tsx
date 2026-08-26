@@ -119,7 +119,33 @@ const DESK_TOP = 1.05;
  * восемь карточек закрывают комнату целиком — а отдалённый вид как раз и
  * нужен, чтобы видеть офис, а не читать в нём таблички.
  */
-const TAG_SCALE = 9;
+const TAG_SCALE = 15;
+
+/**
+ * Цвет точки состояния — для тех состояний, у которых нет своей иконки
+ * (свободен, идёт). Остальным хватает эмодзи из `STATE_ICON`, и цветом их
+ * дублировать незачем.
+ */
+const STATE_DOT: Record<AgentState, string> = {
+  idle: '#5fd35a', walking: '#8a93a8', thinking: '#f0b429', working: '#f0b429',
+  talking: '#f0b429', waiting_approval: '#ff6b57', paused: '#8a93a8',
+  blocked: '#ff6b57', done: '#5fd35a', failed: '#ff6b57',
+};
+
+/**
+ * Короткое обозначение должности с номером: `backend#1` → `B1`, `pm#1` → `PM1`.
+ *
+ * Считается по идентификатору роли, а не по её названию: идентификатор
+ * латинский, без пробелов и не меняется при переименовании должности, —
+ * значок остаётся тем же, как бы роль ни назвали в интерфейсе. Двухбуквенные
+ * идентификаторы (`pm`) берутся целиком: «P» вместо «PM» узнаётся хуже.
+ */
+function shortTag(inst: InstanceView): string {
+  const n = inst.id.split('#')[1] ?? '';
+  const id = inst.roleId || '?';
+  const abbr = id.length <= 2 ? id.toUpperCase() : id[0].toUpperCase();
+  return `${abbr}${n}`;
+}
 
 interface Loaded {
   model: THREE.Group;
@@ -192,17 +218,21 @@ function AgentTag({ inst, role, task }: {
       <div className="tag3d">
         {inst.note && inst.state !== 'idle' && <div className="tag3d-bubble">{inst.note}</div>}
         <div className="tag3d-card pixel">
-          <div className="line1">
-            <b>{inst.id}</b>
-            <span className="muted"> · {STATE_TEXT[inst.state]}</span>
-            {icon && <span className="ico"> {icon}</span>}
-            {inst.deskless && (
-              <span className="ico" title="Без рабочего места — не хватило столов в раскладке"> 🪑</span>
-            )}
+          <div className="tag3d-row">
+            <span className="tag3d-chip">{shortTag(inst)}</span>
+            <span className="tag3d-name">
+              {inst.deskless && <span title="Без рабочего места — не хватило столов в раскладке">🪑 </span>}
+              {role?.title ?? inst.label}
+            </span>
+            {/* Состояние — иконкой: у большинства состояний она своя, у
+                «свободен» и «идёт» её нет, и там кружок берёт цвет. Круг
+                фиксированного размера, чтобы строка не прыгала при смене
+                состояния. */}
+            <span className="tag3d-state" title={STATE_TEXT[inst.state]}>
+              {icon || <i className="dot" style={{ background: STATE_DOT[inst.state] }} />}
+            </span>
           </div>
-          <div className="line2 muted">
-            {task ? `${task.id} · ${task.title}` : role?.title}
-          </div>
+          {task && <div className="tag3d-task">{task.id} · {task.title}</div>}
         </div>
       </div>
     </Html>
