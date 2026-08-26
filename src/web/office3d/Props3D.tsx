@@ -11,12 +11,15 @@
  * Когда придут модели, `shape` станет ссылкой на файл, `shapeOf` — загрузкой
  * gltf, а `props.ts`, размещение, повороты и тени останутся как есть.
  */
-import { useEffect, useMemo, useRef, useState } from 'react';
-import { useThree } from '@react-three/fiber';
+import { Suspense, useEffect, useMemo, useRef, useState } from 'react';
+import { useLoader, useThree } from '@react-three/fiber';
 import * as THREE from 'three';
+import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import { DRAG_GRID, endDrag, rotateDrag, startDrag, updateDrag, useStore } from '../store';
 import type { Palette } from './palette';
-import type { Placed3, Prop3 } from './props';
+import { MODEL_URLS } from './models';
+import { MODEL_SCALE } from './props';
+import type { ModelPart, Placed3, Prop3 } from './props';
 
 /** Шаг поворота колесом, градусы. Мелкий намеренно: прямые углы — не
  *  единственное, что бывает нужно, а набрать 90° шестью щелчками недолго. */
@@ -178,12 +181,61 @@ function partsOf(item: Placed3): Parts {
 }
 
 /**
+ * Модели предмета, готовые к вставке в сцену.
+ *
+ * Загруженная сцена клонируется на каждый предмет: столов в комнате десять,
+ * а файл один, и делить между ними один и тот же объект нельзя — у него одна
+ * матрица на всех.
+ *
+ * Масштаб общий для всего набора (`MODEL_SCALE`), а не подогнанный под след
+ * каждого предмета: набор нарисован соразмерным сам себе, и подгонка по
+ * следу — который у нас посчитан по пиксельному арту — эту соразмерность бы
+ * сломала. Стул рядом со столом должен быть стулом рядом со столом.
+ */
+function PropModels({ parts }: { parts: ModelPart[] }) {
+  const urls = parts.map((p) => MODEL_URLS[p.file]).filter(Boolean);
+  const loaded = useLoader(GLTFLoader, urls);
+  const scenes = Array.isArray(loaded) ? loaded : [loaded];
+
+  const objects = useMemo(() => scenes.map((gltf, i) => {
+    const object = gltf.scene.clone(true);
+    object.scale.setScalar(MODEL_SCALE);
+    object.traverse((o) => {
+      if (o instanceof THREE.Mesh) { o.castShadow = true; o.receiveShadow = true; }
+    });
+    const [x, y, z] = parts[i].at ?? [0, 0, 0];
+    object.position.set(x, y, z);
+    object.rotation.y = ((parts[i].rot ?? 0) * Math.PI) / 180;
+    return object;
+  }), [scenes, parts]);
+
+  return <>{objects.map((o, i) => <primitive key={i} object={o} />)}</>;
+}
+
+/**
  * Геометрия одного предмета без всякого поведения: коробки по частям из
  * `partsOf`, поставленные и повёрнутые. Вынесена отдельно, потому что ровно
  * то же самое рисуют интерактивные предметы — доска задач, экран лога,
  * дверь, — а вот ведут они себя иначе (`Hotspots3D.tsx`).
  */
 export function PropShape({ item, materials }: {
+  item: Placed3;
+  materials: Record<string, THREE.Material>;
+}) {
+  // Есть модель — примитивы не рисуем вовсе. Пока она грузится, место
+  // остаётся пустым: показывать коробку, которую через миг заменят, значит
+  // моргать мебелью на каждом открытии комнаты.
+  if (item.def.models) {
+    return (
+      <Suspense fallback={null}>
+        <PropModels parts={item.def.models} />
+      </Suspense>
+    );
+  }
+  return <PrimitiveShape item={item} materials={materials} />;
+}
+
+function PrimitiveShape({ item, materials }: {
   item: Placed3;
   materials: Record<string, THREE.Material>;
 }) {

@@ -32,8 +32,29 @@ export type Shape =
   | 'slab'      // плоское на полу: ковёр, плитка, коврик у двери
   | 'box';      // мелочь и всё, чего нет в таблице
 
+/** Одна модель в составе предмета: файл из набора и где она стоит. */
+export interface ModelPart {
+  /** Имя файла в `design/models/furniture`, без расширения. */
+  file: string;
+  /** Куда поставить основание модели относительно центра следа, тайлы. */
+  at?: [number, number, number];
+  /** Довернуть модель вокруг вертикали, градусы. */
+  rot?: number;
+}
+
 export interface Prop3 {
   shape: Shape;
+  /**
+   * Настоящая модель вместо примитивов. Когда она есть, `shape` не рисуется
+   * вовсе — он остаётся запасным вариантом для предметов, которым модели ещё
+   * не нашлось. Это и есть тот шов, ради которого таблица заводилась
+   * отдельно: замена коробок на модель — одна строка на предмет.
+   *
+   * Список, а не одна модель: стол в наборе идёт без монитора, и компьютер
+   * ставится на него отдельной моделью. Собирать предмет из нескольких —
+   * нормальный способ пользоваться набором, а не исключение.
+   */
+  models?: ModelPart[];
   /** Высота, тайлы. Тайл — примерно 0.75 м (стол шириной 2 тайла = 1.5 м). */
   h: number;
   /** Глубина следа, тайлы. Нужна только там, где в каталоге нет `footprint`. */
@@ -49,12 +70,31 @@ export interface Prop3 {
  * 0.9 м, спинка стула — 0.9 м, шкаф — под два метра. В тайлах это 1.0, 1.2,
  * 1.2 и 2.5 соответственно.
  */
+/**
+ * Тайлов в одной единице модели.
+ *
+ * Набор Kenney нарисован в масштабе «единица = 2 метра»: стол там 0.384
+ * единицы высотой, это 77 сантиметров — ровно столько, сколько положено
+ * столу. Тайл у нас 0.75 метра, отсюда и число. Оно одно на весь набор:
+ * предметы в нём соразмерны друг другу, и подгонять каждый под свой след
+ * значило бы эту соразмерность сломать.
+ */
+export const MODEL_SCALE = 2 / 0.75;
+
+/** Стол с компьютером: в наборе это две отдельные модели. */
+const DESK_MODELS: ModelPart[] = [
+  { file: 'desk' },
+  // Монитор стоит на столешнице у дальнего края — там, где ему и место,
+  // если за столом сидят с ближней стороны.
+  { file: 'computerScreen', at: [0.1, 1.02, -0.3] },
+];
+
 export const PROPS: Record<string, Prop3> = {
-  desk: { shape: 'desk', h: 1.0, tone: 'wood' },
-  desk_pm: { shape: 'desk', h: 1.0, tone: 'wood' },
+  desk: { shape: 'desk', h: 1.0, tone: 'wood', models: DESK_MODELS },
+  desk_pm: { shape: 'desk', h: 1.0, tone: 'wood', models: DESK_MODELS },
   dining_table: { shape: 'table', h: 1.0, tone: 'wood' },
   round_table: { shape: 'round', h: 1.0, d: 1.375, tone: 'wood' },
-  chair: { shape: 'chair', h: 1.2, d: 0.65, tone: 'fabric' },
+  chair: { shape: 'chair', h: 1.2, d: 0.65, tone: 'fabric', models: [{ file: 'chairDesk' }] },
 
   bookshelf: { shape: 'cabinet', h: 2.5, d: 0.5, tone: 'wood' },
   server_rack: { shape: 'cabinet', h: 2.5, d: 0.8, tone: 'metal' },
@@ -68,7 +108,7 @@ export const PROPS: Record<string, Prop3> = {
   sink_counter: { shape: 'counter', h: 1.2, tone: 'wood' },
   counter_corner: { shape: 'counter', h: 1.2, tone: 'wood' },
 
-  sofa: { shape: 'soft', h: 1.1, d: 1.2, tone: 'fabric' },
+  sofa: { shape: 'soft', h: 1.1, d: 1.2, tone: 'fabric', models: [{ file: 'loungeSofa' }] },
   beanbag: { shape: 'soft', h: 0.7, d: 0.85, tone: 'accent' },
 
   plant_big: { shape: 'plant', h: 1.9, tone: 'leaf' },
