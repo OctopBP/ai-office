@@ -134,6 +134,28 @@ const STATE_COLOR: Record<AgentState, string> = {
 };
 
 /**
+ * Тёмный или светлый текст поверх цвета роли — по яркости самого цвета.
+ *
+ * Цвета ролей задаёт пользователь, и среди них есть и жёлтый, и тёмно-синий.
+ * Одна фиксированная краска текста на половине из них была бы нечитаема,
+ * поэтому берём ту, что контрастнее: формула — стандартная относительная
+ * яркость (доли по восприятию: зелёный весит больше красного, красный —
+ * больше синего). Цвета фиксированные, а не из темы: значок залит своим
+ * цветом независимо от того, дневная сейчас тема или ночная.
+ */
+function inkOn(hex: string): string {
+  const v = hex.replace('#', '');
+  if (v.length !== 6) return '#181320';
+  const r = parseInt(v.slice(0, 2), 16) / 255;
+  const g = parseInt(v.slice(2, 4), 16) / 255;
+  const b = parseInt(v.slice(4, 6), 16) / 255;
+  return 0.299 * r + 0.587 * g + 0.114 * b > 0.6 ? '#181320' : '#ffffff';
+}
+
+/** Цвет значка, если роль неизвестна — например, её удалили из офиса. */
+const NO_ROLE_COLOR = '#94a3b8';
+
+/**
  * Короткое обозначение должности с номером: `backend#1` → `B1`, `pm#1` → `PM1`.
  *
  * Считается по идентификатору роли, а не по её названию: идентификатор
@@ -210,6 +232,7 @@ function AgentTag({ inst, role, task, expanded }: {
   expanded: boolean;
 }) {
   const icon = STATE_ICON[inst.state];
+  const chipColor = role?.color || NO_ROLE_COLOR;
   return (
     <Html
       center
@@ -222,7 +245,15 @@ function AgentTag({ inst, role, task, expanded }: {
         {inst.note && inst.state !== 'idle' && <div className="tag3d-bubble">{inst.note}</div>}
         <div className="tag3d-card">
           <div className={`tag3d-row${expanded ? '' : ' compact'}`}>
-            <span className="tag3d-chip">{shortTag(inst)}</span>
+            {/* Цвет значка — цвет роли из её настроек, тот же, что у неё в
+                панели команды: раскрашивать должности заново значило бы
+                завести второй набор цветов для тех же ролей. */}
+            <span
+              className="tag3d-chip"
+              style={{ background: chipColor, color: inkOn(chipColor) }}
+            >
+              {shortTag(inst)}
+            </span>
             {expanded && (
               <span className="tag3d-name">
                 {inst.deskless && <span title="Без рабочего места — не хватило столов в раскладке">🪑 </span>}

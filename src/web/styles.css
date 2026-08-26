@@ -385,7 +385,6 @@ button
   background: var(--panel);
   border: 3px solid var(--line);
   border-radius: 999px;
-  padding: 3px;
   box-shadow: 0 2px 0 var(--shadow);
 }
 /* Одна строка: слева значок должности с номером, по центру название
@@ -399,21 +398,24 @@ button
 .tag3d-row.compact { gap: 3px; }
 /* Значок должности залит, а не обведён: у капсулы уже есть своя обводка, и
    вторая рамка того же веса рядом читалась бы как ошибка вёрстки. */
+/* Значок и кружок состояния прижаты к обводке капсулы — у неё нет
+   внутреннего отступа, — поэтому оба одной высоты: иначе капсула вытянулась
+   бы по большему, и меньший повис бы в пустоте. Цвет значка приходит из
+   настроек роли и задаётся в разметке. */
 .tag3d-chip {
   flex: none; font: 800 12px/1 ui-monospace, Menlo, monospace; letter-spacing: .02em;
-  color: var(--line); background: var(--green);
   border: 2px solid var(--line); border-radius: 999px;
-  padding: 3px 6px; min-width: 26px; text-align: center;
+  padding: 4px 6px; min-width: 26px; text-align: center;
 }
 .tag3d-name {
   flex: 1; font-weight: 800; font-size: 12px; line-height: 1.1; text-align: center;
-  max-width: 110px; padding: 0 2px;
+  max-width: 110px; padding: 0 4px;
 }
 /* Кружок состояния залит его цветом целиком. Иконка внутри — если у
    состояния она есть; у «свободен» и «идёт» её нет, и кружок остаётся
    просто цветным, как в макете. */
 .tag3d-state {
-  flex: none; width: 22px; height: 22px; border-radius: 999px;
+  flex: none; width: 24px; height: 24px; border-radius: 999px;
   border: 2px solid var(--line);
   display: flex; align-items: center; justify-content: center;
   font-size: 11px; line-height: 1;
