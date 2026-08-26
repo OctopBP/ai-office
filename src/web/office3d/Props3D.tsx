@@ -11,7 +11,7 @@
  * Когда придут модели, `shape` станет ссылкой на файл, `shapeOf` — загрузкой
  * gltf, а `props.ts`, размещение, повороты и тени останутся как есть.
  */
-import { Suspense, useEffect, useMemo, useRef, useState } from 'react';
+import { createContext, useContext, useEffect, useMemo, useRef, useState } from 'react';
 import { useLoader, useThree } from '@react-three/fiber';
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
@@ -180,6 +180,31 @@ function partsOf(item: Placed3): Parts {
   }
 }
 
+/** Загруженные сцены набора по имени файла. */
+const ModelsContext = createContext<Record<string, THREE.Object3D>>({});
+
+const MODEL_NAMES = Object.keys(MODEL_URLS);
+const MODEL_LIST = MODEL_NAMES.map((n) => MODEL_URLS[n]);
+
+/**
+ * Загрузка всего набора мебели одной точкой.
+ *
+ * Раньше каждый предмет грузил свои модели сам и висел на собственном
+ * `Suspense`. Два десятка точек подвешивания в одном дереве r3f сцену не
+ * поднимали вовсе: ветка так и оставалась неотрисованной, хотя файлы
+ * приходили. Одна загрузка на всю комнату — и проще, и надёжнее: моделей
+ * всего четыре, а предметов, которые их делят, два десятка.
+ */
+export function FurnitureModels({ children }: { children: React.ReactNode }) {
+  const loaded = useLoader(GLTFLoader, MODEL_LIST) as unknown as { scene: THREE.Object3D }[];
+  const map = useMemo(() => {
+    const made: Record<string, THREE.Object3D> = {};
+    MODEL_NAMES.forEach((name, i) => { made[name] = loaded[i].scene; });
+    return made;
+  }, [loaded]);
+  return <ModelsContext.Provider value={map}>{children}</ModelsContext.Provider>;
+}
+
 /**
  * Модели предмета, готовые к вставке в сцену.
  *
@@ -193,23 +218,46 @@ function partsOf(item: Placed3): Parts {
  * сломала. Стул рядом со столом должен быть стулом рядом со столом.
  */
 function PropModels({ parts }: { parts: ModelPart[] }) {
-  const urls = parts.map((p) => MODEL_URLS[p.file]).filter(Boolean);
-  const loaded = useLoader(GLTFLoader, urls);
-  const scenes = Array.isArray(loaded) ? loaded : [loaded];
+  const models = useContext(ModelsContext);
 
-  const objects = useMemo(() => scenes.map((gltf, i) => {
-    const object = gltf.scene.clone(true);
+  const objects = useMemo(() => parts.map((part) => {
+    const source = models[part.file];
+    if (!source) return null;
+    const object = source.clone(true);
     object.scale.setScalar(MODEL_SCALE);
     object.traverse((o) => {
       if (o instanceof THREE.Mesh) { o.castShadow = true; o.receiveShadow = true; }
     });
-    const [x, y, z] = parts[i].at ?? [0, 0, 0];
-    object.position.set(x, y, z);
-    object.rotation.y = ((parts[i].rot ?? 0) * Math.PI) / 180;
-    return object;
-  }), [scenes, parts]);
 
-  return <>{objects.map((o, i) => <primitive key={i} object={o} />)}</>;
+    /**
+     * Модель центрируется по собственным габаритам, а не ставится «как есть».
+     *
+     * У набора начало координат где придётся: у дивана оно в левом переднем
+     * углу, у стола — у левой кромки. Поставить такую модель в центр следа
+     * значит сдвинуть её на пол-ширины вбок — именно поэтому агенты
+     * оказывались левее дивана, а стулья мимо столов. Здесь модель приводится
+     * к общему правилу: середина по горизонтали, низ по вертикали, — и `at`
+     * начинает значить то, что написано в его описании.
+     *
+     * Поворот делается вокруг уже выровненного центра, поэтому обёртка:
+     * повернуть смещённую модель — снова увезти её в сторону.
+     */
+    const box = new THREE.Box3().setFromObject(object);
+    object.position.set(
+      -(box.min.x + box.max.x) / 2,
+      -box.min.y,
+      -(box.min.z + box.max.z) / 2,
+    );
+
+    const holder = new THREE.Group();
+    holder.add(object);
+    const [x, y, z] = part.at ?? [0, 0, 0];
+    holder.position.set(x, y, z);
+    holder.rotation.y = ((part.rot ?? 0) * Math.PI) / 180;
+    return holder;
+  }), [models, parts]);
+
+  return <>{objects.map((o, i) => (o ? <primitive key={i} object={o} /> : null))}</>;
 }
 
 /**
@@ -225,13 +273,7 @@ export function PropShape({ item, materials }: {
   // Есть модель — примитивы не рисуем вовсе. Пока она грузится, место
   // остаётся пустым: показывать коробку, которую через миг заменят, значит
   // моргать мебелью на каждом открытии комнаты.
-  if (item.def.models) {
-    return (
-      <Suspense fallback={null}>
-        <PropModels parts={item.def.models} />
-      </Suspense>
-    );
-  }
+  if (item.def.models) return <PropModels parts={item.def.models} />;
   return <PrimitiveShape item={item} materials={materials} />;
 }
 

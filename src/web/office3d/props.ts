@@ -81,12 +81,19 @@ export interface Prop3 {
  */
 export const MODEL_SCALE = 2 / 0.75;
 
-/** Стол с компьютером: в наборе это две отдельные модели. */
+/**
+ * Стол с компьютером: в наборе это две отдельные модели.
+ *
+ * Оба развёрнуты на 180°. Набор смотрит «лицом» в +Z, а сидят за нашим столом
+ * с северной стороны — это −Z: слот `work` у стола объявлен выше его якоря.
+ * Без разворота стол стоит к человеку задом, а монитор — экраном в стену.
+ *
+ * Монитор при этом стоит у дальней от человека кромки (+Z) и смотрит на
+ * него: так стоит монитор на любом рабочем столе.
+ */
 const DESK_MODELS: ModelPart[] = [
-  { file: 'desk' },
-  // Монитор стоит на столешнице у дальнего края — там, где ему и место,
-  // если за столом сидят с ближней стороны.
-  { file: 'computerScreen', at: [0.1, 1.02, -0.3] },
+  { file: 'desk', rot: 180 },
+  { file: 'computerScreen', at: [-0.1, 1.02, 0.3], rot: 180 },
 ];
 
 export const PROPS: Record<string, Prop3> = {
@@ -94,7 +101,9 @@ export const PROPS: Record<string, Prop3> = {
   desk_pm: { shape: 'desk', h: 1.0, tone: 'wood', models: DESK_MODELS },
   dining_table: { shape: 'table', h: 1.0, tone: 'wood' },
   round_table: { shape: 'round', h: 1.0, d: 1.375, tone: 'wood' },
-  chair: { shape: 'chair', h: 1.2, d: 0.65, tone: 'fabric', models: [{ file: 'chairDesk' }] },
+  // Стул развёрнут туда же, куда стол: сидящий смотрит на монитор, а не в
+  // противоположную стену.
+  chair: { shape: 'chair', h: 1.2, d: 0.65, tone: 'fabric', models: [{ file: 'chairDesk', rot: 180 }] },
 
   bookshelf: { shape: 'cabinet', h: 2.5, d: 0.5, tone: 'wood' },
   server_rack: { shape: 'cabinet', h: 2.5, d: 0.8, tone: 'metal' },

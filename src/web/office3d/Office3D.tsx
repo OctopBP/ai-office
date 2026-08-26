@@ -13,7 +13,7 @@
  * (снап на 45°, границы) остаётся на потом, здесь ровно столько, чтобы было
  * на что смотреть.
  */
-import { useEffect, useLayoutEffect, useMemo, useRef } from 'react';
+import { Suspense, useEffect, useLayoutEffect, useMemo, useRef } from 'react';
 import { Canvas, useFrame, useThree } from '@react-three/fiber';
 import { OrbitControls } from '@react-three/drei';
 import * as THREE from 'three';
@@ -24,7 +24,7 @@ import { catalog } from '../layoutData';
 import { paletteOf, type Palette } from './palette';
 import { WALL_H, scene3, type Box3, type Scene3, type Wall3 } from './geometry';
 import { place3 } from './props';
-import { Props3D } from './Props3D';
+import { FurnitureModels, Props3D } from './Props3D';
 import { Hotspots3D, type Spot3, type SpotKind } from './Hotspots3D';
 import { Agents3D } from './Agents3D';
 
@@ -433,11 +433,17 @@ export function Office3D({ onOpen, onDoor }: {
             <WallSegment key={i} wall={wall} offset={offset} palette={palette} />
           ))}
         </group>
-        <Props3D items={placed} palette={palette} offset={offset} size={scene.size} />
-        <Hotspots3D
-          spots={spots} layout={layout} palette={palette} offset={offset}
-          onOpen={onOpen} onDoor={onDoor}
-        />
+        {/* Мебель ждёт своих моделей одним общим `Suspense`: пока набор не
+            приехал, комната стоит пустой, но стены и пол уже нарисованы. */}
+        <Suspense fallback={null}>
+          <FurnitureModels>
+            <Props3D items={placed} palette={palette} offset={offset} size={scene.size} />
+            <Hotspots3D
+              spots={spots} layout={layout} palette={palette} offset={offset}
+              onOpen={onOpen} onDoor={onDoor}
+            />
+          </FurnitureModels>
+        </Suspense>
         <Agents3D offset={offset} />
       </Canvas>
     </div>
