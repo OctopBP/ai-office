@@ -107,7 +107,6 @@ function useSkinMaterials(): THREE.Material[] {
     // Текстуры Kenney — плашки плоского цвета без градиентов: сглаживание
     // при уменьшении только мылит их и перемешивает соседние плашки.
     map.magFilter = THREE.NearestFilter;
-    map.flipY = false;
     return new THREE.MeshLambertMaterial({ map });
   }), [textures]);
 }
@@ -157,19 +156,33 @@ function Agent({ inst, loaded, material, layout, offset }: {
     const idle = mixer.clipAction(loaded.idle);
     const walk = mixer.clipAction(loaded.walk);
     walk.timeScale = WALK_TIMESCALE;
-    idle.play();
     return { idle, walk };
   }, [mixer, loaded.idle, loaded.walk]);
 
-  useEffect(() => () => {
-    mixer.stopAllAction();
-    mixer.uncacheRoot(figure);
-  }, [mixer, figure]);
+  const walking = useRef(false);
+
+  /**
+   * Запуск анимации живёт в эффекте, а не в `useMemo` рядом с созданием
+   * действий, — и это не вкусовщина. React в StrictMode монтирует компонент,
+   * тут же пробно размонтирует и монтирует снова; `useMemo` при этом не
+   * пересчитывается, а вот очистка эффекта отрабатывает. Останови анимацию в
+   * очистке, запусти её в мемо — и после пробного цикла запускать будет уже
+   * некому: все фигуры так и застынут в T-позе.
+   *
+   * `uncacheRoot` в очистке по той же причине не зовём: он рвёт привязку
+   * клипов к костям, а после пробного размонтирования её никто не
+   * восстановит. Микшер живёт вместе с компонентом и уезжает в сборку мусора
+   * следом за ним.
+   */
+  useEffect(() => {
+    walking.current = false;
+    actions.idle.reset().play();
+    return () => { mixer.stopAllAction(); };
+  }, [actions, mixer]);
 
   /** Цель в мировых координатах и сколько секунд на неё отведено. */
   const target = useRef(new THREE.Vector3());
   const remain = useRef(0);
-  const walking = useRef(false);
   const yaw = useRef(REST_YAW);
 
   /**
