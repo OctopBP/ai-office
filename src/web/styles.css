@@ -376,33 +376,44 @@ button
   border-radius: 6px; padding: 3px 8px; font-size: 11px; white-space: nowrap;
   max-width: 320px; overflow: hidden; text-overflow: ellipsis;
 }
-.tag3d-card {
-  padding: 4px 6px; line-height: 1.2;
-  box-shadow: 0 2px 0 var(--shadow);
-}
+/* Подложки у карточки нет: над сценой висят только сами элементы. Читаемость
+   держит не плашка, а обводка текста цветом фона (`--panel` — светлый в
+   дневной теме и тёмный в ночной, то есть всегда контрастный тексту). У
+   значка и кружка состояния своя заливка остаётся: это отдельные фигуры, а
+   не подложка под строку. */
+.tag3d-card { line-height: 1.15; }
 /* Одна строка: слева значок должности с номером, по центру название
    должности, справа состояние. Всё, что раньше стояло в две строки мелким
    текстом («backend#1 · свободен», под ним роль), сжалось в этот ряд —
    читать издалека там было нечего. */
-.tag3d-row { display: flex; align-items: center; gap: 7px; }
+.tag3d-row { display: flex; align-items: center; gap: 4px; }
 .tag3d-chip {
   flex: none; font: 700 12px/1 ui-monospace, Menlo, monospace; letter-spacing: .02em;
-  color: var(--green); border: 2px solid var(--green); border-radius: 999px;
+  color: var(--green); background: var(--panel);
+  border: 2px solid var(--green); border-radius: 999px;
   padding: 3px 6px; min-width: 26px; text-align: center;
 }
 .tag3d-name {
-  flex: 1; font-weight: 700; font-size: 13px; text-align: center;
+  flex: 1; font-weight: 700; font-size: 12px; line-height: 1.1; text-align: center;
   max-width: 150px; overflow: hidden; text-overflow: ellipsis;
+  text-shadow:
+    -1px 0 var(--panel), 1px 0 var(--panel),
+    0 -1px var(--panel), 0 1px var(--panel),
+    0 2px 4px var(--shadow);
 }
 .tag3d-state {
   flex: none; width: 22px; height: 22px; border-radius: 999px;
-  border: 2px solid var(--line); display: flex; align-items: center;
-  justify-content: center; font-size: 11px; line-height: 1;
+  border: 2px solid var(--line); background: var(--panel);
+  display: flex; align-items: center; justify-content: center;
+  font-size: 11px; line-height: 1;
 }
 .tag3d-state .dot { width: 9px; height: 9px; border-radius: 999px; display: block; }
 .tag3d-task {
-  margin-top: 3px; font-size: 10px; text-align: center; opacity: .7;
+  margin-top: 2px; font-size: 10px; line-height: 1.1; text-align: center; opacity: .75;
   max-width: 190px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  text-shadow:
+    -1px 0 var(--panel), 1px 0 var(--panel),
+    0 -1px var(--panel), 0 1px var(--panel);
 }
 .tag3d-plate {
   font: 700 10px/1.5 ui-monospace, Menlo, monospace; letter-spacing: .04em;

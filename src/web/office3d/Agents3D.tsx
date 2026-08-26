@@ -217,7 +217,7 @@ function AgentTag({ inst, role, task }: {
     >
       <div className="tag3d">
         {inst.note && inst.state !== 'idle' && <div className="tag3d-bubble">{inst.note}</div>}
-        <div className="tag3d-card pixel">
+        <div className="tag3d-card">
           <div className="tag3d-row">
             <span className="tag3d-chip">{shortTag(inst)}</span>
             <span className="tag3d-name">
