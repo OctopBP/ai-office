@@ -262,6 +262,10 @@ export function roomFor(layout: Layout): RoomData {
   const fixed: RenderProp[] = [];
   const sorted: RenderProp[] = [];
   layout.props.forEach((p, i) => {
+    // Предметы, у которых есть только модель, плоский рендер пропускает:
+    // рисовать ему нечем. В каталоге они есть — там их габариты, след и
+    // посадочные места, — но картинки у них нет и не будет.
+    if (catalog.sprites[p.sprite]?.modelOnly) return;
     const item: RenderProp = {
       key: keys[i], sprite: p.sprite, x: p.at[0], y: p.at[1], scale: p.scale, rot: p.rot, z: 0,
     };

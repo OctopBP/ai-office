@@ -119,6 +119,10 @@ export const PROPS: Record<string, Prop3> = {
   counter_corner: { shape: 'counter', h: 1.2, tone: 'wood' },
 
   sofa: { shape: 'soft', h: 1.1, d: 1.2, tone: 'fabric', models: [{ file: 'loungeSofa' }] },
+  // Кресло существует только моделью — пиксельного арта у него нет, и
+  // плоский офис его не рисует. Запасная форма всё равно объявлена: она
+  // понадобится, если модель не приедет.
+  armchair: { shape: 'soft', h: 1.1, d: 1.09, tone: 'fabric', models: [{ file: 'loungeChair' }] },
   beanbag: { shape: 'soft', h: 0.7, d: 0.85, tone: 'accent' },
 
   plant_big: { shape: 'plant', h: 1.9, tone: 'leaf' },

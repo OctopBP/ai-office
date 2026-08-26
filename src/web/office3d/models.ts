@@ -14,11 +14,13 @@
 import chairDesk from '../../../design/models/furniture/chairDesk.glb?url';
 import computerScreen from '../../../design/models/furniture/computerScreen.glb?url';
 import desk from '../../../design/models/furniture/desk.glb?url';
+import loungeChair from '../../../design/models/furniture/loungeChair.glb?url';
 import loungeSofa from '../../../design/models/furniture/loungeSofa.glb?url';
 
 export const MODEL_URLS: Record<string, string> = {
   chairDesk,
   computerScreen,
   desk,
+  loungeChair,
   loungeSofa,
 };

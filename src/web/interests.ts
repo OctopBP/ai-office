@@ -12,8 +12,8 @@
  * источником (CONCEPT.md §2). Поэтому и раздача живёт на клиенте, рядом с
  * ходьбой, а не в состоянии офиса.
  */
-import { kitchenSeats } from '../shared/layout';
-import type { Catalog, Layout, LayoutZone, Pos, SlotPoint } from '../shared/layout';
+import { restSeats } from '../shared/layout';
+import type { Catalog, Layout, LayoutZone, Pos } from '../shared/layout';
 import type { InstanceView, RoleView } from '../shared/types';
 
 export type InterestKind = 'talk' | 'game' | 'sit' | 'stand';
@@ -83,7 +83,7 @@ function spotsOf(layout: Layout, catalog: Catalog): Spot[] {
    * объединяются в одно занятие: две подушки у приставки — это «поиграть
    * вдвоём», а не два одиночных сидения.
    */
-  const seatPoints = restSlots(layout, catalog);
+  const seatPoints = restSeats(layout, catalog);
   const gamers = seatPoints.filter((s) => s.use === 'game');
   if (gamers.length > 0) {
     spots.push({
@@ -98,20 +98,6 @@ function spotsOf(layout: Layout, catalog: Catalog): Spot[] {
   });
 
   return spots;
-}
-
-/** Точечные места отдыха предмета вместе с их назначением. */
-function restSlots(layout: Layout, catalog: Catalog): { at: Pos; use?: SlotPoint['use'] }[] {
-  const points = kitchenSeats(layout, catalog);
-  for (const prop of layout.props) {
-    const slots = catalog.sprites[prop.sprite]?.slots ?? [];
-    const seats = slots.filter((s): s is SlotPoint => 'x' in s && s.kind === 'seat');
-    if (seats.length === 0) continue;
-    // Порядок `kitchenSeats` совпадает с порядком слотов в каталоге — иначе
-    // назначения разъехались бы с координатами.
-    return points.map((at, i) => ({ at, use: seats[i]?.use }));
-  }
-  return points.map((at) => ({ at }));
 }
 
 /**

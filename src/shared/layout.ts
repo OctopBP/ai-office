@@ -43,6 +43,12 @@ export type CatalogSlot = SlotPoint | SlotSide | SlotRing;
 
 export interface CatalogSprite {
   size: [number, number];
+  /**
+   * У предмета есть только модель, картинки нет и не будет. В каталоге он
+   * ради габаритов, следа и посадочных мест — их читают оба рендера, — но
+   * плоский офис его пропускает: рисовать ему нечем.
+   */
+  modelOnly?: boolean;
   footprint?: [number, number, number, number];
   /** footprint блокирует проходимость (§7) — иначе это только визуальный габарит. */
   blocks?: boolean;
@@ -387,27 +393,46 @@ function sideSeats(prop: LayoutProp, sprite: CatalogSprite, slot: SlotSide): Pos
 }
 
 /**
- * Места отдыха — фиксированный список мест первого предмета в раскладке, у
- * которого они есть. Без propId ищется по всей раскладке, в порядке слотов в
- * каталоге.
+ * Те же места, но одними координатами — для тех, кому назначение неважно.
  *
  * Мест бывает два вида, и оба здесь равноправны. `side` — ряд вдоль стороны
  * предмета: шаг считается от его размера, и подходит обеденному столу, за
  * который садится сколько влезет. Точечные — там, где мест ровно столько,
- * сколько их нарисовано: у дивана три подушки, и четвёртого на него не
+ * сколько их нарисовано: у дивана две подушки, и третьего на него не
  * посадишь, как ни считай шаг.
  */
-export function kitchenSeats(layout: Layout, catalog: Catalog, propId?: string): Pos[] {
+/** Место отдыха: где сидеть и чем там заняты (`use` из слота, §3.1). */
+export interface RestSeat {
+  at: Pos;
+  use?: SlotPoint['use'];
+}
+
+/**
+ * Все места отдыха раскладки, по всем предметам, в порядке предметов и слотов.
+ *
+ * Собираются именно со всех, а не с первого попавшегося: мест для отдыха в
+ * комнате бывает несколько — диван, кресло, обеденный стол, — и брать только
+ * первый предмет значило бы, что второе кресло никто никогда не займёт.
+ */
+export function restSeats(layout: Layout, catalog: Catalog, propId?: string): RestSeat[] {
   const props = propId ? [propRef(layout, propId)].filter((p): p is LayoutProp => !!p) : layout.props;
+  const seats: RestSeat[] = [];
   for (const prop of props) {
     const sprite = spriteOf(catalog, prop.sprite);
     const slots = sprite?.slots ?? [];
-    const sideSlots = slots.filter(isSide);
-    if (sideSlots.length > 0) return sideSlots.flatMap((slot) => sideSeats(prop, sprite!, slot));
-    const pointSeats = slots.filter((s): s is SlotPoint => isPoint(s) && s.kind === 'seat');
-    if (pointSeats.length > 0) return pointSeats.map((slot) => resolvePoint(prop, slot));
+    for (const slot of slots.filter(isSide)) {
+      for (const at of sideSeats(prop, sprite!, slot)) seats.push({ at });
+    }
+    for (const slot of slots) {
+      if (!isPoint(slot) || slot.kind !== 'seat') continue;
+      seats.push({ at: resolvePoint(prop, slot), use: slot.use });
+    }
   }
-  return [];
+  return seats;
+}
+
+export function kitchenSeats(layout: Layout, catalog: Catalog, propId?: string): Pos[] {
+  return restSeats(layout, catalog, propId).map((s) => s.at);
 }
 
 // ---------- Пол и стены поштучными тайлами (§6, §3.2) ----------

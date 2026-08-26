@@ -110,6 +110,22 @@
       ],
       "blocks": true
     },
+    "armchair": {
+      "size": [
+        1.31,
+        1.09
+      ],
+      "modelOnly": true,
+      "slots": [
+        {
+          "kind": "seat",
+          "x": 0.15,
+          "y": 0.25,
+          "use": "sit"
+        }
+      ],
+      "blocks": true
+    },
     "beanbag": {
       "size": [
         1.0,

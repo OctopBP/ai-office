@@ -42,7 +42,8 @@
 
     { "sprite": "round_table", "at": [3.0, 2.5], "id": "meeting_table", "scale": 1.6 },
 
-    { "sprite": "sofa", "at": [2.0, 9.0] }
+    { "sprite": "sofa", "at": [2.0, 9.0] },
+    { "sprite": "armchair", "at": [6.0, 9.4] }
   ],
   "zones": [
     { "kind": "entrance", "at": [19.6, 18.4], "sprite": "door", "title": "Офисы и проекты" },
