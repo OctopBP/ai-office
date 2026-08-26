@@ -375,17 +375,25 @@ function sideSeats(prop: LayoutProp, sprite: CatalogSprite, slot: SlotSide): Pos
 }
 
 /**
- * Места кухни — фиксированный список из side-слотов предмета (обеденный
- * стол), в порядке слотов в каталоге. Без propId берётся первый предмет в
- * раскладке, у чьего спрайта есть такие слоты.
+ * Места отдыха — фиксированный список мест первого предмета в раскладке, у
+ * которого они есть. Без propId ищется по всей раскладке, в порядке слотов в
+ * каталоге.
+ *
+ * Мест бывает два вида, и оба здесь равноправны. `side` — ряд вдоль стороны
+ * предмета: шаг считается от его размера, и подходит обеденному столу, за
+ * который садится сколько влезет. Точечные — там, где мест ровно столько,
+ * сколько их нарисовано: у дивана три подушки, и четвёртого на него не
+ * посадишь, как ни считай шаг.
  */
 export function kitchenSeats(layout: Layout, catalog: Catalog, propId?: string): Pos[] {
   const props = propId ? [propRef(layout, propId)].filter((p): p is LayoutProp => !!p) : layout.props;
   for (const prop of props) {
     const sprite = spriteOf(catalog, prop.sprite);
-    const sideSlots = sprite?.slots?.filter(isSide) ?? [];
-    if (sideSlots.length === 0) continue;
-    return sideSlots.flatMap((slot) => sideSeats(prop, sprite!, slot));
+    const slots = sprite?.slots ?? [];
+    const sideSlots = slots.filter(isSide);
+    if (sideSlots.length > 0) return sideSlots.flatMap((slot) => sideSeats(prop, sprite!, slot));
+    const pointSeats = slots.filter((s): s is SlotPoint => isPoint(s) && s.kind === 'seat');
+    if (pointSeats.length > 0) return pointSeats.map((slot) => resolvePoint(prop, slot));
   }
   return [];
 }
