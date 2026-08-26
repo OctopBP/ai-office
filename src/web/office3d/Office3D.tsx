@@ -25,6 +25,7 @@ import { paletteOf, type Palette } from './palette';
 import { WALL_H, scene3, type Box3, type Scene3, type Wall3 } from './geometry';
 import { place3 } from './props';
 import { Props3D } from './Props3D';
+import { Hotspots3D, type Spot3, type SpotKind } from './Hotspots3D';
 import { Agents3D } from './Agents3D';
 
 /**
@@ -329,33 +330,59 @@ function Lights({ scene, palette }: { scene: Scene3; palette: Palette }) {
   );
 }
 
-export function Office3D() {
+export function Office3D({ onOpen, onDoor }: {
+  onOpen: (panel: 'board' | 'log') => void;
+  onDoor: () => void;
+}) {
   const layout = useStore((s) => s.layout);
   const theme = useStore((s) => s.theme);
   const palette = paletteOf(theme);
   const scene = useMemo(() => scene3(layout), [layout]);
   /**
-   * Обстановка — это `props` раскладки плюс предметы, которые в плоском
-   * рендере живут отдельными сущностями: дверь входной зоны и спрайты
-   * хотспотов (доска, экран лога). Геометрически они такая же мебель, и
-   * разделять их в 3D незачем — интерактивность им вернёт шаг 5.
+   * Обстановка комнаты и отдельно — предметы, которые нажимаются.
+   *
+   * Геометрически доска, экран лога и дверь — такая же мебель, и считаются
+   * они тем же `place3`: у них тот же след, та же привязка к стене, тот же
+   * поворот. Расходятся они только поведением, поэтому и рисуются разными
+   * компонентами: обстановку можно таскать в редакторе, а нажимаемое —
+   * нажимать.
    */
-  const placed = useMemo(() => {
+  const { placed, spots } = useMemo(() => {
     const keys = propKeys(layout);
     const list: (LayoutProp & { key: string })[] = layout.props.map((p, i) => ({
       ...p, key: keys[i],
     }));
+
+    /** Что за чем стоит и что на чём — считается по всей комнате разом,
+     *  поэтому нажимаемое едет в `place3` вместе с обычной мебелью. */
+    const meta = new Map<string, { kind: SpotKind; title: string; hotkey?: string }>();
+
     for (const zone of layout.zones ?? []) {
-      if (zone.sprite && zone.at) {
-        list.push({ sprite: zone.sprite, at: zone.at, key: `zone-${zone.kind}` });
+      if (zone.kind === 'entrance' && zone.sprite && zone.at) {
+        const key = 'spot-door';
+        list.push({ sprite: zone.sprite, at: zone.at, key });
+        meta.set(key, { kind: 'door', title: zone.title ?? 'Офисы и проекты' });
       }
     }
-    for (const spot of (layout.hotspots ?? []) as { sprite?: string; at?: [number, number]; panel?: string }[]) {
-      if (spot.sprite && spot.at) {
-        list.push({ sprite: spot.sprite, at: spot.at, key: `hotspot-${spot.panel ?? spot.sprite}` });
-      }
+    const hotspots = (layout.hotspots ?? []) as {
+      sprite?: string; at?: [number, number]; panel?: 'board' | 'log'; key?: string; title?: string;
+    }[];
+    for (const spot of hotspots) {
+      if (!spot.sprite || !spot.at || !spot.panel) continue;
+      const key = `spot-${spot.panel}`;
+      list.push({ sprite: spot.sprite, at: spot.at, key });
+      meta.set(key, { kind: spot.panel, title: spot.title ?? '', hotkey: spot.key });
     }
-    return place3(layout, catalog, list);
+
+    const all = place3(layout, catalog, list);
+    const spotList: Spot3[] = [];
+    const propList = all.filter((item) => {
+      const m = meta.get(item.key);
+      if (!m) return true;
+      spotList.push({ item, ...m });
+      return false;
+    });
+    return { placed: propList, spots: spotList };
   }, [layout]);
   const [w, d] = scene.size;
   const offset = useMemo<[number, number]>(() => [-w / 2, -d / 2], [w, d]);
@@ -407,6 +434,10 @@ export function Office3D() {
           ))}
         </group>
         <Props3D items={placed} palette={palette} offset={offset} size={scene.size} />
+        <Hotspots3D
+          spots={spots} layout={layout} palette={palette} offset={offset}
+          onOpen={onOpen} onDoor={onDoor}
+        />
         <Agents3D offset={offset} />
       </Canvas>
     </div>

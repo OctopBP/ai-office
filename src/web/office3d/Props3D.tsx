@@ -178,6 +178,56 @@ function partsOf(item: Placed3): Parts {
 }
 
 /**
+ * Геометрия одного предмета без всякого поведения: коробки по частям из
+ * `partsOf`, поставленные и повёрнутые. Вынесена отдельно, потому что ровно
+ * то же самое рисуют интерактивные предметы — доска задач, экран лога,
+ * дверь, — а вот ведут они себя иначе (`Hotspots3D.tsx`).
+ */
+export function PropShape({ item, materials }: {
+  item: Placed3;
+  materials: Record<string, THREE.Material>;
+}) {
+  const parts = useMemo(() => partsOf(item), [item]);
+  const flat = item.def.shape === 'slab';
+  const base = item.def.tone ?? 'metal';
+  return (
+    <>
+      {parts.map((part, i) => (
+        <mesh
+          key={i}
+          position={part.pos}
+          scale={part.round ? [part.size[0], 1, part.size[2]] : undefined}
+          material={materials[part.tone ?? base] ?? materials.metal}
+          castShadow={!flat}
+          receiveShadow={!flat}
+        >
+          {part.round
+            ? <cylinderGeometry args={[0.5, 0.5, part.size[1], 20]} />
+            : <boxGeometry args={part.size} />}
+        </mesh>
+      ))}
+    </>
+  );
+}
+
+/**
+ * Материалы обстановки — по одному на тон, а не на предмет: их семь на три
+ * десятка предметов, и общий материал позволяет three складывать меши в один
+ * вызов отрисовки.
+ */
+export function usePropMaterials(palette: Palette): Record<string, THREE.Material> {
+  const materials = useMemo(() => {
+    const made: Record<string, THREE.Material> = {};
+    for (const [tone, color] of Object.entries(palette.prop)) {
+      made[tone] = new THREE.MeshLambertMaterial({ color });
+    }
+    return made;
+  }, [palette.prop]);
+  useEffect(() => () => { for (const m of Object.values(materials)) m.dispose(); }, [materials]);
+  return materials;
+}
+
+/**
  * Один предмет. Группа ставится в центр следа и поворачивается вокруг своей
  * оси — поэтому поворот не сдвигает предмет с места и не требует пересчёта
  * координат в раскладке.
@@ -194,9 +244,6 @@ function Prop({ item, materials, editing, dragged, onGrab }: {
   dragged: boolean;
   onGrab: (item: Placed3, hit: THREE.Vector3) => void;
 }) {
-  const parts = useMemo(() => partsOf(item), [item]);
-  const flat = item.def.shape === 'slab';
-  const base = item.def.tone ?? 'metal';
   const [hovered, setHovered] = useState(false);
   const marked = editing && (hovered || dragged);
 
@@ -219,24 +266,8 @@ function Prop({ item, materials, editing, dragged, onGrab }: {
     : {};
 
   return (
-    <group position={[item.cx, item.base, item.cy]} rotation={[0, -item.rot, 0]}>
-      {parts.map((part, i) => (
-        <mesh
-          key={i}
-          position={part.pos}
-          scale={part.round ? [part.size[0], 1, part.size[2]] : undefined}
-          material={materials[part.tone ?? base] ?? materials.metal}
-          castShadow={!flat}
-          receiveShadow={!flat}
-          {...grab}
-        >
-          {part.round
-            // Цилиндр строится по радиусу, поэтому неравные ширина и глубина
-            // задаются масштабом меша, а не геометрией.
-            ? <cylinderGeometry args={[0.5, 0.5, part.size[1], 20]} />
-            : <boxGeometry args={part.size} />}
-        </mesh>
-      ))}
+    <group position={[item.cx, item.base, item.cy]} rotation={[0, -item.rot, 0]} {...grab}>
+      <PropShape item={item} materials={materials} />
 
       {/* След предмета на полу — подсветка в редакторе. Показывает не только
           «этот предмет взят», но и сколько места он занимает: расставляя
@@ -267,14 +298,7 @@ export function Props3D({ items, palette, offset, size }: {
   /** размер раскладки в тайлах — по нему рисуется сетка расстановки */
   size: [number, number];
 }) {
-  const materials = useMemo(() => {
-    const made: Record<string, THREE.Material> = {};
-    for (const [tone, color] of Object.entries(palette.prop)) {
-      made[tone] = new THREE.MeshLambertMaterial({ color });
-    }
-    return made;
-  }, [palette.prop]);
-  useEffect(() => () => { for (const m of Object.values(materials)) m.dispose(); }, [materials]);
+  const materials = usePropMaterials(palette);
 
   const editing = useStore((s) => s.editingLayout);
   const dragItem = useStore((s) => s.dragItem);

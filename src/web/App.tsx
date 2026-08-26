@@ -108,7 +108,7 @@ export function App() {
     <div className={`app${paused ? ' paused' : ''}`}>
       <div className="stage">
         {render3d
-          ? <Office3D />
+          ? <Office3D onOpen={setPanel} onDoor={() => setModal('offices')} />
           : <Office onOpen={setPanel} onDoor={() => setModal('offices')} />}
         <TopHud
           onSettings={() => setModal('settings')}
