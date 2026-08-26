@@ -11,3 +11,5 @@ workspace/
 .tmp-test/
 # __pycache__/ — байт-код генераторов спрайтов из design/sprites.
 __pycache__/
+# Резервные копии Blender — он кладёт их рядом с .blend при каждом сохранении.
+*.blend1
