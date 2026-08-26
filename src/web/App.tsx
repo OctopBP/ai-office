@@ -9,7 +9,7 @@ import { ChatPanel } from './ChatPanel';
 import { Board } from './Board';
 import { MergeQueue } from './MergeQueue';
 import { PrPipeline } from './PrPipeline';
-import { TeamPanel } from './TeamPanel';
+import { TeamWindow } from './TeamWindow';
 import { AgentDrawer } from './AgentDrawer';
 import { PermissionModal } from './PermissionModal';
 import { DiffPanel } from './DiffPanel';
@@ -21,7 +21,7 @@ import { MenuScreen } from './MenuScreen';
 import { closeDiff, connect, setPaused, useStore } from './store';
 
 type PanelKind = 'chat' | 'board' | 'log' | 'help' | 'merge' | null;
-type ModalKind = 'settings' | 'meeting' | 'usage' | 'offices' | null;
+type ModalKind = 'settings' | 'meeting' | 'usage' | 'offices' | 'team' | null;
 
 export function App() {
   const theme = useStore((s) => s.theme);
@@ -37,6 +37,7 @@ export function App() {
   const settingsSection = useStore((s) => s.settingsSection);
   const render3d = useStore((s) => s.render3d);
   const setRender3d = useStore((s) => s.setRender3d);
+  const teamRequest = useStore((s) => s.teamRequest);
   const [panel, setPanel] = useState<PanelKind>(null);
   const [modal, setModal] = useState<ModalKind>(null);
 
@@ -47,6 +48,12 @@ export function App() {
   useEffect(() => {
     if (settingsSection) setModal('settings');
   }, [settingsSection]);
+
+  // Ссылка «роль, модель, права →» из карточки сотрудника (AgentDrawer) —
+  // тот же приём: стор получает запрос на роль, здесь открывается окно.
+  useEffect(() => {
+    if (teamRequest) setModal('team');
+  }, [teamRequest]);
 
   // Переключаемся на другой офис: закрываем всё, что открыто поверх сцены,
   // иначе доска, лог или дифф прежнего офиса повисли бы в новом.
@@ -112,6 +119,7 @@ export function App() {
         onHelp={() => setPanel('help')}
         onUsage={() => setModal('usage')}
         onMergeQueue={() => setPanel('merge')}
+        onTeam={() => setModal('team')}
       />
       <div className="stage">
         {render3d
@@ -173,8 +181,8 @@ export function App() {
               живой транскрипт и расходы.</p>
             <p>Опасные действия — удаление файлов, <code className="mono">kill</code>,
               запись за пределы рабочей папки — останавливаются и спрашивают разрешения.</p>
+            <p>👥 в шапке — окно «Команда»: роли, найм, увольнение и настройка каждой роли.</p>
           </div>
-          <TeamPanel />
         </Panel>
       )}
 
@@ -185,6 +193,7 @@ export function App() {
       {modal === 'meeting' && <MeetingModal onClose={() => setModal(null)} />}
       {modal === 'usage' && <UsageModal onClose={() => setModal(null)} />}
       {modal === 'offices' && <OfficesModal onClose={() => setModal(null)} />}
+      {modal === 'team' && <TeamWindow onClose={() => setModal(null)} />}
     </div>
   );
 }

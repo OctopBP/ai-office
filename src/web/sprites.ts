@@ -41,8 +41,21 @@ export const AGENT_SPRITE: Record<string, string> = {
 /** Второй и последующие клоны роли — другим спрайтом, чтобы различались. */
 const CLONE_SPRITE: Record<string, string> = { backend: 'agent_backend2' };
 
-export function agentSpriteName(roleId: string, instanceId: string): string {
+/**
+ * Внешность агента: если у роли выбран пресет (`RoleEditable.sprite`) — он
+ * главнее подбора по id роли, иначе действует прежнее правило (§ RoleEditable.sprite).
+ */
+export function agentSpriteName(roleId: string, instanceId: string, roleSprite?: string): string {
+  if (roleSprite) return roleSprite;
   const n = Number(instanceId.split('#')[1] ?? '1');
   if (n > 1 && CLONE_SPRITE[roleId]) return CLONE_SPRITE[roleId];
   return AGENT_SPRITE[roleId] ?? 'agent_backend1';
+}
+
+/** Пресеты внешности для выбора в форме роли — id и русская подпись из каталога. */
+export function spritePresets(catalogSprites: Record<string, { label?: string }>): Array<{ id: string; label: string }> {
+  return Object.entries(catalogSprites)
+    .filter(([id]) => /^agent_p\d+$/.test(id))
+    .sort(([a], [b]) => Number(a.slice(8)) - Number(b.slice(8)))
+    .map(([id, sprite]) => ({ id, label: sprite.label ?? id }));
 }

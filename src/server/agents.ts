@@ -1637,6 +1637,10 @@ function startWorker(taskOffice: OfficeState, task: Task, inst: Instance): void 
         }
       }
 
+      // Запоминаем сессию задачи: если дело дойдёт до доработки по ревью,
+      // автор продолжит этот же разговор вместо пересборки контекста с нуля.
+      if (inst.sessionId) taskOffice.updateTask(task.id, { workerSessionId: inst.sessionId });
+
       if (sessionFailed) throw new Error(sessionFailed);
 
       const fresh = taskOffice.tasks.get(task.id);
@@ -2088,6 +2092,8 @@ async function runAgentSession(
     cwd: string; prompt: string; systemPrompt: string; taskId: string;
     mcp: Record<string, ReturnType<typeof createSdkMcpServer>>;
     note: string;
+    /** Продолжить прошлую сессию этой же задачи вместо пересборки контекста с нуля. */
+    resume?: string;
   },
 ): Promise<SessionRun> {
   if (state.budgetExhausted()) {
@@ -2103,6 +2109,7 @@ async function runAgentSession(
     const session = query({
       prompt: opts.prompt,
       options: {
+        resume: opts.resume,
         model: role.model,
         systemPrompt: { type: 'preset', preset: 'claude_code', append: opts.systemPrompt },
         cwd: opts.cwd,
@@ -2182,7 +2189,11 @@ async function reworkTask(
     taskId: task.id,
     mcp: { office: workerTools(state, inst.id, task) },
     note: 'дорабатывает по ревью',
+    // Тот же исполнитель уже видел задачу и код — продолжаем его сессию,
+    // а не пересказываем всё с нуля.
+    resume: task.workerSessionId ?? undefined,
   });
+  if (inst.sessionId) state.updateTask(task.id, { workerSessionId: inst.sessionId });
   if (!run.ok) {
     return {
       ok: false, message: run.error ?? 'сессия исполнителя не отработала',
@@ -2203,7 +2214,9 @@ async function reviewPr(
 ): Promise<ReviewOutcome> {
   const role = state.role('reviewer');
   if (!role) return { verdict: 'changes', text: '', reviewerId: null, error: 'Роли ревьюера нет в реестре.' };
-  const inst = await waitForFree(state, 'reviewer', null);
+  // Того же ревьюера, если он свободен: он уже смотрел этот диф и прошлые
+  // круги — тогда сессию можно продолжить, а не пересказывать всё заново.
+  const inst = await waitForFree(state, 'reviewer', pr.reviewerId);
   if (!inst) {
     const empty = state.staffOf('reviewer').length === 0;
     return {
@@ -2267,32 +2280,50 @@ async function reviewPr(
 
   const { done, total } = criteriaProgress(task);
   const diff = await prDiff(pr);
-  const prompt = [
-    `Ревью пулл-реквеста ${pr.branch} → ${pr.base} по задаче ${task.id}.`,
-    pr.url ? `Пулл-реквест: ${pr.url}` : 'Пулл-реквест внутренний, на GitHub его нет.',
-    '',
-    `Задача: ${task.title}`,
-    task.description,
-    task.criteria.length
-      ? `\nКритерии готовности (автор отметил ${done} из ${total}):\n` +
-        task.criteria.map((c, i) => `${i + 1}. [${c.done ? 'x' : ' '}] ${c.text}`).join('\n')
-      : '',
-    task.result ? `\nОтчёт автора:\n${task.result}` : '',
-    pr.rounds ? `\nЭто круг ${pr.rounds + 1}: работу уже возвращали. Проверь, что прошлые замечания закрыты.` : '',
-    pr.reviews.length
-      ? `\nПрошлые отзывы:\n${pr.reviews.map((r) => `— ${r.verdict === 'approve' ? 'одобрено' : 'на доработку'}: ${clip(r.text, 400)}`).join('\n')}`
-      : '',
-    '',
-    'Изменения ветки относительно базовой:',
-    diff,
-    '',
-    `Ты находишься в рабочей копии этой ветки (${pr.repoDir === process.cwd() ? 'репозиторий проекта' : pr.branch}).`,
-    'Прогони проверки проекта, если они есть (npm run typecheck и подобные), и учти их результат.',
-    'Код НЕ правь: твой результат — вердикт, а исправляет автор.',
-    'Закончи ровно одним вызовом: approve_pr({summary}) или request_changes({summary}).',
-    `Возвращать работу можно не бесконечно: после ${MAX_ROUNDS} возвратов подряд задача уходит менеджеру.`,
-    'Поэтому возвращай по существу, а мелкие замечания, не мешающие вливать, пиши в approve_pr.',
-  ].filter(Boolean).join('\n');
+  // Продолжаем прошлую сессию этого же ревью, если она есть: тогда ревьюер
+  // уже помнит задачу, критерии и свои прошлые замечания — пересказывать
+  // их заново незачем, нужен только актуальный дифф.
+  const resumeId = task.reviewerSessionId ?? undefined;
+  const prompt = resumeId
+    ? [
+        `Автор доработал ${task.id} по твоим замечаниям (круг ${pr.rounds + 1}).`,
+        task.result ? `\nОтчёт автора:\n${task.result}` : '',
+        '',
+        'Текущий полный дифф ветки относительно базовой:',
+        diff,
+        '',
+        'Прогони проверки проекта, если они есть, и учти их результат.',
+        'Код НЕ правь: твой результат — вердикт, а исправляет автор.',
+        'Закончи ровно одним вызовом: approve_pr({summary}) или request_changes({summary}).',
+        `Возвращать работу можно не бесконечно: после ${MAX_ROUNDS} возвратов подряд задача уходит менеджеру.`,
+        'Поэтому возвращай по существу, а мелкие замечания, не мешающие вливать, пиши в approve_pr.',
+      ].filter(Boolean).join('\n')
+    : [
+        `Ревью пулл-реквеста ${pr.branch} → ${pr.base} по задаче ${task.id}.`,
+        pr.url ? `Пулл-реквест: ${pr.url}` : 'Пулл-реквест внутренний, на GitHub его нет.',
+        '',
+        `Задача: ${task.title}`,
+        task.description,
+        task.criteria.length
+          ? `\nКритерии готовности (автор отметил ${done} из ${total}):\n` +
+            task.criteria.map((c, i) => `${i + 1}. [${c.done ? 'x' : ' '}] ${c.text}`).join('\n')
+          : '',
+        task.result ? `\nОтчёт автора:\n${task.result}` : '',
+        pr.rounds ? `\nЭто круг ${pr.rounds + 1}: работу уже возвращали. Проверь, что прошлые замечания закрыты.` : '',
+        pr.reviews.length
+          ? `\nПрошлые отзывы:\n${pr.reviews.map((r) => `— ${r.verdict === 'approve' ? 'одобрено' : 'на доработку'}: ${clip(r.text, 400)}`).join('\n')}`
+          : '',
+        '',
+        'Изменения ветки относительно базовой:',
+        diff,
+        '',
+        `Ты находишься в рабочей копии этой ветки (${pr.repoDir === process.cwd() ? 'репозиторий проекта' : pr.branch}).`,
+        'Прогони проверки проекта, если они есть (npm run typecheck и подобные), и учти их результат.',
+        'Код НЕ правь: твой результат — вердикт, а исправляет автор.',
+        'Закончи ровно одним вызовом: approve_pr({summary}) или request_changes({summary}).',
+        `Возвращать работу можно не бесконечно: после ${MAX_ROUNDS} возвратов подряд задача уходит менеджеру.`,
+        'Поэтому возвращай по существу, а мелкие замечания, не мешающие вливать, пиши в approve_pr.',
+      ].filter(Boolean).join('\n');
 
   const run = await runAgentSession(state, inst, role, {
     cwd: task.worktreePath ?? pr.repoDir,
@@ -2301,7 +2332,9 @@ async function reviewPr(
     taskId: task.id,
     mcp: { office: tools },
     note: `ревью ${task.id}`,
+    resume: resumeId,
   });
+  if (inst.sessionId) state.updateTask(task.id, { reviewerSessionId: inst.sessionId });
 
   if (!verdict) {
     return {

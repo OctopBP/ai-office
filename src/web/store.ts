@@ -1,9 +1,9 @@
 import { create } from 'zustand';
 import type {
-  ChatEntry, DayUsage, InstanceView, Layout, LayoutOption, LayoutOverride, LogEntry, MergeCheck,
-  MergeCheckState, MergeRun, MergeStep, MergeStepStatus, PermissionDecision, PermissionMode,
-  PermissionRequest, MeetingView, RoleEditable, RoleView, ServerEvent, Settings, TaskView, Usage,
-  CloudStatus, OfficeView, PullRequestView, PrStage,
+  ChatEntry, DayUsage, FieldError, InstanceView, Layout, LayoutOption, LayoutOverride, LogEntry,
+  MergeCheck, MergeCheckState, MergeRun, MergeStep, MergeStepStatus, PermissionDecision,
+  PermissionMode, PermissionRequest, MeetingView, RoleDraft, RoleEditable, RoleOp, RoleView,
+  ServerEvent, Settings, TaskView, Usage, CloudStatus, OfficeView, PullRequestView, PrStage,
 } from '../shared/types';
 import {
   emptyUsage, MAX_OFFICE_WORKERS, MAX_TASK_MAX_TURNS, MIN_OFFICE_WORKERS, MIN_TASK_MAX_TURNS,
@@ -109,6 +109,18 @@ interface State {
   log: LogEntry[];
   permissions: PermissionRequest[];
   settings: Settings;
+  /**
+   * Итог последней операции с ролью (создание/правка/архивация/удаление):
+   * пустой `errors` — сделано, форма роли использует это как сигнал закрыть
+   * себя или очистить поля; непустой — ошибки, разложенные по полям.
+   */
+  roleFeedback: { op: RoleOp; roleId: string | null; errors: FieldError[] } | null;
+  /**
+   * Запрос открыть окно «Команда» на конкретной роли — например, ссылкой
+   * из карточки сотрудника. App открывает окно по нему, а само окно после
+   * прочтения сбрасывает поле (тот же приём, что и у settingsSection).
+   */
+  teamRequest: { roleId: string } | null;
   /** Пресеты раскладки для выбора в настройках — приходят в снапшоте, читаются сервером с диска. */
   layouts: LayoutOption[];
   /**
@@ -214,6 +226,8 @@ export const useStore = create<State>((set, get) => ({
   chat: [],
   log: [],
   permissions: [],
+  roleFeedback: null,
+  teamRequest: null,
   settings: {
     globalBudgetUsd: null, taskBudgetUsd: null, engine: 'local', cloudRepoUrl: null,
     officePermissionMode: 'ask-risky', layoutId: 'classic', autoPipeline: true,
@@ -328,6 +342,8 @@ export const useStore = create<State>((set, get) => ({
           selected: null,
           thread: 'pm#1',
           diff: null,
+          roleFeedback: null,
+          teamRequest: null,
         }));
         break;
       }
@@ -450,6 +466,12 @@ export const useStore = create<State>((set, get) => ({
         break;
       case 'roles':
         set({ roles: e.roles });
+        break;
+      case 'role.error':
+        set({ roleFeedback: { op: e.op, roleId: e.roleId, errors: e.errors } });
+        break;
+      case 'role.saved':
+        set({ roleFeedback: { op: e.op, roleId: e.roleId, errors: [] } });
         break;
       case 'settings':
         set({ settings: e.settings, settingsPending: false });
@@ -847,6 +869,36 @@ export function fire(instanceId: string): void {
 
 export function updateRole(roleId: string, patch: Partial<RoleEditable>): void {
   socket?.send(JSON.stringify({ c: 'update_role', roleId, patch }));
+}
+
+/** Завести роль. id придумывает сервер по названию — в черновике его нет. */
+export function createRole(role: RoleDraft): void {
+  socket?.send(JSON.stringify({ c: 'create_role', role }));
+}
+
+/** Убрать роль в архив или вернуть её оттуда. */
+export function archiveRole(roleId: string, archived: boolean): void {
+  socket?.send(JSON.stringify({ c: 'archive_role', roleId, archived }));
+}
+
+/** Стереть роль насовсем — только там, где сервер это разрешит (RoleView.removable). */
+export function removeRole(roleId: string): void {
+  socket?.send(JSON.stringify({ c: 'remove_role', roleId }));
+}
+
+/** Форма роли прочитала итог своей операции — сбрасываем, чтобы не залипал. */
+export function clearRoleFeedback(): void {
+  useStore.setState({ roleFeedback: null });
+}
+
+/** Открыть окно «Команда» сразу на форме конкретной роли. */
+export function requestTeamRole(roleId: string): void {
+  useStore.setState({ teamRequest: { roleId } });
+}
+
+/** Окно «Команда» прочитало запрос на роль — сбрасываем, чтобы не залипал. */
+export function clearTeamRequest(): void {
+  useStore.setState({ teamRequest: null });
 }
 
 export function updateSettings(settings: Partial<Settings>): void {

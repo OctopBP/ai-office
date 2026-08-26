@@ -1,7 +1,7 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { endDrag, startDrag, updateDrag, useStore } from './store';
 import { agentSpriteName, spriteOf } from './sprites';
-import { catalog, furnitureZ, roomFor, spriteSize } from './layoutData';
+import { agentSize, catalog, furnitureZ, roomFor, spriteSize } from './layoutData';
 import { deskPoint } from '../shared/layout';
 import { GRID } from '../shared/types';
 import type { InstanceView } from '../shared/types';
@@ -9,6 +9,13 @@ import { STATE_ICON, STATE_TEXT } from './agentState';
 
 const C = GRID.cell;
 const px = (tiles: number) => tiles * C;
+
+/**
+ * Тень под ногами берёт ширину у самой фигуры, а высоту — по своему аспекту:
+ * арт человечка и арт тени рисовались независимо (36×72 против 42×15), и
+ * тень шире фигуры выглядела бы лужей вокруг неё.
+ */
+const SHADOW_ASPECT = spriteSize('shadow')[1] / spriteSize('shadow')[0];
 
 export function Office({ onOpen, onDoor }: {
   onOpen: (panel: 'board' | 'log') => void;
@@ -33,22 +40,22 @@ export function Office({ onOpen, onDoor }: {
   const [roomCols, roomCells] = room.layout.size;
 
   /**
-   * Комната растягивается на всю доступную область (.office-box уже не
-   * перекрыт HUD и нижней панелью — отступы под них заданы в CSS), но
-   * масштабируется только кратно арту: спрайты нарисованы при SCALE = 3,
-   * поэтому любой шаг вида k/3 даёт целое число экранных пикселей на
-   * арт-пиксель. Произвольный масштаб замылил бы пиксель-арт. Берём
-   * наибольший k, при котором комната ещё умещается по обеим осям —
-   * так офис заполняет экран без прокрутки и без обрезки.
+   * Комната занимает всю доступную область (.office-box — это вся сцена за
+   * вычетом полосы под HUD, отступы заданы в CSS): масштаб берётся ровно
+   * такой, при котором она упирается в край хотя бы по одной оси, без
+   * запаса. Раньше шаг был кратен арту (k/3 — целое число экранных пикселей
+   * на арт-пиксель), но округление вниз съедало до трети экрана: комната
+   * висела в рамке пустоты. Дробный масштаб пиксель-арт не мылит —
+   * `image-rendering: pixelated` (styles.css) масштабирует ближайшим
+   * соседом, просто ширина арт-пикселя перестаёт быть одинаковой.
    */
   useLayoutEffect(() => {
     const box = boxRef.current;
     if (!box) return;
     const fit = () => {
-      const kByWidth = Math.floor((box.clientWidth * 3) / px(roomCols));
-      const kByHeight = Math.floor((box.clientHeight * 3) / px(roomCells));
-      const k = Math.max(1, Math.min(kByWidth, kByHeight));
-      setScale(k / 3);
+      const byWidth = box.clientWidth / px(roomCols);
+      const byHeight = box.clientHeight / px(roomCells);
+      setScale(Math.max(Math.min(byWidth, byHeight), 0.05));
     };
     fit();
     const ro = new ResizeObserver(fit);
@@ -201,10 +208,12 @@ export function Office({ onOpen, onDoor }: {
             key={p.key}
             className={`decor${editingLayout ? ' edit-target' : ''}${dragging ? ' dragging' : ''}`}
             src={img(p.sprite)} alt=""
-            style={{
-              left: px(x), top: px(y), zIndex: z,
-              ...(p.scale ? { transform: `scale(${p.scale})`, transformOrigin: 'top left' } : {}),
-            }}
+            // Размер задаётся явно, а не натуральным размером картинки: у
+            // предмета может быть свой габарит в тайлах (§3.2, «стол 2×3»),
+            // и тогда арт растягивается под него — по каждой оси своим
+            // коэффициентом. Тот же габарит уже посчитан для z-порядка и
+            // сетки проходимости, так что картинка и сетка не разъезжаются.
+            style={{ left: px(x), top: px(y), width: px(p.w), height: px(p.h), zIndex: z }}
             // Поворот тащится вместе с предметом, хотя плоский рендер его и не
             // показывает: правка уходит на сервер целиком, и предмет, который
             // здесь просто подвинули, не должен вставать прямо в трёхмерном.
@@ -218,7 +227,10 @@ export function Office({ onOpen, onDoor }: {
       {room.allDesks.filter((d) => !busyDesks.has(d.index)).map((d) => (
         <div
           key={`ghost-${d.index}`} className="ghost"
-          style={{ left: px(d.x), top: px(d.y), zIndex: furnitureZ(d.x, d.y, 'desk_ghost') }}
+          style={{
+            left: px(d.x), top: px(d.y), width: px(d.w), height: px(d.h),
+            zIndex: furnitureZ(d.y, d.h),
+          }}
         >
           <img src={img('desk_ghost')} alt="" />
           <span>+</span>
@@ -245,7 +257,8 @@ export function Office({ onOpen, onDoor }: {
         const role = roleOf(inst.roleId);
         const icon = STATE_ICON[inst.state];
         const busy = inst.state === 'working' || inst.state === 'thinking';
-        const [, agentH] = spriteSize(agentSpriteName(inst.roleId, inst.id));
+        const spriteName = agentSpriteName(inst.roleId, inst.id, role?.sprite);
+        const [agentW, agentH] = spriteSize(spriteName);
         return (
           <div
             key={inst.id}
@@ -258,16 +271,24 @@ export function Office({ onOpen, onDoor }: {
             }}
             className={`agent ${inst.state}${selected === inst.id ? ' selected' : ''}` +
               `${inMeeting.has(inst.id) ? ' in-meeting' : ''}${busy ? ' busy' : ''}`}
+            // Габарит фигуры — из каталога (спрайт 36×72 арт-пикселей, а не
+            // 48×72, как рисовалось раньше) с общим AGENT_SCALE. Ширина и
+            // высота задаются явно и обе, поэтому картинку не растягивает по
+            // одной оси; тень, пузырь и карточка считаются от тех же величин
+            // через CSS-переменные, а не от зашитых в стили пикселей.
             style={{
               left: px(work.x),
               top: px(work.y),
+              width: px(agentW),
               zIndex: 100 + Math.round((work.y + agentH) * 10),
+              ['--agent-w' as string]: `${px(agentW)}px`,
+              ['--agent-h' as string]: `${px(agentH)}px`,
             }}
             onClick={() => select(selected === inst.id ? null : inst.id)}
             title={inst.label}
           >
             <img className="shadow" src={img('shadow')} alt="" />
-            <img className="body" src={img(agentSpriteName(inst.roleId, inst.id))} alt="" />
+            <img className="body" src={img(spriteName)} alt="" />
             {icon && <span className="badge">{icon}</span>}
           </div>
         );
@@ -279,10 +300,14 @@ export function Office({ onOpen, onDoor }: {
         const role = roleOf(inst.roleId);
         const task = inst.currentTaskId ? tasks[inst.currentTaskId] : null;
         const icon = STATE_ICON[inst.state];
+        const [agentW, agentH] = agentSize(agentSpriteName(inst.roleId, inst.id));
         return (
           <div
             key={`tag-${inst.id}`} className="tags"
-            style={{ left: px(work.x), top: px(work.y) }}
+            style={{
+              left: px(work.x), top: px(work.y), width: px(agentW),
+              ['--agent-h' as string]: `${px(agentH)}px`,
+            }}
           >
             {inst.note && inst.state !== 'idle' && <div className="bubble">{inst.note}</div>}
             <div className="statuscard pixel">

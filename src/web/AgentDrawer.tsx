@@ -1,10 +1,9 @@
 import { useState } from 'react';
 import {
   ACCESS_LABEL, PERMISSION_SOURCE_LABEL, assignDirect, effectivePermissionMode, fire, hire,
-  mergeTask, openLayoutSettings, permissionSource, retryTask, setAgentPermission, showDiff,
-  stopTask, useStore, FULL_ACCESS_WARNING,
+  mergeTask, openLayoutSettings, permissionSource, requestTeamRole, retryTask, setAgentPermission,
+  showDiff, stopTask, useStore, FULL_ACCESS_WARNING,
 } from './store';
-import { RoleEditor } from './RoleEditor';
 import { useActionNotice } from './useActionNotice';
 import { agentSpriteName, spriteOf } from './sprites';
 import { usageLine } from './UsageModal';
@@ -62,7 +61,6 @@ export function AgentDrawer() {
   const select = useStore((s) => s.select);
   const setThread = useStore((s) => s.setThread);
   const theme = useStore((s) => s.theme);
-  const [editRole, setEditRole] = useState(false);
   const [confirmAuto, setConfirmAuto] = useState(false);
   const { notice, markPending, clear } = useActionNotice();
 
@@ -93,7 +91,7 @@ export function AgentDrawer() {
   return (
     <aside className="drawer">
       <header className="drawer-head">
-        <img className="ava" src={spriteOf(theme, agentSpriteName(inst.roleId, inst.id))} alt="" />
+        <img className="ava" src={spriteOf(theme, agentSpriteName(inst.roleId, inst.id, role?.sprite))} alt="" />
         <div className="drawer-who">
           <h2>{inst.id}</h2>
           <div className="muted">
@@ -273,7 +271,7 @@ export function AgentDrawer() {
         )}
       </div>
       <div className="drawer-links">
-        <button className="link" onClick={() => setEditRole(true)}>
+        <button className="link" onClick={() => requestTeamRole(inst.roleId)}>
           {inst.deskless
             ? 'Роль, модель, права →'
             : `Рабочее место #${inst.desk.index} — роль, модель, права →`}
@@ -302,8 +300,6 @@ export function AgentDrawer() {
           <button className="sq" onClick={clear}>✕</button>
         </div>
       )}
-
-      {editRole && <RoleEditor roleId={inst.roleId} onClose={() => setEditRole(false)} />}
     </aside>
   );
 }

@@ -15,6 +15,7 @@
  * останутся теми же. Это и есть шов, ради которого таблица отдельная.
  */
 import type { Catalog, Layout, LayoutProp } from '../../shared/layout';
+import { propScale, propSize } from '../../shared/layout';
 import { WALL_THICK } from './geometry';
 
 /** Какой примитив рисуется вместо предмета. См. `Props3D.tsx`. */
@@ -249,28 +250,30 @@ export function defOf(sprite: string): Prop3 {
  * след описал, берём его; когда нет — строим от нижней кромки на глубину из
  * таблицы.
  *
- * `scale` из раскладки растягивает только след. Высоту он не трогает
- * намеренно: она задана человеком, а не артом, и «стол в полтора раза
- * больше» означает столешницу шире, а не стол по грудь.
+ * Растяжение из раскладки (`scale` или явный `size`, §3.2) трогает только
+ * след. Высоту оно не трогает намеренно: она задана человеком, а не артом,
+ * и «стол в полтора раза больше» означает столешницу шире, а не стол по
+ * грудь. Коэффициенты берутся общей функцией `propScale`, чтобы след здесь
+ * совпадал с сеткой проходимости и посадочными местами: на пресете, где у
+ * стола прописан `size`, посчитанный по-своему след разъехался бы с ними.
  */
 export function floorRect(cat: Catalog, prop: LayoutProp): FloorRect {
   const sprite = cat.sprites[prop.sprite];
   const def = defOf(prop.sprite);
-  const s = prop.scale ?? 1;
+  const [sx, sy] = propScale(prop, sprite);
   const [ax, ay] = prop.at;
-  if (!sprite) return { x: ax, y: ay, w: s, d: s };
+  if (!sprite) return { x: ax, y: ay, w: sx, d: sy };
 
-  const w = sprite.size[0] * s;
-  const artH = sprite.size[1] * s;
+  const [w, artH] = propSize(prop, sprite);
 
   if (def.shape === 'slab') return { x: ax, y: ay, w, d: artH };
 
   if (sprite.footprint) {
     const [fx, fy, fw, fh] = sprite.footprint;
-    return { x: ax + fx * s, y: ay + fy * s, w: fw * s, d: fh * s };
+    return { x: ax + fx * sx, y: ay + fy * sy, w: fw * sx, d: fh * sy };
   }
 
-  const d = Math.min((def.d ?? artH * 0.6) * s, artH);
+  const d = Math.min((def.d ?? sprite.size[1] * 0.6) * sy, artH);
   return { x: ax, y: ay + artH - d, w, d };
 }
 

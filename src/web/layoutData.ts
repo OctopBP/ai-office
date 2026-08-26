@@ -1,5 +1,6 @@
 import {
-  desks, floorTiles as sharedFloorTiles, kitchenSeats, passability, propKeys, wallTiles as sharedWallTiles,
+  desks, floorTiles as sharedFloorTiles, kitchenSeats, passability, propKeys, propSize,
+  wallTiles as sharedWallTiles,
 } from '../shared/layout';
 import type { Catalog, FloorTile, Layout, LayoutZone, Passability, Pos } from '../shared/layout';
 import type { Desk } from '../shared/types';
@@ -39,6 +40,7 @@ export function layoutFor(layoutId: string): Layout {
 const ROW_GAP = 0.9;
 
 /**
+/**
  * Шаг между свободными агентами в зоне отдыха. Больше кухонного: там места
  * заданы слотами стола и люди сидят вплотную, а здесь они стоят, и в объёме
  * фигуры с шагом в 0.9 тайла (это 0.7 м) просто пересекаются телами. В виде
@@ -47,10 +49,30 @@ const ROW_GAP = 0.9;
 const ZONE_GAP = 1.6;
 
 /**
+ * Насколько фигура агента рисуется крупнее своего арта. Отдельная ручка, а не
+ * поле каталога: пропорции человечка задаёт арт, а его рост на сцене —
+ * вопрос читаемости, и подкручивается он одним числом здесь. От него зависят
+ * и габарит фигуры, и тень, и y-сортировка, и прижимание мест к стене, —
+ * поэтому число одно на всех.
+ */
+export const AGENT_SCALE = 1.2;
+
+/**
+ * Габарит фигуры (или её тени) в тайлах: размер спрайта из каталога, увеличенный
+ * на AGENT_SCALE. Каталог описывает арт как он нарисован, поэтому смена
+ * пропорций человечка (было 48×72, стало 36×72) меняет только каталог —
+ * отрисовка подхватит её сама и не растянет картинку.
+ */
+export function agentSize(name: string): [number, number] {
+  const [w, h] = spriteSize(name);
+  return [w * AGENT_SCALE, h * AGENT_SCALE];
+}
+
+/**
  * Высота фигуры агента: все agent_* спрайты одного размера по арту (§3.1
  * места не знают про высоту фигуры, это отрисовка Office.tsx).
  */
-const AGENT_H = Math.max(
+const AGENT_H = AGENT_SCALE * Math.max(
   ...Object.entries(catalog.sprites)
     .filter(([name]) => name.startsWith('agent_'))
     .map(([, sprite]) => sprite.size[1]),
@@ -188,22 +210,30 @@ export function passabilityFor(layout: Layout): Passability {
 // Хотспоты пока не формализованы в src/shared/layout.ts (§8 — задача следующего
 // этапа), поэтому их форма описана здесь же.
 export interface LayoutHotspot { panel: 'board' | 'log'; sprite: string; at: [number, number]; key: string; title: string }
-export interface RenderProp { key: string; sprite: string; x: number; y: number; scale?: number; rot?: number; z: number }
+/** Предмет к отрисовке: якорь и габарит уже в тайлах (§3.2), рендеру считать нечего. */
+export interface RenderProp {
+  key: string; sprite: string; x: number; y: number; w: number; h: number; z: number;
+  /** Поворот в градусах (`LayoutProp.rot`) — плоский рендер его не рисует, но передаёт редактору. */
+  rot?: number;
+}
 export interface WallRenderTile { key: string; sprite: string; x: number; y: number; z: number }
 
 export function spriteSize(name: string): [number, number] {
   return catalog.sprites[name]?.size ?? [1, 1];
 }
 
-/** Порядок отрисовки мебели вместо ручных zIndex (спека §5): чем ниже нижняя кромка спрайта, тем позже рисуем. */
-export function furnitureZ(x: number, y: number, sprite: string): number {
-  const [, h] = spriteSize(sprite);
-  return 100 + Math.round((y + h) * 10);
+/**
+ * Порядок отрисовки мебели вместо ручных zIndex (спека §5): чем ниже нижняя
+ * кромка предмета, тем позже рисуем. Высота приходит габаритом предмета, а не
+ * размером спрайта из каталога, — предмету можно задать свой размер (§3.2), и
+ * растянутый вниз стол обязан перекрывать то, что стоит выше него.
+ */
+export function furnitureZ(y: number, height: number): number {
+  return 100 + Math.round((y + height) * 10);
 }
 
-function bbox(x: number, y: number, sprite: string) {
-  const [w, h] = spriteSize(sprite);
-  return { x0: x, y0: y, x1: x + w, y1: y + h };
+function bbox(item: RenderProp) {
+  return { x0: item.x, y0: item.y, x1: item.x + item.w, y1: item.y + item.h };
 }
 
 /**
@@ -214,10 +244,10 @@ function bbox(x: number, y: number, sprite: string) {
  */
 function liftToppings(items: RenderProp[]): void {
   for (const item of items) {
-    const ib = bbox(item.x, item.y, item.sprite);
+    const ib = bbox(item);
     for (const host of items) {
       if (host === item) continue;
-      const hb = bbox(host.x, host.y, host.sprite);
+      const hb = bbox(host);
       const inside = ib.x0 >= hb.x0 && ib.x1 <= hb.x1 && ib.y0 >= hb.y0 && ib.y1 <= hb.y1;
       if (inside && item.z <= host.z) item.z = host.z + 1;
     }
@@ -266,18 +296,19 @@ export function roomFor(layout: Layout): RoomData {
     // рисовать ему нечем. В каталоге они есть — там их габариты, след и
     // посадочные места, — но картинки у них нет и не будет.
     if (catalog.sprites[p.sprite]?.modelOnly) return;
+    const [w, h] = propSize(p, catalog.sprites[p.sprite]);
     const item: RenderProp = {
-      key: keys[i], sprite: p.sprite, x: p.at[0], y: p.at[1], scale: p.scale, rot: p.rot, z: 0,
+      key: keys[i], sprite: p.sprite, x: p.at[0], y: p.at[1], w, h, rot: p.rot, z: 0,
     };
     if (WALL_MOUNTED.has(p.sprite)) fixed.push({ ...item, z: 900 });
     else if (FLOOR_OVERLAY.has(p.sprite)) fixed.push({ ...item, z: 1 });
-    else sorted.push({ ...item, z: furnitureZ(item.x, item.y, item.sprite) });
+    else sorted.push({ ...item, z: furnitureZ(item.y, item.h) });
   });
   liftToppings(sorted);
   const placedProps = [...fixed, ...sorted];
 
   const entrance = layout.zones!.find((z) => z.kind === 'entrance')!;
-  const doorZ = furnitureZ(entrance.at![0], entrance.at![1], entrance.sprite!);
+  const doorZ = furnitureZ(entrance.at![1], spriteSize(entrance.sprite!)[1]);
   const hotspots = (layout.hotspots ?? []) as LayoutHotspot[];
   const allDesks = desks(layout, catalog);
   const floorTilesList = sharedFloorTiles(layout);
@@ -288,7 +319,7 @@ export function roomFor(layout: Layout): RoomData {
     // (спека §5), что и для остальной мебели — по нижней кромке спрайта.
     const x = t.x;
     const y = t.y - 0.5;
-    return { key: `wall-${t.x}-${t.y}`, sprite: t.sprite, x, y, z: furnitureZ(x, y, t.sprite) };
+    return { key: `wall-${t.x}-${t.y}`, sprite: t.sprite, x, y, z: furnitureZ(y, spriteSize(t.sprite)[1]) };
   });
 
   const data: RoomData = {

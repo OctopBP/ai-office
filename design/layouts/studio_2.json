@@ -1,0 +1,60 @@
+{
+  "version": 1,
+  "id": "studio_2",
+  "title": "Студия 2",
+  "size": [30, 20],
+  "rooms": [
+    { "id": "meeting", "rect": [1, 1, 11, 8], "floor": "parquet" },
+    { "id": "lounge", "rect": [1, 8, 11, 19], "floor": "parquet" },
+    { "id": "open", "rect": [11, 1, 29, 19], "floor": "carpet" }
+  ],
+  "walls": [
+    { "a": [0, 0], "b": [30, 0] },
+    { "a": [0, 0], "b": [0, 20] },
+    { "a": [0, 19], "b": [30, 19], "doors": [[13, 3]] },
+    { "a": [29, 0], "b": [29, 20] },
+    { "a": [11, 0], "b": [11, 20], "doors": [[4, 3], [15, 3]]},
+    { "a": [0, 8], "b": [11, 8] }
+  ],
+  "props": [
+    { "sprite": "desk_pm", "at": [14, 15] },
+    { "sprite": "desk", "at": [13, 3], "size": [3, 2] },
+    { "sprite": "desk", "at": [17, 3], "size": [3, 2] },
+    { "sprite": "desk", "at": [21, 3], "size": [3, 2] },
+    { "sprite": "desk", "at": [25, 3], "size": [3, 2] },
+    { "sprite": "desk", "at": [13, 7], "size": [3, 2] },
+    { "sprite": "desk", "at": [17, 7], "size": [3, 2] },
+    { "sprite": "desk", "at": [21, 7], "size": [3, 2] },
+    { "sprite": "desk", "at": [25, 7], "size": [3, 2] },
+    { "sprite": "desk", "at": [13, 11], "size": [3, 2] },
+    { "sprite": "desk", "at": [17, 11], "size": [3, 2] },
+    { "sprite": "desk", "at": [21, 11], "size": [3, 2] },
+    { "sprite": "desk", "at": [25, 11], "size": [3, 2] },
+
+    { "sprite": "chair", "at": [14, 1], "size": [1, 2] },
+    { "sprite": "chair", "at": [18, 1], "size": [1, 2] },
+    { "sprite": "chair", "at": [22, 1], "size": [1, 2] },
+    { "sprite": "chair", "at": [26, 1], "size": [1, 2] },
+    { "sprite": "chair", "at": [14, 5], "size": [1, 2] },
+    { "sprite": "chair", "at": [18, 5], "size": [1, 2] },
+    { "sprite": "chair", "at": [22, 5], "size": [1, 2] },
+    { "sprite": "chair", "at": [26, 5], "size": [1, 2] },
+    { "sprite": "chair", "at": [14, 9], "size": [1, 2] },
+    { "sprite": "chair", "at": [18, 9], "size": [1, 2] },
+    { "sprite": "chair", "at": [22, 9], "size": [1, 2] },
+    { "sprite": "chair", "at": [26, 9], "size": [1, 2] },
+
+    { "sprite": "round_table", "at": [4.0, 3.0], "id": "meeting_table", "scale": 2.5 },
+
+    { "sprite": "dining_table", "at": [2.5, 12.0] }
+  ],
+  "zones": [
+    { "kind": "entrance", "at": [14, 18.4], "sprite": "door", "title": "Офисы и проекты" },
+    { "kind": "meeting", "prop": "meeting_table" },
+    { "kind": "idle", "room": "lounge" }
+  ],
+  "hotspots": [
+    { "panel": "board", "sprite": "board", "at": [20, 0], "key": "B", "title": "Доска задач — B" },
+    { "panel": "log", "sprite": "logscreen", "at": [16, 0], "key": "L", "title": "Лог событий — L" }
+  ]
+}

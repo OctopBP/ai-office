@@ -236,6 +236,12 @@ const OUT_OF_ROOM = 1;
 /** Разумные пределы масштаба предмета: ковёр 1.2, стол переговорки 1.6. */
 const MIN_SCALE = 0.1;
 const MAX_SCALE = 8;
+/**
+ * Пределы явного габарита предмета в тайлах (§3.2). Верхний — размер самой
+ * комнаты: предмет во всю комнату это уже пол, а не мебель, и footprint такого
+ * размера перекрыл бы проходимость целиком.
+ */
+const MIN_PROP_SIZE = 0.1;
 
 /**
  * Проверить и причесать одну правку расстановки. Возвращает либо готовую
@@ -286,6 +292,15 @@ export function checkPropEdit(
       return { error: `Масштаб предмета «${key}» должен быть числом от ${MIN_SCALE} до ${MAX_SCALE}.` };
     }
     clean.scale = round3(edit.scale);
+  }
+  if (edit.size !== undefined) {
+    const [w, h] = Array.isArray(edit.size) ? edit.size : [NaN, NaN];
+    const [cols, rows] = layout.size;
+    if (!Number.isFinite(w) || !Number.isFinite(h)) return { error: `Размер предмета «${key}» — не число.` };
+    if (w < MIN_PROP_SIZE || h < MIN_PROP_SIZE || w > cols || h > rows) {
+      return { error: `Размер предмета «${key}» должен быть от ${MIN_PROP_SIZE} до размеров комнаты ${cols}×${rows}.` };
+    }
+    clean.size = [round3(w), round3(h)];
   }
   if (edit.removed !== undefined) {
     if (edit.removed && !known) return { error: `Предмета «${key}» в раскладке и так нет.` };

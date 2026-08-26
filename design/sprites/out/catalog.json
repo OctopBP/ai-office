@@ -5,19 +5,19 @@
   "sprites": {
     "agent_backend1": {
       "size": [
-        1.0,
+        0.75,
         1.5
       ]
     },
     "agent_backend2": {
       "size": [
-        1.0,
+        0.75,
         1.5
       ]
     },
     "agent_frontend1": {
       "size": [
-        1.0,
+        0.75,
         1.5
       ]
     },
@@ -93,13 +93,13 @@
     },
     "agent_pm": {
       "size": [
-        1.0,
+        0.75,
         1.5
       ]
     },
     "agent_uiux": {
       "size": [
-        1.0,
+        0.75,
         1.5
       ]
     },

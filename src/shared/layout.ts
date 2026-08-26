@@ -54,6 +54,8 @@ export interface CatalogSprite {
   blocks?: boolean;
   layer?: string;
   slots?: CatalogSlot[];
+  /** Человекочитаемое название пресета внешности — показывается в выборе внешности роли. */
+  label?: string;
 }
 
 export interface Catalog {
@@ -82,6 +84,14 @@ export interface LayoutProp {
    * научится поворачивать (шаг 6), след придётся поворачивать здесь же.
    */
   rot?: number;
+  /**
+   * Явный габарит предмета в тайлах — «этот стол 2×3» независимо от того,
+   * какого разрешения картинка (§3.2). Главнее и размера из каталога, и
+   * `scale`: коэффициенты растяжения по осям считаются как size / размер
+   * спрайта, поэтому предмет занимает ровно заявленные тайлы — и на экране,
+   * и в сетке проходимости, и в слотах (место у стола, табличка).
+   */
+  size?: [number, number];
 }
 
 export interface LayoutZone {
@@ -145,6 +155,8 @@ export interface LayoutPropEdit {
   scale?: number;
   /** Новый поворот в градусах — см. `LayoutProp.rot`. */
   rot?: number;
+  /** Новый габарит предмета в тайлах (§3.2). Перекрывает `scale`. */
+  size?: [number, number];
   /** Убрать предмет из расстановки офиса. Пресет при этом не меняется. */
   removed?: boolean;
   /**
@@ -223,6 +235,7 @@ function editedProp(prop: LayoutProp, edit: LayoutPropEdit): LayoutProp {
   if (edit.flip !== undefined) next.flip = edit.flip;
   if (edit.rot !== undefined) next.rot = edit.rot;
   if (edit.scale !== undefined) next.scale = edit.scale;
+  if (edit.size) next.size = [edit.size[0], edit.size[1]];
   return next;
 }
 
@@ -249,17 +262,41 @@ function propRef(layout: Layout, id: string): LayoutProp | undefined {
   return layout.props.find((p) => p.id === id);
 }
 
-/** Абсолютная точка слота-координаты предмета: якорь плюс смещение с учётом scale. */
-function resolvePoint(prop: LayoutProp, slot: SlotPoint): Pos {
-  const scale = prop.scale ?? 1;
-  return { x: prop.at[0] + slot.x * scale, y: prop.at[1] + slot.y * scale };
+/**
+ * Насколько предмет растянут относительно своего арта, по каждой оси
+ * отдельно (§3.2). `scale` — общий множитель, `size` — явный габарит в
+ * тайлах, и он главнее: коэффициент считается от размера спрайта в
+ * каталоге, поэтому «стол 2×3» занимает ровно 2×3 тайла при любом
+ * разрешении картинки. Оси разные, потому что заявленный габарит не обязан
+ * повторять пропорции арта.
+ */
+export function propScale(prop: LayoutProp, sprite?: CatalogSprite): [number, number] {
+  const [bw, bh] = sprite?.size ?? [1, 1];
+  if (prop.size) {
+    return [bw > 0 ? prop.size[0] / bw : 1, bh > 0 ? prop.size[1] / bh : 1];
+  }
+  const k = prop.scale ?? 1;
+  return [k, k];
 }
 
-/** Центр габарита предмета — якорь плюс половина размера с учётом scale. */
+/** Габарит предмета в тайлах — то, что реально занимает на сетке (§3.2). */
+export function propSize(prop: LayoutProp, sprite?: CatalogSprite): [number, number] {
+  if (prop.size) return [prop.size[0], prop.size[1]];
+  const [w, h] = sprite?.size ?? [1, 1];
+  const k = prop.scale ?? 1;
+  return [w * k, h * k];
+}
+
+/** Абсолютная точка слота-координаты предмета: якорь плюс смещение с учётом растяжения. */
+function resolvePoint(prop: LayoutProp, sprite: CatalogSprite | undefined, slot: SlotPoint): Pos {
+  const [sx, sy] = propScale(prop, sprite);
+  return { x: prop.at[0] + slot.x * sx, y: prop.at[1] + slot.y * sy };
+}
+
+/** Центр габарита предмета — якорь плюс половина размера. */
 function propCenter(prop: LayoutProp, sprite: CatalogSprite): Pos {
-  const scale = prop.scale ?? 1;
-  const [w, h] = sprite.size;
-  return { x: prop.at[0] + (w * scale) / 2, y: prop.at[1] + (h * scale) / 2 };
+  const [w, h] = propSize(prop, sprite);
+  return { x: prop.at[0] + w / 2, y: prop.at[1] + h / 2 };
 }
 
 interface DeskProp { prop: LayoutProp; sprite: CatalogSprite }
@@ -280,9 +317,10 @@ function deskProps(layout: Layout, catalog: Catalog): DeskProp[] {
  * порядку объявления в раскладке (§3.3). Контракт с сервером: `Desk.index`.
  */
 export function desks(layout: Layout, catalog: Catalog): Desk[] {
-  return deskProps(layout, catalog).map(({ prop }, index) => ({
-    index, x: prop.at[0], y: prop.at[1],
-  }));
+  return deskProps(layout, catalog).map(({ prop, sprite }, index) => {
+    const [w, h] = propSize(prop, sprite);
+    return { index, x: prop.at[0], y: prop.at[1], w, h };
+  });
 }
 
 /**
@@ -302,7 +340,7 @@ export function deskPoint(layout: Layout, catalog: Catalog, deskIndex: number, k
   if (!found) throw new Error(`layout: нет рабочего стола с индексом ${deskIndex}`);
   const slot = found.sprite.slots?.find((s): s is SlotPoint => isPoint(s) && s.kind === kind);
   if (!slot) throw new Error(`layout: у стола ${found.prop.sprite} нет слота ${kind}`);
-  return resolvePoint(found.prop, slot);
+  return resolvePoint(found.prop, found.sprite, slot);
 }
 
 /** Первый предмет в раскладке, у чьего спрайта есть ring-слот мест (переговорка). */
@@ -373,10 +411,7 @@ function ringSeatsRange(prop: LayoutProp, sprite: CatalogSprite, slot: SlotRing,
 
 /** Места вдоль одной стороны предмета — шаг width/count, отступ от кромки SEAT_GAP (§3.1). */
 function sideSeats(prop: LayoutProp, sprite: CatalogSprite, slot: SlotSide): Pos[] {
-  const scale = prop.scale ?? 1;
-  const [w, h] = sprite.size;
-  const width = w * scale;
-  const height = h * scale;
+  const [width, height] = propSize(prop, sprite);
   const along = slot.side === 'n' || slot.side === 's' ? width : height;
   const step = along / slot.count;
   const seats: Pos[] = [];
@@ -427,7 +462,7 @@ export function restSeats(layout: Layout, catalog: Catalog, propId?: string): Re
     }
     for (const slot of slots) {
       if (!isPoint(slot) || slot.kind !== 'seat') continue;
-      seats.push({ at: resolvePoint(prop, slot), use: slot.use, sprite: prop.sprite });
+      seats.push({ at: resolvePoint(prop, sprite, slot), use: slot.use, sprite: prop.sprite });
     }
   }
   return seats;
@@ -636,12 +671,12 @@ export function passability(layout: Layout, catalog: Catalog): Passability {
   for (const prop of layout.props) {
     const sprite = spriteOf(catalog, prop.sprite);
     if (!sprite?.blocks) continue;
-    const scale = prop.scale ?? 1;
+    const [sx, sy] = propScale(prop, sprite);
     const [fx, fy, fw, fh] = sprite.footprint ?? [0, 0, sprite.size[0], sprite.size[1]];
-    const x0 = prop.at[0] + fx * scale;
-    const y0 = prop.at[1] + fy * scale;
-    const x1 = x0 + fw * scale;
-    const y1 = y0 + fh * scale;
+    const x0 = prop.at[0] + fx * sx;
+    const y0 = prop.at[1] + fy * sy;
+    const x1 = x0 + fw * sx;
+    const y1 = y0 + fh * sy;
     for (let y = Math.floor(y0); y < Math.ceil(y1); y++) {
       for (let x = Math.floor(x0); x < Math.ceil(x1); x++) mark(x, y, 1);
     }
@@ -651,7 +686,7 @@ export function passability(layout: Layout, catalog: Catalog): Passability {
     const sprite = spriteOf(catalog, prop.sprite);
     for (const slot of sprite?.slots ?? []) {
       if (isPoint(slot)) {
-        const pt = resolvePoint(prop, slot);
+        const pt = resolvePoint(prop, sprite, slot);
         mark(pt.x, pt.y, 0);
       } else if (isSide(slot)) {
         for (const pt of sideSeats(prop, sprite!, slot)) mark(pt.x, pt.y, 0);
