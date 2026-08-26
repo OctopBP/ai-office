@@ -376,12 +376,18 @@ button
   border-radius: 6px; padding: 3px 8px; font-size: 11px; white-space: nowrap;
   max-width: 320px; overflow: hidden; text-overflow: ellipsis;
 }
-/* Подложки у карточки нет: над сценой висят только сами элементы. Читаемость
-   держит не плашка, а обводка текста цветом фона (`--panel` — светлый в
-   дневной теме и тёмный в ночной, то есть всегда контрастный тексту). У
-   значка и кружка состояния своя заливка остаётся: это отдельные фигуры, а
-   не подложка под строку. */
-.tag3d-card { line-height: 1.15; }
+/* Подпись — «наклейка»: капсула цвета панели в жирной тёмной обводке, внутри
+   залитый значок должности и залитый кружок состояния. Обводка делает её
+   читаемой над любым полом и мебелью — это надёжнее, чем полупрозрачный фон
+   или тень под текстом, которые на пёстрой сцене всё равно теряются. */
+.tag3d-card {
+  line-height: 1.15;
+  background: var(--panel);
+  border: 3px solid var(--line);
+  border-radius: 999px;
+  padding: 3px;
+  box-shadow: 0 2px 0 var(--shadow);
+}
 /* Одна строка: слева значок должности с номером, по центру название
    должности, справа состояние. Всё, что раньше стояло в две строки мелким
    текстом («backend#1 · свободен», под ним роль), сжалось в этот ряд —
@@ -391,33 +397,30 @@ button
    в таком виде она должна занимать минимум места по ширине, иначе теряется
    весь смысл сворачивания. */
 .tag3d-row.compact { gap: 3px; }
+/* Значок должности залит, а не обведён: у капсулы уже есть своя обводка, и
+   вторая рамка того же веса рядом читалась бы как ошибка вёрстки. */
 .tag3d-chip {
-  flex: none; font: 700 12px/1 ui-monospace, Menlo, monospace; letter-spacing: .02em;
-  color: var(--green); background: var(--panel);
-  border: 2px solid var(--green); border-radius: 999px;
+  flex: none; font: 800 12px/1 ui-monospace, Menlo, monospace; letter-spacing: .02em;
+  color: var(--line); background: var(--green);
+  border: 2px solid var(--line); border-radius: 999px;
   padding: 3px 6px; min-width: 26px; text-align: center;
 }
 .tag3d-name {
-  flex: 1; font-weight: 700; font-size: 12px; line-height: 1.1; text-align: center;
-  max-width: 150px; overflow: hidden; text-overflow: ellipsis;
-  text-shadow:
-    -1px 0 var(--panel), 1px 0 var(--panel),
-    0 -1px var(--panel), 0 1px var(--panel),
-    0 2px 4px var(--shadow);
+  flex: 1; font-weight: 800; font-size: 12px; line-height: 1.1; text-align: center;
+  max-width: 110px; padding: 0 2px;
 }
+/* Кружок состояния залит его цветом целиком. Иконка внутри — если у
+   состояния она есть; у «свободен» и «идёт» её нет, и кружок остаётся
+   просто цветным, как в макете. */
 .tag3d-state {
   flex: none; width: 22px; height: 22px; border-radius: 999px;
-  border: 2px solid var(--line); background: var(--panel);
+  border: 2px solid var(--line);
   display: flex; align-items: center; justify-content: center;
   font-size: 11px; line-height: 1;
 }
-.tag3d-state .dot { width: 9px; height: 9px; border-radius: 999px; display: block; }
 .tag3d-task {
-  margin-top: 2px; font-size: 10px; line-height: 1.1; text-align: center; opacity: .75;
+  margin: 2px 6px 1px; font-size: 10px; line-height: 1.1; text-align: center; opacity: .75;
   max-width: 190px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
-  text-shadow:
-    -1px 0 var(--panel), 1px 0 var(--panel),
-    0 -1px var(--panel), 0 1px var(--panel);
 }
 .tag3d-plate {
   font: 700 10px/1.5 ui-monospace, Menlo, monospace; letter-spacing: .04em;

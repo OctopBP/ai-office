@@ -122,11 +122,12 @@ const DESK_TOP = 1.05;
 const TAG_SCALE = 15;
 
 /**
- * Цвет точки состояния — для тех состояний, у которых нет своей иконки
- * (свободен, идёт). Остальным хватает эмодзи из `STATE_ICON`, и цветом их
- * дублировать незачем.
+ * Цвет кружка состояния. Цветом помечены все состояния, а не только
+ * безыконные: кружок в подписи залит целиком, и оставлять его бесцветным
+ * там, где есть эмодзи, значило бы терять единственную метку, которую видно
+ * у свёрнутой подписи с другого конца комнаты.
  */
-const STATE_DOT: Record<AgentState, string> = {
+const STATE_COLOR: Record<AgentState, string> = {
   idle: '#5fd35a', walking: '#8a93a8', thinking: '#f0b429', working: '#f0b429',
   talking: '#f0b429', waiting_approval: '#ff6b57', paused: '#8a93a8',
   blocked: '#ff6b57', done: '#5fd35a', failed: '#ff6b57',
@@ -232,8 +233,12 @@ function AgentTag({ inst, role, task, expanded }: {
                 «свободен» и «идёт» её нет, и там кружок берёт цвет. Круг
                 фиксированного размера, чтобы строка не прыгала при смене
                 состояния. */}
-            <span className="tag3d-state" title={STATE_TEXT[inst.state]}>
-              {icon || <i className="dot" style={{ background: STATE_DOT[inst.state] }} />}
+            <span
+              className="tag3d-state"
+              style={{ background: STATE_COLOR[inst.state] }}
+              title={STATE_TEXT[inst.state]}
+            >
+              {icon}
             </span>
           </div>
           {expanded && task && <div className="tag3d-task">{task.id} · {task.title}</div>}
