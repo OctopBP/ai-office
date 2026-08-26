@@ -106,17 +106,17 @@ export function App() {
 
   return (
     <div className={`app${paused ? ' paused' : ''}`}>
+      <TopHud
+        onSettings={() => setModal('settings')}
+        onMeeting={() => setModal('meeting')}
+        onHelp={() => setPanel('help')}
+        onUsage={() => setModal('usage')}
+        onMergeQueue={() => setPanel('merge')}
+      />
       <div className="stage">
         {render3d
           ? <Office3D onOpen={setPanel} onDoor={() => setModal('offices')} />
           : <Office onOpen={setPanel} onDoor={() => setModal('offices')} />}
-        <TopHud
-          onSettings={() => setModal('settings')}
-          onMeeting={() => setModal('meeting')}
-          onHelp={() => setPanel('help')}
-          onUsage={() => setModal('usage')}
-          onMergeQueue={() => setPanel('merge')}
-        />
         <Toasts onOpenTask={() => setPanel('board')} />
       </div>
       <BottomBar />

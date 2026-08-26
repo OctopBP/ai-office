@@ -36,7 +36,7 @@ export function TopHud({ onSettings, onMeeting, onHelp, onUsage, onMergeQueue }:
 
   return (
     <>
-      <div className="hud-bar pixel">
+      <div className="hud-bar">
         <div className="hud-group hud-left">
           <OfficeSwitcher />
           <span className="hud-sep" />
