@@ -135,7 +135,7 @@ export const PROPS: Record<string, Prop3> = {
   counter_corner: { shape: 'counter', h: 1.2, tone: 'wood' },
 
   sofa: {
-    shape: 'soft', h: 1.1, d: 1.2, tone: 'fabric',
+    shape: 'soft', h: 1.2, d: 1.05, tone: 'fabric',
     models: [{ file: 'loungeSofa' }],
     seat: [0, 0, 0],
   },
@@ -143,7 +143,7 @@ export const PROPS: Record<string, Prop3> = {
   // плоский офис его не рисует. Запасная форма всё равно объявлена: она
   // понадобится, если модель не приедет.
   armchair: {
-    shape: 'soft', h: 1.1, d: 1.09, tone: 'fabric',
+    shape: 'soft', h: 1.2, d: 1.05, tone: 'fabric',
     models: [{ file: 'loungeChair' }],
     seat: [0, 0, 0],
   },
