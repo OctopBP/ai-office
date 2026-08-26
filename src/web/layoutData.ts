@@ -39,6 +39,14 @@ export function layoutFor(layoutId: string): Layout {
 const ROW_GAP = 0.9;
 
 /**
+ * Шаг между свободными агентами в зоне отдыха. Больше кухонного: там места
+ * заданы слотами стола и люди сидят вплотную, а здесь они стоят, и в объёме
+ * фигуры с шагом в 0.9 тайла (это 0.7 м) просто пересекаются телами. В виде
+ * сверху этого не было видно — спрайт занимал ровно тайл.
+ */
+const ZONE_GAP = 1.6;
+
+/**
  * Высота фигуры агента: все agent_* спрайты одного размера по арту (§3.1
  * места не знают про высоту фигуры, это отрисовка Office.tsx).
  */
@@ -111,12 +119,12 @@ function zoneSeats(layout: Layout, need: number): Pos[] {
   const room = layout.rooms?.find((r) => r.id === zone?.room);
   if (!room) return [];
   const [x0, y0, x1, y1] = room.rect;
-  const perRow = Math.max(1, Math.floor((x1 - x0 - 1) / ROW_GAP));
+  const perRow = Math.max(1, Math.floor((x1 - x0 - 1) / ZONE_GAP));
   const seats: Pos[] = [];
   for (let i = 0; i < need; i++) {
     seats.push({
-      x: x0 + 0.8 + (i % perRow) * ROW_GAP,
-      y: y0 + (y1 - y0) * 0.5 + Math.floor(i / perRow) * ROW_GAP,
+      x: x0 + 0.8 + (i % perRow) * ZONE_GAP,
+      y: y0 + (y1 - y0) * 0.5 + Math.floor(i / perRow) * ZONE_GAP,
     });
   }
   return seats;

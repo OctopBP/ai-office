@@ -25,6 +25,7 @@ import { paletteOf, type Palette } from './palette';
 import { WALL_H, scene3, type Box3, type Scene3, type Wall3 } from './geometry';
 import { place3 } from './props';
 import { Props3D } from './Props3D';
+import { Agents3D } from './Agents3D';
 
 /**
  * Наклон и поворот камеры при первом показе. Полярный угол считается от
@@ -406,6 +407,7 @@ export function Office3D() {
           ))}
         </group>
         <Props3D items={placed} palette={palette} offset={offset} />
+        <Agents3D offset={offset} />
       </Canvas>
     </div>
   );
