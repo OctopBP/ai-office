@@ -47,7 +47,10 @@
   "zones": [
     { "kind": "entrance", "at": [19.6, 18.4], "sprite": "door", "title": "Офисы и проекты" },
     { "kind": "meeting", "prop": "meeting_table" },
-    { "kind": "idle", "room": "lounge" }
+    { "kind": "idle", "room": "lounge" },
+
+    { "kind": "talk", "at": [4.0, 14.0], "axis": "x" },
+    { "kind": "talk", "at": [7.6, 11.0], "axis": "y" }
   ],
   "hotspots": [
     { "panel": "board", "sprite": "board", "at": [12.6, 0.1], "key": "B", "title": "Доска задач — B" },

@@ -521,17 +521,20 @@
         {
           "kind": "seat",
           "x": 0.25,
-          "y": 0.1
+          "y": 0.1,
+          "use": "game"
         },
         {
           "kind": "seat",
           "x": 1.125,
-          "y": 0.1
+          "y": 0.1,
+          "use": "game"
         },
         {
           "kind": "seat",
           "x": 2.0,
-          "y": 0.1
+          "y": 0.1,
+          "use": "sit"
         }
       ],
       "blocks": true

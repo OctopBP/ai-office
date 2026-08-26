@@ -20,6 +20,7 @@ import * as THREE from 'three';
 import { FBXLoader } from 'three/examples/jsm/loaders/FBXLoader.js';
 import { clone as cloneSkinned } from 'three/examples/jsm/utils/SkeletonUtils.js';
 import charUrl from '../../../design/models/characters/character.fbx?url';
+import idleUrl from '../../../design/models/characters/animations/idle.fbx?url';
 import walkUrl from '../../../design/models/characters/animations/walk.fbx?url';
 import typeUrl from '../../../design/models/characters/animations/type.fbx?url';
 import sitIdleUrl from '../../../design/models/characters/animations/sit-idle.fbx?url';
@@ -30,10 +31,11 @@ import sitDownUrl from '../../../design/models/characters/animations/sit-down.fb
 import standUpUrl from '../../../design/models/characters/animations/stand-up.fbx?url';
 import sitToTypeUrl from '../../../design/models/characters/animations/sit-to-type.fbx?url';
 import typeToSitUrl from '../../../design/models/characters/animations/type-to-sit.fbx?url';
-import { deskPoint, kitchenSeats } from '../../shared/layout';
+import { deskPoint } from '../../shared/layout';
 import type { Layout } from '../../shared/layout';
 import { catalog } from '../layoutData';
 import { useStore } from '../store';
+import { interestsFor, type Interest } from '../interests';
 import { STATE_ICON, STATE_TEXT } from '../agentState';
 import type { AgentState, InstanceView, RoleView, TaskView } from '../../shared/types';
 
@@ -72,10 +74,11 @@ const FOOT_DY = 1.05;
  * переход между группами нельзя проиграть кроссфейдом — человек должен встать
  * или сесть, и на это есть отдельные клипы.
  */
-type Pose = 'walk' | 'talk' | 'type' | 'sitIdle' | 'sitTalk' | 'game';
+type Pose = 'walk' | 'idle' | 'talk' | 'type' | 'sitIdle' | 'sitTalk' | 'game';
 
 const SEATED: Record<Pose, boolean> = {
-  walk: false, talk: false, type: true, sitIdle: true, sitTalk: true, game: true,
+  walk: false, idle: false, talk: false,
+  type: true, sitIdle: true, sitTalk: true, game: true,
 };
 
 /** Переходы между позами — играются один раз и замирают на последнем кадре. */
@@ -98,6 +101,15 @@ const MOVING_EPS = 0.02;
 
 /** Скорость доворота фигуры, радиан в секунду. */
 const TURN_SPEED = 9;
+
+/**
+ * Сколько секунд говорит один собеседник, прежде чем передать слово.
+ *
+ * Очередь считается от общих часов сцены, а не от таймера у каждой пары:
+ * общие часы сами держат собеседников в противофазе, и разговор не
+ * превращается в двух людей, говорящих одновременно.
+ */
+const TALK_TURN = 4;
 
 /**
  * Модель смотрит вдоль своей оси Z; в какую сторону — свойство конкретного
@@ -199,7 +211,7 @@ function shortTag(inst: InstanceView): string {
 
 /** Порядок загрузки: модель, потом клипы поз, потом клипы переходов. */
 const POSE_URLS: Record<Pose, string> = {
-  walk: walkUrl, talk: talkUrl, type: typeUrl,
+  walk: walkUrl, idle: idleUrl, talk: talkUrl, type: typeUrl,
   sitIdle: sitIdleUrl, sitTalk: sitTalkUrl, game: gameUrl,
 };
 const MOVE_URLS: Record<Move, string> = {
@@ -353,7 +365,7 @@ function AgentTag({ inst, role, task, expanded }: {
  * `getComputedStyle`, а здесь она просто лежит в объекте сцены.
  */
 function Agent({
-  inst, loaded, material, layout, offset, role, task, selected, inMeeting, seats, seatPose,
+  inst, loaded, material, layout, offset, role, task, selected, inMeeting, interest, phase,
 }: {
   inst: InstanceView;
   loaded: Loaded;
@@ -364,10 +376,10 @@ function Agent({
   task?: TaskView | null;
   selected: boolean;
   inMeeting: boolean;
-  /** Настоящие посадочные места отдыха — те, что объявлены слотами предмета. */
-  seats: { x: number; y: number }[];
-  /** Чем этот агент занимает себя, сидя на диване. */
-  seatPose: Pose;
+  /** Чем агент занят, пока свободен: разговор, приставка, место, ничего. */
+  interest?: Interest;
+  /** Доля цикла, с которой начинаются его анимации: 0…1. */
+  phase: number;
 }) {
   const pos = useStore((s) => s.pos[inst.id]);
   const select = useStore((s) => s.select);
@@ -430,11 +442,24 @@ function Agent({
       actions[key] = a;
     }
     actions.walk.timeScale = WALK_TIMESCALE;
+
+    /**
+     * Сдвиг фазы: каждая фигура начинает свой цикл со своей секунды.
+     *
+     * Без него восемь агентов дышат, переминаются и печатают синхронно —
+     * комната превращается в кордебалет, и это первое, что бросается в
+     * глаза. Сдвиг детерминированный, от номера агента: случайный менялся бы
+     * при каждой перерисовке и дёргал бы позу.
+     */
+    for (const key of POSE_KEYS) {
+      const a = actions[key];
+      a.time = (phase * a.getClip().duration) % a.getClip().duration;
+    }
     return { figure, mixer, actions };
-  }, [loaded, material]);
+  }, [loaded, material, phase]);
 
   /** Поза, которая играет сейчас, и поза, к которой ведёт текущий переход. */
-  const pose = useRef<Pose>('talk');
+  const pose = useRef<Pose>('idle');
   const pending = useRef<Pose | null>(null);
 
   /**
@@ -450,9 +475,9 @@ function Agent({
    * действий.
    */
   useEffect(() => {
-    pose.current = 'talk';
+    pose.current = 'idle';
     pending.current = null;
-    rig.actions.talk.reset().play();
+    rig.actions.idle.reset().play();
 
     /**
      * Доиграл переход — включаем позу, ради которой он игрался. Отдельным
@@ -524,13 +549,30 @@ function Agent({
    * Проверка — по совпадению с посадочным местом, а не по «он в комнате
    * отдыха»: комната большая, а подушек три.
    */
-  const onSeat = seats.some((s) => Math.abs(s.x - point.x) < 0.01 && Math.abs(s.y - point.y) < 0.01);
   const busy = inst.state === 'working' || inst.state === 'thinking';
-  const chatting = inst.state === 'talking';
+
+  /**
+   * Поза, в которой агент стоит на месте.
+   *
+   * За столом решает занятость, на совещании — совещание, а во всём
+   * остальном — его занятие: разговор, приставка, посидеть или просто
+   * постоять. Разговор особый: в паре говорит один, второй слушает, и кто
+   * сейчас чей — считается ниже по общим часам.
+   */
   const restPose: Pose = inMeeting ? 'sitTalk'
     : atDesk ? (busy ? 'type' : 'sitIdle')
-      : onSeat ? (chatting ? 'sitTalk' : seatPose)
-        : 'talk';
+      : interest?.kind === 'game' ? 'game'
+        : interest?.kind === 'sit' ? 'sitIdle'
+          : interest?.kind === 'talk' ? 'talk'
+            : 'idle';
+
+  /** Куда смотреть стоя: занятие может попросить свой разворот — собеседники
+   *  разворачиваются друг к другу, — иначе как обычно, на юг. */
+  const restYaw = interest?.yaw ?? REST_YAW;
+
+  /** Первый в паре по алфавиту начинает говорить: правило одинаково у обоих,
+   *  поэтому договариваться им не о чем. */
+  const speaksFirst = !!interest?.partner && inst.id < interest.partner;
 
   useEffect(() => {
     target.current.set(px, 0, pz);
@@ -542,10 +584,16 @@ function Agent({
     if (ms === 0 || g.position.lengthSq() === 0) g.position.copy(target.current);
   }, [px, pz, ms]);
 
-  useFrame((_, dt) => {
+  useFrame((state, dt) => {
     rig.mixer.update(dt);
     const g = group.current;
     if (!g) return;
+
+    // В разговоре говорят по очереди: пока один жестикулирует, второй просто
+    // стоит и слушает. Без этого пара выглядит как два человека, говорящих
+    // одновременно и мимо друг друга.
+    const speaking = speaksFirst === (Math.floor(state.clock.elapsedTime / TALK_TURN) % 2 === 0);
+    const still: Pose = restPose === 'talk' && !speaking ? 'idle' : restPose;
 
     const dist = g.position.distanceTo(target.current);
     if (remain.current > 0 && dist > MOVING_EPS) {
@@ -561,8 +609,8 @@ function Agent({
     } else {
       g.position.copy(target.current);
       remain.current = 0;
-      yaw.current = REST_YAW;
-      goTo(restPose);
+      yaw.current = restYaw;
+      goTo(still);
     }
 
     // Доворот по кратчайшей дуге: без нормализации разницы фигура на переходе
@@ -626,9 +674,12 @@ function Crowd({ offset }: { offset: [number, number] }) {
   const list = Object.values(instances);
   const inMeeting = new Set(meeting?.status === 'running' ? meeting.participants : []);
 
-  /** Места, на которых действительно можно сидеть, — из слотов предмета, без
-   *  добранных `extendSeats` рядов: те ряды стоят на голом полу. */
-  const seats = useMemo(() => kitchenSeats(layout, catalog), [layout]);
+  /** Кто чем занят. Считается тем же модулем, что раздаёт свободным агентам
+   *  места в сторе, — иначе поза разъехалась бы с координатой. */
+  const interests = useMemo(
+    () => interestsFor(layout, catalog, instances, roles),
+    [layout, instances, roles],
+  );
 
   return (
     <>
@@ -644,12 +695,11 @@ function Crowd({ offset }: { offset: [number, number] }) {
           task={inst.currentTaskId ? tasks[inst.currentTaskId] : null}
           selected={selected === inst.id}
           inMeeting={inMeeting.has(inst.id)}
-          seats={seats}
-          // Один из трёх на диване играет, остальные сидят просто так: без
-          // этого зона отдыха выглядит рядом одинаковых манекенов. Выбор по
-          // номеру, а не случайный, — иначе поза менялась бы при каждой
-          // перерисовке.
-          seatPose={i % 3 === 0 ? 'game' : 'sitIdle'}
+          interest={interests.get(inst.id)}
+          // Золотое сечение вместо равномерного шага: при равномерном
+          // восемь агентов раскладываются по циклу правильным узором, и
+          // синхронность возвращается — просто со сдвигом.
+          phase={(i * 0.618) % 1}
         />
       ))}
       <DeskPlates offset={offset} />

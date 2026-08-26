@@ -9,7 +9,8 @@ import {
   emptyUsage, MAX_OFFICE_WORKERS, MAX_TASK_MAX_TURNS, MIN_OFFICE_WORKERS, MIN_TASK_MAX_TURNS,
 } from '../shared/types';
 import type { Theme } from './sprites';
-import { catalog, DEFAULT_LAYOUT_ID, kitchenSeatFor, layoutFor, passabilityFor } from './layoutData';
+import { catalog, DEFAULT_LAYOUT_ID, layoutFor, passabilityFor } from './layoutData';
+import { interestsFor } from './interests';
 import { findPath, meetingSeat } from '../shared/layout';
 
 interface Pos { x: number; y: number }
@@ -28,13 +29,16 @@ interface WalkPos extends Pos { ms: number }
  * на кухне. Источник истины — currentTaskId из InstanceView, отдельного
  * флага занятости на клиенте не заводим.
  */
-function homePos(inst: InstanceView, roles: RoleView[], layout: Layout): Pos {
+function homePos(
+  inst: InstanceView, roles: RoleView[], layout: Layout, instances: Record<string, InstanceView>,
+): Pos {
   const isManager = roles.find((r) => r.id === inst.roleId)?.isManager ?? false;
   if (isManager || inst.currentTaskId) return { x: inst.desk.x, y: inst.desk.y };
-  // Сесть может быть негде: в раскладке нет ни предмета с местами, ни зоны
-  // отдыха. Тогда свободный остаётся за своим столом — это хуже по смыслу,
-  // но не ломает сцену пустой координатой.
-  return kitchenSeatFor(layout, inst.desk.index) ?? { x: inst.desk.x, y: inst.desk.y };
+  // Свободный идёт туда, где ему нашлось занятие: поговорить, поиграть,
+  // посидеть. Если занятий в раскладке нет вовсе — остаётся за своим столом:
+  // по смыслу хуже, но сцену пустой координатой не ломает.
+  return interestsFor(layout, catalog, instances, roles).get(inst.id)?.at
+    ?? { x: inst.desk.x, y: inst.desk.y };
 }
 
 /**
@@ -300,7 +304,7 @@ export const useStore = create<State>((set, get) => ({
       case 'snapshot': {
         const instances = Object.fromEntries(e.instances.map((i) => [i.id, i]));
         const pos = Object.fromEntries(
-          e.instances.map((i) => [i.id, { ...homePos(i, e.roles, e.layout), ms: 0 }]),
+          e.instances.map((i) => [i.id, { ...homePos(i, e.roles, e.layout, instances), ms: 0 }]),
         );
         set((s) => ({
           roles: e.roles, instances, pos,
@@ -341,7 +345,7 @@ export const useStore = create<State>((set, get) => ({
         set((s) => ({ instances: { ...s.instances, [e.instance.id]: e.instance } }));
         if (shouldMove) {
           const s1 = get();
-          walkTo(e.instance.id, homePos(e.instance, s1.roles, s1.layout));
+          walkTo(e.instance.id, homePos(e.instance, s1.roles, s1.layout, s1.instances));
         }
         break;
       }
@@ -459,7 +463,7 @@ export const useStore = create<State>((set, get) => ({
         const inMeeting = new Set(s0.meeting?.status === 'running' ? s0.meeting.participants : []);
         for (const inst of Object.values(s0.instances)) {
           if (inMeeting.has(inst.id)) continue;
-          walkTo(inst.id, homePos(inst, s0.roles, e.layout));
+          walkTo(inst.id, homePos(inst, s0.roles, e.layout, s0.instances));
         }
         break;
       }
@@ -491,7 +495,7 @@ export const useStore = create<State>((set, get) => ({
           });
         } else {
           for (const inst of Object.values(s0.instances)) {
-            walkTo(inst.id, homePos(inst, s0.roles, s0.layout));
+            walkTo(inst.id, homePos(inst, s0.roles, s0.layout, s0.instances));
           }
         }
         break;
