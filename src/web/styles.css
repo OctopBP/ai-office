@@ -381,47 +381,50 @@ button
    читаемой над любым полом и мебелью — это надёжнее, чем полупрозрачный фон
    или тень под текстом, которые на пёстрой сцене всё равно теряются. */
 .tag3d-card {
-  line-height: 1.15;
   background: var(--panel);
   border: 3px solid var(--line);
   border-radius: 999px;
   box-shadow: 0 2px 0 var(--shadow);
+  overflow: hidden;
 }
 /* Одна строка: слева значок должности с номером, по центру название
    должности, справа состояние. Всё, что раньше стояло в две строки мелким
    текстом («backend#1 · свободен», под ним роль), сжалось в этот ряд —
    читать издалека там было нечего. */
-.tag3d-row { display: flex; align-items: center; gap: 4px; }
-/* Свёрнутая подпись: только значок должности и состояние. Отступ ещё меньше —
-   в таком виде она должна занимать минимум места по ширине, иначе теряется
-   весь смысл сворачивания. */
-.tag3d-row.compact { gap: 3px; }
+/* Высота капсулы задана здесь и не зависит от содержимого: имя не переносится
+   по словам, а капсула не растёт вверх. Иначе залитые концы — значок и
+   кружок — остались бы прежнего размера и повисли посреди высокой пилюли. */
+.tag3d-row { display: flex; align-items: stretch; height: 24px; gap: 3px; }
 /* Значок должности залит, а не обведён: у капсулы уже есть своя обводка, и
    вторая рамка того же веса рядом читалась бы как ошибка вёрстки. */
-/* Значок и кружок состояния прижаты к обводке капсулы — у неё нет
-   внутреннего отступа, — поэтому оба одной высоты: иначе капсула вытянулась
-   бы по большему, и меньший повис бы в пустоте. Цвет значка приходит из
-   настроек роли и задаётся в разметке. */
+/* Своей обводки у значка и кружка нет — её роль играет обводка капсулы, к
+   которой они прижаты вплотную. Со своей рамкой две линии сходились в одну
+   толстую полосу на конце капсулы: именно это и выглядело криво. Разделяет
+   их полоска цвета панели в зазоре ряда. Цвет значка приходит из настроек
+   роли и задаётся в разметке. */
 .tag3d-chip {
-  flex: none; font: 800 12px/1 ui-monospace, Menlo, monospace; letter-spacing: .02em;
-  border: 2px solid var(--line); border-radius: 999px;
-  padding: 4px 6px; min-width: 26px; text-align: center;
+  flex: none; display: flex; align-items: center; justify-content: center;
+  font: 800 12px/1 ui-monospace, Menlo, monospace; letter-spacing: .02em;
+  border-radius: 999px; padding: 0 7px; min-width: 30px;
 }
 .tag3d-name {
-  flex: 1; font-weight: 800; font-size: 12px; line-height: 1.1; text-align: center;
-  max-width: 110px; padding: 0 4px;
+  flex: 1; display: flex; align-items: center; justify-content: center;
+  font-weight: 800; font-size: 12px; padding: 0 6px; white-space: nowrap;
+  max-width: 170px; overflow: hidden;
 }
 /* Кружок состояния залит его цветом целиком. Иконка внутри — если у
    состояния она есть; у «свободен» и «идёт» её нет, и кружок остаётся
    просто цветным, как в макете. */
 .tag3d-state {
-  flex: none; width: 24px; height: 24px; border-radius: 999px;
-  border: 2px solid var(--line);
+  flex: none; width: 24px; border-radius: 999px;
   display: flex; align-items: center; justify-content: center;
   font-size: 11px; line-height: 1;
 }
+/* Задача — своя табличка под капсулой. Прямоугольная и мельче: это подпись к
+   подписи, и спорить с ней формой ей незачем. */
 .tag3d-task {
-  margin: 2px 6px 1px; font-size: 10px; line-height: 1.1; text-align: center; opacity: .75;
+  background: var(--panel); border: 2px solid var(--line); border-radius: 5px;
+  padding: 1px 6px; font-size: 10px; line-height: 1.3; text-align: center;
   max-width: 190px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
 .tag3d-plate {

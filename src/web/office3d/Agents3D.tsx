@@ -272,8 +272,11 @@ function AgentTag({ inst, role, task, expanded }: {
               {icon}
             </span>
           </div>
-          {expanded && task && <div className="tag3d-task">{task.id} · {task.title}</div>}
         </div>
+        {/* Задача — отдельной табличкой под капсулой, а не второй строкой
+            внутри неё: строка растянула бы капсулу по высоте, и залитые
+            концы повисли бы в пустоте посреди неё. */}
+        {expanded && task && <div className="tag3d-task">{task.id} · {task.title}</div>}
       </div>
     </Html>
   );
