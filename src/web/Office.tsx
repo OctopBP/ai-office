@@ -4,21 +4,11 @@ import { agentSpriteName, spriteOf } from './sprites';
 import { catalog, furnitureZ, roomFor, spriteSize } from './layoutData';
 import { deskPoint } from '../shared/layout';
 import { GRID } from '../shared/types';
-import type { AgentState, InstanceView } from '../shared/types';
+import type { InstanceView } from '../shared/types';
+import { STATE_ICON, STATE_TEXT } from './agentState';
 
 const C = GRID.cell;
 const px = (tiles: number) => tiles * C;
-
-const STATE_TEXT: Record<AgentState, string> = {
-  idle: 'свободен', thinking: 'думает', working: 'работает', walking: 'идёт',
-  talking: 'разговор', waiting_approval: 'ждёт разрешения', paused: 'на паузе',
-  blocked: 'заблокирован', done: 'сдал работу', failed: 'ошибка',
-};
-
-const STATE_ICON: Record<AgentState, string> = {
-  idle: '', thinking: '💭', working: '⌨️', walking: '', talking: '💬',
-  waiting_approval: '❗', paused: '⏸', blocked: '⏳', done: '✅', failed: '⚠️',
-};
 
 export function Office({ onOpen, onDoor }: {
   onOpen: (panel: 'board' | 'log') => void;
