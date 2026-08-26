@@ -13,7 +13,7 @@
  * делает `useFrame`. Офис остаётся визуализацией событий, а не их источником
  * (CONCEPT.md §2).
  */
-import { Suspense, useEffect, useMemo, useRef } from 'react';
+import { Suspense, useEffect, useMemo, useRef, useState } from 'react';
 import { useFrame, useLoader } from '@react-three/fiber';
 import { Html } from '@react-three/drei';
 import * as THREE from 'three';
@@ -201,10 +201,12 @@ function Ring({ color }: { color: string }) {
  * шрифтом и цветами темы, что во всём остальном интерфейсе. Мышь она не
  * ловит, иначе карточки перехватывали бы вращение камеры.
  */
-function AgentTag({ inst, role, task }: {
+function AgentTag({ inst, role, task, expanded }: {
   inst: InstanceView;
   role?: RoleView;
   task?: TaskView | null;
+  /** Показывать название должности и задачу, а не только значок с состоянием. */
+  expanded: boolean;
 }) {
   const icon = STATE_ICON[inst.state];
   return (
@@ -218,12 +220,14 @@ function AgentTag({ inst, role, task }: {
       <div className="tag3d">
         {inst.note && inst.state !== 'idle' && <div className="tag3d-bubble">{inst.note}</div>}
         <div className="tag3d-card">
-          <div className="tag3d-row">
+          <div className={`tag3d-row${expanded ? '' : ' compact'}`}>
             <span className="tag3d-chip">{shortTag(inst)}</span>
-            <span className="tag3d-name">
-              {inst.deskless && <span title="Без рабочего места — не хватило столов в раскладке">🪑 </span>}
-              {role?.title ?? inst.label}
-            </span>
+            {expanded && (
+              <span className="tag3d-name">
+                {inst.deskless && <span title="Без рабочего места — не хватило столов в раскладке">🪑 </span>}
+                {role?.title ?? inst.label}
+              </span>
+            )}
             {/* Состояние — иконкой: у большинства состояний она своя, у
                 «свободен» и «идёт» её нет, и там кружок берёт цвет. Круг
                 фиксированного размера, чтобы строка не прыгала при смене
@@ -232,7 +236,7 @@ function AgentTag({ inst, role, task }: {
               {icon || <i className="dot" style={{ background: STATE_DOT[inst.state] }} />}
             </span>
           </div>
-          {task && <div className="tag3d-task">{task.id} · {task.title}</div>}
+          {expanded && task && <div className="tag3d-task">{task.id} · {task.title}</div>}
         </div>
       </div>
     </Html>
@@ -263,6 +267,25 @@ function Agent({ inst, loaded, material, layout, offset, role, task, selected, i
   const pos = useStore((s) => s.pos[inst.id]);
   const select = useStore((s) => s.select);
   const group = useRef<THREE.Group>(null);
+  const [hovered, setHovered] = useState(false);
+
+  /**
+   * Развёрнутая подпись — только там, где её есть смысл читать.
+   *
+   * Восемь карточек с названиями должностей превращаются в кашу, стоит
+   * агентам собраться рядом: в зоне отдыха они стоят плечом к плечу и почти
+   * всегда все сразу. Уменьшать шрифт бесполезно — каша станет мельче, но
+   * читаться не начнёт. Поэтому подпись сворачивается до значка с номером и
+   * кружка состояния: у восьми узких значков фиксированной ширины шансов
+   * налезть друг на друга несравнимо меньше, чем у восьми названий.
+   *
+   * Разворачивается она тогда, когда там правда есть что прочесть: агент
+   * выбран, под курсором, или занят делом. Свободный агент, стоящий в
+   * лаунже, ничего интересного подписью не сообщает — его должность видна по
+   * значку.
+   */
+  const idle = inst.state === 'idle' || inst.state === 'walking';
+  const expanded = selected || hovered || !idle;
 
   /**
    * Фигура, микшер и действия создаются одним куском.
@@ -405,15 +428,19 @@ function Agent({ inst, loaded, material, layout, offset, role, task, selected, i
         }}
         onPointerOver={(e: { stopPropagation: () => void }) => {
           e.stopPropagation();
+          setHovered(true);
           document.body.style.cursor = 'pointer';
         }}
-        onPointerOut={() => { document.body.style.cursor = ''; }}
+        onPointerOut={() => {
+          setHovered(false);
+          document.body.style.cursor = '';
+        }}
       >
         <cylinderGeometry args={[0.45, 0.45, AGENT_TALL, 8]} />
         <meshBasicMaterial transparent opacity={0} depthWrite={false} />
       </mesh>
       {ring && <Ring color={ring} />}
-      <AgentTag inst={inst} role={role} task={task} />
+      <AgentTag inst={inst} role={role} task={task} expanded={expanded} />
     </group>
   );
 }

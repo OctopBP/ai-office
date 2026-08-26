@@ -387,6 +387,10 @@ button
    текстом («backend#1 · свободен», под ним роль), сжалось в этот ряд —
    читать издалека там было нечего. */
 .tag3d-row { display: flex; align-items: center; gap: 4px; }
+/* Свёрнутая подпись: только значок должности и состояние. Отступ ещё меньше —
+   в таком виде она должна занимать минимум места по ширине, иначе теряется
+   весь смысл сворачивания. */
+.tag3d-row.compact { gap: 3px; }
 .tag3d-chip {
   flex: none; font: 700 12px/1 ui-monospace, Menlo, monospace; letter-spacing: .02em;
   color: var(--green); background: var(--panel);
