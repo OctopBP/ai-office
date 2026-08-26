@@ -11,10 +11,19 @@
  * Когда придут модели, `shape` станет ссылкой на файл, `shapeOf` — загрузкой
  * gltf, а `props.ts`, размещение, повороты и тени останутся как есть.
  */
-import { useEffect, useMemo } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { useThree } from '@react-three/fiber';
 import * as THREE from 'three';
+import { endDrag, rotateDrag, startDrag, updateDrag, useStore } from '../store';
 import type { Palette } from './palette';
 import type { Placed3, Prop3 } from './props';
+
+/** Шаг поворота колесом, градусы. Мелкий намеренно: прямые углы — не
+ *  единственное, что бывает нужно, а набрать 90° шестью щелчками недолго. */
+const ROT_STEP = 15;
+
+/** Цвет подсветки предмета в редакторе — акцент интерфейса. */
+const EDIT_ACCENT = '#f0b429';
 
 /** Толщина столешниц, полок и спинок — одна на всю обстановку. */
 const SLAB = 0.12;
@@ -129,13 +138,38 @@ function partsOf(item: Placed3): Parts {
  * Ковры и плитка тени не отбрасывают и не принимают: они лежат на полу
  * вплотную, и любая тень на них — это z-fighting, а не тень.
  */
-function Prop({ item, materials }: {
+function Prop({ item, materials, editing, dragged, onGrab }: {
   item: Placed3;
   materials: Record<string, THREE.Material>;
+  /** Включён редактор расстановки: предмет можно взять мышью. */
+  editing: boolean;
+  /** Этот предмет сейчас в руках. */
+  dragged: boolean;
+  onGrab: (item: Placed3, hit: THREE.Vector3) => void;
 }) {
   const parts = useMemo(() => partsOf(item), [item]);
   const flat = item.def.shape === 'slab';
   const base = item.def.tone ?? 'metal';
+  const [hovered, setHovered] = useState(false);
+  const marked = editing && (hovered || dragged);
+
+  const grab = editing
+    ? {
+        onPointerDown: (e: { stopPropagation: () => void; point: THREE.Vector3 }) => {
+          e.stopPropagation();
+          onGrab(item, e.point);
+        },
+        onPointerOver: (e: { stopPropagation: () => void }) => {
+          e.stopPropagation();
+          setHovered(true);
+          document.body.style.cursor = 'grab';
+        },
+        onPointerOut: () => {
+          setHovered(false);
+          document.body.style.cursor = '';
+        },
+      }
+    : {};
 
   return (
     <group position={[item.cx, item.base, item.cy]} rotation={[0, -item.rot, 0]}>
@@ -147,6 +181,7 @@ function Prop({ item, materials }: {
           material={materials[part.tone ?? base] ?? materials.metal}
           castShadow={!flat}
           receiveShadow={!flat}
+          {...grab}
         >
           {part.round
             // Цилиндр строится по радиусу, поэтому неравные ширина и глубина
@@ -155,6 +190,19 @@ function Prop({ item, materials }: {
             : <boxGeometry args={part.size} />}
         </mesh>
       ))}
+
+      {/* След предмета на полу — подсветка в редакторе. Показывает не только
+          «этот предмет взят», но и сколько места он занимает: расставляя
+          мебель, это и нужно знать, а по самой фигуре след угадывается плохо. */}
+      {marked && (
+        <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, 0.03 - item.base, 0]}>
+          <planeGeometry args={[item.w, item.d]} />
+          <meshBasicMaterial
+            color={EDIT_ACCENT} transparent opacity={dragged ? 0.5 : 0.25}
+            side={THREE.DoubleSide} depthWrite={false}
+          />
+        </mesh>
+      )}
     </group>
   );
 }
@@ -179,11 +227,113 @@ export function Props3D({ items, palette, offset }: {
   }, [palette.prop]);
   useEffect(() => () => { for (const m of Object.values(materials)) m.dispose(); }, [materials]);
 
+  const editing = useStore((s) => s.editingLayout);
+  const dragItem = useStore((s) => s.dragItem);
+  const camera = useThree((s) => s.camera);
+  const gl = useThree((s) => s.gl);
+  const controls = useThree((s) => s.controls);
+
+  /** Куда предмет держат относительно точки, за которую взяли: без этого
+   *  предмет прыгает якорем под курсор в момент нажатия. */
+  const grab = useRef({ x: 0, y: 0 });
+
+  const onGrab = (item: Placed3, hit: THREE.Vector3) => {
+    grab.current = {
+      x: item.ax - (hit.x - offset[0]),
+      y: item.ay - (hit.z - offset[1]),
+    };
+    startDrag(item.key, item.ax, item.ay, (item.rot * 180) / Math.PI);
+  };
+
+  /**
+   * Ведение и отпускание предмета.
+   *
+   * Курсор ловится на окне, а не на самом предмете: при быстром движении он
+   * уходит за его границы, и предмет бы «отцепился». Ровно та же причина, по
+   * которой плоский редактор вешает слушатели на `window` (Office.tsx).
+   *
+   * Точка под курсором считается пересечением луча камеры с плоскостью пола,
+   * а не попаданием в мебель: тащить предмет по другой мебели значило бы
+   * возить его по её крышкам, то ныряя, то подпрыгивая. Пол — единственная
+   * поверхность, по которой мебель ездит.
+   */
+  const dragKey = dragItem?.key ?? null;
+  useEffect(() => {
+    if (!dragKey) return;
+    const el = gl.domElement;
+    const plane = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
+    const ray = new THREE.Raycaster();
+    const ndc = new THREE.Vector2();
+    const hit = new THREE.Vector3();
+
+    const onMove = (e: PointerEvent) => {
+      const r = el.getBoundingClientRect();
+      ndc.set(
+        ((e.clientX - r.left) / r.width) * 2 - 1,
+        -((e.clientY - r.top) / r.height) * 2 + 1,
+      );
+      ray.setFromCamera(ndc, camera);
+      if (!ray.ray.intersectPlane(plane, hit)) return;
+      updateDrag(hit.x - offset[0] + grab.current.x, hit.z - offset[1] + grab.current.y);
+    };
+    const onUp = () => endDrag();
+    const onWheel = (e: WheelEvent) => {
+      // Пока предмет в руках, колесо крутит его, а не камеру: наезжать и
+      // разворачивать одновременно всё равно не выходит, а поворот — то, ради
+      // чего трёхмерный редактор и заводился.
+      e.preventDefault();
+      rotateDrag(e.deltaY > 0 ? ROT_STEP : -ROT_STEP);
+    };
+
+    // Облёт на время перетаскивания выключаем: иначе то же движение мыши
+    // одновременно возит предмет и вращает комнату.
+    const orbit = controls as { enabled?: boolean } | null;
+    const wasEnabled = orbit?.enabled;
+    if (orbit) orbit.enabled = false;
+
+    window.addEventListener('pointermove', onMove);
+    window.addEventListener('pointerup', onUp);
+    el.addEventListener('wheel', onWheel, { passive: false });
+    return () => {
+      window.removeEventListener('pointermove', onMove);
+      window.removeEventListener('pointerup', onUp);
+      el.removeEventListener('wheel', onWheel);
+      if (orbit && wasEnabled !== undefined) orbit.enabled = wasEnabled;
+      document.body.style.cursor = '';
+    };
+  }, [dragKey, camera, gl, controls, offset]);
+
   return (
     <group position={[offset[0], 0, offset[1]]}>
       {items.map((item) => (
-        <Prop key={item.key} item={item} materials={materials} />
+        <Prop
+          key={item.key}
+          item={dragItem?.key === item.key ? dragged(item, dragItem) : item}
+          materials={materials}
+          editing={editing}
+          dragged={dragItem?.key === item.key}
+          onGrab={onGrab}
+        />
       ))}
     </group>
   );
+}
+
+/**
+ * Предмет в руках рисуется по позиции превью, а не по сохранённой: до
+ * отпускания кнопки на сервер ничего не уходит, и комната должна показывать
+ * ровно то, что человек видит под курсором.
+ *
+ * Якорь сдвигается на дельту, а центр следа — на неё же: пересчитывать след
+ * заново незачем, предмет не меняет ни размера, ни формы, пока его несут.
+ */
+function dragged(item: Placed3, drag: { x: number; y: number; rot: number }): Placed3 {
+  return {
+    ...item,
+    cx: item.cx + (drag.x - item.ax),
+    cy: item.cy + (drag.y - item.ay),
+    ax: drag.x,
+    ay: drag.y,
+    rot: (drag.rot * Math.PI) / 180,
+  };
 }

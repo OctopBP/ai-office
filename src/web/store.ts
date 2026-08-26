@@ -124,7 +124,7 @@ interface State {
    */
   settingsSection: 'project' | null;
   /** Предмет, который сейчас тащат мышью, и его позиция в тайлах (уже с привязкой к сетке) — превью до отпускания кнопки. */
-  dragItem: { key: string; x: number; y: number } | null;
+  dragItem: { key: string; x: number; y: number; rot: number } | null;
   /**
    * Идёт ли сейчас сохранение настроек: пока true, ближайшая реплика «офис»
    * в чате — это отказ по этому сохранению (например, раскладки уже нет на
@@ -939,11 +939,27 @@ export function setEditingLayout(v: boolean): void {
   useStore.setState({ editingLayout: v, dragItem: null });
 }
 
-/** Взять предмет мышью — только в режиме редактирования, вне него мебель не хватается. */
-export function startDrag(key: string, x: number, y: number): void {
+/**
+ * Взять предмет мышью — только в режиме редактирования, вне него мебель не
+ * хватается. Поворот берётся текущий: правка уходит на сервер целиком, и
+ * предмет, который просто подвинули, не должен вставать прямо.
+ */
+export function startDrag(key: string, x: number, y: number, rot = 0): void {
   const s = useStore.getState();
   if (!s.editingLayout) return;
-  useStore.setState({ dragItem: { key, ...clampToRoom(s.layout, snapToGrid(x), snapToGrid(y)) } });
+  useStore.setState({ dragItem: { key, rot, ...clampToRoom(s.layout, snapToGrid(x), snapToGrid(y)) } });
+}
+
+/**
+ * Повернуть предмет, пока он в руках. Шаг мелкий: в плоском офисе поворота не
+ * было вовсе (спрайт вида сверху разворачивается только перерисовкой), и
+ * ограничивать его прямыми углами теперь незачем — стол под углом к стене
+ * ставится ровно так же просто, как вдоль неё.
+ */
+export function rotateDrag(delta: number): void {
+  useStore.setState((s) => (s.dragItem
+    ? { dragItem: { ...s.dragItem, rot: (((s.dragItem.rot + delta) % 360) + 360) % 360 } }
+    : {}));
 }
 
 /** Провести взятый предмет к точке курсора — только превью, до отпускания кнопки ничего не уходит на сервер. */
@@ -959,7 +975,10 @@ export function endDrag(): void {
   useStore.setState({ dragItem: null });
   if (!item) return;
   useStore.setState({ layoutPending: true });
-  socket?.send(JSON.stringify({ c: 'layout_edit', edits: [{ key: item.key, at: [item.x, item.y] }] }));
+  socket?.send(JSON.stringify({
+    c: 'layout_edit',
+    edits: [{ key: item.key, at: [item.x, item.y], rot: item.rot }],
+  }));
 }
 
 /** Сбросить расстановку офиса к пресету — весь оверрайд целиком. */

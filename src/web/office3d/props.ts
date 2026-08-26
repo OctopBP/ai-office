@@ -119,6 +119,11 @@ export interface Placed3 {
   key: string;
   sprite: string;
   def: Prop3;
+  /** Якорь предмета в раскладке (`at`) — то, чем оперирует правка расстановки.
+   *  Центр `cx/cy` для неё не годится: он посчитан из следа и у разных
+   *  предметов отстоит от якоря по-разному. */
+  ax: number;
+  ay: number;
   /** центр в плане, тайлы */
   cx: number;
   cy: number;
@@ -197,6 +202,8 @@ export function place3(
       key: prop.key,
       sprite: prop.sprite,
       def,
+      ax: prop.at[0],
+      ay: prop.at[1],
       cx: r.x + r.w / 2,
       cy: r.y + r.d / 2,
       w: r.w,

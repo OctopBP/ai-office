@@ -188,7 +188,7 @@ export function passabilityFor(layout: Layout): Passability {
 // Хотспоты пока не формализованы в src/shared/layout.ts (§8 — задача следующего
 // этапа), поэтому их форма описана здесь же.
 export interface LayoutHotspot { panel: 'board' | 'log'; sprite: string; at: [number, number]; key: string; title: string }
-export interface RenderProp { key: string; sprite: string; x: number; y: number; scale?: number; z: number }
+export interface RenderProp { key: string; sprite: string; x: number; y: number; scale?: number; rot?: number; z: number }
 export interface WallRenderTile { key: string; sprite: string; x: number; y: number; z: number }
 
 export function spriteSize(name: string): [number, number] {
@@ -263,7 +263,7 @@ export function roomFor(layout: Layout): RoomData {
   const sorted: RenderProp[] = [];
   layout.props.forEach((p, i) => {
     const item: RenderProp = {
-      key: keys[i], sprite: p.sprite, x: p.at[0], y: p.at[1], scale: p.scale, z: 0,
+      key: keys[i], sprite: p.sprite, x: p.at[0], y: p.at[1], scale: p.scale, rot: p.rot, z: 0,
     };
     if (WALL_MOUNTED.has(p.sprite)) fixed.push({ ...item, z: 900 });
     else if (FLOOR_OVERLAY.has(p.sprite)) fixed.push({ ...item, z: 1 });

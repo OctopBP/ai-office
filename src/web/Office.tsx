@@ -205,7 +205,10 @@ export function Office({ onOpen, onDoor }: {
               left: px(x), top: px(y), zIndex: z,
               ...(p.scale ? { transform: `scale(${p.scale})`, transformOrigin: 'top left' } : {}),
             }}
-            onMouseDown={editingLayout ? (e) => { e.preventDefault(); startDrag(p.key, p.x, p.y); } : undefined}
+            // Поворот тащится вместе с предметом, хотя плоский рендер его и не
+            // показывает: правка уходит на сервер целиком, и предмет, который
+            // здесь просто подвинули, не должен вставать прямо в трёхмерном.
+            onMouseDown={editingLayout ? (e) => { e.preventDefault(); startDrag(p.key, p.x, p.y, p.rot ?? 0); } : undefined}
           />
         );
       })}
