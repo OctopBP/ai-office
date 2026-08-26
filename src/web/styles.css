@@ -59,9 +59,9 @@ button.sq { padding: 5px 9px; line-height: 1.2; }
 .stage {
   position: relative; flex: 1; min-height: 0;
   display: flex; align-items: center; justify-content: center;
-  /* отступ сверху — под HUD (он абсолютно спозиционирован поверх сцены и не
-     участвует в потоке), по бокам и снизу — просто воздух вокруг комнаты */
-  padding: 84px 16px 16px;
+  /* HUD и нижняя строка — обычные flex-соседи .stage (как .bottom), места под
+     них не выделяем вручную: сколько строка весит, столько и займёт сама. */
+  padding: 16px;
   overflow: hidden;
 }
 
@@ -603,14 +603,19 @@ button
 /* ================= HUD =================
    Раньше здесь стояли два отдельных «острова» (бейдж офиса слева и пилюля
    с кнопками справа), каждый со своей рамкой — визуально разваливалось.
-   Теперь один сплошной .hud-bar на всю ширину (класс .pixel даёт ему общий
-   фон и рамку — тот же язык, что у остальных панелей), внутри три группы
+   Теперь один сплошной .hud-bar на всю ширину, внутри три группы
    (офис/выход · состояние · инструменты), разделённые вертикальными
    чёрточками .hud-sep. У элементов внутри полосы больше нет своих рамок —
-   состояния (hover/active/on/alert) читаются подсветкой фона. */
+   состояния (hover/active/on/alert) читаются подсветкой фона.
+
+   Шапка — обычный flex-элемент .app, а не оверлей поверх .stage: тот же
+   приём, что и у нижней строки .bottom (оба выведены из потока прокрутки,
+   место под них .stage не резервирует вручную, а просто ужимается). Если
+   .hud-center перенесётся на вторую строку в узком окне, полоса станет
+   выше — и .stage подвинется, а не окажется под ней. */
 .hud-bar {
-  position: absolute; top: 12px; left: 14px; right: 14px; z-index: 30;
-  display: flex; align-items: center; gap: 10px; padding: 4px 10px;
+  display: flex; align-items: center; gap: 10px; padding: 7px 16px;
+  border-bottom: 2px solid var(--line); background: var(--panel);
 }
 .hud-group { display: flex; align-items: center; gap: 4px; min-width: 0; }
 .hud-left { flex: none; }
