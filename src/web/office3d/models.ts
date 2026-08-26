@@ -16,11 +16,19 @@ import computerScreen from '../../../design/models/furniture/computerScreen.glb?
 import desk from '../../../design/models/furniture/desk.glb?url';
 import loungeChair from '../../../design/models/furniture/loungeChair.glb?url';
 import loungeSofa from '../../../design/models/furniture/loungeSofa.glb?url';
+import lampRoundFloor from '../../../design/models/furniture/lampRoundFloor.glb?url';
+import pottedPlant from '../../../design/models/furniture/pottedPlant.glb?url';
+import rugRectangle from '../../../design/models/furniture/rugRectangle.glb?url';
+import tableCoffee from '../../../design/models/furniture/tableCoffee.glb?url';
 
 export const MODEL_URLS: Record<string, string> = {
   chairDesk,
   computerScreen,
   desk,
+  lampRoundFloor,
   loungeChair,
   loungeSofa,
+  pottedPlant,
+  rugRectangle,
+  tableCoffee,
 };

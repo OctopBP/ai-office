@@ -149,6 +149,26 @@ export const PROPS: Record<string, Prop3> = {
   },
   beanbag: { shape: 'soft', h: 0.7, d: 0.85, tone: 'accent' },
 
+  // Декорация лаунжа. Все четверо существуют только моделью: пиксельного арта
+  // у них нет, плоский офис их пропускает. Глубина `d` равна глубине модели —
+  // тогда след предмета совпадает с тем, что видно на экране.
+  coffee_table: {
+    shape: 'table', h: 0.61, d: 1.07, tone: 'wood',
+    models: [{ file: 'tableCoffee' }],
+  },
+  lounge_rug: {
+    shape: 'slab', h: 0.03, tone: 'fabric',
+    models: [{ file: 'rugRectangle' }],
+  },
+  potted_plant: {
+    shape: 'plant', h: 1.43, d: 0.78, tone: 'leaf',
+    models: [{ file: 'pottedPlant' }],
+  },
+  floor_lamp: {
+    shape: 'box', h: 2.29, d: 0.47, tone: 'light',
+    models: [{ file: 'lampRoundFloor' }],
+  },
+
   plant_big: { shape: 'plant', h: 1.9, tone: 'leaf' },
   plant_small: { shape: 'plant', h: 0.95, tone: 'leaf' },
 

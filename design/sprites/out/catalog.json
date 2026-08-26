@@ -163,6 +163,14 @@
         1.125
       ]
     },
+    "coffee_table": {
+      "size": [
+        1.76,
+        1.07
+      ],
+      "modelOnly": true,
+      "blocks": true
+    },
     "coin": {
       "size": [
         0.625,
@@ -351,6 +359,14 @@
         1.0
       ]
     },
+    "floor_lamp": {
+      "size": [
+        0.41,
+        0.47
+      ],
+      "modelOnly": true,
+      "blocks": true
+    },
     "floor_parquet_0": {
       "size": [
         1.0,
@@ -442,6 +458,13 @@
         1.625
       ]
     },
+    "lounge_rug": {
+      "size": [
+        4.19,
+        2.45
+      ],
+      "modelOnly": true
+    },
     "neon_sign": {
       "size": [
         1.625,
@@ -479,6 +502,14 @@
         0.875,
         1.125
       ]
+    },
+    "potted_plant": {
+      "size": [
+        0.68,
+        0.78
+      ],
+      "modelOnly": true,
+      "blocks": true
     },
     "round_table": {
       "size": [
