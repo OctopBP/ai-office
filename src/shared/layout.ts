@@ -405,6 +405,8 @@ function sideSeats(prop: LayoutProp, sprite: CatalogSprite, slot: SlotSide): Pos
 export interface RestSeat {
   at: Pos;
   use?: SlotPoint['use'];
+  /** Чей это предмет — по нему трёхмерный рендер находит доводку посадки. */
+  sprite: string;
 }
 
 /**
@@ -421,11 +423,11 @@ export function restSeats(layout: Layout, catalog: Catalog, propId?: string): Re
     const sprite = spriteOf(catalog, prop.sprite);
     const slots = sprite?.slots ?? [];
     for (const slot of slots.filter(isSide)) {
-      for (const at of sideSeats(prop, sprite!, slot)) seats.push({ at });
+      for (const at of sideSeats(prop, sprite!, slot)) seats.push({ at, sprite: prop.sprite });
     }
     for (const slot of slots) {
       if (!isPoint(slot) || slot.kind !== 'seat') continue;
-      seats.push({ at: resolvePoint(prop, slot), use: slot.use });
+      seats.push({ at: resolvePoint(prop, slot), use: slot.use, sprite: prop.sprite });
     }
   }
   return seats;

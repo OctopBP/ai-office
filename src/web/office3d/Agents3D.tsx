@@ -34,6 +34,7 @@ import typeToSitUrl from '../../../design/models/characters/animations/type-to-s
 import { deskPoint } from '../../shared/layout';
 import type { Layout } from '../../shared/layout';
 import { catalog } from '../layoutData';
+import { PROPS } from './props';
 import { useStore } from '../store';
 import { interestsFor, type Interest } from '../interests';
 import { STATE_ICON, STATE_TEXT } from '../agentState';
@@ -536,8 +537,17 @@ function Agent({
   const raw = pos ?? { x: inst.desk.x, y: inst.desk.y, ms: 0 };
   const atDesk = raw.x === inst.desk.x && raw.y === inst.desk.y;
   const point = atDesk ? deskPoint(layout, catalog, inst.desk.index, 'work') : raw;
-  const px = point.x + FOOT_DX + offset[0];
-  const pz = point.y + FOOT_DY + offset[1];
+  /**
+   * Доводка посадки под конкретную модель мебели — `seat` в таблице
+   * предметов. Каталог говорит, где у предмета место; модель знает, где у неё
+   * подушка, и это не одно и то же: анимация Mixamo сажает человека так,
+   * будто сиденье на высоте сорока пяти сантиметров, а у моделей набора оно
+   * своё. Подбирается руками, см. комментарий у поля.
+   */
+  const tune = (interest?.sprite ? PROPS[interest.sprite]?.seat : undefined) ?? [0, 0, 0];
+  const px = point.x + FOOT_DX + offset[0] + tune[0];
+  const pz = point.y + FOOT_DY + offset[1] + tune[2];
+  const py = tune[1];
   const ms = pos?.ms ?? 0;
 
   /**
@@ -575,14 +585,14 @@ function Agent({
   const speaksFirst = !!interest?.partner && inst.id < interest.partner;
 
   useEffect(() => {
-    target.current.set(px, 0, pz);
+    target.current.set(px, py, pz);
     remain.current = ms / 1000;
     const g = group.current;
     if (!g) return;
     // Первое появление и телепорт (ms = 0) — без анимации: агента ещё нигде
     // не было, вести его через всю комнату было бы неправдой.
     if (ms === 0 || g.position.lengthSq() === 0) g.position.copy(target.current);
-  }, [px, pz, ms]);
+  }, [px, py, pz, ms]);
 
   useFrame((state, dt) => {
     rig.mixer.update(dt);

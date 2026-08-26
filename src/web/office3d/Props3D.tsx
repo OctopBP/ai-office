@@ -15,10 +15,12 @@ import { createContext, useContext, useEffect, useMemo, useRef, useState } from 
 import { useLoader, useThree } from '@react-three/fiber';
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
+import { restSeats } from '../../shared/layout';
+import { catalog } from '../layoutData';
 import { DRAG_GRID, endDrag, rotateDrag, startDrag, updateDrag, useStore } from '../store';
 import type { Palette } from './palette';
 import { MODEL_URLS } from './models';
-import { MODEL_SCALE } from './props';
+import { MODEL_SCALE, PROPS } from './props';
 import type { ModelPart, Placed3, Prop3 } from './props';
 
 /** Шаг поворота колесом, градусы. Мелкий намеренно: прямые углы — не
@@ -27,6 +29,44 @@ const ROT_STEP = 15;
 
 /** Цвет подсветки предмета в редакторе — акцент интерфейса. */
 const EDIT_ACCENT = '#f0b429';
+
+/**
+ * Метки посадочных мест — видны, пока включён редактор расстановки.
+ *
+ * Подбирать посадку вслепую, по числам, почти невозможно: сдвинул на десять
+ * сантиметров, пересобрал, посмотрел, не понял, стало лучше или хуже.
+ * Столбик на месте показывает, куда сядет человек, и подбор превращается в
+ * «подвинуть точку на подушку».
+ *
+ * Показывает уже доведённое место — с учётом `seat` из таблицы предметов, —
+ * а не сырое из каталога: настраивают именно его.
+ */
+function SeatMarks() {
+  const layout = useStore((s) => s.layout);
+  const seats = useMemo(() => restSeats(layout, catalog).map((s) => {
+    const tune = PROPS[s.sprite]?.seat ?? [0, 0, 0];
+    return {
+      x: s.at.x + 0.5 + tune[0],
+      y: tune[1],
+      z: s.at.y + 1.05 + tune[2],
+      use: s.use,
+    };
+  }), [layout]);
+
+  return (
+    <>
+      {seats.map((s, i) => (
+        <mesh key={i} position={[s.x, s.y + 0.5, s.z]}>
+          <cylinderGeometry args={[0.06, 0.06, 1, 8]} />
+          <meshBasicMaterial
+            color={s.use === 'game' ? '#5fd35a' : EDIT_ACCENT}
+            transparent opacity={0.65} depthWrite={false}
+          />
+        </mesh>
+      ))}
+    </>
+  );
+}
 
 /**
  * Сетка расстановки, которая рисуется на полу, пока предмет несут.
@@ -473,6 +513,7 @@ export function Props3D({ items, palette, offset, size }: {
   return (
     <group position={[offset[0], 0, offset[1]]}>
       {dragItem && <EditGrid size={size} />}
+      {editing && <SeatMarks />}
       {items.map((item) => (
         <Prop
           key={item.key}

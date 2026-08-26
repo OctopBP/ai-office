@@ -30,6 +30,9 @@ SPRITE_LABEL = {}  # имя спрайта → человекочитаемое 
 # Плоский рендер такие предметы пропускает: рисовать ему нечем.
 SPRITE_MODEL_ONLY = {}  # имя спрайта → размер в тайлах [w, h]
 
+# Запуск с --catalog: пересобрать только catalog.json, картинки не трогать.
+CATALOG_ONLY = '--catalog' in sys.argv
+
 # ---------- палитры ----------
 PAL_DAY = dict(
     OUT_LINE='#2b2233',
@@ -88,8 +91,13 @@ def canvas(w, h):
 
 def save(im, name):
     big = im.resize((im.width * SCALE, im.height * SCALE), Image.NEAREST)
-    big.save(os.path.join(OUT, name + '.png'))
-    print(os.path.basename(OUT), name, big.size)
+    # В режиме --catalog картинки не перезаписываются. Пересобирать их ради
+    # правки посадочного места незачем: PIL пишет PNG побайтово иначе, чем в
+    # прошлый раз, и в диффе оказывается весь набор спрайтов вместо одной
+    # строки в каталоге.
+    if not CATALOG_ONLY:
+        big.save(os.path.join(OUT, name + '.png'))
+        print(os.path.basename(OUT), name, big.size)
     size = [round(im.width / T, 4), round(im.height / T, 4)]
     prev = CATALOG.get(name)
     if prev is not None and prev != size:
@@ -1112,7 +1120,7 @@ def build(theme):
 
 
 if __name__ == '__main__':
-    themes = sys.argv[1:] or ['day', 'night']
+    themes = [a for a in sys.argv[1:] if not a.startswith('-')] or ['day', 'night']
     for t in themes:
         build(t)
     dump_catalog()
