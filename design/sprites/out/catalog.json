@@ -520,21 +520,15 @@
       "slots": [
         {
           "kind": "seat",
-          "x": 0.25,
-          "y": 0.1,
+          "x": 0.5,
+          "y": 0.3,
           "use": "game"
         },
         {
           "kind": "seat",
-          "x": 1.125,
-          "y": 0.1,
+          "x": 1.7,
+          "y": 0.3,
           "use": "game"
-        },
-        {
-          "kind": "seat",
-          "x": 2.0,
-          "y": 0.1,
-          "use": "sit"
         }
       ],
       "blocks": true

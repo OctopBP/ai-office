@@ -101,9 +101,10 @@ export const PROPS: Record<string, Prop3> = {
   desk_pm: { shape: 'desk', h: 1.0, tone: 'wood', models: DESK_MODELS },
   dining_table: { shape: 'table', h: 1.0, tone: 'wood' },
   round_table: { shape: 'round', h: 1.0, d: 1.375, tone: 'wood' },
-  // Стул развёрнут туда же, куда стол: сидящий смотрит на монитор, а не в
-  // противоположную стену.
-  chair: { shape: 'chair', h: 1.2, d: 0.65, tone: 'fabric', models: [{ file: 'chairDesk', rot: 180 }] },
+  // Стул не разворачивается: в наборе он и так стоит спинкой к столу, то есть
+  // лицом туда же, куда смотрит сидящий. Разворот, который понадобился столу,
+  // ему только вредит.
+  chair: { shape: 'chair', h: 1.2, d: 0.65, tone: 'fabric', models: [{ file: 'chairDesk' }] },
 
   bookshelf: { shape: 'cabinet', h: 2.5, d: 0.5, tone: 'wood' },
   server_rack: { shape: 'cabinet', h: 2.5, d: 0.8, tone: 'metal' },
