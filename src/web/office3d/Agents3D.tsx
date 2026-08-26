@@ -19,10 +19,18 @@ import { Html } from '@react-three/drei';
 import * as THREE from 'three';
 import { FBXLoader } from 'three/examples/jsm/loaders/FBXLoader.js';
 import { clone as cloneSkinned } from 'three/examples/jsm/utils/SkeletonUtils.js';
-import charUrl from '../../../design/models/characters/characterMedium.fbx?url';
-import idleUrl from '../../../design/models/characters/animations/idle.fbx?url';
-import runUrl from '../../../design/models/characters/animations/run.fbx?url';
-import { deskPoint } from '../../shared/layout';
+import charUrl from '../../../design/models/characters/character.fbx?url';
+import walkUrl from '../../../design/models/characters/animations/walk.fbx?url';
+import typeUrl from '../../../design/models/characters/animations/type.fbx?url';
+import sitIdleUrl from '../../../design/models/characters/animations/sit-idle.fbx?url';
+import sitTalkUrl from '../../../design/models/characters/animations/sit-talk.fbx?url';
+import talkUrl from '../../../design/models/characters/animations/talk.fbx?url';
+import gameUrl from '../../../design/models/characters/animations/game.fbx?url';
+import sitDownUrl from '../../../design/models/characters/animations/sit-down.fbx?url';
+import standUpUrl from '../../../design/models/characters/animations/stand-up.fbx?url';
+import sitToTypeUrl from '../../../design/models/characters/animations/sit-to-type.fbx?url';
+import typeToSitUrl from '../../../design/models/characters/animations/type-to-sit.fbx?url';
+import { deskPoint, kitchenSeats } from '../../shared/layout';
 import type { Layout } from '../../shared/layout';
 import { catalog } from '../layoutData';
 import { useStore } from '../store';
@@ -60,11 +68,30 @@ const FOOT_DX = 0.5;
 const FOOT_DY = 1.05;
 
 /**
- * В наборе нет анимации шага — только `idle`, `run` и прыжок. Бег,
- * замедленный до этой доли скорости, читается как деловой шаг; настоящую
- * ходьбу принесут финальные модели.
+ * Позы, в которых бывает агент. Сидячие и стоячие разделены не для красоты:
+ * переход между группами нельзя проиграть кроссфейдом — человек должен встать
+ * или сесть, и на это есть отдельные клипы.
  */
-const WALK_TIMESCALE = 0.6;
+type Pose = 'walk' | 'talk' | 'type' | 'sitIdle' | 'sitTalk' | 'game';
+
+const SEATED: Record<Pose, boolean> = {
+  walk: false, talk: false, type: true, sitIdle: true, sitTalk: true, game: true,
+};
+
+/** Переходы между позами — играются один раз и замирают на последнем кадре. */
+type Move = 'sitDown' | 'standUp' | 'sitToType' | 'typeToSit';
+
+/** Длительность кроссфейда между зацикленными позами, секунды. */
+const FADE = 0.25;
+
+/**
+ * Скорость проигрывания шага. Наш агент идёт со скоростью, которую задаёт
+ * `legDurationMs` в сторе, а клип нарисован со своей: разойдясь, они дают
+ * скольжение ног по полу. Число подобрано на глаз под нынешнюю скорость
+ * ходьбы; вернее было бы считать его из длины шага, но для этого нужна
+ * длина шага, а её в клипе не написано.
+ */
+const WALK_TIMESCALE = 1.0;
 
 /** Ниже этого расстояния до цели (тайлы) считаем, что агент стоит. */
 const MOVING_EPS = 0.02;
@@ -75,9 +102,9 @@ const TURN_SPEED = 9;
 /**
  * Модель смотрит вдоль своей оси Z; в какую сторону — свойство конкретного
  * набора, а не общее правило, поэтому вынесено сюда: с другим набором
- * поменяется одно это число.
+ * поменяется одно это число. Персонажи Mixamo смотрят в +Z, поэтому ноль.
  */
-const MODEL_YAW = Math.PI;
+const MODEL_YAW = 0;
 
 /** Куда повёрнут агент, когда стоит: столы в раскладке не повёрнуты, и место
  *  `work` у них с северной стороны — значит, сидящий смотрит на юг. */
@@ -170,19 +197,52 @@ function shortTag(inst: InstanceView): string {
   return `${abbr}${n}`;
 }
 
+/** Порядок загрузки: модель, потом клипы поз, потом клипы переходов. */
+const POSE_URLS: Record<Pose, string> = {
+  walk: walkUrl, talk: talkUrl, type: typeUrl,
+  sitIdle: sitIdleUrl, sitTalk: sitTalkUrl, game: gameUrl,
+};
+const MOVE_URLS: Record<Move, string> = {
+  sitDown: sitDownUrl, standUp: standUpUrl,
+  sitToType: sitToTypeUrl, typeToSit: typeToSitUrl,
+};
+const POSE_KEYS = Object.keys(POSE_URLS) as Pose[];
+const MOVE_KEYS = Object.keys(MOVE_URLS) as Move[];
+const CLIP_URLS = [charUrl, ...POSE_KEYS.map((k) => POSE_URLS[k]), ...MOVE_KEYS.map((k) => MOVE_URLS[k])];
+
 interface Loaded {
   model: THREE.Group;
-  idle: THREE.AnimationClip;
-  walk: THREE.AnimationClip;
+  clips: Record<Pose | Move, THREE.AnimationClip>;
+}
+
+/**
+ * Убирает из клипа горизонтальное перемещение корня.
+ *
+ * У Mixamo есть галочка «In Place», но полагаться на то, что её не забыли
+ * нажать, нельзя: с движением корня фигура уедет сама — а её ещё и наш код
+ * везёт по пути, — и ноги разъедутся с телом. Вертикальную составляющую
+ * оставляем: это покачивание при шаге, оно на месте и должно остаться.
+ */
+function inPlace(clip: THREE.AnimationClip): THREE.AnimationClip {
+  for (const track of clip.tracks) {
+    if (!/Hips\.position$/.test(track.name)) continue;
+    for (let i = 0; i < track.values.length; i += 3) {
+      track.values[i] = 0;
+      track.values[i + 2] = 0;
+    }
+  }
+  return clip;
 }
 
 function useCharacter(): Loaded {
-  const [model, idleFbx, runFbx] = useLoader(FBXLoader, [charUrl, idleUrl, runUrl]);
-  return useMemo(() => ({
-    model: model as unknown as THREE.Group,
-    idle: (idleFbx as unknown as THREE.Group).animations[0],
-    walk: (runFbx as unknown as THREE.Group).animations[0],
-  }), [model, idleFbx, runFbx]);
+  const loaded = useLoader(FBXLoader, CLIP_URLS) as unknown as THREE.Group[];
+  return useMemo(() => {
+    const clips = {} as Record<Pose | Move, THREE.AnimationClip>;
+    POSE_KEYS.forEach((k, i) => { clips[k] = loaded[1 + i].animations[0]; });
+    MOVE_KEYS.forEach((k, i) => { clips[k] = loaded[1 + POSE_KEYS.length + i].animations[0]; });
+    inPlace(clips.walk);
+    return { model: loaded[0], clips };
+  }, [loaded]);
 }
 
 /**
@@ -292,7 +352,9 @@ function AgentTag({ inst, role, task, expanded }: {
  * (`Office.tsx`), только там текущую точку приходится вычитывать из
  * `getComputedStyle`, а здесь она просто лежит в объекте сцены.
  */
-function Agent({ inst, loaded, material, layout, offset, role, task, selected, inMeeting }: {
+function Agent({
+  inst, loaded, material, layout, offset, role, task, selected, inMeeting, seats, seatPose,
+}: {
   inst: InstanceView;
   loaded: Loaded;
   material: THREE.Material;
@@ -302,6 +364,10 @@ function Agent({ inst, loaded, material, layout, offset, role, task, selected, i
   task?: TaskView | null;
   selected: boolean;
   inMeeting: boolean;
+  /** Настоящие посадочные места отдыха — те, что объявлены слотами предмета. */
+  seats: { x: number; y: number }[];
+  /** Чем этот агент занимает себя, сидя на диване. */
+  seatPose: Pose;
 }) {
   const pos = useStore((s) => s.pos[inst.id]);
   const select = useStore((s) => s.select);
@@ -353,13 +419,23 @@ function Agent({ inst, loaded, material, layout, offset, role, task, selected, i
     });
 
     const mixer = new THREE.AnimationMixer(figure);
-    const idle = mixer.clipAction(loaded.idle);
-    const walk = mixer.clipAction(loaded.walk);
-    walk.timeScale = WALK_TIMESCALE;
-    return { figure, mixer, idle, walk };
+    const actions = {} as Record<Pose | Move, THREE.AnimationAction>;
+    for (const key of POSE_KEYS) actions[key] = mixer.clipAction(loaded.clips[key]);
+    for (const key of MOVE_KEYS) {
+      const a = mixer.clipAction(loaded.clips[key]);
+      // Переход играется один раз и замирает на последнем кадре: иначе на
+      // стыке с зацикленной позой человек успевал бы вскочить обратно.
+      a.setLoop(THREE.LoopOnce, 1);
+      a.clampWhenFinished = true;
+      actions[key] = a;
+    }
+    actions.walk.timeScale = WALK_TIMESCALE;
+    return { figure, mixer, actions };
   }, [loaded, material]);
 
-  const walking = useRef(false);
+  /** Поза, которая играет сейчас, и поза, к которой ведёт текущий переход. */
+  const pose = useRef<Pose>('talk');
+  const pending = useRef<Pose | null>(null);
 
   /**
    * Запуск анимации живёт в эффекте, а не рядом с созданием действий. React в
@@ -374,9 +450,52 @@ function Agent({ inst, loaded, material, layout, offset, role, task, selected, i
    * действий.
    */
   useEffect(() => {
-    walking.current = false;
-    rig.idle.reset().play();
+    pose.current = 'talk';
+    pending.current = null;
+    rig.actions.talk.reset().play();
+
+    /**
+     * Доиграл переход — включаем позу, ради которой он игрался. Отдельным
+     * событием, а не таймером на длину клипа: длины у клипов разные, а
+     * промахнувшийся таймер даёт либо рывок, либо застывшую фигуру.
+     */
+    const onFinished = () => {
+      const next = pending.current;
+      if (!next) return;
+      pending.current = null;
+      const action = rig.actions[next];
+      action.reset().setEffectiveWeight(1).fadeIn(FADE).play();
+      pose.current = next;
+    };
+    rig.mixer.addEventListener('finished', onFinished);
+    return () => { rig.mixer.removeEventListener('finished', onFinished); };
   }, [rig]);
+
+  /**
+   * Перевести агента в позу `next`.
+   *
+   * Между позами одной группы — обычный кроссфейд. Между сидячей и стоячей
+   * кроссфейд не годится: человек не может перетечь из положения стоя в
+   * положение сидя, для этого есть отдельный клип. Он играется один раз, и
+   * только после него включается целевая поза.
+   */
+  const goTo = (next: Pose) => {
+    if (next === pose.current || next === pending.current) return;
+    const from = pose.current;
+    const move: Move | null = SEATED[from] === SEATED[next]
+      ? (from === 'sitIdle' && next === 'type' ? 'sitToType'
+        : from === 'type' && next === 'sitIdle' ? 'typeToSit' : null)
+      : (SEATED[next] ? 'sitDown' : 'standUp');
+
+    rig.actions[from].fadeOut(FADE);
+    if (!move) {
+      rig.actions[next].reset().setEffectiveWeight(1).fadeIn(FADE).play();
+      pose.current = next;
+      return;
+    }
+    pending.current = next;
+    rig.actions[move].reset().setEffectiveWeight(1).fadeIn(FADE).play();
+  };
 
   /** Цель в мировых координатах и сколько секунд на неё отведено. */
   const target = useRef(new THREE.Vector3());
@@ -395,6 +514,23 @@ function Agent({ inst, loaded, material, layout, offset, role, task, selected, i
   const px = point.x + FOOT_DX + offset[0];
   const pz = point.y + FOOT_DY + offset[1];
   const ms = pos?.ms ?? 0;
+
+  /**
+   * Чем агент занят, когда стоит на месте.
+   *
+   * Сесть можно не везде: за своим столом и на диване — местам, которые
+   * объявлены слотами в каталоге. В остальных точках (свободных мест на
+   * диване всего три, а отдыхающих бывает больше) агент остаётся стоять.
+   * Проверка — по совпадению с посадочным местом, а не по «он в комнате
+   * отдыха»: комната большая, а подушек три.
+   */
+  const onSeat = seats.some((s) => Math.abs(s.x - point.x) < 0.01 && Math.abs(s.y - point.y) < 0.01);
+  const busy = inst.state === 'working' || inst.state === 'thinking';
+  const chatting = inst.state === 'talking';
+  const restPose: Pose = inMeeting ? 'sitTalk'
+    : atDesk ? (busy ? 'type' : 'sitIdle')
+      : onSeat ? (chatting ? 'sitTalk' : seatPose)
+        : 'talk';
 
   useEffect(() => {
     target.current.set(px, 0, pz);
@@ -421,18 +557,12 @@ function Agent({ inst, loaded, material, layout, offset, role, task, selected, i
       const dz = target.current.z - g.position.z;
       if (dx * dx + dz * dz > 1e-6) yaw.current = Math.atan2(dx, dz);
       remain.current -= dt;
-      if (!walking.current) {
-        walking.current = true;
-        rig.walk.reset().crossFadeFrom(rig.idle, 0.2, false).play();
-      }
+      goTo('walk');
     } else {
       g.position.copy(target.current);
       remain.current = 0;
       yaw.current = REST_YAW;
-      if (walking.current) {
-        walking.current = false;
-        rig.idle.reset().crossFadeFrom(rig.walk, 0.25, false).play();
-      }
+      goTo(restPose);
     }
 
     // Доворот по кратчайшей дуге: без нормализации разницы фигура на переходе
@@ -496,6 +626,10 @@ function Crowd({ offset }: { offset: [number, number] }) {
   const list = Object.values(instances);
   const inMeeting = new Set(meeting?.status === 'running' ? meeting.participants : []);
 
+  /** Места, на которых действительно можно сидеть, — из слотов предмета, без
+   *  добранных `extendSeats` рядов: те ряды стоят на голом полу. */
+  const seats = useMemo(() => kitchenSeats(layout, catalog), [layout]);
+
   return (
     <>
       {list.map((inst, i) => (
@@ -510,6 +644,12 @@ function Crowd({ offset }: { offset: [number, number] }) {
           task={inst.currentTaskId ? tasks[inst.currentTaskId] : null}
           selected={selected === inst.id}
           inMeeting={inMeeting.has(inst.id)}
+          seats={seats}
+          // Один из трёх на диване играет, остальные сидят просто так: без
+          // этого зона отдыха выглядит рядом одинаковых манекенов. Выбор по
+          // номеру, а не случайный, — иначе поза менялась бы при каждой
+          // перерисовке.
+          seatPose={i % 3 === 0 ? 'game' : 'sitIdle'}
         />
       ))}
       <DeskPlates offset={offset} />
