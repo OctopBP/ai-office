@@ -728,10 +728,13 @@ button
 
 .hud-status { display: flex; align-items: center; gap: 10px; font-size: 15px; line-height: 1.2; }
 .hud-status .alarm { color: var(--red); font-size: 15px; }
+/* Иконка внутри строки статуса ("N агента · M в работе") — без обёртки-flex
+   svg и текст сидели бы на разных базовых линиях. */
+.hud-status-item { display: inline-flex; align-items: center; gap: 4px; }
 
 /* Чип доступа — теперь только значок (подпись в title), высота как у кнопки. */
 .hud-chip { display: flex; align-items: center; gap: 8px; padding: 9px 14px; font-size: 15px; line-height: 1.2; background: var(--panel-2); border-radius: 7px; }
-.hud-chip.access { padding: 9px 12px; font-size: 20px; }
+.hud-chip.access { padding: 9px 12px; }
 .hud-chip.access.auto { color: var(--red); background: rgba(217, 79, 61, .14); }
 /* Паддинг чуть больше базового — при font-size 15 добирает те же 42px
    высоты, что у остальных элементов строки (иначе чип на 6px ниже). */
@@ -739,7 +742,11 @@ button
 
 .link-dot { width: 12px; height: 12px; border-radius: 50%; background: var(--red); }
 .link-dot.on { background: var(--green); }
-.auth { font-size: 19px; }
+.auth { display: inline-flex; align-items: center; }
+
+/* Иконки Tabler (icons.tsx) — общий цвет через currentColor уже задан в
+   самом svg; здесь только защита от сжатия во flex-рядах тулбара. */
+.icon-tabler { flex: none; }
 
 /* Подписи рядом со значками — первое, что прячем в узком окне (см. медиа-запрос ниже). */
 .hud-label { white-space: nowrap; }
@@ -751,7 +758,6 @@ button
    и становится на 6px выше соседних .hud-btn (см. разбор в ревью T-113). */
 .office-switcher { position: relative; display: flex; align-items: center; max-width: 220px; min-width: 0; line-height: 1.2; }
 .office-switcher.switching { gap: 10px; padding: 9px 13px; cursor: default; }
-.office-switcher .ico { font-size: 20px; }
 .office-switcher b { font-size: 17px; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .office-switcher-trigger {
   display: flex; align-items: center; gap: 10px; width: 100%; min-width: 0;
@@ -762,7 +768,7 @@ button
 .office-switcher-trigger:active { transform: none; }
 .office-switcher-trigger.lone { cursor: default; }
 .office-switcher-trigger.lone:hover { background: none; }
-.office-switcher.switching .ico.spin { animation: office-switcher-spin 1s linear infinite; display: inline-block; }
+.office-switcher.switching .icon-tabler.spin { animation: office-switcher-spin 1s linear infinite; display: inline-block; }
 @keyframes office-switcher-spin { to { transform: rotate(360deg); } }
 .office-switcher-list {
   position: absolute; top: calc(100% + 6px); left: 0; min-width: 260px; max-width: 360px;
