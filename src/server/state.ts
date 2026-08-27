@@ -14,6 +14,7 @@ import {
   MIN_OFFICE_WORKERS, MIN_ROLE_INSTANCES, MIN_TASK_MAX_TURNS, ROLE_TITLE_LIMIT,
 } from '../shared/types';
 import { isBlocked, isEmptyOverride, passability } from '../shared/layout';
+import { isLookId } from '../shared/looks';
 import { asLang, DEFAULT_LANG, isLang, type Lang, type Vars, LANG_TITLE } from '../shared/i18n';
 import { t, setProcessLang, c, type ServerKey } from './i18n';
 import { activityFromFile, summarize } from './activity';
@@ -1493,7 +1494,7 @@ export class OfficeState {
     if ('sprite' in patch) {
       const sprite = String(patch.sprite ?? '').trim();
       // Пусто — законно: значит «подбери внешность по id роли».
-      if (sprite && !(sprite.startsWith('agent_') && catalog.sprites[sprite])) {
+      if (sprite && !isLookId(sprite)) {
         errors.push({
           field: 'sprite',
           message: this.say('state.role.noSprite', { sprite }),

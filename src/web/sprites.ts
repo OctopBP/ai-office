@@ -3,7 +3,7 @@
  * 1 арт-пиксель = 3 экранных, тайл = 48px. Две темы — day и night,
  * наборы имён в них одинаковые.
  */
-import { has, t } from './i18n';
+import { lookById } from '../shared/looks';
 
 const modules = import.meta.glob('../../design/sprites/out/*/*.png', {
   eager: true,
@@ -45,30 +45,22 @@ export const AGENT_SPRITE: Record<string, string> = {
 const CLONE_SPRITE: Record<string, string> = { backend: 'agent_backend2' };
 
 /**
- * Внешность агента: если у роли выбран пресет (`RoleEditable.sprite`) — он
- * главнее подбора по id роли, иначе действует прежнее правило (§ RoleEditable.sprite).
+ * Спрайт агента в плоском офисе.
+ *
+ * Внешность роли (`RoleEditable.sprite`) — это скин трёхмерной модели, и
+ * плоскому офису он ни о чём не говорит: у каждой внешности прописан свой
+ * пиксельный человечек (`Look.sprite`). Старые сохранённые значения — это
+ * имена спрайтов, а не внешностей; их и берём как есть, иначе роль, заведённая
+ * до появления скинов, потеряла бы выбранный когда-то вид.
+ *
+ * Ничего не выбрано — действует прежнее правило подбора по id роли
+ * (§ RoleEditable.sprite).
  */
 export function agentSpriteName(roleId: string, instanceId: string, roleSprite?: string): string {
+  const look = lookById(roleSprite);
+  if (look) return look.sprite;
   if (roleSprite) return roleSprite;
   const n = Number(instanceId.split('#')[1] ?? '1');
   if (n > 1 && CLONE_SPRITE[roleId]) return CLONE_SPRITE[roleId];
   return AGENT_SPRITE[roleId] ?? 'agent_backend1';
-}
-
-/**
- * Пресеты внешности для выбора в форме роли — id и подпись.
- *
- * Подпись берётся из словаря, а не из каталога: каталог собирает генератор
- * спрайтов, и подпись там записана на одном языке навсегда. У пресета, до
- * которого словарь ещё не дошёл (художник нарисовал новый), остаётся подпись
- * из каталога — это лучше, чем голый `agent_p11`.
- */
-export function spritePresets(catalogSprites: Record<string, { label?: string }>): Array<{ id: string; label: string }> {
-  return Object.entries(catalogSprites)
-    .filter(([id]) => /^agent_p\d+$/.test(id))
-    .sort(([a], [b]) => Number(a.slice(8)) - Number(b.slice(8)))
-    .map(([id, sprite]) => {
-      const key = `sprite.${id}`;
-      return { id, label: has(key) ? t(key) : (sprite.label ?? id) };
-    });
 }

@@ -28,7 +28,7 @@ import { useModelMeasures } from './measure';
 import { seatingFor } from './seating';
 import { reach } from './ik';
 import {
-  buildRig, FOOT_DX, FOOT_DY, useCharacter, useSkinMaterials, type Pose,
+  buildRig, FOOT_DX, FOOT_DY, skinMaterial, useCharacter, useSkinMaterials, type Pose,
 } from './Agents3D';
 import { FIT_RANGE, saveFit, useFit, type Fit } from './fit';
 
@@ -109,7 +109,8 @@ function BenchFigure({ scene, onRead }: { scene: Case; onRead: (r: Readout) => v
   const group = useRef<THREE.Group>(null);
 
   const rig = useMemo(
-    () => buildRig(loaded, materials[0], tall, 0), [loaded, materials, tall],
+    () => buildRig(loaded, skinMaterial(materials, undefined, 0), tall, 0),
+    [loaded, materials, tall],
   );
   useEffect(() => {
     const action = rig.actions[scene.pose];
