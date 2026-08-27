@@ -10,7 +10,7 @@
  */
 import type { Theme } from '../sprites';
 import type { Floor3 } from './geometry';
-import type { Prop3 } from './props';
+import type { LampKind, Prop3 } from './props';
 
 type PropTone = NonNullable<Prop3['tone']>;
 
@@ -59,6 +59,47 @@ export interface Palette {
     fillIntensity: number;
     fillOffset: [number, number, number];
   };
+  /**
+   * Светильники самой комнаты — то, чем офис отличается от макета под
+   * солнцем. Солнце и заполняющий свет выше рисуют объём, но одинаково по
+   * всей раскладке; уют начинается там, где у света есть источник: лампа под
+   * потолком, торшер в лаунже, вывеска, экран монитора. Каждый из них —
+   * точечный источник с затуханием, поэтому у него есть не только цвет и
+   * сила, но и радиус, за которым он ничего не освещает.
+   *
+   * Теней они не бросают: карта теней у каждого точечного источника — это
+   * шесть проходов рендера, и на десяток ламп в комнате их не напасёшься.
+   * Тени в сцене по-прежнему одни, солнечные.
+   */
+  lamp: Record<LampKind | 'ceiling', LampLight>;
+}
+
+/** Один сорт светильника. */
+export interface LampLight {
+  /** цвет самого света */
+  color: string;
+  /**
+   * Цвет светящейся поверхности — экрана, трубки вывески. Нужен только тем
+   * лампам, у которых эта поверхность в сцене есть; у потолочной её нет —
+   * плафон не рисуется (см. `CeilingLamp`), — и цвета свечения у неё тоже.
+   */
+  glow?: string;
+  /** сила в канделах: у настоящей лампы освещённость падает как квадрат расстояния */
+  intensity: number;
+  /** радиус, дальше которого источник не светит вовсе, тайлы */
+  distance: number;
+  /**
+   * Как быстро свет убывает с расстоянием. Двойка — физика; меньше — свет
+   * растекается шире, чем в жизни.
+   *
+   * Честная двойка на потолочном светильнике даёт под ним белое пятно, а в
+   * трёх шагах — уже темноту: комната распадается на круги света и провалы
+   * между ними. Плафон под потолком — это не точка, а рассеиватель, и
+   * пологое затухание передаёт его лучше, чем точный закон для точки.
+   * Экранам и вывескам, наоборот, оставлена двойка: их свет и должен
+   * кончаться у края стола.
+   */
+  decay: number;
 }
 
 export const PALETTES: Record<Theme, Palette> = {
@@ -85,14 +126,20 @@ export const PALETTES: Record<Theme, Palette> = {
     },
     light: {
       skyColor: '#ffffff',
-      groundColor: '#e2e6ec',
-      ambient: 0.6,
-      keyColor: '#fff4e6',
+      groundColor: '#e9e3d8',
+      ambient: 0.5,
+      keyColor: '#ffeed4',
       keyIntensity: 2.2,
       keyOffset: [-20, 20, -15],
       fillColor: '#dfe9ff',
       fillIntensity: 0.28,
       fillOffset: [16, 11, 14],
+    },
+    lamp: {
+      ceiling: { color: '#ffdcae', intensity: 3.4, distance: 15, decay: 1.2 },
+      warm: { color: '#ffca85', glow: '#ffe6bd', intensity: 3, distance: 9, decay: 1.4 },
+      neon: { color: '#ff7ad9', glow: '#ffa8e6', intensity: 4, distance: 6, decay: 2 },
+      screen: { color: '#cfe2ff', glow: '#9fc2ee', intensity: 0.5, distance: 3.5, decay: 2 },
     },
   },
   night: {
@@ -118,14 +165,20 @@ export const PALETTES: Record<Theme, Palette> = {
     },
     light: {
       skyColor: '#8ea2d0',
-      groundColor: '#3a414f',
-      ambient: 0.62,
-      keyColor: '#ffd9a0',
-      keyIntensity: 1.9,
+      groundColor: '#453f47',
+      ambient: 0.38,
+      keyColor: '#ffcb8a',
+      keyIntensity: 1.1,
       keyOffset: [-16, 15, -12],
       fillColor: '#6f86bd',
-      fillIntensity: 0.2,
+      fillIntensity: 0.14,
       fillOffset: [12, 9, 11],
+    },
+    lamp: {
+      ceiling: { color: '#ffc47e', intensity: 6.4, distance: 17, decay: 1.2 },
+      warm: { color: '#ffa947', glow: '#ffd291', intensity: 5.5, distance: 11, decay: 1.4 },
+      neon: { color: '#ff5ecb', glow: '#ff8ade', intensity: 8, distance: 8, decay: 2 },
+      screen: { color: '#9fc8ff', glow: '#7ba7e0', intensity: 0.9, distance: 4, decay: 2 },
     },
   },
 };

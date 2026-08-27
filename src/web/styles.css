@@ -286,6 +286,17 @@ button
 }
 .modal label.checkbox input, .team-detail label.checkbox input { width: auto; margin: 0; }
 
+/* Ползунок настройки картинки: подпись со значением справа и range во всю ширину. */
+.modal label.slider .slider-head {
+  display: flex; align-items: baseline; justify-content: space-between; gap: 12px;
+}
+.modal label.slider .slider-head b { color: var(--text); font-weight: 600; }
+.modal label.slider input[type="range"] {
+  display: block; width: 100%; margin: 6px 0 0; accent-color: var(--accent); cursor: pointer;
+}
+.modal label.slider.off { opacity: .45; }
+.modal label.slider.off input[type="range"] { cursor: default; }
+
 /* ---------- форма роли и карточка сотрудника в правой панели ---------- */
 .role-form h3, .employee-card h3 { margin: 0 0 4px; font-size: 16px; font-weight: 600; }
 .employee-card > .muted { margin: 0 0 14px; }
@@ -410,6 +421,27 @@ button
    плоской комнаты, — переключение между видами не должно дёргать вёрстку */
 .office3d { border: 2px solid var(--line); border-radius: 10px; }
 .office3d canvas { display: block; border-radius: 8px; }
+
+/* Чипы фокуса камеры — «весь офис», комнаты, выбранный агент. Лежат в углу
+   сцены поверх канваса и подписей: они управляют видом, а не живут в нём.
+   Контейнер прозрачен для мыши — иначе полоса поверх комнаты съедала бы
+   вращение сцены в своей строке. */
+.cam-chips {
+  position: absolute; left: 10px; bottom: 10px; z-index: 200;
+  display: flex; flex-wrap: wrap; gap: 6px; max-width: calc(100% - 20px);
+  pointer-events: none;
+}
+.cam-chip {
+  pointer-events: auto;
+  padding: 5px 11px; font-size: 12px; line-height: 1.2; border-radius: 99px;
+  color: var(--muted); background: var(--panel-2); border: 1px solid var(--line);
+  box-shadow: none;
+}
+.cam-chip:hover { color: var(--text); border-color: var(--muted); }
+.cam-chip.on { color: var(--accent-ink); background: var(--accent); border-color: var(--accent); }
+/* Агент — тот же чип, но подписан именем: он появляется и исчезает вместе с
+   выделением, поэтому отделён от постоянных кнопок отступом. */
+.cam-chip.agent { margin-left: 6px; }
 
 /* Подписи и пузыри трёхмерного офиса. Классы свои, а не общие с плоским:
    там карточка позиционируется от спрайта фиксированными отступами
@@ -1188,3 +1220,40 @@ button.sq.on { background: var(--accent); color: var(--accent-ink); }
 .pr-hint { margin: 0 0 8px; line-height: 1.4; }
 .pr-watch { margin-top: 5px; font-size: 12px; color: var(--accent); }
 .pr-watch.bad { color: var(--red); }
+
+/* ── Стенд подгонки (?fit=1, только в разработке) ───────────────────────────
+   Экран целиком свой, а не панель поверх офиса: подбирают посадку долго и
+   вдумчиво, и HUD с чатом здесь только мешали бы. */
+.fit { display: flex; height: 100vh; }
+.fit-stage { flex: 1; min-width: 0; background: var(--panel-2); }
+.fit-panel {
+  width: 330px; flex: none; overflow: auto; padding: 14px 16px;
+  background: var(--panel); border-left: 2px solid var(--line);
+}
+.fit-panel h1 { margin: 0 0 6px; font-size: 17px; }
+.fit-panel h2 { margin: 16px 0 6px; font-size: 13px; color: var(--muted); }
+.fit-note { margin: 0 0 10px; font-size: 12px; line-height: 1.45; color: var(--muted); }
+
+.fit-cases { display: flex; flex-wrap: wrap; gap: 5px; margin-bottom: 12px; }
+.fit-cases button { padding: 4px 8px; font-size: 12px; }
+.fit-cases button.on { background: var(--accent); color: var(--accent-ink); }
+
+/* Замеры с живой сцены: слева что мерили, справа сколько вышло и на сколько
+   разошлось с тем, куда фигура должна была попасть. */
+.fit-read {
+  display: flex; flex-direction: column; gap: 3px; padding: 8px 10px;
+  background: var(--panel-2); border: 1px solid var(--line-soft); border-radius: 6px;
+  font-size: 12px;
+}
+.fit-read div { display: flex; justify-content: space-between; gap: 10px; }
+.fit-read i { color: var(--accent); font-style: normal; }
+
+.fit-slide { display: flex; align-items: center; gap: 8px; margin: 4px 0; font-size: 12px; }
+.fit-slide-name { width: 108px; flex: none; color: var(--muted); }
+.fit-slide input { flex: 1; min-width: 0; }
+.fit-slide-value { width: 58px; flex: none; text-align: right; }
+.fit-check { display: flex; align-items: center; gap: 6px; margin: 8px 0; font-size: 12px; }
+
+.fit-actions { display: flex; gap: 8px; margin: 16px 0 8px; }
+.fit-actions button { font-size: 12px; }
+.fit-save { background: var(--accent); color: var(--accent-ink); }

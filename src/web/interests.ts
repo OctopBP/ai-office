@@ -15,6 +15,7 @@
 import { restSeats } from '../shared/layout';
 import type { Catalog, Layout, LayoutZone, Pos } from '../shared/layout';
 import type { InstanceView, RoleView } from '../shared/types';
+import { isBusy } from './agentState';
 
 export type InterestKind = 'talk' | 'game' | 'sit' | 'stand';
 
@@ -140,7 +141,7 @@ export function interestsFor(
   }
 
   const free = Object.values(instances)
-    .filter((i) => !i.currentTaskId && !roles.find((r) => r.id === i.roleId)?.isManager)
+    .filter((i) => !isBusy(i, roles))
     .map((i) => i.id)
     .sort();
   const freeSet = new Set(free);

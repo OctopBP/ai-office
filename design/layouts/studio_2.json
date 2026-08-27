@@ -4,9 +4,9 @@
   "title": "Студия 2",
   "size": [30, 20],
   "rooms": [
-    { "id": "meeting", "rect": [1, 1, 11, 8], "floor": "parquet" },
-    { "id": "lounge", "rect": [1, 8, 11, 19], "floor": "parquet" },
-    { "id": "open", "rect": [11, 1, 29, 19], "floor": "carpet" }
+    { "id": "meeting", "title": "Переговорка", "rect": [1, 1, 11, 8], "floor": "parquet" },
+    { "id": "lounge", "title": "Зона отдыха", "rect": [1, 8, 11, 19], "floor": "parquet" },
+    { "id": "open", "title": "Опенспейс", "rect": [11, 1, 29, 19], "floor": "carpet" }
   ],
   "walls": [
     { "a": [0, 0], "b": [30, 0] },

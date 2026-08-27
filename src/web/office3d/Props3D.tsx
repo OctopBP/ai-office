@@ -19,8 +19,10 @@ import { restSeats } from '../../shared/layout';
 import { catalog } from '../layoutData';
 import { DRAG_GRID, endDrag, rotateDrag, startDrag, updateDrag, useStore } from '../store';
 import type { Palette } from './palette';
+import { deskKey, PropLamp, useLitDesks } from './Lights3D';
 import { MODEL_URLS } from './models';
 import { MODEL_SCALE, PROPS } from './props';
+import { placeFit, useFit } from './fit';
 import type { ModelPart, Placed3, Prop3 } from './props';
 
 /** Шаг поворота колесом, градусы. Мелкий намеренно: прямые углы — не
@@ -38,20 +40,22 @@ const EDIT_ACCENT = '#f0b429';
  * Столбик на месте показывает, куда сядет человек, и подбор превращается в
  * «подвинуть точку на подушку».
  *
- * Показывает уже доведённое место — с учётом `seat` из таблицы предметов, —
- * а не сырое из каталога: настраивают именно его.
+ * Показывает доведённое место — с поправкой из `design/fit.json`, — а не
+ * сырое из каталога: расставляя мебель, важно, куда человек сядет на самом
+ * деле.
  */
 function SeatMarks() {
   const layout = useStore((s) => s.layout);
+  const fit = useFit((s) => s.fit);
   const seats = useMemo(() => restSeats(layout, catalog).map((s) => {
-    const tune = PROPS[s.sprite]?.seat ?? [0, 0, 0];
+    const tune = placeFit(fit, s.sprite).seat;
     return {
       x: s.at.x + 0.5 + tune[0],
       y: tune[1],
       z: s.at.y + 1.05 + tune[2],
       use: s.use,
     };
-  }), [layout]);
+  }), [layout, fit]);
 
   return (
     <>
@@ -257,16 +261,46 @@ export function FurnitureModels({ children }: { children: React.ReactNode }) {
  * следу — который у нас посчитан по пиксельному арту — эту соразмерность бы
  * сломала. Стул рядом со столом должен быть стулом рядом со столом.
  */
-function PropModels({ parts }: { parts: ModelPart[] }) {
+function PropModels({ parts, screen, lit }: {
+  parts: ModelPart[];
+  /**
+   * Имя материала внутри модели, который надо заменить на светящийся, —
+   * стекло монитора. Не задано — модель рисуется как есть.
+   *
+   * Подмена делается на клоне, а не на исходной сцене: материалы у клонов
+   * общие с ней, и правка на месте зажгла бы все десять мониторов разом.
+   *
+   * Оба поля — простые значения, а не собранный на месте объект: они лежат в
+   * зависимостях мемо ниже, и объект-однодневка заставлял бы клонировать
+   * модели заново на каждую перерисовку комнаты.
+   */
+  screen?: string;
+  /** Чем заменить — общий на всю комнату материал включённого экрана. */
+  lit: THREE.Material;
+}) {
   const models = useContext(ModelsContext);
+  /**
+   * Видимый масштаб набора — ручка подгонки. Через неё проверяется главная
+   * развилка: подгонять мультяшного человечка под мебель человеческих
+   * размеров или наоборот. След предмета и проходимость считаются по
+   * каталогу и на неё не смотрят — выбрав масштаб не единицу, каталог
+   * придётся пересчитать.
+   */
+  const scale = useFit((s) => s.fit.figure.furniture);
 
   const objects = useMemo(() => parts.map((part) => {
     const source = models[part.file];
     if (!source) return null;
     const object = source.clone(true);
-    object.scale.setScalar(MODEL_SCALE);
+    object.scale.setScalar(MODEL_SCALE * scale);
     object.traverse((o) => {
-      if (o instanceof THREE.Mesh) { o.castShadow = true; o.receiveShadow = true; }
+      if (o instanceof THREE.Mesh) {
+        o.castShadow = true;
+        o.receiveShadow = true;
+        if (screen && !Array.isArray(o.material) && o.material.name === screen) {
+          o.material = lit;
+        }
+      }
     });
 
     /**
@@ -295,7 +329,7 @@ function PropModels({ parts }: { parts: ModelPart[] }) {
     holder.position.set(x, y, z);
     holder.rotation.y = ((part.rot ?? 0) * Math.PI) / 180;
     return holder;
-  }), [models, parts]);
+  }), [models, parts, screen, lit, scale]);
 
   return <>{objects.map((o, i) => (o ? <primitive key={i} object={o} /> : null))}</>;
 }
@@ -306,20 +340,33 @@ function PropModels({ parts }: { parts: ModelPart[] }) {
  * то же самое рисуют интерактивные предметы — доска задач, экран лога,
  * дверь, — а вот ведут они себя иначе (`Hotspots3D.tsx`).
  */
-export function PropShape({ item, materials }: {
+export function PropShape({ item, materials, lit }: {
   item: Placed3;
   materials: Record<string, THREE.Material>;
+  /** Предмет «включён» — у стола это значит, что за ним работают. */
+  lit?: boolean;
 }) {
   // Есть модель — примитивы не рисуем вовсе. Пока она грузится, место
   // остаётся пустым: показывать коробку, которую через миг заменят, значит
   // моргать мебелью на каждом открытии комнаты.
-  if (item.def.models) return <PropModels parts={item.def.models} />;
-  return <PrimitiveShape item={item} materials={materials} />;
+  if (item.def.models) {
+    return (
+      <PropModels
+        parts={item.def.models}
+        screen={lit ? item.def.screen : undefined}
+        lit={materials.screenOn}
+      />
+    );
+  }
+  return <PrimitiveShape item={item} materials={materials} lit={lit} />;
 }
 
-function PrimitiveShape({ item, materials }: {
+function PrimitiveShape({ item, materials, lit }: {
   item: Placed3;
   materials: Record<string, THREE.Material>;
+  /** Предмет включён: его экранная деталь горит. Касается запасной формы
+   *  стола — той, что рисуется, пока модель не приехала. */
+  lit?: boolean;
 }) {
   const parts = useMemo(() => partsOf(item), [item]);
   const flat = item.def.shape === 'slab';
@@ -331,7 +378,8 @@ function PrimitiveShape({ item, materials }: {
           key={i}
           position={part.pos}
           scale={part.round ? [part.size[0], 1, part.size[2]] : undefined}
-          material={materials[part.tone ?? base] ?? materials.metal}
+          material={materials[lit && part.tone === 'screen' ? 'screenOn' : (part.tone ?? base)]
+            ?? materials.metal}
           castShadow={!flat}
           receiveShadow={!flat}
         >
@@ -355,8 +403,17 @@ export function usePropMaterials(palette: Palette): Record<string, THREE.Materia
     for (const [tone, color] of Object.entries(palette.prop)) {
       made[tone] = new THREE.MeshLambertMaterial({ color });
     }
+    /**
+     * Включённый экран — тот же тон, но светящийся сам: `emissive` не зависит
+     * от того, как на предмет падает свет, и тёмное стекло монитора
+     * перестаёт быть тёмным, не становясь при этом просто светло-серым.
+     */
+    made.screenOn = new THREE.MeshLambertMaterial({
+      color: palette.prop.screen,
+      emissive: palette.lamp.screen.glow ?? palette.lamp.screen.color,
+    });
     return made;
-  }, [palette.prop]);
+  }, [palette.prop, palette.lamp.screen]);
   useEffect(() => () => { for (const m of Object.values(materials)) m.dispose(); }, [materials]);
   return materials;
 }
@@ -369,9 +426,12 @@ export function usePropMaterials(palette: Palette): Record<string, THREE.Materia
  * Ковры и плитка тени не отбрасывают и не принимают: они лежат на полу
  * вплотную, и любая тень на них — это z-fighting, а не тень.
  */
-function Prop({ item, materials, editing, dragged, onGrab }: {
+function Prop({ item, materials, palette, lit, editing, dragged, onGrab }: {
   item: Placed3;
   materials: Record<string, THREE.Material>;
+  palette: Palette;
+  /** За предметом работают: у стола от этого горит монитор. */
+  lit: boolean;
   /** Включён редактор расстановки: предмет можно взять мышью. */
   editing: boolean;
   /** Этот предмет сейчас в руках. */
@@ -401,7 +461,11 @@ function Prop({ item, materials, editing, dragged, onGrab }: {
 
   return (
     <group position={[item.cx, item.base, item.cy]} rotation={[0, -item.rot, 0]} {...grab}>
-      <PropShape item={item} materials={materials} />
+      <PropShape item={item} materials={materials} lit={lit} />
+      {/* Лампа предмета — внутри его группы: она едет и поворачивается вместе
+          с ним, и в редакторе расстановки свет переносится следом за
+          торшером, а не остаётся светить в пустоту. */}
+      {(!item.def.lamp?.busy || lit) && <PropLamp item={item} palette={palette} />}
 
       {/* След предмета на полу — подсветка в редакторе. Показывает не только
           «этот предмет взят», но и сколько места он занимает: расставляя
@@ -433,6 +497,7 @@ export function Props3D({ items, palette, offset, size }: {
   size: [number, number];
 }) {
   const materials = usePropMaterials(palette);
+  const litDesks = useLitDesks();
 
   const editing = useStore((s) => s.editingLayout);
   const dragItem = useStore((s) => s.dragItem);
@@ -519,6 +584,8 @@ export function Props3D({ items, palette, offset, size }: {
           key={item.key}
           item={dragItem?.key === item.key ? dragged(item, dragItem) : item}
           materials={materials}
+          palette={palette}
+          lit={litDesks.has(deskKey(item.ax, item.ay))}
           editing={editing}
           dragged={dragItem?.key === item.key}
           onGrab={onGrab}

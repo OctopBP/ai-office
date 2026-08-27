@@ -1,6 +1,8 @@
 // Режим доступа живёт в общем контракте: его правит UI и наследует офис.
 export type { PermissionMode } from '../shared/types';
 import type { PermissionMode } from '../shared/types';
+import { DEFAULT_LANG, type Lang } from '../shared/i18n';
+import { t } from './i18n';
 
 export interface Role {
   id: string;
@@ -54,10 +56,20 @@ export interface Role {
   brief: string;
 }
 
-const BASE_ROLES: Role[] = [
+/**
+ * Базовые роли без слов: цвет, модель, лимиты, инструменты и папка артефактов.
+ *
+ * Название и бриф сюда не входят — они лежат в словаре (`i18n/roles-*.ts`) и
+ * подставляются по языку офиса. Иначе набор ролей был бы записан на одном
+ * языке навсегда: бриф уезжает в системный промпт исполнителя, и русский
+ * бриф в английском офисе означал бы агента, который отвечает не на том
+ * языке, на котором с ним говорят.
+ */
+type RoleShape = Omit<Role, 'title' | 'brief'>;
+
+const BASE_SHAPES: RoleShape[] = [
   {
     id: 'pm',
-    title: 'Проектный менеджер',
     color: '#f0b429',
     emoji: '📋',
     model: 'claude-opus-5',
@@ -65,11 +77,9 @@ const BASE_ROLES: Role[] = [
     maxInstances: 1,
     permissionMode: 'auto',
     isolate: false,
-    brief: '',
   },
   {
     id: 'backend',
-    title: 'Backend разработчик',
     color: '#3b82f6',
     emoji: '⚙️',
     model: 'claude-opus-5',
@@ -77,15 +87,9 @@ const BASE_ROLES: Role[] = [
     maxInstances: 3,
     permissionMode: 'ask-risky',
     isolate: true,
-    brief: [
-      'Ты отвечаешь за серверную часть: API, бизнес-логику, данные, скрипты.',
-      'Пиши рабочий код, а не заглушки. Если нужен файл — создай его.',
-      'Не трогай файлы фронтенда, если задача явно этого не требует.',
-    ].join('\n'),
   },
   {
     id: 'frontend',
-    title: 'Frontend разработчик',
     color: '#ec4899',
     emoji: '🎨',
     model: 'claude-sonnet-5',
@@ -93,15 +97,9 @@ const BASE_ROLES: Role[] = [
     maxInstances: 3,
     permissionMode: 'ask-risky',
     isolate: true,
-    brief: [
-      'Ты отвечаешь за клиентскую часть: разметку, стили, клиентскую логику.',
-      'Пиши рабочий код, а не заглушки. Если нужен файл — создай его.',
-      'Не трогай серверный код, если задача явно этого не требует.',
-    ].join('\n'),
   },
   {
     id: 'design',
-    title: 'UI/UX дизайнер',
     color: '#a855f7',
     emoji: '🎨',
     model: 'claude-sonnet-5',
@@ -111,17 +109,9 @@ const BASE_ROLES: Role[] = [
     isolate: true,
     tools: ['Read', 'Write', 'Edit', 'Glob', 'Grep', 'WebSearch', 'WebFetch', 'TodoWrite'],
     docsDir: 'docs/design',
-    brief: [
-      'Ты отвечаешь за интерфейс и пользовательский опыт: структуру экранов, состояния,',
-      'тексты интерфейса, визуальные решения и обоснования к ним.',
-      'Ты работаешь текстом и разметкой, а не картинками: описывай макеты словами,',
-      'при необходимости — HTML/CSS-прототипом.',
-      'Изучай существующий код и интерфейс, прежде чем предлагать изменения.',
-    ].join('\n'),
   },
   {
     id: 'smm',
-    title: 'SMM-менеджер',
     color: '#14b8a6',
     emoji: '📣',
     model: 'claude-haiku-4-5',
@@ -131,17 +121,9 @@ const BASE_ROLES: Role[] = [
     isolate: true,
     tools: ['Read', 'Write', 'Edit', 'Glob', 'Grep', 'WebSearch', 'WebFetch', 'TodoWrite'],
     docsDir: 'docs/smm',
-    brief: [
-      'Ты отвечаешь за продвижение: тексты постов, анонсы, описания, рассылки.',
-      'Пиши готовый к публикации текст, а не план текста.',
-      'Сверяйся с фактами о продукте по коду и документации в репозитории —',
-      'не выдумывай возможностей, которых нет.',
-      'НИЧЕГО НЕ ПУБЛИКУЙ: ты готовишь материалы, публикует человек.',
-    ].join('\n'),
   },
   {
     id: 'reviewer',
-    title: 'Ревьюер',
     color: '#f97316',
     emoji: '🔍',
     model: 'claude-sonnet-5',
@@ -151,29 +133,9 @@ const BASE_ROLES: Role[] = [
     isolate: true,
     tools: ['Read', 'Write', 'Edit', 'Glob', 'Grep', 'Bash', 'WebSearch', 'WebFetch', 'TodoWrite'],
     docsDir: 'docs/review',
-    brief: [
-      'Ты проверяешь чужую работу перед тем, как её вливают в основную ветку.',
-      'Ты НЕ правишь код: твой результат — отзыв, а исправляет автор.',
-      'Ревью пулл-реквеста заканчивается ровно одним вызовом: approve_pr({summary}) —',
-      'можно вливать, или request_changes({summary}) — вернуть автору. Офис ждёт этого',
-      'вызова: без него работа зависнет, а «я посмотрел, всё хорошо» текстом не считается.',
-      'Возврат стоит автору целого круга работы, поэтому возвращай по существу:',
-      'ошибка, дыра в проверках, расхождение с тем, что обещала задача. Мелочи, которые',
-      'не мешают вливать, пиши прямо в approve_pr — автор прочитает.',
-      'Читай именно изменения, а не файлы целиком: ветка задачи называется task/<id>,',
-      'смотри `git diff <база>...task/<id>` и `git log`. Ветки всех задач видны из',
-      'твоей рабочей копии, потому что репозиторий общий.',
-      'Прогоняй проверки, которые есть в проекте (например npm run typecheck), и пиши',
-      'в отзыве, что прошло, а что нет, с точным выводом ошибки.',
-      'Отзыв делай по пунктам: что не так, где именно (файл:строка), почему это важно',
-      'и что предлагаешь. Отдельно — вывод: можно вливать или нужна доработка.',
-      'Не придирайся к стилю ради стиля: ищи ошибки, дыры в проверках и расхождения',
-      'с тем, что задача обещала сделать.',
-    ].join('\n'),
   },
   {
     id: 'artist',
-    title: 'Художник',
     color: '#eab308',
     emoji: '🖌',
     model: 'claude-sonnet-5',
@@ -181,21 +143,19 @@ const BASE_ROLES: Role[] = [
     maxInstances: 1,
     permissionMode: 'ask-risky',
     isolate: true,
-    brief: [
-      'Ты отвечаешь за графику офиса: пиксель-спрайты персонажей и обстановки.',
-      'Спрайты не рисуются руками в файле, а генерируются кодом:',
-      'design/sprites/gen.py собирает их в design/sprites/out/<тема>/.',
-      'Значит, твоя работа — править генератор и перезапускать его, а не класть',
-      'картинки мимо него: иначе следующий прогон сотрёт сделанное.',
-      'Тем две — day и night, и набор имён в них обязан совпадать.',
-      'Система координат задана артом: 1 арт-пиксель = 3 экранных, тайл = 16',
-      'арт-пикселей. Новый персонаж должен совпадать по размеру и стилю с соседями.',
-      'После генерации проверь, что файлы появились в обеих темах.',
-    ].join('\n'),
+  },
+  {
+    id: 'artist3d',
+    color: '#6366f1',
+    emoji: '🧊',
+    model: 'claude-sonnet-5',
+    isManager: false,
+    maxInstances: 1,
+    permissionMode: 'ask-risky',
+    isolate: true,
   },
   {
     id: 'legal',
-    title: 'Юрист',
     color: '#94a3b8',
     emoji: '⚖️',
     model: 'claude-sonnet-5',
@@ -205,16 +165,16 @@ const BASE_ROLES: Role[] = [
     isolate: true,
     tools: ['Read', 'Write', 'Edit', 'Glob', 'Grep', 'WebSearch', 'WebFetch', 'TodoWrite'],
     docsDir: 'docs/legal',
-    brief: [
-      'Ты готовишь юридические тексты: политику конфиденциальности, пользовательское',
-      'соглашение, оферту, тексты о лицензиях и обработке данных.',
-      'Всегда указывай явно, какие места требуют проверки живым юристом и почему.',
-      'Не выдавай шаблон за проверенный документ: это черновик для последующей проверки.',
-      'Никогда не утверждай, что документ соответствует конкретному закону, если не',
-      'проверил формулировку по первоисточнику.',
-    ].join('\n'),
   },
 ];
+
+/** Базовая роль целиком: форма из кода плюс слова из словаря. */
+const withWords = (shape: RoleShape, lang: Lang): Role => ({
+  ...shape,
+  ...(shape.tools ? { tools: [...shape.tools] } : {}),
+  title: t(lang, `role.${shape.id}.title` as never),
+  brief: t(lang, `role.${shape.id}.brief` as never),
+});
 
 /**
  * id роли менеджера. Менеджер есть в каждом офисе и ровно один: на нём
@@ -223,7 +183,7 @@ const BASE_ROLES: Role[] = [
 export const MANAGER_ROLE_ID = 'pm';
 
 /** id базовых ролей: занятые имена, даже если такой роли в офисе сейчас нет. */
-export const BASE_ROLE_IDS: readonly string[] = BASE_ROLES.map((r) => r.id);
+export const BASE_ROLE_IDS: readonly string[] = BASE_SHAPES.map((r) => r.id);
 
 /**
  * Кириллица в латиницу для id роли. Названия ролей пишут по-русски, а id
@@ -279,20 +239,18 @@ export function newRoleId(title: string, taken: Iterable<string>): string {
   }
 }
 
-/** Копия роли: массив инструментов тоже свой, иначе набор офиса делил бы его с базовым. */
-const cloneRole = (r: Role): Role => (r.tools ? { ...r, tools: [...r.tools] } : { ...r });
-
 /**
- * Набор ролей по умолчанию — с него начинается новый офис. Каждый вызов
- * отдаёт свежие объекты: набор принадлежит офису и правится в нём, а общий
- * на процесс массив разъехался бы правками по чужим офисам.
+ * Набор ролей по умолчанию на заданном языке — с него начинается новый офис.
+ * Каждый вызов отдаёт свежие объекты: набор принадлежит офису и правится в
+ * нём, а общий на процесс массив разъехался бы правками по чужим офисам.
  */
-export const defaultRoles = (): Role[] => BASE_ROLES.map(cloneRole);
+export const defaultRoles = (lang: Lang = DEFAULT_LANG): Role[] =>
+  BASE_SHAPES.map((shape) => withWords(shape, lang));
 
-/** Базовая роль по id. undefined — такой роли среди базовых нет. */
-export const defaultRole = (id: string): Role | undefined => {
-  const found = BASE_ROLES.find((r) => r.id === id);
-  return found ? cloneRole(found) : undefined;
+/** Базовая роль по id на заданном языке. undefined — такой роли среди базовых нет. */
+export const defaultRole = (id: string, lang: Lang = DEFAULT_LANG): Role | undefined => {
+  const found = BASE_SHAPES.find((r) => r.id === id);
+  return found ? withWords(found, lang) : undefined;
 };
 
 /**
@@ -319,8 +277,8 @@ export const blankRole = (id: string): Role => ({
  * задвоить тоже — второй менеджер сломал бы и раздачу задач, и запрет на
  * увольнение. Свои настройки PM у офиса при этом остаются: общая только роль.
  */
-export function withManagerRole(list: Role[]): Role[] {
-  const base = defaultRole(MANAGER_ROLE_ID)!;
+export function withManagerRole(list: Role[], lang: Lang = DEFAULT_LANG): Role[] {
+  const base = defaultRole(MANAGER_ROLE_ID, lang)!;
   const saved = list.find((r) => r.id === MANAGER_ROLE_ID);
   // Архивным PM быть не может: без менеджера офису не с кем разговаривать,
   // а признак архива мог приехать из правленого руками файла состояния.
@@ -343,5 +301,5 @@ export function withManagerRole(list: Role[]): Role[] {
 export type RoleOverrides = Record<string, Partial<Role>>;
 
 /** Базовый набор с наложенными правками — миграция старых сохранений. */
-export const rolesFromOverrides = (overrides: RoleOverrides = {}): Role[] =>
-  defaultRoles().map((r) => ({ ...r, ...(overrides[r.id] ?? {}) }));
+export const rolesFromOverrides = (overrides: RoleOverrides = {}, lang: Lang = DEFAULT_LANG): Role[] =>
+  defaultRoles(lang).map((r) => ({ ...r, ...(overrides[r.id] ?? {}) }));

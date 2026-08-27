@@ -9,8 +9,11 @@ import {
   emptyUsage, MAX_OFFICE_WORKERS, MAX_TASK_MAX_TURNS, MIN_OFFICE_WORKERS, MIN_TASK_MAX_TURNS,
 } from '../shared/types';
 import type { Theme } from './sprites';
+import { type Graphics, loadGraphics, saveGraphics } from './office3d/graphics';
+import { fitNow } from './office3d/fit';
 import { catalog, DEFAULT_LAYOUT_ID, layoutFor, passabilityFor } from './layoutData';
 import { interestsFor } from './interests';
+import { isBusy } from './agentState';
 import { findPath, meetingSeat } from '../shared/layout';
 
 interface Pos { x: number; y: number }
@@ -25,15 +28,18 @@ interface WalkPos extends Pos { ms: number }
 
 /**
  * «Домашняя» позиция агента, когда он не на совещании и не в момент передачи
- * задачи: PM и занятые задачей исполнители сидят за своим столом, свободные —
- * на кухне. Источник истины — currentTaskId из InstanceView, отдельного
- * флага занятости на клиенте не заводим.
+ * задачи: занятый сидит за своим столом, свободный — там, где ему нашлось
+ * занятие. Кто занят, решает `isBusy` — у исполнителя это задача, у менеджера
+ * ход разговора; отдельного флага занятости на клиенте не заводим.
+ *
+ * Менеджер тут ничем не выделен нарочно: раньше он сидел за компьютером
+ * всегда, даже когда офису нечего было ему сказать, и выглядело это не как
+ * «начальник на месте», а как забытая на сцене фигура.
  */
 function homePos(
   inst: InstanceView, roles: RoleView[], layout: Layout, instances: Record<string, InstanceView>,
 ): Pos {
-  const isManager = roles.find((r) => r.id === inst.roleId)?.isManager ?? false;
-  if (isManager || inst.currentTaskId) return { x: inst.desk.x, y: inst.desk.y };
+  if (isBusy(inst, roles)) return { x: inst.desk.x, y: inst.desk.y };
   // Свободный идёт туда, где ему нашлось занятие: поговорить, поиграть,
   // посидеть. Если занятий в раскладке нет вовсе — остаётся за своим столом:
   // по смыслу хуже, но сцену пустой координатой не ломает.
@@ -178,6 +184,10 @@ interface State {
    *  пользователем и переживает перезагрузку. */
   render3d: boolean;
   setRender3d: (v: boolean) => void;
+  /** Настройки картинки трёхмерного офиса (пикселизация и её параметры).
+   *  Хранятся у клиента: см. `office3d/graphics.ts`. */
+  graphics: Graphics;
+  setGraphics: (patch: Partial<Graphics>) => void;
   toasts: Toast[];
   /** Показанный сейчас дифф задачи. */
   diff: { taskId: string; stat: string; patch: string; truncated: boolean; error?: string } | null;
@@ -268,6 +278,7 @@ export const useStore = create<State>((set, get) => ({
   // перезагрузку; когда 3D догонит плоский рендер по функциям, ключ уйдёт
   // вместе с самим переключателем.
   render3d: (localStorage.getItem('office-render3d') ?? '1') === '1',
+  graphics: loadGraphics(),
   toasts: [],
   diff: null,
   pos: {},
@@ -277,6 +288,11 @@ export const useStore = create<State>((set, get) => ({
   setThread: (t) => set({ thread: t }),
   setTheme: (t) => { localStorage.setItem('office-theme', t); set({ theme: t }); },
   setRender3d: (v) => { localStorage.setItem('office-render3d', v ? '1' : '0'); set({ render3d: v }); },
+  setGraphics: (patch) => set((s) => {
+    const graphics = { ...s.graphics, ...patch };
+    saveGraphics(graphics);
+    return { graphics };
+  }),
   select: (id) => set({ selected: id }),
   setConnected: (v) => set({ connected: v }),
 
@@ -350,14 +366,14 @@ export const useStore = create<State>((set, get) => ({
       case 'instance': {
         const s0 = get();
         const prevInst = s0.instances[e.instance.id];
-        const wasBusy = !!prevInst?.currentTaskId;
-        const isBusy = !!e.instance.currentTaskId;
+        const wasBusy = prevInst ? isBusy(prevInst, s0.roles) : false;
+        const nowBusy = isBusy(e.instance, s0.roles);
         // Место меняем только когда реально сменился статус занятости —
         // иначе каждое обновление расхода/заметки дёргало бы человечка.
         // На совещании стол/кухня подождут: место освободится, когда оно закончится.
         const inMeetingNow = s0.meeting?.status === 'running'
           && s0.meeting.participants.includes(e.instance.id);
-        const shouldMove = !s0.pos[e.instance.id] || (wasBusy !== isBusy && !inMeetingNow);
+        const shouldMove = !s0.pos[e.instance.id] || (wasBusy !== nowBusy && !inMeetingNow);
         set((s) => ({ instances: { ...s.instances, [e.instance.id]: e.instance } }));
         if (shouldMove) {
           const s1 = get();
@@ -535,7 +551,12 @@ export const useStore = create<State>((set, get) => ({
         if (!target || !home) break;
         walkTo(e.from, { x: target.desk.x - 1.1, y: target.desk.y + 0.9 });
         setTimeout(() => {
-          walkTo(e.from, { x: home.desk.x, y: home.desk.y });
+          // Куда возвращаться, спрашиваем в момент возврата, а не сейчас: за
+          // две с половиной секунды менеджер мог закончить ход, и тогда его
+          // дом — уже не стол, а место отдыха.
+          const s1 = get();
+          const back = s1.instances[e.from] ?? home;
+          walkTo(e.from, homePos(back, s1.roles, s1.layout, s1.instances));
         }, 2600);
         break;
       }
@@ -555,13 +576,26 @@ let socket: WebSocket | null = null;
  */
 const WALK_TILES_PER_SEC = 5;
 
+/**
+ * Скорость ходьбы — ручка подгонки (`design/fit.json`), а не константа.
+ *
+ * Она же управляет тем, как быстро перебирают ноги: клип шага растягивается
+ * под неё в `Agents3D`. Разъехавшись, эти два числа дают скольжение по полу —
+ * поэтому источник у них один. Значение из файла может не приехать (старый
+ * файл, правка руками), тогда берётся прежнее.
+ */
+function walkSpeed(): number {
+  const v = fitNow().walk.tilesPerSec;
+  return Number.isFinite(v) && v > 0 ? v : WALK_TILES_PER_SEC;
+}
+
 /** Отрезок короче этого не проходится мгновенно — иначе микросдвиги (например,
  * после правки расстановки) выглядели бы как телепорт без анимации. */
 const MIN_WALK_MS = 120;
 
 function legDurationMs(from: Pos, to: Pos): number {
   const tiles = Math.hypot(to.x - from.x, to.y - from.y);
-  return Math.max(MIN_WALK_MS, Math.round((tiles / WALK_TILES_PER_SEC) * 1000));
+  return Math.max(MIN_WALK_MS, Math.round((tiles / walkSpeed()) * 1000));
 }
 
 /**

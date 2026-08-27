@@ -15,6 +15,7 @@ import type { Layout } from '../../shared/layout';
 import { catalog } from '../layoutData';
 import { useStore } from '../store';
 import type { Palette } from './palette';
+import { PropLamp } from './Lights3D';
 import { PropShape, usePropMaterials } from './Props3D';
 import type { Placed3 } from './props';
 
@@ -42,9 +43,10 @@ const HOVER_SCALE = 1.06;
  * панелью в пару сантиметров толщиной, и попасть по ней с отдалённой камеры
  * без запаса почти нельзя.
  */
-function Spot({ spot, materials, badge, onClick }: {
+function Spot({ spot, materials, palette, badge, onClick }: {
   spot: Spot3;
   materials: Record<string, THREE.Material>;
+  palette: Palette;
   badge: number;
   onClick: () => void;
 }) {
@@ -57,6 +59,11 @@ function Spot({ spot, materials, badge, onClick }: {
       <group scale={[scale, scale, scale]}>
         <PropShape item={{ ...item, cx: 0, cy: 0, base: 0 }} materials={materials} />
       </group>
+      {/* Доска и экран лога светятся всегда: это единственные предметы
+          комнаты, которые сами что-то показывают, и погашенными они читаются
+          как две тёмные панели на стене. Свет вынесен из группы, которую
+          раздувает наведение, — иначе бы он дёргался вместе с ней. */}
+      <PropLamp item={item} palette={palette} />
 
       <mesh
         position={[0, item.h / 2, 0]}
@@ -145,6 +152,7 @@ export function Hotspots3D({ spots, layout, palette, offset, onOpen, onDoor }: {
           key={spot.kind}
           spot={spot}
           materials={materials}
+          palette={palette}
           badge={spot.kind === 'board' ? badge : 0}
           onClick={() => (spot.kind === 'door' ? onDoor() : onOpen(spot.kind))}
         />

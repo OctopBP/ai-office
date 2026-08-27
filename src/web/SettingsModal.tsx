@@ -4,19 +4,49 @@ import {
   setCloudToken, updateSettings, useStore,
 } from './store';
 import { DEFAULT_OFFICE_WORKERS, DEFAULT_PROCESS_WORKERS, type PermissionMode } from '../shared/types';
+import { DEFAULT_GRAPHICS, GRAPHICS_RANGE, type Graphics } from './office3d/graphics';
 
 const parse = (v: string): number | null => {
   const n = Number(v.replace(',', '.'));
   return v.trim() === '' || !Number.isFinite(n) || n <= 0 ? null : n;
 };
 
-type Section = 'access' | 'limits' | 'project';
+type Section = 'access' | 'limits' | 'project' | 'graphics';
 
 const SECTIONS: Array<[Section, string]> = [
   ['access', 'Доступ'],
   ['limits', 'Модели и лимиты'],
   ['project', 'Проект'],
+  ['graphics', 'Графика'],
 ];
+
+/** Ползунок настройки картинки: подпись, значение справа и сам range.
+ *  Значение показывается рядом всегда — вслепую двигать нечего, окно
+ *  закрывает комнату, и увидеть результат можно только после сохранения. */
+function Slider({ label, hint, value, range, decimals = 0, disabled, onChange }: {
+  label: string;
+  hint: string;
+  value: number;
+  range: { min: number; max: number; step: number };
+  decimals?: number;
+  disabled: boolean;
+  onChange: (v: number) => void;
+}) {
+  return (
+    <label className={`slider${disabled ? ' off' : ''}`}>
+      <span className="slider-head">
+        {label}
+        <b className="mono">{value.toFixed(decimals)}</b>
+      </span>
+      <input
+        type="range" value={value} disabled={disabled}
+        min={range.min} max={range.max} step={range.step}
+        onChange={(e) => onChange(Number(e.target.value))}
+      />
+      <span className="hint muted">{hint}</span>
+    </label>
+  );
+}
 
 // Раздел держится на время сессии вкладки: закрыли окно, открыли снова — курсор
 // остаётся там же, где был, а не прыгает на первый пункт.
@@ -25,6 +55,9 @@ let lastSection: Section = 'access';
 export function SettingsModal({ onClose }: { onClose: () => void }) {
   const settings = useStore((s) => s.settings);
   const cloud = useStore((s) => s.cloud);
+  const graphics = useStore((s) => s.graphics);
+  const render3d = useStore((s) => s.render3d);
+  const setGraphics = useStore((s) => s.setGraphics);
   const layouts = useStore((s) => s.layouts);
   // Запрос конкретного раздела (например, ссылка «настройки раскладки» из
   // карточки безместного сотрудника) перебивает запомненный за сессию раздел.
@@ -47,6 +80,8 @@ export function SettingsModal({ onClose }: { onClose: () => void }) {
   const [layoutId, setLayoutId] = useState(settings.layoutId);
   const [token, setToken] = useState('');
   const [access, setAccess] = useState(settings.officePermissionMode);
+  const [gfx, setGfx] = useState<Graphics>(graphics);
+  const patchGfx = (patch: Partial<Graphics>) => setGfx((g) => ({ ...g, ...patch }));
   const [autoPipeline, setAutoPipeline] = useState(settings.autoPipeline);
   const [confirmAuto, setConfirmAuto] = useState(false);
   const maxTurnsParsed = parseTaskMaxTurns(maxTurns);
@@ -79,6 +114,7 @@ export function SettingsModal({ onClose }: { onClose: () => void }) {
       layoutId,
       autoPipeline,
     });
+    setGraphics(gfx);
     if (token.trim()) setCloudToken(token.trim());
     onClose();
   };
@@ -270,6 +306,60 @@ export function SettingsModal({ onClose }: { onClose: () => void }) {
                       проксируются, и токен подставляется уже за его пределами.
                     </p>
                   </>
+                )}
+              </>
+            )}
+
+            {section === 'graphics' && (
+              <>
+                <h4>Пикселизация</h4>
+                <div className="engine">
+                  <button className={gfx.pixelate ? 'on' : ''} onClick={() => patchGfx({ pixelate: true })}>
+                    🟪 Включена
+                    <span className="muted small">Комната рисуется в низком разрешении, с контуром по граням</span>
+                  </button>
+                  <button className={gfx.pixelate ? '' : 'on'} onClick={() => patchGfx({ pixelate: false })}>
+                    🔷 Выключена
+                    <span className="muted small">Обычный гладкий рендер</span>
+                  </button>
+                </div>
+                <p className="hint muted">
+                  Свет, тени и облёт остаются теми же — меняется только то, чем сцена показана:
+                  она рисуется в низкое разрешение и растягивается без сглаживания, а по изломам
+                  и границам предметов дорисовываются контуры. Подписи и облачка реплик остаются
+                  чёткими: они не часть картинки, а обычный текст поверх неё.
+                </p>
+
+                <Slider
+                  label="Размер пикселя" value={gfx.pixelSize} range={GRAPHICS_RANGE.pixelSize}
+                  disabled={!gfx.pixelate} onChange={(v) => patchGfx({ pixelSize: v })}
+                  hint={'Сторона клетки в точках экрана. Чем крупнее, тем меньше разрешение, в '
+                    + 'котором считается комната: мебель грубеет, зато вид ближе к пиксель-арту.'}
+                />
+                <Slider
+                  label="Контур на изломах" value={gfx.normalEdge} range={GRAPHICS_RANGE.normalEdge}
+                  decimals={2} disabled={!gfx.pixelate}
+                  onChange={(v) => patchGfx({ normalEdge: v })}
+                  hint={'Светлая линия там, где поверхность ломается, — рёбра столов, углы стен. '
+                    + 'Ноль убирает её совсем.'}
+                />
+                <Slider
+                  label="Контур по глубине" value={gfx.depthEdge} range={GRAPHICS_RANGE.depthEdge}
+                  decimals={2} disabled={!gfx.pixelate}
+                  onChange={(v) => patchGfx({ depthEdge: v })}
+                  hint={'Тёмная обводка там, где предмет кончается и начинается то, что за ним. '
+                    + 'Отделяет мебель от пола, но на мелком пикселе быстро становится грязью.'}
+                />
+
+                <div className="engine">
+                  <button onClick={() => setGfx(DEFAULT_GRAPHICS)}>Вернуть значения по умолчанию</button>
+                </div>
+
+                {!render3d && (
+                  <p className="hint muted">
+                    Сейчас офис показан плоским рендером, и настройки этого раздела на него не
+                    влияют — они про трёхмерную комнату. Переключает клавиша <code className="mono">0</code>.
+                  </p>
                 )}
               </>
             )}

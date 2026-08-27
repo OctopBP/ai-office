@@ -30,6 +30,25 @@ export const WALL_H = 2.6;
  */
 export const WALL_THICK = 0.4;
 
+/**
+ * Насколько коробка участка выходит за центр своей крайней клетки. Стена —
+ * объект осевой: тело идёт по центрам клеток, а концы отпускаются по-разному,
+ * и именно этим концом стена стыкуется с соседями.
+ *
+ *  - `JOIN` — конец упирается в стену из соседней клетки: коробка доводится
+ *    до её оси и прячется внутри. Меньше нельзя — на стыке останется щель.
+ *  - `OPENING` — конец граничит с проёмом или окном внутри того же отрезка:
+ *    коробка доводится до границы клетки, и проём выходит ровно той ширины,
+ *    какая записана в раскладке.
+ *  - `CAP` — свободный конец: коробка обрывается на пол-толщины за осью.
+ *    Ради этого случая всё и считается по осям: раньше каждая стена
+ *    заполняла свои клетки целиком и на углу выезжала на 0.3 тайла за
+ *    внешнюю грань перпендикулярной соседки — угол превращался в крест.
+ */
+const JOIN = 1;
+const OPENING = 0.5;
+const CAP = WALL_THICK / 2;
+
 /** Проём окна по высоте: от подоконника до перемычки. Стена в клетке с окном
  *  разрезается на две коробки, между ними — дырка, сквозь которую идёт свет. */
 export const WINDOW_SILL = 0.9;
@@ -117,25 +136,50 @@ function wallCells(wall: LayoutWall) {
   const cellAt = (i: number): [number, number] =>
     horizontal ? [ax + i * dir, ay] : [ax, ay + i * dir];
 
-  return { kinds, cellAt, horizontal, len };
+  return { kinds, cellAt, horizontal, dir, len };
 }
 
 /**
  * Коробка на сплошном участке из клеток `cells`. Клетка `[x, y]` занимает
- * квадрат `[x, x+1) × [y, y+1)`, поэтому участок тянется от минимальной
- * координаты до максимальной + 1, а поперёк — `WALL_THICK` по центру тайла.
- * Отрезок может быть задан справа налево, поэтому границы берутся минимумом,
- * а не первой клеткой.
+ * квадрат `[x, x+1) × [y, y+1)`, но тело стены идёт по центрам клеток: вдоль
+ * отрезка коробка тянется от центра первой клетки до центра последней, и уже
+ * от них отпускается на `extLo`/`extHi` (`JOIN`/`OPENING`/`CAP`). Поперёк —
+ * `WALL_THICK` по центру тайла.
+ *
+ * Продолжения приходят в порядке координат, а не клеток: отрезок может быть
+ * задан справа налево, поэтому границы берутся минимумом и максимумом.
  */
 function runBox(
   cells: [number, number][], horizontal: boolean, base: number, h: number,
+  extLo: number, extHi: number,
 ): Box3 {
   const x0 = Math.min(...cells.map(([x]) => x));
   const y0 = Math.min(...cells.map(([, y]) => y));
-  const along = cells.length;
+  const lo = (horizontal ? x0 : y0) + 0.5 - extLo;
+  const hi = (horizontal ? x0 : y0) + cells.length - 0.5 + extHi;
+  const along = hi - lo;
+  const mid = (lo + hi) / 2;
   return horizontal
-    ? { cx: x0 + along / 2, cy: y0 + 0.5, w: along, d: WALL_THICK, h, base }
-    : { cx: x0 + 0.5, cy: y0 + along / 2, w: WALL_THICK, d: along, h, base };
+    ? { cx: mid, cy: y0 + 0.5, w: along, d: WALL_THICK, h, base }
+    : { cx: x0 + 0.5, cy: mid, w: WALL_THICK, d: along, h, base };
+}
+
+/**
+ * Клетки всех стен раскладки, где есть тело стены. Проём не в счёт: в него
+ * стена не упирается, а выходит — упереться там не во что. По этому набору
+ * конец отрезка и узнаёт, стыкуется он с соседкой или обрывается свободно.
+ */
+function wallBodyCells(layout: Layout): Set<string> {
+  const body = new Set<string>();
+  for (const wall of layout.walls ?? []) {
+    const { kinds, cellAt, len } = wallCells(wall);
+    for (let i = 0; i < len; i++) {
+      if (kinds[i] === 'gap') continue;
+      const [x, y] = cellAt(i);
+      body.add(`${x},${y}`);
+    }
+  }
+  return body;
 }
 
 /** Геометрия сцены из раскладки. Чистая функция: те же данные — та же сцена. */
@@ -154,10 +198,23 @@ export function scene3(layout: Layout): Scene3 {
     };
   });
 
+  const body = wallBodyCells(layout);
   const walls: Wall3[] = [];
   for (const wall of layout.walls ?? []) {
-    const { kinds, cellAt, horizontal, len } = wallCells(wall);
+    const { kinds, cellAt, horizontal, dir, len } = wallCells(wall);
     const boxes: Box3[] = [];
+
+    /**
+     * Продолжение коробки за центр крайней клетки участка; `outside` — индекс
+     * соседней клетки за этим концом. Если она внутри отрезка, там проём или
+     * окно и коробка идёт до границы клетки; если снаружи — конец либо
+     * стыкуется с соседней стеной, либо обрывается свободно.
+     */
+    const ext = (outside: number) => {
+      if (outside >= 0 && outside < len) return OPENING;
+      const [x, y] = cellAt(outside);
+      return body.has(`${x},${y}`) ? JOIN : CAP;
+    };
 
     // Подряд идущие клетки одного вида собираются в одну коробку: длинная
     // стена — это один меш, а не тридцать, и стыков между ними не видно.
@@ -169,13 +226,21 @@ export function scene3(layout: Layout): Scene3 {
       if (kind !== 'gap') {
         const cells: [number, number][] = [];
         for (let k = i; k < j; k++) cells.push(cellAt(k));
+        // Продолжения нумеруются по клеткам, а коробка живёт в координатах:
+        // у отрезка, заданного справа налево, первая клетка — правая.
+        const extFirst = ext(i - 1);
+        const extLast = ext(j);
+        const extLo = dir > 0 ? extFirst : extLast;
+        const extHi = dir > 0 ? extLast : extFirst;
         if (kind === 'solid') {
-          boxes.push(runBox(cells, horizontal, 0, WALL_H));
+          boxes.push(runBox(cells, horizontal, 0, WALL_H, extLo, extHi));
         } else {
-          boxes.push(runBox(cells, horizontal, 0, WINDOW_SILL));
-          boxes.push(runBox(cells, horizontal, WINDOW_HEAD, WALL_H - WINDOW_HEAD));
+          boxes.push(runBox(cells, horizontal, 0, WINDOW_SILL, extLo, extHi));
+          boxes.push(runBox(
+            cells, horizontal, WINDOW_HEAD, WALL_H - WINDOW_HEAD, extLo, extHi));
           // Стекло тоньше стены, чтобы не спорить с ней за пиксели на стыке.
-          const glass = runBox(cells, horizontal, WINDOW_SILL, WINDOW_HEAD - WINDOW_SILL);
+          const glass = runBox(
+            cells, horizontal, WINDOW_SILL, WINDOW_HEAD - WINDOW_SILL, extLo, extHi);
           if (horizontal) glass.d = WALL_THICK * 0.25; else glass.w = WALL_THICK * 0.25;
           boxes.push({ ...glass, glass: true });
         }

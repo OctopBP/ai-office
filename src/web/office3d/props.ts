@@ -43,6 +43,35 @@ export interface ModelPart {
   rot?: number;
 }
 
+/**
+ * Какого сорта свет даёт предмет. Цвет, силу и радиус задаёт палитра
+ * (`palette.lamp`) — здесь только сорт: одна и та же настольная лампа днём и
+ * ночью светит по-разному, и знать об этом должна тема, а не предмет.
+ */
+export type LampKind = 'warm' | 'neon' | 'screen';
+
+/** Свой источник света у предмета: торшер, вывеска, монитор. */
+export interface Lamp3 {
+  kind: LampKind;
+  /**
+   * Где горит, внутри предмета: `[вправо, вверх, вперёд]` от центра следа,
+   * тайлы. Не задано — чуть впереди лицевой стороны предмета, на середине
+   * его высоты: так стоит свет у экрана и у вывески.
+   */
+  at?: [number, number, number];
+  /**
+   * Светится вся лицевая сторона, а не одна точка: у экрана и у вывески
+   * свет идёт от них самих, и тёмная панель с лампой перед ней читалась бы
+   * как предмет, который кто-то подсвечивает снаружи.
+   */
+  face?: true;
+  /**
+   * Горит только тогда, когда за предметом работают. Монитор — не лампа: он
+   * светится, пока за столом кто-то есть, и гаснет, когда человек ушёл.
+   */
+  busy?: true;
+}
+
 export interface Prop3 {
   shape: Shape;
   /**
@@ -64,22 +93,32 @@ export interface Prop3 {
   wall?: number;
   /** Материал — ключ в `palette.prop`. */
   tone?: 'wood' | 'metal' | 'fabric' | 'leaf' | 'screen' | 'accent' | 'light';
+  /** Свет, который даёт сам предмет. Нет поля — предмет не светится. */
+  lamp?: Lamp3;
   /**
-   * ── РУЧКА ПОДБОРА ПОСАДКИ ──────────────────────────────────────────────
-   *
-   * Куда сдвинуть сидящего относительно места из каталога, тайлы.
-   * `[вправо, вверх, вперёд]` — то есть x вдоль ширины предмета, y от пола,
-   * z от спинки к переднему краю. Тайл — 0.75 метра, так что 0.1 это 7.5 см.
-   *
-   * Числа в каталоге описывают предмет как таковой и общие для обоих
-   * рендеров; здесь — доводка под конкретную модель и под то, как её
-   * понимает анимация Mixamo (она сажает человека так, будто сиденье на
-   * высоте сорока пяти сантиметров, а у моделей набора оно своё).
-   *
-   * Правится руками, подхватывается на лету — регенерировать каталог не
-   * нужно. Подобранное сюда и остаётся: это свойство модели, а не предмета.
+   * Имя материала внутри модели, который зажигается вместе с лампой, —
+   * стекло монитора. У набора Kenney материалы названы (`metalDark` у
+   * экрана, `metal` у корпуса), и подменить один материал у клона надёжнее,
+   * чем угадывать по геометрии, где у модели лицо: ошибиться в имени сразу
+   * видно, ошибиться в координате — нет.
    */
-  seat?: [number, number, number];
+  screen?: string;
+  /**
+   * Из чего складывается посадка за этим предметом.
+   *
+   * `seat` — модель, у которой мерить подушку, `surface` — модель, у которой
+   * мерить рабочую поверхность. Не координаты: сами высоты меряются лучом по
+   * модели при загрузке (`measure.ts`), и заменённая модель приносит их с
+   * собой. Здесь — только «чем сидеть» и «на чём лежат руки».
+   *
+   * У стола это разные модели: столешница своя, а садятся на стул рядом.
+   * Стул в раскладке — отдельный предмет, но сиденье у всех рабочих мест
+   * одно и то же, и искать его в комнате по соседству значило бы гадать.
+   *
+   * Поправки к посадке — не здесь, а в `design/fit.json`: их крутят
+   * ползунком на стенде, и место им среди данных, а не в коде.
+   */
+  fit?: { seat?: string; surface?: string };
 }
 
 /**
@@ -113,9 +152,35 @@ const DESK_MODELS: ModelPart[] = [
   { file: 'computerScreen', at: [-0.1, 1.02, 0.3], rot: 180 },
 ];
 
+/**
+ * Включённый монитор. Стоит он у дальней кромки и смотрит на юг (в −Z), а
+ * светит, наоборот, на того, кто сидит, — поэтому источник вынесен вперёд
+ * экрана, к человеку, и поднят на высоту его лица. Свет короткий (`distance`
+ * у сорта `screen` — четыре тайла): монитор освещает своё рабочее место, а
+ * не комнату, иначе десять включённых столов зальют офис ровным светом и
+ * весь смысл затеи пропадёт.
+ */
+const DESK_LAMP: Lamp3 = { kind: 'screen', at: [-0.1, 1.5, 0.05], busy: true };
+
+/**
+ * Рабочее место: сидят на стуле, руки лежат на столешнице.
+ *
+ * Стул назван моделью, а не предметом раскладки: он и правда стоит рядом
+ * отдельным предметом, но у всех десяти столов он один и тот же, а искать
+ * «тот стул, что ближе» — гадание, которое сломается на первом же столе,
+ * задвинутом в угол.
+ */
+const DESK_FIT = { seat: 'chairDesk', surface: 'desk' };
+
 export const PROPS: Record<string, Prop3> = {
-  desk: { shape: 'desk', h: 1.0, tone: 'wood', models: DESK_MODELS },
-  desk_pm: { shape: 'desk', h: 1.0, tone: 'wood', models: DESK_MODELS },
+  desk: {
+    shape: 'desk', h: 1.0, tone: 'wood', models: DESK_MODELS, lamp: DESK_LAMP,
+    screen: 'metalDark', fit: DESK_FIT,
+  },
+  desk_pm: {
+    shape: 'desk', h: 1.0, tone: 'wood', models: DESK_MODELS, lamp: DESK_LAMP,
+    screen: 'metalDark', fit: DESK_FIT,
+  },
   dining_table: { shape: 'table', h: 1.0, tone: 'wood' },
   round_table: { shape: 'round', h: 1.0, d: 1.375, tone: 'wood' },
   // Стул не разворачивается: в наборе он и так стоит спинкой к столу, то есть
@@ -125,7 +190,12 @@ export const PROPS: Record<string, Prop3> = {
 
   bookshelf: { shape: 'cabinet', h: 2.5, d: 0.5, tone: 'wood' },
   server_rack: { shape: 'cabinet', h: 2.5, d: 0.8, tone: 'metal' },
-  arcade: { shape: 'cabinet', h: 2.3, d: 0.9, tone: 'accent' },
+  arcade: {
+    shape: 'cabinet', h: 2.3, d: 0.9, tone: 'accent',
+    // Автомат светит собственным экраном — в тёмном углу это самое заметное
+    // пятно цвета во всей комнате.
+    lamp: { kind: 'neon', face: true, at: [0, 1.7, 0.7] },
+  },
 
   fridge: { shape: 'appliance', h: 2.4, d: 0.9, tone: 'metal' },
   cooler: { shape: 'appliance', h: 1.6, d: 0.6, tone: 'metal' },
@@ -138,7 +208,7 @@ export const PROPS: Record<string, Prop3> = {
   sofa: {
     shape: 'soft', h: 1.2, d: 1.25, tone: 'fabric',
     models: [{ file: 'loungeSofa' }],
-    seat: [0, 0, 0],
+    fit: { seat: 'loungeSofa' },
   },
   // Двухместный: в наборе отдельной модели такого размера нет, у loungeSofa
   // ближайшие к футпринту (2.25×1.1875 тайла) пропорции — она же и на
@@ -147,7 +217,7 @@ export const PROPS: Record<string, Prop3> = {
   loveseat: {
     shape: 'soft', h: 1.2, tone: 'fabric',
     models: [{ file: 'loungeSofa' }],
-    seat: [0, 0, 0],
+    fit: { seat: 'loungeSofa' },
   },
   // Кресло существует только моделью — пиксельного арта у него нет, и
   // плоский офис его не рисует. Запасная форма всё равно объявлена: она
@@ -155,7 +225,7 @@ export const PROPS: Record<string, Prop3> = {
   armchair: {
     shape: 'soft', h: 1.2, d: 1.25, tone: 'fabric',
     models: [{ file: 'loungeChair' }],
-    seat: [0, 0, 0],
+    fit: { seat: 'loungeChair' },
   },
   beanbag: { shape: 'soft', h: 0.7, d: 0.85, tone: 'accent' },
 
@@ -177,6 +247,9 @@ export const PROPS: Record<string, Prop3> = {
   floor_lamp: {
     shape: 'box', h: 2.29, d: 0.47, tone: 'light',
     models: [{ file: 'lampRoundFloor' }],
+    // Плафон у модели наверху, под самым верхним краем: свет идёт оттуда, а
+    // не из середины стойки.
+    lamp: { kind: 'warm', at: [0, 2.1, 0] },
   },
 
   plant_big: { shape: 'plant', h: 1.9, tone: 'leaf' },
@@ -184,12 +257,12 @@ export const PROPS: Record<string, Prop3> = {
 
   // Настенное. `wall` — высота низа: доску и экран вешают на уровень глаз,
   // часы выше, дверь стоит на полу.
-  board: { shape: 'panel', h: 1.3, d: 0.12, wall: 1.0, tone: 'screen' },
-  logscreen: { shape: 'panel', h: 1.1, d: 0.12, wall: 1.1, tone: 'screen' },
-  tv: { shape: 'panel', h: 1.1, d: 0.12, wall: 1.1, tone: 'screen' },
+  board: { shape: 'panel', h: 1.3, d: 0.12, wall: 1.0, tone: 'screen', lamp: { kind: 'screen', face: true } },
+  logscreen: { shape: 'panel', h: 1.1, d: 0.12, wall: 1.1, tone: 'screen', lamp: { kind: 'screen', face: true } },
+  tv: { shape: 'panel', h: 1.1, d: 0.12, wall: 1.1, tone: 'screen', lamp: { kind: 'screen', face: true } },
   poster: { shape: 'panel', h: 1.1, d: 0.06, wall: 1.1, tone: 'accent' },
   clock: { shape: 'panel', h: 0.7, d: 0.08, wall: 1.7, tone: 'light' },
-  neon_sign: { shape: 'panel', h: 0.9, d: 0.08, wall: 1.4, tone: 'light' },
+  neon_sign: { shape: 'panel', h: 0.9, d: 0.08, wall: 1.4, tone: 'light', lamp: { kind: 'neon', face: true } },
   window: { shape: 'panel', h: 1.0, d: 0.08, wall: 0.9, tone: 'light' },
   door: { shape: 'panel', h: 2.1, d: 0.12, wall: 0, tone: 'wood' },
 
