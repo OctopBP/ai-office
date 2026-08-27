@@ -1,10 +1,11 @@
 import { useStore, decide } from './store';
+import { t } from './i18n';
 
-const RISK_LABEL: Record<string, string> = {
-  danger: 'Необратимое действие',
-  write: 'Изменение',
-  safe: 'Безопасно',
-};
+const riskLabel = (risk: string): string => (
+  risk === 'danger' ? t('perm.risk.danger')
+    : risk === 'write' ? t('perm.risk.write')
+      : risk === 'safe' ? t('perm.risk.safe')
+        : risk);
 
 export function PermissionModal() {
   const queue = useStore((s) => s.permissions);
@@ -18,12 +19,14 @@ export function PermissionModal() {
     <div className="modal-backdrop">
       <div className={`modal ${req.risk}`}>
         <div className="modal-head">
-          <span className={`risk ${req.risk}`}>{RISK_LABEL[req.risk] ?? req.risk}</span>
-          {queue.length > 1 && <span className="muted">ещё {queue.length - 1} в очереди</span>}
+          <span className={`risk ${req.risk}`}>{riskLabel(req.risk)}</span>
+          {queue.length > 1 && (
+            <span className="muted">{t('perm.more', { n: queue.length - 1 })}</span>
+          )}
         </div>
 
         <h3>
-          {agent?.label ?? req.agentId} просит разрешение
+          {t('perm.asks', { who: agent?.label ?? req.agentId })}
           {req.taskId && <span className="muted"> · {req.taskId}</span>}
         </h3>
         <p className="modal-reason">{req.reason}</p>
@@ -33,21 +36,20 @@ export function PermissionModal() {
 
         <div className="modal-actions">
           <button className="deny" onClick={() => decide(req.id, 'deny')}>
-            Запретить
+            {t('perm.deny')}
           </button>
           <button className="allow" onClick={() => decide(req.id, 'allow')}>
-            Разрешить один раз
+            {t('perm.allowOnce')}
           </button>
           <button className="always" onClick={() => decide(req.id, 'always')}>
-            Всегда разрешать
+            {t('perm.always')}
           </button>
           <button className="never" onClick={() => decide(req.id, 'never')}>
-            Всегда запрещать
+            {t('perm.never')}
           </button>
         </div>
         <p className="modal-hint muted">
-          «Всегда» запомнит <code className="mono">{req.key}</code> для этой роли до перезапуска
-          сервера — разрешая или запрещая без вопросов. Без ответа запрос отклонится через 10 минут.
+          {t('perm.hint.before')} <code className="mono">{req.key}</code> {t('perm.hint.after')}
         </p>
       </div>
     </div>

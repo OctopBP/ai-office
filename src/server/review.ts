@@ -272,7 +272,7 @@ async function syncBase(
     if (await revision(repo, `origin/${base}`)) ref = `origin/${base}`;
   }
 
-  const first = await mergeBaseInto(worktree, ref);
+  const first = await mergeBaseInto(worktree, ref, state.lang());
   if (first.kind === 'nothing' || first.kind === 'merged') {
     if (first.kind === 'merged') {
       state.addLog(null, 'system',
@@ -304,7 +304,7 @@ async function syncBase(
   // Автор мог оставить слияние незакоммиченным — доводим сами, как и обычную работу.
   await settle(worktree, task, state.say('pipe.note.merge', { base }));
 
-  const again = await mergeBaseInto(worktree, ref);
+  const again = await mergeBaseInto(worktree, ref, state.lang());
   if (again.kind !== 'nothing') {
     await abortMerge(worktree);
     markStuck(state, task, state.say('pipe.conflictStill', { base, problem: again.message }));
@@ -322,7 +322,7 @@ async function runChecks(
 ): Promise<void> {
   for (let attempt = 0; ; attempt += 1) {
     state.patchPr(task.id, { stage: 'checks', note: state.say('pipe.checksRunning') });
-    const result = await runTypecheck(worktree);
+    const result = await runTypecheck(worktree, state.lang());
     if (result.ok) {
       if (!result.skipped) {
         state.addLog(null, 'system', state.say('pipe.checksPassed', { task: task.id }));
@@ -357,7 +357,7 @@ async function openPr(
     return;
   }
 
-  const push = await pushBranch(repo, branch, gh.token);
+  const push = await pushBranch(repo, branch, gh.token, state.lang());
   if (!push.ok) {
     markStuck(state, task, state.say('pipe.pushFailed', { problem: push.message }));
     throw new Stuck();
@@ -430,7 +430,7 @@ async function mergeStep(
   const gh = await githubFor(repo);
   const fresh = state.prOf(task.id);
   if (gh && fresh?.number) {
-    const push = await pushBranch(repo, branch, gh.token);
+    const push = await pushBranch(repo, branch, gh.token, state.lang());
     if (!push.ok) {
       markStuck(state, task, state.say('pipe.pushBeforeMerge', { problem: push.message }));
       throw new Stuck();
@@ -451,9 +451,9 @@ async function mergeStep(
   } else {
     // Проверку гоняем в рабочей копии офиса на уже собранном слиянии и ДО
     // сдвига базы: не прошла — базовая ветка остаётся рабочей.
-    const outcome = await mergeBranch(repo, branch, base, integrationDir(state),
+    const outcome = await mergeBranch(repo, branch, base, integrationDir(state), state.lang(),
       async (worktree) => {
-        const result = await runTypecheck(worktree);
+        const result = await runTypecheck(worktree, state.lang());
         return {
           ok: result.ok,
           message: state.say('pipe.buildFailsWithBase', { base, message: result.message }),
@@ -601,7 +601,7 @@ function reworkPrompt(state: OfficeState, task: Task, review: string): string {
  * его не получилось собрать, — а его читает ревьюер.
  */
 export async function prDiff(pr: PullRequestView, lang: Lang): Promise<string> {
-  const result = await diffBranch(pr.repoDir, pr.base, pr.branch);
+  const result = await diffBranch(pr.repoDir, pr.base, pr.branch, lang);
   if ('error' in result) return t(lang, 'pipe.diffFailed', { error: result.error });
   if (!result.stat) return t(lang, 'pipe.diffEmpty');
   return `${result.stat}\n\n${result.patch}${result.truncated ? t(lang, 'pipe.diffClipped') : ''}`;

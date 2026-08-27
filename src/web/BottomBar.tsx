@@ -1,15 +1,17 @@
 import { useEffect, useState } from 'react';
 import { useStore } from './store';
+import { locale, t } from './i18n';
 
-const HINTS: Array<[string, string]> = [
-  ['ENTER', 'написать PM'],
-  ['B', 'доска'],
-  ['L', 'лог'],
-  ['M', 'совещание'],
-  ['Q', 'очередь слияния'],
-  ['SPACE', 'пауза'],
-  ['ESC', 'закрыть / в меню'],
-  ['1–9', 'выбрать агента'],
+const HINT_KEYS: Array<[string, 'hint.pm' | 'hint.board' | 'hint.log' | 'hint.meeting'
+  | 'hint.merge' | 'hint.pause' | 'hint.close' | 'hint.agent']> = [
+  ['ENTER', 'hint.pm'],
+  ['B', 'hint.board'],
+  ['L', 'hint.log'],
+  ['M', 'hint.meeting'],
+  ['Q', 'hint.merge'],
+  ['SPACE', 'hint.pause'],
+  ['ESC', 'hint.close'],
+  ['1–9', 'hint.agent'],
 ];
 
 export function BottomBar() {
@@ -24,19 +26,22 @@ export function BottomBar() {
   }, []);
 
   const min = Math.floor((now.getTime() - start) / 60000);
-  const session = min < 60 ? `${min}м` : `${Math.floor(min / 60)}ч ${min % 60}м`;
+  const session = min < 60
+    ? t('bottom.minutes', { m: min })
+    : t('bottom.hours', { h: Math.floor(min / 60), m: min % 60 });
 
   return (
     <footer className="bottom">
       <div className="hints">
-        {HINTS.map(([key, what]) => (
-          <span key={key}><kbd>{key}</kbd> {what}</span>
+        {HINT_KEYS.map(([key, what]) => (
+          <span key={key}><kbd>{key}</kbd> {t(what)}</span>
         ))}
       </div>
       <div className="muted small">
-        {busy && <span className="working">команда работает… · </span>}
-        {theme === 'day' ? '☀' : '🌙'} {now.toLocaleTimeString('ru', { hour: '2-digit', minute: '2-digit' })}
-        {' · сеанс '}{session}
+        {busy && <span className="working">{t('bottom.busy')} · </span>}
+        {theme === 'day' ? '☀' : '🌙'}{' '}
+        {now.toLocaleTimeString(locale(), { hour: '2-digit', minute: '2-digit' })}
+        {' · '}{t('bottom.session', { time: session })}
       </div>
     </footer>
   );

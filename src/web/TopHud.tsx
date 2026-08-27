@@ -1,6 +1,7 @@
 import { useState } from 'react';
-import { ACCESS_LABEL, reset, resetLayout, setEditingLayout, setPaused, useStore } from './store';
+import { accessLabel, reset, resetLayout, setEditingLayout, setPaused, useStore } from './store';
 import { OfficeSwitcher } from './OfficeSwitcher';
+import { t } from './i18n';
 
 const money = (v: number) => `$${v.toFixed(2)}`;
 
@@ -41,8 +42,8 @@ export function TopHud({ onSettings, onMeeting, onHelp, onUsage, onMergeQueue, o
           <OfficeSwitcher />
           <span className="hud-sep" />
           <button className="hud-btn" onClick={leaveOffice}
-            title="В меню — офис остаётся открытым, агенты продолжат работать — ESC">
-            <span className="ico">🏠</span><span className="hud-label">Меню</span>
+            title={t('hud.menu.hint')}>
+            <span className="ico">🏠</span><span className="hud-label">{t('hud.menu')}</span>
           </button>
         </div>
 
@@ -50,75 +51,75 @@ export function TopHud({ onSettings, onMeeting, onHelp, onUsage, onMergeQueue, o
 
         <div className="hud-group hud-center">
           <button className={`hud-btn hud-money ${over ? 'over' : ''}`} onClick={onUsage}
-            title={`Расходы сегодня: ${money(today)} · всего ${money(usage.costUsd)}`
-              + (settings.globalBudgetUsd !== null ? ` из ${money(settings.globalBudgetUsd)}` : '')}>
+            title={t('hud.money.hint', { today: money(today), total: money(usage.costUsd) })
+              + (settings.globalBudgetUsd !== null
+                ? t('hud.money.cap', { cap: money(settings.globalBudgetUsd) })
+                : '')}>
             <span className="ico">🪙</span><b>{money(today)}</b>
           </button>
 
           <div className="hud-status"
-            title={`${Object.keys(instances).length} агента в офисе, ${working} сейчас в работе`
-              + (permissions.length > 0 ? ` · ${permissions.length} ждёт решения человека` : '')}>
-            <span>👥 {Object.keys(instances).length} · {working} в работе</span>
+            title={t('hud.staff.hint', { n: Object.keys(instances).length, working })
+              + (permissions.length > 0 ? t('hud.staff.waiting', { n: permissions.length }) : '')}>
+            <span>👥 {Object.keys(instances).length} · {t('hud.working', { n: working })}</span>
             <span className={permissions.length ? 'alarm' : 'muted small'}>
               {permissions.length > 0 && <>❗ {permissions.length} · </>}
-              {review} на ревью
+              {t('hud.inReview', { n: review })}
             </span>
           </div>
 
           <div className={`hud-chip access ${settings.officePermissionMode}`}
-            title={`Режим доступа офиса: ${ACCESS_LABEL[settings.officePermissionMode]} — настраивается в ⚙`}>
+            title={t('hud.access.hint', { mode: accessLabel(settings.officePermissionMode) })}>
             {ACCESS_ICON[settings.officePermissionMode]}
           </div>
 
-          {paused && <div className="hud-chip paused" title="Исполнители замирают на следующем действии">⏸ ПАУЗА</div>}
+          {paused && (
+            <div className="hud-chip paused" title={t('hud.paused.hint')}>⏸ {t('hud.paused')}</div>
+          )}
         </div>
 
         <span className="hud-sep" />
 
         <div className="hud-group hud-right">
           <button className={`hud-btn ${paused ? 'on' : ''}`} onClick={() => setPaused(!paused)}
-            title={paused ? 'Продолжить работу — SPACE' : 'Пауза: остановить всех исполнителей — SPACE'}>
+            title={t(paused ? 'hud.resume.hint' : 'hud.pause.hint')}>
             {paused ? '▶' : '⏸'}
           </button>
-          <button className="hud-btn" onClick={onTeam} title="Команда: роли, найм, увольнение">
-            <span className="ico">🧑‍💼</span><span className="hud-label">Команда</span>
+          <button className="hud-btn" onClick={onTeam} title={t('hud.team.hint')}>
+            <span className="ico">🧑‍💼</span><span className="hud-label">{t('hud.team')}</span>
           </button>
-          <button className="hud-btn" onClick={onMeeting} title="Созвать совещание — M">👥</button>
+          <button className="hud-btn" onClick={onMeeting} title={t('hud.meeting.hint')}>👥</button>
           <button className={`hud-btn ${editingLayout ? 'on' : ''}`}
             onClick={() => setEditingLayout(!editingLayout)}
-            title={editingLayout
-              ? 'Выключить редактор расстановки'
-              : 'Редактор расстановки: тащите мебель мышью'}>
+            title={t(editingLayout ? 'hud.layoutOff.hint' : 'hud.layoutOn.hint')}>
             🪑
           </button>
           {editingLayout && (
             <button className="hud-btn" onClick={() => setConfirmReset(true)}
-              title="Сбросить расстановку к пресету">↺</button>
+              title={t('hud.layoutReset.hint')}>↺</button>
           )}
 
           <span className="hud-sep" />
 
           <button className={`hud-btn ${readyToMerge > 0 ? 'alert' : ''}`} onClick={onMergeQueue}
-            title="Очередь слияния — Q">
+            title={t('hud.merge.hint')}>
             🔀{readyToMerge > 0 && ` ${readyToMerge}`}
           </button>
 
           <span className="hud-sep" />
 
           <button className="hud-btn" onClick={() => setTheme(theme === 'day' ? 'night' : 'day')}
-            title="Светлая или тёмная тема">{theme === 'day' ? '🌙' : '☀️'}</button>
-          <button className="hud-btn" onClick={onSettings} title="Бюджет офиса">⚙</button>
-          <button className="hud-btn" onClick={onHelp} title="Справка">?</button>
-          <button className="hud-btn" onClick={reset} title="Сбросить офис">⟳</button>
+            title={t('hud.theme.hint')}>{theme === 'day' ? '🌙' : '☀️'}</button>
+          <button className="hud-btn" onClick={onSettings} title={t('hud.settings.hint')}>⚙</button>
+          <button className="hud-btn" onClick={onHelp} title={t('hud.help.hint')}>?</button>
+          <button className="hud-btn" onClick={reset} title={t('hud.reset.hint')}>⟳</button>
 
           <span className="hud-sep" />
 
           <span className={`link-dot ${connected ? 'on' : 'off'}`}
-            title={connected ? 'связь с офисом есть' : 'нет связи с сервером'} />
+            title={t(connected ? 'hud.online' : 'hud.offline')} />
           <span className={`auth ${authSource}`}
-            title={authSource === 'api-key'
-              ? 'Задан ключ API — расход идёт в платный API, а не в подписку'
-              : 'Работает на авторизации Claude Code — расход в лимиты подписки'}>
+            title={t(authSource === 'api-key' ? 'hud.auth.key' : 'hud.auth.subscription')}>
             {authSource === 'api-key' ? '💳' : '🔑'}
           </span>
         </div>
@@ -127,16 +128,16 @@ export function TopHud({ onSettings, onMeeting, onHelp, onUsage, onMergeQueue, o
       {confirmReset && (
         <div className="modal-backdrop" onClick={() => setConfirmReset(false)}>
           <div className="modal" onClick={(e) => e.stopPropagation()}>
-            <h3>Сбросить расстановку?</h3>
+            <h3>{t('hud.layoutReset.title')}</h3>
             <p>
-              Мебель вернётся туда, где стоит в пресете «
-              {layouts.find((l) => l.id === settings.layoutId)?.title ?? settings.layoutId}
-              ». Все сдвиги мышью пропадут.
+              {t('hud.layoutReset.body', {
+                preset: layouts.find((l) => l.id === settings.layoutId)?.title ?? settings.layoutId,
+              })}
             </p>
             <div className="modal-actions">
-              <button onClick={() => setConfirmReset(false)}>Отмена</button>
+              <button onClick={() => setConfirmReset(false)}>{t('common.cancel')}</button>
               <button className="deny" onClick={() => { resetLayout(); setConfirmReset(false); }}>
-                Да, сбросить
+                {t('hud.layoutReset.confirm')}
               </button>
             </div>
           </div>

@@ -1,4 +1,5 @@
 import { dismissToast, useStore } from './store';
+import { t as tr } from './i18n';
 
 /** Всплывающие сообщения о заметных событиях: завершение, провал, слияние. */
 export function Toasts({ onOpenTask }: { onOpenTask: (id: string) => void }) {
@@ -15,7 +16,7 @@ export function Toasts({ onOpenTask }: { onOpenTask: (id: string) => void }) {
           </div>
           {t.taskId && (
             <button className="primary" onClick={() => { onOpenTask(t.taskId!); dismissToast(t.id); }}>
-              Открыть задачу →
+              {tr('toast.openTask')}
             </button>
           )}
           <button className="sq" onClick={() => dismissToast(t.id)}>✕</button>

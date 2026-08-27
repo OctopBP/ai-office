@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { createOffice, renameOffice, useStore } from './store';
+import { t } from './i18n';
 
 /**
  * Дверь офиса: список проектов и создание нового. Офис = проект: своя
@@ -21,11 +22,8 @@ export function OfficesModal({ onClose }: { onClose: () => void }) {
   return (
     <div className="modal-backdrop" onClick={onClose}>
       <div className="modal wide" onClick={(e) => e.stopPropagation()}>
-        <h3>Офисы и проекты</h3>
-        <p className="modal-reason">
-          Офис — это проект: своя рабочая директория, доска, расходы и история.
-          Переключение не перезапускает сервер и не останавливает задачи в работе.
-        </p>
+        <h3>{t('offices.title')}</h3>
+        <p className="modal-reason">{t('offices.note')}</p>
 
         <div className="offices">
           {offices.map((o) => (
@@ -35,16 +33,16 @@ export function OfficesModal({ onClose }: { onClose: () => void }) {
                 <div className="muted mono">{o.projectDir}</div>
               </div>
               {o.current ? (
-                <span className="chip done">открыт</span>
+                <span className="chip done">{t('offices.open')}</span>
               ) : (
-                <button className="mini go" title="Открыть этот офис"
+                <button className="mini go" title={t('offices.openHint')}
                   onClick={() => { enterOffice(o.id); onClose(); }}>
-                  открыть
+                  {t('offices.openAction')}
                 </button>
               )}
-              <button className="mini" title="Переименовать"
+              <button className="mini" title={t('offices.rename')}
                 onClick={() => {
-                  const next = prompt('Название офиса', o.name);
+                  const next = prompt(t('offices.namePrompt'), o.name);
                   if (next) renameOffice(o.id, next);
                 }}>
                 ✎
@@ -55,27 +53,24 @@ export function OfficesModal({ onClose }: { onClose: () => void }) {
 
         {creating ? (
           <>
-            <label>Название
-              <input value={name} placeholder="Новый проект"
+            <label>{t('offices.name')}
+              <input value={name} placeholder={t('offices.namePlaceholder')}
                 onChange={(e) => setName(e.target.value)} />
             </label>
-            <label>Директория проекта
+            <label>{t('offices.dir')}
               <input value={dir} placeholder="/Users/you/projects/my-app"
                 onChange={(e) => setDir(e.target.value)} />
-              <span className="hint muted">
-                Абсолютный путь. Если папки нет, офис создаст её и заведёт git-репозиторий —
-                без него не работает изоляция задач по веткам.
-              </span>
+              <span className="hint muted">{t('offices.dirHint')}</span>
             </label>
             <div className="modal-actions">
-              <button onClick={() => setCreating(false)}>Отмена</button>
-              <button className="allow" onClick={create}>Создать и открыть</button>
+              <button onClick={() => setCreating(false)}>{t('common.cancel')}</button>
+              <button className="allow" onClick={create}>{t('offices.create')}</button>
             </div>
           </>
         ) : (
           <div className="modal-actions">
-            <button onClick={onClose}>Закрыть</button>
-            <button className="allow" onClick={() => setCreating(true)}>＋ Новый офис</button>
+            <button onClick={onClose}>{t('common.close')}</button>
+            <button className="allow" onClick={() => setCreating(true)}>{t('offices.new')}</button>
           </div>
         )}
       </div>

@@ -29,6 +29,7 @@ import { CeilingLamps, Lights } from './Lights3D';
 import { Agents3D } from './Agents3D';
 import { Pixelation } from './Pixelation';
 import { Camera3D, CameraChips, FOV, startPose } from './Camera3D';
+import { t } from '../i18n';
 
 /** Насколько прозрачной становится погашенная стена. Не ноль: контур комнаты
  *  должен читаться, иначе теряется, где она кончается. */
@@ -201,7 +202,7 @@ export function Office3D({ onOpen, onDoor }: {
       if (zone.kind === 'entrance' && zone.sprite && zone.at) {
         const key = 'spot-door';
         list.push({ sprite: zone.sprite, at: zone.at, key });
-        meta.set(key, { kind: 'door', title: zone.title ?? 'Офисы и проекты' });
+        meta.set(key, { kind: 'door', title: zone.title ?? t('offices.title') });
       }
     }
     const hotspots = (layout.hotspots ?? []) as {

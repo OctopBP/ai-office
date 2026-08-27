@@ -5,7 +5,8 @@ import { agentSize, catalog, furnitureZ, roomFor, spriteSize } from './layoutDat
 import { deskPoint } from '../shared/layout';
 import { GRID } from '../shared/types';
 import type { InstanceView } from '../shared/types';
-import { STATE_ICON, STATE_TEXT } from './agentState';
+import { STATE_ICON, stateText } from './agentState';
+import { t } from './i18n';
 
 const C = GRID.cell;
 const px = (tiles: number) => tiles * C;
@@ -313,10 +314,10 @@ export function Office({ onOpen, onDoor }: {
             <div className="statuscard pixel">
               <div className="line1">
                 <b>{inst.id}</b>
-                <span className="muted"> · {STATE_TEXT[inst.state]}</span>
+                <span className="muted"> · {stateText(inst.state)}</span>
                 {icon && <span className="ico"> {icon}</span>}
                 {inst.deskless && (
-                  <span className="ico" title="Без рабочего места — не хватило столов в раскладке"> 🪑</span>
+                  <span className="ico" title={t('office.desklessHint')}> 🪑</span>
                 )}
               </div>
               <div className="line2 muted">

@@ -64,6 +64,18 @@ export const DEFAULT_SETTINGS: Settings = {
 };
 
 /**
+ * Язык, на котором заводится НОВЫЙ офис. Это свойство запуска, а не офиса:
+ * у офиса язык свой и живёт в его настройках, но самый первый откуда-то надо
+ * взять. Берём его из окружения (`OFFICE_LANG`), как и остальные свойства
+ * прогона: своей настройки в интерфейсе у него нет и быть не может — менять
+ * там нечего, пока офис не открыт.
+ *
+ * Читается на каждое открытие, а не один раз при загрузке модуля: так его
+ * может задать и проверка, поднимающая офисы в одном процессе.
+ */
+const startupLang = (): Lang => asLang(process.env.OFFICE_LANG);
+
+/**
  * Привести лимит ходов к допустимому: целое в границах либо null («без
  * ограничения»). undefined — значение непригодно и его надо игнорировать,
  * а не превращать в null: пустое поле и опечатка означают разное.
@@ -347,7 +359,7 @@ export class OfficeState {
   /** Режим проверки поведения PM: исполнители заглушены, задачи закрываются мгновенно. */
   dryRun = false;
   meeting: MeetingView | null = null;
-  settings: Settings = { ...DEFAULT_SETTINGS };
+  settings: Settings = { ...DEFAULT_SETTINGS, language: startupLang() };
   authSource: AuthSource = 'unknown';
   /** Чей это офис: от него зависят worktree и файл состояния. */
   readonly officeId: string;
@@ -358,7 +370,10 @@ export class OfficeState {
    * роль одного проекта не должны попадать в другой. Общего на процесс
    * реестра ролей нет вовсе — офис у любой роли спрашивают явно.
    */
-  private roleList: Role[] = defaultRoles();
+  // Роли заводятся на языке офиса: бриф уезжает в системный промпт, и
+  // русский бриф в английском офисе означал бы агента, который отвечает
+  // не на том языке, на котором с ним говорят.
+  private roleList: Role[] = defaultRoles(startupLang());
   /**
    * Расстановка мебели этого офиса поверх пресетов, ключ — id пресета (§8).
    * Своя у каждого офиса: пресет — общий эталон в репозитории, а подвинутый
@@ -814,7 +829,7 @@ export class OfficeState {
     const layoutId = this.settings.layoutId;
     const clean: LayoutPropEdit[] = [];
     for (const edit of edits) {
-      const checked = checkPropEdit(layoutId, this.override(), edit ?? ({} as LayoutPropEdit));
+      const checked = checkPropEdit(layoutId, this.override(), edit ?? ({} as LayoutPropEdit), this.lang());
       if ('error' in checked) return checked.error;
       clean.push(checked);
     }
@@ -843,12 +858,12 @@ export class OfficeState {
     const layoutId = this.settings.layoutId;
     const current = this.layoutOverrides[layoutId];
     if (isEmptyOverride(current)) {
-      return this.say('state.layout.sameAsPreset', { preset: layoutTitle(layoutId) });
+      return this.say('state.layout.sameAsPreset', { preset: layoutTitle(layoutId, this.lang()) });
     }
     if (key) {
       const props = current.props.filter((p) => p.key !== key);
       if (props.length === current.props.length) {
-        return this.say('state.layout.propSameAsPreset', { key, preset: layoutTitle(layoutId) });
+        return this.say('state.layout.propSameAsPreset', { key, preset: layoutTitle(layoutId, this.lang()) });
       }
       this.layoutOverrides[layoutId] = { version: 1, props };
     } else {
@@ -857,7 +872,7 @@ export class OfficeState {
     this.afterLayoutChange();
     this.addLog(null, 'system', key
       ? this.say('state.layout.propReset', { key })
-      : this.say('state.layout.reset', { preset: layoutTitle(layoutId) }));
+      : this.say('state.layout.reset', { preset: layoutTitle(layoutId, this.lang()) }));
     return null;
   }
 
@@ -965,10 +980,10 @@ export class OfficeState {
   private tellAboutHomeless(homeless: Instance[], deskCount: number, prevLayoutId?: string): void {
     const who = homeless.map((i) => i.label).join(', ');
     const back = prevLayoutId && prevLayoutId !== this.settings.layoutId
-      ? this.say('state.desk.backTo', { preset: layoutTitle(prevLayoutId) })
+      ? this.say('state.desk.backTo', { preset: layoutTitle(prevLayoutId, this.lang()) })
       : this.say('state.desk.backPlain');
     this.addChat(OFFICE_SENDER, this.say('state.desk.homeless', {
-      preset: layoutTitle(this.settings.layoutId),
+      preset: layoutTitle(this.settings.layoutId, this.lang()),
       desks: deskCount, staff: this.instances.size, who, back,
     }));
   }
@@ -1489,7 +1504,7 @@ export class OfficeState {
       const dir = String(patch.repoDir ?? '').trim();
       // Пусто — «работать в общем репозитории офиса», проверять нечего.
       if (dir) {
-        const problem = await repoProblem(this.resolveRepoDir(dir));
+        const problem = await repoProblem(this.resolveRepoDir(dir), this.lang());
         if (problem) errors.push({ field: 'repoDir', message: problem });
       }
     }
@@ -1737,7 +1752,7 @@ export class OfficeState {
     // ждёт, что офис переставится. Тихо оставленная прежняя выглядела бы как
     // «кнопка не работает», поэтому про неизвестный id говорим прямо.
     if (next.layoutId !== undefined && next.layoutId !== prevLayout && !hasLayout(next.layoutId)) {
-      const known = layoutOptions().map((l) => l.id).join(', ')
+      const known = layoutOptions(this.lang()).map((l) => l.id).join(', ')
         || this.say('state.settings.noLayoutsAtAll');
       return this.say('state.settings.noLayout', { id: String(next.layoutId), known });
     }
@@ -1749,7 +1764,7 @@ export class OfficeState {
       // для ленты. Вместе с пресетом меняется и оверрайд: у каждого пресета
       // своя расстановка, и на новом офис показывает то, что правили на нём.
       this.addLog(null, 'system',
-        this.say('state.layout.changed', { preset: layoutTitle(this.settings.layoutId) }));
+        this.say('state.layout.changed', { preset: layoutTitle(this.settings.layoutId, this.lang()) }));
       // Прежний пресет передаём дальше: если мест в новом не хватит, офис
       // предложит вернуться именно к нему, по имени.
       this.afterLayoutChange(prevLayout);
@@ -1880,7 +1895,7 @@ export class OfficeState {
       // Верхняя граница штата — число столов в раскладке ЭТОГО офиса:
       // в тесной раскладке офис вмещает меньше людей, чем в просторной.
       return this.say('state.hire.noDesk', {
-        preset: layoutTitle(this.settings.layoutId), desks: this.deskPlan().desks.length,
+        preset: layoutTitle(this.settings.layoutId, this.lang()), desks: this.deskPlan().desks.length,
       });
     }
     this.addLog(null, 'system', this.say('state.hire.done', { label: inst.label, id: inst.id }));
@@ -2056,7 +2071,7 @@ export class OfficeState {
    * пресеты в этом проекте добавляют не выключая офис.
    */
   layouts(): LayoutOption[] {
-    return layoutOptions();
+    return layoutOptions(this.lang());
   }
 
   snapshot(): ServerEvent {

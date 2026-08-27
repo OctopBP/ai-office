@@ -3,6 +3,9 @@ import { promisify } from 'node:util';
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import type { MergeCheck, MergeRun, MergeStep, TypecheckResult } from '../shared/types';
+import { OFFICE_SENDER } from '../shared/types';
+import type { Lang } from '../shared/i18n';
+import { t } from './i18n';
 import { taskRepo, worktreesRoot, type OfficeState, type Task } from './state';
 import { checkMergeable, mergeBranch, removeWorktree } from './git';
 
@@ -55,7 +58,7 @@ export async function refreshMergeChecks(state: OfficeState): Promise<MergeCheck
       const branch = task.branch;
       const base = task.baseBranch;
       if (!branch || !base) continue;
-      const result = await checkMergeable(taskRepo(task, state), branch, base);
+      const result = await checkMergeable(taskRepo(task, state), branch, base, state.lang());
       checks.push({
         taskId: task.id,
         state: result.state,
@@ -68,7 +71,8 @@ export async function refreshMergeChecks(state: OfficeState): Promise<MergeCheck
     return checks;
   } catch (err) {
     state.setMergeChecking(false);
-    state.addLog(null, 'error', `Проверка слияний не удалась: ${(err as Error).message}`);
+    state.addLog(null, 'error',
+      state.say('merge.checkFailed', { error: (err as Error).message }));
     return [...state.mergeChecks.values()];
   } finally {
     checking.delete(state.officeId);
@@ -80,8 +84,8 @@ const TYPECHECK_TIMEOUT_MS = 5 * 60 * 1000;
 /** Хвост вывода: в интерфейс уходит конец лога, где и лежат ошибки. */
 const OUTPUT_LIMIT = 4000;
 
-const tail = (s: string): string => (s.length > OUTPUT_LIMIT
-  ? `… (начало вывода отброшено)\n${s.slice(-OUTPUT_LIMIT)}`
+const tail = (s: string, lang: Lang): string => (s.length > OUTPUT_LIMIT
+  ? `${t(lang, 'merge.outputClipped')}\n${s.slice(-OUTPUT_LIMIT)}`
   : s);
 
 /** Есть ли в package.json репозитория такой npm-скрипт. */
@@ -101,12 +105,12 @@ function hasScript(repoDir: string, name: string): boolean {
  * каждого успешного слияния: две ветки по отдельности собираются, а вместе
  * могут и не собраться — узнать об этом лучше сразу, а не через три слияния.
  */
-export async function runTypecheck(repoDir: string): Promise<TypecheckResult> {
+export async function runTypecheck(repoDir: string, lang: Lang): Promise<TypecheckResult> {
   const started = Date.now();
   if (!hasScript(repoDir, 'typecheck')) {
     return {
       ok: true, skipped: true, output: '', durationMs: 0,
-      message: 'В проекте нет скрипта «npm run typecheck» — проверка сборки пропущена.',
+      message: t(lang, 'merge.noTypecheck'),
     };
   }
   try {
@@ -117,29 +121,29 @@ export async function runTypecheck(repoDir: string): Promise<TypecheckResult> {
       env: { ...process.env, FORCE_COLOR: '0' },
     });
     return {
-      ok: true, skipped: false, output: tail(`${stdout}${stderr}`.trim()),
-      message: 'npm run typecheck прошёл без ошибок.',
+      ok: true, skipped: false, output: tail(`${stdout}${stderr}`.trim(), lang),
+      message: t(lang, 'merge.typecheckOk'),
       durationMs: Date.now() - started,
     };
   } catch (err) {
     const e = err as { stdout?: string; stderr?: string; message?: string; code?: string | number; killed?: boolean };
-    const output = tail(`${e.stdout ?? ''}${e.stderr ?? ''}`.trim() || (e.message ?? ''));
+    const output = tail(`${e.stdout ?? ''}${e.stderr ?? ''}`.trim() || (e.message ?? ''), lang);
     // npm вообще не запустился — это не провал сборки, а отсутствие инструмента.
     if (e.code === 'ENOENT') {
       return {
         ok: true, skipped: true, output, durationMs: Date.now() - started,
-        message: 'npm не найден — проверку сборки прогнать нечем.',
+        message: t(lang, 'merge.noNpm'),
       };
     }
     if (e.killed) {
       return {
         ok: false, skipped: false, output, durationMs: Date.now() - started,
-        message: 'npm run typecheck не уложился в 5 минут — прогон прерван.',
+        message: t(lang, 'merge.typecheckTimeout'),
       };
     }
     return {
       ok: false, skipped: false, output, durationMs: Date.now() - started,
-      message: 'npm run typecheck падает.',
+      message: t(lang, 'merge.typecheckFailed'),
     };
   }
 }
@@ -157,11 +161,11 @@ const queueRunning = new Set<string>();
 export const integrationDir = (state: OfficeState): string =>
   resolve(worktreesRoot(state), '_base');
 
-const pendingStep = (task: Task): MergeStep => ({
+const pendingStep = (task: Task, lang: Lang): MergeStep => ({
   taskId: task.id,
   title: task.title,
   status: 'pending',
-  message: 'Очередь до этой задачи не дошла.',
+  message: t(lang, 'merge.queuePending'),
   conflicts: [],
   typecheck: null,
 });
@@ -173,7 +177,7 @@ const pendingStep = (task: Task): MergeStep => ({
  */
 export async function mergeQueue(taskIds: string[], state: OfficeState): Promise<MergeRun | null> {
   if (queueRunning.has(state.officeId)) {
-    state.addChat('офис', 'Очередь слияния уже идёт — дождитесь, пока она закончится.');
+    state.addChat(OFFICE_SENDER, state.say('merge.queueRunning'));
     return state.mergeRun;
   }
 
@@ -181,7 +185,7 @@ export async function mergeQueue(taskIds: string[], state: OfficeState): Promise
     .map((id) => state.tasks.get(id))
     .filter((t): t is Task => Boolean(t));
   if (!tasks.length) {
-    state.addChat('офис', 'Сливать нечего: ни одной из выбранных задач нет на доске.');
+    state.addChat(OFFICE_SENDER, state.say('merge.nothingToMerge'));
     return null;
   }
 
@@ -189,8 +193,8 @@ export async function mergeQueue(taskIds: string[], state: OfficeState): Promise
   const runState: MergeRun = {
     id: `merge-${Date.now()}`,
     running: true,
-    steps: tasks.map(pendingStep),
-    summary: 'Очередь слияния запущена.',
+    steps: tasks.map((task) => pendingStep(task, state.lang())),
+    summary: state.say('merge.queueStarted'),
     startedAt: Date.now(),
     finishedAt: null,
   };
@@ -207,11 +211,14 @@ export async function mergeQueue(taskIds: string[], state: OfficeState): Promise
       const base = task.baseBranch;
 
       if (task.merged) {
-        finishStep(state, runState, step, 'skipped', `${task.id} уже влита в ${task.baseBranch ?? 'основную ветку'}.`);
+        finishStep(state, runState, step, 'skipped', state.say('merge.stepMerged', {
+          task: task.id, base: task.baseBranch ?? state.say('merge.stepDefaultBase'),
+        }));
         continue;
       }
       if (!branch || !base) {
-        finishStep(state, runState, step, 'skipped', `У ${task.id} нет своей ветки — сливать нечего.`);
+        finishStep(state, runState, step, 'skipped',
+          state.say('merge.stepNoBranch', { task: task.id }));
         continue;
       }
 
@@ -223,28 +230,33 @@ export async function mergeQueue(taskIds: string[], state: OfficeState): Promise
       // Результат проверки достаём из замыкания через объект: присваивание
       // внутри колбэка компилятор не видит, и простая переменная сузилась бы в never.
       const checks: { result: TypecheckResult | null } = { result: null };
-      const outcome = await mergeBranch(repo, branch, base, integrationDir(state),
+      const outcome = await mergeBranch(repo, branch, base, integrationDir(state), state.lang(),
         async (worktree) => {
-          const result = await runTypecheck(worktree);
+          const result = await runTypecheck(worktree, state.lang());
           checks.result = result;
           return {
             ok: result.ok,
-            message: `Вместе с ${base} проверка сборки падает: ${result.message} ` +
-              'Слияние отменено — базовая ветка осталась рабочей.',
+            message: state.say('merge.verifyFailed', { base, message: result.message }),
           };
         });
       if (checks.result) step.typecheck = checks.result;
-      state.addChat('офис', `${task.id}: ${outcome.message}`);
+      state.addChat(OFFICE_SENDER,
+        state.say('merge.stepOutcome', { task: task.id, message: outcome.message }));
       state.addLog(null, outcome.ok ? 'system' : 'error', `merge ${branch}: ${outcome.kind}`);
       // Рабочая копия человека могла отстать: его незакоммиченные правки — не
       // повод останавливать очередь, но сказать об этом нужно.
-      if (outcome.checkout.state === 'lagging') state.addChat('офис', outcome.checkout.message);
+      if (outcome.checkout.state === 'lagging') {
+        state.addChat(OFFICE_SENDER, outcome.checkout.message);
+      }
 
       if (outcome.kind === 'conflict') {
         finishStep(state, runState, step, 'conflict',
-          `Конфликт с веткой ${base}. ${outcome.conflicts.length
-            ? `Разойтись не дали файлы: ${outcome.conflicts.join(', ')}.`
-            : outcome.message}`,
+          state.say('merge.conflict', {
+            base,
+            files: outcome.conflicts.length
+              ? state.say('merge.conflictFiles', { files: outcome.conflicts.join(', ') })
+              : outcome.message,
+          }),
           outcome.conflicts);
         stoppedAt = step;
         break;
@@ -265,14 +277,20 @@ export async function mergeQueue(taskIds: string[], state: OfficeState): Promise
       state.updateTask(task.id, { merged: true, worktreePath: null });
 
       if (outcome.kind === 'nothing') {
-        finishStep(state, runState, step, 'nothing', `В ветке ${branch} не было коммитов сверх ${base} — слияние не потребовалось.`);
+        finishStep(state, runState, step, 'nothing',
+          state.say('merge.stepNothing', { branch, base }));
         continue;
       }
 
       merged += 1;
       const checked = checks.result;
       finishStep(state, runState, step, 'merged',
-        `Влита в ${base}. ${!checked || checked.skipped ? (checked?.message ?? '') : 'Проверка сборки прошла.'}`,
+        state.say('merge.stepDone', {
+          base,
+          checks: !checked || checked.skipped
+            ? (checked?.message ?? '')
+            : state.say('merge.checksPassed'),
+        }),
         [], checked);
 
       // Порядок слияний меняет картину: после каждого успешного пересчитываем,
@@ -280,16 +298,16 @@ export async function mergeQueue(taskIds: string[], state: OfficeState): Promise
       await refreshMergeChecks(state);
     }
 
-    runState.summary = summarize(runState, merged, stoppedAt);
+    runState.summary = summarize(state, runState, merged, stoppedAt);
   } catch (err) {
-    runState.summary = `Очередь слияния оборвалась с ошибкой: ${(err as Error).message}`;
+    runState.summary = state.say('merge.queueCrashed', { error: (err as Error).message });
     state.addLog(null, 'error', runState.summary);
   } finally {
     queueRunning.delete(state.officeId);
     runState.running = false;
     runState.finishedAt = Date.now();
     state.setMergeRun(runState);
-    state.addChat('офис', runState.summary);
+    state.addChat(OFFICE_SENDER, runState.summary);
     // Финальный пересчёт: после остановки статусы остальных задач тоже другие.
     await refreshMergeChecks(state);
   }
@@ -310,17 +328,27 @@ function finishStep(
 }
 
 /** Итог очереди одной фразой — её пользователь и читает первой. */
-function summarize(runState: MergeRun, merged: number, stoppedAt: MergeStep | null): string {
+function summarize(
+  state: OfficeState, runState: MergeRun, merged: number, stoppedAt: MergeStep | null,
+): string {
   const skipped = runState.steps.filter((s) => s.status === 'pending').length;
-  const head = merged ? `Слито задач: ${merged}.` : 'Ни одна задача не влита.';
-  if (!stoppedAt) return `${head} Очередь прошла до конца.`;
+  const head = merged
+    ? state.say('merge.summaryMerged', { n: merged })
+    : state.say('merge.summaryNone');
+  if (!stoppedAt) return state.say('merge.summaryAll', { head });
 
-  const where = `Встали на ${stoppedAt.taskId} «${stoppedAt.title}»`;
+  const where = state.say('merge.summaryStopped', {
+    task: stoppedAt.taskId, title: stoppedAt.title,
+  });
   const why = stoppedAt.status === 'conflict'
     ? (stoppedAt.conflicts.length
-      ? `: конфликт в файлах ${stoppedAt.conflicts.join(', ')}.`
-      : ': конфликт при слиянии.')
+      ? state.say('merge.summaryWhyConflictFiles', { files: stoppedAt.conflicts.join(', ') })
+      : state.say('merge.summaryWhyConflict'))
     : `: ${stoppedAt.message}`;
-  const rest = skipped ? ` Не дошли до задач: ${runState.steps.filter((s) => s.status === 'pending').map((s) => s.taskId).join(', ')}.` : '';
-  return `${head} ${where}${why}${rest} Уже слитые задачи не откатывались.`;
+  const rest = skipped
+    ? state.say('merge.summaryRest', {
+      tasks: runState.steps.filter((s) => s.status === 'pending').map((s) => s.taskId).join(', '),
+    })
+    : '';
+  return state.say('merge.summaryTail', { head, where, why, rest });
 }

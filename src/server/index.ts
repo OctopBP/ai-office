@@ -3,6 +3,8 @@ import { createServer } from 'node:http';
 import { mkdirSync, existsSync, writeFileSync, readFileSync, statSync } from 'node:fs';
 import { extname, resolve } from 'node:path';
 import type { ClientCommand, FieldError, RoleOp, ServerEvent } from '../shared/types';
+import { OFFICE_SENDER } from '../shared/types';
+import { c, setProcessLang } from './i18n';
 import { officeViews, openedOffices, openOfficeState, subscribeOffices, type OfficeState } from './state';
 import {
   broadcast, broadcastSnapshot, greet, handleOfficeCommand, initOfficeApi, send,
@@ -23,7 +25,7 @@ const DEFAULT_DIR = resolve(process.env.OFFICE_PROJECT_DIR ?? './workspace');
 
 /** Режим проверки PM — свойство запуска, а не офиса: он же и у следующего. */
 const DRY_RUN = process.env.OFFICE_DRY_RUN === '1';
-if (DRY_RUN) console.log('🧪 Режим проверки PM: исполнители заглушены');
+if (DRY_RUN) console.log(c('boot.dryRun'));
 
 // Источник доступа важен: с ключом расход идёт в платный API, без него —
 // в лимиты подписки Claude Code. Ключ имеет приоритет и подменяет подписку молча.
@@ -38,17 +40,13 @@ const AUTH_SOURCE = USING_KEY ? 'api-key' : 'subscription';
  */
 async function setupGit(state: OfficeState, dir: string, ours: boolean): Promise<void> {
   if (ours && !(await isRepo(dir))) {
-    const ok = await initRepo(dir);
-    console.log(ok
-      ? '🌱 Рабочая директория инициализирована как git-репозиторий'
-      : '⚠️  Не удалось инициализировать git — изоляция задач выключена');
+    const ok = await initRepo(dir, state.lang());
+    console.log(state.say(ok ? 'boot.gitInit' : 'boot.gitInitFailed'));
   }
   state.gitReady = (await isRepo(dir)) && (await hasCommits(dir));
   console.log(state.gitReady
-    ? '🌿 Изоляция задач включена: каждая задача получает свой worktree'
-    : `⚠️  ${dir} — не git-репозиторий с коммитами. Параллельные исполнители` +
-      ' будут работать в общей директории и могут конфликтовать.' +
-      ' Включить изоляцию: git init в этой директории.');
+    ? state.say('boot.isolationOn')
+    : state.say('boot.isolationOff', { dir }));
 }
 
 /**
@@ -63,10 +61,10 @@ async function reportRoleRepos(state: OfficeState): Promise<void> {
     if (dir === state.projectDir) continue;
     // Та же проверка, что не даёт сохранить роль с негодным путём, — иначе
     // старт и форма роли расходились бы в том, какой путь считать рабочим.
-    const problem = await repoProblem(dir);
+    const problem = await repoProblem(dir, state.lang());
     console.log(problem === null
       ? `   ${role.emoji} ${role.title} → ${dir}`
-      : `⚠️  ${role.title}: ${problem} Задачи этой роли пойдут без изоляции веткой.`);
+      : state.say('boot.roleRepoProblem', { role: role.title, problem }));
   }
 }
 
@@ -86,19 +84,24 @@ async function openOffice(entry: OfficeEntry): Promise<void> {
   if (ours && !existsSync(resolve(entry.projectDir, 'README.md'))) {
     writeFileSync(
       resolve(entry.projectDir, 'README.md'),
-      '# Рабочая директория офиса\n\nЗдесь работает команда AI-агентов.\n',
+      c('boot.readme'),
     );
   }
 
   // Состояние берётся из реестра: у каждого офиса оно своё и живёт до конца
   // процесса — вернувшийся офис продолжается, а не читается заново.
   const { state, restored, reused } = openOfficeState(entry);
-  const board = `задач ${state.tasks.size}, сообщений ${state.chat.length}`;
+  // Язык процесса берёт открытый офис: терминал у процесса один, и говорить
+  // он должен на языке того офиса, с которым сейчас работают.
+  setProcessLang(state.lang());
+  const board = state.say('boot.board', {
+    tasks: state.tasks.size, messages: state.chat.length,
+  });
   if (reused) {
-    console.log(`🔁 Офис «${entry.name}» уже открыт в этом запуске: ${board}`);
+    console.log(state.say('boot.reused', { name: entry.name, board }));
     return;
   }
-  if (restored) console.log(`💾 Офис «${entry.name}» восстановлен: ${board}`);
+  if (restored) console.log(state.say('boot.restored', { name: entry.name, board }));
   state.dryRun = DRY_RUN;
   state.authSource = AUTH_SOURCE;
   state.setCloud({ hasKey: USING_KEY, hasToken: Boolean(githubToken()) });
@@ -114,11 +117,13 @@ loadRegistry(DEFAULT_DIR);
 // Переменная окружения по-прежнему решает, с каким проектом открыться:
 // на неё опираются тесты и запуск «в другой папке» одной командой.
 if (process.env.OFFICE_PROJECT_DIR) {
-  const wanted = ensureOffice({ name: DEFAULT_DIR.split('/').pop() ?? 'Офис', projectDir: DEFAULT_DIR });
+  const wanted = ensureOffice({
+    name: DEFAULT_DIR.split('/').pop() ?? c('offices.defaultName'), projectDir: DEFAULT_DIR,
+  });
   setCurrent(wanted.id);
 }
 const opened = currentOffice();
-if (!opened) throw new Error('Не удалось определить офис для запуска');
+if (!opened) throw new Error(c('boot.noOffice'));
 
 /**
  * Причина, по которой стартовый офис не открылся, — или null, если открылся.
@@ -130,9 +135,9 @@ if (!opened) throw new Error('Не удалось определить офис 
  */
 let startupError: string | null = null;
 const startup: Promise<string | null> = openOffice(opened).then(() => null, (err: unknown) => {
-  startupError = `Офис «${opened.name}» не открылся: ${(err as Error).message}. ` +
-    `Проверьте, что директория ${opened.projectDir} на месте и доступна. ` +
-    'Пока что выберите в меню другой офис или заведите новый — сервер работает.';
+  startupError = c('boot.openFailed', {
+    name: opened.name, error: (err as Error).message, dir: opened.projectDir,
+  });
   console.log(`⚠️  ${startupError}`);
   return startupError;
 });
@@ -168,7 +173,7 @@ const httpServer = createServer((req, res) => {
   if (url === '/api/offices') {
     if (req.method !== 'GET') {
       res.writeHead(405, { 'Content-Type': 'application/json; charset=utf-8', Allow: 'GET' });
-      res.end(JSON.stringify({ error: 'Список офисов отдаётся только по GET.' }));
+      res.end(JSON.stringify({ error: c('boot.officesGetOnly') }));
       return;
     }
     res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' });
@@ -177,7 +182,7 @@ const httpServer = createServer((req, res) => {
   }
   if (url.startsWith('/api/')) {
     res.writeHead(404, { 'Content-Type': 'application/json; charset=utf-8' });
-    res.end(JSON.stringify({ error: `Метода ${url} нет.` }));
+    res.end(JSON.stringify({ error: c('boot.noRoute', { url }) }));
     return;
   }
 
@@ -197,9 +202,7 @@ const httpServer = createServer((req, res) => {
     res.end(body);
   } catch {
     res.writeHead(existsSync(DIST) ? 404 : 503, { 'Content-Type': 'text/plain; charset=utf-8' });
-    res.end(existsSync(DIST)
-      ? 'Не найдено'
-      : 'Веб не собран. Соберите его: npm run build (или откройте vite на :5173).');
+    res.end(c(existsSync(DIST) ? 'boot.notFound' : 'boot.webNotBuilt'));
   }
 });
 
@@ -252,8 +255,7 @@ wss.on('connection', (ws) => {
       // секунду» — неправда, ждать нечего, и человеку нужна настоящая причина.
       send(ws, {
         t: 'office.error', op: 'open', officeId,
-        message: startupError
-          ?? 'Офис ещё открывается — команда не выполнена. Повторите через секунду.',
+        message: startupError ?? c('boot.officeOpening'),
       });
       return;
     }
@@ -278,10 +280,10 @@ wss.on('connection', (ws) => {
       // Наём: и первый сотрудник в пустую роль, и очередной клон — одно и то же
       // действие, отличается только тем, сколько народу в роли уже сидит.
       const problem = state.hire(cmd.roleId);
-      if (problem) state.addChat('офис', problem);
+      if (problem) state.addChat(OFFICE_SENDER, problem);
     } else if (cmd.c === 'fire') {
       const problem = state.fire(cmd.instanceId);
-      if (problem) state.addChat('офис', problem);
+      if (problem) state.addChat(OFFICE_SENDER, problem);
     } else if (cmd.c === 'update_role') {
       // Проверка репозитория ходит в git и потому длится: отвечаем событием,
       // когда она закончится, а не задерживаем разбор остальных команд.
@@ -307,15 +309,15 @@ wss.on('connection', (ws) => {
       // Отказ по настройкам говорим тем же способом, что и по найму: текст
       // готов к показу, придумывать формулировку клиенту не нужно.
       const problem = state.updateSettings(cmd.settings);
-      if (problem) state.addChat('офис', problem);
+      if (problem) state.addChat(OFFICE_SENDER, problem);
     } else if (cmd.c === 'layout_edit') {
       // Расстановку правит человек мышью: отказ («предмета нет», «позиция за
       // стеной») говорим тем же способом, что и по настройкам — готовым текстом.
       const problem = state.editLayout(cmd.edits);
-      if (problem) state.addChat('офис', problem);
+      if (problem) state.addChat(OFFICE_SENDER, problem);
     } else if (cmd.c === 'layout_reset') {
       const problem = state.resetLayout(cmd.key);
-      if (problem) state.addChat('офис', problem);
+      if (problem) state.addChat(OFFICE_SENDER, problem);
     } else if (cmd.c === 'talk' && cmd.text.trim()) {
       talkTo(state, cmd.instanceId, cmd.text.trim());
     } else if (cmd.c === 'stop_task') {
@@ -348,10 +350,6 @@ wss.on('connection', (ws) => {
 httpServer.listen(PORT);
 
 const built = existsSync(resolve(DIST, 'index.html'));
-console.log(built
-  ? `🏢 AI Office — откройте http://localhost:${PORT}`
-  : `🏢 AI Office — сервер на ws://localhost:${PORT} (веб не собран: npm run build)`);
-console.log(`📁 Команда работает в: ${opened.projectDir}`);
-console.log(USING_KEY
-  ? '💳 Задан ANTHROPIC_API_KEY — расход идёт в ПЛАТНЫЙ API, а не в подписку Claude Code'
-  : '🔑 Ключ API не задан — работаем на авторизации Claude Code (лимиты подписки)');
+console.log(c(built ? 'boot.listening' : 'boot.listeningNoWeb', { port: PORT }));
+console.log(c('boot.workingIn', { dir: opened.projectDir }));
+console.log(c(USING_KEY ? 'boot.paidApi' : 'boot.subscription'));

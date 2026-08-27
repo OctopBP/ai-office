@@ -6,12 +6,10 @@ import { useActionNotice } from './useActionNotice';
 import { agentSpriteName, spriteOf } from './sprites';
 import { catalog } from './layoutData';
 import { desks } from '../shared/layout';
+import { t } from './i18n';
+import type { AgentState } from '../shared/types';
 
-const STATE_RU: Record<string, string> = {
-  idle: 'свободен', thinking: 'думает', working: 'работает', walking: 'идёт',
-  talking: 'разговор', waiting_approval: 'ждёт разрешения', paused: 'на паузе',
-  blocked: 'заблокирован', done: 'сдал работу', failed: 'ошибка',
-};
+const stateLabel = (state: AgentState): string => t(`agent.state.${state}`);
 
 type Selection =
   | { kind: 'role'; id: string }
@@ -55,23 +53,24 @@ export function TeamWindow({ onClose }: { onClose: () => void }) {
     <div className="modal-backdrop" onClick={onClose}>
       <div className="team-window" onClick={(e) => e.stopPropagation()}>
         <header className="team-window-head">
-          <h2>Команда</h2>
-          <button className="sq" onClick={onClose} title="Закрыть — ESC">✕</button>
+          <h2>{t('hud.team')}</h2>
+          <button className="sq" onClick={onClose} title={t('panel.close')}>✕</button>
         </header>
 
         <div className="team-window-body">
           <div className="team-list-pane">
             <div className="team-list-head">
-              <span className="muted small">{roles.length} ролей · {seated} сотрудников</span>
+              <span className="muted small">
+                {t('team.counts', { roles: roles.length, staff: seated })}
+              </span>
               <button className="mini go" onClick={() => setSelection({ kind: 'new-role' })}>
-                + Добавить роль
+                {t('team.addRole')}
               </button>
             </div>
 
             {deskShortage && (
               <div className="deskless-notice">
-                🪑 Мест в раскладке {deskTotal}, а сотрудников уже {seated} — новый наём
-                может остаться без стола, пока не освободится место или не сменится раскладка.
+                🪑 {t('team.deskShortage', { desks: deskTotal, staff: seated })}
               </div>
             )}
 
@@ -89,9 +88,9 @@ export function TeamWindow({ onClose }: { onClose: () => void }) {
                   .sort((a, b) => a.id.localeCompare(b.id));
                 const canHire = !r.isManager && !r.archived && r.active < r.maxInstances;
                 const hireTitle = r.isManager
-                  ? 'PM не клонируется'
-                  : r.archived ? 'Роль в архиве — сначала верните её'
-                  : canHire ? 'Нанять ещё одного' : 'Достигнут лимит клонов роли';
+                  ? t('team.pmNoClone')
+                  : r.archived ? t('team.archivedRole')
+                  : canHire ? t('team.hireOne') : t('team.hireLimit');
                 const roleSelected = selection?.kind === 'role' && selection.id === r.id;
 
                 return (
@@ -107,14 +106,14 @@ export function TeamWindow({ onClose }: { onClose: () => void }) {
                       <span className="team-title">
                         {r.title}
                         <span className="muted mono"> {r.model.replace('claude-', '')}</span>
-                        {r.archived && <span className="perm-badge">в архиве</span>}
+                        {r.archived && <span className="perm-badge">{t('team.archived')}</span>}
                       </span>
                       <span className="muted">{r.active}/{r.maxInstances}</span>
                       <button
                         className="mini" disabled={!canHire} title={hireTitle}
                         onClick={(e) => { e.stopPropagation(); doHire(r.id); }}
                       >
-                        + Нанять
+                        {t('team.hire')}
                       </button>
                     </div>
 
@@ -124,8 +123,10 @@ export function TeamWindow({ onClose }: { onClose: () => void }) {
                           const busy = Boolean(m.currentTaskId);
                           const disabled = r.isManager || busy;
                           const title = r.isManager
-                            ? 'PM — единственный, кого нельзя уволить'
-                            : busy ? `Занят задачей ${m.currentTaskId}` : 'Уволить';
+                            ? t('employee.pmCannotFire')
+                            : busy
+                              ? t('team.busy', { task: m.currentTaskId ?? '' })
+                              : t('employee.fire');
                           const memberSelected = selection?.kind === 'employee' && selection.id === m.id;
                           return (
                             <div
@@ -133,7 +134,7 @@ export function TeamWindow({ onClose }: { onClose: () => void }) {
                               onClick={() => setSelection({ kind: 'employee', id: m.id })}
                             >
                               <span className="mono muted">{m.id}</span>
-                              <span className="muted small">{STATE_RU[m.state] ?? m.state}</span>
+                              <span className="muted small">{stateLabel(m.state)}</span>
                               {m.deskless && <span className="perm-badge deskless">🪑</span>}
                               {m.permissionMode && (
                                 <span className={`perm-badge ${m.permissionMode}`}>
@@ -144,7 +145,7 @@ export function TeamWindow({ onClose }: { onClose: () => void }) {
                                 className="mini link-danger" disabled={disabled} title={title}
                                 onClick={(e) => { e.stopPropagation(); doFire(m.id); }}
                               >
-                                Уволить
+                                {t('employee.fire')}
                               </button>
                             </div>
                           );
@@ -168,10 +169,7 @@ export function TeamWindow({ onClose }: { onClose: () => void }) {
               />
             )}
             {!selection && (
-              <p className="muted small">
-                Выберите роль или сотрудника слева — здесь появятся её настройки
-                или карточка сотрудника.
-              </p>
+              <p className="muted small">{t('team.pickHint')}</p>
             )}
           </div>
         </div>

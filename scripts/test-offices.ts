@@ -25,6 +25,11 @@ import {
 } from '../src/server/office-api';
 import { createOffice, currentOffice, loadRegistry, offices } from '../src/server/offices';
 
+// Проверки сверяют тексты офиса дословно и написаны по-русски — значит,
+// и офисы здесь должны быть русскими. Язык нового офиса берётся из
+// окружения, и задать его надо до того, как офис откроется.
+process.env.OFFICE_LANG = 'ru';
+
 const ROOT = resolve(tmpdir(), `office-api-test-${process.pid}`);
 const STATE_FILE = resolve(ROOT, 'state.json');
 const REGISTRY = resolve(ROOT, 'offices.json');

@@ -3,6 +3,8 @@ import { join, resolve } from 'node:path';
 import { tmpdir } from 'node:os';
 import { existsSync, statSync, symlinkSync } from 'node:fs';
 import { mkdtemp, rm } from 'node:fs/promises';
+import type { Lang } from '../shared/i18n';
+import { t } from './i18n';
 
 
 export interface GitResult {
@@ -55,19 +57,19 @@ export async function hasCommits(dir: string): Promise<boolean> {
  *
  * Текст готов к показу человеку: и в консоли, и под полем формы.
  */
-export async function repoProblem(dir: string): Promise<string | null> {
+export async function repoProblem(dir: string, lang: Lang): Promise<string | null> {
   let stat;
   try {
     stat = statSync(dir);
   } catch {
-    return `Директории ${dir} нет — проверьте путь.`;
+    return t(lang, 'git.noDir', { dir });
   }
-  if (!stat.isDirectory()) return `${dir} — это файл, а не директория.`;
+  if (!stat.isDirectory()) return t(lang, 'git.notDir', { dir });
   if (!(await isRepo(dir))) {
-    return `${dir} — не git-репозиторий. Заведите его командой git init в этой директории.`;
+    return t(lang, 'git.notRepo', { dir });
   }
   if (!(await hasCommits(dir))) {
-    return `В репозитории ${dir} нет ни одного коммита — ветку задачи от него не отвести.`;
+    return t(lang, 'git.noCommits', { dir });
   }
   return null;
 }
@@ -93,12 +95,12 @@ export async function baseBranch(dir: string): Promise<string | null> {
 }
 
 /** Инициализировать репозиторий с первым коммитом — только для директории, которую создали мы сами. */
-export async function initRepo(dir: string): Promise<boolean> {
+export async function initRepo(dir: string, lang: Lang): Promise<boolean> {
   if (!(await git(dir, ['init', '-b', 'main'])).ok) return false;
   await git(dir, ['add', '-A']);
   const commit = await git(dir, [
     '-c', 'user.name=AI Office', '-c', 'user.email=office@local',
-    'commit', '-m', 'Начальное состояние рабочей директории',
+    'commit', '-m', t(lang, 'git.initCommit'),
   ]);
   return commit.ok;
 }
@@ -229,7 +231,7 @@ async function integrationWorktree(
  *   вставал и требовал от человека закоммитить.
  */
 async function advanceBase(
-  repoDir: string, base: string, oldSha: string, newSha: string, overlap: string[],
+  repoDir: string, base: string, oldSha: string, newSha: string, overlap: string[], lang: Lang,
 ): Promise<{ ok: boolean; message: string; checkout: CheckoutSync }> {
   const onBase = (await currentBranch(repoDir)) === base;
 
@@ -240,7 +242,7 @@ async function advanceBase(
         ok: true, message: '',
         checkout: {
           state: 'updated', files: [],
-          message: `Рабочая копия офиса подтянута до ${base}.`,
+          message: t(lang, 'git.checkout.updated', { base }),
         },
       };
     }
@@ -248,8 +250,7 @@ async function advanceBase(
     if (!detached.ok) {
       return {
         ok: false,
-        message: `Не удалось сдвинуть ${base}: рабочая копия офиса занята незакоммиченными правками ` +
-          `(${detached.stderr || ff.stderr})`,
+        message: t(lang, 'git.moveFailed', { base, error: detached.stderr || ff.stderr }),
         checkout: { state: 'lagging', files: overlap, message: '' },
       };
     }
@@ -261,7 +262,7 @@ async function advanceBase(
   if (!moved.ok) {
     return {
       ok: false,
-      message: `Ветка ${base} сдвинулась, пока шло слияние, — оно отменено, чтобы не затереть чужой коммит.`,
+      message: t(lang, 'git.baseMoved', { base }),
       checkout: { state: 'not-here', files: [], message: '' },
     };
   }
@@ -271,12 +272,14 @@ async function advanceBase(
     checkout: onBase
       ? {
         state: 'lagging', files: overlap,
-        message: `Ваши незакоммиченные правки${overlap.length ? ` в файлах ${overlap.join(', ')}` : ''} ` +
-          `мешали подтянуть ${base}. Правки целы, но рабочая копия офиса отцеплена от ветки на прежнем ` +
-          `коммите — так влитое не смешается с ними. Вернуться: закоммитить или убрать правки в stash ` +
-          `и сделать git checkout ${base}.`,
+        message: t(lang, 'git.checkout.lagging', {
+          base,
+          files: overlap.length
+            ? t(lang, 'git.checkout.laggingFiles', { files: overlap.join(', ') })
+            : '',
+        }),
       }
-      : { state: 'not-here', files: [], message: `Рабочая копия офиса не на ${base} — обновлять её не нужно.` },
+      : { state: 'not-here', files: [], message: t(lang, 'git.checkout.notHere', { base }) },
   };
 }
 
@@ -290,7 +293,7 @@ async function advanceBase(
  * не попадает вовсе, а не «попадает, зато мы про это скажем».
  */
 export async function mergeBranch(
-  repoDir: string, branch: string, base: string, integrationDir: string,
+  repoDir: string, branch: string, base: string, integrationDir: string, lang: Lang,
   verify?: (worktree: string) => Promise<{ ok: boolean; message: string }>,
 ): Promise<MergeOutcome> {
   const nothingToDo = (message: string, kind: MergeOutcome['kind'] = 'nothing'): MergeOutcome => ({
@@ -299,19 +302,19 @@ export async function mergeBranch(
   });
 
   const baseSha = await revision(repoDir, base);
-  if (!baseSha) return nothingToDo(`Ветки ${base} в репозитории нет — сливать некуда.`, 'failed');
+  if (!baseSha) return nothingToDo(t(lang, 'git.noBase', { base }), 'failed');
   if (!(await revision(repoDir, branch))) {
-    return nothingToDo(`Ветки ${branch} больше нет — возможно, её уже влили и убрали.`, 'failed');
+    return nothingToDo(t(lang, 'git.noBranch', { branch }), 'failed');
   }
 
   const ahead = await git(repoDir, ['rev-list', '--count', `${base}..${branch}`]);
   if (ahead.ok && ahead.stdout === '0') {
-    return nothingToDo('Изменений нет — сливать нечего.');
+    return nothingToDo(t(lang, 'git.nothingToMerge'));
   }
 
   const worktree = await integrationWorktree(repoDir, integrationDir, base);
   if (!worktree) {
-    return nothingToDo('Не удалось поднять рабочую копию офиса для слияния.', 'failed');
+    return nothingToDo(t(lang, 'git.noIntegrationCopy'), 'failed');
   }
 
   const merge = await git(worktree, [
@@ -325,8 +328,8 @@ export async function mergeBranch(
     return {
       ok: false, kind: 'conflict', worktree,
       message: files.length
-        ? `Конфликт при слиянии, слияние отменено. Файлы: ${files.join(', ')}`
-        : `Слияние не удалось: ${merge.stderr || merge.stdout}`,
+        ? t(lang, 'git.mergeConflict', { files: files.join(', ') })
+        : t(lang, 'git.mergeFailed', { error: merge.stderr || merge.stdout }),
       conflicts: files,
       checkout: { state: 'not-here', files: [], message: '' },
     };
@@ -346,7 +349,7 @@ export async function mergeBranch(
   }
 
   const newSha = await revision(worktree, 'HEAD');
-  if (!newSha) return nothingToDo('Слияние собралось, но его коммит не нашёлся.', 'failed');
+  if (!newSha) return nothingToDo(t(lang, 'git.noMergeCommit'), 'failed');
 
   // Пересечение «что меняет слияние» и «что человек правит прямо сейчас»
   // считаем ДО сдвига ветки: после него HEAD уже новый и сравнивать не с чем.
@@ -354,12 +357,12 @@ export async function mergeBranch(
   const mergedFiles = splitLines((await git(repoDir, ['diff', '--name-only', baseSha, newSha])).stdout);
   const overlap = mergedFiles.filter((f) => localMods.includes(f));
 
-  const moved = await advanceBase(repoDir, base, baseSha, newSha, overlap);
+  const moved = await advanceBase(repoDir, base, baseSha, newSha, overlap, lang);
   if (!moved.ok) return nothingToDo(moved.message, 'failed');
 
   return {
     ok: true, kind: 'merged', worktree, conflicts: [],
-    message: `Ветка ${branch} влита в ${base}.`,
+    message: t(lang, 'git.merged', { branch, base }),
     checkout: moved.checkout,
   };
 }
@@ -385,31 +388,33 @@ export interface MergeCheckResult {
  * не трогает основную ветку.
  */
 export async function checkMergeable(
-  repoDir: string, branch: string, base: string,
+  repoDir: string, branch: string, base: string, lang: Lang,
 ): Promise<MergeCheckResult> {
   for (const ref of [base, branch]) {
     if (!(await git(repoDir, ['rev-parse', '--verify', `${ref}^{commit}`])).ok) {
-      return { state: 'unknown', conflicts: [], message: `Ветки ${ref} нет в репозитории — проверить нечего.` };
+      return { state: 'unknown', conflicts: [], message: t(lang, 'git.noRef', { ref }) };
     }
   }
 
   const ahead = await git(repoDir, ['rev-list', '--count', `${base}..${branch}`]);
   if (ahead.ok && ahead.stdout === '0') {
-    return { state: 'nothing', conflicts: [], message: `Сливать нечего: в ${branch} нет коммитов сверх ${base}.` };
+    return {
+      state: 'nothing', conflicts: [], message: t(lang, 'git.nothingBeyond', { branch, base }),
+    };
   }
 
   const tree = await git(repoDir, ['merge-tree', '--write-tree', '--name-only', base, branch]);
   if (tree.ok) {
-    return { state: 'clean', conflicts: [], message: `Сливается чисто в ${base}.` };
+    return { state: 'clean', conflicts: [], message: t(lang, 'git.mergesClean', { base }) };
   }
   // Единица и хеш дерева первой строкой — это конфликт, а не сбой команды.
   const lines = tree.stdout.split('\n');
   if (tree.code === 1 && /^[0-9a-f]{40,64}$/.test(lines[0]?.trim() ?? '')) {
     const conflicts = collectConflictNames(lines.slice(1));
-    return { state: 'conflict', conflicts, message: conflictMessage(base, conflicts) };
+    return { state: 'conflict', conflicts, message: conflictMessage(base, conflicts, lang) };
   }
 
-  return checkMergeableInWorktree(repoDir, branch, base, tree.stderr || tree.stdout);
+  return checkMergeableInWorktree(repoDir, branch, base, tree.stderr || tree.stdout, lang);
 }
 
 /**
@@ -426,35 +431,40 @@ function collectConflictNames(lines: string[]): string[] {
   return names;
 }
 
-const conflictMessage = (base: string, conflicts: string[]): string => (conflicts.length
-  ? `Конфликтует с ${base} в файлах: ${conflicts.join(', ')}`
-  : `Конфликтует с ${base}.`);
+const conflictMessage = (base: string, conflicts: string[], lang: Lang): string => (conflicts.length
+  ? t(lang, 'git.conflictsWithFiles', { base, files: conflicts.join(', ') })
+  : t(lang, 'git.conflictsWith', { base }));
 
 /** Запасной путь для старого git: слияние во временном worktree с откатом. */
 async function checkMergeableInWorktree(
-  repoDir: string, branch: string, base: string, reason: string,
+  repoDir: string, branch: string, base: string, reason: string, lang: Lang,
 ): Promise<MergeCheckResult> {
   let dir: string;
   try {
     dir = await mkdtemp(join(tmpdir(), 'office-merge-check-'));
   } catch {
-    return { state: 'unknown', conflicts: [], message: `Проверить слияние не удалось: ${reason}` };
+    return { state: 'unknown', conflicts: [], message: t(lang, 'git.checkFailed', { error: reason }) };
   }
   const path = resolve(dir, 'wt');
   const added = await git(repoDir, ['worktree', 'add', '--detach', path, base]);
   if (!added.ok) {
     await rm(dir, { recursive: true, force: true });
-    return { state: 'unknown', conflicts: [], message: `Проверить слияние не удалось: ${added.stderr || reason}` };
+    return {
+      state: 'unknown', conflicts: [], message: t(lang, 'git.checkFailed', { error: added.stderr || reason }),
+    };
   }
   try {
     const merge = await git(path, ['merge', '--no-commit', '--no-ff', branch]);
-    if (merge.ok) return { state: 'clean', conflicts: [], message: `Сливается чисто в ${base}.` };
+    if (merge.ok) return { state: 'clean', conflicts: [], message: t(lang, 'git.mergesClean', { base }) };
     const conflicted = await git(path, ['diff', '--name-only', '--diff-filter=U']);
     const conflicts = splitLines(conflicted.stdout);
     if (!conflicts.length) {
-      return { state: 'unknown', conflicts: [], message: `Проверить слияние не удалось: ${merge.stderr || merge.stdout}` };
+      return {
+        state: 'unknown', conflicts: [],
+        message: t(lang, 'git.checkFailed', { error: merge.stderr || merge.stdout }),
+      };
     }
-    return { state: 'conflict', conflicts, message: conflictMessage(base, conflicts) };
+    return { state: 'conflict', conflicts, message: conflictMessage(base, conflicts, lang) };
   } finally {
     await git(path, ['merge', '--abort']);
     await git(repoDir, ['worktree', 'remove', path, '--force']);
@@ -474,14 +484,14 @@ export interface Diff {
 
 /** Что задача изменила относительно базовой ветки. */
 export async function diffBranch(
-  repoDir: string, base: string, branch: string,
+  repoDir: string, base: string, branch: string, lang: Lang,
 ): Promise<Diff | { error: string }> {
   const exists = await git(repoDir, ['rev-parse', '--verify', branch]);
-  if (!exists.ok) return { error: `Ветки ${branch} больше нет — возможно, она уже влита и удалена.` };
+  if (!exists.ok) return { error: t(lang, 'git.branchGone', { branch }) };
 
   // Три точки: изменения ветки от точки расхождения, без чужих коммитов из base.
   const stat = await git(repoDir, ['diff', '--stat', `${base}...${branch}`]);
-  if (!stat.ok) return { error: stat.stderr || 'git diff не отработал' };
+  if (!stat.ok) return { error: stat.stderr || t(lang, 'git.diffFailed') };
   if (!stat.stdout) return { stat: '', patch: '', truncated: false };
 
   const patch = await git(repoDir, ['diff', `${base}...${branch}`]);
@@ -568,11 +578,11 @@ export interface BaseMerge {
  * слияния — именно её и чинит автор, а потом коммитит результат.
  */
 export async function mergeBaseInto(
-  worktreePath: string, base: string,
+  worktreePath: string, base: string, lang: Lang,
 ): Promise<BaseMerge> {
   const behind = await git(worktreePath, ['rev-list', '--count', `HEAD..${base}`]);
   if (behind.ok && behind.stdout === '0') {
-    return { kind: 'nothing', conflicts: [], message: `Ветка уже включает всё из ${base}.` };
+    return { kind: 'nothing', conflicts: [], message: t(lang, 'git.alreadyIncludes', { base }) };
   }
 
   const merge = await git(worktreePath, [
@@ -580,7 +590,7 @@ export async function mergeBaseInto(
     'merge', '--no-edit', base,
   ]);
   if (merge.ok) {
-    return { kind: 'merged', conflicts: [], message: `Ветка ${base} влита в ветку задачи.` };
+    return { kind: 'merged', conflicts: [], message: t(lang, 'git.baseMergedIn', { base }) };
   }
 
   const conflicted = await git(worktreePath, ['diff', '--name-only', '--diff-filter=U']);
@@ -590,12 +600,12 @@ export async function mergeBaseInto(
     await git(worktreePath, ['merge', '--abort']);
     return {
       kind: 'failed', conflicts: [],
-      message: `Не удалось влить ${base} в ветку задачи: ${merge.stderr || merge.stdout}`,
+      message: t(lang, 'git.baseMergeFailed', { base, error: merge.stderr || merge.stdout }),
     };
   }
   return {
     kind: 'conflict', conflicts,
-    message: `Конфликт с ${base} в файлах: ${conflicts.join(', ')}`,
+    message: t(lang, 'git.conflictFiles', { base, files: conflicts.join(', ') }),
   };
 }
 
@@ -624,10 +634,10 @@ function authUrl(url: string, token: string | null): string {
 
 /** Отправить ветку в origin. force — ветку задачи переписывает только её автор. */
 export async function pushBranch(
-  repoDir: string, branch: string, token: string | null,
+  repoDir: string, branch: string, token: string | null, lang: Lang,
 ): Promise<{ ok: boolean; message: string }> {
   const url = await remoteUrl(repoDir);
-  if (!url) return { ok: false, message: 'У репозитория нет origin — отправлять ветку некуда.' };
+  if (!url) return { ok: false, message: t(lang, 'git.noOrigin') };
   const r = await git(repoDir, ['push', '--force-with-lease', authUrl(url, token), `${branch}:${branch}`]);
   return {
     ok: r.ok,

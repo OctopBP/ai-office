@@ -10,6 +10,7 @@
  */
 import { githubToken } from './cloud';
 import { remoteUrl } from './git';
+import { c } from './i18n';
 
 export interface GithubRepo {
   owner: string;
@@ -67,7 +68,7 @@ async function api<T>(
     }
     return { ok: true, data, error: '' };
   } catch (err) {
-    return { ok: false, data: null, error: `GitHub недоступен: ${(err as Error).message}` };
+    return { ok: false, data: null, error: c('github.unreachable', { error: (err as Error).message }) };
   }
 }
 

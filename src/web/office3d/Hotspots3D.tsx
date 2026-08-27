@@ -18,6 +18,7 @@ import type { Palette } from './palette';
 import { PropLamp } from './Lights3D';
 import { PropShape, usePropMaterials } from './Props3D';
 import type { Placed3 } from './props';
+import { t } from '../i18n';
 
 /** Кого именно из предметов раскладки нажимают. */
 export type SpotKind = 'board' | 'log' | 'door';
@@ -110,7 +111,7 @@ function FreeDesk({ at }: { at: [number, number] }) {
       zIndexRange={[70, 0]}
       style={{ pointerEvents: 'none', userSelect: 'none' }}
     >
-      <div className="spot3d-free" title="Свободное рабочее место">+</div>
+      <div className="spot3d-free" title={t('office.freeDesk')}>+</div>
     </Html>
   );
 }

@@ -1,8 +1,9 @@
 import { useState } from 'react';
 import {
-  ACCESS_LABEL, FULL_ACCESS_WARNING, PERMISSION_SOURCE_LABEL, effectivePermissionMode, fire,
+  accessLabel, fullAccessWarning, permissionSourceLabel, effectivePermissionMode, fire,
   openLayoutSettings, permissionSource, setAgentPermission, useStore,
 } from './store';
+import { t } from './i18n';
 import { usageLine } from './UsageModal';
 import type { PermissionMode } from '../shared/types';
 
@@ -21,9 +22,9 @@ export function EmployeeCard({ instanceId }: { instanceId: string }) {
   const settings = useStore((s) => s.settings);
   const [confirmAuto, setConfirmAuto] = useState(false);
 
-  if (!inst) return <p className="muted small">Сотрудника больше нет — его уволили или он был удалён вместе с ролью.</p>;
+  if (!inst) return <p className="muted small">{t('employee.gone')}</p>;
 
-  const roleFallbackLabel = role ? ACCESS_LABEL[effectivePermissionMode(role, settings)] : '';
+  const roleFallbackLabel = role ? accessLabel(effectivePermissionMode(role, settings)) : '';
   const chooseMode = (mode: PermissionMode | null) => {
     if (mode === 'auto') { setConfirmAuto(true); return; }
     setAgentPermission(inst.id, mode);
@@ -32,8 +33,10 @@ export function EmployeeCard({ instanceId }: { instanceId: string }) {
   const busy = Boolean(inst.currentTaskId);
   const fireDisabled = Boolean(role?.isManager) || busy;
   const fireTitle = role?.isManager
-    ? 'PM — единственный, кого нельзя уволить'
-    : busy ? `Занят задачей ${inst.currentTaskId} — сначала остановите или дождитесь` : 'Уволить сотрудника';
+    ? t('employee.pmCannotFire')
+    : busy
+      ? t('employee.busyHint', { task: inst.currentTaskId ?? '' })
+      : t('employee.fireHint');
 
   return (
     <div className="employee-card">
@@ -42,47 +45,45 @@ export function EmployeeCard({ instanceId }: { instanceId: string }) {
 
       {inst.deskless && (
         <div className="deskless-notice">
-          🪑 Рабочего места сейчас нет — в раскладке не хватило столов на всех. Номер места
-          #{inst.desk.index} за сотрудником сохранён: вернётся раскладка попросторнее — он
-          сядет обратно.{' '}
-          <button className="link" onClick={openLayoutSettings}>Настройки раскладки →</button>
+          🪑 {t('employee.deskless', { index: inst.desk.index })}{' '}
+          <button className="link" onClick={openLayoutSettings}>{t('employee.layoutSettings')}</button>
         </div>
       )}
 
       <section>
-        <h4>Стол</h4>
+        <h4>{t('employee.desk')}</h4>
         <p className="muted small">
-          {inst.deskless ? 'сейчас стоит без места' : `место #${inst.desk.index}`}
+          {inst.deskless ? t('employee.noDesk') : t('employee.deskNo', { index: inst.desk.index })}
         </p>
       </section>
 
       <section>
-        <h4>Доступ</h4>
-        <label>Личный режим доступа
+        <h4>{t('employee.access')}</h4>
+        <label>{t('employee.personalMode')}
           <select
             value={inst.permissionMode ?? ''}
             onChange={(e) => chooseMode(e.target.value === '' ? null : e.target.value as PermissionMode)}
           >
-            <option value="">Как у роли (сейчас: {roleFallbackLabel})</option>
-            {PERM_OPTIONS.map((m) => <option key={m} value={m}>{ACCESS_LABEL[m]}</option>)}
+            <option value="">{t('employee.asRole', { mode: roleFallbackLabel })}</option>
+            {PERM_OPTIONS.map((m) => <option key={m} value={m}>{accessLabel(m)}</option>)}
           </select>
           <span className="hint">
             {inst.permissionMode
-              ? `У сотрудника своё правило — переопределено на «${ACCESS_LABEL[inst.permissionMode]}».`
-              : `Сотрудник использует режим роли: «${roleFallbackLabel}».`}
+              ? t('employee.ownRule', { mode: accessLabel(inst.permissionMode) })
+              : t('employee.roleRule', { mode: roleFallbackLabel })}
           </span>
         </label>
         <span className={`perm-badge ${inst.effectivePermissionMode}`}>
           {inst.effectivePermissionMode === 'auto' ? '🔓' : '🔐'}{' '}
-          {ACCESS_LABEL[inst.effectivePermissionMode]} · {PERMISSION_SOURCE_LABEL[permissionSource(inst, role)]}
+          {accessLabel(inst.effectivePermissionMode)} · {permissionSourceLabel(permissionSource(inst, role))}
         </span>
         {confirmAuto && (
           <div className="access-confirm">
-            <p>{FULL_ACCESS_WARNING}</p>
+            <p>{fullAccessWarning()}</p>
             <div className="modal-actions">
-              <button onClick={() => setConfirmAuto(false)}>Отмена</button>
+              <button onClick={() => setConfirmAuto(false)}>{t('common.cancel')}</button>
               <button className="danger" onClick={() => { setAgentPermission(inst.id, 'auto'); setConfirmAuto(false); }}>
-                Да, включить полный доступ
+                {t('settings.access.confirm')}
               </button>
             </div>
           </div>
@@ -90,16 +91,21 @@ export function EmployeeCard({ instanceId }: { instanceId: string }) {
       </section>
 
       <section>
-        <h4>Расходы</h4>
+        <h4>{t('usage.title.short')}</h4>
         <div className="usage-lines">
-          <div><b>{money(inst.today.costUsd)}</b> за сегодня · <span className="muted">{usageLine(inst.today)}</span></div>
-          <div className="muted">{money(inst.usage.costUsd)} за всё время · {usageLine(inst.usage)}</div>
+          <div>
+            <b>{money(inst.today.costUsd)}</b> {t('usage.forToday')} ·{' '}
+            <span className="muted">{usageLine(inst.today)}</span>
+          </div>
+          <div className="muted">
+            {money(inst.usage.costUsd)} {t('usage.forAllTime')} · {usageLine(inst.usage)}
+          </div>
         </div>
       </section>
 
       <div className="modal-actions">
         <button className="link-danger" disabled={fireDisabled} title={fireTitle} onClick={() => fire(inst.id)}>
-          Уволить
+          {t('employee.fire')}
         </button>
       </div>
     </div>

@@ -1,5 +1,6 @@
-import { PR_STAGE_LABEL, prStageClass, retryPipeline, showDiff, useStore } from './store';
+import { prStageLabel, prStageClass, retryPipeline, showDiff, useStore } from './store';
 import type { PullRequestView } from '../shared/types';
+import { locale, t } from './i18n';
 
 /**
  * Конвейер ревью: что офис делает со сданными задачами прямо сейчас.
@@ -7,7 +8,7 @@ import type { PullRequestView } from '../shared/types';
  * стадия «встало»: всё остальное едет само.
  */
 const clock = (at: number): string =>
-  new Date(at).toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' });
+  new Date(at).toLocaleTimeString(locale(), { hour: '2-digit', minute: '2-digit' });
 
 function order(a: PullRequestView, b: PullRequestView): number {
   // Вставшие — наверх: это единственное, что ждёт человека.
@@ -23,26 +24,22 @@ export function PrPipeline() {
 
   if (!auto) {
     return (
-      <p className="empty">
-        Конвейер ревью выключен в настройках — ветки задач сливает человек, вручную, внизу.
-      </p>
+      <p className="empty">{t('pr.off')}</p>
     );
   }
   if (list.length === 0) {
-    return <p className="empty">Сданных задач в работе нет: конвейеру нечего вести.</p>;
+    return <p className="empty">{t('pr.empty')}</p>;
   }
 
   return (
     <div className="pr-list">
       <div className="mq-head muted small">
-        Конвейер ревью
-        {live.length > 0 && <span className="muted small">в работе: {live.length}</span>}
+        {t('pr.title')}
+        {live.length > 0 && (
+          <span className="muted small">{t('pr.live', { n: live.length })}</span>
+        )}
       </div>
-      <p className="muted small pr-hint">
-        Офис ведёт это сам: подтягивает основную ветку, гоняет проверки, зовёт ревьюера,
-        вливает и убирает ветку. Вставшее перезапускает сам, а чего не может — передаёт
-        менеджеру. Смотреть сюда не обязательно.
-      </p>
+      <p className="muted small pr-hint">{t('pr.hint')}</p>
 
       {list.map((pr) => {
         const last = pr.reviews[pr.reviews.length - 1];
@@ -52,12 +49,12 @@ export function PrPipeline() {
               <span className="mono muted">{pr.taskId}</span>
               <span className="mq-title">{pr.title}</span>
               {pr.rounds > 0 && (
-                <span className="muted small" title="Сколько раз ревьюер возвращал работу">
-                  круг {pr.rounds + 1}
+                <span className="muted small" title={t('pr.rounds.hint')}>
+                  {t('pr.round', { n: pr.rounds + 1 })}
                 </span>
               )}
               <span className={`chip merge-chip ${prStageClass(pr.stage)}`}>
-                {PR_STAGE_LABEL[pr.stage]}
+                {prStageLabel(pr.stage)}
               </span>
             </div>
 
@@ -66,15 +63,16 @@ export function PrPipeline() {
             {pr.stage === 'stuck' && (
               <div className={`pr-watch ${pr.needsDecision ? 'bad' : ''}`}>
                 {pr.needsDecision
-                  ? 'Сам не разберётся — менеджеру сказали, решение за ним.'
-                  : `Офис пробует снова сам${pr.nextTryAt ? ` — в ${clock(pr.nextTryAt)}` : ''}` +
-                    `${pr.retries ? ` (попыток уже ${pr.retries})` : ''}.`}
+                  ? t('pr.needsDecision')
+                  : t('pr.retrying')
+                    + (pr.nextTryAt ? t('pr.retryAt', { time: clock(pr.nextTryAt) }) : '')
+                    + (pr.retries ? t('pr.retries', { n: pr.retries }) : '') + '.'}
               </div>
             )}
 
             {last && (
               <div className={`pr-review ${last.verdict === 'approve' ? 'ok' : 'bad'}`}>
-                <b>{last.verdict === 'approve' ? 'Ревьюер: можно вливать' : 'Ревьюер: нужна доработка'}</b>
+                <b>{t(last.verdict === 'approve' ? 'pr.approved' : 'pr.changes')}</b>
                 <p>{last.text}</p>
               </div>
             )}
@@ -91,7 +89,7 @@ export function PrPipeline() {
               )}
               {pr.stage === 'stuck' && (
                 <button type="button" className="mini" onClick={() => retryPipeline(pr.taskId)}>
-                  попробовать снова
+                  {t('pr.retryNow')}
                 </button>
               )}
             </div>

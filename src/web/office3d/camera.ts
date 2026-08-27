@@ -26,6 +26,7 @@
  */
 import { create } from 'zustand';
 import type { Layout } from '../../shared/layout';
+import { t, type UiKey } from '../i18n';
 
 export type Focus =
   | { kind: 'overview' }
@@ -45,14 +46,18 @@ export const useCamera = create<CameraState>((set) => ({
 
 /** Названия комнат для чипов и подписей. Раскладка вправе дать своё
  *  (`LayoutRoom.title`), эти — запасные для комнат из пресетов. */
-const ROOM_TITLES: Record<string, string> = {
-  meeting: 'Переговорка',
-  lounge: 'Зона отдыха',
-  open: 'Опенспейс',
+const ROOM_KEYS: Record<string, UiKey> = {
+  meeting: 'room.meeting',
+  lounge: 'room.lounge',
+  open: 'room.open',
 };
 
 export function roomTitle(room: { id: string; title?: string }): string {
-  return room.title ?? ROOM_TITLES[room.id] ?? room.id;
+  // Комнаты пресетов узнаются по id, и их названия — часть приложения:
+  // на них завязаны чипы фокуса и горячие клавиши. Название из файла
+  // остаётся у комнаты, которой в этом словаре нет.
+  const key = ROOM_KEYS[room.id];
+  return key ? t(key) : (room.title ?? room.id);
 }
 
 /** Комнаты, на которые можно навестись. Раскладка без комнат (`classic`)

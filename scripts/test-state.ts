@@ -17,7 +17,9 @@ import {
   unloadOfficeState,
 } from '../src/server/state';
 import { flushAll, load, save, wipe, type Persisted } from '../src/server/store';
-import { DEFAULT_OFFICE_WORKERS, MAX_OFFICE_WORKERS, MAX_TASK_MAX_TURNS } from '../src/shared/types';
+import {
+  DEFAULT_OFFICE_WORKERS, isOfficeSender, MAX_OFFICE_WORKERS, MAX_TASK_MAX_TURNS,
+} from '../src/shared/types';
 import { cloudProblem, setGithubToken } from '../src/server/cloud';
 import {
   noStaffReason, officeAssign, releaseSlot, resetSessions, sendUserMessage, slotProblem, teamSummary,
@@ -25,6 +27,13 @@ import {
 import { MessageQueue } from '../src/server/queue';
 import { defaultRole, defaultRoles } from '../src/server/roles';
 import { tellPm } from '../src/server/review';
+
+/**
+ * Проверки сверяют тексты офиса дословно, а написаны они по-русски — значит,
+ * и офисы здесь должны быть русскими. Язык нового офиса берётся из окружения,
+ * и задать его надо ДО первого открытия: ниже офис заводится сразу же.
+ */
+process.env.OFFICE_LANG = 'ru';
 
 /**
  * Офис проверок держим за явную ссылку по id: состояния живут в реестре по
@@ -320,7 +329,7 @@ async function main(): Promise<void> {
     `остальные правки роли из файла уцелели: ${
       junkOffice.role('backend')?.model === 'claude-haiku-4-5'}`,
     `старое сохранение подняло весь базовый набор ролей: ${
-      junkOffice.roles().length === defaultRoles().length}`,
+      junkOffice.roles().length === defaultRoles('ru').length}`,
     `перенесённый набор сохранён целиком: ${Array.isArray(migrated.roles)
       && migrated.roles.some((r) => r.id === 'backend' && r.model === 'claude-haiku-4-5')
       && migrated.roles.some((r) => r.id === 'reviewer')}`,
@@ -343,13 +352,13 @@ async function main(): Promise<void> {
   const rb = openOfficeState({
     id: 'o-roles-b', projectDir: resolve(tmpdir(), 'roles-b'), stateFile: roleFileB,
   }).state;
-  const baseModel = defaultRole('backend')!.model;
+  const baseModel = defaultRole('backend', 'ru')!.model;
   ra.updateRole('backend', { model: 'claude-haiku-4-5', title: 'Бэкенд офиса A' });
   results.push(
     `правка роли применилась в своём офисе: ${ra.role('backend')?.model === 'claude-haiku-4-5'}`,
     `в соседнем офисе роль осталась прежней: ${rb.role('backend')?.model === baseModel
-      && rb.role('backend')?.title === defaultRole('backend')!.title}`,
-    `правка не дошла и до базового набора: ${defaultRole('backend')!.model === baseModel}`,
+      && rb.role('backend')?.title === defaultRole('backend', 'ru')!.title}`,
+    `правка не дошла и до базового набора: ${defaultRole('backend', 'ru')!.model === baseModel}`,
   );
 
   // Своя роль офиса A. Из интерфейса их будет заводить следующая задача, а
@@ -358,7 +367,7 @@ async function main(): Promise<void> {
   const savedA = JSON.parse(readFileSync(roleFileA, 'utf8')) as Persisted;
   savedA.roles = [
     ...(savedA.roles ?? []),
-    { ...defaultRole('design')!, id: 'writer', title: 'Технический писатель' },
+    { ...defaultRole('design', 'ru')!, id: 'writer', title: 'Технический писатель' },
   ];
   writeFileSync(roleFileA, JSON.stringify(savedA, null, 2));
   const rolesRestored = ra.restore();
@@ -490,7 +499,7 @@ async function main(): Promise<void> {
     `живые роли в составе остались: ${menuIds.includes('backend')
       && summaryWithArchived.includes('- backend (')}`,
     `в офисе без архива менеджер видит всех исполнителей: ${
-      untouched.workerRoles().length === defaultRoles().length - 1
+      untouched.workerRoles().length === defaultRoles('ru').length - 1
       && untouched.workerRoles().every((r) => teamSummary(untouched).includes(`- ${r.id} (`))}`,
   );
 
@@ -505,7 +514,7 @@ async function main(): Promise<void> {
     `PM не архивируется: ${pmArchive.length === 1 && rc.role('pm')?.archived !== true}`,
     `PM не удаляется: ${pmRemove.length === 1 && rc.role('pm') !== undefined}`,
     `PM не переименовать в другую роль: ${pmRename.length === 1
-      && pmRename[0].field === 'title' && rc.role('pm')?.title === defaultRole('pm')!.title}`,
+      && pmRename[0].field === 'title' && rc.role('pm')?.title === defaultRole('pm', 'ru')!.title}`,
     `остальные поля PM править можно: ${pmEmoji.length === 0 && rc.role('pm')?.emoji === '🧭'}`,
   );
 
@@ -646,13 +655,15 @@ async function main(): Promise<void> {
   const pmRolesDir = resolve(tmpdir(), 'roles-pm-office');
   save(pmRolesFile, () => ({
     version: 1, projectDir: pmRolesDir, taskSeq: 0, tasks: [], chat: [], log: [],
-    instances: [], settings: { ...DEFAULT_SETTINGS }, savedAt: Date.now(),
+    // Язык в сохранении задан явно: набор ролей ниже русский, и офис,
+    // поднявшийся английским, дополнил бы его английским же менеджером.
+    instances: [], settings: { ...DEFAULT_SETTINGS, language: 'ru' }, savedAt: Date.now(),
     roles: [
       // PM в файле нет вовсе, зато менеджером объявлен backend — и он же
       // записан дважды, вторым разом с другой моделью.
-      { ...defaultRole('backend')!, isManager: true },
-      { ...defaultRole('backend')!, model: 'claude-opus-5' },
-      { ...defaultRole('reviewer')!, maxTurns: 0 },
+      { ...defaultRole('backend', 'ru')!, isManager: true },
+      { ...defaultRole('backend', 'ru')!, model: 'claude-opus-5' },
+      { ...defaultRole('reviewer', 'ru')!, maxTurns: 0 },
     ],
   }));
   flushAll();
@@ -661,11 +672,11 @@ async function main(): Promise<void> {
   }).state;
   results.push(
     `PM вернулся в набор, где его не было: ${pmRoles.role('pm')?.isManager === true
-      && pmRoles.role('pm')?.title === defaultRole('pm')!.title}`,
+      && pmRoles.role('pm')?.title === defaultRole('pm', 'ru')!.title}`,
     `второй менеджер разжалован: ${pmRoles.role('backend')?.isManager === false
       && pmRoles.roles().filter((r) => r.isManager).length === 1}`,
     `дубль роли по id выкинут: ${pmRoles.roles().filter((r) => r.id === 'backend').length === 1
-      && pmRoles.role('backend')?.model === defaultRole('backend')!.model}`,
+      && pmRoles.role('backend')?.model === defaultRole('backend', 'ru')!.model}`,
     `испорченный лимит роли из набора не применён: ${pmRoles.role('reviewer')?.maxTurns == null}`,
     `PM в наборе один и первый: ${pmRoles.roles()[0]?.id === 'pm'}`,
   );
@@ -967,7 +978,7 @@ async function main(): Promise<void> {
     const all = [...om.instances.values()];
     const seated = all.filter((i) => !i.deskless);
     const standing = all.filter((i) => i.deskless);
-    const notice = om.chat.slice(chatBefore).find((c) => c.from === 'офис' && /без стола/i.test(c.text));
+    const notice = om.chat.slice(chatBefore).find((c) => isOfficeSender(c.from) && /без стола/i.test(c.text));
     results.push(
       `никто не потерян при нехватке столов: ${om.instances.size === staffBefore}`,
       `заняты все места тесной раскладки: ${seated.length === crampedPlan.desks.length}`,

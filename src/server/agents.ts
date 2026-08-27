@@ -1916,7 +1916,7 @@ export async function taskDiff(state: OfficeState, taskId: string): Promise<void
     return;
   }
 
-  const result = await diffBranch(taskRepo(task, state), task.baseBranch, task.branch);
+  const result = await diffBranch(taskRepo(task, state), task.baseBranch, task.branch, state.lang());
   if ('error' in result) send({ error: result.error });
   else if (!result.stat) send({ error: state.say('diff.empty') });
   else send(result);

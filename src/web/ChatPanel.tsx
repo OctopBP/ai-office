@@ -1,6 +1,8 @@
 import { useEffect, useRef, useState } from 'react';
 import { Panel } from './Panel';
+import { isOfficeSender } from '../shared/types';
 import { send, useStore } from './store';
+import { t } from './i18n';
 
 export function ChatPanel({ onClose }: { onClose: () => void }) {
   const chat = useStore((s) => s.chat);
@@ -24,17 +26,19 @@ export function ChatPanel({ onClose }: { onClose: () => void }) {
     setDraft('');
   };
 
-  const title = thread === 'pm#1' ? 'Чат с менеджером'
-    : thread === 'meeting' ? 'Переговорка'
-    : `Разговор: ${instances[thread]?.label ?? thread}`;
+  const title = thread === 'pm#1' ? t('chat.title.pm')
+    : thread === 'meeting' ? t('chat.title.meeting')
+    : t('chat.title.agent', { who: instances[thread]?.label ?? thread });
 
   return (
     <Panel title={title} onClose={onClose}
-      hint={thread === 'pm#1' ? 'ставьте задачу словами — PM разберёт её на части' : undefined}>
+      hint={thread === 'pm#1' ? t('chat.hint.pm') : undefined}>
       <div className="threads">
-        <button className={thread === 'pm#1' ? 'primary' : ''} onClick={() => setThread('pm#1')}>Менеджер</button>
+        <button className={thread === 'pm#1' ? 'primary' : ''} onClick={() => setThread('pm#1')}>
+          {t('chat.tab.pm')}
+        </button>
         <button className={thread === 'meeting' ? 'primary' : ''} onClick={() => setThread('meeting')}>
-          Переговорка{meeting?.status === 'running' ? ' •' : ''}
+          {t('chat.tab.meeting')}{meeting?.status === 'running' ? ' •' : ''}
         </button>
         {Object.values(instances).filter((i) => i.roleId !== 'pm').map((i) => (
           <button key={i.id} className={thread === i.id ? 'primary' : ''} onClick={() => setThread(i.id)}>
@@ -44,28 +48,25 @@ export function ChatPanel({ onClose }: { onClose: () => void }) {
       </div>
 
       {thread === 'meeting' && (
-        <p className="muted small note">
-          Участники высказываются по очереди, каждый видит сказанное до него.
-          Итог менеджер пишет в своём чате.
-        </p>
+        <p className="muted small note">{t('chat.note.meeting')}</p>
       )}
       {thread !== 'pm#1' && thread !== 'meeting' && (
-        <p className="muted small note">
-          Разговор напрямую, мимо менеджера. Агент может смотреть проект, но не менять его.
-        </p>
+        <p className="muted small note">{t('chat.note.direct')}</p>
       )}
 
       <div className="chat">
         {shown.length === 0 && (
           <p className="empty">
-            {thread === 'pm#1'
-              ? 'Например: «Сделай CRUD для заметок: JSON API на бэке и страницу на фронте».'
-              : 'Пока пусто.'}
+            {t(thread === 'pm#1' ? 'chat.empty.pm' : 'chat.empty')}
           </p>
         )}
         {shown.map((m) => (
           <div key={m.id} className={`msg ${m.from === 'user' ? 'from-user' : 'from-agent'}`}>
-            <div className="msg-from">{m.from === 'user' ? 'вы' : m.from}</div>
+            <div className="msg-from">
+              {m.from === 'user'
+                ? t('chat.you')
+                : (isOfficeSender(m.from) ? t('common.office') : m.from)}
+            </div>
             <div className="msg-text">{m.text}</div>
           </div>
         ))}
@@ -76,14 +77,16 @@ export function ChatPanel({ onClose }: { onClose: () => void }) {
         <div className="composer">
           <textarea
             ref={input} value={draft} rows={3}
-            placeholder={thread === 'pm#1' ? 'Задача для менеджера…' : 'Вопрос агенту…'}
+            placeholder={t(thread === 'pm#1' ? 'chat.placeholder.pm' : 'chat.placeholder.agent')}
             onChange={(e) => setDraft(e.target.value)}
             onKeyDown={(e) => {
               if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) submit();
               e.stopPropagation();
             }}
           />
-          <button className="primary" onClick={submit} disabled={!connected}>Отправить ⌘↵</button>
+          <button className="primary" onClick={submit} disabled={!connected}>
+            {t('chat.send')}
+          </button>
         </div>
       )}
     </Panel>

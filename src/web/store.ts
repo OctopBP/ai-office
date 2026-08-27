@@ -6,8 +6,11 @@ import type {
   ServerEvent, Settings, TaskView, Usage, CloudStatus, OfficeView, PullRequestView, PrStage,
 } from '../shared/types';
 import {
-  emptyUsage, MAX_OFFICE_WORKERS, MAX_TASK_MAX_TURNS, MIN_OFFICE_WORKERS, MIN_TASK_MAX_TURNS,
+  emptyUsage, isOfficeSender,
+  MAX_OFFICE_WORKERS, MAX_TASK_MAX_TURNS, MIN_OFFICE_WORKERS, MIN_TASK_MAX_TURNS,
 } from '../shared/types';
+import { asLang, type Lang } from '../shared/i18n';
+import { lang as currentLang, locale, setLang, t as tr } from './i18n';
 import type { Theme } from './sprites';
 import { type Graphics, loadGraphics, saveGraphics } from './office3d/graphics';
 import { fitNow } from './office3d/fit';
@@ -177,6 +180,13 @@ interface State {
   toggleMergeSelect: (taskId: string) => void;
   moveMergeSelect: (taskId: string, dir: -1 | 1) => void;
   clearMergeSelection: () => void;
+  /**
+   * Язык офиса, на котором нарисован интерфейс. В сторе он лежит не ради
+   * подписей — их отдаёт `t()`, — а ради перерисовки: приложение
+   * перемонтируется по нему целиком (`main.tsx`), иначе после смены языка
+   * половина экрана осталась бы на прежнем.
+   */
+  lang: Lang;
   theme: Theme;
   setTheme: (t: Theme) => void;
   /** Показывать комнату трёхмерным рендером вместо плоского (клавиша 0).
@@ -272,6 +282,7 @@ export const useStore = create<State>((set, get) => ({
     return { mergeSelection: next };
   }),
   clearMergeSelection: () => set({ mergeSelection: [] }),
+  lang: currentLang(),
   theme: (localStorage.getItem('office-theme') as Theme | null) ?? 'day',
   // В этой ветке офис по умолчанию трёхмерный — она ради него и заведена.
   // Явный выбор пользователя (клавиша 0) сильнее умолчания и переживает
@@ -332,11 +343,15 @@ export const useStore = create<State>((set, get) => ({
   apply: (e) => {
     switch (e.t) {
       case 'snapshot': {
+        // Язык офиса запоминаем раньше, чем раскладываем снимок: подписи в
+        // нём уже собираются на новом языке.
+        setLang(e.settings.language);
         const instances = Object.fromEntries(e.instances.map((i) => [i.id, i]));
         const pos = Object.fromEntries(
           e.instances.map((i) => [i.id, { ...homePos(i, e.roles, e.layout, instances), ms: 0 }]),
         );
         set((s) => ({
+          lang: asLang(e.settings.language),
           roles: e.roles, instances, pos,
           tasks: Object.fromEntries(e.tasks.map((t) => [t.id, t])),
           chat: e.chat, log: e.log, permissions: e.permissions, settings: e.settings,
@@ -395,13 +410,16 @@ export const useStore = create<State>((set, get) => ({
         // Тост только на смену статуса, иначе он всплывал бы на каждое
         // обновление стоимости и токенов.
         if (before?.status !== t.status && (t.status === 'done' || t.status === 'failed')) {
-          const files = t.files.length ? ` · ${t.files.length} файла` : '';
+          const files = t.files.length ? tr('toast.files', { n: t.files.length }) : '';
           pushToast({
             id: `${t.id}-${t.status}`,
             kind: t.status === 'done' ? 'done' : 'failed',
-            title: `${t.assigneeId ?? 'кто-то'} ${t.status === 'done' ? 'закончил' : 'провалил'} ${t.id} «${t.title}»`,
+            title: tr(t.status === 'done' ? 'toast.taskDone' : 'toast.taskFailed', {
+              who: t.assigneeId ?? tr('common.someone'), task: t.id, title: t.title,
+            }),
             detail: t.status === 'done'
-              ? `+$${t.usage.costUsd.toFixed(3)}${files}${t.branch && !t.merged ? ' · нужно слияние' : ''}`
+              ? `+$${t.usage.costUsd.toFixed(3)}${files}`
+                + (t.branch && !t.merged ? tr('toast.needsMerge') : '')
               : (t.result ?? '').slice(0, 120),
             taskId: t.id,
           });
@@ -416,7 +434,7 @@ export const useStore = create<State>((set, get) => ({
           // «офис» в общий чат — отдельного события протокол пока не даёт
           // (см. docs/design/office-menu/spec.md, §4). Пока мы ждём ответ
           // на вход или создание, такая реплика — это и есть ошибка меню.
-          if (e.entry.from === 'офис' && s.pending) {
+          if (isOfficeSender(e.entry.from) && s.pending) {
             return {
               chat,
               pending: null,
@@ -428,15 +446,21 @@ export const useStore = create<State>((set, get) => ({
           // раскладка) приходит репликой «офис», а не отдельным событием.
           // Пока идёт сохранение — эта реплика про него, а не про что-то
           // ещё; окно настроек уже закрыто, поэтому показываем тостом.
-          if (e.entry.from === 'офис' && s.settingsPending) {
-            pushToast({ id: e.entry.id, kind: 'failed', title: 'Настройки не сохранены', detail: e.entry.text });
+          if (isOfficeSender(e.entry.from) && s.settingsPending) {
+            pushToast({
+              id: e.entry.id, kind: 'failed',
+              title: tr('toast.settingsNotSaved'), detail: e.entry.text,
+            });
             return { chat, settingsPending: false };
           }
           // Тот же приём для правки расстановки: отказ (предмета нет,
           // координата вне комнаты) приходит репликой «офис», а не отдельным
           // событием (см. docs/design/office-layout/spec.md §8).
-          if (e.entry.from === 'офис' && s.layoutPending) {
-            pushToast({ id: e.entry.id, kind: 'failed', title: 'Расстановка не сохранена', detail: e.entry.text });
+          if (isOfficeSender(e.entry.from) && s.layoutPending) {
+            pushToast({
+              id: e.entry.id, kind: 'failed',
+              title: tr('toast.layoutNotSaved'), detail: e.entry.text,
+            });
             return { chat, layoutPending: false };
           }
           return { chat };
@@ -490,6 +514,10 @@ export const useStore = create<State>((set, get) => ({
         set({ roleFeedback: { op: e.op, roleId: e.roleId, errors: [] } });
         break;
       case 'settings':
+        // Язык приезжает вместе с остальными настройками офиса: сначала его
+        // запоминает словарь, и только потом обновляется стор — иначе
+        // перерисовка успела бы пройти по старому языку.
+        if (setLang(e.settings.language)) set({ lang: asLang(e.settings.language) });
         set({ settings: e.settings, settingsPending: false });
         break;
       case 'layout': {
@@ -691,20 +719,14 @@ export function retryConnect(): void {
 
 /** «сегодня в 14:32» / «вчера в 09:10» / «3 дня назад» / «12 мая» / «ещё не открывался». */
 export function formatLastOpened(ts: number): string {
-  if (!ts) return 'ещё не открывался';
-  const startOfDay = (t: number) => { const d = new Date(t); d.setHours(0, 0, 0, 0); return d.getTime(); };
-  const time = new Date(ts).toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' });
+  if (!ts) return tr('office.neverOpened');
+  const startOfDay = (at: number) => { const d = new Date(at); d.setHours(0, 0, 0, 0); return d.getTime(); };
+  const time = new Date(ts).toLocaleTimeString(locale(), { hour: '2-digit', minute: '2-digit' });
   const daysAgo = Math.max(0, Math.round((startOfDay(Date.now()) - startOfDay(ts)) / 86400000));
-  if (daysAgo === 0) return `сегодня в ${time}`;
-  if (daysAgo === 1) return `вчера в ${time}`;
-  if (daysAgo < 7) {
-    const mod10 = daysAgo % 10;
-    const mod100 = daysAgo % 100;
-    const word = mod10 === 1 && mod100 !== 11 ? 'день'
-      : [2, 3, 4].includes(mod10) && ![12, 13, 14].includes(mod100) ? 'дня' : 'дней';
-    return `${daysAgo} ${word} назад`;
-  }
-  return new Date(ts).toLocaleDateString('ru-RU', { day: 'numeric', month: 'long' });
+  if (daysAgo === 0) return tr('office.openedToday', { time });
+  if (daysAgo === 1) return tr('office.openedYesterday', { time });
+  if (daysAgo < 7) return tr('office.openedDaysAgo', { n: daysAgo });
+  return new Date(ts).toLocaleDateString(locale(), { day: 'numeric', month: 'long' });
 }
 
 /** Текущий офис — всегда первой строкой, остальные по убыванию времени открытия. */
@@ -731,32 +753,37 @@ export interface OfficeActivitySummary {
 /** Считает сводку по офису из списка `offices` для короткого переключателя. */
 export function summarizeOfficeActivity(o: OfficeView): OfficeActivitySummary {
   const a = o.activity;
-  if (!a) return { text: 'нет данных', live: false, hasQueue: false, hasUnmerged: false, waiting: 0 };
+  if (!a) {
+    return {
+      text: tr('office.noData'), live: false, hasQueue: false, hasUnmerged: false, waiting: 0,
+    };
+  }
   const parts: string[] = [];
-  if (a.inProgress > 0) parts.push(`${a.inProgress} в работе`);
-  if (a.doneUnmerged > 0) parts.push(`${a.doneUnmerged} к слиянию`);
-  const text = parts.length ? parts.join(' · ') : (a.live ? 'идёт работа' : 'простаивает');
+  if (a.inProgress > 0) parts.push(tr('office.inProgress', { n: a.inProgress }));
+  if (a.doneUnmerged > 0) parts.push(tr('office.toMerge', { n: a.doneUnmerged }));
+  const text = parts.length
+    ? parts.join(' · ')
+    : tr(a.live ? 'office.working' : 'office.idle');
   return { text, live: a.live, hasQueue: a.inProgress > 0, hasUnmerged: a.doneUnmerged > 0, waiting: a.waiting };
 }
 
-/** Четыре уровня общего режима доступа офиса — id, подпись и честное объяснение для UI. */
-export const ACCESS_MODES: Array<[PermissionMode, string, string]> = [
-  ['readonly', 'Только чтение', 'Запрещено всё, что меняет состояние: ни записи файла, ни команды оболочки.'],
-  ['ask-writes', 'Спрашивать про все изменения', 'Любая запись файла и любая команда оболочки требует подтверждения.'],
-  ['ask-risky', 'Спрашивать про необратимое', 'Подтверждение только для удаления, push и других необратимых действий.'],
-  ['auto', 'Полный доступ', 'Ничего не спрашивать — включая необратимые действия.'],
-];
+/**
+ * Четыре уровня общего режима доступа офиса — id, подпись и честное
+ * объяснение для UI. Функция, а не константа: язык офиса меняется на ходу,
+ * а собранный при загрузке модуля список остался бы на прежнем.
+ */
+export const accessModes = (): Array<[PermissionMode, string, string]> => ([
+  ['readonly', tr('access.readonly'), tr('access.readonly.hint')],
+  ['ask-writes', tr('access.ask-writes'), tr('access.ask-writes.hint')],
+  ['ask-risky', tr('access.ask-risky'), tr('access.ask-risky.hint')],
+  ['auto', tr('access.auto'), tr('access.auto.hint')],
+]);
 
-export const ACCESS_LABEL: Record<PermissionMode, string> = {
-  readonly: 'только чтение',
-  'ask-writes': 'спрашивать про все изменения',
-  'ask-risky': 'спрашивать про необратимое',
-  auto: 'полный доступ',
-};
+/** Короткая подпись режима доступа — для строки статуса, а не для выбора. */
+export const accessLabel = (mode: PermissionMode): string => tr(`access.short.${mode}`);
 
 /** Честный текст подтверждения перед включением полного доступа — офисного или ролевого. */
-export const FULL_ACCESS_WARNING = 'Агенты смогут выполнять необратимые действия — удалять файлы, '
-  + 'пушить в репозиторий, выполнять произвольные команды — вообще без вопросов. Включить полный доступ?';
+export const fullAccessWarning = (): string => tr('access.fullWarning');
 
 /** Режим роли, если он задан явно, иначе общий режим офиса. */
 export function effectivePermissionMode(
@@ -769,11 +796,8 @@ export function effectivePermissionMode(
 /** Откуда фактический режим доступа сотрудника: свой, от роли или от офиса. */
 export type PermissionSource = 'agent' | 'role' | 'office';
 
-export const PERMISSION_SOURCE_LABEL: Record<PermissionSource, string> = {
-  agent: 'личный',
-  role: 'от роли',
-  office: 'от офиса',
-};
+export const permissionSourceLabel = (source: PermissionSource): string =>
+  tr(`access.source.${source}`);
 
 /** Первое звено в цепочке «сотрудник → роль → офис», где задано своё правило. */
 export function permissionSource(
@@ -814,12 +838,7 @@ export function startMergeQueue(taskIds: string[]): void {
   useStore.setState({ mergeSelection: [] });
 }
 
-const MERGE_CHECK_LABEL: Record<MergeCheckState, string> = {
-  unknown: 'не проверено',
-  clean: 'сольётся чисто',
-  conflict: 'конфликт',
-  nothing: 'нечего сливать',
-};
+const mergeCheckLabel = (state: MergeCheckState): string => tr(`merge.check.${state}`);
 
 const MERGE_CHECK_CLASS: Record<MergeCheckState, string> = {
   unknown: 'unknown',
@@ -829,30 +848,13 @@ const MERGE_CHECK_CLASS: Record<MergeCheckState, string> = {
 };
 
 /** Стадии конвейера ревью на языке интерфейса. */
-export const PR_STAGE_LABEL: Record<PrStage, string> = {
-  sync: 'подтягиваю main',
-  checks: 'проверки',
-  opening: 'открываю PR',
-  review: 'на ревью',
-  rework: 'доработка',
-  merging: 'вливаю',
-  merged: 'влито',
-  stuck: 'встало',
-};
+export const prStageLabel = (stage: PrStage): string => tr(`pr.stage.${stage}`);
 
 /** Цвет стадии: зелёный — доехало, красный — встало, остальное в работе. */
 export const prStageClass = (stage: PrStage): string =>
   (stage === 'merged' ? 'merged' : stage === 'stuck' ? 'conflict' : 'checking');
 
-export const MERGE_STEP_LABEL: Record<MergeStepStatus, string> = {
-  merged: 'слита',
-  nothing: 'нечего сливать',
-  conflict: 'конфликт',
-  'typecheck-failed': 'сборка сломана',
-  failed: 'ошибка',
-  skipped: 'пропущена',
-  pending: 'в очереди',
-};
+export const mergeStepLabel = (status: MergeStepStatus): string => tr(`merge.step.${status}`);
 
 /** Класс бейджа для статуса шага очереди — свой набор цветов, отдельный от MergeCheckState. */
 export function mergeStepClass(status: MergeStepStatus): string {
@@ -884,13 +886,13 @@ export function mergeStepFor(run: MergeRun | null, taskId: string): MergeStep | 
  */
 export function mergeBadge(t: TaskView, step: MergeStep | undefined, check: MergeCheck | undefined): { label: string; cls: string } | null {
   if (!t.branch) return null;
-  if (t.merged) return { label: 'влита', cls: 'merged' };
+  if (t.merged) return { label: tr('merge.merged'), cls: 'merged' };
   if (t.status !== 'done') return null;
   if (step && step.status !== 'pending') {
-    return { label: MERGE_STEP_LABEL[step.status], cls: mergeStepClass(step.status) };
+    return { label: mergeStepLabel(step.status), cls: mergeStepClass(step.status) };
   }
-  if (!check) return { label: 'не проверено', cls: 'unknown' };
-  return { label: MERGE_CHECK_LABEL[check.state], cls: MERGE_CHECK_CLASS[check.state] };
+  if (!check) return { label: tr('merge.check.unknown'), cls: 'unknown' };
+  return { label: mergeCheckLabel(check.state), cls: MERGE_CHECK_CLASS[check.state] };
 }
 
 export function hire(roleId: string): void {
@@ -952,7 +954,7 @@ export function parseTaskMaxTurns(v: string): { value: number | null; error: str
   if (!Number.isInteger(n) || n < MIN_TASK_MAX_TURNS || n > MAX_TASK_MAX_TURNS) {
     return {
       value: null,
-      error: `Целое число от ${MIN_TASK_MAX_TURNS} до ${MAX_TASK_MAX_TURNS} или пусто — без ограничения`,
+      error: tr('field.turnsRange', { min: MIN_TASK_MAX_TURNS, max: MAX_TASK_MAX_TURNS }),
     };
   }
   return { value: n, error: null };
@@ -971,7 +973,7 @@ export function parseMaxWorkers(v: string): { value: number | null; error: strin
   if (!Number.isInteger(n) || n < MIN_OFFICE_WORKERS || n > MAX_OFFICE_WORKERS) {
     return {
       value: null,
-      error: `Целое число от ${MIN_OFFICE_WORKERS} до ${MAX_OFFICE_WORKERS}`,
+      error: tr('field.workersRange', { min: MIN_OFFICE_WORKERS, max: MAX_OFFICE_WORKERS }),
     };
   }
   return { value: n, error: null };
