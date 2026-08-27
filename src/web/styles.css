@@ -310,15 +310,26 @@ button
   border: 1px solid var(--red); border-radius: 7px; color: var(--red); background: rgba(217, 79, 61, .08);
 }
 .role-danger { display: flex; gap: 8px; margin-top: 8px; padding-top: 12px; border-top: 1px solid var(--line-soft); }
-.sprite-grid { display: grid; grid-template-columns: repeat(5, 1fr); gap: 8px; margin-top: 6px; }
-.sprite-swatch {
+/* Внешности агентов: карточка с трёхмерной моделью на каждый скин. Колонки
+   не пересчитываются под число внешностей руками — с новым скином в наборе
+   ряд просто становится плотнее, а на узком окне переносится. */
+.look-grid {
+  display: grid; grid-template-columns: repeat(auto-fit, minmax(76px, 1fr));
+  gap: 8px; margin-top: 6px;
+}
+.look-swatch {
   display: flex; flex-direction: column; align-items: center; gap: 4px; padding: 8px 4px;
+  /* Холст сам по себе шириной в 300px: без обнуления минимума карточка
+     растянулась бы по нему и сетка вылезла бы за диалог. */
+  min-width: 0;
   background: var(--panel-2); border: 1px solid var(--line); border-radius: 8px; cursor: pointer;
 }
-.sprite-swatch:hover { border-color: var(--accent); }
-.sprite-swatch.on { border-color: var(--accent); background: rgba(240, 180, 41, .14); }
-.sprite-swatch img { width: 32px; height: 48px; object-fit: cover; object-position: top; image-rendering: pixelated; }
-.sprite-swatch span { font-size: 10px; color: var(--muted); text-align: center; line-height: 1.25; }
+.look-swatch:hover { border-color: var(--accent); }
+.look-swatch.on { border-color: var(--accent); background: rgba(240, 180, 41, .14); }
+/* Холст растягивается по обёртке, а размер задаёт она: сам холст сцена
+   размечает своими стилями, и класс на нём бы не подействовал. */
+.look-figure { align-self: stretch; min-width: 0; height: 92px; }
+.look-swatch .look-name { font-size: 10px; color: var(--muted); text-align: center; line-height: 1.25; }
 
 /* ---------- настройки: меню разделов слева, контент прокручивается отдельно ---------- */
 .modal.wide.settings-modal {

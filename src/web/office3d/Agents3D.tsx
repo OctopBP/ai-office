@@ -45,13 +45,21 @@ import { dropAnchor, setAnchor } from './anchors';
 import type { AgentState, InstanceView, RoleView, TaskView } from '../../shared/types';
 import { t } from '../i18n';
 import { Icon } from '../icons';
+import { LOOKS } from '../../shared/looks';
 
+/**
+ * Текстуры персонажей по имени скина — оно же идентификатор внешности
+ * (`shared/looks.ts`), поэтому выбранная в форме роли внешность попадает
+ * в комнату без промежуточной таблицы соответствий.
+ */
 const skinModules = import.meta.glob('../../../design/models/characters/skins/*.png', {
   eager: true, query: '?url', import: 'default',
 }) as Record<string, string>;
-const SKINS = Object.entries(skinModules)
-  .sort(([a], [b]) => a.localeCompare(b))
-  .map(([, url]) => url);
+const SKIN_URLS: Record<string, string> = {};
+for (const [path, url] of Object.entries(skinModules)) {
+  SKIN_URLS[path.split('/').pop()!.replace('.png', '')] = url;
+}
+const SKIN_NAMES = Object.keys(SKIN_URLS).sort();
 
 /**
  * Рост фигуры, скорость ходьбы, высоты посадки и прочие числа подгонки живут
@@ -284,15 +292,33 @@ export function useCharacter(): Loaded {
  * Материалы по скинам — один на скин, а не на агента: скинов четыре, агентов
  * может быть вдвое больше, а текстура у них общая.
  */
-export function useSkinMaterials(): THREE.Material[] {
-  const textures = useLoader(THREE.TextureLoader, SKINS);
-  return useMemo(() => (textures as THREE.Texture[]).map((map) => {
-    map.colorSpace = THREE.SRGBColorSpace;
-    // Текстуры Kenney — плашки плоского цвета без градиентов: сглаживание
-    // при уменьшении только мылит их и перемешивает соседние плашки.
-    map.magFilter = THREE.NearestFilter;
-    return new THREE.MeshLambertMaterial({ map });
-  }), [textures]);
+export function useSkinMaterials(): Record<string, THREE.Material> {
+  const textures = useLoader(THREE.TextureLoader, SKIN_NAMES.map((n) => SKIN_URLS[n]));
+  return useMemo(() => {
+    const byName: Record<string, THREE.Material> = {};
+    (textures as THREE.Texture[]).forEach((map, i) => {
+      map.colorSpace = THREE.SRGBColorSpace;
+      // Текстуры Kenney — плашки плоского цвета без градиентов: сглаживание
+      // при уменьшении только мылит их и перемешивает соседние плашки.
+      map.magFilter = THREE.NearestFilter;
+      byName[SKIN_NAMES[i]] = new THREE.MeshLambertMaterial({ map });
+    });
+    return byName;
+  }, [textures]);
+}
+
+/**
+ * Материал агента: выбранная у роли внешность, а если роль её не выбирала —
+ * по кругу от номера агента, чтобы соседи за столами отличались друг от друга.
+ * Порядок круга — от списка внешностей, а не от порядка файлов: список — то,
+ * что человек видит в форме роли.
+ */
+export function skinMaterial(
+  materials: Record<string, THREE.Material>, look: string | undefined, i: number,
+): THREE.Material {
+  return (look ? materials[look] : undefined)
+    ?? materials[LOOKS[i % LOOKS.length].id]
+    ?? materials[SKIN_NAMES[i % SKIN_NAMES.length]];
 }
 
 /**
@@ -898,25 +924,28 @@ function Crowd({ offset }: { offset: [number, number] }) {
 
   return (
     <>
-      {list.map((inst, i) => (
-        <Agent
-          key={inst.id}
-          inst={inst}
-          loaded={loaded}
-          material={materials[i % materials.length]}
-          layout={layout}
-          offset={offset}
-          role={roles.find((r) => r.id === inst.roleId)}
-          task={inst.currentTaskId ? tasks[inst.currentTaskId] : null}
-          selected={selected === inst.id}
-          inMeeting={inMeeting.has(inst.id)}
-          interest={interests.get(inst.id)}
-          // Золотое сечение вместо равномерного шага: при равномерном
-          // восемь агентов раскладываются по циклу правильным узором, и
-          // синхронность возвращается — просто со сдвигом.
-          phase={(i * 0.618) % 1}
-        />
-      ))}
+      {list.map((inst, i) => {
+        const role = roles.find((r) => r.id === inst.roleId);
+        return (
+          <Agent
+            key={inst.id}
+            inst={inst}
+            loaded={loaded}
+            material={skinMaterial(materials, role?.sprite, i)}
+            layout={layout}
+            offset={offset}
+            role={role}
+            task={inst.currentTaskId ? tasks[inst.currentTaskId] : null}
+            selected={selected === inst.id}
+            inMeeting={inMeeting.has(inst.id)}
+            interest={interests.get(inst.id)}
+            // Золотое сечение вместо равномерного шага: при равномерном
+            // восемь агентов раскладываются по циклу правильным узором, и
+            // синхронность возвращается — просто со сдвигом.
+            phase={(i * 0.618) % 1}
+          />
+        );
+      })}
       <DeskPlates offset={offset} />
     </>
   );

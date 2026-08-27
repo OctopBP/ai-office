@@ -69,7 +69,7 @@ export const en = {
   'state.role.instancesBelowStaff': 'The role already has {n} member — let the extra ones go first, then lower the limit.|The role already has {n} members — let the extra ones go first, then lower the limit.',
   'state.role.turnsRange': 'Turn limit is a whole number from {min} to {max}, or empty to use the office one.',
   'state.role.badMode': 'Unknown access mode.',
-  'state.role.noSprite': 'Look “{sprite}” is not in the sprite catalog — pick one of the presets.',
+  'state.role.noSprite': 'There is no look “{sprite}” in the set — pick one of the offered ones.',
   'state.role.created': 'Role {title} ({id}) created',
   'state.role.missing': 'The office has no role “{role}”.',
   'state.role.pmRename': 'The manager cannot be renamed into another role — task handout rests on them. Create a new role if you need one more participant.',

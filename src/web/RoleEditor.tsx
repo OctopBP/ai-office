@@ -6,8 +6,10 @@ import {
 import { t } from './i18n';
 import { catalog } from './layoutData';
 import { desks } from '../shared/layout';
-import { agentSpriteName, spriteOf, spritePresets } from './sprites';
+import { agentSpriteName } from './sprites';
 import { Icon } from './icons';
+import { LookPicker } from './office3d/LookPicker';
+import { lookById, LOOKS } from '../shared/looks';
 import type { PermissionMode, RoleDraft, RoleEditable, RoleView } from '../shared/types';
 import {
   MAX_ROLE_INSTANCES, MAX_TASK_MAX_TURNS, MIN_ROLE_INSTANCES, MIN_TASK_MAX_TURNS,
@@ -32,7 +34,7 @@ const modes = (): Array<[PermissionMode, string]> => [
 const BLANK: RoleEditable = {
   title: '', emoji: '🙂', color: '#94a3b8', model: 'claude-sonnet-5',
   permissionMode: null, maxInstances: 1, isolate: true, maxTurns: null,
-  repoDir: '', sprite: 'agent_p1', brief: '',
+  repoDir: '', sprite: LOOKS[0].id, brief: '',
 };
 
 /**
@@ -47,7 +49,6 @@ export function RoleEditor({ role, onSaved, onDeleted }: {
 }) {
   const settings = useStore((s) => s.settings);
   const roleFeedback = useStore((s) => s.roleFeedback);
-  const theme = useStore((s) => s.theme);
   const layout = useStore((s) => s.layout);
   const instanceCount = useStore((s) => Object.keys(s.instances).length);
   const [draft, setDraft] = useState<Partial<RoleEditable>>({});
@@ -137,8 +138,6 @@ export function RoleEditor({ role, onSaved, onDeleted }: {
   // здесь только заранее спокойно предупреждаем.
   const deskShortage = !role && instanceCount >= desks(layout, catalog).length;
 
-  const presets = spritePresets(catalog.sprites);
-
   return (
     <div className="role-form">
       <h3>{role ? t('role.editTitle', { title: role.title }) : t('role.newTitle')}</h3>
@@ -161,19 +160,8 @@ export function RoleEditor({ role, onSaved, onDeleted }: {
       </label>
 
       <label>{t('role.look')}
-        <div className="sprite-grid">
-          {presets.map((p) => (
-            <button
-              key={p.id} type="button"
-              className={`sprite-swatch ${value.sprite === p.id ? 'on' : ''}`}
-              title={p.label} onClick={() => set('sprite', p.id)}
-            >
-              <img src={spriteOf(theme, p.id)} alt={p.label} />
-              <span>{p.label}</span>
-            </button>
-          ))}
-        </div>
-        {!value.sprite && (
+        <LookPicker value={value.sprite} onPick={(id) => set('sprite', id)} />
+        {!lookById(value.sprite) && (
           <span className="hint">{t('role.look.hint')}</span>
         )}
         {errFor('sprite') && <span className="hint error">{errFor('sprite')}</span>}
