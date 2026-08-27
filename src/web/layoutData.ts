@@ -1,8 +1,8 @@
 import {
-  desks, floorTiles as sharedFloorTiles, kitchenSeats, passability, propKeys, propSize,
+  desks, floorTiles as sharedFloorTiles, passability, propKeys, propSize,
   wallTiles as sharedWallTiles,
 } from '../shared/layout';
-import type { Catalog, FloorTile, Layout, LayoutZone, Passability, Pos } from '../shared/layout';
+import type { Catalog, FloorTile, Layout, LayoutZone, Passability } from '../shared/layout';
 import type { Desk } from '../shared/types';
 
 /**
@@ -36,18 +36,6 @@ export function layoutFor(layoutId: string): Layout {
   return LAYOUTS[layoutId] ?? LAYOUTS[DEFAULT_LAYOUT_ID];
 }
 
-/** Отступ дополнительного ряда мест кухни, если базовых из каталога не хватает. */
-const ROW_GAP = 0.9;
-
-/**
-/**
- * Шаг между свободными агентами в зоне отдыха. Больше кухонного: там места
- * заданы слотами стола и люди сидят вплотную, а здесь они стоят, и в объёме
- * фигуры с шагом в 0.9 тайла (это 0.7 м) просто пересекаются телами. В виде
- * сверху этого не было видно — спрайт занимал ровно тайл.
- */
-const ZONE_GAP = 1.6;
-
 /**
  * Насколько фигура агента рисуется крупнее своего арта. Отдельная ручка, а не
  * поле каталога: пропорции человечка задаёт арт, а его рост на сцене —
@@ -69,133 +57,12 @@ export function agentSize(name: string): [number, number] {
 }
 
 /**
- * Высота фигуры агента: все agent_* спрайты одного размера по арту (§3.1
- * места не знают про высоту фигуры, это отрисовка Office.tsx).
- */
-const AGENT_H = AGENT_SCALE * Math.max(
-  ...Object.entries(catalog.sprites)
-    .filter(([name]) => name.startsWith('agent_'))
-    .map(([, sprite]) => sprite.size[1]),
-);
-
-/**
- * Запас между низом фигуры и стеной, тайлов. Комната обрезана `overflow:
- * hidden` ровно по высоте раскладки (styles.css `.office`), а место
- * указывает верхний левый угол фигуры без офсета (Office.tsx: `top:
- * px(work.y)`), поэтому нижний край уходит на seat.y + AGENT_H и может
- * вылезти за стену. Высота своя у каждой раскладки — тот же SOUTH_Y-хак
- * старого кода (desks.ts), но не в общем src/shared/layout.ts (спека §4
- * явно не пускает размеры комнаты в общий модуль), а здесь.
- */
-function clampToRoom(seat: Pos, roomCells: number): Pos {
-  const maxY = roomCells - AGENT_H - 0.2;
-  return seat.y > maxY ? { x: seat.x, y: maxY } : seat;
-}
-
-/**
- * Добирает места кухни вторым (третьим, ...) рядом, если базовых мест из
- * слотов стола не хватает на всех: обеденный стол даёт фиксированные места
- * по слотам в каталоге, а рабочих столов в раскладке может быть больше.
- * Ряды достраиваются в ту же сторону, в которую уже «смотрит» исходный ряд
- * (прочь от центра стола), с тем же шагом по x. Раскладка детерминированная
- * и зависит только от need, поэтому у конкретного стола место не прыгает.
- */
-function extendSeats(base: Pos[], need: number): Pos[] {
-  if (base.length === 0 || need <= base.length) return base;
-  const rows = new Map<number, number[]>();
-  for (const seat of base) {
-    const xs = rows.get(seat.y) ?? [];
-    xs.push(seat.x);
-    rows.set(seat.y, xs);
-  }
-  const rowList = [...rows.entries()].map(([y, xs]) => ({ y, xs }));
-  const centerY = rowList.reduce((sum, r) => sum + r.y, 0) / rowList.length;
-  const seats = [...base];
-  for (let gen = 1; seats.length < need; gen++) {
-    for (const row of rowList) {
-      if (seats.length >= need) break;
-      const sign = row.y < centerY ? -1 : 1;
-      const y = row.y + sign * gen * ROW_GAP;
-      for (const x of row.xs) {
-        if (seats.length >= need) break;
-        seats.push({ x, y });
-      }
-    }
-  }
-  return seats;
-}
-
-/**
- * Места отдыха по зоне, когда в раскладке нет ни одного предмета с местами.
- * Так бывает не от недосмотра, а по замыслу: обстановку можно свести к
- * необходимому — рабочие столы, стол переговорки, диван, — и тогда кухонного
- * стола со слотами в комнате просто нет. Свободным агентам всё равно нужно
- * куда-то сесть, а зона `idle` уже говорит, в какой комнате они отдыхают:
- * рассаживаем их рядами по её середине, отступив от стены.
- *
- * Раскладка детерминированная и зависит только от `need` — как и у
- * `extendSeats`, место конкретного стола не прыгает между перерисовками.
- */
-function zoneSeats(layout: Layout, need: number): Pos[] {
-  const zone = layout.zones?.find((z) => z.kind === 'idle' && z.room);
-  const room = layout.rooms?.find((r) => r.id === zone?.room);
-  if (!room) return [];
-  const [x0, y0, x1, y1] = room.rect;
-  const perRow = Math.max(1, Math.floor((x1 - x0 - 1) / ZONE_GAP));
-  const seats: Pos[] = [];
-  for (let i = 0; i < need; i++) {
-    seats.push({
-      x: x0 + 0.8 + (i % perRow) * ZONE_GAP,
-      y: y0 + (y1 - y0) * 0.5 + Math.floor(i / perRow) * ZONE_GAP,
-    });
-  }
-  return seats;
-}
-
-/**
- * Места кухни для конкретной раскладки — на случай, если сразу все
- * исполнители окажутся свободными. Число столов исполнителей (без PM) —
- * верхняя граница штата (сервер не даёт нанять больше сотрудников, чем в
- * офисе рабочих мест), поэтому места считаются один раз от числа столов
- * раскладки, а не от текущего штата.
- *
- * Кешируется по ссылке на объект `Layout`, а не по `layoutId`: расстановку
- * рисуем по итоговому layout из снапшота (пресет с наложенным оверрайдом),
- * а не по файлу пресета, и сервер шлёт новый объект `layout` при каждой
- * правке (событие `layout`). WeakMap по ссылке инвалидируется сам — старый
- * layout просто выпадает из кеша вместе со сборкой мусора, ручного сброса
- * не нужно.
- */
-const kitchenSeatsCache = new WeakMap<Layout, Pos[]>();
-function kitchenSeatsFor(layout: Layout): Pos[] {
-  const cached = kitchenSeatsCache.get(layout);
-  if (cached) return cached;
-  const need = Math.max(desks(layout, catalog).length - 1, 1);
-  const fromProps = kitchenSeats(layout, catalog);
-  const seats = extendSeats(
-    fromProps.length > 0 ? fromProps : zoneSeats(layout, need),
-    need,
-  ).map((s) => clampToRoom(s, layout.size[1]));
-  kitchenSeatsCache.set(layout, seats);
-  return seats;
-}
-
-/**
- * Место на кухне для стола с данным индексом — привязка стабильная, один в
- * один. `null`, если сесть в раскладке негде вовсе: ни предмета с местами,
- * ни зоны отдыха. Вызывающий решает, что делать; см. `homePos` в store.ts.
- */
-export function kitchenSeatFor(layout: Layout, deskIndex: number): Pos | null {
-  const seats = kitchenSeatsFor(layout);
-  if (seats.length === 0) return null;
-  const i = (deskIndex - 1 + seats.length) % seats.length;
-  return seats[i];
-}
-
-/**
  * Сетка проходимости раскладки (docs/design/office-layout/spec.md §7) — нужна
- * ходьбе по ломаной в store.ts. Кеш по ссылке на `Layout` — см. пояснение
- * у `kitchenSeatsCache` выше.
+ * ходьбе по ломаной в store.ts. Кеш по ссылке на `Layout` — расстановку
+ * рисуем по итоговому layout из снапшота (пресет с наложенным оверрайдом), а
+ * не по файлу пресета, и сервер шлёт новый объект `layout` при каждой правке
+ * (событие `layout`). WeakMap по ссылке инвалидируется сам — старый layout
+ * просто выпадает из кеша вместе со сборкой мусора, ручного сброса не нужно.
  */
 const passabilityCache = new WeakMap<Layout, Passability>();
 export function passabilityFor(layout: Layout): Passability {
@@ -275,8 +142,8 @@ export interface RoomData {
  * Всё, что нужно Office.tsx для отрисовки конкретной раскладки: мебель по
  * z-порядку, стены/пол поштучными тайлами (если раскладка их описывает —
  * §6.1), рабочие столы и хотспоты. Кеш по ссылке на `Layout` — см. пояснение
- * у `kitchenSeatsCache` в этом же файле: комната рисуется по итоговому
- * layout из снапшота (с наложенным оверрайдом), и правка расстановки должна
+ * у `passabilityCache` выше: комната рисуется по итоговому layout из
+ * снапшота (с наложенным оверрайдом), и правка расстановки должна
  * пересчитать геометрию, а не показать старые координаты из кеша.
  *
  * `key` каждого предмета — то же стабильное имя, что и в оверрайде сервера
