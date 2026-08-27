@@ -7,6 +7,7 @@ import { GRID } from '../shared/types';
 import type { InstanceView } from '../shared/types';
 import { STATE_ICON, stateText } from './agentState';
 import { t } from './i18n';
+import { Icon } from './icons';
 
 const C = GRID.cell;
 const px = (tiles: number) => tiles * C;
@@ -290,7 +291,7 @@ export function Office({ onOpen, onDoor }: {
           >
             <img className="shadow" src={img('shadow')} alt="" />
             <img className="body" src={img(spriteName)} alt="" />
-            {icon && <span className="badge">{icon}</span>}
+            {icon && <span className="badge"><Icon name={icon} size={13} /></span>}
           </div>
         );
       })}
@@ -315,9 +316,9 @@ export function Office({ onOpen, onDoor }: {
               <div className="line1">
                 <b>{inst.id}</b>
                 <span className="muted"> · {stateText(inst.state)}</span>
-                {icon && <span className="ico"> {icon}</span>}
+                {icon && <span className="ico"> <Icon name={icon} size={12} /></span>}
                 {inst.deskless && (
-                  <span className="ico" title={t('office.desklessHint')}> 🪑</span>
+                  <span className="ico" title={t('office.desklessHint')}> <Icon name="armchair" size={12} /></span>
                 )}
               </div>
               <div className="line2 muted">

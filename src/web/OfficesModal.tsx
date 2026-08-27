@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { createOffice, renameOffice, useStore } from './store';
 import { t } from './i18n';
+import { Icon } from './icons';
 
 /**
  * Дверь офиса: список проектов и создание нового. Офис = проект: своя
@@ -45,7 +46,7 @@ export function OfficesModal({ onClose }: { onClose: () => void }) {
                   const next = prompt(t('offices.namePrompt'), o.name);
                   if (next) renameOffice(o.id, next);
                 }}>
-                ✎
+                <Icon name="pencil" size={16} />
               </button>
             </div>
           ))}

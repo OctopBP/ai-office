@@ -44,6 +44,7 @@ import { STATE_ICON, stateText } from '../agentState';
 import { dropAnchor, setAnchor } from './anchors';
 import type { AgentState, InstanceView, RoleView, TaskView } from '../../shared/types';
 import { t } from '../i18n';
+import { Icon } from '../icons';
 
 const skinModules = import.meta.glob('../../../design/models/characters/skins/*.png', {
   eager: true, query: '?url', import: 'default',
@@ -354,7 +355,9 @@ function AgentTag({ inst, role, task, expanded }: {
             </span>
             {expanded && (
               <span className="tag3d-name">
-                {inst.deskless && <span title={t('office.desklessHint')}>🪑 </span>}
+                {inst.deskless && (
+                  <span title={t('office.desklessHint')}><Icon name="armchair" size={11} /> </span>
+                )}
                 {role?.title ?? inst.label}
               </span>
             )}
@@ -367,7 +370,7 @@ function AgentTag({ inst, role, task, expanded }: {
               style={{ background: STATE_COLOR[inst.state] }}
               title={stateText(inst.state)}
             >
-              {icon}
+              {icon && <Icon name={icon} size={9} />}
             </span>
           </div>
         </div>

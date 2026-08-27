@@ -571,8 +571,9 @@ button
   position: absolute; left: 50%; bottom: 16.7%; transform: translateX(-50%); opacity: .45;
 }
 .office .agent .badge {
-  position: absolute; right: -6px; top: -4px; font-size: 13px;
-  background: var(--panel); border: 1px solid var(--line); border-radius: 50%; padding: 0 2px; line-height: 1.2;
+  position: absolute; right: -6px; top: -4px;
+  display: flex; align-items: center; justify-content: center;
+  background: var(--panel); border: 1px solid var(--line); border-radius: 50%; padding: 2px;
 }
 
 /* Спрайты с прозрачным фоном: подсвечиваем свечением, а не рамкой.
@@ -745,8 +746,9 @@ button
 .auth { display: inline-flex; align-items: center; }
 
 /* Иконки Tabler (icons.tsx) — общий цвет через currentColor уже задан в
-   самом svg; здесь только защита от сжатия во flex-рядах тулбара. */
-.icon-tabler { flex: none; }
+   самом svg; здесь защита от сжатия во flex-рядах тулбара и выравнивание
+   по нижнему краю текста там, где иконка стоит прямо в строке без flex. */
+.icon-tabler { flex: none; vertical-align: -3px; }
 
 /* Подписи рядом со значками — первое, что прячем в узком окне (см. медиа-запрос ниже). */
 .hud-label { white-space: nowrap; }

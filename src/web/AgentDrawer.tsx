@@ -8,6 +8,7 @@ import { locale, t, t as tr } from './i18n';
 import { useActionNotice } from './useActionNotice';
 import { agentSpriteName, spriteOf } from './sprites';
 import { usageLine } from './UsageModal';
+import { Icon, type IconName } from './icons';
 import type { Criterion, PermissionMode, TaskView } from '../shared/types';
 
 const money = (v: number) => `$${v.toFixed(v < 1 ? 3 : 2)}`;
@@ -44,9 +45,9 @@ function elapsed(from: number | null, to: number | null): string {
 
 const statusLabel = (status: TaskView['status']): string => t(`task.status.${status}`);
 
-const TOOL_ICON: Record<string, string> = {
-  Bash: '⚙', Read: '📖', Edit: '✏️', Write: '📄', Grep: '🔍', Glob: '🔍',
-  WebSearch: '🌐', WebFetch: '🌐', TodoWrite: '🗒',
+const TOOL_ICON: Record<string, IconName> = {
+  Bash: 'terminal-2', Read: 'book', Edit: 'pencil', Write: 'file-text', Grep: 'search', Glob: 'search',
+  WebSearch: 'world', WebFetch: 'world', TodoWrite: 'list-check',
 };
 
 export function AgentDrawer() {
@@ -98,7 +99,7 @@ export function AgentDrawer() {
           </div>
           <span className={`perm-badge ${inst.effectivePermissionMode}`}
             title={t('drawer.permBadge')}>
-            {inst.effectivePermissionMode === 'auto' ? '🔓' : '🔐'}{' '}
+            <Icon name={inst.effectivePermissionMode === 'auto' ? 'lock-open' : 'shield-lock'} size={14} />{' '}
             {accessLabel(inst.effectivePermissionMode)} · {permissionSourceLabel(permissionSource(inst, role))}
           </span>
           <div className={`chip ${inst.state}`}>
@@ -111,7 +112,7 @@ export function AgentDrawer() {
 
       {inst.deskless && (
         <div className="deskless-notice">
-          🪑 {t('employee.deskless', { index: inst.desk.index })}{' '}
+          <Icon name="armchair" size={16} /> {t('employee.deskless', { index: inst.desk.index })}{' '}
           <button className="link" onClick={openLayoutSettings}>{t('employee.layoutSettings')}</button>
         </div>
       )}
@@ -232,7 +233,11 @@ export function AgentDrawer() {
                 <span className="dim mono">
                   {new Date(l.at).toLocaleTimeString(locale(), { hour: '2-digit', minute: '2-digit' })}
                 </span>
-                <span className="ico">{l.kind === 'tool' ? TOOL_ICON[tool] ?? '•' : l.kind === 'error' ? '⚠️' : '💬'}</span>
+                <span className="ico">
+                  {l.kind === 'tool'
+                    ? (TOOL_ICON[tool] ? <Icon name={TOOL_ICON[tool]} size={14} /> : '•')
+                    : <Icon name={l.kind === 'error' ? 'alert-triangle' : 'message'} size={14} />}
+                </span>
                 <span className="trail-text">
                   {l.autoApproved && (
                     <span className="auto-tag" title={t('log.autoHint')}>{t('log.auto')}</span>
@@ -265,14 +270,18 @@ export function AgentDrawer() {
       </section>
 
       <div className="drawer-actions">
-        <button onClick={() => { setThread(inst.id); select(null); }}>💬 {t('drawer.talk')}</button>
+        <button onClick={() => { setThread(inst.id); select(null); }}>
+          <Icon name="message" size={16} /> {t('drawer.talk')}
+        </button>
         {role && !role.isManager && (
           <button disabled={role.active >= role.maxInstances} onClick={() => hire(inst.roleId)}>
-            ⧉ {t('drawer.clone')}
+            <Icon name="copy" size={16} /> {t('drawer.clone')}
           </button>
         )}
         {current && (
-          <button className="danger" onClick={() => stopTask(current.id)}>⏹ {t('drawer.stopTask')}</button>
+          <button className="danger" onClick={() => stopTask(current.id)}>
+            <Icon name="player-stop" size={16} /> {t('drawer.stopTask')}
+          </button>
         )}
       </div>
       <div className="drawer-links">

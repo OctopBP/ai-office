@@ -7,6 +7,7 @@ import { t } from './i18n';
 import { catalog } from './layoutData';
 import { desks } from '../shared/layout';
 import { agentSpriteName, spriteOf, spritePresets } from './sprites';
+import { Icon } from './icons';
 import type { PermissionMode, RoleDraft, RoleEditable, RoleView } from '../shared/types';
 import {
   MAX_ROLE_INSTANCES, MAX_TASK_MAX_TURNS, MIN_ROLE_INSTANCES, MIN_TASK_MAX_TURNS,
@@ -146,7 +147,7 @@ export function RoleEditor({ role, onSaved, onDeleted }: {
       {formError && <div className="form-banner error">{formError}</div>}
       {deskShortage && (
         <div className="deskless-notice">
-          🪑 {t('role.deskShortage')}
+          <Icon name="armchair" size={16} /> {t('role.deskShortage')}
         </div>
       )}
 
