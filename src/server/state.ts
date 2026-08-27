@@ -8,11 +8,14 @@ import type {
   Layout, LayoutOverride, LayoutPropEdit,
   PullRequestView, PrStage, ReviewNote,
 } from '../shared/types';
+import { OFFICE_SENDER } from '../shared/types';
 import {
   emptyUsage, DEFAULT_OFFICE_WORKERS, MAX_OFFICE_WORKERS, MAX_ROLE_INSTANCES, MAX_TASK_MAX_TURNS,
   MIN_OFFICE_WORKERS, MIN_ROLE_INSTANCES, MIN_TASK_MAX_TURNS, ROLE_TITLE_LIMIT,
 } from '../shared/types';
 import { isBlocked, isEmptyOverride, passability } from '../shared/layout';
+import { asLang, DEFAULT_LANG, isLang, type Lang, type Vars, LANG_TITLE } from '../shared/i18n';
+import { t, setProcessLang, c, type ServerKey } from './i18n';
 import { activityFromFile, summarize } from './activity';
 import {
   DEFAULT_LAYOUT_ID, catalog, checkPropEdit, deskPlan, effectiveLayout, hasLayout, layoutOptions,
@@ -46,6 +49,7 @@ const DAYS_KEPT = 14;
 
 /** Настройки офиса по умолчанию — они же дополняют старые сохранения. */
 export const DEFAULT_SETTINGS: Settings = {
+  language: DEFAULT_LANG,
   globalBudgetUsd: null,
   taskBudgetUsd: null,
   // 60 — то, что и так стояло в коде константой MAX_WORKER_TURNS: возврат
@@ -140,8 +144,8 @@ const text = (value: unknown): string | undefined =>
  * сессии. Каждое непригодное поле заменяем базовым значением этой роли —
  * терять из-за одной опечатки весь набор нельзя.
  */
-function sanitizeRole(raw: Partial<Role>, id: string): Role {
-  const base = defaultRole(id) ?? blankRole(id);
+function sanitizeRole(raw: Partial<Role>, id: string, lang: Lang): Role {
+  const base = defaultRole(id, lang) ?? blankRole(id);
   const turns = sanitizeMaxTurns(raw.maxTurns);
   const mode = raw.permissionMode;
   return {
@@ -178,7 +182,7 @@ function sanitizeRole(raw: Partial<Role>, id: string): Role {
  * чего — выкидываем её целиком; второй записи с тем же id быть не может, иначе
  * половина офиса работала бы по одной роли, половина по другой.
  */
-function sanitizeRoles(raw: unknown): Role[] {
+function sanitizeRoles(raw: unknown, lang: Lang): Role[] {
   const clean: Role[] = [];
   const seen = new Set<string>();
   for (const item of Array.isArray(raw) ? raw : []) {
@@ -187,7 +191,7 @@ function sanitizeRoles(raw: unknown): Role[] {
     const id = typeof role.id === 'string' ? role.id.trim() : '';
     if (!id || seen.has(id)) continue;
     seen.add(id);
-    clean.push(sanitizeRole(role, id));
+    clean.push(sanitizeRole(role, id, lang));
   }
   return clean;
 }
@@ -198,9 +202,11 @@ function sanitizeRoles(raw: unknown): Role[] {
  * базового набора: накладываем их на умолчания, иначе выставленные человеком
  * модель, лимит и репозиторий пропали бы при первом же запуске.
  */
-function rolesFromSave(data: Persisted): Role[] {
-  const stored = Array.isArray(data.roles) ? data.roles : rolesFromOverrides(data.roleOverrides);
-  return withManagerRole(sanitizeRoles(stored));
+function rolesFromSave(data: Persisted, lang: Lang): Role[] {
+  const stored = Array.isArray(data.roles)
+    ? data.roles
+    : rolesFromOverrides(data.roleOverrides, lang);
+  return withManagerRole(sanitizeRoles(stored, lang), lang);
 }
 
 /**
@@ -584,19 +590,30 @@ export class OfficeState {
     const data = load(this.stateFile);
     if (!data) return false;
     if (data.projectDir !== this.projectDir) {
-      console.log('⚠️  Сохранение относится к другой рабочей директории — начинаю с чистого листа');
+      console.log(c('state.restore.otherDir'));
       return false;
     }
 
+    // Язык узнаём раньше всего: на нём поднимаются базовые роли, и не зная
+    // его, офис поставил бы английские названия рядом с русской перепиской.
+    const lang = asLang((data.settings as Partial<Settings> | undefined)?.language ?? 'ru');
     // Роли восстанавливаем ДО seed: от них зависят названия и лимиты инстансов.
-    this.roleList = rolesFromSave(data);
+    this.roleList = rolesFromSave(data, lang);
     // Сохранения старше настройки движка не знают про облако — дополняем.
-    this.settings = { ...DEFAULT_SETTINGS, ...(data.settings ?? {}) };
+    // Язык в них тоже не записан, и подставлять базовый английский нельзя:
+    // такой офис заводили до появления настройки, когда офис был русским, —
+    // его лог, переписка и брифы ролей написаны по-русски, и английская
+    // подпись над русской лентой выглядела бы поломкой, а не выбором.
+    this.settings = { ...DEFAULT_SETTINGS, language: 'ru', ...(data.settings ?? {}) };
+    // Язык мог приехать из правленого руками файла: чужое значение оставило бы
+    // офис без словаря, и каждая фраза выродилась бы в голый ключ.
+    this.settings.language = asLang(this.settings.language);
     // Файл раскладки могли удалить между запусками. Офис без мебели — не
     // состояние, в котором его можно оставить: молча возвращаем к classic.
     if (!hasLayout(this.settings.layoutId)) {
-      console.log(`⚠️  Раскладка «${this.settings.layoutId}» не найдена — ` +
-        `офис ${this.officeId} открыт по «${DEFAULT_LAYOUT_ID}»`);
+      console.log(this.say('state.restore.noLayout', {
+        id: this.settings.layoutId, office: this.officeId, fallback: DEFAULT_LAYOUT_ID,
+      }));
       this.settings = { ...this.settings, layoutId: DEFAULT_LAYOUT_ID };
     }
     // Файл состояния правят руками: испорченный лимит ходов обрушил бы каждую
@@ -630,9 +647,7 @@ export class OfficeState {
         // молча оставалась заблокированной навсегда — сессия умерла вместе
         // с процессом, а сказать об этом было некому.
         t.interrupted = true;
-        t.result = (t.result ? `${t.result}\n\n` : '') +
-          '⚠️ Работа прервана перезапуском сервера. Ветка и рабочая копия сохранены; ' +
-          'офис возобновит задачу сам.';
+        t.result = (t.result ? `${t.result}\n\n` : '') + this.say('state.task.interrupted');
       }
       this.tasks.set(t.id, t);
     }
@@ -651,7 +666,7 @@ export class OfficeState {
       this.prs.set(pr.taskId, alive.includes(pr.stage) ? known : {
         ...known,
         stage: 'stuck',
-        note: 'Конвейер прервал перезапуск сервера. Ветка и рабочая копия целы — толкните заново.',
+        note: this.say('state.pr.interrupted'),
         updatedAt: Date.now(),
       });
     }
@@ -795,7 +810,7 @@ export class OfficeState {
    * не то состояние, которое человек может себе объяснить.
    */
   editLayout(edits: LayoutPropEdit[]): string | null {
-    if (!Array.isArray(edits) || edits.length === 0) return 'В правке расстановки нет ни одного предмета.';
+    if (!Array.isArray(edits) || edits.length === 0) return this.say('state.layout.emptyEdit');
     const layoutId = this.settings.layoutId;
     const clean: LayoutPropEdit[] = [];
     for (const edit of edits) {
@@ -828,12 +843,12 @@ export class OfficeState {
     const layoutId = this.settings.layoutId;
     const current = this.layoutOverrides[layoutId];
     if (isEmptyOverride(current)) {
-      return `Расстановка офиса и так совпадает с пресетом «${layoutTitle(layoutId)}».`;
+      return this.say('state.layout.sameAsPreset', { preset: layoutTitle(layoutId) });
     }
     if (key) {
       const props = current.props.filter((p) => p.key !== key);
       if (props.length === current.props.length) {
-        return `Предмет «${key}» и так стоит там, где в пресете «${layoutTitle(layoutId)}».`;
+        return this.say('state.layout.propSameAsPreset', { key, preset: layoutTitle(layoutId) });
       }
       this.layoutOverrides[layoutId] = { version: 1, props };
     } else {
@@ -841,8 +856,8 @@ export class OfficeState {
     }
     this.afterLayoutChange();
     this.addLog(null, 'system', key
-      ? `Предмет «${key}» возвращён на место из пресета`
-      : `Расстановка офиса возвращена к пресету «${layoutTitle(layoutId)}»`);
+      ? this.say('state.layout.propReset', { key })
+      : this.say('state.layout.reset', { preset: layoutTitle(layoutId) }));
     return null;
   }
 
@@ -934,9 +949,9 @@ export class OfficeState {
       inst.desk = spot ? { ...inst.desk, x: spot.x, y: spot.y } : inst.desk;
       inst.deskless = true;
       this.emit({ t: 'instance', instance: this.instanceView(inst) });
-      this.addLog(null, 'system',
-        `${inst.label} остался без рабочего места: в расстановке ${desks.length} мест ` +
-        `на ${this.instances.size} сотрудников. Верните стол или увольте кого-нибудь.`);
+      this.addLog(null, 'system', this.say('state.desk.lost', {
+        who: inst.label, desks: desks.length, staff: this.instances.size,
+      }));
     }
     if (homeless.length) this.tellAboutHomeless(homeless, desks.length, prevLayoutId);
   }
@@ -950,13 +965,12 @@ export class OfficeState {
   private tellAboutHomeless(homeless: Instance[], deskCount: number, prevLayoutId?: string): void {
     const who = homeless.map((i) => i.label).join(', ');
     const back = prevLayoutId && prevLayoutId !== this.settings.layoutId
-      ? ` или вернуть прежнюю раскладку «${layoutTitle(prevLayoutId)}»`
-      : ' или вернуть прежнюю раскладку';
-    this.addChat('офис',
-      `⚠️ В раскладке «${layoutTitle(this.settings.layoutId)}» ${deskCount} рабочих мест ` +
-      `на ${this.instances.size} сотрудников. Без стола ${homeless.length === 1 ? 'остался' : 'остались'}: ` +
-      `${who}. Работать они не перестали, но сидят не за столом. ` +
-      `Чтобы это исправить, надо уволить кого-нибудь${back}.`);
+      ? this.say('state.desk.backTo', { preset: layoutTitle(prevLayoutId) })
+      : this.say('state.desk.backPlain');
+    this.addChat(OFFICE_SENDER, this.say('state.desk.homeless', {
+      preset: layoutTitle(this.settings.layoutId),
+      desks: deskCount, staff: this.instances.size, who, back,
+    }));
   }
 
   /**
@@ -1154,19 +1168,30 @@ export class OfficeState {
    */
   checkCriterion(taskId: string, index: number, done = true): { ok: boolean; text: string } {
     const task = this.tasks.get(taskId);
-    if (!task) return { ok: false, text: `Задачи ${taskId} нет на доске.` };
+    if (!task) return { ok: false, text: this.say('state.criteria.noTask', { task: taskId }) };
     const item = task.criteria[index - 1];
     if (!item) {
       return {
         ok: false,
-        text: `У задачи ${taskId} нет критерия №${index}. Всего критериев: ${task.criteria.length}.`,
+        text: this.say('state.criteria.noItem', {
+          task: taskId, index, total: task.criteria.length,
+        }),
       };
     }
     item.done = done;
     this.emit({ t: 'task', task: toTaskView(task) });
     this.markDirty();
     const { done: ready, total } = criteriaProgress(task);
-    return { ok: true, text: `Критерий №${index} «${clipText(item.text, 60)}» — ${done ? 'выполнен' : 'снова не выполнен'}. Готово ${ready} из ${total}.` };
+    return {
+      ok: true,
+      text: this.say('state.criteria.marked', {
+        index,
+        text: clipText(item.text, 60),
+        verdict: this.say(done ? 'state.criteria.done' : 'state.criteria.undone'),
+        ready,
+        total,
+      }),
+    };
   }
 
   // ---------- чат и лог ----------
@@ -1235,11 +1260,11 @@ export class OfficeState {
     if (roleId && decision === 'never') {
       this.alwaysDenied.add(`${roleId}:${entry.request.key}`);
       this.addLog(entry.request.agentId, 'system',
-        `Запрет до конца сессии: ${entry.request.key} для роли ${roleId}`);
+        this.say('perm.deniedBySession', { key: entry.request.key, role: roleId }));
     }
     if (byTimeout) {
       this.addLog(entry.request.agentId, 'system',
-        `Запрос ${id} отклонён: пользователь не ответил за 10 минут`);
+        this.say('perm.timedOut', { id }));
     }
     this.emit({ t: 'permission.resolved', id, decision });
     entry.resolve(decision);
@@ -1300,6 +1325,24 @@ export class OfficeState {
    */
   officeMode(): PermissionMode {
     return this.settings.officePermissionMode ?? DEFAULT_SETTINGS.officePermissionMode;
+  }
+
+  /**
+   * Язык офиса. Своя обёртка по той же причине, что и у режима доступа:
+   * в старых сохранениях поля нет, и подстраховку не должен повторять каждый,
+   * кто пишет человеку хоть строчку.
+   */
+  lang(): Lang {
+    return asLang(this.settings.language);
+  }
+
+  /**
+   * Фраза на языке офиса. Через неё проходит всё, что офис говорит человеку:
+   * лента, чат и отказы форм. Язык берётся у офиса, а не у процесса, — в одном
+   * сервере открыто несколько офисов, и у каждого он свой.
+   */
+  say(key: ServerKey, vars?: Vars): string {
+    return t(this.lang(), key, vars);
   }
 
   roleViews(): RoleView[] {
@@ -1384,11 +1427,11 @@ export class OfficeState {
     const errors: FieldError[] = [];
     if ('title' in patch) {
       const title = String(patch.title ?? '').trim();
-      if (!title) errors.push({ field: 'title', message: 'Название роли не может быть пустым.' });
+      if (!title) errors.push({ field: 'title', message: this.say('state.role.titleEmpty') });
       else if (title.length > ROLE_TITLE_LIMIT) {
         errors.push({
           field: 'title',
-          message: `Название длиннее ${ROLE_TITLE_LIMIT} символов — оно не влезет ни в список, ни на бейдж.`,
+          message: this.say('state.role.titleLong', { limit: ROLE_TITLE_LIMIT }),
         });
       // Сравниваем без учёта регистра: «Аналитик» и «аналитик» в списке ролей
       // не различить глазами, а раздавать задачи придётся именно по нему.
@@ -1396,12 +1439,12 @@ export class OfficeState {
           && r.title.trim().toLowerCase() === title.toLowerCase())) {
         errors.push({
           field: 'title',
-          message: `Роль «${title}» в офисе уже есть — два одинаковых названия в списке не различить.`,
+          message: this.say('state.role.titleTaken', { title }),
         });
       }
     }
     if ('model' in patch && !MODEL_RE.test(String(patch.model ?? ''))) {
-      errors.push({ field: 'model', message: 'Выберите модель — без неё сессию роли не запустить.' });
+      errors.push({ field: 'model', message: this.say('state.role.noModel') });
     }
     if ('maxInstances' in patch) {
       const n = patch.maxInstances;
@@ -1409,26 +1452,28 @@ export class OfficeState {
           || Math.floor(n) < MIN_ROLE_INSTANCES || Math.floor(n) > MAX_ROLE_INSTANCES) {
         errors.push({
           field: 'maxInstances',
-          message: `Клонов у роли — от ${MIN_ROLE_INSTANCES} до ${MAX_ROLE_INSTANCES}.`,
+          message: this.say('state.role.instancesRange', {
+            min: MIN_ROLE_INSTANCES, max: MAX_ROLE_INSTANCES,
+          }),
         });
       } else if (roleId && Math.floor(n) < this.staffOf(roleId).length) {
         errors.push({
           field: 'maxInstances',
-          message: `В роли уже ${this.staffOf(roleId).length} сотрудников — ` +
-            'сначала уволите лишних, потом опускайте лимит.',
+          message: this.say('state.role.instancesBelowStaff', { n: this.staffOf(roleId).length }),
         });
       }
     }
     if ('maxTurns' in patch && sanitizeMaxTurns(patch.maxTurns) === undefined) {
       errors.push({
         field: 'maxTurns',
-        message: `Лимит ходов — целое от ${MIN_TASK_MAX_TURNS} до ${MAX_TASK_MAX_TURNS}` +
-          ' либо пусто, чтобы взять офисный.',
+        message: this.say('state.role.turnsRange', {
+          min: MIN_TASK_MAX_TURNS, max: MAX_TASK_MAX_TURNS,
+        }),
       });
     }
     if ('permissionMode' in patch
         && patch.permissionMode !== null && !isPermissionMode(patch.permissionMode)) {
-      errors.push({ field: 'permissionMode', message: 'Неизвестный режим доступа.' });
+      errors.push({ field: 'permissionMode', message: this.say('state.role.badMode') });
     }
     if ('sprite' in patch) {
       const sprite = String(patch.sprite ?? '').trim();
@@ -1436,7 +1481,7 @@ export class OfficeState {
       if (sprite && !(sprite.startsWith('agent_') && catalog.sprites[sprite])) {
         errors.push({
           field: 'sprite',
-          message: `Внешности «${sprite}» нет в каталоге спрайтов — выберите из пресетов.`,
+          message: this.say('state.role.noSprite', { sprite }),
         });
       }
     }
@@ -1493,7 +1538,7 @@ export class OfficeState {
       brief: wanted.brief,
     };
     this.roleList = [...this.roleList, role];
-    this.addLog(null, 'system', `Заведена роль ${role.title} (${role.id})`);
+    this.addLog(null, 'system', this.say('state.role.created', { title: role.title, id: role.id }));
     this.roleSetChanged(before);
     return { role };
   }
@@ -1504,15 +1549,14 @@ export class OfficeState {
    */
   async editRole(roleId: string, patch: Partial<RoleEditable>): Promise<FieldError[]> {
     const role = this.role(roleId);
-    if (!role) return [{ field: '', message: `Роли «${roleId}» нет в офисе.` }];
+    if (!role) return [{ field: '', message: this.say('state.role.missing', { role: roleId }) }];
     // Переименовать PM во что-то другое нельзя: на этой роли держится раздача
     // задач, и «Проектный менеджер», ставший «Верстальщиком», — это офис,
     // в котором менеджера больше нет, хотя в списке он есть.
     if (role.isManager && 'title' in patch && String(patch.title ?? '').trim() !== role.title) {
       return [{
         field: 'title',
-        message: 'Менеджера нельзя переименовать в другую роль — на нём держится раздача задач. ' +
-          'Заведите новую роль, если нужен ещё один участник.',
+        message: this.say('state.role.pmRename'),
       }];
     }
     const errors = await this.checkRolePatch(patch, roleId);
@@ -1530,11 +1574,11 @@ export class OfficeState {
    */
   archiveRole(roleId: string, archived: boolean): FieldError[] {
     const role = this.role(roleId);
-    if (!role) return [{ field: '', message: `Роли «${roleId}» нет в офисе.` }];
+    if (!role) return [{ field: '', message: this.say('state.role.missing', { role: roleId }) }];
     if (role.isManager) {
       return [{
         field: '',
-        message: 'Менеджера нельзя убрать в архив: без него офису не с кем разговаривать.',
+        message: this.say('state.role.pmArchive'),
       }];
     }
     if (role.archived === archived) return [];
@@ -1543,25 +1587,26 @@ export class OfficeState {
       if (staff.length) {
         return [{
           field: '',
-          message: `В роли «${role.title}» ещё работают: ${staff.map((i) => i.id).join(', ')}. ` +
-            'Сначала уволите их — архивная роль не может держать сотрудников.',
+          message: this.say('state.role.archiveBusy', {
+            title: role.title, who: staff.map((i) => i.id).join(', '),
+          }),
         }];
       }
       const live = this.liveTasksOf(roleId);
       if (live.length) {
         return [{
           field: '',
-          message: `У роли «${role.title}» незакрытые задачи: ${live.map((t) => t.id).join(', ')}. ` +
-            'Дождитесь их или остановите, а потом убирайте роль в архив.',
+          message: this.say('state.role.archiveTasks', {
+            title: role.title, tasks: live.map((t) => t.id).join(', '),
+          }),
         }];
       }
     }
     const before = this.roleMenuSignature();
     this.roleList = this.roleList.map((r) => (r.id === roleId ? { ...r, archived } : r));
     this.addLog(null, 'system', archived
-      ? `Роль ${role.title} (${roleId}) убрана в архив — в найме её больше нет, ` +
-        'в истории задач она остаётся'
-      : `Роль ${role.title} (${roleId}) возвращена из архива`);
+      ? this.say('state.role.archived', { title: role.title, id: roleId })
+      : this.say('state.role.restored', { title: role.title, id: roleId }));
     this.roleSetChanged(before);
     return [];
   }
@@ -1573,25 +1618,24 @@ export class OfficeState {
    */
   removeRole(roleId: string): FieldError[] {
     const role = this.role(roleId);
-    if (!role) return [{ field: '', message: `Роли «${roleId}» нет в офисе.` }];
+    if (!role) return [{ field: '', message: this.say('state.role.missing', { role: roleId }) }];
     if (role.isManager) {
-      return [{ field: '', message: 'Менеджера удалить нельзя — офис без него не работает.' }];
+      return [{ field: '', message: this.say('state.role.pmRemove') }];
     }
     if (!this.roleRemovable(role)) {
       const tasks = this.tasksOf(roleId).length;
       const staff = this.staffOf(roleId).length;
       const trace = tasks
-        ? `на неё оформлено задач: ${tasks}`
-        : `в ней ещё числятся сотрудники: ${staff}`;
+        ? this.say('state.role.removeTraceTasks', { n: tasks })
+        : this.say('state.role.removeTraceStaff', { n: staff });
       return [{
         field: '',
-        message: `Роль «${role.title}» стереть насовсем нельзя — ${trace}. ` +
-          'Уберите её в архив: из найма она пропадёт, а история останется читаемой.',
+        message: this.say('state.role.removeRefused', { title: role.title, trace }),
       }];
     }
     const before = this.roleMenuSignature();
     this.roleList = this.roleList.filter((r) => r.id !== roleId);
-    this.addLog(null, 'system', `Роль ${role.title} (${roleId}) удалена — следов в истории у неё не было`);
+    this.addLog(null, 'system', this.say('state.role.removed', { title: role.title, id: roleId }));
     this.roleSetChanged(before);
     return [];
   }
@@ -1636,8 +1680,12 @@ export class OfficeState {
       (r.id === roleId ? { ...r, ...(clean as Partial<Role>) } : r));
     if ('permissionMode' in clean && clean.permissionMode !== base.permissionMode) {
       this.addLog(null, 'system', clean.permissionMode
-        ? `Режим доступа роли ${base.title}: «${modeLabel(clean.permissionMode)}»`
-        : `Роль ${base.title} снова по режиму офиса: «${modeLabel(this.officeMode())}»`);
+        ? this.say('state.role.modeSet', {
+          title: base.title, mode: modeLabel(clean.permissionMode, this.lang()),
+        })
+        : this.say('state.role.modeInherited', {
+          title: base.title, mode: modeLabel(this.officeMode(), this.lang()),
+        }));
     }
     // Ярлыки инстансов зависят от названия роли.
     for (const inst of this.instances.values()) {
@@ -1647,7 +1695,8 @@ export class OfficeState {
       inst.label = `${role.title}${role.maxInstances > 1 ? ` #${n}` : ''}`;
       this.emit({ t: 'instance', instance: this.instanceView(inst) });
     }
-    this.addLog(null, 'system', `Роль ${roleId} изменена: ${Object.keys(clean).join(', ')}`);
+    this.addLog(null, 'system',
+      this.say('state.role.updated', { role: roleId, fields: Object.keys(clean).join(', ') }));
     // Название роли вшито в описание assign у менеджера — переименование
     // меняет перечень так же, как заведение новой роли.
     this.roleSetChanged(beforeMenu);
@@ -1662,7 +1711,11 @@ export class OfficeState {
     const prevMode = this.settings.officePermissionMode;
     const prevLayout = this.settings.layoutId;
     const prevWorkers = this.workerLimit();
+    const prevLang = this.lang();
     const next = { ...patch };
+    // Язык приходит от клиента: неизвестное значение оставило бы офис без
+    // словаря, и каждая фраза выродилась бы в голый ключ.
+    if ('language' in next && !isLang(next.language)) delete next.language;
     // Режим приходит от клиента: чужое значение испортило бы решение по
     // каждому вызову инструмента, поэтому непонятное просто не берём.
     if ('officePermissionMode' in next && !isPermissionMode(next.officePermissionMode)) {
@@ -1684,8 +1737,9 @@ export class OfficeState {
     // ждёт, что офис переставится. Тихо оставленная прежняя выглядела бы как
     // «кнопка не работает», поэтому про неизвестный id говорим прямо.
     if (next.layoutId !== undefined && next.layoutId !== prevLayout && !hasLayout(next.layoutId)) {
-      const known = layoutOptions().map((l) => l.id).join(', ') || 'ни одной';
-      return `Раскладки «${next.layoutId}» нет в design/layouts. Доступны: ${known}.`;
+      const known = layoutOptions().map((l) => l.id).join(', ')
+        || this.say('state.settings.noLayoutsAtAll');
+      return this.say('state.settings.noLayout', { id: String(next.layoutId), known });
     }
 
     this.settings = { ...this.settings, ...next };
@@ -1694,7 +1748,8 @@ export class OfficeState {
       // Раскладка меняет офис на глаз, а не одно число в форме, — это событие
       // для ленты. Вместе с пресетом меняется и оверрайд: у каждого пресета
       // своя расстановка, и на новом офис показывает то, что правили на нём.
-      this.addLog(null, 'system', `Раскладка офиса: «${layoutTitle(this.settings.layoutId)}»`);
+      this.addLog(null, 'system',
+        this.say('state.layout.changed', { preset: layoutTitle(this.settings.layoutId) }));
       // Прежний пресет передаём дальше: если мест в новом не хватит, офис
       // предложит вернуться именно к нему, по имени.
       this.afterLayoutChange(prevLayout);
@@ -1705,9 +1760,13 @@ export class OfficeState {
     // завершения им уже незачем.
     if (this.workerLimit() !== prevWorkers) {
       this.addLog(null, 'system',
-        `Одновременно исполнителей в офисе: ${this.workerLimit()} (было ${prevWorkers})`);
+        this.say('state.settings.workers', { now: this.workerLimit(), before: prevWorkers }));
       if (this.workerLimit() > prevWorkers) workerLimitWatcher?.();
     }
+    // Язык меняет не одно поле, а весь голос офиса: подписи, ленту, брифы
+    // базовых ролей и системный промпт менеджера. Поэтому смена языка — это
+    // отдельная работа, а не просто новое значение в настройках.
+    if (this.lang() !== prevLang) this.applyLanguage(prevLang);
     // Смена режима офиса меняет эффективный режим всех, кто его наследует, —
     // без этого UI показывал бы старое до следующего снимка.
     if (this.settings.officePermissionMode !== prevMode) {
@@ -1718,10 +1777,46 @@ export class OfficeState {
       // Смена режима — событие для человека, а не деталь настроек: с этой
       // минуты меняется, о чём офис перестаёт спрашивать.
       this.addLog(null, 'system',
-        `Режим доступа офиса: «${modeLabel(this.officeMode())}»`);
+        this.say('state.settings.officeMode', { mode: modeLabel(this.officeMode(), this.lang()) }));
     }
     this.markDirty();
     return null;
+  }
+
+  /**
+   * Перевести офис на новый язык.
+   *
+   * Названия и брифы базовых ролей — тот же текст для человека и для модели,
+   * что и подписи в интерфейсе, и оставлять их на прежнем языке нельзя: бриф
+   * уезжает в системный промпт исполнителя, а название — на его бейдж.
+   * Переводятся только те, которых не правили руками: совпадает с базовым
+   * текстом прежнего языка — значит, это наш текст, а не пользовательский.
+   */
+  private applyLanguage(prevLang: Lang): void {
+    const lang = this.lang();
+    setProcessLang(lang);
+    for (const role of this.roleList) {
+      const was = defaultRole(role.id, prevLang);
+      // Роль завели руками — её слова наши только по форме, а не по смыслу.
+      if (!was) continue;
+      const now = defaultRole(role.id, lang)!;
+      if (role.title === was.title) role.title = now.title;
+      if (role.brief === was.brief) role.brief = now.brief;
+    }
+    // Ярлык сотрудника собран из названия роли — переводится вместе с ним.
+    for (const inst of this.instances.values()) {
+      const role = this.role(inst.roleId);
+      if (!role) continue;
+      const n = inst.id.split('#')[1] ?? '1';
+      inst.label = `${role.title}${role.maxInstances > 1 ? ` #${n}` : ''}`;
+      this.emit({ t: 'instance', instance: this.instanceView(inst) });
+    }
+    this.emit({ t: 'roles', roles: this.roleViews() });
+    this.addLog(null, 'system', this.say('state.settings.language', { lang: LANG_TITLE[lang] }));
+    // Сессию менеджера перезапускаем всегда, а не только когда перечень ролей
+    // стал другим: язык вшит в его системный промпт, и продолжать разговор
+    // по-английски в русском офисе он бы не стал.
+    roleSetWatcher?.(this);
   }
 
   /**
@@ -1735,8 +1830,10 @@ export class OfficeState {
     const view = this.instanceView(inst);
     this.emit({ t: 'instance', instance: view });
     this.addLog(instanceId, 'system', mode
-      ? `Режим доступа сотрудника: «${modeLabel(mode)}» (личное правило)`
-      : `Личное правило снято — работает по режиму роли: «${modeLabel(view.effectivePermissionMode)}»`);
+      ? this.say('state.agent.modeSet', { mode: modeLabel(mode, this.lang()) })
+      : this.say('state.agent.modeInherited', {
+        mode: modeLabel(view.effectivePermissionMode, this.lang()),
+      }));
     this.markDirty();
   }
 
@@ -1766,26 +1863,27 @@ export class OfficeState {
    */
   hire(roleId: string): string | null {
     const role = this.role(roleId);
-    if (!role) return `Роли «${roleId}» нет в офисе.`;
+    if (!role) return this.say('state.role.missing', { role: roleId });
     // Архивная роль находится по id ради истории, но нанимать в неё нельзя:
     // её для того и убрали, чтобы офис перестал в ней работать.
     if (role.archived) {
-      return `Роль «${role.title}» в архиве — нанимать в неё некого. ` +
-        'Верните её из архива, если работа снова нужна.';
+      return this.say('state.hire.archived', { title: role.title });
     }
     const staff = this.staffOf(roleId);
     if (staff.length >= role.maxInstances) {
-      return `${role.title}: уже нанято ${staff.length} из ${role.maxInstances} — ` +
-        'больше эта роль не вмещает. Лимит меняется в настройках роли.';
+      return this.say('state.hire.full', {
+        title: role.title, n: staff.length, max: role.maxInstances,
+      });
     }
     const inst = this.spawn(roleId);
     if (!inst) {
       // Верхняя граница штата — число столов в раскладке ЭТОГО офиса:
       // в тесной раскладке офис вмещает меньше людей, чем в просторной.
-      return `Некуда посадить: в раскладке «${layoutTitle(this.settings.layoutId)}» ` +
-        `${this.deskPlan().desks.length} рабочих мест и все заняты. Сначала увольте кого-нибудь.`;
+      return this.say('state.hire.noDesk', {
+        preset: layoutTitle(this.settings.layoutId), desks: this.deskPlan().desks.length,
+      });
     }
-    this.addLog(null, 'system', `Нанят ${inst.label} (${inst.id})`);
+    this.addLog(null, 'system', this.say('state.hire.done', { label: inst.label, id: inst.id }));
     this.emit({ t: 'roles', roles: this.roleViews() });
     return null;
   }
@@ -1797,12 +1895,11 @@ export class OfficeState {
    */
   fire(instanceId: string): string | null {
     const inst = this.instances.get(instanceId);
-    if (!inst) return 'Такого сотрудника нет.';
+    if (!inst) return this.say('state.fire.missing');
     const role = this.role(inst.roleId);
-    if (role?.isManager) return 'PM — единственный, кого нельзя уволить.';
+    if (role?.isManager) return this.say('state.fire.pm');
     if (inst.currentTaskId) {
-      return `${inst.label} сейчас работает над задачей ${inst.currentTaskId}. ` +
-        'Дождитесь её или остановите задачу — тогда сотрудника можно будет уволить.';
+      return this.say('state.fire.busy', { label: inst.label, task: inst.currentTaskId });
     }
     inst.abort?.abort();
     this.instances.delete(instanceId);
@@ -1811,8 +1908,10 @@ export class OfficeState {
     this.emit({ t: 'instance.remove', id: instanceId });
     this.emit({ t: 'roles', roles: this.roleViews() });
     const left = this.staffOf(inst.roleId).length;
-    this.addLog(null, 'system', `Уволен ${inst.label} (${inst.id})` +
-      (left === 0 ? `. В роли «${role?.title ?? inst.roleId}» больше никого — вакансия открыта` : ''));
+    this.addLog(null, 'system', this.say('state.fire.done', { label: inst.label, id: inst.id })
+      + (left === 0
+        ? this.say('state.fire.roleEmpty', { title: role?.title ?? inst.roleId })
+        : ''));
     this.markDirty();
     return null;
   }
@@ -1882,7 +1981,7 @@ export class OfficeState {
       number: null,
       url: null,
       stage: 'sync',
-      note: 'Подтягиваю основную ветку.',
+      note: this.say('state.pr.pullingBase'),
       rounds: 0,
       retries: 0,
       nextTryAt: null,

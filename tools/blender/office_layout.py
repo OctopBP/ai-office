@@ -28,6 +28,12 @@ WINDOW_SILL = 0.9
 WINDOW_HEAD = 1.9
 FLOOR_THICK = 0.12
 
+#: Продолжение коробки за центр крайней клетки участка (geometry.ts, JOIN/OPENING/CAP):
+#: стыковка с соседней стеной, граница проёма внутри отрезка, свободный конец.
+JOIN = 1
+OPENING = 0.5
+CAP = WALL_THICK / 2
+
 #: Тайлов в одной единице модели Kenney (props.ts, MODEL_SCALE).
 MODEL_SCALE = 2 / 0.75
 
@@ -198,16 +204,31 @@ def _wall_cells(wall: dict):
     def cell_at(i):
         return (ax + i * step, ay) if horizontal else (ax, ay + i * step)
 
-    return kinds, cell_at, horizontal, n
+    return kinds, cell_at, horizontal, step, n
 
 
-def _run_box(cells, horizontal, base, h) -> Box:
+def _run_box(cells, horizontal, base, h, ext_lo, ext_hi) -> Box:
     x0 = min(c[0] for c in cells)
     y0 = min(c[1] for c in cells)
-    along = len(cells)
+    start = x0 if horizontal else y0
+    lo = start + 0.5 - ext_lo
+    hi = start + len(cells) - 0.5 + ext_hi
+    along = hi - lo
+    mid = (lo + hi) / 2
     if horizontal:
-        return Box(x0 + along / 2, y0 + 0.5, along, WALL_THICK, h, base)
-    return Box(x0 + 0.5, y0 + along / 2, WALL_THICK, along, h, base)
+        return Box(mid, y0 + 0.5, along, WALL_THICK, h, base)
+    return Box(x0 + 0.5, mid, WALL_THICK, along, h, base)
+
+
+def _wall_body_cells(layout: dict) -> set:
+    """Клетки всех стен, где есть тело стены; проёмы не в счёт."""
+    body = set()
+    for wall in layout.get('walls', []):
+        kinds, cell_at, _horizontal, _step, n = _wall_cells(wall)
+        for i in range(n):
+            if kinds[i] != 'gap':
+                body.add(cell_at(i))
+    return body
 
 
 def floors_of(layout: dict) -> list[tuple[str, str, Box]]:
@@ -221,9 +242,16 @@ def floors_of(layout: dict) -> list[tuple[str, str, Box]]:
 
 def walls_of(layout: dict) -> list[list[Box]]:
     """Стены отрезками: список коробок на каждый отрезок раскладки."""
+    body = _wall_body_cells(layout)
     result = []
     for wall in layout.get('walls', []):
-        kinds, cell_at, horizontal, n = _wall_cells(wall)
+        kinds, cell_at, horizontal, step, n = _wall_cells(wall)
+
+        def ext(outside, cell_at=cell_at, n=n):
+            if 0 <= outside < n:
+                return OPENING
+            return JOIN if cell_at(outside) in body else CAP
+
         boxes: list[Box] = []
         i = 0
         while i < n:
@@ -233,12 +261,18 @@ def walls_of(layout: dict) -> list[list[Box]]:
                 j += 1
             if kind != 'gap':
                 cells = [cell_at(k) for k in range(i, j)]
+                ext_first, ext_last = ext(i - 1), ext(j)
+                ext_lo = ext_first if step > 0 else ext_last
+                ext_hi = ext_last if step > 0 else ext_first
                 if kind == 'solid':
-                    boxes.append(_run_box(cells, horizontal, 0, WALL_H))
+                    boxes.append(_run_box(cells, horizontal, 0, WALL_H, ext_lo, ext_hi))
                 else:
-                    boxes.append(_run_box(cells, horizontal, 0, WINDOW_SILL))
-                    boxes.append(_run_box(cells, horizontal, WINDOW_HEAD, WALL_H - WINDOW_HEAD))
-                    glass = _run_box(cells, horizontal, WINDOW_SILL, WINDOW_HEAD - WINDOW_SILL)
+                    boxes.append(_run_box(cells, horizontal, 0, WINDOW_SILL, ext_lo, ext_hi))
+                    boxes.append(_run_box(
+                        cells, horizontal, WINDOW_HEAD, WALL_H - WINDOW_HEAD, ext_lo, ext_hi))
+                    glass = _run_box(
+                        cells, horizontal, WINDOW_SILL, WINDOW_HEAD - WINDOW_SILL,
+                        ext_lo, ext_hi)
                     if horizontal:
                         glass.d = WALL_THICK * 0.25
                     else:

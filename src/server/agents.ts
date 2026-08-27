@@ -7,7 +7,9 @@ import {
   totalRunningWorkers, worktreesRoot,
   type Instance, type OfficeState, type Task,
 } from './state';
-import { DEFAULT_PROCESS_WORKERS, emptyUsage } from '../shared/types';
+import { DEFAULT_PROCESS_WORKERS, emptyUsage, OFFICE_SENDER } from '../shared/types';
+import { LANG_NAME_EN, type Lang, type Vars } from '../shared/i18n';
+import { t, type ServerKey } from './i18n';
 import type { PrStage, PullRequestView, ReviewVerdict } from '../shared/types';
 import { cloudProblem, runCloudTask, stopCloudTask } from './cloud';
 import type { Role } from './roles';
@@ -51,14 +53,12 @@ export function processWorkerCap(): number {
 export function slotProblem(state: OfficeState): string | null {
   const limit = state.workerLimit();
   if (state.running >= limit) {
-    return `в офисе уже работают ${state.running} исполнителей из ${limit} разрешённых ` +
-      '(настройки → «Модели и лимиты» → «Одновременно исполнителей»)';
+    return state.say('agent.slot.office', { n: state.running, limit });
   }
   const total = totalRunningWorkers();
   const cap = processWorkerCap();
   if (total >= cap) {
-    return `по всем офисам сразу работают ${total} исполнителей из ${cap} — ` +
-      'это общий потолок на процесс, он считается поверх офисных лимитов';
+    return state.say('agent.slot.process', { n: total, cap });
   }
   return null;
 }
@@ -72,10 +72,9 @@ export function slotProblem(state: OfficeState): string | null {
 function queueForSlot(state: OfficeState, task: Task, problem: string): void {
   if (state.waitingForSlot.has(task.id)) return;
   state.waitingForSlot.add(task.id);
-  state.addChat('офис',
-    `⏳ ${task.id} «${task.title}» ждёт очереди: ${problem}. ` +
-    'Задача никуда не делась — она стартует сама, как только освободится слот.');
-  state.addLog(null, 'system', `${task.id}: ждёт свободного слота исполнителя`);
+  state.addChat(OFFICE_SENDER,
+    state.say('agent.queue.chat', { task: task.id, title: task.title, problem }));
+  state.addLog(null, 'system', state.say('agent.queue.log', { task: task.id }));
 }
 
 /**
@@ -115,8 +114,9 @@ function startWaiting(): void {
       if (slotProblem(state)) return;      // мест снова нет — ждём следующего освобождения
       const outcome = officeAssign(state, taskId);
       if (!outcome.ok) return;             // пауза, бюджет, некому взять — попробуем позже
-      state.addChat('офис',
-        `▶ ${taskId} «${task.title}»: слот освободился — задача пошла в работу (${outcome.message}).`);
+      state.addChat(OFFICE_SENDER, state.say('agent.queue.started', {
+        task: taskId, title: task.title, message: outcome.message,
+      }));
     }
   }
 }
@@ -150,9 +150,9 @@ function projectBrief(state: OfficeState): string {
     const text = readFileSync(resolve(state.projectDir, 'OFFICE.md'), 'utf8').trim();
     if (!text) return '';
     const body = text.length > BRIEF_LIMIT
-      ? `${text.slice(0, BRIEF_LIMIT)}\n… (бриф обрезан, полностью — в OFFICE.md)`
+      ? `${text.slice(0, BRIEF_LIMIT)}\n${state.say('prompt.brief.clipped')}`
       : text;
-    return `\n\nО ПРОЕКТЕ — из OFFICE.md рабочей директории:\n${body}`;
+    return `\n\n${state.say('prompt.brief.header')}\n${body}`;
   } catch {
     return '';   // брифа нет — работаем как раньше
   }
@@ -188,25 +188,26 @@ const clip = (s: unknown, n = 70): string => {
 };
 
 /** Короткая подпись действия — то, что видно в пузыре над головой. */
-function toolBrief(name: string, input: Record<string, unknown>): string {
+function toolBrief(name: string, input: Record<string, unknown>, lang: Lang): string {
+  const say = (key: ServerKey, what: unknown): string => t(lang, key, { what: String(what) });
   switch (name) {
-    case 'Read':      return `читает ${base(input.file_path)}`;
-    case 'Write':     return `создаёт ${base(input.file_path)}`;
-    case 'Edit':      return `правит ${base(input.file_path)}`;
+    case 'Read':      return say('bubble.read', base(input.file_path));
+    case 'Write':     return say('bubble.write', base(input.file_path));
+    case 'Edit':      return say('bubble.edit', base(input.file_path));
     case 'Bash':      return `$ ${clip(input.command, 48)}`;
-    case 'Glob':      return `ищет ${clip(input.pattern, 30)}`;
-    case 'Grep':      return `грепает ${clip(input.pattern, 30)}`;
-    case 'TodoWrite': return 'планирует';
-    case 'WebSearch': return `гуглит ${clip(input.query, 30)}`;
+    case 'Glob':      return say('bubble.glob', clip(input.pattern, 30));
+    case 'Grep':      return say('bubble.grep', clip(input.pattern, 30));
+    case 'TodoWrite': return t(lang, 'bubble.todo');
+    case 'WebSearch': return say('bubble.search', clip(input.query, 30));
     default: {
       if (name.startsWith('mcp__')) {
         const short = name.split('__').pop() ?? name;
         if (short === 'say') return clip(input.text, 70);
-        if (short === 'create_task') return `создаёт задачу: ${clip(input.title, 40)}`;
-        if (short === 'assign_task') return `назначает ${input.taskId}`;
-        if (short === 'finish_task') return 'сдаёт работу';
-        if (short === 'list_team') return 'смотрит, кто свободен';
-        if (short === 'get_board') return 'смотрит доску';
+        if (short === 'create_task') return say('bubble.createTask', clip(input.title, 40));
+        if (short === 'assign_task') return say('bubble.assignTask', input.taskId);
+        if (short === 'finish_task') return t(lang, 'bubble.finishTask');
+        if (short === 'list_team') return t(lang, 'bubble.listTeam');
+        if (short === 'get_board') return t(lang, 'bubble.getBoard');
         return short;
       }
       return name;
@@ -221,15 +222,15 @@ function isOk(msg: Extract<SDKMessage, { type: 'result' }>): msg is SDKResultSuc
 }
 
 /** Человекочитаемая причина завершения сессии. */
-function resultReason(msg: Extract<SDKMessage, { type: 'result' }>): string {
+function resultReason(msg: Extract<SDKMessage, { type: 'result' }>, lang: Lang): string {
   if (msg.subtype === 'error_max_budget_usd') {
-    return 'исчерпан бюджет задачи — повысьте лимит в настройках офиса или разбейте задачу на части';
+    return t(lang, 'agent.result.budget');
   }
   // Про лимит ходов SDK пишет «Reached maximum number of turns (60)», и по
   // этой строке не догадаться, что цифра настраивается. Говорим прямо — иначе
   // человек решает, что упёрся в потолок Claude Code.
   if (msg.subtype === 'error_max_turns') {
-    return 'исчерпан лимит шагов исполнителя — поднимите его в настройках офиса («Модели и лимиты») или разбейте задачу на части';
+    return t(lang, 'agent.result.maxTurns');
   }
   if ('result' in msg && typeof msg.result === 'string' && msg.result.trim()) return msg.result;
   return msg.subtype;
@@ -258,17 +259,19 @@ function consume(
   if (msg.type === 'assistant') {
     for (const block of msg.message.content ?? []) {
       if (block.type === 'thinking') {
-        state.setState(instanceId, 'thinking', 'думает…');
+        state.setState(instanceId, 'thinking', state.say('agent.state.thinking'));
       } else if (block.type === 'text') {
         const text = block.text?.trim();
         if (text) state.addLog(instanceId, 'text', clip(text, 400));
       } else if (block.type === 'tool_use') {
-        const brief = toolBrief(block.name, block.input as Record<string, unknown>);
+        const brief = toolBrief(block.name, block.input as Record<string, unknown>, state.lang());
         state.setState(instanceId, 'working', brief);
         state.addLog(instanceId, 'tool', `${block.name}: ${brief}`);
       }
     }
-    if (msg.error) state.addLog(instanceId, 'error', `Ошибка модели: ${msg.error}`);
+    if (msg.error) {
+      state.addLog(instanceId, 'error', state.say('agent.log.modelError', { error: String(msg.error) }));
+    }
     return;
   }
 
@@ -284,8 +287,9 @@ function consume(
       cacheWrite: usage?.cache_creation_input_tokens ?? 0,
     });
     if (!isOk(msg)) {
-      const reason = resultReason(msg);
-      state.addLog(instanceId, 'error', `Сессия завершилась ошибкой: ${clip(reason, 200)}`);
+      const reason = resultReason(msg, state.lang());
+      state.addLog(instanceId, 'error',
+        state.say('agent.log.sessionFailed', { reason: clip(reason, 200) }));
     }
   }
 }
@@ -334,16 +338,16 @@ function permissionHandler(
     if (state.paused && inst && !role?.isManager) {
       const wasState = inst.state;
       const wasNote = inst.note;
-      state.setState(instanceId, 'paused', 'офис на паузе');
-      state.addLog(instanceId, 'system', `Пауза офиса: ${toolName} ждёт продолжения`);
+      state.setState(instanceId, 'paused', state.say('agent.state.paused'));
+      state.addLog(instanceId, 'system', state.say('agent.log.pause', { tool: toolName }));
       await state.whenResumed(options.signal);
       if (options.signal.aborted) {
-        return { behavior: 'deny', message: 'Работа прервана, пока офис стоял на паузе.' };
+        return { behavior: 'deny', message: state.say('agent.deny.paused') };
       }
       state.setState(instanceId, wasState, wasNote);
     }
 
-    const verdict = classify(toolName, input, workdir);
+    const verdict = classify(toolName, input, workdir, state.lang());
 
     if (verdict.risk === 'safe') {
       return { behavior: 'allow', updatedInput: input };
@@ -354,8 +358,7 @@ function permissionHandler(
     if (role && state.isAlwaysDenied(role.id, verdict.key)) {
       return {
         behavior: 'deny',
-        message: `Пользователь запретил «${verdict.key}» для этой роли до конца сессии. ` +
-          'Не пытайся обойти запрет другим способом — реши задачу иначе или объясни в отчёте, почему нельзя.',
+        message: state.say('agent.deny.sessionBan', { key: verdict.key }),
       };
     }
 
@@ -364,7 +367,7 @@ function permissionHandler(
     if (byMode === 'deny') {
       return {
         behavior: 'deny',
-        message: 'Эта роль работает в режиме «только чтение» и не может менять файлы или запускать команды.',
+        message: state.say('agent.deny.readonly'),
       };
     }
 
@@ -377,7 +380,8 @@ function permissionHandler(
     // в шум, в котором настоящее «удалил файлы» уже не разглядеть.
     if (byMode === 'allow') {
       if (verdict.risk === 'danger') {
-        state.addLog(instanceId, 'system', autoApprovedText(mode, toolName, verdict), true);
+        state.addLog(instanceId, 'system',
+          autoApprovedText(mode, toolName, verdict, state.lang()), true);
       }
       return { behavior: 'allow', updatedInput: input };
     }
@@ -390,8 +394,10 @@ function permissionHandler(
 
     const prevState = inst?.state ?? 'working';
     const prevNote = inst?.note ?? null;
-    state.setState(instanceId, 'waiting_approval', `ждёт разрешения: ${verdict.summary}`);
-    state.addLog(instanceId, 'system', `Просит разрешение — ${toolName}: ${verdict.reason}`);
+    state.setState(instanceId, 'waiting_approval',
+      state.say('agent.state.waitingApproval', { what: verdict.summary }));
+    state.addLog(instanceId, 'system',
+      state.say('agent.log.asksPermission', { tool: toolName, reason: verdict.reason }));
 
     const decision = await state.requestPermission(
       {
@@ -410,17 +416,11 @@ function permissionHandler(
     state.setState(instanceId, prevState, prevNote);
 
     if (decision === 'deny' || decision === 'never') {
-      state.addLog(instanceId, 'system', `Пользователь запретил: ${verdict.summary}`);
-      return {
-        behavior: 'deny',
-        message:
-          'Пользователь запретил это действие. НЕ пытайся добиться того же результата обходным путём — ' +
-          'через интерпретатор (python -c, node -e), другую утилиту или иной приём: это прямое нарушение запрета. ' +
-          'Если без этого действия задачу не решить, прекрати попытки и напиши в отчёте, что именно заблокировано.',
-      };
+      state.addLog(instanceId, 'system', state.say('agent.log.userDenied', { what: verdict.summary }));
+      return { behavior: 'deny', message: state.say('agent.deny.user') };
     }
 
-    state.addLog(instanceId, 'system', `Пользователь разрешил: ${verdict.summary}`);
+    state.addLog(instanceId, 'system', state.say('agent.log.userAllowed', { what: verdict.summary }));
     return { behavior: 'allow', updatedInput: input };
   };
 }
@@ -433,121 +433,30 @@ function permissionHandler(
  * для него — единственный способ говорить о делах предметно, а не общими словами.
  */
 /** Стадии конвейера словами: их читает менеджер, а не интерфейс. */
-const PR_STAGE_TEXT: Record<PrStage, string> = {
-  sync: 'подтягивается основная ветка',
-  checks: 'идут проверки проекта',
-  opening: 'открывается пулл-реквест',
-  review: 'смотрит ревьюер',
-  rework: 'автор дорабатывает по отзыву',
-  merging: 'вливается в основную ветку',
-  merged: 'влито',
-  stuck: 'ВСТАЛО, нужно твоё решение',
-};
+const stageText = (stage: PrStage, lang: Lang): string => t(lang, `pr.stage.${stage}`);
 
 function boardSummary(state: OfficeState): string {
   const tasks = [...state.tasks.values()];
-  if (!tasks.length) return 'Доска пуста.';
-  return tasks.map((t) => {
-    const { done, total } = criteriaProgress(t);
-    const marks = t.criteria.map((c) => `${c.done ? '✓' : '·'} ${c.text}`).join('; ');
-    const pr = state.prOf(t.id);
-    return `${t.id} [${t.status}] ${t.title} → ${t.assigneeId ?? '—'}` +
-      (pr ? `\n    ревью: ${PR_STAGE_TEXT[pr.stage]} — ${clip(pr.note, 160)}` : '') +
-      (total ? `\n    критерии ${done}/${total}: ${clip(marks, 200)}` : '') +
-      (t.result ? `\n    результат: ${clip(t.result, 160)}` : '');
+  if (!tasks.length) return state.say('prompt.board.empty');
+  const lang = state.lang();
+  return tasks.map((task) => {
+    const { done, total } = criteriaProgress(task);
+    const marks = task.criteria.map((c) => `${c.done ? '✓' : '·'} ${c.text}`).join('; ');
+    const pr = state.prOf(task.id);
+    return `${task.id} [${task.status}] ${task.title} → ${task.assigneeId ?? '—'}` +
+      (pr ? `\n    ${state.say('prompt.board.review')}: ${stageText(pr.stage, lang)} — ${clip(pr.note, 160)}` : '') +
+      (total ? `\n    ${state.say('prompt.board.criteria')} ${done}/${total}: ${clip(marks, 200)}` : '') +
+      (task.result ? `\n    ${state.say('prompt.board.result')}: ${clip(task.result, 160)}` : '');
   }).join('\n');
 }
 
-const PM_PROMPT = `Ты — проектный менеджер (PM) в команде AI-агентов. Ты управляешь командой, но НЕ пишешь код сам — у тебя нет доступа к файлам.
-
-ГЛАВНОЕ ПРАВИЛО: действие считается выполненным, только если ты вызвал инструмент.
-Написать «я поручил задачу разработчику», не вызвав create_task и assign_task, — это ложь.
-Доска задач — единственный источник правды, и пользователь смотрит на неё, а не на твои слова.
-
-Любая просьба пользователя — это работа для КОМАНДЫ, а не для тебя лично. Даже когда она
-звучит как обращение к тебе («сделай», «запиши», «проверь», «запусти»), твоя работа —
-оформить её задачей и назначить исполнителя, а не объяснять, что у тебя нет доступа к файлам.
-Отсутствие у тебя инструментов — не повод для отказа: инструменты есть у исполнителей.
-Отказывайся, только если задача не по силам никому в команде.
-
-Рабочий цикл на каждую просьбу пользователя:
-1. list_team — посмотри, кто есть в команде и кто сейчас свободен.
-2. Разбей работу на задачи: одна задача = один исполнитель = один осязаемый результат.
-   На каждую вызови create_task.
-3. На каждую созданную задачу вызови assign_task. Он возвращается СРАЗУ, исполнитель работает
-   в фоне. Раздай все независимые задачи подряд, НЕ жди результата первой — так команда
-   работает параллельно.
-4. Коротко (2–3 предложения) скажи пользователю, что раздал.
-
-Когда приходит системное сообщение о завершении задачи — оцени результат.
-Всё хорошо → скажи пользователю, что сделано и что задача пошла на ревью.
-Нужна доработка по существу → создай и назначь новую задачу.
-Когда все задачи по просьбе закрыты — дай короткое финальное резюме.
-
-Про ревью и слияние. За тем, чтобы сданная работа доехала до основной ветки,
-следишь ТЫ, а не пользователь. Он сказал, что нужно сделать, — дальше это дело офиса.
-- review_status — где сейчас каждая сданная задача: ревьюят её, дорабатывают,
-  офис перезапускает конвейер или ждёт твоего решения. Загляни туда, прежде чем
-  говорить пользователю «готово»: пока задача не влита, она не готова.
-- Вставший конвейер офис перезапускает САМ, до трёх раз с растущей паузой. Пока
-  он пробует — не делай ничего и не пересказывай это пользователю.
-- Системное сообщение приходит только тогда, когда сам он дальше не поедет.
-  Тогда решай и ДЕЙСТВУЙ САМ: заведи задачу на исправление и назначь её,
-  переформулируй эту, отдай другой роли. Не пересказывай беду пользователю и не
-  жди от него указаний — он для того тебя и держит.
-- К пользователю обращайся только за тем, чего никто в офисе сделать не может:
-  нанять сотрудника в пустую роль, поднять бюджет, дать доступ. Одной фразой:
-  что именно нужно и зачем.
-- retry_review({taskId}) — толкнуть конвейер, который ждёт решения, после того как
-  ты устранил причину (например, починил соседнюю задачу). Дёргать его без
-  изменений бессмысленно: он встанет ровно там же.
-- Слить ветку руками ты не можешь и не должен: у тебя нет такого инструмента.
-
-Офис за тобой подстраховывает и сам присылает системные сообщения, когда работа стоит.
-Это не отчёты для пользователя, а работа для тебя:
-- «на доске стоят задачи, которые никто не выполняет» — раздай их (assign_task) или ответь,
-  что ждёшь другую задачу. Промолчишь — через десять минут офис раздаст их сам.
-- «офис отдал задачу N исполнителю» — это уже сделано за тебя, второй раз не раздавай.
-- «на доске лежат провалившиеся задачи» — разбери их сам. Упала по лимиту ходов —
-  поставь заново, разбив на части поменьше; устарела — оставь как есть.
-- «работу оборвал перезапуск» — офис уже возобновил её, делать ничего не нужно.
-Пользователю про всё это не докладывай: он держит тебя ровно для того, чтобы не следить
-за такими вещами. Скажи ему, только если нужен именно он — нанять сотрудника, поднять
-лимит трат, дать доступ.
-
-Как устроена изоляция (важно, иначе будешь ставить невыполнимые задачи и врать про результат):
-- КАЖДЫЙ исполнитель работает в своей ветке и своей рабочей копии — и разработчики,
-  и документные роли (дизайнер, SMM, юрист). Они не видят изменений друг друга,
-  и в основной директории этих изменений пока нет.
-- Сданную работу офис ведёт дальше САМ, без тебя и без пользователя: подтягивает основную
-  ветку в ветку задачи, просит автора разобрать конфликты, гоняет проверки проекта,
-  открывает пулл-реквест, отдаёт его ревьюеру и по одобрению вливает, а ветку убирает.
-  Поэтому не создавай задачи «сделать ревью», «слить ветку», «разрешить конфликт» —
-  это уже происходит само, и такая задача будет вторым исполнителем в той же ветке.
-- Пока конвейер идёт, задача стоит в статусе review. Говори пользователю честно:
-  «сделано, идёт ревью» — а не «влито», пока не пришло системное сообщение о слиянии.
-- Конвейер зовёт тебя ровно в одном случае: он ВСТАЛ (не разошлись конфликты, не проходят
-  проверки, ревьюер вернул работу больше двух раз подряд). Тогда придёт системное сообщение —
-  реши, что делать: переформулировать задачу, поставить новую, отдать другой роли.
-- Не создавай задачу «проверить, что результаты обеих задач на месте»: пока задача не влита,
-  проверять нечего, и исполнитель честно ничего не найдёт.
-- Документные роли складывают файлы в docs/<роль>/<задача>/ внутри своей ветки.
-- Роли могут работать в РАЗНЫХ репозиториях: у такой роли в list_team указан её
-  репозиторий. Одна задача живёт ровно в одном репозитории. Работу, которая задевает
-  два, разбивай на две задачи разным ролям и в описании каждой пиши, на что со стороны
-  соседа она опирается. Не поручай роли править чужой репозиторий — она его не видит.
-
-Правила декомпозиции:
-- Исполнитель НЕ видит вашу переписку с пользователем. Всё нужное пиши в description задачи:
-  что сделать, где, в каком стиле, какие файлы и технологии.
-- acceptanceCriteria — СПИСОК отдельных проверяемых пунктов (2–5), каждый из которых можно
-  отметить галочкой независимо: «файл api/notes.js экспортирует CRUD-роуты», «GET /notes
-  возвращает список». Не пиши один абзац: исполнитель отмечает пункты по ходу работы,
-  и пользователь видит прогресс «2 из 4».
-- Не создавай задачи «обсудить», «подумать», «спланировать» — только те, у которых есть артефакт.
-- Не дроби на микрозадачи: 2–4 задачи на типичную просьбу.
-
-Отвечай пользователю по-русски и коротко.`;
+/**
+ * Системный промпт менеджера — на языке офиса. Отдельная функция, а не
+ * константа: язык у каждого офиса свой, и один и тот же процесс держит
+ * русский офис и английский одновременно.
+ */
+const pmPrompt = (state: OfficeState): string =>
+  state.say('prompt.pm.system', { lang: LANG_NAME_EN[state.lang()] });
 
 /**
  * Почему роли сейчас нельзя отдать задачу: в ней не осталось сотрудников.
@@ -557,7 +466,7 @@ const PM_PROMPT = `Ты — проектный менеджер (PM) в кома
 export function noStaffReason(roleId: string, state: OfficeState): string | null {
   if (state.staffOf(roleId).length > 0) return null;
   const title = state.role(roleId)?.title ?? roleId;
-  return `В роли ${roleId} (${title}) сейчас нет ни одного сотрудника — вакансия открыта, работать некому.`;
+  return state.say('agent.noStaff', { role: roleId, title });
 }
 
 /**
@@ -571,17 +480,22 @@ export function teamSummary(state: OfficeState): string {
     // Роль без сотрудников — открытая вакансия: она есть в реестре, но
     // работать некому, пока пользователь не наймёт человека.
     const desc = insts.length
-      ? insts.map((i) => `${i.id} — ${i.currentTaskId ? `занят (${i.currentTaskId})` : 'свободен'}`).join(', ')
-      : 'сотрудников нет (можно нанять) — задачи этой роли выполнять некому';
+      ? insts.map((i) => `${i.id} — ${i.currentTaskId
+        ? state.say('prompt.team.busy', { task: i.currentTaskId })
+        : state.say('prompt.team.free')}`).join(', ')
+      : state.say('prompt.team.vacant');
     const first = role.brief.split('\n')[0] ?? '';
     const repo = state.repoFor(role);
     // Репозиторий называем, только если он свой: иначе строка одинаковая
     // у всех и лишь удлиняет ответ.
-    const where = repo === state.projectDir ? '' : `\n  репозиторий: ${repo}`;
+    const where = repo === state.projectDir
+      ? ''
+      : `\n  ${state.say('prompt.team.repo')}: ${repo}`;
+    const result = state.say(role.isolate ? 'prompt.team.isolated' : 'prompt.team.direct');
     return `- ${role.id} (${role.title})${first ? ` — ${first}` : ''}\n  ${desc}${where}` +
-      `\n  результат: ${role.isolate ? 'в отдельной ветке, нужно слияние' : 'сразу в рабочей директории'}`;
+      `\n  ${state.say('prompt.team.result')}: ${result}`;
   });
-  return `Команда:\n${lines.join('\n')}`;
+  return `${state.say('prompt.team.header')}\n${lines.join('\n')}`;
 }
 
 /**
@@ -592,11 +506,11 @@ export function teamSummary(state: OfficeState): string {
 const teamTools = (state: OfficeState) => createSdkMcpServer({
   name: 'team',
   version: '1.0.0',
-  instructions: 'Инструменты управления командой офиса.',
+  instructions: state.say('tool.team.instructions'),
   tools: [
     tool(
       'list_team',
-      'Показать состав команды: роли, конкретных исполнителей и кто сейчас свободен. Вызывай это первым делом, прежде чем создавать и раздавать задачи.',
+      state.say('tool.listTeam.desc'),
       {},
       async () => ({ content: [{ type: 'text', text: teamSummary(state) }] }),
       { annotations: { readOnlyHint: true } },
@@ -604,19 +518,14 @@ const teamTools = (state: OfficeState) => createSdkMcpServer({
 
     tool(
       'create_task',
-      'Создать задачу на доске. Одна задача = один исполнитель = один осязаемый результат. Возвращает id задачи, который нужно передать в assign_task.',
+      state.say('tool.createTask.desc'),
       {
-        title: z.string().describe('Короткий заголовок, до 60 символов'),
-        description: z.string().describe('Полное ТЗ для исполнителя. Он не видит переписку с пользователем — опиши всё: что сделать, в каких файлах, каким стеком.'),
-        acceptanceCriteria: z.array(z.string()).describe(
-          'Список проверяемых пунктов готовности, 2–5 штук. Каждый — отдельная строка, ' +
-          'которую исполнитель отметит выполненной по ходу работы.',
-        ),
-        roleId: z.string().describe(
-          `id роли-исполнителя, строго один из: ${state.workerRoles().map((r) => `${r.id} (${r.title})`).join(', ')}. ` +
-          'Выбирай по специализации, а не по первой попавшейся: неверная роль — это ' +
-          'документ, написанный разработчиком, или код, написанный юристом.',
-        ),
+        title: z.string().describe(state.say('tool.createTask.title')),
+        description: z.string().describe(state.say('tool.createTask.description')),
+        acceptanceCriteria: z.array(z.string()).describe(state.say('tool.createTask.criteria')),
+        roleId: z.string().describe(state.say('tool.createTask.role', {
+          roles: state.workerRoles().map((r) => `${r.id} (${r.title})`).join(', '),
+        })),
       },
       async (args) => {
         // Список ролей не дублируем в схеме: перечисление в enum уже один раз
@@ -626,8 +535,9 @@ const teamTools = (state: OfficeState) => createSdkMcpServer({
           return {
             content: [{
               type: 'text',
-              text: `Неизвестная роль «${args.roleId}». Доступные: ${valid.join(', ')}. ` +
-                'Посмотри list_team, там указано, кто чем занимается.',
+              text: state.say('tool.createTask.badRole', {
+                role: args.roleId, valid: valid.join(', '),
+              }),
             }],
             isError: true,
           };
@@ -637,8 +547,7 @@ const teamTools = (state: OfficeState) => createSdkMcpServer({
           return {
             content: [{
               type: 'text',
-              text: 'Нужен хотя бы один проверяемый критерий готовности — без него ' +
-                'исполнителю нечего отмечать, а пользователю нечего проверять.',
+              text: state.say('tool.createTask.noCriteria'),
             }],
             isError: true,
           };
@@ -652,27 +561,28 @@ const teamTools = (state: OfficeState) => createSdkMcpServer({
         // Предупреждаем сразу: иначе менеджер узнает о пустой роли только из
         // отказа assign_task и успеет пообещать пользователю работу.
         const empty = state.staffOf(args.roleId).length === 0
-          ? `. Внимание: в роли ${args.roleId} сейчас нет сотрудников — назначить задачу будет некому,` +
-            ' пока пользователь не наймёт человека на эту роль'
+          ? state.say('tool.createTask.roleEmpty', { role: args.roleId })
           : '';
-        return { content: [{ type: 'text', text: `Создана задача ${task.id}: ${task.title} (роль ${args.roleId}), критериев ${criteria.length}${empty}` }] };
+        const ok = state.say('tool.createTask.ok', {
+          task: task.id, title: task.title, role: args.roleId, n: criteria.length,
+        });
+        return { content: [{ type: 'text', text: `${ok}${empty}` }] };
       },
     ),
 
     tool(
       'assign_task',
-      'Назначить задачу исполнителю и запустить работу. ВОЗВРАЩАЕТСЯ СРАЗУ — исполнитель работает в фоне, результат придёт тебе отдельным системным сообщением. Вызывай подряд для всех независимых задач, чтобы команда работала параллельно.',
+      state.say('tool.assignTask.desc'),
       {
-        taskId: z.string().describe('id задачи из create_task, например T-1'),
-        instanceId: z.string().default('').describe('Конкретный исполнитель, например backend#1. Пусто — выбрать свободного автоматически.'),
+        taskId: z.string().describe(state.say('tool.assignTask.taskId')),
+        instanceId: z.string().default('').describe(state.say('tool.assignTask.instanceId')),
       },
       async (args) => {
         if (state.paused) {
           return {
             content: [{
               type: 'text',
-              text: 'Офис на паузе — новые задачи не запускаются. Задача остаётся на доске; ' +
-                'скажи пользователю, что она ждёт снятия паузы, и не пытайся назначить её снова.',
+              text: state.say('tool.assignTask.paused'),
             }],
             isError: true,
           };
@@ -682,8 +592,7 @@ const teamTools = (state: OfficeState) => createSdkMcpServer({
           return {
             content: [{
               type: 'text',
-              text: `Офис работает в облачном режиме, но он не настроен: ${cloudBlocked} ` +
-                'Задача остаётся на доске — скажи об этом пользователю.',
+              text: state.say('tool.assignTask.cloudBroken', { problem: cloudBlocked }),
             }],
             isError: true,
           };
@@ -693,8 +602,9 @@ const teamTools = (state: OfficeState) => createSdkMcpServer({
           return {
             content: [{
               type: 'text',
-              text: `Общий бюджет офиса исчерпан: потрачено $${state.totalCost().toFixed(2)} из $${cap?.toFixed(2)}. ` +
-                'Новые задачи не запускаются. Сообщи об этом пользователю — он поднимет лимит в настройках.',
+              text: state.say('tool.assignTask.budget', {
+                spent: state.totalCost().toFixed(2), cap: cap?.toFixed(2) ?? '—',
+              }),
             }],
             isError: true,
           };
@@ -702,10 +612,19 @@ const teamTools = (state: OfficeState) => createSdkMcpServer({
 
         const task = state.tasks.get(args.taskId);
         if (!task) {
-          return { content: [{ type: 'text', text: `Задачи ${args.taskId} нет на доске` }], isError: true };
+          return {
+            content: [{ type: 'text', text: state.say('tool.assignTask.noTask', { task: args.taskId }) }],
+            isError: true,
+          };
         }
         if (task.assigneeId) {
-          return { content: [{ type: 'text', text: `${task.id} уже назначена на ${task.assigneeId}` }], isError: true };
+          return {
+            content: [{
+              type: 'text',
+              text: state.say('tool.assignTask.already', { task: task.id, who: task.assigneeId }),
+            }],
+            isError: true,
+          };
         }
         const roleId = task.roleId ?? 'backend';
         // Роль, из которой уволили всех, не доукомплектовываем молча: сотрудников
@@ -716,9 +635,7 @@ const teamTools = (state: OfficeState) => createSdkMcpServer({
           return {
             content: [{
               type: 'text',
-              text: `${noStaff} ${task.id} остаётся на доске. Скажи пользователю, что на эту роль ` +
-                'нужно кого-то нанять, либо переназначь задачу роли, которой она по силам. ' +
-                'Повторно вызывать assign_task на эту роль бессмысленно.',
+              text: state.say('tool.assignTask.noStaff', { problem: noStaff, task: task.id }),
             }],
             isError: true,
           };
@@ -732,9 +649,7 @@ const teamTools = (state: OfficeState) => createSdkMcpServer({
           return {
             content: [{
               type: 'text',
-              text: `${task.id} поставлена в очередь: ${noSlot}. Офис запустит её сам, ` +
-                'как только освободится слот, — назначать её повторно не нужно. ' +
-                'Скажи пользователю, что задача принята и ждёт очереди.',
+              text: state.say('tool.assignTask.queued', { task: task.id, problem: noSlot }),
             }],
           };
         }
@@ -748,36 +663,45 @@ const teamTools = (state: OfficeState) => createSdkMcpServer({
             content: [{
               type: 'text',
               text: args.instanceId
-                ? `Исполнителя ${args.instanceId} нет в офисе — возможно, его уволили. ` +
-                  'Посмотри list_team и назови того, кто есть, или оставь поле пустым.'
-                : `Все исполнители роли ${roleId} заняты, свободных рабочих мест нет. Дождись завершения текущих задач.`,
+                ? state.say('tool.assignTask.noSuchWorker', { who: args.instanceId })
+                : state.say('tool.assignTask.allBusy', { role: roleId }),
             }],
             isError: true,
           };
         }
         if (inst.currentTaskId) {
-          return { content: [{ type: 'text', text: `${inst.id} сейчас занят задачей ${inst.currentTaskId}` }], isError: true };
+          return {
+            content: [{
+              type: 'text',
+              text: state.say('tool.assignTask.workerBusy', { who: inst.id, task: inst.currentTaskId }),
+            }],
+            isError: true,
+          };
         }
 
         startWorker(state, task, inst);
-        return { content: [{ type: 'text', text: `${task.id} назначена на ${inst.id}, работа началась. Не жди — раздавай остальные задачи.` }] };
+        return {
+          content: [{
+            type: 'text',
+            text: state.say('tool.assignTask.ok', { task: task.id, who: inst.id }),
+          }],
+        };
       },
     ),
 
     tool(
       'review_status',
-      'Что происходит со сданными задачами: стадия ревью и слияния по каждой. ' +
-      'Смотри сюда, прежде чем отвечать пользователю «готово»: пока задача не влита, она не готова.',
+      state.say('tool.reviewStatus.desc'),
       {},
       async () => {
         const prs = [...state.prs.values()];
         if (!prs.length) {
-          return { content: [{ type: 'text', text: 'Сданных задач в конвейере нет.' }] };
+          return { content: [{ type: 'text', text: state.say('tool.reviewStatus.empty') }] };
         }
         const text = prs
           .sort((a, b) => b.updatedAt - a.updatedAt)
-          .map((pr) => `${pr.taskId} «${pr.title}» — ${PR_STAGE_TEXT[pr.stage]}` +
-            `${pr.rounds ? `, кругов доработки: ${pr.rounds}` : ''}` +
+          .map((pr) => `${pr.taskId} «${pr.title}» — ${stageText(pr.stage, state.lang())}` +
+            `${pr.rounds ? state.say('tool.reviewStatus.rounds', { n: pr.rounds }) : ''}` +
             `${pr.url ? `, ${pr.url}` : ''}\n    ${clip(pr.note, 200)}`)
           .join('\n');
         return { content: [{ type: 'text', text }] };
@@ -787,33 +711,40 @@ const teamTools = (state: OfficeState) => createSdkMcpServer({
 
     tool(
       'retry_review',
-      'Толкнуть вставший конвейер по задаче: он продолжит с той стадии, где встал. ' +
-      'Помогает, когда причина остановки уже устранена — например, соседнюю задачу починили ' +
-      'и конфликт больше не возникнет. Если причина осталась, конвейер встанет снова: ' +
-      'дёргать его подряд без изменений бессмысленно.',
-      { taskId: z.string().describe('id задачи, например T-3') },
+      state.say('tool.retryReview.desc'),
+      { taskId: z.string().describe(state.say('tool.retryReview.taskId')) },
       async (args) => {
         const pr = state.prOf(args.taskId);
         if (!pr) {
           return {
-            content: [{ type: 'text', text: `По ${args.taskId} конвейера не было — сдавать на ревью нечего.` }],
+            content: [{
+              type: 'text',
+              text: state.say('tool.retryReview.noPipeline', { task: args.taskId }),
+            }],
             isError: true,
           };
         }
         if (pr.stage !== 'stuck') {
           return {
-            content: [{ type: 'text', text: `${args.taskId}: конвейер не стоит — сейчас ${PR_STAGE_TEXT[pr.stage]}. Просто дождись.` }],
+            content: [{
+              type: 'text',
+              text: state.say('tool.retryReview.notStuck', {
+                task: args.taskId, stage: stageText(pr.stage, state.lang()),
+              }),
+            }],
             isError: true,
           };
         }
         void retryPipeline(state, args.taskId);
-        return { content: [{ type: 'text', text: `${args.taskId}: конвейер запущен заново. Результат придёт системным сообщением.` }] };
+        return {
+          content: [{ type: 'text', text: state.say('tool.retryReview.ok', { task: args.taskId }) }],
+        };
       },
     ),
 
     tool(
       'get_board',
-      'Текущее состояние доски задач со статусами и результатами.',
+      state.say('tool.getBoard.desc'),
       {},
       async () => ({ content: [{ type: 'text', text: boardSummary(state) }] }),
       { annotations: { readOnlyHint: true } },
@@ -821,11 +752,11 @@ const teamTools = (state: OfficeState) => createSdkMcpServer({
 
     tool(
       'say',
-      'Сказать короткую реплику, которая появится пузырём над твоей головой в офисе. Используй, чтобы пользователь видел, чем ты занят.',
-      { text: z.string().describe('До 70 символов') },
+      state.say('tool.say.pm.desc'),
+      { text: z.string().describe(state.say('tool.say.limit')) },
       async (args) => {
         state.setState('pm#1', state.instances.get('pm#1')?.state ?? 'working', clip(args.text));
-        return { content: [{ type: 'text', text: 'ок' }] };
+        return { content: [{ type: 'text', text: state.say('tool.ok') }] };
       },
     ),
   ],
@@ -840,14 +771,16 @@ function startPm(state: OfficeState): void {
   // Продолжаем прошлую сессию, если она известна: так PM помнит, о чём шла речь
   // до перезапуска, и не платит за пересборку контекста.
   const resumeId = state.instances.get('pm#1')?.sessionId ?? undefined;
-  if (resumeId) state.addLog('pm#1', 'system', `Продолжаю сессию ${resumeId.slice(0, 8)}…`);
+  if (resumeId) {
+    state.addLog('pm#1', 'system', state.say('agent.log.resumingSession', { id: resumeId.slice(0, 8) }));
+  }
 
   const session = query({
     prompt: queue,
     options: {
       resume: resumeId,
       model: state.role('pm')!.model,
-      systemPrompt: PM_PROMPT + projectBrief(state),
+      systemPrompt: pmPrompt(state) + projectBrief(state),
       cwd: state.projectDir,
       tools: [],                         // у PM нет доступа к файлам — только командные инструменты
       mcpServers: { team: teamTools(state) },
@@ -866,9 +799,9 @@ function startPm(state: OfficeState): void {
           if (isOk(msg) && msg.result?.trim()) {
             state.addChat('pm#1', msg.result.trim());
           } else if (!isOk(msg)) {
-            const reason = resultReason(msg);
-            state.addChat('офис', `⚠️ PM не смог ответить: ${clip(reason, 300)}`);
-            state.setState('pm#1', 'failed', 'ошибка');
+            const reason = resultReason(msg, state.lang());
+            state.addChat(OFFICE_SENDER, state.say('agent.pm.noAnswer', { reason: clip(reason, 300) }));
+            state.setState('pm#1', 'failed', state.say('agent.state.error'));
           }
           if (state.instances.get('pm#1')?.state !== 'failed') {
             state.setState('pm#1', 'idle', null);
@@ -881,18 +814,16 @@ function startPm(state: OfficeState): void {
       }
     } catch (err) {
       const message = (err as Error).message;
-      state.addLog('pm#1', 'error', `Сессия PM упала: ${message}`);
+      state.addLog('pm#1', 'error', state.say('agent.log.pmCrashed', { error: message }));
       if (resumeId) {
         // Скорее всего прошлой сессии уже нет на диске — забываем её,
         // чтобы следующее сообщение начало разговор заново.
         state.setSessionId('pm#1', '');
-        state.addChat('офис',
-          '⚠️ Не удалось продолжить прошлую сессию PM. Она забыта — отправьте сообщение ещё раз, ' +
-          'разговор начнётся заново (доска задач при этом сохранена).');
+        state.addChat(OFFICE_SENDER, state.say('agent.pm.lostSession'));
       } else {
-        state.addChat('офис', `⚠️ Сессия PM упала: ${clip(message, 200)}`);
+        state.addChat(OFFICE_SENDER, state.say('agent.pm.crashed', { error: clip(message, 200) }));
       }
-      state.setState('pm#1', 'failed', 'сессия упала');
+      state.setState('pm#1', 'failed', state.say('agent.state.sessionFailed'));
     } finally {
       // Сессию могли уже заменить (например сбросом офиса) — тогда очередь
       // принадлежит новой сессии, и обнулять ссылки нельзя: её сообщения
@@ -941,8 +872,7 @@ function restartPm(state: OfficeState): void {
   state.pmQueue = null;
   state.pmLoop = null;
   state.addLog('pm#1', 'system',
-    'Набор ролей изменился — сессия менеджера перезапущена. ' +
-    'Разговор продолжится с того же места, но роли он увидит уже новые.');
+    state.say('agent.pm.restarted'));
 }
 
 // Набор ролей правят из окна управления агентами, а перечень исполнителей
@@ -953,7 +883,7 @@ onRoleSetChanged(restartPm);
 export function sendUserMessage(state: OfficeState, text: string): void {
   startPm(state);
   state.addChat('user', text);
-  state.setState('pm#1', 'thinking', 'читает задачу…');
+  state.setState('pm#1', 'thinking', state.say('agent.state.readingTask'));
   state.setBusy(true);
   state.pmQueue?.push(text);
 }
@@ -993,7 +923,7 @@ export async function holdMeeting(
   participantIds: string[],
 ): Promise<void> {
   if (meetingOffice.meetingRunning) {
-    meetingOffice.addChat('офис', 'Совещание уже идёт — дождитесь окончания.', 'meeting');
+    meetingOffice.addChat(OFFICE_SENDER, meetingOffice.say('meeting.alreadyRunning'), 'meeting');
     return;
   }
   // Раньше менеджер отсеивался здесь по роли: считалось, что он не участник,
@@ -1007,36 +937,36 @@ export async function holdMeeting(
     .filter((i): i is Instance => Boolean(i));
 
   if (participants.length < 2) {
-    meetingOffice.addChat('офис', 'Для совещания нужно минимум два участника.', 'meeting');
+    meetingOffice.addChat(OFFICE_SENDER, meetingOffice.say('meeting.needTwo'), 'meeting');
     return;
   }
   // Занятость проверяем только у исполнителей: у менеджера задач на руках не
   // бывает, а прерывать из-за совещания обработку доски мы и не хотим.
   const busy = participants.find((i) => !isManager(meetingOffice, i) && i.currentTaskId);
   if (busy) {
-    meetingOffice.addChat('офис',
-      `${busy.label} занят задачей ${busy.currentTaskId}. Дождитесь окончания или остановите задачу.`,
+    meetingOffice.addChat(OFFICE_SENDER,
+      meetingOffice.say('meeting.busy', { who: busy.label, task: busy.currentTaskId ?? '' }),
       'meeting');
     return;
   }
   if (meetingOffice.paused) {
-    meetingOffice.addChat('офис', 'Офис на паузе — совещание не начинается. Снимите паузу (SPACE).', 'meeting');
+    meetingOffice.addChat(OFFICE_SENDER, meetingOffice.say('meeting.paused'), 'meeting');
     return;
   }
   if (meetingOffice.budgetExhausted()) {
-    meetingOffice.addChat('офис', 'Бюджет офиса исчерпан — совещание не запускается.', 'meeting');
+    meetingOffice.addChat(OFFICE_SENDER, meetingOffice.say('meeting.budget'), 'meeting');
     return;
   }
 
   meetingOffice.meetingRunning = true;
   const id = `M-${Date.now().toString(36)}`;
   meetingOffice.setMeeting({ id, topic, participants: participants.map((p) => p.id), speaking: null, status: 'running' });
-  meetingOffice.addChat('user', `Тема совещания: ${topic}`, 'meeting');
+  meetingOffice.addChat('user', meetingOffice.say('meeting.topic', { topic }), 'meeting');
   // Что было до совещания — чтобы вернуть менеджера ровно туда, откуда позвали:
   // его сессия живёт своей жизнью, и «свободен» после совещания было бы враньём,
   // если он в это время разбирал сообщение пользователя.
   const stateBefore = new Map(participants.map((p) => [p.id, { state: p.state, note: p.note }]));
-  for (const p of participants) meetingOffice.setState(p.id, 'talking', 'на совещании');
+  for (const p of participants) meetingOffice.setState(p.id, 'talking', meetingOffice.say('agent.state.inMeeting'));
 
   const said: Array<{ id: string; title: string; text: string }> = [];
 
@@ -1045,31 +975,31 @@ export async function holdMeeting(
       const role = meetingOffice.role(inst.roleId);
       if (!role) continue;
       meetingOffice.setMeeting({ id, topic, participants: participants.map((p) => p.id), speaking: inst.id, status: 'running' });
-      meetingOffice.setState(inst.id, 'talking', 'говорит');
+      meetingOffice.setState(inst.id, 'talking', meetingOffice.say('agent.state.speaking'));
 
       const before = said.length
-        ? `Уже высказались:\n${said.map((s) => `— ${s.title} (${s.id}): ${s.text}`).join('\n\n')}\n\n`
+        ? `${meetingOffice.say('meeting.saidSoFar')}\n` +
+          `${said.map((s) => `— ${s.title} (${s.id}): ${s.text}`).join('\n\n')}\n\n`
         : '';
 
-      const turn =
-        'Твоя очередь. Ответь по существу, 3–6 предложений: что важно с точки зрения твоей роли, ' +
-        'с чем согласен или не согласен из сказанного, что предлагаешь конкретно. ' +
-        'Не повторяй уже сказанное и не пересказывай тему.';
+      const turn = meetingOffice.say('meeting.turn');
 
       // Менеджеру вместо файлов даём доску: файлов он не видит по устройству роли,
       // и предметно говорить ему позволяет именно состояние задач.
+      const head = meetingOffice.say('meeting.topic', { topic });
       const prompt = isManager(meetingOffice, inst)
-        ? `Тема совещания: ${topic}\n\n${before}Доска задач сейчас:\n${boardSummary(meetingOffice)}\n\n${turn}`
-        : `Тема совещания: ${topic}\n\n${before}${turn}`;
+        ? `${head}\n\n${before}${meetingOffice.say('meeting.boardNow')}\n` +
+          `${boardSummary(meetingOffice)}\n\n${turn}`
+        : `${head}\n\n${before}${turn}`;
 
       let text = '';
       if (meetingOffice.dryRun) {
         // Проверяем поведение менеджера, а не содержательность реплик:
         // настоящие сессии участников тут не нужны и стоили бы дорого.
-        text = `[заглушка] Мнение роли ${role.title} по теме «${topic}».`;
+        text = meetingOffice.say('meeting.stub', { role: role.title, topic });
         said.push({ id: inst.id, title: role.title, text });
         meetingOffice.addChat(inst.id, text, 'meeting');
-        meetingOffice.setState(inst.id, 'talking', 'на совещании');
+        meetingOffice.setState(inst.id, 'talking', meetingOffice.say('agent.state.inMeeting'));
         continue;
       }
 
@@ -1080,20 +1010,15 @@ export async function holdMeeting(
       // стенограммой в свой разговор, когда совещание закончится.
       const systemPrompt = isManager(meetingOffice, inst)
         ? [
-            'Ты — проектный менеджер в команде AI-агентов. Кода ты не пишешь и файлов не видишь:',
-            'твоё — люди, приоритеты, порядок работ и то, чем решение обернётся для пользователя.',
+            meetingOffice.say('prompt.meeting.pm'),
             '',
-            'Ты на рабочем совещании с командой. Говори коротко и предметно, без вежливых',
-            'вступлений. Задач здесь не создавай и не раздавай — инструментов доски в этой',
-            'сессии нет, решения примешь после совещания.',
+            meetingOffice.say('prompt.meeting.pmTail'),
           ]
         : [
-            `Ты — ${role.title} в команде AI-агентов.`,
+            meetingOffice.say('prompt.meeting.worker', { role: role.title }),
             role.brief,
             '',
-            'Ты на рабочем совещании с коллегами. Говори как специалист своей роли: коротко,',
-            'предметно, без вежливых вступлений. Можешь посмотреть файлы проекта, чтобы',
-            'говорить по делу, но менять ничего нельзя.',
+            meetingOffice.say('prompt.meeting.workerTail'),
           ];
 
       const session = query({
@@ -1123,29 +1048,29 @@ export async function holdMeeting(
         said.push({ id: inst.id, title: role.title, text });
         meetingOffice.addChat(inst.id, text, 'meeting');
       } else {
-        meetingOffice.addChat('офис', `${inst.label} не смог высказаться.`, 'meeting');
+        meetingOffice.addChat(OFFICE_SENDER,
+          meetingOffice.say('meeting.noWords', { who: inst.label }), 'meeting');
       }
-      meetingOffice.setState(inst.id, 'talking', 'на совещании');
+      meetingOffice.setState(inst.id, 'talking', meetingOffice.say('agent.state.inMeeting'));
     }
 
     meetingOffice.setMeeting({ id, topic, participants: participants.map((p) => p.id), speaking: null, status: 'done' });
-    meetingOffice.addChat('офис',
-      'Совещание окончено. Итог и решения менеджер напишет в чате с ним.', 'meeting');
+    meetingOffice.addChat(OFFICE_SENDER, meetingOffice.say('meeting.over'), 'meeting');
 
     // Стенограмма уходит менеджеру в любом случае — итог подводит он. Если он
     // сам был на совещании, предупреждаем об этом: иначе он примет собственную
     // реплику за чужую и станет спорить сам с собой.
     const pmWasThere = participants.some((p) => isManager(meetingOffice, p));
     notifyPm(meetingOffice,
-      `[СИСТЕМА] Прошло совещание по теме «${topic}».` +
-      (pmWasThere ? ' Ты был на нём — в стенограмме есть и твоя реплика.' : '') +
+      meetingOffice.say('meeting.pmSummary', { topic }) +
+      (pmWasThere ? meetingOffice.say('meeting.pmWasThere') : '') +
       '\n\n' +
       said.map((s) => `${s.title} (${s.id}):\n${s.text}`).join('\n\n') +
-      '\n\nПодведи короткий итог для пользователя: к чему пришли, где расходятся мнения ' +
-      'и какие задачи из этого следуют. Задачи пока НЕ создавай — сначала дождись согласия пользователя.',
+      `\n\n${meetingOffice.say('meeting.pmAsk')}`,
     );
   } catch (err) {
-    meetingOffice.addChat('офис', `⚠️ Совещание оборвалось: ${clip((err as Error).message, 200)}`, 'meeting');
+    meetingOffice.addChat(OFFICE_SENDER,
+      meetingOffice.say('meeting.crashed', { error: clip((err as Error).message, 200) }), 'meeting');
     meetingOffice.setMeeting({ id, topic, participants: participants.map((p) => p.id), speaking: null, status: 'failed' });
   } finally {
     meetingOffice.meetingRunning = false;
@@ -1180,9 +1105,8 @@ export function talkTo(talkOffice: OfficeState, instanceId: string, text: string
   if (!role) return;
 
   if (inst.currentTaskId) {
-    talkOffice.addChat('офис',
-      `${inst.label} сейчас занят задачей ${inst.currentTaskId}. Дождитесь окончания — ` +
-      'прерывать работу посреди задачи дороже, чем подождать.', instanceId);
+    talkOffice.addChat(OFFICE_SENDER,
+      talkOffice.say('talk.busy', { who: inst.label, task: inst.currentTaskId }), instanceId);
     return;
   }
 
@@ -1190,24 +1114,20 @@ export function talkTo(talkOffice: OfficeState, instanceId: string, text: string
 
   const existing = talkOffice.talks.get(instanceId);
   if (existing) {
-    talkOffice.setState(instanceId, 'talking', 'разговор с вами');
+    talkOffice.setState(instanceId, 'talking', talkOffice.say('agent.state.talkingToYou'));
     existing.queue.push(text);
     return;
   }
 
   const queue = new MessageQueue();
   queue.push(text);
-  talkOffice.setState(instanceId, 'talking', 'разговор с вами');
+  talkOffice.setState(instanceId, 'talking', talkOffice.say('agent.state.talkingToYou'));
 
   const systemPrompt = [
-    `Ты — ${role.title} в команде AI-агентов.`,
+    talkOffice.say('prompt.talk.system', { role: role.title }),
     role.brief,
     '',
-    'Сейчас с тобой напрямую разговаривает пользователь — это не задача с доски.',
-    'Отвечай по существу и коротко. Ты можешь смотреть файлы проекта, чтобы ответить',
-    'предметно, но НЕ меняй их: правки делаются только в рамках поставленной задачи.',
-    'Если пользователь просит что-то изменить — скажи, что для этого нужно поставить',
-    'задачу через менеджера.',
+    talkOffice.say('prompt.talk.tail'),
   ].join('\n') + projectBrief(talkOffice);
 
   const session = query({
@@ -1232,7 +1152,9 @@ export function talkTo(talkOffice: OfficeState, instanceId: string, text: string
           if (isOk(msg) && msg.result?.trim()) {
             talkOffice.addChat(instanceId, msg.result.trim(), instanceId);
           } else if (!isOk(msg)) {
-            talkOffice.addChat('офис', `⚠️ ${clip(resultReason(msg), 200)}`, instanceId);
+            talkOffice.addChat(OFFICE_SENDER,
+              talkOffice.say('talk.failed', { reason: clip(resultReason(msg, talkOffice.lang()), 200) }),
+              instanceId);
           }
           if (!talkOffice.instances.get(instanceId)?.currentTaskId) {
             talkOffice.setState(instanceId, 'idle', null);
@@ -1240,7 +1162,8 @@ export function talkTo(talkOffice: OfficeState, instanceId: string, text: string
         }
       }
     } catch (err) {
-      talkOffice.addChat('офис', `⚠️ Разговор оборвался: ${clip((err as Error).message, 200)}`, instanceId);
+      talkOffice.addChat(OFFICE_SENDER,
+        talkOffice.say('talk.crashed', { error: clip((err as Error).message, 200) }), instanceId);
     } finally {
       talkOffice.talks.delete(instanceId);
     }
@@ -1275,21 +1198,20 @@ async function consultRole(
 ): Promise<{ ok: boolean; text: string }> {
   const asker = state.instances.get(askerId);
   const role = state.role(roleId);
-  if (!asker) return { ok: false, text: 'Спрашивающий не найден.' };
+  if (!asker) return { ok: false, text: state.say('consult.noAsker') };
   if (!role || role.isManager) {
     const names = state.workerRoles().map((r) => r.id).join(', ');
-    return { ok: false, text: `Роли «${roleId}» нет. Есть: ${names}.` };
+    return { ok: false, text: state.say('consult.noRole', { role: roleId, names }) };
   }
   if (role.id === asker.roleId) {
-    return { ok: false, text: 'Это твоя собственная роль — отвечать на такой вопрос тебе.' };
+    return { ok: false, text: state.say('consult.ownRole') };
   }
 
   const used = state.consultsByTask.get(taskId) ?? 0;
   if (used >= MAX_CONSULTS_PER_TASK) {
     return {
       ok: false,
-      text: `Лимит вопросов по задаче исчерпан (${MAX_CONSULTS_PER_TASK}). ` +
-        'Прими решение сам и опиши допущение в отчёте.',
+      text: state.say('consult.limit', { max: MAX_CONSULTS_PER_TASK }),
     };
   }
 
@@ -1302,42 +1224,38 @@ async function consultRole(
   if (!answerer) {
     return {
       ok: false,
-      text: `Все исполнители роли «${role.title}» сейчас заняты. Реши сам и опиши ` +
-        'в отчёте, на какое предположение опирался.',
+      text: state.say('consult.allBusy', { role: role.title }),
     };
   }
 
   state.consultsByTask.set(taskId, used + 1);
   const askerRole = state.role(asker.roleId);
-  state.addLog(askerId, 'system', `Вопрос к ${answerer.id}: ${clip(question, 120)}`);
+  state.addLog(askerId, 'system',
+    state.say('agent.log.question', { who: answerer.id, question: clip(question, 120) }));
   state.emit({ t: 'handoff', from: askerId, to: answerer.id, text: clip(question, 60) });
 
   const prevState = asker.state;
   const prevNote = asker.note;
-  state.setState(askerId, 'talking', `спрашивает ${answerer.label}`);
-  state.setState(answerer.id, 'talking', `отвечает ${asker.label}`);
+  state.setState(askerId, 'talking', state.say('agent.state.asking', { who: answerer.label }));
+  state.setState(answerer.id, 'talking', state.say('agent.state.answering', { who: asker.label }));
 
   let text = '';
   try {
     const session = query({
       prompt: [
-        `К тебе обратился коллега — ${askerRole?.title ?? asker.roleId}. Вопрос:`,
+        state.say('prompt.consult.intro', { role: askerRole?.title ?? asker.roleId }),
         '',
         question,
         '',
-        'Ответь по существу и коротко. Если ответ есть в твоём коде — посмотри и назови',
-        'конкретные файлы, функции и формат данных, а не общие слова. Если чего-то не',
-        'знаешь — так и скажи, не выдумывай.',
+        state.say('prompt.consult.tail'),
       ].join('\n'),
       options: {
         model: role.model,
         systemPrompt: [
-          `Ты — ${role.title} в команде AI-агентов.`,
+          state.say('prompt.consult.system', { role: role.title }),
           role.brief,
           '',
-          'Коллега из другой роли задаёт тебе вопрос по твоей части работы. Ты отвечаешь',
-          'как человек, который её писал: смотришь свой код и объясняешь, как есть.',
-          'Менять ничего нельзя — это разговор, а не задача.',
+          state.say('prompt.consult.systemTail'),
         ].join('\n') + projectBrief(state),
         cwd: state.repoFor(role),
         // Только чтение и никаких офисных инструментов: отвечающий не должен
@@ -1356,17 +1274,22 @@ async function consultRole(
     }
   } catch (err) {
     text = '';
-    state.addLog(answerer.id, 'error', `Не удалось ответить: ${(err as Error).message}`);
+    state.addLog(answerer.id, 'error',
+      state.say('agent.log.answerFailed', { error: (err as Error).message }));
   }
 
   state.setState(answerer.id, 'idle', null);
   state.setState(askerId, prevState, prevNote);
 
   if (!text) {
-    return { ok: false, text: `${answerer.label} не смог ответить. Реши сам и опиши допущение в отчёте.` };
+    return { ok: false, text: state.say('consult.failed', { who: answerer.label }) };
   }
-  state.addLog(answerer.id, 'text', `Ответ ${asker.id}: ${clip(text, 300)}`);
-  return { ok: true, text: `Ответил ${answerer.label} (${role.title}):\n\n${text}` };
+  state.addLog(answerer.id, 'text',
+    state.say('agent.log.answer', { who: asker.id, text: clip(text, 300) }));
+  return {
+    ok: true,
+    text: `${state.say('consult.answered', { who: answerer.label, role: role.title })}\n\n${text}`,
+  };
 }
 
 /**
@@ -1378,23 +1301,23 @@ function workerTools(state: OfficeState, instanceId: string, task: Task) {
   return createSdkMcpServer({
     name: 'office',
     version: '1.0.0',
-    instructions: 'Инструменты для связи с офисом.',
+    instructions: state.say('tool.office.instructions'),
     tools: [
       tool(
         'say',
-        'Сказать одной строкой, что ты делаешь прямо сейчас. Появится пузырём над твоей головой в офисе. Вызывай перед каждым логическим шагом работы.',
-        { text: z.string().describe('До 70 символов, настоящее время: «читаю схему БД»') },
+        state.say('tool.say.worker.desc'),
+        { text: z.string().describe(state.say('tool.say.worker.limit')) },
         async (args) => {
           state.setState(instanceId, 'working', clip(args.text));
-          return { content: [{ type: 'text', text: 'ок' }] };
+          return { content: [{ type: 'text', text: state.say('tool.ok') }] };
         },
       ),
       tool(
         'check_criterion',
-        'Отметить критерий готовности выполненным. Вызывай сразу, как пункт действительно сделан и проверен, — пользователь видит прогресс «2 из 4» в реальном времени.',
+        state.say('tool.checkCriterion.desc'),
         {
-          index: z.number().describe('Номер критерия из списка в задаче, начиная с 1'),
-          done: z.boolean().default(true).describe('false — снять отметку, если пункт снова сломался'),
+          index: z.number().describe(state.say('tool.checkCriterion.index')),
+          done: z.boolean().default(true).describe(state.say('tool.checkCriterion.done')),
         },
         async (args) => {
           const outcome = state.checkCriterion(task.id, args.index, args.done);
@@ -1403,12 +1326,10 @@ function workerTools(state: OfficeState, instanceId: string, task: Task) {
       ),
       tool(
         'ask_colleague',
-        'Спросить коллегу другой роли о его части работы: как устроен его код, какой формат данных, ' +
-        'почему сделано так. Отвечает живой исполнитель этой роли, глядя в свой проект. ' +
-        'Используй это ВМЕСТО того, чтобы лезть в чужой репозиторий или гадать.',
+        state.say('tool.askColleague.desc'),
         {
-          role: z.string().describe('id роли: backend, frontend, design, reviewer, artist, smm, legal'),
-          question: z.string().describe('Один конкретный вопрос. Не «расскажи про бэкенд», а «какой формат ответа у GET /notes».'),
+          role: z.string().describe(state.say('tool.askColleague.role')),
+          question: z.string().describe(state.say('tool.askColleague.question')),
         },
         async (args) => {
           const answer = await consultRole(state, instanceId, args.role, args.question, task.id);
@@ -1417,10 +1338,10 @@ function workerTools(state: OfficeState, instanceId: string, task: Task) {
       ),
       tool(
         'finish_task',
-        'Сдать выполненную задачу. Вызывай ровно один раз, когда работа полностью закончена.',
+        state.say('tool.finishTask.desc'),
         {
-          summary: z.string().describe('Что сделано, 2–4 предложения. Это увидит PM.'),
-          files: z.array(z.string()).default([]).describe('Пути к созданным и изменённым файлам'),
+          summary: z.string().describe(state.say('tool.finishTask.summary')),
+          files: z.array(z.string()).default([]).describe(state.say('tool.finishTask.files')),
         },
         async (args) => {
           const fresh = state.tasks.get(task.id);
@@ -1428,7 +1349,7 @@ function workerTools(state: OfficeState, instanceId: string, task: Task) {
           // Неотмеченные пункты не «дожимаем» за исполнителя: расхождение между
           // «сдал» и «отмечено» — это и есть сигнал пользователю посмотреть внимательнее.
           const gap = total && done < total
-            ? `\n\n⚠️ Отмечено критериев: ${done} из ${total}.`
+            ? `\n\n${state.say('tool.finishTask.partial', { done, total })}`
             : '';
           state.updateTask(task.id, {
             result: args.summary + gap, files: args.files, status: 'review',
@@ -1437,9 +1358,8 @@ function workerTools(state: OfficeState, instanceId: string, task: Task) {
             content: [{
               type: 'text',
               text: gap
-                ? `Работа принята офисом. Внимание: отмечено ${done} из ${total} критериев — ` +
-                  'если остальные тоже выполнены, отметь их через check_criterion.'
-                : 'Работа принята офисом.',
+                ? state.say('tool.finishTask.acceptedPartial', { done, total })
+                : state.say('tool.finishTask.accepted'),
             }],
           };
         },
@@ -1448,24 +1368,23 @@ function workerTools(state: OfficeState, instanceId: string, task: Task) {
   });
 }
 
-function workerPrompt(task: Task, artifactsDir: string | null, projectDir: string): string {
+function workerPrompt(
+  state: OfficeState, task: Task, artifactsDir: string | null, projectDir: string,
+): string {
   return [
-    `Задача ${task.id}: ${task.title}`,
+    state.say('prompt.task.header', { task: task.id, title: task.title }),
     '',
     task.description,
     '',
     task.criteria.length
-      ? 'Критерии готовности — отмечай каждый через check_criterion({index}), как только он ' +
-        'выполнен и проверен:\n' +
+      ? `${state.say('prompt.task.criteria')}\n` +
         task.criteria.map((c, i) => `${i + 1}. ${c.text}`).join('\n')
       : '',
     '',
     artifactsDir
-      ? `Твоя рабочая директория — ${artifactsDir}/, туда и клади все файлы по этой задаче. ` +
-        `Исходники проекта лежат в ${projectDir} — их можно читать, но не менять. ` +
-        'Запись за пределы своей папки будет остановлена и потребует подтверждения пользователя.'
+      ? state.say('prompt.task.docsDir', { dir: artifactsDir, project: projectDir })
       : '',
-    'Выполни задачу полностью и самостоятельно, затем вызови finish_task.',
+    state.say('prompt.task.finish'),
   ].filter(Boolean).join('\n');
 }
 
@@ -1486,7 +1405,7 @@ function startWorker(taskOffice: OfficeState, task: Task, inst: Instance): void 
     assigneeId: inst.id, status: 'in_progress', startedAt: Date.now(), finishedAt: null,
   });
   taskOffice.emit({ t: 'handoff', from: 'pm#1', to: inst.id, text: task.title });
-  taskOffice.setState(inst.id, 'working', 'берётся за задачу');
+  taskOffice.setState(inst.id, 'working', taskOffice.say('agent.state.takingTask'));
 
   // Режим проверки поведения менеджера: настоящую сессию исполнителя не поднимаем.
   // Так сценарии прогоняются за секунды и стоят только токенов PM.
@@ -1501,24 +1420,22 @@ function startWorker(taskOffice: OfficeState, task: Task, inst: Instance): void 
       if (stopped) {
         taskOffice.stoppedByUser.delete(task.id);
         taskOffice.updateTask(task.id, {
-          status: 'blocked', result: '⏹ Остановлена пользователем.', finishedAt: Date.now(),
+          status: 'blocked',
+          result: taskOffice.say('agent.task.stopped'),
+          finishedAt: Date.now(),
         });
-        notifyPm(taskOffice,
-          `[СИСТЕМА] Задача ${task.id} остановлена пользователем вручную. ` +
-          'Не назначай её заново по своей инициативе — дождись указания.',
-        );
+        notifyPm(taskOffice, taskOffice.say('agent.pmMsg.stopped', { task: task.id }));
         return;
       }
       taskOffice.updateTask(task.id, {
         status: 'done',
-        result: `[заглушка] Задача «${task.title}» выполнена.`,
+        result: taskOffice.say('agent.task.stub', { title: task.title }),
         finishedAt: Date.now(),
         criteria: task.criteria.map((c) => ({ ...c, done: true })),
       });
-      notifyPm(taskOffice,
-        `[СИСТЕМА] Задача ${task.id} «${task.title}» завершена исполнителем ${inst.id}.\n` +
-        'Отчёт: [заглушка] Задача выполнена.\nОцени результат и реши, что делать дальше.',
-      );
+      notifyPm(taskOffice, taskOffice.say('agent.pmMsg.stubDone', {
+        task: task.id, title: task.title, who: inst.id,
+      }));
     };
 
     const timer = setTimeout(() => finish(false), delay);
@@ -1531,25 +1448,10 @@ function startWorker(taskOffice: OfficeState, task: Task, inst: Instance): void 
   occupySlot(taskOffice);
 
   const systemPrompt = [
-    `Ты — ${role.title} в команде AI-агентов, работаешь в директории проекта.`,
+    taskOffice.say('prompt.worker.system', { role: role.title }),
     role.brief,
     '',
-    'Тебе выдана ровно одна задача. Ты НЕ видишь переписку PM с пользователем — вся нужная',
-    'информация в тексте задачи. Если чего-то не хватает, прими разумное решение сам и опиши его',
-    'в отчёте, а не останавливайся.',
-    '',
-    'Ты работаешь в своей рабочей копии. Соседние репозитории — чужая ответственность:',
-    'без крайней необходимости туда не ходи даже смотреть. Нужно знать, как устроена часть',
-    'другой роли — спроси через ask_colleague({role, question}): ответит живой коллега,',
-    'глядя в свой код. Это быстрее и честнее, чем догадываться.',
-    '',
-    'Перед каждым логическим шагом вызывай say({text}) — пользователь видит это над твоей головой.',
-    'Когда всё готово — вызови finish_task({summary, files}).',
-    '',
-    'Что происходит после сдачи: офис сам подтянет основную ветку в твою, прогонит проверки',
-    'проекта, откроет пулл-реквест и отдаст его ревьюеру. Сам НЕ сливай свою ветку в основную,',
-    'не пуш и не переключай ветки — этим занимается офис. Если ревьюер вернёт работу или',
-    'всплывёт конфликт, задачу вернут тебе же, в ту же ветку, с текстом отзыва.',
+    taskOffice.say('prompt.worker.tail'),
   ].join('\n') + projectBrief(taskOffice);
 
   if (taskOffice.settings.engine === 'cloud') {
@@ -1582,10 +1484,11 @@ function startWorker(taskOffice: OfficeState, task: Task, inst: Instance): void 
           taskOffice.updateTask(task.id, {
             branch: wt.branch, baseBranch: wt.base, worktreePath: wt.path,
           });
-          taskOffice.addLog(inst.id, 'system', `Рабочая копия: ${wt.branch}`);
+          taskOffice.addLog(inst.id, 'system',
+            taskOffice.say('agent.log.worktree', { branch: wt.branch }));
         } else {
           taskOffice.addLog(inst.id, 'error',
-            `Не удалось создать worktree для ${task.id}, работаю в общей директории`);
+            taskOffice.say('agent.log.worktreeFailed', { task: task.id }));
         }
       }
 
@@ -1604,7 +1507,7 @@ function startWorker(taskOffice: OfficeState, task: Task, inst: Instance): void 
       }
 
       const session = query({
-        prompt: workerPrompt(task, artifactsDir, repoDir),
+        prompt: workerPrompt(taskOffice, task, artifactsDir, repoDir),
         options: {
           model: role.model,
           systemPrompt: { type: 'preset', preset: 'claude_code', append: systemPrompt },
@@ -1633,7 +1536,7 @@ function startWorker(taskOffice: OfficeState, task: Task, inst: Instance): void 
         consume(taskOffice, inst.id, msg);
         if (msg.type === 'result') {
           if (isOk(msg)) finalText = msg.result ?? '';
-          else sessionFailed = clip(resultReason(msg), 300);
+          else sessionFailed = clip(resultReason(msg, taskOffice.lang()), 300);
         }
       }
 
@@ -1644,18 +1547,20 @@ function startWorker(taskOffice: OfficeState, task: Task, inst: Instance): void 
       if (sessionFailed) throw new Error(sessionFailed);
 
       const fresh = taskOffice.tasks.get(task.id);
-      let summary = fresh?.result ?? clip(finalText, 600) ?? 'Задача завершена без отчёта.';
+      let summary = fresh?.result ?? clip(finalText, 600) ?? taskOffice.say('agent.task.noReport');
 
       // Коммитим сами: полагаться на то, что исполнитель не забудет, нельзя.
       if (fresh?.branch) {
         const outcome = await commitAll(workRoot, `${task.id}: ${task.title}`);
         if (outcome === 'committed') {
-          taskOffice.addLog(inst.id, 'system', `Изменения закоммичены в ${fresh.branch}`);
+          taskOffice.addLog(inst.id, 'system',
+            taskOffice.say('agent.log.committed', { branch: fresh.branch }));
         } else if (outcome === 'empty') {
-          summary += '\n\n⚠️ Файлы не изменились — коммитить нечего.';
-          taskOffice.addLog(inst.id, 'system', 'Изменений в рабочей копии нет');
+          summary += `\n\n${taskOffice.say('agent.task.noFileChanges')}`;
+          taskOffice.addLog(inst.id, 'system', taskOffice.say('agent.log.noChanges'));
         } else {
-          taskOffice.addLog(inst.id, 'error', `Не удалось закоммитить ветку ${fresh.branch}`);
+          taskOffice.addLog(inst.id, 'error',
+            taskOffice.say('agent.log.commitFailed', { branch: fresh.branch }));
         }
       }
 
@@ -1666,18 +1571,18 @@ function startWorker(taskOffice: OfficeState, task: Task, inst: Instance): void 
       taskOffice.updateTask(task.id, {
         status: toPipeline ? 'review' : 'done', result: summary, finishedAt: Date.now(),
       });
-      taskOffice.setState(inst.id, 'done', toPipeline ? 'сдал на ревью' : 'готово ✅');
+      taskOffice.setState(inst.id, 'done',
+        taskOffice.say(toPipeline ? 'agent.state.handedOver' : 'agent.state.done'));
       const progress = fresh ? criteriaProgress(fresh) : { done: 0, total: 0 };
-      notifyPm(taskOffice,
-        `[СИСТЕМА] Задача ${task.id} «${task.title}» завершена исполнителем ${inst.id}.\n` +
-        `Отчёт: ${summary}\n` +
-        (progress.total ? `Критерии: отмечено ${progress.done} из ${progress.total}.\n` : '') +
-        (fresh?.files.length ? `Файлы: ${fresh.files.join(', ')}\n` : '') +
-        (toPipeline
-          ? 'Дальше работу ведёт офис: ревью и слияние идут сами, вмешиваться не нужно. ' +
-            'Системное сообщение придёт, когда задачу вольют или когда конвейер встанет.'
-          : 'Оцени результат и реши, что делать дальше.'),
-      );
+      notifyPm(taskOffice, [
+        taskOffice.say('agent.pmMsg.done', { task: task.id, title: task.title, who: inst.id }),
+        taskOffice.say('agent.pmMsg.report', { report: summary }),
+        progress.total
+          ? taskOffice.say('agent.pmMsg.criteria', { done: progress.done, total: progress.total })
+          : '',
+        fresh?.files.length ? taskOffice.say('agent.pmMsg.files', { files: fresh.files.join(', ') }) : '',
+        taskOffice.say(toPipeline ? 'agent.pmMsg.pipelineNext' : 'agent.pmMsg.judge'),
+      ].filter(Boolean).join('\n'));
       // Исполнитель освобождается в finally — конвейер запускаем после него,
       // иначе доработку по ревью будет некому взять: автор всё ещё «занят».
       if (toPipeline) setTimeout(() => runPipeline(taskOffice, task.id), 0);
@@ -1687,25 +1592,29 @@ function startWorker(taskOffice: OfficeState, task: Task, inst: Instance): void 
       if (taskOffice.stoppedByUser.delete(task.id)) {
         // Наработки не выбрасываем: то, что успели сделать, коммитим в ветку задачи.
         const fresh = taskOffice.tasks.get(task.id);
-        let note = '⏹ Остановлена пользователем.';
+        let note = taskOffice.say('agent.task.stopped');
         if (fresh?.branch) {
-          const outcome = await commitAll(workRoot, `${task.id}: частичная работа (остановлено)`);
+          const outcome = await commitAll(
+            workRoot, taskOffice.say('agent.task.stoppedCommit', { task: task.id }));
           note += outcome === 'committed'
-            ? ` Сделанное закоммичено в ${fresh.branch}.`
-            : ' Изменений в рабочей копии не было.';
+            ? taskOffice.say('agent.task.stoppedKept', { branch: fresh.branch })
+            : taskOffice.say('agent.task.stoppedEmpty');
         }
         taskOffice.updateTask(task.id, { status: 'blocked', result: note, finishedAt: Date.now() });
-        taskOffice.addLog(inst.id, 'system', `Задача ${task.id} остановлена пользователем`);
+        taskOffice.addLog(inst.id, 'system', taskOffice.say('agent.log.taskStopped', { task: task.id }));
         taskOffice.setState(inst.id, 'idle', null);
-        notifyPm(taskOffice,
-          `[СИСТЕМА] Задача ${task.id} остановлена пользователем вручную. ` +
-          'Не назначай её заново по своей инициативе — дождись указания.',
-        );
+        notifyPm(taskOffice, taskOffice.say('agent.pmMsg.stopped', { task: task.id }));
       } else {
-        taskOffice.addLog(inst.id, 'error', `Задача ${task.id} упала: ${message}`);
-        taskOffice.updateTask(task.id, { status: 'failed', result: `Ошибка: ${message}`, finishedAt: Date.now() });
-        taskOffice.setState(inst.id, 'failed', 'ошибка');
-        notifyPm(taskOffice, `[СИСТЕМА] Задача ${task.id} провалилась у ${inst.id}. Ошибка: ${message}`);
+        taskOffice.addLog(inst.id, 'error',
+          taskOffice.say('agent.log.taskFailed', { task: task.id, error: message }));
+        taskOffice.updateTask(task.id, {
+          status: 'failed',
+          result: taskOffice.say('agent.task.error', { error: message }),
+          finishedAt: Date.now(),
+        });
+        taskOffice.setState(inst.id, 'failed', taskOffice.say('agent.state.error'));
+        notifyPm(taskOffice,
+          taskOffice.say('agent.pmMsg.failed', { task: task.id, who: inst.id, error: message }));
       }
     } finally {
       inst.currentTaskId = null;
@@ -1737,17 +1646,16 @@ function startCloudWorker(
       if (taskOffice.stoppedByUser.delete(task.id)) {
         taskOffice.updateTask(task.id, {
           status: 'blocked',
-          result: `⏹ Остановлена пользователем. ${outcome.branch
-            ? `Сделанное осталось в ветке ${outcome.branch}.`
-            : 'Ветка в origin, если исполнитель успел запушить.'}`,
+          result: taskOffice.say('agent.task.stoppedCloud', {
+            where: outcome.branch
+              ? taskOffice.say('agent.task.stoppedCloudBranch', { branch: outcome.branch })
+              : taskOffice.say('agent.task.stoppedCloudNoBranch'),
+          }),
           finishedAt: Date.now(),
           branch: outcome.branch, baseBranch: outcome.baseBranch,
         });
         taskOffice.setState(inst.id, 'idle', null);
-        notifyPm(taskOffice,
-          `[СИСТЕМА] Задача ${task.id} остановлена пользователем вручную. ` +
-          'Не назначай её заново по своей инициативе — дождись указания.',
-        );
+        notifyPm(taskOffice, taskOffice.say('agent.pmMsg.stopped', { task: task.id }));
         return;
       }
 
@@ -1757,22 +1665,32 @@ function startCloudWorker(
         status: 'done', result: outcome.summary, finishedAt: Date.now(),
         branch: outcome.branch, baseBranch: outcome.baseBranch,
       });
-      taskOffice.setState(inst.id, 'done', 'готово ✅');
+      taskOffice.setState(inst.id, 'done', taskOffice.say('agent.state.done'));
       const fresh = taskOffice.tasks.get(task.id);
       const progress = fresh ? criteriaProgress(fresh) : { done: 0, total: 0 };
-      notifyPm(taskOffice,
-        `[СИСТЕМА] Задача ${task.id} «${task.title}» выполнена в облаке исполнителем ${inst.id}.\n` +
-        `Отчёт: ${outcome.summary}\n` +
-        (progress.total ? `Критерии: отмечено ${progress.done} из ${progress.total}.\n` : '') +
-        (outcome.branch ? `Результат в ветке ${outcome.branch}, нужно слияние.\n` : '') +
-        'Оцени результат и реши, что делать дальше.',
-      );
+      notifyPm(taskOffice, [
+        taskOffice.say('agent.pmMsg.cloudDone', {
+          task: task.id, title: task.title, who: inst.id,
+        }),
+        taskOffice.say('agent.pmMsg.report', { report: outcome.summary }),
+        progress.total
+          ? taskOffice.say('agent.pmMsg.criteria', { done: progress.done, total: progress.total })
+          : '',
+        outcome.branch ? taskOffice.say('agent.pmMsg.cloudBranch', { branch: outcome.branch }) : '',
+        taskOffice.say('agent.pmMsg.judge'),
+      ].filter(Boolean).join('\n'));
     } catch (err) {
       const message = clip((err as Error).message, 300);
-      taskOffice.addLog(inst.id, 'error', `Облачная задача ${task.id} упала: ${message}`);
-      taskOffice.updateTask(task.id, { status: 'failed', result: `Ошибка: ${message}`, finishedAt: Date.now() });
-      taskOffice.setState(inst.id, 'failed', 'ошибка');
-      notifyPm(taskOffice, `[СИСТЕМА] Задача ${task.id} провалилась в облаке у ${inst.id}. Ошибка: ${message}`);
+      taskOffice.addLog(inst.id, 'error',
+        taskOffice.say('agent.log.cloudTaskFailed', { task: task.id, error: message }));
+      taskOffice.updateTask(task.id, {
+        status: 'failed',
+        result: taskOffice.say('agent.task.error', { error: message }),
+        finishedAt: Date.now(),
+      });
+      taskOffice.setState(inst.id, 'failed', taskOffice.say('agent.state.error'));
+      notifyPm(taskOffice,
+        taskOffice.say('agent.pmMsg.cloudFailed', { task: task.id, who: inst.id, error: message }));
     } finally {
       inst.currentTaskId = null;
       inst.abort = null;
@@ -1802,7 +1720,7 @@ export function stopTask(state: OfficeState, taskId: string): void {
   if (!task) return;
   const inst = [...state.instances.values()].find((i) => i.currentTaskId === taskId);
   if (!inst?.abort) {
-    state.addChat('офис', `${taskId} сейчас никто не выполняет — останавливать нечего.`);
+    state.addChat(OFFICE_SENDER, state.say('restart.notRunning', { task: taskId }));
     return;
   }
   state.stoppedByUser.add(taskId);
@@ -1818,45 +1736,43 @@ export async function retryTask(state: OfficeState, taskId: string): Promise<boo
   const task = state.tasks.get(taskId);
   if (!task) return false;
   if (task.status === 'in_progress') {
-    state.addChat('офис', `${taskId} уже выполняется. Сначала остановите её.`);
+    state.addChat(OFFICE_SENDER, state.say('restart.running', { task: taskId }));
     return false;
   }
   if (task.merged) {
-    state.addChat('офис', `${taskId} уже влита в основную ветку — перезапуск создал бы дубль.`);
+    state.addChat(OFFICE_SENDER, state.say('restart.merged', { task: taskId }));
     return false;
   }
   if (state.paused) {
-    state.addChat('офис', `Офис на паузе — ${taskId} не перезапускается. Снимите паузу (SPACE).`);
+    state.addChat(OFFICE_SENDER, state.say('restart.paused', { task: taskId }));
     return false;
   }
   const cloudBlocked = state.settings.engine === 'cloud' ? cloudProblem(state) : null;
   if (cloudBlocked) {
-    state.addChat('офис', `Облачный режим не настроен: ${cloudBlocked}`);
+    state.addChat(OFFICE_SENDER, state.say('restart.cloudBroken', { problem: cloudBlocked }));
     return false;
   }
   if (state.budgetExhausted()) {
-    state.addChat('офис', 'Бюджет офиса исчерпан — поднимите лимит, прежде чем перезапускать задачи.');
+    state.addChat(OFFICE_SENDER, state.say('restart.budget'));
     return false;
   }
 
   const roleId = task.roleId ?? 'backend';
   const noStaff = noStaffReason(roleId, state);
   if (noStaff) {
-    state.addChat('офис', `${noStaff} Наймите сотрудника, чтобы перезапустить ${taskId}.`);
+    state.addChat(OFFICE_SENDER, state.say('restart.noStaff', { problem: noStaff, task: taskId }));
     return false;
   }
   // Перезапуск ходит в git и переписывает задачу в backlog, поэтому лимит
   // проверяем до всего этого: на потолке задача просто вернётся в очередь.
   const noSlot = slotProblem(state);
   if (noSlot) {
-    state.addChat('офис',
-      `⏳ ${taskId} не перезапускается прямо сейчас: ${noSlot}. Дождитесь свободного слота ` +
-      'или поднимите лимит в настройках офиса.');
+    state.addChat(OFFICE_SENDER, state.say('restart.noSlot', { task: taskId, problem: noSlot }));
     return false;
   }
   const inst = state.findFree(roleId) ?? state.spawn(roleId) ?? state.findFree(roleId);
   if (!inst) {
-    state.addChat('офис', `Все исполнители роли ${roleId} заняты — перезапустить ${taskId} сейчас некому.`);
+    state.addChat(OFFICE_SENDER, state.say('restart.allBusy', { role: roleId, task: taskId }));
     return false;
   }
 
@@ -1872,8 +1788,7 @@ export async function retryTask(state: OfficeState, taskId: string): Promise<boo
     if (worthKeeping) {
       const kept = await preserveBranch(repo, task.branch);
       if (kept) {
-        state.addChat('офис',
-          `Наработки прошлой попытки ${taskId} сохранены в ветке ${kept} — она никуда не денется.`);
+        state.addChat(OFFICE_SENDER, state.say('restart.branchKept', { task: taskId, branch: kept }));
       }
     }
   }
@@ -1888,7 +1803,7 @@ export async function retryTask(state: OfficeState, taskId: string): Promise<boo
   });
   const fresh = state.tasks.get(taskId);
   if (fresh) startWorker(state, fresh, inst);
-  state.addLog(null, 'system', `Задача ${taskId} перезапущена на ${inst.id}`);
+  state.addLog(null, 'system', state.say('agent.log.taskRestarted', { task: taskId, who: inst.id }));
   return Boolean(fresh);
 }
 
@@ -1901,24 +1816,24 @@ export function assignDirect(state: OfficeState, taskId: string, instanceId: str
   const inst = state.instances.get(instanceId);
   if (!task || !inst) return;
   if (task.assigneeId && task.status === 'in_progress') {
-    state.addChat('офис', `${taskId} уже выполняется (${task.assigneeId}).`);
+    state.addChat(OFFICE_SENDER, state.say('start.alreadyRunning', { task: taskId, who: task.assigneeId }));
     return;
   }
   if (inst.currentTaskId) {
-    state.addChat('офис', `${inst.label} занят задачей ${inst.currentTaskId}.`);
+    state.addChat(OFFICE_SENDER, state.say('start.workerBusy', { who: inst.label, task: inst.currentTaskId }));
     return;
   }
   if (state.paused) {
-    state.addChat('офис', `Офис на паузе — ${taskId} не запускается. Снимите паузу (SPACE).`);
+    state.addChat(OFFICE_SENDER, state.say('start.paused', { task: taskId }));
     return;
   }
   const cloudBlocked = state.settings.engine === 'cloud' ? cloudProblem(state) : null;
   if (cloudBlocked) {
-    state.addChat('офис', `Облачный режим не настроен: ${cloudBlocked}`);
+    state.addChat(OFFICE_SENDER, state.say('start.cloudBroken', { problem: cloudBlocked }));
     return;
   }
   if (state.budgetExhausted()) {
-    state.addChat('офис', 'Бюджет офиса исчерпан — задача не запускается.');
+    state.addChat(OFFICE_SENDER, state.say('start.budget'));
     return;
   }
   // Задачу отдали руками, но лимит одновременных сессий от этого не растёт:
@@ -1939,9 +1854,7 @@ export function assignDirect(state: OfficeState, taskId: string, instanceId: str
   if (!fresh) return;
   startWorker(state, fresh, inst);
   notifyPm(state,
-    `[СИСТЕМА] Пользователь отдал задачу ${taskId} «${task.title}» напрямую исполнителю ${inst.id}, ` +
-    'минуя тебя. Учти это в планах и не назначай её повторно.',
-  );
+    state.say('agent.pmMsg.directAssign', { task: taskId, title: task.title, who: inst.id }));
 }
 
 /**
@@ -1953,10 +1866,12 @@ export function assignDirect(state: OfficeState, taskId: string, instanceId: str
  */
 export function officeAssign(state: OfficeState, taskId: string): { ok: boolean; message: string } {
   const task = state.tasks.get(taskId);
-  if (!task) return { ok: false, message: `задачи ${taskId} нет на доске` };
-  if (task.status !== 'backlog') return { ok: false, message: `${taskId} уже не в очереди` };
-  if (state.paused) return { ok: false, message: 'офис на паузе' };
-  if (state.budgetExhausted()) return { ok: false, message: 'бюджет офиса исчерпан' };
+  if (!task) return { ok: false, message: state.say('assign.noTask', { task: taskId }) };
+  if (task.status !== 'backlog') {
+    return { ok: false, message: state.say('assign.notQueued', { task: taskId }) };
+  }
+  if (state.paused) return { ok: false, message: state.say('assign.paused') };
+  if (state.budgetExhausted()) return { ok: false, message: state.say('assign.budget') };
   const cloudBlocked = state.settings.engine === 'cloud' ? cloudProblem(state) : null;
   if (cloudBlocked) return { ok: false, message: cloudBlocked };
 
@@ -1973,7 +1888,9 @@ export function officeAssign(state: OfficeState, taskId: string): { ok: boolean;
   }
 
   const inst = state.findFree(roleId) ?? state.spawn(roleId) ?? state.findFree(roleId);
-  if (!inst || inst.currentTaskId) return { ok: false, message: `все исполнители роли ${roleId} заняты` };
+  if (!inst || inst.currentTaskId) {
+    return { ok: false, message: state.say('assign.allBusy', { role: roleId }) };
+  }
 
   startWorker(state, task, inst);
   return { ok: true, message: inst.id };
@@ -1991,17 +1908,17 @@ export async function taskDiff(state: OfficeState, taskId: string): Promise<void
 
   if (!task) return;
   if (!task.branch || !task.baseBranch) {
-    send({ error: 'У задачи нет своей ветки — сравнивать не с чем.' });
+    send({ error: state.say('diff.noBranch') });
     return;
   }
   if (task.merged) {
-    send({ error: `Задача уже влита в ${task.baseBranch}, её ветка удалена. Смотрите историю основной ветки.` });
+    send({ error: state.say('diff.merged', { base: task.baseBranch }) });
     return;
   }
 
   const result = await diffBranch(taskRepo(task, state), task.baseBranch, task.branch);
   if ('error' in result) send({ error: result.error });
-  else if (!result.stat) send({ error: 'Изменений в ветке нет.' });
+  else if (!result.stat) send({ error: state.say('diff.empty') });
   else send(result);
 }
 
@@ -2014,19 +1931,17 @@ export async function taskDiff(state: OfficeState, taskId: string): Promise<void
 export function setPaused(state: OfficeState, paused: boolean): void {
   if (state.paused === paused) return;
   state.setPaused(paused);
-  state.addLog(null, 'system', paused ? 'Офис поставлен на паузу' : 'Офис снят с паузы');
-  state.addChat('офис', paused
-    ? '⏸ Офис на паузе: исполнители замрут на следующем действии, новые задачи не запускаются.'
-    : '▶ Офис снова работает.');
+  state.addLog(null, 'system',
+    state.say(paused ? 'agent.log.officePaused' : 'agent.log.officeResumed'));
+  state.addChat(OFFICE_SENDER,
+    state.say(paused ? 'start.pauseChat' : 'agent.log.officeResumed'));
 
   // Задачи, которые менеджер завёл на паузе, сами собой не поедут: он получил
   // отказ на assign_task и ждёт. Без этого напоминания доска молча стоит.
   const waiting = [...state.tasks.values()].filter((t) => t.status === 'backlog' && !t.assigneeId);
   if (!paused && waiting.length > 0) {
     notifyPm(state,
-      `[СИСТЕМА] Пользователь снял офис с паузы. Ждут раздачи: ${waiting.map((t) => t.id).join(', ')}. ` +
-      'Назначь их через assign_task.',
-    );
+      state.say('agent.pmMsg.resumed', { tasks: waiting.map((t) => t.id).join(', ') }));
   }
 }
 
@@ -2097,7 +2012,7 @@ async function runAgentSession(
   },
 ): Promise<SessionRun> {
   if (state.budgetExhausted()) {
-    return { ok: false, text: '', error: 'Бюджет офиса исчерпан.', needsDecision: true };
+    return { ok: false, text: '', error: state.say('review.budget'), needsDecision: true };
   }
   const abort = new AbortController();
   inst.abort = abort;
@@ -2133,7 +2048,7 @@ async function runAgentSession(
       consume(state, inst.id, msg);
       if (msg.type === 'result') {
         if (isOk(msg)) finalText = msg.result ?? '';
-        else failed = clip(resultReason(msg), 300);
+        else failed = clip(resultReason(msg, state.lang()), 300);
       }
     }
     return { ok: !failed, text: finalText, error: failed };
@@ -2150,7 +2065,7 @@ async function runAgentSession(
 /** Системный промпт исполнителя — один и тот же и для задачи, и для доработки. */
 function workerSystemPrompt(role: Role, state: OfficeState): string {
   return [
-    `Ты — ${role.title} в команде AI-агентов, работаешь в директории проекта.`,
+    state.say('prompt.worker.system', { role: role.title }),
     role.brief,
   ].join('\n') + projectBrief(state);
 }
@@ -2164,7 +2079,7 @@ async function reworkTask(
 ): Promise<ReworkOutcome> {
   const roleId = task.roleId ?? 'backend';
   const worktree = task.worktreePath;
-  if (!worktree) return { ok: false, message: 'У задачи нет рабочей копии.' };
+  if (!worktree) return { ok: false, message: state.say('review.noWorktree') };
 
   const inst = await waitForFree(state, roleId, task.assigneeId);
   if (!inst) {
@@ -2174,12 +2089,14 @@ async function reworkTask(
       // Все заняты — пройдёт само, надзор попробует позже. Роль пустая —
       // не пройдёт никогда: нанимать некому, кроме человека.
       needsDecision: empty,
-      message: `Свободного исполнителя роли ${roleId} не нашлось: ` +
-        (empty ? 'в роли никого нет, работать некому.' : 'все заняты дольше десяти минут.'),
+      message: state.say('review.noWorker', {
+        role: roleId,
+        why: state.say(empty ? 'review.roleEmpty' : 'review.allBusyLong'),
+      }),
     };
   }
   const role = state.role(inst.roleId);
-  if (!role) return { ok: false, message: `Роль ${inst.roleId} исчезла из реестра.` };
+  if (!role) return { ok: false, message: state.say('review.roleGone', { role: inst.roleId }) };
 
   state.updateTask(task.id, { assigneeId: inst.id });
   const run = await runAgentSession(state, inst, role, {
@@ -2188,7 +2105,7 @@ async function reworkTask(
     systemPrompt: workerSystemPrompt(role, state),
     taskId: task.id,
     mcp: { office: workerTools(state, inst.id, task) },
-    note: 'дорабатывает по ревью',
+    note: state.say('agent.state.reworking'),
     // Тот же исполнитель уже видел задачу и код — продолжаем его сессию,
     // а не пересказываем всё с нуля.
     resume: task.workerSessionId ?? undefined,
@@ -2196,16 +2113,19 @@ async function reworkTask(
   if (inst.sessionId) state.updateTask(task.id, { workerSessionId: inst.sessionId });
   if (!run.ok) {
     return {
-      ok: false, message: run.error ?? 'сессия исполнителя не отработала',
+      ok: false, message: run.error ?? state.say('review.sessionFailed'),
       needsDecision: run.needsDecision,
     };
   }
 
   // Коммитим за автора, как и после обычной задачи: полагаться на то, что
   // он не забудет, нельзя — а незакоммиченная правка до ревью не доедет.
-  const committed = await commitAll(worktree, `${task.id}: доработка`);
-  if (committed === 'failed') return { ok: false, message: 'не удалось закоммитить доработку' };
-  return { ok: true, message: committed === 'empty' ? 'изменений не потребовалось' : 'доработка закоммичена' };
+  const committed = await commitAll(worktree, state.say('review.reworkCommit', { task: task.id }));
+  if (committed === 'failed') return { ok: false, message: state.say('review.commitFailed') };
+  return {
+    ok: true,
+    message: state.say(committed === 'empty' ? 'review.noChangesNeeded' : 'review.reworkCommitted'),
+  };
 }
 
 /** Ревью пулл-реквеста: смотрит живой ревьюер и выносит вердикт инструментом. */
@@ -2213,7 +2133,11 @@ async function reviewPr(
   state: OfficeState, task: Task, pr: PullRequestView,
 ): Promise<ReviewOutcome> {
   const role = state.role('reviewer');
-  if (!role) return { verdict: 'changes', text: '', reviewerId: null, error: 'Роли ревьюера нет в реестре.' };
+  if (!role) {
+    return {
+      verdict: 'changes', text: '', reviewerId: null, error: state.say('review.noReviewerRole'),
+    };
+  }
   // Того же ревьюера, если он свободен: он уже смотрел этот диф и прошлые
   // круги — тогда сессию можно продолжить, а не пересказывать всё заново.
   const inst = await waitForFree(state, 'reviewer', pr.reviewerId);
@@ -2222,9 +2146,7 @@ async function reviewPr(
     return {
       verdict: 'changes', text: '', reviewerId: null,
       needsDecision: empty,
-      error: empty
-        ? 'В роли ревьюера нет сотрудников — ревьюить некому. Нужно нанять ревьюера.'
-        : 'Ревьюер занят дольше десяти минут.',
+      error: state.say(empty ? 'review.noReviewerStaff' : 'review.reviewerBusy'),
     };
   }
 
@@ -2233,96 +2155,92 @@ async function reviewPr(
   const tools = createSdkMcpServer({
     name: 'office',
     version: '1.0.0',
-    instructions: 'Инструменты ревью.',
+    instructions: state.say('tool.review.instructions'),
     tools: [
       tool(
         'say',
-        'Сказать одной строкой, что ты сейчас смотришь. Появится пузырём над твоей головой.',
-        { text: z.string().describe('До 70 символов') },
+        state.say('tool.say.review.desc'),
+        { text: z.string().describe(state.say('tool.say.limit')) },
         async (args) => {
           state.setState(inst.id, 'working', clip(args.text));
-          return { content: [{ type: 'text', text: 'ок' }] };
+          return { content: [{ type: 'text', text: state.say('tool.ok') }] };
         },
       ),
       tool(
         'approve_pr',
-        'Одобрить пулл-реквест. Вызывай, когда работа делает то, что обещала задача, ' +
-        'и ты не нашёл ошибок, из-за которых её нельзя вливать. После этого офис вольёт ветку.',
-        {
-          summary: z.string().describe(
-            'Отзыв: что проверил, что прогнал, почему считаешь, что можно вливать. Это увидит автор и пользователь.',
-          ),
-        },
+        state.say('tool.approvePr.desc'),
+        { summary: z.string().describe(state.say('tool.approvePr.summary')) },
         async (args) => {
           verdict = 'approve';
           text = args.summary;
-          return { content: [{ type: 'text', text: 'Принято: пулл-реквест уходит на слияние.' }] };
+          return { content: [{ type: 'text', text: state.say('tool.approvePr.ok') }] };
         },
       ),
       tool(
         'request_changes',
-        'Вернуть работу автору. Вызывай, когда нашёл ошибку, дыру в проверках или расхождение ' +
-        'с тем, что обещала задача. Придирки к стилю ради стиля — не повод возвращать.',
-        {
-          summary: z.string().describe(
-            'По пунктам: что не так, где именно (файл:строка), почему это важно и что сделать. ' +
-            'Это единственное, что увидит автор, — общих слов он починить не сможет.',
-          ),
-        },
+        state.say('tool.requestChanges.desc'),
+        { summary: z.string().describe(state.say('tool.requestChanges.summary')) },
         async (args) => {
           verdict = 'changes';
           text = args.summary;
-          return { content: [{ type: 'text', text: 'Принято: работа возвращается автору.' }] };
+          return { content: [{ type: 'text', text: state.say('tool.requestChanges.ok') }] };
         },
       ),
     ],
   });
 
   const { done, total } = criteriaProgress(task);
-  const diff = await prDiff(pr);
+  const diff = await prDiff(pr, state.lang());
   // Продолжаем прошлую сессию этого же ревью, если она есть: тогда ревьюер
   // уже помнит задачу, критерии и свои прошлые замечания — пересказывать
   // их заново незачем, нужен только актуальный дифф.
   const resumeId = task.reviewerSessionId ?? undefined;
+  const report = task.result ? `\n${state.say('prompt.review.authorReport')}\n${task.result}` : '';
+  const tail = [
+    state.say('prompt.review.noFixing'),
+    state.say('prompt.review.oneCall'),
+    state.say('prompt.review.rounds', { max: MAX_ROUNDS }),
+    state.say('prompt.review.roundsTail'),
+  ];
   const prompt = resumeId
     ? [
-        `Автор доработал ${task.id} по твоим замечаниям (круг ${pr.rounds + 1}).`,
-        task.result ? `\nОтчёт автора:\n${task.result}` : '',
+        state.say('prompt.review.reworked', { task: task.id, round: pr.rounds + 1 }),
+        report,
         '',
-        'Текущий полный дифф ветки относительно базовой:',
+        state.say('prompt.review.currentDiff'),
         diff,
         '',
-        'Прогони проверки проекта, если они есть, и учти их результат.',
-        'Код НЕ правь: твой результат — вердикт, а исправляет автор.',
-        'Закончи ровно одним вызовом: approve_pr({summary}) или request_changes({summary}).',
-        `Возвращать работу можно не бесконечно: после ${MAX_ROUNDS} возвратов подряд задача уходит менеджеру.`,
-        'Поэтому возвращай по существу, а мелкие замечания, не мешающие вливать, пиши в approve_pr.',
+        state.say('prompt.review.runChecks'),
+        ...tail,
       ].filter(Boolean).join('\n')
     : [
-        `Ревью пулл-реквеста ${pr.branch} → ${pr.base} по задаче ${task.id}.`,
-        pr.url ? `Пулл-реквест: ${pr.url}` : 'Пулл-реквест внутренний, на GitHub его нет.',
+        state.say('prompt.review.header', { branch: pr.branch, base: pr.base, task: task.id }),
+        pr.url
+          ? state.say('prompt.review.prUrl', { url: pr.url })
+          : state.say('prompt.review.prInternal'),
         '',
-        `Задача: ${task.title}`,
+        state.say('prompt.review.task', { title: task.title }),
         task.description,
         task.criteria.length
-          ? `\nКритерии готовности (автор отметил ${done} из ${total}):\n` +
+          ? `\n${state.say('prompt.review.criteria', { done, total })}\n` +
             task.criteria.map((c, i) => `${i + 1}. [${c.done ? 'x' : ' '}] ${c.text}`).join('\n')
           : '',
-        task.result ? `\nОтчёт автора:\n${task.result}` : '',
-        pr.rounds ? `\nЭто круг ${pr.rounds + 1}: работу уже возвращали. Проверь, что прошлые замечания закрыты.` : '',
+        report,
+        pr.rounds ? `\n${state.say('prompt.review.round', { round: pr.rounds + 1 })}` : '',
         pr.reviews.length
-          ? `\nПрошлые отзывы:\n${pr.reviews.map((r) => `— ${r.verdict === 'approve' ? 'одобрено' : 'на доработку'}: ${clip(r.text, 400)}`).join('\n')}`
+          ? `\n${state.say('prompt.review.pastReviews')}\n${pr.reviews.map((r) => `— ${state.say(
+            r.verdict === 'approve' ? 'prompt.review.approved' : 'prompt.review.changes',
+          )}: ${clip(r.text, 400)}`).join('\n')}`
           : '',
         '',
-        'Изменения ветки относительно базовой:',
+        state.say('prompt.review.diff'),
         diff,
         '',
-        `Ты находишься в рабочей копии этой ветки (${pr.repoDir === process.cwd() ? 'репозиторий проекта' : pr.branch}).`,
-        'Прогони проверки проекта, если они есть (npm run typecheck и подобные), и учти их результат.',
-        'Код НЕ правь: твой результат — вердикт, а исправляет автор.',
-        'Закончи ровно одним вызовом: approve_pr({summary}) или request_changes({summary}).',
-        `Возвращать работу можно не бесконечно: после ${MAX_ROUNDS} возвратов подряд задача уходит менеджеру.`,
-        'Поэтому возвращай по существу, а мелкие замечания, не мешающие вливать, пиши в approve_pr.',
+        state.say('prompt.review.whereYouAre', {
+          where: pr.repoDir === process.cwd() ? state.say('prompt.review.projectRepo') : pr.branch,
+        }),
+        state.say('prompt.review.runChecksNamed'),
+        ...tail,
       ].filter(Boolean).join('\n');
 
   const run = await runAgentSession(state, inst, role, {
@@ -2331,7 +2249,7 @@ async function reviewPr(
     systemPrompt: workerSystemPrompt(role, state),
     taskId: task.id,
     mcp: { office: tools },
-    note: `ревью ${task.id}`,
+    note: state.say('agent.state.reviewing', { task: task.id }),
     resume: resumeId,
   });
   if (inst.sessionId) state.updateTask(task.id, { reviewerSessionId: inst.sessionId });
@@ -2341,8 +2259,8 @@ async function reviewPr(
       verdict: 'changes', text: '', reviewerId: inst.id,
       needsDecision: run.needsDecision,
       error: run.error
-        ? `сессия ревьюера оборвалась: ${run.error}`
-        : 'ревьюер закончил, не вынеся вердикта (ни approve_pr, ни request_changes)',
+        ? state.say('review.sessionBroke', { error: run.error })
+        : state.say('review.noVerdict'),
     };
   }
   return { verdict, text, reviewerId: inst.id };

@@ -1,8 +1,12 @@
 // Проверка классификатора рисков и режимов доступа. npm run test:perm
 import { autoApprovedText, classify, decide, effectiveMode } from '../src/server/permissions';
 import type { PermissionMode, RiskLevel } from '../src/shared/types';
+import type { Lang } from '../src/shared/i18n';
 
 const DIR = '/Users/x/project';
+// Проверяется классификатор, а не перевод: язык нужен только затем, что от
+// него зависят слова в вердикте, а решение — нет.
+const LANG: Lang = 'ru';
 type Case = [tool: string, input: Record<string, unknown>, expect: string];
 
 const cases: Case[] = [
@@ -45,7 +49,7 @@ if (cases.length === 0) {
 
 let failed = 0;
 for (const [tool, input, expect] of cases) {
-  const v = classify(tool, input, DIR);
+  const v = classify(tool, input, DIR, LANG);
   const ok = v.risk === expect;
   if (!ok) failed += 1;
   const cmd = String(input.command ?? input.file_path ?? input.pattern ?? input.text ?? '');
@@ -106,7 +110,7 @@ for (const [what, agent, role, officeMode, risk, expect] of modeCases) {
 
 // Автоодобренное действие обязано быть узнаваемо в ленте: и инструмент,
 // и что именно он сделал, и по какому режиму его пропустили.
-const trace = autoApprovedText('auto', 'Bash', classify('Bash', { command: 'rm -rf build' }, DIR));
+const trace = autoApprovedText('auto', 'Bash', classify('Bash', { command: 'rm -rf build' }, DIR, LANG), LANG);
 const traceOk = trace.includes('Bash')
   && trace.includes('rm -rf build')
   && trace.includes('полный доступ')

@@ -9,13 +9,12 @@
  *
  * Гашение ближних стен сделано сразу, хотя по плану это следующий шаг: без
  * него облёт бессмысленен — комната закрыта стеной, обращённой к камере
- * наружной стороной, и оценить сцену нельзя. Полноценный контроллер камеры
- * (снап на 45°, границы) остаётся на потом, здесь ровно столько, чтобы было
- * на что смотреть.
+ * наружной стороной, и оценить сцену нельзя. Камера с тех пор выросла в
+ * отдельный модуль (`Camera3D.tsx`): фокус на комнате и на агенте, свободное
+ * перемещение по офису.
  */
-import { Suspense, useEffect, useLayoutEffect, useMemo, useRef } from 'react';
-import { Canvas, useFrame, useThree } from '@react-three/fiber';
-import { OrbitControls } from '@react-three/drei';
+import { Suspense, useEffect, useMemo, useRef } from 'react';
+import { Canvas, useFrame } from '@react-three/fiber';
 import * as THREE from 'three';
 import { propKeys } from '../../shared/layout';
 import type { LayoutProp } from '../../shared/layout';
@@ -26,42 +25,14 @@ import { WALL_H, scene3, type Box3, type Scene3, type Wall3 } from './geometry';
 import { place3 } from './props';
 import { FurnitureModels, Props3D } from './Props3D';
 import { Hotspots3D, type Spot3, type SpotKind } from './Hotspots3D';
+import { CeilingLamps, Lights } from './Lights3D';
 import { Agents3D } from './Agents3D';
-
-/**
- * Наклон и поворот камеры при первом показе. Полярный угол считается от
- * вертикали: 0 — вид строго сверху (нынешний плоский офис), π/2 — сбоку.
- */
-const START_POLAR = 0.72;
-const START_AZIMUTH = Math.PI / 4;
-
-/**
- * Пределы облёта. Совсем сбоку смотреть нельзя — комната превращается в
- * фасад; сверху упираемся в плоский вид, ради ухода от которого всё и
- * затевалось, но подойти к нему близко разрешаем: это привычный ракурс.
- */
-const MIN_POLAR = 0.15;
-const MAX_POLAR = 1.28;
+import { Pixelation } from './Pixelation';
+import { Camera3D, CameraChips, FOV, startPose } from './Camera3D';
 
 /** Насколько прозрачной становится погашенная стена. Не ноль: контур комнаты
  *  должен читаться, иначе теряется, где она кончается. */
 const FADED = 0.12;
-
-/**
- * Угол обзора камеры, градусы. Камера перспективная, но с длиннофокусным
- * объективом: узкий угол с большого расстояния почти не искажает планировку —
- * дальняя стена лишь чуть заметно сходится к ближней, комната по-прежнему
- * читается как модель на столе. Широкий угол превратил бы её в фотографию
- * изнутри: план поплыл бы, а прямые ряды столов разъехались веером.
- *
- * Ноль здесь означал бы ортографию — ровно то, с чего начинали.
- */
-const FOV = 25;
-
-/** Пределы наезда колесом, тайлы. Вписанное расстояние для комнаты 30×20
- *  выходит около сотни, так что запас есть в обе стороны. */
-const MIN_DIST = 25;
-const MAX_DIST = 400;
 
 /** Центр коробки в мире: геометрия задана в тайлах плана, `[x, y]` плана —
  *  это `[x, z]` мира, а высота — ось Y, которой в плане нет. */
@@ -123,17 +94,21 @@ function WallSegment({ wall, offset, palette }: {
   const toWall = useRef(new THREE.Vector3());
   const view = useRef(new THREE.Vector3());
 
-  useFrame(({ camera }, dt) => {
+  useFrame(({ camera, controls }, dt) => {
     const g = group.current;
     if (!g) return;
 
-    // Куда смотрит камера: цель облёта — начало координат, поэтому направление
-    // взгляда есть минус её позиция.
-    view.current.copy(camera.position).negate();
+    // Куда смотрит камера: до появления фокуса (`Camera3D.tsx`) цель облёта
+    // всегда лежала в начале координат, и направление взгляда считалось как
+    // минус позиция камеры. Теперь цель ездит по офису, и брать её надо у
+    // контроллера: иначе при наезде на кухню гаснут стены не той комнаты.
+    const at = (controls as { target?: THREE.Vector3 } | null)?.target;
+    if (at) view.current.copy(at).sub(camera.position);
+    else view.current.copy(camera.position).negate();
     toWall.current.copy(center).sub(camera.position);
 
-    // Насколько стена ближе камеры к цели: <1 — в ближней половине комнаты,
-    // >1 — за целью. Загораживать может только ближняя.
+    // Насколько стена ближе камеры к цели: <1 — перед целью, >1 — за ней.
+    // Загораживать может только ближняя.
     const depth = toWall.current.dot(view.current) / view.current.lengthSq();
     // И только если она к камере боком, а не ребром: стена вдоль взгляда
     // ничего не закрывает, гасить её — терять ориентир.
@@ -194,148 +169,13 @@ function Floors({ scene, palette }: { scene: Scene3; palette: Palette }) {
   );
 }
 
-/**
- * Подгонка масштаба под размер канваса. У перспективной камеры масштаб — это
- * расстояние: «вписать комнату» означает отвести камеру ровно настолько,
- * чтобы комната заполнила кадр. (У ортографической, с которой начинали, для
- * этого крутили `zoom`, и расстояние ни на что не влияло.)
- *
- * Пересчитывается при каждом изменении размера канваса — ровно как в плоском
- * офисе (`Office.tsx`, ResizeObserver). Задумывалось иначе: постоянный масштаб
- * казался честнее, ведь комната не резиновая и в окно побольше просто видно
- * больше. На деле это значит, что масштаб навсегда остаётся тем, каким окно
- * было в момент открытия комнаты, — растянули окно, и офис остался маркой в
- * углу. Плата за пересчёт — сброс наезда колесом при изменении размера окна;
- * это заметно реже и понятнее.
- *
- * При повороте камеры не пересчитывается: там масштаб дёргался бы под рукой.
- */
-function FitCamera({ size }: { size: [number, number] }) {
-  const camera = useThree((s) => s.camera);
-  const controls = useThree((s) => s.controls);
-  const viewport = useThree((s) => s.size);
-  const width = viewport.width;
-  const height = viewport.height;
-  useLayoutEffect(() => {
-    // На первом проходе канвас ещё не измерен (0×0) — считать по нему нельзя.
-    if (width < 1 || height < 1) return;
-    const [w, d] = size;
-    // Ориентация камеры берётся не из неё самой: на первом кадре её ещё не
-    // выставил OrbitControls, и матрица мира была бы от позиции без поворота.
-    const probe = new THREE.Object3D();
-    probe.position.copy(camera.position);
-    probe.lookAt(0, 0, 0);
-    probe.updateMatrixWorld();
-    const inv = probe.matrixWorld.clone().invert();
-
-    // Габарит комнаты в экранных осях при этом повороте: восемь углов её
-    // коробки переводятся в систему координат камеры, берётся размах.
-    const half = [w / 2, WALL_H / 2, d / 2];
-    const projected = new THREE.Box3();
-    const corner = new THREE.Vector3();
-    for (let i = 0; i < 8; i++) {
-      corner.set(
-        (i & 1 ? 1 : -1) * half[0],
-        (i & 2 ? 1 : -1) * half[1],
-        (i & 4 ? 1 : -1) * half[2],
-      ).applyMatrix4(inv);
-      projected.expandByPoint(corner);
-    }
-
-    const spanX = projected.max.x - projected.min.x;
-    const spanY = projected.max.y - projected.min.y;
-
-    // Расстояние, с которого коробка такого размера заполняет кадр. Размах
-    // берётся поперёк взгляда, а у комнаты есть и глубина вдоль него: ближний
-    // край окажется чуть крупнее расчётного. При узком угле разница мелкая, и
-    // её съедает те же 8% запаса по краю.
-    const halfFov = ((camera as THREE.PerspectiveCamera).fov * Math.PI) / 360;
-    const aspect = width / height;
-    const dist = Math.max(
-      spanY / 2 / Math.tan(halfFov),
-      spanX / 2 / (Math.tan(halfFov) * aspect),
-    ) / 0.92;
-
-    // Направление взгляда не трогаем — только отъезжаем по нему. Цель облёта
-    // в начале координат, поэтому «расстояние до цели» это длина вектора
-    // позиции. OrbitControls держит своё представление об орбите и должен
-    // перечитать позицию, иначе первый же поворот вернёт прежний отъезд.
-    camera.position.setLength(THREE.MathUtils.clamp(dist, MIN_DIST, MAX_DIST));
-    camera.near = 1;
-    camera.far = dist * 4;
-    camera.updateProjectionMatrix();
-    (controls as { update?: () => void } | null)?.update?.();
-  }, [camera, controls, size, width, height]);
-
-  return null;
-}
-
-/**
- * Свет: заполняющий (небо сверху, отражение от пола снизу) плюс единственный
- * направленный — он же и источник теней. Рамка теневой камеры сжата по
- * комнате: растянутая на всю сцену дала бы мыло вместо теней.
- */
-function Lights({ scene, palette }: { scene: Scene3; palette: Palette }) {
-  const [w, d] = scene.size;
-  const [ox, oy, oz] = palette.light.keyOffset;
-  /**
-   * Рамка теневой камеры. Комната в неё попадает целиком по диагонали — при
-   * низком солнце она ложится в карту глубины наискось, и запаса по стороне
-   * `max(w, d)` не хватает: углы обрезаются, и тень там просто пропадает.
-   */
-  const reach = Math.hypot(w, d) * 0.75;
-  /** Дальняя плоскость: расстояние до источника плюс размер комнаты. */
-  const far = Math.hypot(ox, oy, oz) + Math.max(w, d) * 1.5;
-
-  /**
-   * Рамку теневой камеры мало задать — её надо пересчитать. Границы
-   * `shadow-camera-*` попадают в объект напрямую, а матрицу проекции three
-   * сам не обновляет: без этого вызова свет продолжает светить в рамку по
-   * умолчанию (±5), и тени есть только у центра комнаты.
-   */
-  const key = useRef<THREE.DirectionalLight>(null);
-  useLayoutEffect(() => {
-    key.current?.shadow.camera.updateProjectionMatrix();
-  }, [reach, far]);
-
-  return (
-    <>
-      <hemisphereLight
-        args={[palette.light.skyColor, palette.light.groundColor, palette.light.ambient]}
-      />
-      {/* Цель направленного света по умолчанию — начало координат, а комната
-          сдвинута ровно так, чтобы её центр там и оказался. */}
-      <directionalLight
-        ref={key}
-        position={[ox, oy, oz]}
-        color={palette.light.keyColor}
-        intensity={palette.light.keyIntensity}
-        castShadow
-        shadow-mapSize={[2048, 2048]}
-        shadow-bias={-0.0015}
-        shadow-normalBias={0.02}
-        shadow-camera-left={-reach}
-        shadow-camera-right={reach}
-        shadow-camera-top={reach}
-        shadow-camera-bottom={-reach}
-        shadow-camera-near={1}
-        shadow-camera-far={far}
-      />
-      <directionalLight
-        position={palette.light.fillOffset}
-        color={palette.light.fillColor}
-        intensity={palette.light.fillIntensity}
-      />
-    </>
-  );
-}
-
 export function Office3D({ onOpen, onDoor }: {
   onOpen: (panel: 'board' | 'log') => void;
   onDoor: () => void;
 }) {
   const layout = useStore((s) => s.layout);
   const theme = useStore((s) => s.theme);
+  const graphics = useStore((s) => s.graphics);
   const palette = paletteOf(theme);
   const scene = useMemo(() => scene3(layout), [layout]);
   /**
@@ -387,15 +227,10 @@ export function Office3D({ onOpen, onDoor }: {
   const [w, d] = scene.size;
   const offset = useMemo<[number, number]>(() => [-w / 2, -d / 2], [w, d]);
 
-  // Стартовое расстояние — грубая прикидка по размеру комнаты: точное
-  // значение сейчас же посчитает FitCamera, здесь важно лишь направление и
-  // чтобы камера не оказалась внутри стен на первом кадре.
-  const startDist = Math.hypot(w, d) * 3;
-  const start: [number, number, number] = [
-    Math.sin(START_POLAR) * Math.sin(START_AZIMUTH) * startDist,
-    Math.cos(START_POLAR) * startDist,
-    Math.sin(START_POLAR) * Math.cos(START_AZIMUTH) * startDist,
-  ];
+  // Откуда смотреть на первом кадре — грубая прикидка по размеру комнаты:
+  // вписыванием займётся риг камеры, здесь важно лишь направление и чтобы
+  // камера не оказалась внутри стен.
+  const start = useMemo(() => startPose(scene.size), [scene.size]);
 
   return (
     <div className="office-box office3d">
@@ -409,21 +244,17 @@ export function Office3D({ onOpen, onDoor }: {
       <Canvas
         flat
         shadows="percentage"
-        camera={{ position: start, fov: FOV, near: 1, far: startDist * 4 }}
+        camera={{ position: start, fov: FOV, near: 1, far: 1200 }}
         style={{ background: palette.backdrop }}
       >
-        <FitCamera size={scene.size} />
-        <OrbitControls
-          makeDefault
-          target={[0, 0, 0]}
-          enablePan={false}
-          minPolarAngle={MIN_POLAR}
-          maxPolarAngle={MAX_POLAR}
-          minDistance={MIN_DIST}
-          maxDistance={MAX_DIST}
-          dampingFactor={0.12}
-        />
+        {/* Камера: облёт, наезд и фокус — на комнате, на выбранном агенте
+            или там, куда её увели руками. */}
+        <Camera3D layout={layout} size={scene.size} />
         <Lights scene={scene} palette={palette} />
+        {/* Светильники комнат — отдельно от общего света сцены: солнце светит
+            на всю раскладку разом, а лампа принадлежит комнате, в которой
+            висит. */}
+        <CeilingLamps scene={scene} palette={palette} offset={offset} />
         {/* Комната сдвинута так, чтобы её центр лёг в начало координат: тогда
             цель облёта, цель направленного света и центр вписывания — одна и
             та же точка, и ни одну из них не приходится возить за раскладкой. */}
@@ -445,7 +276,20 @@ export function Office3D({ onOpen, onDoor }: {
           </FurnitureModels>
         </Suspense>
         <Agents3D offset={offset} />
+        {/* Пикселизация — последней: пока она в дереве, кадр рисует она, а не
+            R3F. Выключенная в настройках, она просто не монтируется, и офис
+            рисуется обычным рендером. */}
+        {graphics.pixelate && (
+          <Pixelation
+            pixelSize={graphics.pixelSize}
+            normalEdge={graphics.normalEdge}
+            depthEdge={graphics.depthEdge}
+          />
+        )}
       </Canvas>
+      {/* Чипы фокуса — поверх канваса, обычным DOM: это интерфейс, а не
+          часть сцены. */}
+      <CameraChips layout={layout} />
     </div>
   );
 }

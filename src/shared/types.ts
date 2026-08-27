@@ -6,6 +6,10 @@
 export type { Layout, LayoutOverride, LayoutPropEdit } from './layout';
 import type { Layout, LayoutOverride, LayoutPropEdit } from './layout';
 
+// Язык офиса живёт в настройках, а его тип — рядом с движком словарей.
+export type { Lang } from './i18n';
+import type { Lang } from './i18n';
+
 export type AgentState =
   | 'idle'
   | 'thinking'
@@ -186,6 +190,17 @@ export type AuthSource = 'subscription' | 'api-key' | 'unknown';
 export type Engine = 'local' | 'cloud';
 
 export interface Settings {
+  /**
+   * Язык офиса: на нём говорит интерфейс, на нём офис пишет в лог и на нём же
+   * работают агенты. Настройка одна на всё, потому что разные языки у
+   * интерфейса и у менеджера дали бы полутатарский офис: подпись кнопки на
+   * одном языке, ответ под ней — на другом.
+   *
+   * Поле необязательное: сохранения офисов старше настройки его не содержат.
+   * На проводе undefined не бывает — сервер добивает настройки умолчаниями и
+   * при загрузке состояния, и при каждой правке.
+   */
+  language?: Lang;
   /** Общий потолок расходов офиса, $. null — без ограничения. */
   globalBudgetUsd: number | null;
   /** Потолок на одну задачу, $. null — без ограничения. */
@@ -538,11 +553,31 @@ export interface MeetingView {
   status: 'running' | 'done' | 'failed';
 }
 
+/**
+ * Подпись офиса под системной репликой в чате. Это метка отправителя, а не
+ * текст для человека: по ней веб отличает голос офиса от голоса менеджера,
+ * и переводу она не подлежит — переведённая, она перестала бы совпадать.
+ * Показывается она под своим переведённым именем (`chat.office` в словаре).
+ */
+export const OFFICE_SENDER = 'office';
+
+/**
+ * Как офис подписывался, пока был только русским. Значение лежит в чатах
+ * заведённых тогда офисов, и знать про него надо ровно затем, чтобы старая
+ * переписка не перестала читаться после обновления.
+ */
+export const LEGACY_OFFICE_SENDER = 'офис';
+
+/** Реплика написана офисом, а не человеком и не агентом. */
+export const isOfficeSender = (from: string): boolean =>
+  from === OFFICE_SENDER || from === LEGACY_OFFICE_SENDER;
+
 export interface ChatEntry {
   id: string;
   /** Ветка разговора: 'pm#1' — чат с менеджером, иначе id агента. */
   thread: string;
-  from: string;   // 'user' | instanceId | 'офис'
+  /** 'user' | id сотрудника | OFFICE_SENDER */
+  from: string;
   text: string;
   at: number;
 }

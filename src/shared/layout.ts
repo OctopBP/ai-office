@@ -114,6 +114,13 @@ export interface LayoutRoom {
   id: string;
   rect: [number, number, number, number];
   floor: 'parquet' | 'carpet' | 'tile';
+  /**
+   * Как комната называется для человека: подпись чипа, которым камера
+   * наводится на неё (`office3d/Camera3D.tsx`). Необязательное — без него
+   * подпись берётся из запасного списка по `id`, а незнакомая комната
+   * называется собственным `id`.
+   */
+  title?: string;
 }
 
 /**
@@ -331,6 +338,16 @@ export function pmDeskIndex(layout: Layout, catalog: Catalog): number {
   const list = deskProps(layout, catalog);
   const i = list.findIndex(({ prop }) => prop.sprite === 'desk_pm');
   return i === -1 ? 0 : i;
+}
+
+/**
+ * Спрайт стола с данным индексом — `desk` или `desk_pm`.
+ *
+ * Нужен трёхмерному рендеру: посадка за столом описана у спрайта (на чём
+ * сидят, где столешница), а стор оперирует номером стола.
+ */
+export function deskSprite(layout: Layout, catalog: Catalog, deskIndex: number): string | undefined {
+  return deskProps(layout, catalog)[deskIndex]?.prop.sprite;
 }
 
 /** Точка work (где стоит человечек) или plate (табличка с кодом задачи) у стола с данным индексом. */

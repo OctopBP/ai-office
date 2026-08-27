@@ -31,13 +31,17 @@ import sitDownUrl from '../../../design/models/characters/animations/sit-down.fb
 import standUpUrl from '../../../design/models/characters/animations/stand-up.fbx?url';
 import sitToTypeUrl from '../../../design/models/characters/animations/sit-to-type.fbx?url';
 import typeToSitUrl from '../../../design/models/characters/animations/type-to-sit.fbx?url';
-import { deskPoint } from '../../shared/layout';
+import { deskPoint, deskSprite } from '../../shared/layout';
 import type { Layout } from '../../shared/layout';
 import { catalog } from '../layoutData';
-import { PROPS } from './props';
+import { poseFit, useFit } from './fit';
+import { seatingFor } from './seating';
+import { measurePoses, useModelMeasures, BONES, type PoseMeasure } from './measure';
+import { reach, type Arm } from './ik';
 import { useStore } from '../store';
 import { interestsFor, type Interest } from '../interests';
 import { STATE_ICON, STATE_TEXT } from '../agentState';
+import { dropAnchor, setAnchor } from './anchors';
 import type { AgentState, InstanceView, RoleView, TaskView } from '../../shared/types';
 
 const skinModules = import.meta.glob('../../../design/models/characters/skins/*.png', {
@@ -48,12 +52,11 @@ const SKINS = Object.entries(skinModules)
   .map(([, url]) => url);
 
 /**
- * Рост фигуры в тайлах. Тайл — примерно 0.75 м (столешница шириной два тайла
- * это 1.5 м), человек — 1.75 м, отсюда 2.3. Плоский спрайт человечка был
- * ростом в полтора тайла, то есть заметно ниже стола: в виде сверху это не
- * мешало, а в объёме сразу бы бросилось в глаза.
+ * Рост фигуры, скорость ходьбы, высоты посадки и прочие числа подгонки живут
+ * в `design/fit.json` и правятся стендом (`?fit=1`), а не здесь. Тайл —
+ * примерно 0.75 м (столешница шириной два тайла это 1.5 м), человек — 1.75 м,
+ * отсюда стоящий по умолчанию рост 2.3.
  */
-const AGENT_TALL = 2.3;
 
 /**
  * Спрайт человечка в раскладке ставится левым верхним углом (`pos` и слоты
@@ -67,35 +70,58 @@ const AGENT_TALL = 2.3;
  * плоского спрайта примерно пояс: фигура оказывается вплотную к столу, но
  * снаружи него.
  */
-const FOOT_DX = 0.5;
-const FOOT_DY = 1.05;
+export const FOOT_DX = 0.5;
+export const FOOT_DY = 1.05;
 
 /**
  * Позы, в которых бывает агент. Сидячие и стоячие разделены не для красоты:
  * переход между группами нельзя проиграть кроссфейдом — человек должен встать
  * или сесть, и на это есть отдельные клипы.
  */
-type Pose = 'walk' | 'idle' | 'talk' | 'type' | 'sitIdle' | 'sitTalk' | 'game';
+export type Pose = 'walk' | 'idle' | 'talk' | 'type' | 'sitIdle' | 'sitTalk' | 'game';
 
-const SEATED: Record<Pose, boolean> = {
+export const SEATED: Record<Pose, boolean> = {
   walk: false, idle: false, talk: false,
   type: true, sitIdle: true, sitTalk: true, game: true,
 };
 
 /** Переходы между позами — играются один раз и замирают на последнем кадре. */
-type Move = 'sitDown' | 'standUp' | 'sitToType' | 'typeToSit';
+export type Move = 'sitDown' | 'standUp' | 'sitToType' | 'typeToSit';
 
 /** Длительность кроссфейда между зацикленными позами, секунды. */
 const FADE = 0.25;
 
 /**
- * Скорость проигрывания шага. Наш агент идёт со скоростью, которую задаёт
- * `legDurationMs` в сторе, а клип нарисован со своей: разойдясь, они дают
- * скольжение ног по полу. Число подобрано на глаз под нынешнюю скорость
- * ходьбы; вернее было бы считать его из длины шага, но для этого нужна
- * длина шага, а её в клипе не написано.
+ * Пределы, в которых разрешено растягивать клип шага.
+ *
+ * Скорость проигрывания не константа: она считается каждый кадр из того, с
+ * какой скоростью агент на самом деле едет, и из длины шага, измеренной по
+ * самому клипу (`measure.ts`). Раньше здесь стояла единица, подобранная на
+ * глаз, — при нынешней скорости офиса это означало, что ноги перебирают
+ * впятеро медленнее, чем движется тело.
+ *
+ * Пределы нужны на случай телепорта и микросдвигов: делить на почти нулевое
+ * оставшееся время — верный способ получить мельтешение вместо шага.
  */
-const WALK_TIMESCALE = 1.0;
+const WALK_RATE = { min: 0.25, max: 6 };
+
+/**
+ * За сколько секунд фигура переезжает между «стоит» и «сидит».
+ *
+ * Это не длительность клипа посадки, а время, за которое подъём на сиденье
+ * доезжает до конца. Совпадать они не обязаны: клип рисует, как человек
+ * сгибается, а подъём — где в этот момент его таз. Взято близко к длине
+ * клипов `sitDown`/`standUp` (2.2 с), чуть быстрее — чтобы фигура успевала
+ * сесть, а не досаживалась уже сидя.
+ */
+const POSTURE_TIME = 1.8;
+
+/** За сколько секунд кисти дотягиваются до столешницы и отпускают её. */
+const REACH_TIME = 0.35;
+
+/** Общая мишень для кистей: считается каждый кадр, но новая на каждого агента
+ *  и каждый кадр была бы мусором на ровном месте. */
+const hand = new THREE.Vector3();
 
 /** Ниже этого расстояния до цели (тайлы) считаем, что агент стоит. */
 const MOVING_EPS = 0.02;
@@ -219,42 +245,36 @@ const MOVE_URLS: Record<Move, string> = {
   sitDown: sitDownUrl, standUp: standUpUrl,
   sitToType: sitToTypeUrl, typeToSit: typeToSitUrl,
 };
-const POSE_KEYS = Object.keys(POSE_URLS) as Pose[];
+export const POSE_KEYS = Object.keys(POSE_URLS) as Pose[];
 const MOVE_KEYS = Object.keys(MOVE_URLS) as Move[];
 const CLIP_URLS = [charUrl, ...POSE_KEYS.map((k) => POSE_URLS[k]), ...MOVE_KEYS.map((k) => MOVE_URLS[k])];
 
-interface Loaded {
+export interface Loaded {
   model: THREE.Group;
   clips: Record<Pose | Move, THREE.AnimationClip>;
+  /** Замеры поз: где в каждой из них таз, кисти и ступни (доли роста). */
+  measure: Record<Pose, PoseMeasure>;
 }
 
 /**
- * Убирает из клипа горизонтальное перемещение корня.
+ * Персонаж и его клипы.
  *
- * У Mixamo есть галочка «In Place», но полагаться на то, что её не забыли
- * нажать, нельзя: с движением корня фигура уедет сама — а её ещё и наш код
- * везёт по пути, — и ноги разъедутся с телом. Вертикальную составляющую
- * оставляем: это покачивание при шаге, оно на месте и должно остаться.
+ * Горизонтальное перемещение корня из клипов не вычищается: у всех
+ * одиннадцати его нет — Mixamo отдал их «в месте», и трогать нечего. Раньше
+ * тут стояла функция, которая это делала, но искала дорожку `Hips.position`,
+ * а корень в этих файлах лежит на `HipsCtrl.position`: она не совпадала ни с
+ * одним клипом и не делала ровно ничего. Если однажды приедет клип с
+ * движением корня, это станет видно сразу — фигура поедет сама.
  */
-function inPlace(clip: THREE.AnimationClip): THREE.AnimationClip {
-  for (const track of clip.tracks) {
-    if (!/Hips\.position$/.test(track.name)) continue;
-    for (let i = 0; i < track.values.length; i += 3) {
-      track.values[i] = 0;
-      track.values[i + 2] = 0;
-    }
-  }
-  return clip;
-}
-
-function useCharacter(): Loaded {
+export function useCharacter(): Loaded {
   const loaded = useLoader(FBXLoader, CLIP_URLS) as unknown as THREE.Group[];
   return useMemo(() => {
     const clips = {} as Record<Pose | Move, THREE.AnimationClip>;
     POSE_KEYS.forEach((k, i) => { clips[k] = loaded[1 + i].animations[0]; });
     MOVE_KEYS.forEach((k, i) => { clips[k] = loaded[1 + POSE_KEYS.length + i].animations[0]; });
-    inPlace(clips.walk);
-    return { model: loaded[0], clips };
+    const poses = {} as Record<Pose, THREE.AnimationClip>;
+    for (const k of POSE_KEYS) poses[k] = clips[k];
+    return { model: loaded[0], clips, measure: measurePoses(loaded[0], poses) };
   }, [loaded]);
 }
 
@@ -262,7 +282,7 @@ function useCharacter(): Loaded {
  * Материалы по скинам — один на скин, а не на агента: скинов четыре, агентов
  * может быть вдвое больше, а текстура у них общая.
  */
-function useSkinMaterials(): THREE.Material[] {
+export function useSkinMaterials(): THREE.Material[] {
   const textures = useLoader(THREE.TextureLoader, SKINS);
   return useMemo(() => (textures as THREE.Texture[]).map((map) => {
     map.colorSpace = THREE.SRGBColorSpace;
@@ -306,10 +326,14 @@ function AgentTag({ inst, role, task, expanded }: {
 }) {
   const icon = STATE_ICON[inst.state];
   const chipColor = role?.color || NO_ROLE_COLOR;
+  // Подпись висит над макушкой стоящего — и остаётся там же, когда агент
+  // сядет: карточки восьми агентов и так липнут друг к другу, а прыгающая
+  // вслед за посадкой подпись читалась бы ещё хуже.
+  const tall = useFit((s) => s.fit.figure.tall);
   return (
     <Html
       center
-      position={[0, AGENT_TALL + 0.55, 0]}
+      position={[0, tall + 0.55, 0]}
       distanceFactor={TAG_SCALE}
       zIndexRange={[100, 0]}
       style={{ pointerEvents: 'none', userSelect: 'none' }}
@@ -356,6 +380,81 @@ function AgentTag({ inst, role, task, expanded }: {
 }
 
 /**
+ * Собрать фигуру: клон скелета, микшер, действия и кости рук.
+ *
+ * Отдельной функцией, а не прямо в компоненте, потому что тем же занят стенд
+ * подгонки: он показывает ту же фигуру с теми же клипами, и собирать её
+ * вторым способом значило бы проверять на стенде не то, что в комнате.
+ *
+ * `phase` — доля цикла, с которой начинаются анимации: 0…1.
+ */
+export function buildRig(
+  loaded: Loaded, material: THREE.Material, tall: number, phase: number,
+): Rig {
+  // Клонировать скелет обычным `clone()` нельзя: у копий остались бы кости
+  // оригинала и все агенты двигались бы как один.
+  const figure = cloneSkinned(loaded.model);
+  const box = new THREE.Box3().setFromObject(figure);
+  figure.scale.setScalar(tall / Math.max(box.max.y - box.min.y, 1e-6));
+  figure.rotation.y = MODEL_YAW;
+  figure.traverse((o) => {
+    if (o instanceof THREE.Mesh) {
+      o.material = material;
+      o.castShadow = true;
+      // Принимать тени фигуре незачем: сама на себя она их почти не
+      // отбрасывает, а лишний проход по скиннингу не бесплатный.
+      o.receiveShadow = false;
+    }
+  });
+
+  const mixer = new THREE.AnimationMixer(figure);
+  const actions = {} as Record<Pose | Move, THREE.AnimationAction>;
+  for (const key of POSE_KEYS) actions[key] = mixer.clipAction(loaded.clips[key]);
+  for (const key of MOVE_KEYS) {
+    const a = mixer.clipAction(loaded.clips[key]);
+    // Переход играется один раз и замирает на последнем кадре: иначе на
+    // стыке с зацикленной позой человек успевал бы вскочить обратно.
+    a.setLoop(THREE.LoopOnce, 1);
+    a.clampWhenFinished = true;
+    actions[key] = a;
+  }
+
+  /**
+   * Сдвиг фазы: каждая фигура начинает свой цикл со своей секунды.
+   *
+   * Без него восемь агентов дышат, переминаются и печатают синхронно —
+   * комната превращается в кордебалет, и это первое, что бросается в
+   * глаза. Сдвиг детерминированный, от номера агента: случайный менялся бы
+   * при каждой перерисовке и дёргал бы позу.
+   */
+  for (const key of POSE_KEYS) {
+    const a = actions[key];
+    a.time = (phase * a.getClip().duration) % a.getClip().duration;
+  }
+  /**
+   * Кости рук — для дотягивания кистей до столешницы. Ищутся один раз
+   * здесь, а не в кадре: `getObjectByName` обходит всё поддерево, а костей
+   * в скелете под шесть десятков.
+   */
+  const arms = BONES.arms
+    .map((a) => ({
+      upper: figure.getObjectByName(a.upper),
+      lower: figure.getObjectByName(a.lower),
+      hand: figure.getObjectByName(a.hand),
+    }))
+    .filter((a): a is Arm => !!(a.upper && a.lower && a.hand));
+
+  return { figure, mixer, actions, arms };
+}
+
+export interface Rig {
+  figure: THREE.Object3D;
+  mixer: THREE.AnimationMixer;
+  actions: Record<Pose | Move, THREE.AnimationAction>;
+  arms: Arm[];
+}
+
+/**
  * Один человечек.
  *
  * Позиция интерполируется от **текущей видимой** точки к новой цели, а не от
@@ -385,7 +484,23 @@ function Agent({
   const pos = useStore((s) => s.pos[inst.id]);
   const select = useStore((s) => s.select);
   const group = useRef<THREE.Group>(null);
+  /**
+   * Вторая группа, внутри первой, — поправка позы.
+   *
+   * Внешняя везёт агента по комнате и разворачивает; внутренняя поднимает его
+   * на сиденье. Разделены они потому, что живут по разным законам: путь
+   * задан стором в секундах и тайлах, а подъём — тем, сидит человек или
+   * стоит. Слитые в одну, они дрались бы за одну и ту же позицию, и агент
+   * подъезжал бы к столу уже сидя, по воздуху.
+   */
+  const seat = useRef<THREE.Group>(null);
   const [hovered, setHovered] = useState(false);
+
+  /** Числа подгонки: рост фигуры, высоты посадки, скорость, IK. */
+  const fit = useFit((s) => s.fit);
+  const tall = fit.figure.tall;
+  /** Высоты поверхностей у моделей набора — сиденья и столешницы. */
+  const models = useModelMeasures();
 
   /**
    * Развёрнутая подпись — только там, где её есть смысл читать.
@@ -414,54 +529,17 @@ function Agent({
    * бухгалтерию three (`_cacheIndex` у несуществующего действия). Один мемо —
    * один согласованный набор, и разъезжаться нечему.
    */
-  const rig = useMemo(() => {
-    // Клонировать скелет обычным `clone()` нельзя: у копий остались бы кости
-    // оригинала и все агенты двигались бы как один.
-    const figure = cloneSkinned(loaded.model);
-    const box = new THREE.Box3().setFromObject(figure);
-    figure.scale.setScalar(AGENT_TALL / Math.max(box.max.y - box.min.y, 1e-6));
-    figure.rotation.y = MODEL_YAW;
-    figure.traverse((o) => {
-      if (o instanceof THREE.Mesh) {
-        o.material = material;
-        o.castShadow = true;
-        // Принимать тени фигуре незачем: сама на себя она их почти не
-        // отбрасывает, а лишний проход по скиннингу не бесплатный.
-        o.receiveShadow = false;
-      }
-    });
-
-    const mixer = new THREE.AnimationMixer(figure);
-    const actions = {} as Record<Pose | Move, THREE.AnimationAction>;
-    for (const key of POSE_KEYS) actions[key] = mixer.clipAction(loaded.clips[key]);
-    for (const key of MOVE_KEYS) {
-      const a = mixer.clipAction(loaded.clips[key]);
-      // Переход играется один раз и замирает на последнем кадре: иначе на
-      // стыке с зацикленной позой человек успевал бы вскочить обратно.
-      a.setLoop(THREE.LoopOnce, 1);
-      a.clampWhenFinished = true;
-      actions[key] = a;
-    }
-    actions.walk.timeScale = WALK_TIMESCALE;
-
-    /**
-     * Сдвиг фазы: каждая фигура начинает свой цикл со своей секунды.
-     *
-     * Без него восемь агентов дышат, переминаются и печатают синхронно —
-     * комната превращается в кордебалет, и это первое, что бросается в
-     * глаза. Сдвиг детерминированный, от номера агента: случайный менялся бы
-     * при каждой перерисовке и дёргал бы позу.
-     */
-    for (const key of POSE_KEYS) {
-      const a = actions[key];
-      a.time = (phase * a.getClip().duration) % a.getClip().duration;
-    }
-    return { figure, mixer, actions };
-  }, [loaded, material, phase]);
+  const rig = useMemo(
+    () => buildRig(loaded, material, tall, phase), [loaded, material, phase, tall],
+  );
 
   /** Поза, которая играет сейчас, и поза, к которой ведёт текущий переход. */
   const pose = useRef<Pose>('idle');
   const pending = useRef<Pose | null>(null);
+  /** Клип перехода, который играет прямо сейчас. Нужен отдельно от `pending`:
+   *  прерванный переход надо погасить, а по целевой позе не понять, каким
+   *  клипом в неё шли. */
+  const transition = useRef<Move | null>(null);
 
   /**
    * Запуск анимации живёт в эффекте, а не рядом с созданием действий. React в
@@ -478,6 +556,7 @@ function Agent({
   useEffect(() => {
     pose.current = 'idle';
     pending.current = null;
+    transition.current = null;
     rig.actions.idle.reset().play();
 
     /**
@@ -485,10 +564,15 @@ function Agent({
      * событием, а не таймером на длину клипа: длины у клипов разные, а
      * промахнувшийся таймер даёт либо рывок, либо застывшую фигуру.
      */
-    const onFinished = () => {
+    const onFinished = (e: { action: THREE.AnimationAction }) => {
       const next = pending.current;
-      if (!next) return;
+      // Доиграть может и прерванный переход: погашенный клип догорает до
+      // конца и присылает то же событие. Позу двигает только тот, который
+      // играется сейчас, — иначе агент принимал бы позу, от которой уже
+      // отказались.
+      if (!next || !transition.current || e.action !== rig.actions[transition.current]) return;
       pending.current = null;
+      transition.current = null;
       const action = rig.actions[next];
       action.reset().setEffectiveWeight(1).fadeIn(FADE).play();
       pose.current = next;
@@ -507,6 +591,23 @@ function Agent({
    */
   const goTo = (next: Pose) => {
     if (next === pose.current || next === pending.current) return;
+    /**
+     * Незаконченный переход гасим. Без этого он доигрывал сам по себе и
+     * досрочно объявлял позу, в которую вёл: агента звали в путь, пока он
+     * садился, — он вставал и шёл, а на середине комнаты клип «сесть»
+     * досчитывал до конца и усаживал его на ходу. Чаще всех в это попадал
+     * менеджер: он единственный ходит к своему столу и обратно на каждый
+     * ход разговора, то есть постоянно срывается с полпути посадки.
+     *
+     * Исходной позой остаётся прежняя, а не та, к которой переход вёл: до
+     * неё тело не доехало. Встал наполовину — значит, идти можно сразу, без
+     * отдельного подъёма.
+     */
+    if (transition.current) {
+      rig.actions[transition.current].fadeOut(FADE);
+      transition.current = null;
+      pending.current = null;
+    }
     const from = pose.current;
     const move: Move | null = SEATED[from] === SEATED[next]
       ? (from === 'sitIdle' && next === 'type' ? 'sitToType'
@@ -520,8 +621,18 @@ function Agent({
       return;
     }
     pending.current = next;
+    transition.current = move;
     rig.actions[move].reset().setEffectiveWeight(1).fadeIn(FADE).play();
   };
+
+  /**
+   * Насколько агент сейчас сидит: 0 — стоит, 1 — сидит. Не «сидит ли», а
+   * именно доля: между двумя состояниями играется клип посадки, и подъём
+   * таза едет вместе с ним.
+   */
+  const posture = useRef(0);
+  /** Насколько сейчас слушаются кисти: та же плавность, что у посадки. */
+  const reachW = useRef(0);
 
   /** Цель в мировых координатах и сколько секунд на неё отведено. */
   const target = useRef(new THREE.Vector3());
@@ -537,17 +648,8 @@ function Agent({
   const raw = pos ?? { x: inst.desk.x, y: inst.desk.y, ms: 0 };
   const atDesk = raw.x === inst.desk.x && raw.y === inst.desk.y;
   const point = atDesk ? deskPoint(layout, catalog, inst.desk.index, 'work') : raw;
-  /**
-   * Доводка посадки под конкретную модель мебели — `seat` в таблице
-   * предметов. Каталог говорит, где у предмета место; модель знает, где у неё
-   * подушка, и это не одно и то же: анимация Mixamo сажает человека так,
-   * будто сиденье на высоте сорока пяти сантиметров, а у моделей набора оно
-   * своё. Подбирается руками, см. комментарий у поля.
-   */
-  const tune = (interest?.sprite ? PROPS[interest.sprite]?.seat : undefined) ?? [0, 0, 0];
-  const px = point.x + FOOT_DX + offset[0] + tune[0];
-  const pz = point.y + FOOT_DY + offset[1] + tune[2];
-  const py = tune[1];
+  const px = point.x + FOOT_DX + offset[0];
+  const pz = point.y + FOOT_DY + offset[1];
   const ms = pos?.ms ?? 0;
 
   /**
@@ -584,15 +686,35 @@ function Agent({
    *  поэтому договариваться им не о чем. */
   const speaksFirst = !!interest?.partner && inst.id < interest.partner;
 
+  /**
+   * Посадка: куда поднять фигуру относительно точки места и тянуть ли кисти
+   * к столешнице. Правило целиком — в `seating.ts`, тем же пользуется стенд.
+   */
+  const placeSprite = atDesk
+    ? deskSprite(layout, catalog, inst.desk.index)
+    : interest?.sprite;
+  const { lift, handsY } = seatingFor(
+    fit, models, loaded.measure[restPose], restPose, placeSprite, tall,
+  );
+
+  /**
+   * Честная скорость клипа шага, тайлов в секунду: длина цикла в ростах,
+   * умноженная на рост и делённая на длительность. По ней в кадре считается
+   * растяжение — чтобы ноги перебирали ровно с той скоростью, с какой едет
+   * тело.
+   */
+  const clipSpeed = fit.walk.clipSpeed
+    ?? (loaded.measure.walk.cycle * tall) / Math.max(loaded.clips.walk.duration, 1e-6);
+
   useEffect(() => {
-    target.current.set(px, py, pz);
+    target.current.set(px, 0, pz);
     remain.current = ms / 1000;
     const g = group.current;
     if (!g) return;
     // Первое появление и телепорт (ms = 0) — без анимации: агента ещё нигде
     // не было, вести его через всю комнату было бы неправдой.
     if (ms === 0 || g.position.lengthSq() === 0) g.position.copy(target.current);
-  }, [px, py, pz, ms]);
+  }, [px, pz, ms]);
 
   useFrame((state, dt) => {
     rig.mixer.update(dt);
@@ -607,15 +729,39 @@ function Agent({
 
     const dist = g.position.distanceTo(target.current);
     if (remain.current > 0 && dist > MOVING_EPS) {
-      // Доля пути, которую надо пройти за этот кадр, чтобы уложиться в
-      // оставшееся время. Пересчёт от остатка, а не от общей длительности,
-      // сам справляется с просевшим кадром и со сменой цели на ходу.
-      g.position.lerp(target.current, Math.min(1, dt / remain.current));
+      goTo('walk');
+      /**
+       * Пока играет подъём со стула, агент ещё встаёт, а не идёт: везти его
+       * в это время — это и есть «поехал сидя». Из отпущенного на дорогу
+       * времени подъём не вычитаем: иначе остаток пути пришлось бы пройти
+       * быстрее нарисованного шага, и ноги поехали бы по полу. Приход от
+       * этого задерживается на длину клипа — ровно на то время, которое
+       * человек и тратит, чтобы подняться со стула.
+       */
+      if (pending.current !== 'walk') {
+        // Доля пути, которую надо пройти за этот кадр, чтобы уложиться в
+        // оставшееся время. Пересчёт от остатка, а не от общей длительности,
+        // сам справляется с просевшим кадром и со сменой цели на ходу.
+        g.position.lerp(target.current, Math.min(1, dt / remain.current));
+        remain.current -= dt;
+      }
       const dx = target.current.x - g.position.x;
       const dz = target.current.z - g.position.z;
       if (dx * dx + dz * dz > 1e-6) yaw.current = Math.atan2(dx, dz);
-      remain.current -= dt;
-      goTo('walk');
+
+      /**
+       * Растяжение клипа шага под настоящую скорость.
+       *
+       * Считается от того, что происходит на самом деле — остаток пути,
+       * делённый на остаток времени, — а не от скорости из настроек: путь
+       * перебивают на середине, короткие отрезки идут по нижнему пределу
+       * длительности, и заявленная скорость там не соблюдается. Ноги должны
+       * слушаться того, как фигура едет, а не того, как ей полагалось бы.
+       */
+      const speed = remain.current > 1e-3 ? dist / remain.current : clipSpeed;
+      rig.actions.walk.timeScale = THREE.MathUtils.clamp(
+        speed / clipSpeed, WALK_RATE.min, WALK_RATE.max,
+      );
     } else {
       g.position.copy(target.current);
       remain.current = 0;
@@ -628,13 +774,68 @@ function Agent({
     let delta = yaw.current - g.rotation.y;
     delta = Math.atan2(Math.sin(delta), Math.cos(delta));
     g.rotation.y += delta * Math.min(1, dt * TURN_SPEED);
+
+    /**
+     * Подъём на сиденье. Едет он не мгновенно: между «стоит» и «сидит»
+     * играется клип посадки, и всё это время таз должен опускаться, а не
+     * прыгать на подушку в первом же кадре.
+     *
+     * Цель берётся по той позе, к которой ведёт переход, а не по нынешней:
+     * пока играет `sitDown`, поза формально ещё стоячая, а человек уже
+     * садится.
+     */
+    const wants = SEATED[pending.current ?? pose.current] ? 1 : 0;
+    const step = dt / POSTURE_TIME;
+    posture.current += THREE.MathUtils.clamp(wants - posture.current, -step, step);
+    const s = seat.current;
+    if (s) {
+      s.position.set(
+        lift[0] * posture.current,
+        lift[1] * posture.current,
+        lift[2] * posture.current,
+      );
+    }
+
+    /**
+     * Дотягивание кистей до столешницы.
+     *
+     * Вес нарастает и спадает, а не включается щелчком: рука, мгновенно
+     * поднятая на стол в момент смены позы, — это дёрганье, которое видно
+     * даже мельком. Кости считаются от уже поставленной фигуры, поэтому
+     * матрицы приходится обновить вручную: рендер сделает это позже, а нам
+     * нужны мировые координаты кистей прямо сейчас.
+     */
+    const pull = handsY !== null && !pending.current
+      && poseFit(fit, pose.current).reach ? 1 : 0;
+    const rstep = dt / REACH_TIME;
+    reachW.current += THREE.MathUtils.clamp(pull - reachW.current, -rstep, rstep);
+    if (reachW.current > 1e-3 && handsY !== null) {
+      g.updateMatrixWorld(true);
+      for (const arm of rig.arms) {
+        arm.hand.getWorldPosition(hand);
+        hand.y = handsY;
+        reach(arm, hand, reachW.current * fit.seated.ikWeight);
+      }
+    }
+
+    // Где агент оказался в этом кадре — для камеры (`anchors.ts`). Не через
+    // стор: она следит за идущим человеком, и запись в стор перерисовывала
+    // бы офис шестьдесят раз в секунду.
+    setAnchor(inst.id, g.position);
   });
+
+  useEffect(() => () => dropAnchor(inst.id), [inst.id]);
 
   const ring = selected || inMeeting ? ACCENT : STATE_RING[inst.state];
 
   return (
     <group ref={group}>
-      <primitive object={rig.figure} />
+      {/* Фигура — во второй группе: её поднимает посадка, пока внешняя везёт
+          агента по комнате. Кольцо, мишень и подпись остаются на внешней,
+          то есть на полу и над макушкой стоящего. */}
+      <group ref={seat}>
+        <primitive object={rig.figure} />
+      </group>
 
       {/*
         Клик ловит не сама фигура, а невидимый цилиндр вокруг неё.
@@ -648,7 +849,7 @@ function Agent({
         выбирал заодно того, кто стоит позади.
       */}
       <mesh
-        position={[0, AGENT_TALL / 2, 0]}
+        position={[0, tall / 2, 0]}
         onClick={(e: { stopPropagation: () => void }) => {
           e.stopPropagation();
           select(selected ? null : inst.id);
@@ -663,7 +864,7 @@ function Agent({
           document.body.style.cursor = '';
         }}
       >
-        <cylinderGeometry args={[0.45, 0.45, AGENT_TALL, 8]} />
+        <cylinderGeometry args={[0.45, 0.45, tall, 8]} />
         <meshBasicMaterial transparent opacity={0} depthWrite={false} />
       </mesh>
       {ring && <Ring color={ring} />}

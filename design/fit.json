@@ -1,0 +1,62 @@
+{
+  "version": 1,
+  "figure": {
+    "tall": 2.3,
+    "furniture": 1
+  },
+  "walk": {
+    "tilesPerSec": 5,
+    "clipSpeed": null
+  },
+  "seated": {
+    "hipsOverSeat": 0.09,
+    "handsOverSurface": 0.04,
+    "ik": true,
+    "ikWeight": 1
+  },
+  "poses": {
+    "walk": {
+      "anchor": "feet",
+      "offset": [0, 0, 0]
+    },
+    "idle": {
+      "anchor": "feet",
+      "offset": [0, 0, 0]
+    },
+    "talk": {
+      "anchor": "feet",
+      "offset": [0, 0, 0]
+    },
+    "type": {
+      "anchor": "hips",
+      "offset": [0, 0, 0],
+      "reach": true
+    },
+    "sitIdle": {
+      "anchor": "hips",
+      "offset": [0, 0, 0]
+    },
+    "sitTalk": {
+      "anchor": "hips",
+      "offset": [0, 0, 0]
+    },
+    "game": {
+      "anchor": "hips",
+      "offset": [0, 0, 0]
+    }
+  },
+  "places": {
+    "desk": {
+      "seat": [0, 0, 0]
+    },
+    "desk_pm": {
+      "seat": [0, 0, 0]
+    },
+    "sofa": {
+      "seat": [0, 0, 0]
+    },
+    "armchair": {
+      "seat": [0, 0, 0]
+    }
+  }
+}

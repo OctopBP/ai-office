@@ -1,5 +1,7 @@
 import { resolve, isAbsolute } from 'node:path';
 import type { PermissionMode, RiskLevel } from '../shared/types';
+import type { Lang } from '../shared/i18n';
+import { t, type ServerKey } from './i18n';
 
 export interface Verdict {
   risk: RiskLevel;
@@ -24,27 +26,27 @@ const WRITE_TOOLS = new Set(['Write', 'Edit', 'NotebookEdit', 'MultiEdit']);
  * (иначе пользователь утонет в подтверждениях на ls и cat), а про те, что
  * необратимы или выходят за пределы проекта.
  */
-const DANGEROUS_BASH: Array<{ re: RegExp; why: string }> = [
-  { re: /(^|[\s;&|(])rm\b/,                         why: 'удаляет файлы' },
-  { re: /(^|[\s;&|(])rmdir\b/,                      why: 'удаляет директории' },
-  { re: /(^|[\s;&|(])(kill|pkill|killall)\b/,       why: 'завершает процессы' },
-  { re: /(^|[\s;&|(])sudo\b/,                       why: 'запрашивает права root' },
-  { re: /(^|[\s;&|(])(chmod|chown)\b/,              why: 'меняет права доступа' },
-  { re: /(^|[\s;&|(])(dd|mkfs|fdisk)\b/,            why: 'низкоуровневая операция с диском' },
-  { re: /(^|[\s;&|(])(shutdown|reboot|halt)\b/,     why: 'выключает систему' },
-  { re: /git\s+push\b/,                             why: 'публикует изменения в удалённый репозиторий' },
-  { re: /git\s+reset\s+--hard\b/,                   why: 'необратимо откатывает изменения' },
-  { re: /git\s+clean\b/,                            why: 'удаляет неотслеживаемые файлы' },
-  { re: /(npm|yarn|pnpm)\s+publish\b/,              why: 'публикует пакет' },
-  { re: /(curl|wget)[^|;]*\|\s*(ba|z|fi)?sh\b/,     why: 'выполняет скачанный из сети скрипт' },
-  { re: /(^|[\s;&|(])(shred|srm|truncate|unlink)\b/, why: 'необратимо затирает данные' },
+const DANGEROUS_BASH: Array<{ re: RegExp; why: ServerKey }> = [
+  { re: /(^|[\s;&|(])rm\b/,                         why: 'perm.why.rm' },
+  { re: /(^|[\s;&|(])rmdir\b/,                      why: 'perm.why.rmdir' },
+  { re: /(^|[\s;&|(])(kill|pkill|killall)\b/,       why: 'perm.why.kill' },
+  { re: /(^|[\s;&|(])sudo\b/,                       why: 'perm.why.sudo' },
+  { re: /(^|[\s;&|(])(chmod|chown)\b/,              why: 'perm.why.chmod' },
+  { re: /(^|[\s;&|(])(dd|mkfs|fdisk)\b/,            why: 'perm.why.disk' },
+  { re: /(^|[\s;&|(])(shutdown|reboot|halt)\b/,     why: 'perm.why.shutdown' },
+  { re: /git\s+push\b/,                             why: 'perm.why.push' },
+  { re: /git\s+reset\s+--hard\b/,                   why: 'perm.why.reset' },
+  { re: /git\s+clean\b/,                            why: 'perm.why.clean' },
+  { re: /(npm|yarn|pnpm)\s+publish\b/,              why: 'perm.why.publish' },
+  { re: /(curl|wget)[^|;]*\|\s*(ba|z|fi)?sh\b/,     why: 'perm.why.pipeSh' },
+  { re: /(^|[\s;&|(])(shred|srm|truncate|unlink)\b/, why: 'perm.why.shred' },
   // Встроенный код в интерпретаторе обходит любую проверку текста команды:
   // именно так агент удалил файл после двух отказов на rm.
   { re: /(^|[\s;&|(])(python3?|node|perl|ruby|deno|bun|php|osascript)\s+(-e|-c|--eval|eval)\b/,
-    why: 'выполняет встроенный код — содержимое не проверяется правилами команд' },
-  { re: /-delete\b|(xargs|find)\b[^|;]*\b(rm|unlink)\b/, why: 'массовое удаление файлов' },
-  { re: /\bhistory\s+-c\b/,                         why: 'очищает историю команд' },
-  { re: /(^|[\s;&|(])mv\b/,                         why: 'перемещает файлы' },
+    why: 'perm.why.eval' },
+  { re: /-delete\b|(xargs|find)\b[^|;]*\b(rm|unlink)\b/, why: 'perm.why.massDelete' },
+  { re: /\bhistory\s+-c\b/,                         why: 'perm.why.historyClear' },
+  { re: /(^|[\s;&|(])mv\b/,                         why: 'perm.why.mv' },
 ];
 
 const clip = (s: unknown, n: number): string => {
@@ -61,10 +63,16 @@ function insideProject(path: unknown, projectDir: string): boolean {
   return abs === root || abs.startsWith(`${root}/`);
 }
 
+/**
+ * Разобрать вызов инструмента: насколько он опасен и что показать человеку.
+ * Язык здесь нужен потому, что причина и сводка уходят прямо в модалку
+ * разрешения и в ленту офиса, а не в код.
+ */
 export function classify(
   toolName: string,
   input: Record<string, unknown>,
   projectDir: string,
+  lang: Lang,
 ): Verdict {
   // Наши собственные инструменты офиса безопасны по построению.
   if (toolName.startsWith('mcp__')) {
@@ -81,7 +89,7 @@ export function classify(
     const content = String(input.content ?? input.new_string ?? '');
     return {
       risk: outside ? 'danger' : 'write',
-      reason: outside ? 'файл за пределами рабочей директории' : 'запись в файл проекта',
+      reason: t(lang, outside ? 'perm.reason.outside' : 'perm.reason.write'),
       summary: `${toolName} → ${path}`,
       detail: content ? clip(content, 600) : '',
       key: outside ? `${toolName}:outside` : toolName,
@@ -95,7 +103,7 @@ export function classify(
     if (hit) {
       return {
         risk: 'danger',
-        reason: hit.why,
+        reason: t(lang, hit.why),
         summary: clip(command, 90),
         detail: command,
         key: `Bash:${first}`,
@@ -103,7 +111,7 @@ export function classify(
     }
     return {
       risk: 'write',
-      reason: 'команда в оболочке',
+      reason: t(lang, 'perm.reason.bash'),
       summary: clip(command, 90),
       detail: command,
       key: `Bash:${first}`,
@@ -113,7 +121,7 @@ export function classify(
   // Незнакомый инструмент — считаем пишущим, пусть решает пользователь.
   return {
     risk: 'write',
-    reason: 'незнакомый инструмент',
+    reason: t(lang, 'perm.reason.unknownTool'),
     summary: toolName,
     detail: clip(JSON.stringify(input), 400),
     key: toolName,
@@ -163,15 +171,9 @@ export function decide(mode: PermissionMode, risk: RiskLevel): Decision {
   }
 }
 
-const MODE_LABEL: Record<PermissionMode, string> = {
-  auto: 'полный доступ',
-  'ask-risky': 'спрашивать только про необратимое',
-  'ask-writes': 'спрашивать про любую запись',
-  readonly: 'только чтение',
-};
-
-export function modeLabel(mode: PermissionMode): string {
-  return MODE_LABEL[mode];
+/** Название режима доступа словами — тем же, что видит человек в настройках. */
+export function modeLabel(mode: PermissionMode, lang: Lang): string {
+  return t(lang, `perm.mode.${mode}`);
 }
 
 /**
@@ -182,11 +184,12 @@ export function autoApprovedText(
   mode: PermissionMode,
   toolName: string,
   verdict: Verdict,
+  lang: Lang,
 ): string {
   // У Write/Edit summary уже начинается с имени инструмента — не дублируем.
   const what = verdict.summary.startsWith(toolName)
     ? verdict.summary
     : `${toolName}: ${verdict.summary || '—'}`;
   const why = verdict.reason ? ` (${verdict.reason})` : '';
-  return `Без вопроса, режим «${MODE_LABEL[mode]}» — ${what}${why}`;
+  return t(lang, 'perm.autoApproved', { mode: modeLabel(mode, lang), what: `${what}${why}` });
 }

@@ -35,6 +35,7 @@ export const AGENT_SPRITE: Record<string, string> = {
   smm: 'agent_backend2',
   reviewer: 'agent_backend2',
   artist: 'agent_uiux',
+  artist3d: 'agent_uiux',
   legal: 'agent_frontend1',
 };
 
