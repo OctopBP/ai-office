@@ -30,6 +30,7 @@
  * а не следить, дошло ли.
  */
 import type { PullRequestView } from '../shared/types';
+import { OFFICE_SENDER } from '../shared/types';
 import { type OfficeState, type Task } from './state';
 import { pipelineProblem, runPipeline, tellPm } from './review';
 import { officeAssign, retryTask, slotProblem } from './agents';
@@ -112,9 +113,11 @@ export async function superviseOffice(state: OfficeState): Promise<void> {
       // Время СЛЕДУЮЩЕЙ попытки ставим сразу: попытка идёт минутами, а
       // следующий проход не должен запустить её второй раз.
       nextTryAt: now + BACKOFF_MS[Math.min(retries, BACKOFF_MS.length - 1)],
-      note: `${pr.note}\nОфис пробует снова сам (попытка ${retries} из ${BACKOFF_MS.length}).`,
+      note: state.say('sup.retryNote', {
+        note: pr.note, n: retries, max: BACKOFF_MS.length,
+      }),
     });
-    state.addLog(null, 'system', `${pr.taskId}: надзор перезапускает конвейер, попытка ${retries}`);
+    state.addLog(null, 'system', state.say('sup.retryLog', { task: pr.taskId, n: retries }));
     void runPipeline(state, pr.taskId);
   }
 
@@ -128,13 +131,12 @@ export async function superviseOffice(state: OfficeState): Promise<void> {
     if (started >= START_PER_TICK) break;
     if (await pipelineProblem(state, task)) continue;
     started += 1;
-    state.addLog(null, 'system', `${task.id}: надзор нашёл незаведённую ветку и повёл её на ревью`);
+    state.addLog(null, 'system', state.say('sup.orphanLog', { task: task.id }));
     void runPipeline(state, task.id);
   }
 
   if (started && orphans.length > started) {
-    state.addLog(null, 'system',
-      `Осталось незаведённых веток: ${orphans.length - started} — возьму их следующими проходами.`);
+    state.addLog(null, 'system', state.say('sup.orphansLeft', { n: orphans.length - started }));
   }
 
   await watchBoard(state, now);
@@ -161,7 +163,7 @@ async function watchBoard(state: OfficeState, now: number): Promise<void> {
     // раз в минуту — это шум, а не сообщение.
     if (slotProblem(state)) continue;
     started += 1;
-    state.addChat('офис', `${task.id}: работу оборвал перезапуск — возобновляю, сделанное сохранено в ветке.`);
+    state.addChat(OFFICE_SENDER, state.say('sup.resumed', { task: task.id }));
     await retryTask(state, task.id);
   }
 
@@ -170,11 +172,10 @@ async function watchBoard(state: OfficeState, now: number): Promise<void> {
   const unseen = queued.filter((t) => !t.attention && now - t.createdAt > IDLE_BACKLOG_MS);
   if (unseen.length) {
     for (const t of unseen) state.updateTask(t.id, { attention: now });
-    tellPm(state,
-      `[СИСТЕМА] На доске стоят задачи, которые никто не выполняет:\n` +
-      unseen.map((t) => `${t.id} «${t.title}» (роль ${t.roleId ?? '—'})`).join('\n') +
-      '\nРаздай их сами (assign_task) или закрой как неактуальные. Если ждёшь другую задачу — ' +
-      `так и скажи в ответ; через ${Math.round(PM_GRACE_MS / 60000)} минут офис раздаст их сам.`);
+    tellPm(state, state.say('sup.pmUnassigned', {
+      tasks: unseen.map((t) => `${t.id} «${t.title}» (${t.roleId ?? '—'})`).join('\n'),
+      minutes: Math.round(PM_GRACE_MS / 60000),
+    }));
   }
 
   const overdue = queued.filter((t) => t.attention && now - t.attention > PM_GRACE_MS);
@@ -184,14 +185,16 @@ async function watchBoard(state: OfficeState, now: number): Promise<void> {
     if (!outcome.ok) {
       // Не вышло — ждём следующего окна, а не долбим каждую минуту.
       state.updateTask(task.id, { attention: now });
-      state.addLog(null, 'system', `${task.id}: раздать не вышло — ${outcome.message}`);
+      state.addLog(null, 'system',
+        state.say('sup.assignFailed', { task: task.id, problem: outcome.message }));
       continue;
     }
     started += 1;
-    state.addChat('офис', `${task.id}: стояла в очереди — отдал ${outcome.message}.`);
-    tellPm(state,
-      `[СИСТЕМА] Задача ${task.id} «${task.title}» стояла в очереди, и офис отдал её ${outcome.message}. ` +
-      'Учти это в планах: раздавать её второй раз не нужно.');
+    state.addChat(OFFICE_SENDER,
+      state.say('sup.assignedChat', { task: task.id, who: outcome.message }));
+    tellPm(state, state.say('sup.assignedPm', {
+      task: task.id, title: task.title, who: outcome.message,
+    }));
   }
 
   // 3. Провалившиеся: один раз показываем менеджеру и больше не вспоминаем.
@@ -199,13 +202,12 @@ async function watchBoard(state: OfficeState, now: number): Promise<void> {
   if (failed.length) {
     for (const t of failed) state.updateTask(t.id, { attention: now });
     const shown = failed.slice(0, FAILED_BATCH);
-    tellPm(state,
-      '[СИСТЕМА] На доске лежат провалившиеся задачи, и никто ими не занимается:\n' +
-      shown.map((t) => `${t.id} «${t.title}» — ${clip(t.result ?? 'без причины')}`).join('\n') +
-      (failed.length > shown.length ? `\n…и ещё ${failed.length - shown.length}.` : '') +
-      '\nРазбери их сам: что ещё нужно — поставь заново (можно меньшими кусками, если задача ' +
-      'не влезла в лимит ходов), что устарело — оставь как есть. Не перезапускай всё подряд: ' +
-      'это стоит денег. Пользователю пиши, только если нужен он сам (поднять лимит трат, нанять).');
+    tellPm(state, state.say('sup.pmFailed', {
+      tasks: shown.map((t) => `${t.id} «${t.title}» — ${clip(t.result ?? '—')}`).join('\n'),
+      more: failed.length > shown.length
+        ? state.say('sup.pmFailedMore', { n: failed.length - shown.length })
+        : '',
+    }));
   }
 }
 
@@ -217,17 +219,13 @@ function giveUp(state: OfficeState, task: Task, pr: PullRequestView): void {
   state.patchPr(task.id, {
     needsDecision: true,
     nextTryAt: null,
-    note: `${pr.note}\nОфис пробовал сам ${pr.retries} раза — не поехало. Жду решения менеджера.`,
+    note: state.say('sup.giveUpNote', { note: pr.note, n: pr.retries }),
   });
-  state.addChat('офис',
-    `${task.id}: сам не разобрался за ${pr.retries} попытки — передал менеджеру.`);
-  tellPm(state,
-    `[СИСТЕМА] Задача ${task.id} «${task.title}» так и не доехала до ${pr.base}. ` +
-    `Офис пробовал провести её сам ${pr.retries} раза, причина последней остановки:\n${pr.note}\n` +
-    'Дальше решай ты и делай это сам: поставь задачу на исправление и назначь её, ' +
-    'переформулируй эту или отдай другой роли. Пользователя дёргай, только если нужно ' +
-    'то, чего никто в офисе сделать не может (нанять сотрудника, поднять бюджет), — ' +
-    'и тогда скажи одной фразой, что именно от него нужно.');
+  state.addChat(OFFICE_SENDER,
+    state.say('sup.giveUpChat', { task: task.id, n: pr.retries }));
+  tellPm(state, state.say('sup.giveUpPm', {
+    task: task.id, title: task.title, base: pr.base, n: pr.retries, note: pr.note,
+  }));
 }
 
 /**
@@ -238,7 +236,7 @@ export function startSupervisor(state: OfficeState): void {
   stopSupervisor(state.officeId);
   const tick = () => {
     void superviseOffice(state).catch((err) => {
-      state.addLog(null, 'error', `Надзор за конвейером споткнулся: ${(err as Error).message}`);
+      state.addLog(null, 'error', state.say('sup.crashed', { error: (err as Error).message }));
     });
   };
   const interval = setInterval(tick, TICK_MS);

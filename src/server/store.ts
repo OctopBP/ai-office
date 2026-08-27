@@ -5,6 +5,7 @@ import type {
 } from '../shared/types';
 import type { Task } from './state';
 import type { Role } from './roles';
+import { c } from './i18n';
 
 // Путь вынесен в переменную окружения: тестовый сервер не должен
 // затирать состояние рабочего офиса. Это только путь по умолчанию —
@@ -74,12 +75,12 @@ export function load(file: string): Persisted | null {
   try {
     const data = JSON.parse(readFileSync(path, 'utf8')) as Persisted;
     if (data.version !== 1) {
-      console.log(`⚠️  Состояние офиса версии ${data.version} не поддерживается, начинаю с чистого листа`);
+      console.log(c('boot.stateVersion', { version: String(data.version) }));
       return null;
     }
     return data;
   } catch (err) {
-    console.log(`⚠️  Не удалось прочитать ${path}: ${(err as Error).message}. Начинаю с чистого листа.`);
+    console.log(c('boot.stateReadFailed', { path, error: (err as Error).message }));
     return null;
   }
 }
@@ -110,7 +111,7 @@ function writeNow(path: string, w: Writer): void {
     writeFileSync(tmp, JSON.stringify(data, null, 2), 'utf8');
     renameSync(tmp, path);
   } catch (err) {
-    console.log(`⚠️  Не удалось сохранить состояние: ${(err as Error).message}`);
+    console.log(c('boot.saveFailed', { error: (err as Error).message }));
   }
 }
 

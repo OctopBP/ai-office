@@ -1,5 +1,6 @@
 import { useStore } from './store';
 import type { Usage } from '../shared/types';
+import { t } from './i18n';
 
 const money = (v: number) => `$${v.toFixed(v < 1 ? 3 : 2)}`;
 const tok = (v: number) => (v >= 1_000_000 ? `${(v / 1_000_000).toFixed(1)}M`
@@ -18,7 +19,7 @@ export function cacheShare(u: Usage): number | null {
 export function usageLine(u: Usage): string {
   const share = cacheShare(u);
   return `${tok(u.tokensIn)} in / ${tok(u.tokensOut)} out` +
-    (share === null ? '' : ` · кеш ${share}%`);
+    (share === null ? '' : t('usage.cacheShare', { share }));
 }
 
 const dayLabel = (day: string): string => {
@@ -45,37 +46,36 @@ export function UsageModal({ onClose }: { onClose: () => void }) {
   return (
     <div className="modal-backdrop" onClick={onClose}>
       <div className="modal wide" onClick={(e) => e.stopPropagation()}>
-        <h3>Расходы офиса</h3>
-        <p className="modal-reason">
-          Цены считает сам SDK по факту вызовов. Кеш чтения в разы дешевле свежего
-          ввода — поэтому он показан отдельной строкой, а не свален в «токены».
-        </p>
+        <h3>{t('usage.title')}</h3>
+        <p className="modal-reason">{t('usage.note')}</p>
 
         <div className="usage-total">
           <div>
             <b>{money(today)}</b>
-            <span className="muted small">сегодня</span>
+            <span className="muted small">{t('common.today')}</span>
           </div>
           <div>
             <b>{money(usage.costUsd)}</b>
             <span className="muted small">
-              за всё время{settings.globalBudgetUsd !== null && ` из ${money(settings.globalBudgetUsd)}`}
+              {t('usage.allTime')}
+              {settings.globalBudgetUsd !== null
+                && t('usage.ofCap', { cap: money(settings.globalBudgetUsd) })}
             </span>
           </div>
           <div>
             <b>{tok(usage.tokensIn)} / {tok(usage.tokensOut)}</b>
-            <span className="muted small">ввод / вывод</span>
+            <span className="muted small">{t('usage.inOut')}</span>
           </div>
           <div>
             <b>{cacheShare(usage) ?? 0}%</b>
             <span className="muted small">
-              ввода из кеша · записано {tok(usage.cacheWrite)}
+              {t('usage.fromCache', { written: tok(usage.cacheWrite) })}
             </span>
           </div>
         </div>
 
-        <h4>По дням</h4>
-        {week.length === 0 && <p className="muted small">Пока ничего не потрачено.</p>}
+        <h4>{t('usage.byDay')}</h4>
+        {week.length === 0 && <p className="muted small">{t('usage.nothingSpent')}</p>}
         <div className="usage-days">
           {week.map((d) => (
             <div key={d.day} className="usage-day" title={`${d.day}: ${money(d.usage.costUsd)} · ${usageLine(d.usage)}`}>
@@ -86,13 +86,15 @@ export function UsageModal({ onClose }: { onClose: () => void }) {
           ))}
         </div>
 
-        <h4>По агентам</h4>
+        <h4>{t('usage.byAgent')}</h4>
         <div className="usage-rows">
           {agents.map((i) => (
             <div key={i.id} className="usage-row">
               <span className="mono dim">{i.id}</span>
               <span className="muted small">{usageLine(i.usage)}</span>
-              <span className="muted small">сегодня {money(i.today.costUsd)}</span>
+              <span className="muted small">
+                {t('usage.todayCost', { cost: money(i.today.costUsd) })}
+              </span>
               <b>{money(i.usage.costUsd)}</b>
             </div>
           ))}
@@ -100,7 +102,7 @@ export function UsageModal({ onClose }: { onClose: () => void }) {
 
         {priciest.length > 0 && (
           <>
-            <h4>Самые дорогие задачи</h4>
+            <h4>{t('usage.priciest')}</h4>
             <div className="usage-rows">
               {priciest.map((t) => (
                 <div key={t.id} className="usage-row">
@@ -115,7 +117,7 @@ export function UsageModal({ onClose }: { onClose: () => void }) {
         )}
 
         <div className="modal-actions">
-          <button className="allow" onClick={onClose}>Закрыть</button>
+          <button className="allow" onClick={onClose}>{t('common.close')}</button>
         </div>
       </div>
     </div>

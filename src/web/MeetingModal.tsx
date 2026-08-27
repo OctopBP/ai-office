@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { callMeeting, useStore } from './store';
+import { t } from './i18n';
 
 export function MeetingModal({ onClose }: { onClose: () => void }) {
   const instances = useStore((s) => s.instances);
@@ -18,20 +19,17 @@ export function MeetingModal({ onClose }: { onClose: () => void }) {
   return (
     <div className="modal-backdrop" onClick={onClose}>
       <div className="modal wide" onClick={(e) => e.stopPropagation()}>
-        <h3>Созвать совещание</h3>
-        <p className="modal-reason">
-          Участники высказываются по очереди, каждый видит сказанное до него.
-          Итог менеджер напишет в чате с ним.
-        </p>
+        <h3>{t('meeting.title')}</h3>
+        <p className="modal-reason">{t('meeting.note')}</p>
 
-        <label>Тема
+        <label>{t('meeting.topic')}
           <textarea
             rows={3} value={topic} onChange={(e) => setTopic(e.target.value)}
-            placeholder="Например: как хранить заметки, когда их станут тысячи?"
+            placeholder={t('meeting.topic.placeholder')}
           />
         </label>
 
-        <label>Участники <span className="muted">минимум двое</span></label>
+        <label>{t('meeting.participants')} <span className="muted">{t('meeting.atLeastTwo')}</span></label>
         <div className="participants">
           {candidates.map((i) => (
             <label key={i.id} className={`participant ${i.currentTaskId ? 'busy' : ''}`}>
@@ -41,18 +39,20 @@ export function MeetingModal({ onClose }: { onClose: () => void }) {
                 onChange={() => toggle(i.id)}
               />
               {i.label}
-              {i.currentTaskId && <span className="muted"> — занят {i.currentTaskId}</span>}
+              {i.currentTaskId && (
+                <span className="muted"> — {t('meeting.busy', { task: i.currentTaskId })}</span>
+              )}
             </label>
           ))}
         </div>
 
         <div className="modal-actions">
-          <button onClick={onClose}>Отмена</button>
+          <button onClick={onClose}>{t('common.cancel')}</button>
           <button
             className="allow" disabled={!canStart}
             onClick={() => { callMeeting(topic.trim(), picked); onClose(); }}
           >
-            Начать
+            {t('meeting.start')}
           </button>
         </div>
       </div>

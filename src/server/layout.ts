@@ -4,6 +4,8 @@ import { fileURLToPath } from 'node:url';
 import { applyOverride, desks as deskList, isEmptyOverride, pmDeskIndex, propKeys } from '../shared/layout';
 import type { Catalog, Layout, LayoutOverride, LayoutPropEdit } from '../shared/layout';
 import type { Desk, LayoutOption } from '../shared/types';
+import type { Lang } from '../shared/i18n';
+import { c, hasKey, t } from './i18n';
 
 /**
  * Раскладка офиса для сервера: каталог спрайтов и раскладки лежат в design/,
@@ -79,11 +81,11 @@ function cached(id: string, mtimeMs: number) {
 
 /** Время правки файла раскладки. Бросает, если пресета нет или он не читается. */
 function layoutMtime(id: string): number {
-  if (!ID_RE.test(id)) throw new Error(`недопустимый id раскладки «${id}»`);
+  if (!ID_RE.test(id)) throw new Error(c('layout.badId', { id }));
   try {
     return statSync(resolve(LAYOUTS_DIR, `${id}.json`)).mtimeMs;
   } catch (err) {
-    throw new Error(`раскладка «${id}» не читается: ${(err as Error).message}`);
+    throw new Error(c('layout.unreadable', { id, error: (err as Error).message }));
   }
 }
 
@@ -96,7 +98,7 @@ export function loadLayout(id: string): Layout {
   try {
     data = readJson<Layout>(resolve(LAYOUTS_DIR, `${id}.json`));
   } catch (err) {
-    throw new Error(`раскладка «${id}» не читается: ${(err as Error).message}`);
+    throw new Error(c('layout.unreadable', { id, error: (err as Error).message }));
   }
   parsed.set(id, { mtimeMs, layout: data, variants: new Map([['', { layout: data }]]) });
   return data;
@@ -108,12 +110,23 @@ export function loadLayout(id: string): Layout {
  * во время работы офиса — кэш показывал бы вчерашний набор. Разбор файлов при
  * этом закэширован по mtime, так что вызов стоит readdir и одного stat на пресет.
  */
-export function layoutOptions(): LayoutOption[] {
+/**
+ * Подпись пресета раскладки. У пресетов, которые едут в комплекте, название —
+ * часть приложения, а не данных: оно переводится вместе с интерфейсом. У
+ * заведённого руками пресета своего перевода нет и быть не может — там
+ * действует название из самого файла.
+ */
+function presetTitle(id: string, lang: Lang, fromFile: string): string {
+  const key = `layout.${id}`;
+  return hasKey(key) ? t(lang, key) : (fromFile || id);
+}
+
+export function layoutOptions(lang: Lang): LayoutOption[] {
   let files: string[];
   try {
     files = readdirSync(LAYOUTS_DIR);
   } catch (err) {
-    console.log(`⚠️  Раскладки не читаются (${(err as Error).message})`);
+    console.log(c('layout.allUnreadable', { error: (err as Error).message }));
     return [];
   }
   const options: LayoutOption[] = [];
@@ -124,10 +137,10 @@ export function layoutOptions(): LayoutOption[] {
     try {
       // Подпись берём из самой раскладки: название пресета живёт рядом с ним,
       // а не вторым списком на сервере, который забудут дополнить.
-      options.push({ id, title: loadLayout(id).title || id });
+      options.push({ id, title: presetTitle(id, lang, loadLayout(id).title) });
     } catch (err) {
       // Битый пресет не должен ронять список остальных — говорим и идём дальше.
-      console.log(`⚠️  Раскладка ${file} пропущена: ${(err as Error).message}`);
+      console.log(c('layout.fileSkipped', { file, error: (err as Error).message }));
     }
   }
   return options;
@@ -145,9 +158,9 @@ export function hasLayout(id: string): boolean {
 }
 
 /** Подпись раскладки для сообщений человеку; у нечитаемой — её же id. */
-export function layoutTitle(id: string): string {
+export function layoutTitle(id: string, lang: Lang): string {
   try {
-    return loadLayout(id).title || id;
+    return presetTitle(id, lang, loadLayout(id).title);
   } catch {
     return id;
   }
@@ -210,7 +223,9 @@ function variantOf(layoutId: string, override?: LayoutOverride | null):
     preset = loadLayout(id);
   } catch (err) {
     if (id === DEFAULT_LAYOUT_ID) throw err;
-    console.log(`⚠️  ${(err as Error).message} — считаю столы по «${DEFAULT_LAYOUT_ID}»`);
+    console.log(c('layout.deskFallback', {
+      error: (err as Error).message, fallback: DEFAULT_LAYOUT_ID,
+    }));
     id = DEFAULT_LAYOUT_ID;
     preset = loadLayout(id);
   }
@@ -249,7 +264,7 @@ const MIN_PROP_SIZE = 0.1;
  * за стеной или NaN в позиции сломали бы и рендер, и сетку проходимости.
  */
 export function checkPropEdit(
-  layoutId: string, override: LayoutOverride | null, edit: LayoutPropEdit,
+  layoutId: string, override: LayoutOverride | null, edit: LayoutPropEdit, lang: Lang,
 ): LayoutPropEdit | { error: string } {
   // Известными считаем и убранные офисом предметы: правка `removed: false`
   // возвращает предмет на место, и отказывать ей «такого нет» — неправда.
@@ -258,23 +273,25 @@ export function checkPropEdit(
     props: override.props.map(({ removed: _removed, ...rest }) => rest),
   });
   const key = typeof edit.key === 'string' ? edit.key.trim() : '';
-  if (!key) return { error: 'В правке расстановки не указан предмет.' };
+  if (!key) return { error: t(lang, 'layout.noProp') };
   const known = propKeys(layout).includes(key);
   if (!known && !edit.sprite) {
-    return { error: `Предмета «${key}» нет в раскладке «${layout.title || layoutId}».` };
+    return { error: t(lang, 'layout.propMissing', { key, layout: layout.title || layoutId }) };
   }
   const clean: LayoutPropEdit = { key };
   if (!known) {
-    if (!catalog.sprites[edit.sprite!]) return { error: `Спрайта «${edit.sprite}» нет в каталоге.` };
-    if (!edit.at) return { error: `Для нового предмета «${key}» нужна позиция.` };
+    if (!catalog.sprites[edit.sprite!]) {
+      return { error: t(lang, 'layout.spriteMissing', { sprite: String(edit.sprite) }) };
+    }
+    if (!edit.at) return { error: t(lang, 'layout.needPosition', { key }) };
     clean.sprite = edit.sprite;
   }
   if (edit.at !== undefined) {
     const [x, y] = Array.isArray(edit.at) ? edit.at : [NaN, NaN];
     const [cols, rows] = layout.size;
-    if (!Number.isFinite(x) || !Number.isFinite(y)) return { error: 'Позиция предмета — не число.' };
+    if (!Number.isFinite(x) || !Number.isFinite(y)) return { error: t(lang, 'layout.badPosition') };
     if (x < -OUT_OF_ROOM || y < -OUT_OF_ROOM || x > cols + OUT_OF_ROOM || y > rows + OUT_OF_ROOM) {
-      return { error: `Позиция [${x}, ${y}] выходит за пределы комнаты ${cols}×${rows}.` };
+      return { error: t(lang, 'layout.outOfRoom', { x, y, cols, rows }) };
     }
     // Округляем до тысячных: позиция придёт из пикселей мыши, и хвост вроде
     // 6.000000000000001 попал бы и в сохранение, и в ключ кэша.
@@ -282,28 +299,28 @@ export function checkPropEdit(
   }
   if (edit.flip !== undefined) clean.flip = Boolean(edit.flip);
   if (edit.rot !== undefined) {
-    if (!Number.isFinite(edit.rot)) return { error: `Поворот предмета «${key}» — не число.` };
+    if (!Number.isFinite(edit.rot)) return { error: t(lang, 'layout.badRotation', { key }) };
     // Приводим к [0, 360): поворот на 450° и на 90° — один и тот же предмет,
     // но в файле состояния это были бы две разные записи.
     clean.rot = round3(((edit.rot % 360) + 360) % 360);
   }
   if (edit.scale !== undefined) {
     if (!Number.isFinite(edit.scale) || edit.scale < MIN_SCALE || edit.scale > MAX_SCALE) {
-      return { error: `Масштаб предмета «${key}» должен быть числом от ${MIN_SCALE} до ${MAX_SCALE}.` };
+      return { error: t(lang, 'layout.badScale', { key, min: MIN_SCALE, max: MAX_SCALE }) };
     }
     clean.scale = round3(edit.scale);
   }
   if (edit.size !== undefined) {
     const [w, h] = Array.isArray(edit.size) ? edit.size : [NaN, NaN];
     const [cols, rows] = layout.size;
-    if (!Number.isFinite(w) || !Number.isFinite(h)) return { error: `Размер предмета «${key}» — не число.` };
+    if (!Number.isFinite(w) || !Number.isFinite(h)) return { error: t(lang, 'layout.badSize', { key }) };
     if (w < MIN_PROP_SIZE || h < MIN_PROP_SIZE || w > cols || h > rows) {
-      return { error: `Размер предмета «${key}» должен быть от ${MIN_PROP_SIZE} до размеров комнаты ${cols}×${rows}.` };
+      return { error: t(lang, 'layout.sizeRange', { key, min: MIN_PROP_SIZE, cols, rows }) };
     }
     clean.size = [round3(w), round3(h)];
   }
   if (edit.removed !== undefined) {
-    if (edit.removed && !known) return { error: `Предмета «${key}» в раскладке и так нет.` };
+    if (edit.removed && !known) return { error: t(lang, 'layout.alreadyGone', { key }) };
     clean.removed = Boolean(edit.removed);
   }
   return clean;

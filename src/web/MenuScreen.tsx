@@ -2,6 +2,7 @@ import { useMemo, useState, type CSSProperties } from 'react';
 import menuBg from '../../design/sprites/out/menu_bg.png';
 import { formatLastOpened, retryConnect, sortedOffices, useStore } from './store';
 import { spriteOf } from './sprites';
+import { t } from './i18n';
 
 /** Кадры спиннера как CSS-переменные — рамка панели и кнопки заводятся так же. */
 const SPINNER_FRAMES = 8;
@@ -67,35 +68,37 @@ export function MenuScreen() {
 
       <header className="menu-title">
         <h1>AI OFFICE</h1>
-        <p>выберите или создайте офис</p>
+        <p>{t('menu.subtitle')}</p>
       </header>
 
       <div className="menu-panel" style={spriteVars}>
         {!booted && !connectFailed && (
           <>
-            <h2>Ваши офисы</h2>
-            <p className="muted menu-loading">Открываем офис<Spinner /></p>
+            <h2>{t('menu.yourOffices')}</h2>
+            <p className="muted menu-loading">{t('menu.opening')}<Spinner /></p>
           </>
         )}
 
         {!booted && connectFailed && (
           <div className="menu-conn-error">
-            <h2>Ваши офисы</h2>
-            <p>Не удаётся подключиться к серверу офиса.</p>
-            <button className="primary" onClick={retryConnect}>Повторить</button>
+            <h2>{t('menu.yourOffices')}</h2>
+            <p>{t('menu.noConnection')}</p>
+            <button className="primary" onClick={retryConnect}>{t('menu.retry')}</button>
           </div>
         )}
 
         {booted && pending === 'enter' && (
           <>
-            <h2>Ваши офисы</h2>
-            <p className="muted menu-loading">Входим в «{pendingLabel}»<Spinner /></p>
+            <h2>{t('menu.yourOffices')}</h2>
+            <p className="muted menu-loading">
+              {t('menu.entering', { name: pendingLabel ?? '' })}<Spinner />
+            </p>
           </>
         )}
 
         {booted && pending !== 'enter' && (
           <>
-            <h2>{showForm ? 'Новый офис' : 'Ваши офисы'}</h2>
+            <h2>{t(showForm ? 'menu.newOffice' : 'menu.yourOffices')}</h2>
 
             {!showForm && (
               <>
@@ -110,13 +113,15 @@ export function MenuScreen() {
                       <div className="office-who">
                         <b>{o.name}</b>
                         <div className="muted mono" title={o.projectDir}>{o.projectDir}</div>
-                        <div className="muted small">Открывался: {formatLastOpened(o.lastOpenedAt)}</div>
+                        <div className="muted small">
+                          {t('menu.lastOpened', { when: formatLastOpened(o.lastOpenedAt) })}
+                        </div>
                       </div>
                       {o.current ? (
-                        <span className="chip done">открыт сейчас</span>
+                        <span className="chip done">{t('menu.openNow')}</span>
                       ) : (
                         <button className="mini go" onClick={(e) => { e.stopPropagation(); enterOffice(o.id); }}>
-                          Открыть
+                          {t('menu.open')}
                         </button>
                       )}
                     </div>
@@ -126,36 +131,36 @@ export function MenuScreen() {
                 {menuNotice?.kind === 'blocked' && <p className="menu-error">{menuNotice.text}</p>}
 
                 <div className="modal-actions">
-                  <button className="primary" onClick={startCreate}>＋ Новый офис</button>
+                  <button className="primary" onClick={startCreate}>{t('offices.new')}</button>
                 </div>
               </>
             )}
 
             {showForm && (
               <>
-                {empty && <p className="empty">Офисов пока нет</p>}
+                {empty && <p className="empty">{t('menu.noOffices')}</p>}
 
-                <label>Название
-                  <input value={name} placeholder="Новый проект" disabled={pending === 'create'}
+                <label>{t('offices.name')}
+                  <input value={name} placeholder={t('offices.namePlaceholder')}
+                    disabled={pending === 'create'}
                     onChange={(e) => { clearCreateError(); setName(e.target.value); }} />
                 </label>
-                <label>Директория проекта
+                <label>{t('offices.dir')}
                   <input value={dir} placeholder="/Users/you/projects/my-app" disabled={pending === 'create'}
                     onChange={(e) => { clearCreateError(); setDir(e.target.value); }} />
-                  <span className="hint muted">
-                    Абсолютный путь. Если папки нет, офис создаст её и заведёт git-репозиторий —
-                    без него не работает изоляция задач по веткам.
-                  </span>
+                  <span className="hint muted">{t('offices.dirHint')}</span>
                 </label>
 
                 {menuNotice?.kind === 'create-error' && <p className="menu-error">{menuNotice.text}</p>}
 
                 <div className="modal-actions">
                   {!empty && (
-                    <button onClick={cancelCreate} disabled={pending === 'create'}>Отмена</button>
+                    <button onClick={cancelCreate} disabled={pending === 'create'}>
+                      {t('common.cancel')}
+                    </button>
                   )}
                   <button className="primary" disabled={!dir.trim() || pending === 'create'} onClick={submitCreate}>
-                    {pending === 'create' ? <Spinner /> : 'Создать и открыть'}
+                    {pending === 'create' ? <Spinner /> : t('offices.create')}
                   </button>
                 </div>
               </>
@@ -165,7 +170,7 @@ export function MenuScreen() {
       </div>
 
       <footer className="menu-footer muted">
-        {connected ? 'подключено к серверу офиса' : 'переподключение к серверу…'}
+        {t(connected ? 'menu.connected' : 'menu.reconnecting')}
       </footer>
     </div>
   );

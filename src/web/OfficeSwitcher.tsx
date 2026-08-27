@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { sortedOffices, summarizeOfficeActivity, useStore } from './store';
 import type { OfficeView } from '../shared/types';
+import { t } from './i18n';
 
 /**
  * Быстрый переключатель офисов прямо из комнаты: бейдж проекта в HUD
@@ -34,9 +35,9 @@ export function OfficeSwitcher() {
 
   if (pending === 'enter') {
     return (
-      <div className="office-switcher switching" title="Ждём снапшот нового офиса">
+      <div className="office-switcher switching" title={t('switcher.waiting')}>
         <span className="ico spin">🔄</span>
-        <b>Переключаемся{pendingLabel ? ` на «${pendingLabel}»` : ''}…</b>
+        <b>{pendingLabel ? t('switcher.switchingTo', { name: pendingLabel }) : t('switcher.switching')}</b>
       </div>
     );
   }
@@ -55,8 +56,9 @@ export function OfficeSwitcher() {
         type="button"
         className={`office-switcher-trigger ${hasOthers ? '' : 'lone'}`}
         onClick={hasOthers ? () => setOpen((v) => !v) : undefined}
-        title={(hasOthers ? 'Быстрое переключение между офисами' : 'Единственный офис — переключаться пока не на что')
-          + ` · ${projectDir} · тема «${theme === 'day' ? 'Лофт' : 'Ночь / неон'}»`}
+        title={t(hasOthers ? 'switcher.hint' : 'switcher.lone')
+          + ` · ${projectDir} · `
+          + t('switcher.theme', { theme: t(theme === 'day' ? 'theme.day' : 'theme.night') })}
       >
         <span className="ico">🏢</span>
         <b>{projectDir.split('/').pop()}{hasOthers ? ' ▾' : ''}</b>
@@ -79,18 +81,18 @@ export function OfficeSwitcher() {
                 type="button"
                 className={`office-switcher-row ${o.current ? 'current' : ''}`}
                 onClick={() => pick(o)}
-                title={activity.live ? 'В офисе сейчас идёт живая работа' : undefined}
+                title={activity.live ? t('switcher.liveWork') : undefined}
               >
                 <span className={`office-switcher-dot ${dotClass}`} />
                 <span className="office-switcher-name">
                   {o.name}
                   {activity.waiting > 0 && (
-                    <span className="office-switcher-waiting" title="Ждут решения человека">
+                    <span className="office-switcher-waiting" title={t('switcher.waitingDecision')}>
                       {activity.waiting}
                     </span>
                   )}
                 </span>
-                <span className="muted small">{o.current ? 'этот офис' : activity.text}</span>
+                <span className="muted small">{o.current ? t('switcher.thisOffice') : activity.text}</span>
               </button>
             );
           })}

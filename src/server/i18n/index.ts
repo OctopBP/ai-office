@@ -37,11 +37,14 @@ export const hasKey = (key: string): key is ServerKey => key in en;
 /**
  * Язык вывода в терминал. Терминал у процесса один, а офисов в нём несколько,
  * и своего языка у консольной строки нет: берём язык последнего открытого
- * офиса. Пока не открыт ни один — базовый.
+ * офиса. Пока не открыт ни один — тот, с которым запустили процесс
+ * (`OFFICE_LANG`), а если и его не задали — базовый.
  */
-let processLang: Lang = DEFAULT_LANG;
+let processLang: Lang | null = null;
 
 export const setProcessLang = (lang: unknown): void => { processLang = asLang(lang); };
 
+const consoleLang = (): Lang => processLang ?? asLang(process.env.OFFICE_LANG ?? DEFAULT_LANG);
+
 /** Фраза для терминала — на языке процесса. */
-export const c = (key: ServerKey, vars?: Vars): string => translate(processLang, key, vars);
+export const c = (key: ServerKey, vars?: Vars): string => translate(consoleLang(), key, vars);

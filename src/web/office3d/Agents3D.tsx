@@ -40,9 +40,10 @@ import { measurePoses, useModelMeasures, BONES, type PoseMeasure } from './measu
 import { reach, type Arm } from './ik';
 import { useStore } from '../store';
 import { interestsFor, type Interest } from '../interests';
-import { STATE_ICON, STATE_TEXT } from '../agentState';
+import { STATE_ICON, stateText } from '../agentState';
 import { dropAnchor, setAnchor } from './anchors';
 import type { AgentState, InstanceView, RoleView, TaskView } from '../../shared/types';
+import { t } from '../i18n';
 
 const skinModules = import.meta.glob('../../../design/models/characters/skins/*.png', {
   eager: true, query: '?url', import: 'default',
@@ -353,7 +354,7 @@ function AgentTag({ inst, role, task, expanded }: {
             </span>
             {expanded && (
               <span className="tag3d-name">
-                {inst.deskless && <span title="Без рабочего места — не хватило столов в раскладке">🪑 </span>}
+                {inst.deskless && <span title={t('office.desklessHint')}>🪑 </span>}
                 {role?.title ?? inst.label}
               </span>
             )}
@@ -364,7 +365,7 @@ function AgentTag({ inst, role, task, expanded }: {
             <span
               className="tag3d-state"
               style={{ background: STATE_COLOR[inst.state] }}
-              title={STATE_TEXT[inst.state]}
+              title={stateText(inst.state)}
             >
               {icon}
             </span>

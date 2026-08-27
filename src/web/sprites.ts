@@ -3,6 +3,8 @@
  * 1 арт-пиксель = 3 экранных, тайл = 48px. Две темы — day и night,
  * наборы имён в них одинаковые.
  */
+import { has, t } from './i18n';
+
 const modules = import.meta.glob('../../design/sprites/out/*/*.png', {
   eager: true,
   query: '?url',
@@ -53,10 +55,20 @@ export function agentSpriteName(roleId: string, instanceId: string, roleSprite?:
   return AGENT_SPRITE[roleId] ?? 'agent_backend1';
 }
 
-/** Пресеты внешности для выбора в форме роли — id и русская подпись из каталога. */
+/**
+ * Пресеты внешности для выбора в форме роли — id и подпись.
+ *
+ * Подпись берётся из словаря, а не из каталога: каталог собирает генератор
+ * спрайтов, и подпись там записана на одном языке навсегда. У пресета, до
+ * которого словарь ещё не дошёл (художник нарисовал новый), остаётся подпись
+ * из каталога — это лучше, чем голый `agent_p11`.
+ */
 export function spritePresets(catalogSprites: Record<string, { label?: string }>): Array<{ id: string; label: string }> {
   return Object.entries(catalogSprites)
     .filter(([id]) => /^agent_p\d+$/.test(id))
     .sort(([a], [b]) => Number(a.slice(8)) - Number(b.slice(8)))
-    .map(([id, sprite]) => ({ id, label: sprite.label ?? id }));
+    .map(([id, sprite]) => {
+      const key = `sprite.${id}`;
+      return { id, label: has(key) ? t(key) : (sprite.label ?? id) };
+    });
 }

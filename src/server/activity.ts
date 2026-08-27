@@ -9,6 +9,7 @@
  */
 import { readFileSync, statSync } from 'node:fs';
 import type { ChatEntry, LogEntry, OfficeActivity, TaskStatus } from '../shared/types';
+import { c } from './i18n';
 
 /**
  * Что сводке нужно от задачи. Структурный тип вместо импорта `Task` из
@@ -112,7 +113,7 @@ export function activityFromFile(stateFile: string): OfficeActivity {
       log: Array.isArray(data?.log) ? data.log : [],
     });
   } catch (err) {
-    console.log(`⚠️  Сводка офиса ${stateFile} не посчиталась: ${(err as Error).message}`);
+    console.log(c('activity.summaryFailed', { file: stateFile, error: (err as Error).message }));
   }
   cache.set(stateFile, { checkedAt: now, mtimeMs, size, activity });
   return activity;

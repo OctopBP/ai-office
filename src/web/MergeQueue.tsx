@@ -1,9 +1,10 @@
 import { useEffect } from 'react';
 import {
-  mergeBadge, mergeCheck, mergeStepClass, mergeStepFor, MERGE_STEP_LABEL,
+  mergeBadge, mergeCheck, mergeStepClass, mergeStepFor, mergeStepLabel,
   showDiff, startMergeQueue, useStore,
 } from './store';
 import type { TaskView } from '../shared/types';
+import { t } from './i18n';
 
 /**
  * Ручное слияние — аварийный путь. В обычном порядке ветки вливает конвейер
@@ -35,19 +36,20 @@ export function MergeQueue() {
     if (candidateIds) mergeCheck();
   }, [candidateIds]);
 
-  const roleTitle = (roleId: string | null) => roles.find((r) => r.id === roleId)?.title ?? roleId ?? '—';
+  const roleTitle = (roleId: string | null) =>
+    roles.find((r) => r.id === roleId)?.title ?? roleId ?? t('common.none');
 
   return (
     <div className="merge-queue">
       {candidates.length === 0 && (
-        <p className="empty">Ручного слияния не ждёт ни одна задача.</p>
+        <p className="empty">{t('mq.empty')}</p>
       )}
 
       {candidates.length > 0 && (
         <div className="mq-candidates">
           <div className="mq-head muted small">
-            Слить вручную (аварийный путь)
-            {checking && <span className="muted small">проверяется…</span>}
+            {t('mq.manual')}
+            {checking && <span className="muted small">{t('mq.checking')}</span>}
           </div>
           {candidates.map((t) => {
             const check = checks[t.id];
@@ -86,8 +88,8 @@ export function MergeQueue() {
       {selection.length > 0 && (
         <div className="mq-order-list">
           <div className="mq-head muted small">
-            Порядок слияния
-            <button type="button" className="link-danger" onClick={clear}>очистить</button>
+            {t('mq.order')}
+            <button type="button" className="link-danger" onClick={clear}>{t('mq.clear')}</button>
           </div>
           {selection.map((taskId, i) => {
             const t = tasks[taskId];
@@ -108,12 +110,10 @@ export function MergeQueue() {
 
           <div className="mq-actions">
             {run?.running ? (
-              <span className="muted small">
-                Слияние идёт — очередь остановится сама на первом конфликте или упавшей сборке.
-              </span>
+              <span className="muted small">{t('mq.running')}</span>
             ) : (
               <button type="button" className="primary" onClick={() => startMergeQueue(selection)}>
-                Слить по очереди ({selection.length})
+                {t('mq.start', { n: selection.length })}
               </button>
             )}
           </div>
@@ -123,7 +123,7 @@ export function MergeQueue() {
       {run && (
         <div className="mq-progress">
           <div className="mq-head muted small">
-            {run.running ? 'Слияние идёт…' : 'Последний прогон очереди'}
+            {t(run.running ? 'mq.inProgress' : 'mq.lastRun')}
           </div>
           {!run.running && (
             <div className={`mq-stopped ${run.steps.some((s) => s.status === 'conflict' || s.status === 'typecheck-failed' || s.status === 'failed') ? 'bad' : 'ok'}`}>
@@ -136,7 +136,7 @@ export function MergeQueue() {
                 <span className="mono muted">{step.taskId}</span>
                 <span className="mq-title">{step.title}</span>
                 <span className={`chip merge-chip ${mergeStepClass(step.status)}`}>
-                  {MERGE_STEP_LABEL[step.status]}
+                  {mergeStepLabel(step.status)}
                 </span>
               </div>
               {step.status !== 'pending' && (
@@ -144,7 +144,11 @@ export function MergeQueue() {
               )}
               {step.typecheck && (
                 <div className={`mq-typecheck ${step.typecheck.ok ? 'ok' : 'bad'}`}>
-                  <b>{step.typecheck.skipped ? step.typecheck.message : (step.typecheck.ok ? 'typecheck: успешно' : 'typecheck: ошибка')}</b>
+                  <b>
+                    {step.typecheck.skipped
+                      ? step.typecheck.message
+                      : t(step.typecheck.ok ? 'mq.typecheckOk' : 'mq.typecheckFailed')}
+                  </b>
                   {!step.typecheck.ok && !step.typecheck.skipped && <pre>{step.typecheck.output}</pre>}
                 </div>
               )}

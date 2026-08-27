@@ -1,9 +1,10 @@
 import { useState } from 'react';
 import {
-  ACCESS_LABEL, PERMISSION_SOURCE_LABEL, assignDirect, effectivePermissionMode, fire, hire,
+  accessLabel, permissionSourceLabel, assignDirect, effectivePermissionMode, fire, hire,
   mergeTask, openLayoutSettings, permissionSource, requestTeamRole, retryTask, setAgentPermission,
-  showDiff, stopTask, useStore, FULL_ACCESS_WARNING,
+  showDiff, stopTask, useStore, fullAccessWarning,
 } from './store';
+import { locale, t, t as tr } from './i18n';
 import { useActionNotice } from './useActionNotice';
 import { agentSpriteName, spriteOf } from './sprites';
 import { usageLine } from './UsageModal';
@@ -22,7 +23,7 @@ function Criteria({ list }: { list: Criterion[] }) {
   const { done, total } = progress(list);
   return (
     <div className="criteria">
-      <div className="criteria-head">Критерии {done}/{total}</div>
+      <div className="criteria-head">{t('drawer.criteria', { done, total })}</div>
       {list.map((c, i) => (
         <div key={i} className={`criterion ${c.done ? 'done' : ''}`}>
           <span className="mark">{c.done ? '✓' : '·'}</span>{c.text}
@@ -36,15 +37,12 @@ function elapsed(from: number | null, to: number | null): string {
   if (!from) return '';
   const ms = (to ?? Date.now()) - from;
   const min = Math.floor(ms / 60000);
-  if (min < 1) return `${Math.max(1, Math.round(ms / 1000))} сек`;
-  if (min < 60) return `${min} мин`;
-  return `${Math.floor(min / 60)} ч ${min % 60} мин`;
+  if (min < 1) return t('drawer.seconds', { s: Math.max(1, Math.round(ms / 1000)) });
+  if (min < 60) return t('drawer.minutes', { m: min });
+  return t('drawer.hours', { h: Math.floor(min / 60), m: min % 60 });
 }
 
-const STATUS_RU: Record<TaskView['status'], string> = {
-  backlog: 'в очереди', assigned: 'назначена', in_progress: 'в работе',
-  review: 'на проверке', blocked: 'остановлена', done: 'готово', failed: 'провал',
-};
+const statusLabel = (status: TaskView['status']): string => t(`task.status.${status}`);
 
 const TOOL_ICON: Record<string, string> = {
   Bash: '⚙', Read: '📖', Edit: '✏️', Write: '📄', Grep: '🔍', Glob: '🔍',
@@ -68,7 +66,7 @@ export function AgentDrawer() {
   if (!inst) return null;
   const role = roles.find((r) => r.id === inst.roleId);
 
-  const roleFallbackLabel = role ? ACCESS_LABEL[effectivePermissionMode(role, settings)] : '';
+  const roleFallbackLabel = role ? accessLabel(effectivePermissionMode(role, settings)) : '';
   const chooseAgentMode = (mode: PermissionMode | null) => {
     // Полный доступ для сотрудника — то же опасное состояние, что и для роли и офиса.
     if (mode === 'auto') { setConfirmAuto(true); return; }
@@ -96,53 +94,51 @@ export function AgentDrawer() {
           <h2>{inst.id}</h2>
           <div className="muted">
             {role?.title} · {role?.model.replace('claude-', '')} ·{' '}
-            {inst.deskless ? 'без рабочего места' : `место #${inst.desk.index}`}
+            {inst.deskless ? t('drawer.noDesk') : t('employee.deskNo', { index: inst.desk.index })}
           </div>
           <span className={`perm-badge ${inst.effectivePermissionMode}`}
-            title="Фактический режим доступа этого сотрудника и откуда он взялся">
+            title={t('drawer.permBadge')}>
             {inst.effectivePermissionMode === 'auto' ? '🔓' : '🔐'}{' '}
-            {ACCESS_LABEL[inst.effectivePermissionMode]} · {PERMISSION_SOURCE_LABEL[permissionSource(inst, role)]}
+            {accessLabel(inst.effectivePermissionMode)} · {permissionSourceLabel(permissionSource(inst, role))}
           </span>
           <div className={`chip ${inst.state}`}>
-            {inst.note ?? STATUS_RU[current?.status ?? 'backlog'] ?? inst.state}
+            {inst.note ?? statusLabel(current?.status ?? 'backlog')}
             {current && ` · ${elapsed(current.startedAt, null)} · ${current.id}`}
           </div>
         </div>
-        <button className="icon" onClick={() => select(null)} title="Закрыть">✕</button>
+        <button className="icon" onClick={() => select(null)} title={t('common.close')}>✕</button>
       </header>
 
       {inst.deskless && (
         <div className="deskless-notice">
-          🪑 Рабочего места сейчас нет — в раскладке не хватило столов на всех. Номер места
-          #{inst.desk.index} за сотрудником сохранён: вернётся раскладка попросторнее — он
-          сядет обратно.{' '}
-          <button className="link" onClick={openLayoutSettings}>Настройки раскладки →</button>
+          🪑 {t('employee.deskless', { index: inst.desk.index })}{' '}
+          <button className="link" onClick={openLayoutSettings}>{t('employee.layoutSettings')}</button>
         </div>
       )}
 
       <section>
-        <h3>Доступ</h3>
-        <label>Личный режим доступа
+        <h3>{t('employee.access')}</h3>
+        <label>{t('employee.personalMode')}
           <select
             value={inst.permissionMode ?? ''}
             onChange={(e) => chooseAgentMode(e.target.value === '' ? null : e.target.value as PermissionMode)}
           >
-            <option value="">Как у роли (сейчас: {roleFallbackLabel})</option>
-            {PERM_OPTIONS.map((m) => <option key={m} value={m}>{ACCESS_LABEL[m]}</option>)}
+            <option value="">{t('employee.asRole', { mode: roleFallbackLabel })}</option>
+            {PERM_OPTIONS.map((m) => <option key={m} value={m}>{accessLabel(m)}</option>)}
           </select>
           <span className="hint">
             {inst.permissionMode
-              ? `У сотрудника своё правило — переопределено на «${ACCESS_LABEL[inst.permissionMode]}».`
-              : `Сотрудник использует режим роли: «${roleFallbackLabel}».`}
+              ? t('employee.ownRule', { mode: accessLabel(inst.permissionMode) })
+              : t('employee.roleRule', { mode: roleFallbackLabel })}
           </span>
         </label>
         {confirmAuto && (
           <div className="access-confirm">
-            <p>{FULL_ACCESS_WARNING}</p>
+            <p>{fullAccessWarning()}</p>
             <div className="modal-actions">
-              <button onClick={() => setConfirmAuto(false)}>Отмена</button>
+              <button onClick={() => setConfirmAuto(false)}>{t('common.cancel')}</button>
               <button className="danger" onClick={() => { setAgentPermission(inst.id, 'auto'); setConfirmAuto(false); }}>
-                Да, включить полный доступ
+                {t('settings.access.confirm')}
               </button>
             </div>
           </div>
@@ -150,59 +146,63 @@ export function AgentDrawer() {
       </section>
 
       <section>
-        <h3>Сейчас делает</h3>
+        <h3>{t('drawer.doingNow')}</h3>
         {current ? (
           <div className="card">
             <div className="card-head"><b>{current.id}</b> {current.title}</div>
             <div className="muted small">
               {elapsed(current.startedAt, null)} · {money(current.usage.costUsd)} ·{' '}
               {tokens(current.usage.tokensIn + current.usage.tokensOut)} tok
-              {current.branch && <> · ветка <code className="mono">{current.branch}</code></>}
+              {current.branch && <> · {t('drawer.branch')} <code className="mono">{current.branch}</code></>}
             </div>
             <Criteria list={current.criteria} />
             {cap !== null && (
               <div className="budget">
                 <div className="bar"><i style={{ width: `${usedShare}%` }} /></div>
                 <span className="muted small">
-                  бюджет задачи {money(cap)} · {Math.round(usedShare)}%
+                  {t('drawer.taskBudget', { cap: money(cap), share: Math.round(usedShare) })}
                 </span>
               </div>
             )}
           </div>
         ) : (
-          <p className="muted small">Свободен, задач в работе нет.</p>
+          <p className="muted small">{t('drawer.free')}</p>
         )}
       </section>
 
       <section>
         <h3>
-          Задачи агента
-          <span className="muted"> · {done} сделано · {running} в работе · {free.length} свободных</span>
+          {t('drawer.tasks')}
+          <span className="muted">
+            {' · '}{t('drawer.tasksSummary', { done, running, free: free.length })}
+          </span>
         </h3>
-        {mine.length === 0 && free.length === 0 && <p className="muted small">Пока ничего.</p>}
+        {mine.length === 0 && free.length === 0 && <p className="muted small">{t('drawer.nothingYet')}</p>}
         {mine.map((t) => (
           <div key={t.id} className={`row ${t.status}`}>
             <span className="mono dim">{t.id}</span>
             <span className="row-title">{t.title}</span>
-            <span className="muted small">{STATUS_RU[t.status]}</span>
+            <span className="muted small">{statusLabel(t.status)}</span>
             {t.criteria.length > 0 && (
-              <span className="muted small">{progress(t.criteria).done}/{progress(t.criteria).total} крит.</span>
+              <span className="muted small">
+                {progress(t.criteria).done}/{progress(t.criteria).total} {tr('drawer.crit')}
+              </span>
             )}
             {t.usage.costUsd > 0 && <span className="muted small">{money(t.usage.costUsd)}</span>}
             {t.status === 'in_progress' && (
-              <button className="mini stop" onClick={() => stopTask(t.id)}>стоп</button>
+              <button className="mini stop" onClick={() => stopTask(t.id)}>{tr('drawer.stop')}</button>
             )}
             {(t.status === 'failed' || t.status === 'blocked') && (
-              <button className="mini" onClick={() => retryTask(t.id)}>заново</button>
+              <button className="mini" onClick={() => retryTask(t.id)}>{tr('drawer.again')}</button>
             )}
             {t.branch && !t.merged && (
               <button className="mini" onClick={() => showDiff(t.id)}>diff</button>
             )}
             {t.status === 'done' && t.branch && !t.merged && (
-              <button className="mini" onClick={() => mergeTask(t.id)}>смержить</button>
+              <button className="mini" onClick={() => mergeTask(t.id)}>{tr('drawer.merge')}</button>
             )}
             {t.status === 'review' && t.branch && (
-              <span className="muted small" title="Ветку ведёт конвейер ревью">на ревью</span>
+              <span className="muted small" title={tr('drawer.pipelineOwns')}>{tr('drawer.inReview')}</span>
             )}
           </div>
         ))}
@@ -210,28 +210,33 @@ export function AgentDrawer() {
           <div key={t.id} className="row backlog">
             <span className="mono dim">{t.id}</span>
             <span className="row-title">{t.title}</span>
-            <button className="mini go" onClick={() => assignDirect(t.id, inst.id)}>запустить</button>
+            <button className="mini go" onClick={() => assignDirect(t.id, inst.id)}>{tr('drawer.start')}</button>
           </div>
         ))}
         {free.length > 0 && (
-          <p className="muted small">Запуск отсюда идёт мимо менеджера — он получит уведомление.</p>
+          <p className="muted small">{t('drawer.directNote')}</p>
         )}
       </section>
 
       <section>
-        <h3>Транскрипт <span className="muted">· последние {trail.length}</span></h3>
+        <h3>
+          {t('drawer.transcript')}{' '}
+          <span className="muted">· {t('drawer.lastN', { n: trail.length })}</span>
+        </h3>
         <div className="trail">
-          {trail.length === 0 && <p className="muted small">Пока пусто.</p>}
+          {trail.length === 0 && <p className="muted small">{t('chat.empty')}</p>}
           {trail.map((l) => {
             const tool = l.text.split(':')[0];
             return (
               <div key={l.id} className={`trail-row ${l.kind}${l.autoApproved ? ' auto-approved' : ''}`}>
                 <span className="dim mono">
-                  {new Date(l.at).toLocaleTimeString('ru', { hour: '2-digit', minute: '2-digit' })}
+                  {new Date(l.at).toLocaleTimeString(locale(), { hour: '2-digit', minute: '2-digit' })}
                 </span>
                 <span className="ico">{l.kind === 'tool' ? TOOL_ICON[tool] ?? '•' : l.kind === 'error' ? '⚠️' : '💬'}</span>
                 <span className="trail-text">
-                  {l.autoApproved && <span className="auto-tag" title="Разрешено без вопроса по режиму доступа">✓ авто</span>}
+                  {l.autoApproved && (
+                    <span className="auto-tag" title={t('log.autoHint')}>{t('log.auto')}</span>
+                  )}
                   {l.text}
                 </span>
               </div>
@@ -241,43 +246,43 @@ export function AgentDrawer() {
       </section>
 
       <section>
-        <h3>Расходы</h3>
+        <h3>{t('usage.title.short')}</h3>
         <div className="usage-lines">
           {current && (
             <div>
-              <b>{money(current.usage.costUsd)}</b> за текущую задачу ·{' '}
+              <b>{money(current.usage.costUsd)}</b> {t('usage.forTask')} ·{' '}
               <span className="muted">{usageLine(current.usage)}</span>
             </div>
           )}
           <div>
-            <b>{money(inst.today.costUsd)}</b> за сегодня ·{' '}
+            <b>{money(inst.today.costUsd)}</b> {t('usage.forToday')} ·{' '}
             <span className="muted">{usageLine(inst.today)}</span>
           </div>
           <div className="muted">
-            {money(inst.usage.costUsd)} за всё время агента · {usageLine(inst.usage)}
+            {money(inst.usage.costUsd)} {t('usage.forAgentAllTime')} · {usageLine(inst.usage)}
           </div>
         </div>
       </section>
 
       <div className="drawer-actions">
-        <button onClick={() => { setThread(inst.id); select(null); }}>💬 Поговорить</button>
+        <button onClick={() => { setThread(inst.id); select(null); }}>💬 {t('drawer.talk')}</button>
         {role && !role.isManager && (
           <button disabled={role.active >= role.maxInstances} onClick={() => hire(inst.roleId)}>
-            ⧉ Клонировать
+            ⧉ {t('drawer.clone')}
           </button>
         )}
         {current && (
-          <button className="danger" onClick={() => stopTask(current.id)}>⏹ Остановить задачу</button>
+          <button className="danger" onClick={() => stopTask(current.id)}>⏹ {t('drawer.stopTask')}</button>
         )}
       </div>
       <div className="drawer-links">
         <button className="link" onClick={() => requestTeamRole(inst.roleId)}>
           {inst.deskless
-            ? 'Роль, модель, права →'
-            : `Рабочее место #${inst.desk.index} — роль, модель, права →`}
+            ? t('drawer.roleLink')
+            : t('drawer.roleLinkDesk', { index: inst.desk.index })}
         </button>
         {current?.worktreePath && (
-          <div className="muted small mono" title="Рабочая копия задачи на диске">
+          <div className="muted small mono" title={t('drawer.worktree')}>
             {current.worktreePath}
           </div>
         )}
@@ -286,11 +291,11 @@ export function AgentDrawer() {
             className="link-danger"
             disabled={Boolean(inst.currentTaskId)}
             title={inst.currentTaskId
-              ? `Занят задачей ${inst.currentTaskId} — сначала остановите или дождитесь`
-              : 'Уволить сотрудника'}
+              ? t('employee.busyHint', { task: inst.currentTaskId })
+              : t('employee.fireHint')}
             onClick={() => { markPending(); fire(inst.id); }}
           >
-            Уволить
+            {t('employee.fire')}
           </button>
         )}
       </div>

@@ -8,12 +8,10 @@
  * копировать их себе.
  */
 import type { AgentState, InstanceView, RoleView } from '../shared/types';
+import { t } from './i18n';
 
-export const STATE_TEXT: Record<AgentState, string> = {
-  idle: 'свободен', thinking: 'думает', working: 'работает', walking: 'идёт',
-  talking: 'разговор', waiting_approval: 'ждёт разрешения', paused: 'на паузе',
-  blocked: 'заблокирован', done: 'сдал работу', failed: 'ошибка',
-};
+/** Состояние словами. Функция, а не таблица: язык офиса меняется на ходу. */
+export const stateText = (state: AgentState): string => t(`agent.state.${state}`);
 
 export const STATE_ICON: Record<AgentState, string> = {
   idle: '', thinking: '💭', working: '⌨️', walking: '', talking: '💬',

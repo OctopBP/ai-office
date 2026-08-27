@@ -1,23 +1,26 @@
 import { useEffect, useState } from 'react';
 import {
-  ACCESS_MODES, clearSettingsSection, FULL_ACCESS_WARNING, parseMaxWorkers, parseTaskMaxTurns,
+  accessModes, clearSettingsSection, fullAccessWarning, parseMaxWorkers, parseTaskMaxTurns,
   setCloudToken, updateSettings, useStore,
 } from './store';
 import { DEFAULT_OFFICE_WORKERS, DEFAULT_PROCESS_WORKERS, type PermissionMode } from '../shared/types';
+import { LANGS, LANG_TITLE, type Lang } from '../shared/i18n';
 import { DEFAULT_GRAPHICS, GRAPHICS_RANGE, type Graphics } from './office3d/graphics';
+import { t, type UiKey } from './i18n';
 
 const parse = (v: string): number | null => {
   const n = Number(v.replace(',', '.'));
   return v.trim() === '' || !Number.isFinite(n) || n <= 0 ? null : n;
 };
 
-type Section = 'access' | 'limits' | 'project' | 'graphics';
+type Section = 'general' | 'access' | 'limits' | 'project' | 'graphics';
 
-const SECTIONS: Array<[Section, string]> = [
-  ['access', 'Доступ'],
-  ['limits', 'Модели и лимиты'],
-  ['project', 'Проект'],
-  ['graphics', 'Графика'],
+const SECTIONS: Array<[Section, UiKey]> = [
+  ['general', 'settings.section.general'],
+  ['access', 'settings.section.access'],
+  ['limits', 'settings.section.limits'],
+  ['project', 'settings.section.project'],
+  ['graphics', 'settings.section.graphics'],
 ];
 
 /** Ползунок настройки картинки: подпись, значение справа и сам range.
@@ -50,7 +53,7 @@ function Slider({ label, hint, value, range, decimals = 0, disabled, onChange }:
 
 // Раздел держится на время сессии вкладки: закрыли окно, открыли снова — курсор
 // остаётся там же, где был, а не прыгает на первый пункт.
-let lastSection: Section = 'access';
+let lastSection: Section = 'general';
 
 export function SettingsModal({ onClose }: { onClose: () => void }) {
   const settings = useStore((s) => s.settings);
@@ -80,6 +83,7 @@ export function SettingsModal({ onClose }: { onClose: () => void }) {
   const [layoutId, setLayoutId] = useState(settings.layoutId);
   const [token, setToken] = useState('');
   const [access, setAccess] = useState(settings.officePermissionMode);
+  const [language, setLanguage] = useState<Lang>(settings.language ?? 'en');
   const [gfx, setGfx] = useState<Graphics>(graphics);
   const patchGfx = (patch: Partial<Graphics>) => setGfx((g) => ({ ...g, ...patch }));
   const [autoPipeline, setAutoPipeline] = useState(settings.autoPipeline);
@@ -113,6 +117,7 @@ export function SettingsModal({ onClose }: { onClose: () => void }) {
       officePermissionMode: access,
       layoutId,
       autoPipeline,
+      language,
     });
     setGraphics(gfx);
     if (token.trim()) setCloudToken(token.trim());
@@ -122,23 +127,38 @@ export function SettingsModal({ onClose }: { onClose: () => void }) {
   return (
     <div className="modal-backdrop" onClick={onClose}>
       <div className="modal wide settings-modal" onClick={(e) => e.stopPropagation()}>
-        <h3>Настройки офиса</h3>
+        <h3>{t('settings.title')}</h3>
 
         <div className="settings-layout">
           <div className="settings-nav">
             {SECTIONS.map(([id, label]) => (
               <button key={id} className={section === id ? 'on' : ''} onClick={() => chooseSection(id)}>
-                {label}
+                {t(label)}
               </button>
             ))}
           </div>
 
           <div className="settings-content">
+            {section === 'general' && (
+              <>
+                <h4>{t('common.language')}</h4>
+                <div className="engine">
+                  {LANGS.map((code) => (
+                    <button key={code} className={language === code ? 'on' : ''}
+                      onClick={() => setLanguage(code)}>
+                      {LANG_TITLE[code]}
+                    </button>
+                  ))}
+                </div>
+                <p className="hint muted">{t('settings.language.hint')}</p>
+              </>
+            )}
+
             {section === 'access' && (
               <>
-                <h4>Режим доступа</h4>
+                <h4>{t('settings.access.title')}</h4>
                 <div className="engine access-modes">
-                  {ACCESS_MODES.map(([id, label, hint]) => (
+                  {accessModes().map(([id, label, hint]) => (
                     <button key={id} className={`${access === id ? 'on' : ''} ${id}`.trim()}
                       onClick={() => chooseAccess(id)}>
                       {label}
@@ -148,68 +168,50 @@ export function SettingsModal({ onClose }: { onClose: () => void }) {
                 </div>
                 {confirmAuto && (
                   <div className="access-confirm">
-                    <p>{FULL_ACCESS_WARNING}</p>
+                    <p>{fullAccessWarning()}</p>
                     <div className="modal-actions">
-                      <button onClick={() => setConfirmAuto(false)}>Отмена</button>
+                      <button onClick={() => setConfirmAuto(false)}>{t('common.cancel')}</button>
                       <button className="danger" onClick={() => { setAccess('auto'); setConfirmAuto(false); }}>
-                        Да, включить полный доступ
+                        {t('settings.access.confirm')}
                       </button>
                     </div>
                   </div>
                 )}
-                <p className="hint muted">
-                  Это правило по умолчанию для всех ролей. У конкретной роли можно выставить свой режим
-                  в настройке роли — он переопределит общий.
-                </p>
+                <p className="hint muted">{t('settings.access.hint')}</p>
               </>
             )}
 
             {section === 'limits' && (
               <>
-                <p className="modal-reason">Пустое поле бюджета — без ограничения.</p>
+                <p className="modal-reason">{t('settings.limits.note')}</p>
 
                 <div className="row2">
-                  <label>Общий потолок, $
-                    <input value={global} placeholder="без ограничения"
+                  <label>{t('settings.limits.global')}
+                    <input value={global} placeholder={t('settings.limits.unlimited')}
                       onChange={(e) => setGlobal(e.target.value)} />
-                    <span className="hint muted">
-                      Когда потрачено больше — PM перестаёт запускать новые задачи. Уже идущие
-                      дорабатывают: обрывать их посреди работы дороже, чем дать закончить.
-                    </span>
+                    <span className="hint muted">{t('settings.limits.global.hint')}</span>
                   </label>
 
-                  <label>Потолок на одну задачу, $
-                    <input value={perTask} placeholder="без ограничения"
+                  <label>{t('settings.limits.perTask')}
+                    <input value={perTask} placeholder={t('settings.limits.unlimited')}
                       onChange={(e) => setPerTask(e.target.value)} />
-                    <span className="hint muted">
-                      Локально это лимит внутри сессии исполнителя; в облаке — жёсткий потолок
-                      сессии: дойдя до него, она встаёт на паузу.
-                    </span>
+                    <span className="hint muted">{t('settings.limits.perTask.hint')}</span>
                   </label>
                 </div>
-                <label>Лимит шагов исполнителя
-                  <input value={maxTurns} placeholder="без ограничения"
+                <label>{t('settings.limits.turns')}
+                  <input value={maxTurns} placeholder={t('settings.limits.unlimited')}
                     onChange={(e) => setMaxTurns(e.target.value)} />
-                  <span className="hint muted">
-                    Потолок ходов одной сессии исполнителя: инструмент, ответ модели, снова
-                    инструмент — и так далее. Пустое поле — без ограничения. Именно этот лимит
-                    даёт ошибку «Reached maximum number of turns», если сессия упирается в потолок
-                    посреди задачи.
-                  </span>
+                  <span className="hint muted">{t('settings.limits.turns.hint')}</span>
                   {maxTurnsParsed.error && <span className="hint error">{maxTurnsParsed.error}</span>}
                 </label>
 
-                <label>Одновременно исполнителей
+                <label>{t('settings.limits.workers')}
                   <input value={maxWorkers} placeholder={DEFAULT_OFFICE_WORKERS.toString()}
                     onChange={(e) => setMaxWorkers(e.target.value)} />
                   <span className="hint muted">
-                    Сколько сессий исполнителей этого офиса работают разом. Лимит действует
-                    на этот офис: остальные задачи ждут очереди на доске и стартуют сами, как
-                    только слот освободится. Поверх офисного действует общий потолок на весь
-                    процесс (по умолчанию {DEFAULT_PROCESS_WORKERS} сессий на все офисы сразу,
-                    меняется переменной окружения <code className="mono">OFFICE_MAX_WORKERS</code>):
-                    он и решает, если открыто несколько офисов. Менеджера и ревью лимит не
-                    трогает — они идут всегда.
+                    {t('settings.limits.workers.hint', { cap: DEFAULT_PROCESS_WORKERS })}
+                    {' '}<code className="mono">OFFICE_MAX_WORKERS</code>
+                    {t('settings.limits.workers.hintTail')}
                   </span>
                   {maxWorkersParsed.error && <span className="hint error">{maxWorkersParsed.error}</span>}
                 </label>
@@ -218,7 +220,7 @@ export function SettingsModal({ onClose }: { onClose: () => void }) {
 
             {section === 'project' && (
               <>
-                <h4>Раскладка офиса</h4>
+                <h4>{t('settings.layout.title')}</h4>
                 <div className="engine">
                   {layouts.map((l) => (
                     <button key={l.id} className={layoutId === l.id ? 'on' : ''} onClick={() => setLayoutId(l.id)}>
@@ -226,85 +228,61 @@ export function SettingsModal({ onClose }: { onClose: () => void }) {
                     </button>
                   ))}
                 </div>
-                <p className="hint muted">
-                  Раскладка задаёт планировку комнаты — пол, стены и расстановку мебели. После
-                  сохранения сотрудники пересядут за столы новой раскладки.
-                </p>
+                <p className="hint muted">{t('settings.layout.hint')}</p>
 
-                <h4>Ревью и слияние</h4>
+                <h4>{t('settings.pipeline.title')}</h4>
                 <div className="engine">
                   <button className={autoPipeline ? 'on' : ''} onClick={() => setAutoPipeline(true)}>
-                    🔁 Конвейером
-                    <span className="muted small">
-                      Сдал → подтянуть основную ветку → проверки → пулл-реквест → ревью → слияние
-                    </span>
+                    🔁 {t('settings.pipeline.auto')}
+                    <span className="muted small">{t('settings.pipeline.auto.hint')}</span>
                   </button>
                   <button className={autoPipeline ? '' : 'on'} onClick={() => setAutoPipeline(false)}>
-                    ✋ Вручную
-                    <span className="muted small">Ветки копятся, сливаете сами в панели «Ревью и слияние»</span>
+                    ✋ {t('settings.pipeline.manual')}
+                    <span className="muted small">{t('settings.pipeline.manual.hint')}</span>
                   </button>
                 </div>
-                <p className="hint muted">
-                  Конвейер ведёт сданную задачу сам: подтягивает основную ветку в ветку задачи и
-                  отдаёт конфликты автору, гоняет проверки проекта, открывает пулл-реквест, зовёт
-                  ревьюера и по одобрению вливает, а ветку и рабочую копию убирает. Вставшее офис
-                  перезапускает сам, а чего не может — передаёт менеджеру. Ревьюер должен быть
-                  нанят: иначе ревьюить некому. Есть токен GitHub и origin на github.com —
-                  пулл-реквест будет настоящим; нет — тот же порядок пройдёт внутри офиса.
-                </p>
+                <p className="hint muted">{t('settings.pipeline.note')}</p>
 
-                <label>Токен GitHub {cloud.hasToken && <span className="chip done">задан</span>}
-                  <input value={token} type="password" placeholder={cloud.hasToken ? '••••••• (оставьте пустым, чтобы не менять)' : 'ghp_…'}
+                <label>{t('settings.token')} {cloud.hasToken && (
+                  <span className="chip done">{t('settings.token.set')}</span>
+                )}
+                  <input value={token} type="password"
+                    placeholder={cloud.hasToken ? t('settings.token.placeholder') : 'ghp_…'}
                     onChange={(e) => setToken(e.target.value)} />
                   <span className="hint muted">
-                    Нужен доступ Contents и Pull requests: Read and write. Токен живёт только в
-                    памяти сервера и на диск не пишется — после перезапуска введите заново или
-                    задайте <code className="mono">OFFICE_GITHUB_TOKEN</code>. Без него конвейер
-                    работает локально, а облачный режим — не работает вовсе.
+                    {t('settings.token.hint')}
+                    {' '}<code className="mono">OFFICE_GITHUB_TOKEN</code>
+                    {t('settings.token.hintTail')}
                   </span>
                 </label>
 
-                <h4>Где работают исполнители</h4>
+                <h4>{t('settings.engine.title')}</h4>
                 <div className="engine">
                   <button className={engine === 'local' ? 'on' : ''} onClick={() => setEngine('local')}>
-                    💻 Локально
-                    <span className="muted small">Claude Code на этой машине, расход в лимиты подписки</span>
+                    💻 {t('settings.engine.local')}
+                    <span className="muted small">{t('settings.engine.local.hint')}</span>
                   </button>
                   <button className={engine === 'cloud' ? 'on' : ''} onClick={() => setEngine('cloud')}>
-                    ☁️ В облаке
-                    <span className="muted small">Managed Agents, расход в платный API</span>
+                    ☁️ {t('settings.engine.cloud')}
+                    <span className="muted small">{t('settings.engine.cloud.hint')}</span>
                   </button>
                 </div>
 
                 {engine === 'cloud' && (
                   <>
-                    <p className="hint muted">
-                      В облаке цикл агента и контейнер держит Anthropic. Файлы рождаются не в вашей
-                      папке, поэтому проект должен лежать на GitHub: контейнер монтирует репозиторий,
-                      исполнитель пушит ветку задачи, а офис забирает её к себе. Песочница ОС и
-                      классификатор рисков к контейнеру не применяются — границу держит он сам;
-                      подтверждения по режиму роли остаются.
-                    </p>
+                    <p className="hint muted">{t('settings.cloud.note')}</p>
 
                     <div className={`ready ${cloud.hasKey ? 'ok' : 'bad'}`}>
-                      {cloud.hasKey
-                        ? '✓ ANTHROPIC_API_KEY задан — облачный режим доступен'
-                        : '✗ Нет ANTHROPIC_API_KEY: задайте ключ и перезапустите сервер'}
+                      {t(cloud.hasKey ? 'settings.cloud.keyOk' : 'settings.cloud.keyMissing')}
                     </div>
 
-                    <label>Репозиторий на GitHub
+                    <label>{t('settings.cloud.repo')}
                       <input value={repo} placeholder="https://github.com/owner/repo"
                         onChange={(e) => setRepo(e.target.value)} />
-                      <span className="hint muted">
-                        Тот же репозиторий, что открыт локально, — иначе ветку задачи будет некуда забрать.
-                      </span>
+                      <span className="hint muted">{t('settings.cloud.repo.hint')}</span>
                     </label>
 
-                    <p className="hint muted">
-                      Токен GitHub задаётся выше, в разделе «Ревью и слияние»: он один и тот же и
-                      для пулл-реквестов, и для облака. В контейнер он не попадает — git-запросы
-                      проксируются, и токен подставляется уже за его пределами.
-                    </p>
+                    <p className="hint muted">{t('settings.cloud.tokenNote')}</p>
                   </>
                 )}
               </>
@@ -312,53 +290,48 @@ export function SettingsModal({ onClose }: { onClose: () => void }) {
 
             {section === 'graphics' && (
               <>
-                <h4>Пикселизация</h4>
+                <h4>{t('settings.gfx.title')}</h4>
                 <div className="engine">
                   <button className={gfx.pixelate ? 'on' : ''} onClick={() => patchGfx({ pixelate: true })}>
-                    🟪 Включена
-                    <span className="muted small">Комната рисуется в низком разрешении, с контуром по граням</span>
+                    🟪 {t('settings.gfx.on')}
+                    <span className="muted small">{t('settings.gfx.on.hint')}</span>
                   </button>
                   <button className={gfx.pixelate ? '' : 'on'} onClick={() => patchGfx({ pixelate: false })}>
-                    🔷 Выключена
-                    <span className="muted small">Обычный гладкий рендер</span>
+                    🔷 {t('settings.gfx.off')}
+                    <span className="muted small">{t('settings.gfx.off.hint')}</span>
                   </button>
                 </div>
-                <p className="hint muted">
-                  Свет, тени и облёт остаются теми же — меняется только то, чем сцена показана:
-                  она рисуется в низкое разрешение и растягивается без сглаживания, а по изломам
-                  и границам предметов дорисовываются контуры. Подписи и облачка реплик остаются
-                  чёткими: они не часть картинки, а обычный текст поверх неё.
-                </p>
+                <p className="hint muted">{t('settings.gfx.note')}</p>
 
                 <Slider
-                  label="Размер пикселя" value={gfx.pixelSize} range={GRAPHICS_RANGE.pixelSize}
+                  label={t('settings.gfx.pixelSize')} value={gfx.pixelSize}
+                  range={GRAPHICS_RANGE.pixelSize}
                   disabled={!gfx.pixelate} onChange={(v) => patchGfx({ pixelSize: v })}
-                  hint={'Сторона клетки в точках экрана. Чем крупнее, тем меньше разрешение, в '
-                    + 'котором считается комната: мебель грубеет, зато вид ближе к пиксель-арту.'}
+                  hint={t('settings.gfx.pixelSize.hint')}
                 />
                 <Slider
-                  label="Контур на изломах" value={gfx.normalEdge} range={GRAPHICS_RANGE.normalEdge}
+                  label={t('settings.gfx.normalEdge')} value={gfx.normalEdge}
+                  range={GRAPHICS_RANGE.normalEdge}
                   decimals={2} disabled={!gfx.pixelate}
                   onChange={(v) => patchGfx({ normalEdge: v })}
-                  hint={'Светлая линия там, где поверхность ломается, — рёбра столов, углы стен. '
-                    + 'Ноль убирает её совсем.'}
+                  hint={t('settings.gfx.normalEdge.hint')}
                 />
                 <Slider
-                  label="Контур по глубине" value={gfx.depthEdge} range={GRAPHICS_RANGE.depthEdge}
+                  label={t('settings.gfx.depthEdge')} value={gfx.depthEdge}
+                  range={GRAPHICS_RANGE.depthEdge}
                   decimals={2} disabled={!gfx.pixelate}
                   onChange={(v) => patchGfx({ depthEdge: v })}
-                  hint={'Тёмная обводка там, где предмет кончается и начинается то, что за ним. '
-                    + 'Отделяет мебель от пола, но на мелком пикселе быстро становится грязью.'}
+                  hint={t('settings.gfx.depthEdge.hint')}
                 />
 
                 <div className="engine">
-                  <button onClick={() => setGfx(DEFAULT_GRAPHICS)}>Вернуть значения по умолчанию</button>
+                  <button onClick={() => setGfx(DEFAULT_GRAPHICS)}>{t('settings.gfx.reset')}</button>
                 </div>
 
                 {!render3d && (
                   <p className="hint muted">
-                    Сейчас офис показан плоским рендером, и настройки этого раздела на него не
-                    влияют — они про трёхмерную комнату. Переключает клавиша <code className="mono">0</code>.
+                    {t('settings.gfx.flatNote')}
+                    {' '}<code className="mono">0</code>.
                   </p>
                 )}
               </>
@@ -367,8 +340,8 @@ export function SettingsModal({ onClose }: { onClose: () => void }) {
         </div>
 
         <div className="modal-actions">
-          <button onClick={onClose}>Отмена</button>
-          <button className="allow" onClick={save}>Сохранить</button>
+          <button onClick={onClose}>{t('common.cancel')}</button>
+          <button className="allow" onClick={save}>{t('common.save')}</button>
         </div>
       </div>
     </div>

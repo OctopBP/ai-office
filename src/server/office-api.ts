@@ -17,6 +17,8 @@ import {
   type OfficeEntry,
 } from './offices';
 import { stopSupervisor } from './supervisor';
+import { c } from './i18n';
+import { OFFICE_SENDER } from '../shared/types';
 
 /**
  * Что рассылке нужно от клиента. Интерфейс вместо класса `ws.WebSocket`:
@@ -206,7 +208,7 @@ export async function greet(ws: Sink, startup: Promise<string | null>): Promise<
   send(ws, {
     t: 'office.error', op: 'open', officeId,
     message: problem
-      ?? `Офис ${officeId} сейчас не открыт — выберите его в списке заново.`,
+      ?? c('office.notOpen', { id: officeId }),
   });
 }
 
@@ -251,7 +253,7 @@ function refuse(op: OfficeOp, officeId: string | null, message: string, ws?: Sin
   // неудачу была бы там мусором. Офиса у просившего может и не быть (его ещё
   // открывают) — тогда следу лечь некуда, и человеку хватает события выше.
   const here = ws ? stateFor(ws) : null;
-  here?.addChat('офис', message);
+  here?.addChat(OFFICE_SENDER, message);
 }
 
 /**
@@ -268,7 +270,7 @@ function refuse(op: OfficeOp, officeId: string | null, message: string, ws?: Sin
 export async function switchOffice(officeId: string, ws?: Sink): Promise<void> {
   const target = officeById(officeId);
   if (!target || target.hidden) {
-    refuse('switch', officeId, `Офис ${officeId} не найден — похоже, список устарел.`, ws);
+    refuse('switch', officeId, c('offices.notFound', { id: officeId }), ws);
     return;
   }
 
@@ -286,15 +288,15 @@ export async function switchOffice(officeId: string, ws?: Sink): Promise<void> {
       firstOpen = await openOnce(target);
     } catch (err) {
       refuse('switch', target.id,
-        `Офис «${target.name}» не открылся: ${(err as Error).message}. ` +
-        'Проверьте, что директория проекта на месте и доступна, и попробуйте снова.', ws);
+        c('office.openFailed', { name: target.name, error: (err as Error).message }), ws);
       return;
     }
   }
 
   const state = getOffice(target.id);
   if (firstOpen) {
-    state.addLog(null, 'system', `Открыт офис «${target.name}» (${target.projectDir})`);
+    state.addLog(null, 'system',
+      state.say('office.opened', { name: target.name, dir: target.projectDir }));
     // Тем, кто уже ждёт этот офис, — целиком: события открытия прошли мимо них.
     broadcastSnapshot(state);
   }
@@ -356,7 +358,7 @@ export function handleOfficeCommand(cmd: ClientCommand, ws: Sink): boolean {
     }
     if (made.restored) {
       here?.addLog(null, 'system',
-        `Офис «${made.office.name}» вернулся в список вместе со своей доской`);
+        c('office.restored', { name: made.office.name }));
     }
     broadcastOffices();
     void switchOffice(made.office.id, ws);
@@ -379,8 +381,7 @@ export function handleOfficeCommand(cmd: ClientCommand, ws: Sink): boolean {
     const running = runningTasksOf(cmd.officeId);
     if (running.length) {
       refuse('remove', cmd.officeId,
-        `В офисе «${name}» ещё идёт работа: ${running.join(', ')}. ` +
-        'Дождитесь этих задач или остановите их, а потом убирайте офис из списка.', ws);
+        c('office.busy', { name, tasks: running.join(', ') }), ws);
       return true;
     }
     // Скрытие теперь гасит офис, а не только прячет строку в списке, поэтому
@@ -389,8 +390,7 @@ export function handleOfficeCommand(cmd: ClientCommand, ws: Sink): boolean {
     // а вкладок несколько, и смотреть они могут разные проекты.
     if (viewers(cmd.officeId)) {
       refuse('remove', cmd.officeId,
-        `Офис «${name}» сейчас открыт — в этой или в другой вкладке. ` +
-        'Перейдите там в другой офис, а потом уберите этот из списка.', ws);
+        c('office.openElsewhere', { name }), ws);
       return true;
     }
     // Офис прямо сейчас поднимается: открытие ходит в файловую систему и git
@@ -398,7 +398,7 @@ export function handleOfficeCommand(cmd: ClientCommand, ws: Sink): boolean {
     // с надзором и сессиями, которого в списке уже нет.
     if (opening.has(cmd.officeId)) {
       refuse('remove', cmd.officeId,
-        `Офис «${name}» ещё открывается. Дождитесь, пока он откроется, и уберите его из списка.`, ws);
+        c('office.stillOpening', { name }), ws);
       return true;
     }
     const problem = removeOffice(cmd.officeId);
@@ -409,8 +409,7 @@ export function handleOfficeCommand(cmd: ClientCommand, ws: Sink): boolean {
       // в памяти со своим надзором и сессиями, невидимый и неостановимый.
       unloadOffice(cmd.officeId);
       here?.addLog(null, 'system',
-        `Офис «${name}» убран из списка и выгружен. ` +
-        'Файлы проекта и его доска остались на диске — вернётся вместе с офисом.');
+        c('office.removed', { name }));
       broadcastOffices();
     }
     return true;

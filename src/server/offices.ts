@@ -6,6 +6,7 @@
 import { existsSync, mkdirSync, readFileSync, renameSync, statSync, writeFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { dirname, resolve } from 'node:path';
+import { c } from './i18n';
 
 export interface OfficeEntry {
   id: string;
@@ -56,7 +57,7 @@ function write(): void {
     writeFileSync(tmp, JSON.stringify(registry, null, 2), 'utf8');
     renameSync(tmp, FILE);
   } catch (err) {
-    console.log(`⚠️  Не удалось сохранить список офисов: ${(err as Error).message}`);
+    console.log(c('offices.saveFailed', { error: (err as Error).message }));
   }
 }
 
@@ -80,12 +81,12 @@ export function loadRegistry(defaultProjectDir: string, stateFile = DEFAULT_STAT
         return registry;
       }
     } catch (err) {
-      console.log(`⚠️  Список офисов не читается (${(err as Error).message}), начинаю заново`);
+      console.log(c('offices.listBroken', { error: (err as Error).message }));
     }
   }
   const first: OfficeEntry = {
     id: 'o-1',
-    name: defaultProjectDir.split('/').filter(Boolean).pop() ?? 'Офис',
+    name: defaultProjectDir.split('/').filter(Boolean).pop() ?? c('offices.defaultName'),
     projectDir: defaultProjectDir,
     stateFile: stateAt,
     createdAt: Date.now(),
@@ -138,10 +139,12 @@ function expandHome(path: string): string {
  */
 export function createOffice(input: { name: string; projectDir: string; mustExist?: boolean }):
   { office: OfficeEntry; restored?: boolean } | { error: string } {
-  if (!registry) return { error: 'Реестр офисов не загружен.' };
-  if (!input.projectDir.trim()) return { error: 'Укажите путь к директории проекта.' };
+  if (!registry) return { error: c('offices.noRegistry') };
+  if (!input.projectDir.trim()) return { error: c('offices.needDir') };
   const projectDir = resolve(expandHome(input.projectDir.trim()));
-  const name = input.name.trim() || projectDir.split('/').filter(Boolean).pop() || 'Офис';
+  const name = input.name.trim()
+    || projectDir.split('/').filter(Boolean).pop()
+    || c('offices.defaultName');
 
   const taken = registry.offices.find((o) => o.projectDir === projectDir);
   // Скрытый офис на том же пути — это тот же самый проект: возвращаем его
@@ -152,7 +155,7 @@ export function createOffice(input: { name: string; projectDir: string; mustExis
     write();
     return { office: taken, restored: true };
   }
-  if (taken) return { error: `Офис «${taken.name}» уже работает в этой директории.` };
+  if (taken) return { error: c('offices.dirTaken', { name: taken.name }) };
 
   let ours = false;
   if (input.mustExist) {
@@ -163,17 +166,17 @@ export function createOffice(input: { name: string; projectDir: string; mustExis
       const code = (err as NodeJS.ErrnoException).code;
       return {
         error: code === 'ENOENT'
-          ? `Директория ${projectDir} не найдена. Создайте её или укажите другой путь.`
-          : `Не удалось прочитать ${projectDir}: ${(err as Error).message}`,
+          ? c('offices.dirMissing', { dir: projectDir })
+          : c('offices.dirUnreadable', { dir: projectDir, error: (err as Error).message }),
       };
     }
-    if (!dir) return { error: `${projectDir} — это файл, а не директория.` };
+    if (!dir) return { error: c('offices.notADir', { dir: projectDir }) };
   } else if (!existsSync(projectDir)) {
     try {
       mkdirSync(projectDir, { recursive: true });
       ours = true;
     } catch (err) {
-      return { error: `Не удалось создать ${projectDir}: ${(err as Error).message}` };
+      return { error: c('offices.createFailed', { dir: projectDir, error: (err as Error).message }) };
     }
   }
 
@@ -236,8 +239,8 @@ export function clearInitFlag(id: string): void {
 /** Переименовать офис. Возвращает причину отказа по-русски или null. */
 export function renameOffice(id: string, name: string): string | null {
   const office = officeById(id);
-  if (!office) return `Офис ${id} не найден — похоже, список устарел.`;
-  if (!name.trim()) return 'Название офиса не может быть пустым.';
+  if (!office) return c('offices.notFound', { id });
+  if (!name.trim()) return c('offices.needName');
   office.name = name.trim();
   write();
   return null;
@@ -249,14 +252,13 @@ export function renameOffice(id: string, name: string): string | null {
  * второго в офисе сознательно нет. Возвращает причину отказа или null.
  */
 export function removeOffice(id: string): string | null {
-  if (!registry) return 'Реестр офисов не загружен.';
+  if (!registry) return c('offices.noRegistry');
   const office = officeById(id);
-  if (!office || office.hidden) return `Офис ${id} не найден — похоже, список устарел.`;
+  if (!office || office.hidden) return c('offices.notFound', { id });
   if (office.id === registry.currentId) {
-    return `Офис «${office.name}» сейчас открыт. Перейдите в другой офис, ` +
-      'а потом уберите этот из списка.';
+    return c('offices.openNow', { name: office.name });
   }
-  if (offices().length <= 1) return 'Это единственный офис — убирать из списка нечего.';
+  if (offices().length <= 1) return c('offices.lastOne');
   office.hidden = true;
   write();
   return null;

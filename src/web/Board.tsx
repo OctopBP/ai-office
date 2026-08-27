@@ -1,26 +1,24 @@
 import {
-  mergeBadge, mergeStepFor, mergeTask, PR_STAGE_LABEL, prStageClass, retryPipeline,
+  mergeBadge, mergeStepFor, mergeTask, prStageLabel, prStageClass, retryPipeline,
   retryTask, showDiff, stopTask, useStore,
 } from './store';
 import type { TaskStatus, TaskView } from '../shared/types';
+import { t as tr, type UiKey } from './i18n';
 
 /**
  * Колонки доски. Провалы вынесены отдельно, а не свалены в «Готово»: пока они
  * лежали рядом со сделанным, их не замечали ни человек, ни менеджер — а это
  * ровно та стопка, из-за которой работа встаёт.
  */
-const COLUMNS: Array<{ title: string; statuses: TaskStatus[]; tone?: 'bad' }> = [
-  { title: 'Ожидают', statuses: ['backlog', 'assigned'] },
-  { title: 'В работе', statuses: ['in_progress'] },
-  { title: 'Ревью и слияние', statuses: ['review'] },
-  { title: 'Готово', statuses: ['done'] },
-  { title: 'Провалы и остановки', statuses: ['failed', 'blocked'], tone: 'bad' },
+const COLUMNS: Array<{ key: UiKey; statuses: TaskStatus[]; tone?: 'bad' }> = [
+  { key: 'board.col.waiting', statuses: ['backlog', 'assigned'] },
+  { key: 'board.col.working', statuses: ['in_progress'] },
+  { key: 'board.col.review', statuses: ['review'] },
+  { key: 'board.col.done', statuses: ['done'] },
+  { key: 'board.col.failed', statuses: ['failed', 'blocked'], tone: 'bad' },
 ];
 
-const STATUS_LABEL: Record<TaskStatus, string> = {
-  backlog: 'бэклог', assigned: 'назначена', in_progress: 'в работе',
-  review: 'на проверке', blocked: 'заблокирована', done: 'готово', failed: 'провал',
-};
+const statusLabel = (status: TaskStatus): string => tr(`task.status.${status}`);
 
 function Card({ t }: { t: TaskView }) {
   const run = useStore((s) => s.mergeRun);
@@ -40,10 +38,10 @@ function Card({ t }: { t: TaskView }) {
         <span className="task-title">{t.title}</span>
       </div>
       <div className="task-meta">
-        <span className={`chip ${t.status}`}>{STATUS_LABEL[t.status]}</span>
+        <span className={`chip ${t.status}`}>{statusLabel(t.status)}</span>
         {pr && pr.stage !== 'merged' && (
           <span className={`chip merge-chip ${prStageClass(pr.stage)}`} title={pr.note}>
-            {PR_STAGE_LABEL[pr.stage]}
+            {prStageLabel(pr.stage)}
           </span>
         )}
         {badge && (
@@ -54,10 +52,12 @@ function Card({ t }: { t: TaskView }) {
             {badge.label}
           </span>
         )}
-        <span className="muted">{t.assigneeId ?? '—'}</span>
+        <span className="muted">{t.assigneeId ?? tr('common.none')}</span>
         {t.criteria.length > 0 && (
           <span className="muted">
-            критерии {t.criteria.filter((c) => c.done).length}/{t.criteria.length}
+            {tr('board.criteria', {
+              done: t.criteria.filter((c) => c.done).length, total: t.criteria.length,
+            })}
           </span>
         )}
         {t.usage.costUsd > 0 && <span className="muted">{`$${t.usage.costUsd.toFixed(3)}`}</span>}
@@ -74,20 +74,20 @@ function Card({ t }: { t: TaskView }) {
       {t.result && <div className="task-result">{t.result}</div>}
       {(t.status === 'failed' || t.status === 'blocked') && (
         <div className="muted small task-watch">
-          {t.interrupted
-            ? 'Оборвал перезапуск — офис возобновит сам.'
-            : 'Офис показал это менеджеру: решение за ним.'}
+          {tr(t.interrupted ? 'board.interrupted' : 'board.toldManager')}
         </div>
       )}
       <div className="task-controls">
         {t.status === 'in_progress' && (
-          <button className="stop" onClick={() => stopTask(t.id)}>Остановить</button>
+          <button className="stop" onClick={() => stopTask(t.id)}>{tr('board.stop')}</button>
         )}
         {(t.status === 'failed' || t.status === 'blocked') && (
-          <button className="retry" onClick={() => retryTask(t.id)}>Перезапустить</button>
+          <button className="retry" onClick={() => retryTask(t.id)}>{tr('board.restart')}</button>
         )}
         {pr?.stage === 'stuck' && (
-          <button className="retry" onClick={() => retryPipeline(t.id)}>Продолжить ревью</button>
+          <button className="retry" onClick={() => retryPipeline(t.id)}>
+            {tr('board.continueReview')}
+          </button>
         )}
       </div>
       {t.files.length > 0 && <div className="task-files mono">{t.files.join('  ·  ')}</div>}
@@ -95,12 +95,12 @@ function Card({ t }: { t: TaskView }) {
         <div className="task-branch">
           <span className="mono">{t.branch}</span>
           {t.merged ? (
-            <span className="merged">влита</span>
+            <span className="merged">{tr('merge.merged')}</span>
           ) : (
             <>
-              <button className="mini" onClick={() => showDiff(t.id)}>Показать diff</button>
+              <button className="mini" onClick={() => showDiff(t.id)}>{tr('board.showDiff')}</button>
               {!pipelineRunning && (t.status === 'done' || pr?.stage === 'stuck') && (
-                <button className="merge" onClick={() => mergeTask(t.id)}>Смержить</button>
+                <button className="merge" onClick={() => mergeTask(t.id)}>{tr('board.merge')}</button>
               )}
             </>
           )}
@@ -116,15 +116,15 @@ export function Board() {
 
   return (
     <div className="board">
-      {list.length === 0 && <p className="empty">Пусто. Поставьте задачу PM'у справа.</p>}
+      {list.length === 0 && <p className="empty">{tr('board.empty')}</p>}
       {list.length > 0 && (
         <div className="columns">
           {COLUMNS.map((col) => {
             const items = list.filter((t) => col.statuses.includes(t.status));
             return (
-              <div key={col.title} className={`column${col.tone ? ` ${col.tone}` : ''}`}>
+              <div key={col.key} className={`column${col.tone ? ` ${col.tone}` : ''}`}>
                 <div className="column-head">
-                  {col.title} <span className="muted">{items.length}</span>
+                  {tr(col.key)} <span className="muted">{items.length}</span>
                 </div>
                 {items.map((t) => <Card key={t.id} t={t} />)}
               </div>

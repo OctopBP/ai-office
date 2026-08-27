@@ -19,6 +19,8 @@ import { UsageModal } from './UsageModal';
 import { OfficesModal } from './OfficesModal';
 import { MenuScreen } from './MenuScreen';
 import { closeDiff, connect, setPaused, useStore } from './store';
+import { isOfficeSender } from '../shared/types';
+import { t } from './i18n';
 
 type PanelKind = 'chat' | 'board' | 'log' | 'help' | 'merge' | null;
 type ModalKind = 'settings' | 'meeting' | 'usage' | 'offices' | 'team' | null;
@@ -134,25 +136,28 @@ export function App() {
 
       {panel === 'chat' && <ChatPanel onClose={() => setPanel(null)} />}
       {panel === 'board' && (
-        <Panel title="Доска задач" wide size="board" hint="B" onClose={() => setPanel(null)}>
+        <Panel title={t('panel.board')} wide size="board" hint="B" onClose={() => setPanel(null)}>
           <Board />
         </Panel>
       )}
       {panel === 'merge' && (
-        <Panel title="Ревью и слияние" wide hint="Q" onClose={() => setPanel(null)}>
+        <Panel title={t('panel.review')} wide hint="Q" onClose={() => setPanel(null)}>
           <PrPipeline />
           <MergeQueue />
         </Panel>
       )}
       {panel === 'log' && (
-        <Panel title="Лог событий" wide hint={selected ? `только ${selected}` : 'весь офис'}
+        <Panel title={t('panel.log')} wide
+          hint={selected ? t('panel.log.only', { who: selected }) : t('panel.log.all')}
           onClose={() => setPanel(null)}>
           <div className="log">
             {(selected ? log.filter((l) => l.agentId === selected) : log).slice(-200).map((l) => (
               <div key={l.id} className={`log-row ${l.kind}${l.autoApproved ? ' auto-approved' : ''}`}>
-                <span className="log-agent">{l.agentId ?? 'офис'}</span>
+                <span className="log-agent">{l.agentId ?? t('common.office')}</span>
                 <span className="log-text">
-                  {l.autoApproved && <span className="auto-tag" title="Разрешено без вопроса по режиму доступа">✓ авто</span>}
+                  {l.autoApproved && (
+                    <span className="auto-tag" title={t('log.autoHint')}>{t('log.auto')}</span>
+                  )}
                   {l.text}
                 </span>
               </div>
@@ -161,35 +166,31 @@ export function App() {
         </Panel>
       )}
       {panel === 'help' && (
-        <Panel title="Как этим пользоваться" onClose={() => setPanel(null)}>
+        <Panel title={t('help.title')} onClose={() => setPanel(null)}>
           <div className="help">
-            <p><b>Офис</b> — это вид на доску задач, а не отдельная жизнь. Всё, что делают
-              человечки, отражает реальные сессии агентов.</p>
-            <p><kbd>ENTER</kbd> — написать менеджеру. Он разберёт задачу на части и раздаст
-              команде; исполнители работают параллельно, каждый в своей ветке.</p>
-            <p><kbd>B</kbd> — доска задач, <kbd>L</kbd> — лог, <kbd>M</kbd> — созвать совещание,
-              <kbd>SPACE</kbd> — пауза, <kbd>1–9</kbd> — открыть карточку агента,
-              <kbd>ESC</kbd> — закрыть, а если закрывать нечего — выйти в меню офисов,
-              <kbd>0</kbd> — переключить вид комнаты на трёхмерный и обратно.</p>
-            <p><b>Камера</b> в трёхмерном офисе: колесо — наезд к точке под курсором,
-              левая кнопка — облёт, правая — вести камеру по офису, <kbd>WASD</kbd> и
-              стрелки — то же с клавиатуры. <kbd>SHIFT</kbd>+<kbd>1–9</kbd> наводит на
-              комнату, <kbd>SHIFT</kbd>+<kbd>0</kbd> вписывает офис целиком. Выбранного
-              агента камера держит в кадре и едет за ним, пока он идёт.</p>
-            <p>🏠 в шапке — выйти в меню: офис остаётся открытым на сервере, агенты
-              продолжают работать, это только смена экрана.</p>
-            <p><b>Пауза</b> не убивает сессии: исполнители замирают на следующем вызове
-              инструмента и продолжают с того же места, когда вы нажмёте ▶. Новые задачи
-              на паузе не запускаются, а с менеджером по-прежнему можно разговаривать.</p>
-            <p>Клик по сумме в шапке — расходы по дням, агентам и задачам: свежий ввод,
-              вывод и доля кеша считаются отдельно.</p>
-            <p><b>Дверь</b> открывает список офисов. Офис — это проект: своя рабочая
-              директория, доска и расходы; переключение не требует перезапуска.</p>
-            <p>Клик по человечку открывает панель справа: что он делает, его задачи,
-              живой транскрипт и расходы.</p>
-            <p>Опасные действия — удаление файлов, <code className="mono">kill</code>,
-              запись за пределы рабочей папки — останавливаются и спрашивают разрешения.</p>
-            <p>👥 в шапке — окно «Команда»: роли, найм, увольнение и настройка каждой роли.</p>
+            <p>{t('help.office')}</p>
+            <p><kbd>ENTER</kbd> — {t('help.enter')}</p>
+            <p>
+              <kbd>B</kbd> — {t('hint.board')}, <kbd>L</kbd> — {t('hint.log')},{' '}
+              <kbd>M</kbd> — {t('hint.meeting')}, <kbd>SPACE</kbd> — {t('hint.pause')},{' '}
+              <kbd>1–9</kbd> — {t('help.keys.agent')}, <kbd>ESC</kbd> — {t('help.keys.esc')},{' '}
+              <kbd>0</kbd> — {t('help.keys.render')}.
+            </p>
+            <p>
+              {t('help.camera')} <kbd>WASD</kbd> {t('help.camera.keys')}{' '}
+              <kbd>SHIFT</kbd>+<kbd>1–9</kbd> {t('help.camera.room')}{' '}
+              <kbd>SHIFT</kbd>+<kbd>0</kbd> {t('help.camera.fit')}
+            </p>
+            <p>{t('help.home')}</p>
+            <p>{t('help.pause')}</p>
+            <p>{t('help.money')}</p>
+            <p>{t('help.door')}</p>
+            <p>{t('help.agent')}</p>
+            <p>
+              {t('help.danger.before')} <code className="mono">kill</code>
+              {t('help.danger.after')}
+            </p>
+            <p>{t('help.team')}</p>
           </div>
         </Panel>
       )}

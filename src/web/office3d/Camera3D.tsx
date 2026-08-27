@@ -33,6 +33,7 @@ import { useStore } from '../store';
 import { WALL_H } from './geometry';
 import { anchorOf } from './anchors';
 import { focusRooms, roomTitle, useCamera, type Focus } from './camera';
+import { t } from '../i18n';
 
 /**
  * Наклон и поворот камеры при первом показе. Полярный угол считается от
@@ -463,16 +464,16 @@ export function CameraChips({ layout }: { layout: Layout }) {
     <div className="cam-chips">
       <button
         className={`cam-chip${focus.kind === 'overview' ? ' on' : ''}`}
-        title="Вписать весь офис (Shift+0)"
+        title={t('cam.wholeOffice.hint')}
         onClick={() => { select(null); setFocus({ kind: 'overview' }); }}
       >
-        Весь офис
+        {t('cam.wholeOffice')}
       </button>
       {rooms.map((room, i) => (
         <button
           key={room.id}
           className={`cam-chip${focus.kind === 'room' && focus.id === room.id ? ' on' : ''}`}
-          title={`Смотреть комнату (Shift+${i + 1})`}
+          title={t('cam.room.hint', { n: i + 1 })}
           onClick={() => { select(null); setFocus({ kind: 'room', id: room.id }); }}
         >
           {roomTitle(room)}
@@ -481,9 +482,7 @@ export function CameraChips({ layout }: { layout: Layout }) {
       {agent && (
         <button
           className={`cam-chip agent${focus.kind === 'agent' ? ' on' : ''}`}
-          title={focus.kind === 'agent'
-            ? 'Камера следит за агентом — Escape, чтобы отпустить'
-            : 'Вернуть камеру к агенту'}
+          title={t(focus.kind === 'agent' ? 'cam.following' : 'cam.backToAgent')}
           onClick={() => setFocus({ kind: 'agent', id: agent.id })}
         >
           ◎ {agent.label}

@@ -1,5 +1,6 @@
 import { Panel } from './Panel';
 import { closeDiff, useStore } from './store';
+import { t } from './i18n';
 
 /** Просмотр того, что задача изменила, — чтобы не лезть в терминал перед слиянием. */
 export function DiffPanel() {
@@ -11,11 +12,11 @@ export function DiffPanel() {
 
   return (
     <Panel
-      title={`Изменения ${diff.taskId}`}
-      hint={task ? `${task.title} · ветка ${task.branch}` : undefined}
+      title={t('diff.title', { task: diff.taskId })}
+      hint={task ? t('diff.hint', { title: task.title, branch: task.branch ?? '' }) : undefined}
       wide onClose={closeDiff}
     >
-      {loading && <p className="muted">Считаю дифф…</p>}
+      {loading && <p className="muted">{t('diff.loading')}</p>}
       {diff.error && <p className="muted">{diff.error}</p>}
       {diff.stat && (
         <>
@@ -31,10 +32,7 @@ export function DiffPanel() {
             })}
           </div>
           {diff.truncated && (
-            <p className="muted small">
-              Дифф обрезан — слишком большой, чтобы показать целиком. Полностью его видно
-              в рабочей копии задачи.
-            </p>
+            <p className="muted small">{t('diff.truncated')}</p>
           )}
         </>
       )}

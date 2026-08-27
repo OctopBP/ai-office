@@ -1,8 +1,9 @@
 import { useEffect, useState } from 'react';
 import {
-  ACCESS_LABEL, FULL_ACCESS_WARNING, archiveRole, clearRoleFeedback, createRole,
+  accessLabel, fullAccessWarning, archiveRole, clearRoleFeedback, createRole,
   parseTaskMaxTurns, removeRole, updateRole, useStore,
 } from './store';
+import { t } from './i18n';
 import { catalog } from './layoutData';
 import { desks } from '../shared/layout';
 import { agentSpriteName, spriteOf, spritePresets } from './sprites';
@@ -11,17 +12,19 @@ import {
   MAX_ROLE_INSTANCES, MAX_TASK_MAX_TURNS, MIN_ROLE_INSTANCES, MIN_TASK_MAX_TURNS,
 } from '../shared/types';
 
-const MODELS = [
-  ['claude-opus-5', 'Opus 5 — $5/$25, сложные задачи'],
-  ['claude-sonnet-5', 'Sonnet 5 — $3/$15, рабочая лошадка'],
-  ['claude-haiku-4-5', 'Haiku 4.5 — $1/$5, простое и быстрое'],
-] as const;
+const MODEL_IDS = ['claude-opus-5', 'claude-sonnet-5', 'claude-haiku-4-5'] as const;
 
-const MODES: Array<[PermissionMode, string]> = [
-  ['readonly', 'только чтение'],
-  ['ask-writes', 'спрашивать про все изменения'],
-  ['ask-risky', 'спрашивать про необратимое (по умолчанию)'],
-  ['auto', 'полный доступ'],
+const models = (): Array<[string, string]> => [
+  ['claude-opus-5', t('role.model.opus')],
+  ['claude-sonnet-5', t('role.model.sonnet')],
+  ['claude-haiku-4-5', t('role.model.haiku')],
+];
+
+const modes = (): Array<[PermissionMode, string]> => [
+  ['readonly', accessLabel('readonly')],
+  ['ask-writes', accessLabel('ask-writes')],
+  ['ask-risky', t('role.mode.default', { mode: accessLabel('ask-risky') })],
+  ['auto', accessLabel('auto')],
 ];
 
 /** Черновик новой роли — умолчания, с которых стартует форма создания. */
@@ -71,7 +74,7 @@ export function RoleEditor({ role, onSaved, onDeleted }: {
 
   const turnsParsed = parseTaskMaxTurns(turns);
   const turnsError = turnsParsed.error
-    ? `Целое число от ${MIN_TASK_MAX_TURNS} до ${MAX_TASK_MAX_TURNS} или пусто — как в офисе`
+    ? t('role.turnsRange', { min: MIN_TASK_MAX_TURNS, max: MAX_TASK_MAX_TURNS })
     : null;
 
   const errFor = (field: string) => fieldErrors.find((e) => e.field === field)?.message ?? null;
@@ -101,15 +104,15 @@ export function RoleEditor({ role, onSaved, onDeleted }: {
   const staffCount = role?.active ?? 0;
   const archiveDisabled = !role || role.isManager || staffCount > 0;
   const archiveTitle = !role ? ''
-    : role.isManager ? 'PM нельзя убрать в архив — без него офису не с кем разговаривать'
-    : staffCount > 0 ? `Сначала уволите сотрудников этой роли (сейчас ${staffCount})`
-    : 'Роль скроется из найма, но останется в истории задач';
+    : role.isManager ? t('role.archive.pm')
+    : staffCount > 0 ? t('role.archive.staff', { n: staffCount })
+    : t('role.archive.hint');
 
   const removeDisabled = !role || role.isManager || !role.removable;
   const removeTitle = !role ? ''
-    : role.isManager ? 'PM нельзя удалить — офис без него не работает'
-    : !role.removable ? 'У роли есть задачи или сотрудники в истории — удалить насовсем нельзя, только в архив'
-    : 'У роли нет ни одной задачи и ни одного сотрудника в истории — удаляется без следа';
+    : role.isManager ? t('role.remove.pm')
+    : !role.removable ? t('role.remove.hasHistory')
+    : t('role.remove.clean');
 
   const doArchive = (archived: boolean) => {
     if (!role) return;
@@ -124,7 +127,7 @@ export function RoleEditor({ role, onSaved, onDeleted }: {
     removeRole(role.id);
   };
 
-  const officeLabel = ACCESS_LABEL[settings.officePermissionMode];
+  const officeLabel = accessLabel(settings.officePermissionMode);
   const titleDisabled = Boolean(role?.isManager);
 
   // Прикидка нехватки мест: столов в текущей раскладке меньше, чем уже
@@ -137,30 +140,26 @@ export function RoleEditor({ role, onSaved, onDeleted }: {
 
   return (
     <div className="role-form">
-      <h3>{role ? `Настройка роли «${role.title}»` : 'Новая роль'}</h3>
-      <p className="modal-reason">
-        Изменения применяются к новым сессиям. У исполнителя, который работает прямо
-        сейчас, промпт и модель зафиксированы на момент старта задачи.
-      </p>
+      <h3>{role ? t('role.editTitle', { title: role.title }) : t('role.newTitle')}</h3>
+      <p className="modal-reason">{t('role.note')}</p>
 
       {formError && <div className="form-banner error">{formError}</div>}
       {deskShortage && (
         <div className="deskless-notice">
-          🪑 Свободных мест в раскладке почти не осталось — новый сотрудник может остаться
-          без стола, пока кто-то не освободит место или не сменится раскладка.
+          🪑 {t('role.deskShortage')}
         </div>
       )}
 
-      <label>Название
+      <label>{t('role.title')}
         <input
           value={value.title} disabled={titleDisabled}
-          title={titleDisabled ? 'Менеджера нельзя переименовать в другую роль' : undefined}
+          title={titleDisabled ? t('role.title.pmHint') : undefined}
           onChange={(e) => set('title', e.target.value)}
         />
         {errFor('title') && <span className="hint error">{errFor('title')}</span>}
       </label>
 
-      <label>Внешность
+      <label>{t('role.look')}
         <div className="sprite-grid">
           {presets.map((p) => (
             <button
@@ -174,47 +173,47 @@ export function RoleEditor({ role, onSaved, onDeleted }: {
           ))}
         </div>
         {!value.sprite && (
-          <span className="hint">Внешность по умолчанию для этой роли — выберите пресет, чтобы сменить.</span>
+          <span className="hint">{t('role.look.hint')}</span>
         )}
         {errFor('sprite') && <span className="hint error">{errFor('sprite')}</span>}
       </label>
 
-      <label>Модель
+      <label>{t('role.model')}
         <select value={value.model} onChange={(e) => set('model', e.target.value)}>
-          {MODELS.map(([id, label]) => <option key={id} value={id}>{label}</option>)}
+          {models().map(([id, label]) => <option key={id} value={id}>{label}</option>)}
         </select>
         {errFor('model') && <span className="hint error">{errFor('model')}</span>}
       </label>
 
-      <label>Разрешения
+      <label>{t('role.permissions')}
         <select
           value={value.permissionMode ?? ''}
           onChange={(e) => chooseMode(e.target.value === '' ? null : e.target.value as PermissionMode)}
         >
-          <option value="">Как в офисе (сейчас: {officeLabel})</option>
-          {MODES.map(([id, label]) => <option key={id} value={id}>{label}</option>)}
+          <option value="">{t('role.asOffice', { mode: officeLabel })}</option>
+          {modes().map(([id, label]) => <option key={id} value={id}>{label}</option>)}
         </select>
         <span className="hint">
           {value.permissionMode
-            ? `Роль работает не по общему правилу офиса — переопределено на «${ACCESS_LABEL[value.permissionMode]}».`
-            : `Роль использует общий режим доступа офиса: «${officeLabel}».`}
+            ? t('role.ownRule', { mode: accessLabel(value.permissionMode) })
+            : t('role.officeRule', { mode: officeLabel })}
         </span>
       </label>
 
       {confirmAuto && (
         <div className="access-confirm">
-          <p>{FULL_ACCESS_WARNING}</p>
+          <p>{fullAccessWarning()}</p>
           <div className="modal-actions">
-            <button onClick={() => setConfirmAuto(false)}>Отмена</button>
+            <button onClick={() => setConfirmAuto(false)}>{t('common.cancel')}</button>
             <button className="danger" onClick={() => { set('permissionMode', 'auto'); setConfirmAuto(false); }}>
-              Да, включить полный доступ
+              {t('settings.access.confirm')}
             </button>
           </div>
         </div>
       )}
 
       <div className="row2">
-        <label>Максимум клонов
+        <label>{t('role.maxClones')}
           <input
             type="number" min={MIN_ROLE_INSTANCES} max={MAX_ROLE_INSTANCES} value={value.maxInstances}
             onChange={(e) => set('maxInstances', Math.max(MIN_ROLE_INSTANCES, Number(e.target.value)))}
@@ -226,48 +225,40 @@ export function RoleEditor({ role, onSaved, onDeleted }: {
             type="checkbox" checked={value.isolate}
             onChange={(e) => set('isolate', e.target.checked)}
           />
-          Своя ветка на задачу
+          {t('role.isolate')}
         </label>
       </div>
 
-      <label>Лимит шагов исполнителя
+      <label>{t('settings.limits.turns')}
         <input
           value={turns}
           placeholder={role?.effectiveMaxTurns == null
-            ? 'как в офисе (сейчас без ограничения)'
-            : `как в офисе (сейчас ${role.effectiveMaxTurns})`}
+            ? t('role.turns.officeUnlimited')
+            : t('role.turns.office', { n: role.effectiveMaxTurns })}
           onChange={(e) => setTurns(e.target.value)}
         />
-        <span className="hint">
-          Потолок ходов одной сессии этой роли — тот самый лимит, из-за которого
-          задача падает с «Reached maximum number of turns». Пусто — лимит офиса.
-        </span>
+        <span className="hint">{t('role.turns.hint')}</span>
         {turnsError && <span className="hint error">{turnsError}</span>}
       </label>
 
-      <label>Репозиторий роли
+      <label>{t('role.repo')}
         <input
           value={value.repoDir}
-          placeholder="общий репозиторий офиса"
+          placeholder={t('role.repo.placeholder')}
           onChange={(e) => set('repoDir', e.target.value)}
         />
-        <span className="hint">
-          Путь к репозиторию, в котором работает эта роль. Пусто — общий репозиторий
-          офиса. Ветка задачи, её diff и слияние идут туда же.
-        </span>
+        <span className="hint">{t('role.repo.hint')}</span>
         {errFor('repoDir') && <span className="hint error">{errFor('repoDir')}</span>}
       </label>
 
-      <label>Инструкция роли
+      <label>{t('role.brief')}
         <textarea rows={6} value={value.brief} onChange={(e) => set('brief', e.target.value)} />
-        <span className="hint">
-          Это промпт агента: правка меняет его поведение, а не просто описание для человека.
-        </span>
+        <span className="hint">{t('role.brief.hint')}</span>
       </label>
 
       <div className="modal-actions">
         <button className="allow" onClick={save} disabled={!!turnsError || submittedOp !== null}>
-          {role ? 'Сохранить' : 'Создать роль'}
+          {role ? t('common.save') : t('role.create')}
         </button>
       </div>
 
@@ -275,21 +266,21 @@ export function RoleEditor({ role, onSaved, onDeleted }: {
         <div className="role-danger">
           {role.archived ? (
             <button onClick={() => doArchive(false)} disabled={submittedOp !== null}>
-              Вернуть роль из архива
+              {t('role.unarchive')}
             </button>
           ) : (
             <button
               className="link-danger" disabled={archiveDisabled || submittedOp !== null} title={archiveTitle}
               onClick={() => doArchive(true)}
             >
-              Убрать в архив
+              {t('role.archive')}
             </button>
           )}
           <button
             className="link-danger" disabled={removeDisabled || submittedOp !== null} title={removeTitle}
             onClick={doRemove}
           >
-            Удалить насовсем
+            {t('role.remove')}
           </button>
         </div>
       )}

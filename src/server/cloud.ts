@@ -21,6 +21,8 @@ import type { PermissionMode } from '../shared/types';
 import { effectiveMode } from './permissions';
 import type { Role } from './roles';
 import { currentBranch, fetchBranch, remoteUrl } from './git';
+import type { Lang } from '../shared/i18n';
+import { t } from './i18n';
 
 /**
  * Токен GitHub держим только в памяти процесса. Класть чужой токен с правом
@@ -60,13 +62,13 @@ const clip = (s: unknown, n = 70): string => {
 /** Почему облачный режим сейчас не запустится. null — всё готово. */
 export function cloudProblem(state: OfficeState): string | null {
   if (!process.env.ANTHROPIC_API_KEY && !process.env.ANTHROPIC_AUTH_TOKEN) {
-    return 'Облачный режим работает только на платном API: задайте ANTHROPIC_API_KEY и перезапустите сервер.';
+    return state.say('cloud.needApiKey');
   }
   if (!state.settings.cloudRepoUrl) {
-    return 'Не указан репозиторий на GitHub — контейнеру нечего монтировать. Укажите его в настройках.';
+    return state.say('cloud.needRepo');
   }
   if (!token) {
-    return 'Нет токена GitHub с доступом на запись — исполнитель не сможет запушить ветку задачи. Введите его в настройках (он не сохраняется на диск) или задайте OFFICE_GITHUB_TOKEN.';
+    return state.say('cloud.needToken');
   }
   return null;
 }
@@ -140,27 +142,31 @@ function toolset(role: Role, mode: PermissionMode) {
   return { type: 'agent_toolset_20260401' as const, default_config: { enabled: true }, configs };
 }
 
-/** Инструменты офиса — те же, что локально, но исполняет их наш сервер. */
-const OFFICE_TOOLS = [
+/**
+ * Инструменты офиса — те же, что локально, но исполняет их наш сервер.
+ * Собираются под язык офиса: описание инструмента модель читает так же, как
+ * системный промпт, и русское описание в английской сессии сбивало бы её.
+ */
+const officeTools = (lang: Lang) => [
   {
     type: 'custom' as const,
     name: 'say',
-    description: 'Сказать одной строкой, что ты делаешь прямо сейчас. Появится пузырём над твоей головой в офисе. Вызывай перед каждым логическим шагом работы.',
+    description: t(lang, 'cloud.say.desc'),
     input_schema: {
       type: 'object' as const,
-      properties: { text: { type: 'string', description: 'До 70 символов, настоящее время' } },
+      properties: { text: { type: 'string', description: t(lang, 'cloud.say.limit') } },
       required: ['text'],
     },
   },
   {
     type: 'custom' as const,
     name: 'check_criterion',
-    description: 'Отметить критерий готовности выполненным. Вызывай сразу, как пункт действительно сделан и проверен.',
+    description: t(lang, 'cloud.check.desc'),
     input_schema: {
       type: 'object' as const,
       properties: {
-        index: { type: 'integer', description: 'Номер критерия из списка в задаче, начиная с 1' },
-        done: { type: 'boolean', description: 'false — снять отметку' },
+        index: { type: 'integer', description: t(lang, 'cloud.check.index') },
+        done: { type: 'boolean', description: t(lang, 'cloud.check.done') },
       },
       required: ['index'],
     },
@@ -168,12 +174,12 @@ const OFFICE_TOOLS = [
   {
     type: 'custom' as const,
     name: 'finish_task',
-    description: 'Сдать выполненную задачу. Вызывай ровно один раз, когда работа закончена и ветка запушена.',
+    description: t(lang, 'cloud.finish.desc'),
     input_schema: {
       type: 'object' as const,
       properties: {
-        summary: { type: 'string', description: 'Что сделано, 2–4 предложения. Это увидит PM.' },
-        files: { type: 'array', items: { type: 'string' }, description: 'Пути к созданным и изменённым файлам' },
+        summary: { type: 'string', description: t(lang, 'cloud.finish.summary') },
+        files: { type: 'array', items: { type: 'string' }, description: t(lang, 'cloud.finish.files') },
       },
       required: ['summary'],
     },
@@ -185,10 +191,13 @@ const OFFICE_TOOLS = [
  * переиспользуем. Ключ включает всё, что попадает в агента, — поменяли
  * промпт или модель в редакторе ролей, появится новый агент.
  */
-async function ensureAgent(role: Role, systemPrompt: string, mode: PermissionMode): Promise<string> {
+async function ensureAgent(
+  role: Role, systemPrompt: string, mode: PermissionMode, lang: Lang,
+): Promise<string> {
   // В ключе именно эффективный режим: у двух сотрудников одной роли он может
   // отличаться, и агент с чужими политиками инструментов им не подойдёт.
-  const key = `${role.id}:${role.model}:${mode}:${systemPrompt.length}:${systemPrompt.slice(0, 64)}`;
+  // Язык там же: от него зависят описания инструментов агента.
+  const key = `${role.id}:${role.model}:${mode}:${lang}:${systemPrompt.length}:${systemPrompt.slice(0, 64)}`;
   const known = agentIds.get(key);
   if (known) return known;
 
@@ -196,35 +205,33 @@ async function ensureAgent(role: Role, systemPrompt: string, mode: PermissionMod
     name: `AI Office — ${role.title}`,
     model: role.model,
     system: systemPrompt,
-    tools: [toolset(role, mode), ...OFFICE_TOOLS],
+    tools: [toolset(role, mode), ...officeTools(lang)],
   });
   agentIds.set(key, agent.id);
   return agent.id;
 }
 
-function workerPrompt(task: Task, role: Role, branch: string, base: string, mount: string): string {
+function workerPrompt(
+  state: OfficeState, task: Task, role: Role, branch: string, base: string, mount: string,
+): string {
   return [
-    `Задача ${task.id}: ${task.title}`,
+    state.say('prompt.task.header', { task: task.id, title: task.title }),
     '',
     task.description,
     '',
     task.criteria.length
-      ? 'Критерии готовности — отмечай каждый через check_criterion({index}), как только он ' +
-        'выполнен и проверен:\n' +
+      ? `${state.say('prompt.task.criteria')}\n` +
         task.criteria.map((c, i) => `${i + 1}. ${c.text}`).join('\n')
       : '',
     '',
-    `Репозиторий проекта примонтирован в ${mount}, текущая ветка — ${base}.`,
+    state.say('cloud.task.mount', { mount, base }),
     role.docsDir
-      ? `Файлы по этой задаче клади в ${mount}/${role.docsDir}/${task.id}/ и больше никуда.`
+      ? state.say('cloud.task.docsDir', { mount, dir: role.docsDir, task: task.id })
       : '',
-    'Порядок работы с гитом (без него результат никто не увидит):',
-    `1. git checkout -b ${branch}`,
-    '2. Сделай работу и закоммить её.',
-    `3. git push -u origin ${branch}`,
-    '4. Вызови finish_task({summary, files}).',
+    state.say('cloud.task.gitHead'),
+    state.say('cloud.task.gitSteps', { branch, base }),
     '',
-    'Работай самостоятельно и до конца. Перед каждым шагом вызывай say({text}).',
+    state.say('cloud.task.tail'),
   ].filter(Boolean).join('\n');
 }
 
@@ -266,7 +273,7 @@ export async function runCloudTask(
   const mode = effectiveMode(inst.permissionMode, role.permissionMode, state.officeMode());
   const [environment, agentId] = await Promise.all([
     ensureEnvironment(state),
-    ensureAgent(role, systemPrompt, mode),
+    ensureAgent(role, systemPrompt, mode, state.lang()),
   ]);
 
   const cap = state.settings.taskBudgetUsd;
@@ -283,7 +290,7 @@ export async function runCloudTask(
     }],
     initial_events: [{
       type: 'user.message',
-      content: [{ type: 'text', text: workerPrompt(task, role, branch, base, mount) }],
+      content: [{ type: 'text', text: workerPrompt(state, task, role, branch, base, mount) }],
     }],
     // Бюджет задачи здесь жёсткий и считается платформой: дойдя до потолка,
     // сессия встаёт на паузу, а не тратит дальше.
@@ -291,7 +298,8 @@ export async function runCloudTask(
   });
 
   sessions.set(sessionKey(state.officeId, task.id), session.id);
-  state.addLog(inst.id, 'system', `Облачная сессия ${session.id.slice(0, 12)}… (${repoUrl})`);
+  state.addLog(inst.id, 'system',
+    state.say('cloud.session', { id: session.id.slice(0, 12), repo: repoUrl }));
 
   let finished: string | null = null;
   let files: string[] = [];
@@ -353,8 +361,8 @@ export async function runCloudTask(
     const pulled = await fetchBranch(state.projectDir, branch);
     const note = pulled
       ? ''
-      : `\n\n⚠️ Ветка ${branch} не подтянулась из origin — посмотрите её на GitHub.`;
-    const summary = (finished ?? 'Сессия завершилась без отчёта.') + note;
+      : `\n\n${state.say('cloud.branchMissing', { branch })}`;
+    const summary = (finished ?? state.say('cloud.noReport')) + note;
     if (files.length) state.updateTask(task.id, { files });
     return {
       ok: finished !== null,
@@ -392,7 +400,7 @@ async function consume(
       return false;
     }
     case 'agent.thinking':
-      state.setState(inst.id, 'thinking', 'думает…');
+      state.setState(inst.id, 'thinking', state.say('agent.state.thinking'));
       return false;
     case 'agent.tool_use': {
       const name = String(event.name ?? '');
@@ -405,10 +413,10 @@ async function consume(
           agentId: inst.id,
           taskId: task.id,
           toolName: name,
-          summary: `${name} в облачном контейнере`,
+          summary: state.say('cloud.toolSummary', { tool: name }),
           detail: JSON.stringify(event.input ?? {}, null, 2),
           risk: name === 'bash' ? 'danger' : 'write',
-          reason: 'действие в облачном контейнере: наша песочница на него не распространяется',
+          reason: state.say('cloud.toolReason'),
           key: `cloud:${name}`,
         });
         const allow = decision === 'allow' || decision === 'always';
@@ -416,7 +424,7 @@ async function consume(
           type: 'user.tool_confirmation',
           tool_use_id: event.id,
           result: allow ? 'allow' : 'deny',
-          ...(allow ? {} : { deny_message: 'Пользователь запретил это действие. Не обходи запрет другим способом.' }),
+          ...(allow ? {} : { deny_message: state.say('cloud.denyMessage') }),
         }]);
       }
       return false;
@@ -424,7 +432,7 @@ async function consume(
     case 'agent.custom_tool_use': {
       const name = String(event.name ?? '');
       const input = (event.input ?? {}) as Record<string, unknown>;
-      let text = 'ок';
+      let text = state.say('tool.ok');
       let isError = false;
 
       if (name === 'say') {
@@ -436,11 +444,13 @@ async function consume(
       } else if (name === 'finish_task') {
         const fresh = state.tasks.get(task.id);
         const { done, total } = fresh ? criteriaProgress(fresh) : { done: 0, total: 0 };
-        const gap = total && done < total ? `\n\n⚠️ Отмечено критериев: ${done} из ${total}.` : '';
+        const gap = total && done < total
+          ? `\n\n${state.say('tool.finishTask.partial', { done, total })}`
+          : '';
         onFinish(String(input.summary ?? '') + gap, (input.files as string[] | undefined) ?? []);
-        text = 'Работа принята офисом.';
+        text = state.say('tool.finishTask.accepted');
       } else {
-        text = `Неизвестный инструмент ${name}.`;
+        text = state.say('cloud.unknownTool', { tool: name });
         isError = true;
       }
 
@@ -453,7 +463,8 @@ async function consume(
       return false;
     }
     case 'session.error':
-      state.addLog(inst.id, 'error', `Облако: ${clip(JSON.stringify(event.error ?? event), 200)}`);
+      state.addLog(inst.id, 'error',
+        state.say('cloud.error', { error: clip(JSON.stringify(event.error ?? event), 200) }));
       return false;
     case 'session.status_idle': {
       const stop = (event.stop_reason ?? {}) as { type?: string };

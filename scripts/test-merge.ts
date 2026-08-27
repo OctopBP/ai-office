@@ -13,6 +13,11 @@ import { getOffice } from '../src/server/state';
 import { checkMergeable } from '../src/server/git';
 import { mergeQueue, refreshMergeChecks } from '../src/server/merge';
 
+// Проверки сверяют тексты офиса дословно и написаны по-русски — значит,
+// и офисы здесь должны быть русскими. Язык нового офиса берётся из
+// окружения, и задать его надо до того, как офис откроется.
+process.env.OFFICE_LANG = 'ru';
+
 /** Офис проверки — по id: общего «текущего офиса» на процесс больше нет. */
 const office = getOffice('o-1');
 
@@ -65,7 +70,7 @@ async function main(): Promise<void> {
 
   // 1. Сухая проверка ничего не меняет в основной ветке.
   const head = git('rev-parse', 'HEAD');
-  const dry = await checkMergeable(dir, 'task/T-1', 'main');
+  const dry = await checkMergeable(dir, 'task/T-1', 'main', 'ru');
   results.push(
     `чистая ветка видна как clean: ${dry.state === 'clean'}`,
     `main после проверки не сдвинулся: ${git('rev-parse', 'HEAD') === head}`,
