@@ -55,6 +55,9 @@
     "sofa": {
       "seat": [0, 0, 0]
     },
+    "loveseat": {
+      "seat": [0, 0, 0]
+    },
     "armchair": {
       "seat": [0, 0, 0]
     }

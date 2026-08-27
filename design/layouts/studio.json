@@ -47,7 +47,14 @@
     { "sprite": "lounge_rug", "at": [2.2, 9.8] },
     { "sprite": "coffee_table", "at": [2.75, 11.3] },
     { "sprite": "floor_lamp", "at": [7.7, 9.6] },
-    { "sprite": "potted_plant", "at": [8.8, 9.2] }
+    { "sprite": "potted_plant", "at": [8.8, 9.2] },
+
+    { "sprite": "loveseat", "at": [5.2, 13.0] },
+    { "sprite": "coffee_table", "at": [5.6, 14.9] },
+    { "sprite": "armchair", "at": [8.0, 13.1] },
+    { "sprite": "armchair", "at": [9.5, 15.5] },
+    { "sprite": "floor_lamp", "at": [9.5, 13.2] },
+    { "sprite": "potted_plant", "at": [4.2, 15.5] }
   ],
   "zones": [
     { "kind": "entrance", "at": [19.6, 18.4], "sprite": "door", "title": "Офисы и проекты" },
