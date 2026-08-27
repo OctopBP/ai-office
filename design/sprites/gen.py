@@ -979,6 +979,41 @@ def loveseat():
     save(im, 'loveseat')
 
 
+def armchair():
+    """Кресло — одноместное, тот же язык SOFA/back_l/back_d, что у sofa и
+    loveseat, но без шва: место одно, а подлокотники шире относительно
+    размера — кресло, а не край дивана."""
+    w, h = 21, 17
+    im = canvas(w, h)
+    d = ImageDraw.Draw(im)
+    back, back_l, back_d = SOFA, SOFA_L, SOFA_D
+    R(d, 3, 1, w - 4, 7, back); R(d, 4, 1, w - 5, 2, back_l)
+    R(d, 3, 6, w - 4, 7, back_d)
+    R(d, 0, 5, 4, 13, back); R(d, w - 5, 5, w - 1, 13, back)   # подлокотники
+    R(d, 0, 5, 4, 6, back_l); R(d, w - 5, 5, w - 1, 6, back_l)
+    R(d, 4, 8, w - 5, 12, back_l)                              # сиденье
+    R(d, 4, 8, w - 5, 8, back)
+    R(d, 3, 12, w - 4, 15, SOFA_BASE); R(d, 3, 12, w - 4, 12, back_d)  # передняя панель
+    R(d, 4, 16, 6, 16, CHAIR_D); R(d, w - 7, 16, w - 5, 16, CHAIR_D)  # ножки
+    R(d, 0, 12, 4, 13, back_d); R(d, w - 5, 12, w - 1, 13, back_d)
+    im = tint(im, (0.58, 0.58, 0.86), (8, 10, 34))
+    im = outline_alpha(im)
+    save(im, 'armchair')
+
+
+def coffee_table():
+    """Журнальный столик — низкий, между диванами; палитра дерева, как у
+    desk/round_table, а не SOFA: это не мягкая мебель."""
+    w, h = 28, 17
+    im = canvas(w, h)
+    d = ImageDraw.Draw(im)
+    R(d, 1, 0, w - 2, 8, DESK_TOP); R(d, 1, 0, w - 2, 1, DESK_TOP_L)
+    R(d, 1, 9, w - 2, 13, DESK_SIDE); R(d, 1, 13, w - 2, 13, DESK_EDGE)
+    R(d, 2, 14, 5, 16, DESK_EDGE); R(d, w - 6, 14, w - 3, 16, DESK_EDGE)
+    im = outline_alpha(im)
+    save(im, 'coffee_table')
+
+
 def beanbag():
     w, h = 16, 11
     im = canvas(w, h)
@@ -1073,19 +1108,24 @@ SPRITE_SLOTS.update({
     ],
 })
 
-# Лаунж-мебель без пиксельного арта (armchair, coffee_table и декор из
-# SPRITE_MODEL_ONLY) добавлена в прошлой сессии для 3D-сцены и уже
-# прижилась в props.ts с подогнанной посадкой — трогать их size/blocks/slots
-# незачем. Но у них не хватало footprint/layer/label по спеке (§3.1) —
-# добавляем это отдельно, проверив, что она не меняет посадку в 3D:
-# `floorRect()` (props.ts) сейчас берёт `def.d`, обрезанный по высоте
-# каталога (`artH`), а у этих предметов `def.d >= artH`, так что фактическая
-# глубина следа и без явного footprint уже равна полному размеру — честный
-# footprint [0, 0, w, h] здесь не меняет числа, только делает их явными.
+# Честный footprint (§3.1, §6.3) — площадь пола, а не весь арт. У armchair и
+# loveseat, как и у sofa, верхняя часть картинки — спинка и подлокотники,
+# зрительно поднятые над полом; в след идёт только то, что от их видимого
+# низа (подлокотники) до нижнего края арта. У coffee_table — стол низкий,
+# перспективного нависания почти нет, поэтому след — весь арт целиком.
+#
+# armchair и coffee_table раньше не имели пиксельного арта (SPRITE_MODEL_ONLY,
+# только модель Kenney для 3D-сцены) — при переходе на пиксельный арт их
+# size пересчитан из PNG (было [1.31, 1.09] и [1.76, 1.07] по модели, стало
+# чуть точнее под сетку 16 арт-px/тайл); слот посадки armchair не трогаем —
+# расхождение размера меньше 3%, посадка в 3D (props.ts:seat) не съезжает
+# заметно. Оставшийся декор (floor_lamp, potted_plant) по-прежнему без арта —
+# у них `def.d` в props.ts уже равен высоте каталога, честный footprint
+# [0, 0, w, h] для них не меняет след, а лишь делает его явным.
 SPRITE_FOOTPRINT.update({
     'loveseat': [0, 0.4375, 2.25, 1.1875],
-    'armchair': [0, 0, 1.31, 1.09],
-    'coffee_table': [0, 0, 1.76, 1.07],
+    'armchair': [0, 0.3125, 1.3125, 0.75],
+    'coffee_table': [0, 0, 1.75, 1.0625],
     'floor_lamp': [0, 0, 0.41, 0.47],
     'potted_plant': [0, 0, 0.68, 0.78],
 })
@@ -1106,16 +1146,14 @@ SPRITE_LABEL.update({
     'potted_plant': 'Растение в кашпо',
 })
 
-# Кресло из набора Kenney (loungeChair): 1.31 × 1.09 тайла по модели. Высота
-# в каталоге — это высота арта, которого у предмета нет; берём глубину следа,
-# чтобы формула «след прижат к нижней кромке арта» дала осмысленный результат.
-#
-# Декорация лаунжа — тем же порядком: размер берётся из модели, пересчитанный
-# в тайлы. Второе число — не высота, а глубина следа: у предмета без арта
-# «высота картинки» и есть его глубина (см. floorRect в props.ts).
+# Декор лаунжа без пиксельного арта — только модель Kenney для 3D-сцены
+# (armchair и coffee_table сюда больше не входят, у них теперь есть PNG, а
+# size и footprint выше посчитаны с save()). Высота в каталоге — это высота
+# арта, которого у предмета нет; берём глубину следа, чтобы формула «след
+# прижат к нижней кромке арта» дала осмысленный результат. Второе число — не
+# высота, а глубина следа: у предмета без арта «высота картинки» и есть его
+# глубина (см. floorRect в props.ts).
 SPRITE_MODEL_ONLY.update({
-    'armchair': [1.31, 1.09],
-    'coffee_table': [1.76, 1.07],
     'lounge_rug': [4.19, 2.45],
     'potted_plant': [0.68, 0.78],
     'floor_lamp': [0.41, 0.47],
@@ -1194,7 +1232,7 @@ def build(theme):
     plant('plant_small'); plant('plant_big', big=True)
     cooler(); counter(); fridge(); kitchen_tiles(cols=8, rows=6); rug(); round_table(); bookshelf(); poster()
     neon_sign(); server_rack(); shadow(); coin()
-    game_rug(); tv(); console(); arcade(); sofa(); loveseat(); beanbag(); gamepad()
+    game_rug(); tv(); console(); arcade(); sofa(); loveseat(); armchair(); coffee_table(); beanbag(); gamepad()
 
 
 if __name__ == '__main__':

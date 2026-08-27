@@ -112,15 +112,14 @@
     },
     "armchair": {
       "size": [
-        1.31,
-        1.09
+        1.3125,
+        1.0625
       ],
-      "modelOnly": true,
       "footprint": [
         0,
-        0,
-        1.31,
-        1.09
+        0.3125,
+        1.3125,
+        0.75
       ],
       "layer": "furniture",
       "slots": [
@@ -173,15 +172,14 @@
     },
     "coffee_table": {
       "size": [
-        1.76,
-        1.07
+        1.75,
+        1.0625
       ],
-      "modelOnly": true,
       "footprint": [
         0,
         0,
-        1.76,
-        1.07
+        1.75,
+        1.0625
       ],
       "layer": "furniture",
       "blocks": true,
