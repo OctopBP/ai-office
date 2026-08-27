@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { sortedOffices, summarizeOfficeActivity, useStore } from './store';
 import type { OfficeView } from '../shared/types';
 import { t } from './i18n';
+import { Icon } from './icons';
 
 /**
  * Быстрый переключатель офисов прямо из комнаты: бейдж проекта в HUD
@@ -36,7 +37,7 @@ export function OfficeSwitcher() {
   if (pending === 'enter') {
     return (
       <div className="office-switcher switching" title={t('switcher.waiting')}>
-        <span className="ico spin">🔄</span>
+        <Icon name="refresh" className="spin" />
         <b>{pendingLabel ? t('switcher.switchingTo', { name: pendingLabel }) : t('switcher.switching')}</b>
       </div>
     );
@@ -60,7 +61,7 @@ export function OfficeSwitcher() {
           + ` · ${projectDir} · `
           + t('switcher.theme', { theme: t(theme === 'day' ? 'theme.day' : 'theme.night') })}
       >
-        <span className="ico">🏢</span>
+        <Icon name="building" />
         <b>{projectDir.split('/').pop()}{hasOthers ? ' ▾' : ''}</b>
       </button>
 

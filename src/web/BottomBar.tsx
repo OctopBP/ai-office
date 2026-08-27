@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { useStore } from './store';
 import { locale, t } from './i18n';
+import { Icon } from './icons';
 
 const HINT_KEYS: Array<[string, 'hint.pm' | 'hint.board' | 'hint.log' | 'hint.meeting'
   | 'hint.merge' | 'hint.pause' | 'hint.close' | 'hint.agent']> = [
@@ -39,7 +40,7 @@ export function BottomBar() {
       </div>
       <div className="muted small">
         {busy && <span className="working">{t('bottom.busy')} · </span>}
-        {theme === 'day' ? '☀' : '🌙'}{' '}
+        <Icon name={theme === 'day' ? 'sun' : 'moon'} size={14} />{' '}
         {now.toLocaleTimeString(locale(), { hour: '2-digit', minute: '2-digit' })}
         {' · '}{t('bottom.session', { time: session })}
       </div>

@@ -7,6 +7,7 @@ import { t } from './i18n';
 import { catalog } from './layoutData';
 import { desks } from '../shared/layout';
 import { agentSpriteName } from './sprites';
+import { Icon } from './icons';
 import { LookPicker } from './office3d/LookPicker';
 import { lookById, LOOKS } from '../shared/looks';
 import type { PermissionMode, RoleDraft, RoleEditable, RoleView } from '../shared/types';
@@ -145,7 +146,7 @@ export function RoleEditor({ role, onSaved, onDeleted }: {
       {formError && <div className="form-banner error">{formError}</div>}
       {deskShortage && (
         <div className="deskless-notice">
-          🪑 {t('role.deskShortage')}
+          <Icon name="armchair" size={16} /> {t('role.deskShortage')}
         </div>
       )}
 

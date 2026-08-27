@@ -9,13 +9,16 @@
  */
 import type { AgentState, InstanceView, RoleView } from '../shared/types';
 import { t } from './i18n';
+import type { IconName } from './icons';
 
 /** Состояние словами. Функция, а не таблица: язык офиса меняется на ходу. */
 export const stateText = (state: AgentState): string => t(`agent.state.${state}`);
 
-export const STATE_ICON: Record<AgentState, string> = {
-  idle: '', thinking: '💭', working: '⌨️', walking: '', talking: '💬',
-  waiting_approval: '❗', paused: '⏸', blocked: '⏳', done: '✅', failed: '⚠️',
+/** Значок состояния — `null` у «свободен» и «идёт»: их и так видно по позе фигуры. */
+export const STATE_ICON: Record<AgentState, IconName | null> = {
+  idle: null, thinking: 'dots', working: 'keyboard', walking: null, talking: 'message',
+  waiting_approval: 'alert-circle', paused: 'player-pause', blocked: 'hourglass',
+  done: 'circle-check', failed: 'alert-triangle',
 };
 
 /**

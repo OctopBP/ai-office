@@ -5,6 +5,7 @@ import {
 } from './store';
 import { t } from './i18n';
 import { usageLine } from './UsageModal';
+import { Icon } from './icons';
 import type { PermissionMode } from '../shared/types';
 
 const money = (v: number) => `$${v.toFixed(v < 1 ? 3 : 2)}`;
@@ -45,7 +46,7 @@ export function EmployeeCard({ instanceId }: { instanceId: string }) {
 
       {inst.deskless && (
         <div className="deskless-notice">
-          🪑 {t('employee.deskless', { index: inst.desk.index })}{' '}
+          <Icon name="armchair" size={16} /> {t('employee.deskless', { index: inst.desk.index })}{' '}
           <button className="link" onClick={openLayoutSettings}>{t('employee.layoutSettings')}</button>
         </div>
       )}
@@ -74,7 +75,7 @@ export function EmployeeCard({ instanceId }: { instanceId: string }) {
           </span>
         </label>
         <span className={`perm-badge ${inst.effectivePermissionMode}`}>
-          {inst.effectivePermissionMode === 'auto' ? '🔓' : '🔐'}{' '}
+          <Icon name={inst.effectivePermissionMode === 'auto' ? 'lock-open' : 'shield-lock'} size={14} />{' '}
           {accessLabel(inst.effectivePermissionMode)} · {permissionSourceLabel(permissionSource(inst, role))}
         </span>
         {confirmAuto && (

@@ -8,6 +8,7 @@ import { catalog } from './layoutData';
 import { desks } from '../shared/layout';
 import { t } from './i18n';
 import type { AgentState } from '../shared/types';
+import { Icon } from './icons';
 
 const stateLabel = (state: AgentState): string => t(`agent.state.${state}`);
 
@@ -70,7 +71,7 @@ export function TeamWindow({ onClose }: { onClose: () => void }) {
 
             {deskShortage && (
               <div className="deskless-notice">
-                🪑 {t('team.deskShortage', { desks: deskTotal, staff: seated })}
+                <Icon name="armchair" size={16} /> {t('team.deskShortage', { desks: deskTotal, staff: seated })}
               </div>
             )}
 
@@ -135,10 +136,14 @@ export function TeamWindow({ onClose }: { onClose: () => void }) {
                             >
                               <span className="mono muted">{m.id}</span>
                               <span className="muted small">{stateLabel(m.state)}</span>
-                              {m.deskless && <span className="perm-badge deskless">🪑</span>}
+                              {m.deskless && (
+                                <span className="perm-badge deskless" title={t('office.desklessHint')}>
+                                  <Icon name="armchair" size={14} />
+                                </span>
+                              )}
                               {m.permissionMode && (
                                 <span className={`perm-badge ${m.permissionMode}`}>
-                                  {m.permissionMode === 'auto' ? '🔓' : '🔐'}
+                                  <Icon name={m.permissionMode === 'auto' ? 'lock-open' : 'shield-lock'} size={14} />
                                 </span>
                               )}
                               <button

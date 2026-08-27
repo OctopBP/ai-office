@@ -1,5 +1,6 @@
 import { dismissToast, useStore } from './store';
 import { t as tr } from './i18n';
+import { Icon } from './icons';
 
 /** Всплывающие сообщения о заметных событиях: завершение, провал, слияние. */
 export function Toasts({ onOpenTask }: { onOpenTask: (id: string) => void }) {
@@ -11,7 +12,10 @@ export function Toasts({ onOpenTask }: { onOpenTask: (id: string) => void }) {
       {toasts.map((t) => (
         <div key={t.id} className={`toast pixel ${t.kind}`}>
           <div className="toast-text">
-            <b>{t.kind === 'done' ? '✅' : t.kind === 'failed' ? '⚠️' : 'ℹ️'} {t.title}</b>
+            <b>
+              <Icon name={t.kind === 'done' ? 'circle-check' : t.kind === 'failed' ? 'alert-triangle' : 'info-circle'} size={16} />
+              {' '}{t.title}
+            </b>
             {t.detail && <div className="muted small">{t.detail}</div>}
           </div>
           {t.taskId && (

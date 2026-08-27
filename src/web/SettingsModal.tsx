@@ -7,6 +7,7 @@ import { DEFAULT_OFFICE_WORKERS, DEFAULT_PROCESS_WORKERS, type PermissionMode } 
 import { LANGS, LANG_TITLE, type Lang } from '../shared/i18n';
 import { DEFAULT_GRAPHICS, GRAPHICS_RANGE, type Graphics } from './office3d/graphics';
 import { t, type UiKey } from './i18n';
+import { Icon } from './icons';
 
 const parse = (v: string): number | null => {
   const n = Number(v.replace(',', '.'));
@@ -233,11 +234,11 @@ export function SettingsModal({ onClose }: { onClose: () => void }) {
                 <h4>{t('settings.pipeline.title')}</h4>
                 <div className="engine">
                   <button className={autoPipeline ? 'on' : ''} onClick={() => setAutoPipeline(true)}>
-                    🔁 {t('settings.pipeline.auto')}
+                    <span><Icon name="repeat" size={18} /> {t('settings.pipeline.auto')}</span>
                     <span className="muted small">{t('settings.pipeline.auto.hint')}</span>
                   </button>
                   <button className={autoPipeline ? '' : 'on'} onClick={() => setAutoPipeline(false)}>
-                    ✋ {t('settings.pipeline.manual')}
+                    <span><Icon name="hand-stop" size={18} /> {t('settings.pipeline.manual')}</span>
                     <span className="muted small">{t('settings.pipeline.manual.hint')}</span>
                   </button>
                 </div>
@@ -259,11 +260,11 @@ export function SettingsModal({ onClose }: { onClose: () => void }) {
                 <h4>{t('settings.engine.title')}</h4>
                 <div className="engine">
                   <button className={engine === 'local' ? 'on' : ''} onClick={() => setEngine('local')}>
-                    💻 {t('settings.engine.local')}
+                    <span><Icon name="device-desktop" size={18} /> {t('settings.engine.local')}</span>
                     <span className="muted small">{t('settings.engine.local.hint')}</span>
                   </button>
                   <button className={engine === 'cloud' ? 'on' : ''} onClick={() => setEngine('cloud')}>
-                    ☁️ {t('settings.engine.cloud')}
+                    <span><Icon name="cloud" size={18} /> {t('settings.engine.cloud')}</span>
                     <span className="muted small">{t('settings.engine.cloud.hint')}</span>
                   </button>
                 </div>
@@ -293,11 +294,11 @@ export function SettingsModal({ onClose }: { onClose: () => void }) {
                 <h4>{t('settings.gfx.title')}</h4>
                 <div className="engine">
                   <button className={gfx.pixelate ? 'on' : ''} onClick={() => patchGfx({ pixelate: true })}>
-                    🟪 {t('settings.gfx.on')}
+                    <span><Icon name="grid-dots" size={18} /> {t('settings.gfx.on')}</span>
                     <span className="muted small">{t('settings.gfx.on.hint')}</span>
                   </button>
                   <button className={gfx.pixelate ? '' : 'on'} onClick={() => patchGfx({ pixelate: false })}>
-                    🔷 {t('settings.gfx.off')}
+                    <span><Icon name="circle" size={18} /> {t('settings.gfx.off')}</span>
                     <span className="muted small">{t('settings.gfx.off.hint')}</span>
                   </button>
                 </div>
