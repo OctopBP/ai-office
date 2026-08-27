@@ -112,10 +112,16 @@
     },
     "armchair": {
       "size": [
-        1.31,
-        1.09
+        1.3125,
+        1.0625
       ],
-      "modelOnly": true,
+      "footprint": [
+        0,
+        0.3125,
+        1.3125,
+        0.75
+      ],
+      "layer": "furniture",
       "slots": [
         {
           "kind": "seat",
@@ -124,7 +130,8 @@
           "use": "sit"
         }
       ],
-      "blocks": true
+      "blocks": true,
+      "label": "Кресло"
     },
     "beanbag": {
       "size": [
@@ -165,11 +172,18 @@
     },
     "coffee_table": {
       "size": [
-        1.76,
-        1.07
+        1.75,
+        1.0625
       ],
-      "modelOnly": true,
-      "blocks": true
+      "footprint": [
+        0,
+        0,
+        1.75,
+        1.0625
+      ],
+      "layer": "furniture",
+      "blocks": true,
+      "label": "Журнальный столик"
     },
     "coin": {
       "size": [
@@ -365,7 +379,15 @@
         0.47
       ],
       "modelOnly": true,
-      "blocks": true
+      "footprint": [
+        0,
+        0,
+        0.41,
+        0.47
+      ],
+      "layer": "furniture",
+      "blocks": true,
+      "label": "Торшер"
     },
     "floor_parquet_0": {
       "size": [
@@ -465,6 +487,35 @@
       ],
       "modelOnly": true
     },
+    "loveseat": {
+      "size": [
+        2.25,
+        1.625
+      ],
+      "footprint": [
+        0,
+        0.4375,
+        2.25,
+        1.1875
+      ],
+      "layer": "furniture",
+      "slots": [
+        {
+          "kind": "seat",
+          "x": 0.35,
+          "y": 0.45,
+          "use": "sit"
+        },
+        {
+          "kind": "seat",
+          "x": 1.15,
+          "y": 0.45,
+          "use": "sit"
+        }
+      ],
+      "blocks": true,
+      "label": "Двухместный диван"
+    },
     "neon_sign": {
       "size": [
         1.625,
@@ -509,7 +560,15 @@
         0.78
       ],
       "modelOnly": true,
-      "blocks": true
+      "footprint": [
+        0,
+        0,
+        0.68,
+        0.78
+      ],
+      "layer": "furniture",
+      "blocks": true,
+      "label": "Растение в кашпо"
     },
     "round_table": {
       "size": [

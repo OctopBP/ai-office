@@ -950,6 +950,70 @@ def sofa():
     save(im.crop((0, cut, w, h)), 'sofa_front')
 
 
+def _loveseat_body(d, w, h):
+    """То же построение, что у _sofa_body, но сжатое под компактный
+    двухместный диван: один шов вместо двух — подушка на двоих, а не на троих."""
+    back, back_l, back_d = SOFA, SOFA_L, SOFA_D
+    R(d, 4, 2, w - 5, 13, back); R(d, 5, 2, w - 6, 3, back_l)
+    R(d, 4, 12, w - 5, 13, back_d)
+    R(d, w // 2, 4, w // 2, 11, back_d)                    # шов спинки: два места
+    R(d, 0, 7, 6, 20, back); R(d, w - 7, 7, w - 1, 20, back)   # подлокотники
+    R(d, 0, 7, 6, 8, back_l); R(d, w - 7, 7, w - 1, 8, back_l)
+    R(d, 6, 14, w - 7, 19, back_l)                         # сиденье
+    R(d, 6, 14, w - 7, 14, back)
+    R(d, w // 2, 15, w // 2, 18, back)
+    R(d, 4, 19, w - 5, 23, SOFA_BASE); R(d, 4, 19, w - 5, 19, back_d)  # передняя панель
+    R(d, 5, 24, 8, 25, CHAIR_D); R(d, w - 9, 24, w - 6, 25, CHAIR_D)  # ножки
+    R(d, 0, 19, 6, 21, back_d); R(d, w - 7, 19, w - 1, 21, back_d)
+
+
+def loveseat():
+    """Короткий двухместный диван — второй вариант дивана для лаунжа: тот же
+    язык, что у sofa, но короче и с одним швом, чтобы уголки не собирались
+    из одного и того же спрайта."""
+    w, h = 36, 26
+    im = canvas(w, h)
+    _loveseat_body(ImageDraw.Draw(im), w, h)
+    im = tint(im, (0.58, 0.58, 0.86), (8, 10, 34))
+    im = outline_alpha(im)
+    save(im, 'loveseat')
+
+
+def armchair():
+    """Кресло — одноместное, тот же язык SOFA/back_l/back_d, что у sofa и
+    loveseat, но без шва: место одно, а подлокотники шире относительно
+    размера — кресло, а не край дивана."""
+    w, h = 21, 17
+    im = canvas(w, h)
+    d = ImageDraw.Draw(im)
+    back, back_l, back_d = SOFA, SOFA_L, SOFA_D
+    R(d, 3, 1, w - 4, 7, back); R(d, 4, 1, w - 5, 2, back_l)
+    R(d, 3, 6, w - 4, 7, back_d)
+    R(d, 0, 5, 4, 13, back); R(d, w - 5, 5, w - 1, 13, back)   # подлокотники
+    R(d, 0, 5, 4, 6, back_l); R(d, w - 5, 5, w - 1, 6, back_l)
+    R(d, 4, 8, w - 5, 12, back_l)                              # сиденье
+    R(d, 4, 8, w - 5, 8, back)
+    R(d, 3, 12, w - 4, 15, SOFA_BASE); R(d, 3, 12, w - 4, 12, back_d)  # передняя панель
+    R(d, 4, 16, 6, 16, CHAIR_D); R(d, w - 7, 16, w - 5, 16, CHAIR_D)  # ножки
+    R(d, 0, 12, 4, 13, back_d); R(d, w - 5, 12, w - 1, 13, back_d)
+    im = tint(im, (0.58, 0.58, 0.86), (8, 10, 34))
+    im = outline_alpha(im)
+    save(im, 'armchair')
+
+
+def coffee_table():
+    """Журнальный столик — низкий, между диванами; палитра дерева, как у
+    desk/round_table, а не SOFA: это не мягкая мебель."""
+    w, h = 28, 17
+    im = canvas(w, h)
+    d = ImageDraw.Draw(im)
+    R(d, 1, 0, w - 2, 8, DESK_TOP); R(d, 1, 0, w - 2, 1, DESK_TOP_L)
+    R(d, 1, 9, w - 2, 13, DESK_SIDE); R(d, 1, 13, w - 2, 13, DESK_EDGE)
+    R(d, 2, 14, 5, 16, DESK_EDGE); R(d, w - 6, 14, w - 3, 16, DESK_EDGE)
+    im = outline_alpha(im)
+    save(im, 'coffee_table')
+
+
 def beanbag():
     w, h = 16, 11
     im = canvas(w, h)
@@ -1035,18 +1099,61 @@ SPRITE_SLOTS.update({
     'armchair': [
         {'kind': 'seat', 'x': 0.15, 'y': -0.55, 'use': 'sit'},
     ],
+    # Второй вариант дивана — короткий двухместный (loveseat). Те же
+    # пропорции offset'а, что у sofa (x по доле ширины, y=0.45 — как у
+    # sofa: край подушки, а не спинка), просто под свою ширину 2.25 тайла.
+    'loveseat': [
+        {'kind': 'seat', 'x': 0.35, 'y': 0.45, 'use': 'sit'},
+        {'kind': 'seat', 'x': 1.15, 'y': 0.45, 'use': 'sit'},
+    ],
 })
 
-# Кресло из набора Kenney (loungeChair): 1.31 × 1.09 тайла по модели. Высота
-# в каталоге — это высота арта, которого у предмета нет; берём глубину следа,
-# чтобы формула «след прижат к нижней кромке арта» дала осмысленный результат.
+# Честный footprint (§3.1, §6.3) — площадь пола, а не весь арт. У armchair и
+# loveseat, как и у sofa, верхняя часть картинки — спинка и подлокотники,
+# зрительно поднятые над полом; в след идёт только то, что от их видимого
+# низа (подлокотники) до нижнего края арта. У coffee_table — стол низкий,
+# перспективного нависания почти нет, поэтому след — весь арт целиком.
 #
-# Декорация лаунжа — тем же порядком: размер берётся из модели, пересчитанный
-# в тайлы. Второе число — не высота, а глубина следа: у предмета без арта
-# «высота картинки» и есть его глубина (см. floorRect в props.ts).
+# armchair и coffee_table раньше не имели пиксельного арта (SPRITE_MODEL_ONLY,
+# только модель Kenney для 3D-сцены) — при переходе на пиксельный арт их
+# size пересчитан из PNG (было [1.31, 1.09] и [1.76, 1.07] по модели, стало
+# чуть точнее под сетку 16 арт-px/тайл); слот посадки armchair не трогаем —
+# расхождение размера меньше 3%, посадка в 3D (props.ts:seat) не съезжает
+# заметно. Оставшийся декор (floor_lamp, potted_plant) по-прежнему без арта —
+# у них `def.d` в props.ts уже равен высоте каталога, честный footprint
+# [0, 0, w, h] для них не меняет след, а лишь делает его явным.
+SPRITE_FOOTPRINT.update({
+    'loveseat': [0, 0.4375, 2.25, 1.1875],
+    'armchair': [0, 0.3125, 1.3125, 0.75],
+    'coffee_table': [0, 0, 1.75, 1.0625],
+    'floor_lamp': [0, 0, 0.41, 0.47],
+    'potted_plant': [0, 0, 0.68, 0.78],
+})
+
+SPRITE_LAYER.update({
+    'loveseat': 'furniture',
+    'armchair': 'furniture',
+    'coffee_table': 'furniture',
+    'floor_lamp': 'furniture',
+    'potted_plant': 'furniture',
+})
+
+SPRITE_LABEL.update({
+    'loveseat': 'Двухместный диван',
+    'armchair': 'Кресло',
+    'coffee_table': 'Журнальный столик',
+    'floor_lamp': 'Торшер',
+    'potted_plant': 'Растение в кашпо',
+})
+
+# Декор лаунжа без пиксельного арта — только модель Kenney для 3D-сцены
+# (armchair и coffee_table сюда больше не входят, у них теперь есть PNG, а
+# size и footprint выше посчитаны с save()). Высота в каталоге — это высота
+# арта, которого у предмета нет; берём глубину следа, чтобы формула «след
+# прижат к нижней кромке арта» дала осмысленный результат. Второе число — не
+# высота, а глубина следа: у предмета без арта «высота картинки» и есть его
+# глубина (см. floorRect в props.ts).
 SPRITE_MODEL_ONLY.update({
-    'armchair': [1.31, 1.09],
-    'coffee_table': [1.76, 1.07],
     'lounge_rug': [4.19, 2.45],
     'potted_plant': [0.68, 0.78],
     'floor_lamp': [0.41, 0.47],
@@ -1099,7 +1206,7 @@ SPRITE_BLOCKS.update({
     'round_table',
     'fridge', 'cooler', 'counter',
     'bookshelf', 'server_rack',
-    'sofa', 'tv', 'arcade',
+    'sofa', 'loveseat', 'tv', 'arcade',
     'plant_small', 'plant_big',
 })
 
@@ -1125,7 +1232,7 @@ def build(theme):
     plant('plant_small'); plant('plant_big', big=True)
     cooler(); counter(); fridge(); kitchen_tiles(cols=8, rows=6); rug(); round_table(); bookshelf(); poster()
     neon_sign(); server_rack(); shadow(); coin()
-    game_rug(); tv(); console(); arcade(); sofa(); beanbag(); gamepad()
+    game_rug(); tv(); console(); arcade(); sofa(); loveseat(); armchair(); coffee_table(); beanbag(); gamepad()
 
 
 if __name__ == '__main__':
