@@ -18,6 +18,7 @@ import { MeetingModal } from './MeetingModal';
 import { UsageModal } from './UsageModal';
 import { OfficesModal } from './OfficesModal';
 import { MenuScreen } from './MenuScreen';
+import { AvatarStage } from './office3d/AgentAvatar';
 import { closeDiff, connect, setPaused, useStore } from './store';
 import { isOfficeSender } from '../shared/types';
 import { t } from './i18n';
@@ -118,6 +119,10 @@ export function App() {
 
   return (
     <div className={`app${paused ? ' paused' : ''}`}>
+      {/* Общая сцена-портрет для всех аватарок в приложении — см.
+          `office3d/AgentAvatar.tsx` про то, почему холст ровно один: второй
+          `View.Port` продублировал бы рисунок первого. */}
+      <AvatarStage />
       <TopHud
         onSettings={() => setModal('settings')}
         onMeeting={() => setModal('meeting')}
