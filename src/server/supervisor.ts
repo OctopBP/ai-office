@@ -34,6 +34,7 @@ import { OFFICE_SENDER } from '../shared/types';
 import { type OfficeState, type Task } from './state';
 import { pipelineProblem, runPipeline, tellPm } from './review';
 import { officeAssign, retryTask, slotProblem } from './agents';
+import { dispatch } from './plan';
 
 /** Как часто офис оглядывается на свои ветки. */
 const TICK_MS = 60_000;
@@ -140,6 +141,12 @@ export async function superviseOffice(state: OfficeState): Promise<void> {
   }
 
   await watchBoard(state, now);
+
+  // 4. План. Проход плана дублирует то, что и так делается по событиям
+  // (завершилась задача, влилась ветка, согласовали фичу), — и он здесь
+  // именно как подстраховка: событие могло не случиться из-за перезапуска
+  // сервера или упавшей сессии, а план от этого стоять не должен.
+  dispatch(state);
 }
 
 /**
@@ -167,8 +174,10 @@ async function watchBoard(state: OfficeState, now: number): Promise<void> {
     await retryTask(state, task.id);
   }
 
-  // 2. Задачи, которые завели и не раздали.
-  const queued = tasks.filter((t) => t.status === 'backlog');
+  // 2. Задачи, которые завели и не раздали. Стоящие в очереди за слотом сюда
+  // не попадают: офис уже пообещал их запустить, и напоминать о них менеджеру
+  // значит звать его чинить то, что и так едет.
+  const queued = tasks.filter((t) => t.status === 'backlog' && !state.waitingForSlot.has(t.id));
   const unseen = queued.filter((t) => !t.attention && now - t.createdAt > IDLE_BACKLOG_MS);
   if (unseen.length) {
     for (const t of unseen) state.updateTask(t.id, { attention: now });

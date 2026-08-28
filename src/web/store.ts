@@ -4,6 +4,7 @@ import type {
   MergeCheck, MergeCheckState, MergeRun, MergeStep, MergeStepStatus, PermissionDecision,
   PermissionMode, PermissionRequest, MeetingView, RoleDraft, RoleEditable, RoleOp, RoleView,
   ServerEvent, Settings, TaskView, Usage, CloudStatus, OfficeView, PullRequestView, PrStage,
+  EpicView,
 } from '../shared/types';
 import {
   emptyUsage, isOfficeSender,
@@ -114,6 +115,8 @@ interface State {
   roles: RoleView[];
   instances: Record<string, InstanceView>;
   tasks: Record<string, TaskView>;
+  /** План офиса: фичи по id. Порядок держит поле `order`, а не вставка. */
+  epics: Record<string, EpicView>;
   chat: ChatEntry[];
   log: LogEntry[];
   permissions: PermissionRequest[];
@@ -204,6 +207,12 @@ interface State {
   /** Визуальные позиции — отдельно от логики: ходьба это чистая анимация. */
   pos: Record<string, WalkPos>;
   selected: string | null;
+  /**
+   * Раскрытая карточка задачи. Держится здесь, а не в доске: открыть задачу
+   * можно и с доски, и из карточки сотрудника, а дровер у правого края один.
+   */
+  openTask: string | null;
+  openTaskCard: (taskId: string | null) => void;
   /** Активная ветка чата: 'pm#1' или id агента. */
   thread: string;
   setThread: (t: string) => void;
@@ -243,6 +252,7 @@ export const useStore = create<State>((set, get) => ({
   roles: [],
   instances: {},
   tasks: {},
+  epics: {},
   chat: [],
   log: [],
   permissions: [],
@@ -294,6 +304,7 @@ export const useStore = create<State>((set, get) => ({
   diff: null,
   pos: {},
   selected: null,
+  openTask: null,
   thread: 'pm#1',
 
   setThread: (t) => set({ thread: t }),
@@ -304,7 +315,10 @@ export const useStore = create<State>((set, get) => ({
     saveGraphics(graphics);
     return { graphics };
   }),
-  select: (id) => set({ selected: id }),
+  // Дровер в офисе один: открыли сотрудника — карточка задачи закрывается,
+  // и наоборот. Иначе две панели легли бы одна поверх другой у правого края.
+  select: (id) => set((s) => ({ selected: id, openTask: id ? null : s.openTask })),
+  openTaskCard: (taskId) => set((s) => ({ openTask: taskId, selected: taskId ? null : s.selected })),
   setConnected: (v) => set({ connected: v }),
 
   enterOffice: (officeId) => {
@@ -318,7 +332,7 @@ export const useStore = create<State>((set, get) => ({
     // дифф не «протекали» в новый: панели закрывает App при входе в pending.
     set({
       pending: 'enter', pendingLabel: office.name, menuNotice: null,
-      selected: null, thread: 'pm#1', diff: null,
+      selected: null, openTask: null, thread: 'pm#1', diff: null,
     });
     switchOffice(officeId);
   },
@@ -328,6 +342,7 @@ export const useStore = create<State>((set, get) => ({
     // UI-состояние привязано к конкретному офису: не должно протекать ни в
     // меню, ни в следующий открытый офис.
     selected: null,
+    openTask: null,
     thread: 'pm#1',
     diff: null,
     menuNotice: null,
@@ -354,6 +369,7 @@ export const useStore = create<State>((set, get) => ({
           lang: asLang(e.settings.language),
           roles: e.roles, instances, pos,
           tasks: Object.fromEntries(e.tasks.map((t) => [t.id, t])),
+          epics: Object.fromEntries(e.epics.map((f) => [f.id, f])),
           chat: e.chat, log: e.log, permissions: e.permissions, settings: e.settings,
           layouts: e.layouts, layout: e.layout, layoutOverride: e.layoutOverride,
           projectDir: e.projectDir, authSource: e.authSource, meeting: e.meeting, busy: e.busy,
@@ -371,6 +387,7 @@ export const useStore = create<State>((set, get) => ({
           // выделение, ветка чата и открытый дифф предыдущего офиса тут
           // больше не про что.
           selected: null,
+          openTask: null,
           thread: 'pm#1',
           diff: null,
           roleFeedback: null,
@@ -402,6 +419,9 @@ export const useStore = create<State>((set, get) => ({
           delete instances[e.id];
           return { instances };
         });
+        break;
+      case 'epic':
+        set((s) => ({ epics: { ...s.epics, [e.epic.id]: e.epic } }));
         break;
       case 'task': {
         const before = get().tasks[e.task.id];
@@ -990,6 +1010,28 @@ export function stopTask(taskId: string): void {
 
 export function retryTask(taskId: string): void {
   socket?.send(JSON.stringify({ c: 'retry_task', taskId }));
+}
+
+/**
+ * «Поехали» по фиче. То же самое можно сказать менеджеру словами — команда
+ * ведёт в тот же обработчик, поэтому щелчок и фраза в чате не расходятся.
+ */
+export function approveEpic(epicId: string): void {
+  socket?.send(JSON.stringify({ c: 'epic_approve', epicId }));
+}
+
+/** Снять фичу с плана. Причину офис подставит сам: щелчок её не несёт. */
+export function cancelEpic(epicId: string): void {
+  socket?.send(JSON.stringify({ c: 'epic_cancel', epicId }));
+}
+
+/**
+ * Переставить фичи. Шлём весь порядок, а не «эту вверх»: сервер не должен
+ * гадать, относительно кого её поднимают, — и два клиента, двигающие план
+ * одновременно, не соберут из двух сдвигов третий, которого никто не просил.
+ */
+export function reorderEpics(epicIds: string[]): void {
+  socket?.send(JSON.stringify({ c: 'epic_reorder', epicIds }));
 }
 
 export function callMeeting(topic: string, participants: string[]): void {

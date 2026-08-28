@@ -11,6 +11,7 @@ import {
   stateFor, unwatch, watch, watching,
 } from './office-api';
 import { assignDirect, holdMeeting, resetSessions, retryTask, sendUserMessage, setPaused, stopTask, taskDiff, talkTo } from './agents';
+import { approveEpic, cancelEpic, reorderEpics } from './plan';
 import { mergeQueue, refreshMergeChecks } from './merge';
 import { retryPipeline } from './review';
 import { startSupervisor } from './supervisor';
@@ -328,6 +329,17 @@ wss.on('connection', (ws) => {
       void taskDiff(state, cmd.taskId);
     } else if (cmd.c === 'assign_direct') {
       assignDirect(state, cmd.taskId, cmd.instanceId);
+    } else if (cmd.c === 'epic_approve') {
+      // «Поехали» щелчком — то же самое действие, что и словом в чате:
+      // отказ («такой фичи нет», «уже согласована») говорим готовым текстом.
+      const outcome = approveEpic(state, cmd.epicId);
+      if (!outcome.ok) state.addChat(OFFICE_SENDER, outcome.message);
+    } else if (cmd.c === 'epic_cancel') {
+      const outcome = cancelEpic(state, cmd.epicId, '');
+      if (!outcome.ok) state.addChat(OFFICE_SENDER, outcome.message);
+    } else if (cmd.c === 'epic_reorder') {
+      const outcome = reorderEpics(state, cmd.epicIds);
+      if (!outcome.ok) state.addChat(OFFICE_SENDER, outcome.message);
     } else if (cmd.c === 'pause') {
       setPaused(state, cmd.paused);
     } else if (cmd.c === 'cloud_token') {

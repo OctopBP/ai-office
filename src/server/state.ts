@@ -4,6 +4,7 @@ import type {
   AgentState, ChatEntry, Criterion, DayUsage, Desk, FieldError, InstanceView, LogEntry,
   PermissionDecision, AuthSource, MeetingView, PermissionMode, PermissionRequest, RoleDraft,
   RoleEditable, RoleView, ServerEvent, Settings, TaskStatus, TaskView, Usage,
+  EpicStatus, EpicView,
   CloudStatus, OfficeView, MergeCheck, MergeRun, LayoutOption,
   Layout, LayoutOverride, LayoutPropEdit,
   PullRequestView, PrStage, ReviewNote,
@@ -12,6 +13,7 @@ import { OFFICE_SENDER } from '../shared/types';
 import {
   emptyUsage, DEFAULT_OFFICE_WORKERS, MAX_OFFICE_WORKERS, MAX_ROLE_INSTANCES, MAX_TASK_MAX_TURNS,
   MIN_OFFICE_WORKERS, MIN_ROLE_INSTANCES, MIN_TASK_MAX_TURNS, ROLE_TITLE_LIMIT,
+  DEFAULT_FOCUS_EPICS, MAX_FOCUS_EPICS, MIN_FOCUS_EPICS,
 } from '../shared/types';
 import { isBlocked, isEmptyOverride, passability } from '../shared/layout';
 import { isLookId } from '../shared/looks';
@@ -62,6 +64,10 @@ export const DEFAULT_SETTINGS: Settings = {
   officePermissionMode: 'ask-risky',
   layoutId: DEFAULT_LAYOUT_ID,
   autoPipeline: true,
+  focusEpics: DEFAULT_FOCUS_EPICS,
+  // Согласие спрашиваем по умолчанию: план — это обещание потратить деньги
+  // на несколько часов работы, и начинать его молча офис не вправе.
+  planApproval: true,
 };
 
 /**
@@ -100,6 +106,18 @@ export function sanitizeWorkers(value: unknown): number | undefined {
   const n = Math.floor(value);
   if (n < MIN_OFFICE_WORKERS) return undefined;
   return Math.min(n, MAX_OFFICE_WORKERS);
+}
+
+/**
+ * Привести число одновременно ведомых фич к допустимому. Ноль из правленого
+ * руками файла означал бы план, который офис не начнёт никогда, — это не
+ * настройка, а поломка, и такое значение мы не берём.
+ */
+export function sanitizeFocus(value: unknown): number | undefined {
+  if (typeof value !== 'number' || !Number.isFinite(value)) return undefined;
+  const n = Math.floor(value);
+  if (n < MIN_FOCUS_EPICS) return undefined;
+  return Math.min(n, MAX_FOCUS_EPICS);
 }
 
 /**
@@ -299,6 +317,28 @@ export interface Instance {
   abort: AbortController | null;
 }
 
+/**
+ * Фича в плане офиса. Живёт на доске, а не в памяти менеджера: сессия PM
+ * перезапускается (сменили роли, упала, перезапустили сервер), и план,
+ * который знал только он, испарялся бы вместе с ней.
+ */
+export interface Epic {
+  id: string;
+  title: string;
+  goal: string;
+  order: number;
+  status: EpicStatus;
+  approved: boolean;
+  createdAt: number;
+  startedAt: number | null;
+  finishedAt: number | null;
+  /**
+   * Когда офис в последний раз говорил про эту фичу менеджеру. Как и у задач:
+   * иначе про фичу, ждущую согласия, напоминалось бы каждую минуту.
+   */
+  attention: number | null;
+}
+
 export interface Task {
   id: string;
   title: string;
@@ -307,6 +347,9 @@ export interface Task {
   roleId: string | null;
   assigneeId: string | null;
   status: TaskStatus;
+  epicId: string | null;
+  order: number;
+  dependsOn: string[];
   result: string | null;
   files: string[];
   branch: string | null;
@@ -351,6 +394,8 @@ const PERMISSION_TIMEOUT_MS = 10 * 60 * 1000;
 export class OfficeState {
   instances = new Map<string, Instance>();
   tasks = new Map<string, Task>();
+  /** План офиса: фичи по id. Порядок держится полем `order`, а не вставкой. */
+  epics = new Map<string, Epic>();
   chat: ChatEntry[] = [];
   log: LogEntry[] = [];
   busy = false;
@@ -461,6 +506,7 @@ export class OfficeState {
   private resumeWaiters = new Set<() => void>();
   private listeners = new Set<Listener>();
   private taskSeq = 0;
+  private epicSeq = 0;
   private permSeq = 0;
   private pending = new Map<string, Pending>();
   /** Ключи вида «roleId:Bash:rm», разрешённые пользователем до конца сессии. */
@@ -581,6 +627,8 @@ export class OfficeState {
       projectDir: this.projectDir,
       taskSeq: this.taskSeq,
       tasks: [...this.tasks.values()],
+      epics: [...this.epics.values()],
+      epicSeq: this.epicSeq,
       prs: [...this.prs.values()],
       chat: this.chat,
       log: this.log.slice(-500),
@@ -641,11 +689,20 @@ export class OfficeState {
     // офис, в котором ни одна задача больше не стартует.
     this.settings.maxConcurrentWorkers = sanitizeWorkers(this.settings.maxConcurrentWorkers)
       ?? DEFAULT_SETTINGS.maxConcurrentWorkers;
+    // И с числом ведомых фич: ноль означал бы план, который не начнётся.
+    this.settings.focusEpics = sanitizeFocus(this.settings.focusEpics) ?? DEFAULT_FOCUS_EPICS;
     // Расстановку поднимаем ДО seed: по итоговой раскладке считаются столы,
     // за которые он сажает сотрудников.
     this.layoutOverrides = sanitizeOverrides(data.layoutOverrides);
     this.seed();
     this.taskSeq = data.taskSeq;
+    // План поднимаем ДО задач: задача ссылается на фичу, и разбирать доску
+    // проще, когда фичи уже на месте. Сохранения старше плана его не знают —
+    // там план пуст, а задачи остаются задачами вне плана.
+    for (const epic of data.epics ?? []) {
+      this.epics.set(epic.id, { ...epic, attention: epic.attention ?? null });
+    }
+    this.epicSeq = data.epicSeq ?? this.epics.size;
     // Записи из версий до появления веток чата относим к разговору с менеджером.
     this.chat = (data.chat ?? []).map((c) => ({ ...c, thread: c.thread ?? 'pm#1' }));
     this.log = data.log ?? [];
@@ -766,10 +823,12 @@ export class OfficeState {
   seed(): void {
     this.instances.clear();
     this.tasks.clear();
+    this.epics.clear();
     this.prs.clear();
     this.chat = [];
     this.log = [];
     this.taskSeq = 0;
+    this.epicSeq = 0;
     for (const p of this.pending.values()) {
       clearTimeout(p.timer);
       p.resolve('deny');
@@ -1137,6 +1196,15 @@ export class OfficeState {
 
   createTask(input: {
     title: string; description: string; criteria: string[]; roleId: string | null;
+    /** Часть плана: фича, порядок внутри неё и задачи, которых она ждёт. */
+    epicId?: string | null; order?: number; dependsOn?: string[];
+    /**
+     * Статус на старте. По умолчанию `backlog` — «делать сейчас»: так задача
+     * заводилась до появления плана, и одиночные просьбы должны работать
+     * ровно так же. Плановая задача заводится в `planned` и ждёт своей
+     * очереди (см. plan.ts).
+     */
+    status?: TaskStatus;
   }): Task {
     this.taskSeq += 1;
     const task: Task = {
@@ -1146,7 +1214,10 @@ export class OfficeState {
       criteria: input.criteria.map((text) => ({ text, done: false })),
       roleId: input.roleId,
       assigneeId: null,
-      status: 'backlog',
+      status: input.status ?? 'backlog',
+      epicId: input.epicId ?? null,
+      order: input.order ?? this.taskSeq,
+      dependsOn: input.dependsOn ?? [],
       result: null,
       files: [],
       branch: null,
@@ -1167,6 +1238,64 @@ export class OfficeState {
     this.emit({ t: 'task', task: toTaskView(task) });
     this.markDirty();
     return task;
+  }
+
+  // ---------- план: фичи ----------
+
+  /**
+   * Завести фичу. Порядок задаётся явно, а не по времени заведения: менеджер
+   * может переставить план, и «раньше завели» перестало бы значить «раньше
+   * делать» — а именно порядок и есть весь смысл плана.
+   */
+  createEpic(input: { title: string; goal: string; order?: number; approved: boolean }): Epic {
+    this.epicSeq += 1;
+    const epic: Epic = {
+      id: `F-${this.epicSeq}`,
+      title: input.title,
+      goal: input.goal,
+      order: input.order ?? this.epicSeq,
+      status: 'planned',
+      approved: input.approved,
+      createdAt: Date.now(),
+      startedAt: null,
+      finishedAt: null,
+      attention: null,
+    };
+    this.epics.set(epic.id, epic);
+    this.emit({ t: 'epic', epic: toEpicView(epic) });
+    this.markDirty();
+    return epic;
+  }
+
+  updateEpic(id: string, patch: Partial<Epic>): Epic | null {
+    const epic = this.epics.get(id);
+    if (!epic) return null;
+    Object.assign(epic, patch);
+    this.emit({ t: 'epic', epic: toEpicView(epic) });
+    this.markDirty();
+    return epic;
+  }
+
+  /** Фичи в порядке плана. Один порядок на всех: и веб, и менеджер, и надзор. */
+  epicList(): Epic[] {
+    return [...this.epics.values()].sort((a, b) => a.order - b.order || a.createdAt - b.createdAt);
+  }
+
+  /** Задачи фичи в том порядке, в котором их положено раздавать. */
+  tasksOfEpic(epicId: string): Task[] {
+    return [...this.tasks.values()]
+      .filter((t) => t.epicId === epicId)
+      .sort((a, b) => a.order - b.order || a.createdAt - b.createdAt);
+  }
+
+  /** Сколько фич офис ведёт одновременно — с учётом старых сохранений. */
+  focusLimit(): number {
+    return sanitizeFocus(this.settings.focusEpics) ?? DEFAULT_FOCUS_EPICS;
+  }
+
+  /** Спрашивать ли согласие человека перед началом фичи. */
+  needsApproval(): boolean {
+    return this.settings.planApproval !== false;
   }
 
   updateTask(id: string, patch: Partial<Task>): Task | null {
@@ -1744,6 +1873,11 @@ export class OfficeState {
       if (clean === undefined) delete next.taskMaxTurns;
       else next.taskMaxTurns = clean;
     }
+    if ('focusEpics' in next) {
+      const clean = sanitizeFocus(next.focusEpics);
+      if (clean === undefined) delete next.focusEpics;
+      else next.focusEpics = clean;
+    }
     if ('maxConcurrentWorkers' in next) {
       const clean = sanitizeWorkers(next.maxConcurrentWorkers);
       if (clean === undefined) delete next.maxConcurrentWorkers;
@@ -2081,6 +2215,7 @@ export class OfficeState {
       roles: this.roleViews(),
       instances: this.instanceViews(),
       tasks: [...this.tasks.values()].map(toTaskView),
+      epics: this.epicList().map(toEpicView),
       chat: this.chat,
       log: this.log.slice(-200),
       permissions: this.pendingRequests(),
@@ -2137,10 +2272,17 @@ export const officeViews = (): OfficeView[] => {
 const hasLiveSessions = (state: OfficeState): boolean =>
   state.running > 0 || Boolean(state.pmLoop) || state.talks.size > 0 || state.meetingRunning;
 
+export const toEpicView = (e: Epic): EpicView => ({
+  id: e.id, title: e.title, goal: e.goal, order: e.order,
+  status: e.status, approved: e.approved,
+  createdAt: e.createdAt, startedAt: e.startedAt, finishedAt: e.finishedAt,
+});
+
 export const toTaskView = (t: Task): TaskView => ({
   id: t.id, title: t.title, description: t.description,
   criteria: t.criteria, roleId: t.roleId,
   assigneeId: t.assigneeId, status: t.status, result: t.result,
+  epicId: t.epicId ?? null, order: t.order ?? 0, dependsOn: t.dependsOn ?? [],
   files: t.files, branch: t.branch, baseBranch: t.baseBranch,
   worktreePath: t.worktreePath, repoDir: t.repoDir ?? null, merged: t.merged,
   interrupted: t.interrupted, createdAt: t.createdAt,
@@ -2198,9 +2340,13 @@ function migrateTask(raw: Task & {
   };
   // Сохранения до надзора этих полей не знают: отсутствие — это «не прерывалась»
   // и «менеджеру не показывали».
+  // Сохранения до плана не знают ни фичи, ни порядка, ни зависимостей.
+  // Отсутствие — это «задача вне плана»: такая раздаётся сразу, как и
+  // раздавалась, и ничьей готовности не ждёт.
   return {
     ...raw, criteria, usage, interrupted: raw.interrupted ?? false, attention: raw.attention ?? null,
     workerSessionId: raw.workerSessionId ?? null, reviewerSessionId: raw.reviewerSessionId ?? null,
+    epicId: raw.epicId ?? null, order: raw.order ?? 0, dependsOn: raw.dependsOn ?? [],
   };
 }
 

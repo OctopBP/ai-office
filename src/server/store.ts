@@ -3,7 +3,7 @@ import { dirname, resolve } from 'node:path';
 import type {
   ChatEntry, LayoutOverride, LogEntry, PermissionMode, PullRequestView, Settings, Usage,
 } from '../shared/types';
-import type { Task } from './state';
+import type { Epic, Task } from './state';
 import type { Role } from './roles';
 import { c } from './i18n';
 
@@ -37,6 +37,13 @@ export interface Persisted {
   projectDir: string;
   taskSeq: number;
   tasks: Task[];
+  /**
+   * План офиса: фичи и их порядок. Поля нет в сохранениях, сделанных до
+   * появления плана, — такой офис поднимается с пустым планом, а его задачи
+   * остаются задачами вне плана и раздаются как раньше.
+   */
+  epics?: Epic[];
+  epicSeq?: number;
   /** Пулл-реквесты конвейера ревью. В сохранениях до конвейера их нет. */
   prs?: PullRequestView[];
   chat: ChatEntry[];

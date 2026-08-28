@@ -16,6 +16,10 @@ import type { Role } from './roles';
 import { autoApprovedText, classify, decide, effectiveMode } from './permissions';
 import { commitAll, createWorktree, diffBranch, hasCommits, hasWork, isRepo, preserveBranch, removeWorktree } from './git';
 import {
+  approveEpic, cancelEpic, createPlan, dispatch, planSummary, reorderEpics, setPlanAgents,
+  type PlannedEpic,
+} from './plan';
+import {
   prDiff, retryPipeline, runPipeline, setPipelineAgents, MAX_ROUNDS,
   type ReviewOutcome, type ReworkOutcome,
 } from './review';
@@ -93,7 +97,17 @@ export function releaseSlot(state: OfficeState): void {
   if (state.running === 0) state.setBusy(false);
   // Освободившийся слот отдаём ждущим не в этом же тике: сессия ещё
   // доигрывает свой finally, и стартовать поверх неё рано.
-  setTimeout(startWaiting, 0);
+  setTimeout(() => {
+    // Порядок важен: сначала те, кто уже стоял в очереди за слотом, и только
+    // потом созревшие задачи плана. Иначе свежая задача обгоняла бы ту,
+    // которую офис пообещал запустить раньше.
+    startWaiting();
+    // Исполнитель освободился — самое время посмотреть, не созрело ли
+    // следующее звено плана. Именно так «бэкенд закрыл свои задачи по фиче»
+    // превращается в «бэкенд взял задачу из следующей»: никто никого не
+    // переключает, просто в ранней фиче для его роли работы больше нет.
+    dispatch(state);
+  }, 0);
 }
 
 /**
@@ -437,9 +451,13 @@ const stageText = (stage: PrStage, lang: Lang): string => t(lang, `pr.stage.${st
 
 function boardSummary(state: OfficeState): string {
   const tasks = [...state.tasks.values()];
-  if (!tasks.length) return state.say('prompt.board.empty');
+  const plan = planSummary(state);
+  if (!tasks.length) return plan || state.say('prompt.board.empty');
   const lang = state.lang();
-  return tasks.map((task) => {
+  // План идёт первым: он объясняет, почему часть задач стоит, — без него
+  // доска выглядит как список, где половина работ непонятно чего ждёт.
+  const head = plan ? `${plan}\n\n` : '';
+  return head + tasks.map((task) => {
     const { done, total } = criteriaProgress(task);
     const marks = task.criteria.map((c) => `${c.done ? '✓' : '·'} ${c.text}`).join('; ');
     const pr = state.prOf(task.id);
@@ -526,6 +544,9 @@ const teamTools = (state: OfficeState) => createSdkMcpServer({
         roleId: z.string().describe(state.say('tool.createTask.role', {
           roles: state.workerRoles().map((r) => `${r.id} (${r.title})`).join(', '),
         })),
+        featureId: z.string().default('').describe(state.say('tool.createTask.feature')),
+        dependsOn: z.array(z.string()).default([])
+          .describe(state.say('tool.createTask.dependsOn')),
       },
       async (args) => {
         // Список ролей не дублируем в схеме: перечисление в enum уже один раз
@@ -552,11 +573,36 @@ const teamTools = (state: OfficeState) => createSdkMcpServer({
             isError: true,
           };
         }
+        const epicId = args.featureId?.trim() || null;
+        if (epicId && !state.epics.get(epicId)) {
+          return {
+            content: [{ type: 'text', text: state.say('plan.err.noEpic', { epic: epicId }) }],
+            isError: true,
+          };
+        }
+        const deps = (args.dependsOn ?? []).map((d) => d.trim()).filter(Boolean);
+        const unknown = deps.filter((d) => !state.tasks.has(d));
+        if (unknown.length) {
+          return {
+            content: [{
+              type: 'text',
+              text: state.say('tool.createTask.badDep', { deps: unknown.join(', ') }),
+            }],
+            isError: true,
+          };
+        }
+        // Задача в фиче или с зависимостями — плановая: её раздаст офис, когда
+        // придёт её черёд. Одиночная задача, как и раньше, сразу в очередь на
+        // раздачу — иначе простая просьба перестала бы работать без плана.
         const task = state.createTask({
           title: args.title,
           description: args.description,
           criteria,
           roleId: args.roleId,
+          epicId,
+          dependsOn: deps,
+          status: epicId || deps.length ? 'planned' : 'backlog',
+          order: epicId ? state.tasksOfEpic(epicId).length + 1 : undefined,
         });
         // Предупреждаем сразу: иначе менеджер узнает о пустой роли только из
         // отказа assign_task и успеет пообещать пользователю работу.
@@ -566,7 +612,11 @@ const teamTools = (state: OfficeState) => createSdkMcpServer({
         const ok = state.say('tool.createTask.ok', {
           task: task.id, title: task.title, role: args.roleId, n: criteria.length,
         });
-        return { content: [{ type: 'text', text: `${ok}${empty}` }] };
+        // Плановую задачу офис раздаст сам — про это надо сказать прямо,
+        // иначе менеджер вызовет на неё assign_task и запустит раньше срока.
+        const planned = task.status === 'planned' ? state.say('tool.createTask.planned') : '';
+        if (task.status === 'planned') dispatch(state);
+        return { content: [{ type: 'text', text: `${ok}${empty}${planned}` }] };
       },
     ),
 
@@ -739,6 +789,66 @@ const teamTools = (state: OfficeState) => createSdkMcpServer({
         return {
           content: [{ type: 'text', text: state.say('tool.retryReview.ok', { task: args.taskId }) }],
         };
+      },
+    ),
+
+    tool(
+      'plan_features',
+      state.say('tool.planFeatures.desc'),
+      {
+        features: z.array(z.object({
+          title: z.string().describe(state.say('tool.planFeatures.title')),
+          goal: z.string().describe(state.say('tool.planFeatures.goal')),
+          tasks: z.array(z.object({
+            key: z.string().describe(state.say('tool.planFeatures.key')),
+            title: z.string().describe(state.say('tool.createTask.title')),
+            description: z.string().describe(state.say('tool.createTask.description')),
+            acceptanceCriteria: z.array(z.string())
+              .describe(state.say('tool.createTask.criteria')),
+            roleId: z.string().describe(state.say('tool.planFeatures.role', {
+              roles: state.workerRoles().map((r) => `${r.id} (${r.title})`).join(', '),
+            })),
+            dependsOn: z.array(z.string()).default([])
+              .describe(state.say('tool.planFeatures.dependsOn')),
+          })).describe(state.say('tool.planFeatures.tasks')),
+        })).describe(state.say('tool.planFeatures.features')),
+      },
+      async (args) => {
+        const outcome = createPlan(state, args.features as PlannedEpic[]);
+        return { content: [{ type: 'text', text: outcome.message }], isError: !outcome.ok };
+      },
+    ),
+
+    tool(
+      'start_feature',
+      state.say('tool.startFeature.desc'),
+      { featureId: z.string().describe(state.say('tool.startFeature.epicId')) },
+      async (args) => {
+        const outcome = approveEpic(state, args.featureId);
+        return { content: [{ type: 'text', text: outcome.message }], isError: !outcome.ok };
+      },
+    ),
+
+    tool(
+      'cancel_feature',
+      state.say('tool.cancelFeature.desc'),
+      {
+        featureId: z.string().describe(state.say('tool.cancelFeature.epicId')),
+        reason: z.string().default('').describe(state.say('tool.cancelFeature.reason')),
+      },
+      async (args) => {
+        const outcome = cancelEpic(state, args.featureId, args.reason ?? '');
+        return { content: [{ type: 'text', text: outcome.message }], isError: !outcome.ok };
+      },
+    ),
+
+    tool(
+      'reorder_features',
+      state.say('tool.reorderFeatures.desc'),
+      { featureIds: z.array(z.string()).describe(state.say('tool.reorderFeatures.ids')) },
+      async (args) => {
+        const outcome = reorderEpics(state, args.featureIds);
+        return { content: [{ type: 'text', text: outcome.message }], isError: !outcome.ok };
       },
     ),
 
@@ -2269,3 +2379,4 @@ async function reviewPr(
 // Конвейер знает про офис только через эти три действия — сессии агентов
 // живут здесь, а он остаётся про порядок шагов.
 setPipelineAgents({ review: reviewPr, rework: reworkTask, notifyPm });
+setPlanAgents({ assign: officeAssign, notifyPm });

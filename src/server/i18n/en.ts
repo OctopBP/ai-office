@@ -187,6 +187,17 @@ export const en = {
   'sup.giveUpPm': '[SYSTEM] Task {task} “{title}” never made it into {base}. The office tried to carry it through {n} times, the reason it last stopped:\n{note}\nFrom here it is your call, and you act on it yourself: set a fixing task and assign it, reword this one, or give it to another role. Bother the user only if you need something nobody in the office can do (hire somebody, raise the budget) — and then say in one sentence what exactly you need from them.',
   'sup.crashed': 'The pipeline watchdog stumbled: {error}',
 
+  // -------------------------------------------------------------------- plan
+  'plan.chat.epicActive': '▶️ Started feature {epic} "{title}".',
+  'plan.log.epicActive': '{epic} "{title}": feature is now in progress',
+  'plan.log.released': '{task} "{title}" is ready to be picked up ({epic})',
+  'plan.chat.epicDone': '✅ Feature {epic} "{title}" is done: every task is on the main branch. Spent ${spent}.',
+  'plan.chat.waiting': '⏸ Feature {epic} "{title}" is next in the plan — the office is waiting for your go-ahead.',
+  'plan.chat.approved': '👍 Feature {epic} "{title}" approved.',
+  'plan.chat.cancelled': 'Feature {epic} "{title}" dropped from the plan: {reason}',
+  'plan.noReason': 'no reason given',
+  'plan.noEpic': 'no feature',
+
   // ------------------------------------------------------------------ офисы
   'offices.saveFailed': '⚠️  Could not save the office list: {error}',
   'offices.listBroken': '⚠️  The office list cannot be read ({error}), starting afresh',

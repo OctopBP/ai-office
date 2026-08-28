@@ -7,6 +7,7 @@ import { OFFICE_SENDER } from '../shared/types';
 import type { Lang } from '../shared/i18n';
 import { t } from './i18n';
 import { taskRepo, worktreesRoot, type OfficeState, type Task } from './state';
+import { dispatch } from './plan';
 import { checkMergeable, mergeBranch, removeWorktree } from './git';
 
 const run = promisify(execFile);
@@ -275,6 +276,10 @@ export async function mergeQueue(taskIds: string[], state: OfficeState): Promise
       // Слияние прошло (или сливать было нечего) — worktree задаче больше не нужен.
       if (task.worktreePath) await removeWorktree(repo, task.worktreePath, branch);
       state.updateTask(task.id, { merged: true, worktreePath: null });
+      // Ветка в основной — значит, зависимые задачи плана могли созреть,
+      // а фича закрыться. Слияние руками должно двигать план так же, как
+      // это делает конвейер: иначе план стоял бы ровно у тех, кто сливает сам.
+      dispatch(state);
 
       if (outcome.kind === 'nothing') {
         finishStep(state, runState, step, 'nothing',

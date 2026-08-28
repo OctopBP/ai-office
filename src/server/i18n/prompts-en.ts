@@ -125,12 +125,33 @@ Refuse only if the task is beyond everyone on the team.
 
 The working cycle for every user request:
 1. list_team — see who is on the team and who is free right now.
-2. Split the work into tasks: one task = one worker = one tangible result.
-   Call create_task for each of them.
-3. Call assign_task for every task you created. It returns IMMEDIATELY, the worker runs in
-   the background. Hand out all independent tasks one after another, do NOT wait for the
-   first result — that is how the team works in parallel.
-4. Briefly (2–3 sentences) tell the user what you handed out.
+2. Size it up. One or two tasks of work — do it right away: create_task for each, then
+   assign_task. It returns IMMEDIATELY, the worker runs in the background; hand out all
+   independent tasks one after another, do NOT wait for the first result.
+   Several features, or one big one — make a PLAN first (see below), and then assign_task
+   is not needed at all.
+3. Briefly (2–3 sentences) tell the user what you did.
+
+Planning features. Three features are not twelve tasks dumped on the board at once.
+Dumped all at once, the office grabs everything: branches diverge, money burns, and nothing
+gets finished. So big work you plan, you do not hand out.
+- plan_features — ONE call for the whole plan: features in order, each with a goal and 2–5
+  tasks, tasks with their order and dependencies. Put first the feature the others build on.
+- The office hands out planned tasks ITSELF as they become ready. Do NOT call assign_task for
+  them: it would start a task before the thing it stands on is ready.
+- A worker who becomes free picks up the next ready task on their own — including one from the
+  next feature, if the current one has nothing left for their role. Nobody needs switching.
+- dependsOn is not decoration. Workers sit in their own branches and CANNOT see unmerged work:
+  a UI task written against an API that is not merged yet will honestly find nothing.
+  If B builds on A's result, say so in the plan.
+- The office runs a limited number of features at a time, the rest wait their turn. That is by
+  design, not a jam: do not work around it by filing the same tasks outside the plan.
+- If it waits for approval — show the user the plan briefly (features, order, why this order)
+  and wait. They say go — call start_feature. Silence is not approval.
+- A closed feature arrives as a system message: tell the user what they can now look at and
+  check, and ask about the next one if it is waiting for approval.
+- Plans change: reorder_features changes the order, cancel_feature drops what is no longer
+  needed, create_task with featureId adds a forgotten task to an existing feature.
 
 When a system message about a finished task arrives — judge the result.
 All good → tell the user what is done and that the task went to review.
@@ -214,6 +235,10 @@ Reply to the user in {lang}, and keep it short.`,
   'tool.createTask.badRole': 'Unknown role “{role}”. Available: {valid}. Look at list_team, it says who does what.',
   'tool.createTask.noCriteria': 'At least one checkable acceptance criterion is needed — without it the worker has nothing to tick off and the user has nothing to check.',
   'tool.createTask.roleEmpty': '. Careful: role {role} has no staff right now, so there will be nobody to assign the task to until the user hires somebody for that role',
+  'tool.createTask.feature': 'Feature id from the plan, e.g. F-2 — if the task belongs to a feature that already exists. Empty — the task is outside the plan and the office hands it out right away.',
+  'tool.createTask.dependsOn': 'Ids of tasks whose result must be on the main branch before this one starts (e.g. ["T-4"]). Empty — it can start right away.',
+  'tool.createTask.badDep': 'No such tasks on the board: {deps}. Refer to the id of an existing task.',
+  'tool.createTask.planned': '. The task is placed in the plan: the office will hand it out itself when its turn comes — do not call assign_task for it.',
   'tool.createTask.ok': 'Created task {task}: {title} (role {role}), {n} criterion|Created task {task}: {title} (role {role}), {n} criteria',
 
   'tool.assignTask.desc': 'Assign a task to a worker and start the work. RETURNS IMMEDIATELY — the worker runs in the background and the result comes to you as a separate system message. Call it one after another for all independent tasks so that the team works in parallel.',
@@ -241,7 +266,57 @@ Reply to the user in {lang}, and keep it short.`,
   'tool.retryReview.notStuck': '{task}: the pipeline is not stuck — right now it is {stage}. Just wait.',
   'tool.retryReview.ok': '{task}: the pipeline has been started again. The result will come as a system message.',
 
-  'tool.getBoard.desc': 'The current state of the task board with statuses and results.',
+  'tool.getBoard.desc': 'The current state of the task board with statuses and results — and the plan, if there is one: features in order and what each task is waiting for.',
+
+  // ------------------------------------------------------------------- plan
+  'plan.header': 'PLAN (the office runs at most {focus} features at a time):',
+  'plan.progress': '{done} of {total} done, ${spent} spent',
+  'plan.waitsFor': '— waits for {deps}',
+  'plan.needsOk': '(WAITING FOR THE USER TO APPROVE)',
+  'plan.status.planned': 'planned',
+  'plan.status.active': 'in progress',
+  'plan.status.done': 'done',
+  'plan.status.cancelled': 'dropped',
+
+  'plan.pm.epicDone': '[SYSTEM] Feature {epic} "{title}" is closed: all of its tasks are on the main branch. The goal was: {goal}. Tasks: {tasks}. Spent ${spent}.\nTell the user what they can now look at and check — this is their increment, and only they can verify it. {next}',
+  'plan.pm.nextAuto': 'The next feature {epic} "{title}" is already approved — the office has started it on its own, nothing to assign.',
+  'plan.pm.nextWaits': 'The next feature {epic} "{title}" is waiting for the user to approve it: ask whether to start, and call start_feature once they say yes. Do not decide for them.',
+  'plan.pm.nextNone': 'There are no more features in the plan — ask the user what is next.',
+  'plan.pm.waiting': '[SYSTEM] There is no work left in the office: the plan has reached feature {epic} "{title}" ({tasks} tasks) and it is waiting for the user to approve it. The goal: {goal}. Show it to the user briefly and ask whether to start. If they say yes — call start_feature. Until they answer, the office stands still: that is by design, not a breakage.',
+  'plan.pm.blocked': '[SYSTEM] Task {task} "{title}" will never start: it waits for {deps}, and those have failed. They will not fix themselves — decide yourself: file a fix task, reword the failed one, or drop the dependency by planning the work again.',
+
+  'plan.err.empty': 'The plan has no features — there is nothing to plan.',
+  'plan.err.noTitle': 'A feature has no title: the user has to recognise it in the plan.',
+  'plan.err.noTasks': 'Feature "{title}" has no tasks. A feature without tasks is an intention, not a plan: break it into 2–5 tasks.',
+  'plan.err.noKey': 'Task "{title}" has no key. The key is what neighbouring tasks refer to in dependsOn.',
+  'plan.err.dupKey': 'The key "{key}" is used twice. Keys must be unique across the plan — otherwise it is unclear which task a dependency points at.',
+  'plan.err.badRole': 'Unknown role "{role}". Available: {valid}.',
+  'plan.err.noCriteria': 'Task "{title}" has no acceptance criteria — the worker has nothing to tick off and the user has nothing to check.',
+  'plan.err.noDep': 'Task "{key}" depends on "{dep}", which is neither in this plan nor on the board. Refer either to a task key from this plan or to an existing task id (T-5).',
+  'plan.err.cycle': 'The dependencies form a loop: {chain}. Such tasks will never start — break the loop.',
+  'plan.err.noEpic': 'There is no feature {epic} in the plan.',
+  'plan.err.epicClosed': 'Feature {epic} is already closed or dropped — there is nothing to start.',
+  'plan.err.epicDone': 'Feature {epic} is already done: there is nothing to drop.',
+  'plan.err.already': 'Feature {epic} is already approved — the office is running it.',
+  'plan.ok.started': 'Feature {epic} "{title}" is now in progress: the office is handing out its tasks. Do not call assign_task for them.',
+  'plan.ok.queued': 'Feature {epic} "{title}" is approved and queued: the office runs at most {focus} features at a time and will start it as soon as a place frees up.',
+  'plan.ok.cancelled': 'Feature {epic} "{title}" is dropped from the plan. The office will not hand out its unstarted tasks any more.',
+
+  'tool.planFeatures.desc': 'Create a PLAN: several features, each with its own tasks, order and dependencies. The office hands out planned tasks ITSELF as they become ready — do NOT call assign_task for them. Use this when the work is more than one or two tasks: the user described several features, or one big one. The whole plan is created in a SINGLE call.',
+  'tool.planFeatures.features': 'Features in order: put first the one needed earlier or the one the others build on.',
+  'tool.planFeatures.title': 'Feature title, up to 60 characters: the user must recognise what they asked for.',
+  'tool.planFeatures.goal': 'Why this feature exists — one sentence for the user, not a retelling of the tasks.',
+  'tool.planFeatures.tasks': 'Tasks of the feature, 2–5 of them, in the order they should be done.',
+  'tool.planFeatures.key': 'A short key for the task within the plan (e.g. "api" or "ui"): neighbouring tasks refer to it in dependsOn. Keys are unique across the plan.',
+  'tool.planFeatures.dependsOn': 'Keys of tasks in this plan (or ids of existing tasks) whose result must be on the main branch BEFORE this one starts. This is how the frontend avoids starting on an API that is not there yet: workers sit in their own branches and cannot see unmerged work. Empty — the task can start right away.',
+  'tool.planFeatures.role': 'Worker role id, strictly one of: {roles}.',
+  'tool.startFeature.desc': 'Start a feature after the user agrees ("go ahead", "yes", "start"). Only after their words: do not decide for them.',
+  'tool.startFeature.epicId': 'Feature id from the plan, e.g. F-2',
+  'tool.cancelFeature.desc': 'Drop a feature from the plan: the office will no longer hand out its unstarted tasks. For a feature that is no longer needed or that the user cancelled.',
+  'tool.cancelFeature.epicId': 'Feature id, e.g. F-3',
+  'tool.cancelFeature.reason': 'Why it is dropped — one sentence, the user will see it.',
+  'tool.reorderFeatures.desc': 'Reorder the features in the plan. List the ids in the new order — the ones you do not mention follow, keeping their relative order.',
+  'tool.reorderFeatures.ids': 'Feature ids in the new order, e.g. ["F-2","F-1"]',
   'tool.say.pm.desc': 'Say a short line that will appear as a bubble above your head in the office. Use it so the user can see what you are up to.',
   'tool.say.limit': 'Up to 70 characters',
   'tool.ok': 'ok',

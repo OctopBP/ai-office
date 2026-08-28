@@ -11,6 +11,7 @@ import { MergeQueue } from './MergeQueue';
 import { PrPipeline } from './PrPipeline';
 import { TeamWindow } from './TeamWindow';
 import { AgentDrawer } from './AgentDrawer';
+import { TaskDrawer } from './TaskDrawer';
 import { PermissionModal } from './PermissionModal';
 import { DiffPanel } from './DiffPanel';
 import { SettingsModal } from './SettingsModal';
@@ -35,6 +36,8 @@ export function App() {
   const select = useStore((s) => s.select);
   const paused = useStore((s) => s.paused);
   const diff = useStore((s) => s.diff);
+  const openTask = useStore((s) => s.openTask);
+  const openTaskCard = useStore((s) => s.openTaskCard);
   const leaveOffice = useStore((s) => s.leaveOffice);
   const pending = useStore((s) => s.pending);
   const settingsSection = useStore((s) => s.settingsSection);
@@ -80,8 +83,12 @@ export function App() {
       const tag = (e.target as HTMLElement)?.tagName;
       if (tag === 'INPUT' || tag === 'TEXTAREA') return;
       if (e.key === 'Escape') {
-        // Сначала закрываем всё открытое поверх комнаты, и только если
-        // закрывать было нечего — уходим в меню.
+        // Раскрытая карточка закрывается первой и одна: она лежит поверх
+        // доски, и уносить обе разом значило бы терять место, где стоял
+        // взгляд, ради закрытия одной панели.
+        if (openTask) { openTaskCard(null); return; }
+        // Дальше — всё открытое поверх комнаты, и только если закрывать
+        // было нечего, уходим в меню.
         if (panel || modal || diff || selected) {
           setPanel(null); setModal(null); closeDiff(); select(null);
         } else {
@@ -111,7 +118,8 @@ export function App() {
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [instances, selected, select, paused, panel, modal, diff, leaveOffice, render3d, setRender3d]);
+  }, [instances, selected, select, paused, panel, modal, diff, leaveOffice, render3d, setRender3d,
+    openTask, openTaskCard]);
 
   // До выбора офиса в меню комната вообще не монтируется — это отдельный
   // экран приложения, а не оверлей поверх неё.
@@ -135,7 +143,10 @@ export function App() {
         {render3d
           ? <Office3D onOpen={setPanel} onDoor={() => setModal('offices')} />
           : <Office onOpen={setPanel} onDoor={() => setModal('offices')} />}
-        <Toasts onOpenTask={() => setPanel('board')} />
+        {/* «Открыть задачу» в тосте теперь и правда открывает задачу: доску
+            и поверх неё её карточку. Раньше кнопка знала номер задачи, но
+            открывала только доску — искать на ней ту самую приходилось глазами. */}
+        <Toasts onOpenTask={(id) => { setPanel('board'); openTaskCard(id); }} />
       </div>
       <BottomBar />
 
@@ -202,6 +213,7 @@ export function App() {
 
       <DiffPanel />
       <AgentDrawer />
+      <TaskDrawer />
       <PermissionModal />
       {modal === 'settings' && <SettingsModal onClose={() => setModal(null)} />}
       {modal === 'meeting' && <MeetingModal onClose={() => setModal(null)} />}

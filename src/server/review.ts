@@ -27,6 +27,7 @@ import { t } from './i18n';
 import {
   taskRepo, criteriaProgress, worktreesRoot, type OfficeState, type Task,
 } from './state';
+import { dispatch } from './plan';
 import {
   abortMerge, commitAll, deleteRemoteBranch, diffBranch, ensureWorktree, fastForward,
   fetchRemote, isDirty, isRepo, mergeBaseInto, mergeBranch, mergeInProgress, pushBranch,
@@ -496,6 +497,10 @@ async function mergeStep(
   state.addChat(OFFICE_SENDER, state.say('pipe.mergedFinal', { task: task.id, base }));
   agents.notifyPm(state,
     state.say('pipe.pmMerged', { task: task.id, title: task.title, base }));
+  // Влитая ветка — единственное событие, после которого зависимая задача
+  // становится готовой, а фича — закрытой. Ждать прохода надзора здесь нельзя:
+  // минута простоя на каждом звене складывается в час на большом плане.
+  dispatch(state);
   return true;
 }
 

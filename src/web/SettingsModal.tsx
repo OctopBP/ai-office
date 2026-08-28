@@ -3,7 +3,10 @@ import {
   accessModes, clearSettingsSection, fullAccessWarning, parseMaxWorkers, parseTaskMaxTurns,
   setCloudToken, updateSettings, useStore,
 } from './store';
-import { DEFAULT_OFFICE_WORKERS, DEFAULT_PROCESS_WORKERS, type PermissionMode } from '../shared/types';
+import {
+  DEFAULT_FOCUS_EPICS, DEFAULT_OFFICE_WORKERS, DEFAULT_PROCESS_WORKERS,
+  MAX_FOCUS_EPICS, MIN_FOCUS_EPICS, type PermissionMode,
+} from '../shared/types';
 import { LANGS, LANG_TITLE, type Lang } from '../shared/i18n';
 import { DEFAULT_GRAPHICS, GRAPHICS_RANGE, type Graphics } from './office3d/graphics';
 import { t, type UiKey } from './i18n';
@@ -88,6 +91,8 @@ export function SettingsModal({ onClose }: { onClose: () => void }) {
   const [gfx, setGfx] = useState<Graphics>(graphics);
   const patchGfx = (patch: Partial<Graphics>) => setGfx((g) => ({ ...g, ...patch }));
   const [autoPipeline, setAutoPipeline] = useState(settings.autoPipeline);
+  const [focusEpics, setFocusEpics] = useState(settings.focusEpics ?? DEFAULT_FOCUS_EPICS);
+  const [planApproval, setPlanApproval] = useState(settings.planApproval !== false);
   const [confirmAuto, setConfirmAuto] = useState(false);
   const maxTurnsParsed = parseTaskMaxTurns(maxTurns);
   const maxWorkersParsed = parseMaxWorkers(maxWorkers);
@@ -118,6 +123,8 @@ export function SettingsModal({ onClose }: { onClose: () => void }) {
       officePermissionMode: access,
       layoutId,
       autoPipeline,
+      focusEpics,
+      planApproval,
       language,
     });
     setGraphics(gfx);
@@ -243,6 +250,29 @@ export function SettingsModal({ onClose }: { onClose: () => void }) {
                   </button>
                 </div>
                 <p className="hint muted">{t('settings.pipeline.note')}</p>
+
+                <h4>{t('settings.plan.title')}</h4>
+                <div className="engine">
+                  <button className={planApproval ? 'on' : ''} onClick={() => setPlanApproval(true)}>
+                    <span><Icon name="hand-stop" size={18} /> {t('settings.plan.approval')}</span>
+                    <span className="muted small">{t('settings.plan.approval.hint')}</span>
+                  </button>
+                  <button className={planApproval ? '' : 'on'} onClick={() => setPlanApproval(false)}>
+                    <span><Icon name="repeat" size={18} /> {t('settings.plan.auto')}</span>
+                    <span className="muted small">{t('settings.plan.auto.hint')}</span>
+                  </button>
+                </div>
+                <Slider
+                  label={t('settings.plan.focus')}
+                  hint={t('settings.plan.focus.hint', {
+                    min: MIN_FOCUS_EPICS, max: MAX_FOCUS_EPICS,
+                  })}
+                  value={focusEpics}
+                  range={{ min: MIN_FOCUS_EPICS, max: MAX_FOCUS_EPICS, step: 1 }}
+                  disabled={false}
+                  onChange={setFocusEpics}
+                />
+                <p className="hint muted">{t('settings.plan.note')}</p>
 
                 <label>{t('settings.token')} {cloud.hasToken && (
                   <span className="chip done">{t('settings.token.set')}</span>
