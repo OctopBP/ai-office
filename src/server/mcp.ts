@@ -41,6 +41,28 @@ export const EXTERNAL_MCP: Record<string, McpServerConfig> = {
     // «никакого Figma мне не видно».
     alwaysLoad: true,
   },
+  /**
+   * Blender через аддон Blender MCP: сервер поднимается `uvx blender-mcp`, а
+   * на другом конце — аддон, который слушает сокет внутри ЗАПУЩЕННОГО Blender
+   * с окнами. Отсюда две оговорки, обе жёсткие.
+   *
+   * Первая: без установленного аддона и без открытого Blender инструменты
+   * отвечают отказом. Это не поломка офиса — роль обязана в таком случае
+   * работать фоновым скриптом, как работала до моста (см. её бриф).
+   *
+   * Вторая: мост живёт в GUI, а результат роли — файлы в репозитории. Поэтому
+   * мост здесь для разведки: посмотреть сцену, померить, проверить глазами.
+   * Итог всё равно оформляется скриптом в tools/blender/ — иначе следующий
+   * фоновый прогон сотрёт слепленное руками, ровно как у спрайтов.
+   */
+  blender: {
+    type: 'stdio',
+    command: 'uvx',
+    args: ['blender-mcp'],
+    // Инструментов у сервера немного, и держать их в промпте с первого хода
+    // дешевле, чем отдельный ход на поиск инструмента.
+    alwaysLoad: true,
+  },
 };
 
 /**
@@ -49,7 +71,11 @@ export const EXTERNAL_MCP: Record<string, McpServerConfig> = {
  * до появления этого файла, иначе остался бы без Figma навсегда.
  */
 const BY_ROLE: Record<string, string[]> = {
+  // Макет рисует дизайнер, но читает его и фронтенд: один сервер, два
+  // подписчика, и второму не нужен ни свой конфиг, ни свой доступ.
   design: ['figma-bridge'],
+  frontend: ['figma-bridge'],
+  artist3d: ['blender'],
 };
 
 /**
@@ -75,9 +101,12 @@ export const externalMcp = (role: Role): Record<string, McpServerConfig> =>
  * просто подключается молча.
  */
 export function mcpBrief(role: Role, lang: Lang): string {
+  // Ключ роли сильнее общего: один и тот же Figma дизайнеру и фронтенду нужен
+  // для разного — первый макет делает, второй по нему верстает, и «делай
+  // макет в Figma» фронтенду не инструкция, а приглашение заняться не своим.
   const notes = namesFor(role)
-    .map((name) => `mcp.${name}.brief`)
-    .filter(hasKey)
+    .map((name) => [`mcp.${name}.brief.${role.id}`, `mcp.${name}.brief`].find(hasKey))
+    .filter((key): key is Exclude<typeof key, undefined> => key !== undefined)
     .map((key) => t(lang, key));
   return notes.length ? `\n\n${notes.join('\n\n')}` : '';
 }

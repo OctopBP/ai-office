@@ -454,6 +454,30 @@ Reply to the user in {lang}, and keep it short.`,
     'fixed by opening the plugin in Figma, and a description is not a substitute for a layout.',
   ].join('\n'),
 
+  'mcp.figma-bridge.brief.frontend': [
+    'Figma designs are available to you directly through `mcp__figma-bridge__*`: start with',
+    '`list_files`, then `get_document`, `get_node`, `get_variable_defs` and `get_screenshot`',
+    'for the file you need.',
+    'So do not invent spacing, colours and sizes, and do not ask the designer for them in words:',
+    'take them from the design. Figma variables are theme tokens — treat them as such in code.',
+    'Changing the design is not your job: the designer edits Figma. If the design and the task',
+    'disagree, say so in your report.',
+    'If the tools answer that there is no connection, write that down. It is fixed by opening',
+    'the Figma MCP Bridge plugin in the file.',
+  ].join('\n'),
+
+  'mcp.blender.brief': [
+    'A live Blender is available to you directly through `mcp__blender__*`: look at the scene,',
+    'find an object, measure it, grab a frame.',
+    'That is reconnaissance, not a way to deliver. The result is still code: a script in',
+    'tools/blender/ and the files it builds. Anything shaped by hand in the open window will be',
+    'overwritten by the next background run — exactly like images placed past the sprite generator.',
+    'So the order is: look through the bridge → see what does not add up → fix the script →',
+    'run it in the background → check the result.',
+    'If the tools answer that there is no connection, Blender simply is not open with the addon.',
+    'That is no reason to stop: all the work is done by the background run, without the bridge.',
+  ].join('\n'),
+
   // ------------------------------------------------------- ход и итог задачи
   'agent.task.noReport': 'The task finished without a report.',
   'agent.task.stopped': '⏹ Stopped by you.',
