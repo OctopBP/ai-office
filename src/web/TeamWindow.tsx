@@ -3,7 +3,7 @@ import { clearTeamRequest, fire, hire, useStore } from './store';
 import { RoleEditor } from './RoleEditor';
 import { EmployeeCard } from './EmployeeCard';
 import { useActionNotice } from './useActionNotice';
-import { AgentAvatar, AvatarStage } from './office3d/AgentAvatar';
+import { AgentAvatar } from './office3d/AgentAvatar';
 import { catalog } from './layoutData';
 import { desks } from '../shared/layout';
 import { t } from './i18n';
@@ -52,9 +52,6 @@ export function TeamWindow({ onClose }: { onClose: () => void }) {
   return (
     <div className="modal-backdrop" onClick={onClose}>
       <div className="team-window" onClick={(e) => e.stopPropagation()}>
-        {/* Общая сцена-портрет для всех аватарок ниже — см. `AgentAvatar.tsx`
-            про то, почему она одна на всё окно, а не по холсту на строку. */}
-        <AvatarStage />
         <header className="team-window-head">
           <h2>{t('hud.team')}</h2>
           <button className="sq" onClick={onClose} title={t('panel.close')}>✕</button>
@@ -135,6 +132,9 @@ export function TeamWindow({ onClose }: { onClose: () => void }) {
                               key={m.id} className={`team-member-row ${memberSelected ? 'selected' : ''}`}
                               onClick={() => setSelection({ kind: 'employee', id: m.id })}
                             >
+                              <AgentAvatar
+                                roleId={r.id} instanceId={m.id} look={r.sprite} className="team-member-avatar"
+                              />
                               <span className="mono muted">{m.id}</span>
                               <span className="muted small">{stateLabel(m.state)}</span>
                               {m.deskless && (

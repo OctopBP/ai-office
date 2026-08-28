@@ -6,7 +6,7 @@ import {
 } from './store';
 import { locale, t, t as tr } from './i18n';
 import { useActionNotice } from './useActionNotice';
-import { agentSpriteName, spriteOf } from './sprites';
+import { AgentAvatar } from './office3d/AgentAvatar';
 import { usageLine } from './UsageModal';
 import { Icon, type IconName } from './icons';
 import type { Criterion, PermissionMode, TaskView } from '../shared/types';
@@ -59,7 +59,6 @@ export function AgentDrawer() {
   const settings = useStore((s) => s.settings);
   const select = useStore((s) => s.select);
   const setThread = useStore((s) => s.setThread);
-  const theme = useStore((s) => s.theme);
   const [confirmAuto, setConfirmAuto] = useState(false);
   const { notice, markPending, clear } = useActionNotice();
 
@@ -90,7 +89,7 @@ export function AgentDrawer() {
   return (
     <aside className="drawer">
       <header className="drawer-head">
-        <img className="ava" src={spriteOf(theme, agentSpriteName(inst.roleId, inst.id, role?.sprite))} alt="" />
+        <AgentAvatar roleId={inst.roleId} instanceId={inst.id} look={role?.sprite} className="ava" />
         <div className="drawer-who">
           <h2>{inst.id}</h2>
           <div className="muted">

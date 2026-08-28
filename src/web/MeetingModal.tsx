@@ -1,9 +1,11 @@
 import { useState } from 'react';
 import { callMeeting, useStore } from './store';
+import { AgentAvatar } from './office3d/AgentAvatar';
 import { t } from './i18n';
 
 export function MeetingModal({ onClose }: { onClose: () => void }) {
   const instances = useStore((s) => s.instances);
+  const roles = useStore((s) => s.roles);
   const [topic, setTopic] = useState('');
   const [picked, setPicked] = useState<string[]>([]);
 
@@ -37,6 +39,11 @@ export function MeetingModal({ onClose }: { onClose: () => void }) {
                 type="checkbox" checked={picked.includes(i.id)}
                 disabled={Boolean(i.currentTaskId)}
                 onChange={() => toggle(i.id)}
+              />
+              <AgentAvatar
+                roleId={i.roleId} instanceId={i.id}
+                look={roles.find((r) => r.id === i.roleId)?.sprite}
+                className="participant-avatar"
               />
               {i.label}
               {i.currentTaskId && (
