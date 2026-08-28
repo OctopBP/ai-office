@@ -13,7 +13,8 @@
  *   employees/<роль>/
  *     .claude-plugin/plugin.json     имя, версия, описание
  *     skills/<скил>/SKILL.md         свои навыки
- *     pack.json                      ссылки на чужие плагины и отбор скилов
+ *     pack.json                      ссылки на чужие плагины, отбор скилов и
+ *                                    серверы, которые пакету нужны
  *
  * Чужие скилы пакет НЕ копирует, а ссылается на уже установленный плагин
  * (`use` в pack.json). Причина не техническая: готовые наборы приходят с
@@ -37,6 +38,8 @@ import { homedir } from 'node:os';
 import { basename, dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import type { SdkPluginConfig } from '@anthropic-ai/claude-agent-sdk';
+import type { McpServerDef } from '../shared/types';
+import { checkMcpServers } from './mcp';
 import type { Role } from './roles';
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '../..');
@@ -57,6 +60,18 @@ export interface EmployeePack {
   dirs: string[];
   /** Полные имена скилов, `<плагин>:<скил>`. */
   skills: string[];
+  /**
+   * Серверы, которые пакет ПРОСИТ. Именно просит: офис их не подключает и в
+   * каталог не кладёт — это делает человек, увидев, что за команда будет
+   * запущена. Пакет приезжает из маркетплейса, и «объявил сервер» значит
+   * «объявил процесс, который поднимется на этой машине»: тихо соглашаться на
+   * такое нельзя ни разу.
+   *
+   * Смысл поля в том, что скил без своего инструмента бесполезен, и пакет
+   * должен уметь сказать, чего ему не хватает, — а не оставлять человека
+   * гадать, почему навык не работает.
+   */
+  servers: McpServerDef[];
 }
 
 /** Что лежит в pack.json. Оба поля необязательны. */
@@ -69,6 +84,8 @@ interface PackFile {
    * контексте всех её сессий.
    */
   skills?: string[];
+  /** Серверы, без которых навыки пакета бесполезны. Офис их только предлагает. */
+  servers?: McpServerDef[];
 }
 
 /** Один плагин на диске. */
@@ -178,10 +195,22 @@ export function employeePack(role: Role): EmployeePack | null {
     if (found) plugins.push(found);
   }
 
-  if (!plugins.length) return null;
+  // Объявленные серверы проходят ту же проверку, что и каталог из формы, но
+  // строже в исходе: форма с ошибкой не сохраняется целиком и человек её
+  // правит, а пакет править некому — он приезжает из маркетплейса. Поэтому
+  // сервер с замечанием просто не предлагается: предложить его «почти как
+  // объявлено» (с молча вычищенным токеном, например) значит показать
+  // человеку не то, что написал автор пакета.
+  const checked = checkMcpServers(pack.servers ?? []);
+  const broken = new Set(checked.problems.map((p) => p.id));
+  const servers = checked.servers.filter((srv) => !broken.has(srv.id));
+
+  if (!plugins.length) return servers.length ? { dirs: [], skills: [], servers } : null;
   const all = plugins.flatMap((p) => p.skills);
   const skills = pack.skills?.length ? all.filter((s) => wanted(s, pack.skills!)) : all;
-  return skills.length ? { dirs: plugins.map((p) => p.dir), skills } : null;
+  return skills.length || servers.length
+    ? { dirs: plugins.map((p) => p.dir), skills, servers }
+    : null;
 }
 
 /**
@@ -191,6 +220,9 @@ export function employeePack(role: Role): EmployeePack | null {
  */
 export function employeePlugins(role: Role): SdkPluginConfig[] | undefined {
   const pack = employeePack(role);
+  // Пакет может состоять из одной просьбы про сервер — плагина в нём тогда
+  // нет, и опцию сессии ставить нечем.
+  if (!pack?.dirs.length) return undefined;
   // skipMcpDiscovery: подключения роли выдаёт офис (server/mcp.ts), а не
   // пакет. Без этого чужой плагин поднимал бы в сессии свои серверы мимо
   // каталога, разбора рисков и подтверждений — а у больших наборов вроде
@@ -204,8 +236,15 @@ export function employeePlugins(role: Role): SdkPluginConfig[] | undefined {
  * не зависеть от того, что ещё оказалось видно сессии.
  */
 export function employeeSkills(role: Role): string[] | undefined {
-  return employeePack(role)?.skills;
+  const skills = employeePack(role)?.skills;
+  return skills?.length ? skills : undefined;
 }
+
+/**
+ * Серверы, которые просит пакет роли. Что с ними делать — решает человек в
+ * каталоге: офис показывает просьбу и команду, но не подключает.
+ */
+export const employeeServers = (role: Role): McpServerDef[] => employeePack(role)?.servers ?? [];
 
 /**
  * Набор встроенных инструментов сессии. У ролей с урезанным набором
@@ -214,6 +253,6 @@ export function employeeSkills(role: Role): string[] | undefined {
  * пакет действительно есть: роли без пакета набор менять незачем.
  */
 export function sessionTools(role: Role): string[] | undefined {
-  if (!role.tools || role.tools.includes('Skill') || !employeePack(role)) return role.tools;
+  if (!role.tools || role.tools.includes('Skill') || !employeeSkills(role)) return role.tools;
   return [...role.tools, 'Skill'];
 }

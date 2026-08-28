@@ -10,7 +10,7 @@ import {
 import { LANGS, LANG_TITLE, type Lang } from '../shared/i18n';
 import { DEFAULT_GRAPHICS, GRAPHICS_RANGE, type Graphics } from './office3d/graphics';
 import { t, type UiKey } from './i18n';
-import { McpCatalog } from './McpCatalog';
+import { McpCatalog, type McpRequest } from './McpCatalog';
 import { Icon } from './icons';
 
 const parse = (v: string): number | null => {
@@ -68,6 +68,7 @@ export function SettingsModal({ onClose }: { onClose: () => void }) {
   const render3d = useStore((s) => s.render3d);
   const setGraphics = useStore((s) => s.setGraphics);
   const layouts = useStore((s) => s.layouts);
+  const roles = useStore((s) => s.roles);
   // Запрос конкретного раздела (например, ссылка «настройки раскладки» из
   // карточки безместного сотрудника) перебивает запомненный за сессию раздел.
   const settingsSection = useStore((s) => s.settingsSection);
@@ -75,6 +76,18 @@ export function SettingsModal({ onClose }: { onClose: () => void }) {
   // Каталог серверов правится списком целиком и уезжает одной настройкой:
   // сервер проверяет его весь и отказывает целиком, как и любую форму.
   const [servers, setServers] = useState<McpServerDef[]>(settings.mcpServers ?? []);
+  // Чего просят пакеты сотрудников и чего в каталоге ещё нет. Считается здесь,
+  // а не на сервере: список зависит от того, что человек уже добавил в форму,
+  // и после «добавить» просьба обязана исчезать сразу, до сохранения.
+  const requests: McpRequest[] = [];
+  for (const role of roles) {
+    for (const asked of role.mcpRequested ?? []) {
+      if (servers.some((s) => s.id === asked.id)) continue;
+      const seen = requests.find((r) => r.server.id === asked.id);
+      if (seen) seen.roles.push(role.title);
+      else requests.push({ server: asked, roles: [role.title] });
+    }
+  }
   useEffect(() => {
     if (!settingsSection) return;
     lastSection = settingsSection;
@@ -233,7 +246,7 @@ export function SettingsModal({ onClose }: { onClose: () => void }) {
             )}
 
             {section === 'tools' && (
-              <McpCatalog servers={servers} onChange={setServers} />
+              <McpCatalog servers={servers} requests={requests} onChange={setServers} />
             )}
 
             {section === 'project' && (

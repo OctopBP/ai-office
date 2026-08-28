@@ -35,8 +35,20 @@ const envFromText = (text: string): Record<string, string> => {
   return out;
 };
 
-export function McpCatalog({ servers, onChange }: {
+/** Просьба пакета: сервер и роли, которым он нужен. */
+export interface McpRequest {
+  server: McpServerDef;
+  roles: string[];
+}
+
+/** Чем поднимается сервер — одной строкой, как это увидит человек. */
+const howItStarts = (s: McpServerDef): string =>
+  (s.transport === 'stdio' ? [s.command, ...s.args].join(' ') : s.url);
+
+export function McpCatalog({ servers, requests, onChange }: {
   servers: McpServerDef[];
+  /** Серверы, которых просят пакеты сотрудников и которых ещё нет в каталоге. */
+  requests: McpRequest[];
   onChange: (next: McpServerDef[]) => void;
 }) {
   const patch = (index: number, fields: Partial<McpServerDef>): void =>
@@ -46,6 +58,27 @@ export function McpCatalog({ servers, onChange }: {
     <>
       <h4>{t('settings.mcp.title')}</h4>
       <p className="hint muted">{t('settings.mcp.hint')}</p>
+
+      {requests.length > 0 && (
+        <div className="mcp-asks">
+          <span className="group-title">{t('settings.mcp.asked')}</span>
+          {/* Команда показана до нажатия намеренно: добавить сервер из пакета
+              значит согласиться запускать этот процесс на своей машине. */}
+          {requests.map((req) => (
+            <div key={req.server.id} className="mcp-ask">
+              <div>
+                <b>{req.server.title || req.server.id}</b>
+                <span className="muted"> — {req.roles.join(', ')}</span>
+                <div className="mono hint">{howItStarts(req.server)}</div>
+              </div>
+              <button onClick={() => onChange([...servers, req.server])}>
+                {t('settings.mcp.ask.add')}
+              </button>
+            </div>
+          ))}
+          <span className="hint">{t('settings.mcp.ask.hint')}</span>
+        </div>
+      )}
 
       <div className="mcp-list">
         {servers.map((srv, i) => (

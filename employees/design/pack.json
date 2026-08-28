@@ -1,0 +1,12 @@
+{
+  "servers": [
+    {
+      "id": "figma-bridge",
+      "title": "Figma",
+      "transport": "stdio",
+      "command": "npx",
+      "args": ["-y", "@gethopp/figma-mcp-bridge"],
+      "alwaysLoad": true
+    }
+  ]
+}

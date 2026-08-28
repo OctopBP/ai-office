@@ -1459,3 +1459,8 @@ button.sq.on { background: var(--accent); color: var(--accent-ink); }
 .mcp-head select { width: auto; margin: 0; }
 .mcp-head .link-danger { margin-left: auto; flex: none; }
 .mcp-flags { display: flex; gap: 16px; flex-wrap: wrap; }
+.mcp-asks { margin: 10px 0 16px; padding: 12px; border: 1px dashed var(--line-soft); border-radius: 8px; }
+.mcp-asks .group-title { display: block; margin-bottom: 8px; font-size: 13px; color: var(--muted); }
+.mcp-ask { display: flex; gap: 12px; align-items: center; justify-content: space-between; margin-bottom: 8px; }
+.mcp-ask button { flex: none; }
+.mcp-ask .hint { margin-top: 2px; }

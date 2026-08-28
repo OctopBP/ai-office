@@ -32,6 +32,7 @@ import {
 } from './limits';
 import { currentOffice, offices } from './offices';
 import { checkMcpServers, DEFAULT_MCP_SERVERS, mcpNamesFor } from './mcp';
+import { employeeServers } from './skills';
 import { effectiveMode, isPermissionMode, modeLabel } from './permissions';
 import type { MessageQueue } from './queue';
 import {
@@ -1548,6 +1549,9 @@ export class OfficeState {
       // умолчание по её id, и UI должен показывать то, что реально уедет в
       // сессию, а не пустоту.
       mcp: mcpNamesFor(r),
+      // Чего не хватает пакету роли. Читается с диска, как и сами скилы:
+      // положили пакет — просьба видна в каталоге без перезапуска.
+      mcpRequested: employeeServers(r),
       isManager: r.isManager, archived: r.archived === true,
       removable: this.roleRemovable(r),
       active: [...this.instances.values()].filter((i) => i.roleId === r.id).length,

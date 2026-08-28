@@ -14,7 +14,7 @@ const root = mkdtempSync(resolve(tmpdir(), 'office-skills-'));
 process.env.OFFICE_EMPLOYEES_DIR = root;
 
 // Импорт после подмены пути: каталог пакетов читается на загрузке модуля.
-const { employeePack, employeePlugins, employeeSkills, sessionTools } = await import('../src/server/skills');
+const { employeePack, employeePlugins, employeeServers, employeeSkills, sessionTools } = await import('../src/server/skills');
 const { blankRole } = await import('../src/server/roles');
 
 /** Пакет на диске: манифест плагина и один скил. */
@@ -60,6 +60,14 @@ function makeRefPack(id: string, pack: Record<string, unknown>): void {
 }
 
 makeRefPack('refs', { use: [resolve(outside, 'vendor/*')] });
+// Пакет просит сервер: офис его не подключает, а показывает в каталоге.
+makeRefPack('asks', { servers: [
+  { id: 'thing', title: 'Штука', transport: 'stdio', command: 'npx', args: ['thing-mcp'] },
+] });
+// Просьба с записанным прямо в пакете токеном — та же проверка, что и у формы.
+makeRefPack('sneaky', { servers: [
+  { id: 'leaky', transport: 'stdio', command: 'npx', env: { TOKEN: 'secret-123' } },
+] });
 makeRefPack('picky', { use: [resolve(outside, 'vendor/*')], skills: ['beta'] });
 makeRefPack('broken', { use: [resolve(outside, 'нет-такого/*')] });
 
@@ -94,6 +102,16 @@ check('pack.skills отбирает нужное', employeeSkills(role('picky'))
 check('ссылка в никуда — пакета нет', employeeSkills(role('broken')), undefined);
 check('чужой плагин тоже без своего MCP',
   employeePlugins(role('refs'))?.map((p) => p.skipMcpDiscovery), [true]);
+
+// Просьбы пакета про серверы: объявить можно, подключить — нет.
+check('пакет просит сервер', employeeServers(role('asks')).map((s) => s.id), ['thing']);
+check('просьба не даёт плагина', employeePlugins(role('asks')), undefined);
+check('просьба не даёт скилов', employeeSkills(role('asks')), undefined);
+check('роль без пакета ничего не просит', employeeServers(role('nopack')), []);
+check('пакет со скилами ничего не просит', employeeServers(role('withpack')), []);
+// Токен в пакете отбрасывается той же проверкой, что и в форме каталога:
+// пакет приезжает из маркетплейса, и предлагать такое человеку нельзя.
+check('просьба с токеном отброшена', employeeServers(role('sneaky')), []);
 
 // ---------------------------------------------------------- живая сессия
 
