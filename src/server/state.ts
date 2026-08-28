@@ -26,7 +26,10 @@ import {
   layoutTitle, type DeskPlan,
 } from './layout';
 import { repoProblem } from './git';
-import { limitsView, noteRateLimit as recordRateLimit, type RateLimitInfo } from './limits';
+import {
+  limitsView, noteRateLimit as recordRateLimit, pollLimits,
+  type LimitSource, type RateLimitInfo,
+} from './limits';
 import { currentOffice, offices } from './offices';
 import { effectiveMode, isPermissionMode, modeLabel } from './permissions';
 import type { MessageQueue } from './queue';
@@ -1192,6 +1195,19 @@ export class OfficeState {
     if (recordRateLimit(info)) this.emit({ t: 'limits', limits: limitsView() });
   }
 
+  /**
+   * Спросить у только что заведённой сессии полную картину лимитов. Событие
+   * `rate_limit_event` рассказывает лишь про то окно, в которое упираются
+   * сейчас, — пятичасовое из него можно не увидеть ни разу. Вопрос задаётся
+   * попутно и не чаще раза в минуту (см. `limits.ts`), а ответа никто не
+   * ждёт: сессия заводится ради работы, а не ради шкалы.
+   */
+  pollLimits(session: LimitSource): void {
+    void pollLimits(session).then((changed) => {
+      if (changed) this.emit({ t: 'limits', limits: limitsView() });
+    });
+  }
+
   /** История расходов офиса по дням, от старых к новым. */
   usageDays(): DayUsage[] {
     return Object.keys(this.daily).sort().map((day) => ({ day, usage: this.daily[day] }));
@@ -2272,7 +2288,13 @@ export const officeViews = (): OfficeView[] => {
       current: o.id === current?.id, lastOpenedAt: o.lastOpenedAt,
       activity: live?.opened
         ? {
-          ...summarize({ tasks: [...live.tasks.values()], chat: live.chat, log: live.log }),
+          ...summarize({
+            tasks: [...live.tasks.values()], chat: live.chat, log: live.log,
+            // У поднятого офиса расход берём из памяти, а не из файла: запись
+            // отложена на дебаунс, и список показывал бы вчерашние цифры
+            // ровно там, где тратят прямо сейчас.
+            usage: live.usage, daily: live.daily,
+          }),
           // «Кто-то работает прямо сейчас» видно только по живым сессиям:
           // задача в статусе in_progress остаётся такой и после перезапуска,
           // а разговор менеджера вообще не заводит задач.

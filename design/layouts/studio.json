@@ -66,6 +66,7 @@
   ],
   "hotspots": [
     { "panel": "board", "sprite": "board", "at": [12.6, 0.1], "key": "B", "title": "Доска задач — B" },
-    { "panel": "log", "sprite": "logscreen", "at": [6.2, 0.3], "key": "L", "title": "Лог событий — L" }
+    { "panel": "log", "sprite": "logscreen", "at": [6.2, 0.3], "key": "L", "title": "Лог событий — L" },
+    { "panel": "money", "sprite": "moneyboard", "at": [19.6, 0.1], "key": "E", "title": "Расходы — E" }
   ]
 }

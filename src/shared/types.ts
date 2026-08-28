@@ -140,13 +140,14 @@ export type LimitKind =
   | 'seven_day'
   | 'seven_day_opus'
   | 'seven_day_sonnet'
+  | 'seven_day_oauth_apps'
   | 'seven_day_overage_included'
   | 'overage';
 
 /** Порядок показа окон: сначала то, во что упираются раньше всего. */
 export const LIMIT_ORDER: LimitKind[] = [
   'five_hour', 'seven_day', 'seven_day_opus', 'seven_day_sonnet',
-  'seven_day_overage_included', 'overage',
+  'seven_day_oauth_apps', 'seven_day_overage_included', 'overage',
 ];
 
 export interface LimitWindow {
@@ -174,12 +175,14 @@ export interface LimitsView {
   windows: LimitWindow[];
   /** Что SDK сказал про последний запрос: прошёл, прошёл на грани, отбит. */
   status: 'allowed' | 'allowed_warning' | 'rejected' | null;
+  /** Подписка, по которой считают лимит: 'pro', 'max', 'team'… null — не знаем. */
+  plan: string | null;
   /** Когда офис последний раз слышал про лимиты. null — ни разу. */
   updatedAt: number | null;
 }
 
 export const emptyLimits = (): LimitsView => ({
-  available: false, windows: [], status: null, updatedAt: null,
+  available: false, windows: [], status: null, plan: null, updatedAt: null,
 });
 
 /** Окно уже сброшено: время сброса прошло, а свежих цифр ещё не приезжало. */
@@ -491,6 +494,17 @@ export interface OfficeActivity {
    * в памяти сессии и на диск не попадает.
    */
   waiting: number;
+  /**
+   * Расход этого офиса за всё время и за сегодня. В списке офисов он нужен по
+   * той же причине, по которой доска расходов нужна внутри: понять, куда
+   * уходят деньги, можно только сравнив проекты между собой, а зайти в каждый
+   * за цифрой — это уже не сравнение.
+   *
+   * По неоткрытым офисам читается из их файла состояния, как и остальная
+   * сводка: поднимать чужой офис с его агентами ради двух чисел незачем.
+   */
+  usage: Usage;
+  today: Usage;
 }
 
 /**

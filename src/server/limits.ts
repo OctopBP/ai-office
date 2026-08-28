@@ -35,6 +35,23 @@ export interface RateLimitInfo {
   utilization?: number;
 }
 
+/**
+ * Ответ управляющего вызова SDK за полной картиной лимитов — то же, что
+ * показывает `/usage`. Описан здесь своим типом, а не импортом из SDK: вызов
+ * помечен экспериментальным, и когда он поменяется, чинить придётся ровно эти
+ * несколько полей, а не всё, что их читает.
+ */
+export interface UsageReport {
+  subscription_type?: string | null;
+  rate_limits_available?: boolean;
+  rate_limits?: Record<string, unknown> | null;
+}
+
+/** Живая сессия, у которой можно спросить лимиты. */
+export interface LimitSource {
+  usage_EXPERIMENTAL_MAY_CHANGE_DO_NOT_RELY_ON_THIS_API_YET(): Promise<UsageReport>;
+}
+
 interface Stored {
   /**
    * Версия 2 — с долями, переведёнными в проценты. Кеш первой версии писался
@@ -44,9 +61,24 @@ interface Stored {
    */
   version: 2;
   status: LimitsView['status'];
+  plan?: string | null;
   updatedAt: number | null;
   windows: LimitWindow[];
 }
+
+/**
+ * Ключи в ответе `/usage` — те же слова, что и типы окон в событиях, кроме
+ * одного: у пятичасового окна в событии `five_hour`, и здесь `five_hour`.
+ * Совпадение проверяется этим списком, а не догадкой по имени: лишний ключ
+ * ответа (например `extra_usage`, устроенный совсем иначе) не должен
+ * превратиться в шкалу с непонятной подписью.
+ */
+const REPORT_KINDS: LimitKind[] = [
+  'five_hour', 'seven_day', 'seven_day_opus', 'seven_day_sonnet', 'seven_day_oauth_apps',
+];
+
+/** Как часто спрашиваем полную картину: чаще раза в минуту она не меняется. */
+const POLL_EVERY_MS = 60_000;
 
 const isKind = (v: unknown): v is LimitKind =>
   typeof v === 'string' && (LIMIT_ORDER as string[]).includes(v);
@@ -72,9 +104,11 @@ const toPercent = (v: number): number =>
 
 const windows = new Map<LimitKind, LimitWindow>();
 let status: LimitsView['status'] = null;
+let plan: string | null = null;
 let updatedAt: number | null = null;
 let loaded = false;
 let timer: NodeJS.Timeout | null = null;
+let polledAt = 0;
 
 function load(): void {
   loaded = true;
@@ -86,6 +120,7 @@ function load(): void {
       if (isKind(w.kind)) windows.set(w.kind, w);
     }
     status = data.status ?? null;
+    plan = data.plan ?? null;
     updatedAt = data.updatedAt ?? null;
   } catch {
     // Кеш шкалы, а не состояние офиса: битый файл дешевле забыть, чем чинить.
@@ -96,7 +131,7 @@ function saveSoon(): void {
   if (timer) return;
   timer = setTimeout(() => {
     timer = null;
-    const data: Stored = { version: 2, status, updatedAt, windows: [...windows.values()] };
+    const data: Stored = { version: 2, status, plan, updatedAt, windows: [...windows.values()] };
     try {
       mkdirSync(dirname(FILE), { recursive: true });
       const tmp = `${FILE}.tmp`;
@@ -142,6 +177,70 @@ export function noteRateLimit(info: RateLimitInfo): boolean {
   return changed;
 }
 
+/**
+ * Записать полную картину — ответ управляющего вызова SDK. Событие
+ * `rate_limit_event` рассказывает только про то окно, в которое упираются
+ * прямо сейчас: на подписке это почти всегда недельное, и пятичасовое из
+ * событий можно не увидеть ни разу. Ответ `/usage` отдаёт сразу все окна,
+ * поэтому пятичасовое берётся только отсюда.
+ *
+ * Проценты здесь задокументированы как 0–100, и долю от единицы к ним не
+ * применяем: 0.5 в этом ответе — это полпроцента, а не половина окна.
+ */
+export function noteUsageReport(report: UsageReport): boolean {
+  if (!loaded) load();
+  const now = Date.now();
+  let changed = false;
+
+  const nextPlan = report.subscription_type ?? null;
+  if (nextPlan !== null && nextPlan !== plan) { plan = nextPlan; changed = true; }
+
+  // Лимиты плана к этому аккаунту неприменимы — ключ API или облачный
+  // провайдер. Ответ пришёл, но рассказывать в нём не о чем.
+  const limits = report.rate_limits;
+  if (report.rate_limits_available === false || !limits) return changed;
+
+  for (const kind of REPORT_KINDS) {
+    const raw = limits[kind] as { utilization?: number | null; resets_at?: string | null } | null;
+    if (!raw || typeof raw.utilization !== 'number') continue;
+    const utilization = Math.max(0, Math.min(100, raw.utilization));
+    // Время сброса здесь строкой ISO 8601, а не числом: разбираем и молча
+    // пропускаем то, что не разобралось, — окно без времени сброса лучше
+    // окна со сбросом в 1970-м.
+    const parsed = raw.resets_at ? Date.parse(raw.resets_at) : NaN;
+    const resetsAt = Number.isFinite(parsed) ? parsed : null;
+    const was = windows.get(kind);
+    if (!was || was.utilization !== utilization || was.resetsAt !== resetsAt) changed = true;
+    windows.set(kind, { kind, utilization, resetsAt, updatedAt: now });
+  }
+
+  updatedAt = now;
+  if (changed) saveSoon();
+  return changed;
+}
+
+/**
+ * Спросить у живой сессии полную картину лимитов. Возвращает true, если
+ * что-то изменилось и это стоит показать.
+ *
+ * Спрашиваем не чаще раза в минуту и только на живой сессии: поднимать
+ * сессию ради шкалы означало бы тратить лимит, чтобы на него посмотреть, —
+ * поэтому вопрос задаётся попутно, когда сессия и так заведена.
+ */
+export async function pollLimits(session: LimitSource): Promise<boolean> {
+  const now = Date.now();
+  if (now - polledAt < POLL_EVERY_MS) return false;
+  polledAt = now;
+  try {
+    return noteUsageReport(await session.usage_EXPERIMENTAL_MAY_CHANGE_DO_NOT_RELY_ON_THIS_API_YET());
+  } catch {
+    // Вызов помечен экспериментальным и на чужих провайдерах его может не
+    // быть вовсе. Молчим: шкала останется на цифрах из событий, а офис за
+    // это падать не должен.
+    return false;
+  }
+}
+
 /** Что показывать в интерфейсе. Порядок окон — от самого короткого. */
 export function limitsView(): LimitsView {
   if (!loaded) load();
@@ -150,6 +249,7 @@ export function limitsView(): LimitsView {
     available: true,
     windows: LIMIT_ORDER.map((k) => windows.get(k)).filter((w): w is LimitWindow => Boolean(w)),
     status,
+    plan,
     updatedAt,
   };
 }
@@ -158,6 +258,8 @@ export function limitsView(): LimitsView {
 export function forgetLimits(): void {
   windows.clear();
   status = null;
+  plan = null;
   updatedAt = null;
+  polledAt = 0;
   loaded = true;
 }

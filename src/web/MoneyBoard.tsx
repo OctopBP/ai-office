@@ -1,7 +1,8 @@
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import { useStore } from './store';
-import { cacheShare, freshness, limitTone, money, resetLine, tok, usageLine } from './money';
-import type { LimitKind, TaskView, Usage } from '../shared/types';
+import { cacheShare, limitTone, money, tok, usageLine } from './money';
+import { Gauge, LimitBars } from './LimitBars';
+import type { TaskView, Usage } from '../shared/types';
 import { dayKey, emptyUsage } from '../shared/types';
 import { t } from './i18n';
 
@@ -14,77 +15,10 @@ import { t } from './i18n';
  * приходилось наводиться мышью в HUD и оно закрывалось от любого промаха.
  */
 
-const KIND_KEY: Record<LimitKind, Parameters<typeof t>[0]> = {
-  five_hour: 'limits.kind.fiveHour',
-  seven_day: 'limits.kind.sevenDay',
-  seven_day_opus: 'limits.kind.sevenDayOpus',
-  seven_day_sonnet: 'limits.kind.sevenDaySonnet',
-  seven_day_overage_included: 'limits.kind.sevenDayOverage',
-  overage: 'limits.kind.overage',
-};
-
 const dayLabel = (day: string): string => {
   const [, m, d] = day.split('-');
   return `${d}.${m}`;
 };
-
-/** Шкала: заполнение, подпись слева, проценты справа. */
-function Gauge({ label, percent, note, tone }: {
-  label: string; percent: number; note: string; tone: 'ok' | 'warn' | 'hot';
-}) {
-  return (
-    <div className="limit">
-      <div className="limit-head">
-        <span>{label}</span>
-        <b className={tone}>{Math.round(percent)}%</b>
-      </div>
-      <div className="limit-bar">
-        <div className={`limit-fill ${tone}`} style={{ width: `${Math.min(100, percent)}%` }} />
-      </div>
-      <div className="muted small">{note}</div>
-    </div>
-  );
-}
-
-/**
- * Лимиты плана. Их считает не офис: цифры приезжают от SDK по ходу работы,
- * поэтому у только что запущенного офиса их может не быть вовсе — и это не
- * «ноль израсходовано», а «счётчика пока не видели». Так и написано: пустая
- * шкала на месте неизвестного успокаивала бы зря.
- */
-function Limits({ now }: { now: number }) {
-  const limits = useStore((s) => s.limits);
-  const authSource = useStore((s) => s.authSource);
-
-  if (!limits.available || limits.windows.length === 0) {
-    return (
-      <p className="muted small">
-        {t(authSource === 'api-key' ? 'limits.none.apiKey' : 'limits.none.yet')}
-      </p>
-    );
-  }
-
-  return (
-    <>
-      <div className="limit-rows">
-        {limits.windows.map((w) => (
-          <Gauge
-            key={w.kind}
-            label={t(KIND_KEY[w.kind])}
-            percent={w.utilization}
-            note={resetLine(w, now)}
-            tone={limitTone(w.utilization)}
-          />
-        ))}
-      </div>
-      <div className="muted small">
-        {limits.updatedAt !== null && freshness(limits.updatedAt, now)}
-        {limits.status === 'allowed_warning' && ` · ${t('limits.status.warn')}`}
-        {limits.status === 'rejected' && ` · ${t('limits.status.rejected')}`}
-      </div>
-    </>
-  );
-}
 
 /** Потолок расходов офиса — тот лимит, который задаёт человек, а не план. */
 function Budget() {
@@ -131,13 +65,6 @@ export function MoneyBoard() {
   // это про то, куда человек смотрит сейчас, и переживать закрытие доски ему
   // незачем — ровно как фильтру по фиче на доске задач.
   const [span, setSpan] = useState<'today' | 'all'>('today');
-  // Часы для обратного отсчёта до сброса лимита. Раз в полминуты: шкала идёт
-  // часами, и чаще дёргать перерисовку не за чем.
-  const [now, setNow] = useState(() => Date.now());
-  useEffect(() => {
-    const id = setInterval(() => setNow(Date.now()), 30_000);
-    return () => clearInterval(id);
-  }, []);
 
   const week = days.slice(-7);
   const peak = Math.max(0.0001, ...week.map((d) => d.usage.costUsd));
@@ -197,7 +124,7 @@ export function MoneyBoard() {
 
       <h4>{t('limits.title')}</h4>
       <p className="modal-reason">{t('limits.note')}</p>
-      <Limits now={now} />
+      <LimitBars />
 
       <h4>{t('money.budget.title')}</h4>
       <Budget />

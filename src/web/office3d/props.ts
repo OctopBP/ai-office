@@ -258,6 +258,9 @@ export const PROPS: Record<string, Prop3> = {
   // Настенное. `wall` — высота низа: доску и экран вешают на уровень глаз,
   // часы выше, дверь стоит на полу.
   board: { shape: 'panel', h: 1.3, d: 0.12, wall: 1.0, tone: 'screen', lamp: { kind: 'screen', face: true } },
+  // Доска расходов висит вровень с доской задач: это две доски на одной
+  // стене, и разная высота читалась бы как случайность, а не как замысел.
+  moneyboard: { shape: 'panel', h: 1.1, d: 0.12, wall: 1.1, tone: 'screen', lamp: { kind: 'screen', face: true } },
   logscreen: { shape: 'panel', h: 1.1, d: 0.12, wall: 1.1, tone: 'screen', lamp: { kind: 'screen', face: true } },
   tv: { shape: 'panel', h: 1.1, d: 0.12, wall: 1.1, tone: 'screen', lamp: { kind: 'screen', face: true } },
   poster: { shape: 'panel', h: 1.1, d: 0.06, wall: 1.1, tone: 'accent' },

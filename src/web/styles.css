@@ -1259,6 +1259,30 @@ button.sq.on { background: var(--accent); color: var(--accent-ink); }
 .menu-office-icon { flex: none; width: 22px; height: 22px; image-rendering: pixelated; }
 .menu-office-row .small { font-size: 11px; }
 
+/* Расход офиса в его строке и итог по всем офисам сразу под списком: деньги
+   в меню нужны, чтобы сравнить проекты между собой, а не чтобы узнать сумму
+   по одному — тот же вопрос внутри офиса решает доска расходов. */
+.menu-office-money {
+  display: flex; flex-direction: column; align-items: flex-end; gap: 1px;
+  flex: none; margin-right: 4px; font-variant-numeric: tabular-nums;
+}
+/* Блок отделяется чертой, а не своим фоном: панель меню — это спрайт
+   9-slice, светлый днём и тёмный ночью, а `--panel-2` внутри меню задан
+   светлым на обе темы. Своя подложка из него оказалась бы светлым пятном на
+   ночной панели, а текст на ней — светлым по светлому. */
+.menu-stats {
+  margin: 0 0 14px; padding: 12px 2px 0;
+  border-top: 1px solid var(--line-soft);
+}
+.menu-stats-head {
+  display: flex; align-items: baseline; gap: 14px; margin-bottom: 10px;
+  font-variant-numeric: tabular-nums;
+}
+.menu-stats-title {
+  flex: 1; font-size: 12px; text-transform: uppercase;
+  letter-spacing: .05em; color: var(--muted);
+}
+
 .menu-loading { display: flex; align-items: center; gap: 8px; }
 
 /* Кнопки меню — рамка 9-slice поверх той же геометрии, что и button:

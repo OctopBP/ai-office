@@ -19,7 +19,7 @@ import * as THREE from 'three';
 import { propKeys } from '../../shared/layout';
 import type { LayoutProp } from '../../shared/layout';
 import { useStore } from '../store';
-import { catalog } from '../layoutData';
+import { catalog, type HotspotPanel } from '../layoutData';
 import { paletteOf, type Palette } from './palette';
 import { WALL_H, scene3, type Box3, type Scene3, type Wall3 } from './geometry';
 import { place3 } from './props';
@@ -171,7 +171,7 @@ function Floors({ scene, palette }: { scene: Scene3; palette: Palette }) {
 }
 
 export function Office3D({ onOpen, onDoor }: {
-  onOpen: (panel: 'board' | 'log') => void;
+  onOpen: (panel: HotspotPanel) => void;
   onDoor: () => void;
 }) {
   const layout = useStore((s) => s.layout);
@@ -206,7 +206,7 @@ export function Office3D({ onOpen, onDoor }: {
       }
     }
     const hotspots = (layout.hotspots ?? []) as {
-      sprite?: string; at?: [number, number]; panel?: 'board' | 'log'; key?: string; title?: string;
+      sprite?: string; at?: [number, number]; panel?: HotspotPanel; key?: string; title?: string;
     }[];
     for (const spot of hotspots) {
       if (!spot.sprite || !spot.at || !spot.panel) continue;

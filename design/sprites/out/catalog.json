@@ -516,6 +516,12 @@
       "blocks": true,
       "label": "Двухместный диван"
     },
+    "moneyboard": {
+      "size": [
+        2.5,
+        1.625
+      ]
+    },
     "neon_sign": {
       "size": [
         1.625,

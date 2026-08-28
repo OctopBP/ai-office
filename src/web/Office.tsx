@@ -1,7 +1,7 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { endDrag, startDrag, updateDrag, useStore } from './store';
 import { agentSpriteName, spriteOf } from './sprites';
-import { agentSize, catalog, furnitureZ, roomFor, spriteSize } from './layoutData';
+import { agentSize, catalog, furnitureZ, roomFor, spriteSize, type HotspotPanel } from './layoutData';
 import { deskPoint } from '../shared/layout';
 import { GRID } from '../shared/types';
 import type { InstanceView } from '../shared/types';
@@ -20,7 +20,7 @@ const px = (tiles: number) => tiles * C;
 const SHADOW_ASPECT = spriteSize('shadow')[1] / spriteSize('shadow')[0];
 
 export function Office({ onOpen, onDoor }: {
-  onOpen: (panel: 'board' | 'log') => void;
+  onOpen: (panel: HotspotPanel) => void;
   onDoor: () => void;
 }) {
   const instances = useStore((s) => s.instances);

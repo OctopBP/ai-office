@@ -568,6 +568,37 @@ def board():
     save(im, 'board')
 
 
+# ---------- доска расходов ----------
+def moneyboard():
+    """Табло расходов на стене: столбики по дням и шкала лимита под ними.
+
+    Рядом с доской задач она обязана читаться как другой предмет, поэтому у
+    неё светлое полотно в раме, а не тёмный экран, как у лога: три тёмные
+    панели на одной стене различались бы только по подписи.
+    """
+    w, h = 40, 26
+    im = canvas(w, h)
+    d = ImageDraw.Draw(im)
+    # Рама и полотно.
+    R(d, 0, 0, w - 1, h - 1, MON_FRAME)
+    R(d, 1, 1, w - 2, 1, _light(MON_FRAME))
+    face = '#101c22' if THEME.get('NIGHT') else WHITE
+    R(d, 2, 2, w - 3, h - 3, face)
+    # Столбики расхода по дням — растут слева направо, последний самый высокий.
+    base = h - 6
+    for i, tall in enumerate([4, 7, 5, 9, 12]):
+        x = 4 + i * 6
+        col = '#e0a83a' if i < 4 else '#f0b429'
+        R(d, x, base - tall, x + 3, base, col)
+        R(d, x, base - tall, x + 3, base - tall, _light(col))
+    # Пол под столбиками и шкала лимита: заполненная часть и остаток.
+    R(d, 3, base + 1, w - 4, base + 1, _dark(face))
+    R(d, 3, h - 4, w - 4, h - 3, _dark(face))
+    R(d, 3, h - 4, w - 12, h - 3, GREEN_L)
+    im = outline_alpha(im)
+    save(im, 'moneyboard')
+
+
 # ---------- экран лога ----------
 def logscreen():
     w, h = 44, 26
@@ -1228,7 +1259,7 @@ def build(theme):
     agent('agent_frontend1', '#e0507a', '#c0392b', SKIN[0])
     agent('agent_uiux', '#a06cd5', '#1f1b24', SKIN[2], glasses=True)
     agent_presets()
-    board(); logscreen(); window(); clock(); door(); doormat()
+    board(); moneyboard(); logscreen(); window(); clock(); door(); doormat()
     plant('plant_small'); plant('plant_big', big=True)
     cooler(); counter(); fridge(); kitchen_tiles(cols=8, rows=6); rug(); round_table(); bookshelf(); poster()
     neon_sign(); server_rack(); shadow(); coin()

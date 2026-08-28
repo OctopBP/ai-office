@@ -2,6 +2,9 @@ import { useMemo, useState, type CSSProperties } from 'react';
 import menuBg from '../../design/sprites/out/menu_bg.png';
 import { formatLastOpened, retryConnect, sortedOffices, useStore } from './store';
 import { spriteOf } from './sprites';
+import { LimitBars } from './LimitBars';
+import { money } from './money';
+import type { OfficeView } from '../shared/types';
 import { t } from './i18n';
 
 /** Кадры спиннера как CSS-переменные — рамка панели и кнопки заводятся так же. */
@@ -117,6 +120,7 @@ export function MenuScreen() {
                           {t('menu.lastOpened', { when: formatLastOpened(o.lastOpenedAt) })}
                         </div>
                       </div>
+                      <Spent office={o} />
                       {o.current ? (
                         <span className="chip done">{t('menu.openNow')}</span>
                       ) : (
@@ -129,6 +133,8 @@ export function MenuScreen() {
                 </div>
 
                 {menuNotice?.kind === 'blocked' && <p className="menu-error">{menuNotice.text}</p>}
+
+                <Spending offices={list} />
 
                 <div className="modal-actions">
                   <button className="primary" onClick={startCreate}>{t('offices.new')}</button>
@@ -172,6 +178,52 @@ export function MenuScreen() {
       <footer className="menu-footer muted">
         {t(connected ? 'menu.connected' : 'menu.reconnecting')}
       </footer>
+    </div>
+  );
+}
+
+/**
+ * Расход офиса в его строке списка. Стоит рядом с названием, а не внутри
+ * офиса: понять, куда уходят деньги, можно только сравнив проекты между
+ * собой, а заходить в каждый за цифрой — это уже не сравнение.
+ *
+ * Расход неоткрытого офиса читается из его файла состояния (`activity.ts`),
+ * поэтому цифры есть у всех строк, а не только у текущей.
+ */
+function Spent({ office }: { office: OfficeView }) {
+  const spent = office.activity?.usage.costUsd ?? 0;
+  const today = office.activity?.today.costUsd ?? 0;
+  if (spent === 0) return null;
+  return (
+    <div className="menu-office-money">
+      <b>{money(spent)}</b>
+      {/* Ноль за сегодня не пишем: «сегодня $0.000» занимает строку ровно
+          затем, чтобы сказать, что сегодня здесь ничего не было. */}
+      <span className="muted small">
+        {today > 0 ? t('menu.spentToday', { cost: money(today) }) : t('usage.allTime')}
+      </span>
+    </div>
+  );
+}
+
+/**
+ * Итог по всем офисам и лимиты плана — то же, что на доске расходов внутри
+ * офиса, но здесь это единственное место, где видно всю картину сразу:
+ * деньги считаются по офисам, а лимит плана один на аккаунт, и упереться в
+ * него можно из-за соседнего проекта.
+ */
+function Spending({ offices }: { offices: OfficeView[] }) {
+  const total = offices.reduce((sum, o) => sum + (o.activity?.usage.costUsd ?? 0), 0);
+  const today = offices.reduce((sum, o) => sum + (o.activity?.today.costUsd ?? 0), 0);
+
+  return (
+    <div className="menu-stats">
+      <div className="menu-stats-head">
+        <span className="menu-stats-title">{t('menu.spending')}</span>
+        <span><b>{money(today)}</b> <span className="muted small">{t('common.today')}</span></span>
+        <span><b>{money(total)}</b> <span className="muted small">{t('usage.allTime')}</span></span>
+      </div>
+      <LimitBars />
     </div>
   );
 }

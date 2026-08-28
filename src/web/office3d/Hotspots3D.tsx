@@ -12,7 +12,7 @@ import { Html } from '@react-three/drei';
 import * as THREE from 'three';
 import { desks } from '../../shared/layout';
 import type { Layout } from '../../shared/layout';
-import { catalog } from '../layoutData';
+import { catalog, type HotspotPanel } from '../layoutData';
 import { useStore } from '../store';
 import type { Palette } from './palette';
 import { PropLamp } from './Lights3D';
@@ -21,7 +21,7 @@ import type { Placed3 } from './props';
 import { t } from '../i18n';
 
 /** Кого именно из предметов раскладки нажимают. */
-export type SpotKind = 'board' | 'log' | 'door';
+export type SpotKind = HotspotPanel | 'door';
 
 export interface Spot3 {
   kind: SpotKind;
@@ -122,9 +122,9 @@ export function Hotspots3D({ spots, layout, palette, offset, onOpen, onDoor }: {
   palette: Palette;
   /** сдвиг комнаты в мир — тот же, что у пола, стен и обстановки */
   offset: [number, number];
-  /** Открыть панель доски или лога — те же обработчики, что у плоского офиса:
-   *  какая панель открыта, знает App, а не комната. */
-  onOpen: (panel: 'board' | 'log') => void;
+  /** Открыть панель доски, расходов или лога — те же обработчики, что у
+   *  плоского офиса: какая панель открыта, знает App, а не комната. */
+  onOpen: (panel: HotspotPanel) => void;
   onDoor: () => void;
 }) {
   const materials = usePropMaterials(palette);

@@ -76,7 +76,10 @@ export function passabilityFor(layout: Layout): Passability {
 // --- Планировка комнаты для отрисовки (docs/design/office-layout/spec.md §3, §5) ---
 // Хотспоты пока не формализованы в src/shared/layout.ts (§8 — задача следующего
 // этапа), поэтому их форма описана здесь же.
-export interface LayoutHotspot { panel: 'board' | 'log'; sprite: string; at: [number, number]; key: string; title: string }
+export interface LayoutHotspot { panel: HotspotPanel; sprite: string; at: [number, number]; key: string; title: string }
+
+/** Какие панели офиса открываются нажатием на предмет в комнате. */
+export type HotspotPanel = 'board' | 'money' | 'log';
 /** Предмет к отрисовке: якорь и габарит уже в тайлах (§3.2), рендеру считать нечего. */
 export interface RenderProp {
   key: string; sprite: string; x: number; y: number; w: number; h: number; z: number;
@@ -123,7 +126,7 @@ function liftToppings(items: RenderProp[]): void {
 
 // Настенное — окна, доска, экран, часы (спека §5): рисуются поверх всей
 // мебели и людей, стена от их положения не зависит.
-const WALL_MOUNTED = new Set(['clock', 'window', 'board', 'logscreen']);
+const WALL_MOUNTED = new Set(['clock', 'window', 'board', 'moneyboard', 'logscreen']);
 // Наложения на пол — ковры и плитка: всегда под мебелью, что на них стоит.
 const FLOOR_OVERLAY = new Set(['rug', 'kitchen_tiles']);
 

@@ -21,9 +21,10 @@ const stateFile = resolve(dir, 'state.json');
 process.env.OFFICE_STATE_FILE = stateFile;
 process.env.OFFICE_LANG = 'ru';
 
-const { limitsView, noteRateLimit } = await import('../src/server/limits');
+const { limitsView, noteRateLimit, noteUsageReport } = await import('../src/server/limits');
 const { openOfficeState, toTaskView } = await import('../src/server/state');
 const { flush } = await import('../src/server/store');
+const { dayKey, emptyUsage } = await import('../src/shared/types');
 
 const results: string[] = [];
 
@@ -94,6 +95,54 @@ results.push(
   `время последних цифр известно: ${afterReject.updatedAt !== null}`,
 );
 
+// ---------- полная картина лимитов ----------
+
+// Ответ /usage устроен иначе, чем событие: проценты в нём задокументированы
+// как 0–100, время сброса — строкой ISO, а ключей больше, чем офис знает.
+// Пятичасовое окно берётся только отсюда: событиями приезжает лишь то окно,
+// в которое упираются сейчас, и на подписке это обычно недельное.
+const reportChanged = noteUsageReport({
+  subscription_type: 'max',
+  rate_limits_available: true,
+  rate_limits: {
+    five_hour: { utilization: 99, resets_at: '2026-08-28T16:39:59.571412+00:00' },
+    seven_day: { utilization: 85, resets_at: '2026-08-30T09:59:59.571445+00:00' },
+    seven_day_opus: null,
+    // Ключей в ответе больше, чем окон у офиса, и устроены они по-разному:
+    // чужое не должно превратиться в шкалу с непонятной подписью.
+    nimbus_quill: { utilization: 0, resets_at: null },
+    extra_usage: { is_enabled: false, monthly_limit: 0, used_credits: 0, utilization: null },
+  },
+});
+const afterReport = limitsView();
+const fh = afterReport.windows.find((w) => w.kind === 'five_hour');
+const sd = afterReport.windows.find((w) => w.kind === 'seven_day');
+results.push(
+  `полная картина меняет шкалы: ${reportChanged}`,
+  `пятичасовое окно приехало: ${fh?.utilization === 99}`,
+  `строка ISO разобрана в дату: ${
+    fh?.resetsAt === Date.parse('2026-08-28T16:39:59.571412+00:00')}`,
+  `проценты из ответа не считаются долей: ${sd?.utilization === 85}`,
+  `план запомнен: ${afterReport.plan === 'max'}`,
+  // Три шкалы — те же, что были до ответа: пятичасовая и недельная в нём
+  // обновились, а `nimbus_quill`, `extra_usage` и пустое окно Opus новых не
+  // завели.
+  `чужие ключи ответа шкалами не стали: ${afterReport.windows.length === 3}`,
+);
+
+// Проценты меньше единицы в этом ответе — это доли процента, а не доля окна:
+// принять 0.5 за половину лимита значило бы напугать на ровном месте.
+noteUsageReport({
+  rate_limits_available: true,
+  rate_limits: { five_hour: { utilization: 0.5, resets_at: null } },
+});
+const tiny = limitsView().windows.find((w) => w.kind === 'five_hour');
+results.push(`полпроцента остались полупроцентом: ${tiny?.utilization === 0.5}`);
+
+// Ключ API: лимитов плана нет, и шкалам взяться неоткуда.
+const apiKeyReport = noteUsageReport({ rate_limits_available: false, rate_limits: null });
+results.push(`ответ без лимитов плана ничего не меняет: ${apiKeyReport === false}`);
+
 // ---------- расход задачи по дням ----------
 
 const office = openOfficeState({ id: 'o-money', projectDir: dir, stateFile }).state;
@@ -141,6 +190,28 @@ results.push(
   `задача из старого сохранения не роняет расход: ${survived}`,
   `и снова копит день: ${toTaskView(old).today.costUsd === 0.1}`,
   `а общая сумма задачи не потерялась: ${Math.abs(old.usage.costUsd - 0.6) < 1e-9}`,
+);
+
+// ---------- расход в списке офисов ----------
+
+// Главное меню сравнивает офисы между собой, и цифры для этого берутся из
+// той же сводки, что и «в работе»/«ждёт слияния», — в том числе по офисам,
+// которые в этом процессе никто не открывал.
+const { summarize, emptyActivity } = await import('../src/server/activity');
+const spend = (cost: number) => ({ ...emptyUsage(), costUsd: cost });
+const summary = summarize({
+  tasks: [],
+  usage: spend(12.5),
+  daily: { [dayKey()]: spend(3.5), '2020-01-01': spend(9) },
+});
+results.push(
+  `расход офиса попал в сводку: ${summary.usage.costUsd === 12.5}`,
+  `за сегодня — только сегодняшний день: ${summary.today.costUsd === 3.5}`,
+  `сводка без расхода — это нули, а не пусто: ${
+    emptyActivity().usage.costUsd === 0 && emptyActivity().today.costUsd === 0}`,
+  // Сохранения до доски расходов журнала не знают: сводка по ним обязана
+  // получиться нулевой, а не отсутствующей.
+  `старое сохранение сводится в нули: ${summarize({ tasks: [] }).today.costUsd === 0}`,
 );
 
 // Прошедшей считается только строка, кончающаяся на true: «не false» пропускало

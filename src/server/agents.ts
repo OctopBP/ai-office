@@ -911,6 +911,11 @@ function startPm(state: OfficeState): void {
     },
   });
 
+  // Заодно спрашиваем у живой сессии полную картину лимитов плана: событиями
+  // приезжает только то окно, в которое упираются сейчас, и пятичасовое из
+  // них можно не увидеть ни разу. Ответа никто не ждёт — см. state.pollLimits.
+  state.pollLimits(session);
+
   state.pmLoop = (async () => {
     try {
       for await (const msg of session) {
@@ -1659,6 +1664,8 @@ function startWorker(taskOffice: OfficeState, task: Task, inst: Instance): void 
         },
       });
 
+      taskOffice.pollLimits(session);
+
       let finalText = '';
       let sessionFailed: string | null = null;
       for await (const msg of session) {
@@ -2174,6 +2181,8 @@ async function runAgentSession(
         abortController: abort,
       },
     });
+
+    state.pollLimits(session);
 
     let finalText = '';
     let failed: string | null = null;
