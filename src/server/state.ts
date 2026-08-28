@@ -3,7 +3,7 @@ import { isAbsolute, resolve } from 'node:path';
 import type {
   AgentState, ChatEntry, Criterion, DayUsage, Desk, FieldError, InstanceView, LogEntry,
   PermissionDecision, AuthSource, MeetingView, PermissionMode, PermissionRequest, RoleDraft,
-  RoleEditable, RoleView, ServerEvent, Settings, TaskStatus, TaskView, Usage,
+  McpServerDef, RoleEditable, RoleView, ServerEvent, Settings, TaskStatus, TaskView, Usage,
   EpicStatus, EpicView,
   CloudStatus, OfficeView, MergeCheck, MergeRun, LayoutOption,
   Layout, LayoutOverride, LayoutPropEdit,
@@ -31,6 +31,7 @@ import {
   type LimitSource, type RateLimitInfo,
 } from './limits';
 import { currentOffice, offices } from './offices';
+import { checkMcpServers, DEFAULT_MCP_SERVERS, mcpNamesFor } from './mcp';
 import { effectiveMode, isPermissionMode, modeLabel } from './permissions';
 import type { MessageQueue } from './queue';
 import {
@@ -73,6 +74,9 @@ export const DEFAULT_SETTINGS: Settings = {
   // Согласие спрашиваем по умолчанию: план — это обещание потратить деньги
   // на несколько часов работы, и начинать его молча офис не вправе.
   planApproval: true,
+  // Каталог внешних серверов: с ним заводится новый офис. Дальше он живёт в
+  // настройках этого офиса и правится из интерфейса.
+  mcpServers: DEFAULT_MCP_SERVERS,
 };
 
 /**
@@ -157,7 +161,7 @@ export function onRoleSetChanged(fn: (state: OfficeState) => void): void {
  */
 const ROLE_EDITABLE_KEYS: readonly (keyof RoleEditable)[] = [
   'title', 'emoji', 'color', 'model', 'permissionMode', 'maxInstances',
-  'isolate', 'maxTurns', 'repoDir', 'sprite', 'brief',
+  'isolate', 'maxTurns', 'repoDir', 'sprite', 'brief', 'mcp',
 ];
 
 /**
@@ -1524,6 +1528,15 @@ export class OfficeState {
     return t(this.lang(), key, vars);
   }
 
+  /**
+   * Каталог внешних MCP-серверов офиса. Метод, а не обращение к полю: в
+   * сохранениях старше каталога его нет, и подстраховку умолчанием не должен
+   * повторять каждый, кому нужен список серверов.
+   */
+  mcpServers(): McpServerDef[] {
+    return this.settings.mcpServers ?? DEFAULT_MCP_SERVERS;
+  }
+
   roleViews(): RoleView[] {
     const officeMode = this.officeMode();
     return this.roles().map<RoleView>((r) => ({
@@ -1531,6 +1544,10 @@ export class OfficeState {
       permissionMode: r.permissionMode, maxInstances: r.maxInstances,
       isolate: r.isolate, maxTurns: r.maxTurns ?? null,
       repoDir: r.repoDir ?? '', sprite: r.sprite ?? '', brief: r.brief,
+      // Действующий набор, а не сырое поле: у роли без своей подписки это
+      // умолчание по её id, и UI должен показывать то, что реально уедет в
+      // сессию, а не пустоту.
+      mcp: mcpNamesFor(r),
       isManager: r.isManager, archived: r.archived === true,
       removable: this.roleRemovable(r),
       active: [...this.instances.values()].filter((i) => i.roleId === r.id).length,
@@ -1691,6 +1708,9 @@ export class OfficeState {
       permissionMode: draft.permissionMode ?? null,
       maxInstances: typeof draft.maxInstances === 'number' ? Math.floor(draft.maxInstances) : 1,
       isolate: draft.isolate !== false,
+      // Новая роль без подписки — это роль без внешних инструментов: умолчания
+      // по id заведены для базовых ролей, а у заведённой руками его нет.
+      mcp: Array.isArray(draft.mcp) ? draft.mcp.map((id) => String(id)) : [],
       maxTurns: draft.maxTurns ?? null,
       repoDir: typeof draft.repoDir === 'string' ? draft.repoDir.trim() : '',
       sprite: typeof draft.sprite === 'string' ? draft.sprite.trim() : '',
@@ -1844,6 +1864,17 @@ export class OfficeState {
         && clean.permissionMode !== null && !isPermissionMode(clean.permissionMode)) {
       delete clean.permissionMode;
     }
+    // Подписка на серверы приходит из формы: чужое значение (строка вместо
+    // массива, id несуществующего сервера) осело бы в сохранении и всплывало
+    // при каждом запуске сессии. Пустой массив законен — это «ничего не
+    // подключать», и отличать его от мусора обязательно.
+    if ('mcp' in clean) {
+      if (!Array.isArray(clean.mcp)) delete clean.mcp;
+      else {
+        const known = new Set(this.mcpServers().map((srv) => srv.id));
+        clean.mcp = [...new Set(clean.mcp.map((id) => String(id)))].filter((id) => known.has(id));
+      }
+    }
     // Лимит ходов роли проверяем теми же границами, что и офисный: с нулём или
     // строкой сессия роли падала бы на первом ходу. null законен — он значит
     // «как в офисе», поэтому отличаем его от непригодного значения.
@@ -1916,6 +1947,19 @@ export class OfficeState {
       const clean = sanitizeWorkers(next.maxConcurrentWorkers);
       if (clean === undefined) delete next.maxConcurrentWorkers;
       else next.maxConcurrentWorkers = clean;
+    }
+    // Каталог серверов молча не чиним: человек заполнял форму руками, и
+    // проглоченная ошибка обернулась бы ролью без инструментов, у которой
+    // всё «сохранилось». Отказ называет и сервер, и что с ним не так.
+    if ('mcpServers' in next) {
+      const { servers, problems } = checkMcpServers(next.mcpServers);
+      if (problems.length) {
+        const first = problems[0];
+        return this.say(`state.settings.mcp.${first.key}`, {
+          id: first.id || '—', detail: first.detail,
+        });
+      }
+      next.mcpServers = servers;
     }
     // Раскладку, наоборот, молча отбросить нельзя: человек выбрал её сам и
     // ждёт, что офис переставится. Тихо оставленная прежняя выглядела бы как

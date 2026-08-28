@@ -34,7 +34,7 @@ const modes = (): Array<[PermissionMode, string]> => [
 const BLANK: RoleEditable = {
   title: '', emoji: '🙂', color: '#94a3b8', model: 'claude-sonnet-5',
   permissionMode: null, maxInstances: 1, isolate: true, maxTurns: null,
-  repoDir: '', sprite: LOOKS[0].id, brief: '',
+  repoDir: '', sprite: LOOKS[0].id, brief: '', mcp: [],
 };
 
 /**
@@ -71,6 +71,10 @@ export function RoleEditor({ role, onSaved, onDeleted }: {
 
   const base = role ?? BLANK;
   const value = { ...base, ...draft };
+  // Каталог офиса — из него и берётся, на что подписывать роль. Выключенные
+  // серверы показываем тоже: подписка на них законна и заработает, как только
+  // сервер включат обратно.
+  const servers = settings.mcpServers ?? [];
   const set = <K extends keyof RoleEditable>(k: K, v: RoleEditable[K]) =>
     setDraft((d) => ({ ...d, [k]: v }));
 
@@ -239,6 +243,30 @@ export function RoleEditor({ role, onSaved, onDeleted }: {
         <span className="hint">{t('role.repo.hint')}</span>
         {errFor('repoDir') && <span className="hint error">{errFor('repoDir')}</span>}
       </label>
+
+      <div className="role-mcp">
+        <span className="group-title">{t('role.mcp')}</span>
+        {servers.length === 0 ? (
+          <span className="hint muted">{t('role.mcp.empty')}</span>
+        ) : (
+          <>
+            {servers.map((srv) => (
+              <label key={srv.id} className="checkbox">
+                <input
+                  type="checkbox"
+                  checked={value.mcp.includes(srv.id)}
+                  onChange={(e) => set('mcp', e.target.checked
+                    ? [...value.mcp, srv.id]
+                    : value.mcp.filter((id) => id !== srv.id))}
+                />
+                {srv.title || srv.id}
+                {srv.disabled && <span className="muted"> — {t('role.mcp.off')}</span>}
+              </label>
+            ))}
+            <span className="hint">{t('role.mcp.hint')}</span>
+          </>
+        )}
+      </div>
 
       <label>{t('role.brief')}
         <textarea rows={6} value={value.brief} onChange={(e) => set('brief', e.target.value)} />

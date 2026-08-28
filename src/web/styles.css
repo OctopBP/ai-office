@@ -1439,3 +1439,23 @@ button.sq.on { background: var(--accent); color: var(--accent-ink); }
 .fit-actions { display: flex; gap: 8px; margin: 16px 0 8px; }
 .fit-actions button { font-size: 12px; }
 .fit-save { background: var(--accent); color: var(--accent-ink); }
+
+/* Каталог внешних MCP-серверов (настройки) и подписка роли на них. */
+.role-mcp { margin-bottom: 14px; }
+.role-mcp .group-title { display: block; margin-bottom: 6px; font-size: 13px; color: var(--muted); }
+.mcp-list { display: flex; flex-direction: column; gap: 10px; margin: 10px 0 12px; }
+.mcp-item {
+  border: 1px solid var(--line-soft);
+  border-radius: 8px;
+  padding: 12px 12px 2px;
+  background: var(--panel-2);
+}
+/* Выключенный сервер остаётся в списке, но видно, что в сессию он не поедет. */
+.mcp-item.off { opacity: .6; }
+.mcp-head { display: flex; gap: 8px; align-items: center; margin-bottom: 10px; }
+.mcp-head input { margin: 0; }
+.mcp-head .mcp-id { flex: 0 0 9.5em; }
+.mcp-head .mcp-title { flex: 1 1 auto; }
+.mcp-head select { width: auto; margin: 0; }
+.mcp-head .link-danger { margin-left: auto; flex: none; }
+.mcp-flags { display: flex; gap: 16px; flex-wrap: wrap; }

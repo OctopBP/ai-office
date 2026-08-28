@@ -1641,7 +1641,7 @@ function startWorker(taskOffice: OfficeState, task: Task, inst: Instance): void 
           systemPrompt: {
             type: 'preset',
             preset: 'claude_code',
-            append: systemPrompt + mcpBrief(role, taskOffice.lang()),
+            append: systemPrompt + mcpBrief(taskOffice.settings, role, taskOffice.lang()),
           },
           cwd: workdir,
           // Проект остаётся читаемым: писать нельзя, смотреть можно.
@@ -1649,7 +1649,7 @@ function startWorker(taskOffice: OfficeState, task: Task, inst: Instance): void 
           tools: sessionTools(role),
           mcpServers: {
             office: workerTools(taskOffice, inst.id, task),
-            ...externalMcp(role),
+            ...externalMcp(taskOffice.settings, role),
           },
           // Скилы роли — из её пакета в employees/<роль>/. Пакета нет, обе
           // опции undefined, и сессия собирается ровно как прежде.
@@ -2170,11 +2170,11 @@ async function runAgentSession(
         systemPrompt: {
           type: 'preset',
           preset: 'claude_code',
-          append: opts.systemPrompt + mcpBrief(role, state.lang()),
+          append: opts.systemPrompt + mcpBrief(state.settings, role, state.lang()),
         },
         cwd: opts.cwd,
         tools: sessionTools(role),
-        mcpServers: { ...opts.mcp, ...externalMcp(role) },
+        mcpServers: { ...opts.mcp, ...externalMcp(state.settings, role) },
         plugins: employeePlugins(role),
         skills: employeeSkills(role),
         permissionMode: 'default',

@@ -90,6 +90,12 @@ export const en = {
   'state.role.updated': 'Role {role} changed: {fields}',
 
   'state.settings.noLayout': 'There is no “{id}” layout in design/layouts. Available: {known}.',
+  'state.settings.mcp.badId': 'Server "{id}": the name may only contain latin letters, digits and hyphens — tool names are built from it.',
+  'state.settings.mcp.dupId': 'Server "{id}" appears twice in the catalogue: names must be unique.',
+  'state.settings.mcp.noCommand': 'Server "{id}": no command to start it with.',
+  'state.settings.mcp.noUrl': 'Server "{id}": no address given.',
+  'state.settings.mcp.badUrl': 'Server "{id}": the address "{detail}" must start with http:// or https://.',
+  'state.settings.mcp.badEnv': 'Server "{id}", variable "{detail}": the value may only be a ${NAME} reference. Do not put the token itself here — settings live in the state file and travel to the interface.',
   'state.settings.noLayoutsAtAll': 'none',
   'state.settings.workers': 'Workers running at once in this office: {now} (was {before})',
   'state.settings.officeMode': 'Office access mode: “{mode}”',

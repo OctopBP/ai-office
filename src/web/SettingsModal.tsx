@@ -5,11 +5,12 @@ import {
 } from './store';
 import {
   DEFAULT_FOCUS_EPICS, DEFAULT_OFFICE_WORKERS, DEFAULT_PROCESS_WORKERS,
-  MAX_FOCUS_EPICS, MIN_FOCUS_EPICS, type PermissionMode,
+  MAX_FOCUS_EPICS, MIN_FOCUS_EPICS, type McpServerDef, type PermissionMode,
 } from '../shared/types';
 import { LANGS, LANG_TITLE, type Lang } from '../shared/i18n';
 import { DEFAULT_GRAPHICS, GRAPHICS_RANGE, type Graphics } from './office3d/graphics';
 import { t, type UiKey } from './i18n';
+import { McpCatalog } from './McpCatalog';
 import { Icon } from './icons';
 
 const parse = (v: string): number | null => {
@@ -17,12 +18,13 @@ const parse = (v: string): number | null => {
   return v.trim() === '' || !Number.isFinite(n) || n <= 0 ? null : n;
 };
 
-type Section = 'general' | 'access' | 'limits' | 'project' | 'graphics';
+type Section = 'general' | 'access' | 'limits' | 'tools' | 'project' | 'graphics';
 
 const SECTIONS: Array<[Section, UiKey]> = [
   ['general', 'settings.section.general'],
   ['access', 'settings.section.access'],
   ['limits', 'settings.section.limits'],
+  ['tools', 'settings.section.tools'],
   ['project', 'settings.section.project'],
   ['graphics', 'settings.section.graphics'],
 ];
@@ -70,6 +72,9 @@ export function SettingsModal({ onClose }: { onClose: () => void }) {
   // карточки безместного сотрудника) перебивает запомненный за сессию раздел.
   const settingsSection = useStore((s) => s.settingsSection);
   const [section, setSection] = useState<Section>(settingsSection ?? lastSection);
+  // Каталог серверов правится списком целиком и уезжает одной настройкой:
+  // сервер проверяет его весь и отказывает целиком, как и любую форму.
+  const [servers, setServers] = useState<McpServerDef[]>(settings.mcpServers ?? []);
   useEffect(() => {
     if (!settingsSection) return;
     lastSection = settingsSection;
@@ -121,6 +126,7 @@ export function SettingsModal({ onClose }: { onClose: () => void }) {
       engine,
       cloudRepoUrl: repo.trim() || null,
       officePermissionMode: access,
+      mcpServers: servers,
       layoutId,
       autoPipeline,
       focusEpics,
@@ -224,6 +230,10 @@ export function SettingsModal({ onClose }: { onClose: () => void }) {
                   {maxWorkersParsed.error && <span className="hint error">{maxWorkersParsed.error}</span>}
                 </label>
               </>
+            )}
+
+            {section === 'tools' && (
+              <McpCatalog servers={servers} onChange={setServers} />
             )}
 
             {section === 'project' && (

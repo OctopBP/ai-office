@@ -1,0 +1,133 @@
+/**
+ * Каталог внешних MCP-серверов офиса — раздел «Инструменты» в настройках.
+ *
+ * Смысл экрана: дать роли инструмент, которого нет в самом Claude Code, не
+ * трогая исходники. Сессии агентов поднимаются без настроек Claude Code
+ * пользователя, поэтому что у роли под руками — решает этот список, а роли
+ * подписываются на серверы в своём редакторе.
+ *
+ * Проверка живёт на сервере (`checkMcpServers`), а не здесь: то же значение
+ * приезжает и из правленого руками файла состояния, и дублировать правила в
+ * двух местах — верный способ развести их. Форма только не даёт собрать
+ * заведомую бессмыслицу вроде stdio без команды.
+ */
+import { t } from './i18n';
+import type { McpServerDef } from '../shared/types';
+
+/** Пустой сервер: с него начинается «добавить». */
+const BLANK: McpServerDef = {
+  id: '', title: '', transport: 'stdio', command: '', args: [], url: '',
+  env: {}, alwaysLoad: true, disabled: false,
+};
+
+/** Переменные окружения одной строкой на пару — так их и правят руками. */
+const envToText = (env: Record<string, string>): string =>
+  Object.entries(env).map(([k, v]) => `${k}=${v}`).join('\n');
+
+const envFromText = (text: string): Record<string, string> => {
+  const out: Record<string, string> = {};
+  for (const line of text.split('\n')) {
+    const at = line.indexOf('=');
+    if (at <= 0) continue;
+    const key = line.slice(0, at).trim();
+    if (key) out[key] = line.slice(at + 1).trim();
+  }
+  return out;
+};
+
+export function McpCatalog({ servers, onChange }: {
+  servers: McpServerDef[];
+  onChange: (next: McpServerDef[]) => void;
+}) {
+  const patch = (index: number, fields: Partial<McpServerDef>): void =>
+    onChange(servers.map((s, i) => (i === index ? { ...s, ...fields } : s)));
+
+  return (
+    <>
+      <h4>{t('settings.mcp.title')}</h4>
+      <p className="hint muted">{t('settings.mcp.hint')}</p>
+
+      <div className="mcp-list">
+        {servers.map((srv, i) => (
+          <div key={i} className={`mcp-item${srv.disabled ? ' off' : ''}`}>
+            <div className="mcp-head">
+              <input
+                className="mcp-id mono" value={srv.id} placeholder={t('settings.mcp.id')}
+                onChange={(e) => patch(i, { id: e.target.value.trim() })}
+              />
+              <input
+                className="mcp-title" value={srv.title} placeholder={t('settings.mcp.name')}
+                onChange={(e) => patch(i, { title: e.target.value })}
+              />
+              <select
+                value={srv.transport}
+                onChange={(e) => patch(i, { transport: e.target.value as McpServerDef['transport'] })}
+              >
+                <option value="stdio">stdio</option>
+                <option value="http">http</option>
+                <option value="sse">sse</option>
+              </select>
+              <button
+                className="link-danger"
+                onClick={() => onChange(servers.filter((_, k) => k !== i))}
+              >
+                {t('settings.mcp.remove')}
+              </button>
+            </div>
+
+            {srv.transport === 'stdio' ? (
+              <label>{t('settings.mcp.command')}
+                <input
+                  className="mono" value={[srv.command, ...srv.args].join(' ')}
+                  placeholder="npx -y @scope/server"
+                  onChange={(e) => {
+                    const parts = e.target.value.trim().split(/\s+/).filter(Boolean);
+                    patch(i, { command: parts[0] ?? '', args: parts.slice(1) });
+                  }}
+                />
+              </label>
+            ) : (
+              <label>{t('settings.mcp.url')}
+                <input
+                  className="mono" value={srv.url} placeholder="https://example.com/mcp"
+                  onChange={(e) => patch(i, { url: e.target.value.trim() })}
+                />
+              </label>
+            )}
+
+            <label>
+              {srv.transport === 'stdio' ? t('settings.mcp.env') : t('settings.mcp.headers')}
+              <textarea
+                className="mono" rows={2} value={envToText(srv.env)}
+                placeholder={'TOKEN=${MY_TOKEN}'}
+                onChange={(e) => patch(i, { env: envFromText(e.target.value) })}
+              />
+              <span className="hint">{t('settings.mcp.env.hint')}</span>
+            </label>
+
+            <div className="mcp-flags">
+              <label className="checkbox">
+                <input
+                  type="checkbox" checked={srv.alwaysLoad}
+                  onChange={(e) => patch(i, { alwaysLoad: e.target.checked })}
+                />
+                {t('settings.mcp.alwaysLoad')}
+              </label>
+              <label className="checkbox">
+                <input
+                  type="checkbox" checked={!srv.disabled}
+                  onChange={(e) => patch(i, { disabled: !e.target.checked })}
+                />
+                {t('settings.mcp.enabled')}
+              </label>
+            </div>
+          </div>
+        ))}
+      </div>
+
+      <button onClick={() => onChange([...servers, { ...BLANK }])}>
+        {t('settings.mcp.add')}
+      </button>
+    </>
+  );
+}

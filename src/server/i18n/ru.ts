@@ -89,6 +89,12 @@ export const ru: Record<keyof typeof en, string> = {
   'state.role.updated': 'Роль {role} изменена: {fields}',
 
   'state.settings.noLayout': 'Раскладки «{id}» нет в design/layouts. Доступны: {known}.',
+  'state.settings.mcp.badId': 'Сервер «{id}»: имя может состоять только из латиницы, цифр и дефиса — из него собираются имена инструментов.',
+  'state.settings.mcp.dupId': 'Сервер «{id}» в каталоге дважды: имя должно быть уникальным.',
+  'state.settings.mcp.noCommand': 'Сервер «{id}»: не указано, чем его поднимать.',
+  'state.settings.mcp.noUrl': 'Сервер «{id}»: не указан адрес.',
+  'state.settings.mcp.badUrl': 'Сервер «{id}»: адрес «{detail}» должен начинаться с http:// или https://.',
+  'state.settings.mcp.badEnv': 'Сервер «{id}», переменная «{detail}»: значением может быть только ссылка вида ${NAME}. Сам токен сюда класть нельзя — настройки лежат в файле состояния и уезжают в интерфейс.',
   'state.settings.noLayoutsAtAll': 'ни одной',
   'state.settings.workers': 'Одновременно исполнителей в офисе: {now} (было {before})',
   'state.settings.officeMode': 'Режим доступа офиса: «{mode}»',
