@@ -441,6 +441,19 @@ Reply to the user in {lang}, and keep it short.`,
     'to you, into the same branch, with the review text.',
   ].join('\n'),
 
+  // --------------------------------------------------- внешние инструменты
+  'mcp.figma-bridge.brief': [
+    'Figma is available to you directly, through the `mcp__figma-bridge__*` tools: read the',
+    'document and the current selection, take screenshots, create frames, text and shapes,',
+    'change properties and auto layout.',
+    'So build the layout IN Figma instead of describing it: words and HTML are for the things',
+    'a layout is not needed for.',
+    'You see the files that have the Figma MCP Bridge plugin open in them: start with',
+    '`list_files` and work against the `fileKey` you need.',
+    'If the tools answer that there is no connection — say exactly that in the report. It is',
+    'fixed by opening the plugin in Figma, and a description is not a substitute for a layout.',
+  ].join('\n'),
+
   // ------------------------------------------------------- ход и итог задачи
   'agent.task.noReport': 'The task finished without a report.',
   'agent.task.stopped': '⏹ Stopped by you.',

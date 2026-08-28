@@ -13,6 +13,7 @@ import { t, type ServerKey } from './i18n';
 import type { PrStage, PullRequestView, ReviewVerdict } from '../shared/types';
 import { cloudProblem, runCloudTask, stopCloudTask } from './cloud';
 import type { Role } from './roles';
+import { externalMcp, mcpBrief } from './mcp';
 import { autoApprovedText, classify, decide, effectiveMode } from './permissions';
 import { commitAll, createWorktree, diffBranch, hasCommits, hasWork, isRepo, preserveBranch, removeWorktree } from './git';
 import {
@@ -1629,12 +1630,21 @@ function startWorker(taskOffice: OfficeState, task: Task, inst: Instance): void 
         prompt: workerPrompt(taskOffice, task, artifactsDir, repoDir),
         options: {
           model: role.model,
-          systemPrompt: { type: 'preset', preset: 'claude_code', append: systemPrompt },
+          // Про внешние инструменты рассказываем только здесь: в облаке
+          // локального моста до Figma нет, и обещать его там нельзя.
+          systemPrompt: {
+            type: 'preset',
+            preset: 'claude_code',
+            append: systemPrompt + mcpBrief(role, taskOffice.lang()),
+          },
           cwd: workdir,
           // Проект остаётся читаемым: писать нельзя, смотреть можно.
           additionalDirectories: artifactsDir ? [workRoot] : undefined,
           tools: role.tools,
-          mcpServers: { office: workerTools(taskOffice, inst.id, task) },
+          mcpServers: {
+            office: workerTools(taskOffice, inst.id, task),
+            ...externalMcp(role),
+          },
           permissionMode: 'default',
           canUseTool: permissionHandler(taskOffice, inst.id, task.id, workdir),
           settingSources: [],
@@ -2145,10 +2155,14 @@ async function runAgentSession(
       options: {
         resume: opts.resume,
         model: role.model,
-        systemPrompt: { type: 'preset', preset: 'claude_code', append: opts.systemPrompt },
+        systemPrompt: {
+          type: 'preset',
+          preset: 'claude_code',
+          append: opts.systemPrompt + mcpBrief(role, state.lang()),
+        },
         cwd: opts.cwd,
         tools: role.tools,
-        mcpServers: opts.mcp,
+        mcpServers: { ...opts.mcp, ...externalMcp(role) },
         permissionMode: 'default',
         canUseTool: permissionHandler(state, inst.id, opts.taskId, opts.cwd),
         settingSources: [],
