@@ -14,6 +14,7 @@ import type { PrStage, PullRequestView, ReviewVerdict } from '../shared/types';
 import { cloudProblem, runCloudTask, stopCloudTask } from './cloud';
 import type { Role } from './roles';
 import { externalMcp, mcpBrief } from './mcp';
+import { employeePlugins, employeeSkills, sessionTools } from './skills';
 import { autoApprovedText, classify, decide, effectiveMode } from './permissions';
 import { commitAll, createWorktree, diffBranch, hasCommits, hasWork, isRepo, preserveBranch, removeWorktree } from './git';
 import {
@@ -1645,11 +1646,15 @@ function startWorker(taskOffice: OfficeState, task: Task, inst: Instance): void 
           cwd: workdir,
           // Проект остаётся читаемым: писать нельзя, смотреть можно.
           additionalDirectories: artifactsDir ? [workRoot] : undefined,
-          tools: role.tools,
+          tools: sessionTools(role),
           mcpServers: {
             office: workerTools(taskOffice, inst.id, task),
             ...externalMcp(role),
           },
+          // Скилы роли — из её пакета в employees/<роль>/. Пакета нет, обе
+          // опции undefined, и сессия собирается ровно как прежде.
+          plugins: employeePlugins(role),
+          skills: employeeSkills(role),
           permissionMode: 'default',
           canUseTool: permissionHandler(taskOffice, inst.id, task.id, workdir),
           settingSources: [],
@@ -2168,8 +2173,10 @@ async function runAgentSession(
           append: opts.systemPrompt + mcpBrief(role, state.lang()),
         },
         cwd: opts.cwd,
-        tools: role.tools,
+        tools: sessionTools(role),
         mcpServers: { ...opts.mcp, ...externalMcp(role) },
+        plugins: employeePlugins(role),
+        skills: employeeSkills(role),
         permissionMode: 'default',
         canUseTool: permissionHandler(state, inst.id, opts.taskId, opts.cwd),
         settingSources: [],

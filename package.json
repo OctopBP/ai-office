@@ -16,6 +16,7 @@
     "scene": "bash scripts/scene.sh",
     "scene:check": "python3 tools/blender/inspect_glb.py",
     "test:perm": "tsx scripts/test-permissions.ts",
+    "test:skills": "tsx scripts/test-skills.ts",
     "test:state": "tsx scripts/test-state.ts",
     "test:plan": "tsx scripts/test-plan.ts",
     "test:merge": "tsx scripts/test-merge.ts",

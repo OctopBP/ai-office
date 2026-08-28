@@ -30,6 +30,7 @@ Node + TypeScript, React 19 + Zustand на фронте, `ws` для связи,
 | `src/server/roles.ts` | Роли: промпт, модель, лимит клонов, изоляция |
 | `src/server/offices.ts` | Реестр офисов: офис = проект со своей директорией и состоянием |
 | `src/server/permissions.ts` | Классификатор риска вызова инструмента |
+| `src/server/skills.ts` | Пакеты сотрудников: скилы роли из `employees/<роль>/` |
 | `src/server/limits.ts` | Лимиты плана подписки: проценты и время сброса из событий SDK |
 | `src/server/git.ts` | Ветки, worktree, коммиты, слияние |
 | `src/server/cloud.ts` | Облачный режим на Managed Agents (написан, вживую не проверен) |
