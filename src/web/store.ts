@@ -1,7 +1,8 @@
 import { create } from 'zustand';
 import type {
   ChatEntry, DayUsage, FieldError, InstanceView, Layout, LayoutOption, LayoutOverride, LogEntry,
-  MergeCheck, MergeCheckState, MergeRun, MergeStep, MergeStepStatus, PermissionDecision,
+  McpServerState, MergeCheck, MergeCheckState, MergeRun, MergeStep, MergeStepStatus,
+  PermissionDecision,
   PermissionMode, PermissionRequest, MeetingView, RoleDraft, RoleEditable, RoleOp, RoleView,
   ServerEvent, Settings, TaskView, Usage, CloudStatus, OfficeView, PullRequestView, PrStage,
   EpicView, LimitsView,
@@ -179,6 +180,11 @@ interface State {
   /** Порядок задач, которые пользователь набрал для следующего запуска очереди слияния. */
   mergeSelection: string[];
   /** Статусы мержабельности завершённых задач, по taskId — приходят от сервера целиком. */
+  /**
+   * Что известно о внешних MCP-серверах, по id сервера. Пусто — не «всё
+   * плохо», а «ещё никто не работал»: статус приезжает от живых сессий.
+   */
+  mcpStatus: Record<string, McpServerState>;
   mergeChecks: Record<string, MergeCheck>;
   /** Идёт ли сейчас пересчёт статусов: пока он идёт, старые статусы ещё валидны. */
   mergeChecking: boolean;
@@ -281,6 +287,7 @@ export const useStore = create<State>((set, get) => ({
   settingsPending: false,
   meeting: null,
   mergeSelection: [],
+  mcpStatus: {},
   mergeChecks: {},
   mergeChecking: false,
   mergeRun: null,
@@ -382,6 +389,7 @@ export const useStore = create<State>((set, get) => ({
           projectDir: e.projectDir, authSource: e.authSource, meeting: e.meeting, busy: e.busy,
           paused: e.paused, usage: e.usage.total, usageDays: e.usage.days, limits: e.limits,
           offices: e.offices, cloud: e.cloud,
+          mcpStatus: Object.fromEntries(e.mcpStatus.map((m) => [m.id, m])),
           mergeChecks: Object.fromEntries(e.mergeChecks.map((c) => [c.taskId, c])),
           mergeRun: e.mergeRun,
           prs: Object.fromEntries(e.prs.map((pr) => [pr.taskId, pr])),
@@ -533,6 +541,9 @@ export const useStore = create<State>((set, get) => ({
         break;
       case 'limits':
         set({ limits: e.limits });
+        break;
+      case 'mcp.status':
+        set({ mcpStatus: Object.fromEntries(e.servers.map((m) => [m.id, m])) });
         break;
       case 'roles':
         set({ roles: e.roles });

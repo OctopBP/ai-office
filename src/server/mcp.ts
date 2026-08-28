@@ -23,7 +23,7 @@
  */
 import type { McpServerConfig } from '@anthropic-ai/claude-agent-sdk';
 import type { Lang } from '../shared/i18n';
-import type { McpServerDef, Settings } from '../shared/types';
+import type { McpServerDef, McpServerState, Settings } from '../shared/types';
 import { hasKey, t } from './i18n';
 import type { Role } from './roles';
 
@@ -263,4 +263,65 @@ export function checkMcpServers(value: unknown): {
     });
   }
   return { servers, problems };
+}
+
+// ------------------------------------------------- статус подключения
+
+/**
+ * Живая сессия, у которой можно спросить статус серверов. Описана своим
+ * типом, а не импортом из SDK: офису нужны три поля, и когда ответ SDK
+ * поменяется, чинить придётся ровно их.
+ */
+export interface McpStatusSource {
+  mcpServerStatus(): Promise<Array<{
+    name: string;
+    status: string;
+    serverInfo?: { version?: string };
+    error?: string;
+  }>>;
+}
+
+const KNOWN_STATUS = new Set(['connected', 'failed', 'needs-auth', 'pending', 'disabled']);
+
+/**
+ * Спросить сессию о её серверах. Возвращаются только внешние серверы роли:
+ * `office` и `team` поднимает сам офис в своём же процессе, и рассказывать
+ * человеку об их состоянии нечего.
+ *
+ * Один опрос сразу после старта почти бесполезен: stdio-серверы поднимаются
+ * не блокируя сессию, и первый ответ — сплошной `pending`. Поэтому спрашиваем
+ * несколько раз, пока кто-то ещё поднимается, и отдаём последнюю картину.
+ */
+export async function pollMcpStatus(
+  session: McpStatusSource,
+  wanted: Set<string>,
+  agentId: string,
+  wait: (ms: number) => Promise<void> = (ms) => new Promise((r) => setTimeout(r, ms)),
+  attempts = 4,
+  gapMs = 4000,
+): Promise<McpServerState[]> {
+  let last: McpServerState[] = [];
+  for (let i = 0; i < attempts; i += 1) {
+    await wait(i === 0 ? 1000 : gapMs);
+    let raw: Awaited<ReturnType<McpStatusSource['mcpServerStatus']>>;
+    try {
+      raw = await session.mcpServerStatus();
+    } catch {
+      // Сессия успела закончиться или оборваться — это не событие про
+      // серверы, и придумывать им статус по такому поводу не нужно.
+      return last;
+    }
+    last = raw
+      .filter((s) => wanted.has(s.name))
+      .map((s) => ({
+        id: s.name,
+        status: (KNOWN_STATUS.has(s.status) ? s.status : 'pending') as McpServerState['status'],
+        error: String(s.error ?? ''),
+        version: String(s.serverInfo?.version ?? ''),
+        at: Date.now(),
+        agentId,
+      }));
+    if (!last.some((s) => s.status === 'pending')) return last;
+  }
+  return last;
 }

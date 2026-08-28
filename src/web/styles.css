@@ -1464,3 +1464,6 @@ button.sq.on { background: var(--accent); color: var(--accent-ink); }
 .mcp-ask { display: flex; gap: 12px; align-items: center; justify-content: space-between; margin-bottom: 8px; }
 .mcp-ask button { flex: none; }
 .mcp-ask .hint { margin-top: 2px; }
+.mcp-status { display: block; margin: -4px 0 10px; font-size: 11px; color: var(--muted); }
+.mcp-status.connected { color: var(--green); }
+.mcp-status.failed, .mcp-status[class*="needs-auth"] { color: var(--red); }

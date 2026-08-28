@@ -90,6 +90,8 @@ export const en = {
   'state.role.updated': 'Role {role} changed: {fields}',
 
   'state.settings.noLayout': 'There is no “{id}” layout in design/layouts. Available: {known}.',
+  'state.mcp.connected': 'Server "{title}" connected.',
+  'state.mcp.failed': 'Server "{title}" did not connect: {reason}. The role will work with built-in tools.',
   'state.settings.mcp.badId': 'Server "{id}": the name may only contain latin letters, digits and hyphens — tool names are built from it.',
   'state.settings.mcp.dupId': 'Server "{id}" appears twice in the catalogue: names must be unique.',
   'state.settings.mcp.noCommand': 'Server "{id}": no command to start it with.',

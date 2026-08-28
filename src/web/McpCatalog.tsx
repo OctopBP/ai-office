@@ -12,7 +12,8 @@
  * заведомую бессмыслицу вроде stdio без команды.
  */
 import { t } from './i18n';
-import type { McpServerDef } from '../shared/types';
+import { useStore } from './store';
+import type { McpServerDef, McpServerState } from '../shared/types';
 
 /** Пустой сервер: с него начинается «добавить». */
 const BLANK: McpServerDef = {
@@ -45,6 +46,21 @@ export interface McpRequest {
 const howItStarts = (s: McpServerDef): string =>
   (s.transport === 'stdio' ? [s.command, ...s.args].join(' ') : s.url);
 
+/**
+ * Подпись состояния сервера. Отдельная строка, а не иконка молча: человеку
+ * нужна причина («плагин не открыт», «команда не найдена»), иначе статус
+ * заменяет одну догадку другой.
+ */
+function Status({ state }: { state: McpServerState | undefined }) {
+  if (!state) return <span className="mcp-status unknown">{t('settings.mcp.status.unknown')}</span>;
+  return (
+    <span className={`mcp-status ${state.status}`} title={state.error || undefined}>
+      {t(`settings.mcp.status.${state.status}`)}
+      {state.status === 'failed' && state.error ? `: ${state.error}` : ''}
+    </span>
+  );
+}
+
 export function McpCatalog({ servers, requests, onChange }: {
   servers: McpServerDef[];
   /** Серверы, которых просят пакеты сотрудников и которых ещё нет в каталоге. */
@@ -53,6 +69,8 @@ export function McpCatalog({ servers, requests, onChange }: {
 }) {
   const patch = (index: number, fields: Partial<McpServerDef>): void =>
     onChange(servers.map((s, i) => (i === index ? { ...s, ...fields } : s)));
+  // Что о серверах сообщили живые сессии. Пусто — ещё никто не работал.
+  const status = useStore((s) => s.mcpStatus);
 
   return (
     <>
@@ -108,6 +126,8 @@ export function McpCatalog({ servers, requests, onChange }: {
               </button>
             </div>
 
+            <Status state={status[srv.id]} />
+
             {srv.transport === 'stdio' ? (
               <label>{t('settings.mcp.command')}
                 <input
@@ -157,6 +177,8 @@ export function McpCatalog({ servers, requests, onChange }: {
           </div>
         ))}
       </div>
+
+      {servers.length > 0 && <p className="hint muted">{t('settings.mcp.status.hint')}</p>}
 
       <button onClick={() => onChange([...servers, { ...BLANK }])}>
         {t('settings.mcp.add')}

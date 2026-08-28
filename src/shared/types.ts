@@ -256,6 +256,28 @@ export interface McpServerDef {
   disabled: boolean;
 }
 
+/**
+ * Что офис узнал о внешнем MCP-сервере от живой сессии.
+ *
+ * Сам офис серверы не поднимает — их поднимает сессия агента, каждая свою
+ * копию. Поэтому статус здесь не «состояние сервера», а последнее, что о нём
+ * сообщили: без него отказ инструмента неотличим от неоткрытого плагина, от
+ * опечатки в команде и от того, что `uvx` первый раз качает пакет.
+ */
+export interface McpServerState {
+  /** id сервера из каталога офиса. */
+  id: string;
+  status: 'connected' | 'failed' | 'needs-auth' | 'pending' | 'disabled';
+  /** Текст ошибки — только у `failed`. */
+  error: string;
+  /** Чем сервер представился при подключении. Пусто — не представился. */
+  version: string;
+  /** Когда узнали, epoch ms. */
+  at: number;
+  /** Кто сообщил: id сотрудника, в чьей сессии сервер поднимался. */
+  agentId: string;
+}
+
 /** Поля роли, которые пользователь может менять из UI. */
 export interface RoleEditable {
   title: string;
@@ -887,12 +909,19 @@ export type ServerEvent =
       layout: Layout;
       /** Чем расстановка офиса отличается от пресета. null — ничем. */
       layoutOverride: LayoutOverride | null;
+      /**
+       * Что известно о внешних MCP-серверах: подключился, не смог, ещё
+       * поднимается. Узнаётся только от живых сессий, поэтому у офиса, где
+       * ещё никто не работал, список пуст — это не «всё плохо», а «не знаем».
+       */
+      mcpStatus: McpServerState[];
       /** Статусы слияния по завершённым задачам и последний прогон очереди. */
       mergeChecks: MergeCheck[]; mergeRun: MergeRun | null;
       /** Пулл-реквесты конвейера ревью — по одному на сданную задачу. */
       prs: PullRequestView[];
       /** План: фичи в том порядке, в котором офис их ведёт. */
       epics: EpicView[] }
+  | { t: 'mcp.status'; servers: McpServerState[] }
   | { t: 'instance'; instance: InstanceView }
   | { t: 'instance.remove'; id: string }
   | { t: 'task'; task: TaskView }

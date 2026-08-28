@@ -3,7 +3,8 @@ import { isAbsolute, resolve } from 'node:path';
 import type {
   AgentState, ChatEntry, Criterion, DayUsage, Desk, FieldError, InstanceView, LogEntry,
   PermissionDecision, AuthSource, MeetingView, PermissionMode, PermissionRequest, RoleDraft,
-  McpServerDef, RoleEditable, RoleView, ServerEvent, Settings, TaskStatus, TaskView, Usage,
+  McpServerDef, McpServerState, RoleEditable, RoleView, ServerEvent, Settings, TaskStatus,
+  TaskView, Usage,
   EpicStatus, EpicView,
   CloudStatus, OfficeView, MergeCheck, MergeRun, LayoutOption,
   Layout, LayoutOverride, LayoutPropEdit,
@@ -31,7 +32,9 @@ import {
   type LimitSource, type RateLimitInfo,
 } from './limits';
 import { currentOffice, offices } from './offices';
-import { checkMcpServers, DEFAULT_MCP_SERVERS, mcpNamesFor } from './mcp';
+import {
+  checkMcpServers, DEFAULT_MCP_SERVERS, mcpNamesFor, pollMcpStatus, type McpStatusSource,
+} from './mcp';
 import { employeeServers } from './skills';
 import { effectiveMode, isPermissionMode, modeLabel } from './permissions';
 import type { MessageQueue } from './queue';
@@ -436,6 +439,11 @@ export class OfficeState {
    * стол — дело того офиса, где его подвинули.
    */
   layoutOverrides: Record<string, LayoutOverride> = {};
+  /**
+   * Что известно о внешних MCP-серверах, по id сервера. Живёт в памяти: это
+   * наблюдение живых сессий, а не настройка офиса.
+   */
+  private mcpState = new Map<string, McpServerState>();
   /**
    * Поднимали ли уже это состояние с диска. Пустая заготовка (её заводит
    * первое обращение к getOffice) от открытого офиса отличается именно этим:
@@ -1538,6 +1546,57 @@ export class OfficeState {
     return this.settings.mcpServers ?? DEFAULT_MCP_SERVERS;
   }
 
+  /**
+   * Что известно о внешних серверах. Не сохраняется на диск: сервер поднимает
+   * сессия, и после перезапуска офиса прошлое «подключился» — не знание, а
+   * воспоминание. Пустой список честнее: узнаем, когда кто-то поработает.
+   */
+  mcpStatuses(): McpServerState[] {
+    return [...this.mcpState.values()];
+  }
+
+  /**
+   * Спросить живую сессию, что с её серверами, и запомнить ответ. Вызов
+   * фоновый: сессия работает, а офис узнаёт о серверах попутно.
+   *
+   * Опрашиваем только те роли, у которых внешние серверы есть: остальным
+   * рассказывать не о чем, а лишний управляющий вызов на каждую сессию —
+   * это накладные на пустом месте.
+   */
+  pollMcp(agentId: string, role: Role, session: McpStatusSource): void {
+    const wanted = new Set(
+      mcpNamesFor(role).filter((id) => this.mcpServers().some((s) => s.id === id && !s.disabled)),
+    );
+    if (!wanted.size) return;
+    void pollMcpStatus(session, wanted, agentId).then((list) => this.noteMcpStatus(list));
+  }
+
+  /**
+   * Положить статусы серверов и сказать о переменах. В ленту пишем только
+   * смену состояния, а не каждый опрос: сессий много, серверы одни и те же, и
+   * строка «figma-bridge подключился» на каждую задачу была бы шумом.
+   */
+  noteMcpStatus(list: McpServerState[]): void {
+    let changed = false;
+    for (const next of list) {
+      const prev = this.mcpState.get(next.id);
+      this.mcpState.set(next.id, next);
+      if (prev?.status === next.status && prev.error === next.error) continue;
+      changed = true;
+      const title = this.mcpServers().find((s) => s.id === next.id)?.title || next.id;
+      if (next.status === 'connected') {
+        this.addLog(next.agentId, 'system', this.say('state.mcp.connected', { title }));
+      } else if (next.status !== 'pending') {
+        // Отказ сервера — это не отказ офиса: роль доработает тем, что есть.
+        // Но человек должен видеть причину, а не гадать по пустым инструментам.
+        this.addLog(next.agentId, 'system', this.say('state.mcp.failed', {
+          title, reason: clipText(next.error, 200) || next.status,
+        }));
+      }
+    }
+    if (changed) this.emit({ t: 'mcp.status', servers: this.mcpStatuses() });
+  }
+
   roleViews(): RoleView[] {
     const officeMode = this.officeMode();
     return this.roles().map<RoleView>((r) => ({
@@ -2298,6 +2357,7 @@ export class OfficeState {
       instances: this.instanceViews(),
       tasks: [...this.tasks.values()].map(toTaskView),
       epics: this.epicList().map(toEpicView),
+      mcpStatus: this.mcpStatuses(),
       chat: this.chat,
       log: this.log.slice(-200),
       permissions: this.pendingRequests(),

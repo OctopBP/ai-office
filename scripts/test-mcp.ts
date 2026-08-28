@@ -5,7 +5,7 @@
 // роль не заметит, а строка не от той роли хуже отсутствия строки — фронтенд,
 // которому сказано «делай макет в Figma», займётся не своим делом.
 import {
-  checkMcpServers, DEFAULT_MCP_SERVERS, externalMcp, mcpBrief,
+  checkMcpServers, DEFAULT_MCP_SERVERS, externalMcp, mcpBrief, pollMcpStatus,
 } from '../src/server/mcp';
 import { defaultRole } from '../src/server/roles';
 import type { Role } from '../src/server/roles';
@@ -107,6 +107,101 @@ const envMissing = (missing as { env?: Record<string, string> }).env ?? {};
 // Переменной нет — пустая строка, а не сама ссылка: сервер с заголовком
 // `${TOKEN}` ответил бы невнятной ошибкой авторизации.
 check('переменной нет — пусто, а не ссылка', envMissing.TOKEN === '', `«${envMissing.TOKEN}»`);
+
+// ------------------------------------------------- статус подключения
+
+/** Сессия-заглушка: отдаёт заготовленные ответы по одному на опрос. */
+const fakeSession = (answers: unknown[][]) => {
+  let call = 0;
+  return {
+    calls: () => call,
+    mcpServerStatus: async () => {
+      const answer = answers[Math.min(call, answers.length - 1)];
+      call += 1;
+      if (answer === null) throw new Error('сессия кончилась');
+      return answer as Parameters<typeof Object.assign>[0][];
+    },
+  };
+};
+const noWait = async (): Promise<void> => {};
+const wanted = new Set(['figma-bridge']);
+
+// Свои серверы офиса в статусе не участвуют: их поднимает сам офис в своём
+// процессе, и рассказывать человеку об их состоянии нечего.
+const mixed = await pollMcpStatus(
+  fakeSession([[
+    { name: 'office', status: 'connected' },
+    { name: 'figma-bridge', status: 'connected', serverInfo: { version: '1.2.3' } },
+  ]]) as never, wanted, 'design#1', noWait,
+);
+check('в статусе только внешние серверы', mixed.map((m) => m.id).join() === 'figma-bridge',
+  mixed.map((m) => m.id).join() || '(пусто)');
+check('версия сервера сохраняется', mixed[0]?.version === '1.2.3', String(mixed[0]?.version));
+
+// Первый ответ почти всегда pending: stdio поднимается, не блокируя сессию.
+const late = fakeSession([
+  [{ name: 'figma-bridge', status: 'pending' }],
+  [{ name: 'figma-bridge', status: 'pending' }],
+  [{ name: 'figma-bridge', status: 'failed', error: 'плагин не открыт' }],
+]);
+const settled = await pollMcpStatus(late as never, wanted, 'design#1', noWait);
+check('опрос повторяется, пока сервер поднимается',
+  settled[0]?.status === 'failed' && late.calls() === 3, `${settled[0]?.status}, опросов ${late.calls()}`);
+check('причина отказа доезжает', settled[0]?.error === 'плагин не открыт', settled[0]?.error ?? '');
+
+const quick = fakeSession([[{ name: 'figma-bridge', status: 'connected' }]]);
+await pollMcpStatus(quick as never, wanted, 'design#1', noWait);
+check('подключился — лишних опросов нет', quick.calls() === 1, `опросов ${quick.calls()}`);
+
+const odd = await pollMcpStatus(
+  fakeSession([[{ name: 'figma-bridge', status: 'что-то-новое' }]]) as never,
+  wanted, 'design#1', noWait, 1,
+);
+check('незнакомый статус считаем «поднимается»', odd[0]?.status === 'pending', String(odd[0]?.status));
+
+// Сессия оборвалась — это не событие про серверы, статус выдумывать нечего.
+const dead = await pollMcpStatus(fakeSession([null as never]) as never, wanted, 'design#1', noWait);
+check('оборванная сессия не даёт статуса', dead.length === 0, `${dead.length} записей`);
+
+// --------------------------------------------------------- живая сессия
+
+// Заглушки проверяют наш разбор, но не контракт SDK: что метод так называется,
+// что имя сервера совпадает с ключом каталога и что отказ приходит с текстом.
+// Это видно только на настоящей сессии, поэтому она за флагом:
+//   MCP_LIVE=1 npm run test:mcp
+if (process.env.MCP_LIVE === '1') {
+  const { query } = await import('@anthropic-ai/claude-agent-sdk');
+  const design = role('design');
+  const wantedLive = new Set(Object.keys(externalMcp(catalog(), design)));
+  console.log(`\n  живая сессия, серверы роли: ${[...wantedLive].join(', ') || '(нет)'}`);
+  const session = query({
+    prompt: 'ничего не делай',
+    options: {
+      cwd: process.cwd(),
+      systemPrompt: { type: 'preset', preset: 'claude_code' },
+      mcpServers: externalMcp(catalog(), design),
+      settingSources: [],
+      maxTurns: 1,
+    },
+  });
+  try {
+    const live = await pollMcpStatus(session, wantedLive, 'design#1');
+    for (const s of live) {
+      console.log(`  ${s.status === 'connected' ? 'ok  ' : '····'} ${s.id.padEnd(16)}`
+        + ` → ${s.status}${s.error ? `: ${s.error}` : ''}${s.version ? ` (${s.version})` : ''}`);
+    }
+    // Отказ сервера — не провал проверки: плагин может быть не открыт. Провал
+    // здесь один — если SDK перестал отвечать на вопрос о серверах вовсе.
+    if (live.length !== wantedLive.size) {
+      failed += 1;
+      console.log(`  FAIL SDK не рассказал о серверах: ${live.length} из ${wantedLive.size}`);
+    }
+  } finally {
+    await session.interrupt().catch(() => {});
+  }
+} else {
+  console.log('\n  живой опрос пропущен (MCP_LIVE=1, чтобы спросить настоящую сессию)');
+}
 
 console.log(failed ? `\nпровалено кейсов: ${failed}` : '\nвсе кейсы прошли');
 process.exit(failed ? 1 : 0);

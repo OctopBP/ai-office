@@ -89,6 +89,8 @@ export const ru: Record<keyof typeof en, string> = {
   'state.role.updated': 'Роль {role} изменена: {fields}',
 
   'state.settings.noLayout': 'Раскладки «{id}» нет в design/layouts. Доступны: {known}.',
+  'state.mcp.connected': 'Сервер «{title}» подключился.',
+  'state.mcp.failed': 'Сервер «{title}» не подключился: {reason}. Роль доработает встроенными инструментами.',
   'state.settings.mcp.badId': 'Сервер «{id}»: имя может состоять только из латиницы, цифр и дефиса — из него собираются имена инструментов.',
   'state.settings.mcp.dupId': 'Сервер «{id}» в каталоге дважды: имя должно быть уникальным.',
   'state.settings.mcp.noCommand': 'Сервер «{id}»: не указано, чем его поднимать.',

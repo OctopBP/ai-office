@@ -1671,6 +1671,10 @@ function startWorker(taskOffice: OfficeState, task: Task, inst: Instance): void 
 
       taskOffice.pollLimits(session);
 
+      // Что с внешними серверами роли — узнаём попутно, пока сессия работает:
+      // без этого отказ инструмента неотличим от неоткрытого плагина.
+      taskOffice.pollMcp(inst.id, role, session);
+
       let finalText = '';
       let sessionFailed: string | null = null;
       for await (const msg of session) {
@@ -2190,6 +2194,7 @@ async function runAgentSession(
     });
 
     state.pollLimits(session);
+    state.pollMcp(inst.id, role, session);
 
     let finalText = '';
     let failed: string | null = null;
