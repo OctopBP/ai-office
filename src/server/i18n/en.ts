@@ -28,6 +28,8 @@ export const en = {
   'perm.reason.write': 'write to a project file',
   'perm.reason.bash': 'shell command',
   'perm.reason.unknownTool': 'unknown tool',
+  'perm.reason.mcpWrite': 'external tool changes data outside the project',
+  'perm.reason.mcpDestructive': 'external tool deletes data outside the project — the office cannot undo it',
   'perm.mode.auto': 'full access',
   'perm.mode.ask-risky': 'ask only about irreversible actions',
   'perm.mode.ask-writes': 'ask about every write',

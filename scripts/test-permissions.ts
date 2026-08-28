@@ -38,6 +38,17 @@ const cases: Case[] = [
   ['Bash',  { command: 'find . -name "*.tmp" -delete' },         'danger'],
   ['Bash',  { command: 'python3 script.py' },                    'write'],
   ['Bash',  { command: 'node server.js --port 3000' },           'write'],
+  // Свои серверы офиса и чужие серверы ролей: «начинается с mcp__» больше не
+  // значит «безопасно» — за префиксом стоит чужой файл Figma или сцена Blender.
+  ['mcp__team__assign_task', { taskId: 'T-1' },                  'safe'],
+  ['mcp__figma-bridge__get_document', {},                        'safe'],
+  ['mcp__figma-bridge__list_files', {},                          'safe'],
+  ['mcp__figma-bridge__create_frame', { name: 'Hero' },          'write'],
+  ['mcp__figma-bridge__set_text_content', { text: 'x' },         'write'],
+  ['mcp__figma-bridge__save_screenshots', { dir: '/tmp' },       'write'],
+  ['mcp__figma-bridge__delete_nodes', { ids: ['1:2'] },          'danger'],
+  ['mcp__figma-bridge__remove_animation_style', { id: '1:2' },   'danger'],
+  ['mcp__figma-bridge__ungroup_node', { id: '1:2' },             'danger'],
 ];
 
 // Пустой список кейсов дал бы «все 0 кейсов прошли» — зелёный прогон, в котором

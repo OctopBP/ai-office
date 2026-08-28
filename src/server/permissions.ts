@@ -22,6 +22,37 @@ const SAFE_TOOLS = new Set([
 const WRITE_TOOLS = new Set(['Write', 'Edit', 'NotebookEdit', 'MultiEdit']);
 
 /**
+ * Наши собственные MCP-серверы: `office` у исполнителя, `team` у менеджера.
+ * Их инструменты пишет сам офис, и опасного в них нет по построению — сказать
+ * фразу, отметить критерий, назначить задачу.
+ *
+ * Всё остальное под префиксом `mcp__` — чужой сервер из набора ролей
+ * (`server/mcp.ts`), и «наши инструменты безопасны» на него не
+ * распространяется: он ходит не в рабочую копию, а в чужие данные — в
+ * открытый файл Figma, в сцену Blender, в трекер, — где ни песочница, ни
+ * ветка задачи ничего не защищают.
+ */
+const OWN_MCP_SERVERS = new Set(['office', 'team']);
+
+/**
+ * Читающие инструменты внешнего сервера. Разбираем по имени: MCP не размечает
+ * инструменты по действию, а спрашивать про каждый просмотр документа — это
+ * та самая утопленная в подтверждениях работа, ради которой у Bash заведён
+ * список опасного, а не список всего подряд.
+ */
+const READ_MCP_TOOL = /^(get|list|read|search|find|fetch|describe|inspect)_/;
+
+/**
+ * Инструменты внешнего сервера, стирающие чужое. Их мало и они по имени
+ * узнаваемы, зато отменить их нечем: ветку задачи можно не мержить, а узел,
+ * удалённый в открытом файле Figma, офису уже не вернуть. Поэтому им `danger`,
+ * а не `write`, — в режиме «спрашивать только про необратимое» спрашивается
+ * именно `danger`, и с `write` весь разбор чужих серверов остался бы
+ * украшением.
+ */
+const DESTRUCTIVE_MCP_TOOL = /^(delete|remove|clear|drop|purge|reset|ungroup|detach|revert)_/;
+
+/**
  * Bash — основной источник опасных действий. Спрашиваем не про всякую команду
  * (иначе пользователь утонет в подтверждениях на ls и cat), а про те, что
  * необратимы или выходят за пределы проекта.
@@ -74,9 +105,27 @@ export function classify(
   projectDir: string,
   lang: Lang,
 ): Verdict {
-  // Наши собственные инструменты офиса безопасны по построению.
+  // Имя инструмента MCP — `mcp__<сервер>__<инструмент>`. Сервер отделяем от
+  // инструмента: своё от чужого различается именно сервером.
   if (toolName.startsWith('mcp__')) {
-    return { risk: 'safe', reason: '', summary: toolName, detail: '', key: toolName };
+    const [, server = '', ...rest] = toolName.split('__');
+    const short = rest.join('__');
+    if (OWN_MCP_SERVERS.has(server)) {
+      return { risk: 'safe', reason: '', summary: toolName, detail: '', key: toolName };
+    }
+    if (READ_MCP_TOOL.test(short)) {
+      return { risk: 'safe', reason: '', summary: `${server}: ${short}`, detail: '', key: toolName };
+    }
+    const destructive = DESTRUCTIVE_MCP_TOOL.test(short);
+    return {
+      risk: destructive ? 'danger' : 'write',
+      reason: t(lang, destructive ? 'perm.reason.mcpDestructive' : 'perm.reason.mcpWrite'),
+      summary: `${server}: ${short}`,
+      // Ключ «разрешать всегда» — полное имя инструмента: разрешив один раз
+      // create_frame, дизайнер не должен получить заодно delete_nodes.
+      detail: clip(JSON.stringify(input), 400),
+      key: toolName,
+    };
   }
 
   if (SAFE_TOOLS.has(toolName)) {
