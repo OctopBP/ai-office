@@ -3,7 +3,7 @@ import { clearTeamRequest, fire, hire, useStore } from './store';
 import { RoleEditor } from './RoleEditor';
 import { EmployeeCard } from './EmployeeCard';
 import { useActionNotice } from './useActionNotice';
-import { agentSpriteName, spriteOf } from './sprites';
+import { AgentAvatar, AvatarStage } from './office3d/AgentAvatar';
 import { catalog } from './layoutData';
 import { desks } from '../shared/layout';
 import { t } from './i18n';
@@ -27,7 +27,6 @@ type Selection =
 export function TeamWindow({ onClose }: { onClose: () => void }) {
   const roles = useStore((s) => s.roles);
   const instances = useStore((s) => s.instances);
-  const theme = useStore((s) => s.theme);
   const layout = useStore((s) => s.layout);
   const teamRequest = useStore((s) => s.teamRequest);
   const [selection, setSelection] = useState<Selection>(() => (
@@ -53,6 +52,9 @@ export function TeamWindow({ onClose }: { onClose: () => void }) {
   return (
     <div className="modal-backdrop" onClick={onClose}>
       <div className="team-window" onClick={(e) => e.stopPropagation()}>
+        {/* Общая сцена-портрет для всех аватарок ниже — см. `AgentAvatar.tsx`
+            про то, почему она одна на всё окно, а не по холсту на строку. */}
+        <AvatarStage />
         <header className="team-window-head">
           <h2>{t('hud.team')}</h2>
           <button className="sq" onClick={onClose} title={t('panel.close')}>✕</button>
@@ -100,9 +102,8 @@ export function TeamWindow({ onClose }: { onClose: () => void }) {
                       className={`team-role-row ${roleSelected ? 'selected' : ''}`}
                       onClick={() => setSelection({ kind: 'role', id: r.id })}
                     >
-                      <img
-                        className="team-avatar"
-                        src={spriteOf(theme, agentSpriteName(r.id, r.id, r.sprite))} alt=""
+                      <AgentAvatar
+                        roleId={r.id} instanceId={r.id} look={r.sprite} className="team-avatar"
                       />
                       <span className="team-title">
                         {r.title}
