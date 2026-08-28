@@ -225,7 +225,13 @@ export function AvatarStage() {
   return (
     <div className="avatar-stage" aria-hidden>
       <Boundary onError={setBroken}>
-        <Canvas gl={{ alpha: true, antialias: true }} dpr={[1, 1.5]}>
+        {/* `pointer-events: none` задан здесь, а не только у `.avatar-stage`:
+            обёртку холста r3f размечает своим inline-стилем с
+            `pointerEvents: 'auto'`, и он перебивает наследование от родителя
+            любой специфичностью. Без этого прозрачный холст во весь экран
+            съедает все клики по интерфейсу — работают одни хоткеи. */}
+        <Canvas gl={{ alpha: true, antialias: true }} dpr={[1, 1.5]}
+          style={{ pointerEvents: 'none' }}>
           <View.Port />
         </Canvas>
       </Boundary>
