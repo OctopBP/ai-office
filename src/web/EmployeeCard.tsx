@@ -4,7 +4,7 @@ import {
   openLayoutSettings, permissionSource, setAgentPermission, useStore,
 } from './store';
 import { t } from './i18n';
-import { usageLine } from './UsageModal';
+import { usageLine } from './money';
 import { Icon } from './icons';
 import { AgentAvatar } from './office3d/AgentAvatar';
 import type { PermissionMode } from '../shared/types';

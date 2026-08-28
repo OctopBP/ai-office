@@ -989,7 +989,7 @@ kbd {
 .panel header h2 { margin: 0; font-size: 15px; flex: none; }
 .panel header .muted { flex: 1; }
 .panel-body { display: flex; flex-direction: column; overflow: hidden; padding: 14px; min-height: 0; }
-.panel-body > .log, .panel-body > .board { overflow-y: auto; }
+.panel-body > .log, .panel-body > .board, .panel-body > .money-board { overflow-y: auto; }
 .panel-body > .merge-queue { overflow-y: auto; flex: 1; }
 .threads { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 12px; }
 .threads button { font-size: 12px; padding: 3px 10px; }
@@ -1127,6 +1127,45 @@ button.sq.on { background: var(--accent); color: var(--accent-ink); }
 .usage-row b { margin-left: auto; font-variant-numeric: tabular-nums; }
 .usage-lines { display: flex; flex-direction: column; gap: 3px; font-size: 12px; }
 .small { font-size: 11px; }
+
+/* ---------- доска расходов ----------
+   Расход живёт в панели, а не в модалке: его смотрят так же, как доску задач.
+   Поэтому заголовки секций описаны и здесь, а не только у `.modal h4`. */
+.money-board { display: flex; flex-direction: column; min-height: 0; }
+.money-board h4 {
+  margin: 16px 0 6px; font-size: 12px; text-transform: uppercase;
+  letter-spacing: .05em; color: var(--muted);
+}
+.money-board .modal-reason { margin-bottom: 8px; }
+.money-switch { display: flex; gap: 6px; }
+.money-switch button { font-size: 12px; padding: 3px 12px; }
+.money-switch button.on { background: var(--accent); color: var(--accent-ink); }
+
+/* Шкала лимита: цвет меняется на тех же порогах, на которых человек меняет
+   поведение, — до 75% думать не о чем, после 90% пора выбирать, на что тратить. */
+.limit-rows { display: flex; flex-direction: column; gap: 12px; margin-bottom: 8px; }
+.limit { display: flex; flex-direction: column; gap: 4px; }
+.limit-head { display: flex; align-items: baseline; gap: 10px; font-size: 13px; }
+.limit-head b { margin-left: auto; font-variant-numeric: tabular-nums; }
+.limit-head b.ok { color: var(--green); }
+.limit-head b.warn { color: var(--accent); }
+.limit-head b.hot { color: var(--red); }
+.limit-bar {
+  height: 10px; background: var(--panel-2); border: 1px solid var(--line);
+  border-radius: 5px; overflow: hidden;
+}
+.limit-fill { height: 100%; background: var(--green); transition: width .3s ease; }
+.limit-fill.warn { background: var(--accent); }
+.limit-fill.hot { background: var(--red); }
+
+/* Строка задачи кликабельна — она ведёт в карточку, поэтому это кнопка;
+   от кнопки ей нужно только нажатие, вид остаётся строкой таблицы. */
+.usage-row.task-row {
+  width: 100%; text-align: left; font: inherit; color: inherit; cursor: pointer;
+  background: none; border: none; border-bottom: 1px solid var(--line-soft);
+  border-radius: 0;
+}
+.usage-row.task-row:hover { background: var(--panel-2); }
 
 /* ================= офисы и облако ================= */
 .hotspot.door { padding: 0; border: none; background: none; }

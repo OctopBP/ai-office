@@ -30,12 +30,14 @@ Node + TypeScript, React 19 + Zustand на фронте, `ws` для связи,
 | `src/server/roles.ts` | Роли: промпт, модель, лимит клонов, изоляция |
 | `src/server/offices.ts` | Реестр офисов: офис = проект со своей директорией и состоянием |
 | `src/server/permissions.ts` | Классификатор риска вызова инструмента |
+| `src/server/limits.ts` | Лимиты плана подписки: проценты и время сброса из событий SDK |
 | `src/server/git.ts` | Ветки, worktree, коммиты, слияние |
 | `src/server/cloud.ts` | Облачный режим на Managed Agents (написан, вживую не проверен) |
 | `src/server/index.ts` | HTTP + WebSocket, раздача собранного веба, команды от клиента |
 | `src/shared/types.ts` | Контракт между сервером и вебом |
 | `src/shared/looks.ts` | Внешности агентов: скины персонажа плюс спрайты для плоского офиса |
 | `src/web/Office.tsx` | Рендер комнаты и человечков |
+| `src/web/MoneyBoard.tsx` | Доска расходов: счёт за день, по задачам, шкалы лимитов |
 | `design/sprites/gen.py` | Генератор пиксель-спрайтов (темы day и night) |
 
 ## Несколько репозиториев

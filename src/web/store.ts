@@ -4,10 +4,10 @@ import type {
   MergeCheck, MergeCheckState, MergeRun, MergeStep, MergeStepStatus, PermissionDecision,
   PermissionMode, PermissionRequest, MeetingView, RoleDraft, RoleEditable, RoleOp, RoleView,
   ServerEvent, Settings, TaskView, Usage, CloudStatus, OfficeView, PullRequestView, PrStage,
-  EpicView,
+  EpicView, LimitsView,
 } from '../shared/types';
 import {
-  emptyUsage, isOfficeSender,
+  emptyLimits, emptyUsage, isOfficeSender,
   MAX_OFFICE_WORKERS, MAX_TASK_MAX_TURNS, MIN_OFFICE_WORKERS, MIN_TASK_MAX_TURNS,
 } from '../shared/types';
 import { asLang, type Lang } from '../shared/i18n';
@@ -110,6 +110,12 @@ interface State {
   /** Расход офиса за всё время и по дням — для HUD и панели расходов. */
   usage: Usage;
   usageDays: DayUsage[];
+  /**
+   * Лимиты плана подписки: сколько окон съедено и когда они обнулятся.
+   * Приезжают от SDK по ходу работы, поэтому до первой сессии их может не
+   * быть вовсе — `available: false` это не «ноль», а «такого счётчика нет».
+   */
+  limits: LimitsView;
   projectDir: string;
   authSource: 'subscription' | 'api-key' | 'unknown';
   roles: RoleView[];
@@ -247,6 +253,7 @@ export const useStore = create<State>((set, get) => ({
   cloud: { hasKey: false, hasToken: false },
   usage: emptyUsage(),
   usageDays: [],
+  limits: emptyLimits(),
   projectDir: '',
   authSource: 'unknown',
   roles: [],
@@ -373,7 +380,7 @@ export const useStore = create<State>((set, get) => ({
           chat: e.chat, log: e.log, permissions: e.permissions, settings: e.settings,
           layouts: e.layouts, layout: e.layout, layoutOverride: e.layoutOverride,
           projectDir: e.projectDir, authSource: e.authSource, meeting: e.meeting, busy: e.busy,
-          paused: e.paused, usage: e.usage.total, usageDays: e.usage.days,
+          paused: e.paused, usage: e.usage.total, usageDays: e.usage.days, limits: e.limits,
           offices: e.offices, cloud: e.cloud,
           mergeChecks: Object.fromEntries(e.mergeChecks.map((c) => [c.taskId, c])),
           mergeRun: e.mergeRun,
@@ -523,6 +530,9 @@ export const useStore = create<State>((set, get) => ({
         break;
       case 'usage':
         set({ usage: e.total, usageDays: e.days });
+        break;
+      case 'limits':
+        set({ limits: e.limits });
         break;
       case 'roles':
         set({ roles: e.roles });

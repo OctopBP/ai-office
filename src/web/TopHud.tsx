@@ -13,8 +13,8 @@ const ACCESS_ICON: Record<string, IconName> = {
   readonly: 'ban',
 };
 
-export function TopHud({ onSettings, onMeeting, onHelp, onUsage, onMergeQueue, onTeam }: {
-  onSettings: () => void; onMeeting: () => void; onHelp: () => void; onUsage: () => void;
+export function TopHud({ onSettings, onMeeting, onHelp, onMoney, onMergeQueue, onTeam }: {
+  onSettings: () => void; onMeeting: () => void; onHelp: () => void; onMoney: () => void;
   onMergeQueue: () => void; onTeam: () => void;
 }) {
   const instances = useStore((s) => s.instances);
@@ -56,7 +56,7 @@ export function TopHud({ onSettings, onMeeting, onHelp, onUsage, onMergeQueue, o
         <span className="hud-sep" />
 
         <div className="hud-group hud-center">
-          <button className={`hud-btn hud-money ${over ? 'over' : ''}`} onClick={onUsage}
+          <button className={`hud-btn hud-money ${over ? 'over' : ''}`} onClick={onMoney}
             title={t('hud.money.hint', { today: money(today), total: money(usage.costUsd) })
               + (settings.globalBudgetUsd !== null
                 ? t('hud.money.cap', { cap: money(settings.globalBudgetUsd) })

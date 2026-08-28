@@ -16,7 +16,7 @@ import { PermissionModal } from './PermissionModal';
 import { DiffPanel } from './DiffPanel';
 import { SettingsModal } from './SettingsModal';
 import { MeetingModal } from './MeetingModal';
-import { UsageModal } from './UsageModal';
+import { MoneyBoard } from './MoneyBoard';
 import { OfficesModal } from './OfficesModal';
 import { MenuScreen } from './MenuScreen';
 import { AvatarStage } from './office3d/AgentAvatar';
@@ -24,8 +24,8 @@ import { closeDiff, connect, setPaused, useStore } from './store';
 import { isOfficeSender } from '../shared/types';
 import { t } from './i18n';
 
-type PanelKind = 'chat' | 'board' | 'log' | 'help' | 'merge' | null;
-type ModalKind = 'settings' | 'meeting' | 'usage' | 'offices' | 'team' | null;
+type PanelKind = 'chat' | 'board' | 'money' | 'log' | 'help' | 'merge' | null;
+type ModalKind = 'settings' | 'meeting' | 'offices' | 'team' | null;
 
 export function App() {
   const theme = useStore((s) => s.theme);
@@ -104,6 +104,9 @@ export function App() {
       // заняты выбором агента, поэтому ноль.
       if (k === '0') { setRender3d(!render3d); return; }
       if (k === 'b' || k === 'и') setPanel('board');
+      // E — доска расходов. Буква занята под «expenses»/«расходы»: свободных
+      // мнемоничных клавиш немного, а «$» на русской раскладке не набрать.
+      else if (k === 'e' || k === 'у') setPanel('money');
       else if (k === 'l' || k === 'д') setPanel('log');
       else if (k === 'm' || k === 'ь') setModal('meeting');
       else if (k === 'q' || k === 'й') setPanel('merge');
@@ -135,7 +138,7 @@ export function App() {
         onSettings={() => setModal('settings')}
         onMeeting={() => setModal('meeting')}
         onHelp={() => setPanel('help')}
-        onUsage={() => setModal('usage')}
+        onMoney={() => setPanel('money')}
         onMergeQueue={() => setPanel('merge')}
         onTeam={() => setModal('team')}
       />
@@ -154,6 +157,11 @@ export function App() {
       {panel === 'board' && (
         <Panel title={t('panel.board')} wide size="board" hint="B" onClose={() => setPanel(null)}>
           <Board />
+        </Panel>
+      )}
+      {panel === 'money' && (
+        <Panel title={t('panel.money')} wide hint="E" onClose={() => setPanel(null)}>
+          <MoneyBoard />
         </Panel>
       )}
       {panel === 'merge' && (
@@ -187,7 +195,8 @@ export function App() {
             <p>{t('help.office')}</p>
             <p><kbd>ENTER</kbd> — {t('help.enter')}</p>
             <p>
-              <kbd>B</kbd> — {t('hint.board')}, <kbd>L</kbd> — {t('hint.log')},{' '}
+              <kbd>B</kbd> — {t('hint.board')}, <kbd>E</kbd> — {t('hint.money')},{' '}
+              <kbd>L</kbd> — {t('hint.log')},{' '}
               <kbd>M</kbd> — {t('hint.meeting')}, <kbd>SPACE</kbd> — {t('hint.pause')},{' '}
               <kbd>1–9</kbd> — {t('help.keys.agent')}, <kbd>ESC</kbd> — {t('help.keys.esc')},{' '}
               <kbd>0</kbd> — {t('help.keys.render')}.
@@ -217,7 +226,6 @@ export function App() {
       <PermissionModal />
       {modal === 'settings' && <SettingsModal onClose={() => setModal(null)} />}
       {modal === 'meeting' && <MeetingModal onClose={() => setModal(null)} />}
-      {modal === 'usage' && <UsageModal onClose={() => setModal(null)} />}
       {modal === 'offices' && <OfficesModal onClose={() => setModal(null)} />}
       {modal === 'team' && <TeamWindow onClose={() => setModal(null)} />}
     </div>

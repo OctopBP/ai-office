@@ -11,7 +11,8 @@ import type {
 } from '../shared/types';
 import { OFFICE_SENDER } from '../shared/types';
 import {
-  emptyUsage, DEFAULT_OFFICE_WORKERS, MAX_OFFICE_WORKERS, MAX_ROLE_INSTANCES, MAX_TASK_MAX_TURNS,
+  dayKey, emptyUsage,
+  DEFAULT_OFFICE_WORKERS, MAX_OFFICE_WORKERS, MAX_ROLE_INSTANCES, MAX_TASK_MAX_TURNS,
   MIN_OFFICE_WORKERS, MIN_ROLE_INSTANCES, MIN_TASK_MAX_TURNS, ROLE_TITLE_LIMIT,
   DEFAULT_FOCUS_EPICS, MAX_FOCUS_EPICS, MIN_FOCUS_EPICS,
 } from '../shared/types';
@@ -25,6 +26,7 @@ import {
   layoutTitle, type DeskPlan,
 } from './layout';
 import { repoProblem } from './git';
+import { limitsView, noteRateLimit as recordRateLimit, type RateLimitInfo } from './limits';
 import { currentOffice, offices } from './offices';
 import { effectiveMode, isPermissionMode, modeLabel } from './permissions';
 import type { MessageQueue } from './queue';
@@ -260,13 +262,6 @@ function sanitizeOverrides(raw: Record<string, LayoutOverride> | undefined): Rec
   return clean;
 }
 
-/** Ключ дня в местном времени: расход «за сегодня» считается по часам пользователя. */
-export function dayKey(at = Date.now()): string {
-  const d = new Date(at);
-  const pad = (n: number) => String(n).padStart(2, '0');
-  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
-}
-
 /** Складывает расход в накопитель. Возвращает его же — удобно в цепочках. */
 function accumulate(into: Usage, delta: Usage): Usage {
   into.costUsd += delta.costUsd;
@@ -380,6 +375,13 @@ export interface Task {
   startedAt: number | null;
   finishedAt: number | null;
   usage: Usage;
+  /**
+   * Расход задачи по дням, ключ — 'ГГГГ-ММ-ДД'. Как у агента: задача живёт
+   * дольше суток, и без журнала «сколько ушло на неё сегодня» не ответить.
+   * В сохранениях, сделанных до доски расходов, поля нет — там пустой журнал,
+   * и придумывать ему дни офис не станет.
+   */
+  daily: Record<string, Usage>;
 }
 
 interface Pending {
@@ -1145,8 +1147,8 @@ export class OfficeState {
   }
 
   /**
-   * Записать расход сессии. Одно и то же попадает в четыре места:
-   * задача, агент, день агента и офис. «Сколько стоила задача»,
+   * Записать расход сессии. Одно и то же попадает в шесть мест: задача, день
+   * задачи, агент, день агента, офис и день офиса. «Сколько стоила задача»,
    * «сколько стоил агент» и «сколько потрачено сегодня» — разные вопросы,
    * и ответ на каждый нужен в своём месте интерфейса.
    */
@@ -1159,6 +1161,11 @@ export class OfficeState {
       const task = this.tasks.get(inst.currentTaskId);
       if (task) {
         accumulate(task.usage, delta);
+        // День задачи считается отдельно, а не выводится из даты завершения:
+        // работа над задачей переходит через полночь, и «сколько она стоила
+        // сегодня» у такой задачи иначе не спросить.
+        accumulate(dayOf(task.daily, day), delta);
+        trimJournal(task.daily);
         this.emit({ t: 'task', task: toTaskView(task) });
       }
     }
@@ -1173,6 +1180,16 @@ export class OfficeState {
     trimJournal(this.daily);
     this.emit({ t: 'usage', total: this.usage, days: this.usageDays() });
     this.markDirty();
+  }
+
+  /**
+   * SDK рассказал, сколько лимита плана съедено. Само хранилище — общее на
+   * процесс (`limits.ts`): лимит принадлежит аккаунту, а не офису. Событие
+   * шлём только когда цифры и правда изменились: `rate_limit_event` прилетает
+   * на каждый ответ модели, и рассылать в UI одно и то же незачем.
+   */
+  noteRateLimit(info: RateLimitInfo): void {
+    if (recordRateLimit(info)) this.emit({ t: 'limits', limits: limitsView() });
   }
 
   /** История расходов офиса по дням, от старых к новым. */
@@ -1233,6 +1250,7 @@ export class OfficeState {
       startedAt: null,
       finishedAt: null,
       usage: emptyUsage(),
+      daily: {},
     };
     this.tasks.set(task.id, task);
     this.emit({ t: 'task', task: toTaskView(task) });
@@ -2226,6 +2244,7 @@ export class OfficeState {
       busy: this.busy,
       paused: this.paused,
       usage: { total: this.usage, days: this.usageDays() },
+      limits: limitsView(),
       offices: officeViews(),
       layouts: this.layouts(),
       layout: this.layout(),
@@ -2288,6 +2307,7 @@ export const toTaskView = (t: Task): TaskView => ({
   interrupted: t.interrupted, createdAt: t.createdAt,
   startedAt: t.startedAt, finishedAt: t.finishedAt,
   usage: t.usage,
+  today: t.daily?.[dayKey()] ?? emptyUsage(),
 });
 
 /**
@@ -2343,8 +2363,12 @@ function migrateTask(raw: Task & {
   // Сохранения до плана не знают ни фичи, ни порядка, ни зависимостей.
   // Отсутствие — это «задача вне плана»: такая раздаётся сразу, как и
   // раздавалась, и ничьей готовности не ждёт.
+  // Журнала по дням в старых сохранениях нет, и восстановить его из общей
+  // суммы нельзя: разложить её по прошедшим дням было бы выдумкой. Пустой
+  // журнал честнее — «за сегодня» у такой задачи ноль, пока она не поработает.
   return {
-    ...raw, criteria, usage, interrupted: raw.interrupted ?? false, attention: raw.attention ?? null,
+    ...raw, criteria, usage, daily: raw.daily ?? {},
+    interrupted: raw.interrupted ?? false, attention: raw.attention ?? null,
     workerSessionId: raw.workerSessionId ?? null, reviewerSessionId: raw.reviewerSessionId ?? null,
     epicId: raw.epicId ?? null, order: raw.order ?? 0, dependsOn: raw.dependsOn ?? [],
   };

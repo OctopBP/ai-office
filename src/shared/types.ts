@@ -114,9 +114,77 @@ export interface DayUsage {
   usage: Usage;
 }
 
+/**
+ * Ключ дня в местном времени: расход «за сегодня» считается по часам
+ * пользователя. Общий с вебом намеренно — доска расходов ищет в журнале
+ * сегодняшний день по тому же ключу, которым офис его туда записал.
+ */
+export function dayKey(at = Date.now()): string {
+  const d = new Date(at);
+  const pad = (n: number) => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+}
+
 export const emptyUsage = (): Usage => ({
   costUsd: 0, tokensIn: 0, tokensOut: 0, cacheRead: 0, cacheWrite: 0,
 });
+
+/**
+ * Окно лимита плана подписки: пятичасовое, недельное и недельные по моделям.
+ * Названия — те же, что присылает SDK: перекладывать их в свои значило бы
+ * заводить второй словарь ради красоты и разъезжаться с ним при следующем
+ * окне, которое Anthropic добавит.
+ */
+export type LimitKind =
+  | 'five_hour'
+  | 'seven_day'
+  | 'seven_day_opus'
+  | 'seven_day_sonnet'
+  | 'seven_day_overage_included'
+  | 'overage';
+
+/** Порядок показа окон: сначала то, во что упираются раньше всего. */
+export const LIMIT_ORDER: LimitKind[] = [
+  'five_hour', 'seven_day', 'seven_day_opus', 'seven_day_sonnet',
+  'seven_day_overage_included', 'overage',
+];
+
+export interface LimitWindow {
+  kind: LimitKind;
+  /** Сколько окна съедено, 0–100. */
+  utilization: number;
+  /** Когда окно обнулится, мс эпохи. null — SDK не сказал когда. */
+  resetsAt: number | null;
+  /** Когда офис слышал про это окно в последний раз. */
+  updatedAt: number;
+}
+
+/**
+ * Лимиты плана — то, во что упирается работа офиса помимо денег. Считает их
+ * не офис: цифры приезжают событиями `rate_limit_event` из SDK, то есть
+ * появляются только когда кто-то работает, и до первой сессии их просто нет.
+ */
+export interface LimitsView {
+  /**
+   * Лимиты плана вообще применимы. При работе по ключу API их нет — там
+   * потолок только денежный, и пустая шкала означала бы «не израсходовано»,
+   * хотя правильный ответ «такого счётчика не существует».
+   */
+  available: boolean;
+  windows: LimitWindow[];
+  /** Что SDK сказал про последний запрос: прошёл, прошёл на грани, отбит. */
+  status: 'allowed' | 'allowed_warning' | 'rejected' | null;
+  /** Когда офис последний раз слышал про лимиты. null — ни разу. */
+  updatedAt: number | null;
+}
+
+export const emptyLimits = (): LimitsView => ({
+  available: false, windows: [], status: null, updatedAt: null,
+});
+
+/** Окно уже сброшено: время сброса прошло, а свежих цифр ещё не приезжало. */
+export const limitReset = (w: LimitWindow, now = Date.now()): boolean =>
+  w.resetsAt !== null && w.resetsAt <= now;
 
 /** Пункт критерия готовности: исполнитель отмечает их по ходу работы. */
 export interface Criterion {
@@ -511,6 +579,12 @@ export interface TaskView {
   finishedAt: number | null;
   /** Расход именно на эту задачу, а не на агента вообще. */
   usage: Usage;
+  /**
+   * Он же за сегодня. Отдельным полем, а не вычетом из `usage`: задача живёт
+   * дольше суток, и «сколько она стоила сегодня» иначе пришлось бы угадывать
+   * по дате завершения — у идущей второй день задачи такой даты ещё нет.
+   */
+  today: Usage;
 }
 
 /**
@@ -710,6 +784,8 @@ export type ServerEvent =
       settings: Settings; projectDir: string; authSource: AuthSource;
       meeting: MeetingView | null; busy: boolean; paused: boolean;
       usage: { total: Usage; days: DayUsage[] };
+      /** Лимиты плана подписки: сколько окон съедено и когда они обнулятся. */
+      limits: LimitsView;
       offices: OfficeView[]; cloud: CloudStatus;
       /**
        * Из чего можно выбирать раскладку. Список читается с диска на каждый
@@ -749,6 +825,7 @@ export type ServerEvent =
   | { t: 'office.error'; op: OfficeOp; officeId: string | null; message: string }
   | { t: 'cloud'; cloud: CloudStatus }
   | { t: 'usage'; total: Usage; days: DayUsage[] }
+  | { t: 'limits'; limits: LimitsView }
   | { t: 'roles'; roles: RoleView[] }
   /**
    * Отказ по операции с ролью — тому клиенту, который её просил. Ошибки

@@ -7,7 +7,7 @@ import {
 import { locale, t, t as tr } from './i18n';
 import { useActionNotice } from './useActionNotice';
 import { AgentAvatar } from './office3d/AgentAvatar';
-import { usageLine } from './UsageModal';
+import { usageLine } from './money';
 import { Icon, type IconName } from './icons';
 import type { Criterion, PermissionMode, TaskView } from '../shared/types';
 

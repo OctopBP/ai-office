@@ -3,10 +3,11 @@ import { useStore } from './store';
 import { locale, t } from './i18n';
 import { Icon } from './icons';
 
-const HINT_KEYS: Array<[string, 'hint.pm' | 'hint.board' | 'hint.log' | 'hint.meeting'
-  | 'hint.merge' | 'hint.pause' | 'hint.close' | 'hint.agent']> = [
+const HINT_KEYS: Array<[string, 'hint.pm' | 'hint.board' | 'hint.money' | 'hint.log'
+  | 'hint.meeting' | 'hint.merge' | 'hint.pause' | 'hint.close' | 'hint.agent']> = [
   ['ENTER', 'hint.pm'],
   ['B', 'hint.board'],
+  ['E', 'hint.money'],
   ['L', 'hint.log'],
   ['M', 'hint.meeting'],
   ['Q', 'hint.merge'],

@@ -289,6 +289,15 @@ function consume(
     return;
   }
 
+  // Лимит плана подписки. Событие приходит само по ходу работы — своих
+  // запросов офис за ним не делает: спрашивать SDK о лимите можно только на
+  // живой сессии, а поднимать её ради шкалы значит тратить лимит, чтобы на
+  // него посмотреть.
+  if (msg.type === 'rate_limit_event') {
+    state.noteRateLimit(msg.rate_limit_info);
+    return;
+  }
+
   if (msg.type === 'result') {
     const usage = 'usage' in msg ? msg.usage : undefined;
     // Кеш держим отдельной строкой, а не подмешиваем во ввод: он в разы
@@ -1907,7 +1916,7 @@ export async function retryTask(state: OfficeState, taskId: string): Promise<boo
     status: 'backlog', assigneeId: null, result: null, files: [],
     branch: null, baseBranch: null, worktreePath: null, merged: false,
     interrupted: false, attention: null,
-    startedAt: null, finishedAt: null, usage: emptyUsage(),
+    startedAt: null, finishedAt: null, usage: emptyUsage(), daily: {},
     // Отметки прошлой попытки к новой не относятся: работа начинается с нуля.
     criteria: task.criteria.map((c) => ({ ...c, done: false })),
   });
