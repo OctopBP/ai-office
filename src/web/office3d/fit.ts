@@ -19,6 +19,11 @@
  *   их измерить неоткуда, и живут они здесь.
  *
  * Значения в тайлах (тайл — 0.75 м), как и вся остальная геометрия сцены.
+ *
+ * Здесь только то, что относится к фигуре и клипам. Поправки посадки за
+ * конкретным предметом уехали в его пресет (`design/presets/<id>/preset.json`):
+ * это свойство предмета, а не фигуры, и место ему рядом с моделью, которую
+ * оно доводит.
  */
 import { create } from 'zustand';
 import raw from '../../../design/fit.json';
@@ -38,13 +43,6 @@ export interface PoseFit {
   offset: [number, number, number];
   /** Тянуть ли кисти к рабочей поверхности (IK). Только там, где поверхность есть. */
   reach?: boolean;
-}
-
-export interface PlaceFit {
-  /** Поправка к точке посадки за этим предметом: вправо, вверх, вперёд. */
-  seat: [number, number, number];
-  /** Высота рабочей поверхности вместо измеренной по модели; null — мерить. */
-  surface?: number | null;
 }
 
 export interface Fit {
@@ -87,7 +85,6 @@ export interface Fit {
     ikWeight: number;
   };
   poses: Record<string, PoseFit>;
-  places: Record<string, PlaceFit>;
 }
 
 /** Пределы ползунков стенда — они же границы, по которым чинится файл. */
@@ -143,11 +140,6 @@ export function fitNow(): Fit {
 /** Настройки позы; неизвестная поза ставится ступнями и без поправок. */
 export function poseFit(fit: Fit, pose: string): PoseFit {
   return fit.poses[pose] ?? { anchor: 'feet', offset: [0, 0, 0] };
-}
-
-/** Настройки места; предмет без своей строки — без поправок. */
-export function placeFit(fit: Fit, sprite: string | undefined): PlaceFit {
-  return (sprite ? fit.places[sprite] : undefined) ?? { seat: [0, 0, 0] };
 }
 
 /**

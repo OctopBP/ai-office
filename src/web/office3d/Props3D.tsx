@@ -20,10 +20,11 @@ import { catalog } from '../layoutData';
 import { DRAG_GRID, endDrag, rotateDrag, startDrag, updateDrag, useStore } from '../store';
 import type { Palette } from './palette';
 import { deskKey, PropLamp, useLitDesks } from './Lights3D';
-import { MODEL_URLS } from './models';
-import { MODEL_SCALE, PROPS } from './props';
-import { placeFit, useFit } from './fit';
-import type { ModelPart, Placed3, Prop3 } from './props';
+import { componentOf, type Part as PresetPart, type Tone } from '../../shared/preset';
+import { MODEL_KEYS, MODEL_LIST, keyOf, presetOf } from './presets';
+import { MODEL_SCALE } from './props';
+import { useFit } from './fit';
+import type { Placed3 } from './props';
 
 /** Шаг поворота колесом, градусы. Мелкий намеренно: прямые углы — не
  *  единственное, что бывает нужно, а набрать 90° шестью щелчками недолго. */
@@ -48,7 +49,12 @@ function SeatMarks() {
   const layout = useStore((s) => s.layout);
   const fit = useFit((s) => s.fit);
   const seats = useMemo(() => restSeats(layout, catalog).map((s) => {
-    const tune = placeFit(fit, s.sprite).seat;
+    // Поправка лежит у того компонента места, который на предмете есть: у
+    // дивана `seat`, у стола `work`. Показываем доведённое место, а не сырое
+    // из каталога: расставляя мебель, важно, куда человек сядет на самом деле.
+    const preset = presetOf(s.sprite);
+    const at = componentOf(preset, 'seat') ?? componentOf(preset, 'work');
+    const tune = at?.offset ?? [0, 0, 0];
     return {
       x: s.at.x + 0.5 + tune[0],
       y: tune[1],
@@ -125,7 +131,7 @@ const SLAB = 0.12;
 type Part = {
   pos: [number, number, number];
   size: [number, number, number];
-  tone?: Prop3['tone'];
+  tone?: Tone;
   /** Круглая деталь: цилиндр по габаритам вместо коробки. */
   round?: true;
 };
@@ -139,7 +145,7 @@ type Parts = Part[];
 function partsOf(item: Placed3): Parts {
   const { w, d, h } = item;
 
-  switch (item.def.shape) {
+  switch (item.def.fallback) {
     case 'desk':
       return [
         // столешница
@@ -224,11 +230,8 @@ function partsOf(item: Placed3): Parts {
   }
 }
 
-/** Загруженные сцены набора по имени файла. */
+/** Загруженные сцены по каноническому ключу `<пресет>/<часть>`. */
 const ModelsContext = createContext<Record<string, THREE.Object3D>>({});
-
-const MODEL_NAMES = Object.keys(MODEL_URLS);
-const MODEL_LIST = MODEL_NAMES.map((n) => MODEL_URLS[n]);
 
 /**
  * Загрузка всего набора мебели одной точкой.
@@ -243,7 +246,7 @@ export function FurnitureModels({ children }: { children: React.ReactNode }) {
   const loaded = useLoader(GLTFLoader, MODEL_LIST) as unknown as { scene: THREE.Object3D }[];
   const map = useMemo(() => {
     const made: Record<string, THREE.Object3D> = {};
-    MODEL_NAMES.forEach((name, i) => { made[name] = loaded[i].scene; });
+    MODEL_KEYS.forEach((name, i) => { made[name] = loaded[i].scene; });
     return made;
   }, [loaded]);
   return <ModelsContext.Provider value={map}>{children}</ModelsContext.Provider>;
@@ -261,8 +264,10 @@ export function FurnitureModels({ children }: { children: React.ReactNode }) {
  * следу — который у нас посчитан по пиксельному арту — эту соразмерность бы
  * сломала. Стул рядом со столом должен быть стулом рядом со столом.
  */
-function PropModels({ parts, screen, lit }: {
-  parts: ModelPart[];
+function PropModels({ preset, parts, screen, lit }: {
+  /** Чей набор частей — ключ модели складывается из пресета и имени части. */
+  preset: string;
+  parts: PresetPart[];
   /**
    * Имя материала внутри модели, который надо заменить на светящийся, —
    * стекло монитора. Не задано — модель рисуется как есть.
@@ -289,7 +294,7 @@ function PropModels({ parts, screen, lit }: {
   const scale = useFit((s) => s.fit.figure.furniture);
 
   const objects = useMemo(() => parts.map((part) => {
-    const source = models[part.file];
+    const source = models[keyOf(preset, part)];
     if (!source) return null;
     const object = source.clone(true);
     object.scale.setScalar(MODEL_SCALE * scale);
@@ -329,7 +334,7 @@ function PropModels({ parts, screen, lit }: {
     holder.position.set(x, y, z);
     holder.rotation.y = ((part.rot ?? 0) * Math.PI) / 180;
     return holder;
-  }), [models, parts, screen, lit, scale]);
+  }), [models, preset, parts, screen, lit, scale]);
 
   return <>{objects.map((o, i) => (o ? <primitive key={i} object={o} /> : null))}</>;
 }
@@ -349,11 +354,16 @@ export function PropShape({ item, materials, lit }: {
   // Есть модель — примитивы не рисуем вовсе. Пока она грузится, место
   // остаётся пустым: показывать коробку, которую через миг заменят, значит
   // моргать мебелью на каждом открытии комнаты.
-  if (item.def.models) {
+  if (item.def.parts?.length) {
+    // Светящийся материал называет компонент `glow` — стекло монитора.
+    // Компонентов может быть несколько, но подменяем пока один: у набора
+    // Kenney у предмета один именованный материал экрана.
+    const glow = componentOf(item.def, 'glow');
     return (
       <PropModels
-        parts={item.def.models}
-        screen={lit ? item.def.screen : undefined}
+        preset={item.def.id}
+        parts={item.def.parts}
+        screen={lit ? glow?.material : undefined}
         lit={materials.screenOn}
       />
     );
@@ -369,7 +379,7 @@ function PrimitiveShape({ item, materials, lit }: {
   lit?: boolean;
 }) {
   const parts = useMemo(() => partsOf(item), [item]);
-  const flat = item.def.shape === 'slab';
+  const flat = item.def.fallback === 'slab';
   const base = item.def.tone ?? 'metal';
   return (
     <>
@@ -465,7 +475,7 @@ function Prop({ item, materials, palette, lit, editing, dragged, onGrab }: {
       {/* Лампа предмета — внутри его группы: она едет и поворачивается вместе
           с ним, и в редакторе расстановки свет переносится следом за
           торшером, а не остаётся светить в пустоту. */}
-      {(!item.def.lamp?.busy || lit) && <PropLamp item={item} palette={palette} />}
+      <PropLamp item={item} palette={palette} lit={!!lit} />
 
       {/* След предмета на полу — подсветка в редакторе. Показывает не только
           «этот предмет взят», но и сколько места он занимает: расставляя

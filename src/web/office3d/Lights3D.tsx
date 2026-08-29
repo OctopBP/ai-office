@@ -13,7 +13,7 @@
  *    делают комнату комнатой, а не сектором плана; сами по себе они
  *    невидимы: потолка в сцене нет, и вешать плафон не на что;
  *  - **лампы предметов** — торшер в лаунже, вывеска, экран автомата: пятна
- *    своего цвета там, где стоит предмет (`Prop3.lamp`);
+ *    своего цвета там, где стоит предмет (компонент `lamp` пресета);
  *  - **мониторы** — зажигаются, только пока за столом кто-то работает.
  *
  * Тени по-прежнему бросает одно солнце. Точечный источник с тенями — это
@@ -26,6 +26,7 @@ import * as THREE from 'three';
 import { useStore } from '../store';
 import type { Palette } from './palette';
 import { WALL_H, type Scene3 } from './geometry';
+import { componentsOf } from '../../shared/preset';
 import type { Placed3 } from './props';
 
 /**
@@ -176,27 +177,44 @@ export function CeilingLamps({ scene, palette, offset }: {
  * подмена его материала: у экрана светится стекло, а корпус вокруг остаётся
  * обычным тёмным пластиком, и разделить их можно только отдельной плашкой.
  */
-export function PropLamp({ item, palette }: { item: Placed3; palette: Palette }) {
-  const lamp = item.def.lamp;
-  if (!lamp) return null;
-  const cfg = palette.lamp[lamp.kind];
-  const [x, y, z] = lamp.at ?? [0, item.h / 2, item.d / 2 + 0.2];
+export function PropLamp({ item, palette, lit }: {
+  item: Placed3;
+  palette: Palette;
+  /** Работают ли за предметом — от этого зависят лампы с пометкой `busy`. */
+  lit: boolean;
+}) {
+  // Ламп у предмета может быть несколько: у автомата светится неоновая панель
+  // и подсвечен корпус. Прежнее одиночное поле `lamp` этого не позволяло, и
+  // вторую лампу негде было объявить.
+  const lamps = componentsOf(item.def, 'lamp').filter((l) => !l.busy || lit);
+  if (lamps.length === 0) return null;
 
   return (
     <>
-      {lamp.face && (
-        <mesh position={[0, item.h / 2, item.d / 2 + 0.015]}>
-          <planeGeometry args={[item.w * 0.86, item.h * 0.82]} />
-          <meshBasicMaterial color={cfg.glow ?? cfg.color} />
-        </mesh>
-      )}
-      <pointLight
-        position={[x, y, z]}
-        color={cfg.color}
-        intensity={cfg.intensity}
-        distance={cfg.distance}
-        decay={cfg.decay}
-      />
+      {lamps.map((lamp, i) => {
+        const cfg = palette.lamp[lamp.lamp];
+        const [x, y, z] = lamp.at ?? [0, item.h / 2, item.d / 2 + 0.2];
+        // `gain` — поправка к палитре, а не замена ей: цвет и радиус остаются
+        // за темой, которая различает день и ночь.
+        const intensity = cfg.intensity * (lamp.gain ?? 1);
+        return (
+          <group key={i}>
+            {lamp.face && (
+              <mesh position={[0, item.h / 2, item.d / 2 + 0.015]}>
+                <planeGeometry args={[item.w * 0.86, item.h * 0.82]} />
+                <meshBasicMaterial color={cfg.glow ?? cfg.color} />
+              </mesh>
+            )}
+            <pointLight
+              position={[x, y, z]}
+              color={cfg.color}
+              intensity={intensity}
+              distance={cfg.distance}
+              decay={cfg.decay}
+            />
+          </group>
+        );
+      })}
     </>
   );
 }

@@ -31,6 +31,8 @@ import {
   buildRig, FOOT_DX, FOOT_DY, skinMaterial, useCharacter, useSkinMaterials, type Pose,
 } from './Agents3D';
 import { FIT_RANGE, saveFit, useFit, type Fit } from './fit';
+import { savePreset, usePresets } from './presets';
+import { componentOf } from '../../shared/preset';
 
 /** Тайл в сантиметрах — весь стенд говорит числами, понятными человеку. */
 const CM = 75;
@@ -275,6 +277,11 @@ export function FitBench() {
   const fit = useFit((s) => s.fit);
   const patch = useFit((s) => s.patch);
   const revert = useFit((s) => s.revert);
+  // Подписка на пресеты нужна именно здесь: поправка посадки теперь живёт в
+  // пресете предмета, и без подписки ползунок двигался бы, а фигура — нет.
+  const presets = usePresets((s) => s.presets);
+  const patchPreset = usePresets((s) => s.patch);
+  const revertPresets = usePresets((s) => s.revert);
   /**
    * Выбранный случай переживает перезагрузку: сохранение пишет файл, vite
    * замечает правку и перезагружает страницу — без этого стенд каждый раз
@@ -305,21 +312,51 @@ export function FitBench() {
     };
   }, []);
 
-  const place = fit.places[scene.sprite ?? ''] ?? { seat: [0, 0, 0] as [number, number, number] };
   const pose = fit.poses[scene.pose] ?? { anchor: 'feet', offset: [0, 0, 0] as [number, number, number] };
 
-  const setPlace = (i: number, v: number) => patch((f) => {
-    const key = scene.sprite;
-    if (!key) return f;
-    const row = f.places[key] ?? { seat: [0, 0, 0] };
-    row.seat[i] = v;
-    f.places[key] = row;
-    return f;
-  });
+  /**
+   * Компонент места у предмета сцены — у дивана `seat`, у стола `work`. Его
+   * поправку и крутят ползунки: за столом место одно, и посадка описана прямо
+   * в рабочем месте.
+   */
+  const preset = scene.sprite ? presets[scene.sprite] : undefined;
+  const seatComp = preset
+    ? componentOf(preset, 'seat') ?? componentOf(preset, 'work')
+    : undefined;
+  const offset = seatComp?.offset ?? [0, 0, 0];
+
+  /**
+   * Поправка едет во **все** места предмета сразу.
+   *
+   * У дивана их два, и разъехаться они не должны: поправка описывает, как
+   * модель стоит относительно точки посадки, — это свойство предмета, а не
+   * подушки. Так же работала и прежняя `fit.places[sprite].seat`, одна на
+   * предмет. Схема позволяет задать разные поправки по местам, и когда это
+   * понадобится, править их придётся руками — стенд для такого не годится:
+   * ползунок один, а мест несколько.
+   */
+  const setPlace = (i: number, v: number) => {
+    if (!scene.sprite) return;
+    patchPreset(scene.sprite, (p) => {
+      for (const c of p.components) {
+        if (c.type !== 'seat' && c.type !== 'work') continue;
+        const next: [number, number, number] = [...(c.offset ?? [0, 0, 0])];
+        next[i] = v;
+        c.offset = next;
+      }
+      return p;
+    });
+  };
 
   const save = () => {
-    saveFit(fit).then(
-      () => setSaved('записано в design/fit.json'),
+    // Два файла, потому что два сорта чисел: общее для фигуры — в `fit.json`,
+    // поправка этого предмета — в его пресете. Пишем оба разом: разделять
+    // кнопки значило бы заставить помнить, что где лежит.
+    const also = preset ? savePreset(preset) : Promise.resolve();
+    Promise.all([saveFit(fit), also]).then(
+      () => setSaved(preset
+        ? `записано в design/fit.json и design/presets/${preset.id}/`
+        : 'записано в design/fit.json'),
       (e: Error) => setSaved(e.message),
     );
   };
@@ -411,10 +448,10 @@ export function FitBench() {
 
         {scene.sprite && (
           <>
-            <h2>Место: {scene.sprite}</h2>
+            <h2>Место: {preset?.title ?? scene.sprite}</h2>
             {(['вправо', 'вверх', 'вперёд'] as const).map((name, i) => (
               <Slide
-                key={name} label={name} value={place.seat[i]} range={FIT_RANGE.offset}
+                key={name} label={name} value={offset[i]} range={FIT_RANGE.offset}
                 unit="cm" onChange={(v) => setPlace(i, v)}
               />
             ))}
@@ -423,7 +460,7 @@ export function FitBench() {
 
         <div className="fit-actions">
           <button className="fit-save" onClick={save}>Сохранить</button>
-          <button onClick={() => { revert(); setSaved(null); }}>Вернуть из файла</button>
+          <button onClick={() => { revert(); revertPresets(); setSaved(null); }}>Вернуть из файла</button>
         </div>
         {saved && <p className="fit-note">{saved}</p>}
         <p className="fit-note">

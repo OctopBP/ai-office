@@ -10,9 +10,9 @@
  */
 import type { Theme } from '../sprites';
 import type { Floor3 } from './geometry';
-import type { LampKind, Prop3 } from './props';
+import type { LampKind, Tone } from '../../shared/preset';
 
-type PropTone = NonNullable<Prop3['tone']>;
+type PropTone = Tone;
 
 export interface Palette {
   /** фон за пределами комнаты */

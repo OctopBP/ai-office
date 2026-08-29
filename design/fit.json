@@ -9,7 +9,7 @@
     "clipSpeed": null
   },
   "seated": {
-    "hipsOverSeat": 0.09,
+    "hipsOverSeat": 0,
     "handsOverSurface": 0.04,
     "ik": true,
     "ikWeight": 1
@@ -43,23 +43,6 @@
     "game": {
       "anchor": "hips",
       "offset": [0, 0, 0]
-    }
-  },
-  "places": {
-    "desk": {
-      "seat": [0, 0, 0]
-    },
-    "desk_pm": {
-      "seat": [0, 0, 0]
-    },
-    "sofa": {
-      "seat": [0, 0, 0]
-    },
-    "loveseat": {
-      "seat": [0, 0, 0]
-    },
-    "armchair": {
-      "seat": [0, 0, 0]
     }
   }
 }

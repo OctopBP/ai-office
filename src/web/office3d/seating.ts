@@ -3,10 +3,10 @@
  *
  * Считается из трёх источников, и ни один не подобран на глаз:
  *
- * — **место** говорит, где сидят в плане (каталог, общий с плоским рендером);
+ * — **место** говорит, где сидят в плане (компонент `seat` или `work`);
  * — **мебель** говорит, на какой высоте у неё подушка и столешница — это
- *   замер по модели (`measure.ts`), а не габарит из каталога: в каталоге
- *   записан предмет целиком, а сесть надо на сиденье;
+ *   замер по модели (`measure.ts`), а не габарит предмета: в габарите записан
+ *   предмет целиком, а сесть надо на сиденье;
  * — **клип** говорит, где в этой позе таз относительно ступней, — тоже замер,
  *   потому что клипы нарисованы под человека обычного сложения, а перенесены
  *   на скелет с короткими ногами.
@@ -19,8 +19,9 @@
  * подгонки: показывать он должен ровно то, что окажется в комнате, а не
  * похожее.
  */
-import { PROPS } from './props';
-import { placeFit, poseFit, type Fit } from './fit';
+import { componentOf } from '../../shared/preset';
+import { presetOf, resolveRef } from './presets';
+import { poseFit, type Fit } from './fit';
 import type { ModelMeasure, PoseMeasure } from './measure';
 
 export interface Seating {
@@ -50,15 +51,27 @@ export function seatingFor(
   sprite: string | undefined,
   tall: number,
 ): Seating {
-  const def = sprite ? PROPS[sprite] : undefined;
-  const place = placeFit(fit, sprite);
+  const preset = sprite ? presetOf(sprite) : undefined;
   const rest = poseFit(fit, pose);
   const scale = fit.figure.furniture;
 
-  const seatY = def?.fit?.seat ? models[def.fit.seat]?.seat : undefined;
-  const surfaceY = place.surface ?? (def?.fit?.surface
-    ? models[def.fit.surface]?.surface
-    : undefined);
+  /**
+   * Чем сидят — берётся у того компонента места, который на этом предмете
+   * есть. У дивана это `seat`, у стола — `work`: за столом не два места, а
+   * одно, и посадка описана прямо в нём (см. `shared/preset.ts`).
+   */
+  const at = preset
+    ? componentOf(preset, 'seat') ?? componentOf(preset, 'work')
+    : undefined;
+  const offset = at?.offset ?? [0, 0, 0];
+
+  const seatY = preset && at?.on
+    ? at.height ?? models[resolveRef(preset, at.on)]?.seat
+    : undefined;
+  const surface = preset ? componentOf(preset, 'surface') : undefined;
+  const surfaceY = preset && surface
+    ? surface.height ?? models[resolveRef(preset, surface.on)]?.surface
+    : undefined;
 
   /**
    * Сидячая поза ставится тазом. Мест без замеренного сиденья это не
@@ -68,10 +81,10 @@ export function seatingFor(
   const sits = rest.anchor === 'hips' && seatY !== undefined;
   const lift: [number, number, number] = sits
     ? [
-      place.seat[0] + rest.offset[0] - shape.hips[0] * tall,
-      (seatY as number) * scale + fit.seated.hipsOverSeat + place.seat[1]
+      offset[0] + rest.offset[0] - shape.hips[0] * tall,
+      (seatY as number) * scale + fit.seated.hipsOverSeat + offset[1]
         + rest.offset[1] - shape.hips[1] * tall,
-      place.seat[2] + rest.offset[2] - shape.hips[2] * tall,
+      offset[2] + rest.offset[2] - shape.hips[2] * tall,
     ]
     : [...rest.offset];
 

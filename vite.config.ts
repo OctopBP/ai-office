@@ -14,7 +14,7 @@ import react from '@vitejs/plugin-react';
  * новыми умолчаниями — отдельного уведомления клиенту не нужно.
  */
 /**
- * Разложить числа подгонки в читаемый JSON.
+ * Разложить числа в читаемый JSON — и подгонку, и пресеты.
  *
  * Обычный `JSON.stringify` с отступом ставит каждый элемент массива на свою
  * строку, и координата `[0, 0.1, 0]` занимает пять строк вместо одной. Файл
@@ -58,6 +58,57 @@ function fitWriter(): Plugin {
   };
 }
 
+/**
+ * Запись пресета предмета из стенда в `design/presets/<id>/preset.json`.
+ *
+ * Отдельный маршрут от `/__fit`, потому что и файлы разные: подгонка фигуры
+ * общая, а поправка посадки принадлежит предмету. Разделять их обратно в один
+ * файл значило бы вернуть то, ради ухода от чего пресеты и заводились.
+ *
+ * `id` берётся из адреса и проверяется тем же образцом, что и схема
+ * (`^[a-z0-9_]+$`): в путь к файлу он попадает напрямую, и «пиши куда скажут»
+ * из браузера — не то, что должен уметь дев-сервер.
+ */
+function presetWriter(): Plugin {
+  const dir = resolve(import.meta.dirname, 'design/presets');
+  return {
+    name: 'office-preset-writer',
+    apply: 'serve',
+    configureServer(server) {
+      server.middlewares.use('/__preset', (req, res, next) => {
+        if (req.method !== 'POST') return next();
+        const id = (req.url ?? '').replace(/^\//, '').split('?')[0];
+        if (!/^[a-z0-9_]+$/.test(id)) {
+          res.statusCode = 400;
+          res.end(`недопустимый id: ${id}`);
+          return;
+        }
+        const chunks: Buffer[] = [];
+        req.on('data', (c: Buffer) => chunks.push(c));
+        req.on('end', () => {
+          const body = Buffer.concat(chunks).toString('utf8');
+          let text: string;
+          try {
+            const data = JSON.parse(body) as { id?: unknown };
+            // Пресет, записанный не в свою папку, ловится потом сверкой, но
+            // ловить его лучше здесь: диагноз понятнее, а файла ещё нет.
+            if (data.id !== id) throw new Error(`id внутри — «${String(data.id)}»`);
+            text = format(data);
+          } catch (e) {
+            res.statusCode = 400;
+            res.end(String(e));
+            return;
+          }
+          writeFile(resolve(dir, id, 'preset.json'), text, 'utf8').then(
+            () => { res.statusCode = 204; res.end(); },
+            (e: unknown) => { res.statusCode = 500; res.end(String(e)); },
+          );
+        });
+      });
+    },
+  };
+}
+
 export default defineConfig({
   root: 'src/web',
   // Собранный веб кладём в dist/ в корне проекта — оттуда его раздаёт сервер
@@ -72,5 +123,5 @@ export default defineConfig({
    */
   resolve: { dedupe: ['three'] },
   server: { port: 5173 },
-  plugins: [react(), fitWriter()],
+  plugins: [react(), fitWriter(), presetWriter()],
 });

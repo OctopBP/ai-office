@@ -64,7 +64,7 @@ function Spot({ spot, materials, palette, badge, onClick }: {
           комнаты, которые сами что-то показывают, и погашенными они читаются
           как две тёмные панели на стене. Свет вынесен из группы, которую
           раздувает наведение, — иначе бы он дёргался вместе с ней. */}
-      <PropLamp item={item} palette={palette} />
+      <PropLamp item={item} palette={palette} lit />
 
       <mesh
         position={[0, item.h / 2, 0]}

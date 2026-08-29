@@ -22,8 +22,8 @@ import { useLoader } from '@react-three/fiber';
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import { clone as cloneSkinned } from 'three/examples/jsm/utils/SkeletonUtils.js';
-import { MODEL_URLS } from './models';
 import { MODEL_SCALE } from './props';
+import { MODEL_KEYS, MODEL_LIST, PARTS } from './presets';
 
 /**
  * Имена костей — свойство конкретного набора, а не общее правило, поэтому
@@ -138,14 +138,6 @@ export function measurePoses<K extends string>(
  * модели, а не настройка: подушка у дивана там, где она нарисована, и
  * ползунком её не двигают. Высоту при этом не пишем — её и меряем.
  */
-const PROBE: Record<string, { seat?: [number, number]; surface?: [number, number] }> = {
-  chairDesk: { seat: [0, -0.15] },
-  loungeSofa: { seat: [0, -0.15] },
-  loungeChair: { seat: [0, -0.15] },
-  desk: { surface: [0, 0] },
-  tableCoffee: { surface: [0, 0] },
-};
-
 /** Высоты поверхностей модели в тайлах при масштабе набора «единица». */
 export interface ModelMeasure {
   seat?: number;
@@ -180,16 +172,16 @@ export function measureModel(source: THREE.Object3D): ModelMeasure {
     return ray.intersectObject(object, true)[0]?.point.y;
   };
 
-  const p = PROBE[source.name] ?? {};
+  // Куда целиться — свойство модели, и лежит оно при части пресета. Раньше
+  // здесь была таблица по имени файла: то же знание, но в другом файле, чем
+  // всё остальное про эту модель.
+  const p = PARTS[source.name]?.probe ?? {};
   return {
     seat: probe(p.seat),
     surface: probe(p.surface),
     size: [box.max.x - box.min.x, box.max.y - box.min.y, box.max.z - box.min.z],
   };
 }
-
-const MODEL_NAMES = Object.keys(MODEL_URLS);
-const MODEL_LIST = MODEL_NAMES.map((n) => MODEL_URLS[n]);
 
 /**
  * Замеры всего набора мебели.
@@ -214,7 +206,7 @@ export function useModelMeasures(): Record<string, ModelMeasure> {
     const hit = measured.get(loaded);
     if (hit) return hit;
     const made: Record<string, ModelMeasure> = {};
-    MODEL_NAMES.forEach((name, i) => {
+    MODEL_KEYS.forEach((name, i) => {
       const scene = loaded[i].scene;
       // `measureModel` ищет точку луча по имени — у загруженной сцены оно
       // своё, из файла, и совпадать с нашим не обязано.
