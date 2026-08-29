@@ -1,4 +1,5 @@
 {
+  "builtin": ["design", "artifact-capabilities"],
   "servers": [
     {
       "id": "figma-bridge",

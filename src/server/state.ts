@@ -189,7 +189,8 @@ const text = (value: unknown): string | undefined =>
  * терять из-за одной опечатки весь набор нельзя.
  */
 function sanitizeRole(raw: Partial<Role>, id: string, lang: Lang): Role {
-  const base = defaultRole(id, lang) ?? blankRole(id);
+  const builtin = defaultRole(id, lang);
+  const base = builtin ?? blankRole(id);
   const turns = sanitizeMaxTurns(raw.maxTurns);
   const mode = raw.permissionMode;
   return {
@@ -208,9 +209,18 @@ function sanitizeRole(raw: Partial<Role>, id: string, lang: Lang): Role {
     // Непригодный лимит ходов выкидываем: роль вернётся к офисному, а
     // остальные её настройки останутся на месте.
     maxTurns: turns === undefined ? (base.maxTurns ?? null) : turns,
-    tools: Array.isArray(raw.tools)
-      ? raw.tools.filter((t): t is string => typeof t === 'string')
-      : base.tools,
+    // Набор инструментов базовой роли берём из кода, а не из сохранения.
+    // Из UI он не правится (его нет в RoleEditable), то есть в файле лежит
+    // копия того, что код считал верным в день сохранения, — и роль, которой
+    // выдали новый инструмент, не получила бы его ни в одном уже заведённом
+    // офисе. Так дизайнер остался бы со скилом канваса и без оболочки, которой
+    // тот канвас собирается. У роли, заведённой руками, базового набора нет —
+    // там сохранение и есть единственный источник.
+    tools: builtin
+      ? builtin.tools
+      : (Array.isArray(raw.tools)
+        ? raw.tools.filter((t): t is string => typeof t === 'string')
+        : base.tools),
     docsDir: text(raw.docsDir) ?? base.docsDir,
     // Пустой repoDir — законное «общий репозиторий офиса», а не пропуск.
     repoDir: typeof raw.repoDir === 'string' ? raw.repoDir : base.repoDir,

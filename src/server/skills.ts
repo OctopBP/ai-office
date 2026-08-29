@@ -13,8 +13,9 @@
  *   employees/<роль>/
  *     .claude-plugin/plugin.json     имя, версия, описание
  *     skills/<скил>/SKILL.md         свои навыки
- *     pack.json                      ссылки на чужие плагины, отбор скилов и
- *                                    серверы, которые пакету нужны
+ *     pack.json                      ссылки на чужие плагины, отбор скилов,
+ *                                    встроенные навыки агента и серверы,
+ *                                    которые пакету нужны
  *
  * Чужие скилы пакет НЕ копирует, а ссылается на уже установленный плагин
  * (`use` в pack.json). Причина не техническая: готовые наборы приходят с
@@ -84,6 +85,19 @@ interface PackFile {
    * контексте всех её сессий.
    */
   skills?: string[];
+  /**
+   * Встроенные скилы Claude Code — те, что приезжают с самим агентом, а не
+   * из плагина: `design`, `artifact-capabilities`, `dataviz` и прочие.
+   *
+   * Поле нужно потому, что офис перечисляет скилы сессии поимённо, а
+   * перечисленный список ЗАМЕНЯЕТ умолчание «все найденные». То есть роль,
+   * у которой появился свой пакет, разом теряет всё встроенное — и пока
+   * этого поля не было, пакет с двумя навыками про Figma отнимал у дизайнера
+   * весь набор, который агент несёт с собой. Имя тут пишется как есть,
+   * без плагина в префиксе, и отбор `skills` на него не действует: отбирать
+   * из списка, который сам и есть список, нечего.
+   */
+  builtin?: string[];
   /** Серверы, без которых навыки пакета бесполезны. Офис их только предлагает. */
   servers?: McpServerDef[];
 }
@@ -205,9 +219,15 @@ export function employeePack(role: Role): EmployeePack | null {
   const broken = new Set(checked.problems.map((p) => p.id));
   const servers = checked.servers.filter((srv) => !broken.has(srv.id));
 
-  if (!plugins.length) return servers.length ? { dirs: [], skills: [], servers } : null;
-  const all = plugins.flatMap((p) => p.skills);
-  const skills = pack.skills?.length ? all.filter((s) => wanted(s, pack.skills!)) : all;
+  const fromPlugins = plugins.flatMap((p) => p.skills);
+  const picked = pack.skills?.length
+    ? fromPlugins.filter((s) => wanted(s, pack.skills!))
+    : fromPlugins;
+  // Встроенные идут следом за своими и на диске не проверяются: их даёт агент,
+  // а не папка, и увидеть их отсюда нечем. Ошибка в имени поэтому стоит ровно
+  // одного невидимого навыка — сессия молча не покажет его модели.
+  const builtin = (pack.builtin ?? []).map((s) => s.trim()).filter(Boolean);
+  const skills = [...picked, ...builtin];
   return skills.length || servers.length
     ? { dirs: plugins.map((p) => p.dir), skills, servers }
     : null;

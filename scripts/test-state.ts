@@ -339,6 +339,29 @@ async function main(): Promise<void> {
   unloadOfficeState('o-roleturns');
   wipe(junkFile);
 
+  // 7h. Набор инструментов базовой роли живёт в коде, а не в сохранении: из UI
+  // он не правится, и сохранённая копия старого набора означала бы, что новый
+  // инструмент не доедет ни до одного заведённого офиса — роль осталась бы со
+  // скилом и без того, чем он работает.
+  const toolsFile = resolve(tmpdir(), `office-test-roletools-${process.pid}.json`);
+  const toolsDir = resolve(tmpdir(), 'roletools-office');
+  save(toolsFile, () => ({
+    version: 1, projectDir: toolsDir, taskSeq: 0, tasks: [], chat: [], log: [],
+    instances: [], settings: { ...DEFAULT_SETTINGS }, savedAt: Date.now(),
+    roles: [{ ...defaultRole('design', 'ru')!, tools: ['Read', 'Write'] }],
+  }));
+  flushAll();
+  const toolsOffice = openOfficeState({
+    id: 'o-roletools', projectDir: toolsDir, stateFile: toolsFile,
+  }).state;
+  const designTools = toolsOffice.role('design')?.tools ?? [];
+  results.push(
+    `набор инструментов базовой роли взят из кода: ${
+      designTools.includes('Bash') && designTools.includes('Artifact')}`,
+  );
+  unloadOfficeState('o-roletools');
+  wipe(toolsFile);
+
   // 7h. Роли принадлежат офису, а не процессу: у каждого проекта свой набор,
   // он хранится в его состоянии и переживает перезапуск. Ломается тут первым
   // делом одно из двух — правка роли в одном офисе видна в другом, либо роль

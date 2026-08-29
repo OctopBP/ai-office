@@ -20,6 +20,7 @@ export const promptsRu: Record<keyof typeof promptsEn, string> = {
   'bubble.grep': 'грепает {what}',
   'bubble.todo': 'планирует',
   'bubble.search': 'гуглит {what}',
+  'bubble.artifact': 'публикует {what}',
   'bubble.createTask': 'создаёт задачу: {what}',
   'bubble.assignTask': 'назначает {what}',
   'bubble.finishTask': 'сдаёт работу',

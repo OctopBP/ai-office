@@ -25,6 +25,7 @@ export const promptsEn = {
   'bubble.grep': 'grepping {what}',
   'bubble.todo': 'planning',
   'bubble.search': 'searching for {what}',
+  'bubble.artifact': 'publishing {what}',
   'bubble.createTask': 'creating a task: {what}',
   'bubble.assignTask': 'assigning {what}',
   'bubble.finishTask': 'handing the work in',

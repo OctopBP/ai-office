@@ -69,6 +69,9 @@ makeRefPack('sneaky', { servers: [
   { id: 'leaky', transport: 'stdio', command: 'npx', env: { TOKEN: 'secret-123' } },
 ] });
 makeRefPack('picky', { use: [resolve(outside, 'vendor/*')], skills: ['beta'] });
+// Встроенные скилы агента: своего плагина у пакета может не быть вовсе.
+makeRefPack('builtinonly', { builtin: ['design', 'artifact-capabilities'] });
+makeRefPack('mixedbuiltin', { use: [resolve(outside, 'vendor/*')], skills: ['beta'], builtin: ['design'] });
 makeRefPack('broken', { use: [resolve(outside, 'нет-такого/*')] });
 
 const role = (id: string, tools?: string[]) => ({ ...blankRole(id), ...(tools ? { tools } : {}) });
@@ -100,6 +103,17 @@ check('маска берёт старшую версию',
   employeePack(role('refs'))?.dirs.map((d) => d.split('/').pop()), ['1.10.0']);
 check('pack.skills отбирает нужное', employeeSkills(role('picky')), ['vendor:beta']);
 check('ссылка в никуда — пакета нет', employeeSkills(role('broken')), undefined);
+
+// Встроенное перечисляется поимённо: список скилов сессии заменяет умолчание
+// «все найденные», и без этого поля пакет отнимал бы у роли встроенный набор.
+check('встроенные скилы без плагина',
+  employeeSkills(role('builtinonly')), ['design', 'artifact-capabilities']);
+check('пакет из одного встроенного не даёт плагина',
+  employeePlugins(role('builtinonly')), undefined);
+check('Skill дописан и ради встроенного',
+  sessionTools(role('builtinonly', ['Read'])), ['Read', 'Skill']);
+check('своё и встроенное складываются, отбор на встроенное не действует',
+  employeeSkills(role('mixedbuiltin')), ['vendor:beta', 'design']);
 check('чужой плагин тоже без своего MCP',
   employeePlugins(role('refs'))?.map((p) => p.skipMcpDiscovery), [true]);
 
@@ -141,6 +155,30 @@ if (process.env.SKILLS_LIVE === '1') {
   } finally {
     await session.interrupt().catch(() => {});
   }
+
+  // Встроенное имя в списке скилов — второй контракт SDK, и проверяется он
+  // только так. Список команд сессии тут не помощник: `design` есть в нём
+  // всегда, независимо от того, попал ли навык в промпт. Поэтому спрашиваем
+  // саму модель — видит она навык или нет.
+  const seen = query({
+    prompt: 'Перечисли ТОЛЬКО имена доступных тебе скилов через запятую. Ничего не вызывай.',
+    options: {
+      cwd: root,
+      systemPrompt: { type: 'preset', preset: 'claude_code' },
+      model: 'claude-haiku-4-5',
+      skills: employeeSkills(role('builtinonly')),
+      settingSources: [],
+      maxTurns: 1,
+    },
+  });
+  let answer = '';
+  for await (const msg of seen) {
+    if (msg.type === 'result' && msg.subtype === 'success') answer = msg.result ?? '';
+  }
+  const builtinOk = answer.includes('design');
+  if (!builtinOk) failed += 1;
+  console.log(`${builtinOk ? '  ok  ' : '  FAIL'} встроенный скил виден сессии`
+    + ` → ${answer.trim().slice(0, 120) || '(пусто)'}`);
 } else {
   console.log('\n  живая сессия пропущена (SKILLS_LIVE=1, чтобы проверить контракт SDK)');
 }

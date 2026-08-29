@@ -27,6 +27,7 @@ export const ru: Record<keyof typeof en, string> = {
   'perm.reason.write': 'запись в файл проекта',
   'perm.reason.bash': 'команда в оболочке',
   'perm.reason.unknownTool': 'незнакомый инструмент',
+  'perm.reason.artifact': 'публикует страницу в аккаунт claude.ai — работа уходит наружу',
   'perm.reason.mcpWrite': 'внешний инструмент меняет данные вне проекта',
   'perm.reason.mcpDestructive': 'внешний инструмент удаляет данные вне проекта — отменить это офис не сможет',
   'perm.mode.auto': 'полный доступ',

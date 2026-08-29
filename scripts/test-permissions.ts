@@ -38,6 +38,10 @@ const cases: Case[] = [
   ['Bash',  { command: 'find . -name "*.tmp" -delete' },         'danger'],
   ['Bash',  { command: 'python3 script.py' },                    'write'],
   ['Bash',  { command: 'node server.js --port 3000' },           'write'],
+  // Публикация макета наружу — как `git push`: спрашиваем даже в режиме
+  // «только про необратимое», потому что работа уходит с машины.
+  ['Artifact', { file_path: 'poster.html', title: 'Постер' },    'danger'],
+  ['Artifact', { action: 'list' },                               'danger'],
   // Свои серверы офиса и чужие серверы ролей: «начинается с mcp__» больше не
   // значит «безопасно» — за префиксом стоит чужой файл Figma или сцена Blender.
   ['mcp__team__assign_task', { taskId: 'T-1' },                  'safe'],

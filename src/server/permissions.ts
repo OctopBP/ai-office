@@ -167,6 +167,22 @@ export function classify(
     };
   }
 
+  // Публикация артефакта — единственный встроенный инструмент, отправляющий
+  // работу наружу: канвас макетов уезжает страницей в аккаунт claude.ai. Это
+  // тот же род действия, что `git push`, и риск у него тот же — `danger`:
+  // «спрашивать только про необратимое» обязано спросить именно здесь, а
+  // молча выпускать сделанное за пределы машины офис не должен.
+  if (toolName === 'Artifact') {
+    const what = input.title ?? input.file_path ?? input.url ?? input.action ?? '';
+    return {
+      risk: 'danger',
+      reason: t(lang, 'perm.reason.artifact'),
+      summary: `Artifact → ${clip(what, 70)}`,
+      detail: clip(JSON.stringify(input), 400),
+      key: 'Artifact',
+    };
+  }
+
   // Незнакомый инструмент — считаем пишущим, пусть решает пользователь.
   return {
     risk: 'write',

@@ -215,6 +215,9 @@ function toolBrief(name: string, input: Record<string, unknown>, lang: Lang): st
     case 'Grep':      return say('bubble.grep', clip(input.pattern, 30));
     case 'TodoWrite': return t(lang, 'bubble.todo');
     case 'WebSearch': return say('bubble.search', clip(input.query, 30));
+    // Публикация макета — заметное действие, и в пузыре у него своё слово:
+    // «неизвестный инструмент» над головой дизайнера ничего не объясняет.
+    case 'Artifact':  return say('bubble.artifact', clip(input.title ?? base(input.file_path), 30));
     default: {
       if (name.startsWith('mcp__')) {
         const short = name.split('__').pop() ?? name;
