@@ -178,7 +178,7 @@ def build_room(layout, root: bpy.types.Collection):
     return col
 
 
-def build_props(layout, catalog, root: bpy.types.Collection, models_dir: Path):
+def build_props(layout, catalog, root: bpy.types.Collection, presets_dir: Path):
     col = collection('Props', root)
     stash = bpy.data.collections.new('_models')   # не линкуется в сцену
     sources: dict[str, bpy.types.Object | None] = {}
@@ -192,10 +192,14 @@ def build_props(layout, catalog, root: bpy.types.Collection, models_dir: Path):
             col.objects.link(group)
 
             for part in item.models:
-                if part['file'] not in sources:
-                    path = models_dir / f'{part["file"]}.glb'
-                    sources[part['file']] = load_model(path, stash) if path.exists() else None
-                src = sources[part['file']]
+                # Ключ — `<пресет>/<файл>`, как и на клиенте: модели лежат в
+                # папках пресетов, и одно имя файла встречается в нескольких
+                # (`loungeSofa.glb` у дивана и у двухместного).
+                key = f'{item.sprite}/{part["file"]}'
+                if key not in sources:
+                    path = presets_dir / item.sprite / part['file']
+                    sources[key] = load_model(path, stash) if path.exists() else None
+                src = sources[key]
                 if not src:
                     continue
                 dup = bpy.data.objects.new(src.name, src.data)   # общие данные меша
@@ -325,7 +329,7 @@ def main():
 
     root = collection(preset)
     build_room(layout, root)
-    build_props(layout, catalog, root, root_dir / 'design' / 'models' / 'furniture')
+    build_props(layout, catalog, root, root_dir / 'design' / 'presets')
     build_markers(layout, catalog, root)
     build_nav(layout, catalog, root)
     build_view(layout)

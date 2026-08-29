@@ -14,6 +14,7 @@
     "smoke": "tsx scripts/smoke.ts",
     "probe": "tsx scripts/probe.ts",
     "scene": "bash scripts/scene.sh",
+    "model": "bash scripts/model.sh",
     "scene:check": "python3 tools/blender/inspect_glb.py",
     "test:perm": "tsx scripts/test-permissions.ts",
     "test:skills": "tsx scripts/test-skills.ts",

@@ -82,86 +82,43 @@ class Placed:
     tone: str = 'metal'
 
 
-# ── Таблица предметов. Список полей — из props.ts, PROPS. ────────────────────
+# ── Пресеты предметов ────────────────────────────────────────────────────────
+#
+# Раньше здесь лежала копия таблицы `PROPS` из `props.ts` — шестое по счёту
+# место, где был описан один и тот же диван, и после переноса в пресеты
+# (docs/design/office-presets/spec.md) единственное уцелевшее. Копия, за
+# которой больше нечему следить, расходится молча: клиент читает пресет, а
+# сцена в Blender собиралась бы по числам годичной давности.
+#
+# Теперь читаем те же файлы, что и клиент. Полей нужно немного — высота, след,
+# из чего собран, висит ли на стене, — и все они в пресете есть.
 
-DESK_MODELS = [
-    {'file': 'desk', 'rot': 180},
-    {'file': 'computerScreen', 'at': [-0.1, 1.02, 0.3], 'rot': 180},
-]
+PRESETS: dict[str, dict] = {}
 
-PROPS: dict[str, dict] = {
-    'desk': {'shape': 'desk', 'h': 1.0, 'tone': 'wood', 'models': DESK_MODELS},
-    'desk_pm': {'shape': 'desk', 'h': 1.0, 'tone': 'wood', 'models': DESK_MODELS},
-    'dining_table': {'shape': 'table', 'h': 1.0, 'tone': 'wood'},
-    'round_table': {'shape': 'round', 'h': 1.0, 'd': 1.375, 'tone': 'wood'},
-    'chair': {'shape': 'chair', 'h': 1.2, 'd': 0.65, 'tone': 'fabric',
-              'models': [{'file': 'chairDesk'}]},
 
-    'bookshelf': {'shape': 'cabinet', 'h': 2.5, 'd': 0.5, 'tone': 'wood'},
-    'server_rack': {'shape': 'cabinet', 'h': 2.5, 'd': 0.8, 'tone': 'metal'},
-    'arcade': {'shape': 'cabinet', 'h': 2.3, 'd': 0.9, 'tone': 'accent'},
+def load_presets(root: Path) -> None:
+    """Прочитать `design/presets/*/preset.json`. Зовётся из `load()`."""
+    PRESETS.clear()
+    for path in sorted((root / 'design' / 'presets').glob('*/preset.json')):
+        PRESETS[path.parent.name] = json.loads(path.read_text('utf-8'))
 
-    'fridge': {'shape': 'appliance', 'h': 2.4, 'd': 0.9, 'tone': 'metal'},
-    'cooler': {'shape': 'appliance', 'h': 1.6, 'd': 0.6, 'tone': 'metal'},
-    'coffee_machine': {'shape': 'appliance', 'h': 0.6, 'd': 0.6, 'tone': 'metal'},
 
-    'counter_straight': {'shape': 'counter', 'h': 1.2, 'tone': 'wood'},
-    'sink_counter': {'shape': 'counter', 'h': 1.2, 'tone': 'wood'},
-    'counter_corner': {'shape': 'counter', 'h': 1.2, 'tone': 'wood'},
-
-    'sofa': {'shape': 'soft', 'h': 1.2, 'd': 1.25, 'tone': 'fabric',
-             'models': [{'file': 'loungeSofa'}]},
-    'armchair': {'shape': 'soft', 'h': 1.2, 'd': 1.25, 'tone': 'fabric',
-                 'models': [{'file': 'loungeChair'}]},
-    'beanbag': {'shape': 'soft', 'h': 0.7, 'd': 0.85, 'tone': 'accent'},
-
-    'coffee_table': {'shape': 'table', 'h': 0.61, 'd': 1.07, 'tone': 'wood',
-                     'models': [{'file': 'tableCoffee'}]},
-    'lounge_rug': {'shape': 'slab', 'h': 0.03, 'tone': 'fabric',
-                   'models': [{'file': 'rugRectangle'}]},
-    'potted_plant': {'shape': 'plant', 'h': 1.43, 'd': 0.78, 'tone': 'leaf',
-                     'models': [{'file': 'pottedPlant'}]},
-    'floor_lamp': {'shape': 'box', 'h': 2.29, 'd': 0.47, 'tone': 'light',
-                   'models': [{'file': 'lampRoundFloor'}]},
-
-    'plant_big': {'shape': 'plant', 'h': 1.9, 'tone': 'leaf'},
-    'plant_small': {'shape': 'plant', 'h': 0.95, 'tone': 'leaf'},
-
-    'board': {'shape': 'panel', 'h': 1.3, 'd': 0.12, 'wall': 1.0, 'tone': 'screen'},
-    'logscreen': {'shape': 'panel', 'h': 1.1, 'd': 0.12, 'wall': 1.1, 'tone': 'screen'},
-    'tv': {'shape': 'panel', 'h': 1.1, 'd': 0.12, 'wall': 1.1, 'tone': 'screen'},
-    'poster': {'shape': 'panel', 'h': 1.1, 'd': 0.06, 'wall': 1.1, 'tone': 'accent'},
-    'clock': {'shape': 'panel', 'h': 0.7, 'd': 0.08, 'wall': 1.7, 'tone': 'light'},
-    'neon_sign': {'shape': 'panel', 'h': 0.9, 'd': 0.08, 'wall': 1.4, 'tone': 'light'},
-    'window': {'shape': 'panel', 'h': 1.0, 'd': 0.08, 'wall': 0.9, 'tone': 'light'},
-    'door': {'shape': 'panel', 'h': 2.1, 'd': 0.12, 'wall': 0, 'tone': 'wood'},
-
-    'rug': {'shape': 'slab', 'h': 0.03, 'tone': 'fabric'},
-    'game_rug': {'shape': 'slab', 'h': 0.03, 'tone': 'fabric'},
-    'kitchen_tiles': {'shape': 'slab', 'h': 0.02, 'tone': 'metal'},
-    'doormat': {'shape': 'slab', 'h': 0.03, 'tone': 'fabric'},
-
-    'console': {'shape': 'box', 'h': 0.25, 'd': 0.5, 'tone': 'metal'},
-    'gamepad': {'shape': 'box', 'h': 0.12, 'd': 0.35, 'tone': 'accent'},
-    'coin': {'shape': 'box', 'h': 0.12, 'd': 0.55, 'tone': 'light'},
-    'kitchen_mugs': {'shape': 'box', 'h': 0.3, 'd': 0.45, 'tone': 'light'},
-    'kitchen_snack': {'shape': 'box', 'h': 0.35, 'd': 0.45, 'tone': 'accent'},
+# Предмет, которого в пресетах нет: коробка размером с клетку. Как и на
+# клиенте — кубик не на своём месте виднее, чем дырка в комнате.
+FALLBACK: dict = {
+    'id': 'unknown', 'size': [1, 1], 'footprint': [0, 0, 1, 1],
+    'h': 1.0, 'fallback': 'box', 'components': [],
 }
 
-FALLBACK = {'shape': 'box', 'h': 1.0, 'tone': 'metal'}
 
-#: Цвета обстановки — дневная палитра из palette.ts. В Blender они попадают
-#: в простые Principled BSDF: настоящий вид всё равно задаёт клиент, а тут
-#: краска нужна лишь чтобы комнату можно было читать глазами.
-TONES = {
-    'wood': (0.788, 0.627, 0.420),
-    'metal': (0.702, 0.729, 0.776),
-    'fabric': (0.541, 0.576, 0.659),
-    'leaf': (0.435, 0.620, 0.388),
-    'screen': (0.224, 0.255, 0.310),
-    'accent': (0.851, 0.545, 0.416),
-    'light': (0.941, 0.890, 0.761),
-}
+def component(preset: dict, kind: str) -> dict | None:
+    """Первый компонент этого сорта. Кратность проверяет схема на стороне TS."""
+    for c in preset.get('components', []):
+        if c.get('type') == kind:
+            return c
+    return None
+
+
 FLOORS = {
     'parquet': (0.851, 0.694, 0.514),
     'carpet': (0.604, 0.659, 0.733),
@@ -172,12 +129,13 @@ GLASS_COLOR = (0.737, 0.847, 0.910)
 
 
 def def_of(sprite: str) -> dict:
-    return PROPS.get(sprite, FALLBACK)
+    return PRESETS.get(sprite, FALLBACK)
 
 
 # ── Чтение файлов ────────────────────────────────────────────────────────────
 
 def load(root: Path, preset: str) -> tuple[dict, dict]:
+    load_presets(root)
     layout = json.loads((root / 'design' / 'layouts' / f'{preset}.json').read_text('utf-8'))
     catalog = json.loads((root / 'design' / 'sprites' / 'out' / 'catalog.json').read_text('utf-8'))
     return layout, catalog
@@ -288,25 +246,13 @@ def walls_of(layout: dict) -> list[list[Box]]:
 # ── Расстановка предметов (порт props.ts) ────────────────────────────────────
 
 def floor_rect(catalog: dict, prop: dict) -> tuple[float, float, float, float]:
-    sprite = catalog['sprites'].get(prop['sprite'])
     d = def_of(prop['sprite'])
     s = prop.get('scale', 1)
     ax, ay = prop['at']
-    if not sprite:
-        return ax, ay, s, s
-
-    w = sprite['size'][0] * s
-    art_h = sprite['size'][1] * s
-
-    if d['shape'] == 'slab':
-        return ax, ay, w, art_h
-
-    if sprite.get('footprint'):
-        fx, fy, fw, fh = sprite['footprint']
-        return ax + fx * s, ay + fy * s, fw * s, fh * s
-
-    depth = min(d.get('d', art_h * 0.6) * s, art_h)
-    return ax, ay + art_h - depth, w, depth
+    # Трёх веток больше нет: след записан в пресете, один и тот же для
+    # отрисовки и для проходимости (спека §3).
+    fx, fy, fw, fh = d['footprint']
+    return ax + fx * s, ay + fy * s, fw * s, fh * s
 
 
 def nailed_props(layout: dict) -> list[dict]:
@@ -334,20 +280,22 @@ def place(layout: dict, catalog: dict, extra: list[dict] | None = None) -> list[
     for i, prop in enumerate(list(layout.get('props', [])) + list(extra or [])):
         d = def_of(prop['sprite'])
         x, y, w, depth = floor_rect(catalog, prop)
-        wall = d.get('wall')
+        mount = component(d, 'wall_mounted')
+        wall = mount['at'] if mount else None
         items.append(Placed(
             key=prop.get('id') or f'{prop["sprite"]}.{i}',
             sprite=prop['sprite'],
             ax=prop['at'][0], ay=prop['at'][1],
             cx=x + w / 2, cy=y + depth / 2,
             w=w,
-            d=(d.get('d', 0.12) if wall is not None else depth),
+            # У настенного глубина — толщина панели, а не след.
+            d=(mount.get('thickness', 0.12) if mount else depth),
             h=d['h'],
             base=(wall if wall is not None else 0),
             rot=math.radians(prop['rot']) if 'rot' in prop else 0.0,
-            models=d.get('models', []),
+            models=d.get('parts', []),
             wall=wall,
-            shape=d['shape'],
+            shape=d['fallback'],
             tone=d.get('tone', 'metal'),
         ))
 
