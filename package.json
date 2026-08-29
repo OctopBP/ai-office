@@ -24,6 +24,8 @@
     "test:money": "tsx scripts/test-money.ts",
     "test:review": "tsx scripts/test-review.ts",
     "test:offices": "tsx scripts/test-offices.ts",
+    "test:presets": "tsx scripts/test-presets.ts",
+    "presets:catalog": "tsx scripts/presets-catalog.ts",
     "restart": "bash scripts/restart-server.sh",
     "test:pm": "bash scripts/run-pm-tests.sh"
   },
