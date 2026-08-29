@@ -1,0 +1,24 @@
+{
+  "id": "dining_table",
+  "title": "Обеденный стол",
+  "size": [6, 1.375],
+  "footprint": [0, 1, 6, 0.375],
+  "blocks": true,
+  "h": 1,
+  "tone": "wood",
+  "fallback": "table",
+  "components": [
+    {
+      "type": "seat",
+      "shape": "side",
+      "side": "n",
+      "count": 4
+    },
+    {
+      "type": "seat",
+      "shape": "side",
+      "side": "s",
+      "count": 4
+    }
+  ]
+}

@@ -1,0 +1,10 @@
+{
+  "id": "rug",
+  "title": "Ковёр",
+  "size": [7, 4],
+  "footprint": [0, 0, 7, 4],
+  "h": 0.03,
+  "tone": "fabric",
+  "fallback": "slab",
+  "components": []
+}

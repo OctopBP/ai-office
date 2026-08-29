@@ -1,0 +1,10 @@
+{
+  "id": "kitchen_snack",
+  "title": "Снеки",
+  "size": [0.875, 0.5],
+  "footprint": [0, 0.05, 0.875, 0.45],
+  "h": 0.35,
+  "tone": "accent",
+  "fallback": "box",
+  "components": []
+}

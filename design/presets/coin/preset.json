@@ -1,0 +1,10 @@
+{
+  "id": "coin",
+  "title": "Монетка",
+  "size": [0.625, 0.625],
+  "footprint": [0, 0.075, 0.625, 0.55],
+  "h": 0.12,
+  "tone": "light",
+  "fallback": "box",
+  "components": []
+}

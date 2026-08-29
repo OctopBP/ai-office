@@ -1,0 +1,22 @@
+{
+  "id": "tv",
+  "title": "Телевизор",
+  "size": [2, 1.875],
+  "footprint": [0, 1.755, 2, 0.12],
+  "blocks": true,
+  "h": 1.1,
+  "tone": "screen",
+  "fallback": "panel",
+  "components": [
+    {
+      "type": "lamp",
+      "lamp": "screen",
+      "face": true
+    },
+    {
+      "type": "wall_mounted",
+      "at": 1.1,
+      "thickness": 0.12
+    }
+  ]
+}

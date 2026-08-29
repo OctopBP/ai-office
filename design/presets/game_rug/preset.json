@@ -1,0 +1,10 @@
+{
+  "id": "game_rug",
+  "title": "Ковёр игровой зоны",
+  "size": [10, 4],
+  "footprint": [0, 0, 10, 4],
+  "h": 0.03,
+  "tone": "fabric",
+  "fallback": "slab",
+  "components": []
+}

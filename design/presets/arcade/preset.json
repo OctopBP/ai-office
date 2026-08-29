@@ -1,0 +1,18 @@
+{
+  "id": "arcade",
+  "title": "Игровой автомат",
+  "size": [1, 2],
+  "footprint": [0, 1.1, 1, 0.9],
+  "blocks": true,
+  "h": 2.3,
+  "tone": "accent",
+  "fallback": "cabinet",
+  "components": [
+    {
+      "type": "lamp",
+      "lamp": "neon",
+      "at": [0, 1.7, 0.7],
+      "face": true
+    }
+  ]
+}

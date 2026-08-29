@@ -1,0 +1,10 @@
+{
+  "id": "console",
+  "title": "Игровая приставка",
+  "size": [1.375, 0.75],
+  "footprint": [0, 0.25, 1.375, 0.5],
+  "h": 0.25,
+  "tone": "metal",
+  "fallback": "box",
+  "components": []
+}

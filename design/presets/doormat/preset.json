@@ -1,0 +1,10 @@
+{
+  "id": "doormat",
+  "title": "Коврик у двери",
+  "size": [1, 0.5],
+  "footprint": [0, 0, 1, 0.5],
+  "h": 0.03,
+  "tone": "fabric",
+  "fallback": "slab",
+  "components": []
+}

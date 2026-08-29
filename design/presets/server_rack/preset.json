@@ -1,0 +1,11 @@
+{
+  "id": "server_rack",
+  "title": "Серверная стойка",
+  "size": [0.875, 1.875],
+  "footprint": [0, 1.075, 0.875, 0.8],
+  "blocks": true,
+  "h": 2.5,
+  "tone": "metal",
+  "fallback": "cabinet",
+  "components": []
+}

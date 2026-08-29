@@ -1,0 +1,16 @@
+{
+  "id": "lounge_rug",
+  "title": "Ковёр лаунжа",
+  "size": [4.19, 2.45],
+  "footprint": [0, 0, 4.19, 2.45],
+  "h": 0.03,
+  "tone": "fabric",
+  "fallback": "slab",
+  "modelOnly": true,
+  "parts": [
+    {
+      "file": "rugRectangle.glb"
+    }
+  ],
+  "components": []
+}

@@ -1,0 +1,10 @@
+{
+  "id": "beanbag",
+  "title": "Кресло-мешок",
+  "size": [1, 0.6875],
+  "footprint": [0, 0, 1, 0.6875],
+  "h": 0.7,
+  "tone": "accent",
+  "fallback": "soft",
+  "components": []
+}

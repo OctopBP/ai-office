@@ -1,0 +1,18 @@
+{
+  "id": "potted_plant",
+  "title": "Растение в кашпо",
+  "size": [0.68, 0.78],
+  "footprint": [0, 0, 0.68, 0.78],
+  "blocks": true,
+  "layer": "furniture",
+  "h": 1.43,
+  "tone": "leaf",
+  "fallback": "plant",
+  "modelOnly": true,
+  "parts": [
+    {
+      "file": "pottedPlant.glb"
+    }
+  ],
+  "components": []
+}

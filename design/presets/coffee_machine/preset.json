@@ -1,0 +1,10 @@
+{
+  "id": "coffee_machine",
+  "title": "Кофемашина",
+  "size": [0.75, 1.125],
+  "footprint": [0, 0.525, 0.75, 0.6],
+  "h": 0.6,
+  "tone": "metal",
+  "fallback": "appliance",
+  "components": []
+}

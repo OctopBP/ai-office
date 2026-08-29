@@ -1,0 +1,16 @@
+{
+  "id": "door",
+  "title": "Дверь",
+  "size": [0.75, 1.875],
+  "footprint": [0, 1.755, 0.75, 0.12],
+  "h": 2.1,
+  "tone": "wood",
+  "fallback": "panel",
+  "components": [
+    {
+      "type": "wall_mounted",
+      "at": 0,
+      "thickness": 0.12
+    }
+  ]
+}

@@ -1,0 +1,735 @@
+{
+  "version": 1,
+  "tile": 16,
+  "scale": 3,
+  "sprites": {
+    "agent_backend1": {
+      "size": [
+        0.75,
+        1.5
+      ]
+    },
+    "agent_backend2": {
+      "size": [
+        0.75,
+        1.5
+      ]
+    },
+    "agent_frontend1": {
+      "size": [
+        0.75,
+        1.5
+      ]
+    },
+    "agent_p1": {
+      "size": [
+        1.0,
+        1.5
+      ],
+      "label": "Голубой"
+    },
+    "agent_p10": {
+      "size": [
+        1.0,
+        1.5
+      ],
+      "label": "Бордовый в очках"
+    },
+    "agent_p2": {
+      "size": [
+        1.0,
+        1.5
+      ],
+      "label": "Зелёный"
+    },
+    "agent_p3": {
+      "size": [
+        1.0,
+        1.5
+      ],
+      "label": "Жёлтый в очках"
+    },
+    "agent_p4": {
+      "size": [
+        1.0,
+        1.5
+      ],
+      "label": "Красный"
+    },
+    "agent_p5": {
+      "size": [
+        1.0,
+        1.5
+      ],
+      "label": "Тёмно-синий с гарнитурой"
+    },
+    "agent_p6": {
+      "size": [
+        1.0,
+        1.5
+      ],
+      "label": "Бирюзовый"
+    },
+    "agent_p7": {
+      "size": [
+        1.0,
+        1.5
+      ],
+      "label": "Коричневый в капюшоне"
+    },
+    "agent_p8": {
+      "size": [
+        1.0,
+        1.5
+      ],
+      "label": "Серый с галстуком"
+    },
+    "agent_p9": {
+      "size": [
+        1.0,
+        1.5
+      ],
+      "label": "Оливковый"
+    },
+    "agent_pm": {
+      "size": [
+        0.75,
+        1.5
+      ]
+    },
+    "agent_uiux": {
+      "size": [
+        0.75,
+        1.5
+      ]
+    },
+    "arcade": {
+      "size": [
+        1.0,
+        2.0
+      ]
+    },
+    "armchair": {
+      "size": [
+        1.3125,
+        1.0625
+      ]
+    },
+    "beanbag": {
+      "size": [
+        1.0,
+        0.6875
+      ]
+    },
+    "board": {
+      "size": [
+        3.25,
+        1.875
+      ]
+    },
+    "bookshelf": {
+      "size": [
+        1.625,
+        1.875
+      ]
+    },
+    "chair": {
+      "size": [
+        0.875,
+        0.8125
+      ]
+    },
+    "clock": {
+      "size": [
+        0.75,
+        0.75
+      ]
+    },
+    "coffee_machine": {
+      "size": [
+        0.75,
+        1.125
+      ]
+    },
+    "coffee_table": {
+      "size": [
+        1.75,
+        1.0625
+      ]
+    },
+    "coin": {
+      "size": [
+        0.625,
+        0.625
+      ]
+    },
+    "console": {
+      "size": [
+        1.375,
+        0.75
+      ]
+    },
+    "cooler": {
+      "size": [
+        0.625,
+        1.5
+      ]
+    },
+    "counter": {
+      "size": [
+        2.5,
+        1.375
+      ]
+    },
+    "counter_corner": {
+      "size": [
+        2.0,
+        2.0
+      ]
+    },
+    "counter_straight": {
+      "size": [
+        2.0,
+        1.375
+      ]
+    },
+    "desk": {
+      "size": [
+        2.0,
+        1.375
+      ]
+    },
+    "desk_ghost": {
+      "size": [
+        2.0,
+        1.375
+      ]
+    },
+    "desk_pm": {
+      "size": [
+        2.0,
+        1.375
+      ]
+    },
+    "dining_table": {
+      "size": [
+        6.0,
+        1.375
+      ]
+    },
+    "door": {
+      "size": [
+        0.75,
+        1.875
+      ]
+    },
+    "doormat": {
+      "size": [
+        1.0,
+        0.5
+      ]
+    },
+    "floor": {
+      "size": [
+        24.0,
+        15.0
+      ]
+    },
+    "floor_carpet_0": {
+      "size": [
+        1.0,
+        1.0
+      ]
+    },
+    "floor_carpet_1": {
+      "size": [
+        1.0,
+        1.0
+      ]
+    },
+    "floor_carpet_2": {
+      "size": [
+        1.0,
+        1.0
+      ]
+    },
+    "floor_carpet_3": {
+      "size": [
+        1.0,
+        1.0
+      ]
+    },
+    "floor_parquet_0": {
+      "size": [
+        1.0,
+        1.0
+      ]
+    },
+    "floor_parquet_1": {
+      "size": [
+        1.0,
+        1.0
+      ]
+    },
+    "floor_parquet_2": {
+      "size": [
+        1.0,
+        1.0
+      ]
+    },
+    "floor_parquet_3": {
+      "size": [
+        1.0,
+        1.0
+      ]
+    },
+    "floor_tile_0": {
+      "size": [
+        1.0,
+        1.0
+      ]
+    },
+    "floor_tile_1": {
+      "size": [
+        1.0,
+        1.0
+      ]
+    },
+    "floor_tile_2": {
+      "size": [
+        1.0,
+        1.0
+      ]
+    },
+    "floor_tile_3": {
+      "size": [
+        1.0,
+        1.0
+      ]
+    },
+    "fridge": {
+      "size": [
+        0.875,
+        1.875
+      ]
+    },
+    "game_rug": {
+      "size": [
+        10.0,
+        4.0
+      ]
+    },
+    "gamepad": {
+      "size": [
+        0.625,
+        0.375
+      ]
+    },
+    "kitchen_mugs": {
+      "size": [
+        0.75,
+        0.5
+      ]
+    },
+    "kitchen_snack": {
+      "size": [
+        0.875,
+        0.5
+      ]
+    },
+    "kitchen_tiles": {
+      "size": [
+        8.0,
+        6.0
+      ]
+    },
+    "logscreen": {
+      "size": [
+        2.75,
+        1.625
+      ]
+    },
+    "loveseat": {
+      "size": [
+        2.25,
+        1.625
+      ]
+    },
+    "moneyboard": {
+      "size": [
+        2.5,
+        1.625
+      ]
+    },
+    "neon_sign": {
+      "size": [
+        1.625,
+        1.0
+      ]
+    },
+    "plant_big": {
+      "size": [
+        1.0,
+        1.625
+      ]
+    },
+    "plant_small": {
+      "size": [
+        0.75,
+        1.125
+      ]
+    },
+    "poster": {
+      "size": [
+        0.875,
+        1.125
+      ]
+    },
+    "round_table": {
+      "size": [
+        1.875,
+        1.375
+      ]
+    },
+    "rug": {
+      "size": [
+        7.0,
+        4.0
+      ]
+    },
+    "server_rack": {
+      "size": [
+        0.875,
+        1.875
+      ]
+    },
+    "shadow": {
+      "size": [
+        0.875,
+        0.3125
+      ]
+    },
+    "sink_counter": {
+      "size": [
+        2.0,
+        1.375
+      ]
+    },
+    "sofa": {
+      "size": [
+        3.25,
+        1.75
+      ]
+    },
+    "sofa_front": {
+      "size": [
+        3.25,
+        0.8125
+      ]
+    },
+    "tv": {
+      "size": [
+        2.0,
+        1.875
+      ]
+    },
+    "wall": {
+      "size": [
+        24.0,
+        2.0
+      ]
+    },
+    "wall_0": {
+      "size": [
+        1.0,
+        1.5
+      ],
+      "footprint": [
+        0,
+        0.5,
+        1,
+        1
+      ],
+      "layer": "wall"
+    },
+    "wall_1": {
+      "size": [
+        1.0,
+        1.5
+      ],
+      "footprint": [
+        0,
+        0.5,
+        1,
+        1
+      ],
+      "layer": "wall"
+    },
+    "wall_10": {
+      "size": [
+        1.0,
+        1.5
+      ],
+      "footprint": [
+        0,
+        0.5,
+        1,
+        1
+      ],
+      "layer": "wall"
+    },
+    "wall_11": {
+      "size": [
+        1.0,
+        1.5
+      ],
+      "footprint": [
+        0,
+        0.5,
+        1,
+        1
+      ],
+      "layer": "wall"
+    },
+    "wall_12": {
+      "size": [
+        1.0,
+        1.5
+      ],
+      "footprint": [
+        0,
+        0.5,
+        1,
+        1
+      ],
+      "layer": "wall"
+    },
+    "wall_13": {
+      "size": [
+        1.0,
+        1.5
+      ],
+      "footprint": [
+        0,
+        0.5,
+        1,
+        1
+      ],
+      "layer": "wall"
+    },
+    "wall_14": {
+      "size": [
+        1.0,
+        1.5
+      ],
+      "footprint": [
+        0,
+        0.5,
+        1,
+        1
+      ],
+      "layer": "wall"
+    },
+    "wall_15": {
+      "size": [
+        1.0,
+        1.5
+      ],
+      "footprint": [
+        0,
+        0.5,
+        1,
+        1
+      ],
+      "layer": "wall"
+    },
+    "wall_2": {
+      "size": [
+        1.0,
+        1.5
+      ],
+      "footprint": [
+        0,
+        0.5,
+        1,
+        1
+      ],
+      "layer": "wall"
+    },
+    "wall_3": {
+      "size": [
+        1.0,
+        1.5
+      ],
+      "footprint": [
+        0,
+        0.5,
+        1,
+        1
+      ],
+      "layer": "wall"
+    },
+    "wall_4": {
+      "size": [
+        1.0,
+        1.5
+      ],
+      "footprint": [
+        0,
+        0.5,
+        1,
+        1
+      ],
+      "layer": "wall"
+    },
+    "wall_5": {
+      "size": [
+        1.0,
+        1.5
+      ],
+      "footprint": [
+        0,
+        0.5,
+        1,
+        1
+      ],
+      "layer": "wall"
+    },
+    "wall_6": {
+      "size": [
+        1.0,
+        1.5
+      ],
+      "footprint": [
+        0,
+        0.5,
+        1,
+        1
+      ],
+      "layer": "wall"
+    },
+    "wall_7": {
+      "size": [
+        1.0,
+        1.5
+      ],
+      "footprint": [
+        0,
+        0.5,
+        1,
+        1
+      ],
+      "layer": "wall"
+    },
+    "wall_8": {
+      "size": [
+        1.0,
+        1.5
+      ],
+      "footprint": [
+        0,
+        0.5,
+        1,
+        1
+      ],
+      "layer": "wall"
+    },
+    "wall_9": {
+      "size": [
+        1.0,
+        1.5
+      ],
+      "footprint": [
+        0,
+        0.5,
+        1,
+        1
+      ],
+      "layer": "wall"
+    },
+    "wall_door_b": {
+      "size": [
+        1.0,
+        1.5
+      ],
+      "footprint": [
+        0,
+        0.5,
+        1,
+        1
+      ],
+      "layer": "wall"
+    },
+    "wall_door_l": {
+      "size": [
+        1.0,
+        1.5
+      ],
+      "footprint": [
+        0,
+        0.5,
+        1,
+        1
+      ],
+      "layer": "wall"
+    },
+    "wall_door_r": {
+      "size": [
+        1.0,
+        1.5
+      ],
+      "footprint": [
+        0,
+        0.5,
+        1,
+        1
+      ],
+      "layer": "wall"
+    },
+    "wall_door_t": {
+      "size": [
+        1.0,
+        1.5
+      ],
+      "footprint": [
+        0,
+        0.5,
+        1,
+        1
+      ],
+      "layer": "wall"
+    },
+    "wall_window": {
+      "size": [
+        1.0,
+        1.5
+      ],
+      "footprint": [
+        0,
+        0.5,
+        1,
+        1
+      ],
+      "layer": "wall"
+    },
+    "wall_window_v": {
+      "size": [
+        1.0,
+        1.5
+      ],
+      "footprint": [
+        0,
+        0.5,
+        1,
+        1
+      ],
+      "layer": "wall"
+    },
+    "window": {
+      "size": [
+        2.125,
+        1.5
+      ]
+    }
+  }
+}

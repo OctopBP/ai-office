@@ -1,0 +1,11 @@
+{
+  "id": "fridge",
+  "title": "Холодильник",
+  "size": [0.875, 1.875],
+  "footprint": [0, 0.975, 0.875, 0.9],
+  "blocks": true,
+  "h": 2.4,
+  "tone": "metal",
+  "fallback": "appliance",
+  "components": []
+}

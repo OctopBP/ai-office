@@ -1,0 +1,20 @@
+{
+  "id": "coffee_table",
+  "title": "Журнальный столик",
+  "size": [1.75, 1.0625],
+  "footprint": [0, 0, 1.75, 1.0625],
+  "blocks": true,
+  "layer": "furniture",
+  "h": 0.61,
+  "tone": "wood",
+  "fallback": "table",
+  "parts": [
+    {
+      "file": "tableCoffee.glb",
+      "probe": {
+        "surface": [0, 0]
+      }
+    }
+  ],
+  "components": []
+}

@@ -1,0 +1,10 @@
+{
+  "id": "kitchen_tiles",
+  "title": "Кухонная плитка",
+  "size": [8, 6],
+  "footprint": [0, 0, 8, 6],
+  "h": 0.02,
+  "tone": "metal",
+  "fallback": "slab",
+  "components": []
+}

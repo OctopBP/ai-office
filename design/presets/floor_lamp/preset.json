@@ -1,0 +1,24 @@
+{
+  "id": "floor_lamp",
+  "title": "Торшер",
+  "size": [0.41, 0.47],
+  "footprint": [0, 0, 0.41, 0.47],
+  "blocks": true,
+  "layer": "furniture",
+  "h": 2.29,
+  "tone": "light",
+  "fallback": "box",
+  "modelOnly": true,
+  "parts": [
+    {
+      "file": "lampRoundFloor.glb"
+    }
+  ],
+  "components": [
+    {
+      "type": "lamp",
+      "lamp": "warm",
+      "at": [0, 2.1, 0]
+    }
+  ]
+}

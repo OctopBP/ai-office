@@ -1,0 +1,11 @@
+{
+  "id": "bookshelf",
+  "title": "Книжный шкаф",
+  "size": [1.625, 1.875],
+  "footprint": [0, 1.375, 1.625, 0.5],
+  "blocks": true,
+  "h": 2.5,
+  "tone": "wood",
+  "fallback": "cabinet",
+  "components": []
+}

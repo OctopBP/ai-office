@@ -1,0 +1,10 @@
+{
+  "id": "gamepad",
+  "title": "Геймпад",
+  "size": [0.625, 0.375],
+  "footprint": [0, 0.025, 0.625, 0.35],
+  "h": 0.12,
+  "tone": "accent",
+  "fallback": "box",
+  "components": []
+}

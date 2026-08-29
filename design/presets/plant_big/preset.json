@@ -1,0 +1,11 @@
+{
+  "id": "plant_big",
+  "title": "Большое растение",
+  "size": [1, 1.625],
+  "footprint": [0.25, 1.1875, 0.5, 0.4375],
+  "blocks": true,
+  "h": 1.9,
+  "tone": "leaf",
+  "fallback": "plant",
+  "components": []
+}

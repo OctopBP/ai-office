@@ -1,0 +1,39 @@
+{
+  "id": "loveseat",
+  "title": "Двухместный диван",
+  "size": [2.25, 1.625],
+  "footprint": [0, 0.4375, 2.25, 1.1875],
+  "blocks": true,
+  "layer": "furniture",
+  "h": 1.2,
+  "tone": "fabric",
+  "fallback": "soft",
+  "parts": [
+    {
+      "file": "loungeSofa.glb",
+      "probe": {
+        "seat": [0, -0.15]
+      }
+    }
+  ],
+  "components": [
+    {
+      "type": "seat",
+      "shape": "point",
+      "at": [0.35, 0.45],
+      "use": "sit",
+      "on": "loungeSofa",
+      "height": null,
+      "offset": [0, 0, 0]
+    },
+    {
+      "type": "seat",
+      "shape": "point",
+      "at": [1.15, 0.45],
+      "use": "sit",
+      "on": "loungeSofa",
+      "height": null,
+      "offset": [0, 0, 0]
+    }
+  ]
+}

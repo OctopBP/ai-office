@@ -4,123 +4,69 @@
   "scale": 3,
   "sprites": {
     "agent_backend1": {
-      "size": [
-        0.75,
-        1.5
-      ]
+      "size": [0.75, 1.5]
     },
     "agent_backend2": {
-      "size": [
-        0.75,
-        1.5
-      ]
+      "size": [0.75, 1.5]
     },
     "agent_frontend1": {
-      "size": [
-        0.75,
-        1.5
-      ]
+      "size": [0.75, 1.5]
     },
     "agent_p1": {
-      "size": [
-        1.0,
-        1.5
-      ],
+      "size": [1, 1.5],
       "label": "Голубой"
     },
     "agent_p10": {
-      "size": [
-        1.0,
-        1.5
-      ],
+      "size": [1, 1.5],
       "label": "Бордовый в очках"
     },
     "agent_p2": {
-      "size": [
-        1.0,
-        1.5
-      ],
+      "size": [1, 1.5],
       "label": "Зелёный"
     },
     "agent_p3": {
-      "size": [
-        1.0,
-        1.5
-      ],
+      "size": [1, 1.5],
       "label": "Жёлтый в очках"
     },
     "agent_p4": {
-      "size": [
-        1.0,
-        1.5
-      ],
+      "size": [1, 1.5],
       "label": "Красный"
     },
     "agent_p5": {
-      "size": [
-        1.0,
-        1.5
-      ],
+      "size": [1, 1.5],
       "label": "Тёмно-синий с гарнитурой"
     },
     "agent_p6": {
-      "size": [
-        1.0,
-        1.5
-      ],
+      "size": [1, 1.5],
       "label": "Бирюзовый"
     },
     "agent_p7": {
-      "size": [
-        1.0,
-        1.5
-      ],
+      "size": [1, 1.5],
       "label": "Коричневый в капюшоне"
     },
     "agent_p8": {
-      "size": [
-        1.0,
-        1.5
-      ],
+      "size": [1, 1.5],
       "label": "Серый с галстуком"
     },
     "agent_p9": {
-      "size": [
-        1.0,
-        1.5
-      ],
+      "size": [1, 1.5],
       "label": "Оливковый"
     },
     "agent_pm": {
-      "size": [
-        0.75,
-        1.5
-      ]
+      "size": [0.75, 1.5]
     },
     "agent_uiux": {
-      "size": [
-        0.75,
-        1.5
-      ]
+      "size": [0.75, 1.5]
     },
     "arcade": {
-      "size": [
-        1.0,
-        2.0
-      ],
-      "blocks": true
+      "size": [1, 2],
+      "footprint": [0, 1.1, 1, 0.9],
+      "blocks": true,
+      "label": "Игровой автомат"
     },
     "armchair": {
-      "size": [
-        1.3125,
-        1.0625
-      ],
-      "footprint": [
-        0,
-        0.3125,
-        1.3125,
-        0.75
-      ],
+      "size": [1.3125, 1.0625],
+      "footprint": [0, 0.3125, 1.3125, 0.75],
       "layer": "furniture",
       "slots": [
         {
@@ -134,126 +80,77 @@
       "label": "Кресло"
     },
     "beanbag": {
-      "size": [
-        1.0,
-        0.6875
-      ]
+      "size": [1, 0.6875],
+      "footprint": [0, 0, 1, 0.6875],
+      "label": "Кресло-мешок"
     },
     "board": {
-      "size": [
-        3.25,
-        1.875
-      ]
+      "size": [3.25, 1.875],
+      "footprint": [0, 1.755, 3.25, 0.12],
+      "label": "Доска задач"
     },
     "bookshelf": {
-      "size": [
-        1.625,
-        1.875
-      ],
-      "blocks": true
+      "size": [1.625, 1.875],
+      "footprint": [0, 1.375, 1.625, 0.5],
+      "blocks": true,
+      "label": "Книжный шкаф"
     },
     "chair": {
-      "size": [
-        0.875,
-        0.8125
-      ]
+      "size": [0.875, 0.8125],
+      "footprint": [0, 0.1625, 0.875, 0.65],
+      "label": "Стул"
     },
     "clock": {
-      "size": [
-        0.75,
-        0.75
-      ]
+      "size": [0.75, 0.75],
+      "footprint": [0, 0.67, 0.75, 0.08],
+      "label": "Часы"
     },
     "coffee_machine": {
-      "size": [
-        0.75,
-        1.125
-      ]
+      "size": [0.75, 1.125],
+      "footprint": [0, 0.525, 0.75, 0.6],
+      "label": "Кофемашина"
     },
     "coffee_table": {
-      "size": [
-        1.75,
-        1.0625
-      ],
-      "footprint": [
-        0,
-        0,
-        1.75,
-        1.0625
-      ],
+      "size": [1.75, 1.0625],
+      "footprint": [0, 0, 1.75, 1.0625],
       "layer": "furniture",
       "blocks": true,
       "label": "Журнальный столик"
     },
     "coin": {
-      "size": [
-        0.625,
-        0.625
-      ]
+      "size": [0.625, 0.625],
+      "footprint": [0, 0.075, 0.625, 0.55],
+      "label": "Монетка"
     },
     "console": {
-      "size": [
-        1.375,
-        0.75
-      ]
+      "size": [1.375, 0.75],
+      "footprint": [0, 0.25, 1.375, 0.5],
+      "label": "Игровая приставка"
     },
     "cooler": {
-      "size": [
-        0.625,
-        1.5
-      ],
-      "blocks": true
+      "size": [0.625, 1.5],
+      "footprint": [0, 0.9, 0.625, 0.6],
+      "blocks": true,
+      "label": "Кулер"
     },
     "counter": {
-      "size": [
-        2.5,
-        1.375
-      ],
-      "footprint": [
-        0,
-        0.375,
-        2.5,
-        1.0
-      ],
-      "blocks": true
+      "size": [2.5, 1.375]
     },
     "counter_corner": {
-      "size": [
-        2.0,
-        2.0
-      ],
-      "footprint": [
-        0,
-        0.375,
-        2.0,
-        1.625
-      ],
-      "blocks": true
+      "size": [2, 2],
+      "footprint": [0, 0.375, 2, 1.625],
+      "blocks": true,
+      "label": "Кухонная тумба, угловая"
     },
     "counter_straight": {
-      "size": [
-        2.0,
-        1.375
-      ],
-      "footprint": [
-        0,
-        0.375,
-        2.0,
-        1.0
-      ],
-      "blocks": true
+      "size": [2, 1.375],
+      "footprint": [0, 0.375, 2, 1],
+      "blocks": true,
+      "label": "Кухонная тумба"
     },
     "desk": {
-      "size": [
-        2.0,
-        1.375
-      ],
-      "footprint": [
-        0,
-        0.4,
-        2,
-        1.0
-      ],
+      "size": [2, 1.375],
+      "footprint": [0, 0.4, 2, 1],
       "slots": [
         {
           "kind": "work",
@@ -266,32 +163,15 @@
           "y": 0.86
         }
       ],
-      "blocks": true
+      "blocks": true,
+      "label": "Рабочий стол"
     },
     "desk_ghost": {
-      "size": [
-        2.0,
-        1.375
-      ],
-      "footprint": [
-        0,
-        0.4,
-        2,
-        1.0
-      ],
-      "blocks": true
+      "size": [2, 1.375]
     },
     "desk_pm": {
-      "size": [
-        2.0,
-        1.375
-      ],
-      "footprint": [
-        0,
-        0.4,
-        2,
-        1.0
-      ],
+      "size": [2, 1.375],
+      "footprint": [0, 0.4, 2, 1],
       "slots": [
         {
           "kind": "work",
@@ -304,19 +184,12 @@
           "y": 0.86
         }
       ],
-      "blocks": true
+      "blocks": true,
+      "label": "Стол руководителя"
     },
     "dining_table": {
-      "size": [
-        6.0,
-        1.375
-      ],
-      "footprint": [
-        0,
-        1.0,
-        6,
-        0.375
-      ],
+      "size": [6, 1.375],
+      "footprint": [0, 1, 6, 0.375],
       "slots": [
         {
           "kind": "seat",
@@ -329,175 +202,111 @@
           "count": 4
         }
       ],
-      "blocks": true
+      "blocks": true,
+      "label": "Обеденный стол"
     },
     "door": {
-      "size": [
-        0.75,
-        1.875
-      ]
+      "size": [0.75, 1.875],
+      "footprint": [0, 1.755, 0.75, 0.12],
+      "label": "Дверь"
     },
     "doormat": {
-      "size": [
-        1.0,
-        0.5
-      ]
+      "size": [1, 0.5],
+      "footprint": [0, 0, 1, 0.5],
+      "label": "Коврик у двери"
     },
     "floor": {
-      "size": [
-        24.0,
-        15.0
-      ]
+      "size": [24, 15]
     },
     "floor_carpet_0": {
-      "size": [
-        1.0,
-        1.0
-      ]
+      "size": [1, 1]
     },
     "floor_carpet_1": {
-      "size": [
-        1.0,
-        1.0
-      ]
+      "size": [1, 1]
     },
     "floor_carpet_2": {
-      "size": [
-        1.0,
-        1.0
-      ]
+      "size": [1, 1]
     },
     "floor_carpet_3": {
-      "size": [
-        1.0,
-        1.0
-      ]
+      "size": [1, 1]
     },
     "floor_lamp": {
-      "size": [
-        0.41,
-        0.47
-      ],
+      "size": [0.41, 0.47],
       "modelOnly": true,
-      "footprint": [
-        0,
-        0,
-        0.41,
-        0.47
-      ],
+      "footprint": [0, 0, 0.41, 0.47],
       "layer": "furniture",
       "blocks": true,
       "label": "Торшер"
     },
     "floor_parquet_0": {
-      "size": [
-        1.0,
-        1.0
-      ]
+      "size": [1, 1]
     },
     "floor_parquet_1": {
-      "size": [
-        1.0,
-        1.0
-      ]
+      "size": [1, 1]
     },
     "floor_parquet_2": {
-      "size": [
-        1.0,
-        1.0
-      ]
+      "size": [1, 1]
     },
     "floor_parquet_3": {
-      "size": [
-        1.0,
-        1.0
-      ]
+      "size": [1, 1]
     },
     "floor_tile_0": {
-      "size": [
-        1.0,
-        1.0
-      ]
+      "size": [1, 1]
     },
     "floor_tile_1": {
-      "size": [
-        1.0,
-        1.0
-      ]
+      "size": [1, 1]
     },
     "floor_tile_2": {
-      "size": [
-        1.0,
-        1.0
-      ]
+      "size": [1, 1]
     },
     "floor_tile_3": {
-      "size": [
-        1.0,
-        1.0
-      ]
+      "size": [1, 1]
     },
     "fridge": {
-      "size": [
-        0.875,
-        1.875
-      ],
-      "blocks": true
+      "size": [0.875, 1.875],
+      "footprint": [0, 0.975, 0.875, 0.9],
+      "blocks": true,
+      "label": "Холодильник"
     },
     "game_rug": {
-      "size": [
-        10.0,
-        4.0
-      ]
+      "size": [10, 4],
+      "footprint": [0, 0, 10, 4],
+      "label": "Ковёр игровой зоны"
     },
     "gamepad": {
-      "size": [
-        0.625,
-        0.375
-      ]
+      "size": [0.625, 0.375],
+      "footprint": [0, 0.025, 0.625, 0.35],
+      "label": "Геймпад"
     },
     "kitchen_mugs": {
-      "size": [
-        0.75,
-        0.5
-      ]
+      "size": [0.75, 0.5],
+      "footprint": [0, 0.05, 0.75, 0.45],
+      "label": "Кружки"
     },
     "kitchen_snack": {
-      "size": [
-        0.875,
-        0.5
-      ]
+      "size": [0.875, 0.5],
+      "footprint": [0, 0.05, 0.875, 0.45],
+      "label": "Снеки"
     },
     "kitchen_tiles": {
-      "size": [
-        8.0,
-        6.0
-      ]
+      "size": [8, 6],
+      "footprint": [0, 0, 8, 6],
+      "label": "Кухонная плитка"
     },
     "logscreen": {
-      "size": [
-        2.75,
-        1.625
-      ]
+      "size": [2.75, 1.625],
+      "footprint": [0, 1.505, 2.75, 0.12],
+      "label": "Экран логов"
     },
     "lounge_rug": {
-      "size": [
-        4.19,
-        2.45
-      ],
-      "modelOnly": true
+      "size": [4.19, 2.45],
+      "modelOnly": true,
+      "footprint": [0, 0, 4.19, 2.45],
+      "label": "Ковёр лаунжа"
     },
     "loveseat": {
-      "size": [
-        2.25,
-        1.625
-      ],
-      "footprint": [
-        0,
-        0.4375,
-        2.25,
-        1.1875
-      ],
+      "size": [2.25, 1.625],
+      "footprint": [0, 0.4375, 2.25, 1.1875],
       "layer": "furniture",
       "slots": [
         {
@@ -517,70 +326,43 @@
       "label": "Двухместный диван"
     },
     "moneyboard": {
-      "size": [
-        2.5,
-        1.625
-      ]
+      "size": [2.5, 1.625],
+      "footprint": [0, 1.505, 2.5, 0.12],
+      "label": "Доска расходов"
     },
     "neon_sign": {
-      "size": [
-        1.625,
-        1.0
-      ]
+      "size": [1.625, 1],
+      "footprint": [0, 0.92, 1.625, 0.08],
+      "label": "Неоновая вывеска"
     },
     "plant_big": {
-      "size": [
-        1.0,
-        1.625
-      ],
-      "footprint": [
-        0.25,
-        1.1875,
-        0.5,
-        0.4375
-      ],
-      "blocks": true
+      "size": [1, 1.625],
+      "footprint": [0.25, 1.1875, 0.5, 0.4375],
+      "blocks": true,
+      "label": "Большое растение"
     },
     "plant_small": {
-      "size": [
-        0.75,
-        1.125
-      ],
-      "footprint": [
-        0.125,
-        0.6875,
-        0.5,
-        0.4375
-      ],
-      "blocks": true
+      "size": [0.75, 1.125],
+      "footprint": [0.125, 0.6875, 0.5, 0.4375],
+      "blocks": true,
+      "label": "Маленькое растение"
     },
     "poster": {
-      "size": [
-        0.875,
-        1.125
-      ]
+      "size": [0.875, 1.125],
+      "footprint": [0, 1.065, 0.875, 0.06],
+      "label": "Постер"
     },
     "potted_plant": {
-      "size": [
-        0.68,
-        0.78
-      ],
+      "size": [0.68, 0.78],
       "modelOnly": true,
-      "footprint": [
-        0,
-        0,
-        0.68,
-        0.78
-      ],
+      "footprint": [0, 0, 0.68, 0.78],
       "layer": "furniture",
       "blocks": true,
       "label": "Растение в кашпо"
     },
     "round_table": {
-      "size": [
-        1.875,
-        1.375
-      ],
+      "size": [1.875, 1.375],
+      "footprint": [0, 0, 1.875, 1.375],
       "slots": [
         {
           "kind": "seat",
@@ -590,45 +372,32 @@
           "grow": true
         }
       ],
-      "blocks": true
+      "blocks": true,
+      "label": "Круглый стол"
     },
     "rug": {
-      "size": [
-        7.0,
-        4.0
-      ]
+      "size": [7, 4],
+      "footprint": [0, 0, 7, 4],
+      "label": "Ковёр"
     },
     "server_rack": {
-      "size": [
-        0.875,
-        1.875
-      ],
-      "blocks": true
+      "size": [0.875, 1.875],
+      "footprint": [0, 1.075, 0.875, 0.8],
+      "blocks": true,
+      "label": "Серверная стойка"
     },
     "shadow": {
-      "size": [
-        0.875,
-        0.3125
-      ]
+      "size": [0.875, 0.3125]
     },
     "sink_counter": {
-      "size": [
-        2.0,
-        1.375
-      ],
-      "footprint": [
-        0,
-        0.375,
-        2.0,
-        1.0
-      ],
-      "blocks": true
+      "size": [2, 1.375],
+      "footprint": [0, 0.375, 2, 1],
+      "blocks": true,
+      "label": "Тумба с мойкой"
     },
     "sofa": {
-      "size": [
-        3.25,
-        1.75
-      ],
+      "size": [3.25, 1.75],
+      "footprint": [0, 0.5, 3.25, 1.25],
       "slots": [
         {
           "kind": "seat",
@@ -643,318 +412,135 @@
           "use": "game"
         }
       ],
-      "blocks": true
+      "blocks": true,
+      "label": "Диван"
     },
     "sofa_front": {
-      "size": [
-        3.25,
-        0.8125
-      ]
+      "size": [3.25, 0.8125]
     },
     "tv": {
-      "size": [
-        2.0,
-        1.875
-      ],
-      "blocks": true
+      "size": [2, 1.875],
+      "footprint": [0, 1.755, 2, 0.12],
+      "blocks": true,
+      "label": "Телевизор"
     },
     "wall": {
-      "size": [
-        24.0,
-        2.0
-      ]
+      "size": [24, 2]
     },
     "wall_0": {
-      "size": [
-        1.0,
-        1.5
-      ],
-      "footprint": [
-        0,
-        0.5,
-        1,
-        1
-      ],
+      "size": [1, 1.5],
+      "footprint": [0, 0.5, 1, 1],
       "layer": "wall"
     },
     "wall_1": {
-      "size": [
-        1.0,
-        1.5
-      ],
-      "footprint": [
-        0,
-        0.5,
-        1,
-        1
-      ],
+      "size": [1, 1.5],
+      "footprint": [0, 0.5, 1, 1],
       "layer": "wall"
     },
     "wall_10": {
-      "size": [
-        1.0,
-        1.5
-      ],
-      "footprint": [
-        0,
-        0.5,
-        1,
-        1
-      ],
+      "size": [1, 1.5],
+      "footprint": [0, 0.5, 1, 1],
       "layer": "wall"
     },
     "wall_11": {
-      "size": [
-        1.0,
-        1.5
-      ],
-      "footprint": [
-        0,
-        0.5,
-        1,
-        1
-      ],
+      "size": [1, 1.5],
+      "footprint": [0, 0.5, 1, 1],
       "layer": "wall"
     },
     "wall_12": {
-      "size": [
-        1.0,
-        1.5
-      ],
-      "footprint": [
-        0,
-        0.5,
-        1,
-        1
-      ],
+      "size": [1, 1.5],
+      "footprint": [0, 0.5, 1, 1],
       "layer": "wall"
     },
     "wall_13": {
-      "size": [
-        1.0,
-        1.5
-      ],
-      "footprint": [
-        0,
-        0.5,
-        1,
-        1
-      ],
+      "size": [1, 1.5],
+      "footprint": [0, 0.5, 1, 1],
       "layer": "wall"
     },
     "wall_14": {
-      "size": [
-        1.0,
-        1.5
-      ],
-      "footprint": [
-        0,
-        0.5,
-        1,
-        1
-      ],
+      "size": [1, 1.5],
+      "footprint": [0, 0.5, 1, 1],
       "layer": "wall"
     },
     "wall_15": {
-      "size": [
-        1.0,
-        1.5
-      ],
-      "footprint": [
-        0,
-        0.5,
-        1,
-        1
-      ],
+      "size": [1, 1.5],
+      "footprint": [0, 0.5, 1, 1],
       "layer": "wall"
     },
     "wall_2": {
-      "size": [
-        1.0,
-        1.5
-      ],
-      "footprint": [
-        0,
-        0.5,
-        1,
-        1
-      ],
+      "size": [1, 1.5],
+      "footprint": [0, 0.5, 1, 1],
       "layer": "wall"
     },
     "wall_3": {
-      "size": [
-        1.0,
-        1.5
-      ],
-      "footprint": [
-        0,
-        0.5,
-        1,
-        1
-      ],
+      "size": [1, 1.5],
+      "footprint": [0, 0.5, 1, 1],
       "layer": "wall"
     },
     "wall_4": {
-      "size": [
-        1.0,
-        1.5
-      ],
-      "footprint": [
-        0,
-        0.5,
-        1,
-        1
-      ],
+      "size": [1, 1.5],
+      "footprint": [0, 0.5, 1, 1],
       "layer": "wall"
     },
     "wall_5": {
-      "size": [
-        1.0,
-        1.5
-      ],
-      "footprint": [
-        0,
-        0.5,
-        1,
-        1
-      ],
+      "size": [1, 1.5],
+      "footprint": [0, 0.5, 1, 1],
       "layer": "wall"
     },
     "wall_6": {
-      "size": [
-        1.0,
-        1.5
-      ],
-      "footprint": [
-        0,
-        0.5,
-        1,
-        1
-      ],
+      "size": [1, 1.5],
+      "footprint": [0, 0.5, 1, 1],
       "layer": "wall"
     },
     "wall_7": {
-      "size": [
-        1.0,
-        1.5
-      ],
-      "footprint": [
-        0,
-        0.5,
-        1,
-        1
-      ],
+      "size": [1, 1.5],
+      "footprint": [0, 0.5, 1, 1],
       "layer": "wall"
     },
     "wall_8": {
-      "size": [
-        1.0,
-        1.5
-      ],
-      "footprint": [
-        0,
-        0.5,
-        1,
-        1
-      ],
+      "size": [1, 1.5],
+      "footprint": [0, 0.5, 1, 1],
       "layer": "wall"
     },
     "wall_9": {
-      "size": [
-        1.0,
-        1.5
-      ],
-      "footprint": [
-        0,
-        0.5,
-        1,
-        1
-      ],
+      "size": [1, 1.5],
+      "footprint": [0, 0.5, 1, 1],
       "layer": "wall"
     },
     "wall_door_b": {
-      "size": [
-        1.0,
-        1.5
-      ],
-      "footprint": [
-        0,
-        0.5,
-        1,
-        1
-      ],
+      "size": [1, 1.5],
+      "footprint": [0, 0.5, 1, 1],
       "layer": "wall"
     },
     "wall_door_l": {
-      "size": [
-        1.0,
-        1.5
-      ],
-      "footprint": [
-        0,
-        0.5,
-        1,
-        1
-      ],
+      "size": [1, 1.5],
+      "footprint": [0, 0.5, 1, 1],
       "layer": "wall"
     },
     "wall_door_r": {
-      "size": [
-        1.0,
-        1.5
-      ],
-      "footprint": [
-        0,
-        0.5,
-        1,
-        1
-      ],
+      "size": [1, 1.5],
+      "footprint": [0, 0.5, 1, 1],
       "layer": "wall"
     },
     "wall_door_t": {
-      "size": [
-        1.0,
-        1.5
-      ],
-      "footprint": [
-        0,
-        0.5,
-        1,
-        1
-      ],
+      "size": [1, 1.5],
+      "footprint": [0, 0.5, 1, 1],
       "layer": "wall"
     },
     "wall_window": {
-      "size": [
-        1.0,
-        1.5
-      ],
-      "footprint": [
-        0,
-        0.5,
-        1,
-        1
-      ],
+      "size": [1, 1.5],
+      "footprint": [0, 0.5, 1, 1],
       "layer": "wall"
     },
     "wall_window_v": {
-      "size": [
-        1.0,
-        1.5
-      ],
-      "footprint": [
-        0,
-        0.5,
-        1,
-        1
-      ],
+      "size": [1, 1.5],
+      "footprint": [0, 0.5, 1, 1],
       "layer": "wall"
     },
     "window": {
-      "size": [
-        2.125,
-        1.5
-      ]
+      "size": [2.125, 1.5],
+      "footprint": [0, 1.42, 2.125, 0.08],
+      "label": "Окно"
     }
   }
 }
