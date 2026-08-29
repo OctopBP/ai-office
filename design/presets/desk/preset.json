@@ -19,6 +19,16 @@
       "file": "computerScreen.glb",
       "at": [0, 0.75, 0.35],
       "rot": 180
+    },
+    {
+      "file": "computerKeyboard.glb",
+      "at": [0, 0.75, 0.1],
+      "rot": 180
+    },
+    {
+      "file": "computerMouse.glb",
+      "at": [-0.5, 0.75, 0.1],
+      "rot": 180
     }
   ],
   "components": [
