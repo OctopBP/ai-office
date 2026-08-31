@@ -19,6 +19,7 @@
     "test:perm": "tsx scripts/test-permissions.ts",
     "test:skills": "tsx scripts/test-skills.ts",
     "test:mcp": "tsx scripts/test-mcp.ts",
+    "bench": "tsx scripts/bench-skills.ts",
     "test:state": "tsx scripts/test-state.ts",
     "test:plan": "tsx scripts/test-plan.ts",
     "test:merge": "tsx scripts/test-merge.ts",
