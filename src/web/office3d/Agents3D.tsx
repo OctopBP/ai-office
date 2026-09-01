@@ -40,11 +40,9 @@ import { measurePoses, useModelMeasures, BONES, type PoseMeasure } from './measu
 import { reach, type Arm } from './ik';
 import { useStore } from '../store';
 import { interestsFor, type Interest } from '../interests';
-import { STATE_ICON, stateText } from '../agentState';
+import { stateText } from '../agentState';
 import { dropAnchor, setAnchor } from './anchors';
 import type { AgentState, InstanceView, RoleView, TaskView } from '../../shared/types';
-import { t } from '../i18n';
-import { Icon } from '../icons';
 import { LOOKS } from '../../shared/looks';
 
 /**
@@ -198,15 +196,15 @@ const DESK_TOP = 1.05;
 const TAG_SCALE = 15;
 
 /**
- * Цвет кружка состояния. Цветом помечены все состояния, а не только
- * безыконные: кружок в подписи залит целиком, и оставлять его бесцветным
- * там, где есть эмодзи, значило бы терять единственную метку, которую видно
- * у свёрнутой подписи с другого конца комнаты.
+ * Модификатор точки состояния в бейдже (`.agent-badge-dot`): свободен и
+ * закончил — зелёная, занят разговором или работой — жёлтая, застрял или
+ * сломался — красная. `walking` и `paused` остаются без модификатора: это
+ * переходные состояния, для них хватает нейтрально-серой точки по умолчанию.
  */
-const STATE_COLOR: Record<AgentState, string> = {
-  idle: '#5fd35a', walking: '#8a93a8', thinking: '#f0b429', working: '#f0b429',
-  talking: '#f0b429', waiting_approval: '#ff6b57', paused: '#8a93a8',
-  blocked: '#ff6b57', done: '#5fd35a', failed: '#ff6b57',
+const STATE_DOT: Partial<Record<AgentState, 'live' | 'warn' | 'danger'>> = {
+  idle: 'live', done: 'live',
+  thinking: 'warn', working: 'warn', talking: 'warn',
+  waiting_approval: 'danger', blocked: 'danger', failed: 'danger',
 };
 
 /**
@@ -336,9 +334,10 @@ function Ring({ color }: { color: string }) {
 }
 
 /**
- * Подпись над головой: кто это, что делает и над чем. Повторяет карточку
- * плоского офиса вплоть до порядка строк — это один и тот же интерфейс,
- * просто нарисованный в другой проекции.
+ * Подпись над головой: кто это, что делает и над чем. Бейдж — тот же, что в
+ * новой оболочке (`.agent-badge` из kit.css); плоский офис рисует ту же
+ * информацию по-своему, старым пиксельным стилем — переносить его на этот
+ * рендер не входило в задачу.
  *
  * Сделана обычным DOM поверх канваса (`Html` из drei), а не текстурой с
  * текстом: текст остаётся настоящим текстом — чётким на любом зуме, с теми же
@@ -349,10 +348,9 @@ function AgentTag({ inst, role, task, expanded }: {
   inst: InstanceView;
   role?: RoleView;
   task?: TaskView | null;
-  /** Показывать название должности и задачу, а не только значок с состоянием. */
+  /** Показывать табличку задачи, а не только бейдж. */
   expanded: boolean;
 }) {
-  const icon = STATE_ICON[inst.state];
   const chipColor = role?.color || NO_ROLE_COLOR;
   // Подпись висит над макушкой стоящего — и остаётся там же, когда агент
   // сядет: карточки восьми агентов и так липнут друг к другу, а прыгающая
@@ -368,41 +366,23 @@ function AgentTag({ inst, role, task, expanded }: {
     >
       <div className="tag3d">
         {inst.note && inst.state !== 'idle' && <div className="tag3d-bubble">{inst.note}</div>}
-        <div className="tag3d-card">
-          <div className={`tag3d-row${expanded ? '' : ' compact'}`}>
-            {/* Цвет значка — цвет роли из её настроек, тот же, что у неё в
-                панели команды: раскрашивать должности заново значило бы
-                завести второй набор цветов для тех же ролей. */}
-            <span
-              className="tag3d-chip"
-              style={{ background: chipColor, color: inkOn(chipColor) }}
-            >
-              {shortTag(inst)}
-            </span>
-            {expanded && (
-              <span className="tag3d-name">
-                {inst.deskless && (
-                  <span title={t('office.desklessHint')}><Icon name="armchair" size={11} /> </span>
-                )}
-                {role?.title ?? inst.label}
-              </span>
-            )}
-            {/* Состояние — иконкой: у большинства состояний она своя, у
-                «свободен» и «идёт» её нет, и там кружок берёт цвет. Круг
-                фиксированного размера, чтобы строка не прыгала при смене
-                состояния. */}
-            <span
-              className="tag3d-state"
-              style={{ background: STATE_COLOR[inst.state] }}
-              title={stateText(inst.state)}
-            >
-              {icon && <Icon name={icon} size={9} />}
-            </span>
-          </div>
+        {/* Тот же бейдж, что в макете: белая пилюля, значок роли цветом
+            роли из её настроек и точка состояния. Название должности сюда
+            не помещается — в макете у бейджа его нет, он остаётся в
+            карточке агента и в панели команды. */}
+        <div className="agent-badge" title={role?.title ?? inst.label}>
+          <span
+            className="agent-badge-role"
+            style={{ background: chipColor, color: inkOn(chipColor) }}
+          >
+            {shortTag(inst)}
+          </span>
+          <span
+            className={`agent-badge-dot${STATE_DOT[inst.state] ? ` ${STATE_DOT[inst.state]}` : ''}`}
+            title={stateText(inst.state)}
+          />
         </div>
-        {/* Задача — отдельной табличкой под капсулой, а не второй строкой
-            внутри неё: строка растянула бы капсулу по высоте, и залитые
-            концы повисли бы в пустоте посреди неё. */}
+        {/* Задача — отдельной табличкой под бейджем. */}
         {expanded && task && <div className="tag3d-task">{task.id} · {task.title}</div>}
       </div>
     </Html>
@@ -533,19 +513,14 @@ function Agent({
   const models = useModelMeasures();
 
   /**
-   * Развёрнутая подпись — только там, где её есть смысл читать.
+   * Табличка задачи под бейджем — только там, где её есть смысл читать.
    *
-   * Восемь карточек с названиями должностей превращаются в кашу, стоит
-   * агентам собраться рядом: в зоне отдыха они стоят плечом к плечу и почти
-   * всегда все сразу. Уменьшать шрифт бесполезно — каша станет мельче, но
-   * читаться не начнёт. Поэтому подпись сворачивается до значка с номером и
-   * кружка состояния: у восьми узких значков фиксированной ширины шансов
-   * налезть друг на друга несравнимо меньше, чем у восьми названий.
-   *
-   * Разворачивается она тогда, когда там правда есть что прочесть: агент
+   * Бейдж (значок должности с номером и точка состояния) виден всегда, как
+   * в макете. Табличка с кодом и названием задачи под ним — нет: восемь
+   * табличек превращаются в кашу, стоит агентам собраться рядом в зоне
+   * отдыха. Она появляется тогда, когда там правда есть что прочесть: агент
    * выбран, под курсором, или занят делом. Свободный агент, стоящий в
-   * лаунже, ничего интересного подписью не сообщает — его должность видна по
-   * значку.
+   * лаунже, ничего интересного ею не сообщает.
    */
   const idle = inst.state === 'idle' || inst.state === 'walking';
   const expanded = selected || hovered || !idle;

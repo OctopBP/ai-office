@@ -88,7 +88,7 @@ function Spot({ spot, materials, palette, badge, onClick }: {
         style={{ pointerEvents: 'none', userSelect: 'none' }}
       >
         <div className="spot3d" title={spot.title}>
-          {spot.hotkey && <span className="spot3d-key">{spot.hotkey}</span>}
+          {spot.hotkey && <kbd>{spot.hotkey}</kbd>}
           {badge > 0 && <span className="spot3d-badge">{badge}</span>}
         </div>
       </Html>
