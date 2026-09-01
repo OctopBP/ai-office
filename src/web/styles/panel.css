@@ -1,24 +1,36 @@
-/* Панель-оверлей поверх офиса: подложка, шапка, тело, справка. */
+/* Панель-оверлей поверх офиса: подложка, шапка, тело, справка. Карточка и
+   рамка идут по правилам кита — только границы окон, содержимое каждого вида
+   стилизуется в своём файле (log, money, merge-queue, chat-log). */
 
 /* ================= оверлеи ================= */
 .panel-backdrop {
   position: fixed; inset: 0; z-index: var(--z-panel); background: var(--veil);
-  display: flex; align-items: center; justify-content: center; padding: 40px 20px;
+  display: flex; align-items: center; justify-content: center;
+  padding: var(--space-8) var(--space-5);
 }
-.panel { width: min(660px, 100%); max-height: 100%; display: flex; flex-direction: column; }
+.panel {
+  width: min(660px, 100%); max-height: 100%; display: flex; flex-direction: column;
+  border-radius: var(--radius-panel);
+}
 .panel.wide { width: min(1080px, 100%); }
 /* Доска — самая широкая панель: пять колонок в 1080px читаются как список. */
 .panel.board-panel { width: min(1560px, 100%); }
 
 .panel header {
-  display: flex; align-items: center; gap: 12px;
-  padding: 10px 14px; border-bottom: 2px solid var(--line);
+  display: flex; align-items: center; gap: var(--space-3);
+  padding: var(--space-3) var(--space-4); border-bottom: 1px solid var(--hairline);
 }
-.panel header h2 { margin: 0; font-size: 15px; flex: none; }
+.panel header h2 {
+  margin: 0; flex: none;
+  font: 600 var(--fs-title)/1.2 var(--font); color: var(--ink);
+}
 .panel header .muted { flex: 1; }
-.panel-body { display: flex; flex-direction: column; overflow: hidden; padding: 14px; min-height: 0; }
+.panel-body {
+  display: flex; flex-direction: column; overflow: hidden;
+  padding: var(--space-4); min-height: 0;
+}
 .panel-body > .log, .panel-body > .board, .panel-body > .money-board { overflow-y: auto; }
 .panel-body > .merge-queue { overflow-y: auto; flex: 1; }
 
-.help p { margin: 0 0 10px; }
+.help p { margin: 0 0 var(--space-3); }
 .help kbd { margin-right: 2px; }
