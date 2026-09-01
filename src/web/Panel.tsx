@@ -13,7 +13,7 @@ export function Panel({ title, hint, wide, size, onClose, children }: {
         <header>
           <h2>{title}</h2>
           {hint && <span className="muted small">{hint}</span>}
-          <button className="sq" onClick={onClose} title={t('panel.close')}>✕</button>
+          <button className="sq ghost" onClick={onClose} title={t('panel.close')}>✕</button>
         </header>
         <div className="panel-body">{children}</div>
       </div>

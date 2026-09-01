@@ -1,10 +1,38 @@
-/* Тосты событий над сценой. */
+/* Тосты событий над сценой. Карточка 430 px — узел 136:465 макета
+   «11 · оболочка в новом стиле», разбор в docs/design/ui-shell/plan.md. */
 
 /* ================= тосты ================= */
 .toasts {
-  position: absolute; bottom: 16px; left: 50%; transform: translateX(-50%);
-  z-index: var(--z-toast); display: flex; flex-direction: column; gap: var(--space-2); width: min(560px, 80vw);
+  position: absolute; bottom: var(--space-4); left: 50%; transform: translateX(-50%);
+  z-index: var(--z-toast); display: flex; flex-direction: column; gap: var(--space-2);
+  width: min(430px, 92vw);
 }
-.toast { display: flex; align-items: center; gap: 12px; padding: 10px 12px; }
-.toast-text { flex: 1; min-width: 0; }
-.toast.failed { border-color: var(--red); }
+
+.toast {
+  display: flex; align-items: flex-start; gap: var(--space-2);
+  padding: var(--space-2);
+  background: var(--surface); color: var(--ink-2);
+  border: 1px solid var(--hairline); border-radius: var(--radius-card);
+  box-shadow: var(--shadow-toast);
+}
+
+/* Кружок-маркер вместо иконки: цвет по типу события. */
+.toast-marker {
+  flex: none; width: 12px; height: 12px; margin-top: 2px;
+  border-radius: var(--radius-pill); background: var(--ink-4);
+}
+.toast.done .toast-marker { background: var(--ok); }
+.toast.failed .toast-marker { background: var(--danger); }
+
+.toast-body { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: var(--space-2); }
+
+.toast-head { display: flex; align-items: flex-start; justify-content: space-between; gap: var(--space-1); }
+
+.toast-title { font: 500 var(--fs-body)/1.3 var(--font); }
+.toast-who { color: var(--accent); }
+
+.toast-detail { font-size: var(--fs-small); color: var(--ink-3); }
+
+.toast-actions { display: flex; gap: var(--space-2); }
+
+.toast-close { color: var(--ink-3); }
