@@ -489,13 +489,13 @@ const SYSTEMS: Record<string, ComponentSystem> = {
   "size": [3.25, 1.75],
   "footprint": [0, 0.5, 3.25, 1.25],
   "blocks": true,
-  "h": 1.2,
+  "h": 1.0,
   "tone": "fabric",
   "fallback": "soft",
-  "parts": [{ "file": "loungeSofa.glb" }],
+  "parts": [{ "file": "fabricSofa.glb", "probe": { "seat": [0, 0.1] } }],
   "components": [
-    { "type": "seat", "shape": "point", "at": [0.5, 0.45], "use": "game", "on": "loungeSofa", "offset": [0, 0, 0] },
-    { "type": "seat", "shape": "point", "at": [1.7, 0.45], "use": "game", "on": "loungeSofa", "offset": [0, 0, 0] }
+    { "type": "seat", "shape": "point", "at": [0.8, 0.45], "use": "game", "on": "fabricSofa", "offset": [0, 0, 0] },
+    { "type": "seat", "shape": "point", "at": [1.7, 0.45], "use": "game", "on": "fabricSofa", "offset": [0, 0, 0] }
   ]
 }
 ```

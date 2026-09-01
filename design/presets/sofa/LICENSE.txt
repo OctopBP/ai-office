@@ -1,0 +1,23 @@
+	Sofa
+
+	Автор: Urpo (https://sketchfab.com/Urpo)
+	Источник: https://sketchfab.com/3d-models/sofa-80edec2de8c04a4fb335a48b550a2336
+
+			------------------------------
+
+	Лицензия: CC-BY-4.0
+	http://creativecommons.org/licenses/by/4.0/
+
+	Указание автора обязательно, коммерческое использование разрешено.
+
+	This work is based on "Sofa"
+	(https://sketchfab.com/3d-models/sofa-80edec2de8c04a4fb335a48b550a2336)
+	by Urpo (https://sketchfab.com/Urpo) licensed under CC-BY-4.0
+	(http://creativecommons.org/licenses/by/4.0/)
+
+			------------------------------
+
+	Изменения: модель приведена к масштабу набора — единица = 2 метра,
+	начало координат в углу, спинка к −z. Текстуры авторские, ужаты до 512
+	(нормали 512, occlusion/roughness 256) и уложены внутрь .glb.
+	Остальной набор мебели — Kenney, CC0 (design/models/furniture).

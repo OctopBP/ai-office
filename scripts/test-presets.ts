@@ -139,7 +139,7 @@ console.log(`${bad === 0 ? '  ok  ' : '  FAIL'} разбор ${dirs.length} пр
 // объявления. Порядок важен: у дивана два места, и они не взаимозаменяемы.
 const sofa = parsePreset(JSON.parse(fs.readFileSync(path.join(DIR, 'sofa/preset.json'), 'utf8'))).preset;
 const seats = componentsOf(sofa, 'seat');
-const pickOk = seats.length === 2 && seats[0].at?.[0] === 0.5 && componentOf(sofa, 'surface') === undefined;
+const pickOk = seats.length === 2 && seats[0].at?.[0] === 0.8 && componentOf(sofa, 'surface') === undefined;
 if (!pickOk) failed += 1;
 console.log(`${pickOk ? '  ok  ' : '  FAIL'} выборка компонентов у дивана: мест ${seats.length}`);
 

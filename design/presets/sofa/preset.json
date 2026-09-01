@@ -4,27 +4,15 @@
   "size": [3.25, 1.75],
   "footprint": [0, 0.5, 3.25, 1.25],
   "blocks": true,
-  "h": 1.2,
+  "h": 1.0,
   "tone": "fabric",
   "fallback": "soft",
   "parts": [
     {
-      "file": "loungeSofa.glb",
+      "file": "fabricSofa.glb",
       "probe": {
-        "seat": [0, -0.15]
+        "seat": [0, 0.1]
       }
-    },
-    {
-      "file": "pillow.glb",
-      "at": [-0.75, 0.3, -0.1]
-    },
-    {
-      "file": "pillow.glb",
-      "at": [0, 0.3, -0.1]
-    },
-    {
-      "file": "pillow.glb",
-      "at": [0.75, 0.3, -0.1]
     }
   ],
   "components": [
@@ -32,16 +20,16 @@
       "type": "seat",
       "shape": "point",
       "use": "game",
-      "on": "loungeSofa",
+      "on": "fabricSofa",
       "height": null,
       "offset": [0, 0, 0],
-      "at": [0.5, 0.45]
+      "at": [0.8, 0.45]
     },
     {
       "type": "seat",
       "shape": "point",
       "use": "game",
-      "on": "loungeSofa",
+      "on": "fabricSofa",
       "height": null,
       "offset": [0, 0, 0],
       "at": [1.7, 0.45]
