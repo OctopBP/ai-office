@@ -1,0 +1,31 @@
+/* Токены тем: цвета обеих тем. Это единственный файл, который трогает смена палитры. */
+
+/* ================= темы ================= */
+:root, [data-theme='day'] {
+  --bg: #e9e2d3;            /* фон страницы вокруг комнаты */
+  --panel: #fbf8f2;
+  --panel-2: #f1ece0;
+  --line: #2b2233;
+  --line-soft: #cdc2ad;
+  --text: #2b2233;
+  --muted: #7a6f63;
+  --accent: #f0b429;
+  --accent-ink: #2b2233;
+  --green: #4f9d4a;
+  --red: #d94f3d;
+  --shadow: rgba(43, 34, 51, .18);
+}
+[data-theme='night'] {
+  --bg: #14111f;
+  --panel: #221d33;
+  --panel-2: #2b2440;
+  --line: #0f0c18;
+  --line-soft: #443a63;
+  --text: #ece7fa;
+  --muted: #9a90bb;
+  --accent: #f0b429;
+  --accent-ink: #2b2233;
+  --green: #5fd35a;
+  --red: #ff6b57;
+  --shadow: rgba(0, 0, 0, .5);
+}

@@ -1,0 +1,18 @@
+/* Каркас приложения: .app, сцена и общий холст аватарок. */
+
+/* ================= сцена ================= */
+.app { position: fixed; inset: 0; display: flex; flex-direction: column; }
+.stage {
+  position: relative; flex: 1; min-height: 0;
+  display: flex; align-items: center; justify-content: center;
+  /* HUD и нижняя строка — обычные flex-соседи .stage (как .bottom), места под
+     них не выделяем вручную: сколько строка весит, столько и займёт сама. */
+  padding: 16px;
+  overflow: hidden;
+}
+
+/* Общий холст аватарок (`AgentAvatar.tsx`): растянут на весь экран поверх
+   модалки, но сам ничего не ловит — рисует пиксели ровно там, где в потоке
+   разметки стоит `<div>` конкретной аватарки, а клики достаются ему. */
+.avatar-stage { position: fixed; inset: 0; z-index: 150; pointer-events: none; }
+.avatar-stage canvas { width: 100%; height: 100%; display: block; }

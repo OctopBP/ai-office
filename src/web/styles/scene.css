@@ -1,0 +1,141 @@
+/* Сцена: контейнер комнаты и трёхмерный офис — канвас, чипы камеры, подписи над агентами. */
+
+/* ---------- комната на спрайтах ---------- */
+
+/* заполняет всю доступную область .stage (за вычетом её padding) и
+   центрирует внутри себя комнату, отмасштабированную под целый шаг арта —
+   излишек по краю остаётся фоном сцены, а не белым полем или обрезкой */
+.office-box {
+  position: relative; width: 100%; height: 100%;
+  display: flex; align-items: center; justify-content: center;
+  overflow: hidden;
+  /* Своя система z-слоёв. Подписи трёхмерного офиса — обычный DOM поверх
+     канваса (`Html` из drei), и z-index им проставляет сама библиотека: число
+     считается от расстояния до камеры в пределах `zIndexRange` (у нас до 100)
+     и меняется при облёте. Без своего контекста наложения эти числа попадают
+     в общий стек приложения и спорят с оверлеями — HUD (30), тосты (40),
+     панели (50), дровер (60): табличка над столом оказывалась поверх открытой
+     доски задач. `isolation` запирает весь диапазон внутри сцены, не трогая
+     порядок самой сцены, — снаружи коробка остаётся одним слоем под UI. */
+  isolation: isolate;
+}
+
+.office3d { border: 2px solid var(--line); border-radius: 10px; }
+.office3d canvas { display: block; border-radius: 8px; }
+
+/* Чипы фокуса камеры — «весь офис», комнаты, выбранный агент. Лежат в углу
+   сцены поверх канваса и подписей: они управляют видом, а не живут в нём.
+   Контейнер прозрачен для мыши — иначе полоса поверх комнаты съедала бы
+   вращение сцены в своей строке. */
+.cam-chips {
+  position: absolute; left: 10px; bottom: 10px; z-index: 200;
+  display: flex; flex-wrap: wrap; gap: 6px; max-width: calc(100% - 20px);
+  pointer-events: none;
+}
+.cam-chip {
+  pointer-events: auto;
+  padding: 5px 11px; font-size: 12px; line-height: 1.2; border-radius: 99px;
+  color: var(--muted); background: var(--panel-2); border: 1px solid var(--line);
+  box-shadow: none;
+}
+.cam-chip:hover { color: var(--text); border-color: var(--muted); }
+.cam-chip.on { color: var(--accent-ink); background: var(--accent); border-color: var(--accent); }
+/* Агент — тот же чип, но подписан именем: он появляется и исчезает вместе с
+   выделением, поэтому отделён от постоянных кнопок отступом. */
+.cam-chip.agent { margin-left: 6px; }
+
+/* Подписи и пузыри трёхмерного офиса. Классы свои, а не общие с плоским:
+   там карточка позиционируется от спрайта фиксированными отступами
+   (`top: 82px` — это ровно под человечком в 48×72), а здесь её ставит на
+   место сама сцена, и от CSS нужно только оформление. Оформление при этом то
+   же самое — те же переменные темы, тот же `.pixel`. */
+.tag3d { position: relative; display: flex; flex-direction: column; align-items: center; gap: 4px; }
+.tag3d-bubble {
+  background: var(--panel); color: var(--text); border: 2px solid var(--line);
+  border-radius: 6px; padding: 3px 8px; font-size: 11px; white-space: nowrap;
+  max-width: 320px; overflow: hidden; text-overflow: ellipsis;
+}
+/* Подпись — «наклейка»: капсула цвета панели в жирной тёмной обводке, внутри
+   залитый значок должности и залитый кружок состояния. Обводка делает её
+   читаемой над любым полом и мебелью — это надёжнее, чем полупрозрачный фон
+   или тень под текстом, которые на пёстрой сцене всё равно теряются. */
+.tag3d-card {
+  background: var(--panel);
+  border: 2px solid var(--line);
+  border-radius: 999px;
+  box-shadow: 0 2px 0 var(--shadow);
+  /* Отступ ровно в толщину обводки: у значка и кружка есть своя рамка, и
+     прижатые вплотную две линии сливались в одну толстую полосу. Полоски
+     панели между ними хватает, чтобы они читались как две отдельные. */
+  padding: 2px;
+}
+/* Одна строка: слева значок должности с номером, по центру название
+   должности, справа состояние. Всё, что раньше стояло в две строки мелким
+   текстом («backend#1 · свободен», под ним роль), сжалось в этот ряд —
+   читать издалека там было нечего. */
+/* Имя снова переносится по словам, но высоту это почти не раздувает:
+   межстрочный интервал ровно 1, а сам шрифт мелкий. Значок и кружок при этом
+   выровнены по центру, а не растянуты по высоте, — двухстрочное имя их
+   размера не меняет. */
+.tag3d-row { display: flex; align-items: center; gap: 3px; }
+/* Значок должности залит, а не обведён: у капсулы уже есть своя обводка, и
+   вторая рамка того же веса рядом читалась бы как ошибка вёрстки. */
+/* Цвет значка приходит из настроек роли и задаётся в разметке. */
+.tag3d-chip {
+  flex: none; display: flex; align-items: center; justify-content: center;
+  font: 800 10px/1 ui-monospace, Menlo, monospace; letter-spacing: .02em;
+  border: 2px solid var(--line); border-radius: 999px;
+  padding: 3px 5px; min-width: 24px;
+}
+/* Не больше двух строк: третья уже не подпись, а абзац над головой. */
+.tag3d-name {
+  flex: 1; align-self: center; text-align: center;
+  font-weight: 800; font-size: 10px; line-height: 1; padding: 0 5px;
+  max-width: 96px; overflow: hidden;
+  display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2;
+}
+/* Кружок состояния залит его цветом целиком. Иконка внутри — если у
+   состояния она есть; у «свободен» и «идёт» её нет, и кружок остаётся
+   просто цветным, как в макете. */
+.tag3d-state {
+  flex: none; width: 16px; height: 16px; border-radius: 999px;
+  border: 2px solid var(--line);
+  display: flex; align-items: center; justify-content: center;
+  font-size: 8px; line-height: 1;
+}
+/* Подписи нажимаемых предметов: горячая клавиша у доски и лога, счётчик
+   задач, ждущих решения. Оформление то же, что у клавиш в нижней панели, —
+   это одна и та же подсказка, просто вынесенная в комнату. */
+.spot3d { display: flex; align-items: center; gap: 4px; }
+.spot3d-key {
+  font: 700 10px/1 ui-monospace, Menlo, monospace;
+  background: var(--panel); color: var(--text);
+  border: 2px solid var(--line); border-radius: 4px; padding: 3px 5px;
+}
+.spot3d-badge {
+  font: 700 10px/1 ui-monospace, Menlo, monospace;
+  background: var(--red); color: var(--panel);
+  border: 2px solid var(--line); border-radius: 999px;
+  min-width: 18px; padding: 3px 4px; text-align: center;
+}
+/* Метка свободного рабочего места. Приглушённая: это не действие, а
+   наблюдение — за столом никто не сидит. */
+.spot3d-free {
+  font: 700 12px/1 ui-monospace, Menlo, monospace;
+  color: var(--line); background: var(--panel); opacity: .65;
+  border: 2px dashed var(--line); border-radius: 999px;
+  width: 20px; height: 20px; display: flex; align-items: center; justify-content: center;
+}
+
+/* Задача — своя табличка под капсулой. Прямоугольная и мельче: это подпись к
+   подписи, и спорить с ней формой ей незачем. */
+.tag3d-task {
+  background: var(--panel); border: 2px solid var(--line); border-radius: 5px;
+  padding: 0 5px; font-size: 9px; line-height: 1.4; text-align: center;
+  max-width: 160px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.tag3d-plate {
+  font: 700 10px/1.5 ui-monospace, Menlo, monospace; letter-spacing: .04em;
+  color: var(--panel); background: var(--line); border-radius: 3px; padding: 0 5px;
+  white-space: nowrap;
+}

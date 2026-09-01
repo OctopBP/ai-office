@@ -1,0 +1,76 @@
+/* Очередь слияния и конвейер ревью. */
+
+/* ================= очередь слияния (T-13) ================= */
+.chip.merge-chip.clean { color: var(--green); border-color: var(--green); }
+.chip.merge-chip.merged { color: var(--green); border-color: var(--green); }
+.chip.merge-chip.conflict { color: var(--red); border-color: var(--red); }
+.chip.merge-chip.checking { color: var(--accent); border-color: var(--accent); }
+.chip.merge-chip.unknown { color: var(--muted); }
+.chip.merge-chip.nothing { color: var(--muted); }
+
+.merge-queue { overflow-y: auto; min-height: 0; display: flex; flex-direction: column; gap: 16px; }
+.mq-head {
+  display: flex; align-items: center; gap: 10px; margin-bottom: 6px;
+  text-transform: uppercase; letter-spacing: .05em;
+}
+.mq-head button { margin-left: auto; }
+
+.mq-candidates { display: flex; flex-direction: column; gap: 5px; }
+.mq-row {
+  display: flex; align-items: center; gap: 9px; padding: 7px 9px;
+  border: 1px solid var(--line); border-radius: 7px; background: var(--panel); cursor: pointer;
+}
+.mq-row input { width: auto; margin: 0; flex: none; }
+.mq-title { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.mq-order {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 18px; height: 18px; flex: none; font-size: 11px; font-weight: 700;
+  background: var(--accent); color: var(--accent-ink); border-radius: 50%;
+}
+
+.mq-order-list { display: flex; flex-direction: column; gap: 5px; }
+.mq-order-row {
+  display: flex; align-items: center; gap: 9px; padding: 7px 9px;
+  border: 1px solid var(--line); border-radius: 7px; background: var(--panel-2);
+}
+.mq-arrows { display: flex; gap: 4px; margin-left: auto; }
+.mq-arrows button { padding: 2px 7px; font-size: 11px; }
+.mq-actions { margin-top: 8px; }
+.mq-actions button { padding: 8px 16px; }
+
+.mq-progress { display: flex; flex-direction: column; gap: 6px; }
+.mq-stopped {
+  padding: 8px 10px; border: 1px solid var(--line); border-radius: 7px;
+  font-size: 13px; margin-bottom: 4px;
+}
+.mq-stopped.bad { border-color: var(--red); color: var(--red); }
+.mq-stopped.ok { border-color: var(--green); color: var(--green); }
+.mq-item {
+  border: 1px solid var(--line); border-radius: 7px; padding: 8px 10px; background: var(--panel);
+}
+.mq-item.conflict, .mq-item.typecheck-failed, .mq-item.failed { border-color: var(--red); }
+.mq-item.merged, .mq-item.nothing { border-color: var(--green); }
+.mq-item-row { display: flex; align-items: center; gap: 9px; }
+.mq-reason { margin-top: 5px; font-size: 12px; color: var(--red); }
+.mq-typecheck { margin-top: 6px; font-size: 12px; }
+.mq-typecheck.ok { color: var(--green); }
+.mq-typecheck.bad { color: var(--red); }
+.mq-typecheck pre {
+  margin: 5px 0 0; padding: 8px 10px; background: var(--panel-2); border: 1px solid var(--line-soft);
+  border-radius: 6px; font: 11px/1.5 ui-monospace, Menlo, monospace; white-space: pre-wrap;
+  max-height: 200px; overflow: auto; color: var(--text);
+}
+
+/* Конвейер ревью: стадии сданных задач. */
+.pr-list { display: flex; flex-direction: column; gap: 8px; margin-bottom: 14px; }
+.pr-note { color: var(--muted); }
+.mq-item.conflict .pr-note { color: var(--red); }
+.pr-review { margin-top: 6px; font-size: 12px; border-left: 2px solid var(--muted); padding-left: 8px; }
+.pr-review.ok { border-color: var(--green); }
+.pr-review.bad { border-color: var(--red); }
+.pr-review p { margin: 3px 0 0; white-space: pre-wrap; color: var(--muted); }
+.pr-actions { display: flex; align-items: center; gap: 9px; margin-top: 6px; }
+.pr-actions a.mini { text-decoration: none; }
+.pr-hint { margin: 0 0 8px; line-height: 1.4; }
+.pr-watch { margin-top: 5px; font-size: 12px; color: var(--accent); }
+.pr-watch.bad { color: var(--red); }

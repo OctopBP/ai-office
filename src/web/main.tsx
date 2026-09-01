@@ -2,7 +2,7 @@ import React, { lazy, Suspense } from 'react';
 import { createRoot } from 'react-dom/client';
 import { App } from './App';
 import { useStore } from './store';
-import './styles.css';
+import './styles/index.css';
 
 /**
  * Стенд подгонки — отдельный экран, а не часть офиса: `?fit=1`.

@@ -1,0 +1,27 @@
+/* Порядок подключения — это порядок каскада: правила одинаковой
+   специфичности из файла ниже перекрывают файл выше. База идёт первой,
+   чтобы компонентные файлы могли уточнять кнопку и чип. */
+
+@import './tokens.css';
+@import './base.css';
+@import './app.css';
+@import './task-card.css';
+@import './chat-log.css';
+@import './modal.css';
+@import './team.css';
+@import './settings.css';
+@import './board.css';
+@import './meeting.css';
+@import './scene.css';
+@import './office-sprites.css';
+@import './drawer.css';
+@import './hud.css';
+@import './bottom.css';
+@import './toasts.css';
+@import './panel.css';
+@import './diff.css';
+@import './money.css';
+@import './offices.css';
+@import './menu.css';
+@import './merge-queue.css';
+@import './fit-bench.css';

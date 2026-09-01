@@ -1,0 +1,26 @@
+/* Список офисов и выбор движка в модалке офисов. */
+
+/* ================= офисы и облако ================= */
+
+.offices { display: flex; flex-direction: column; margin: 12px 0; }
+.office-row {
+  display: flex; align-items: center; gap: 10px; padding: 8px 6px;
+  border-bottom: 1px solid var(--line-soft);
+}
+.office-row:last-child { border-bottom: none; }
+.office-row.current { background: rgba(240, 180, 41, .1); border-radius: 6px; }
+.office-who { flex: 1; min-width: 0; }
+.office-who .mono { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.engine { display: flex; gap: 8px; margin-bottom: 12px; }
+.engine button {
+  flex: 1; display: flex; flex-direction: column; gap: 3px;
+  align-items: flex-start; text-align: left; padding: 9px 11px;
+}
+.engine button.on { background: var(--accent); color: var(--accent-ink); }
+.engine button.on .muted { color: var(--accent-ink); opacity: .75; }
+.ready {
+  font-size: 12px; padding: 7px 10px; border-radius: 6px; margin-bottom: 12px;
+  border: 1px solid var(--line-soft);
+}
+.ready.ok { color: var(--green); border-color: var(--green); }
+.ready.bad { color: var(--red); border-color: var(--red); }

@@ -1,0 +1,38 @@
+/* Стенд подгонки (?fit=1, только в разработке). */
+
+/* ── Стенд подгонки (?fit=1, только в разработке) ───────────────────────────
+   Экран целиком свой, а не панель поверх офиса: подбирают посадку долго и
+   вдумчиво, и HUD с чатом здесь только мешали бы. */
+.fit { display: flex; height: 100vh; }
+.fit-stage { flex: 1; min-width: 0; background: var(--panel-2); }
+.fit-panel {
+  width: 330px; flex: none; overflow: auto; padding: 14px 16px;
+  background: var(--panel); border-left: 2px solid var(--line);
+}
+.fit-panel h1 { margin: 0 0 6px; font-size: 17px; }
+.fit-panel h2 { margin: 16px 0 6px; font-size: 13px; color: var(--muted); }
+.fit-note { margin: 0 0 10px; font-size: 12px; line-height: 1.45; color: var(--muted); }
+
+.fit-cases { display: flex; flex-wrap: wrap; gap: 5px; margin-bottom: 12px; }
+.fit-cases button { padding: 4px 8px; font-size: 12px; }
+.fit-cases button.on { background: var(--accent); color: var(--accent-ink); }
+
+/* Замеры с живой сцены: слева что мерили, справа сколько вышло и на сколько
+   разошлось с тем, куда фигура должна была попасть. */
+.fit-read {
+  display: flex; flex-direction: column; gap: 3px; padding: 8px 10px;
+  background: var(--panel-2); border: 1px solid var(--line-soft); border-radius: 6px;
+  font-size: 12px;
+}
+.fit-read div { display: flex; justify-content: space-between; gap: 10px; }
+.fit-read i { color: var(--accent); font-style: normal; }
+
+.fit-slide { display: flex; align-items: center; gap: 8px; margin: 4px 0; font-size: 12px; }
+.fit-slide-name { width: 108px; flex: none; color: var(--muted); }
+.fit-slide input { flex: 1; min-width: 0; }
+.fit-slide-value { width: 58px; flex: none; text-align: right; }
+.fit-check { display: flex; align-items: center; gap: 6px; margin: 8px 0; font-size: 12px; }
+
+.fit-actions { display: flex; gap: 8px; margin: 16px 0 8px; }
+.fit-actions button { font-size: 12px; }
+.fit-save { background: var(--accent); color: var(--accent-ink); }

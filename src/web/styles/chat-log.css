@@ -1,0 +1,39 @@
+/* Чат с PM и лог событий: сообщения, строки лога, композер, вкладки тредов. */
+
+/* ---------- правая колонка ---------- */
+
+.chat, .log { overflow-y: auto; padding: 4px; min-height: 0; flex: 1; }
+.msg { margin-bottom: 12px; }
+.msg-from { font-size: 11px; color: var(--muted); margin-bottom: 3px; }
+.msg-text {
+  white-space: pre-wrap; background: var(--panel-2); border: 2px solid var(--line-soft);
+  border-radius: 6px; padding: 8px 11px; color: var(--text);
+}
+.msg.from-user .msg-text { background: var(--accent); color: var(--accent-ink); border-color: var(--line); }
+
+.log-row { display: flex; gap: 8px; padding: 2px 0; font-size: 12px; border-bottom: 1px solid var(--line-soft); }
+.log-agent { color: var(--muted); min-width: 82px; font-family: ui-monospace, Menlo, monospace; font-size: 11px; }
+.log-text { flex: 1; word-break: break-word; }
+.log-row.error .log-text { color: var(--red); }
+.log-row.text .log-text { color: var(--text); }
+.log-row.system .log-text { color: var(--muted); }
+
+.composer { padding: 12px 0 0; display: flex; flex-direction: column; gap: 8px; flex: none; }
+.composer textarea {
+  resize: vertical; background: var(--panel-2); color: var(--text);
+  border: 2px solid var(--line); border-radius: 6px; padding: 9px; font: inherit;
+}
+.composer textarea:focus { outline: none; border-color: var(--accent); }
+
+/* ---------- ветки чата и авторизация ---------- */
+.thread-bar {
+  background: var(--panel-2); border: 1px solid var(--accent); border-radius: 8px;
+  padding: 8px 11px; margin-bottom: 12px; font-size: 12px; color: var(--muted);
+  display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+}
+.thread-bar b { color: var(--text); }
+.thread-bar button { margin-left: auto; padding: 3px 10px; font-size: 12px; }
+
+.threads { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 12px; }
+.threads button { font-size: 12px; padding: 3px 10px; }
+.note { margin: 0 0 12px; }
