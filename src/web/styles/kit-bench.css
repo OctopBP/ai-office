@@ -1,0 +1,29 @@
+/* Стенд кита (?kit=1, только в разработке): две половины, по теме на каждую. */
+
+.kit { display: flex; min-height: 100vh; }
+.kit-half {
+  flex: 1; min-width: 0; padding: 24px 28px 48px; overflow-y: auto;
+  background: var(--canvas); color: var(--ink-2);
+}
+.kit-half section { margin-bottom: 26px; }
+.kit-half section > .section-title { margin-bottom: 10px; }
+.kit-half p { margin: 0 0 6px; }
+.kit-brand { margin: 0 0 22px; font: 600 var(--fs-title)/1.2 var(--font-brand); color: var(--ink); }
+
+.kit-swatches { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 8px; }
+.kit-swatch { display: grid; grid-template-columns: 28px 1fr; grid-template-rows: auto auto; column-gap: 8px; align-items: center; }
+.kit-swatch i { grid-row: 1 / 3; width: 28px; height: 28px; border-radius: var(--radius-avatar); border: 1px solid var(--hairline); }
+.kit-swatch b { font-size: var(--fs-small); font-weight: 500; font-family: var(--font-mono); color: var(--ink); }
+
+.kit-row { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-bottom: 10px; }
+/* Бейджи лежат над сценой, не над холстом — подложка чуть темнее, чтобы
+   тень пилюли было с чем сравнивать. */
+.kit-scene { padding: 14px; border-radius: var(--radius-card); background: var(--film-2); }
+
+.kit-card { width: 430px; max-width: 100%; padding: 8px 8px 8px 12px; display: flex; flex-direction: column; gap: 8px; }
+.kit-card-row { display: flex; align-items: center; gap: 8px; font-size: 12px; font-weight: 500; }
+.kit-card-row b { color: var(--accent); font-weight: 500; }
+.kit-dot { width: 12px; height: 12px; border-radius: 50%; background: var(--ok); flex: none; }
+
+.kit-meter { width: 224px; margin-top: 16px; }
+.kit-meter-head { display: flex; justify-content: space-between; margin-bottom: 8px; }

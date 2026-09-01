@@ -83,7 +83,7 @@
 .ghost img { display: block; width: 100%; height: 100%; }
 .ghost span {
   position: absolute; left: 50%; top: 40%; transform: translate(-50%, -50%);
-  color: var(--panel); font-size: 20px; font-weight: 700; text-shadow: 0 1px 0 var(--line);
+  color: var(--surface); font-size: 20px; font-weight: 700; text-shadow: 0 1px 0 var(--ink);
 }
 
 /* ---------- подписи в комнате ---------- */
@@ -99,7 +99,7 @@
 .statuscard .line2 { font-size: 10px; max-width: 210px; overflow: hidden; text-overflow: ellipsis; }
 .plate {
   position: absolute; z-index: 1000; font: 700 10px/1.5 ui-monospace, Menlo, monospace;
-  color: var(--panel); background: var(--line); border-radius: 3px; padding: 0 5px;
+  color: var(--surface); background: var(--ink); border-radius: 3px; padding: 0 5px;
   pointer-events: none; letter-spacing: .04em;
 }
 

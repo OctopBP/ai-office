@@ -114,7 +114,7 @@
 }
 .spot3d-badge {
   font: 700 10px/1 ui-monospace, Menlo, monospace;
-  background: var(--red); color: var(--panel);
+  background: var(--danger); color: #fff;
   border: 2px solid var(--line); border-radius: 999px;
   min-width: 18px; padding: 3px 4px; text-align: center;
 }
@@ -122,7 +122,7 @@
    наблюдение — за столом никто не сидит. */
 .spot3d-free {
   font: 700 12px/1 ui-monospace, Menlo, monospace;
-  color: var(--line); background: var(--panel); opacity: .65;
+  color: var(--ink-3); background: var(--surface); opacity: .65;
   border: 2px dashed var(--line); border-radius: 999px;
   width: 20px; height: 20px; display: flex; align-items: center; justify-content: center;
 }
@@ -136,6 +136,6 @@
 }
 .tag3d-plate {
   font: 700 10px/1.5 ui-monospace, Menlo, monospace; letter-spacing: .04em;
-  color: var(--panel); background: var(--line); border-radius: 3px; padding: 0 5px;
+  color: var(--surface); background: var(--ink); border-radius: 3px; padding: 0 5px;
   white-space: nowrap;
 }

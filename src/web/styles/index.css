@@ -4,6 +4,7 @@
 
 @import './tokens.css';
 @import './base.css';
+@import './kit.css';
 @import './app.css';
 @import './task-card.css';
 @import './chat-log.css';
@@ -25,3 +26,4 @@
 @import './menu.css';
 @import './merge-queue.css';
 @import './fit-bench.css';
+@import './kit-bench.css';

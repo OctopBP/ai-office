@@ -38,7 +38,7 @@
   font-size: 20px; line-height: 1.2;
 }
 .hud-bar button.on { background: var(--accent); color: var(--accent-ink); }
-.hud-bar button.alert { background: rgba(240, 180, 41, .18); color: var(--accent); }
+.hud-bar button.alert { background: rgba(var(--accent-rgb), .18); color: var(--accent); }
 
 /* Расходы — теперь просто hud-btn с иконкой и суммой в одну строку;
    разбивка «сегодня / всего / из бюджета» переехала в title. */
@@ -54,10 +54,10 @@
 /* Чип доступа — теперь только значок (подпись в title), высота как у кнопки. */
 .hud-chip { display: flex; align-items: center; gap: 8px; padding: 9px 14px; font-size: 15px; line-height: 1.2; background: var(--panel-2); border-radius: 7px; }
 .hud-chip.access { padding: 9px 12px; }
-.hud-chip.access.auto { color: var(--red); background: rgba(217, 79, 61, .14); }
+.hud-chip.access.auto { color: var(--red); background: rgba(var(--danger-rgb), .14); }
 /* Паддинг чуть больше базового — при font-size 15 добирает те же 42px
    высоты, что у остальных элементов строки (иначе чип на 6px ниже). */
-.hud-chip.paused { padding: 12px 14px; color: var(--accent); background: rgba(240, 180, 41, .16); letter-spacing: .06em; }
+.hud-chip.paused { padding: 12px 14px; color: var(--accent); background: rgba(var(--accent-rgb), .16); letter-spacing: .06em; }
 
 .link-dot { width: 12px; height: 12px; border-radius: 50%; background: var(--red); }
 .link-dot.on { background: var(--green); }
@@ -123,7 +123,7 @@
 }
 .office-switcher-row:hover { background: var(--panel-2); }
 .office-switcher-row:active { transform: none; }
-.office-switcher-row.current { background: rgba(240, 180, 41, .12); }
+.office-switcher-row.current { background: rgba(var(--accent-rgb), .12); }
 .office-switcher-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .office-switcher-dot {
   flex: none; width: 8px; height: 8px; border-radius: 50%; background: var(--line-soft);
@@ -135,9 +135,9 @@
 /* Живая работа прямо сейчас — тот же акцент, но с пульсом, чтобы не путать с «просто висит задача». */
 .office-switcher-dot.live { background: var(--accent); animation: office-switcher-live-pulse 1.6s ease-out infinite; }
 @keyframes office-switcher-live-pulse {
-  0% { box-shadow: 0 0 0 0 rgba(240, 180, 41, .55); }
-  70% { box-shadow: 0 0 0 6px rgba(240, 180, 41, 0); }
-  100% { box-shadow: 0 0 0 0 rgba(240, 180, 41, 0); }
+  0% { box-shadow: 0 0 0 0 rgba(var(--accent-rgb), .55); }
+  70% { box-shadow: 0 0 0 6px rgba(var(--accent-rgb), 0); }
+  100% { box-shadow: 0 0 0 0 rgba(var(--accent-rgb), 0); }
 }
 /* Счётчик запросов, ждущих решения человека, — самое заметное в строке. */
 .office-switcher-waiting {

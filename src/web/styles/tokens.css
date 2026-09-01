@@ -1,31 +1,130 @@
-/* Токены тем: цвета обеих тем. Это единственный файл, который трогает смена палитры. */
+/* Токены оболочки. Значения сняты с макета «11 · оболочка в новом стиле»
+   (светлая — 136:397, тёмная — 141:622), разбор в docs/design/ui-shell/plan.md.
+   Цвет, радиус, тень и кегль живут только здесь: компонентный файл берёт
+   переменную, а не число, — иначе смена палитры снова превратится в поиск
+   по всем файлам. */
 
-/* ================= темы ================= */
-:root, [data-theme='day'] {
-  --bg: #e9e2d3;            /* фон страницы вокруг комнаты */
-  --panel: #fbf8f2;
-  --panel-2: #f1ece0;
-  --line: #2b2233;
-  --line-soft: #cdc2ad;
-  --text: #2b2233;
-  --muted: #7a6f63;
-  --accent: #f0b429;
-  --accent-ink: #2b2233;
-  --green: #4f9d4a;
-  --red: #d94f3d;
-  --shadow: rgba(43, 34, 51, .18);
+:root {
+  /* Форма. Пилюля — всё нажимаемое; панель — рейл и плавающие карточки;
+     строка — пункт списка; аватар и иконка — квадратики 30 и 16 px. */
+  --radius-panel: 16px;
+  --radius-card: 12px;
+  --radius-row: 10px;
+  --radius-avatar: 9px;
+  --radius-icon: 5px;
+  --radius-pill: 999px;
+
+  /* Высоты контролов из макета: кнопка и сегменты 32, чип композера 28,
+     кнопки в тосте 26. */
+  --control-h: 32px;
+  --chip-h: 28px;
+  --mini-h: 26px;
+
+  /* Шрифты. Inter грузится локально (@fontsource-variable): приложение
+     работает без сети. Sora — только на названии продукта. */
+  --font: 'Inter Variable', Inter, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  --font-brand: 'Sora Variable', Sora, var(--font);
+  --font-mono: ui-monospace, SFMono-Regular, Menlo, monospace;
+
+  /* Шкала кеглей макета. Подпись секции 10, второстепенное 11, основной
+     текст 12.5–13, заголовок окна 15. */
+  --fs-caption: 10px;
+  --fs-small: 11px;
+  --fs-body: 12.5px;
+  --fs-md: 13px;
+  --fs-title: 15px;
+
+  /* Цвета сущностей — те же, что у ролей в design/sprites/gen.py. Аватар
+     офиса и значок роли берут их по кругу. */
+  --hue-blue: #2f7bf6;
+  --hue-amber: #f2a33a;
+  --hue-pink: #e0507a;
+  --hue-violet: #a06cd5;
 }
+
+/* ---------- светлая тема ---------- */
+:root, [data-theme='day'] {
+  color-scheme: light;
+
+  --canvas: #f1f1f1;                 /* холст под сценой */
+  --surface: #ffffff;                /* рейл, композер, тост, сегменты */
+  --film: rgba(0, 0, 0, .06);        /* плёнка: чипы, поля, hover */
+  --film-2: rgba(0, 0, 0, .07);      /* активная строка списка */
+  --film-3: rgba(0, 0, 0, .11);      /* нажатие */
+  --hairline: #dadada;               /* волосяная граница, 1 px */
+  --dash: #3a3d45;                   /* пунктир «Новый офис» */
+
+  --ink: #141414;                    /* заголовки, названия */
+  --ink-2: #323232;                  /* основной текст */
+  --ink-3: #6e6e6e;                  /* второстепенный */
+  --ink-4: #95979e;                  /* подпись в активной строке */
+
+  --accent: #2f7bf6;
+  --accent-rgb: 47, 123, 246;
+  --accent-ink: #ffffff;
+
+  /* Зелёный из макета слишком светлый для текста на белом — для точек
+     статуса --ok, для слов и обводок --ok-ink. */
+  --ok: #4ade80;
+  --ok-live: #12ea6a;
+  --ok-ink: #16a34a;
+  --ok-rgb: 22, 163, 74;
+
+  /* Жёлтого и красного в макете нет: янтарный — с bridgemind.ai, красный
+     подобран под светлый фон. Уточнить, когда дизайнер нарисует состояния. */
+  --warn: #f2a33a;
+  --warn-rgb: 242, 163, 58;
+  --danger: #dc4b3f;
+  --danger-rgb: 220, 75, 63;
+
+  --veil: rgba(0, 0, 0, .35);        /* подложка под модалкой */
+  --shadow-float: 0 4px 16px rgba(0, 0, 0, .25);
+  --shadow-toast: 0 10px 28px rgba(0, 0, 0, .5);
+  --shadow: rgba(0, 0, 0, .18);
+}
+
+/* ---------- тёмная тема ---------- */
 [data-theme='night'] {
-  --bg: #14111f;
-  --panel: #221d33;
-  --panel-2: #2b2440;
-  --line: #0f0c18;
-  --line-soft: #443a63;
-  --text: #ece7fa;
-  --muted: #9a90bb;
-  --accent: #f0b429;
-  --accent-ink: #2b2233;
-  --green: #5fd35a;
-  --red: #ff6b57;
+  color-scheme: dark;
+
+  --canvas: #0d0e11;
+  --surface: #111214;
+  --film: rgba(255, 255, 255, .06);
+  --film-2: rgba(255, 255, 255, .07);
+  --film-3: rgba(255, 255, 255, .14);
+  --hairline: #2a2d34;
+  --dash: #3a3d45;
+
+  --ink: #f4f4f5;
+  --ink-2: #e4e4e7;
+  --ink-3: #a1a1a1;
+  --ink-4: #6e6e6e;
+
+  --ok-ink: #4ade80;
+  --ok-rgb: 74, 222, 128;
+  --warn: #ffb800;
+  --warn-rgb: 255, 184, 0;
+  --danger: #ff6b6b;
+  --danger-rgb: 255, 107, 107;
+
+  --veil: rgba(0, 0, 0, .6);
+  --shadow-float: 0 4px 16px rgba(0, 0, 0, .45);
+  --shadow-toast: 0 10px 28px rgba(0, 0, 0, .6);
   --shadow: rgba(0, 0, 0, .5);
+}
+
+/* ---------- прежние имена ----------
+   Компонентные файлы ещё написаны на старых переменных. Здесь они
+   переведены на новые, чтобы всё приложение перекрасилось разом; файл за
+   файлом их заменят на новые имена, и этот блок уйдёт. */
+:root {
+  --bg: var(--canvas);
+  --panel: var(--surface);
+  --panel-2: var(--film);
+  --line: var(--hairline);
+  --line-soft: var(--hairline);
+  --text: var(--ink-2);
+  --muted: var(--ink-3);
+  --green: var(--ok-ink);
+  --red: var(--danger);
 }

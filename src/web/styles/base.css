@@ -1,51 +1,35 @@
-/* База: сброс, body, кнопка, kbd и мелкие утилиты текста. Общее для всего приложения. */
+/* База: сброс, body, текст. Ничего про конкретные детали — они в kit.css. */
 
 * { box-sizing: border-box; }
+
 body {
-  margin: 0; background: var(--bg); color: var(--text);
-  font: 14px/1.5 -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  margin: 0; background: var(--canvas); color: var(--ink-2);
+  font: 400 var(--fs-md)/1.5 var(--font);
   overflow: hidden;
+  -webkit-font-smoothing: antialiased;
 }
-.mono { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 11px; }
-.muted { color: var(--muted); font-weight: 400; }
-.empty { color: var(--muted); padding: 16px 4px; }
 
-/* «карточка» в стиле макета: жирный контур и смещённая нижняя грань */
-.pixel {
-  background: var(--panel); border: 2px solid var(--line);
-  border-bottom-width: 3px; border-radius: 6px;
-}
-button {
-  background: var(--panel); color: var(--text);
-  border: 2px solid var(--line); border-bottom-width: 3px; border-radius: 6px;
-  padding: 5px 11px; cursor: pointer; font: inherit; font-size: 13px;
-}
-button:hover { background: var(--panel-2); }
-button:active { border-bottom-width: 2px; transform: translateY(1px); }
-button:disabled { opacity: .45; cursor: default; }
-button.primary { background: var(--accent); color: var(--accent-ink); }
-button.sq { padding: 5px 9px; line-height: 1.2; }
+/* Заголовки чернее основного текста — так в макете отличаются название
+   офиса и его статус. */
+h1, h2, h3, h4 { color: var(--ink); }
 
-button {
-  background: var(--panel-2); color: var(--text); border: 1px solid var(--line);
-  border-radius: 6px; padding: 6px 12px; cursor: pointer; font-size: 13px;
-}
-button:hover { border-color: var(--muted); }
-button:disabled { opacity: .5; cursor: default; }
+/* Видимый фокус только с клавиатуры: кольцо акцентом, без рамки при клике. */
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 
-@keyframes pulse { 50% { opacity: .45; } }
+.mono { font-family: var(--font-mono); font-size: var(--fs-small); }
+.muted { color: var(--ink-3); font-weight: 400; }
+.small { font-size: var(--fs-small); }
+.empty { color: var(--ink-3); padding: 16px 4px; }
+
+/* Подпись секции — «ОФИСЫ», «ОКНА ОФИСА». */
+.section-title {
+  font-size: var(--fs-caption); font-weight: 500; letter-spacing: .04em;
+  text-transform: uppercase; color: var(--ink-3);
+}
 
 /* Иконки Tabler (icons.tsx) — общий цвет через currentColor уже задан в
    самом svg; здесь защита от сжатия во flex-рядах тулбара и выравнивание
    по нижнему краю текста там, где иконка стоит прямо в строке без flex. */
 .icon-tabler { flex: none; vertical-align: -3px; }
 
-kbd {
-  background: var(--panel-2); border: 2px solid var(--line); border-bottom-width: 3px;
-  border-radius: 4px; padding: 0 6px; font: 600 11px/1.6 ui-monospace, Menlo, monospace;
-  color: var(--text);
-}
-
-button.sq.on { background: var(--accent); color: var(--accent-ink); }
-
-.small { font-size: 11px; }
+@keyframes pulse { 50% { opacity: .45; } }

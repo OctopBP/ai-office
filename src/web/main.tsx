@@ -2,6 +2,9 @@ import React, { lazy, Suspense } from 'react';
 import { createRoot } from 'react-dom/client';
 import { App } from './App';
 import { useStore } from './store';
+// Шрифты локально, а не с Google Fonts: офис работает без сети.
+import '@fontsource-variable/inter';
+import '@fontsource-variable/sora';
 import './styles/index.css';
 
 /**
@@ -13,7 +16,11 @@ import './styles/index.css';
  * `import.meta.env.DEV` в проде ложно, и до `import()` дело не доходит.
  */
 const FitBench = lazy(() => import('./office3d/FitBench').then((m) => ({ default: m.FitBench })));
-const bench = import.meta.env.DEV && new URLSearchParams(location.search).has('fit');
+/** Стенд кита — те же правила: `?kit=1`, лениво, только в разработке. */
+const KitBench = lazy(() => import('./KitBench').then((m) => ({ default: m.KitBench })));
+const params = new URLSearchParams(location.search);
+const bench = import.meta.env.DEV && params.has('fit');
+const kit = import.meta.env.DEV && params.has('kit');
 
 /**
  * Приложение целиком перемонтируется на смене языка офиса.
@@ -33,6 +40,8 @@ createRoot(document.getElementById('root')!).render(
   <React.StrictMode>
     {bench
       ? <Suspense fallback={null}><FitBench /></Suspense>
-      : <Root />}
+      : kit
+        ? <Suspense fallback={null}><KitBench /></Suspense>
+        : <Root />}
   </React.StrictMode>,
 );

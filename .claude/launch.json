@@ -4,14 +4,31 @@
     {
       "name": "office",
       "runtimeExecutable": "npm",
-      "runtimeArgs": ["run", "dev"],
+      "runtimeArgs": [
+        "run",
+        "dev"
+      ],
       "port": 5173
     },
     {
       "name": "office-3d",
       "runtimeExecutable": "npm",
-      "runtimeArgs": ["run", "dev:3d"],
+      "runtimeArgs": [
+        "run",
+        "dev:3d"
+      ],
       "port": 5174
+    },
+    {
+      "name": "office-web",
+      "runtimeExecutable": "npx",
+      "runtimeArgs": [
+        "vite",
+        "--port",
+        "5175",
+        "--strictPort"
+      ],
+      "port": 5175
     }
   ]
 }

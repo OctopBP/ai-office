@@ -3,7 +3,7 @@
 /* ---------- модалка разрешений ---------- */
 
 .modal-backdrop {
-  position: fixed; inset: 0; background: rgba(0, 0, 0, .62);
+  position: fixed; inset: 0; background: var(--veil);
   display: flex; align-items: center; justify-content: center; z-index: 100;
   backdrop-filter: blur(2px);
 }
@@ -32,10 +32,10 @@
 .modal-actions { display: flex; gap: 8px; }
 .modal-actions button { flex: 1; padding: 9px 10px; font-size: 13px; }
 .modal-actions .deny { border-color: var(--red); color: var(--red); }
-.modal-actions .deny:hover { background: rgba(248, 81, 73, .12); }
+.modal-actions .deny:hover { background: rgba(var(--danger-rgb), .12); }
 .modal-actions .allow { border-color: var(--green); color: var(--green); }
-.modal-actions .allow:hover { background: rgba(63, 185, 80, .12); }
-.modal-actions .always:hover { background: var(--line); }
+.modal-actions .allow:hover { background: rgba(var(--ok-rgb), .12); }
+.modal-actions .always:hover { background: var(--film-3); }
 .modal-hint { font-size: 11px; margin: 12px 0 0; line-height: 1.45; }
 
 /* ---------- формы в модалках (и в правой панели окна «Команда») ---------- */
@@ -75,7 +75,7 @@
 .modal label.slider.off input[type="range"] { cursor: default; }
 
 .modal-actions .never { border-color: var(--red); color: var(--red); }
-.modal-actions .never:hover { background: rgba(217, 79, 61, .12); }
+.modal-actions .never:hover { background: rgba(var(--danger-rgb), .12); }
 
 .modal h4 {
   margin: 14px 0 6px; font-size: 12px; text-transform: uppercase;
@@ -90,16 +90,15 @@
 .access-modes button.on.auto .muted { color: #fff; opacity: .85; }
 .access-confirm {
   padding: 10px 12px; margin: -4px 0 14px; border: 1px solid var(--red);
-  border-radius: 7px; background: rgba(217, 79, 61, .08);
+  border-radius: 7px; background: rgba(var(--danger-rgb), .08);
 }
 .access-confirm p { margin: 0 0 10px; font-size: 13px; line-height: 1.45; }
 .access-confirm .modal-actions .danger { border-color: var(--red); color: var(--red); }
-.access-confirm .modal-actions .danger:hover { background: rgba(217, 79, 61, .12); }
+.access-confirm .modal-actions .danger:hover { background: rgba(var(--danger-rgb), .12); }
 .perm-badge {
   display: inline-flex; align-items: center; gap: 5px; padding: 2px 8px;
   border: 1px solid var(--line-soft); border-radius: 12px; font-size: 11px; color: var(--muted);
 }
 .perm-badge.auto { color: var(--red); border-color: var(--red); }
 /* Тесная раскладка — не ошибка доступа, поэтому цвет акцентный, а не тревожный. */
-.perm-badge.deskless { color: var(--accent-ink); border-color: var(--accent); background: rgba(240, 180, 41, .18); }
-[data-theme='night'] .perm-badge.deskless { color: var(--text); }
+.perm-badge.deskless { color: var(--accent); border-color: var(--accent); background: rgba(var(--accent-rgb), .18); }

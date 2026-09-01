@@ -41,16 +41,16 @@
   padding: 3px 10px; font-size: 12px;
   border-color: var(--green); color: var(--green);
 }
-.task-branch .merge:hover { background: rgba(63, 185, 80, .12); }
+.task-branch .merge:hover { background: rgba(var(--ok-rgb), .12); }
 
 /* ---------- управление задачей ---------- */
 .task-controls { display: flex; gap: 6px; margin-top: 8px; }
 .task-controls:empty { display: none; }
 .task-controls button { padding: 3px 10px; font-size: 12px; }
 .task-controls .stop { border-color: var(--red); color: var(--red); }
-.task-controls .stop:hover { background: rgba(248, 81, 73, .12); }
+.task-controls .stop:hover { background: rgba(var(--danger-rgb), .12); }
 .task-controls .retry { border-color: var(--accent); color: var(--accent); }
-.task-controls .retry:hover { background: rgba(240, 180, 41, .12); }
+.task-controls .retry:hover { background: rgba(var(--accent-rgb), .12); }
 
 .chip.active { color: var(--accent); border-color: var(--accent); }
 .chip.planned { color: var(--muted); }
@@ -64,7 +64,7 @@
   color: var(--muted); margin-bottom: 3px;
 }
 .criterion { display: flex; gap: 6px; align-items: baseline; font-size: 12px; color: var(--muted); }
-.criterion .mark { color: var(--line-soft); width: 10px; flex: none; text-align: center; }
+.criterion .mark { color: var(--ink-4); width: 10px; flex: none; text-align: center; }
 .criterion.done { color: var(--text); }
 .criterion.done .mark { color: var(--green); }
 .task .criteria { margin-top: 6px; }

@@ -24,7 +24,7 @@
   border: 1px solid var(--line); border-radius: 7px; background: var(--panel); cursor: pointer;
 }
 .team-role-row:hover { border-color: var(--accent); }
-.team-role-row.selected { border-color: var(--accent); background: rgba(240, 180, 41, .1); }
+.team-role-row.selected { border-color: var(--accent); background: rgba(var(--accent-rgb), .1); }
 .team-avatar {
   width: 26px; height: 34px; object-fit: cover; object-position: top;
   border-radius: 6px; background: var(--panel-2); border: 1px solid var(--line-soft);
@@ -44,7 +44,7 @@
   border-radius: 6px; cursor: pointer;
 }
 .team-member-row:hover { background: var(--panel-2); }
-.team-member-row.selected { background: rgba(240, 180, 41, .14); }
+.team-member-row.selected { background: rgba(var(--accent-rgb), .14); }
 .team-member-row button { margin-left: auto; }
 .team-notice {
   display: flex; align-items: center; gap: 8px; padding: 7px 10px; margin-bottom: 8px;
@@ -70,7 +70,7 @@
 }
 .form-banner.error {
   padding: 9px 12px; margin-bottom: 14px; font-size: 13px; line-height: 1.45;
-  border: 1px solid var(--red); border-radius: 7px; color: var(--red); background: rgba(217, 79, 61, .08);
+  border: 1px solid var(--red); border-radius: 7px; color: var(--red); background: rgba(var(--danger-rgb), .08);
 }
 .role-danger { display: flex; gap: 8px; margin-top: 8px; padding-top: 12px; border-top: 1px solid var(--line-soft); }
 /* Внешности агентов: карточка с трёхмерной моделью на каждый скин. Колонки
@@ -88,7 +88,7 @@
   background: var(--panel-2); border: 1px solid var(--line); border-radius: 8px; cursor: pointer;
 }
 .look-swatch:hover { border-color: var(--accent); }
-.look-swatch.on { border-color: var(--accent); background: rgba(240, 180, 41, .14); }
+.look-swatch.on { border-color: var(--accent); background: rgba(var(--accent-rgb), .14); }
 /* Холст растягивается по обёртке, а размер задаёт она: сам холст сцена
    размечает своими стилями, и класс на нём бы не подействовал. */
 .look-figure { align-self: stretch; min-width: 0; height: 92px; }

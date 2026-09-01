@@ -41,7 +41,7 @@
 .drawer .row:last-of-type { border-bottom: none; }
 .row-title { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .drawer .row.done .row-title { color: var(--muted); }
-.drawer .row.in_progress { background: rgba(240, 180, 41, .07); }
+.drawer .row.in_progress { background: rgba(var(--accent-rgb), .07); }
 .mini { padding: 2px 8px; font-size: 11px; }
 .mini.stop { border-color: var(--red); color: var(--red); }
 .mini.go { border-color: var(--green); color: var(--green); }
@@ -62,7 +62,7 @@
 .drawer-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 10px; }
 .drawer-actions button { flex: 1 1 45%; padding: 8px; font-size: 13px; }
 .drawer-actions .danger { flex-basis: 100%; border-color: var(--red); color: var(--red); }
-.drawer-actions .danger:hover { background: rgba(248, 81, 73, .12); }
+.drawer-actions .danger:hover { background: rgba(var(--danger-rgb), .12); }
 .link-danger { background: none; border: none; color: var(--muted); font-size: 12px; padding: 4px 0; }
 .link-danger:hover { color: var(--red); }
 
@@ -103,7 +103,7 @@
    тревожный красный (§T-106). */
 .deskless-notice {
   padding: 9px 12px; margin-bottom: 16px; font-size: 12px; line-height: 1.5;
-  border: 1px solid var(--accent); border-radius: 7px; background: rgba(240, 180, 41, .1);
+  border: 1px solid var(--accent); border-radius: 7px; background: rgba(var(--accent-rgb), .1);
 }
 .deskless-notice .link {
   background: none; border: none; padding: 0; margin-left: 2px; font-size: inherit;

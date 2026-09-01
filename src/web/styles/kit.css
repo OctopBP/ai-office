@@ -1,0 +1,117 @@
+/* Кит — детали, из которых собираются экраны: кнопка, чип, карточка, поле,
+   клавиша, сегменты, бейдж агента. Числа — из tokens.css; посмотреть всё
+   разом можно на стенде `?kit=1`. */
+
+/* ---------- кнопка ----------
+   Пилюля 32 px на плёнке, без рамки. Главное действие — синяя с тенью,
+   как «Поставить задачу» в макете. */
+button {
+  display: inline-flex; align-items: center; justify-content: center; gap: 6px;
+  min-height: var(--control-h); padding: 0 14px;
+  background: var(--film); color: var(--ink-2);
+  border: none; border-radius: var(--radius-pill);
+  font: 500 var(--fs-body)/1.2 var(--font);
+  cursor: pointer; white-space: nowrap;
+  transition: background-color .12s, filter .12s;
+}
+button:hover:not(:disabled) { background: var(--film-2); }
+button:active:not(:disabled) { background: var(--film-3); }
+button:disabled { opacity: .45; cursor: default; }
+button.primary, button.on {
+  background: var(--accent); color: var(--accent-ink);
+}
+button.primary { box-shadow: var(--shadow-float); }
+button.primary:hover:not(:disabled), button.on:hover:not(:disabled) {
+  background: var(--accent); filter: brightness(1.08);
+}
+/* Квадратная — под одну иконку: пауза, закрыть, отправить. */
+button.sq { width: var(--control-h); padding: 0; }
+/* Мелкая — в тосте и в строках списков. */
+button.mini, .mini { min-height: var(--mini-h); padding: 0 10px; font-size: var(--fs-small); }
+/* Без подложки — ссылки-действия и иконки в шапках. */
+button.ghost { background: none; }
+button.ghost:hover:not(:disabled) { background: var(--film); }
+/* Пунктирная — «+ Новый офис». */
+button.dashed {
+  background: none; border: 1px dashed var(--dash); border-radius: var(--radius-row);
+  color: var(--ink-2); width: 100%;
+}
+button.dashed:hover:not(:disabled) { background: var(--film); }
+
+/* ---------- чип ----------
+   Статус на карточке задачи, стадия конвейера: мелкая пилюля на плёнке.
+   Цветные состояния меняют только цвет текста. */
+.chip {
+  display: inline-flex; align-items: center; gap: 4px;
+  padding: 2px 8px; border-radius: var(--radius-pill);
+  background: var(--film); color: var(--ink-3);
+  font-size: var(--fs-small); font-weight: 500; line-height: 1.4;
+}
+
+/* ---------- карточка ----------
+   Всё, что плавает над сценой: рейл, тост, композер, список офисов. Имя
+   `.pixel` осталось от прежнего стиля — разметка ещё держится за него. */
+.pixel, .float {
+  background: var(--surface); color: var(--ink-2);
+  border: 1px solid var(--hairline); border-radius: var(--radius-card);
+  box-shadow: var(--shadow-float);
+}
+
+/* ---------- поле ввода ---------- */
+input:not([type='checkbox']):not([type='radio']):not([type='range']),
+textarea, select {
+  font: inherit; color: var(--ink);
+  background: var(--film); border: 1px solid transparent; border-radius: var(--radius-row);
+  padding: 8px 10px;
+}
+input:focus, textarea:focus, select:focus { outline: none; border-color: var(--accent); }
+::placeholder { color: var(--ink-3); }
+
+/* ---------- клавиша ---------- */
+kbd {
+  background: var(--film); border: 1px solid var(--hairline); border-radius: var(--radius-icon);
+  padding: 0 5px; font: 600 var(--fs-small)/1.6 var(--font-mono); color: var(--ink-2);
+}
+
+/* ---------- сегменты ----------
+   «Офис · Доска · Чат»: белая пилюля с тенью, активный сегмент — синяя
+   пилюля внутри. Кнопки внутри теряют подложку кнопки. */
+.seg {
+  display: inline-flex; padding: 3px; gap: 0;
+  background: var(--surface); border-radius: var(--radius-pill);
+  box-shadow: var(--shadow-float);
+}
+.seg button {
+  min-height: 26px; padding: 0 18px; background: none; color: var(--ink);
+  font-weight: 400; box-shadow: none;
+}
+.seg button:hover:not(:disabled) { background: var(--film); }
+.seg button.on { background: var(--accent); color: var(--accent-ink); font-weight: 500; }
+.seg button.on:hover:not(:disabled) { filter: none; }
+
+/* ---------- бейдж агента ----------
+   Белая пилюля над головой: значок роли своего цвета с номером и точка
+   состояния. Цвет значка приходит из настроек роли — в разметке. */
+.agent-badge {
+  display: inline-flex; align-items: center; gap: 2px; padding: 2px;
+  background: var(--surface); border-radius: var(--radius-pill);
+  box-shadow: var(--shadow-float);
+}
+.agent-badge-role {
+  min-width: 22px; padding: 4px; border-radius: 8px; text-align: center;
+  font: 700 10px/1 var(--font); color: #fff; background: var(--ink-3);
+}
+.agent-badge-dot {
+  width: 10px; height: 10px; margin: 0 2px; border-radius: 50%;
+  background: var(--ink-4);
+}
+.agent-badge-dot.live { background: var(--ok-live); }
+.agent-badge-dot.warn { background: var(--warn); }
+.agent-badge-dot.danger { background: var(--danger); }
+
+/* ---------- шкала ----------
+   Бюджет в подвале рейла: 4 px, скруглённая, заполнение акцентом. */
+.meter { height: 4px; border-radius: 2px; background: var(--film-3); overflow: hidden; }
+.meter i { display: block; height: 100%; background: var(--accent); border-radius: 2px; }
+.meter i.warn { background: var(--warn); }
+.meter i.danger { background: var(--danger); }

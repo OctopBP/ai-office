@@ -14,7 +14,7 @@
   font: 12px/1.45 ui-monospace, Menlo, monospace; white-space: pre;
   padding: 0 10px; color: var(--text);
 }
-.dl.add { background: rgba(79, 157, 74, .16); }
-.dl.del { background: rgba(217, 79, 61, .14); }
+.dl.add { background: rgba(var(--ok-rgb), .16); }
+.dl.del { background: rgba(var(--danger-rgb), .14); }
 .dl.hunk { color: var(--muted); background: var(--panel); }
 .dl.meta { color: var(--muted); }

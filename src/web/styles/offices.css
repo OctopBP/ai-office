@@ -8,7 +8,7 @@
   border-bottom: 1px solid var(--line-soft);
 }
 .office-row:last-child { border-bottom: none; }
-.office-row.current { background: rgba(240, 180, 41, .1); border-radius: 6px; }
+.office-row.current { background: rgba(var(--accent-rgb), .1); border-radius: 6px; }
 .office-who { flex: 1; min-width: 0; }
 .office-who .mono { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .engine { display: flex; gap: 8px; margin-bottom: 12px; }
