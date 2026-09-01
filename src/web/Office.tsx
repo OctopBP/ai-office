@@ -228,7 +228,7 @@ export function Office({ onOpen, onDoor }: {
           room.placedProps — здесь только «призрак»-подсказка поверх пустующих */}
       {room.allDesks.filter((d) => !busyDesks.has(d.index)).map((d) => (
         <div
-          key={`ghost-${d.index}`} className="ghost"
+          key={`ghost-${d.index}`} className="desk-ghost"
           style={{
             left: px(d.x), top: px(d.y), width: px(d.w), height: px(d.h),
             zIndex: furnitureZ(d.y, d.h),

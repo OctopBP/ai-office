@@ -204,6 +204,24 @@ interface State {
   lang: Lang;
   theme: Theme;
   setTheme: (t: Theme) => void;
+  /**
+   * Оболочка: прежний HUD или новая — рейл, сегменты, композер
+   * (`shell/Shell.tsx`). Флаг живёт, пока новая не закроет всё, что умел
+   * HUD, потом классика уйдёт вместе с ним. Переживает перезагрузку;
+   * `?shell=new|classic` в адресе перебивает сохранённое.
+   */
+  shell: Shell;
+  setShell: (v: Shell) => void;
+  /**
+   * Что стоит в главной области новой оболочки: сцена, доска или чат.
+   * Сегменты сверху — это виды, а не оверлеи: рейл и композер остаются, а
+   * в виде «Чат» композер и есть поле ввода треда.
+   */
+  view: View;
+  setView: (v: View) => void;
+  /** Рейл свёрнут до иконок. Переживает перезагрузку. */
+  railCollapsed: boolean;
+  setRailCollapsed: (v: boolean) => void;
   /** Показывать комнату трёхмерным рендером вместо плоского (клавиша 0).
    *  Пока 3D догоняет плоский офис по функциям, выбор остаётся за
    *  пользователем и переживает перезагрузку. */
@@ -243,6 +261,19 @@ interface State {
   /** Отправить создание офиса из меню и ждать снапшот или ошибку. */
   requestCreateOffice: (name: string, projectDir: string) => void;
   dismissMenuNotice: () => void;
+}
+
+export type Shell = 'classic' | 'new';
+export type View = 'office' | 'board' | 'chat';
+
+/** Оболочка на старте: адрес перебивает сохранённое, иначе — классика. */
+function initialShell(): Shell {
+  const fromUrl = new URLSearchParams(location.search).get('shell');
+  if (fromUrl === 'new' || fromUrl === 'classic') {
+    localStorage.setItem('office-shell', fromUrl);
+    return fromUrl;
+  }
+  return localStorage.getItem('office-shell') === 'new' ? 'new' : 'classic';
 }
 
 export const useStore = create<State>((set, get) => ({
@@ -323,6 +354,12 @@ export const useStore = create<State>((set, get) => ({
 
   setThread: (t) => set({ thread: t }),
   setTheme: (t) => { localStorage.setItem('office-theme', t); set({ theme: t }); },
+  shell: initialShell(),
+  setShell: (v) => { localStorage.setItem('office-shell', v); set({ shell: v }); },
+  view: 'office',
+  setView: (v) => set({ view: v }),
+  railCollapsed: localStorage.getItem('office-rail') === 'collapsed',
+  setRailCollapsed: (v) => { localStorage.setItem('office-rail', v ? 'collapsed' : 'open'); set({ railCollapsed: v }); },
   setRender3d: (v) => { localStorage.setItem('office-render3d', v ? '1' : '0'); set({ render3d: v }); },
   setGraphics: (patch) => set((s) => {
     const graphics = { ...s.graphics, ...patch };
@@ -346,7 +383,7 @@ export const useStore = create<State>((set, get) => ({
     // дифф не «протекали» в новый: панели закрывает App при входе в pending.
     set({
       pending: 'enter', pendingLabel: office.name, menuNotice: null,
-      selected: null, openTask: null, thread: 'pm#1', diff: null,
+      selected: null, openTask: null, thread: 'pm#1', diff: null, view: 'office',
     });
     switchOffice(officeId);
   },
@@ -359,6 +396,7 @@ export const useStore = create<State>((set, get) => ({
     openTask: null,
     thread: 'pm#1',
     diff: null,
+    view: 'office',
     menuNotice: null,
   }),
 

@@ -79,9 +79,10 @@
 
 /* Подсказка «свободное место» повторяет габарит своего стола: размер стола
    задаётся раскладкой (§3.2), а картинка призрака нарисована под базовый. */
-.ghost { position: absolute; z-index: 3; opacity: .55; }
-.ghost img { display: block; width: 100%; height: 100%; }
-.ghost span {
+/* Не `.ghost`: так в ките зовётся кнопка без подложки. */
+.desk-ghost { position: absolute; z-index: 3; opacity: .55; }
+.desk-ghost img { display: block; width: 100%; height: 100%; }
+.desk-ghost span {
   position: absolute; left: 50%; top: 40%; transform: translate(-50%, -50%);
   color: var(--surface); font-size: 20px; font-weight: 700; text-shadow: 0 1px 0 var(--ink);
 }

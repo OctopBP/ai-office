@@ -4,34 +4,17 @@ import { Office3D } from './office3d/Office3D';
 import { TopHud } from './TopHud';
 import { BottomBar } from './BottomBar';
 import { Toasts } from './Toasts';
-import { Panel } from './Panel';
-import { ChatPanel } from './ChatPanel';
-import { Board } from './Board';
-import { MergeQueue } from './MergeQueue';
-import { PrPipeline } from './PrPipeline';
-import { TeamWindow } from './TeamWindow';
-import { AgentDrawer } from './AgentDrawer';
-import { TaskDrawer } from './TaskDrawer';
-import { PermissionModal } from './PermissionModal';
-import { DiffPanel } from './DiffPanel';
-import { SettingsModal } from './SettingsModal';
-import { MeetingModal } from './MeetingModal';
-import { MoneyBoard } from './MoneyBoard';
-import { OfficesModal } from './OfficesModal';
 import { MenuScreen } from './MenuScreen';
 import { AvatarStage } from './office3d/AgentAvatar';
+import { Overlays, type ModalKind, type PanelKind } from './Overlays';
+import { Shell } from './shell/Shell';
+import { focusComposer } from './shell/Composer';
 import { closeDiff, connect, setPaused, useStore } from './store';
-import { isOfficeSender } from '../shared/types';
-import { t } from './i18n';
-
-type PanelKind = 'chat' | 'board' | 'money' | 'log' | 'help' | 'merge' | null;
-type ModalKind = 'settings' | 'meeting' | 'offices' | 'team' | null;
 
 export function App() {
   const theme = useStore((s) => s.theme);
   const screen = useStore((s) => s.screen);
   const instances = useStore((s) => s.instances);
-  const log = useStore((s) => s.log);
   const selected = useStore((s) => s.selected);
   const select = useStore((s) => s.select);
   const paused = useStore((s) => s.paused);
@@ -44,6 +27,10 @@ export function App() {
   const render3d = useStore((s) => s.render3d);
   const setRender3d = useStore((s) => s.setRender3d);
   const teamRequest = useStore((s) => s.teamRequest);
+  const shell = useStore((s) => s.shell);
+  const setShell = useStore((s) => s.setShell);
+  const view = useStore((s) => s.view);
+  const setView = useStore((s) => s.setView);
   const [panel, setPanel] = useState<PanelKind>(null);
   const [modal, setModal] = useState<ModalKind>(null);
 
@@ -82,28 +69,41 @@ export function App() {
     const onKey = (e: KeyboardEvent) => {
       const tag = (e.target as HTMLElement)?.tagName;
       if (tag === 'INPUT' || tag === 'TEXTAREA') return;
+      const fresh = shell === 'new';
       if (e.key === 'Escape') {
         // Раскрытая карточка закрывается первой и одна: она лежит поверх
         // доски, и уносить обе разом значило бы терять место, где стоял
         // взгляд, ради закрытия одной панели.
         if (openTask) { openTaskCard(null); return; }
-        // Дальше — всё открытое поверх комнаты, и только если закрывать
-        // было нечего, уходим в меню.
+        // Дальше — всё открытое поверх комнаты, потом вид, и только если
+        // закрывать было нечего, уходим в меню.
         if (panel || modal || diff || selected) {
           setPanel(null); setModal(null); closeDiff(); select(null);
+        } else if (fresh && view !== 'office') {
+          setView('office');
         } else {
           leaveOffice();
         }
         return;
       }
-      if (e.key === 'Enter') { setPanel('chat'); return; }
+      // В новой оболочке доска и чат — виды, а не панели: сегмент сверху
+      // подменяет главную область, рейл и композер остаются на месте.
+      if (e.key === 'Enter') {
+        if (fresh) { setView('chat'); focusComposer(); } else setPanel('chat');
+        return;
+      }
       // Пробел листает страницу по умолчанию — здесь он ставит офис на паузу.
       if (e.key === ' ') { e.preventDefault(); setPaused(!paused); return; }
       const k = e.key.toLowerCase();
       // 0 — переключить плоский офис на трёхмерный и обратно. Цифры 1–9 уже
       // заняты выбором агента, поэтому ноль.
       if (k === '0') { setRender3d(!render3d); return; }
-      if (k === 'b' || k === 'и') setPanel('board');
+      // N — прежний HUD или новая оболочка. Флаг временный: пока новая не
+      // закроет всё, что умел HUD, между ними нужно ходить без перезагрузки.
+      if (k === 'n' || k === 'т') { setShell(fresh ? 'classic' : 'new'); return; }
+      if (k === 'b' || k === 'и') {
+        if (fresh) setView(view === 'board' ? 'office' : 'board'); else setPanel('board');
+      }
       // E — доска расходов. Буква занята под «expenses»/«расходы»: свободных
       // мнемоничных клавиш немного, а «$» на русской раскладке не набрать.
       else if (k === 'e' || k === 'у') setPanel('money');
@@ -122,11 +122,22 @@ export function App() {
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
   }, [instances, selected, select, paused, panel, modal, diff, leaveOffice, render3d, setRender3d,
-    openTask, openTaskCard]);
+    openTask, openTaskCard, shell, setShell, view, setView]);
 
   // До выбора офиса в меню комната вообще не монтируется — это отдельный
   // экран приложения, а не оверлей поверх неё.
   if (screen === 'menu') return <MenuScreen />;
+
+  const overlays = { panel, setPanel, modal, setModal };
+
+  if (shell === 'new') {
+    return (
+      <>
+        <AvatarStage />
+        <Shell {...overlays} />
+      </>
+    );
+  }
 
   return (
     <div className={`app${paused ? ' paused' : ''}`}>
@@ -152,82 +163,7 @@ export function App() {
         <Toasts onOpenTask={(id) => { setPanel('board'); openTaskCard(id); }} />
       </div>
       <BottomBar />
-
-      {panel === 'chat' && <ChatPanel onClose={() => setPanel(null)} />}
-      {panel === 'board' && (
-        <Panel title={t('panel.board')} wide size="board" hint="B" onClose={() => setPanel(null)}>
-          <Board />
-        </Panel>
-      )}
-      {panel === 'money' && (
-        <Panel title={t('panel.money')} wide hint="E" onClose={() => setPanel(null)}>
-          <MoneyBoard />
-        </Panel>
-      )}
-      {panel === 'merge' && (
-        <Panel title={t('panel.review')} wide hint="Q" onClose={() => setPanel(null)}>
-          <PrPipeline />
-          <MergeQueue />
-        </Panel>
-      )}
-      {panel === 'log' && (
-        <Panel title={t('panel.log')} wide
-          hint={selected ? t('panel.log.only', { who: selected }) : t('panel.log.all')}
-          onClose={() => setPanel(null)}>
-          <div className="log">
-            {(selected ? log.filter((l) => l.agentId === selected) : log).slice(-200).map((l) => (
-              <div key={l.id} className={`log-row ${l.kind}${l.autoApproved ? ' auto-approved' : ''}`}>
-                <span className="log-agent">{l.agentId ?? t('common.office')}</span>
-                <span className="log-text">
-                  {l.autoApproved && (
-                    <span className="auto-tag" title={t('log.autoHint')}>{t('log.auto')}</span>
-                  )}
-                  {l.text}
-                </span>
-              </div>
-            ))}
-          </div>
-        </Panel>
-      )}
-      {panel === 'help' && (
-        <Panel title={t('help.title')} onClose={() => setPanel(null)}>
-          <div className="help">
-            <p>{t('help.office')}</p>
-            <p><kbd>ENTER</kbd> — {t('help.enter')}</p>
-            <p>
-              <kbd>B</kbd> — {t('hint.board')}, <kbd>E</kbd> — {t('hint.money')},{' '}
-              <kbd>L</kbd> — {t('hint.log')},{' '}
-              <kbd>M</kbd> — {t('hint.meeting')}, <kbd>SPACE</kbd> — {t('hint.pause')},{' '}
-              <kbd>1–9</kbd> — {t('help.keys.agent')}, <kbd>ESC</kbd> — {t('help.keys.esc')},{' '}
-              <kbd>0</kbd> — {t('help.keys.render')}.
-            </p>
-            <p>
-              {t('help.camera')} <kbd>WASD</kbd> {t('help.camera.keys')}{' '}
-              <kbd>SHIFT</kbd>+<kbd>1–9</kbd> {t('help.camera.room')}{' '}
-              <kbd>SHIFT</kbd>+<kbd>0</kbd> {t('help.camera.fit')}
-            </p>
-            <p>{t('help.home')}</p>
-            <p>{t('help.pause')}</p>
-            <p>{t('help.money')}</p>
-            <p>{t('help.door')}</p>
-            <p>{t('help.agent')}</p>
-            <p>
-              {t('help.danger.before')} <code className="mono">kill</code>
-              {t('help.danger.after')}
-            </p>
-            <p>{t('help.team')}</p>
-          </div>
-        </Panel>
-      )}
-
-      <DiffPanel />
-      <AgentDrawer />
-      <TaskDrawer />
-      <PermissionModal />
-      {modal === 'settings' && <SettingsModal onClose={() => setModal(null)} />}
-      {modal === 'meeting' && <MeetingModal onClose={() => setModal(null)} />}
-      {modal === 'offices' && <OfficesModal onClose={() => setModal(null)} />}
-      {modal === 'team' && <TeamWindow onClose={() => setModal(null)} />}
+      <Overlays {...overlays} />
     </div>
   );
 }

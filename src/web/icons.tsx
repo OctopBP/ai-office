@@ -12,6 +12,7 @@
  */
 
 export type IconName =
+  | 'arrow-up'
   | 'home'
   | 'armchair'
   | 'rotate'
@@ -59,6 +60,7 @@ export type IconName =
   | 'circle';
 
 const ICON_PATHS: Record<IconName, string[]> = {
+  'arrow-up': ['M12 5l0 14', 'M18 11l-6 -6', 'M6 11l6 -6'],
   home: [
     'M5 12l-2 0l9 -9l9 9l-2 0',
     'M5 12v7a2 2 0 0 0 2 2h10a2 2 0 0 0 2 -2v-7',
