@@ -27,3 +27,9 @@
 
 .kit-meter { width: 224px; margin-top: 16px; }
 .kit-meter-head { display: flex; justify-content: space-between; margin-bottom: 8px; }
+
+/* Шкала отступов: полоска шириной в токен и его номер под ней. */
+.kit-scale { gap: var(--space-4); }
+.kit-space { display: inline-flex; flex-direction: column; align-items: flex-start; gap: 3px; }
+.kit-space i { display: block; height: 10px; background: var(--accent); border-radius: 2px; }
+.kit-space b { font-size: var(--fs-caption); font-weight: 500; color: var(--ink-3); }

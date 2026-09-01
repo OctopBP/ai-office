@@ -14,5 +14,5 @@
 /* Общий холст аватарок (`AgentAvatar.tsx`): растянут на весь экран поверх
    модалки, но сам ничего не ловит — рисует пиксели ровно там, где в потоке
    разметки стоит `<div>` конкретной аватарки, а клики достаются ему. */
-.avatar-stage { position: fixed; inset: 0; z-index: 150; pointer-events: none; }
+.avatar-stage { position: fixed; inset: 0; z-index: var(--z-avatar); pointer-events: none; }
 .avatar-stage canvas { width: 100%; height: 100%; display: block; }

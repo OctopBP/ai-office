@@ -13,7 +13,7 @@
   --text: #2F2419;
   --muted: #7a6d5a;
   --shadow: rgba(0, 0, 0, .35);
-  position: fixed; inset: 0; z-index: 200;
+  position: fixed; inset: 0; z-index: var(--z-menu);
   background-color: #12102a; background-position: center; background-size: cover; background-repeat: no-repeat;
   display: flex; flex-direction: column; align-items: center;
   overflow-y: auto; padding: 40px 16px;

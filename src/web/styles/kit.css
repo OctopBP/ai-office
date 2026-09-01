@@ -77,7 +77,7 @@ kbd {
    «Офис · Доска · Чат»: белая пилюля с тенью, активный сегмент — синяя
    пилюля внутри. Кнопки внутри теряют подложку кнопки. */
 .seg {
-  display: inline-flex; padding: 3px; gap: 0;
+  display: inline-flex; padding: 3px;
   background: var(--surface); border-radius: var(--radius-pill);
   box-shadow: var(--shadow-float);
 }
@@ -111,7 +111,7 @@ kbd {
 
 /* ---------- шкала ----------
    Бюджет в подвале рейла: 4 px, скруглённая, заполнение акцентом. */
-.meter { height: 4px; border-radius: 2px; background: var(--film-3); overflow: hidden; }
+.meter { height: var(--space-1); border-radius: 2px; background: var(--film-3); overflow: hidden; }
 .meter i { display: block; height: 100%; background: var(--accent); border-radius: 2px; }
 .meter i.warn { background: var(--warn); }
 .meter i.danger { background: var(--danger); }

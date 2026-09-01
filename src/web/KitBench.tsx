@@ -52,6 +52,22 @@ function Half({ theme }: { theme: Theme }) {
       </section>
 
       <section>
+        <h2 className="section-title">Шкалы</h2>
+        <div className="kit-row kit-scale">
+          {[1, 2, 3, 4, 5, 6, 8].map((n) => (
+            <span key={n} className="kit-space" title={`--space-${n}`}>
+              <i style={{ width: `var(--space-${n})` }} /><b>{n}</b>
+            </span>
+          ))}
+        </div>
+        <div className="kit-row kit-scale">
+          {['hud', 'popover', 'toast', 'panel', 'drawer', 'modal', 'avatar', 'menu'].map((z) => (
+            <span key={z} className="chip">z-{z}</span>
+          ))}
+        </div>
+      </section>
+
+      <section>
         <h2 className="section-title">Кнопки</h2>
         <div className="kit-row">
           <button className="primary">Поставить задачу</button>

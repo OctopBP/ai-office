@@ -87,7 +87,7 @@
 @keyframes office-switcher-spin { to { transform: rotate(360deg); } }
 .office-switcher-list {
   position: absolute; top: calc(100% + 6px); left: 0; min-width: 260px; max-width: 360px;
-  padding: 4px; display: flex; flex-direction: column; z-index: 31;
+  padding: 4px; display: flex; flex-direction: column; z-index: var(--z-popover);
 }
 
 /* ---------- узкое окно (~1024px): прячем подписи, оставляем значки ----------

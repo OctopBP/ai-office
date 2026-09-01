@@ -4,7 +4,7 @@
 
 .modal-backdrop {
   position: fixed; inset: 0; background: var(--veil);
-  display: flex; align-items: center; justify-content: center; z-index: 100;
+  display: flex; align-items: center; justify-content: center; z-index: var(--z-modal);
   backdrop-filter: blur(2px);
 }
 .modal {
