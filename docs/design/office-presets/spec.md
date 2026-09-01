@@ -467,14 +467,16 @@ const SYSTEMS: Record<string, ComponentSystem> = {
   "tone": "wood",
   "fallback": "desk",
   "parts": [
-    { "file": "desk.glb", "rot": 180 },
-    { "file": "computerScreen.glb", "at": [-0.1, 1.02, 0.3], "rot": 180 }
+    { "file": "oakDesk.glb", "rot": 180, "probe": { "surface": [0, 0] } },
+    { "file": "computerScreen.glb", "at": [0, 0.885, 0.35], "rot": 180 },
+    { "file": "computerKeyboard.glb", "at": [0, 0.885, 0.1], "rot": 180 },
+    { "file": "computerMouse.glb", "at": [-0.5, 0.885, 0.1], "rot": 180 }
   ],
   "components": [
-    { "type": "work", "at": [0.55, -0.75], "on": "chair/chairDesk", "height": null, "offset": [0, 0, 0] },
+    { "type": "work", "at": [0.55, -0.75], "on": "chair/chairDesk", "height": null, "offset": [-0.005, 0, -0.055] },
     { "type": "plate", "at": [0.45, 0.86] },
-    { "type": "surface", "on": "desk", "height": null },
-    { "type": "lamp", "lamp": "screen", "at": [-0.1, 1.5, 0.05], "busy": true },
+    { "type": "surface", "on": "oakDesk", "height": null },
+    { "type": "lamp", "lamp": "screen", "at": [-0.1, 1.64, 0.05], "busy": true },
     { "type": "glow", "material": "metalDark" }
   ]
 }
