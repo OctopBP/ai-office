@@ -9,7 +9,7 @@
   "fallback": "desk",
   "parts": [
     {
-      "file": "desk.glb",
+      "file": "oakDesk.glb",
       "rot": 180,
       "probe": {
         "surface": [0, 0]
@@ -17,7 +17,7 @@
     },
     {
       "file": "computerScreen.glb",
-      "at": [-0.1, 1.02, 0.3],
+      "at": [-0.1, 0.885, 0.3],
       "rot": 180
     }
   ],
@@ -35,13 +35,13 @@
     },
     {
       "type": "surface",
-      "on": "desk",
+      "on": "oakDesk",
       "height": null
     },
     {
       "type": "lamp",
       "lamp": "screen",
-      "at": [-0.1, 1.5, 0.05],
+      "at": [-0.1, 1.37, 0.05],
       "busy": true
     },
     {
