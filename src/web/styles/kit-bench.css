@@ -1,6 +1,7 @@
 /* Стенд кита (?kit=1, только в разработке): две половины, по теме на каждую. */
 
-.kit { display: flex; min-height: 100vh; }
+/* Высота фиксирована, чтобы прокручивались половины: у body прокрутки нет. */
+.kit { display: flex; height: 100vh; }
 .kit-half {
   flex: 1; min-width: 0; padding: 24px 28px 48px; overflow-y: auto;
   background: var(--canvas); color: var(--ink-2);
@@ -33,3 +34,11 @@
 .kit-space { display: inline-flex; flex-direction: column; align-items: flex-start; gap: 3px; }
 .kit-space i { display: block; height: 10px; background: var(--accent); border-radius: 2px; }
 .kit-space b { font-size: var(--fs-caption); font-weight: 500; color: var(--ink-3); }
+
+/* Шаблоны окон стоят столбиком в своей настоящей ширине: дровер 430, модалка
+   560, окно — во всю половину. Дровер и модалка в офисе позиционированы
+   (fixed / поверх подложки), здесь это снимается. */
+.kit-templates { display: flex; flex-direction: column; align-items: flex-start; gap: var(--space-4); }
+.kit-templates .panel { width: 100%; }
+.kit-templates .drawer { position: static; animation: none; max-width: 100%; }
+.kit-templates .modal { max-width: 100%; }

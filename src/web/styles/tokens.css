@@ -98,6 +98,9 @@
   --warn-rgb: 242, 163, 58;
   --danger: #dc4b3f;
   --danger-rgb: 220, 75, 63;
+  /* Текст поверх сплошной заливки --danger: счётчик на доске, тумблер
+     «полный доступ». Белый в обеих темах — заливка достаточно тёмная. */
+  --danger-ink: #ffffff;
 
   --veil: rgba(0, 0, 0, .35);        /* подложка под модалкой */
   --shadow-float: 0 4px 16px rgba(0, 0, 0, .25);
@@ -128,6 +131,7 @@
   --warn-rgb: 255, 184, 0;
   --danger: #ff6b6b;
   --danger-rgb: 255, 107, 107;
+  --danger-ink: #ffffff;
 
   --veil: rgba(0, 0, 0, .6);
   --shadow-float: 0 4px 16px rgba(0, 0, 0, .45);

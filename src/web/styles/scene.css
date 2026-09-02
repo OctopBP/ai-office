@@ -71,9 +71,7 @@
    задавать не нужно. */
 .spot3d { display: flex; align-items: center; gap: var(--space-1); }
 .spot3d-badge {
-  /* Готового токена «текст поверх --danger» в палитре нет — `--accent-ink`
-     держит белый в обеих темах (в тёмной не переопределяется), берём его. */
-  font: 700 var(--fs-small)/1 var(--font); color: var(--accent-ink); background: var(--danger);
+  font: 700 var(--fs-small)/1 var(--font); color: var(--danger-ink); background: var(--danger);
   border-radius: var(--radius-pill);
   min-width: 18px; padding: 0 var(--space-1); text-align: center;
 }

@@ -17,7 +17,7 @@ const SWATCHES: Array<[string, string]> = [
   ['canvas', 'холст'], ['surface', 'поверхность'], ['film', 'плёнка'], ['film-2', 'активная строка'],
   ['hairline', 'граница'], ['ink', 'заголовок'], ['ink-2', 'текст'], ['ink-3', 'второстепенный'],
   ['ink-4', 'подпись'], ['accent', 'акцент'], ['ok', 'статус'], ['ok-live', 'агент'],
-  ['ok-ink', 'зелёный текст'], ['warn', 'предупреждение'], ['danger', 'опасность'],
+  ['ok-ink', 'зелёный текст'], ['warn', 'предупреждение'], ['danger', 'опасность'], ['danger-ink', 'текст на danger'],
 ];
 
 const ROLES: Array<[string, string]> = [
@@ -123,6 +123,69 @@ function Half({ theme }: { theme: Theme }) {
         <div className="kit-row">
           <input placeholder="Поставьте задачу PM — он разложит её на команду…" style={{ flex: 1 }} />
           <select><option>Sonnet 5</option><option>Opus 5</option></select>
+        </div>
+      </section>
+
+      <section>
+        <h2 className="section-title">Шаблоны — окно, дровер, модалка</h2>
+        <div className="kit-templates">
+          {/* Те же классы, что у настоящих окон (panel.css, drawer.css,
+              modal.css): стенд не рисует «похоже», он показывает то, что
+              рисуется в офисе, только без подложки и без позиционирования. */}
+          <div className="panel float">
+            <header>
+              <h2>Лог событий</h2>
+              <span className="muted small">весь офис</span>
+              <button className="sq ghost">✕</button>
+            </header>
+            <div className="panel-body">
+              <div className="log">
+                <div className="log-row text"><span className="log-agent">frontend#1</span><span className="log-text">Read: читает Panel.tsx</span></div>
+                <div className="log-row error"><span className="log-agent">backend#2</span><span className="log-text">Bash: typecheck упал</span></div>
+                <div className="log-row system"><span className="log-agent">офис</span><span className="log-text">T-125 влита</span></div>
+              </div>
+            </div>
+          </div>
+
+          <aside className="drawer">
+            <header className="drawer-head">
+              <div className="drawer-who">
+                <h2>frontend#1</h2>
+                <span className="chip">Frontend разработчик</span>
+              </div>
+              <button className="sq ghost">✕</button>
+            </header>
+            <section>
+              <h3 className="section-title">Сейчас делает</h3>
+              <div className="card">
+                <div className="card-head"><b>T-125</b>Шаблон окна офиса</div>
+                <div className="budget"><div className="meter"><i style={{ width: '40%' }} /></div><span className="muted small">$1.87 из $5.00</span></div>
+              </div>
+            </section>
+            <section>
+              <h3 className="section-title">Задачи агента</h3>
+              <div className="row in_progress"><span className="row-title">T-125 Шаблон окна офиса</span><span className="chip in_progress">в работе</span></div>
+              <div className="row done"><span className="row-title">T-119 Иконки Tabler</span><span className="chip done">готово</span></div>
+            </section>
+            <div className="drawer-actions">
+              <button className="mini stop">Остановить</button>
+              <button className="mini">Написать</button>
+            </div>
+          </aside>
+
+          <div className="modal">
+            <div className="modal-head">
+              <h3>Запрос доступа</h3>
+              <span className="risk write">запись</span>
+            </div>
+            <p className="modal-reason">backend#1 хочет выполнить команду в проекте.</p>
+            <div className="modal-detail">git push origin task/T-124</div>
+            <div className="modal-actions">
+              <button className="deny">Отклонить</button>
+              <button className="always">Всегда</button>
+              <button className="allow">Разрешить</button>
+            </div>
+          </div>
         </div>
       </section>
 

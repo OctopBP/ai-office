@@ -94,8 +94,8 @@
 /* «Полный доступ» — опасное состояние: выделяем его красным, а не общим
    акцентом, и там, где он выбран (тумблер офиса, тумблер роли, HUD, значок
    роли в панели команды) — везде одной и той же меткой. */
-.access-modes button.on.auto { background: var(--danger); color: var(--accent-ink); }
-.access-modes button.on.auto .muted { color: var(--accent-ink); opacity: .85; }
+.access-modes button.on.auto { background: var(--danger); color: var(--danger-ink); }
+.access-modes button.on.auto .muted { color: var(--danger-ink); opacity: .85; }
 .access-confirm {
   padding: var(--space-3); margin: calc(-1 * var(--space-1)) 0 var(--space-4);
   border-radius: var(--radius-row); background: rgba(var(--danger-rgb), .08);
