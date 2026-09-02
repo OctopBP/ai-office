@@ -1,115 +1,77 @@
-/* Стартовое меню: улица перед офисом, панель 9-slice, кнопки, спиннер. */
+/* Стартовое меню: карточка со списком офисов на холсте. По правилам кита,
+   без макета; строка офиса повторяет строку рейла (styles/shell.css), только
+   шире — с путём, датой и расходом. */
 
-/* ================= стартовое меню (T-9) ================= */
-/* Меню — вечерняя улица перед офисом, вне тем дня/ночи комнаты: своя
-   фиксированная палитра поверх тех же токенов, что использует .float,
-   button, .office-row, .mono и .hint — переопределяем переменные локально,
-   а не дублируем эти правила. */
 .menu-screen {
-  --surface: #FFF8E8;
-  --film: #f4ecd8;
-  --hairline: #d8c39d;
-  --ink-2: #2F2419;
-  --ink: #2F2419;
-  --ink-3: #7a6d5a;
-  --shadow: rgba(0, 0, 0, .35);
   position: fixed; inset: 0; z-index: var(--z-menu);
-  background-color: #12102a; background-position: center; background-size: cover; background-repeat: no-repeat;
-  display: flex; flex-direction: column; align-items: center;
-  overflow-y: auto; padding: 40px 16px;
+  background: var(--canvas);
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+  gap: var(--space-4); overflow-y: auto; padding: var(--space-8) var(--space-4);
 }
-.menu-veil { position: fixed; inset: 0; background: #12102A; opacity: .35; pointer-events: none; }
-.menu-title { position: relative; z-index: 1; text-align: center; margin: 24px 0 32px; }
-.menu-title h1 {
-  margin: 0; color: #FFF8E8; font-size: 40px; letter-spacing: 4px;
-  text-shadow: 3px 3px 0 #4A3728;
+
+.menu-card {
+  width: 560px; max-width: 100%; max-height: 100%; overflow-y: auto;
+  padding: var(--space-6); border-radius: var(--radius-panel);
+  display: flex; flex-direction: column; gap: var(--space-4);
 }
-.menu-title p { margin: 10px 0 0; color: #dfd6c4; font-size: 13px; letter-spacing: .5px; }
+.menu-card .section-title { margin-bottom: calc(-1 * var(--space-2)); }
 
-.menu-panel {
-  position: relative; z-index: 1; width: 560px; max-width: calc(100vw - 32px);
-  max-height: 640px; overflow-y: auto; padding: 16px 22px;
-  box-shadow: 8px 8px 0 var(--shadow);
-  background: var(--surface);
-  border-style: solid; border-width: 24px;
-  border-image-source: var(--menu-panel-img);
-  border-image-slice: 24 fill; border-image-width: 24px; border-image-repeat: stretch;
-  image-rendering: pixelated;
+.menu-brand { display: flex; align-items: center; gap: var(--space-3); margin-bottom: var(--space-2); }
+.menu-logo { width: 36px; height: 36px; border-radius: var(--radius-row); background: var(--accent); flex: none; }
+.menu-name { font: 600 var(--fs-title)/1.2 var(--font-brand); color: var(--ink); }
+.menu-subtitle { font-size: var(--fs-small); color: var(--ink-3); margin-top: 2px; }
+
+.menu-loading { display: flex; align-items: center; gap: var(--space-2); margin: 0; color: var(--ink-3); }
+.menu-conn-error { display: flex; flex-direction: column; align-items: flex-start; gap: var(--space-3); }
+.menu-conn-error p { margin: 0; }
+
+/* ---------- строки офисов ---------- */
+.menu-offices { display: flex; flex-direction: column; gap: var(--space-1); }
+.menu-office {
+  display: flex; align-items: center; justify-content: flex-start; gap: var(--space-3);
+  min-height: 0; padding: var(--space-2) var(--space-3); text-align: left;
+  background: none; border: 1px solid transparent; border-radius: var(--radius-row);
+  white-space: normal; font-weight: 400;
 }
-.menu-panel h2 { margin: 0 0 14px; font-size: 18px; }
-
-.menu-offices { margin-bottom: 14px; }
-.menu-office-row { cursor: pointer; }
-.menu-office-row.current { cursor: default; }
-.menu-office-row:hover:not(.current) { background: var(--film); }
-.menu-office-icon { flex: none; width: 22px; height: 22px; image-rendering: pixelated; }
-.menu-office-row .small { font-size: 11px; }
-
-/* Расход офиса в его строке и итог по всем офисам сразу под списком: деньги
-   в меню нужны, чтобы сравнить проекты между собой, а не чтобы узнать сумму
-   по одному — тот же вопрос внутри офиса решает доска расходов. */
+.menu-office:hover:not(:disabled) { background: var(--film); }
+.menu-office.current { background: var(--film-2); border-color: var(--hairline); cursor: default; }
+.menu-office-avatar { width: 30px; height: 30px; border-radius: var(--radius-avatar); flex: none; }
+.menu-office-text { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.menu-office-name { font-size: var(--fs-md); font-weight: 500; color: var(--ink); }
+.menu-office-path, .menu-office-when {
+  font-size: var(--fs-small); color: var(--ink-3);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+/* Расход — столбиком справа, цифры табличные, чтобы строки сравнивались глазами. */
 .menu-office-money {
-  display: flex; flex-direction: column; align-items: flex-end; gap: 1px;
-  flex: none; margin-right: 4px; font-variant-numeric: tabular-nums;
+  display: flex; flex-direction: column; align-items: flex-end; gap: 1px; flex: none;
+  font-size: var(--fs-small); color: var(--ink-3); font-variant-numeric: tabular-nums;
 }
-/* Блок отделяется чертой, а не своим фоном: панель меню — это спрайт
-   9-slice, светлый днём и тёмный ночью, а `--panel-2` внутри меню задан
-   светлым на обе темы. Своя подложка из него оказалась бы светлым пятном на
-   ночной панели, а текст на ней — светлым по светлому. */
-.menu-stats {
-  margin: 0 0 14px; padding: 12px 2px 0;
-  border-top: 1px solid var(--hairline);
-}
+.menu-office-money b { font-size: var(--fs-body); color: var(--ink-2); font-weight: 500; }
+.menu-office-open { color: var(--accent); }
+.menu-offices .dashed { margin-top: var(--space-1); }
+
+/* ---------- расход по всем офисам ---------- */
+.menu-stats { padding-top: var(--space-4); border-top: 1px solid var(--hairline); }
 .menu-stats-head {
-  display: flex; align-items: baseline; gap: 14px; margin-bottom: 10px;
+  display: flex; align-items: baseline; gap: var(--space-4); margin-bottom: var(--space-3);
   font-variant-numeric: tabular-nums;
 }
-.menu-stats-title {
-  flex: 1; font-size: 12px; text-transform: uppercase;
-  letter-spacing: .05em; color: var(--ink-3);
-}
+.menu-stats-head .section-title { flex: 1; margin: 0; }
 
-.menu-loading { display: flex; align-items: center; gap: 8px; }
-
-/* Кнопки меню — рамка 9-slice поверх той же геометрии, что и button:
-   :hover/:active/:disabled переключают саму картинку рамки, не задизайненные
-   заново обводку/фон, чтобы не спорить с остальными правилами для button. */
-.menu-screen button {
-  background: transparent; color: var(--ink-2); border-radius: 0;
-  border-style: solid; border-width: 9px;
-  border-image-source: var(--menu-btn-img);
-  border-image-slice: 18 fill; border-image-width: 9px; border-image-repeat: stretch;
-  image-rendering: pixelated;
-}
-.menu-screen button:hover:not(:disabled) { border-image-source: var(--menu-btn-hover-img); }
-.menu-screen button:active:not(:disabled) { border-image-source: var(--menu-btn-active-img); transform: none; }
-.menu-screen button:disabled { border-image-source: var(--menu-btn-disabled-img); opacity: 1; cursor: default; }
-.menu-screen button.primary { color: var(--accent); font-weight: 700; }
-.menu-screen .mini { border-width: 5px; border-image-width: 5px; }
-
-/* Спиннер загрузки — 8 кадров пиксель-арта, переключаются в keyframes
-   (background-image не интерполируется, поэтому кадры листаются, а не смешиваются). */
-.menu-spinner {
-  display: inline-block; width: 16px; height: 16px; flex: none;
-  background-repeat: no-repeat; background-size: contain; background-position: center;
-  image-rendering: pixelated;
-  animation: menu-spin-frames .8s steps(1) infinite;
-}
-@keyframes menu-spin-frames {
-  0%    { background-image: var(--menu-spinner-0); }
-  12.5% { background-image: var(--menu-spinner-1); }
-  25%   { background-image: var(--menu-spinner-2); }
-  37.5% { background-image: var(--menu-spinner-3); }
-  50%   { background-image: var(--menu-spinner-4); }
-  62.5% { background-image: var(--menu-spinner-5); }
-  75%   { background-image: var(--menu-spinner-6); }
-  87.5% { background-image: var(--menu-spinner-7); }
-}
-
-.menu-error { color: #a53939; font-size: 12px; margin: 4px 0 10px; }
-.menu-conn-error { display: flex; flex-direction: column; align-items: flex-start; gap: 12px; }
+/* ---------- форма нового офиса ---------- */
+.menu-form { display: flex; flex-direction: column; gap: var(--space-3); }
+.menu-form .section-title { margin-bottom: 0; }
+.menu-form label { display: block; font-size: var(--fs-md); color: var(--ink-3); }
+.menu-form label input { display: block; width: 100%; margin-top: var(--space-1); }
+.menu-form .hint { display: block; margin-top: var(--space-1); font-size: var(--fs-small); color: var(--ink-3); }
+.menu-form .empty { padding: 0; margin: 0; }
+.menu-actions { display: flex; justify-content: flex-end; gap: var(--space-2); margin-top: var(--space-2); }
+.menu-error { color: var(--danger); font-size: var(--fs-small); margin: 0; }
 
 .menu-footer {
-  position: relative; z-index: 1; margin-top: auto; padding-top: 16px;
-  font-size: 11px; text-align: center; color: #cfc6b3;
+  display: flex; align-items: center; gap: var(--space-2);
+  font-size: var(--fs-small); color: var(--ink-3);
 }
+.menu-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--danger); }
+.menu-dot.on { background: var(--ok); }

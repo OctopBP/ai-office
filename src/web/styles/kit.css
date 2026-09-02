@@ -114,3 +114,12 @@ kbd {
 .meter i { display: block; height: 100%; background: var(--accent); border-radius: 2px; }
 .meter i.warn { background: var(--warn); }
 .meter i.danger { background: var(--danger); }
+
+/* ---------- спиннер ----------
+   Кольцо с акцентным сегментом — ожидание сервера, входа в офис. */
+.spinner {
+  display: inline-block; width: 14px; height: 14px; flex: none;
+  border: 2px solid var(--film-3); border-top-color: var(--accent); border-radius: 50%;
+  animation: spin .8s linear infinite;
+}
+@keyframes spin { to { transform: rotate(360deg); } }

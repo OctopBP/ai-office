@@ -1,23 +1,24 @@
-import { useMemo, useState, type CSSProperties } from 'react';
-import menuBg from '../../design/sprites/out/menu_bg.png';
+import { useMemo, useState } from 'react';
 import { formatLastOpened, retryConnect, sortedOffices, useStore } from './store';
-import { spriteOf } from './sprites';
 import { LimitBars } from './LimitBars';
 import { money } from './money';
 import type { OfficeView } from '../shared/types';
 import { t } from './i18n';
 
-/** Кадры спиннера как CSS-переменные — рамка панели и кнопки заводятся так же. */
-const SPINNER_FRAMES = 8;
+/** Цвета аватарок офисов — те же и в том же порядке, что в рейле. */
+const HUES = ['var(--hue-blue)', 'var(--hue-amber)', 'var(--hue-pink)', 'var(--hue-violet)'];
 
 /**
  * Стартовый экран приложения: выбор существующего офиса или создание нового.
- * До входа в офис комната (office3d/Office3D.tsx) не монтируется — вся логика входа
- * и создания живёт в сторе (enterOffice/requestCreateOffice), здесь только
- * отрисовка её состояний. См. docs/design/office-menu/spec.md.
+ * До входа в офис комната (office3d/Office3D.tsx) не монтируется — вся логика
+ * входа и создания живёт в сторе (enterOffice/requestCreateOffice), здесь
+ * только отрисовка её состояний.
+ *
+ * Собран по правилам кита, а не по макету: макета для меню нет, а список
+ * офисов внутри офиса уже живёт в рейле — здесь та же строка, только шире и с
+ * расходом, чтобы проекты можно было сравнить до входа.
  */
 export function MenuScreen() {
-  const theme = useStore((s) => s.theme);
   const offices = useStore((s) => s.offices);
   const booted = useStore((s) => s.booted);
   const connected = useStore((s) => s.connected);
@@ -37,23 +38,6 @@ export function MenuScreen() {
   const empty = booted && list.length === 0;
   const showForm = creating || empty;
 
-  // Рамка панели, кнопки и кадры спиннера — пиксель-арт в двух темах;
-  // прокидываем url() через CSS-переменные, чтобы сама раскладка 9-slice
-  // и переключение состояний (:hover/:active/:disabled) оставались в CSS.
-  const spriteVars = useMemo(() => {
-    const v: Record<string, string> = {
-      '--menu-panel-img': `url(${spriteOf(theme, 'menu_panel')})`,
-      '--menu-btn-img': `url(${spriteOf(theme, 'menu_button')})`,
-      '--menu-btn-hover-img': `url(${spriteOf(theme, 'menu_button_hover')})`,
-      '--menu-btn-active-img': `url(${spriteOf(theme, 'menu_button_active')})`,
-      '--menu-btn-disabled-img': `url(${spriteOf(theme, 'menu_button_disabled')})`,
-    };
-    for (let i = 0; i < SPINNER_FRAMES; i++) {
-      v[`--menu-spinner-${i}`] = `url(${spriteOf(theme, `menu_spinner_${i}`)})`;
-    }
-    return v as CSSProperties;
-  }, [theme]);
-
   const startCreate = () => {
     setName(''); setDir(''); dismissMenuNotice(); setCreating(true);
   };
@@ -66,116 +50,82 @@ export function MenuScreen() {
   const clearCreateError = () => { if (menuNotice?.kind === 'create-error') dismissMenuNotice(); };
 
   return (
-    <div className="menu-screen" style={{ backgroundImage: `url(${menuBg})` }}>
-      <div className="menu-veil" />
+    <div className="menu-screen">
+      <div className="menu-card float">
+        <header className="menu-brand">
+          <span className="menu-logo" />
+          <div>
+            <div className="menu-name">AI Office</div>
+            <div className="menu-subtitle">{t('menu.subtitle')}</div>
+          </div>
+        </header>
 
-      <header className="menu-title">
-        <h1>AI OFFICE</h1>
-        <p>{t('menu.subtitle')}</p>
-      </header>
-
-      <div className="menu-panel" style={spriteVars}>
         {!booted && !connectFailed && (
-          <>
-            <h2>{t('menu.yourOffices')}</h2>
-            <p className="muted menu-loading">{t('menu.opening')}<Spinner /></p>
-          </>
+          <p className="menu-loading"><Spinner />{t('menu.opening')}</p>
         )}
 
         {!booted && connectFailed && (
           <div className="menu-conn-error">
-            <h2>{t('menu.yourOffices')}</h2>
             <p>{t('menu.noConnection')}</p>
             <button className="primary" onClick={retryConnect}>{t('menu.retry')}</button>
           </div>
         )}
 
         {booted && pending === 'enter' && (
+          <p className="menu-loading"><Spinner />{t('menu.entering', { name: pendingLabel ?? '' })}</p>
+        )}
+
+        {booted && pending !== 'enter' && !showForm && (
           <>
-            <h2>{t('menu.yourOffices')}</h2>
-            <p className="muted menu-loading">
-              {t('menu.entering', { name: pendingLabel ?? '' })}<Spinner />
-            </p>
+            <div className="section-title">{t('menu.yourOffices')}</div>
+            <div className="menu-offices">
+              {list.map((o) => (
+                <OfficeRow key={o.id} office={o} hue={HUES[offices.indexOf(o) % HUES.length]}
+                  onOpen={() => enterOffice(o.id)} />
+              ))}
+              <button className="dashed" onClick={startCreate}>{t('shell.newOffice')}</button>
+            </div>
+
+            {menuNotice?.kind === 'blocked' && <p className="menu-error">{menuNotice.text}</p>}
+
+            <Spending offices={list} />
           </>
         )}
 
-        {booted && pending !== 'enter' && (
-          <>
-            <h2>{t(showForm ? 'menu.newOffice' : 'menu.yourOffices')}</h2>
+        {booted && pending !== 'enter' && showForm && (
+          <div className="menu-form">
+            <div className="section-title">{t('menu.newOffice')}</div>
+            {empty && <p className="empty">{t('menu.noOffices')}</p>}
 
-            {!showForm && (
-              <>
-                <div className="offices menu-offices">
-                  {list.map((o) => (
-                    <div
-                      key={o.id}
-                      className={`office-row menu-office-row ${o.current ? 'current' : ''}`}
-                      onClick={() => enterOffice(o.id)}
-                    >
-                      <img className="menu-office-icon" src={spriteOf(theme, 'menu_icon_office')} alt="" />
-                      <div className="office-who">
-                        <b>{o.name}</b>
-                        <div className="muted mono" title={o.projectDir}>{o.projectDir}</div>
-                        <div className="muted small">
-                          {t('menu.lastOpened', { when: formatLastOpened(o.lastOpenedAt) })}
-                        </div>
-                      </div>
-                      <Spent office={o} />
-                      {o.current ? (
-                        <span className="chip done">{t('menu.openNow')}</span>
-                      ) : (
-                        <button className="mini go" onClick={(e) => { e.stopPropagation(); enterOffice(o.id); }}>
-                          {t('menu.open')}
-                        </button>
-                      )}
-                    </div>
-                  ))}
-                </div>
+            <label>{t('offices.name')}
+              <input value={name} placeholder={t('offices.namePlaceholder')}
+                disabled={pending === 'create'}
+                onChange={(e) => { clearCreateError(); setName(e.target.value); }} />
+            </label>
+            <label>{t('offices.dir')}
+              <input value={dir} placeholder="/Users/you/projects/my-app" disabled={pending === 'create'}
+                onChange={(e) => { clearCreateError(); setDir(e.target.value); }} />
+              <span className="hint">{t('offices.dirHint')}</span>
+            </label>
 
-                {menuNotice?.kind === 'blocked' && <p className="menu-error">{menuNotice.text}</p>}
+            {menuNotice?.kind === 'create-error' && <p className="menu-error">{menuNotice.text}</p>}
 
-                <Spending offices={list} />
-
-                <div className="modal-actions">
-                  <button className="primary" onClick={startCreate}>{t('offices.new')}</button>
-                </div>
-              </>
-            )}
-
-            {showForm && (
-              <>
-                {empty && <p className="empty">{t('menu.noOffices')}</p>}
-
-                <label>{t('offices.name')}
-                  <input value={name} placeholder={t('offices.namePlaceholder')}
-                    disabled={pending === 'create'}
-                    onChange={(e) => { clearCreateError(); setName(e.target.value); }} />
-                </label>
-                <label>{t('offices.dir')}
-                  <input value={dir} placeholder="/Users/you/projects/my-app" disabled={pending === 'create'}
-                    onChange={(e) => { clearCreateError(); setDir(e.target.value); }} />
-                  <span className="hint muted">{t('offices.dirHint')}</span>
-                </label>
-
-                {menuNotice?.kind === 'create-error' && <p className="menu-error">{menuNotice.text}</p>}
-
-                <div className="modal-actions">
-                  {!empty && (
-                    <button onClick={cancelCreate} disabled={pending === 'create'}>
-                      {t('common.cancel')}
-                    </button>
-                  )}
-                  <button className="primary" disabled={!dir.trim() || pending === 'create'} onClick={submitCreate}>
-                    {pending === 'create' ? <Spinner /> : t('offices.create')}
-                  </button>
-                </div>
-              </>
-            )}
-          </>
+            <div className="menu-actions">
+              {!empty && (
+                <button onClick={cancelCreate} disabled={pending === 'create'}>
+                  {t('common.cancel')}
+                </button>
+              )}
+              <button className="primary" disabled={!dir.trim() || pending === 'create'} onClick={submitCreate}>
+                {pending === 'create' ? <Spinner /> : t('offices.create')}
+              </button>
+            </div>
+          </div>
         )}
       </div>
 
-      <footer className="menu-footer muted">
+      <footer className="menu-footer">
+        <span className={`menu-dot${connected ? ' on' : ''}`} />
         {t(connected ? 'menu.connected' : 'menu.reconnecting')}
       </footer>
     </div>
@@ -183,26 +133,36 @@ export function MenuScreen() {
 }
 
 /**
- * Расход офиса в его строке списка. Стоит рядом с названием, а не внутри
- * офиса: понять, куда уходят деньги, можно только сравнив проекты между
- * собой, а заходить в каждый за цифрой — это уже не сравнение.
- *
- * Расход неоткрытого офиса читается из его файла состояния (`activity.ts`),
- * поэтому цифры есть у всех строк, а не только у текущей.
+ * Строка офиса: та же, что в рейле, плюс путь, дата и расход. Расход стоит
+ * рядом с названием, а не внутри офиса: понять, куда уходят деньги, можно
+ * только сравнив проекты между собой, а заходить в каждый за цифрой — это
+ * уже не сравнение. Расход неоткрытого офиса читается из его файла состояния
+ * (`activity.ts`), поэтому цифры есть у всех строк, а не только у текущей.
  */
-function Spent({ office }: { office: OfficeView }) {
-  const spent = office.activity?.usage.costUsd ?? 0;
-  const today = office.activity?.today.costUsd ?? 0;
-  if (spent === 0) return null;
+function OfficeRow({ office: o, hue, onOpen }: { office: OfficeView; hue: string; onOpen: () => void }) {
+  const spent = o.activity?.usage.costUsd ?? 0;
+  const today = o.activity?.today.costUsd ?? 0;
   return (
-    <div className="menu-office-money">
-      <b>{money(spent)}</b>
-      {/* Ноль за сегодня не пишем: «сегодня $0.000» занимает строку ровно
-          затем, чтобы сказать, что сегодня здесь ничего не было. */}
-      <span className="muted small">
-        {today > 0 ? t('menu.spentToday', { cost: money(today) }) : t('usage.allTime')}
+    <button className={`menu-office${o.current ? ' current' : ''}`} onClick={onOpen}
+      title={o.projectDir}>
+      <span className="menu-office-avatar" style={{ background: hue }} />
+      <span className="menu-office-text">
+        <span className="menu-office-name">{o.name}</span>
+        <span className="menu-office-path mono">{o.projectDir}</span>
+        <span className="menu-office-when">{t('menu.lastOpened', { when: formatLastOpened(o.lastOpenedAt) })}</span>
       </span>
-    </div>
+      {spent > 0 && (
+        <span className="menu-office-money">
+          <b>{money(spent)}</b>
+          {/* Ноль за сегодня не пишем: «сегодня $0.000» занимает строку ровно
+              затем, чтобы сказать, что сегодня здесь ничего не было. */}
+          <span>{today > 0 ? t('menu.spentToday', { cost: money(today) }) : t('usage.allTime')}</span>
+        </span>
+      )}
+      {o.current
+        ? <span className="chip done">{t('menu.openNow')}</span>
+        : <span className="chip menu-office-open">{t('menu.open')}</span>}
+    </button>
   );
 }
 
@@ -219,7 +179,7 @@ function Spending({ offices }: { offices: OfficeView[] }) {
   return (
     <div className="menu-stats">
       <div className="menu-stats-head">
-        <span className="menu-stats-title">{t('menu.spending')}</span>
+        <span className="section-title">{t('menu.spending')}</span>
         <span><b>{money(today)}</b> <span className="muted small">{t('common.today')}</span></span>
         <span><b>{money(total)}</b> <span className="muted small">{t('usage.allTime')}</span></span>
       </div>
@@ -228,7 +188,6 @@ function Spending({ offices }: { offices: OfficeView[] }) {
   );
 }
 
-/** Покадровая анимация загрузки — 8 спрайтов, кадры листаются в CSS (menu-spin-frames). */
 function Spinner() {
-  return <span className="menu-spinner" aria-hidden />;
+  return <span className="spinner" aria-hidden />;
 }
