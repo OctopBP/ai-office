@@ -54,7 +54,7 @@ export function TeamWindow({ onClose }: { onClose: () => void }) {
       <div className="team-window" onClick={(e) => e.stopPropagation()}>
         <header className="team-window-head">
           <h2>{t('hud.team')}</h2>
-          <button className="sq" onClick={onClose} title={t('panel.close')}>✕</button>
+          <button className="sq ghost" onClick={onClose} title={t('panel.close')}>✕</button>
         </header>
 
         <div className="team-window-body">

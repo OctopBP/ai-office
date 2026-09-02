@@ -74,7 +74,7 @@ export function McpCatalog({ servers, requests, onChange }: {
 
   return (
     <>
-      <h4>{t('settings.mcp.title')}</h4>
+      <h4 className="section-title">{t('settings.mcp.title')}</h4>
       <p className="hint muted">{t('settings.mcp.hint')}</p>
 
       {requests.length > 0 && (
