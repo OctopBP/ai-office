@@ -1,104 +1,110 @@
-/* Модалки: подложка, окно, формы внутри, режим доступа. */
+/* Модалки: подложка, окно, формы внутри, режим доступа. Формы здесь общие
+   с правой панелью окна «Команда» (`.team-detail`) — те же классы, те же
+   токены. */
 
-/* ---------- модалка разрешений ---------- */
-
+/* ---------- подложка и окно ---------- */
 .modal-backdrop {
   position: fixed; inset: 0; background: var(--veil);
   display: flex; align-items: center; justify-content: center; z-index: var(--z-modal);
   backdrop-filter: blur(2px);
 }
 .modal {
-  width: 560px; max-width: calc(100vw - 40px); background: var(--panel);
-  border: 1px solid var(--line); border-top: 3px solid var(--accent);
-  border-radius: 12px; padding: 20px 22px; box-shadow: 0 20px 60px rgba(0, 0, 0, .6);
+  width: 560px; max-width: calc(100vw - 40px);
+  background: var(--surface); color: var(--ink-2);
+  border: 1px solid var(--hairline); border-radius: var(--radius-panel);
+  padding: var(--space-5) var(--space-6); box-shadow: var(--shadow-toast);
 }
-.modal.danger { border-top-color: var(--red); }
-.modal-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; }
+.modal-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: var(--space-2); }
+
+/* Чип риска — форма кита, цвет текста по уровню; опасность видна по цвету
+   чипа и кнопки, а не по рамке окна. */
 .risk {
-  font-size: 11px; text-transform: uppercase; letter-spacing: .06em;
-  padding: 2px 9px; border-radius: 99px; border: 1px solid var(--line); color: var(--muted);
+  padding: 2px 8px; border-radius: var(--radius-pill); background: var(--film);
+  font-size: var(--fs-small); font-weight: 500; line-height: 1.4;
+  text-transform: uppercase; letter-spacing: .06em; color: var(--ink-3);
 }
-.risk.danger { color: var(--red); border-color: var(--red); }
-.risk.write { color: var(--accent); border-color: var(--accent); }
-.modal h3 { margin: 0 0 4px; font-size: 16px; font-weight: 600; }
-.modal-reason { margin: 0 0 14px; color: var(--muted); font-size: 13px; }
-.modal-tool { color: var(--muted); margin-bottom: 5px; }
+.risk.write { color: var(--accent); }
+.risk.danger { color: var(--danger); }
+
+.modal h3 { margin: 0 0 var(--space-1); font: 600 var(--fs-title)/1.2 var(--font); color: var(--ink); }
+.modal-reason { margin: 0 0 var(--space-4); color: var(--ink-3); font-size: var(--fs-md); }
+.modal-tool { color: var(--ink-3); margin-bottom: var(--space-1); }
 .modal-detail {
-  background: var(--panel-2); border: 2px solid var(--line-soft); border-radius: 7px;
-  padding: 11px 13px; margin: 0 0 16px; max-height: 220px; overflow: auto;
-  font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px;
-  white-space: pre-wrap; word-break: break-word; color: var(--text);
+  background: var(--film); border-radius: var(--radius-row);
+  padding: var(--space-3); margin: 0 0 var(--space-4); max-height: 220px; overflow: auto;
+  font-family: var(--font-mono); font-size: var(--fs-small);
+  white-space: pre-wrap; word-break: break-word; color: var(--ink-2);
 }
-.modal-actions { display: flex; gap: 8px; }
-.modal-actions button { flex: 1; padding: 9px 10px; font-size: 13px; }
-.modal-actions .deny { border-color: var(--red); color: var(--red); }
-.modal-actions .deny:hover { background: rgba(var(--danger-rgb), .12); }
-.modal-actions .allow { border-color: var(--green); color: var(--green); }
-.modal-actions .allow:hover { background: rgba(var(--ok-rgb), .12); }
-.modal-actions .always:hover { background: var(--film-3); }
-.modal-hint { font-size: 11px; margin: 12px 0 0; line-height: 1.45; }
+
+/* ---------- кнопки действий ---------- */
+/* Ряд прижат к правому краю: разрешение/отмена — это не парные половины
+   окна, а последнее слово в диалоге. Размер и форма кнопок — из кита. */
+.modal-actions { display: flex; gap: var(--space-2); justify-content: flex-end; }
+.modal-actions .allow { background: var(--accent); color: var(--accent-ink); box-shadow: var(--shadow-float); }
+.modal-actions .allow:hover:not(:disabled) { filter: brightness(1.08); }
+.modal-actions .deny,
+.modal-actions .never,
+.modal-actions .danger {
+  color: var(--danger);
+}
+.modal-actions .deny:hover:not(:disabled),
+.modal-actions .never:hover:not(:disabled),
+.modal-actions .danger:hover:not(:disabled) {
+  background: rgba(var(--danger-rgb), .12);
+}
+.modal-hint { font-size: var(--fs-small); margin: var(--space-3) 0 0; line-height: 1.45; }
 
 /* ---------- формы в модалках (и в правой панели окна «Команда») ---------- */
 .modal.wide { width: 620px; max-height: 86vh; overflow-y: auto; }
-.modal label, .team-detail label { display: block; margin-bottom: 14px; font-size: 13px; color: var(--muted); }
+.modal label, .team-detail label { display: block; margin-bottom: var(--space-3); font-size: var(--fs-md); color: var(--ink-3); }
+/* Фон, рамку и радиус полю даёт kit.css — здесь только раскладка внутри label. */
 .modal label input[type="text"], .modal label input:not([type]),
 .modal label select, .modal label textarea,
 .team-detail label input[type="text"], .team-detail label input:not([type]),
 .team-detail label select, .team-detail label textarea {
-  display: block; width: 100%; margin-top: 5px; background: var(--panel-2);
-  color: var(--text); border: 1px solid var(--line); border-radius: 6px;
-  padding: 8px 10px; font: inherit;
+  display: block; width: 100%; margin-top: var(--space-1);
 }
-.modal label textarea, .team-detail label textarea { font-size: 13px; resize: vertical; }
-.modal label input:focus, .modal label select:focus, .modal label textarea:focus,
-.team-detail label input:focus, .team-detail label select:focus, .team-detail label textarea:focus {
-  outline: none; border-color: var(--accent);
-}
-.modal .hint, .team-detail .hint { display: block; margin-top: 5px; font-size: 11px; line-height: 1.45; }
-.modal .hint.error, .team-detail .hint.error { color: var(--red); }
-.modal .row2, .team-detail .row2 { display: flex; gap: 16px; align-items: flex-start; }
+.modal label textarea, .team-detail label textarea { font-size: var(--fs-md); resize: vertical; }
+.modal .hint, .team-detail .hint { display: block; margin-top: var(--space-1); font-size: var(--fs-small); line-height: 1.45; }
+.modal .hint.error, .team-detail .hint.error { color: var(--danger); }
+.modal .row2, .team-detail .row2 { display: flex; gap: var(--space-4); align-items: flex-start; }
 .modal .row2 > label, .team-detail .row2 > label { flex: 1; }
 .modal label.checkbox, .team-detail label.checkbox {
-  display: flex; align-items: center; gap: 8px; color: var(--text); margin-top: 22px;
+  display: flex; align-items: center; gap: var(--space-2); color: var(--ink-2); margin-top: var(--space-5);
 }
 .modal label.checkbox input, .team-detail label.checkbox input { width: auto; margin: 0; }
 
 /* Ползунок настройки картинки: подпись со значением справа и range во всю ширину. */
 .modal label.slider .slider-head {
-  display: flex; align-items: baseline; justify-content: space-between; gap: 12px;
+  display: flex; align-items: baseline; justify-content: space-between; gap: var(--space-3);
 }
-.modal label.slider .slider-head b { color: var(--text); font-weight: 600; }
+.modal label.slider .slider-head b { color: var(--ink-2); font-weight: 600; }
 .modal label.slider input[type="range"] {
-  display: block; width: 100%; margin: 6px 0 0; accent-color: var(--accent); cursor: pointer;
+  display: block; width: 100%; margin: var(--space-2) 0 0; accent-color: var(--accent); cursor: pointer;
 }
 .modal label.slider.off { opacity: .45; }
 .modal label.slider.off input[type="range"] { cursor: default; }
 
-.modal-actions .never { border-color: var(--red); color: var(--red); }
-.modal-actions .never:hover { background: rgba(var(--danger-rgb), .12); }
-
 .modal h4 {
-  margin: 14px 0 6px; font-size: 12px; text-transform: uppercase;
-  letter-spacing: .05em; color: var(--muted);
+  margin: var(--space-4) 0 var(--space-2); font-size: var(--fs-caption); font-weight: 500;
+  letter-spacing: .04em; text-transform: uppercase; color: var(--ink-3);
 }
 
 /* ================= режим доступа (T-22) ================= */
 /* «Полный доступ» — опасное состояние: выделяем его красным, а не общим
    акцентом, и там, где он выбран (тумблер офиса, тумблер роли, HUD, значок
    роли в панели команды) — везде одной и той же меткой. */
-.access-modes button.on.auto { background: var(--red); color: #fff; border-color: var(--red); }
-.access-modes button.on.auto .muted { color: #fff; opacity: .85; }
+.access-modes button.on.auto { background: var(--danger); color: var(--accent-ink); }
+.access-modes button.on.auto .muted { color: var(--accent-ink); opacity: .85; }
 .access-confirm {
-  padding: 10px 12px; margin: -4px 0 14px; border: 1px solid var(--red);
-  border-radius: 7px; background: rgba(var(--danger-rgb), .08);
+  padding: var(--space-3); margin: calc(-1 * var(--space-1)) 0 var(--space-4);
+  border-radius: var(--radius-row); background: rgba(var(--danger-rgb), .08);
 }
-.access-confirm p { margin: 0 0 10px; font-size: 13px; line-height: 1.45; }
-.access-confirm .modal-actions .danger { border-color: var(--red); color: var(--red); }
-.access-confirm .modal-actions .danger:hover { background: rgba(var(--danger-rgb), .12); }
+.access-confirm p { margin: 0 0 var(--space-3); font-size: var(--fs-md); line-height: 1.45; }
 .perm-badge {
   display: inline-flex; align-items: center; gap: 5px; padding: 2px 8px;
-  border: 1px solid var(--line-soft); border-radius: 12px; font-size: 11px; color: var(--muted);
+  border-radius: var(--radius-pill); background: var(--film); font-size: var(--fs-small); color: var(--ink-3);
 }
-.perm-badge.auto { color: var(--red); border-color: var(--red); }
+.perm-badge.auto { color: var(--danger); }
 /* Тесная раскладка — не ошибка доступа, поэтому цвет акцентный, а не тревожный. */
-.perm-badge.deskless { color: var(--accent); border-color: var(--accent); background: rgba(var(--accent-rgb), .18); }
+.perm-badge.deskless { color: var(--accent); background: rgba(var(--accent-rgb), .18); }
