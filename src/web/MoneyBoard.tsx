@@ -85,7 +85,7 @@ export function MoneyBoard() {
 
   return (
     <div className="money-board">
-      <div className="money-switch">
+      <div className="seg money-switch">
         <button className={span === 'today' ? 'on' : ''} onClick={() => setSpan('today')}>
           {t('money.span.today')}
         </button>
@@ -122,14 +122,14 @@ export function MoneyBoard() {
         </div>
       </div>
 
-      <h4>{t('limits.title')}</h4>
+      <h4 className="section-title">{t('limits.title')}</h4>
       <p className="modal-reason">{t('limits.note')}</p>
       <LimitBars />
 
-      <h4>{t('money.budget.title')}</h4>
+      <h4 className="section-title">{t('money.budget.title')}</h4>
       <Budget />
 
-      <h4>{t('usage.byDay')}</h4>
+      <h4 className="section-title">{t('usage.byDay')}</h4>
       {week.length === 0 && <p className="muted small">{t('usage.nothingSpent')}</p>}
       <div className="usage-days">
         {week.map((d) => (
@@ -142,7 +142,7 @@ export function MoneyBoard() {
         ))}
       </div>
 
-      <h4>{t('money.byTask')}</h4>
+      <h4 className="section-title">{t('money.byTask')}</h4>
       {list.length === 0 && (
         <p className="muted small">
           {t(span === 'today' ? 'money.noTasksToday' : 'money.noTasks')}
@@ -154,7 +154,7 @@ export function MoneyBoard() {
         ))}
       </div>
 
-      <h4>{t('usage.byAgent')}</h4>
+      <h4 className="section-title">{t('usage.byAgent')}</h4>
       {agents.length === 0 && <p className="muted small">{t('usage.nothingSpent')}</p>}
       <div className="usage-rows">
         {agents.map((i) => (
