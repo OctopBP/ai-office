@@ -11,7 +11,7 @@
     {
       "file": "fabricSofa.glb",
       "probe": {
-        "seat": [0, 0.1]
+        "seat": [0, 0]
       }
     }
   ],
@@ -23,7 +23,7 @@
       "on": "fabricSofa",
       "height": null,
       "offset": [0, 0, 0],
-      "at": [0.8, 0.45]
+      "at": [0.35, 0.575]
     },
     {
       "type": "seat",
@@ -32,7 +32,16 @@
       "on": "fabricSofa",
       "height": null,
       "offset": [0, 0, 0],
-      "at": [1.7, 0.45]
+      "at": [1.15, 0.575]
+    },
+    {
+      "type": "seat",
+      "shape": "point",
+      "use": "game",
+      "on": "fabricSofa",
+      "height": null,
+      "offset": [0, 0, 0],
+      "at": [1.95, 0.575]
     }
   ]
 }

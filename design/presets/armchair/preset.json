@@ -5,14 +5,14 @@
   "footprint": [0, 0.3125, 1.3125, 0.75],
   "blocks": true,
   "layer": "furniture",
-  "h": 1.0,
+  "h": 1,
   "tone": "fabric",
   "fallback": "soft",
   "parts": [
     {
       "file": "velvetArmchair.glb",
       "probe": {
-        "seat": [0, 0.1]
+        "seat": [0, 0]
       }
     }
   ],
@@ -20,11 +20,11 @@
     {
       "type": "seat",
       "shape": "point",
-      "at": [0.15, -0.55],
       "use": "sit",
       "on": "velvetArmchair",
       "height": null,
-      "offset": [0, 0, 0]
+      "offset": [0, 0, 0],
+      "at": [0.14, 0]
     }
   ]
 }
