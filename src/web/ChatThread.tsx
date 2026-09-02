@@ -23,24 +23,24 @@ export function ChatThread() {
   return (
     <>
       <div className="threads">
-        <button className={thread === 'pm#1' ? 'primary' : ''} onClick={() => setThread('pm#1')}>
+        <button className={`mini${thread === 'pm#1' ? ' on' : ''}`} onClick={() => setThread('pm#1')}>
           {t('chat.tab.pm')}
         </button>
-        <button className={thread === 'meeting' ? 'primary' : ''} onClick={() => setThread('meeting')}>
+        <button className={`mini${thread === 'meeting' ? ' on' : ''}`} onClick={() => setThread('meeting')}>
           {t('chat.tab.meeting')}{meeting?.status === 'running' ? ' •' : ''}
         </button>
         {Object.values(instances).filter((i) => i.roleId !== 'pm').map((i) => (
-          <button key={i.id} className={thread === i.id ? 'primary' : ''} onClick={() => setThread(i.id)}>
+          <button key={i.id} className={`mini${thread === i.id ? ' on' : ''}`} onClick={() => setThread(i.id)}>
             {i.id}
           </button>
         ))}
       </div>
 
       {thread === 'meeting' && (
-        <p className="muted small note">{t('chat.note.meeting')}</p>
+        <p className="small note">{t('chat.note.meeting')}</p>
       )}
       {thread !== 'pm#1' && thread !== 'meeting' && (
-        <p className="muted small note">{t('chat.note.direct')}</p>
+        <p className="small note">{t('chat.note.direct')}</p>
       )}
 
       <div className="chat">
