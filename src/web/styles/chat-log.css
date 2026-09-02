@@ -1,39 +1,40 @@
-/* Чат с PM и лог событий: сообщения, строки лога, композер, вкладки тредов. */
+/* Чат с PM и лог событий: сообщения, строки лога, композер, вкладки тредов.
+   Рисуется в двух местах — панель поверх офиса и вид «Чат» новой оболочки
+   (`.shell-chat` в shell.css задаёт только ширину и рамки области, тут —
+   содержимое). */
 
 /* ---------- правая колонка ---------- */
 
-.chat, .log { overflow-y: auto; padding: 4px; min-height: 0; flex: 1; }
-.msg { margin-bottom: 12px; }
-.msg-from { font-size: 11px; color: var(--muted); margin-bottom: 3px; }
+.chat, .log { overflow-y: auto; padding: var(--space-1); min-height: 0; flex: 1; }
+.msg { margin-bottom: var(--space-3); }
+.msg-from { font-size: var(--fs-small); color: var(--ink-3); margin-bottom: var(--space-1); }
 .msg-text {
-  white-space: pre-wrap; background: var(--panel-2); border: 2px solid var(--line-soft);
-  border-radius: 6px; padding: 8px 11px; color: var(--text);
+  white-space: pre-wrap; word-break: break-word;
+  background: var(--film); border-radius: var(--radius-card);
+  padding: var(--space-2) var(--space-3); color: var(--ink-2);
 }
-.msg.from-user .msg-text { background: var(--accent); color: var(--accent-ink); border-color: var(--line); }
+.msg.from-user .msg-text { background: var(--accent); color: var(--accent-ink); }
 
-.log-row { display: flex; gap: 8px; padding: 2px 0; font-size: 12px; border-bottom: 1px solid var(--line-soft); }
-.log-agent { color: var(--muted); min-width: 82px; font-family: ui-monospace, Menlo, monospace; font-size: 11px; }
+.log-row { display: flex; gap: var(--space-2); padding: var(--space-1) 0; font-size: var(--fs-body); border-bottom: 1px solid var(--hairline); }
+.log-agent { color: var(--ink-3); min-width: 82px; font-family: var(--font-mono); font-size: var(--fs-small); }
 .log-text { flex: 1; word-break: break-word; }
-.log-row.error .log-text { color: var(--red); }
-.log-row.text .log-text { color: var(--text); }
-.log-row.system .log-text { color: var(--muted); }
+.log-row.error .log-text { color: var(--danger); }
+.log-row.text .log-text { color: var(--ink-2); }
+.log-row.system .log-text { color: var(--ink-3); }
 
-.composer { padding: 12px 0 0; display: flex; flex-direction: column; gap: 8px; flex: none; }
-.composer textarea {
-  resize: vertical; background: var(--panel-2); color: var(--text);
-  border: 2px solid var(--line); border-radius: 6px; padding: 9px; font: inherit;
-}
-.composer textarea:focus { outline: none; border-color: var(--accent); }
+.composer { padding: var(--space-3) 0 0; display: flex; flex-direction: column; gap: var(--space-2); flex: none; }
+/* Поле кита уже даёт фон, рамку, радиус и фокус — тут только раскладка. */
+.composer textarea { resize: vertical; }
 
 /* ---------- ветки чата и авторизация ---------- */
 .thread-bar {
-  background: var(--panel-2); border: 1px solid var(--accent); border-radius: 8px;
-  padding: 8px 11px; margin-bottom: 12px; font-size: 12px; color: var(--muted);
-  display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+  background: var(--film); border-radius: var(--radius-row);
+  padding: var(--space-1) var(--space-3); margin-bottom: var(--space-3);
+  font-size: var(--fs-body); color: var(--ink-3);
+  display: flex; align-items: center; gap: var(--space-2); flex-wrap: wrap;
 }
-.thread-bar b { color: var(--text); }
-.thread-bar button { margin-left: auto; padding: 3px 10px; font-size: 12px; }
+.thread-bar b { color: var(--ink-2); }
+.thread-bar button { margin-left: auto; }
 
-.threads { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 12px; }
-.threads button { font-size: 12px; padding: 3px 10px; }
-.note { margin: 0 0 12px; }
+.threads { display: flex; flex-wrap: wrap; gap: var(--space-2); margin-bottom: var(--space-3); }
+.note { margin: 0 0 var(--space-3); color: var(--ink-3); }
