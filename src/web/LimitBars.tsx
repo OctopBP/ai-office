@@ -31,8 +31,9 @@ export function Gauge({ label, percent, note, tone }: {
         <span>{label}</span>
         <b className={tone}>{Math.round(percent)}%</b>
       </div>
-      <div className="limit-bar">
-        <div className={`limit-fill ${tone}`} style={{ width: `${Math.min(100, percent)}%` }} />
+      <div className="meter">
+        <i className={tone === 'hot' ? 'danger' : tone === 'warn' ? 'warn' : ''}
+          style={{ width: `${Math.min(100, percent)}%` }} />
       </div>
       {note && <div className="muted small">{note}</div>}
     </div>
