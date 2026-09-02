@@ -60,14 +60,14 @@ export function EmployeeCard({ instanceId }: { instanceId: string }) {
       )}
 
       <section>
-        <h4>{t('employee.desk')}</h4>
+        <h4 className="section-title">{t('employee.desk')}</h4>
         <p className="muted small">
           {inst.deskless ? t('employee.noDesk') : t('employee.deskNo', { index: inst.desk.index })}
         </p>
       </section>
 
       <section>
-        <h4>{t('employee.access')}</h4>
+        <h4 className="section-title">{t('employee.access')}</h4>
         <label>{t('employee.personalMode')}
           <select
             value={inst.permissionMode ?? ''}
@@ -100,7 +100,7 @@ export function EmployeeCard({ instanceId }: { instanceId: string }) {
       </section>
 
       <section>
-        <h4>{t('usage.title.short')}</h4>
+        <h4 className="section-title">{t('usage.title.short')}</h4>
         <div className="usage-lines">
           <div>
             <b>{money(inst.today.costUsd)}</b> {t('usage.forToday')} ·{' '}
