@@ -1,4 +1,6 @@
-/* Настройки офиса: меню разделов и прокручиваемый контент. */
+/* Настройки офиса: меню разделов и прокручиваемый контент. Рамку окна
+   (.modal.wide.settings-modal — фон, граница, тень) даёт modal.css, здесь
+   только раскладка колонок внутри неё. */
 
 /* ---------- настройки: меню разделов слева, контент прокручивается отдельно ---------- */
 .modal.wide.settings-modal {
@@ -6,16 +8,18 @@
   width: 920px; max-width: calc(100vw - 40px);
   max-height: 90vh; overflow: hidden;
 }
-.settings-layout { display: flex; gap: 24px; flex: 1; min-height: 0; margin-top: 4px; }
-.settings-nav { display: flex; flex-direction: column; gap: 4px; width: 180px; flex: none; }
-.settings-nav button { text-align: left; padding: 9px 12px; font-size: 13px; }
-.settings-nav button.on { background: var(--accent); color: var(--accent-ink); }
-.settings-content { flex: 1; min-width: 0; overflow-y: auto; padding-right: 6px; }
+.settings-layout { display: flex; gap: var(--space-6); flex: 1; min-height: 0; margin-top: var(--space-1); }
+.settings-nav { display: flex; flex-direction: column; gap: var(--space-1); width: 180px; flex: none; }
+/* Пункт меню — не действие, а навигация: кнопка кита без заливки, выровненная
+   влево; активный раздел подсвечен плёнкой строки, как в рейле и списке офисов. */
+.settings-nav button { width: 100%; justify-content: flex-start; border-radius: var(--radius-row); }
+.settings-nav button.on { background: var(--film-2); color: var(--ink); }
+.settings-content { flex: 1; min-width: 0; overflow-y: auto; padding-right: var(--space-2); }
 .settings-content label:last-child, .settings-content > .hint:last-child { margin-bottom: 0; }
 /* На типичном 1024px-окне ноутбука колонка меню и рамки модалки не должны съедать
    место двух столбцов полей — сужаем зазор и поля вместо переноса меню наверх. */
 @media (max-width: 1040px) {
-  .settings-layout { gap: 16px; }
+  .settings-layout { gap: var(--space-4); }
   .settings-nav { width: 152px; }
 }
 @media (max-width: 560px) {
