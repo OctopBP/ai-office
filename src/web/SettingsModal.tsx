@@ -159,7 +159,7 @@ export function SettingsModal({ onClose }: { onClose: () => void }) {
         <div className="settings-layout">
           <div className="settings-nav">
             {SECTIONS.map(([id, label]) => (
-              <button key={id} className={section === id ? 'on' : ''} onClick={() => chooseSection(id)}>
+              <button key={id} className={`ghost${section === id ? ' on' : ''}`} onClick={() => chooseSection(id)}>
                 {t(label)}
               </button>
             ))}
@@ -168,7 +168,7 @@ export function SettingsModal({ onClose }: { onClose: () => void }) {
           <div className="settings-content">
             {section === 'general' && (
               <>
-                <h4>{t('common.language')}</h4>
+                <h4 className="section-title">{t('common.language')}</h4>
                 <div className="engine">
                   {LANGS.map((code) => (
                     <button key={code} className={language === code ? 'on' : ''}
@@ -183,7 +183,7 @@ export function SettingsModal({ onClose }: { onClose: () => void }) {
 
             {section === 'access' && (
               <>
-                <h4>{t('settings.access.title')}</h4>
+                <h4 className="section-title">{t('settings.access.title')}</h4>
                 <div className="engine access-modes">
                   {accessModes().map(([id, label, hint]) => (
                     <button key={id} className={`${access === id ? 'on' : ''} ${id}`.trim()}
@@ -251,7 +251,7 @@ export function SettingsModal({ onClose }: { onClose: () => void }) {
 
             {section === 'project' && (
               <>
-                <h4>{t('settings.layout.title')}</h4>
+                <h4 className="section-title">{t('settings.layout.title')}</h4>
                 <div className="engine">
                   {layouts.map((l) => (
                     <button key={l.id} className={layoutId === l.id ? 'on' : ''} onClick={() => setLayoutId(l.id)}>
@@ -261,7 +261,7 @@ export function SettingsModal({ onClose }: { onClose: () => void }) {
                 </div>
                 <p className="hint muted">{t('settings.layout.hint')}</p>
 
-                <h4>{t('settings.pipeline.title')}</h4>
+                <h4 className="section-title">{t('settings.pipeline.title')}</h4>
                 <div className="engine">
                   <button className={autoPipeline ? 'on' : ''} onClick={() => setAutoPipeline(true)}>
                     <span><Icon name="repeat" size={18} /> {t('settings.pipeline.auto')}</span>
@@ -274,7 +274,7 @@ export function SettingsModal({ onClose }: { onClose: () => void }) {
                 </div>
                 <p className="hint muted">{t('settings.pipeline.note')}</p>
 
-                <h4>{t('settings.plan.title')}</h4>
+                <h4 className="section-title">{t('settings.plan.title')}</h4>
                 <div className="engine">
                   <button className={planApproval ? 'on' : ''} onClick={() => setPlanApproval(true)}>
                     <span><Icon name="hand-stop" size={18} /> {t('settings.plan.approval')}</span>
@@ -310,7 +310,7 @@ export function SettingsModal({ onClose }: { onClose: () => void }) {
                   </span>
                 </label>
 
-                <h4>{t('settings.engine.title')}</h4>
+                <h4 className="section-title">{t('settings.engine.title')}</h4>
                 <div className="engine">
                   <button className={engine === 'local' ? 'on' : ''} onClick={() => setEngine('local')}>
                     <span><Icon name="device-desktop" size={18} /> {t('settings.engine.local')}</span>
@@ -344,7 +344,7 @@ export function SettingsModal({ onClose }: { onClose: () => void }) {
 
             {section === 'graphics' && (
               <>
-                <h4>{t('settings.gfx.title')}</h4>
+                <h4 className="section-title">{t('settings.gfx.title')}</h4>
                 <div className="engine">
                   <button className={gfx.pixelate ? 'on' : ''} onClick={() => patchGfx({ pixelate: true })}>
                     <span><Icon name="grid-dots" size={18} /> {t('settings.gfx.on')}</span>
