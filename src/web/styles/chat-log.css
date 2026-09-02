@@ -22,9 +22,7 @@
 .log-row.text .log-text { color: var(--ink-2); }
 .log-row.system .log-text { color: var(--ink-3); }
 
-.composer { padding: var(--space-3) 0 0; display: flex; flex-direction: column; gap: var(--space-2); flex: none; }
 /* Поле кита уже даёт фон, рамку, радиус и фокус — тут только раскладка. */
-.composer textarea { resize: vertical; }
 
 /* ---------- ветки чата и авторизация ---------- */
 .thread-bar {

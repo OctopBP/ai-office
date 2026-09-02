@@ -18,10 +18,6 @@
 /* Чипы камеры — из-под рейла в правый нижний угол, над композером. */
 .shell .cam-chips { left: auto; right: var(--space-6); bottom: 124px; }
 .shell .toasts { bottom: 120px; left: calc(var(--edge) + (100% - var(--edge) - 24px) / 2); }
-.shell.paused .office::after {
-  content: ''; position: absolute; inset: 0; z-index: 20; pointer-events: none;
-  background: var(--shadow);
-}
 
 /* Доска и чат занимают место сцены между верхним рядом и композером. */
 .shell-view {

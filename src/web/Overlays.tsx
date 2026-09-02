@@ -1,5 +1,4 @@
 import { Panel } from './Panel';
-import { ChatPanel } from './ChatPanel';
 import { Board } from './Board';
 import { MergeQueue } from './MergeQueue';
 import { PrPipeline } from './PrPipeline';
@@ -15,7 +14,7 @@ import { OfficesModal } from './OfficesModal';
 import { useStore } from './store';
 import { t } from './i18n';
 
-export type PanelKind = 'chat' | 'board' | 'money' | 'log' | 'help' | 'merge' | null;
+export type PanelKind = 'board' | 'money' | 'log' | 'help' | 'merge' | null;
 export type ModalKind = 'settings' | 'meeting' | 'offices' | 'team' | null;
 
 export interface OverlayProps {
@@ -26,10 +25,9 @@ export interface OverlayProps {
 }
 
 /**
- * Всё, что открывается поверх комнаты: панели, дроверы, модалки. Одно и то же
- * в обеих оболочках — прежний HUD и новая с рейлом различаются тем, что стоит
- * под этим слоем, а не тем, что в нём. Состояние «что открыто» держит App:
- * ему же принадлежат горячие клавиши, которые это открывают и закрывают.
+ * Всё, что открывается поверх комнаты: панели, дроверы, модалки. Состояние
+ * «что открыто» держит App: ему же принадлежат горячие клавиши, которые это
+ * открывают и закрывают.
  */
 export function Overlays({ panel, setPanel, modal, setModal }: OverlayProps) {
   const log = useStore((s) => s.log);
@@ -37,7 +35,6 @@ export function Overlays({ panel, setPanel, modal, setModal }: OverlayProps) {
 
   return (
     <>
-      {panel === 'chat' && <ChatPanel onClose={() => setPanel(null)} />}
       {panel === 'board' && (
         <Panel title={t('panel.board')} wide size="board" hint="B" onClose={() => setPanel(null)}>
           <Board />
@@ -82,8 +79,7 @@ export function Overlays({ panel, setPanel, modal, setModal }: OverlayProps) {
               <kbd>B</kbd> — {t('hint.board')}, <kbd>E</kbd> — {t('hint.money')},{' '}
               <kbd>L</kbd> — {t('hint.log')},{' '}
               <kbd>M</kbd> — {t('hint.meeting')}, <kbd>SPACE</kbd> — {t('hint.pause')},{' '}
-              <kbd>1–9</kbd> — {t('help.keys.agent')}, <kbd>ESC</kbd> — {t('help.keys.esc')},{' '}
-              <kbd>0</kbd> — {t('help.keys.render')}, <kbd>N</kbd> — {t('shell.toggle.hint')}.
+              <kbd>1–9</kbd> — {t('help.keys.agent')}, <kbd>ESC</kbd> — {t('help.keys.esc')}.
             </p>
             <p>
               {t('help.camera')} <kbd>WASD</kbd> {t('help.camera.keys')}{' '}

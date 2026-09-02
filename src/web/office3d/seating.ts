@@ -19,7 +19,7 @@
  * подгонки: показывать он должен ровно то, что окажется в комнате, а не
  * похожее.
  */
-import { componentOf } from '../../shared/preset';
+import { componentOf, componentsOf } from '../../shared/preset';
 import { presetOf, resolveRef } from './presets';
 import { poseFit, type Fit } from './fit';
 import type { ModelMeasure, PoseMeasure } from './measure';
@@ -50,6 +50,12 @@ export function seatingFor(
   pose: string,
   sprite: string | undefined,
   tall: number,
+  /**
+   * Которое из мест предмета занято — номер seat-компонента (`RestSeat.seat`).
+   * Пусто — первое: у стола место одно, а тому, кто номера не знает, правильно
+   * достаётся то же, что доставалось раньше.
+   */
+  place?: number,
 ): Seating {
   const preset = sprite ? presetOf(sprite) : undefined;
   const rest = poseFit(fit, pose);
@@ -59,9 +65,15 @@ export function seatingFor(
    * Чем сидят — берётся у того компонента места, который на этом предмете
    * есть. У дивана это `seat`, у стола — `work`: за столом не два места, а
    * одно, и посадка описана прямо в нём (см. `shared/preset.ts`).
+   *
+   * Мест-`seat` у предмета бывает несколько, и они не одинаковы: подушка у
+   * подлокотника глубже средней, крайнее место за барной стойкой — у самого
+   * края. Поэтому берётся именно занятое место, а не первое попавшееся; номер
+   * приходит с местом отдыха из раскладки.
    */
+  const seats = preset ? componentsOf(preset, 'seat') : [];
   const at = preset
-    ? componentOf(preset, 'seat') ?? componentOf(preset, 'work')
+    ? (place !== undefined ? seats[place] : undefined) ?? seats[0] ?? componentOf(preset, 'work')
     : undefined;
   const offset = at?.offset ?? [0, 0, 0];
 

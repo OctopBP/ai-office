@@ -700,6 +700,8 @@ function Agent({
     : interest?.sprite;
   const { lift, handsY } = seatingFor(
     fit, models, loaded.measure[restPose], restPose, placeSprite, tall,
+    // Которое место занято: подушки дивана доводятся каждая своей поправкой.
+    atDesk ? undefined : interest?.seat,
   );
 
   /**

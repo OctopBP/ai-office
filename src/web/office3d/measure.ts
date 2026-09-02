@@ -24,6 +24,7 @@ import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import { clone as cloneSkinned } from 'three/examples/jsm/utils/SkeletonUtils.js';
 import { MODEL_SCALE } from './props';
 import { MODEL_KEYS, MODEL_LIST, PARTS } from './presets';
+import type { Part } from '../../shared/preset';
 
 /**
  * Имена костей — свойство конкретного набора, а не общее правило, поэтому
@@ -149,8 +150,13 @@ export interface ModelMeasure {
 /**
  * Померить модель лучом сверху вниз. Луч — потому что габаритом высоту
  * сиденья не узнать: у стула габарит — это спинка, а сидят не на ней.
+ *
+ * Куда целиться, обычно берётся у части пресета по имени модели. Стенд
+ * передаёт точку сам: там её двигают ползунком, и ждать перезагрузки, чтобы
+ * увидеть, куда попал луч, — это ровно тот способ подбора вслепую, от
+ * которого стенд и заводился.
  */
-export function measureModel(source: THREE.Object3D): ModelMeasure {
+export function measureModel(source: THREE.Object3D, aim?: Part['probe']): ModelMeasure {
   const object = source.clone(true);
   object.position.set(0, 0, 0);
   object.rotation.set(0, 0, 0);
@@ -175,7 +181,7 @@ export function measureModel(source: THREE.Object3D): ModelMeasure {
   // Куда целиться — свойство модели, и лежит оно при части пресета. Раньше
   // здесь была таблица по имени файла: то же знание, но в другом файле, чем
   // всё остальное про эту модель.
-  const p = PARTS[source.name]?.probe ?? {};
+  const p = aim ?? PARTS[source.name]?.probe ?? {};
   return {
     seat: probe(p.seat),
     surface: probe(p.surface),

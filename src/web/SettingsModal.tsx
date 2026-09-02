@@ -65,7 +65,6 @@ export function SettingsModal({ onClose }: { onClose: () => void }) {
   const settings = useStore((s) => s.settings);
   const cloud = useStore((s) => s.cloud);
   const graphics = useStore((s) => s.graphics);
-  const render3d = useStore((s) => s.render3d);
   const setGraphics = useStore((s) => s.setGraphics);
   const layouts = useStore((s) => s.layouts);
   const roles = useStore((s) => s.roles);
@@ -381,13 +380,6 @@ export function SettingsModal({ onClose }: { onClose: () => void }) {
                 <div className="engine">
                   <button onClick={() => setGfx(DEFAULT_GRAPHICS)}>{t('settings.gfx.reset')}</button>
                 </div>
-
-                {!render3d && (
-                  <p className="hint muted">
-                    {t('settings.gfx.flatNote')}
-                    {' '}<code className="mono">0</code>.
-                  </p>
-                )}
               </>
             )}
           </div>

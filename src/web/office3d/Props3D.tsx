@@ -234,6 +234,17 @@ function partsOf(item: Placed3): Parts {
 const ModelsContext = createContext<Record<string, THREE.Object3D>>({});
 
 /**
+ * Те же сцены — тому, кто внутри `FurnitureModels` и хочет их померить.
+ *
+ * Нужен стенду: там точку луча двигают ползунком, и мерить приходится не
+ * общим замером набора (он посчитан один раз на файл), а этой моделью прямо
+ * сейчас.
+ */
+export function useFurnitureModels(): Record<string, THREE.Object3D> {
+  return useContext(ModelsContext);
+}
+
+/**
  * Загрузка всего набора мебели одной точкой.
  *
  * Раньше каждый предмет грузил свои модели сам и висел на собственном

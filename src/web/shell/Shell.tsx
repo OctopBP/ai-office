@@ -1,4 +1,3 @@
-import { Office } from '../Office';
 import { Office3D } from '../office3d/Office3D';
 import { Board } from '../Board';
 import { ChatThread } from '../ChatThread';
@@ -24,7 +23,6 @@ export function Shell(props: OverlayProps) {
   const { setPanel, setModal } = props;
   const view = useStore((s) => s.view);
   const setView = useStore((s) => s.setView);
-  const render3d = useStore((s) => s.render3d);
   const collapsed = useStore((s) => s.railCollapsed);
   const paused = useStore((s) => s.paused);
   const openTaskCard = useStore((s) => s.openTaskCard);
@@ -35,9 +33,7 @@ export function Shell(props: OverlayProps) {
   return (
     <div className={`shell${collapsed ? ' rail-collapsed' : ''}${paused ? ' paused' : ''}`}>
       <div className="shell-main">
-        {view === 'office' && (render3d
-          ? <Office3D onOpen={open} onDoor={door} />
-          : <Office onOpen={open} onDoor={door} />)}
+        {view === 'office' && <Office3D onOpen={open} onDoor={door} />}
         {view === 'board' && <div className="shell-view"><Board /></div>}
         {view === 'chat' && <div className="shell-view shell-chat"><ChatThread /></div>}
         <Toasts onOpenTask={(id) => { setView('board'); openTaskCard(id); }} />

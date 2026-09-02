@@ -30,13 +30,15 @@ export interface Interest {
   /** Предмет, на котором сидят: по нему трёхмерный рендер находит доводку
    *  посадки под конкретную модель. У разговоров и стоячих мест его нет. */
   sprite?: string;
+  /** Которое место предмета занято: у дивана подушки разные (`RestSeat.seat`). */
+  seat?: number;
 }
 
 /** Место занятия: одно или два посадочных/стоячих места с поворотом. */
 interface Spot {
   id: string;
   kind: Exclude<InterestKind, 'stand'>;
-  seats: { at: Pos; yaw: number; sprite?: string }[];
+  seats: { at: Pos; yaw: number; sprite?: string; seat?: number }[];
   /**
    * Место работает только заполненным целиком. У разговора это так: один
    * человек, стоящий лицом к пустому месту, выглядит хуже, чем тот же
@@ -94,13 +96,13 @@ function spotsOf(layout: Layout, catalog: Catalog): Spot[] {
       id: 'game',
       kind: 'game',
       requiresAll: false,
-      seats: gamers.map((s) => ({ at: s.at, yaw: 0, sprite: s.sprite })),
+      seats: gamers.map((s) => ({ at: s.at, yaw: 0, sprite: s.sprite, seat: s.seat })),
     });
   }
   seatPoints.filter((s) => s.use !== 'game').forEach((s, i) => {
     spots.push({
       id: `sit-${i}`, kind: 'sit', requiresAll: false,
-      seats: [{ at: s.at, yaw: 0, sprite: s.sprite }],
+      seats: [{ at: s.at, yaw: 0, sprite: s.sprite, seat: s.seat }],
     });
   });
 
@@ -185,6 +187,7 @@ export function interestsFor(
         at: spot.seats[i].at,
         yaw: spot.seats[i].yaw,
         sprite: spot.seats[i].sprite,
+        seat: spot.seats[i].seat,
         partner: mate ?? undefined,
       });
     });

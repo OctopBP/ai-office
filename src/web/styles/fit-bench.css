@@ -11,6 +11,24 @@
 }
 .fit-panel h1 { margin: 0 0 6px; font-size: 17px; }
 .fit-panel h2 { margin: 16px 0 6px; font-size: 13px; color: var(--ink-3); }
+
+/* Выбор предмета: пресетов сорок два, и список — единственное, что помещает
+   их в панель шириной в треть экрана. */
+.fit-item { width: 100%; margin-bottom: 4px; font-size: 12px; }
+
+/* Разделы пресета сложены гармошкой: их много (место, части, след, посадка),
+   и развёрнутыми сразу они не помещаются ни на один экран. Открыт тот, с
+   которым сейчас работают, — остальные ждут свёрнутыми. */
+.fit-panel details {
+  margin: 8px 0; padding: 0 0 4px;
+  border-top: 1px solid var(--hairline);
+}
+.fit-panel summary {
+  margin: 8px 0 4px; font-size: 13px; color: var(--ink-3);
+  cursor: pointer; user-select: none;
+}
+.fit-panel summary::marker { color: var(--ink-4); }
+.fit-panel details[open] > summary { color: var(--ink); }
 .fit-note { margin: 0 0 10px; font-size: 12px; line-height: 1.45; color: var(--ink-3); }
 
 .fit-cases { display: flex; flex-wrap: wrap; gap: 5px; margin-bottom: 12px; }
