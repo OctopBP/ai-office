@@ -1,0 +1,24 @@
+	Кресло
+
+	Автор: Urpo (https://sketchfab.com/Urpo)
+	Источник: https://sketchfab.com/3d-models/sofa-80edec2de8c04a4fb335a48b550a2336
+
+			------------------------------
+
+	Лицензия: CC-BY-4.0
+	http://creativecommons.org/licenses/by/4.0/
+
+	Указание автора обязательно, коммерческое использование разрешено.
+
+	This work is based on "Sofa"
+	(https://sketchfab.com/3d-models/sofa-80edec2de8c04a4fb335a48b550a2336)
+	by Urpo (https://sketchfab.com/Urpo) licensed under CC-BY-4.0
+	(http://creativecommons.org/licenses/by/4.0/)
+
+			------------------------------
+
+	Изменения: та же модель, что у дивана (design/presets/sofa), суженная
+	до одного места. Ткань перекрашена в розовый бархат, ножки золотые —
+	карта цвета нарисована по UV модели. Масштаб набора: единица = 2 метра,
+	множитель тот же, что у дивана, поэтому сиденье у них на одной высоте.
+	Начало координат в углу, спинка к −z. Текстуры ужаты и уложены внутрь.

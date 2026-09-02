@@ -1,0 +1,24 @@
+	Двухместный диван
+
+	Автор: Urpo (https://sketchfab.com/Urpo)
+	Источник: https://sketchfab.com/3d-models/sofa-80edec2de8c04a4fb335a48b550a2336
+
+			------------------------------
+
+	Лицензия: CC-BY-4.0
+	http://creativecommons.org/licenses/by/4.0/
+
+	Указание автора обязательно, коммерческое использование разрешено.
+
+	This work is based on "Sofa"
+	(https://sketchfab.com/3d-models/sofa-80edec2de8c04a4fb335a48b550a2336)
+	by Urpo (https://sketchfab.com/Urpo) licensed under CC-BY-4.0
+	(http://creativecommons.org/licenses/by/4.0/)
+
+			------------------------------
+
+	Изменения: та же модель и та же ткань, что у дивана
+	(design/presets/sofa), но у́же — 1.96 м вместо 2.24: ровно та ширина,
+	какая была у прежней модели, чтобы предмет занимал своё место как
+	занимал. Масштаб набора: единица = 2 метра, начало координат в углу,
+	спинка к −z. Текстуры ужаты и уложены внутрь .glb.

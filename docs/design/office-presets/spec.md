@@ -46,10 +46,11 @@
 ```
 design/presets/sofa/
   preset.json        описание — единственный источник правды
-  loungeSofa.glb     модель; имя как у файла набора, ссылка из preset.json
-  loungeSofa_night.png  ночная текстура, если нужна (см. §7)
+  fabricSofa.glb     модель; имя своё, ссылка из preset.json
+  fabricSofa_night.png  ночная текстура, если нужна (см. §7)
   day.png            пиксельный арт для плоского рендера
   night.png          ночной вариант арта
+  LICENSE.txt        откуда модель и на каких условиях — если она не CC0
 ```
 
 Обязателен только `preset.json`. Предмет без `.glb` рисуется запасным

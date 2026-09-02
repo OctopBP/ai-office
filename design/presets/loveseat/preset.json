@@ -5,14 +5,14 @@
   "footprint": [0, 0.4375, 2.25, 1.1875],
   "blocks": true,
   "layer": "furniture",
-  "h": 1.2,
+  "h": 0.9,
   "tone": "fabric",
   "fallback": "soft",
   "parts": [
     {
-      "file": "loungeSofa.glb",
+      "file": "fabricSofa.glb",
       "probe": {
-        "seat": [0, -0.15]
+        "seat": [0, 0.1]
       }
     }
   ],
@@ -22,7 +22,7 @@
       "shape": "point",
       "at": [0.35, 0.45],
       "use": "sit",
-      "on": "loungeSofa",
+      "on": "fabricSofa",
       "height": null,
       "offset": [0, 0, 0]
     },
@@ -31,7 +31,7 @@
       "shape": "point",
       "at": [1.15, 0.45],
       "use": "sit",
-      "on": "loungeSofa",
+      "on": "fabricSofa",
       "height": null,
       "offset": [0, 0, 0]
     }

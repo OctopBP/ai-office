@@ -1,0 +1,8 @@
+	Стол руководителя
+
+	oakDesk.glb — та же модель, что у рядового стола: сгенерирована,
+	стороннего автора нет, карта цвета тоже сгенерирована. Лежит второй
+	копией, потому что `parts.file` ищет файл рядом с preset.json.
+
+	computerScreen.glb — Kenney, CC0
+	(см. design/models/furniture/LICENSE.txt).
