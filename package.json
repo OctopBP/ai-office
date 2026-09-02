@@ -16,6 +16,7 @@
     "scene": "bash scripts/scene.sh",
     "model": "bash scripts/model.sh",
     "scene:check": "python3 tools/blender/inspect_glb.py",
+    "units": "python3 scripts/units.py",
     "test:perm": "tsx scripts/test-permissions.ts",
     "test:skills": "tsx scripts/test-skills.ts",
     "test:mcp": "tsx scripts/test-mcp.ts",
