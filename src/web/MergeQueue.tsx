@@ -47,7 +47,7 @@ export function MergeQueue() {
 
       {candidates.length > 0 && (
         <div className="mq-candidates">
-          <div className="mq-head muted small">
+          <div className="mq-head section-title">
             {t('mq.manual')}
             {checking && <span className="muted small">{t('mq.checking')}</span>}
           </div>
@@ -87,9 +87,9 @@ export function MergeQueue() {
 
       {selection.length > 0 && (
         <div className="mq-order-list">
-          <div className="mq-head muted small">
+          <div className="mq-head section-title">
             {t('mq.order')}
-            <button type="button" className="link-danger" onClick={clear}>{t('mq.clear')}</button>
+            <button type="button" className="mini link-danger" onClick={clear}>{t('mq.clear')}</button>
           </div>
           {selection.map((taskId, i) => {
             const t = tasks[taskId];
@@ -122,7 +122,7 @@ export function MergeQueue() {
 
       {run && (
         <div className="mq-progress">
-          <div className="mq-head muted small">
+          <div className="mq-head section-title">
             {t(run.running ? 'mq.inProgress' : 'mq.lastRun')}
           </div>
           {!run.running && (

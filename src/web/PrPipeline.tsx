@@ -33,7 +33,7 @@ export function PrPipeline() {
 
   return (
     <div className="pr-list">
-      <div className="mq-head muted small">
+      <div className="mq-head section-title">
         {t('pr.title')}
         {live.length > 0 && (
           <span className="muted small">{t('pr.live', { n: live.length })}</span>
@@ -58,7 +58,7 @@ export function PrPipeline() {
               </span>
             </div>
 
-            <div className="mq-reason pr-note">{pr.note}</div>
+            <div className="mq-reason">{pr.note}</div>
 
             {pr.stage === 'stuck' && (
               <div className={`pr-watch ${pr.needsDecision ? 'bad' : ''}`}>
