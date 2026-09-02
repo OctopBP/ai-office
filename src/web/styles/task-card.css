@@ -1,70 +1,67 @@
-/* Карточка задачи и её части — чип, критерии, ветка, кнопки управления. Общее для доски и дроверов. */
+/* Карточка задачи и её части — чип, критерии, ветка, кнопки управления.
+   Общее для доски и дроверов. Состояние карточки — цветом чипа, а не
+   рамки: в новом языке рамка у всех одна, волосяная. */
 
-/* ---------- задачи ---------- */
-.tasks { margin-top: 18px; }
-.tasks h2 { font-size: 14px; margin: 0 0 10px; }
 /* Карточка на доске — кнопка: она открывает раскрытую карточку целиком, и
    кликабельной должна быть вся, а не подпись внутри. Отсюда и сброс кнопочных
-   умолчаний: текст слева, ширина по колонке, рамка как у прежнего блока. */
+   умолчаний: текст слева, ширина по колонке, высота по содержимому. */
 .task {
-  display: block; width: 100%; text-align: left; font: inherit;
-  border: 1px solid var(--hairline); border-left: 3px solid var(--hairline);
-  border-radius: 7px; padding: 9px 11px; margin-bottom: 8px; background: var(--surface);
+  display: block; width: 100%; min-height: 0; text-align: left; font: inherit;
+  white-space: normal; font-weight: 400; color: var(--ink-2);
+  border: 1px solid var(--hairline); border-radius: var(--radius-row);
+  padding: var(--space-2) var(--space-3); background: var(--surface);
+  transition: border-color .12s;
 }
-.task:hover { background: var(--film); }
-.task:active { transform: none; }
+.task:hover:not(:disabled) { background: var(--surface); border-color: var(--ink-4); }
+.task:active:not(:disabled) { background: var(--surface); }
 /* Открытая сейчас карточка помечена на доске: дровер перекрывает правый край,
    и без метки непонятно, чью подробность читаешь. */
-.task.open { border-color: var(--accent); }
-.task.in_progress { border-left-color: var(--accent); }
-.task.done { border-left-color: var(--ok-ink); }
-.task.failed { border-left-color: var(--danger); }
-.task-head { display: flex; align-items: center; gap: 9px; }
+.task.open { box-shadow: 0 0 0 2px var(--accent); border-color: transparent; }
+.task-head { display: flex; align-items: center; gap: var(--space-2); }
 .task-title { flex: 1; }
-.chip {
-  font-size: 11px; padding: 1px 8px; border-radius: 99px;
-  background: var(--film); color: var(--ink-3); border: 1px solid var(--hairline);
-}
-.chip.in_progress { color: var(--accent); border-color: var(--accent); }
-.chip.done { color: var(--ok-ink); border-color: var(--ok-ink); }
-.chip.failed { color: var(--danger); border-color: var(--danger); }
-.task-result { margin-top: 7px; color: var(--ink-2); font-size: 13px; }
-.task-files { margin-top: 5px; color: var(--ink-3); }
 
-/* ---------- ветки задач ---------- */
-.task-branch {
-  margin-top: 8px; display: flex; align-items: center; gap: 10px;
-  font-size: 12px; color: var(--ink-3);
-}
-.task-branch .merged { color: var(--ok-ink); }
-.task-branch .merge {
-  padding: 3px 10px; font-size: 12px;
-  border-color: var(--ok-ink); color: var(--ok-ink);
-}
-.task-branch .merge:hover { background: rgba(var(--ok-rgb), .12); }
-
-/* ---------- управление задачей ---------- */
-.task-controls { display: flex; gap: 6px; margin-top: 8px; }
-.task-controls:empty { display: none; }
-.task-controls button { padding: 3px 10px; font-size: 12px; }
-.task-controls .stop { border-color: var(--danger); color: var(--danger); }
-.task-controls .stop:hover { background: rgba(var(--danger-rgb), .12); }
-.task-controls .retry { border-color: var(--accent); color: var(--accent); }
-.task-controls .retry:hover { background: rgba(var(--accent-rgb), .12); }
-
-.chip.active { color: var(--accent); border-color: var(--accent); }
+/* Цвет чипа — по состоянию; сам чип из кита. */
+.chip.in_progress, .chip.active { color: var(--accent); }
+.chip.done { color: var(--ok-ink); }
+.chip.failed { color: var(--danger); }
 .chip.planned { color: var(--ink-3); }
 .chip.cancelled { color: var(--ink-3); text-decoration: line-through; }
 .epic-chip { color: var(--ink-3); }
-.task-watch { margin-top: 5px; }
+
+.task-result { margin-top: var(--space-2); color: var(--ink-2); font-size: var(--fs-md); }
+.task-files { margin-top: var(--space-1); color: var(--ink-3); }
+.task-watch { margin-top: var(--space-1); }
+
+/* ---------- ветки задач ---------- */
+.task-branch {
+  margin-top: var(--space-2); display: flex; align-items: center; gap: var(--space-2);
+  font-size: var(--fs-small); color: var(--ink-3);
+}
+.task-branch .merged { color: var(--ok-ink); }
+
+/* ---------- управление задачей ----------
+   Кнопки действий над задачей и фичей — остановить, повторить, влить,
+   согласовать: мелкие пилюли, окрашен только текст. Одни и те же в дровере,
+   в плане и в ветке карточки. */
+.task-controls { display: flex; gap: var(--space-2); margin-top: var(--space-2); }
+.task-controls:empty { display: none; }
+button.stop, button.retry, button.merge {
+  min-height: var(--mini-h); padding: 0 var(--space-2); font-size: var(--fs-small);
+}
+button.stop { color: var(--danger); }
+button.stop:hover:not(:disabled) { background: rgba(var(--danger-rgb), .12); }
+button.retry { color: var(--accent); }
+button.retry:hover:not(:disabled) { background: rgba(var(--accent-rgb), .12); }
+button.merge { color: var(--ok-ink); }
+button.merge:hover:not(:disabled) { background: rgba(var(--ok-rgb), .12); }
 
 /* ================= критерии готовности ================= */
 .criteria-head {
-  font-size: 11px; text-transform: uppercase; letter-spacing: .05em;
-  color: var(--ink-3); margin-bottom: 3px;
+  font-size: var(--fs-caption); font-weight: 500; text-transform: uppercase; letter-spacing: .04em;
+  color: var(--ink-3); margin-bottom: var(--space-1);
 }
-.criterion { display: flex; gap: 6px; align-items: baseline; font-size: 12px; color: var(--ink-3); }
+.criterion { display: flex; gap: var(--space-2); align-items: baseline; font-size: var(--fs-small); color: var(--ink-3); }
 .criterion .mark { color: var(--ink-4); width: 10px; flex: none; text-align: center; }
 .criterion.done { color: var(--ink-2); }
 .criterion.done .mark { color: var(--ok-ink); }
-.task .criteria { margin-top: 6px; }
+.task .criteria { margin-top: var(--space-2); }
