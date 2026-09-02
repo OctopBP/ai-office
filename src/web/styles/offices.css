@@ -2,25 +2,26 @@
 
 /* ================= офисы и облако ================= */
 
-.offices { display: flex; flex-direction: column; margin: 12px 0; }
+.offices { display: flex; flex-direction: column; margin: var(--space-3) 0; }
 .office-row {
-  display: flex; align-items: center; gap: 10px; padding: 8px 6px;
-  border-bottom: 1px solid var(--line-soft);
+  display: flex; align-items: center; gap: var(--space-2); padding: var(--space-2);
+  border-bottom: 1px solid var(--hairline);
 }
 .office-row:last-child { border-bottom: none; }
-.office-row.current { background: rgba(var(--accent-rgb), .1); border-radius: 6px; }
+.office-row.current { background: var(--film-2); border-radius: var(--radius-row); }
 .office-who { flex: 1; min-width: 0; }
 .office-who .mono { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.engine { display: flex; gap: 8px; margin-bottom: 12px; }
+/* Кнопки движка — обычные кнопки кита в столбик; активный получает .on из kit.css. */
+.engine { display: flex; gap: var(--space-2); margin-bottom: var(--space-3); }
 .engine button {
-  flex: 1; display: flex; flex-direction: column; gap: 3px;
-  align-items: flex-start; text-align: left; padding: 9px 11px;
+  flex: 1; display: flex; flex-direction: column; gap: var(--space-1);
+  align-items: flex-start; text-align: left; padding: var(--space-2) var(--space-3);
 }
-.engine button.on { background: var(--accent); color: var(--accent-ink); }
 .engine button.on .muted { color: var(--accent-ink); opacity: .75; }
+/* Плёнка без цветной рамки — состояние читается по цвету текста. */
 .ready {
-  font-size: 12px; padding: 7px 10px; border-radius: 6px; margin-bottom: 12px;
-  border: 1px solid var(--line-soft);
+  font-size: var(--fs-body); padding: var(--space-2) var(--space-3); border-radius: var(--radius-row);
+  margin-bottom: var(--space-3); background: var(--film);
 }
-.ready.ok { color: var(--green); border-color: var(--green); }
-.ready.bad { color: var(--red); border-color: var(--red); }
+.ready.ok { color: var(--ok-ink); }
+.ready.bad { color: var(--danger); }
