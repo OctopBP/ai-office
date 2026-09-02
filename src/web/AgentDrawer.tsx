@@ -106,7 +106,7 @@ export function AgentDrawer() {
             {current && ` · ${elapsed(current.startedAt, null)} · ${current.id}`}
           </div>
         </div>
-        <button className="icon" onClick={() => select(null)} title={t('common.close')}>✕</button>
+        <button className="sq ghost" onClick={() => select(null)} title={t('common.close')}>✕</button>
       </header>
 
       {inst.deskless && (
@@ -117,7 +117,7 @@ export function AgentDrawer() {
       )}
 
       <section>
-        <h3>{t('employee.access')}</h3>
+        <h3 className="section-title">{t('employee.access')}</h3>
         <label>{t('employee.personalMode')}
           <select
             value={inst.permissionMode ?? ''}
@@ -146,7 +146,7 @@ export function AgentDrawer() {
       </section>
 
       <section>
-        <h3>{t('drawer.doingNow')}</h3>
+        <h3 className="section-title">{t('drawer.doingNow')}</h3>
         {current ? (
           <div className="card">
             <div className="card-head"><b>{current.id}</b> {current.title}</div>
@@ -158,7 +158,7 @@ export function AgentDrawer() {
             <Criteria list={current.criteria} />
             {cap !== null && (
               <div className="budget">
-                <div className="bar"><i style={{ width: `${usedShare}%` }} /></div>
+                <div className="meter"><i style={{ width: `${usedShare}%` }} /></div>
                 <span className="muted small">
                   {t('drawer.taskBudget', { cap: money(cap), share: Math.round(usedShare) })}
                 </span>
@@ -171,7 +171,7 @@ export function AgentDrawer() {
       </section>
 
       <section>
-        <h3>
+        <h3 className="section-title">
           {t('drawer.tasks')}
           <span className="muted">
             {' · '}{t('drawer.tasksSummary', { done, running, free: free.length })}
@@ -219,7 +219,7 @@ export function AgentDrawer() {
       </section>
 
       <section>
-        <h3>
+        <h3 className="section-title">
           {t('drawer.transcript')}{' '}
           <span className="muted">· {t('drawer.lastN', { n: trail.length })}</span>
         </h3>
@@ -250,7 +250,7 @@ export function AgentDrawer() {
       </section>
 
       <section>
-        <h3>{t('usage.title.short')}</h3>
+        <h3 className="section-title">{t('usage.title.short')}</h3>
         <div className="usage-lines">
           {current && (
             <div>
@@ -284,7 +284,7 @@ export function AgentDrawer() {
         )}
       </div>
       <div className="drawer-links">
-        <button className="link" onClick={() => requestTeamRole(inst.roleId)}>
+        <button className="ghost link" onClick={() => requestTeamRole(inst.roleId)}>
           {inst.deskless
             ? t('drawer.roleLink')
             : t('drawer.roleLinkDesk', { index: inst.desk.index })}
@@ -296,7 +296,7 @@ export function AgentDrawer() {
         )}
         {role && !role.isManager && (
           <button
-            className="link-danger"
+            className="ghost link-danger"
             disabled={Boolean(inst.currentTaskId)}
             title={inst.currentTaskId
               ? t('employee.busyHint', { task: inst.currentTaskId })

@@ -1,111 +1,108 @@
-/* Дроверы агента и задачи: шапка, секции, строки, след работы. */
+/* Дроверы агента и задачи: плавающая карточка у правого края, как рейл у
+   левого. Детали кита — kit.css, шкала отступов и цвета — tokens.css. */
 
 /* ---------- дровер агента ---------- */
 .drawer {
-  position: fixed; right: 0; top: 0; bottom: 0; width: 430px; z-index: var(--z-drawer);
-  background: var(--panel); border-left: 1px solid var(--line);
-  box-shadow: -16px 0 40px rgba(0, 0, 0, .45);
-  overflow-y: auto; padding: 14px 16px 24px;
+  position: fixed; top: var(--space-2); right: var(--space-2); bottom: var(--space-2);
+  width: 430px; z-index: var(--z-drawer);
+  background: var(--surface); border: 1px solid var(--hairline); border-radius: var(--radius-panel);
+  box-shadow: var(--shadow-toast);
+  overflow-y: auto; padding: var(--space-4) var(--space-4) var(--space-6);
   animation: slide-in .18s ease-out;
 }
 @keyframes slide-in { from { transform: translateX(24px); opacity: .4; } }
-.drawer-head { display: flex; gap: 12px; align-items: flex-start; margin-bottom: 18px; }
+.drawer-head { display: flex; gap: var(--space-3); align-items: flex-start; margin-bottom: var(--space-5); }
 .drawer-head .ava {
   width: 48px; height: 72px; image-rendering: pixelated;
-  background: var(--panel-2); border: 1px solid var(--line); border-radius: 8px;
+  background: var(--film); border: 1px solid var(--hairline); border-radius: var(--radius-row);
 }
 .drawer-who { flex: 1; min-width: 0; }
-.drawer-who h2 { margin: 0; font-size: 17px; }
-.drawer-who .chip { display: inline-block; margin-top: 6px; }
-.drawer .icon { background: none; border: none; color: var(--muted); font-size: 15px; padding: 2px 6px; }
-.drawer .icon:hover { color: var(--text); }
+.drawer-who h2 { margin: 0; font: 600 var(--fs-title)/1.3 var(--font); color: var(--ink); }
+.drawer-who .chip { display: inline-block; margin-top: var(--space-2); }
 
-.drawer section { margin-bottom: 20px; }
-.drawer h3 { font-size: 12px; text-transform: uppercase; letter-spacing: .05em;
-  color: var(--muted); margin: 0 0 8px; font-weight: 600; }
-.drawer .small { font-size: 12px; }
-.drawer .dim { color: var(--muted); }
+.drawer section { margin-bottom: var(--space-5); }
+.drawer h3.section-title { margin: 0 0 var(--space-2); }
+.drawer .dim { color: var(--ink-3); }
 
-.card { border: 1px solid var(--line); border-radius: 8px; padding: 10px 12px; background: var(--panel-2); }
-.card-head { margin-bottom: 5px; }
-.card-head b { color: var(--accent); margin-right: 6px; font-size: 12px; }
-.criteria { margin-top: 7px; font-size: 12px; color: var(--text); }
-.budget { margin-top: 9px; }
-.bar { height: 5px; background: var(--line); border-radius: 3px; overflow: hidden; margin-bottom: 4px; }
-.bar i { display: block; height: 100%; background: var(--accent); }
+.card { background: var(--film); border-radius: var(--radius-card); padding: var(--space-3); }
+.card-head { margin-bottom: var(--space-1); }
+.card-head b { color: var(--accent); margin-right: var(--space-2); font-size: var(--fs-body); }
+.criteria { margin-top: var(--space-2); font-size: var(--fs-body); color: var(--ink-2); }
+.budget { margin-top: var(--space-2); }
+.budget .meter { margin-bottom: var(--space-1); }
 
 .drawer .row {
-  display: flex; align-items: center; gap: 8px; padding: 6px 8px;
-  border-bottom: 1px solid var(--line-soft); font-size: 13px;
+  display: flex; align-items: center; gap: var(--space-2); padding: var(--space-2);
+  border-bottom: 1px solid var(--hairline); font-size: var(--fs-md);
 }
 .drawer .row:last-of-type { border-bottom: none; }
 .row-title { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.drawer .row.done .row-title { color: var(--muted); }
+.drawer .row.done .row-title { color: var(--ink-3); }
 .drawer .row.in_progress { background: rgba(var(--accent-rgb), .07); }
-.mini { padding: 2px 8px; font-size: 11px; }
-.mini.stop { border-color: var(--red); color: var(--red); }
-.mini.go { border-color: var(--green); color: var(--green); }
+.mini.stop { color: var(--danger); }
+.mini.go { color: var(--ok-ink); }
 
-.trail { border: 2px solid var(--line-soft); border-radius: 8px; padding: 8px 10px; background: var(--panel-2); }
-.trail-row { display: flex; gap: 8px; font-size: 12px; padding: 2px 0; align-items: baseline; }
+.trail { background: var(--film); border-radius: var(--radius-card); padding: var(--space-2) var(--space-3); }
+.trail-row { display: flex; gap: var(--space-2); font-size: var(--fs-body); padding: var(--space-1) 0; align-items: baseline; }
 .trail-row .ico { width: 14px; flex: none; }
-.trail-text { flex: 1; word-break: break-word; color: var(--text); }
-.trail-row.error .trail-text { color: var(--red); }
-.trail-row.system .trail-text { color: var(--muted); }
+.trail-text { flex: 1; word-break: break-word; color: var(--ink-2); }
+.trail-row.error .trail-text { color: var(--danger); }
+.trail-row.system .trail-text { color: var(--ink-3); }
 
 .auto-tag {
-  display: inline-block; margin-right: 6px; padding: 0 5px; border-radius: 4px;
-  font-size: 10px; font-weight: 600; letter-spacing: .03em;
-  color: var(--accent-ink); background: var(--accent);
+  display: inline-block; margin-right: var(--space-2); padding: 0 var(--space-1);
+  border-radius: var(--radius-icon);
+  font-size: var(--fs-caption); font-weight: 600; letter-spacing: .03em;
+  color: var(--accent); background: rgba(var(--accent-rgb), .12);
 }
 
-.drawer-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 10px; }
-.drawer-actions button { flex: 1 1 45%; padding: 8px; font-size: 13px; }
-.drawer-actions .danger { flex-basis: 100%; border-color: var(--red); color: var(--red); }
+.drawer-actions { display: flex; flex-wrap: wrap; gap: var(--space-2); margin-bottom: var(--space-2); }
+.drawer-actions button { flex: 1 1 45%; padding: var(--space-2); font-size: var(--fs-md); }
+.drawer-actions .danger { flex-basis: 100%; color: var(--danger); }
 .drawer-actions .danger:hover { background: rgba(var(--danger-rgb), .12); }
-.link-danger { background: none; border: none; color: var(--muted); font-size: 12px; padding: 4px 0; }
-.link-danger:hover { color: var(--red); }
+.link-danger { color: var(--ink-3); }
+.link-danger:hover { color: var(--danger); }
 
 /* ---------- раскрытая карточка задачи ---------- */
 /* Дровер лежит поверх доски (--z-drawer против --z-panel): подробности
    читают по одной задаче, не теряя из виду колонки. */
-.task-drawer h2 { font-size: 15px; line-height: 1.35; }
-.task-drawer h2 .dim { font-size: 12px; margin-right: 6px; }
-.task-drawer .task-meta { margin-top: 8px; }
+.task-drawer h2 { margin: 0; font: 600 var(--fs-title)/1.35 var(--font); color: var(--ink); }
+.task-drawer h2 .dim { font-size: var(--fs-body); margin-right: var(--space-2); }
+.task-drawer .task-meta { margin-top: var(--space-2); }
 /* Пары «подпись — значение»: колонка подписей узкая и общая, чтобы значения
    стояли в линию и читались столбиком, а не змейкой. */
-.kv { display: grid; grid-template-columns: max-content 1fr; gap: 5px 12px; font-size: 13px; }
-.task-brief { font-size: 13px; white-space: pre-wrap; word-break: break-word; }
-.task-drawer .task-result { font-size: 13px; white-space: pre-wrap; }
-.task-drawer .task-files { font-size: 12px; word-break: break-all; }
-.task-drawer .task-branch { display: flex; align-items: center; gap: 9px; font-size: 12px; }
+.kv { display: grid; grid-template-columns: max-content 1fr; gap: var(--space-1) var(--space-3); font-size: var(--fs-md); }
+.task-brief { font-size: var(--fs-md); white-space: pre-wrap; word-break: break-word; }
+.task-drawer .task-result { font-size: var(--fs-md); white-space: pre-wrap; }
+.task-drawer .task-files { font-size: var(--fs-body); word-break: break-all; }
+.task-drawer .task-branch { display: flex; align-items: center; gap: var(--space-2); font-size: var(--fs-body); }
 /* Связанная задача — тоже кнопка: по ней переходят к соседней карточке. */
 .link-row {
   display: flex; width: 100%; text-align: left; background: none; border: none;
-  border-bottom: 1px solid var(--line-soft); border-radius: 0; padding: 6px 8px;
-  align-items: center; gap: 8px; font: inherit; font-size: 13px;
+  border-bottom: 1px solid var(--hairline); border-radius: 0; padding: var(--space-2);
+  align-items: center; gap: var(--space-2); font: inherit; font-size: var(--fs-md);
 }
-.link-row:hover { background: var(--panel-2); }
+.link-row:hover { background: var(--film); }
 .link-row:active { transform: none; }
 
-.drawer-links { display: flex; flex-direction: column; gap: 6px; align-items: flex-start; }
-.drawer-links .link {
-  background: none; border: none; padding: 3px 0; color: var(--muted); font-size: 12px;
-}
+.drawer-links { display: flex; flex-direction: column; gap: var(--space-2); align-items: flex-start; }
+.drawer-links .link { color: var(--ink-3); }
 .drawer-links .link:hover { color: var(--accent); }
 .drawer-notice {
-  display: flex; align-items: center; gap: 8px; padding: 7px 10px; margin-top: 8px;
-  border: 1px solid var(--red); border-radius: 7px; font-size: 12px; color: var(--red);
+  display: flex; align-items: center; gap: var(--space-2); padding: var(--space-2) var(--space-3);
+  margin-top: var(--space-2); border-radius: var(--radius-row);
+  background: rgba(var(--danger-rgb), .1); font-size: var(--fs-body); color: var(--danger);
 }
 .drawer-notice button { margin-left: auto; }
 
 /* Безместный сотрудник — тесная раскладка, не ошибка: цвет акцентный, а не
    тревожный красный (§T-106). */
 .deskless-notice {
-  padding: 9px 12px; margin-bottom: 16px; font-size: 12px; line-height: 1.5;
-  border: 1px solid var(--accent); border-radius: 7px; background: rgba(var(--accent-rgb), .1);
+  padding: var(--space-2) var(--space-3); margin-bottom: var(--space-4);
+  font-size: var(--fs-body); line-height: 1.5;
+  border-radius: var(--radius-row); background: rgba(var(--accent-rgb), .1);
 }
 .deskless-notice .link {
-  background: none; border: none; padding: 0; margin-left: 2px; font-size: inherit;
+  background: none; border: none; padding: 0; margin-left: var(--space-1); font-size: inherit;
   font-weight: 600; color: var(--accent); text-decoration: underline; cursor: pointer;
 }
