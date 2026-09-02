@@ -17,8 +17,3 @@
 }
 .participant input { width: auto; margin: 0; }
 .participant.busy { opacity: .5; cursor: default; }
-.participant-avatar {
-  width: 20px; height: 26px; object-fit: cover; object-position: top;
-  border-radius: var(--radius-icon); background: var(--film); border: 1px solid var(--hairline);
-  flex: none; image-rendering: pixelated;
-}

@@ -3,7 +3,7 @@ import { clearTeamRequest, fire, hire, useStore } from './store';
 import { RoleEditor } from './RoleEditor';
 import { EmployeeCard } from './EmployeeCard';
 import { useActionNotice } from './useActionNotice';
-import { AgentAvatar } from './office3d/AgentAvatar';
+import { Avatar } from './Avatar';
 import { catalog } from './layoutData';
 import { desks } from '../shared/layout';
 import { t } from './i18n';
@@ -99,9 +99,7 @@ export function TeamWindow({ onClose }: { onClose: () => void }) {
                       className={`team-role-row ${roleSelected ? 'selected' : ''}`}
                       onClick={() => setSelection({ kind: 'role', id: r.id })}
                     >
-                      <AgentAvatar
-                        roleId={r.id} instanceId={r.id} look={r.sprite} className="team-avatar"
-                      />
+                      <Avatar roleId={r.id} />
                       <span className="team-title">
                         {r.title}
                         <span className="muted mono"> {r.model.replace('claude-', '')}</span>
@@ -132,9 +130,7 @@ export function TeamWindow({ onClose }: { onClose: () => void }) {
                               key={m.id} className={`team-member-row ${memberSelected ? 'selected' : ''}`}
                               onClick={() => setSelection({ kind: 'employee', id: m.id })}
                             >
-                              <AgentAvatar
-                                roleId={r.id} instanceId={m.id} look={r.sprite} className="team-member-avatar"
-                              />
+                              <Avatar roleId={r.id} instanceId={m.id} size="sm" />
                               <span className="mono muted">{m.id}</span>
                               <span className="muted small">{stateLabel(m.state)}</span>
                               {m.deskless && (

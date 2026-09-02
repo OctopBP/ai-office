@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { callMeeting, useStore } from './store';
-import { AgentAvatar } from './office3d/AgentAvatar';
+import { Avatar } from './Avatar';
 import { t } from './i18n';
 
 export function MeetingModal({ onClose }: { onClose: () => void }) {
@@ -40,11 +40,7 @@ export function MeetingModal({ onClose }: { onClose: () => void }) {
                 disabled={Boolean(i.currentTaskId)}
                 onChange={() => toggle(i.id)}
               />
-              <AgentAvatar
-                roleId={i.roleId} instanceId={i.id}
-                look={roles.find((r) => r.id === i.roleId)?.sprite}
-                className="participant-avatar"
-              />
+              <Avatar roleId={i.roleId} instanceId={i.id} size="sm" />
               {i.label}
               {i.currentTaskId && (
                 <span className="muted"> — {t('meeting.busy', { task: i.currentTaskId })}</span>

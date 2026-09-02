@@ -6,7 +6,7 @@ import {
 } from './store';
 import { locale, t, t as tr } from './i18n';
 import { useActionNotice } from './useActionNotice';
-import { AgentAvatar } from './office3d/AgentAvatar';
+import { Avatar } from './Avatar';
 import { usageLine } from './money';
 import { Icon, type IconName } from './icons';
 import type { Criterion, PermissionMode, TaskView } from '../shared/types';
@@ -89,7 +89,7 @@ export function AgentDrawer() {
   return (
     <aside className="drawer">
       <header className="drawer-head">
-        <AgentAvatar roleId={inst.roleId} instanceId={inst.id} look={role?.sprite} className="ava" />
+        <Avatar roleId={inst.roleId} instanceId={inst.id} size="lg" />
         <div className="drawer-who">
           <h2>{inst.id}</h2>
           <div className="muted">

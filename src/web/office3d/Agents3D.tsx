@@ -44,6 +44,7 @@ import { stateText } from '../agentState';
 import { dropAnchor, setAnchor } from './anchors';
 import type { AgentState, InstanceView, RoleView, TaskView } from '../../shared/types';
 import { LOOKS } from '../../shared/looks';
+import { NO_ROLE_COLOR, shortCode } from '../Avatar';
 
 /**
  * Текстуры персонажей по имени скина — оно же идентификатор внешности
@@ -226,24 +227,6 @@ function inkOn(hex: string): string {
   return 0.299 * r + 0.587 * g + 0.114 * b > 0.6 ? '#181320' : '#ffffff';
 }
 
-/** Цвет значка, если роль неизвестна — например, её удалили из офиса. */
-const NO_ROLE_COLOR = '#94a3b8';
-
-/**
- * Короткое обозначение должности с номером: `backend#1` → `B1`, `pm#1` → `PM1`.
- *
- * Считается по идентификатору роли, а не по её названию: идентификатор
- * латинский, без пробелов и не меняется при переименовании должности, —
- * значок остаётся тем же, как бы роль ни назвали в интерфейсе. Двухбуквенные
- * идентификаторы (`pm`) берутся целиком: «P» вместо «PM» узнаётся хуже.
- */
-function shortTag(inst: InstanceView): string {
-  const n = inst.id.split('#')[1] ?? '';
-  const id = inst.roleId || '?';
-  const abbr = id.length <= 2 ? id.toUpperCase() : id[0].toUpperCase();
-  return `${abbr}${n}`;
-}
-
 /** Порядок загрузки: модель, потом клипы поз, потом клипы переходов. */
 const POSE_URLS: Record<Pose, string> = {
   walk: walkUrl, idle: idleUrl, talk: talkUrl, type: typeUrl,
@@ -375,7 +358,7 @@ function AgentTag({ inst, role, task, expanded }: {
             className="agent-badge-role"
             style={{ background: chipColor, color: inkOn(chipColor) }}
           >
-            {shortTag(inst)}
+            {shortCode(inst.roleId, inst.id)}
           </span>
           <span
             className={`agent-badge-dot${STATE_DOT[inst.state] ? ` ${STATE_DOT[inst.state]}` : ''}`}

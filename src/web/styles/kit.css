@@ -123,3 +123,15 @@ kbd {
   animation: spin .8s linear infinite;
 }
 @keyframes spin { to { transform: rotate(360deg); } }
+
+/* ---------- аватарка-заглушка ----------
+   Квадрат цвета роли с её кодом — как значок в бейдже и аватар офиса в
+   рейле. Три размера: строка списка, карточка, шапка дровера. */
+.avatar-ph {
+  display: inline-flex; align-items: center; justify-content: center; flex: none;
+  border-radius: var(--radius-avatar); color: #fff; font-weight: 700; line-height: 1;
+  font-family: var(--font); background: var(--ink-4);
+}
+.avatar-ph.sm { width: 20px; height: 20px; font-size: 8px; border-radius: var(--radius-icon); }
+.avatar-ph.md { width: 30px; height: 30px; font-size: 10px; }
+.avatar-ph.lg { width: 48px; height: 48px; font-size: 14px; border-radius: var(--radius-row); }

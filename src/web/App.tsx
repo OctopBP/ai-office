@@ -1,6 +1,5 @@
 import { useEffect, useState } from 'react';
 import { MenuScreen } from './MenuScreen';
-import { AvatarStage } from './office3d/AgentAvatar';
 import { type ModalKind, type PanelKind } from './Overlays';
 import { Shell } from './shell/Shell';
 import { focusComposer } from './shell/Composer';
@@ -108,12 +107,6 @@ export function App() {
   if (screen === 'menu') return <MenuScreen />;
 
   return (
-    <>
-      {/* Общая сцена-портрет для всех аватарок в приложении — см.
-          `office3d/AgentAvatar.tsx` про то, почему холст ровно один: второй
-          `View.Port` продублировал бы рисунок первого. */}
-      <AvatarStage />
-      <Shell panel={panel} setPanel={setPanel} modal={modal} setModal={setModal} />
-    </>
+    <Shell panel={panel} setPanel={setPanel} modal={modal} setModal={setModal} />
   );
 }

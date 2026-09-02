@@ -6,7 +6,7 @@ import {
 import { t } from './i18n';
 import { usageLine } from './money';
 import { Icon } from './icons';
-import { AgentAvatar } from './office3d/AgentAvatar';
+import { Avatar } from './Avatar';
 import type { PermissionMode } from '../shared/types';
 
 const money = (v: number) => `$${v.toFixed(v < 1 ? 3 : 2)}`;
@@ -43,9 +43,7 @@ export function EmployeeCard({ instanceId }: { instanceId: string }) {
   return (
     <div className="employee-card">
       <div className="employee-card-head">
-        <AgentAvatar
-          roleId={inst.roleId} instanceId={inst.id} look={role?.sprite} className="employee-avatar"
-        />
+        <Avatar roleId={inst.roleId} instanceId={inst.id} size="lg" />
         <div>
           <h3>{inst.id}</h3>
           <p className="muted">{role?.title} · {role?.model.replace('claude-', '')}</p>

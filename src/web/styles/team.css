@@ -28,17 +28,7 @@
 }
 .team-role-row:hover { background: var(--film); }
 .team-role-row.selected { background: var(--film-2); border-color: var(--hairline); }
-.team-avatar {
-  width: 26px; height: 34px; object-fit: cover; object-position: top;
-  border-radius: var(--radius-icon); background: var(--film); border: 1px solid var(--hairline);
-  flex: none; image-rendering: pixelated;
-}
 
-.team-member-avatar {
-  width: 20px; height: 26px; object-fit: cover; object-position: top;
-  border-radius: var(--radius-icon); background: var(--film); border: 1px solid var(--hairline);
-  flex: none; image-rendering: pixelated;
-}
 .team-title { flex: 1; display: flex; align-items: center; gap: var(--space-2); flex-wrap: wrap; }
 .team-members {
   display: flex; flex-direction: column; gap: var(--space-1);
@@ -64,11 +54,6 @@
 .role-form h3, .employee-card h3 { margin: 0 0 var(--space-1); font: 600 var(--fs-title)/1.2 var(--font); color: var(--ink); }
 .employee-card-head { display: flex; align-items: center; gap: var(--space-3); margin-bottom: var(--space-4); }
 .employee-card-head .muted { margin: 0; }
-.employee-avatar {
-  width: 48px; height: 72px; object-fit: cover; object-position: top;
-  border-radius: var(--radius-row); background: var(--film); border: 1px solid var(--hairline);
-  flex: none; image-rendering: pixelated;
-}
 .employee-card section { margin-bottom: var(--space-5); }
 .form-banner.error {
   padding: var(--space-2) var(--space-3); margin-bottom: var(--space-4); font-size: var(--fs-md); line-height: 1.45;
@@ -93,7 +78,12 @@
 .look-swatch.on { background: var(--film-2); box-shadow: 0 0 0 2px var(--accent); }
 /* Холст растягивается по обёртке, а размер задаёт она: сам холст сцена
    размечает своими стилями, и класс на нём бы не подействовал. */
-.look-figure { align-self: stretch; min-width: 0; height: 92px; }
+/* Плитка-заглушка внешности — до возвращения превью моделью. */
+.look-ph {
+  width: 48px; height: 48px; border-radius: var(--radius-row); background: var(--film-3);
+  display: flex; align-items: center; justify-content: center;
+  font: 600 var(--fs-title)/1 var(--font); color: var(--ink-3);
+}
 .look-swatch .look-name { font-size: var(--fs-caption); color: var(--ink-3); text-align: center; line-height: 1.25; }
 
 /* Каталог внешних MCP-серверов (настройки) и подписка роли на них. */
