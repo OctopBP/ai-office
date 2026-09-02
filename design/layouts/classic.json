@@ -52,7 +52,7 @@
     { "sprite": "kitchen_snack", "at": [21.3, 12.5] },
 
     { "sprite": "coffee_table", "at": [7.0, 12.0] },
-    { "sprite": "loveseat", "at": [7.0, 13.3] },
+    { "sprite": "sofa", "at": [6.0, 13.3] },
     { "sprite": "armchair", "at": [9.5, 13.9] }
   ],
   "zones": [
