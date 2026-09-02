@@ -34,7 +34,8 @@
 .money-board { display: flex; flex-direction: column; min-height: 0; }
 .money-board .section-title { margin: var(--space-4) 0 var(--space-2); }
 .money-board .modal-reason { margin-bottom: var(--space-2); }
-.money-switch { margin-bottom: var(--space-1); }
+/* В колонке .money-board сегменты растянулись бы на всю ширину — не даём. */
+.money-switch { align-self: flex-start; margin-bottom: var(--space-1); }
 
 /* Шкала лимита: цвет меняется на тех же порогах, на которых человек меняет
    поведение, — до 75% думать не о чем, после 90% пора выбирать, на что тратить. */
