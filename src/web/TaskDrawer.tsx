@@ -90,11 +90,11 @@ export function TaskDrawer() {
             )}
           </div>
         </div>
-        <button className="icon" onClick={() => openTaskCard(null)} title={t('panel.close')}>✕</button>
+        <button className="sq ghost" onClick={() => openTaskCard(null)} title={t('panel.close')}>✕</button>
       </div>
 
       <section>
-        <h3>{t('taskCard.about')}</h3>
+        <h3 className="section-title">{t('taskCard.about')}</h3>
         <div className="kv">
           <span className="muted">{t('taskCard.role')}</span>
           <span>{role?.title ?? task.roleId ?? t('common.none')}</span>
@@ -118,7 +118,7 @@ export function TaskDrawer() {
 
       {task.description && (
         <section>
-          <h3>{t('taskCard.brief')}</h3>
+          <h3 className="section-title">{t('taskCard.brief')}</h3>
           {/* ТЗ показываем как есть: исполнитель видел ровно этот текст, и
               подрезанный он перестал бы отвечать на «почему сделано так». */}
           <div className="task-brief">{task.description}</div>
@@ -127,7 +127,7 @@ export function TaskDrawer() {
 
       {task.criteria.length > 0 && (
         <section>
-          <h3>{t('drawer.criteria', { done, total: task.criteria.length })}</h3>
+          <h3 className="section-title">{t('drawer.criteria', { done, total: task.criteria.length })}</h3>
           <div className="criteria">
             {task.criteria.map((c, i) => (
               <div key={i} className={`criterion ${c.done ? 'done' : ''}`}>
@@ -140,7 +140,7 @@ export function TaskDrawer() {
 
       {(waits.length > 0 || blocks.length > 0) && (
         <section>
-          <h3>{t('taskCard.links')}</h3>
+          <h3 className="section-title">{t('taskCard.links')}</h3>
           {waits.length > 0 && (
             <>
               <p className="muted small">{t('taskCard.waitsFor')}</p>
@@ -158,7 +158,7 @@ export function TaskDrawer() {
 
       {(task.result || pr) && (
         <section>
-          <h3>{t('taskCard.outcome')}</h3>
+          <h3 className="section-title">{t('taskCard.outcome')}</h3>
           {task.result && <div className="task-result">{task.result}</div>}
           {pr && (
             <p className="muted small">
@@ -176,14 +176,14 @@ export function TaskDrawer() {
 
       {task.files.length > 0 && (
         <section>
-          <h3>{t('taskCard.files')}</h3>
+          <h3 className="section-title">{t('taskCard.files')}</h3>
           <div className="task-files mono">{task.files.join('  ·  ')}</div>
         </section>
       )}
 
       {task.branch && (
         <section>
-          <h3>{t('taskCard.branch')}</h3>
+          <h3 className="section-title">{t('taskCard.branch')}</h3>
           <div className="task-branch">
             <span className="mono">{task.branch}</span>
             {task.merged && <span className="merged">{t('merge.merged')}</span>}
