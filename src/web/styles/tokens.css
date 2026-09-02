@@ -134,19 +134,3 @@
   --shadow-toast: 0 10px 28px rgba(0, 0, 0, .6);
   --shadow: rgba(0, 0, 0, .5);
 }
-
-/* ---------- прежние имена ----------
-   Компонентные файлы ещё написаны на старых переменных. Здесь они
-   переведены на новые, чтобы всё приложение перекрасилось разом; файл за
-   файлом их заменят на новые имена, и этот блок уйдёт. */
-:root {
-  --bg: var(--canvas);
-  --panel: var(--surface);
-  --panel-2: var(--film);
-  --line: var(--hairline);
-  --line-soft: var(--hairline);
-  --text: var(--ink-2);
-  --muted: var(--ink-3);
-  --green: var(--ok-ink);
-  --red: var(--danger);
-}

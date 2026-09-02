@@ -8,38 +8,38 @@
    умолчаний: текст слева, ширина по колонке, рамка как у прежнего блока. */
 .task {
   display: block; width: 100%; text-align: left; font: inherit;
-  border: 1px solid var(--line); border-left: 3px solid var(--line);
-  border-radius: 7px; padding: 9px 11px; margin-bottom: 8px; background: var(--panel);
+  border: 1px solid var(--hairline); border-left: 3px solid var(--hairline);
+  border-radius: 7px; padding: 9px 11px; margin-bottom: 8px; background: var(--surface);
 }
-.task:hover { background: var(--panel-2); }
+.task:hover { background: var(--film); }
 .task:active { transform: none; }
 /* Открытая сейчас карточка помечена на доске: дровер перекрывает правый край,
    и без метки непонятно, чью подробность читаешь. */
 .task.open { border-color: var(--accent); }
 .task.in_progress { border-left-color: var(--accent); }
-.task.done { border-left-color: var(--green); }
-.task.failed { border-left-color: var(--red); }
+.task.done { border-left-color: var(--ok-ink); }
+.task.failed { border-left-color: var(--danger); }
 .task-head { display: flex; align-items: center; gap: 9px; }
 .task-title { flex: 1; }
 .chip {
   font-size: 11px; padding: 1px 8px; border-radius: 99px;
-  background: var(--panel-2); color: var(--muted); border: 1px solid var(--line);
+  background: var(--film); color: var(--ink-3); border: 1px solid var(--hairline);
 }
 .chip.in_progress { color: var(--accent); border-color: var(--accent); }
-.chip.done { color: var(--green); border-color: var(--green); }
-.chip.failed { color: var(--red); border-color: var(--red); }
-.task-result { margin-top: 7px; color: var(--text); font-size: 13px; }
-.task-files { margin-top: 5px; color: var(--muted); }
+.chip.done { color: var(--ok-ink); border-color: var(--ok-ink); }
+.chip.failed { color: var(--danger); border-color: var(--danger); }
+.task-result { margin-top: 7px; color: var(--ink-2); font-size: 13px; }
+.task-files { margin-top: 5px; color: var(--ink-3); }
 
 /* ---------- ветки задач ---------- */
 .task-branch {
   margin-top: 8px; display: flex; align-items: center; gap: 10px;
-  font-size: 12px; color: var(--muted);
+  font-size: 12px; color: var(--ink-3);
 }
-.task-branch .merged { color: var(--green); }
+.task-branch .merged { color: var(--ok-ink); }
 .task-branch .merge {
   padding: 3px 10px; font-size: 12px;
-  border-color: var(--green); color: var(--green);
+  border-color: var(--ok-ink); color: var(--ok-ink);
 }
 .task-branch .merge:hover { background: rgba(var(--ok-rgb), .12); }
 
@@ -47,24 +47,24 @@
 .task-controls { display: flex; gap: 6px; margin-top: 8px; }
 .task-controls:empty { display: none; }
 .task-controls button { padding: 3px 10px; font-size: 12px; }
-.task-controls .stop { border-color: var(--red); color: var(--red); }
+.task-controls .stop { border-color: var(--danger); color: var(--danger); }
 .task-controls .stop:hover { background: rgba(var(--danger-rgb), .12); }
 .task-controls .retry { border-color: var(--accent); color: var(--accent); }
 .task-controls .retry:hover { background: rgba(var(--accent-rgb), .12); }
 
 .chip.active { color: var(--accent); border-color: var(--accent); }
-.chip.planned { color: var(--muted); }
-.chip.cancelled { color: var(--muted); text-decoration: line-through; }
-.epic-chip { color: var(--muted); }
+.chip.planned { color: var(--ink-3); }
+.chip.cancelled { color: var(--ink-3); text-decoration: line-through; }
+.epic-chip { color: var(--ink-3); }
 .task-watch { margin-top: 5px; }
 
 /* ================= критерии готовности ================= */
 .criteria-head {
   font-size: 11px; text-transform: uppercase; letter-spacing: .05em;
-  color: var(--muted); margin-bottom: 3px;
+  color: var(--ink-3); margin-bottom: 3px;
 }
-.criterion { display: flex; gap: 6px; align-items: baseline; font-size: 12px; color: var(--muted); }
+.criterion { display: flex; gap: 6px; align-items: baseline; font-size: 12px; color: var(--ink-3); }
 .criterion .mark { color: var(--ink-4); width: 10px; flex: none; text-align: center; }
-.criterion.done { color: var(--text); }
-.criterion.done .mark { color: var(--green); }
+.criterion.done { color: var(--ink-2); }
+.criterion.done .mark { color: var(--ok-ink); }
 .task .criteria { margin-top: 6px; }

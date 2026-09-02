@@ -8,7 +8,7 @@ export function Panel({ title, hint, wide, size, onClose, children }: {
 }) {
   return (
     <div className="panel-backdrop" onClick={onClose}>
-      <div className={`panel pixel ${wide ? 'wide' : ''} ${size === 'board' ? 'board-panel' : ''}`.trim()}
+      <div className={`panel float ${wide ? 'wide' : ''} ${size === 'board' ? 'board-panel' : ''}`.trim()}
         onClick={(e) => e.stopPropagation()}>
         <header>
           <h2>{title}</h2>

@@ -1,7 +1,7 @@
 /* Плоский офис на спрайтах: слои, человечки, пузыри, хотспоты, редактор расстановки, пауза. */
 
 .office {
-  position: relative; overflow: hidden; background: var(--bg);
+  position: relative; overflow: hidden; background: var(--canvas);
   image-rendering: pixelated;          /* пиксель-арт не размывать */
   flex: none;
 }
@@ -44,12 +44,12 @@
 .office .agent .badge {
   position: absolute; right: -6px; top: -4px;
   display: flex; align-items: center; justify-content: center;
-  background: var(--panel); border: 1px solid var(--line); border-radius: 50%; padding: 2px;
+  background: var(--surface); border: 1px solid var(--hairline); border-radius: 50%; padding: 2px;
 }
 
 /* Спрайты с прозрачным фоном: подсвечиваем свечением, а не рамкой.
    Порядок = приоритет, последнее правило перекрывает предыдущие. */
-.office .agent.done .body { filter: drop-shadow(0 0 4px var(--green)); }
+.office .agent.done .body { filter: drop-shadow(0 0 4px var(--ok-ink)); }
 .office .agent.talking .body { filter: drop-shadow(0 0 4px var(--accent)); }
 .office .agent.selected .body {
   filter: drop-shadow(1px 0 0 var(--accent)) drop-shadow(-1px 0 0 var(--accent))
@@ -57,19 +57,19 @@
           drop-shadow(0 0 6px var(--accent));
 }
 .office .agent.in-meeting .body { filter: drop-shadow(0 0 4px var(--accent)); }
-.office .agent.failed .body { filter: drop-shadow(0 0 4px var(--red)); }
-.office .agent.waiting_approval .body { filter: drop-shadow(0 0 5px var(--red)); animation: pulse 1s infinite; }
+.office .agent.failed .body { filter: drop-shadow(0 0 4px var(--danger)); }
+.office .agent.waiting_approval .body { filter: drop-shadow(0 0 5px var(--danger)); animation: pulse 1s infinite; }
 
 .bubble {
   position: absolute; bottom: calc(var(--agent-h, 72px) + 2px); left: 50%; transform: translateX(-50%);
-  background: var(--panel); color: var(--text); border: 2px solid var(--line);
+  background: var(--surface); color: var(--ink-2); border: 2px solid var(--hairline);
   border-radius: 6px; padding: 3px 8px; font-size: 11px; white-space: nowrap;
   max-width: 320px; overflow: hidden; text-overflow: ellipsis;
   z-index: 20; pointer-events: none;
 }
 .bubble::after {
   content: ''; position: absolute; left: 50%; bottom: -7px; transform: translateX(-50%);
-  border: 5px solid transparent; border-top-color: var(--line);
+  border: 5px solid transparent; border-top-color: var(--hairline);
 }
 
 /* ---------- подписи, пузыри и пустые места ---------- */
@@ -115,13 +115,13 @@
 .hot-key {
   position: absolute; right: -4px; bottom: -4px;
   font: 700 10px/1.5 ui-monospace, Menlo, monospace;
-  background: var(--panel); color: var(--text);
-  border: 2px solid var(--line); border-radius: 4px; padding: 0 4px;
+  background: var(--surface); color: var(--ink-2);
+  border: 2px solid var(--hairline); border-radius: 4px; padding: 0 4px;
 }
 .hot-badge {
   position: absolute; right: -8px; top: -8px; min-width: 18px; height: 18px;
   font: 700 11px/14px -apple-system, sans-serif; text-align: center;
-  background: var(--red); color: #fff; border: 2px solid var(--line);
+  background: var(--danger); color: #fff; border: 2px solid var(--hairline);
   border-radius: 50%; padding: 0 2px;
 }
 

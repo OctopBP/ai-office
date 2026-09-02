@@ -15,20 +15,20 @@
    выше — и .stage подвинется, а не окажется под ней. */
 .hud-bar {
   display: flex; align-items: center; gap: 10px; padding: 7px 16px;
-  border-bottom: 2px solid var(--line); background: var(--panel);
+  border-bottom: 2px solid var(--hairline); background: var(--surface);
 }
 .hud-group { display: flex; align-items: center; gap: 7px; min-width: 0; }
 .hud-left { flex: none; }
 .hud-center { flex: 1; justify-content: center; flex-wrap: wrap; row-gap: 2px; min-width: 0; }
 .hud-right { flex: none; }
-.hud-sep { align-self: stretch; width: 2px; margin: 7px 4px; background: var(--line-soft); flex: none; }
+.hud-sep { align-self: stretch; width: 2px; margin: 7px 4px; background: var(--hairline); flex: none; }
 
 /* Кнопки и чипы внутри полосы — без собственной рамки/тени, подсветка фоном. */
 .hud-bar button, .hud-bar .hud-money, .hud-bar .hud-chip {
-  background: none; border: none; border-radius: 7px; box-shadow: none; color: var(--text);
+  background: none; border: none; border-radius: 7px; box-shadow: none; color: var(--ink-2);
 }
-.hud-bar button:hover:not(:disabled) { background: var(--panel-2); }
-.hud-bar button:active:not(:disabled) { background: var(--line-soft); transform: none; }
+.hud-bar button:hover:not(:disabled) { background: var(--film); }
+.hud-bar button:active:not(:disabled) { background: var(--hairline); transform: none; }
 /* Кнопки увеличены под T-112: клик-область ~40×40px и крупнее и на значке,
    и на подписи — раньше в мелкую иконку было тяжело попадать. Высоту (42px
    с паддингом) с тех пор не трогаем — лишнюю высоту полосы в T-113 убрали
@@ -43,24 +43,24 @@
 /* Расходы — теперь просто hud-btn с иконкой и суммой в одну строку;
    разбивка «сегодня / всего / из бюджета» переехала в title. */
 .hud-money b { font-variant-numeric: tabular-nums; }
-.hud-bar button.hud-money.over { color: var(--red); }
+.hud-bar button.hud-money.over { color: var(--danger); }
 
 .hud-status { display: flex; align-items: center; gap: 10px; font-size: 15px; line-height: 1.2; }
-.hud-status .alarm { color: var(--red); font-size: 15px; }
+.hud-status .alarm { color: var(--danger); font-size: 15px; }
 /* Иконка внутри строки статуса ("N агента · M в работе") — без обёртки-flex
    svg и текст сидели бы на разных базовых линиях. */
 .hud-status-item { display: inline-flex; align-items: center; gap: 4px; }
 
 /* Чип доступа — теперь только значок (подпись в title), высота как у кнопки. */
-.hud-chip { display: flex; align-items: center; gap: 8px; padding: 9px 14px; font-size: 15px; line-height: 1.2; background: var(--panel-2); border-radius: 7px; }
+.hud-chip { display: flex; align-items: center; gap: 8px; padding: 9px 14px; font-size: 15px; line-height: 1.2; background: var(--film); border-radius: 7px; }
 .hud-chip.access { padding: 9px 12px; }
-.hud-chip.access.auto { color: var(--red); background: rgba(var(--danger-rgb), .14); }
+.hud-chip.access.auto { color: var(--danger); background: rgba(var(--danger-rgb), .14); }
 /* Паддинг чуть больше базового — при font-size 15 добирает те же 42px
    высоты, что у остальных элементов строки (иначе чип на 6px ниже). */
 .hud-chip.paused { padding: 12px 14px; color: var(--accent); background: rgba(var(--accent-rgb), .16); letter-spacing: .06em; }
 
-.link-dot { width: 12px; height: 12px; border-radius: 50%; background: var(--red); }
-.link-dot.on { background: var(--green); }
+.link-dot { width: 12px; height: 12px; border-radius: 50%; background: var(--danger); }
+.link-dot.on { background: var(--ok-ink); }
 .auth { display: inline-flex; align-items: center; }
 
 /* Подписи рядом со значками — первое, что прячем в узком окне (см. медиа-запрос ниже). */
@@ -79,7 +79,7 @@
   padding: 9px 13px; background: none; border: none; text-align: left; cursor: pointer;
   line-height: 1.2;
 }
-.office-switcher-trigger:hover { background: var(--panel-2); border-radius: 5px; }
+.office-switcher-trigger:hover { background: var(--film); border-radius: 5px; }
 .office-switcher-trigger:active { transform: none; }
 .office-switcher-trigger.lone { cursor: default; }
 .office-switcher-trigger.lone:hover { background: none; }
@@ -121,17 +121,17 @@
   display: flex; align-items: center; gap: 8px; width: 100%; padding: 7px 8px;
   background: none; border: none; border-radius: 4px; text-align: left; font-size: 13px;
 }
-.office-switcher-row:hover { background: var(--panel-2); }
+.office-switcher-row:hover { background: var(--film); }
 .office-switcher-row:active { transform: none; }
 .office-switcher-row.current { background: rgba(var(--accent-rgb), .12); }
 .office-switcher-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .office-switcher-dot {
-  flex: none; width: 8px; height: 8px; border-radius: 50%; background: var(--line-soft);
+  flex: none; width: 8px; height: 8px; border-radius: 50%; background: var(--hairline);
 }
 /* Есть задачи в работе, но живых сессий сейчас нет — ровный акцентный цвет. */
 .office-switcher-dot.busy { background: var(--accent); }
 /* Готово, но не слито — ровный зелёный, отдельно от «в работе». */
-.office-switcher-dot.done { background: var(--green); }
+.office-switcher-dot.done { background: var(--ok-ink); }
 /* Живая работа прямо сейчас — тот же акцент, но с пульсом, чтобы не путать с «просто висит задача». */
 .office-switcher-dot.live { background: var(--accent); animation: office-switcher-live-pulse 1.6s ease-out infinite; }
 @keyframes office-switcher-live-pulse {
@@ -143,7 +143,7 @@
 .office-switcher-waiting {
   display: inline-flex; align-items: center; justify-content: center;
   min-width: 15px; height: 15px; padding: 0 4px; margin-left: 6px;
-  border-radius: 999px; background: var(--red); color: #fff; font-size: 10px; font-weight: 700;
+  border-radius: 999px; background: var(--danger); color: #fff; font-size: 10px; font-weight: 700;
   vertical-align: middle; animation: office-switcher-waiting-pulse 1.4s ease-in-out infinite;
 }
 @keyframes office-switcher-waiting-pulse {

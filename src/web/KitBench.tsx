@@ -128,7 +128,7 @@ function Half({ theme }: { theme: Theme }) {
 
       <section>
         <h2 className="section-title">Карточка и шкала</h2>
-        <div className="pixel kit-card">
+        <div className="float kit-card">
           <div className="kit-card-row">
             <span className="kit-dot" />
             <b>backend#1</b> закончил BACK-1 «Каркас проекта» — на ревью

@@ -66,7 +66,7 @@ export function OfficeSwitcher() {
       </button>
 
       {open && hasOthers && (
-        <div className="office-switcher-list pixel">
+        <div className="office-switcher-list float">
           {list.map((o) => {
             const activity = summarizeOfficeActivity(o);
             const dotClass = activity.live

@@ -312,7 +312,7 @@ export function Office({ onOpen, onDoor }: {
             }}
           >
             {inst.note && inst.state !== 'idle' && <div className="bubble">{inst.note}</div>}
-            <div className="statuscard pixel">
+            <div className="statuscard float">
               <div className="line1">
                 <b>{inst.id}</b>
                 <span className="muted"> · {stateText(inst.state)}</span>

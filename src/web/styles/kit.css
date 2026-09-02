@@ -49,9 +49,8 @@ button.dashed:hover:not(:disabled) { background: var(--film); }
 }
 
 /* ---------- карточка ----------
-   Всё, что плавает над сценой: рейл, тост, композер, список офисов. Имя
-   `.pixel` осталось от прежнего стиля — разметка ещё держится за него. */
-.pixel, .float {
+   Всё, что плавает над сценой: рейл, тост, композер, список офисов. */
+.float {
   background: var(--surface); color: var(--ink-2);
   border: 1px solid var(--hairline); border-radius: var(--radius-card);
   box-shadow: var(--shadow-float);
