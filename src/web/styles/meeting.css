@@ -1,7 +1,12 @@
 /* Совещание: список участников. */
 
 /* ---------- совещание ---------- */
-.participants { display: flex; flex-direction: column; gap: var(--space-2); margin-bottom: var(--space-4); }
+/* Список прокручивается сам: с десятком сотрудников окно иначе вырастало бы
+   за экран и уносило кнопки «Отмена / Начать» вниз. */
+.participants {
+  display: flex; flex-direction: column; gap: var(--space-2); margin-bottom: var(--space-4);
+  max-height: 46vh; overflow-y: auto; padding-right: var(--space-1);
+}
 /* Специфичность поднята до `.modal label.participant`: общее правило
    `.modal label { display: block }` из modal.css иначе ставит участников
    в столбик. */

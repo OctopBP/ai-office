@@ -12,12 +12,24 @@
 .office-who { flex: 1; min-width: 0; }
 .office-who .mono { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 /* Кнопки движка — обычные кнопки кита в столбик; активный получает .on из kit.css. */
-.engine { display: flex; gap: var(--space-2); margin-bottom: var(--space-3); }
-.engine button {
-  flex: 1; display: flex; flex-direction: column; gap: var(--space-1);
-  align-items: flex-start; text-align: left; padding: var(--space-2) var(--space-3);
+/* Группа вариантов с описаниями: карточки в сетке, которая переносится, а не
+   вылезает за окно, когда вариантов четыре. Выбранный — плёнка с акцентным
+   ободком, как открытая карточка на доске: сплошная заливка на двух строках
+   текста читалась хуже. */
+.engine {
+  display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: var(--space-2); margin-bottom: var(--space-3);
 }
-.engine button.on .muted { color: var(--accent-ink); opacity: .75; }
+.engine button {
+  display: flex; flex-direction: column; gap: var(--space-1); min-height: 0;
+  align-items: flex-start; text-align: left; white-space: normal;
+  padding: var(--space-2) var(--space-3); border-radius: var(--radius-row);
+  color: var(--ink);
+}
+.engine button .muted { font-weight: 400; }
+.engine button.on { background: var(--film-2); color: var(--ink); box-shadow: 0 0 0 2px var(--accent); }
+.engine button.on:hover:not(:disabled) { background: var(--film-2); filter: none; }
+.engine button.on .muted { color: var(--ink-3); }
 /* Плёнка без цветной рамки — состояние читается по цвету текста. */
 .ready {
   font-size: var(--fs-body); padding: var(--space-2) var(--space-3); border-radius: var(--radius-row);

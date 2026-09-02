@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import {
   accessModes, clearSettingsSection, fullAccessWarning, parseMaxWorkers, parseTaskMaxTurns,
-  setCloudToken, updateSettings, useStore,
+  setCloudToken, updateSettings, useStore, type ThemeMode,
 } from './store';
 import {
   DEFAULT_FOCUS_EPICS, DEFAULT_OFFICE_WORKERS, DEFAULT_PROCESS_WORKERS,
@@ -19,6 +19,12 @@ const parse = (v: string): number | null => {
 };
 
 type Section = 'general' | 'access' | 'limits' | 'tools' | 'project' | 'graphics';
+
+const THEME_MODES: Array<[ThemeMode, UiKey]> = [
+  ['day', 'settings.theme.day'],
+  ['night', 'settings.theme.night'],
+  ['system', 'settings.theme.system'],
+];
 
 const SECTIONS: Array<[Section, UiKey]> = [
   ['general', 'settings.section.general'],
@@ -105,6 +111,8 @@ export function SettingsModal({ onClose }: { onClose: () => void }) {
   const [token, setToken] = useState('');
   const [access, setAccess] = useState(settings.officePermissionMode);
   const [language, setLanguage] = useState<Lang>(settings.language ?? 'en');
+  const themeMode = useStore((s) => s.themeMode);
+  const setThemeMode = useStore((s) => s.setThemeMode);
   const [gfx, setGfx] = useState<Graphics>(graphics);
   const patchGfx = (patch: Partial<Graphics>) => setGfx((g) => ({ ...g, ...patch }));
   const [autoPipeline, setAutoPipeline] = useState(settings.autoPipeline);
@@ -177,6 +185,19 @@ export function SettingsModal({ onClose }: { onClose: () => void }) {
                   ))}
                 </div>
                 <p className="hint muted">{t('settings.language.hint')}</p>
+
+                {/* Тема применяется сразу, без «Сохранить»: она живёт на этом
+                    компьютере, а не в настройках офиса на сервере. */}
+                <h4 className="section-title">{t('settings.theme')}</h4>
+                <div className="seg">
+                  {THEME_MODES.map(([mode, label]) => (
+                    <button key={mode} className={themeMode === mode ? 'on' : ''}
+                      onClick={() => setThemeMode(mode)}>
+                      {t(label)}
+                    </button>
+                  ))}
+                </div>
+                <p className="hint muted">{t('settings.theme.hint')}</p>
               </>
             )}
 
@@ -377,7 +398,7 @@ export function SettingsModal({ onClose }: { onClose: () => void }) {
                   hint={t('settings.gfx.depthEdge.hint')}
                 />
 
-                <div className="engine">
+                <div className="settings-row">
                   <button onClick={() => setGfx(DEFAULT_GRAPHICS)}>{t('settings.gfx.reset')}</button>
                 </div>
               </>

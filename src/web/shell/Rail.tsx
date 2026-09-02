@@ -133,15 +133,13 @@ export function Rail({ onPanel, onModal }: {
 }
 
 /**
- * Строка пользователя — и меню того, чему в макете места не нашлось: тема,
- * редактор расстановки, сброс, выход в меню.
+ * Строка пользователя — и меню того, чему в макете места не нашлось:
+ * редактор расстановки, сброс, выход в меню. Тема — в настройках офиса.
  * В HUD это были отдельные кнопки; здесь они спрятаны, потому что нужны
  * раз в день, а не раз в минуту.
  */
 function User() {
   const authSource = useStore((s) => s.authSource);
-  const theme = useStore((s) => s.theme);
-  const setTheme = useStore((s) => s.setTheme);
   const editingLayout = useStore((s) => s.editingLayout);
   const leaveOffice = useStore((s) => s.leaveOffice);
   const [open, setOpen] = useState(false);
@@ -173,7 +171,6 @@ function User() {
       </button>
       {open && (
         <div className="rail-menu float">
-          {item(t('shell.menu.theme'), theme === 'day' ? 'moon' : 'sun', () => setTheme(theme === 'day' ? 'night' : 'day'))}
           {item(t('shell.menu.layout'), 'armchair', () => setEditingLayout(!editingLayout), editingLayout)}
           {item(t('shell.menu.reset'), 'refresh', reset)}
           {item(t('shell.menu.leave'), 'home', leaveOffice)}

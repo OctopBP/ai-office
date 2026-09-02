@@ -202,8 +202,15 @@ interface State {
    * половина экрана осталась бы на прежнем.
    */
   lang: Lang;
+  /**
+   * Тема, которой сейчас нарисован офис, — всегда конкретная, day или night:
+   * её читают сцена и палитра. Выбор пользователя лежит в `themeMode` и может
+   * быть «как в системе» — тогда `theme` следует за системной и меняется
+   * вместе с ней без перезагрузки.
+   */
   theme: Theme;
-  setTheme: (t: Theme) => void;
+  themeMode: ThemeMode;
+  setThemeMode: (m: ThemeMode) => void;
   /**
    * Что стоит в главной области новой оболочки: сцена, доска или чат.
    * Сегменты сверху — это виды, а не оверлеи: рейл и композер остаются, а
@@ -251,6 +258,15 @@ interface State {
 }
 
 export type View = 'office' | 'board' | 'chat';
+export type ThemeMode = Theme | 'system';
+
+/** Системная тема — через media query; слушаем её ниже, после создания стора. */
+const darkMedia = window.matchMedia('(prefers-color-scheme: dark)');
+const resolveTheme = (mode: ThemeMode): Theme => (mode === 'system' ? (darkMedia.matches ? 'night' : 'day') : mode);
+function initialThemeMode(): ThemeMode {
+  const v = localStorage.getItem('office-theme');
+  return v === 'day' || v === 'night' || v === 'system' ? v : 'system';
+}
 
 export const useStore = create<State>((set, get) => ({
   connected: false,
@@ -314,7 +330,8 @@ export const useStore = create<State>((set, get) => ({
   }),
   clearMergeSelection: () => set({ mergeSelection: [] }),
   lang: currentLang(),
-  theme: (localStorage.getItem('office-theme') as Theme | null) ?? 'day',
+  theme: resolveTheme(initialThemeMode()),
+  themeMode: initialThemeMode(),
   // В этой ветке офис по умолчанию трёхмерный — она ради него и заведена.
   // Явный выбор пользователя (клавиша 0) сильнее умолчания и переживает
   // перезагрузку; когда 3D догонит плоский рендер по функциям, ключ уйдёт
@@ -328,7 +345,7 @@ export const useStore = create<State>((set, get) => ({
   thread: 'pm#1',
 
   setThread: (t) => set({ thread: t }),
-  setTheme: (t) => { localStorage.setItem('office-theme', t); set({ theme: t }); },
+  setThemeMode: (m) => { localStorage.setItem('office-theme', m); set({ themeMode: m, theme: resolveTheme(m) }); },
   view: 'office',
   setView: (v) => set({ view: v }),
   railCollapsed: localStorage.getItem('office-rail') === 'collapsed',
@@ -731,6 +748,11 @@ function pushToast(toast: Toast): void {
     : { toasts: [...s.toasts, toast] }));
   setTimeout(() => dismissToast(toast.id), 20000);
 }
+
+// Системная тема поменялась — офис следует за ней, если выбрано «как в системе».
+darkMedia.addEventListener('change', () => {
+  if (useStore.getState().themeMode === 'system') useStore.setState({ theme: resolveTheme('system') });
+});
 
 export function dismissToast(id: string): void {
   useStore.setState((s) => ({ toasts: s.toasts.filter((t) => t.id !== id) }));

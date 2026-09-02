@@ -1,28 +1,50 @@
-/* Настройки офиса: меню разделов и прокручиваемый контент. Рамку окна
+/* Настройки офиса: меню разделов слева, контент справа. Рамку окна
    (.modal.wide.settings-modal — фон, граница, тень) даёт modal.css, здесь
-   только раскладка колонок внутри неё. */
+   раскладка: окно фиксированной высоты, чтобы при смене раздела не прыгало,
+   шапка и ряд кнопок отделены волосяными линиями, прокручивается только
+   контент. */
 
-/* ---------- настройки: меню разделов слева, контент прокручивается отдельно ---------- */
 .modal.wide.settings-modal {
   display: flex; flex-direction: column;
-  width: 920px; max-width: calc(100vw - 40px);
-  max-height: 90vh; overflow: hidden;
+  width: 920px; max-width: calc(100vw - var(--space-8));
+  height: 640px; max-height: calc(100vh - var(--space-8));
+  padding: 0; overflow: hidden;
 }
-.settings-layout { display: flex; gap: var(--space-6); flex: 1; min-height: 0; margin-top: var(--space-1); }
-.settings-nav { display: flex; flex-direction: column; gap: var(--space-1); width: 180px; flex: none; }
+.settings-modal > h3 {
+  margin: 0; padding: var(--space-4) var(--space-6);
+  border-bottom: 1px solid var(--hairline); flex: none;
+}
+.settings-layout { display: flex; flex: 1; min-height: 0; }
+.settings-nav {
+  display: flex; flex-direction: column; gap: var(--space-1); width: 200px; flex: none;
+  padding: var(--space-3); border-right: 1px solid var(--hairline);
+}
 /* Пункт меню — не действие, а навигация: кнопка кита без заливки, выровненная
    влево; активный раздел подсвечен плёнкой строки, как в рейле и списке офисов. */
 .settings-nav button { width: 100%; justify-content: flex-start; border-radius: var(--radius-row); }
 .settings-nav button.on { background: var(--film-2); color: var(--ink); }
-.settings-content { flex: 1; min-width: 0; overflow-y: auto; padding-right: var(--space-2); }
+.settings-content {
+  flex: 1; min-width: 0; overflow-y: auto;
+  padding: var(--space-4) var(--space-6) var(--space-6);
+}
+.settings-content > .section-title { margin: var(--space-5) 0 var(--space-2); }
+.settings-content > .section-title:first-child { margin-top: 0; }
+.settings-content .hint { margin-bottom: var(--space-4); }
 .settings-content label:last-child, .settings-content > .hint:last-child { margin-bottom: 0; }
-/* На типичном 1024px-окне ноутбука колонка меню и рамки модалки не должны съедать
-   место двух столбцов полей — сужаем зазор и поля вместо переноса меню наверх. */
+.settings-modal > .modal-actions {
+  flex: none; padding: var(--space-3) var(--space-6);
+  border-top: 1px solid var(--hairline);
+}
+
+/* На типичном 1024px-окне ноутбука колонка меню не должна съедать место
+   двух столбцов полей — сужаем её вместо переноса меню наверх. */
 @media (max-width: 1040px) {
-  .settings-layout { gap: var(--space-4); }
-  .settings-nav { width: 152px; }
+  .settings-nav { width: 160px; }
 }
 @media (max-width: 560px) {
   .settings-layout { flex-direction: column; }
-  .settings-nav { flex-direction: row; width: auto; overflow-x: auto; }
+  .settings-nav { flex-direction: row; width: auto; overflow-x: auto; border-right: none; border-bottom: 1px solid var(--hairline); }
 }
+
+/* Ряд одиночных действий внутри раздела — не карточка выбора. */
+.settings-row { display: flex; gap: var(--space-2); margin-top: var(--space-4); }

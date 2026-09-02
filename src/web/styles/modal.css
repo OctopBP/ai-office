@@ -58,9 +58,9 @@
 .modal.wide { width: 620px; max-height: 86vh; overflow-y: auto; }
 .modal label, .team-detail label { display: block; margin-bottom: var(--space-3); font-size: var(--fs-md); color: var(--ink-3); }
 /* Фон, рамку и радиус полю даёт kit.css — здесь только раскладка внутри label. */
-.modal label input[type="text"], .modal label input:not([type]),
+.modal label input[type="text"], .modal label input[type="number"], .modal label input:not([type]),
 .modal label select, .modal label textarea,
-.team-detail label input[type="text"], .team-detail label input:not([type]),
+.team-detail label input[type="text"], .team-detail label input[type="number"], .team-detail label input:not([type]),
 .team-detail label select, .team-detail label textarea {
   display: block; width: 100%; margin-top: var(--space-1);
 }
