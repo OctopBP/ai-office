@@ -1,67 +1,56 @@
-/* Расходы: итоги, дни, строки задач, шкалы лимитов. */
+/* Расходы: итоги, дни, строки задач, шкалы лимитов.
+
+   .usage-* и .limit-* рендерятся не только на доске расходов, но и в дровере
+   агента, и в карточке сотрудника — держим их самодостаточными, без
+   зависимости от .money-board. */
 
 /* ================= расходы ================= */
-.usage-total {
-  display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px;
-  margin: 12px 0 16px;
-}
+.usage-total { display: grid; grid-template-columns: repeat(4, 1fr); gap: var(--space-2); margin: var(--space-3) 0 var(--space-4); }
 .usage-total > div {
-  display: flex; flex-direction: column; gap: 2px;
-  background: var(--panel-2); border: 1px solid var(--line); border-radius: 7px; padding: 8px 10px;
+  display: flex; flex-direction: column; gap: var(--space-1);
+  background: var(--film); border-radius: var(--radius-card); padding: var(--space-2) var(--space-3);
 }
-.usage-total b { font-size: 16px; font-variant-numeric: tabular-nums; }
+.usage-total b { font: 600 var(--fs-title)/1.2 var(--font); color: var(--ink); font-variant-numeric: tabular-nums; }
 
-.usage-days { display: flex; gap: 8px; align-items: flex-end; }
+.usage-days { display: flex; gap: var(--space-2); align-items: flex-end; }
 .usage-day {
-  flex: 1; display: flex; flex-direction: column; align-items: center; gap: 2px;
+  flex: 1; display: flex; flex-direction: column; align-items: center; gap: var(--space-1);
   justify-content: flex-end;
 }
-.usage-bar { width: 100%; background: var(--accent); border: 1px solid var(--line); border-radius: 3px 3px 0 0; }
+.usage-bar { width: 100%; background: var(--accent); border-radius: var(--radius-icon) var(--radius-icon) 0 0; }
 .usage-rows { display: flex; flex-direction: column; }
 .usage-row {
-  display: flex; align-items: center; gap: 10px; padding: 5px 2px;
-  border-bottom: 1px solid var(--line-soft); font-size: 13px;
+  display: flex; align-items: center; gap: var(--space-3); padding: var(--space-1);
+  border-bottom: 1px solid var(--hairline); font-size: var(--fs-md);
 }
 .usage-row:last-child { border-bottom: none; }
 .usage-row .row-title { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .usage-row b { margin-left: auto; font-variant-numeric: tabular-nums; }
-.usage-lines { display: flex; flex-direction: column; gap: 3px; font-size: 12px; }
+.usage-lines { display: flex; flex-direction: column; gap: var(--space-1); font-size: var(--fs-body); }
 
 /* ---------- доска расходов ----------
    Расход живёт в панели, а не в модалке: его смотрят так же, как доску задач.
-   Поэтому заголовки секций описаны и здесь, а не только у `.modal h4`. */
+   Заголовки секций — общий `.section-title`, здесь только отступ вокруг них. */
 .money-board { display: flex; flex-direction: column; min-height: 0; }
-.money-board h4 {
-  margin: 16px 0 6px; font-size: 12px; text-transform: uppercase;
-  letter-spacing: .05em; color: var(--muted);
-}
-.money-board .modal-reason { margin-bottom: 8px; }
-.money-switch { display: flex; gap: 6px; }
-.money-switch button { font-size: 12px; padding: 3px 12px; }
-.money-switch button.on { background: var(--accent); color: var(--accent-ink); }
+.money-board .section-title { margin: var(--space-4) 0 var(--space-2); }
+.money-board .modal-reason { margin-bottom: var(--space-2); }
+.money-switch { margin-bottom: var(--space-1); }
 
 /* Шкала лимита: цвет меняется на тех же порогах, на которых человек меняет
    поведение, — до 75% думать не о чем, после 90% пора выбирать, на что тратить. */
-.limit-rows { display: flex; flex-direction: column; gap: 12px; margin-bottom: 8px; }
-.limit { display: flex; flex-direction: column; gap: 4px; }
-.limit-head { display: flex; align-items: baseline; gap: 10px; font-size: 13px; }
+.limit-rows { display: flex; flex-direction: column; gap: var(--space-3); margin-bottom: var(--space-2); }
+.limit { display: flex; flex-direction: column; gap: var(--space-1); }
+.limit-head { display: flex; align-items: baseline; gap: var(--space-3); font-size: var(--fs-md); }
 .limit-head b { margin-left: auto; font-variant-numeric: tabular-nums; }
-.limit-head b.ok { color: var(--green); }
+.limit-head b.ok { color: var(--ok-ink); }
 .limit-head b.warn { color: var(--warn); }
-.limit-head b.hot { color: var(--red); }
-.limit-bar {
-  height: 10px; background: var(--panel-2); border: 1px solid var(--line);
-  border-radius: 5px; overflow: hidden;
-}
-.limit-fill { height: 100%; background: var(--green); transition: width .3s ease; }
-.limit-fill.warn { background: var(--warn); }
-.limit-fill.hot { background: var(--red); }
+.limit-head b.hot { color: var(--danger); }
 
 /* Строка задачи кликабельна — она ведёт в карточку, поэтому это кнопка;
    от кнопки ей нужно только нажатие, вид остаётся строкой таблицы. */
 .usage-row.task-row {
   width: 100%; text-align: left; font: inherit; color: inherit; cursor: pointer;
-  background: none; border: none; border-bottom: 1px solid var(--line-soft);
+  background: none; border: none; border-bottom: 1px solid var(--hairline);
   border-radius: 0;
 }
-.usage-row.task-row:hover { background: var(--panel-2); }
+.usage-row.task-row:hover { background: var(--film); }
