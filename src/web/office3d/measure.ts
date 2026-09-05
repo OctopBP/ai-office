@@ -22,9 +22,9 @@ import { useLoader } from '@react-three/fiber';
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import { clone as cloneSkinned } from 'three/examples/jsm/utils/SkeletonUtils.js';
-import { MODEL_SCALE } from './props';
-import { MODEL_KEYS, MODEL_LIST, PARTS } from './presets';
-import type { Part } from '../../shared/preset';
+import { MODEL_SCALE, fitScale } from './props';
+import { MODEL_KEYS, MODEL_LIST, PARTS, keyOf, presetOf } from './presets';
+import { splitRef, type Part } from '../../shared/preset';
 
 /**
  * Имена костей — свойство конкретного набора, а не общее правило, поэтому
@@ -156,11 +156,16 @@ export interface ModelMeasure {
  * увидеть, куда попал луч, — это ровно тот способ подбора вслепую, от
  * которого стенд и заводился.
  */
-export function measureModel(source: THREE.Object3D, aim?: Part['probe']): ModelMeasure {
+export function measureModel(
+  source: THREE.Object3D, aim?: Part['probe'], scale: number = MODEL_SCALE,
+): ModelMeasure {
   const object = source.clone(true);
   object.position.set(0, 0, 0);
   object.rotation.set(0, 0, 0);
-  object.scale.setScalar(MODEL_SCALE);
+  // Тем же множителем, что и в комнате: он выведен из следа (`fitScale`), и
+  // померить модель в другом масштабе значит померить не тот предмет —
+  // высота сиденья приедет от размера, которого на экране нет.
+  object.scale.setScalar(scale);
   object.updateMatrixWorld(true);
   const box = new THREE.Box3().setFromObject(object);
   // Та же выкладка, что в `PropModels`: середина по горизонтали, низ на полу.
@@ -212,12 +217,22 @@ export function useModelMeasures(): Record<string, ModelMeasure> {
     const hit = measured.get(loaded);
     if (hit) return hit;
     const made: Record<string, ModelMeasure> = {};
+    /** Множитель предмета — по главной его части, один на все остальные. */
+    const scaleOf = (key: string): number => {
+      const preset = presetOf(splitRef(key).preset ?? '');
+      const main = preset.parts?.[0];
+      if (!main) return MODEL_SCALE;
+      const i = MODEL_KEYS.indexOf(keyOf(preset.id, main));
+      if (i < 0) return MODEL_SCALE;
+      const box = new THREE.Box3().setFromObject(loaded[i].scene);
+      return fitScale(preset, { x: box.max.x - box.min.x, z: box.max.z - box.min.z });
+    };
     MODEL_KEYS.forEach((name, i) => {
       const scene = loaded[i].scene;
       // `measureModel` ищет точку луча по имени — у загруженной сцены оно
       // своё, из файла, и совпадать с нашим не обязано.
       scene.name = name;
-      made[name] = measureModel(scene);
+      made[name] = measureModel(scene, undefined, scaleOf(name));
     });
     measured.set(loaded, made);
     return made;

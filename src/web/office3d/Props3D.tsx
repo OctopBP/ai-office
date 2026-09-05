@@ -22,7 +22,7 @@ import type { Palette } from './palette';
 import { deskKey, PropLamp, useLitDesks } from './Lights3D';
 import { componentOf, type Part as PresetPart, type Tone } from '../../shared/preset';
 import { MODEL_KEYS, MODEL_LIST, keyOf, presetOf } from './presets';
-import { MODEL_SCALE } from './props';
+import { MODEL_SCALE, fitScale } from './props';
 import { useFit } from './fit';
 import type { Placed3 } from './props';
 
@@ -270,10 +270,9 @@ export function FurnitureModels({ children }: { children: React.ReactNode }) {
  * а файл один, и делить между ними один и тот же объект нельзя — у него одна
  * матрица на всех.
  *
- * Масштаб общий для всего набора (`MODEL_SCALE`), а не подогнанный под след
- * каждого предмета: набор нарисован соразмерным сам себе, и подгонка по
- * следу — который у нас посчитан по пиксельному арту — эту соразмерность бы
- * сломала. Стул рядом со столом должен быть стулом рядом со столом.
+ * Масштаб берётся из следа (`fitScale`) и один на все части предмета: он
+ * посчитан по главной модели, а монитор и клавиатура едут тем же множителем,
+ * что и стол, — иначе мышь, вписанная в след стола, стала бы со стол.
  */
 function PropModels({ preset, parts, screen, lit }: {
   /** Чей набор частей — ключ модели складывается из пресета и имени части. */
@@ -304,11 +303,22 @@ function PropModels({ preset, parts, screen, lit }: {
    */
   const scale = useFit((s) => s.fit.figure.furniture);
 
+  /**
+   * Множитель предмета: след делится на габарит главной модели. Считается
+   * один раз на предмет, а не на часть, — см. `fitScale`.
+   */
+  const fit = useMemo(() => {
+    const main = parts[0] && models[keyOf(preset, parts[0])];
+    if (!main) return MODEL_SCALE;
+    const box = new THREE.Box3().setFromObject(main);
+    return fitScale(presetOf(preset), { x: box.max.x - box.min.x, z: box.max.z - box.min.z });
+  }, [models, preset, parts]);
+
   const objects = useMemo(() => parts.map((part) => {
     const source = models[keyOf(preset, part)];
     if (!source) return null;
     const object = source.clone(true);
-    object.scale.setScalar(MODEL_SCALE * scale);
+    object.scale.setScalar(fit * scale);
     object.traverse((o) => {
       if (o instanceof THREE.Mesh) {
         o.castShadow = true;
@@ -345,7 +355,7 @@ function PropModels({ preset, parts, screen, lit }: {
     holder.position.set(x, y, z);
     holder.rotation.y = ((part.rot ?? 0) * Math.PI) / 180;
     return holder;
-  }), [models, preset, parts, screen, lit, scale]);
+  }), [models, preset, parts, screen, lit, scale, fit]);
 
   return <>{objects.map((o, i) => (o ? <primitive key={i} object={o} /> : null))}</>;
 }
