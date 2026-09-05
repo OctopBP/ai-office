@@ -31,7 +31,7 @@ import type { Catalog, Layout, LayoutProp } from '../../shared/layout';
 import { useStore } from '../store';
 import { paletteOf } from './palette';
 import { FurnitureModels, Props3D, useFurnitureModels } from './Props3D';
-import { place3, type Placed3 } from './props';
+import { fitScale, place3, type Placed3 } from './props';
 import { measureModel, useModelMeasures, type ModelMeasure } from './measure';
 import { seatingFor } from './seating';
 import { reach } from './ik';
@@ -49,8 +49,21 @@ import {
 const CM = 75;
 const cm = (t: number | undefined): string => (t === undefined ? '—' : `${Math.round(t * CM)} см`);
 
-/** Где на стенде стоит предмет: с запасом от края сетки со всех сторон. */
-const AT: [number, number] = [2.5, 3];
+/** Клетка сетки — это тайл, так что число уже готово; убираем только хвост
+ *  из нулей, чтобы «4» не показывалось как «4.00». */
+const cells = (t: number): string => String(Math.round(t * 100) / 100);
+
+/** Ляжет ли след на сетку: целые клетки и по размеру, и по смещению. */
+const whole = (fp: readonly number[]): boolean =>
+  fp.every((v) => Math.abs(v - Math.round(v)) < 1e-6);
+
+/**
+ * Где на стенде стоит предмет: с запасом от края сетки со всех сторон и
+ * обязательно на целом тайле. Половина тайла здесь стоила часа недоумения:
+ * след при `2.5` уезжал на полклетки, и казалось, что он не сходится с
+ * сеткой сам по себе, хотя не сходилась точка, в которую его поставили.
+ */
+const AT: [number, number] = [2, 3];
 /** Сколько тайлов у стендовой комнаты — только чтобы `place3` было от чего считать. */
 const ROOM = 8;
 
@@ -83,7 +96,9 @@ const RANGE = {
   height: { min: 0, max: 2, step: 0.005 },
   /** Высота предмета и его след. */
   h: { min: 0, max: 4, step: 0.05 },
-  foot: { min: -1, max: 8, step: 0.01 },
+  /** След — целыми клетками: он заявка на пол, а пол считается тайлами
+   *  (docs/design/office-units/spec.md §4). */
+  foot: { min: -2, max: 12, step: 1 },
 } as const;
 
 // ---------------------------------------------------------------------------
@@ -371,18 +386,6 @@ function BenchFigure({ place, pose, sprite, models, marks, onRead }: {
 // Подсказки на сцене
 // ---------------------------------------------------------------------------
 
-/** Линия на высоте поверхности — видно, куда фигура должна попасть. */
-function Level({ y, color, at }: { y: number; color: string; at: [number, number] }) {
-  return (
-    <mesh position={[at[0], y, at[1]]} rotation={[-Math.PI / 2, 0, 0]}>
-      <planeGeometry args={[4, 4]} />
-      <meshBasicMaterial
-        color={color} transparent opacity={0.18} side={THREE.DoubleSide} depthWrite={false}
-      />
-    </mesh>
-  );
-}
-
 /** Контур на полу — след предмета так же виден, как его габарит. */
 function Outline({ rect, color }: { rect: [number, number, number, number]; color: string }) {
   const [x, y, w, d] = rect;
@@ -446,13 +449,22 @@ function useLiveMeasures(edited: Preset[]): Record<string, ModelMeasure> {
   return useMemo(() => {
     const made = { ...shared };
     for (const preset of edited) {
+      // Множитель предмета живой, как и всё остальное на стенде: подвинули
+      // след ползунком — модель тут же приехала в новый размер, и замер
+      // сиденья вместе с ней. Ради этого стенд и считает его сам, а не берёт
+      // из общего замера набора.
+      const main = preset.parts?.[0] && scenes[keyOf(preset.id, preset.parts[0])];
+      const box = main ? new THREE.Box3().setFromObject(main) : null;
+      const fit = box
+        ? fitScale(preset, { x: box.max.x - box.min.x, z: box.max.z - box.min.z })
+        : undefined;
       for (const part of preset.parts ?? []) {
         const key = keyOf(preset.id, part);
         const source = scenes[key];
         // `?? {}`, а не `part.probe`: пустая точка должна значить «не мерить»,
         // а не «взять то, что записано в файле» — иначе стёртый ползунком
         // замер продолжал бы приезжать со старым числом.
-        if (source) made[key] = measureModel(source, part.probe ?? {});
+        if (source) made[key] = measureModel(source, part.probe ?? {}, fit);
       }
     }
     return made;
@@ -583,8 +595,6 @@ function BenchBody({ scene, sel, poses, crowd, palette, onRead }: {
       ))}
       {probes.map((p) => <Probe key={p.key} at={p.at} hit={p.hit} color={p.color} />)}
 
-      {read?.seatY !== undefined && <Level y={read.seatY} color="#ff6b57" at={sel.at} />}
-      {read?.surfaceY !== undefined && <Level y={read.surfaceY} color="#f0b429" at={sel.at} />}
     </>
   );
 }
@@ -593,15 +603,56 @@ function BenchBody({ scene, sel, poses, crowd, palette, onRead }: {
 // Панель
 // ---------------------------------------------------------------------------
 
-/** Один ползунок с подписью и числом. */
-function Slide({ label, value, range, unit, onChange }: {
+/** В чём показывать число: клетки, сантиметры, целое или доля. */
+type Unit = 'cell' | 'cm' | 'int' | 'raw';
+
+/** Подпись единицы рядом с полем — короткая, она стоит в узкой колонке. */
+const UNIT_SUFFIX: Record<Unit, string> = { cell: 'кл', cm: 'см', int: '', raw: '' };
+
+/** Число ползунка → число в поле. Внутри пресета всё в тайлах, и клетка —
+ *  это тайл: переводить нечего, а сантиметры считаются из него. */
+function toUnit(value: number, unit: Unit): number {
+  return unit === 'cm' ? Math.round(value * CM) : value;
+}
+
+function fromUnit(shown: number, unit: Unit): number {
+  return unit === 'cm' ? shown / CM : shown;
+}
+
+/**
+ * Один ползунок с подписью и полем.
+ *
+ * Поле — не украшение: ползунком нельзя попасть в ровное число, а след
+ * задаётся целыми клетками, и «две на три» надо уметь написать, а не
+ * подкрадываться к нему мышью. Поэтому у каждого ползунка своё поле, и правит
+ * их одно и то же значение с двух сторон.
+ */
+function Slide({ label, value, range, unit = 'raw', onChange }: {
   label: string;
   value: number;
   range: { min: number; max: number; step: number };
-  /** В чём показывать число: сантиметры, целое или доля. */
-  unit?: 'cm' | 'int' | 'raw';
+  unit?: Unit;
   onChange: (v: number) => void;
 }) {
+  /**
+   * Пока в поле печатают, оно живёт своей строкой.
+   *
+   * Иначе набрать «-0.5» невозможно: после минуса строка не число, значение
+   * не меняется, а поле перерисовывается из пресета и минус пропадает.
+   * Строка отпускается, как только поле теряет фокус, — и снова показывает
+   * то, что на самом деле записано.
+   */
+  const [draft, setDraft] = useState<string | null>(null);
+  const shown = toUnit(value, unit);
+  const decimals = unit === 'cm' || unit === 'int' ? 0 : 2;
+
+  const commit = (text: string) => {
+    const parsed = Number(text.replace(',', '.'));
+    if (!Number.isFinite(parsed)) return;
+    const next = fromUnit(parsed, unit);
+    onChange(Math.min(range.max, Math.max(range.min, next)));
+  };
+
   return (
     <label className="fit-slide">
       <span className="fit-slide-name">{label}</span>
@@ -609,9 +660,14 @@ function Slide({ label, value, range, unit, onChange }: {
         type="range" min={range.min} max={range.max} step={range.step} value={value}
         onChange={(e) => onChange(Number(e.target.value))}
       />
-      <span className="fit-slide-value mono">
-        {unit === 'cm' ? cm(value) : unit === 'int' ? String(value) : value.toFixed(2)}
-      </span>
+      <input
+        className="fit-slide-input mono" type="text" inputMode="decimal"
+        value={draft ?? (decimals ? shown.toFixed(decimals) : String(Math.round(shown)))}
+        onChange={(e) => { setDraft(e.target.value); commit(e.target.value); }}
+        onBlur={() => setDraft(null)}
+        onKeyDown={(e) => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur(); }}
+      />
+      <span className="fit-slide-unit">{UNIT_SUFFIX[unit]}</span>
     </label>
   );
 }
@@ -835,11 +891,11 @@ export function FitBench() {
             {comp.type === 'work' && (
               <>
                 <Slide
-                  label="вдоль" value={comp.at[0]} range={RANGE.at} unit="cm"
+                  label="вдоль" value={comp.at[0]} range={RANGE.at} unit="cell"
                   onChange={(v) => editSeatVec('at', 0, v)}
                 />
                 <Slide
-                  label="поперёк" value={comp.at[1]} range={RANGE.at} unit="cm"
+                  label="поперёк" value={comp.at[1]} range={RANGE.at} unit="cell"
                   onChange={(v) => editSeatVec('at', 1, v)}
                 />
               </>
@@ -848,11 +904,11 @@ export function FitBench() {
             {comp.type === 'seat' && comp.shape === 'point' && (
               <>
                 <Slide
-                  label="вдоль" value={comp.at?.[0] ?? 0} range={RANGE.at} unit="cm"
+                  label="вдоль" value={comp.at?.[0] ?? 0} range={RANGE.at} unit="cell"
                   onChange={(v) => editSeatVec('at', 0, v)}
                 />
                 <Slide
-                  label="поперёк" value={comp.at?.[1] ?? 0} range={RANGE.at} unit="cm"
+                  label="поперёк" value={comp.at?.[1] ?? 0} range={RANGE.at} unit="cell"
                   onChange={(v) => editSeatVec('at', 1, v)}
                 />
                 <div className="fit-cases">
@@ -896,11 +952,11 @@ export function FitBench() {
                   onChange={(v) => editComp((c) => { if (c.type === 'seat') c.ring = v; })}
                 />
                 <Slide
-                  label="радиус вдоль" value={comp.rx ?? 1} range={RANGE.radius} unit="cm"
+                  label="радиус вдоль" value={comp.rx ?? 1} range={RANGE.radius} unit="cell"
                   onChange={(v) => editComp((c) => { if (c.type === 'seat') c.rx = v; })}
                 />
                 <Slide
-                  label="радиус поперёк" value={comp.ry ?? 1} range={RANGE.radius} unit="cm"
+                  label="радиус поперёк" value={comp.ry ?? 1} range={RANGE.radius} unit="cell"
                   onChange={(v) => editComp((c) => { if (c.type === 'seat') c.ry = v; })}
                 />
                 <label className="fit-check">
@@ -1077,7 +1133,7 @@ function PresetSections({ preset, read, scale, edit }: {
                 </label>
                 {aim && (['вдоль', 'поперёк'] as const).map((axis, k) => (
                   <Slide
-                    key={axis} label={`луч ${axis}`} value={aim[k]} range={RANGE.probe} unit="cm"
+                    key={axis} label={`луч ${axis}`} value={aim[k]} range={RANGE.probe} unit="cell"
                     onChange={(v) => editPart(i, (p) => {
                       const next: [number, number] = [...(p.probe?.[kind] ?? [0, 0])] as [number, number];
                       next[k] = v;
@@ -1096,6 +1152,14 @@ function PresetSections({ preset, read, scale, edit }: {
         <p className="fit-note">
           След нарисован на полу синим. По нему считается и отрисовка, и
           проходимость — предмет с непроходимым следом обойти нельзя.
+          Задаётся целыми клетками: клетка сетки — это тайл, и след это
+          заявка на пол, а пол считается тайлами.
+        </p>
+        {/* Сколько клеток занимает предмет — вопрос, на который до сих пор
+            приходилось отвечать в уме, складывая четыре числа следа. */}
+        <p className={whole(preset.footprint) ? 'fit-note mono' : 'fit-note mono fit-warn'}>
+          занимает {cells(preset.footprint[2])} × {cells(preset.footprint[3])}{' '}
+          {whole(preset.footprint) ? 'клетки' : 'клетки — дробный след не ляжет на сетку'}
         </p>
         <Slide
           label="высота" value={preset.h} range={RANGE.h} unit="cm"
@@ -1103,7 +1167,7 @@ function PresetSections({ preset, read, scale, edit }: {
         />
         {(['слева', 'сверху', 'ширина', 'глубина'] as const).map((name, i) => (
           <Slide
-            key={name} label={name} value={preset.footprint[i]} range={RANGE.foot} unit="cm"
+            key={name} label={name} value={preset.footprint[i]} range={RANGE.foot} unit="cell"
             onChange={(v) => edit((p) => {
               const next: [number, number, number, number] = [...p.footprint];
               next[i] = v;

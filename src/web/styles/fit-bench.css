@@ -49,6 +49,16 @@
 .fit-slide-name { width: 108px; flex: none; color: var(--ink-3); }
 .fit-slide input { flex: 1; min-width: 0; }
 .fit-slide-value { width: 58px; flex: none; text-align: right; }
+/* Поле рядом с ползунком: узкое, моноширинное, с подписью единицы справа —
+   ползунком в ровное число не попасть, а след задаётся целыми клетками. */
+.fit-slide-input {
+  width: 52px; flex: none; text-align: right; font-size: 12px;
+  padding: 2px 4px; border: 1px solid var(--line); border-radius: 4px;
+  background: var(--bg-1); color: var(--ink-1);
+}
+.fit-slide-unit { width: 18px; flex: none; color: var(--ink-3); }
+/* Дробный след не ложится на сетку — это не ошибка, но это надо видеть. */
+.fit-warn { color: var(--warn, #b26a00); }
 .fit-check { display: flex; align-items: center; gap: 6px; margin: 8px 0; font-size: 12px; }
 
 .fit-actions { display: flex; gap: 8px; margin: 16px 0 8px; }
