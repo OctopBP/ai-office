@@ -1,0 +1,5 @@
+{
+  "name": "frontend",
+  "version": "0.1.0",
+  "description": "Client-side developer: markup, styles, client logic; reads layouts from Figma."
+}

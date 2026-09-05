@@ -1,8 +1,11 @@
 // Режим доступа живёт в общем контракте: его правит UI и наследует офис.
 export type { PermissionMode } from '../shared/types';
-import type { PermissionMode } from '../shared/types';
+import type { PermissionMode, RoleEditable } from '../shared/types';
 import { DEFAULT_LANG, type Lang } from '../shared/i18n';
-import { t } from './i18n';
+import {
+  defaultTeam, loadPackage, OFFICIAL_SCOPE, packageBrief, packageModel, packageTitle,
+  type AgentPackage,
+} from './packages';
 
 export interface Role {
   id: string;
@@ -26,13 +29,14 @@ export interface Role {
    * Ограничение набора встроенных инструментов. undefined — все.
    * Юристу и SMM оболочка не нужна: чем уже поверхность, тем меньше поводов
    * для подтверждений и меньше шансов сделать что-то необратимое. Дизайнеру
-   * она, наоборот, нужна — ею собирается канвас макетов (см. набор роли).
+   * она, наоборот, нужна — ею собирается канвас макетов (см. пакет роли).
    */
   tools?: string[];
   /**
-   * Внешние MCP-серверы роли — имена из набора в `server/mcp.ts`.
-   * Пусто или нет поля — берётся умолчание по id роли (дизайнеру Figma).
-   * Пустой массив значит «ничего не подключать»: это решение, а не пробел.
+   * Внешние MCP-серверы роли — id из каталога офиса (`server/mcp.ts`).
+   * Роль из пакета получает список из его манифеста; у роли, заведённой
+   * руками, поля может не быть — это «ничего не подключать».
+   * Пустой массив значит то же самое, но как решение, а не как пробел.
    */
   mcp?: string[];
   /** Папка для артефактов у ролей без изоляции веткой. */
@@ -59,137 +63,110 @@ export interface Role {
    * совсем — история перестала бы читаться.
    */
   archived?: boolean;
-  /** Дополнение к системному промпту исполнителя (специфика роли). */
+  /**
+   * Дополнение к системному промпту исполнителя (специфика роли). У роли из
+   * пакета — вычисленный текст: бриф пакета плюс приписка из ссылки.
+   */
   brief: string;
+  /**
+   * Пакет, из которого роль заведена, и разница с ним. Нет поля — роль
+   * заведена руками или отвязана: она целиком лежит в сохранении и
+   * обновлений пакета не получает.
+   *
+   * Роль с этим полем ВЫЧИСЛЯЕТСЯ: умолчания пакета + оверрайды + приписка.
+   * Остальные поля в сохранении при этом тоже лежат — на случай, если
+   * пакет с диска пропал: тогда роль поднимается из них, как обычная, а
+   * ссылка ждёт, пока пакет вернётся.
+   */
+  package?: RoleLink;
 }
 
 /**
- * Базовые роли без слов: цвет, модель, лимиты, инструменты и папка артефактов.
- *
- * Название и бриф сюда не входят — они лежат в словаре (`i18n/roles-*.ts`) и
- * подставляются по языку офиса. Иначе набор ролей был бы записан на одном
- * языке навсегда: бриф уезжает в системный промпт исполнителя, и русский
- * бриф в английском офисе означал бы агента, который отвечает не на том
- * языке, на котором с ним говорят.
+ * Поля роли, которые оверрайд может переопределить. Брифа здесь нет
+ * намеренно: бриф пакета неприкосновенен, а своё дописывается в `briefExtra`.
+ * Иначе первое же обновление пакета с новым брифом ставило бы человека перед
+ * выбором «новый бриф или мои три абзаца» — и он остался бы на старом.
  */
-type RoleShape = Omit<Role, 'title' | 'brief'>;
+export type LinkOverrides = Partial<Omit<RoleEditable, 'brief' | 'briefExtra'>>;
 
-const BASE_SHAPES: RoleShape[] = [
-  {
-    id: 'pm',
-    color: '#f0b429',
-    emoji: '📋',
-    model: 'claude-opus-5',
-    isManager: true,
-    maxInstances: 1,
-    permissionMode: 'auto',
-    isolate: false,
-  },
-  {
-    id: 'backend',
-    color: '#3b82f6',
-    emoji: '⚙️',
-    model: 'claude-opus-5',
-    isManager: false,
-    maxInstances: 3,
-    permissionMode: 'ask-risky',
-    isolate: true,
-  },
-  {
-    id: 'frontend',
-    color: '#ec4899',
-    emoji: '🎨',
-    model: 'claude-sonnet-5',
-    isManager: false,
-    maxInstances: 3,
-    permissionMode: 'ask-risky',
-    isolate: true,
-  },
-  {
-    id: 'design',
-    color: '#a855f7',
-    emoji: '🎨',
-    model: 'claude-sonnet-5',
-    isManager: false,
-    maxInstances: 2,
-    permissionMode: 'ask-risky',
-    isolate: true,
-    // Оболочка и `Artifact` у дизайнера — из-за канваса макетов (встроенный
-    // скил `design`): канвас собирается запуском node из папки скила и
-    // публикуется артефактом, и без любого из двух навык бесполезен. Границу
-    // держат песочница (запись только в папку задачи) и разбор рисков, а не
-    // отсутствие инструмента.
-    tools: [
-      'Read', 'Write', 'Edit', 'Glob', 'Grep', 'Bash',
-      'WebSearch', 'WebFetch', 'TodoWrite', 'Artifact',
-    ],
-    docsDir: 'docs/design',
-  },
-  {
-    id: 'smm',
-    color: '#14b8a6',
-    emoji: '📣',
-    model: 'claude-haiku-4-5',
-    isManager: false,
-    maxInstances: 2,
-    permissionMode: 'ask-risky',
-    isolate: true,
-    tools: ['Read', 'Write', 'Edit', 'Glob', 'Grep', 'WebSearch', 'WebFetch', 'TodoWrite'],
-    docsDir: 'docs/smm',
-  },
-  {
-    id: 'reviewer',
-    color: '#f97316',
-    emoji: '🔍',
-    model: 'claude-sonnet-5',
-    isManager: false,
-    maxInstances: 1,
-    permissionMode: 'ask-risky',
-    isolate: true,
-    tools: ['Read', 'Write', 'Edit', 'Glob', 'Grep', 'Bash', 'WebSearch', 'WebFetch', 'TodoWrite'],
-    docsDir: 'docs/review',
-  },
-  {
-    id: 'artist',
-    color: '#eab308',
-    emoji: '🖌',
-    model: 'claude-sonnet-5',
-    isManager: false,
-    maxInstances: 1,
-    permissionMode: 'ask-risky',
-    isolate: true,
-  },
-  {
-    id: 'artist3d',
-    color: '#6366f1',
-    emoji: '🧊',
-    model: 'claude-sonnet-5',
-    isManager: false,
-    maxInstances: 1,
-    permissionMode: 'ask-risky',
-    isolate: true,
-  },
-  {
-    id: 'legal',
-    color: '#94a3b8',
-    emoji: '⚖️',
-    model: 'claude-sonnet-5',
-    isManager: false,
-    maxInstances: 1,
-    permissionMode: 'ask-risky',
-    isolate: true,
-    tools: ['Read', 'Write', 'Edit', 'Glob', 'Grep', 'WebSearch', 'WebFetch', 'TodoWrite'],
-    docsDir: 'docs/legal',
-  },
+export interface RoleLink {
+  /** Имя пакета: `@office/backend`. */
+  name: string;
+  /** Версия пакета, по которой роль считалась в последний раз. */
+  version: string;
+  /** Правки человека поверх умолчаний пакета — только то, что отличается. */
+  overrides: LinkOverrides;
+  /** Приписка к брифу пакета снизу. */
+  briefExtra: string;
+}
+
+/** Поля, по которым считается разница роли с пакетом. */
+export const OVERRIDABLE_KEYS: readonly (keyof LinkOverrides)[] = [
+  'title', 'emoji', 'color', 'model', 'permissionMode', 'maxInstances', 'isolate',
+  'maxTurns', 'repoDir', 'sprite', 'mcp',
 ];
 
-/** Базовая роль целиком: форма из кода плюс слова из словаря. */
-const withWords = (shape: RoleShape, lang: Lang): Role => ({
-  ...shape,
-  ...(shape.tools ? { tools: [...shape.tools] } : {}),
-  title: t(lang, `role.${shape.id}.title` as never),
-  brief: t(lang, `role.${shape.id}.brief` as never),
-});
+/**
+ * Значение поля в сравнимом виде: пустая строка, undefined и null — одно и
+ * то же «не задано». Иначе `repoDir: ''` из формы считался бы оверрайдом
+ * поверх `repoDir: undefined` из пакета, хотя оба значат «общий репозиторий».
+ */
+const comparable = (v: unknown): string =>
+  JSON.stringify(v === undefined || v === '' ? null : v);
+
+export const sameValue = (a: unknown, b: unknown): boolean => comparable(a) === comparable(b);
+
+/**
+ * Роль из пакета: умолчания манифеста, поверх — оверрайды ссылки, снизу к
+ * брифу — приписка. Одна функция на заведение роли, восстановление из
+ * сохранения и пересчёт после правки: роль с пакетом нигде не хранится как
+ * итог, она всегда считается заново.
+ */
+export function roleFromPackage(pkg: AgentPackage, lang: Lang, id: string, link?: RoleLink): Role {
+  const m = pkg.manifest;
+  const ref: RoleLink = {
+    name: pkg.name,
+    version: pkg.version,
+    overrides: { ...(link?.overrides ?? {}) },
+    briefExtra: link?.briefExtra ?? '',
+  };
+  const base: Role = {
+    id,
+    title: packageTitle(pkg, lang),
+    color: m.color,
+    emoji: m.emoji,
+    model: packageModel(pkg),
+    isManager: m.manager,
+    maxInstances: m.maxInstances,
+    permissionMode: m.runtime.permissionMode,
+    isolate: m.runtime.isolate,
+    maxTurns: m.runtime.maxTurns,
+    ...(m.runtime.tools ? { tools: [...m.runtime.tools] } : {}),
+    mcp: [...m.runtime.mcp],
+    ...(m.docsDir ? { docsDir: m.docsDir } : {}),
+    ...(m.look ? { sprite: m.look } : {}),
+    archived: false,
+    brief: '',
+    package: ref,
+  };
+  // Оверрайды кладём только по разрешённым полям: ссылка приезжает из
+  // сохранения, которое правят руками, и `isManager: true` в ней сделал бы
+  // второго менеджера мимо всех проверок.
+  for (const key of OVERRIDABLE_KEYS) {
+    const value = ref.overrides[key];
+    if (value === undefined) continue;
+    // Оверрайд, равный умолчанию, — не оверрайд: чистим, чтобы обновление
+    // пакета доезжало туда, где человек ничего не менял.
+    if (sameValue(value, base[key as keyof Role])) { delete ref.overrides[key]; continue; }
+    (base as unknown as Record<string, unknown>)[key] = Array.isArray(value) ? [...value] : value;
+  }
+  // Менеджера не переименовать: на этой роли держится раздача задач.
+  if (base.isManager) { base.title = packageTitle(pkg, lang); delete ref.overrides.title; }
+  const brief = packageBrief(pkg, lang);
+  const extra = ref.briefExtra.trim();
+  base.brief = extra ? (brief ? `${brief}\n\n${extra}` : extra) : brief;
+  return base;
+}
 
 /**
  * id роли менеджера. Менеджер есть в каждом офисе и ровно один: на нём
@@ -197,8 +174,18 @@ const withWords = (shape: RoleShape, lang: Lang): Role => ({
  */
 export const MANAGER_ROLE_ID = 'pm';
 
-/** id базовых ролей: занятые имена, даже если такой роли в офисе сейчас нет. */
-export const BASE_ROLE_IDS: readonly string[] = BASE_SHAPES.map((r) => r.id);
+/** Имя нашего пакета по id базовой роли: `backend` → `@office/backend`. */
+export const basePackageName = (id: string): string => `${OFFICIAL_SCOPE}/${id}`;
+
+/** id роли по имени пакета: последний сегмент. `@alice/lawyer` → `lawyer`. */
+export const roleIdFor = (name: string): string => slugifyRoleId(name.split('/').pop() ?? name);
+
+/**
+ * id базовых ролей: занятые имена, даже если такой роли в офисе сейчас нет.
+ * Считаются по каталогу по умолчанию, а не по константе: набор — это
+ * пакеты на диске.
+ */
+export const baseRoleIds = (): string[] => defaultTeam().map(roleIdFor);
 
 /**
  * Кириллица в латиницу для id роли. Названия ролей пишут по-русски, а id
@@ -244,7 +231,7 @@ export function slugifyRoleId(title: string): string {
  * руками роль «Ревьюер» перебила бы `reviewer`, который офис поднимает сам.
  */
 export function newRoleId(title: string, taken: Iterable<string>): string {
-  const busy = new Set<string>([...BASE_ROLE_IDS, ...taken]);
+  const busy = new Set<string>([...baseRoleIds(), ...taken]);
   const base = slugifyRoleId(title);
   if (!busy.has(base)) return base;
   for (let n = 2; ; n += 1) {
@@ -256,16 +243,32 @@ export function newRoleId(title: string, taken: Iterable<string>): string {
 
 /**
  * Набор ролей по умолчанию на заданном языке — с него начинается новый офис.
- * Каждый вызов отдаёт свежие объекты: набор принадлежит офису и правится в
- * нём, а общий на процесс массив разъехался бы правками по чужим офисам.
+ * Это наши пакеты из каталога по умолчанию (`packages/default-office.json`),
+ * каждый — роль без оверрайдов. Каждый вызов читает диск и отдаёт свежие
+ * объекты: набор принадлежит офису и правится в нём, а общий на процесс
+ * массив разъехался бы правками по чужим офисам.
  */
-export const defaultRoles = (lang: Lang = DEFAULT_LANG): Role[] =>
-  BASE_SHAPES.map((shape) => withWords(shape, lang));
+export function defaultRoles(lang: Lang = DEFAULT_LANG): Role[] {
+  const out: Role[] = [];
+  const seen = new Set<string>();
+  for (const name of defaultTeam()) {
+    const pkg = loadPackage(name);
+    if (!pkg) continue;
+    const id = roleIdFor(name);
+    if (seen.has(id)) continue;
+    seen.add(id);
+    out.push(roleFromPackage(pkg, lang, id));
+  }
+  return out;
+}
 
-/** Базовая роль по id на заданном языке. undefined — такой роли среди базовых нет. */
+/**
+ * Базовая роль по id на заданном языке: роль из нашего пакета `@office/<id>`
+ * без оверрайдов. undefined — такого пакета нет.
+ */
 export const defaultRole = (id: string, lang: Lang = DEFAULT_LANG): Role | undefined => {
-  const found = BASE_SHAPES.find((r) => r.id === id);
-  return found ? withWords(found, lang) : undefined;
+  const pkg = loadPackage(basePackageName(id));
+  return pkg ? roleFromPackage(pkg, lang, id) : undefined;
 };
 
 /**
@@ -293,7 +296,10 @@ export const blankRole = (id: string): Role => ({
  * увольнение. Свои настройки PM у офиса при этом остаются: общая только роль.
  */
 export function withManagerRole(list: Role[], lang: Lang = DEFAULT_LANG): Role[] {
-  const base = defaultRole(MANAGER_ROLE_ID, lang)!;
+  // Пакета менеджера может не оказаться (каталог пакетов увели переменной
+  // окружения в пустую папку) — офис всё равно обязан подняться с менеджером.
+  const base = defaultRole(MANAGER_ROLE_ID, lang)
+    ?? { ...blankRole(MANAGER_ROLE_ID), title: 'PM', emoji: '📋', isManager: true, isolate: false };
   const saved = list.find((r) => r.id === MANAGER_ROLE_ID);
   // Архивным PM быть не может: без менеджера офису не с кем разговаривать,
   // а признак архива мог приехать из правленого руками файла состояния.
@@ -317,4 +323,7 @@ export type RoleOverrides = Record<string, Partial<Role>>;
 
 /** Базовый набор с наложенными правками — миграция старых сохранений. */
 export const rolesFromOverrides = (overrides: RoleOverrides = {}, lang: Lang = DEFAULT_LANG): Role[] =>
-  defaultRoles(lang).map((r) => ({ ...r, ...(overrides[r.id] ?? {}) }));
+  // Ссылку на пакет снимаем: такая роль пойдёт через привязку из сохранения
+  // (state.ts, linkFromSave), и правки человека станут разницей с пакетом.
+  // Оставь ссылку — офис поверил бы её пустым оверрайдам и правки потерял.
+  defaultRoles(lang).map(({ package: _link, ...r }) => ({ ...r, ...(overrides[r.id] ?? {}) }));

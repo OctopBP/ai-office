@@ -1,0 +1,13 @@
+{
+  "roles": [
+    "@office/pm",
+    "@office/backend",
+    "@office/frontend",
+    "@office/design",
+    "@office/smm",
+    "@office/reviewer",
+    "@office/artist",
+    "@office/artist3d",
+    "@office/legal"
+  ]
+}

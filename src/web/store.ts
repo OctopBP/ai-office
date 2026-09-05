@@ -995,6 +995,14 @@ export function removeRole(roleId: string): void {
   socket?.send(JSON.stringify({ c: 'remove_role', roleId }));
 }
 
+/**
+ * Отвязать роль от пакета — форк. Бриф остаётся вычисленным и дальше
+ * правится напрямую; обновления пакета до роли больше не доходят.
+ */
+export function detachRole(roleId: string): void {
+  socket?.send(JSON.stringify({ c: 'detach_role', roleId }));
+}
+
 /** Форма роли прочитала итог своей операции — сбрасываем, чтобы не залипал. */
 export function clearRoleFeedback(): void {
   useStore.setState({ roleFeedback: null });

@@ -19,6 +19,7 @@
     "units": "python3 scripts/units.py",
     "test:perm": "tsx scripts/test-permissions.ts",
     "test:skills": "tsx scripts/test-skills.ts",
+    "test:packages": "tsx scripts/test-packages.ts",
     "test:mcp": "tsx scripts/test-mcp.ts",
     "bench": "tsx scripts/bench-skills.ts",
     "test:state": "tsx scripts/test-state.ts",

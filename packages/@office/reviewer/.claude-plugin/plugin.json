@@ -1,0 +1,5 @@
+{
+  "name": "reviewer",
+  "version": "0.1.0",
+  "description": "Code reviewer: reads the diff, runs the checks, approves or sends work back."
+}

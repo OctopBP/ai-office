@@ -6,21 +6,20 @@
  * Словари серверные, а не общие: интерфейсу они не нужны, а тащить в бандл
  * браузера страницы промптов про worktree и конвейер ревью незачем.
  *
- * Файлов на язык три, а словарь один: разделены они по размеру и по тому, кто
- * читает текст, — фразы человеку, брифы ролей и промпты агентов правятся в
- * разное время и разными руками. Ключи при этом лежат в одном пространстве,
- * и `t()` у всего офиса одна.
+ * Файлов на язык два, а словарь один: разделены они по размеру и по тому, кто
+ * читает текст, — фразы человеку и промпты агентов правятся в разное время и
+ * разными руками. Ключи при этом лежат в одном пространстве, и `t()` у всего
+ * офиса одна. Брифов ролей здесь больше нет: они лежат в пакетах
+ * (`packages/@office/<роль>/brief/<lang>.md`).
  */
 import { makeTranslator, DEFAULT_LANG, asLang, type Lang, type Vars } from '../../shared/i18n';
 import { en as messagesEn } from './en';
 import { ru as messagesRu } from './ru';
-import { rolesEn } from './roles-en';
-import { rolesRu } from './roles-ru';
 import { promptsEn } from './prompts-en';
 import { promptsRu } from './prompts-ru';
 
-const en = { ...messagesEn, ...rolesEn, ...promptsEn };
-const ru = { ...messagesRu, ...rolesRu, ...promptsRu };
+const en = { ...messagesEn, ...promptsEn };
+const ru = { ...messagesRu, ...promptsRu };
 
 export type ServerKey = keyof typeof en;
 

@@ -1,0 +1,29 @@
+{
+  "schema": 1,
+  "name": "@office/pm",
+  "kind": "agent",
+  "title": {
+    "ru": "Проектный менеджер",
+    "en": "Project manager"
+  },
+  "summary": {
+    "ru": "Менеджер офиса: превращает просьбу в план и задачи, раздаёт их и отчитывается.",
+    "en": "The office manager: turns a request into a plan and tasks, hands them out and reports back."
+  },
+  "tags": [
+    "manager",
+    "planning"
+  ],
+  "color": "#f0b429",
+  "emoji": "📋",
+  "manager": true,
+  "maxInstances": 1,
+  "license": "MIT",
+  "runtime": {
+    "engine": "claude-code",
+    "model": "opus",
+    "permissionMode": "auto",
+    "isolate": false,
+    "maxTurns": null
+  }
+}

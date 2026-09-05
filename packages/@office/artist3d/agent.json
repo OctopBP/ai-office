@@ -1,0 +1,32 @@
+{
+  "schema": 1,
+  "name": "@office/artist3d",
+  "kind": "agent",
+  "title": {
+    "ru": "3D-художник",
+    "en": "3D artist"
+  },
+  "summary": {
+    "ru": "Модели и сцены скриптами Blender, результат — glTF.",
+    "en": "3D artist: models and scenes built with Blender scripts, delivered as glTF."
+  },
+  "tags": [
+    "art",
+    "3d",
+    "blender"
+  ],
+  "color": "#6366f1",
+  "emoji": "🧊",
+  "maxInstances": 1,
+  "license": "MIT",
+  "runtime": {
+    "engine": "claude-code",
+    "model": "sonnet",
+    "permissionMode": "ask-risky",
+    "isolate": true,
+    "maxTurns": null,
+    "mcp": [
+      "blender"
+    ]
+  }
+}

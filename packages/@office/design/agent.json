@@ -1,0 +1,62 @@
+{
+  "schema": 1,
+  "name": "@office/design",
+  "kind": "agent",
+  "title": {
+    "ru": "UI/UX дизайнер",
+    "en": "UI/UX designer"
+  },
+  "summary": {
+    "ru": "Интерфейс и пользовательский опыт: экраны, состояния, тексты; канвас макетов и Figma через мост.",
+    "en": "UI/UX designer: screens, states, interface copy; design canvases and Figma through the bridge."
+  },
+  "tags": [
+    "design",
+    "ui",
+    "figma"
+  ],
+  "color": "#a855f7",
+  "emoji": "🎨",
+  "maxInstances": 2,
+  "docsDir": "docs/design",
+  "license": "MIT",
+  "runtime": {
+    "engine": "claude-code",
+    "model": "sonnet",
+    "tools": [
+      "Read",
+      "Write",
+      "Edit",
+      "Glob",
+      "Grep",
+      "Bash",
+      "WebSearch",
+      "WebFetch",
+      "TodoWrite",
+      "Artifact"
+    ],
+    "permissionMode": "ask-risky",
+    "isolate": true,
+    "maxTurns": null,
+    "mcp": [
+      "figma-bridge"
+    ]
+  },
+  "builtin": [
+    "design",
+    "artifact-capabilities"
+  ],
+  "servers": [
+    {
+      "id": "figma-bridge",
+      "title": "Figma",
+      "transport": "stdio",
+      "command": "npx",
+      "args": [
+        "-y",
+        "@gethopp/figma-mcp-bridge"
+      ],
+      "alwaysLoad": true
+    }
+  ]
+}

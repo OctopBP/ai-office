@@ -88,6 +88,10 @@ export const ru: Record<keyof typeof en, string> = {
   'state.role.modeSet': 'Режим доступа роли {title}: «{mode}»',
   'state.role.modeInherited': 'Роль {title} снова по режиму офиса: «{mode}»',
   'state.role.updated': 'Роль {role} изменена: {fields}',
+  'state.role.detached': 'Роль {title} ({id}) отвязана от пакета {name}: инструкция теперь правится напрямую, обновления пакета до неё больше не доходят',
+  'state.role.notLinked': 'Роль «{title}» не привязана к пакету — отвязывать нечего.',
+  'state.role.relinked': 'Роль {title} ({id}) привязана к пакету {name} {version}',
+  'state.role.packageMissing': 'Пакет {name} роли {title} ({id}) не найден на диске — роль поднята из сохранения',
 
   'state.settings.noLayout': 'Раскладки «{id}» нет в design/layouts. Доступны: {known}.',
   'state.mcp.connected': 'Сервер «{title}» подключился.',

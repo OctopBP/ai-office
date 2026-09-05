@@ -1,0 +1,40 @@
+{
+  "schema": 1,
+  "name": "@office/reviewer",
+  "kind": "agent",
+  "title": {
+    "ru": "Ревьюер",
+    "en": "Reviewer"
+  },
+  "summary": {
+    "ru": "Ревью кода: читает diff, гоняет проверки, одобряет или возвращает автору.",
+    "en": "Code reviewer: reads the diff, runs the checks, approves or sends work back."
+  },
+  "tags": [
+    "code",
+    "review"
+  ],
+  "color": "#f97316",
+  "emoji": "🔍",
+  "maxInstances": 1,
+  "docsDir": "docs/review",
+  "license": "MIT",
+  "runtime": {
+    "engine": "claude-code",
+    "model": "sonnet",
+    "tools": [
+      "Read",
+      "Write",
+      "Edit",
+      "Glob",
+      "Grep",
+      "Bash",
+      "WebSearch",
+      "WebFetch",
+      "TodoWrite"
+    ],
+    "permissionMode": "ask-risky",
+    "isolate": true,
+    "maxTurns": null
+  }
+}

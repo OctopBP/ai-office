@@ -1,0 +1,39 @@
+{
+  "schema": 1,
+  "name": "@office/legal",
+  "kind": "agent",
+  "title": {
+    "ru": "Юрист",
+    "en": "Lawyer"
+  },
+  "summary": {
+    "ru": "Политика конфиденциальности, соглашения, тексты о лицензиях — черновики для проверки юристом.",
+    "en": "Lawyer: privacy policy, terms, licence texts — drafts for a human lawyer to check."
+  },
+  "tags": [
+    "legal",
+    "documents"
+  ],
+  "color": "#94a3b8",
+  "emoji": "⚖️",
+  "maxInstances": 1,
+  "docsDir": "docs/legal",
+  "license": "MIT",
+  "runtime": {
+    "engine": "claude-code",
+    "model": "sonnet",
+    "tools": [
+      "Read",
+      "Write",
+      "Edit",
+      "Glob",
+      "Grep",
+      "WebSearch",
+      "WebFetch",
+      "TodoWrite"
+    ],
+    "permissionMode": "ask-risky",
+    "isolate": true,
+    "maxTurns": null
+  }
+}

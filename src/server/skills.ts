@@ -8,14 +8,17 @@
  * описание и читает целиком лишь тогда, когда дело дошло до него. Значит,
  * «как пользоваться инструментом» — это всегда скил, а не абзац в брифе.
  *
- * Формат пакета не наш: это обычный плагин Claude Code —
+ * Формат пакета не наш: это обычный плагин Claude Code с манифестом офиса —
  *
- *   employees/<роль>/
+ *   packages/@office/<роль>/         пакет агента (см. packages.ts)
  *     .claude-plugin/plugin.json     имя, версия, описание
+ *     agent.json                     манифест: роль, скилы, встроенные навыки,
+ *                                    ссылки на чужие плагины, просьбы о серверах
  *     skills/<скил>/SKILL.md         свои навыки
- *     pack.json                      ссылки на чужие плагины, отбор скилов,
- *                                    встроенные навыки агента и серверы,
- *                                    которые пакету нужны
+ *
+ * Роль, привязанная к пакету (`Role.package`), берёт скилы из него. Роль,
+ * заведённая руками, может держать свой набор в `employees/<роль>/` — там
+ * по-прежнему читается и `agent.json`, и старый `pack.json`.
  *
  * Чужие скилы пакет НЕ копирует, а ссылается на уже установленный плагин
  * (`use` в pack.json). Причина не техническая: готовые наборы приходят с
@@ -41,16 +44,18 @@ import { fileURLToPath } from 'node:url';
 import type { SdkPluginConfig } from '@anthropic-ai/claude-agent-sdk';
 import type { McpServerDef } from '../shared/types';
 import { checkMcpServers } from './mcp';
+import { packageDir, parseManifest } from './packages';
 import type { Role } from './roles';
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '../..');
 
 /**
- * Где офис ищет пакеты сотрудников. Имя папки — id роли.
+ * Где офис ищет наборы ролей, заведённых руками. Имя папки — id роли.
+ * Пакеты из каталога (`packages/`) сюда не относятся: у привязанной роли
+ * папка известна по имени пакета.
  *
  * Путь переопределяется переменной окружения: тем же ключом проверка гоняет
- * пакеты на времянке, не подкладывая их в репозиторий, и им же сюда однажды
- * подставится каталог пакетов, поставленных из маркетплейса.
+ * наборы на времянке, не подкладывая их в репозиторий.
  */
 export const EMPLOYEES_DIR = process.env.OFFICE_EMPLOYEES_DIR
   ? resolve(process.env.OFFICE_EMPLOYEES_DIR)
@@ -75,7 +80,10 @@ export interface EmployeePack {
   servers: McpServerDef[];
 }
 
-/** Что лежит в pack.json. Оба поля необязательны. */
+/**
+ * Что лежит в pack.json — формат до появления agent.json. Читается для
+ * наборов в employees/: поля те же, что в манифесте, просто без роли.
+ */
 interface PackFile {
   /** Пути к уже установленным плагинам. `~` и `*` в последнем сегменте раскрываются. */
   use?: string[];
@@ -177,28 +185,46 @@ const wanted = (skill: string, list: string[]): boolean =>
   list.some((want) => skill === want || skill.endsWith(`:${want}`));
 
 /**
+ * Поля про скилы и серверы: из agent.json, а нет его — из pack.json. Битый
+ * файл — считаем, что ссылок нет. Свои скилы пакета при этом остаются:
+ * половина пакета лучше, чем сотрудник, который не запустился.
+ */
+function readPackFields(dir: string): PackFile {
+  const manifestFile = resolve(dir, 'agent.json');
+  if (existsSync(manifestFile)) {
+    try {
+      const { manifest } = parseManifest(JSON.parse(readFileSync(manifestFile, 'utf8')), basename(dir));
+      // Серверы манифест уже проверил и отбросил негодные — ниже та же
+      // проверка пройдёт по ним второй раз вхолостую, и это нестрашно.
+      return { use: manifest.use, skills: manifest.skills, builtin: manifest.builtin, servers: manifest.servers };
+    } catch {
+      return {};
+    }
+  }
+  const packFile = resolve(dir, 'pack.json');
+  if (!existsSync(packFile)) return {};
+  try {
+    return JSON.parse(readFileSync(packFile, 'utf8')) as PackFile;
+  } catch {
+    return {};
+  }
+}
+
+/**
  * Пакет роли — или null, если его нет. Диск читаем на каждый запуск сессии,
  * а не один раз при старте: добавленный скил должен доезжать до следующей
  * задачи, а не до следующего перезапуска сервера.
  */
 export function employeePack(role: Role): EmployeePack | null {
-  const dir = resolve(EMPLOYEES_DIR, role.id);
+  // Привязанная роль — папка пакета; остальные — набор по id в employees/.
+  const dir = role.package ? packageDir(role.package.name) : resolve(EMPLOYEES_DIR, role.id);
   if (!existsSync(dir)) return null;
 
   const plugins: Plugin[] = [];
   const own = pluginAt(dir, role.id);
   if (own) plugins.push(own);
 
-  let pack: PackFile = {};
-  const packFile = resolve(dir, 'pack.json');
-  if (existsSync(packFile)) {
-    try {
-      pack = JSON.parse(readFileSync(packFile, 'utf8')) as PackFile;
-    } catch {
-      // Битый pack.json — считаем, что ссылок нет. Свои скилы пакета при этом
-      // остаются: половина пакета лучше, чем сотрудник, который не запустился.
-    }
-  }
+  const pack = readPackFields(dir);
 
   for (const path of pack.use ?? []) {
     const target = resolveDir(path);

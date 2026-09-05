@@ -300,6 +300,8 @@ wss.on('connection', (ws) => {
       replyRole(ws, op, cmd.roleId, state.archiveRole(cmd.roleId, cmd.archived));
     } else if (cmd.c === 'remove_role') {
       replyRole(ws, 'remove', cmd.roleId, state.removeRole(cmd.roleId));
+    } else if (cmd.c === 'detach_role') {
+      replyRole(ws, 'detach', cmd.roleId, state.detachRole(cmd.roleId));
     } else if (cmd.c === 'agent_permission') {
       // null — снять личное правило и вернуть сотрудника к режиму роли;
       // мусорное значение молча игнорируем, а не выдаём за режим.

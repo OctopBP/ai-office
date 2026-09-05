@@ -390,7 +390,9 @@ async function main(): Promise<void> {
   const savedA = JSON.parse(readFileSync(roleFileA, 'utf8')) as Persisted;
   savedA.roles = [
     ...(savedA.roles ?? []),
-    { ...defaultRole('design', 'ru')!, id: 'writer', title: 'Технический писатель' },
+    // Ссылку на пакет снимаем: роль с ней считается из пакета, и чужие id с
+    // названием в файле означали бы не «своя роль», а «дизайнер под другим id».
+    { ...defaultRole('design', 'ru')!, package: undefined, id: 'writer', title: 'Технический писатель' },
   ];
   writeFileSync(roleFileA, JSON.stringify(savedA, null, 2));
   const rolesRestored = ra.restore();

@@ -89,6 +89,10 @@ export const en = {
   'state.role.modeSet': 'Access mode of role {title}: “{mode}”',
   'state.role.modeInherited': 'Role {title} follows the office mode again: “{mode}”',
   'state.role.updated': 'Role {role} changed: {fields}',
+  'state.role.detached': 'Role {title} ({id}) detached from package {name}: the brief is now edited directly, package updates no longer reach it',
+  'state.role.notLinked': 'Role “{title}” is not linked to a package — nothing to detach.',
+  'state.role.relinked': 'Role {title} ({id}) linked to package {name} {version}',
+  'state.role.packageMissing': 'Package {name} of role {title} ({id}) is not on disk — the role was restored from the save',
 
   'state.settings.noLayout': 'There is no “{id}” layout in design/layouts. Available: {known}.',
   'state.mcp.connected': 'Server "{title}" connected.',

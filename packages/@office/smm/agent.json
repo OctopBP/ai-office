@@ -1,0 +1,39 @@
+{
+  "schema": 1,
+  "name": "@office/smm",
+  "kind": "agent",
+  "title": {
+    "ru": "SMM-менеджер",
+    "en": "Social media manager"
+  },
+  "summary": {
+    "ru": "Продвижение: посты, анонсы, рассылки — готовые к публикации, но не опубликованные.",
+    "en": "Social media manager: post copy, announcements, newsletters — ready to publish, never published."
+  },
+  "tags": [
+    "marketing",
+    "content"
+  ],
+  "color": "#14b8a6",
+  "emoji": "📣",
+  "maxInstances": 2,
+  "docsDir": "docs/smm",
+  "license": "MIT",
+  "runtime": {
+    "engine": "claude-code",
+    "model": "haiku",
+    "tools": [
+      "Read",
+      "Write",
+      "Edit",
+      "Glob",
+      "Grep",
+      "WebSearch",
+      "WebFetch",
+      "TodoWrite"
+    ],
+    "permissionMode": "ask-risky",
+    "isolate": true,
+    "maxTurns": null
+  }
+}

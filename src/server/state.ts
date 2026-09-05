@@ -39,9 +39,11 @@ import { employeeServers } from './skills';
 import { effectiveMode, isPermissionMode, modeLabel } from './permissions';
 import type { MessageQueue } from './queue';
 import {
-  blankRole, defaultRole, defaultRoles, newRoleId, rolesFromOverrides, withManagerRole,
-  type Role,
+  basePackageName, blankRole, defaultRole, defaultRoles, newRoleId, OVERRIDABLE_KEYS,
+  roleFromPackage, rolesFromOverrides, sameValue, withManagerRole,
+  type Role, type RoleLink,
 } from './roles';
+import { loadPackage, packageBrief, PACKAGE_NAME_RE, type AgentPackage } from './packages';
 import {
   DEFAULT_STATE_FILE, flush as flushFile, load, save, wipe as wipeFile,
   type Persisted, type PersistedInstance,
@@ -165,7 +167,7 @@ export function onRoleSetChanged(fn: (state: OfficeState) => void): void {
  */
 const ROLE_EDITABLE_KEYS: readonly (keyof RoleEditable)[] = [
   'title', 'emoji', 'color', 'model', 'permissionMode', 'maxInstances',
-  'isolate', 'maxTurns', 'repoDir', 'sprite', 'brief', 'mcp',
+  'isolate', 'maxTurns', 'repoDir', 'sprite', 'brief', 'briefExtra', 'mcp',
 ];
 
 /**
@@ -183,14 +185,91 @@ const text = (value: unknown): string | undefined =>
   (typeof value === 'string' && value.trim() ? value : undefined);
 
 /**
+ * Ссылка роли на пакет из сохранения — или null, если её нет или она
+ * испорчена. Оверрайды здесь не проверяются по значению: их проверит
+ * roleFromPackage тем же путём, что и правку из формы.
+ */
+function sanitizeLink(raw: unknown): RoleLink | null {
+  if (!raw || typeof raw !== 'object') return null;
+  const link = raw as Partial<RoleLink>;
+  if (typeof link.name !== 'string' || !PACKAGE_NAME_RE.test(link.name)) return null;
+  const overrides = link.overrides && typeof link.overrides === 'object' && !Array.isArray(link.overrides)
+    ? link.overrides : {};
+  return {
+    name: link.name,
+    version: typeof link.version === 'string' ? link.version : '',
+    overrides: { ...overrides },
+    briefExtra: typeof link.briefExtra === 'string' ? link.briefExtra : '',
+  };
+}
+
+/**
+ * Привязать сохранённую роль к пакету, найдя разницу: сохранение старше
+ * пакетов хранит роль целиком, и всё, что в ней отличается от пакета, —
+ * правки человека. Бриф при этом делится так: совпал с брифом пакета на
+ * любом языке — приписки нет; начинается с него — остаток и есть приписка;
+ * другой текст — человек переписал роль, и это форк: null, роль остаётся
+ * без пакета, как и была.
+ */
+function linkFromSave(raw: Partial<Role>, pkg: AgentPackage, id: string, lang: Lang): RoleLink | null {
+  const link: RoleLink = { name: pkg.name, version: pkg.version, overrides: {}, briefExtra: '' };
+  const saved = typeof raw.brief === 'string' ? raw.brief.trimEnd() : '';
+  const briefs = Object.values(pkg.briefs).map((b) => b.trimEnd());
+  if (saved && !briefs.includes(saved)) {
+    const own = briefs.find((b) => b && saved.startsWith(`${b}\n`));
+    if (!own) return null;
+    link.briefExtra = saved.slice(own.length).trim();
+  }
+  const defaults = roleFromPackage(pkg, lang, id);
+  // Название сверяем на обоих языках: файл мог быть сохранён офисом на
+  // другом языке, и «Backend developer» у русского офиса — это не переименование.
+  const titles = Object.values(pkg.manifest.title);
+  for (const key of OVERRIDABLE_KEYS) {
+    const value = raw[key as keyof Role];
+    if (value === undefined) continue;
+    if (key === 'title' && typeof value === 'string' && titles.includes(value)) continue;
+    if (key === 'maxTurns' && sanitizeMaxTurns(value) === undefined) continue;
+    if (!sameValue(value, defaults[key as keyof Role])) {
+      (link.overrides as Record<string, unknown>)[key] = value;
+    }
+  }
+  return link;
+}
+
+/**
  * Причесать одну роль из сохранения. Файл состояния правят руками, а роль
  * уезжает прямо в SDK: без модели и названия она обрушила бы и офис, и запуск
  * сессии. Каждое непригодное поле заменяем базовым значением этой роли —
  * терять из-за одной опечатки весь набор нельзя.
+ *
+ * Роль с пакетом не читается из сохранения, а считается заново из пакета:
+ * так обновлённый пакет доезжает до уже заведённого офиса. Сохранённые поля
+ * нужны ей только на случай, если пакета на диске нет.
  */
 function sanitizeRole(raw: Partial<Role>, id: string, lang: Lang): Role {
-  const builtin = defaultRole(id, lang);
-  const base = builtin ?? blankRole(id);
+  const savedLink = sanitizeLink(raw.package);
+  const archived = raw.archived === true;
+  // Роль без ссылки, но с id нашей базовой роли — сохранение старше пакетов.
+  // Привязываем к пакету, если человек не переписал ей бриф.
+  const pkg = loadPackage(savedLink?.name ?? basePackageName(id));
+  if (pkg) {
+    const link = savedLink ?? linkFromSave(raw, pkg, id, lang);
+    if (link) {
+      // Лимит ходов из правленого файла проверяем как и раньше: испорченный
+      // выкидываем, роль возвращается к офисному.
+      if ('maxTurns' in link.overrides && sanitizeMaxTurns(link.overrides.maxTurns) === undefined) {
+        delete link.overrides.maxTurns;
+      }
+      if (typeof link.overrides.model === 'string' && !MODEL_RE.test(link.overrides.model)) {
+        delete link.overrides.model;
+      }
+      return { ...roleFromPackage(pkg, lang, id, link), archived };
+    }
+  } else if (savedLink) {
+    console.log(c('state.role.packageMissing', { name: savedLink.name, title: text(raw.title) ?? id, id }));
+  }
+
+  const base = blankRole(id);
   const turns = sanitizeMaxTurns(raw.maxTurns);
   const mode = raw.permissionMode;
   return {
@@ -209,25 +288,28 @@ function sanitizeRole(raw: Partial<Role>, id: string, lang: Lang): Role {
     // Непригодный лимит ходов выкидываем: роль вернётся к офисному, а
     // остальные её настройки останутся на месте.
     maxTurns: turns === undefined ? (base.maxTurns ?? null) : turns,
-    // Набор инструментов базовой роли берём из кода, а не из сохранения.
-    // Из UI он не правится (его нет в RoleEditable), то есть в файле лежит
-    // копия того, что код считал верным в день сохранения, — и роль, которой
-    // выдали новый инструмент, не получила бы его ни в одном уже заведённом
-    // офисе. Так дизайнер остался бы со скилом канваса и без оболочки, которой
-    // тот канвас собирается. У роли, заведённой руками, базового набора нет —
-    // там сохранение и есть единственный источник.
-    tools: builtin
-      ? builtin.tools
+    // Набор инструментов из UI не правится (его нет в RoleEditable), так что
+    // у роли без пакета сохранение — единственный его источник. Роль,
+    // отвязанная от нашего пакета, набор пакета берёт по-прежнему из него:
+    // это единственное, что она от пакета ещё получает, и терять выданную
+    // ролью оболочку из-за отвязки незачем.
+    tools: pkg?.manifest.runtime.tools
+      ? [...pkg.manifest.runtime.tools]
       : (Array.isArray(raw.tools)
         ? raw.tools.filter((t): t is string => typeof t === 'string')
         : base.tools),
-    docsDir: text(raw.docsDir) ?? base.docsDir,
+    ...(Array.isArray(raw.mcp)
+      ? { mcp: raw.mcp.filter((m): m is string => typeof m === 'string') }
+      : (pkg ? { mcp: [...pkg.manifest.runtime.mcp] } : {})),
+    docsDir: text(raw.docsDir) ?? pkg?.manifest.docsDir ?? base.docsDir,
     // Пустой repoDir — законное «общий репозиторий офиса», а не пропуск.
     repoDir: typeof raw.repoDir === 'string' ? raw.repoDir : base.repoDir,
     // Пустой спрайт — тоже законное значение: «подбери по id роли».
     sprite: typeof raw.sprite === 'string' ? raw.sprite : base.sprite,
-    archived: raw.archived === true,
+    archived,
     brief: typeof raw.brief === 'string' ? raw.brief : base.brief,
+    // Ссылка на пропавший пакет остаётся: вернётся пакет — вернётся и связь.
+    ...(savedLink ? { package: savedLink } : {}),
   };
 }
 
@@ -1614,6 +1696,8 @@ export class OfficeState {
       permissionMode: r.permissionMode, maxInstances: r.maxInstances,
       isolate: r.isolate, maxTurns: r.maxTurns ?? null,
       repoDir: r.repoDir ?? '', sprite: r.sprite ?? '', brief: r.brief,
+      briefExtra: r.package?.briefExtra ?? '',
+      package: this.packageView(r),
       // Действующий набор, а не сырое поле: у роли без своей подписки это
       // умолчание по её id, и UI должен показывать то, что реально уедет в
       // сессию, а не пустоту.
@@ -1627,6 +1711,21 @@ export class OfficeState {
       effectivePermissionMode: effectiveMode(null, r.permissionMode, officeMode),
       effectiveMaxTurns: this.turnsFor(r),
     }));
+  }
+
+  /**
+   * Пакет роли для формы: имя, версия и бриф пакета на языке офиса — тот
+   * текст, который форма показывает только для чтения над припиской.
+   * Пакета на диске нет — показываем то, что помним по ссылке, без брифа.
+   */
+  private packageView(role: Role): RoleView['package'] {
+    if (!role.package) return null;
+    const pkg = loadPackage(role.package.name);
+    return {
+      name: role.package.name,
+      version: pkg?.version ?? role.package.version,
+      brief: pkg ? packageBrief(pkg, this.lang()) : '',
+    };
   }
 
   // ---------- создание, правка и архивация ролей ----------
@@ -1788,6 +1887,8 @@ export class OfficeState {
       repoDir: typeof draft.repoDir === 'string' ? draft.repoDir.trim() : '',
       sprite: typeof draft.sprite === 'string' ? draft.sprite.trim() : '',
       brief: typeof draft.brief === 'string' ? draft.brief : '',
+      // Заведённая руками роль пакета не имеет — приписывать не к чему.
+      briefExtra: '',
     };
     const errors = await this.checkRolePatch(wanted, null);
     if (errors.length) return { errors };
@@ -1913,6 +2014,26 @@ export class OfficeState {
   }
 
   /**
+   * Отвязать роль от пакета — форк. Вычисленная роль остаётся какой была,
+   * включая бриф с припиской, и дальше живёт как заведённая руками: бриф
+   * правится напрямую, обновления пакета до неё не доходят. Обратного пути
+   * нет — привязать заново значит завести роль из пакета ещё раз.
+   */
+  detachRole(roleId: string): FieldError[] {
+    const role = this.role(roleId);
+    if (!role) return [{ field: '', message: this.say('state.role.missing', { role: roleId }) }];
+    if (!role.package) return [{ field: '', message: this.say('state.role.notLinked', { title: role.title }) }];
+    const before = this.roleMenuSignature();
+    const { package: link, ...rest } = role;
+    this.roleList = this.roleList.map((r) => (r.id === roleId ? rest : r));
+    this.addLog(null, 'system', this.say('state.role.detached', {
+      title: role.title, id: roleId, name: link.name,
+    }));
+    this.roleSetChanged(before);
+    return [];
+  }
+
+  /**
    * Применить правку роли. Проверки полей — в editRole: сюда правка приходит
    * уже разобранной, а этот метод отвечает за то, чтобы она легла в набор и
    * доехала до всех, кого касается.
@@ -1959,8 +2080,28 @@ export class OfficeState {
     // Правка ложится в набор ролей самого офиса: соседний работает со своими.
     // Роль заменяется новым объектом, а не правится на месте: снимок, который
     // держит уже запущенная сессия, обязан остаться прежним.
-    this.roleList = this.roleList.map((r) =>
-      (r.id === roleId ? { ...r, ...(clean as Partial<Role>) } : r));
+    //
+    // У роли с пакетом правка ложится не в саму роль, а в разницу с пакетом:
+    // поле, вернувшееся к умолчанию пакета, из разницы уходит, а бриф
+    // правится только припиской — сам бриф пакета неприкосновенен.
+    const pkg = base.package ? loadPackage(base.package.name) : null;
+    if (base.package && pkg) {
+      const link: RoleLink = { ...base.package, overrides: { ...base.package.overrides } };
+      for (const key of OVERRIDABLE_KEYS) {
+        if (!(key in clean)) continue;
+        (link.overrides as Record<string, unknown>)[key] = clean[key];
+      }
+      if ('briefExtra' in clean) link.briefExtra = String(clean.briefExtra ?? '').trim();
+      // `brief` у привязанной роли не правится: форма его и не шлёт, а патч
+      // из сети с ним молча отбрасывается — отвязка делается явной командой.
+      delete clean.brief;
+      this.roleList = this.roleList.map((r) =>
+        (r.id === roleId ? { ...roleFromPackage(pkg, this.lang(), roleId, link), archived: r.archived } : r));
+    } else {
+      delete clean.briefExtra;
+      this.roleList = this.roleList.map((r) =>
+        (r.id === roleId ? { ...r, ...(clean as Partial<Role>) } : r));
+    }
     if ('permissionMode' in clean && clean.permissionMode !== base.permissionMode) {
       this.addLog(null, 'system', clean.permissionMode
         ? this.say('state.role.modeSet', {
@@ -2096,14 +2237,25 @@ export class OfficeState {
   private applyLanguage(prevLang: Lang): void {
     const lang = this.lang();
     setProcessLang(lang);
-    for (const role of this.roleList) {
+    this.roleList = this.roleList.map((role) => {
+      // Роль из пакета просто считается заново на новом языке: бриф и
+      // название пакета переводятся, оверрайды и приписка остаются.
+      const pkg = role.package ? loadPackage(role.package.name) : null;
+      if (role.package && pkg) {
+        return { ...roleFromPackage(pkg, lang, role.id, role.package), archived: role.archived };
+      }
+      // Отвязанная от нашего пакета роль: переводим лишь то, что человек
+      // не трогал. Роль, заведённую руками, не трогаем вовсе — её слова наши
+      // только по форме, а не по смыслу.
       const was = defaultRole(role.id, prevLang);
-      // Роль завели руками — её слова наши только по форме, а не по смыслу.
-      if (!was) continue;
+      if (!was) return role;
       const now = defaultRole(role.id, lang)!;
-      if (role.title === was.title) role.title = now.title;
-      if (role.brief === was.brief) role.brief = now.brief;
-    }
+      return {
+        ...role,
+        title: role.title === was.title ? now.title : role.title,
+        brief: role.brief === was.brief ? now.brief : role.brief,
+      };
+    });
     // Ярлык сотрудника собран из названия роли — переводится вместе с ним.
     for (const inst of this.instances.values()) {
       const role = this.role(inst.roleId);

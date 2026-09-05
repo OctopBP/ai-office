@@ -1,0 +1,28 @@
+{
+  "schema": 1,
+  "name": "@office/backend",
+  "kind": "agent",
+  "title": {
+    "ru": "Backend разработчик",
+    "en": "Backend developer"
+  },
+  "summary": {
+    "ru": "Серверная часть: API, бизнес-логика, данные, скрипты.",
+    "en": "Server-side developer: APIs, business logic, data, scripts."
+  },
+  "tags": [
+    "code",
+    "backend"
+  ],
+  "color": "#3b82f6",
+  "emoji": "⚙️",
+  "maxInstances": 3,
+  "license": "MIT",
+  "runtime": {
+    "engine": "claude-code",
+    "model": "opus",
+    "permissionMode": "ask-risky",
+    "isolate": true,
+    "maxTurns": null
+  }
+}

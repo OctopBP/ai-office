@@ -1,0 +1,31 @@
+{
+  "schema": 1,
+  "name": "@office/frontend",
+  "kind": "agent",
+  "title": {
+    "ru": "Frontend разработчик",
+    "en": "Frontend developer"
+  },
+  "summary": {
+    "ru": "Клиентская часть: разметка, стили, клиентская логика; макеты читает из Figma.",
+    "en": "Client-side developer: markup, styles, client logic; reads layouts from Figma."
+  },
+  "tags": [
+    "code",
+    "frontend"
+  ],
+  "color": "#ec4899",
+  "emoji": "🎨",
+  "maxInstances": 3,
+  "license": "MIT",
+  "runtime": {
+    "engine": "claude-code",
+    "model": "sonnet",
+    "permissionMode": "ask-risky",
+    "isolate": true,
+    "maxTurns": null,
+    "mcp": [
+      "figma-bridge"
+    ]
+  }
+}

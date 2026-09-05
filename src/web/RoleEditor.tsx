@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import {
-  accessLabel, fullAccessWarning, archiveRole, clearRoleFeedback, createRole,
+  accessLabel, fullAccessWarning, archiveRole, clearRoleFeedback, createRole, detachRole,
   parseTaskMaxTurns, removeRole, updateRole, useStore,
 } from './store';
 import { t } from './i18n';
@@ -34,7 +34,7 @@ const modes = (): Array<[PermissionMode, string]> => [
 const BLANK: RoleEditable = {
   title: '', emoji: '🙂', color: '#94a3b8', model: 'claude-sonnet-5',
   permissionMode: null, maxInstances: 1, isolate: true, maxTurns: null,
-  repoDir: '', sprite: LOOKS[0].id, brief: '', mcp: [],
+  repoDir: '', sprite: LOOKS[0].id, brief: '', briefExtra: '', mcp: [],
 };
 
 /**
@@ -54,7 +54,8 @@ export function RoleEditor({ role, onSaved, onDeleted }: {
   const [draft, setDraft] = useState<Partial<RoleEditable>>({});
   const [turns, setTurns] = useState(role?.maxTurns?.toString() ?? '');
   const [confirmAuto, setConfirmAuto] = useState(false);
-  const [submittedOp, setSubmittedOp] = useState<'create' | 'update' | 'archive' | 'restore' | 'remove' | null>(null);
+  const [submittedOp, setSubmittedOp] = useState<'create' | 'update' | 'archive' | 'restore' | 'remove' | 'detach' | null>(null);
+  const [confirmDetach, setConfirmDetach] = useState(false);
   const [fieldErrors, setFieldErrors] = useState<{ field: string; message: string }[]>([]);
 
   useEffect(() => {
@@ -65,6 +66,7 @@ export function RoleEditor({ role, onSaved, onDeleted }: {
     setFieldErrors([]);
     clearRoleFeedback();
     if (submittedOp === 'remove') onDeleted();
+    else if (submittedOp === 'detach') setConfirmDetach(false);
     else if (roleFeedback.roleId) onSaved(roleFeedback.roleId);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [roleFeedback]);
@@ -131,6 +133,12 @@ export function RoleEditor({ role, onSaved, onDeleted }: {
     setFieldErrors([]);
     setSubmittedOp('remove');
     removeRole(role.id);
+  };
+  const doDetach = () => {
+    if (!role) return;
+    setFieldErrors([]);
+    setSubmittedOp('detach');
+    detachRole(role.id);
   };
 
   const officeLabel = accessLabel(settings.officePermissionMode);
@@ -268,10 +276,28 @@ export function RoleEditor({ role, onSaved, onDeleted }: {
         )}
       </div>
 
-      <label>{t('role.brief')}
-        <textarea rows={6} value={value.brief} onChange={(e) => set('brief', e.target.value)} />
-        <span className="hint">{t('role.brief.hint')}</span>
-      </label>
+      {role?.package ? (
+        // Роль из пакета: бриф пакета только для чтения, своё — припиской.
+        // Так обновление пакета никогда не спорит с тем, что дописал человек.
+        <>
+          <label>{t('role.package.brief')}
+            <span className="hint muted">
+              {role.package.name} · {t('role.package.version', { version: role.package.version })}
+            </span>
+            <textarea rows={6} value={role.package.brief} readOnly />
+            <span className="hint">{t('role.package.brief.hint')}</span>
+          </label>
+          <label>{t('role.briefExtra')}
+            <textarea rows={4} value={value.briefExtra} onChange={(e) => set('briefExtra', e.target.value)} />
+            <span className="hint">{t('role.briefExtra.hint')}</span>
+          </label>
+        </>
+      ) : (
+        <label>{t('role.brief')}
+          <textarea rows={6} value={value.brief} onChange={(e) => set('brief', e.target.value)} />
+          <span className="hint">{t('role.brief.hint')}</span>
+        </label>
+      )}
 
       <div className="modal-actions">
         <button className="allow" onClick={save} disabled={!!turnsError || submittedOp !== null}>
@@ -299,6 +325,25 @@ export function RoleEditor({ role, onSaved, onDeleted }: {
           >
             {t('role.remove')}
           </button>
+          {role.package && !confirmDetach && (
+            <button
+              className="link-danger" disabled={submittedOp !== null} title={t('role.detach.hint')}
+              onClick={() => setConfirmDetach(true)}
+            >
+              {t('role.detach')}
+            </button>
+          )}
+          {role.package && confirmDetach && (
+            <div className="access-confirm">
+              <p>{t('role.detach.hint')}</p>
+              <div className="modal-actions">
+                <button onClick={() => setConfirmDetach(false)}>{t('common.cancel')}</button>
+                <button className="danger" disabled={submittedOp !== null} onClick={doDetach}>
+                  {t('role.detach.confirm')}
+                </button>
+              </div>
+            </div>
+          )}
         </div>
       )}
     </div>
