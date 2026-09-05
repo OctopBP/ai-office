@@ -21,6 +21,9 @@ export interface Palette {
   ground: string;
   /** материалы пола комнат */
   floor: Record<Floor3['material'], string>;
+  /** линии сетки тайлов по полу; вторая — каждая пятая линия */
+  grid: string;
+  gridMajor: string;
   /** стена и её торец сверху */
   wall: string;
   wallTop: string;
@@ -111,6 +114,8 @@ export const PALETTES: Record<Theme, Palette> = {
       carpet: '#9aa8bb',
       tile: '#dfe4ea',
     },
+    grid: '#8b8f98',
+    gridMajor: '#4d525c',
     wall: '#f0f2f5',
     wallTop: '#dcdfe6',
     glass: '#bcd8e8',
@@ -150,6 +155,8 @@ export const PALETTES: Record<Theme, Palette> = {
       carpet: '#4e5a73',
       tile: '#59626f',
     },
+    grid: '#8d97a8',
+    gridMajor: '#c6d0e0',
     wall: '#4a5464',
     wallTop: '#39424f',
     glass: '#1a2634',

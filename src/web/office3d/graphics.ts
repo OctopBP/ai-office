@@ -14,6 +14,16 @@ export interface Graphics {
   normalEdge: number;
   /** Тёмный контур на границе предметов (по глубине). */
   depthEdge: number;
+  /**
+   * Сетка тайлов по всему полу — линейка, а не украшение.
+   *
+   * След предмета задаётся в тайлах, проходимость считается по ним же, а на
+   * глаз в комнате тайла не видно: мебель, ставшая вдвое больше, выглядит
+   * просто крупной мебелью. С сеткой это становится измеримым — видно, на
+   * сколько клеток предмет лёг и совпадает ли это с тем, что записано в
+   * пресете.
+   */
+  grid: boolean;
 }
 
 /**
@@ -30,6 +40,7 @@ export const DEFAULT_GRAPHICS: Graphics = {
   pixelSize: 4,
   normalEdge: 0.3,
   depthEdge: 0.4,
+  grid: false,
 };
 
 /** Пределы ползунков — они же границы, по которым чинится значение из
@@ -68,6 +79,7 @@ export function loadGraphics(): Graphics {
       clamp(saved.pixelSize, DEFAULT_GRAPHICS.pixelSize, GRAPHICS_RANGE.pixelSize)),
     normalEdge: clamp(saved.normalEdge, DEFAULT_GRAPHICS.normalEdge, GRAPHICS_RANGE.normalEdge),
     depthEdge: clamp(saved.depthEdge, DEFAULT_GRAPHICS.depthEdge, GRAPHICS_RANGE.depthEdge),
+    grid: typeof saved.grid === 'boolean' ? saved.grid : DEFAULT_GRAPHICS.grid,
   };
 }
 

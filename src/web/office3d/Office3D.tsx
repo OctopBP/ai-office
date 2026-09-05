@@ -170,6 +170,52 @@ function Floors({ scene, palette }: { scene: Scene3; palette: Palette }) {
   );
 }
 
+/**
+ * Сетка тайлов по всему полу раскладки.
+ *
+ * Рисуется линиями, а не текстурой пола: пол собран из комнат разного
+ * материала плюс общая плита под ними, и класть на каждую свою текстуру
+ * значило бы совмещать их по швам. Линии же кладутся поверх всего разом, и
+ * сетка получается сплошной — она про раскладку, а не про комнату.
+ *
+ * Каждая пятая линия толще и темнее: без опоры глаз не считает больше трёх
+ * клеток подряд, а вопрос к сетке обычно «на сколько тайлов лёг диван».
+ *
+ * Высота — сантиметр над нулём. Ноль здесь не «низ сцены», а отметка, на
+ * которой стоит мебель: пол комнаты кончается ровно на ней. Точно на уровне
+ * линию класть нельзя — она мерцает з-файтингом, а под уровнем её съедает пол.
+ */
+function FloorGrid({ scene, palette }: { scene: Scene3; palette: Palette }) {
+  const [cols, rows] = scene.size;
+  const y = 0.01;
+  const [minor, major] = useMemo(() => {
+    const thin: number[] = [];
+    const thick: number[] = [];
+    for (let x = 0; x <= cols; x++) {
+      (x % 5 === 0 ? thick : thin).push(x, 0, 0, x, 0, rows);
+    }
+    for (let z = 0; z <= rows; z++) {
+      (z % 5 === 0 ? thick : thin).push(0, 0, z, cols, 0, z);
+    }
+    return [new Float32Array(thin), new Float32Array(thick)];
+  }, [cols, rows]);
+
+  return (
+    <group position={[0, y, 0]}>
+      {([[minor, palette.grid, 0.35], [major, palette.gridMajor, 0.7]] as const).map(
+        ([points, color, opacity], i) => (
+          <lineSegments key={i}>
+            <bufferGeometry>
+              <bufferAttribute attach="attributes-position" args={[points, 3]} />
+            </bufferGeometry>
+            <lineBasicMaterial color={color} transparent opacity={opacity} depthWrite={false} />
+          </lineSegments>
+        ),
+      )}
+    </group>
+  );
+}
+
 export function Office3D({ onOpen, onDoor }: {
   onOpen: (panel: HotspotPanel) => void;
   onDoor: () => void;
@@ -261,6 +307,7 @@ export function Office3D({ onOpen, onDoor }: {
             та же точка, и ни одну из них не приходится возить за раскладкой. */}
         <group position={[offset[0], 0, offset[1]]}>
           <Floors scene={scene} palette={palette} />
+          {graphics.grid && <FloorGrid scene={scene} palette={palette} />}
           {scene.walls.map((wall, i) => (
             <WallSegment key={i} wall={wall} offset={offset} palette={palette} />
           ))}
