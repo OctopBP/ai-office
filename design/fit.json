@@ -2,7 +2,7 @@
   "version": 1,
   "figure": {
     "tall": 2.3,
-    "furniture": 0.605
+    "furniture": 1
   },
   "walk": {
     "tilesPerSec": 5,
