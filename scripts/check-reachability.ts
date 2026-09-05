@@ -13,6 +13,7 @@ import { fileURLToPath } from 'node:url';
 import {
   desks, deskPoint, findPath, isBlocked, kitchenSeats, meetingSeat, passability,
 } from '../src/shared/layout';
+
 import type { Catalog, Layout, Pos } from '../src/shared/layout';
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
@@ -79,13 +80,17 @@ function checkAll(layout: Layout): { start: Pos; rows: Row[] } {
   }
 
   const rows: Row[] = targets.map(({ label, point }) => {
-    const path = findPath(p, start, point);
-    if (path) return { label, point, reachable: true, reason: '' };
-    const fx = Math.floor(point.x);
-    const fy = Math.floor(point.y);
-    const reason = isBlocked(p, fx, fy)
-      ? 'сама точка на непроходимом тайле'
-      : 'точка свободна, но изолирована от опенспейса (путь не найден)';
+    // Точка места вполне может лежать на занятом тайле — сиденье это сама
+    // мебель, — поэтому «достижимо» значит не «тайл свободен», а «маршрут
+    // кончается в самой точке»: подошёл вплотную и сел.
+    const path = findPath(p, start, point, { bestEffort: true });
+    const end = path?.[path.length - 1];
+    if (end && Math.hypot(end.x - point.x, end.y - point.y) < 1e-6) {
+      return { label, point, reachable: true, reason: '' };
+    }
+    const reason = end
+      ? `дошли только до (${end.x.toFixed(2)}, ${end.y.toFixed(2)}) — дальше не пускает карта`
+      : 'из опенспейса нет пути вовсе';
     return { label, point, reachable: false, reason };
   });
 

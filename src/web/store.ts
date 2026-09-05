@@ -19,37 +19,79 @@ import { fitNow } from './office3d/fit';
 import { catalog, DEFAULT_LAYOUT_ID, layoutFor, passabilityFor } from './layoutData';
 import { interestsFor } from './interests';
 import { isBusy } from './agentState';
-import { findPath, meetingSeat } from '../shared/layout';
+import { adjacentFree, deskPoint, findPath, meetingSeat } from '../shared/layout';
 
 interface Pos { x: number; y: number }
 
 /**
- * Позиция агента для отрисовки плюс длительность WAAPI-перехода к ней —
- * считается в walkTo/stepWalk по длине отрезка (§7 спеки), а не константа.
- * ms = 0 — телепорт без анимации (первое появление, снапшот, неизвестная
- * текущая позиция).
+ * Куда агент идёт и каким путём.
+ *
+ * Стор отдаёт рендеру не «следующую точку через столько-то миллисекунд», а
+ * **весь маршрут сразу**: ломаную по карте проходимости и скорость в тайлах
+ * в секунду. Вести по ней фигуру — дело рендера, у которого есть кадры.
+ *
+ * Так было не всегда: раньше стор сам шагал по ломаной цепочкой setTimeout,
+ * выкладывая по точке за раз. В фоновой вкладке браузер режет setTimeout до
+ * одного срабатывания в секунду, а rAF останавливает вовсе, — и, вернувшись
+ * на вкладку, человек видел не идущих агентов, а уже стоящих по местам: стор
+ * успел доскакать до конца маршрута, пока рендер не рисовал ни кадра. Это и
+ * был тот самый «рывком телепортируется до рабочего места».
  */
-interface WalkPos extends Pos { ms: number }
+interface WalkPos extends Pos {
+  /**
+   * Ломаная от точки выхода до цели, включая оба конца. Одна точка — стоять
+   * на месте (первое появление, снапшот, некуда идти).
+   */
+  path: Pos[];
+  /** Постоянная скорость на весь маршрут, тайлов в секунду. */
+  speed: number;
+  /**
+   * Номер маршрута. Рендер начинает вести фигуру заново, когда номер
+   * сменился, — так новый маршрут отменяет недойденный прежний (агент шёл на
+   * кухню, а его позвали на совещание).
+   */
+  seq: number;
+  /** Цель — собственный стол агента: от этого зависят поза и свет монитора. */
+  atDesk: boolean;
+  /** Маршрут пройден. Ставит рендер: только он знает, где фигура на самом деле. */
+  arrived: boolean;
+}
+
+/** Цель ходьбы: точная точка места и то, стол ли это. */
+interface WalkTarget { at: Pos; atDesk: boolean }
 
 /**
- * «Домашняя» позиция агента, когда он не на совещании и не в момент передачи
- * задачи: занятый сидит за своим столом, свободный — там, где ему нашлось
- * занятие. Кто занят, решает `isBusy` — у исполнителя это задача, у менеджера
- * ход разговора; отдельного флага занятости на клиенте не заводим.
+ * «Дом» агента, когда он не на совещании и не в момент передачи задачи:
+ * занятый сидит за своим столом, свободный — там, где ему нашлось занятие.
+ * Кто занят, решает `isBusy` — у исполнителя это задача, у менеджера ход
+ * разговора; отдельного флага занятости на клиенте не заводим.
  *
  * Менеджер тут ничем не выделен нарочно: раньше он сидел за компьютером
  * всегда, даже когда офису нечего было ему сказать, и выглядело это не как
  * «начальник на месте», а как забытая на сцене фигура.
+ *
+ * Возвращается **точка слота `work`**, а не якорь стола. Прежде стор вёл
+ * агента в якорь — клетку внутри следа стола, — а рисовал его рендер у
+ * рабочей точки на тайл севернее: маршрут заканчивался внутри стола, а
+ * фигура в последний момент перескакивала наружу. Теперь у логики и у
+ * картинки одна и та же точка.
  */
-function homePos(
+function homeTarget(
   inst: InstanceView, roles: RoleView[], layout: Layout, instances: Record<string, InstanceView>,
-): Pos {
-  if (isBusy(inst, roles)) return { x: inst.desk.x, y: inst.desk.y };
+): WalkTarget {
+  // Столов меньше, чем сотрудников: этому места не хватило, и `desk.index`
+  // указывает не на стол текущей раскладки, а на запомненный номер. Спрашивать
+  // по нему точку слота нельзя — `deskPoint` бросит исключение.
+  if (inst.deskless) return { at: { x: inst.desk.x, y: inst.desk.y }, atDesk: false };
+  const desk = (): WalkTarget => ({
+    at: deskPoint(layout, catalog, inst.desk.index, 'work'), atDesk: true,
+  });
+  if (isBusy(inst, roles)) return desk();
   // Свободный идёт туда, где ему нашлось занятие: поговорить, поиграть,
   // посидеть. Если занятий в раскладке нет вовсе — остаётся за своим столом:
   // по смыслу хуже, но сцену пустой координатой не ломает.
-  return interestsFor(layout, catalog, instances, roles).get(inst.id)?.at
-    ?? { x: inst.desk.x, y: inst.desk.y };
+  const spot = interestsFor(layout, catalog, instances, roles).get(inst.id)?.at;
+  return spot ? { at: spot, atDesk: false } : desk();
 }
 
 /**
@@ -403,9 +445,20 @@ export const useStore = create<State>((set, get) => ({
         // нём уже собираются на новом языке.
         setLang(e.settings.language);
         const instances = Object.fromEntries(e.instances.map((i) => [i.id, i]));
-        const pos = Object.fromEntries(
-          e.instances.map((i) => [i.id, { ...homePos(i, e.roles, e.layout, instances), ms: 0 }]),
-        );
+        // Снапшот — это не приход в офис, а картина офиса, который уже
+        // работает: агентов ставим по местам без ходьбы. Живые позиции
+        // прежнего офиса при этом больше ни о чём: сцена собирается заново.
+        // Один общий номер маршрута на всех — ходить никто из них не начинает.
+        livePos.clear();
+        walkSeq += 1;
+        const seq = walkSeq;
+        const pos = Object.fromEntries(e.instances.map((i) => {
+          const home = homeTarget(i, e.roles, e.layout, instances);
+          return [i.id, {
+            ...home.at, path: [{ ...home.at }], speed: walkSpeed(),
+            seq, atDesk: home.atDesk, arrived: true,
+          }];
+        }));
         set((s) => ({
           lang: asLang(e.settings.language),
           roles: e.roles, instances, pos,
@@ -451,11 +504,12 @@ export const useStore = create<State>((set, get) => ({
         set((s) => ({ instances: { ...s.instances, [e.instance.id]: e.instance } }));
         if (shouldMove) {
           const s1 = get();
-          walkTo(e.instance.id, homePos(e.instance, s1.roles, s1.layout, s1.instances));
+          walkTo(e.instance.id, homeTarget(e.instance, s1.roles, s1.layout, s1.instances));
         }
         break;
       }
       case 'instance.remove':
+        livePos.delete(e.id);
         set((s) => {
           const instances = { ...s.instances };
           delete instances[e.id];
@@ -597,7 +651,7 @@ export const useStore = create<State>((set, get) => ({
         const inMeeting = new Set(s0.meeting?.status === 'running' ? s0.meeting.participants : []);
         for (const inst of Object.values(s0.instances)) {
           if (inMeeting.has(inst.id)) continue;
-          walkTo(inst.id, homePos(inst, s0.roles, e.layout, s0.instances));
+          walkTo(inst.id, homeTarget(inst, s0.roles, e.layout, s0.instances));
         }
         break;
       }
@@ -625,11 +679,11 @@ export const useStore = create<State>((set, get) => ({
           const total = e.meeting.participants.length;
           e.meeting.participants.forEach((id, i) => {
             const seat = meetingSeat(s0.layout, catalog, i, total);
-            walkTo(id, { x: seat.x, y: seat.y });
+            walkTo(id, { at: { x: seat.x, y: seat.y }, atDesk: false });
           });
         } else {
           for (const inst of Object.values(s0.instances)) {
-            walkTo(inst.id, homePos(inst, s0.roles, s0.layout, s0.instances));
+            walkTo(inst.id, homeTarget(inst, s0.roles, s0.layout, s0.instances));
           }
         }
         break;
@@ -645,14 +699,22 @@ export const useStore = create<State>((set, get) => ({
         const target = get().instances[e.to];
         const home = get().instances[e.from];
         if (!target || !home) break;
-        walkTo(e.from, { x: target.desk.x - 1.1, y: target.desk.y + 0.9 });
+        // Встать рядом с рабочей точкой адресата, а не в неё саму: за ней
+        // сидит человек. Клетку выбирает карта — прежнее «на тайл левее и
+        // чуть ниже якоря стола» у крайнего слева стола уводило за пределы
+        // комнаты, и путь туда искать было негде.
+        const workAt = target.deskless
+          ? { x: target.desk.x, y: target.desk.y }
+          : deskPoint(get().layout, catalog, target.desk.index, 'work');
+        const beside = adjacentFree(passabilityFor(get().layout), workAt) ?? workAt;
+        walkTo(e.from, { at: beside, atDesk: false });
         setTimeout(() => {
           // Куда возвращаться, спрашиваем в момент возврата, а не сейчас: за
           // две с половиной секунды менеджер мог закончить ход, и тогда его
           // дом — уже не стол, а место отдыха.
           const s1 = get();
           const back = s1.instances[e.from] ?? home;
-          walkTo(e.from, homePos(back, s1.roles, s1.layout, s1.instances));
+          walkTo(e.from, homeTarget(back, s1.roles, s1.layout, s1.instances));
         }, 2600);
         break;
       }
@@ -685,61 +747,105 @@ function walkSpeed(): number {
   return Number.isFinite(v) && v > 0 ? v : WALK_TILES_PER_SEC;
 }
 
-/** Отрезок короче этого не проходится мгновенно — иначе микросдвиги (например,
- * после правки расстановки) выглядели бы как телепорт без анимации. */
-const MIN_WALK_MS = 120;
+/**
+ * Номер следующего маршрута — общий счётчик на всех агентов. Сравниваются
+ * номера только с прежним номером того же агента, поэтому один счётчик на
+ * офис проще отдельных и так же надёжен.
+ */
+let walkSeq = 0;
 
-function legDurationMs(from: Pos, to: Pos): number {
-  const tiles = Math.hypot(to.x - from.x, to.y - from.y);
-  return Math.max(MIN_WALK_MS, Math.round((tiles / walkSpeed()) * 1000));
+/**
+ * Где фигура агента стоит прямо сейчас, в тайлах раскладки.
+ *
+ * Пишет рендер каждый кадр, читает поиск пути. Не состояние стора нарочно:
+ * перерисовывать офис по движению фигуры незачем — она и так рисуется каждый
+ * кадр, — а вот строить новый маршрут надо именно от того места, где человек
+ * оказался. Раньше на этот вопрос отвечать было нечем, и маршрут, перебитый
+ * на полпути, начинался от точки выхода: агент, которого позвали на совещание
+ * посреди комнаты, сперва возвращался туда, откуда вышел.
+ */
+const livePos = new Map<string, Pos>();
+
+/** Рендер сообщает, где фигура. Вызывается из кадра — ничего не перерисовывает. */
+export function reportPosition(instanceId: string, x: number, y: number): void {
+  livePos.set(instanceId, { x, y });
 }
 
 /**
- * Поколение текущего перемещения агента — новый вызов walkTo() отменяет ещё
- * не доигранные отрезки прежнего (например, агент шёл на кухню, а его тут же
- * позвали на совещание): stepWalk сверяется со своим поколением и молча
- * останавливается, если оно устарело.
+ * Ставит агента в точку без ходьбы: первое появление, снапшот, смена офиса.
+ * Маршрут из одной точки — рендер поймёт его как «просто стой здесь».
  */
-const walkGen = new Map<string, number>();
-
-/**
- * Один отрезок пути: переносит агента в точку и через вычисленную по длине
- * отрезка длительность зовёт следующий. Саму визуальную интерполяцию между
- * точками рисует WAAPI-анимация в Office.tsx, а не CSS-переход, — здесь
- * только тайминг и данные (позиция + длительность), как и положено логике
- * ходьбы в сторе.
- */
-function stepWalk(instanceId: string, waypoints: Pos[], i: number, gen: number): void {
-  if (walkGen.get(instanceId) !== gen) return;
-  if (i >= waypoints.length) return;
-  const ms = legDurationMs(waypoints[i - 1], waypoints[i]);
-  useStore.setState((s) => ({ pos: { ...s.pos, [instanceId]: { ...waypoints[i], ms } } }));
-  if (i + 1 < waypoints.length) {
-    setTimeout(() => stepWalk(instanceId, waypoints, i + 1, gen), ms);
-  }
+function placeAt(instanceId: string, target: WalkTarget): void {
+  walkSeq += 1;
+  const seq = walkSeq;
+  useStore.setState((s) => ({
+    pos: {
+      ...s.pos,
+      [instanceId]: {
+        ...target.at, path: [{ ...target.at }], speed: walkSpeed(),
+        seq, atDesk: target.atDesk, arrived: true,
+      },
+    },
+  }));
 }
 
 /**
- * Ведёт агента к точке по ломаной из findPath (§7 спеки), отрезок за
- * отрезком, вместо прыжка по прямой. Сетка проходимости берётся из кэша
- * `passabilityFor` — считается один раз на раскладку, не на каждый шаг.
- * Если пути нет (изолированная зона, начальная или конечная клетка заняты)
- * или начальная позиция агента ещё не известна — ведёт себя предсказуемо:
- * идёт напрямую, как до этого этапа, а не зависает и не телепортируется.
+ * Ведёт агента к точке по карте проходимости (§7): считает ломаную и отдаёт
+ * её рендеру целиком. Сетка берётся из кэша `passabilityFor` — считается один
+ * раз на раскладку, не на каждый шаг.
+ *
+ * Пути нет (цель на занятой клетке, комната отрезана) — идём настолько
+ * близко, насколько пускает карта (`bestEffort`), но не напрямую. Прежний
+ * запасной ход «идти по прямой» и означал «сквозь стены»: достаточно было
+ * цели на занятом тайле — менеджер, например, шёл к чужому столу в точку
+ * `desk.x - 1.1`, которая у крайнего слева стола попадала вообще за пределы
+ * комнаты, — и агент честно шёл по прямой через всё, что было между.
  */
-function walkTo(instanceId: string, target: Pos): void {
-  const gen = (walkGen.get(instanceId) ?? 0) + 1;
-  walkGen.set(instanceId, gen);
+function walkTo(instanceId: string, target: WalkTarget): void {
   const s = useStore.getState();
   const current = s.pos[instanceId];
-  if (!current) {
-    useStore.setState((st) => ({ pos: { ...st.pos, [instanceId]: { ...target, ms: 0 } } }));
-    return;
-  }
+  if (!current) { placeAt(instanceId, target); return; }
+
   const grid = passabilityFor(s.layout);
-  const path = findPath(grid, current, target);
-  const waypoints = path ?? [current, target];
-  stepWalk(instanceId, waypoints, 1, gen);
+  const grounded = { x: current.x, y: current.y };
+  // От того места, где фигура на самом деле, — его сообщает рендер. Пока он не
+  // сказал ни слова (первый кадр ещё не нарисован), берём цель прежнего
+  // маршрута: другого ответа просто нет.
+  const from = livePos.get(instanceId) ?? grounded;
+  // `bestEffort` отказывает только когда свободной клетки нет во всей округе —
+  // например, координата фигуры уехала за пределы комнаты. Тогда пробуем от
+  // цели прежнего маршрута: это место заведомо на карте.
+  const path = findPath(grid, from, target.at, { bestEffort: true })
+    ?? findPath(grid, grounded, target.at, { bestEffort: true });
+  // Не нашлось и оттуда — агент остаётся там, где стоит. Прежде здесь был
+  // запасной ход «идти напрямую», и он-то и означал «сквозь стены».
+  if (!path) return;
+  const end = path[path.length - 1];
+
+  walkSeq += 1;
+  const seq = walkSeq;
+  useStore.setState((st) => ({
+    pos: {
+      ...st.pos,
+      [instanceId]: {
+        x: end.x, y: end.y, path, speed: walkSpeed(),
+        seq, atDesk: target.atDesk, arrived: path.length < 2,
+      },
+    },
+  }));
+}
+
+/**
+ * Рендер дошёл до конца маршрута. Отдельное событие, а не таймер в сторе:
+ * «дошёл» — это факт о картинке, и знает его тот, кто рисует кадры. По нему
+ * загорается монитор на столе (`useLitDesks`) и агент садится.
+ */
+export function markArrived(instanceId: string, seq: number): void {
+  useStore.setState((s) => {
+    const walk = s.pos[instanceId];
+    if (!walk || walk.seq !== seq || walk.arrived) return {};
+    return { pos: { ...s.pos, [instanceId]: { ...walk, arrived: true } } };
+  });
 }
 
 function pushToast(toast: Toast): void {

@@ -261,7 +261,7 @@ function isPoint(slot: CatalogSlot): slot is SlotPoint {
   return 'x' in slot && 'y' in slot;
 }
 
-function spriteOf(catalog: Catalog, name: string): CatalogSprite | undefined {
+export function spriteOf(catalog: Catalog, name: string): CatalogSprite | undefined {
   return catalog.sprites[name];
 }
 
@@ -406,26 +406,6 @@ function ringSeatsAt(prop: LayoutProp, sprite: CatalogSprite, slot: SlotRing, to
   return seats;
 }
 
-/**
- * Позиции ring-слота по всем реалистичным total, которые нужно расчистить в
- * `passability()`: реальный `total` на встрече — из runtime и заранее
- * неизвестен, а расчистка только базовой окружности (`total = ring`) не
- * покрывает остальные случаи — при `total`, не делящем `ring` нацело (3, 5,
- * 6, 7…), либо превышающем его (рост эллипса), места ложатся на другие
- * клетки, которые всё ещё числятся частью footprint предмета (у него нет
- * своей точной формы — это прямоугольник, у ring-слота — эллипс, и на грубой
- * сетке тайлов они не всегда совпадают). Верхняя граница `total` — число
- * рабочих столов в раскладке: больше живых участников одновременно
- * физически не бывает, у каждого агента свой стол (§3.3).
- */
-function ringSeatsRange(prop: LayoutProp, sprite: CatalogSprite, slot: SlotRing, maxTotal: number): Pos[] {
-  const seats: Pos[] = [];
-  for (let total = 1; total <= Math.max(maxTotal, slot.ring); total++) {
-    seats.push(...ringSeatsAt(prop, sprite, slot, total));
-  }
-  return seats;
-}
-
 /** Места вдоль одной стороны предмета — шаг width/count, отступ от кромки SEAT_GAP (§3.1). */
 function sideSeats(prop: LayoutProp, sprite: CatalogSprite, slot: SlotSide): Pos[] {
   const [width, height] = propSize(prop, sprite);
@@ -459,6 +439,19 @@ export interface RestSeat {
   use?: SlotPoint['use'];
   /** Чей это предмет — по нему трёхмерный рендер находит доводку посадки. */
   sprite: string;
+  /**
+   * Который это по счёту seat-слот у предмета.
+   *
+   * Нужен доводке: поправка посадки описана у каждого места отдельно
+   * (`seat.offset` в пресете), а у дивана мест три, и подушки у него разные.
+   * Без номера трёхмерный рендер знал бы только «это диван» и сажал бы всех
+   * троих по поправке первой подушки.
+   *
+   * Считается по объявлению, а не по порядку обхода ниже: ряд вдоль стороны
+   * стола — это **один** слот, сколько бы мест он ни разложил, и все они
+   * доводятся одной поправкой.
+   */
+  seat: number;
 }
 
 /**
@@ -474,12 +467,23 @@ export function restSeats(layout: Layout, catalog: Catalog, propId?: string): Re
   for (const prop of props) {
     const sprite = spriteOf(catalog, prop.sprite);
     const slots = sprite?.slots ?? [];
+    // Номер места — по объявлению у предмета, а не по порядку обхода: обход
+    // идёт двумя проходами (сперва ряды, потом точки), и его порядок к
+    // данным отношения не имеет.
+    const seatSlots = slots.filter((s) => s.kind === 'seat');
     for (const slot of slots.filter(isSide)) {
-      for (const at of sideSeats(prop, sprite!, slot)) seats.push({ at, sprite: prop.sprite });
+      for (const at of sideSeats(prop, sprite!, slot)) {
+        seats.push({ at, sprite: prop.sprite, seat: seatSlots.indexOf(slot) });
+      }
     }
     for (const slot of slots) {
       if (!isPoint(slot) || slot.kind !== 'seat') continue;
-      seats.push({ at: resolvePoint(prop, sprite, slot), use: slot.use, sprite: prop.sprite });
+      seats.push({
+        at: resolvePoint(prop, sprite, slot),
+        use: slot.use,
+        sprite: prop.sprite,
+        seat: seatSlots.indexOf(slot),
+      });
     }
   }
   return seats;
@@ -654,24 +658,47 @@ export function isBlocked(p: Passability, x: number, y: number): boolean {
 }
 
 /**
- * Сетка проходимости раскладки (§7): непроходимы тайлы стен (те же, что
- * рисует `wallTiles` — проёмы дверей в `present` не попадают, поэтому там,
- * где стена разорвана, клетка остаётся свободной) плюс footprint мебели,
- * помеченной `blocks` в каталоге. Если у такого спрайта нет `footprint`, занятой
- * считается вся его площадь `size`. Слоты (`work`/`seat`) у всех предметов
- * расчищаются отдельным проходом следом — иначе агент не встанет на своё
- * место, если оно попало на кромку footprint соседнего предмета. Кольцевые
- * слоты (`ring`, переговорка) расчищаются тем же проходом по всем
- * реалистичным `total` — от 1 до числа рабочих столов в раскладке
- * (`ringSeatsRange`, T-89): расчистка только базовой окружности (total =
- * ring) оставляла непроходимыми места при других total, не делящих ring
- * нацело, либо превышающих его.
+ * Клетки, которые занимает след предмета по одной оси: от `from` длиной `len`.
+ *
+ * След округляется до целых тайлов, а не занимает тайл по касанию
+ * (docs/design/office-units/spec.md §4: «след — целые тайлы»). Пока пресеты
+ * не переехали на целые числа, округление и есть способ выполнить это правило:
+ * захват по касанию отбирает у комнаты лишний ряд клеток на каждый предмет —
+ * стол глубиной 2.4 тайла занимал три ряда, а не два, и рабочее место соседа
+ * снизу оказывалось внутри чужого следа, куда не подойти.
+ *
+ * Меньше одного тайла след не бывает: мелкий предмет (горшок, торшер) иначе
+ * округлился бы в ноль и перестал мешать вовсе.
+ */
+function tileSpan(from: number, len: number): [number, number] {
+  const a = Math.round(from);
+  return [a, Math.max(Math.round(from + len), a + 1)];
+}
+
+/**
+ * Сетка проходимости раскладки (§7): непроходимы тайлы стен (те же, что рисует
+ * `wallTiles` — проёмы дверей в `present` не попадают, поэтому там, где стена
+ * разорвана, клетка остаётся свободной) плюс footprint мебели, помеченной
+ * `blocks` в каталоге. Если у такого спрайта нет `footprint`, занятой считается
+ * вся его площадь `size`.
+ *
+ * И больше ничего. Раньше следом шёл проход, расчищавший клетки всех слотов —
+ * чтобы агент «мог встать на своё место»: рабочая точка стола, подушка дивана,
+ * места вокруг стола переговорки при всех мыслимых числах участников. Расчистка
+ * решала не ту задачу. Место человека — это не проходимая клетка, а точка,
+ * **к которой подходят**: подушка дивана лежит на самом диване, и она обязана
+ * оставаться занятой, иначе через диван пройдёт кратчайший путь. Куда встать,
+ * чтобы сесть, теперь считает `nearestFree` в момент поиска пути, а последний
+ * короткий отрезок с этой клетки на саму точку — это и есть «сел».
+ *
+ * Расчистка же оставляла в мебели сквозные дыры: клетка под табличкой с кодом
+ * задачи (`plate`) лежит посреди столешницы, и путь через стол был по карте
+ * законным.
  */
 export function passability(layout: Layout, catalog: Catalog): Passability {
   const [cols, rows] = layout.size;
   const blocked = new Uint8Array(cols * rows);
   const p: Passability = { cols, rows, blocked };
-  const maxMeetingTotal = deskProps(layout, catalog).length;
   const mark = (x: number, y: number, value: 0 | 1) => {
     const cx = Math.floor(x);
     const cy = Math.floor(y);
@@ -690,26 +717,10 @@ export function passability(layout: Layout, catalog: Catalog): Passability {
     if (!sprite?.blocks) continue;
     const [sx, sy] = propScale(prop, sprite);
     const [fx, fy, fw, fh] = sprite.footprint ?? [0, 0, sprite.size[0], sprite.size[1]];
-    const x0 = prop.at[0] + fx * sx;
-    const y0 = prop.at[1] + fy * sy;
-    const x1 = x0 + fw * sx;
-    const y1 = y0 + fh * sy;
-    for (let y = Math.floor(y0); y < Math.ceil(y1); y++) {
-      for (let x = Math.floor(x0); x < Math.ceil(x1); x++) mark(x, y, 1);
-    }
-  }
-
-  for (const prop of layout.props) {
-    const sprite = spriteOf(catalog, prop.sprite);
-    for (const slot of sprite?.slots ?? []) {
-      if (isPoint(slot)) {
-        const pt = resolvePoint(prop, sprite, slot);
-        mark(pt.x, pt.y, 0);
-      } else if (isSide(slot)) {
-        for (const pt of sideSeats(prop, sprite!, slot)) mark(pt.x, pt.y, 0);
-      } else if (isRing(slot)) {
-        for (const pt of ringSeatsRange(prop, sprite!, slot, maxMeetingTotal)) mark(pt.x, pt.y, 0);
-      }
+    const [x0, x1] = tileSpan(prop.at[0] + fx * sx, fw * sx);
+    const [y0, y1] = tileSpan(prop.at[1] + fy * sy, fh * sy);
+    for (let y = y0; y < y1; y++) {
+      for (let x = x0; x < x1; x++) mark(x, y, 1);
     }
   }
 
@@ -721,6 +732,15 @@ export function passability(layout: Layout, catalog: Catalog): Passability {
 /** Ортогональный шаг стоит 1, диагональный — √2 (единицы — тайлы). */
 const STEP_ORTHO = 1;
 const STEP_DIAGONAL = Math.SQRT2;
+
+/**
+ * Надбавка за смену направления — меньше разницы между любыми двумя ценами
+ * шага, поэтому длину кратчайшего пути она не меняет, а из одинаково коротких
+ * выбирает тот, где меньше поворотов. Без неё A* на пустом полу выдаёт
+ * лесенку «вправо-вниз-вправо-вниз» той же длины, что и честная диагональ, и
+ * агент идёт по ней зигзагом.
+ */
+const TURN_PENALTY = 1e-3;
 
 /** 8 направлений соседей: [dx, dy, цена шага]. */
 const NEIGHBORS: [number, number, number][] = [
@@ -735,6 +755,95 @@ function octileHeuristic(ax: number, ay: number, bx: number, by: number): number
   return Math.max(dx, dy) + (STEP_DIAGONAL - 1) * Math.min(dx, dy);
 }
 
+/**
+ * Докуда ищется свободная клетка взамен занятой, тайлы.
+ *
+ * Четыре — это ширина самого крупного предмета в раскладках: с любой точки
+ * внутри его следа выход наружу находится. Больше брать незачем: если
+ * свободного тайла нет и в этом кольце, дело не в том, что человек стоит на
+ * стуле, а в том, что раскладка непроходима, и честнее это увидеть.
+ */
+const SNAP_RADIUS = 4;
+
+/**
+ * Ближайшая свободная клетка к заданной — кольцами по возрастанию радиуса, в
+ * кольце по настоящему расстоянию. Нужна на обоих концах пути: место человека
+ * бывает описано точкой, которая попала на занятый тайл (сиденье кресла — это
+ * само кресло), а сам он бывает застигнут стоящим на такой же.
+ *
+ * `null` — свободных клеток нет во всей округе.
+ */
+export function nearestFree(p: Passability, x: number, y: number, radius = SNAP_RADIUS): Pos | null {
+  const cx = Math.floor(x);
+  const cy = Math.floor(y);
+  if (!isBlocked(p, cx, cy)) return { x: cx, y: cy };
+  for (let r = 1; r <= radius; r++) {
+    let best: Pos | null = null;
+    let bestDist = Infinity;
+    for (let dy = -r; dy <= r; dy++) {
+      for (let dx = -r; dx <= r; dx++) {
+        if (Math.max(Math.abs(dx), Math.abs(dy)) !== r) continue;
+        const nx = cx + dx;
+        const ny = cy + dy;
+        if (isBlocked(p, nx, ny)) continue;
+        // Считаем от исходной точки, а не от центра клетки: точка места лежит
+        // внутри тайла не по центру, и ближайший к ней выход — не всегда
+        // ближайший к центру.
+        const dist = Math.hypot(nx + 0.5 - x, ny + 0.5 - y);
+        if (dist < bestDist) { bestDist = dist; best = { x: nx, y: ny }; }
+      }
+    }
+    if (best) return best;
+  }
+  return null;
+}
+
+/**
+ * Клетка, с которой подходят к месту на занятом тайле (сиденье — это сама
+ * мебель). Годятся только те, откуда последний шаг пересекает ровно две
+ * клетки: свою и клетку места. Поэтому сперва четыре ортогональных соседа, и
+ * лишь потом диагональные — те из них, у которых свободны оба ортогональных
+ * companion'а угла (то же правило, по которому A* не пускает диагональ сквозь
+ * угол: иначе шаг наискось прошёл бы по третьей, занятой клетке).
+ */
+function approachCell(p: Passability, goal: Pos): Pos | null {
+  const gx = Math.floor(goal.x);
+  const gy = Math.floor(goal.y);
+  let best: Pos | null = null;
+  let bestScore = Infinity;
+  for (const [dx, dy] of NEIGHBORS) {
+    const nx = gx + dx;
+    const ny = gy + dy;
+    if (isBlocked(p, nx, ny)) continue;
+    const diagonal = dx !== 0 && dy !== 0;
+    if (diagonal && (isBlocked(p, gx + dx, gy) || isBlocked(p, gx, gy + dy))) continue;
+    // Ортогональные соседи всегда предпочтительнее диагональных при прочих
+    // равных: с них подход короче и заведомо не задевает угла.
+    const score = Math.hypot(nx + 0.5 - goal.x, ny + 0.5 - goal.y) + (diagonal ? 0.5 : 0);
+    if (score < bestScore) { bestScore = score; best = { x: nx, y: ny }; }
+  }
+  return best;
+}
+
+/** Направление шага как одно число — чтобы сравнивать «тот же поворот или нет». */
+function dirCode(dx: number, dy: number): number {
+  return (dx + 1) * 3 + (dy + 1);
+}
+
+export interface PathOptions {
+  /**
+   * Цель занята или недостижима — вести как можно ближе к ней, а не
+   * отказываться. Так ходят агенты: не дойти до места — это остановиться
+   * рядом, а не пройти сквозь стену и не остаться на месте навсегда.
+   * Без флага (диагностика, проверки раскладки) недостижимость — это `null`.
+   */
+  bestEffort?: boolean;
+}
+
+/**
+ * Путь по клеткам от старта к цели — цепочка индексов, восстановленная по
+ * `cameFrom`.
+ */
 function reconstructCells(cameFrom: Map<number, number>, cols: number, endIdx: number): Pos[] {
   const path: Pos[] = [];
   let idx: number | undefined = endIdx;
@@ -746,92 +855,134 @@ function reconstructCells(cameFrom: Map<number, number>, cols: number, endIdx: n
   return path;
 }
 
-/** Клетки, которые пересекает отрезок между двумя клетками (алгоритм Брезенхэма). */
-function lineCells(ax: number, ay: number, bx: number, by: number): Pos[] {
-  const cells: Pos[] = [{ x: ax, y: ay }];
-  let x = ax;
-  let y = ay;
-  const dx = Math.abs(bx - ax);
-  const dy = Math.abs(by - ay);
-  const sx = ax < bx ? 1 : -1;
-  const sy = ay < by ? 1 : -1;
-  let err = dx - dy;
-  while (x !== bx || y !== by) {
-    const e2 = 2 * err;
-    if (e2 > -dy) { err -= dy; x += sx; }
-    if (e2 < dx) { err += dx; y += sy; }
-    cells.push({ x, y });
+/**
+ * Выкидывает клетки в середине прямого отрезка: три подряд идущие клетки с
+ * одним и тем же направлением шага — это одна прямая, и промежуточная точка
+ * на ней ничего не добавляет. Геометрия пути при этом не меняется ни на
+ * тайл — в отличие от прежнего «протягивания», которое спрямляло путь
+ * поверх карты и умело срезать угол вплотную к кромке предмета.
+ */
+function mergeCollinear(cells: Pos[]): Pos[] {
+  if (cells.length <= 2) return cells;
+  const out: Pos[] = [cells[0]];
+  for (let i = 1; i < cells.length - 1; i++) {
+    const prev = cells[i - 1];
+    const cur = cells[i];
+    const next = cells[i + 1];
+    if (cur.x - prev.x === next.x - cur.x && cur.y - prev.y === next.y - cur.y) continue;
+    out.push(cur);
   }
-  return cells;
+  out.push(cells[cells.length - 1]);
+  return out;
+}
+
+/** Две точки пути ближе этого считаются одной — ломаная не должна топтаться. */
+const PATH_EPS = 1e-3;
+
+function samePoint(a: Pos, b: Pos): boolean {
+  return Math.abs(a.x - b.x) < PATH_EPS && Math.abs(a.y - b.y) < PATH_EPS;
+}
+
+/** Лежит ли точка в этой клетке. */
+function inCell(pt: Pos, cell: Pos): boolean {
+  return Math.floor(pt.x) === cell.x && Math.floor(pt.y) === cell.y;
 }
 
 /**
- * Прямая видимость между клетками: ни одна не занята, и ни один диагональный
- * отрезок трассы не срезает угол (то же правило, что у соседей A*). Нужно
- * для «протягивания» пути.
+ * Ломаная в мировых координатах по цепочке клеток: точный старт, центры
+ * клеток между ними, точная цель.
+ *
+ * Центр крайней клетки выкидывается, если конец пути и так лежит внутри
+ * неё, — иначе заход в центр выглядел бы шагом назад перед выходом и шагом
+ * назад перед посадкой. Срезать при этом нечего: две соседние клетки цепочки
+ * свободны обе, а у диагонального шага A* дополнительно требует свободными
+ * обоих ортогональных соседей, — отрезок из любой точки одной клетки в центр
+ * соседней не выходит за пределы этих четырёх.
+ *
+ * Если же конец лежит **вне** крайней клетки (место оказалось на занятом
+ * тайле — сиденье кресла это само кресло), её центр остаётся: с него агент и
+ * делает последний короткий шаг на место. Выкинуть его значило бы соединить
+ * прямой две точки через полкомнаты.
  */
-function hasLineOfSight(p: Passability, a: Pos, b: Pos): boolean {
-  const cells = lineCells(a.x, a.y, b.x, b.y);
-  for (let i = 0; i < cells.length; i++) {
-    const c = cells[i];
-    if (isBlocked(p, c.x, c.y)) return false;
-    if (i > 0) {
-      const prev = cells[i - 1];
-      const ddx = c.x - prev.x;
-      const ddy = c.y - prev.y;
-      if (ddx !== 0 && ddy !== 0 && (isBlocked(p, prev.x + ddx, prev.y) || isBlocked(p, prev.x, prev.y + ddy))) {
-        return false;
-      }
-    }
+function toWorldPath(cells: Pos[], start: Pos, goal: Pos): Pos[] {
+  const merged = mergeCollinear(cells);
+  const last = merged.length - 1;
+  const points: Pos[] = [{ ...start }];
+  for (let i = 0; i < merged.length; i++) {
+    if (i === 0 && inCell(start, merged[0])) continue;
+    if (i === last && inCell(goal, merged[last])) continue;
+    points.push({ x: merged[i].x + 0.5, y: merged[i].y + 0.5 });
   }
-  return true;
-}
-
-/** Упрощение пути «протягиванием»: выкидывает узлы, до которых видно напрямую от якоря. */
-function simplifyCells(p: Passability, path: Pos[]): Pos[] {
-  if (path.length <= 2) return path;
-  const result: Pos[] = [path[0]];
-  let anchor = 0;
-  for (let i = 2; i < path.length; i++) {
-    if (!hasLineOfSight(p, path[anchor], path[i])) {
-      result.push(path[i - 1]);
-      anchor = i - 1;
-    }
-  }
-  result.push(path[path.length - 1]);
-  return result;
+  points.push({ ...goal });
+  return points.filter((pt, i) => i === 0 || !samePoint(pt, points[i - 1]));
 }
 
 /**
  * Поиск пути A* по сетке проходимости (§7): 8 направлений, диагональ дороже
  * ортогонали (√2), диагональ запрещена, если хотя бы один из двух
- * ортогональных соседей угла занят, — иначе путь срезал бы угол сквозь
- * стену вплотную к её кромке. Путь возвращается ломаной в мировых
- * координатах: концы — это ровно переданные `start`/`goal` (для плавного
- * начала и конца анимации), промежуточные точки — центры клеток, лишние из
- * них уже выкинуты «протягиванием» (простой отрезок без пересечения занятых
- * клеток не нуждается в промежуточном узле).
+ * ортогональных соседей угла занят, — иначе путь срезал бы угол сквозь стену
+ * вплотную к её кромке. Из одинаково коротких путей выбирается тот, где
+ * меньше поворотов (`TURN_PENALTY`).
  *
- * Если старт или цель не входят в сетку либо заняты — возвращает `null`
- * (не бросает исключение). Если путь физически недостижим (изолированная
- * зона), тоже возвращает `null`, когда открытый список A* исчерпан.
+ * Возвращается ломаная в мировых координатах: концы — ровно переданные
+ * `start`/`goal`, между ними центры клеток. Путь никуда не спрямляется:
+ * агент идёт ровно по карте, а по диагонали — только там, где по карте
+ * диагональ есть.
+ *
+ * Без `bestEffort` поведение прежнее и строгое: занятый старт или цель, а
+ * равно недостижимая цель — это `null`. С `bestEffort` занятые концы
+ * подменяются ближайшей свободной клеткой (`nearestFree`), а недостижимая
+ * цель — ближайшей к ней разведанной: агент подходит настолько, насколько
+ * пускает карта. Сквозь стены он не идёт ни в каком случае.
  */
-export function findPath(p: Passability, start: Pos, goal: Pos): Pos[] | null {
-  const sx = Math.floor(start.x);
-  const sy = Math.floor(start.y);
-  const gx = Math.floor(goal.x);
-  const gy = Math.floor(goal.y);
-  if (isBlocked(p, sx, sy) || isBlocked(p, gx, gy)) return null;
+export function findPath(p: Passability, start: Pos, goal: Pos, opts?: PathOptions): Pos[] | null {
+  const bestEffort = opts?.bestEffort ?? false;
 
-  if (sx === gx && sy === gy) return [{ ...start }, { ...goal }];
+  let sx = Math.floor(start.x);
+  let sy = Math.floor(start.y);
+  let gx = Math.floor(goal.x);
+  let gy = Math.floor(goal.y);
+
+  if (isBlocked(p, sx, sy)) {
+    if (!bestEffort) return null;
+    const free = nearestFree(p, start.x, start.y);
+    if (!free) return null;
+    sx = free.x; sy = free.y;
+  }
+  /**
+   * Цель на занятом тайле — это место на самой мебели: подушка дивана, кресло,
+   * стул у стола. Подходить к нему надо с **соседней** клетки: последний шаг
+   * тогда пересекает только её и клетку места, а не всё, что между. Соседней
+   * свободной нет — значит, сесть некуда: доводим до ближайшей свободной и
+   * там останавливаемся, а не проезжаем сквозь мебель к точке внутри неё.
+   */
+  let finish: Pos = goal;
+  if (isBlocked(p, gx, gy)) {
+    if (!bestEffort) return null;
+    const beside = approachCell(p, goal);
+    const free = beside ?? nearestFree(p, goal.x, goal.y);
+    if (!free) return null;
+    gx = free.x; gy = free.y;
+    if (!beside) finish = { x: free.x + 0.5, y: free.y + 0.5 };
+  }
+
+  if (sx === gx && sy === gy) {
+    const direct = [{ ...start }, { ...finish }];
+    return samePoint(direct[0], direct[1]) ? [direct[0]] : direct;
+  }
 
   const startIdx = cellIndex(p, sx, sy);
   const goalIdx = cellIndex(p, gx, gy);
 
   const gScore = new Map<number, number>([[startIdx, 0]]);
   const cameFrom = new Map<number, number>();
+  const dirFrom = new Map<number, number>();
   const open = new Map<number, number>([[startIdx, octileHeuristic(sx, sy, gx, gy)]]);
   const closed = new Set<number>();
+
+  /** Ближайшая к цели разведанная клетка — запасной финиш для `bestEffort`. */
+  let nearestIdx = startIdx;
+  let nearestH = octileHeuristic(sx, sy, gx, gy);
 
   while (open.size > 0) {
     let currentIdx = -1;
@@ -840,18 +991,17 @@ export function findPath(p: Passability, start: Pos, goal: Pos): Pos[] | null {
       if (f < bestF) { bestF = f; currentIdx = idx; }
     }
     if (currentIdx === goalIdx) {
-      const cells = simplifyCells(p, reconstructCells(cameFrom, p.cols, currentIdx));
-      return cells.map((c, i) => {
-        if (i === 0) return { ...start };
-        if (i === cells.length - 1) return { ...goal };
-        return { x: c.x + 0.5, y: c.y + 0.5 };
-      });
+      return toWorldPath(reconstructCells(cameFrom, p.cols, currentIdx), start, finish);
     }
     open.delete(currentIdx);
     closed.add(currentIdx);
     const cx = currentIdx % p.cols;
     const cy = Math.floor(currentIdx / p.cols);
     const currentG = gScore.get(currentIdx)!;
+    const currentDir = dirFrom.get(currentIdx);
+
+    const h = octileHeuristic(cx, cy, gx, gy);
+    if (h < nearestH) { nearestH = h; nearestIdx = currentIdx; }
 
     for (const [dx, dy, cost] of NEIGHBORS) {
       const nx = cx + dx;
@@ -860,13 +1010,45 @@ export function findPath(p: Passability, start: Pos, goal: Pos): Pos[] | null {
       if (dx !== 0 && dy !== 0 && (isBlocked(p, cx + dx, cy) || isBlocked(p, cx, cy + dy))) continue;
       const nIdx = cellIndex(p, nx, ny);
       if (closed.has(nIdx)) continue;
-      const tentativeG = currentG + cost;
+      const dir = dirCode(dx, dy);
+      const tentativeG = currentG + cost
+        + (currentDir !== undefined && currentDir !== dir ? TURN_PENALTY : 0);
       if (tentativeG < (gScore.get(nIdx) ?? Infinity)) {
         cameFrom.set(nIdx, currentIdx);
+        dirFrom.set(nIdx, dir);
         gScore.set(nIdx, tentativeG);
         open.set(nIdx, tentativeG + octileHeuristic(nx, ny, gx, gy));
       }
     }
   }
-  return null;
+
+  if (!bestEffort) return null;
+  // Цель за стеной или в отрезанной комнате: доводим до ближайшей к ней
+  // клетки, до которой дорога есть. Конец ломаной — её центр, а не сама
+  // цель: туда пути нет, и делать вид, что есть, незачем.
+  if (nearestIdx === startIdx) return [{ ...start }];
+  const cells = reconstructCells(cameFrom, p.cols, nearestIdx);
+  const last = cells[cells.length - 1];
+  return toWorldPath(cells, start, { x: last.x + 0.5, y: last.y + 0.5 });
+}
+
+/**
+ * Свободная клетка рядом с точкой, но не та, в которой точка лежит, — место,
+ * с которого к ней подходят. По ней менеджер встаёт у чужого стола: вставать
+ * в саму рабочую точку значило бы влезть в человека, за ней сидящего.
+ */
+export function adjacentFree(p: Passability, at: Pos): Pos | null {
+  const cx = Math.floor(at.x);
+  const cy = Math.floor(at.y);
+  let best: Pos | null = null;
+  let bestDist = Infinity;
+  for (const [dx, dy] of NEIGHBORS) {
+    const nx = cx + dx;
+    const ny = cy + dy;
+    if (isBlocked(p, nx, ny)) continue;
+    if (dx !== 0 && dy !== 0 && (isBlocked(p, cx + dx, cy) || isBlocked(p, cx, cy + dy))) continue;
+    const dist = Math.hypot(nx + 0.5 - at.x, ny + 0.5 - at.y);
+    if (dist < bestDist) { bestDist = dist; best = { x: nx + 0.5, y: ny + 0.5 }; }
+  }
+  return best;
 }

@@ -7,11 +7,13 @@
  * ходит ли он по настоящим путям, садится ли на настоящие места и читается ли
  * сцена, когда по ней движутся восемь фигур.
  *
- * Логика ходьбы не тронута вовсе. Стор как считал путь по `findPath` и слал
- * `pos[id] = { x, y, ms }` — «иди в эту точку за столько миллисекунд», — так и
- * шлёт; плоский рендер проигрывает это WAAPI-анимацией, здесь то же самое
- * делает `useFrame`. Офис остаётся визуализацией событий, а не их источником
- * (CONCEPT.md §2).
+ * Путь считает стор — A* по карте проходимости (`findPath`, §7 спеки
+ * раскладки), — и отдаёт сюда ломаную целиком вместе со скоростью. Здесь её
+ * только проходят: `useFrame` везёт фигуру от точки к точке на «скорость ×
+ * время кадра». Разделено так потому, что маршрут — это решение (его
+ * перебивают события офиса), а прохождение — картинка (её рисуют кадры), и
+ * мерить второе часами первого значит получать рывки на каждой заминке.
+ * Офис остаётся визуализацией событий, а не их источником (CONCEPT.md §2).
  */
 import { Suspense, useEffect, useMemo, useRef, useState } from 'react';
 import { useFrame, useLoader } from '@react-three/fiber';
@@ -31,14 +33,14 @@ import sitDownUrl from '../../../design/models/characters/animations/sit-down.fb
 import standUpUrl from '../../../design/models/characters/animations/stand-up.fbx?url';
 import sitToTypeUrl from '../../../design/models/characters/animations/sit-to-type.fbx?url';
 import typeToSitUrl from '../../../design/models/characters/animations/type-to-sit.fbx?url';
-import { deskPoint, deskSprite } from '../../shared/layout';
+import { deskPoint, deskSprite, desks } from '../../shared/layout';
 import type { Layout } from '../../shared/layout';
 import { catalog } from '../layoutData';
 import { poseFit, useFit } from './fit';
 import { seatingFor } from './seating';
 import { measurePoses, useModelMeasures, BONES, type PoseMeasure } from './measure';
 import { reach, type Arm } from './ik';
-import { useStore } from '../store';
+import { markArrived, reportPosition, useStore } from '../store';
 import { interestsFor, type Interest } from '../interests';
 import { stateText } from '../agentState';
 import { dropAnchor, setAnchor } from './anchors';
@@ -137,6 +139,33 @@ const MOVING_EPS = 0.02;
 
 /** Скорость доворота фигуры, радиан в секунду. */
 const TURN_SPEED = 9;
+
+/**
+ * Провезти фигуру вдоль ломаной на заданное расстояние, перешагивая через
+ * точки, которые уложились в этот кадр.
+ *
+ * Расстояние приходит как «скорость × время кадра», поэтому темп ходьбы
+ * задан только скоростью и не зависит ни от длины отрезка, ни от того,
+ * сколько кадров браузер успел нарисовать. Кадры, пропущенные фоновой
+ * вкладкой, не «догоняются» рывком: их просто не было, и путь не пройден.
+ */
+function advance(
+  g: THREE.Object3D, route: THREE.Vector3[], leg: { current: number }, budget: number,
+): void {
+  let left = budget;
+  while (left > 0 && leg.current < route.length) {
+    const to = route[leg.current];
+    const dist = g.position.distanceTo(to);
+    if (dist <= left) {
+      g.position.copy(to);
+      left -= dist;
+      leg.current += 1;
+    } else {
+      g.position.lerp(to, left / dist);
+      left = 0;
+    }
+  }
+}
 
 /**
  * Сколько секунд говорит один собеседник, прежде чем передать слово.
@@ -622,23 +651,37 @@ function Agent({
   /** Насколько сейчас слушаются кисти: та же плавность, что у посадки. */
   const reachW = useRef(0);
 
-  /** Цель в мировых координатах и сколько секунд на неё отведено. */
-  const target = useRef(new THREE.Vector3());
-  const remain = useRef(0);
+  /**
+   * Маршрут, по которому рендер сейчас ведёт фигуру: точки в мировых
+   * координатах и номер той, к которой идём. Стор отдаёт ломаную целиком
+   * (§7), а расстояние по ней проходится в кадре — по времени кадра, а не по
+   * часам. Из-за этого фигура не может «догнать» пропущенные кадры прыжком:
+   * пока вкладка в фоне и кадров нет, агент просто стоит там, где стоял.
+   */
+  const route = useRef<THREE.Vector3[]>([]);
+  const legIdx = useRef(0);
+  const routeSeq = useRef(-1);
   const yaw = useRef(REST_YAW);
 
   /**
-   * Где агент на самом деле стоит. Пока он «дома» за своим столом, стор
-   * держит в `pos` координату самого стола, а не место человека: нужный
-   * отступ внутри клетки задан слотом `work` в каталоге. Плоский рендер
-   * делает ровно ту же подстановку (`workPointOf` в Office.tsx).
+   * Где агент стоит или куда идёт. Стор держит здесь точную точку места —
+   * слот `work` у стола, сиденье, точка встречи, — а не якорь предмета:
+   * логика ходьбы и картинка обязаны смотреть в одну точку, иначе фигура в
+   * последний момент перескакивает туда, куда маршрут не вёл.
    */
-  const raw = pos ?? { x: inst.desk.x, y: inst.desk.y, ms: 0 };
-  const atDesk = raw.x === inst.desk.x && raw.y === inst.desk.y;
-  const point = atDesk ? deskPoint(layout, catalog, inst.desk.index, 'work') : raw;
+  const fallbackDesk = !inst.deskless && desks(layout, catalog).length > inst.desk.index;
+  const home = fallbackDesk
+    ? deskPoint(layout, catalog, inst.desk.index, 'work')
+    : { x: inst.desk.x, y: inst.desk.y };
+  const point = pos ?? home;
+  const atDesk = pos ? pos.atDesk : fallbackDesk;
+  /** Дошёл ли: сидеть, печатать и светить монитором можно только на месте. */
+  const arrived = pos ? pos.arrived : true;
   const px = point.x + FOOT_DX + offset[0];
   const pz = point.y + FOOT_DY + offset[1];
-  const ms = pos?.ms ?? 0;
+  const walkPath = pos?.path;
+  const walkSeq = pos?.seq ?? -1;
+  const tilesPerSec = pos?.speed ?? fit.walk.tilesPerSec;
 
   /**
    * Чем агент занят, когда стоит на месте.
@@ -696,15 +739,40 @@ function Agent({
   const clipSpeed = fit.walk.clipSpeed
     ?? (loaded.measure.walk.cycle * tall) / Math.max(loaded.clips.walk.duration, 1e-6);
 
+  /**
+   * Новый маршрут из стора превращается в список точек в мировых координатах.
+   * Первая точка ломаной — место, откуда стор считал путь; фигура может быть
+   * не ровно там (её ведёт кадр, а не стор), поэтому в маршрут она не
+   * попадает: агент идёт из того места, где он есть, к следующей точке.
+   */
   useEffect(() => {
-    target.current.set(px, 0, pz);
-    remain.current = ms / 1000;
     const g = group.current;
     if (!g) return;
-    // Первое появление и телепорт (ms = 0) — без анимации: агента ещё нигде
-    // не было, вести его через всю комнату было бы неправдой.
-    if (ms === 0 || g.position.lengthSq() === 0) g.position.copy(target.current);
-  }, [px, pz, ms]);
+    routeSeq.current = walkSeq;
+    const pts = (walkPath ?? [{ x: point.x, y: point.y }])
+      .map((pt) => new THREE.Vector3(pt.x + FOOT_DX + offset[0], 0, pt.y + FOOT_DY + offset[1]));
+    // Маршрут из одной точки — это «стой здесь»: первое появление, снапшот,
+    // смена раскладки. Вести фигуру через всю комнату тут было бы неправдой.
+    if (pts.length < 2 || g.position.lengthSq() === 0) {
+      g.position.copy(pts[pts.length - 1]);
+      route.current = [];
+      legIdx.current = 0;
+      return;
+    }
+    route.current = pts.slice(1);
+    legIdx.current = 0;
+  }, [walkSeq]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  /**
+   * Цель сдвинулась, а маршрут остался прежним — так бывает при правке
+   * расстановки и подгонке стенда. Стоящую фигуру переставляем сразу; идущей
+   * стор пришлёт новый маршрут сам.
+   */
+  useEffect(() => {
+    const g = group.current;
+    if (!g || route.current.length > 0) return;
+    g.position.set(px, 0, pz);
+  }, [px, pz]);
 
   useFrame((state, dt) => {
     rig.mixer.update(dt);
@@ -717,47 +785,50 @@ function Agent({
     const speaking = speaksFirst === (Math.floor(state.clock.elapsedTime / TALK_TURN) % 2 === 0);
     const still: Pose = restPose === 'talk' && !speaking ? 'idle' : restPose;
 
-    const dist = g.position.distanceTo(target.current);
-    if (remain.current > 0 && dist > MOVING_EPS) {
+    if (legIdx.current < route.current.length) {
       goTo('walk');
       /**
        * Пока играет подъём со стула, агент ещё встаёт, а не идёт: везти его
-       * в это время — это и есть «поехал сидя». Из отпущенного на дорогу
-       * времени подъём не вычитаем: иначе остаток пути пришлось бы пройти
-       * быстрее нарисованного шага, и ноги поехали бы по полу. Приход от
-       * этого задерживается на длину клипа — ровно на то время, которое
-       * человек и тратит, чтобы подняться со стула.
+       * в это время — это и есть «поехал сидя». Маршрут при этом никуда не
+       * девается: подъём просто задерживает выход на длину клипа — ровно на
+       * то время, которое человек и тратит, чтобы подняться.
        */
-      if (pending.current !== 'walk') {
-        // Доля пути, которую надо пройти за этот кадр, чтобы уложиться в
-        // оставшееся время. Пересчёт от остатка, а не от общей длительности,
-        // сам справляется с просевшим кадром и со сменой цели на ходу.
-        g.position.lerp(target.current, Math.min(1, dt / remain.current));
-        remain.current -= dt;
-      }
-      const dx = target.current.x - g.position.x;
-      const dz = target.current.z - g.position.z;
+      if (pending.current !== 'walk') advance(g, route.current, legIdx, tilesPerSec * dt);
+
+      const leg = route.current[Math.min(legIdx.current, route.current.length - 1)];
+      const dx = leg.x - g.position.x;
+      const dz = leg.z - g.position.z;
       if (dx * dx + dz * dz > 1e-6) yaw.current = Math.atan2(dx, dz);
 
       /**
-       * Растяжение клипа шага под настоящую скорость.
-       *
-       * Считается от того, что происходит на самом деле — остаток пути,
-       * делённый на остаток времени, — а не от скорости из настроек: путь
-       * перебивают на середине, короткие отрезки идут по нижнему пределу
-       * длительности, и заявленная скорость там не соблюдается. Ноги должны
-       * слушаться того, как фигура едет, а не того, как ей полагалось бы.
+       * Растяжение клипа шага под настоящую скорость: она теперь одна на весь
+       * маршрут и известна заранее (тайлов в секунду из `fit.json`), поэтому
+       * считать её по остатку пути больше не нужно. Ноги перебирают ровно с
+       * той скоростью, с какой едет тело.
        */
-      const speed = remain.current > 1e-3 ? dist / remain.current : clipSpeed;
       rig.actions.walk.timeScale = THREE.MathUtils.clamp(
-        speed / clipSpeed, WALK_RATE.min, WALK_RATE.max,
+        tilesPerSec / clipSpeed, WALK_RATE.min, WALK_RATE.max,
       );
+      // Дошёл — сказать об этом стору: только рендер знает, где фигура.
+      if (legIdx.current >= route.current.length) markArrived(inst.id, routeSeq.current);
     } else {
-      g.position.copy(target.current);
-      remain.current = 0;
+      if (route.current.length > 0) {
+        // Маршрут пройден: дальше фигуру держит точная точка места, а не
+        // последняя точка ломаной, — они совпадают, но источник должен быть
+        // один.
+        route.current = [];
+      }
+      const dx = px - g.position.x;
+      const dz = pz - g.position.z;
+      if (dx * dx + dz * dz > MOVING_EPS * MOVING_EPS) g.position.set(px, 0, pz);
       yaw.current = restYaw;
       goTo(still);
     }
+
+    // Где фигура на самом деле — обратно в координаты раскладки. По ней стор
+    // строит следующий маршрут: перебитый на полпути путь обязан начинаться
+    // здесь, а не там, откуда человек вышел.
+    reportPosition(inst.id, g.position.x - FOOT_DX - offset[0], g.position.z - FOOT_DY - offset[1]);
 
     // Доворот по кратчайшей дуге: без нормализации разницы фигура на переходе
     // через π крутанулась бы вокруг себя.

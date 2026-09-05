@@ -241,8 +241,11 @@ export function useLitDesks(): Set<string> {
     for (const inst of Object.values(instances)) {
       if (inst.deskless) continue;
       if (inst.state !== 'working' && inst.state !== 'thinking') continue;
+      // Не «стоит ли он на клетке стола», а «его цель — его стол, и он до
+      // неё дошёл». Сравнивать координаты больше нельзя и не нужно: стор
+      // держит в `pos` точку слота `work`, а не якорь предмета.
       const at = pos[inst.id];
-      if (at && (at.x !== inst.desk.x || at.y !== inst.desk.y)) continue;
+      if (at && !(at.atDesk && at.arrived)) continue;
       lit.add(deskKey(inst.desk.x, inst.desk.y));
     }
     return lit;
