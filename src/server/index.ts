@@ -19,6 +19,7 @@ import { githubToken, setGithubToken } from './cloud';
 import { clearInitFlag, currentOffice, ensureOffice, loadRegistry, setCurrent, type OfficeEntry } from './offices';
 import { hasCommits, initRepo, isRepo, repoProblem } from './git';
 import { isPermissionMode } from './permissions';
+import { handleMarketCommand } from './market';
 import { flushAll } from './store';
 
 const PORT = Number(process.env.OFFICE_PORT ?? 3001);
@@ -302,6 +303,10 @@ wss.on('connection', (ws) => {
       replyRole(ws, 'remove', cmd.roleId, state.removeRole(cmd.roleId));
     } else if (cmd.c === 'detach_role') {
       replyRole(ws, 'detach', cmd.roleId, state.detachRole(cmd.roleId));
+    } else if (cmd.c.startsWith('market_')) {
+      // Маркет ходит в git и в реестр — отвечаем витриной, когда закончим,
+      // а не держим разбор остальных команд.
+      void handleMarketCommand(cmd as Parameters<typeof handleMarketCommand>[0], state, (e) => send(ws, e));
     } else if (cmd.c === 'agent_permission') {
       // null — снять личное правило и вернуть сотрудника к режиму роли;
       // мусорное значение молча игнорируем, а не выдаём за режим.

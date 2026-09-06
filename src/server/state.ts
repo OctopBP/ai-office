@@ -40,10 +40,12 @@ import { effectiveMode, isPermissionMode, modeLabel } from './permissions';
 import type { MessageQueue } from './queue';
 import {
   basePackageName, blankRole, defaultRole, defaultRoles, newRoleId, OVERRIDABLE_KEYS,
-  roleFromPackage, rolesFromOverrides, sameValue, withManagerRole,
-  type Role, type RoleLink,
+  roleFromPackage, roleIdFor, rolesFromOverrides, sameValue, withManagerRole,
+  type PackageSource, type Role, type RoleLink,
 } from './roles';
-import { loadPackage, packageBrief, PACKAGE_NAME_RE, type AgentPackage } from './packages';
+import {
+  loadPackage, packageBrief, PACKAGE_NAME_RE, resolvePackage, type AgentPackage,
+} from './packages';
 import {
   DEFAULT_STATE_FILE, flush as flushFile, load, save, wipe as wipeFile,
   type Persisted, type PersistedInstance,
@@ -195,9 +197,14 @@ function sanitizeLink(raw: unknown): RoleLink | null {
   if (typeof link.name !== 'string' || !PACKAGE_NAME_RE.test(link.name)) return null;
   const overrides = link.overrides && typeof link.overrides === 'object' && !Array.isArray(link.overrides)
     ? link.overrides : {};
+  const src = link.source && typeof link.source === 'object' ? link.source as Partial<PackageSource> : null;
+  const source: PackageSource | null = src && typeof src.repo === 'string' && typeof src.commit === 'string'
+    ? { repo: src.repo, path: typeof src.path === 'string' ? src.path : '', commit: src.commit }
+    : null;
   return {
     name: link.name,
     version: typeof link.version === 'string' ? link.version : '',
+    ...(source ? { source } : {}),
     overrides: { ...overrides },
     briefExtra: typeof link.briefExtra === 'string' ? link.briefExtra : '',
   };
@@ -251,7 +258,9 @@ function sanitizeRole(raw: Partial<Role>, id: string, lang: Lang): Role {
   const archived = raw.archived === true;
   // Роль без ссылки, но с id нашей базовой роли — сохранение старше пакетов.
   // Привязываем к пакету, если человек не переписал ей бриф.
-  const pkg = loadPackage(savedLink?.name ?? basePackageName(id));
+  // Ссылка с источником ведёт в кеш по имени и версии; без источника — во
+  // встроенные. Роль без ссылки, но с id нашей базовой — тоже во встроенные.
+  const pkg = savedLink ? resolvePackage(savedLink) : loadPackage(basePackageName(id));
   if (pkg) {
     const link = savedLink ?? linkFromSave(raw, pkg, id, lang);
     if (link) {
@@ -1720,7 +1729,7 @@ export class OfficeState {
    */
   private packageView(role: Role): RoleView['package'] {
     if (!role.package) return null;
-    const pkg = loadPackage(role.package.name);
+    const pkg = resolvePackage(role.package);
     return {
       name: role.package.name,
       version: pkg?.version ?? role.package.version,
@@ -2014,6 +2023,57 @@ export class OfficeState {
   }
 
   /**
+   * Нанять из пакета: роль плюс первый сотрудник. Роль из этого пакета в
+   * офисе уже есть и не в архиве — нанимаем в неё ещё одного, новой роли не
+   * плодим. Иначе заводим роль с id по имени пакета (занятый id получает
+   * суффикс) и без оверрайдов: то, что в пакете, и есть умолчание.
+   * Возвращает причину отказа готовым текстом или null.
+   */
+  hireFromPackage(pkg: AgentPackage, source: PackageSource | null): string | null {
+    const existing = this.roleList.find((r) => r.package?.name === pkg.name && !r.archived);
+    if (existing) return this.hire(existing.id);
+    if (pkg.manifest.manager) return this.say('market.managerTaken', { name: pkg.name });
+    const before = this.roleMenuSignature();
+    const id = newRoleId(roleIdFor(pkg.name), this.roleList.map((r) => r.id));
+    const link: RoleLink = {
+      name: pkg.name, version: pkg.version, ...(source ? { source } : {}), overrides: {}, briefExtra: '',
+    };
+    const role = roleFromPackage(pkg, this.lang(), id, link);
+    this.roleList = [...this.roleList, role];
+    this.addLog(null, 'system', this.say('market.hiredFrom', {
+      title: role.title, id: role.id, name: pkg.name, version: pkg.version,
+    }));
+    this.roleSetChanged(before);
+    return this.hire(id);
+  }
+
+  /**
+   * Перевести роль на другую версию её пакета. Оверрайды и приписка остаются:
+   * они лежат в ссылке отдельно от пакета. Живых сессий не касается — новая
+   * версия достаётся следующей задаче.
+   */
+  updateRolePackage(roleId: string, pkg: AgentPackage, source: PackageSource | null): string | null {
+    const role = this.role(roleId);
+    if (!role) return this.say('state.role.missing', { role: roleId });
+    if (!role.package) return this.say('market.roleNotLinked', { title: role.title });
+    if (role.package.name !== pkg.name) {
+      return this.say('market.nameMismatch', {
+        repo: source?.repo ?? '', path: source?.path ?? '', found: pkg.name, name: role.package.name,
+      });
+    }
+    const before = this.roleMenuSignature();
+    const from = role.package.version;
+    const link: RoleLink = { ...role.package, version: pkg.version, ...(source ? { source } : {}) };
+    this.roleList = this.roleList.map((r) =>
+      (r.id === roleId ? { ...roleFromPackage(pkg, this.lang(), roleId, link), archived: r.archived } : r));
+    this.addLog(null, 'system', this.say('market.roleUpdated', {
+      title: role.title, id: roleId, name: pkg.name, from, to: pkg.version,
+    }));
+    this.roleSetChanged(before);
+    return null;
+  }
+
+  /**
    * Отвязать роль от пакета — форк. Вычисленная роль остаётся какой была,
    * включая бриф с припиской, и дальше живёт как заведённая руками: бриф
    * правится напрямую, обновления пакета до неё не доходят. Обратного пути
@@ -2084,7 +2144,7 @@ export class OfficeState {
     // У роли с пакетом правка ложится не в саму роль, а в разницу с пакетом:
     // поле, вернувшееся к умолчанию пакета, из разницы уходит, а бриф
     // правится только припиской — сам бриф пакета неприкосновенен.
-    const pkg = base.package ? loadPackage(base.package.name) : null;
+    const pkg = base.package ? resolvePackage(base.package) : null;
     if (base.package && pkg) {
       const link: RoleLink = { ...base.package, overrides: { ...base.package.overrides } };
       for (const key of OVERRIDABLE_KEYS) {
@@ -2240,7 +2300,7 @@ export class OfficeState {
     this.roleList = this.roleList.map((role) => {
       // Роль из пакета просто считается заново на новом языке: бриф и
       // название пакета переводятся, оверрайды и приписка остаются.
-      const pkg = role.package ? loadPackage(role.package.name) : null;
+      const pkg = role.package ? resolvePackage(role.package) : null;
       if (role.package && pkg) {
         return { ...roleFromPackage(pkg, lang, role.id, role.package), archived: role.archived };
       }

@@ -1,0 +1,46 @@
+/* Окно «Маркет агентов»: витрина слева, карточка пакета справа. Каркас окна —
+   тот же, что у «Команды» (team.css); здесь только то, чего там нет. */
+
+.market-head-actions { display: flex; align-items: center; gap: var(--space-2); }
+.market-hint { margin: 0 0 var(--space-2); }
+.market-search {
+  width: 100%; margin-bottom: var(--space-2); padding: var(--space-2) var(--space-3);
+  font: inherit; font-size: var(--fs-md); color: var(--ink); background: var(--film);
+  border: 1px solid var(--hairline); border-radius: var(--radius-row);
+}
+.market-busy { margin-bottom: var(--space-2); }
+.market-row { width: 100%; text-align: left; background: none; border: 1px solid transparent; font: inherit; color: inherit; }
+.market-row-text { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.market-row-title { font-weight: 600; color: var(--ink); }
+.market-row-sub { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.market-emoji {
+  flex: none; width: 26px; height: 26px; display: inline-flex; align-items: center; justify-content: center;
+  border-radius: 8px; font-size: 14px; color: #fff;
+}
+.market-emoji.big { width: 32px; height: 32px; margin-right: var(--space-2); vertical-align: middle; font-size: 16px; }
+.market-badge {
+  flex: none; padding: 1px 6px; border-radius: 999px; font-size: var(--fs-small); line-height: 1.5;
+  background: var(--film-2); color: var(--ink-3); white-space: nowrap;
+}
+.market-badge.official { color: var(--accent); background: rgba(var(--accent-rgb, 59, 130, 246), .12); }
+.market-badge.link { color: var(--danger); background: rgba(var(--danger-rgb), .1); }
+.market-dot { flex: none; width: 8px; height: 8px; border-radius: 50%; background: var(--accent); }
+.market-add { margin-top: auto; padding-top: var(--space-3); border-top: 1px solid var(--hairline); }
+.market-add-row { display: flex; gap: var(--space-2); margin: var(--space-2) 0; }
+.market-add-row input {
+  flex: 1; min-width: 0; padding: var(--space-2) var(--space-3); font: inherit; font-size: var(--fs-md);
+  color: var(--ink); background: var(--film); border: 1px solid var(--hairline); border-radius: var(--radius-row);
+}
+.market-card section { margin-top: var(--space-4); }
+.market-card .group-title { display: block; margin-bottom: var(--space-1); font-size: var(--fs-small); color: var(--ink-3); text-transform: uppercase; letter-spacing: .04em; }
+.market-summary { margin: var(--space-2) 0; font-size: var(--fs-md); line-height: 1.5; color: var(--ink-2); }
+.market-actions { justify-content: flex-start; flex-wrap: wrap; margin: var(--space-3) 0 0; }
+.market-list { margin: 0; padding-left: var(--space-4); font-size: var(--fs-md); line-height: 1.6; }
+.market-permissions dl { display: grid; grid-template-columns: max-content 1fr; gap: var(--space-1) var(--space-4); margin: var(--space-2) 0 0; font-size: var(--fs-md); }
+.market-permissions dt { color: var(--ink-3); }
+.market-permissions dd { margin: 0; color: var(--ink); }
+.market-server code { font-size: var(--fs-small); background: var(--film); padding: 0 4px; border-radius: 4px; }
+.market-brief {
+  margin: 0; padding: var(--space-3); white-space: pre-wrap; font: inherit; font-size: var(--fs-md); line-height: 1.5;
+  color: var(--ink-2); background: var(--film); border-radius: var(--radius-row); max-height: 320px; overflow: auto;
+}

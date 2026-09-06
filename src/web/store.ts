@@ -3,7 +3,7 @@ import type {
   ChatEntry, DayUsage, FieldError, InstanceView, Layout, LayoutOption, LayoutOverride, LogEntry,
   McpServerState, MergeCheck, MergeCheckState, MergeRun, MergeStep, MergeStepStatus,
   PermissionDecision,
-  PermissionMode, PermissionRequest, MeetingView, RoleDraft, RoleEditable, RoleOp, RoleView,
+  MarketView, PermissionMode, PermissionRequest, MeetingView, RoleDraft, RoleEditable, RoleOp, RoleView,
   ServerEvent, Settings, TaskView, Usage, CloudStatus, OfficeView, PullRequestView, PrStage,
   EpicView, LimitsView,
 } from '../shared/types';
@@ -176,6 +176,8 @@ interface State {
    * себя или очистить поля; непустой — ошибки, разложенные по полям.
    */
   roleFeedback: { op: RoleOp; roleId: string | null; errors: FieldError[] } | null;
+  /** Витрина маркета. null — окно ещё не открывали в этой сессии. */
+  market: MarketView | null;
   /**
    * Запрос открыть окно «Команда» на конкретной роли — например, ссылкой
    * из карточки сотрудника. App открывает окно по нему, а само окно после
@@ -335,6 +337,7 @@ export const useStore = create<State>((set, get) => ({
   log: [],
   permissions: [],
   roleFeedback: null,
+  market: null,
   teamRequest: null,
   settings: {
     globalBudgetUsd: null, taskBudgetUsd: null, engine: 'local', cloudRepoUrl: null,
@@ -634,6 +637,9 @@ export const useStore = create<State>((set, get) => ({
         break;
       case 'role.saved':
         set({ roleFeedback: { op: e.op, roleId: e.roleId, errors: [] } });
+        break;
+      case 'market':
+        set({ market: e.market });
         break;
       case 'settings':
         // Язык приезжает вместе с остальными настройками офиса: сначала его
@@ -1107,6 +1113,33 @@ export function removeRole(roleId: string): void {
  */
 export function detachRole(roleId: string): void {
   socket?.send(JSON.stringify({ c: 'detach_role', roleId }));
+}
+
+// ---------------------------------------------------------------- маркет
+
+/** Открыть витрину: реестр, кеш и встроенные пакеты. `refresh` — перечитать реестр. */
+export function marketOpen(refresh = false): void {
+  socket?.send(JSON.stringify({ c: 'market_open', refresh }));
+}
+
+export function marketInstall(name: string): void {
+  socket?.send(JSON.stringify({ c: 'market_install', name }));
+}
+
+export function marketAddLink(url: string): void {
+  socket?.send(JSON.stringify({ c: 'market_add_link', url }));
+}
+
+export function marketHire(name: string): void {
+  socket?.send(JSON.stringify({ c: 'market_hire', name }));
+}
+
+export function marketCheck(): void {
+  socket?.send(JSON.stringify({ c: 'market_check' }));
+}
+
+export function marketUpdate(roleId: string): void {
+  socket?.send(JSON.stringify({ c: 'market_update', roleId }));
 }
 
 /** Форма роли прочитала итог своей операции — сбрасываем, чтобы не залипал. */

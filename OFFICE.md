@@ -33,6 +33,7 @@ Node + TypeScript, React 19 + Zustand на фронте, `ws` для связи,
 | `src/server/mcp.ts` | Внешние MCP-серверы ролей: каталог и умолчания по ролям |
 | `src/server/packages.ts` | Пакеты агентов: манифест `agent.json`, брифы, валидатор, роль из пакета (`packages/@office/<роль>/`) |
 | `src/server/skills.ts` | Что из пакета уезжает в сессию: скилы, плагины, просьбы о серверах |
+| `src/server/market.ts` | Маркет агентов: реестр `registry/registry.json`, установка из git в кеш `~/.office/packages`, найм из пакета, обновления |
 | `src/server/limits.ts` | Лимиты плана подписки: проценты и время сброса из событий SDK |
 | `src/server/git.ts` | Ветки, worktree, коммиты, слияние |
 | `src/server/cloud.ts` | Облачный режим на Managed Agents (написан, вживую не проверен) |

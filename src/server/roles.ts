@@ -89,11 +89,24 @@ export interface Role {
  */
 export type LinkOverrides = Partial<Omit<RoleEditable, 'brief' | 'briefExtra'>>;
 
+/**
+ * Откуда пакет установлен: репозиторий, путь внутри него и коммит. Именно
+ * коммит, а не тег: тег можно передвинуть, коммит — нет, и что проверялось,
+ * то и стоит. Нет источника — пакет встроенный, лежит в репозитории офиса.
+ */
+export interface PackageSource {
+  repo: string;
+  path: string;
+  commit: string;
+}
+
 export interface RoleLink {
   /** Имя пакета: `@office/backend`. */
   name: string;
   /** Версия пакета, по которой роль считалась в последний раз. */
   version: string;
+  /** Откуда взят. Нет поля — встроенный пакет из `packages/`. */
+  source?: PackageSource;
   /** Правки человека поверх умолчаний пакета — только то, что отличается. */
   overrides: LinkOverrides;
   /** Приписка к брифу пакета снизу. */
@@ -127,6 +140,7 @@ export function roleFromPackage(pkg: AgentPackage, lang: Lang, id: string, link?
   const ref: RoleLink = {
     name: pkg.name,
     version: pkg.version,
+    ...(link?.source ? { source: { ...link.source } } : {}),
     overrides: { ...(link?.overrides ?? {}) },
     briefExtra: link?.briefExtra ?? '',
   };

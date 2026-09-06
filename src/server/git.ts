@@ -24,7 +24,7 @@ export interface GitResult {
  * и весь git молча начинал отвечать «не репозиторий» — в том числе проверкам
  * слияния и ревью. Колбэк одинаков в любой среде запуска.
  */
-function git(cwd: string, args: string[]): Promise<GitResult> {
+export function git(cwd: string, args: string[]): Promise<GitResult> {
   return new Promise((done) => {
     execFile('git', args, { cwd, maxBuffer: 10 * 1024 * 1024 }, (err, stdout, stderr) => {
       const e = err as (Error & { code?: number }) | null;

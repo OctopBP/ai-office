@@ -10,13 +10,14 @@ import { Icon, type IconName } from '../icons';
 /** Цвета аватарок офисов — по кругу, те же, что у ролей. */
 const HUES = ['var(--hue-blue)', 'var(--hue-amber)', 'var(--hue-pink)', 'var(--hue-violet)'];
 
-type WindowKind = 'board' | 'merge' | 'log' | 'money' | 'team' | 'settings';
+type WindowKind = 'board' | 'merge' | 'log' | 'money' | 'team' | 'market' | 'settings';
 const WINDOWS: Array<{ kind: WindowKind; icon: IconName }> = [
   { kind: 'board', icon: 'list-check' },
   { kind: 'merge', icon: 'git-merge' },
   { kind: 'log', icon: 'file-text' },
   { kind: 'money', icon: 'coin' },
   { kind: 'team', icon: 'users' },
+  { kind: 'market', icon: 'world' },
   { kind: 'settings', icon: 'settings' },
 ];
 
@@ -59,7 +60,7 @@ export function Rail({ onPanel, onModal }: {
 
   const openWindow = (kind: WindowKind) => {
     if (kind === 'board') setView(view === 'board' ? 'office' : 'board');
-    else if (kind === 'team' || kind === 'settings') onModal(kind);
+    else if (kind === 'team' || kind === 'settings' || kind === 'market') onModal(kind);
     else onPanel(kind);
   };
 

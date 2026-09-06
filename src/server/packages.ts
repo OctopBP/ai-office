@@ -27,8 +27,10 @@
  *
  * Спека: docs/design/agent-market/spec.md.
  */
+import { createHash } from 'node:crypto';
 import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
-import { dirname, resolve } from 'node:path';
+import { homedir } from 'node:os';
+import { dirname, relative, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { isLang, LANGS, type Lang } from '../shared/i18n';
 import { MODEL_RE, resolveModel } from '../shared/models';
@@ -51,6 +53,19 @@ const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '../..');
 export const PACKAGES_DIR = process.env.OFFICE_PACKAGES_DIR
   ? resolve(process.env.OFFICE_PACKAGES_DIR)
   : resolve(ROOT, 'packages');
+
+/**
+ * Кеш пакетов, поставленных из реестра или по ссылке: `<кеш>/@область/имя/версия/`.
+ * Версии не перезаписываются — что проверялось, то и стоит; рядом с пакетом
+ * лежит `.office-lock.json` с коммитом и отпечатком дерева. Общий на машину:
+ * один пакет может стоять в десяти офисах.
+ */
+export const PACKAGE_CACHE = process.env.OFFICE_PACKAGE_CACHE
+  ? resolve(process.env.OFFICE_PACKAGE_CACHE)
+  : resolve(homedir(), '.office/packages');
+
+/** Имя файла с записью об установке рядом с пакетом в кеше. */
+export const LOCK_FILE = '.office-lock.json';
 
 /** Область наших пакетов. Зарезервирована: чужой пакет так называться не может. */
 export const OFFICIAL_SCOPE = '@office';
@@ -459,4 +474,115 @@ export function defaultTeam(root = PACKAGES_DIR): string[] {
     ...all.filter((p) => p.manifest.manager).map((p) => p.name),
     ...all.filter((p) => !p.manifest.manager).map((p) => p.name),
   ];
+}
+
+// ------------------------------------------------------------------ кеш
+
+/** Запись об установке: откуда пакет взят и что именно лежит в папке. */
+export interface PackageLock {
+  name: string;
+  version: string;
+  repo: string;
+  path: string;
+  commit: string;
+  installedAt: number;
+  /** Отпечаток дерева пакета (`packageIntegrity`) на момент установки. */
+  integrity: string;
+}
+
+/** Папка версии пакета в кеше. */
+export const cacheDir = (name: string, version: string, root = PACKAGE_CACHE): string =>
+  resolve(root, ...name.split('/'), version);
+
+/** Запись об установке из папки кеша. null — папка не из кеша или запись битая. */
+export function readLock(dir: string): PackageLock | null {
+  const file = resolve(dir, LOCK_FILE);
+  if (!existsSync(file)) return null;
+  const { value } = readJson(file);
+  const rec = asRecord(value);
+  if (!rec) return null;
+  const str = (k: string): string => (typeof rec[k] === 'string' ? rec[k] as string : '');
+  if (!str('name') || !str('version') || !str('commit')) return null;
+  return {
+    name: str('name'), version: str('version'), repo: str('repo'), path: str('path'),
+    commit: str('commit'), integrity: str('integrity'),
+    installedAt: typeof rec.installedAt === 'number' ? rec.installedAt : 0,
+  };
+}
+
+/**
+ * Отпечаток дерева пакета: sha256 по отсортированным путям и содержимому.
+ * Запись об установке и `.git` не считаются — первая меняется после
+ * установки, второго в пакете быть не должно. Один и тот же пакет из
+ * зеркала и из репозитория автора обязан дать один отпечаток (спека §12.3).
+ */
+export function packageIntegrity(dir: string): string {
+  const files: string[] = [];
+  const walk = (d: string): void => {
+    for (const entry of readdirSync(d, { withFileTypes: true })) {
+      if (entry.name === '.git' || entry.name === LOCK_FILE) continue;
+      const full = resolve(d, entry.name);
+      if (entry.isDirectory()) walk(full);
+      else if (entry.isFile()) files.push(full);
+    }
+  };
+  walk(dir);
+  const hash = createHash('sha256');
+  for (const file of files.sort()) {
+    hash.update(relative(dir, file));
+    hash.update('\0');
+    hash.update(readFileSync(file));
+    hash.update('\0');
+  }
+  return `sha256-${hash.digest('hex')}`;
+}
+
+/**
+ * Пакет роли по её ссылке. С источником — из кеша, по имени и версии; без
+ * источника — встроенный из `packages/`. null — на диске нет: роль тогда
+ * поднимается из сохранения, а ссылка ждёт, пока пакет вернётся.
+ */
+export function resolvePackage(
+  link: { name: string; version: string; source?: { repo: string } | null },
+  cache = PACKAGE_CACHE,
+): AgentPackage | null {
+  if (!link.source) return loadPackage(link.name);
+  if (!PACKAGE_NAME_RE.test(link.name) || !link.version) return null;
+  const { pkg } = readPackage(cacheDir(link.name, link.version, cache));
+  return pkg && pkg.name === link.name ? pkg : null;
+}
+
+/** Всё, что стоит в кеше: пакет и запись об установке, по имени и версии. */
+export function listCached(cache = PACKAGE_CACHE): Array<{ pkg: AgentPackage; lock: PackageLock }> {
+  if (!existsSync(cache)) return [];
+  const out: Array<{ pkg: AgentPackage; lock: PackageLock }> = [];
+  for (const scope of readdirSync(cache, { withFileTypes: true })) {
+    if (!scope.isDirectory() || !scope.name.startsWith('@')) continue;
+    for (const entry of readdirSync(resolve(cache, scope.name), { withFileTypes: true })) {
+      if (!entry.isDirectory()) continue;
+      const name = `${scope.name}/${entry.name}`;
+      for (const ver of readdirSync(resolve(cache, scope.name, entry.name), { withFileTypes: true })) {
+        if (!ver.isDirectory()) continue;
+        const dir = resolve(cache, scope.name, entry.name, ver.name);
+        const lock = readLock(dir);
+        const { pkg } = readPackage(dir);
+        if (lock && pkg && pkg.name === name && pkg.version === ver.name) out.push({ pkg, lock });
+      }
+    }
+  }
+  return out.sort((a, b) => a.pkg.name.localeCompare(b.pkg.name) || compareVersions(a.pkg.version, b.pkg.version));
+}
+
+/** Сравнение semver без сборки: 1.10.0 старше 1.9.0. Возвращает знак a − b. */
+export function compareVersions(a: string, b: string): number {
+  const pa = a.split('-')[0].split('.').map(Number);
+  const pb = b.split('-')[0].split('.').map(Number);
+  for (let i = 0; i < 3; i += 1) {
+    const d = (pa[i] ?? 0) - (pb[i] ?? 0);
+    if (d) return d;
+  }
+  // Предрелиз младше релиза той же тройки.
+  const ra = a.includes('-') ? 1 : 0;
+  const rb = b.includes('-') ? 1 : 0;
+  return rb - ra;
 }

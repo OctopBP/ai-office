@@ -3,6 +3,7 @@ import { Board } from './Board';
 import { MergeQueue } from './MergeQueue';
 import { PrPipeline } from './PrPipeline';
 import { TeamWindow } from './TeamWindow';
+import { MarketWindow } from './MarketWindow';
 import { AgentDrawer } from './AgentDrawer';
 import { TaskDrawer } from './TaskDrawer';
 import { PermissionModal } from './PermissionModal';
@@ -15,7 +16,7 @@ import { useStore } from './store';
 import { t } from './i18n';
 
 export type PanelKind = 'board' | 'money' | 'log' | 'help' | 'merge' | null;
-export type ModalKind = 'settings' | 'meeting' | 'offices' | 'team' | null;
+export type ModalKind = 'settings' | 'meeting' | 'offices' | 'team' | 'market' | null;
 
 export interface OverlayProps {
   panel: PanelKind;
@@ -108,6 +109,7 @@ export function Overlays({ panel, setPanel, modal, setModal }: OverlayProps) {
       {modal === 'meeting' && <MeetingModal onClose={() => setModal(null)} />}
       {modal === 'offices' && <OfficesModal onClose={() => setModal(null)} />}
       {modal === 'team' && <TeamWindow onClose={() => setModal(null)} />}
+      {modal === 'market' && <MarketWindow onClose={() => setModal(null)} />}
     </>
   );
 }
