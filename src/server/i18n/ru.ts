@@ -111,6 +111,10 @@ export const ru: Record<keyof typeof en, string> = {
   'market.managerTaken': 'Пакет {name} — менеджер, а менеджер в офисе уже есть и один.',
   'market.hiredFrom': 'Заведена роль {title} ({id}) из пакета {name} {version}',
   'market.roleUpdated': 'Роль {title} ({id}) обновлена: {name} {from} → {to}',
+  'export.badName': 'Имя пакета «{name}» не годится: нужно @область/имя строчными латинскими буквами, цифрами и дефисами.',
+  'export.dirTaken': 'Папка {dir} не пуста — экспорт не перезаписывает чужое. Укажите новую или пустую.',
+  'export.failed': 'Экспорт не удался: {error}',
+  'export.done': 'Роль {title} ({id}) экспортирована в пакет {name}: {dir}',
 
   'state.settings.noLayout': 'Раскладки «{id}» нет в design/layouts. Доступны: {known}.',
   'state.mcp.connected': 'Сервер «{title}» подключился.',

@@ -1005,7 +1005,9 @@ export type ServerEvent =
    * Уходит тому, кто открыл маркет, и после каждой его операции — список
    * читается с диска и из реестра, держать его в снапшоте незачем.
    */
-  | { t: 'market'; market: MarketView };
+  | { t: 'market'; market: MarketView }
+  /** Итог экспорта роли в пакет — тому, кто просил. Ошибка — готовым текстом. */
+  | { t: 'role.exported'; roleId: string; dir: string; warnings: string[]; error: string | null };
 
 /** Всё, что UI шлёт на сервер. */
 export type ClientCommand =
@@ -1042,6 +1044,12 @@ export type ClientCommand =
    * из пакета ещё раз.
    */
   | { c: 'detach_role'; roleId: string }
+  /**
+   * Экспортировать роль в папку пакета: манифест, бриф, скилы, стенд. Путь —
+   * абсолютный или от директории проекта; пусто — `agents/<имя>`. Экспорт —
+   * форк: бриф пишется целиком, ссылки на исходный пакет в результате нет.
+   */
+  | { c: 'export_role'; roleId: string; name: string; dir: string }
   /** Режим доступа конкретного сотрудника. null — вернуть его к режиму роли. */
   | { c: 'agent_permission'; instanceId: string; mode: PermissionMode | null }
   | { c: 'settings'; settings: Partial<Settings> }

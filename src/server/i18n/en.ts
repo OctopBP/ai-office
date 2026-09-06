@@ -112,6 +112,10 @@ export const en = {
   'market.managerTaken': 'Package {name} is a manager, and the office already has its one manager.',
   'market.hiredFrom': 'Role {title} ({id}) created from package {name} {version}',
   'market.roleUpdated': 'Role {title} ({id}) updated: {name} {from} → {to}',
+  'export.badName': 'Package name “{name}” will not do: @scope/name in lowercase latin letters, digits and dashes.',
+  'export.dirTaken': 'Directory {dir} is not empty — export does not overwrite. Pick a new or empty one.',
+  'export.failed': 'Export failed: {error}',
+  'export.done': 'Role {title} ({id}) exported to package {name}: {dir}',
 
   'state.settings.noLayout': 'There is no “{id}” layout in design/layouts. Available: {known}.',
   'state.mcp.connected': 'Server "{title}" connected.',

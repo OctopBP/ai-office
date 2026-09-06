@@ -84,7 +84,7 @@ export interface EmployeePack {
  * Что лежит в pack.json — формат до появления agent.json. Читается для
  * наборов в employees/: поля те же, что в манифесте, просто без роли.
  */
-interface PackFile {
+export interface PackFile {
   /** Пути к уже установленным плагинам. `~` и `*` в последнем сегменте раскрываются. */
   use?: string[];
   /**
@@ -189,7 +189,7 @@ const wanted = (skill: string, list: string[]): boolean =>
  * файл — считаем, что ссылок нет. Свои скилы пакета при этом остаются:
  * половина пакета лучше, чем сотрудник, который не запустился.
  */
-function readPackFields(dir: string): PackFile {
+export function readPackFields(dir: string): PackFile {
   const manifestFile = resolve(dir, 'agent.json');
   if (existsSync(manifestFile)) {
     try {

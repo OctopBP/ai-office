@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import {
-  accessLabel, fullAccessWarning, archiveRole, clearRoleFeedback, createRole, detachRole,
-  parseTaskMaxTurns, removeRole, updateRole, useStore,
+  accessLabel, fullAccessWarning, archiveRole, clearExportResult, clearRoleFeedback, createRole,
+  detachRole, exportRole, parseTaskMaxTurns, removeRole, updateRole, useStore,
 } from './store';
 import { t } from './i18n';
 import { catalog } from './layoutData';
@@ -56,6 +56,13 @@ export function RoleEditor({ role, onSaved, onDeleted }: {
   const [confirmAuto, setConfirmAuto] = useState(false);
   const [submittedOp, setSubmittedOp] = useState<'create' | 'update' | 'archive' | 'restore' | 'remove' | 'detach' | null>(null);
   const [confirmDetach, setConfirmDetach] = useState(false);
+  const exportResult = useStore((s) => s.exportResult);
+  const [exportOpen, setExportOpen] = useState(false);
+  const [exportName, setExportName] = useState('');
+  const [exportDir, setExportDir] = useState('');
+  const ownExport = exportResult && role && exportResult.roleId === role.id ? exportResult : null;
+  // Итог экспорта читается один раз: закрыли форму — следующее открытие чистое.
+  useEffect(() => () => { if (exportResult) clearExportResult(); }, []);
   const [fieldErrors, setFieldErrors] = useState<{ field: string; message: string }[]>([]);
 
   useEffect(() => {
@@ -304,6 +311,42 @@ export function RoleEditor({ role, onSaved, onDeleted }: {
           {role ? t('common.save') : t('role.create')}
         </button>
       </div>
+
+      {role && (
+        <div className="role-export">
+          <button className="link" onClick={() => setExportOpen(!exportOpen)}>{t('role.export')}</button>
+          {exportOpen && (
+            <>
+              <span className="hint">{t('role.export.hint')}</span>
+              <div className="row2">
+                <label>{t('role.export.name')}
+                  <input value={exportName} placeholder={`@me/${role.id}`} onChange={(e) => setExportName(e.target.value)} />
+                </label>
+                <label>{t('role.export.dir')}
+                  <input value={exportDir} placeholder={t('role.export.dir.placeholder', { id: role.id })} onChange={(e) => setExportDir(e.target.value)} />
+                </label>
+              </div>
+              <div className="modal-actions">
+                <button className="allow" disabled={!exportName.trim()} onClick={() => { clearExportResult(); exportRole(role.id, exportName, exportDir); }}>
+                  {t('role.export.go')}
+                </button>
+              </div>
+              {ownExport?.error && <div className="form-banner error">{ownExport.error}</div>}
+              {ownExport && !ownExport.error && (
+                <div className="hint">
+                  {t('role.export.done', { dir: ownExport.dir })}
+                  {ownExport.warnings.length > 0 && (
+                    <ul className="market-list muted small">
+                      <li>{t('role.export.warnings')}:</li>
+                      {ownExport.warnings.map((w) => <li key={w}>{w}</li>)}
+                    </ul>
+                  )}
+                </div>
+              )}
+            </>
+          )}
+        </div>
+      )}
 
       {role && (
         <div className="role-danger">

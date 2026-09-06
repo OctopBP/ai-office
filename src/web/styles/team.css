@@ -59,6 +59,8 @@
   padding: var(--space-2) var(--space-3); margin-bottom: var(--space-4); font-size: var(--fs-md); line-height: 1.45;
   border-radius: var(--radius-row); color: var(--danger); background: rgba(var(--danger-rgb), .1);
 }
+.role-export { margin-top: var(--space-3); padding-top: var(--space-3); border-top: 1px solid var(--hairline); }
+.role-export > .hint { display: block; margin: var(--space-1) 0 var(--space-3); }
 .role-danger { display: flex; gap: var(--space-2); margin-top: var(--space-2); padding-top: var(--space-3); border-top: 1px solid var(--hairline); }
 /* Внешности агентов: карточка с трёхмерной моделью на каждый скин. Колонки
    не пересчитываются под число внешностей руками — с новым скином в наборе

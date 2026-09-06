@@ -1,0 +1,34 @@
+# Проверка реестра и встроенных пакетов: PR в индекс не проходит, пока
+# валидатор не подтвердил, что по каждой записи в репозитории на указанном
+# коммите лежит годный пакет с тем же именем, а область имени принадлежит
+# владельцу репозитория.
+name: registry
+
+on:
+  pull_request:
+    paths:
+      - 'registry/**'
+      - 'packages/**'
+      - 'src/server/packages.ts'
+      - 'src/server/market.ts'
+      - 'src/server/publish.ts'
+  push:
+    branches: [main]
+    paths:
+      - 'registry/**'
+      - 'packages/**'
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: built-in packages
+        run: npm run test:packages
+      - name: registry index (with fetch)
+        run: npm run office-agent -- registry-check registry/registry.json --fetch

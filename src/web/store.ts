@@ -178,6 +178,8 @@ interface State {
   roleFeedback: { op: RoleOp; roleId: string | null; errors: FieldError[] } | null;
   /** Витрина маркета. null — окно ещё не открывали в этой сессии. */
   market: MarketView | null;
+  /** Итог последнего экспорта роли в пакет — форма роли читает и сбрасывает. */
+  exportResult: { roleId: string; dir: string; warnings: string[]; error: string | null } | null;
   /**
    * Запрос открыть окно «Команда» на конкретной роли — например, ссылкой
    * из карточки сотрудника. App открывает окно по нему, а само окно после
@@ -338,6 +340,7 @@ export const useStore = create<State>((set, get) => ({
   permissions: [],
   roleFeedback: null,
   market: null,
+  exportResult: null,
   teamRequest: null,
   settings: {
     globalBudgetUsd: null, taskBudgetUsd: null, engine: 'local', cloudRepoUrl: null,
@@ -640,6 +643,9 @@ export const useStore = create<State>((set, get) => ({
         break;
       case 'market':
         set({ market: e.market });
+        break;
+      case 'role.exported':
+        set({ exportResult: { roleId: e.roleId, dir: e.dir, warnings: e.warnings, error: e.error } });
         break;
       case 'settings':
         // Язык приезжает вместе с остальными настройками офиса: сначала его
@@ -1113,6 +1119,15 @@ export function removeRole(roleId: string): void {
  */
 export function detachRole(roleId: string): void {
   socket?.send(JSON.stringify({ c: 'detach_role', roleId }));
+}
+
+/** Экспортировать роль в папку пакета. Итог приедет событием role.exported. */
+export function exportRole(roleId: string, name: string, dir: string): void {
+  socket?.send(JSON.stringify({ c: 'export_role', roleId, name, dir }));
+}
+
+export function clearExportResult(): void {
+  useStore.setState({ exportResult: null });
 }
 
 // ---------------------------------------------------------------- маркет

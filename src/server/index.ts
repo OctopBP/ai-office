@@ -20,6 +20,7 @@ import { clearInitFlag, currentOffice, ensureOffice, loadRegistry, setCurrent, t
 import { hasCommits, initRepo, isRepo, repoProblem } from './git';
 import { isPermissionMode } from './permissions';
 import { handleMarketCommand } from './market';
+import { exportRole } from './export';
 import { flushAll } from './store';
 
 const PORT = Number(process.env.OFFICE_PORT ?? 3001);
@@ -303,6 +304,22 @@ wss.on('connection', (ws) => {
       replyRole(ws, 'remove', cmd.roleId, state.removeRole(cmd.roleId));
     } else if (cmd.c === 'detach_role') {
       replyRole(ws, 'detach', cmd.roleId, state.detachRole(cmd.roleId));
+    } else if (cmd.c === 'export_role') {
+      const role = state.role(cmd.roleId);
+      const made = role
+        ? exportRole(role, cmd.name, cmd.dir, state.projectDir, state.lang())
+        : { ok: false as const, error: state.say('state.role.missing', { role: cmd.roleId }) };
+      if (made.ok) {
+        state.addLog(null, 'system', state.say('export.done', {
+          title: role!.title, id: cmd.roleId, name: cmd.name.trim(), dir: made.dir,
+        }));
+      }
+      send(ws, {
+        t: 'role.exported', roleId: cmd.roleId,
+        dir: made.ok ? made.dir : '',
+        warnings: made.ok ? made.problems.map((p) => `${p.path}: ${p.message}`) : [],
+        error: made.ok ? null : made.error,
+      });
     } else if (cmd.c.startsWith('market_')) {
       // Маркет ходит в git и в реестр — отвечаем витриной, когда закончим,
       // а не держим разбор остальных команд.

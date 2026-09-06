@@ -23,6 +23,8 @@
     "test:market": "tsx scripts/test-market.ts",
     "test:mcp": "tsx scripts/test-mcp.ts",
     "bench": "tsx scripts/bench-skills.ts",
+    "office-agent": "tsx src/cli/office-agent.ts",
+    "test:cli": "tsx scripts/test-cli.ts",
     "test:state": "tsx scripts/test-state.ts",
     "test:nav": "tsx scripts/test-nav.ts",
     "test:plan": "tsx scripts/test-plan.ts",
