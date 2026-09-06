@@ -27,6 +27,7 @@ import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { basename, dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { execFile } from 'node:child_process';
 import type { Lang } from '../shared/i18n';
 import {
   OFFICE_SENDER, type ClientCommand, type MarketPackageView, type MarketRoleView, type MarketView,
@@ -37,7 +38,7 @@ import { c, t } from './i18n';
 import {
   cacheDir, compareVersions, listCached, listPackages, LOCK_FILE, PACKAGE_CACHE, PACKAGE_NAME_RE,
   packageBrief, packageIntegrity, packageModel, packageTitle, pick, readLock, readPackage,
-  type AgentPackage, type PackageLock,
+  type AgentPackage, type Localized, type PackageLock,
 } from './packages';
 import type { PackageSource } from './roles';
 import type { OfficeState } from './state';
@@ -50,6 +51,14 @@ export interface RegistryVersion {
   version: string;
   commit: string;
   at?: string;
+  /**
+   * Отпечаток дерева пакета (`packageIntegrity`) — его ставит сервис индекса,
+   * достав пакет по коммиту. С ним архив из зеркала и папка из git обязаны
+   * совпасть: источник не влияет на то, что поставится.
+   */
+  integrity?: string;
+  /** Адрес архива в зеркале сервиса. Пусто — только git. */
+  mirror?: string;
 }
 
 export interface RegistryEntry {
@@ -61,6 +70,18 @@ export interface RegistryEntry {
   trust: Exclude<PackageTrust, 'link'>;
   /** Отозванные версии: ставить нельзя, стоящие — с предупреждением. */
   yanked?: string[];
+  /**
+   * Снимок манифеста старшей версии — его кладёт сервис индекса, чтобы
+   * витрина показывала название и описание ещё не установленного пакета.
+   * Реестр-файл без сервиса этих полей не имеет, и это нормально.
+   */
+  title?: Localized;
+  summary?: Localized;
+  tags?: string[];
+  emoji?: string;
+  color?: string;
+  /** Сколько раз ставили — счётчик сервиса, по согласию клиентов. */
+  installs?: number;
 }
 
 export interface Registry {
@@ -100,10 +121,24 @@ export function parseRegistry(raw: unknown): Registry | null {
     const versions = (Array.isArray(e.versions) ? e.versions : [])
       .filter((v): v is Record<string, unknown> => Boolean(v) && typeof v === 'object')
       .filter((v) => typeof v.version === 'string' && typeof v.commit === 'string' && /^[0-9a-f]{7,40}$/.test(v.commit))
-      .map((v) => ({ version: v.version as string, commit: v.commit as string, ...(typeof v.at === 'string' ? { at: v.at } : {}) }))
+      .map((v) => ({
+        version: v.version as string, commit: v.commit as string,
+        ...(typeof v.at === 'string' ? { at: v.at } : {}),
+        ...(typeof v.integrity === 'string' && /^sha256-[0-9a-f]{64}$/.test(v.integrity) ? { integrity: v.integrity } : {}),
+        ...(typeof v.mirror === 'string' && /^https?:\/\//.test(v.mirror) ? { mirror: v.mirror } : {}),
+      }))
       .sort((a, b) => compareVersions(b.version, a.version));
     if (!versions.length) continue;
     const trust = e.trust === 'official' || e.trust === 'verified' || e.trust === 'community' ? e.trust : 'community';
+    const words = (v: unknown): Localized | undefined => {
+      const rec = v && typeof v === 'object' && !Array.isArray(v) ? v as Record<string, unknown> : null;
+      if (!rec) return undefined;
+      const out: Localized = {};
+      for (const [k, text] of Object.entries(rec)) if ((k === 'ru' || k === 'en') && typeof text === 'string') out[k] = text;
+      return Object.keys(out).length ? out : undefined;
+    };
+    const title = words(e.title);
+    const summary = words(e.summary);
     packages.push({
       name: e.name,
       repo: e.repo.trim(),
@@ -111,6 +146,12 @@ export function parseRegistry(raw: unknown): Registry | null {
       versions,
       trust,
       ...(Array.isArray(e.yanked) ? { yanked: e.yanked.filter((y): y is string => typeof y === 'string') } : {}),
+      ...(title ? { title } : {}),
+      ...(summary ? { summary } : {}),
+      ...(Array.isArray(e.tags) ? { tags: e.tags.filter((x): x is string => typeof x === 'string') } : {}),
+      ...(typeof e.emoji === 'string' ? { emoji: e.emoji } : {}),
+      ...(typeof e.color === 'string' ? { color: e.color } : {}),
+      ...(typeof e.installs === 'number' ? { installs: e.installs } : {}),
     });
   }
   return { schema: 1, packages };
@@ -312,6 +353,84 @@ export async function installFromGit(spec: InstallSpec, cache = PACKAGE_CACHE, l
   }
 }
 
+/** Запустить tar: архивы зеркала — обычные .tgz, и tar есть везде, где есть git. */
+const tar = (args: string[], cwd: string): Promise<{ ok: boolean; err: string }> => new Promise((done) => {
+  execFile('tar', args, { cwd }, (e, _out, stderr) => done({ ok: !e, err: (stderr || e?.message || '').trim() }));
+});
+
+/**
+ * Поставить пакет из зеркала сервиса: скачать архив версии, распаковать,
+ * сверить отпечаток с реестром. Отпечаток обязателен: зеркало — чужой
+ * сервер, и без сверки оно могло бы подменить пакет. Не совпало — отказ, а
+ * не «почти то».
+ */
+export async function installFromMirror(
+  spec: { mirror: string; integrity: string; commit: string; repo: string; path: string; expectName: string; version: string },
+  cache = PACKAGE_CACHE,
+): Promise<InstallResult> {
+  const fail = (error: string): InstallResult => ({ ok: false, error });
+  const dest = cacheDir(spec.expectName, spec.version, cache);
+  const existing = readLock(dest);
+  if (existing && existing.commit === spec.commit && existing.integrity === spec.integrity) {
+    const { pkg } = readPackage(dest);
+    if (pkg) return { ok: true, pkg, lock: existing, dir: dest, reused: true };
+  }
+  const tmp = await mkdtemp(resolve(tmpdir(), 'office-mirror-'));
+  try {
+    const res = await fetch(spec.mirror, { signal: AbortSignal.timeout(60_000) });
+    if (!res.ok) return fail(`mirror: HTTP ${res.status}`);
+    const file = resolve(tmp, 'package.tgz');
+    writeFileSync(file, Buffer.from(await res.arrayBuffer()));
+    mkdirSync(resolve(tmp, 'out'));
+    const unpacked = await tar(['-xzf', file, '-C', resolve(tmp, 'out')], tmp);
+    if (!unpacked.ok) return fail(`mirror: ${unpacked.err || 'bad archive'}`);
+    const src = resolve(tmp, 'out');
+    const integrity = packageIntegrity(src);
+    if (integrity !== spec.integrity) return fail(`mirror: integrity mismatch (${integrity.slice(0, 19)}… vs registry ${spec.integrity.slice(0, 19)}…)`);
+    const read = readPackage(src);
+    if (!read.pkg || read.pkg.name !== spec.expectName || read.pkg.version !== spec.version) return fail('mirror: archive is not the package the registry describes');
+    rmSync(dest, { recursive: true, force: true });
+    mkdirSync(dirname(dest), { recursive: true });
+    cpSync(src, dest, { recursive: true });
+    const lock: PackageLock = {
+      name: read.pkg.name, version: read.pkg.version, repo: spec.repo, path: spec.path,
+      commit: spec.commit, installedAt: Date.now(), integrity,
+    };
+    writeFileSync(resolve(dest, LOCK_FILE), `${JSON.stringify(lock, null, 2)}\n`);
+    const { pkg } = readPackage(dest);
+    return pkg ? { ok: true, pkg, lock, dir: dest, reused: false } : fail('package unreadable after copy');
+  } catch (err) {
+    return fail(`mirror: ${(err as Error).message}`);
+  } finally {
+    await rm(tmp, { recursive: true, force: true }).catch(() => {});
+  }
+}
+
+/**
+ * Поставить версию из реестра: сначала зеркало, потом git автора. Зеркало —
+ * доступность и неизменяемость (автор мог удалить репозиторий), git —
+ * источник правды; отпечаток сверяется в обоих случаях, так что источник не
+ * влияет на то, что поставится (спека §12.3).
+ */
+export async function installFromRegistry(
+  entry: RegistryEntry, version: RegistryVersion, cache = PACKAGE_CACHE, lang: Lang = 'en',
+): Promise<InstallResult> {
+  if (version.mirror && version.integrity) {
+    const viaMirror = await installFromMirror({
+      mirror: version.mirror, integrity: version.integrity, commit: version.commit,
+      repo: entry.repo, path: entry.path, expectName: entry.name, version: version.version,
+    }, cache);
+    if (viaMirror.ok) return viaMirror;
+    console.log(c('market.mirrorFailed', { name: entry.name, error: viaMirror.error }));
+  }
+  const viaGit = await installFromGit({ repo: entry.repo, path: entry.path, commit: version.commit, expectName: entry.name }, cache, lang);
+  if (viaGit.ok && version.integrity && viaGit.lock.integrity !== version.integrity) {
+    rmSync(viaGit.dir, { recursive: true, force: true });
+    return { ok: false, error: t(lang, 'market.integrity', { name: entry.name, version: version.version }) };
+  }
+  return viaGit;
+}
+
 // ---------------------------------------------------------- обновления
 
 /** Что нашла проверка: новая версия и её коммит. */
@@ -414,6 +533,15 @@ export async function marketView(state: OfficeState, opts: { busy?: boolean; ref
     c0.commit = latest?.commit ?? '';
     c0.latest = latest?.version ?? '';
     if (c0.origin !== 'builtin') c0.origin = 'registry';
+    // Снимок манифеста от сервиса: карточка неустановленного пакета получает
+    // название и описание, а не голое имя. Установленный знает всё сам.
+    if (!c0.installed) {
+      c0.title = entry.title ? pick(entry.title, lang) : c0.title;
+      c0.summary = entry.summary ? pick(entry.summary, lang) : c0.summary;
+      c0.tags = entry.tags ?? c0.tags;
+      c0.emoji = entry.emoji ?? c0.emoji;
+      c0.color = entry.color ?? c0.color;
+    }
   }
   // Кеш: установленное по ссылке или из реестра — старшая версия на карточку.
   for (const { pkg, lock } of listCached()) {
@@ -494,7 +622,17 @@ export async function handleMarketCommand(
       const entry = registry?.packages.find((e) => e.name === cmd.name);
       const latest = entry ? latestVersion(entry) : null;
       if (!entry || !latest) say('market.notInRegistry', { name: cmd.name });
-      else spec = { repo: entry.repo, path: entry.path, commit: latest.commit, expectName: entry.name };
+      else {
+        const made = await installFromRegistry(entry, latest, PACKAGE_CACHE, lang);
+        if (!made.ok) say('market.installFailed', { error: made.error });
+        else {
+          state.addLog(null, 'system', t(lang, 'market.installed', {
+            name: made.pkg.name, version: made.pkg.version, repo: made.lock.repo, commit: made.lock.commit.slice(0, 7),
+          }));
+        }
+        await view();
+        return;
+      }
     } else {
       const link = parseLink(cmd.url);
       if (!link) say('market.badLink', { url: cmd.url });
@@ -557,9 +695,14 @@ export async function handleMarketCommand(
       const next = updates.get(link.name) ?? await findUpdate(lock, registry);
       if (!next) say('market.noUpdate', { name: link.name });
       else {
-        const made = await installFromGit(
-          { repo: link.source.repo, path: link.source.path, commit: next.commit, expectName: link.name }, PACKAGE_CACHE, lang,
-        );
+        // Версия из реестра ставится через него (зеркало, отпечаток); из тегов — из git.
+        const entry = registry?.packages.find((e) => e.name === link.name);
+        const known = entry?.versions.find((v) => v.version === next.version && v.commit === next.commit);
+        const made = entry && known
+          ? await installFromRegistry(entry, known, PACKAGE_CACHE, lang)
+          : await installFromGit(
+            { repo: link.source.repo, path: link.source.path, commit: next.commit, expectName: link.name }, PACKAGE_CACHE, lang,
+          );
         if (!made.ok) say('market.installFailed', { error: made.error });
         else {
           const problem = state.updateRolePackage(role.id, made.pkg, toSource(made.lock));

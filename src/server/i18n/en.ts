@@ -116,6 +116,8 @@ export const en = {
   'export.dirTaken': 'Directory {dir} is not empty — export does not overwrite. Pick a new or empty one.',
   'export.failed': 'Export failed: {error}',
   'export.done': 'Role {title} ({id}) exported to package {name}: {dir}',
+  'market.mirrorFailed': '⚠️  Mirror did not serve {name}: {error} — installing from the author’s git',
+  'market.integrity': 'Package {name} {version} from git does not match the registry integrity — not installing.',
 
   'state.settings.noLayout': 'There is no “{id}” layout in design/layouts. Available: {known}.',
   'state.mcp.connected': 'Server "{title}" connected.',

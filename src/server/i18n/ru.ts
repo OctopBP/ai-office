@@ -115,6 +115,8 @@ export const ru: Record<keyof typeof en, string> = {
   'export.dirTaken': 'Папка {dir} не пуста — экспорт не перезаписывает чужое. Укажите новую или пустую.',
   'export.failed': 'Экспорт не удался: {error}',
   'export.done': 'Роль {title} ({id}) экспортирована в пакет {name}: {dir}',
+  'market.mirrorFailed': '⚠️  Зеркало не отдало {name}: {error} — ставлю из git автора',
+  'market.integrity': 'Пакет {name} {version} из git не совпал с отпечатком в реестре — не ставлю.',
 
   'state.settings.noLayout': 'Раскладки «{id}» нет в design/layouts. Доступны: {known}.',
   'state.mcp.connected': 'Сервер «{title}» подключился.',

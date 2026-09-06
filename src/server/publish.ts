@@ -184,6 +184,30 @@ export async function checkRegistry(
   return { problems, checked };
 }
 
+/**
+ * Индекс в формате маркетплейса Claude Code (спека §12.2): пакет — валидный
+ * плагин, и его скилы ставятся в голый Claude Code
+ * (`claude plugin marketplace add …`). Роль голый Claude Code не видит — это
+ * ожидаемо. Описание — из снимка реестра, если сервис его положил.
+ */
+export function marketplaceFromRegistry(registry: Registry): unknown {
+  return {
+    name: 'ai-office',
+    owner: { name: 'AI Office registry' },
+    plugins: registry.packages.flatMap((e) => {
+      const latest = latestVersion(e);
+      if (!latest) return [];
+      const slug = githubSlug(e.repo);
+      return [{
+        name: e.name.split('/')[1],
+        description: e.summary?.en ?? e.summary?.ru ?? e.name,
+        version: latest.version,
+        source: slug ? { source: 'github', repo: slug, ...(e.path ? { path: e.path } : {}) } : { source: 'url', url: e.repo },
+      }];
+    }),
+  };
+}
+
 /** Пакет из папки — для CLI, с ошибками текстом. */
 export function packageAt(dir: string): AgentPackage | { error: string } {
   const { pkg, problems } = readPackage(dir);

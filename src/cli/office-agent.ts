@@ -8,9 +8,12 @@
  *       офис не берёт; ошибки — код выхода 1
  *   bench [dir] [n]
  *       стенд срабатывания скилов по bench/cases.json пакета (стоит токенов)
- *   publish [dir] [--registry <file>] [--repo <url>] [--tag] [--write]
+ *   publish [dir] [--registry <file>] [--repo <url>] [--tag] [--write] [--to <url> --token <github token>]
  *       запись реестра для текущего коммита: печатает её, с --write вписывает
- *       в файл реестра, с --tag ставит тег версии на HEAD
+ *       в файл реестра, с --tag ставит тег версии на HEAD, с --to шлёт в
+ *       сервис индекса (POST /v1/publish, идентичность — токен GitHub)
+ *   marketplace <registry.json>
+ *       индекс в формате маркетплейса Claude Code — на stdout
  *   registry-check <file> [--fetch]
  *       проверка реестра: форма, области имён, а с --fetch — установка каждой
  *       старшей версии и сверка имени; для CI индекса
@@ -23,7 +26,7 @@ import { formatOutcome, readBenchCases, runBenchCase } from '../server/bench';
 import { scaffoldPackage } from '../server/export';
 import { validatePackage, type PackageProblem } from '../server/packages';
 import {
-  checkRegistry, packageAt, publishInfo, readRegistryFile, upsertEntry, writeRegistryFile,
+  checkRegistry, marketplaceFromRegistry, packageAt, publishInfo, readRegistryFile, upsertEntry, writeRegistryFile,
 } from '../server/publish';
 import { roleFromPackage, roleIdFor } from '../server/roles';
 import { asLang, type Lang } from '../shared/i18n';
@@ -59,8 +62,9 @@ function usage(): never {
     '  init <dir> --name @scope/name [--title "…"] [--lang ru|en]',
     '  validate [dir]',
     '  bench [dir] [n]',
-    '  publish [dir] [--registry <file>] [--repo <url>] [--tag] [--write]',
+    '  publish [dir] [--registry <file>] [--repo <url>] [--tag] [--write] [--to <url> --token <github token>]',
     '  registry-check <file> [--fetch]',
+    '  marketplace <registry.json>',
   ].join('\n'));
   process.exit(2);
 }
@@ -139,6 +143,21 @@ async function main(argv: string[]): Promise<number> {
       }
     }
     console.log(JSON.stringify(info.entry, null, 2));
+    const to = str(flags.to);
+    if (to) {
+      const token = str(flags.token) || process.env.GITHUB_TOKEN || '';
+      if (!token) { console.error('--to needs --token <GitHub token> (or GITHUB_TOKEN)'); return 1; }
+      const res = await fetch(`${to.replace(/\/+$/, '')}/v1/publish`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ repo: info.entry.repo, path: info.entry.path, commit: info.commit }),
+        signal: AbortSignal.timeout(120_000),
+      });
+      const body = await res.json().catch(() => ({})) as { error?: string; version?: string; integrity?: string };
+      if (!res.ok) { console.error(`registry refused: ${body.error ?? res.status}`); return 1; }
+      console.log(`published to ${to}: ${info.entry.name}@${body.version} (${body.integrity})`);
+      return 0;
+    }
     const file = str(flags.registry);
     if (flags.write) {
       if (!file) { console.error('--write needs --registry <file>'); return 1; }
@@ -149,6 +168,15 @@ async function main(argv: string[]): Promise<number> {
     } else {
       console.log(file ? `add --write to put it into ${file}` : 'pass --registry <file> --write to put it into a registry file, then open a pull request');
     }
+    return 0;
+  }
+
+  if (command === 'marketplace') {
+    const file = positional[0];
+    if (!file) usage();
+    const registry = readRegistryFile(resolve(file));
+    if ('error' in registry) { console.error(registry.error); return 1; }
+    console.log(JSON.stringify(marketplaceFromRegistry(registry), null, 2));
     return 0;
   }
 
