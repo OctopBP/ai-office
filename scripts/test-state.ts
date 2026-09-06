@@ -141,7 +141,11 @@ async function main(): Promise<void> {
     `нанять обратно можно: ${hireBack === null && office.staffOf('smm').length === 1}`,
     `нанятый получил рабочее место: ${office.staffOf('smm')[0]?.desk !== undefined}`,
   );
-  while (office.staffOf('smm').length < smmLimit) office.hire('smm');
+  // Условие с наймом, а не только со счётчиком: клон садится за свободный стол,
+  // и на офисе, где столы кончились, `hire` возвращает причину отказа, а
+  // счётчик не растёт — цикл по одному счётчику крутился бы вечно. Ровно так
+  // проверка и зависла, когда набор ролей дорос до вместимости комнаты.
+  while (office.staffOf('smm').length < smmLimit && office.hire('smm') === null);
   results.push(
     `лимит клонов соблюдён: ${/лимит|уже нанято/.test(office.hire('smm') ?? '')}`,
     `несуществующая роль отклонена: ${/нет в офисе/.test(office.hire('нет-такой') ?? '')}`,
@@ -523,8 +527,13 @@ async function main(): Promise<void> {
       !summaryWithArchived.includes(`- ${writerId} (`)}`,
     `живые роли в составе остались: ${menuIds.includes('backend')
       && summaryWithArchived.includes('- backend (')}`,
+    // Сколько исполнителей должен видеть менеджер, считаем по набору, а не
+    // «все минус менеджер»: в наборе может появиться роль, заведённая в
+    // архиве, и вычитание единицы молча превратило бы эту проверку в
+    // проверку длины списка.
     `в офисе без архива менеджер видит всех исполнителей: ${
-      untouched.workerRoles().length === defaultRoles('ru').length - 1
+      untouched.workerRoles().length
+        === defaultRoles('ru').filter((r) => !r.isManager && !r.archived).length
       && untouched.workerRoles().every((r) => teamSummary(untouched).includes(`- ${r.id} (`))}`,
   );
 

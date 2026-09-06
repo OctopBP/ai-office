@@ -1,0 +1,59 @@
+{
+  "schema": 1,
+  "name": "@office/illustrator",
+  "kind": "agent",
+  "title": {
+    "ru": "Иллюстратор",
+    "en": "Illustrator"
+  },
+  "summary": {
+    "ru": "Картинки через API генерации: иллюстрации, обложки, иконки, текстуры.",
+    "en": "Illustrator: pictures through an image API — illustrations, covers, icons, textures."
+  },
+  "tags": [
+    "art",
+    "images",
+    "generation"
+  ],
+  "color": "#84cc16",
+  "emoji": "🖼",
+  "maxInstances": 2,
+  "license": "MIT",
+  "runtime": {
+    "engine": "claude-code",
+    "model": "sonnet",
+    "tools": [
+      "Read",
+      "Write",
+      "Edit",
+      "Glob",
+      "Grep",
+      "Bash",
+      "WebSearch",
+      "WebFetch",
+      "TodoWrite"
+    ],
+    "permissionMode": "ask-risky",
+    "isolate": true,
+    "maxTurns": null,
+    "mcp": [
+      "imagegen"
+    ]
+  },
+  "servers": [
+    {
+      "id": "imagegen",
+      "title": "Image API",
+      "transport": "stdio",
+      "command": "node",
+      "args": [
+        "tools/imagegen/server.mjs"
+      ],
+      "env": {
+        "NANOBANANA_API_KEY": "${NANOBANANA_API_KEY}",
+        "GEMINI_API_KEY": "${GEMINI_API_KEY}"
+      },
+      "alwaysLoad": true
+    }
+  ]
+}

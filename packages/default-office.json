@@ -8,6 +8,7 @@
     "@office/reviewer",
     "@office/artist",
     "@office/artist3d",
+    "@office/illustrator",
     "@office/legal"
   ]
 }

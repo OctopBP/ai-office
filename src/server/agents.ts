@@ -1652,7 +1652,7 @@ function startWorker(taskOffice: OfficeState, task: Task, inst: Instance): void 
           tools: sessionTools(role),
           mcpServers: {
             office: workerTools(taskOffice, inst.id, task),
-            ...externalMcp(taskOffice.settings, role),
+            ...externalMcp(taskOffice.settings, role, workdir),
           },
           // Скилы роли — из её пакета в employees/<роль>/. Пакета нет, обе
           // опции undefined, и сессия собирается ровно как прежде.
@@ -2181,7 +2181,7 @@ async function runAgentSession(
         },
         cwd: opts.cwd,
         tools: sessionTools(role),
-        mcpServers: { ...opts.mcp, ...externalMcp(state.settings, role) },
+        mcpServers: { ...opts.mcp, ...externalMcp(state.settings, role, opts.cwd) },
         plugins: employeePlugins(role),
         skills: employeeSkills(role),
         permissionMode: 'default',

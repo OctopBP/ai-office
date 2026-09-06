@@ -38,6 +38,7 @@ export const AGENT_SPRITE: Record<string, string> = {
   reviewer: 'agent_backend2',
   artist: 'agent_uiux',
   artist3d: 'agent_uiux',
+  illustrator: 'agent_uiux',
   legal: 'agent_frontend1',
 };
 

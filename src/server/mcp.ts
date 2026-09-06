@@ -21,11 +21,21 @@
  * целиком уезжают на фронт в каждом снимке — записанный здесь токен утёк бы
  * дважды.
  */
+import { dirname, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import type { McpServerConfig } from '@anthropic-ai/claude-agent-sdk';
 import type { Lang } from '../shared/i18n';
 import type { McpServerDef, McpServerState, Settings } from '../shared/types';
 import { hasKey, t } from './i18n';
 import type { Role } from './roles';
+
+/**
+ * Корень репозитория офиса. Нужен одному серверу — своему: он лежит здесь же,
+ * в `tools/`, а не ставится из сети, и запускать его надо по полному пути.
+ * Текущая директория для этого не годится: офис поднимают и из другой папки,
+ * а каталог с относительным путём молча перестал бы работать.
+ */
+const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '../..');
 
 /** Заготовка сервера: остальное добивается умолчаниями. */
 const server = (def: Partial<McpServerDef> & { id: string }): McpServerDef => ({
@@ -88,6 +98,36 @@ export const DEFAULT_MCP_SERVERS: McpServerDef[] = [
     // дешевле, чем отдельный ход на поиск инструмента.
     alwaysLoad: true,
   }),
+  /**
+   * Свой сервер: генератор картинок. Лежит в `tools/imagegen/`, поднимается
+   * обычным node без сборки и загрузчиков.
+   *
+   * Он здесь по той же причине, что и остальные, — рисовать Claude Code не
+   * умеет, а иллюстратору без этого нечем работать. Отличие одно: сервер наш,
+   * поэтому у него есть то, чего у чужих мостов нет, — периметр записи. Файлы
+   * он кладёт только внутрь рабочей копии сотрудника, которую офис передаёт
+   * ему через `OFFICE_WORKDIR` (см. `toSdkConfig`): сам сервер поднимается
+   * процессом офиса и о ветке задачи ничего не знает.
+   *
+   * Провайдеров у него несколько (nanobananaapi.ai и Gemini напрямую), и
+   * выбор — это ключ в окружении, а не правка кода. Ключи перечислены
+   * ссылками: так человеку видно в интерфейсе, чего серверу не хватает, а
+   * сам ключ в настройки офиса не попадает.
+   */
+  server({
+    id: 'imagegen',
+    title: 'Image API',
+    command: 'node',
+    args: [resolve(ROOT, 'tools/imagegen/server.mjs')],
+    env: {
+      NANOBANANA_API_KEY: '${NANOBANANA_API_KEY}',
+      GEMINI_API_KEY: '${GEMINI_API_KEY}',
+      IMAGEGEN_PROVIDER: '${IMAGEGEN_PROVIDER}',
+    },
+    // Инструментов три, и без них роль не начнёт работу вовсе — держать их
+    // за поиском инструмента значило бы платить ходом на каждой задаче.
+    alwaysLoad: true,
+  }),
 ];
 
 /** Каталог офиса. Поля нет — офис старше каталога, берём набор по умолчанию. */
@@ -130,15 +170,25 @@ function resolveEnv(env: Record<string, string>): Record<string, string> {
   return out;
 }
 
-/** Описание сервера в том виде, в каком его ждёт SDK. */
-function toSdkConfig(def: McpServerDef): McpServerConfig {
+/**
+ * Описание сервера в том виде, в каком его ждёт SDK.
+ *
+ * Рабочая копия сотрудника уезжает stdio-серверу переменной `OFFICE_WORKDIR`,
+ * и это не удобство, а починка. Внешний сервер — отдельный процесс, который
+ * поднимает офис, а не сессия: его текущая директория — та, откуда запущен
+ * офис, и про ветку задачи он не знает ничего. Сервер, пишущий файлы, без
+ * этой переменной складывал бы их в корень офиса мимо ветки — то есть в
+ * никуда. Мостам до Figma и Blender переменная не мешает: они её не читают.
+ */
+function toSdkConfig(def: McpServerDef, cwd?: string): McpServerConfig {
   const env = resolveEnv(def.env);
   if (def.transport === 'stdio') {
+    const withCwd = cwd ? { ...env, OFFICE_WORKDIR: cwd } : env;
     return {
       type: 'stdio',
       command: def.command,
       args: def.args,
-      ...(Object.keys(env).length ? { env } : {}),
+      ...(Object.keys(withCwd).length ? { env: withCwd } : {}),
       alwaysLoad: def.alwaysLoad,
     };
   }
@@ -150,11 +200,15 @@ function toSdkConfig(def: McpServerDef): McpServerConfig {
   };
 }
 
-/** Внешние MCP-серверы роли — в том виде, в каком их ждёт опция сессии. */
+/**
+ * Внешние MCP-серверы роли — в том виде, в каком их ждёт опция сессии.
+ * `cwd` — рабочая копия сотрудника: она нужна серверам, которые пишут файлы
+ * (§ `toSdkConfig`). Пусто — серверы поднимаются как раньше.
+ */
 export const externalMcp = (
-  settings: Settings, role: Role,
+  settings: Settings, role: Role, cwd?: string,
 ): Record<string, McpServerConfig> =>
-  Object.fromEntries(serversFor(settings, role).map((s) => [s.id, toSdkConfig(s)]));
+  Object.fromEntries(serversFor(settings, role).map((s) => [s.id, toSdkConfig(s, cwd)]));
 
 /**
  * Дополнение к системному промпту: чем роль умеет пользоваться и что делать,

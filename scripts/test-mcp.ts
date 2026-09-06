@@ -32,6 +32,15 @@ check('дизайнеру figma-bridge', servers(role('design')).includes('figma
 check('фронтенду тот же figma-bridge', servers(role('frontend')).includes('figma-bridge'), list(role('frontend')));
 check('3D-художнику blender', servers(role('artist3d')).includes('blender'), list(role('artist3d')));
 check('бэкенду ничего', servers(role('backend')).length === 0, list(role('backend')));
+check('иллюстратору imagegen', servers(role('illustrator')).includes('imagegen'), list(role('illustrator')));
+
+// Свой сервер лежит в репозитории офиса, а поднимается из чужой директории:
+// относительный путь до него молча не нашёлся бы.
+const imagegen = DEFAULT_MCP_SERVERS.find((s) => s.id === 'imagegen')!;
+check('путь к своему серверу абсолютный', imagegen.args[0]?.startsWith('/') === true, String(imagegen.args[0]));
+check('ключи в каталоге только ссылками',
+  Object.values(imagegen.env).every((v) => /^\$\{[A-Z_]+\}$/.test(v)),
+  Object.entries(imagegen.env).map(([k, v]) => `${k}=${v}`).join(' '));
 
 // Своё поле роли сильнее умолчания по id — иначе отключить сервер было бы нечем.
 check('mcp: [] отключает всё', servers({ ...role('design'), mcp: [] }).length === 0,
@@ -60,6 +69,20 @@ check('строки дизайнера и фронтенда разные', desi
   designBrief === frontBrief ? 'совпали' : 'разные');
 check('3D-художнику сказано про скрипт', blenderBrief.includes('tools/blender/'), `${blenderBrief.length} символов`);
 check('роли без серверов — пустая строка', mcpBrief(catalog(), role('backend'), 'ru') === '', '(пусто)');
+const drawBrief = mcpBrief(catalog(), role('illustrator'), 'ru');
+check('иллюстратору сказано рисовать, а не описывать',
+  drawBrief.includes('картинку ДЕЛАЙ'), `${drawBrief.length} символов`);
+
+// ------------------------------------------- рабочая копия для своих серверов
+
+// Внешний сервер поднимает процесс офиса, и про ветку задачи он не знает:
+// без переменной сервер, пишущий файлы, складывал бы их мимо рабочей копии.
+const wd = (cwd?: string): string | undefined => {
+  const built = externalMcp(catalog(), role('illustrator'), cwd).imagegen;
+  return (built as { env?: Record<string, string> }).env?.OFFICE_WORKDIR;
+};
+check('рабочая копия доезжает до сервера', wd('/tmp/work') === '/tmp/work', String(wd('/tmp/work')));
+check('без рабочей копии переменной нет', wd() === undefined, String(wd()));
 
 // --------------------------------------------------------- каталог из формы
 
