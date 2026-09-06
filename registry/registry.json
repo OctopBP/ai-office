@@ -2,84 +2,6 @@
   "schema": 1,
   "packages": [
     {
-      "name": "@office/pm",
-      "repo": "https://github.com/OctopBP/ai-office.git",
-      "path": "packages/@office/pm",
-      "versions": [
-        {
-          "version": "0.1.0",
-          "commit": "509bcf5f9137fcbb6e8a93131e98d34c9dc40ded",
-          "at": "2026-09-06"
-        }
-      ],
-      "trust": "official"
-    },
-    {
-      "name": "@office/backend",
-      "repo": "https://github.com/OctopBP/ai-office.git",
-      "path": "packages/@office/backend",
-      "versions": [
-        {
-          "version": "0.1.0",
-          "commit": "509bcf5f9137fcbb6e8a93131e98d34c9dc40ded",
-          "at": "2026-09-06"
-        }
-      ],
-      "trust": "official"
-    },
-    {
-      "name": "@office/frontend",
-      "repo": "https://github.com/OctopBP/ai-office.git",
-      "path": "packages/@office/frontend",
-      "versions": [
-        {
-          "version": "0.1.0",
-          "commit": "509bcf5f9137fcbb6e8a93131e98d34c9dc40ded",
-          "at": "2026-09-06"
-        }
-      ],
-      "trust": "official"
-    },
-    {
-      "name": "@office/design",
-      "repo": "https://github.com/OctopBP/ai-office.git",
-      "path": "packages/@office/design",
-      "versions": [
-        {
-          "version": "0.1.0",
-          "commit": "509bcf5f9137fcbb6e8a93131e98d34c9dc40ded",
-          "at": "2026-09-06"
-        }
-      ],
-      "trust": "official"
-    },
-    {
-      "name": "@office/smm",
-      "repo": "https://github.com/OctopBP/ai-office.git",
-      "path": "packages/@office/smm",
-      "versions": [
-        {
-          "version": "0.1.0",
-          "commit": "509bcf5f9137fcbb6e8a93131e98d34c9dc40ded",
-          "at": "2026-09-06"
-        }
-      ],
-      "trust": "official"
-    },
-    {
-      "name": "@office/reviewer",
-      "repo": "https://github.com/OctopBP/ai-office.git",
-      "path": "packages/@office/reviewer",
-      "versions": [
-        {
-          "version": "0.1.0",
-          "commit": "509bcf5f9137fcbb6e8a93131e98d34c9dc40ded",
-          "at": "2026-09-06"
-        }
-      ],
-      "trust": "official"
-    },
-    {
       "name": "@office/artist",
       "repo": "https://github.com/OctopBP/ai-office.git",
       "path": "packages/@office/artist",
@@ -106,9 +28,100 @@
       "trust": "official"
     },
     {
+      "name": "@office/backend",
+      "repo": "https://github.com/OctopBP/ai-office.git",
+      "path": "packages/@office/backend",
+      "versions": [
+        {
+          "version": "0.1.0",
+          "commit": "509bcf5f9137fcbb6e8a93131e98d34c9dc40ded",
+          "at": "2026-09-06"
+        }
+      ],
+      "trust": "official"
+    },
+    {
+      "name": "@office/design",
+      "repo": "https://github.com/OctopBP/ai-office.git",
+      "path": "packages/@office/design",
+      "versions": [
+        {
+          "version": "0.1.0",
+          "commit": "509bcf5f9137fcbb6e8a93131e98d34c9dc40ded",
+          "at": "2026-09-06"
+        }
+      ],
+      "trust": "official"
+    },
+    {
+      "name": "@office/frontend",
+      "repo": "https://github.com/OctopBP/ai-office.git",
+      "path": "packages/@office/frontend",
+      "versions": [
+        {
+          "version": "0.1.0",
+          "commit": "509bcf5f9137fcbb6e8a93131e98d34c9dc40ded",
+          "at": "2026-09-06"
+        }
+      ],
+      "trust": "official"
+    },
+    {
+      "name": "@office/illustrator",
+      "repo": "https://github.com/OctopBP/ai-office.git",
+      "path": "packages/@office/illustrator",
+      "versions": [
+        {
+          "version": "0.1.0",
+          "commit": "b76cb08fc61e18ade389d6bcaccb73aa21bfdc61",
+          "at": "2026-09-06"
+        }
+      ],
+      "trust": "official"
+    },
+    {
       "name": "@office/legal",
       "repo": "https://github.com/OctopBP/ai-office.git",
       "path": "packages/@office/legal",
+      "versions": [
+        {
+          "version": "0.1.0",
+          "commit": "509bcf5f9137fcbb6e8a93131e98d34c9dc40ded",
+          "at": "2026-09-06"
+        }
+      ],
+      "trust": "official"
+    },
+    {
+      "name": "@office/pm",
+      "repo": "https://github.com/OctopBP/ai-office.git",
+      "path": "packages/@office/pm",
+      "versions": [
+        {
+          "version": "0.1.0",
+          "commit": "509bcf5f9137fcbb6e8a93131e98d34c9dc40ded",
+          "at": "2026-09-06"
+        }
+      ],
+      "trust": "official"
+    },
+    {
+      "name": "@office/reviewer",
+      "repo": "https://github.com/OctopBP/ai-office.git",
+      "path": "packages/@office/reviewer",
+      "versions": [
+        {
+          "version": "0.1.0",
+          "commit": "509bcf5f9137fcbb6e8a93131e98d34c9dc40ded",
+          "at": "2026-09-06"
+        }
+      ],
+      "trust": "official"
+    },
+    {
+      "name": "@office/smm",
+      "repo": "https://github.com/OctopBP/ai-office.git",
+      "path": "packages/@office/smm",
       "versions": [
         {
           "version": "0.1.0",
