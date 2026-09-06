@@ -82,6 +82,14 @@ export interface RegistryEntry {
   color?: string;
   /** Сколько раз ставили — счётчик сервиса, по согласию клиентов. */
   installs?: number;
+  /**
+   * Доступ. `licensed` — зеркало отдаёт архив только по ключу лицензии;
+   * цена и адрес покупки — витрина, ключ выдаёт продавец. Сам сбор денег —
+   * не наше дело: сервис проверяет право, магазин живёт снаружи.
+   */
+  access?: 'public' | 'licensed';
+  price?: string;
+  buyUrl?: string;
 }
 
 export interface Registry {
@@ -152,6 +160,9 @@ export function parseRegistry(raw: unknown): Registry | null {
       ...(typeof e.emoji === 'string' ? { emoji: e.emoji } : {}),
       ...(typeof e.color === 'string' ? { color: e.color } : {}),
       ...(typeof e.installs === 'number' ? { installs: e.installs } : {}),
+      ...(e.access === 'licensed' ? { access: 'licensed' as const } : {}),
+      ...(typeof e.price === 'string' && e.price.trim() ? { price: e.price.trim() } : {}),
+      ...(typeof e.buyUrl === 'string' && /^https?:\/\//.test(e.buyUrl) ? { buyUrl: e.buyUrl } : {}),
     });
   }
   return { schema: 1, packages };
@@ -184,6 +195,34 @@ export async function loadRegistry(source = REGISTRY_SOURCE, force = false): Pro
 /** Последняя не отозванная версия записи. */
 export const latestVersion = (entry: RegistryEntry): RegistryVersion | null =>
   entry.versions.find((v) => !entry.yanked?.includes(v.version)) ?? null;
+
+// ------------------------------------------------------------ лицензии
+
+/** Ключи лицензий по имени пакета — рядом с кешем, общие на машину. */
+export const LICENSES_FILE = resolve(PACKAGE_CACHE, '..', 'licenses.json');
+
+export function readLicenses(file = LICENSES_FILE): Record<string, string> {
+  if (!existsSync(file)) return {};
+  try {
+    const raw = JSON.parse(readFileSync(file, 'utf8')) as Record<string, unknown>;
+    return Object.fromEntries(Object.entries(raw).filter((kv): kv is [string, string] => PACKAGE_NAME_RE.test(kv[0]) && typeof kv[1] === 'string' && kv[1] !== ''));
+  } catch {
+    return {};
+  }
+}
+
+/** Запомнить ключ (пустой — забыть). Ключ на витрину не едет никогда. */
+export function setLicense(name: string, key: string, file = LICENSES_FILE): void {
+  const all = readLicenses(file);
+  if (key.trim()) all[name] = key.trim();
+  else delete all[name];
+  mkdirSync(dirname(file), { recursive: true });
+  writeFileSync(file, `${JSON.stringify(all, null, 2)}\n`);
+}
+
+/** Сервис за адресом реестра: `https://x/v1/registry.json` → `https://x`. Пусто — реестр из файла. */
+export const serviceBase = (source = REGISTRY_SOURCE): string =>
+  (/^https?:\/\/.+\/v1\/registry\.json$/.test(source) ? source.replace(/\/v1\/registry\.json$/, '') : '');
 
 // -------------------------------------------------------------- ссылки
 
@@ -365,7 +404,7 @@ const tar = (args: string[], cwd: string): Promise<{ ok: boolean; err: string }>
  * не «почти то».
  */
 export async function installFromMirror(
-  spec: { mirror: string; integrity: string; commit: string; repo: string; path: string; expectName: string; version: string },
+  spec: { mirror: string; integrity: string; commit: string; repo: string; path: string; expectName: string; version: string; license?: string },
   cache = PACKAGE_CACHE,
 ): Promise<InstallResult> {
   const fail = (error: string): InstallResult => ({ ok: false, error });
@@ -377,7 +416,11 @@ export async function installFromMirror(
   }
   const tmp = await mkdtemp(resolve(tmpdir(), 'office-mirror-'));
   try {
-    const res = await fetch(spec.mirror, { signal: AbortSignal.timeout(60_000) });
+    const res = await fetch(spec.mirror, {
+      signal: AbortSignal.timeout(60_000),
+      ...(spec.license ? { headers: { Authorization: `Bearer ${spec.license}` } } : {}),
+    });
+    if (res.status === 401 || res.status === 402 || res.status === 403) return fail(`mirror: license required or not accepted (HTTP ${res.status})`);
     if (!res.ok) return fail(`mirror: HTTP ${res.status}`);
     const file = resolve(tmp, 'package.tgz');
     writeFileSync(file, Buffer.from(await res.arrayBuffer()));
@@ -419,9 +462,15 @@ export async function installFromRegistry(
     const viaMirror = await installFromMirror({
       mirror: version.mirror, integrity: version.integrity, commit: version.commit,
       repo: entry.repo, path: entry.path, expectName: entry.name, version: version.version,
+      license: readLicenses()[entry.name],
     }, cache);
     if (viaMirror.ok) return viaMirror;
+    // Лицензионный пакет из git не взять: репозиторий продавца закрыт, а
+    // отказ зеркала — не сбой, а ответ. Говорим его как есть.
+    if (entry.access === 'licensed') return viaMirror;
     console.log(c('market.mirrorFailed', { name: entry.name, error: viaMirror.error }));
+  } else if (entry.access === 'licensed') {
+    return { ok: false, error: t(lang, 'market.licenseNoMirror', { name: entry.name }) };
   }
   const viaGit = await installFromGit({ repo: entry.repo, path: entry.path, commit: version.commit, expectName: entry.name }, cache, lang);
   if (viaGit.ok && version.integrity && viaGit.lock.integrity !== version.integrity) {
@@ -469,7 +518,7 @@ const emptyCard = (name: string): MarketPackageView => ({
   repo: '', path: '', commit: '', latest: '', yanked: false,
   title: '', summary: '', tags: [], emoji: '', color: '', manager: false, model: '',
   tools: null, mcp: [], servers: [], env: [], network: false, skills: [], brief: '',
-  warnings: [], roles: [],
+  warnings: [], roles: [], kind: 'agent', members: [], settings: {}, access: 'public', price: '', buyUrl: '', licensed: false,
 });
 
 function fillFromPackage(card: MarketPackageView, pkg: AgentPackage, lang: Lang): void {
@@ -491,6 +540,11 @@ function fillFromPackage(card: MarketPackageView, pkg: AgentPackage, lang: Lang)
   card.skills = skillNames(pkg);
   card.brief = packageBrief(pkg, lang);
   card.warnings = warningsOf(pkg.dir);
+  card.kind = m.kind;
+  card.settings = { ...m.settings };
+  card.members = m.members.map((member) => ({
+    package: member.package, count: member.count, version: member.version, installed: false, available: false, title: '',
+  }));
 }
 
 /** Имена скилов пакета: свои по папкам плюс встроенные из манифеста. */
@@ -542,6 +596,9 @@ export async function marketView(state: OfficeState, opts: { busy?: boolean; ref
       c0.emoji = entry.emoji ?? c0.emoji;
       c0.color = entry.color ?? c0.color;
     }
+    c0.access = entry.access ?? 'public';
+    c0.price = entry.price ?? '';
+    c0.buyUrl = entry.buyUrl ?? '';
   }
   // Кеш: установленное по ссылке или из реестра — старшая версия на карточку.
   for (const { pkg, lock } of listCached()) {
@@ -574,17 +631,59 @@ export async function marketView(state: OfficeState, opts: { busy?: boolean; ref
     if (!c0.installed && !c0.title) c0.title = role.title;
   }
 
+  // Участники команд: установлен, есть в реестре, как называется.
+  const licenses = readLicenses();
+  for (const c0 of cards.values()) {
+    c0.licensed = Boolean(licenses[c0.name]);
+    for (const member of c0.members) {
+      const found = cards.get(member.package);
+      member.installed = found?.installed === true;
+      member.available = Boolean(found) && (found!.installed || found!.origin === 'registry');
+      member.title = found?.title || member.package;
+    }
+  }
   const order: Record<MarketPackageView['origin'], number> = { builtin: 0, registry: 1, link: 2 };
   const packages = [...cards.values()].sort((a, b) =>
     order[a.origin] - order[b.origin] || a.name.localeCompare(b.name));
   return {
     packages, registrySource: REGISTRY_SOURCE, registryError: error, checkedAt, busy: opts.busy === true,
+    service: Boolean(serviceBase()),
   };
 }
 
 // ------------------------------------------------------------- команды
 
 type MarketCommand = Extract<ClientCommand, { c: `market_${string}` }>;
+
+/**
+ * Сообщить сервису об установке — только по галочке в настройках офиса и
+ * только сервису (файлу сообщать некому). Молча: счётчик — не повод мешать.
+ */
+async function tellInstalled(state: OfficeState, name: string): Promise<void> {
+  const base = serviceBase();
+  if (!base || state.settings.marketTelemetry !== true) return;
+  await fetch(`${base}/v1/packages/${name}/install`, { method: 'POST', signal: AbortSignal.timeout(5_000) }).catch(() => {});
+}
+
+/**
+ * Поставить пакет по имени, если он не встроен и не в кеше: из реестра.
+ * Общий шаг для установки, найма команды и обновления участников.
+ */
+async function ensureInstalled(state: OfficeState, name: string, version = ''): Promise<{ pkg: AgentPackage; source: PackageSource | null } | { error: string }> {
+  const have = installedPackage(name);
+  if (have && (!version || have.pkg.version === version)) return have;
+  const { registry } = await loadRegistry();
+  const entry = registry?.packages.find((e) => e.name === name);
+  const wanted = entry ? (version ? entry.versions.find((v) => v.version === version) ?? null : latestVersion(entry)) : null;
+  if (!entry || !wanted) return have ?? { error: t(state.lang(), 'market.notInRegistry', { name }) };
+  const made = await installFromRegistry(entry, wanted, PACKAGE_CACHE, state.lang());
+  if (!made.ok) return { error: made.error };
+  state.addLog(null, 'system', t(state.lang(), 'market.installed', {
+    name: made.pkg.name, version: made.pkg.version, repo: made.lock.repo, commit: made.lock.commit.slice(0, 7),
+  }));
+  void tellInstalled(state, name);
+  return { pkg: made.pkg, source: toSource(made.lock) };
+}
 
 /** Установленный пакет по имени: встроенный или старшая версия из кеша. */
 function installedPackage(name: string): { pkg: AgentPackage; source: PackageSource | null } | null {
@@ -629,6 +728,7 @@ export async function handleMarketCommand(
           state.addLog(null, 'system', t(lang, 'market.installed', {
             name: made.pkg.name, version: made.pkg.version, repo: made.lock.repo, commit: made.lock.commit.slice(0, 7),
           }));
+          void tellInstalled(state, made.pkg.name);
         }
         await view();
         return;
@@ -653,9 +753,51 @@ export async function handleMarketCommand(
   if (cmd.c === 'market_hire') {
     const found = installedPackage(cmd.name);
     if (!found) say('market.notInstalled', { name: cmd.name });
+    else if (found.pkg.manifest.kind === 'team') say('market.isTeam', { name: cmd.name });
     else {
       const problem = state.hireFromPackage(found.pkg, found.source);
       if (problem) state.addChat(OFFICE_SENDER, problem);
+    }
+    await view();
+    return;
+  }
+  if (cmd.c === 'market_hire_team') {
+    const team = installedPackage(cmd.name);
+    if (!team) say('market.notInstalled', { name: cmd.name });
+    else if (team.pkg.manifest.kind !== 'team') say('market.notTeam', { name: cmd.name });
+    else {
+      await view(true);
+      const problems: string[] = [];
+      let hired = 0;
+      for (const member of team.pkg.manifest.members) {
+        const got = await ensureInstalled(state, member.package, member.version);
+        if ('error' in got) { problems.push(`${member.package}: ${got.error}`); continue; }
+        if (got.pkg.manifest.kind !== 'agent') { problems.push(`${member.package}: ${t(lang, 'market.isTeam', { name: member.package })}`); continue; }
+        // Менеджер в офисе уже есть: участник-менеджер — это «оставить как есть».
+        if (got.pkg.manifest.manager) continue;
+        for (let i = 0; i < member.count; i += 1) {
+          const problem = state.hireFromPackage(got.pkg, got.source);
+          if (problem) { problems.push(`${member.package}: ${problem}`); break; }
+          hired += 1;
+        }
+      }
+      const settings = Object.fromEntries(Object.entries(team.pkg.manifest.settings).filter(([, v]) => v !== undefined));
+      if (Object.keys(settings).length) {
+        const problem = state.updateSettings(settings as Parameters<OfficeState['updateSettings']>[0]);
+        if (problem) problems.push(problem);
+      }
+      say(problems.length ? 'market.teamHiredWithProblems' : 'market.teamHired', {
+        name: cmd.name, n: hired, problems: problems.join('; '),
+      });
+    }
+    await view();
+    return;
+  }
+  if (cmd.c === 'market_license') {
+    if (!PACKAGE_NAME_RE.test(cmd.name)) say('market.notInRegistry', { name: cmd.name });
+    else {
+      setLicense(cmd.name, cmd.key);
+      say(cmd.key.trim() ? 'market.licenseSaved' : 'market.licenseForgotten', { name: cmd.name });
     }
     await view();
     return;

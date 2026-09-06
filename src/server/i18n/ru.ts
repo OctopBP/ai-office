@@ -117,6 +117,13 @@ export const ru: Record<keyof typeof en, string> = {
   'export.done': 'Роль {title} ({id}) экспортирована в пакет {name}: {dir}',
   'market.mirrorFailed': '⚠️  Зеркало не отдало {name}: {error} — ставлю из git автора',
   'market.integrity': 'Пакет {name} {version} из git не совпал с отпечатком в реестре — не ставлю.',
+  'market.isTeam': '{name} — команда: нанимайте её кнопкой «Нанять команду», а участников — по отдельности.',
+  'market.notTeam': '{name} — не команда.',
+  'market.teamHired': 'Команда {name} нанята: {n} сотрудник|Команда {name} нанята: {n} сотрудника|Команда {name} нанята: {n} сотрудников',
+  'market.teamHiredWithProblems': 'Команда {name}: нанято {n}, не удалось — {problems}',
+  'market.licenseNoMirror': 'Пакет {name} лицензионный, а зеркала у реестра нет — ставить неоткуда.',
+  'market.licenseSaved': 'Ключ лицензии для {name} сохранён на этой машине.',
+  'market.licenseForgotten': 'Ключ лицензии для {name} удалён.',
 
   'state.settings.noLayout': 'Раскладки «{id}» нет в design/layouts. Доступны: {known}.',
   'state.mcp.connected': 'Сервер «{title}» подключился.',

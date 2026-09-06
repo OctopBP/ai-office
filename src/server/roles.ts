@@ -137,6 +137,8 @@ export const sameValue = (a: unknown, b: unknown): boolean => comparable(a) === 
  */
 export function roleFromPackage(pkg: AgentPackage, lang: Lang, id: string, link?: RoleLink): Role {
   const m = pkg.manifest;
+  // Команда — не роль: из неё нанимают участников, а не её саму.
+  if (m.kind !== 'agent') throw new Error(`${pkg.name} is a team, not an agent`);
   const ref: RoleLink = {
     name: pkg.name,
     version: pkg.version,
@@ -267,7 +269,7 @@ export function defaultRoles(lang: Lang = DEFAULT_LANG): Role[] {
   const seen = new Set<string>();
   for (const name of defaultTeam()) {
     const pkg = loadPackage(name);
-    if (!pkg) continue;
+    if (!pkg || pkg.manifest.kind !== 'agent') continue;
     const id = roleIdFor(name);
     if (seen.has(id)) continue;
     seen.add(id);
@@ -282,7 +284,7 @@ export function defaultRoles(lang: Lang = DEFAULT_LANG): Role[] {
  */
 export const defaultRole = (id: string, lang: Lang = DEFAULT_LANG): Role | undefined => {
   const pkg = loadPackage(basePackageName(id));
-  return pkg ? roleFromPackage(pkg, lang, id) : undefined;
+  return pkg && pkg.manifest.kind === 'agent' ? roleFromPackage(pkg, lang, id) : undefined;
 };
 
 /**

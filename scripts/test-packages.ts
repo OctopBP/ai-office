@@ -85,6 +85,23 @@ check('неизвестное поле — предупреждение', bad.pr
 check('пустая модель — ошибка, умолчания нет',
   bad.problems.some((p) => p.path === 'runtime.model'), false);
 
+// ---------------------------------------------------------------- команда
+
+const team = parseManifest({
+  schema: 1, name: '@acme/squad', kind: 'team', title: { en: 'Squad' }, license: 'MIT',
+  members: [{ package: '@office/pm' }, { package: '@office/backend', count: 2 }, { package: '@office/backend' }, { package: 'nope' }, { package: '@acme/x', count: 99 }],
+  settings: { autoPipeline: true, globalBudgetUsd: 5, officePermissionMode: 'readonly' },
+  runtime: { model: 'opus' },
+}, 'x');
+check('команда: участники разобраны, дубли и мусор — ошибки',
+  [team.manifest.kind, team.manifest.members.map((m) => [m.package, m.count]), team.problems.filter((p) => p.level === 'error').map((p) => p.path)],
+  ['team', [['@office/pm', 1], ['@office/backend', 2]], ['members[2]', 'members[3]', 'members[4].count']]);
+check('команда: настройки только из белого списка', [team.manifest.settings, team.problems.some((p) => p.path === 'settings.globalBudgetUsd')],
+  [{ autoPipeline: true, officePermissionMode: 'readonly' }, true]);
+check('команда: своей роли нет — runtime предупреждение', team.problems.some((p) => p.level === 'warn' && p.path === 'runtime'), true);
+check('команда без участников — ошибка', parseManifest({ schema: 1, name: '@acme/e', kind: 'team', title: { en: 'E' } }, 'x').problems.some((p) => p.path === 'members' && p.level === 'error'), true);
+check('агент с members — предупреждение', parseManifest({ schema: 1, name: '@acme/a', title: { en: 'A' }, members: [] }, 'x').problems.some((p) => p.path === 'members' && p.level === 'warn'), true);
+
 // --------------------------------------------------------------- чтение
 
 makePackage('@office/pm', { manager: true, title: { ru: 'Менеджер', en: 'Manager' }, runtime: { model: 'opus', isolate: false } });
@@ -97,6 +114,7 @@ makePackage('@office/design', {
   servers: [{ id: 'thing', title: 'Штука', transport: 'stdio', command: 'npx', args: ['thing-mcp'] }],
 }, { briefs: { en: 'You design.' }, skill: 'figma-screen', extra: ['hooks', 'commands'] });
 makePackage('@acme/lawyer', { title: { en: 'Lawyer' } }, { briefs: { en: 'Law.' } });
+makePackage('@office/squad', { kind: 'team', title: { en: 'Squad' }, members: [{ package: '@office/backend', count: 2 }] });
 makePackage('@acme/noplugin', { title: { en: 'X' } }, { plugin: null });
 makePackage('@acme/badversion', { title: { en: 'X' } }, { plugin: { name: 'x', version: 'latest' } });
 makePackage('@acme/renamed', { name: '@acme/other', title: { en: 'X' } });
@@ -109,7 +127,9 @@ check('версия не semver — пакета нет', loadPackage('@acme/bad
 check('имя в манифесте обязано совпасть с папкой', loadPackage('@acme/renamed'), null);
 check('имя без области не грузится', loadPackage('backend'), null);
 check('список пакетов по имени', listPackages().map((p) => p.name),
-  ['@acme/lawyer', '@office/backend', '@office/design', '@office/pm']);
+  ['@acme/lawyer', '@office/backend', '@office/design', '@office/pm', '@office/squad']);
+check('команда читается без брифа и без предупреждения о нём', readPackage(resolve(root, '@office/squad')).problems.some((p) => p.path === 'brief/'), false);
+check('команда — не роль', defaultRole('squad', 'ru'), undefined);
 check('каталог по умолчанию из файла', defaultTeam(), ['@office/pm', '@office/backend', '@office/design']);
 
 const designProblems = validatePackage(resolve(root, '@office/design'));

@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import {
-  marketAddLink, marketCheck, marketHire, marketInstall, marketOpen, marketUpdate, useStore,
+  marketAddLink, marketCheck, marketHire, marketHireTeam, marketInstall, marketLicense, marketOpen, marketUpdate,
+  updateSettings, useStore,
 } from './store';
 import { useActionNotice } from './useActionNotice';
 import { t } from './i18n';
@@ -19,6 +20,7 @@ import type { MarketPackageView } from '../shared/types';
 export function MarketWindow({ onClose }: { onClose: () => void }) {
   const market = useStore((s) => s.market);
   const lang = useStore((s) => s.lang);
+  const settings = useStore((s) => s.settings);
   const [query, setQuery] = useState('');
   const [link, setLink] = useState('');
   const [selected, setSelected] = useState<string | null>(null);
@@ -92,6 +94,8 @@ export function MarketWindow({ onClose }: { onClose: () => void }) {
                       {p.roles.length > 0 && ` · ${t('market.inOffice', { roles: p.roles.map((r) => r.title).join(', ') })}`}
                     </span>
                   </span>
+                  {p.kind === 'team' && <span className="market-badge">{t('market.kind.team')}</span>}
+                  {p.access === 'licensed' && <span className="market-badge link">{t('market.access.licensed')}</span>}
                   <span className={`market-badge ${p.trust}`}>{t(`market.origin.${p.origin}`)}</span>
                   {p.roles.some((r) => r.updateTo) && <span className="market-dot" title={t('market.updateAvailable', { version: p.roles.find((r) => r.updateTo)!.updateTo! })} />}
                 </button>
@@ -113,6 +117,15 @@ export function MarketWindow({ onClose }: { onClose: () => void }) {
             {market?.checkedAt && (
               <span className="hint muted">{t('market.checkedAt', { time: new Date(market.checkedAt).toLocaleTimeString(lang) })}</span>
             )}
+            {market?.service && (
+              <label className="checkbox market-telemetry">
+                <input
+                  type="checkbox" checked={settings.marketTelemetry === true}
+                  onChange={(e) => updateSettings({ marketTelemetry: e.target.checked })}
+                />
+                {t('market.telemetry')}
+              </label>
+            )}
           </div>
 
           <div className="team-detail">
@@ -129,9 +142,12 @@ const howItStarts = (s: MarketPackageView['servers'][number]): string =>
   (s.transport === 'stdio' ? [s.command, ...s.args].join(' ') : s.url);
 
 function PackageCard({ p, busy, act }: { p: MarketPackageView; busy: boolean; act: (fn: () => void) => void }) {
+  const [key, setKey] = useState('');
   const roleInOffice = p.roles.find((r) => !r.builtin) ?? p.roles[0] ?? null;
-  const canInstall = !p.installed && p.origin === 'registry' && !p.yanked;
-  const canHire = p.installed && !p.manager;
+  const needsKey = p.access === 'licensed' && !p.licensed;
+  const canInstall = !p.installed && p.origin === 'registry' && !p.yanked && !needsKey;
+  const canHire = p.installed && !p.manager && p.kind === 'agent';
+  const canHireTeam = p.installed && p.kind === 'team' && p.members.every((m) => m.available);
   return (
     <div className="role-form market-card">
       <h3>
@@ -159,12 +175,58 @@ function PackageCard({ p, busy, act }: { p: MarketPackageView; busy: boolean; ac
             {roleInOffice ? t('market.hireMore') : t('market.hire')}
           </button>
         )}
+        {p.kind === 'team' && p.installed && (
+          <button className="allow" disabled={busy || !canHireTeam} title={t('market.hireTeam.hint')} onClick={() => act(() => marketHireTeam(p.name))}>
+            {t('market.hireTeam')}
+          </button>
+        )}
+        {p.access === 'licensed' && p.buyUrl && (
+          <a className="button" href={p.buyUrl} target="_blank" rel="noreferrer">{t('market.buy')}{p.price ? ` · ${p.price}` : ''}</a>
+        )}
         {p.roles.filter((r) => r.updateTo).map((r) => (
           <button key={r.id} className="go" disabled={busy} onClick={() => act(() => marketUpdate(r.id))}>
             {t('market.update', { version: r.updateTo! })} — {r.title}
           </button>
         ))}
       </div>
+
+      {p.access === 'licensed' && (
+        <section className="market-license">
+          <span className="group-title">{t('market.license')}</span>
+          {p.price && <div className="hint">{t('market.price')}: {p.price}</div>}
+          <div className="market-add-row">
+            <input value={key} placeholder={p.licensed ? t('market.license.have') : 'lic_…'} onChange={(e) => setKey(e.target.value)} />
+            <button className="mini go" disabled={busy || !key.trim()} onClick={() => { act(() => marketLicense(p.name, key)); setKey(''); }}>{t('market.license.save')}</button>
+            {p.licensed && <button className="mini ghost" disabled={busy} onClick={() => act(() => marketLicense(p.name, ''))}>{t('market.license.forget')}</button>}
+          </div>
+          <span className="hint">{t('market.license.hint')}</span>
+        </section>
+      )}
+
+      {p.kind === 'team' && (
+        <section>
+          <span className="group-title">{t('market.members')}</span>
+          <ul className="market-list">
+            {p.members.map((m) => (
+              <li key={m.package}>
+                {m.title} <span className="muted small">({m.package}{m.version ? ` ${m.version}` : ''})</span>
+                {m.count > 1 && <b> {t('market.member.count', { n: m.count })}</b>}
+                {!m.installed && m.available && <span className="market-badge"> {t('market.member.toInstall')}</span>}
+                {!m.available && <span className="market-badge link"> {t('market.member.missing')}</span>}
+              </li>
+            ))}
+          </ul>
+          {Object.keys(p.settings).length > 0 && (
+            <>
+              <span className="group-title">{t('market.teamSettings')}</span>
+              <ul className="market-list muted small">
+                {Object.entries(p.settings).map(([k, v]) => <li key={k}>{k}: {String(v)}</li>)}
+              </ul>
+            </>
+          )}
+          <span className="hint muted">{t('market.hireTeam.hint')}</span>
+        </section>
+      )}
 
       <section>
         <span className="group-title">{t('market.source')}</span>
@@ -191,7 +253,7 @@ function PackageCard({ p, busy, act }: { p: MarketPackageView; busy: boolean; ac
 
       {!p.installed ? (
         <p className="hint muted">{t('market.unknownYet')}</p>
-      ) : (
+      ) : p.kind === 'team' ? null : (
         <>
           <section className="market-permissions">
             <span className="group-title">{t('market.permissions')}</span>

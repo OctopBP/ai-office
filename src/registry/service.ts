@@ -24,6 +24,7 @@
  * OFFICE_REGISTRY_GITHUB_API — адрес API GitHub (для тестов подменяется).
  */
 import { execFile } from 'node:child_process';
+import { randomBytes } from 'node:crypto';
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { mkdtemp, rm } from 'node:fs/promises';
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http';
@@ -78,6 +79,18 @@ interface Stats {
   installs: Record<string, number>;
 }
 
+/**
+ * Лицензии: ключ → пакет и владелец. Выдаёт админ — то есть продавец: сервис
+ * проверяет право на архив, а деньги берёт магазин снаружи. Ключи лежат в
+ * `licenses.json` данных сервиса; истёкшие не отдают архив.
+ */
+interface License {
+  name: string;
+  owner: string;
+  issuedAt: number;
+  expiresAt: number | null;
+}
+
 const tar = (args: string[], cwd: string): Promise<{ ok: boolean; err: string }> => new Promise((done) => {
   execFile('tar', args, { cwd }, (e, _o, stderr) => done({ ok: !e, err: (stderr || e?.message || '').trim() }));
 });
@@ -97,6 +110,7 @@ const readBody = (req: IncomingMessage): Promise<string> => new Promise((done, f
 export class RegistryService {
   private registry: Registry = { schema: 1, packages: [] };
   private stats: Stats = { installs: {} };
+  private licenses: Record<string, License> = {};
   private server: Server | null = null;
   private readonly log: (line: string) => void;
 
@@ -107,6 +121,8 @@ export class RegistryService {
     if (existsSync(file)) this.registry = parseRegistry(JSON.parse(readFileSync(file, 'utf8'))) ?? this.registry;
     const stats = resolve(opts.dataDir, 'stats.json');
     if (existsSync(stats)) this.stats = JSON.parse(readFileSync(stats, 'utf8')) as Stats;
+    const licenses = resolve(opts.dataDir, 'licenses.json');
+    if (existsSync(licenses)) this.licenses = JSON.parse(readFileSync(licenses, 'utf8')) as Record<string, License>;
   }
 
   // ------------------------------------------------------------ хранение
@@ -114,6 +130,13 @@ export class RegistryService {
   private save(): void {
     writeFileSync(resolve(this.opts.dataDir, 'registry.json'), `${JSON.stringify(this.registry, null, 2)}\n`);
     writeFileSync(resolve(this.opts.dataDir, 'stats.json'), `${JSON.stringify(this.stats, null, 2)}\n`);
+    writeFileSync(resolve(this.opts.dataDir, 'licenses.json'), `${JSON.stringify(this.licenses, null, 2)}\n`);
+  }
+
+  /** Ключ годен для пакета: выдан на него и не истёк. */
+  private licenseOk(name: string, key: string): boolean {
+    const lic = this.licenses[key];
+    return Boolean(lic) && lic.name === name && (lic.expiresAt === null || lic.expiresAt > Date.now());
   }
 
   private metaFile = (name: string, version: string): string =>
@@ -321,8 +344,32 @@ export class RegistryService {
     if (typeof body.unyank === 'string') yanked.delete(body.unyank);
     entry.yanked = [...yanked];
     if (!entry.yanked.length) delete entry.yanked;
+    const b = body as { access?: unknown; price?: unknown; buyUrl?: unknown };
+    if (b.access !== undefined) {
+      if (b.access !== 'public' && b.access !== 'licensed') return { status: 400, result: { error: 'access: public | licensed' } };
+      if (b.access === 'licensed') entry.access = 'licensed'; else delete entry.access;
+    }
+    if (typeof b.price === 'string') { if (b.price.trim()) entry.price = b.price.trim(); else delete entry.price; }
+    if (typeof b.buyUrl === 'string') { if (/^https?:\/\//.test(b.buyUrl)) entry.buyUrl = b.buyUrl; else delete entry.buyUrl; }
     this.save();
     return { status: 200, result: this.decorate(entry) };
+  }
+
+  /**
+   * Выдать ключ лицензии на пакет. Ключ случайный, хранится у сервиса и
+   * возвращается продавцу один раз — дальше он отдаёт его покупателю сам.
+   */
+  private issueLicense(body: { name?: unknown; owner?: unknown; days?: unknown }): { status: number; result: unknown } {
+    const name = typeof body.name === 'string' ? body.name : '';
+    if (!this.registry.packages.some((e) => e.name === name)) return { status: 404, result: { error: `no package ${name}` } };
+    const owner = typeof body.owner === 'string' ? body.owner.trim() : '';
+    if (!owner) return { status: 400, result: { error: 'owner required' } };
+    const days = typeof body.days === 'number' && body.days > 0 ? body.days : null;
+    const key = `lic_${randomBytes(18).toString('base64url')}`;
+    this.licenses[key] = { name, owner, issuedAt: Date.now(), expiresAt: days ? Date.now() + days * 86_400_000 : null };
+    this.save();
+    this.log(`license issued for ${name} to ${owner}`);
+    return { status: 200, result: { key, name, owner, expiresAt: this.licenses[key].expiresAt } };
   }
 
   // -------------------------------------------------------------- HTTP
@@ -334,7 +381,8 @@ export class RegistryService {
       owner: { name: 'AI Office registry' },
       plugins: this.registry.packages.flatMap((e) => {
         const latest = latestVersion(e);
-        if (!latest) return [];
+        // Лицензионный пакет в открытый маркетплейс не идёт: его источник закрыт.
+        if (!latest || e.access === 'licensed') return [];
         const slug = githubSlug(e.repo);
         const short = e.name.split('/')[1];
         return [{
@@ -392,6 +440,12 @@ export class RegistryService {
           const version = tail.slice(0, -4);
           const file = this.tgzFile(name, version);
           if (!existsSync(file)) { json(res, 404, { error: 'no archive' }); return; }
+          // Лицензионный пакет — только по ключу. 402: «нужна оплата», и это
+          // честный код: право проверено здесь, деньги — в магазине снаружи.
+          if (entry.access === 'licensed' && !this.licenseOk(name, token)) {
+            json(res, 402, { error: 'license key required', price: entry.price ?? '', buyUrl: entry.buyUrl ?? '' });
+            return;
+          }
           res.writeHead(200, { 'Content-Type': 'application/gzip', 'Access-Control-Allow-Origin': '*' });
           res.end(readFileSync(file));
           return;
@@ -410,10 +464,10 @@ export class RegistryService {
         json(res, out.status, out.result);
         return;
       }
-      if (req.method === 'POST' && rest[0] === 'admin' && rest.length === 1) {
+      if (req.method === 'POST' && rest[0] === 'admin' && (rest.length === 1 || (rest.length === 2 && rest[1] === 'license'))) {
         if (!this.opts.adminToken || token !== this.opts.adminToken) { json(res, 401, { error: 'admin token required' }); return; }
         const body = JSON.parse((await readBody(req)) || '{}') as Record<string, unknown>;
-        const out = this.admin(body);
+        const out = rest.length === 2 ? this.issueLicense(body) : this.admin(body);
         json(res, out.status, out.result);
         return;
       }

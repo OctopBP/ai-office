@@ -96,12 +96,37 @@ export const IGNORED_PLUGIN_PARTS = ['hooks', 'commands', 'agents', '.mcp.json']
 /** Текст по языкам. Ключ — язык офиса; чего нет — берётся английский. */
 export type Localized = Partial<Record<Lang, string>>;
 
+/** Участник команды: пакет агента и сколько сотрудников в него нанять. */
+export interface TeamMember {
+  package: string;
+  count: number;
+  /** Нужная версия. Пусто — старшая из доступных. */
+  version: string;
+}
+
+/**
+ * Настройки офиса, которые пакет-команда вправе предложить. Список белый:
+ * бюджеты, движок и каталог серверов — решения владельца, не пакета.
+ */
+export const TEAM_SETTING_KEYS = [
+  'officePermissionMode', 'autoPipeline', 'focusEpics', 'planApproval', 'layoutId', 'maxConcurrentWorkers', 'taskMaxTurns',
+] as const;
+export type TeamSettings = Partial<Record<(typeof TEAM_SETTING_KEYS)[number], unknown>>;
+
 /** Манифест пакета после разбора: все поля на месте, умолчания подставлены. */
 export interface AgentManifest {
   schema: typeof MANIFEST_SCHEMA;
   name: string;
-  /** Задел под пакет-команду. Сейчас бывает только агент. */
-  kind: 'agent';
+  /**
+   * Агент — роль; команда — набор агентов и настройки офиса под задачу
+   * («стартап на Next.js», «контент-отдел»). Команда собирается поверх
+   * агентов: своих брифа и скилов у неё нет, только участники.
+   */
+  kind: 'agent' | 'team';
+  /** Только у команды. */
+  members: TeamMember[];
+  /** Только у команды: что предложить выставить в офисе при найме. */
+  settings: TeamSettings;
   title: Localized;
   summary: Localized;
   tags: string[];
@@ -208,7 +233,34 @@ export function parseManifest(raw: unknown, fallbackName: string): { manifest: A
   if (!name) { err('name', 'required, e.g. "@office/backend"'); name = fallbackName; }
   else if (!PACKAGE_NAME_RE.test(name)) err('name', '"@scope/name": lowercase letters, digits and dashes, scope required');
 
-  if (m.kind !== undefined && m.kind !== 'agent') err('kind', 'only "agent" is supported');
+  const kind: 'agent' | 'team' = m.kind === 'team' ? 'team' : 'agent';
+  if (m.kind !== undefined && m.kind !== 'agent' && m.kind !== 'team') err('kind', '"agent" or "team"');
+  const members: TeamMember[] = [];
+  const settings: TeamSettings = {};
+  if (kind === 'team') {
+    const list = Array.isArray(m.members) ? m.members : (err('members', 'a team needs a list of members'), []);
+    for (const [i, item] of list.entries()) {
+      const rec = asRecord(item);
+      const pkgName = typeof rec?.package === 'string' ? rec.package.trim() : '';
+      if (!rec || !PACKAGE_NAME_RE.test(pkgName)) { err(`members[${i}]`, 'expected { "package": "@scope/name" }'); continue; }
+      const n = rec.count === undefined ? 1 : (typeof rec.count === 'number' ? Math.floor(rec.count) : NaN);
+      if (!Number.isFinite(n) || n < MIN_ROLE_INSTANCES || n > MAX_ROLE_INSTANCES) { err(`members[${i}].count`, `an integer from ${MIN_ROLE_INSTANCES} to ${MAX_ROLE_INSTANCES}`); continue; }
+      if (members.some((x) => x.package === pkgName)) { err(`members[${i}]`, `${pkgName} listed twice`); continue; }
+      members.push({ package: pkgName, count: n, version: typeof rec.version === 'string' ? rec.version.trim() : '' });
+    }
+    if (!members.length) err('members', 'a team needs at least one member');
+    const raw = asRecord(m.settings);
+    if (m.settings !== undefined && !raw) err('settings', 'expected an object');
+    for (const [key, value] of Object.entries(raw ?? {})) {
+      if ((TEAM_SETTING_KEYS as readonly string[]).includes(key)) (settings as Record<string, unknown>)[key] = value;
+      else warn(`settings.${key}`, 'not a setting a team may propose; ignored');
+    }
+    for (const key of ['runtime', 'skills', 'builtin', 'use', 'servers', 'docsDir', 'manager']) {
+      if (m[key] !== undefined) warn(key, 'a team has no role of its own; ignored');
+    }
+  } else if (m.members !== undefined || m.settings !== undefined) {
+    warn('members', 'only a team has members and settings; ignored');
+  }
 
   const title = localized(m.title, 'title', problems);
   if (!Object.keys(title).length) err('title', 'required in at least one language');
@@ -287,7 +339,7 @@ export function parseManifest(raw: unknown, fallbackName: string): { manifest: A
 
   return {
     manifest: {
-      schema: MANIFEST_SCHEMA, name, kind: 'agent', title, summary, tags, color, emoji, look,
+      schema: MANIFEST_SCHEMA, name, kind, members, settings, title, summary, tags, color, emoji, look,
       manager, maxInstances, docsDir, license,
       runtime: { engine: engine as Engine, model, tools, permissionMode, isolate, maxTurns, mcp },
       skills, builtin, use, servers, requires,
@@ -299,6 +351,7 @@ export function parseManifest(raw: unknown, fallbackName: string): { manifest: A
 const KNOWN_KEYS = new Set([
   'schema', 'name', 'kind', 'title', 'summary', 'tags', 'color', 'emoji', 'look', 'manager',
   'maxInstances', 'docsDir', 'license', 'runtime', 'skills', 'builtin', 'use', 'servers', 'requires',
+  'members', 'settings',
 ]);
 
 // ----------------------------------------------------------------- чтение
@@ -371,7 +424,7 @@ export function readPackage(dir: string): { pkg: AgentPackage | null; problems: 
   }
 
   const briefs = readBriefs(dir);
-  if (!Object.keys(briefs).length && !parsed.manifest.manager) {
+  if (!Object.keys(briefs).length && !parsed.manifest.manager && parsed.manifest.kind === 'agent') {
     problems.push({ level: 'warn', path: 'brief/', message: 'no brief in any language: the role will run on the office prompt alone' });
   }
   for (const part of IGNORED_PLUGIN_PARTS) {

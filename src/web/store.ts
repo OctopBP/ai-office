@@ -1157,6 +1157,15 @@ export function marketUpdate(roleId: string): void {
   socket?.send(JSON.stringify({ c: 'market_update', roleId }));
 }
 
+export function marketHireTeam(name: string): void {
+  socket?.send(JSON.stringify({ c: 'market_hire_team', name }));
+}
+
+/** Ключ лицензии пакета на этой машине. Пустой — забыть. */
+export function marketLicense(name: string, key: string): void {
+  socket?.send(JSON.stringify({ c: 'market_license', name, key }));
+}
+
 /** Форма роли прочитала итог своей операции — сбрасываем, чтобы не залипал. */
 export function clearRoleFeedback(): void {
   useStore.setState({ roleFeedback: null });

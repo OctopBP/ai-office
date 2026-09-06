@@ -214,6 +214,38 @@ check('встроенный не обновляется отдельно', /вс
 await handleMarketCommand({ c: 'market_update', roleId: 'lawyer' }, office, send);
 check('обновлять больше нечего', /новой версии нет/.test(lastOffice()), true);
 
+// ------------------------------------------------------------- команда
+
+writePackage(resolve(builtin, '@office/squad'), '@office/squad', '0.1.0');
+writeFileSync(resolve(builtin, '@office/squad/agent.json'), JSON.stringify({
+  schema: 1, name: '@office/squad', kind: 'team', title: { ru: 'Отряд', en: 'Squad' }, license: 'MIT',
+  members: [{ package: '@office/pm' }, { package: '@acme/lawyer', count: 2 }, { package: '@acme/other' }, { package: '@acme/ghost' }],
+  settings: { autoPipeline: false, focusEpics: 3, globalBudgetUsd: 1 },
+}));
+const before = office.settings.focusEpics;
+await handleMarketCommand({ c: 'market_hire', name: '@office/squad' }, office, send);
+check('команду не нанять как агента', /команда/.test(lastOffice()), true);
+await handleMarketCommand({ c: 'market_hire_team', name: '@office/squad' }, office, send);
+check('команда: юристов стало двое, other нанят, ghost не нашёлся',
+  [office.staffOf('lawyer').length, office.staffOf('other').length, /ghost/.test(lastOffice()), /нанято/.test(lastOffice())], [2, 1, true, true]);
+check('команда: настройки из белого списка применены', [office.settings.autoPipeline, office.settings.focusEpics, before], [false, 3, 2]);
+check('команда: менеджер остался один', office.roles().filter((r) => r.isManager).length, 1);
+const teamCard = (await marketView(office)).packages.find((p) => p.name === '@office/squad')!;
+check('карточка команды: участники и их состояние', teamCard.members.map((m) => [m.package, m.count, m.installed, m.available]),
+  [['@office/pm', 1, true, true], ['@acme/lawyer', 2, true, true], ['@acme/other', 1, true, true], ['@acme/ghost', 1, false, false]]);
+
+// ------------------------------------------------------------ лицензии
+
+const { readLicenses, setLicense, serviceBase } = await import('../src/server/market');
+await handleMarketCommand({ c: 'market_license', name: '@acme/lawyer', key: ' lic_abc ' }, office, send);
+check('ключ сохранён и на витрине только флаг', [readLicenses()['@acme/lawyer'], (await marketView(office)).packages.find((p) => p.name === '@acme/lawyer')?.licensed], ['lic_abc', true]);
+await handleMarketCommand({ c: 'market_license', name: '@acme/lawyer', key: '' }, office, send);
+check('ключ забыт', readLicenses()['@acme/lawyer'], undefined);
+setLicense('@acme/x', 'k');
+check('ключи лежат рядом с кешом', existsSync(resolve(cache, '..', 'licenses.json')), true);
+check('сервис за адресом реестра', [serviceBase('https://r.example/v1/registry.json'), serviceBase('/tmp/registry.json')], ['https://r.example', '']);
+check('витрина без сервиса: телеметрии некому', (await marketView(office)).service, false);
+
 // Перезапуск: роль из кеша по ссылке с источником.
 office.flush();
 unloadOfficeState('o-market');

@@ -1,0 +1,26 @@
+{
+  "schema": 1,
+  "name": "@office/dev-team",
+  "kind": "team",
+  "title": { "ru": "Команда разработки", "en": "Development team" },
+  "summary": {
+    "ru": "Менеджер, два бэкендера, фронтенд, дизайнер и ревьюер; конвейер ревью включён, две фичи в работе.",
+    "en": "Manager, two backend developers, frontend, designer and reviewer; review pipeline on, two features in flight."
+  },
+  "tags": ["team", "code", "product"],
+  "color": "#3b82f6",
+  "emoji": "🏗",
+  "license": "MIT",
+  "members": [
+    { "package": "@office/pm" },
+    { "package": "@office/backend", "count": 2 },
+    { "package": "@office/frontend" },
+    { "package": "@office/design" },
+    { "package": "@office/reviewer" }
+  ],
+  "settings": {
+    "officePermissionMode": "ask-risky",
+    "autoPipeline": true,
+    "focusEpics": 2
+  }
+}

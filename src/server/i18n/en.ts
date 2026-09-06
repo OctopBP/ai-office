@@ -118,6 +118,13 @@ export const en = {
   'export.done': 'Role {title} ({id}) exported to package {name}: {dir}',
   'market.mirrorFailed': '⚠️  Mirror did not serve {name}: {error} — installing from the author’s git',
   'market.integrity': 'Package {name} {version} from git does not match the registry integrity — not installing.',
+  'market.isTeam': '{name} is a team: hire it with “Hire the team”, and its members one by one.',
+  'market.notTeam': '{name} is not a team.',
+  'market.teamHired': 'Team {name} hired: {n} employee|Team {name} hired: {n} employees',
+  'market.teamHiredWithProblems': 'Team {name}: hired {n}, failed — {problems}',
+  'market.licenseNoMirror': 'Package {name} is licensed and the registry has no mirror — nowhere to install from.',
+  'market.licenseSaved': 'License key for {name} saved on this machine.',
+  'market.licenseForgotten': 'License key for {name} removed.',
 
   'state.settings.noLayout': 'There is no “{id}” layout in design/layouts. Available: {known}.',
   'state.mcp.connected': 'Server "{title}" connected.',

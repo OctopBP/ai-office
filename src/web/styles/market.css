@@ -44,3 +44,9 @@
   margin: 0; padding: var(--space-3); white-space: pre-wrap; font: inherit; font-size: var(--fs-md); line-height: 1.5;
   color: var(--ink-2); background: var(--film); border-radius: var(--radius-row); max-height: 320px; overflow: auto;
 }
+.market-telemetry { margin-top: var(--space-2); font-size: var(--fs-small); color: var(--ink-3); }
+.market-actions a.button {
+  display: inline-flex; align-items: center; padding: var(--space-2) var(--space-3); border-radius: var(--radius-row);
+  background: var(--film-2); color: var(--ink); text-decoration: none; font-size: var(--fs-md);
+}
+.market-license .market-add-row input { font-family: var(--font-mono, monospace); }

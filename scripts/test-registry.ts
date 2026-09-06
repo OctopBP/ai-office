@@ -199,6 +199,28 @@ check('не админ — 401', (await api2('/v1/admin', { method: 'POST', head
 check('отозванная версия не старшая', parseRegistry((await api2('/v1/registry.json')).body)!.packages[0].versions.find((v) => v.version === '0.1.0') !== undefined, true);
 check('данные пережили запись', (JSON.parse(readFileSync(resolve(data, 'registry.json'), 'utf8')) as { packages: Array<{ trust: string }> }).packages[0].trust, 'verified');
 
+// ------------------------------------------------------------ лицензии
+
+const paid = await api2('/v1/admin', { method: 'POST', headers: { Authorization: 'Bearer admin-secret' }, body: JSON.stringify({ name: '@alice/writer', access: 'licensed', price: '$9', buyUrl: 'https://shop.example/writer' }) });
+check('админ: пакет стал лицензионным', [(paid.body as { access: string }).access, (paid.body as { price: string }).price], ['licensed', '$9']);
+const gated = await fetch(`${base2}/v1/packages/@alice/writer/0.2.0.tgz`);
+check('архив без ключа — 402 с ценой и адресом', [gated.status, (await gated.json() as { buyUrl: string }).buyUrl], [402, 'https://shop.example/writer']);
+const issued = await api2('/v1/admin/license', { method: 'POST', headers: { Authorization: 'Bearer admin-secret' }, body: JSON.stringify({ name: '@alice/writer', owner: 'bob@example.com' }) });
+const licKey = (issued.body as { key: string }).key;
+check('ключ выдан', [issued.status, licKey.startsWith('lic_')], [200, true]);
+check('с ключом архив отдаётся', (await fetch(`${base2}/v1/packages/@alice/writer/0.2.0.tgz`, { headers: { Authorization: `Bearer ${licKey}` } })).status, 200);
+check('чужой ключ — 402', (await fetch(`${base2}/v1/packages/@alice/writer/0.2.0.tgz`, { headers: { Authorization: 'Bearer lic_nope' } })).status, 402);
+check('лицензионный пакет не идёт в открытый маркетплейс', ((await api2('/v1/marketplace.json')).body.plugins as unknown[]).length, 0);
+const licReg = parseRegistry((await api2('/v1/registry.json')).body)!.packages[0];
+check('реестр наружу помечает доступ и цену', [licReg.access, licReg.price, licReg.buyUrl], ['licensed', '$9', 'https://shop.example/writer']);
+const noKey = await installFromRegistry(licReg, licReg.versions[0], resolve(root, 'cache6'));
+check('клиент без ключа — отказ, а не откат на git', !noKey.ok && /license/.test(noKey.error), true);
+const { setLicense } = await import('../src/server/market');
+setLicense('@alice/writer', licKey);
+const withKey = await installFromRegistry(licReg, licReg.versions[0], resolve(root, 'cache7'));
+check('клиент с ключом ставит из зеркала', withKey.ok && withKey.pkg.version, '0.2.0');
+check('данные лицензий пережили запись', Object.keys(JSON.parse(readFileSync(resolve(data, 'licenses.json'), 'utf8')) as Record<string, unknown>), [licKey]);
+
 await service2.close();
 fakeGithub.close();
 rmSync(root, { recursive: true, force: true });
