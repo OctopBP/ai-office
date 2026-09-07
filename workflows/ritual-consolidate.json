@@ -1,0 +1,8 @@
+{
+  "id": "ritual-consolidate",
+  "version": 1,
+  "trigger": { "on": "quiet", "minutes": 5 },
+  "nodes": [
+    { "id": "consolidate", "kind": "check", "run": "office:ritual:consolidate", "next": { "pass": "end", "skip": "end", "fail": "stuck" } }
+  ]
+}

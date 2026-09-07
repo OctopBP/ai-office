@@ -24,7 +24,10 @@ import {
 import { isBlocked, isEmptyOverride, passability } from '../shared/layout';
 import { isLookId } from '../shared/looks';
 import { asLang, DEFAULT_LANG, isLang, type Lang, type Vars, LANG_TITLE } from '../shared/i18n';
-import { typeForCapabilities, type Capability, type Handoff, type Run, type TaskType } from '../shared/workflow';
+import {
+  emptyFlowMemory, typeForCapabilities,
+  type Capability, type FlowMemory, type Handoff, type Run, type TaskType,
+} from '../shared/workflow';
 import { capabilitiesOf } from './roles';
 import { t, setProcessLang, c, type ServerKey } from './i18n';
 import { activityFromFile, summarize } from './activity';
@@ -602,11 +605,13 @@ export interface LifeState {
   reflectionAt: number | null;
   /** Сколько раз за неделю ритуалы откладывались из-за лимита — для портфеля (§8.2). */
   deferrals: number;
+  /** Память процессов по состоянию (spec процессов §6.2), ключ — id процесса. */
+  flows: Record<string, FlowMemory>;
 }
 
 export const emptyLife = (): LifeState => ({
   standupDay: null, standupAt: null, lastRun: {}, policy: { ...DEFAULT_RITUAL_POLICY }, runs: [],
-  reflection: null, reflectionAt: null, deferrals: 0,
+  reflection: null, reflectionAt: null, deferrals: 0, flows: {},
 });
 
 /** Сколько прогонов ритуалов помним: портфелю хватает нескольких недель. */
@@ -1036,6 +1041,7 @@ export class OfficeState {
       standupAt: this.life.standupAt,
       lastRun: { ...this.life.lastRun },
       policy: { ...this.life.policy },
+      flows: this.life.flows,
       runs: [...this.life.runs],
       running: this.ritualRunning,
     };
@@ -1191,6 +1197,28 @@ export class OfficeState {
     this.markDirty();
   }
 
+  /** Память процесса по состоянию. Нет — пустая. */
+  flowMemory(id: string): FlowMemory {
+    return this.life.flows[id] ?? emptyFlowMemory();
+  }
+
+  touchFlow(id: string, patch: Partial<FlowMemory>): FlowMemory {
+    const next = { ...this.flowMemory(id), ...patch };
+    this.life.flows = { ...this.life.flows, [id]: next };
+    this.markDirty();
+    this.emitLife();
+    return next;
+  }
+
+  /** Последний прогон процесса самого офиса (не по задаче). */
+  flowRun(workflowId: string): Run | null {
+    let found: Run | null = null;
+    for (const run of this.runs.values()) {
+      if (run.subject.flow === workflowId && (!found || run.startedAt > found.startedAt)) found = run;
+    }
+    return found;
+  }
+
   /**
    * Восстановить офис с диска. Возвращает false, если сохранения нет
    * или оно относится к другой рабочей директории.
@@ -1258,6 +1286,7 @@ export class OfficeState {
       policy: { ...DEFAULT_RITUAL_POLICY, ...(data.life?.policy ?? {}) },
       lastRun: { ...(data.life?.lastRun ?? {}) },
       runs: [...(data.life?.runs ?? [])],
+      flows: { ...(data.life?.flows ?? {}) },
     };
     for (const fact of data.facts ?? []) {
       this.facts.set(fact.id, { ...fact, askedAt: fact.askedAt ?? null, status: fact.status ?? 'live' });

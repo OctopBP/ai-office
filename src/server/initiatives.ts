@@ -30,7 +30,11 @@ export interface FeatureProposal extends PlannedEpic {
  *
  * Возвращает готовый текст для инструмента: что именно случилось.
  */
-export function proposeFeature(state: OfficeState, feature: FeatureProposal): { ok: boolean; message: string } {
+export function proposeFeature(
+  state: OfficeState, feature: FeatureProposal,
+  /** Всегда предложением, минуя режим: так делает совещание о развитии (spec процессов §6.3). */
+  opts: { asProposal?: boolean } = {},
+): { ok: boolean; message: string } {
   const title = feature.title.trim();
   const open = state.epicList().some((e) =>
     (e.status === 'planned' || e.status === 'active') && e.title.trim().toLowerCase() === title.toLowerCase());
@@ -46,7 +50,7 @@ export function proposeFeature(state: OfficeState, feature: FeatureProposal): { 
     : state.say('initiative.noDir');
   const mode = state.initiativeMode();
 
-  if (mode === 'off') {
+  if (mode === 'off' || opts.asProposal) {
     const proposal = state.addProposal({
       kind: 'feature', title, text: feature.goal, rationale: feature.rationale,
       roleId: null, setting: null, directionId, plan: feature,

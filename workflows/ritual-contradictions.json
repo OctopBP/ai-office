@@ -1,0 +1,8 @@
+{
+  "id": "ritual-contradictions",
+  "version": 1,
+  "trigger": { "on": "week" },
+  "nodes": [
+    { "id": "contradictions", "kind": "check", "run": "office:ritual:contradictions", "next": { "pass": "end", "skip": "end", "fail": "stuck" } }
+  ]
+}

@@ -380,6 +380,7 @@ export const useStore = create<State>((set, get) => ({
   proposals: [],
   life: {
     standupDay: null, standupAt: null, lastRun: {}, runs: [], running: null,
+    flows: {},
     policy: { consolidateEveryMs: 0, questionsPerStandup: 0, standupPmLine: false, reflectionOn: false },
   },
   toggleMergeSelect: (taskId) => set((s) => ({

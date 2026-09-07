@@ -152,7 +152,7 @@ async function main(): Promise<void> {
   };
 
   say('▶ Петли считаются так, как обещает спека');
-  const run = newRun(toy, 'T-1');
+  const run = newRun(toy, { taskId: 'T-1' });
   await drive(office, toy, run, pick, hooks);
   check('прогон встал', run.status === 'stuck');
   check('ревью было три раза', calls.review === 3);
@@ -175,7 +175,7 @@ async function main(): Promise<void> {
   check('ничего лишнего не переделывали', calls.sync === 3);
 
   say('▶ Предел без своего объяснения объясняет раннер');
-  const run2 = newRun(toy, 'T-2');
+  const run2 = newRun(toy, { taskId: 'T-2' });
   failsThisVisit = 0;
   checksFailsPerVisit = 5;
   verdicts = ['approve'];
@@ -184,7 +184,7 @@ async function main(): Promise<void> {
   check('причина — предел повторов', halts[halts.length - 1]?.note.includes('предел') === true);
 
   say('▶ Исход, ведущий в stuck, несёт причину и признак решения');
-  const run3 = newRun(toy, 'T-3');
+  const run3 = newRun(toy, { taskId: 'T-3' });
   failsThisVisit = 0;
   checksFailsPerVisit = 1;
   fixOk = false;
@@ -195,7 +195,7 @@ async function main(): Promise<void> {
   check('прогон стоит на узле починки', run3.nodeId === 'fix' && run3.status === 'stuck');
 
   say('▶ Довести до конца');
-  const run4 = newRun(toy, 'T-4');
+  const run4 = newRun(toy, { taskId: 'T-4' });
   failsThisVisit = 0;
   fixOk = true;
   checksFailsPerVisit = 0;
@@ -204,7 +204,7 @@ async function main(): Promise<void> {
   check('прогон закончен', run4.status === 'done' && run4.nodeId === 'end');
 
   say('▶ Действие вне процесса — ошибка, а не тихий стоп');
-  const run5 = newRun(toy, 'T-5');
+  const run5 = newRun(toy, { taskId: 'T-5' });
   failsThisVisit = 0;
   verdicts = ['maybe'];
   let crashed = '';

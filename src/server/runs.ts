@@ -54,13 +54,14 @@ export interface RunHooks<Ctx> {
   stuck(ctx: Ctx, halt: Halt): void;
 }
 
-/** Новый прогон процесса по задаче, на первом узле. */
-export function newRun(workflow: Workflow, taskId: string, now = Date.now()): Run {
+/** Новый прогон процесса — по задаче или по самому офису, на первом узле. */
+export function newRun(workflow: Workflow, subject: Run['subject'], now = Date.now()): Run {
+  const who = subject.taskId ?? subject.epicId ?? subject.flow ?? 'office';
   return {
-    id: `${taskId}/${workflow.id}`,
+    id: `${who}/${workflow.id}`,
     workflowId: workflow.id,
     version: workflow.version,
-    subject: { taskId },
+    subject: { ...subject },
     nodeId: firstNode(workflow).id,
     from: null,
     loops: {},

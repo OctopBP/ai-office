@@ -37,6 +37,7 @@ import { officeAssign, retryTask, slotProblem } from './agents';
 import { dispatch } from './plan';
 import { detectReverts } from './outcomes';
 import { askAboutReverts, tickRituals } from './rituals';
+import { tickFlows } from './flows';
 
 /** Как часто офис оглядывается на свои ветки. */
 const TICK_MS = 60_000;
@@ -171,6 +172,9 @@ export async function superviseOffice(state: OfficeState): Promise<void> {
   // 3¾. Ритуалы — на тихом тике. Тем же проходом, что и всё остальное:
   // второго таймера в офисе не будет.
   await tickRituals(state, now);
+  // Процессы по состоянию — «что дальше» на пустой доске. Не ждём: совещание
+  // длится минутами, а надзору пора смотреть на ветки.
+  tickFlows(state, now);
 
   // 4. План. Проход плана дублирует то, что и так делается по событиям
   // (завершилась задача, влилась ветка, согласовали фичу), — и он здесь

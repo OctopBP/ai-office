@@ -1,0 +1,25 @@
+{
+  "id": "what-next",
+  "version": 1,
+  "trigger": { "on": "board.idle" },
+  "nodes": [
+    { "id": "digest", "kind": "check", "run": "office:digest", "out": "digest",
+      "next": { "pass": "decide", "skip": "end" } },
+    { "id": "decide", "kind": "decide", "run": "office:what-next", "needs": ["plan"],
+      "in": ["digest"], "out": "decision",
+      "done": ["По направлению выводится фича — предложи её одним вызовом",
+               "Фичу не вывести, а направление стоит обсудить — созови совещание",
+               "Делать нечего — так и скажи"],
+      "next": { "feature": "end", "meet": "agenda", "nothing": "end" } },
+    { "id": "agenda", "kind": "check", "run": "office:agenda", "in": ["digest", "decision"], "out": "agenda",
+      "next": { "pass": "meeting", "skip": "end" } },
+    { "id": "meeting", "kind": "meeting", "in": ["agenda"], "out": "transcript",
+      "limits": { "turns": 6 },
+      "next": { "done": "summary", "failed": "stuck" } },
+    { "id": "summary", "kind": "decide", "run": "office:meeting-summary", "needs": ["summarize"],
+      "in": ["agenda", "transcript"], "out": "proposals",
+      "done": ["Не больше трёх предложений", "У каждого — направление и обоснование",
+               "Отклонённое раньше не предлагать снова"],
+      "next": { "proposed": "end", "nothing": "end" } }
+  ]
+}

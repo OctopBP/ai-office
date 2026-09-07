@@ -22,6 +22,9 @@
  * «консолидировать» и «найти противоречия» (RitualAgents). Настоящую
  * реализацию ставит agents.ts, проверки — свою.
  */
+import type { WorkflowNode } from '../shared/workflow';
+import { builtinWorkflows } from './workflows';
+import { drive, newRun, type Executor } from './runs';
 import { dayKey, HEALTH_DIRECTION, limitReset, OFFICE_SENDER } from '../shared/types';
 import type { OwnerQuestion, RitualId, RitualRun } from '../shared/types';
 import { LANG_LOCALE } from '../shared/i18n';
@@ -331,7 +334,7 @@ export async function runRitual(state: OfficeState, ritual: RitualId, now = Date
   state.emitLife();
   state.addLog(null, 'system', state.say('ritual.startLog', { ritual: state.say(`ritual.name.${ritual}`) }));
   try {
-    const run = await runners[ritual](state, now);
+    const run = await runAsFlow(state, ritual, now);
     state.addLog(null, 'system', state.say('ritual.doneLog', {
       ritual: state.say(`ritual.name.${ritual}`), note: run.note, cost: run.costUsd.toFixed(3),
     }));
@@ -350,6 +353,32 @@ export async function runRitual(state: OfficeState, ritual: RitualId, now = Date
 }
 
 type Runner = (state: OfficeState, now: number) => Promise<Omit<RitualRun, 'id'>>;
+
+/**
+ * Ритуал — процесс офиса (spec процессов §6.1): файл `workflows/ritual-<id>.json`
+ * с триггером и одним узлом, а идёт он тем же раннером, что и задачи, и
+ * виден таким же прогоном. Расписание пока считает `dueRitual`: интервалы
+ * правит портфель, и файл о них не знает.
+ */
+async function runAsFlow(state: OfficeState, ritual: RitualId, now: number): Promise<Omit<RitualRun, 'id'>> {
+  const workflow = builtinWorkflows().get(`ritual-${ritual}`);
+  if (!workflow) return runners[ritual](state, now);
+  const previous = state.flowRun(workflow.id);
+  if (previous) state.runs.delete(previous.id);
+  const run = newRun(workflow, { flow: workflow.id }, now);
+  let result: Omit<RitualRun, 'id'> | null = null;
+  const executor: Executor<WorkflowNode> = {
+    async run() {
+      result = await runners[ritual](state, now);
+      return { outcome: 'pass', note: result.note };
+    },
+  };
+  await drive(state, workflow, run, (node) => (node.run === `office:ritual:${ritual}` ? executor : undefined), {
+    context: (node) => node,
+    stuck: (_node, halt) => { throw new Error(halt.note); },
+  });
+  return result ?? { ritual, at: now, costUsd: 0, produced: {}, note: '' };
+}
 
 /** Положить то, что ритуал произвёл: записи, противоречия, вопросы. */
 function applyOutput(state: OfficeState, ritual: RitualId, out: RitualOutput): Record<string, number> {

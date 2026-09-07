@@ -1,3 +1,5 @@
+import { setFlowAgents, type DecideOutput } from './flows';
+import type { FeatureProposal } from './initiatives';
 import { TASK_TYPES } from '../shared/workflow';
 import { query, tool, createSdkMcpServer } from '@anthropic-ai/claude-agent-sdk';
 import type { SDKMessage, PermissionResult, SDKResultSuccess } from '@anthropic-ai/claude-agent-sdk';
@@ -1131,10 +1133,13 @@ export async function holdMeeting(
   meetingOffice: OfficeState,
   topic: string,
   participantIds: string[],
-): Promise<void> {
+  /** report: false — стенограмму менеджеру не слать: её подведёт узел процесса. */
+  opts: { report?: boolean } = {},
+): Promise<{ ok: boolean; said: Array<{ id: string; title: string; text: string }> }> {
+  const none = { ok: false, said: [] };
   if (meetingOffice.meetingRunning) {
     meetingOffice.addChat(OFFICE_SENDER, meetingOffice.say('meeting.alreadyRunning'), 'meeting');
-    return;
+    return none;
   }
   // Раньше менеджер отсеивался здесь по роли: считалось, что он не участник,
   // а адресат итога. На практике половина тем — про приоритеты и сроки, и
@@ -1148,7 +1153,7 @@ export async function holdMeeting(
 
   if (participants.length < 2) {
     meetingOffice.addChat(OFFICE_SENDER, meetingOffice.say('meeting.needTwo'), 'meeting');
-    return;
+    return none;
   }
   // Занятость проверяем только у исполнителей: у менеджера задач на руках не
   // бывает, а прерывать из-за совещания обработку доски мы и не хотим.
@@ -1157,15 +1162,15 @@ export async function holdMeeting(
     meetingOffice.addChat(OFFICE_SENDER,
       meetingOffice.say('meeting.busy', { who: busy.label, task: busy.currentTaskId ?? '' }),
       'meeting');
-    return;
+    return none;
   }
   if (meetingOffice.paused) {
     meetingOffice.addChat(OFFICE_SENDER, meetingOffice.say('meeting.paused'), 'meeting');
-    return;
+    return none;
   }
   if (meetingOffice.budgetExhausted()) {
     meetingOffice.addChat(OFFICE_SENDER, meetingOffice.say('meeting.budget'), 'meeting');
-    return;
+    return none;
   }
 
   meetingOffice.meetingRunning = true;
@@ -1179,6 +1184,7 @@ export async function holdMeeting(
   for (const p of participants) meetingOffice.setState(p.id, 'talking', meetingOffice.say('agent.state.inMeeting'));
 
   const said: Array<{ id: string; title: string; text: string }> = [];
+  let ok = false;
 
   try {
     for (const inst of participants) {
@@ -1267,12 +1273,14 @@ export async function holdMeeting(
 
     meetingOffice.setMeeting({ id, topic, participants: participants.map((p) => p.id), speaking: null, status: 'done' });
     meetingOffice.addChat(OFFICE_SENDER, meetingOffice.say('meeting.over'), 'meeting');
+    ok = true;
 
-    // Стенограмма уходит менеджеру в любом случае — итог подводит он. Если он
-    // сам был на совещании, предупреждаем об этом: иначе он примет собственную
-    // реплику за чужую и станет спорить сам с собой.
+    // Стенограмма уходит менеджеру — итог подводит он. Если он сам был на
+    // совещании, предупреждаем об этом: иначе он примет собственную реплику
+    // за чужую и станет спорить сам с собой. Совещанию из процесса офиса
+    // итог подводит узел, и в основную сессию стенограмма не идёт.
     const pmWasThere = participants.some((p) => isManager(meetingOffice, p));
-    notifyPm(meetingOffice,
+    if (opts.report !== false) notifyPm(meetingOffice,
       meetingOffice.say('meeting.pmSummary', { topic }) +
       (pmWasThere ? meetingOffice.say('meeting.pmWasThere') : '') +
       '\n\n' +
@@ -1298,6 +1306,7 @@ export async function holdMeeting(
     }
     setTimeout(() => { if (meetingOffice.meeting?.id === id) meetingOffice.setMeeting(null); }, 20000);
   }
+  return { ok, said };
 }
 
 // ---------------------------------------------------------------- прямой разговор
@@ -2765,6 +2774,152 @@ function journalText(state: OfficeState, facts: ConsolidationInput['facts']): st
   })).join('\n');
 }
 
+/**
+ * Инструмент «предложить фичу» — один и тот же у рефлексии, у «что дальше»
+ * и у итога совещания: предложение везде выглядит одинаково.
+ */
+function proposeFeatureTool(state: OfficeState, roles: string, onFeature: (f: FeatureProposal) => void) {
+  return tool(
+    'propose_feature',
+    state.say('tool.proposeFeature.desc'),
+    {
+      title: z.string().describe(state.say('tool.planFeatures.title')),
+      goal: z.string().describe(state.say('tool.planFeatures.goal')),
+      rationale: z.string().describe(state.say('tool.proposeFeature.rationale')),
+      directionId: z.string().default('').describe(state.say('tool.proposeFeature.direction')),
+      tasks: z.array(z.object({
+        key: z.string().describe(state.say('tool.planFeatures.key')),
+        title: z.string().describe(state.say('tool.createTask.title')),
+        description: z.string().describe(state.say('tool.createTask.description')),
+        acceptanceCriteria: z.array(z.string()).describe(state.say('tool.createTask.criteria')),
+        roleId: z.string().describe(state.say('tool.planFeatures.role', { roles })),
+        dependsOn: z.array(z.string()).default([]).describe(state.say('tool.planFeatures.dependsOn')),
+      })).describe(state.say('tool.planFeatures.tasks')),
+    },
+    async (args) => {
+      onFeature({
+        title: args.title, goal: args.goal, rationale: args.rationale,
+        directionId: args.directionId?.trim() || null,
+        tasks: args.tasks.map((t) => ({ ...t, dependsOn: t.dependsOn ?? [] })),
+      });
+      return { content: [{ type: 'text', text: state.say('tool.proposeFeature.ok', { result: args.title }) }] };
+    },
+  );
+}
+
+/**
+ * Короткая сессия менеджера для процесса офиса: без файлов и оболочки,
+ * только инструменты решения. Расход — на менеджера, id сессии не
+ * запоминается, чтобы не затереть его разговор с человеком.
+ */
+async function flowSession(
+  state: OfficeState,
+  opts: { system: string; prompt: string; mcp: Record<string, ReturnType<typeof createSdkMcpServer>>; maxTurns: number },
+): Promise<{ text: string; error?: string; costUsd: number }> {
+  const before = state.instances.get('pm#1')?.usage.costUsd ?? 0;
+  let text = '';
+  let error: string | undefined;
+  try {
+    const session = query({
+      prompt: opts.prompt,
+      options: {
+        model: state.role('pm')?.model ?? RITUAL_MODEL,
+        systemPrompt: opts.system,
+        cwd: state.projectDir,
+        tools: [],
+        mcpServers: opts.mcp,
+        permissionMode: 'default',
+        canUseTool: permissionHandler(state, 'pm#1'),
+        settingSources: [],
+        maxTurns: opts.maxTurns,
+      },
+    });
+    for await (const msg of session) {
+      consume(state, 'pm#1', msg, false);
+      if (msg.type === 'result') {
+        if (isOk(msg)) text = msg.result?.trim() ?? '';
+        else error = clip(resultReason(msg, state.lang()), 300);
+      }
+    }
+  } catch (err) {
+    error = (err as Error).message;
+  }
+  return { text, error, costUsd: Math.max(0, (state.instances.get('pm#1')?.usage.costUsd ?? 0) - before) };
+}
+
+setFlowAgents({
+  async decide(state, input) {
+    if (state.dryRun) return { kind: 'nothing', costUsd: 0, why: state.say('flow.dryRun') };
+    const say = state.say.bind(state);
+    const roles = state.workerRoles().map((r) => `${r.id} (${r.title})`).join(', ');
+    let out: DecideOutput = { kind: 'nothing', costUsd: 0 };
+    const tools = createSdkMcpServer({
+      name: 'flow',
+      version: '1.0.0',
+      tools: [
+        proposeFeatureTool(state, roles, (feature) => { out = { ...out, kind: 'feature', feature }; }),
+        ...(input.canMeet ? [tool(
+          'call_meeting',
+          say('tool.callMeeting.desc'),
+          { topic: z.string().describe(say('tool.callMeeting.topic')) },
+          async (args) => {
+            out = { ...out, kind: 'meet', topic: args.topic };
+            return { content: [{ type: 'text', text: say('tool.callMeeting.ok') }] };
+          },
+        )] : []),
+        tool(
+          'nothing',
+          say('tool.nothing.desc'),
+          { why: z.string().describe(say('tool.nothing.why')) },
+          async (args) => {
+            out = { ...out, kind: 'nothing', why: args.why };
+            return { content: [{ type: 'text', text: say('tool.nothing.ok') }] };
+          },
+        ),
+      ],
+    });
+    const prompt = [
+      say('prompt.whatNext.user', {
+        canMeet: say(input.canMeet ? 'prompt.whatNext.meetAllowed' : 'prompt.whatNext.meetNotAllowed'),
+      }),
+      '',
+      input.digest,
+    ].join('\n');
+    const r = await flowSession(state, {
+      system: say('prompt.whatNext.system', { lang: LANG_NAME_EN[state.lang()] }),
+      prompt, mcp: { flow: tools }, maxTurns: 10,
+    });
+    return { ...out, costUsd: r.costUsd, error: r.error };
+  },
+
+  async summarize(state, input) {
+    if (state.dryRun) return { features: [], summary: '', costUsd: 0 };
+    const say = state.say.bind(state);
+    const roles = state.workerRoles().map((r) => `${r.id} (${r.title})`).join(', ');
+    const features: FeatureProposal[] = [];
+    const tools = createSdkMcpServer({
+      name: 'flow',
+      version: '1.0.0',
+      tools: [proposeFeatureTool(state, roles, (f) => features.push(f))],
+    });
+    const prompt = [
+      say('prompt.summary.user'), '',
+      say('prompt.summary.agenda'), input.agenda, '',
+      say('prompt.summary.transcript'), input.transcript,
+    ].join('\n');
+    const r = await flowSession(state, {
+      system: say('prompt.summary.system', { lang: LANG_NAME_EN[state.lang()] }),
+      prompt, mcp: { flow: tools }, maxTurns: 12,
+    });
+    return { features, summary: r.text, costUsd: r.costUsd, error: r.error };
+  },
+
+  async meeting(state, topic, participants) {
+    const r = await holdMeeting(state, topic, participants, { report: false });
+    return { ok: r.ok, said: r.said, error: r.ok ? undefined : state.say('flow.meetingFailed') };
+  },
+});
+
 setRitualAgents({
   consolidate(state, input) {
     const lang = LANG_NAME_EN[state.lang()];
@@ -2834,32 +2989,7 @@ setRitualAgents({
             return { content: [{ type: 'text', text: state.say('tool.proposeRule.ok', { id: `#${out.rules.length}` }) }] };
           },
         ),
-        tool(
-          'propose_feature',
-          state.say('tool.proposeFeature.desc'),
-          {
-            title: z.string().describe(state.say('tool.planFeatures.title')),
-            goal: z.string().describe(state.say('tool.planFeatures.goal')),
-            rationale: z.string().describe(state.say('tool.proposeFeature.rationale')),
-            directionId: z.string().default('').describe(state.say('tool.proposeFeature.direction')),
-            tasks: z.array(z.object({
-              key: z.string().describe(state.say('tool.planFeatures.key')),
-              title: z.string().describe(state.say('tool.createTask.title')),
-              description: z.string().describe(state.say('tool.createTask.description')),
-              acceptanceCriteria: z.array(z.string()).describe(state.say('tool.createTask.criteria')),
-              roleId: z.string().describe(state.say('tool.planFeatures.role', { roles })),
-              dependsOn: z.array(z.string()).default([]).describe(state.say('tool.planFeatures.dependsOn')),
-            })).describe(state.say('tool.planFeatures.tasks')),
-          },
-          async (args) => {
-            out.features.push({
-              title: args.title, goal: args.goal, rationale: args.rationale,
-              directionId: args.directionId?.trim() || null,
-              tasks: args.tasks.map((t) => ({ ...t, dependsOn: t.dependsOn ?? [] })),
-            });
-            return { content: [{ type: 'text', text: state.say('tool.proposeFeature.ok', { result: args.title }) }] };
-          },
-        ),
+        proposeFeatureTool(state, roles, (f) => out.features.push(f)),
       ],
     });
     const say = state.say.bind(state);

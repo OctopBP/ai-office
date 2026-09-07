@@ -4,7 +4,7 @@
 // который их считает. Здесь они только перевыставлены: ими пользуются и
 // снапшот, и команды клиента, а разбирать контракт по двум файлам неудобно.
 export type { Layout, LayoutOverride, LayoutPropEdit } from './layout';
-import type { Handoff, Run, TaskType } from './workflow';
+import type { FlowMemory, Handoff, Run, TaskType } from './workflow';
 import type { Layout, LayoutOverride, LayoutPropEdit } from './layout';
 
 // Язык офиса живёт в настройках, а его тип — рядом с движком словарей.
@@ -576,6 +576,11 @@ export interface Settings {
    * долю не входит: красные проверки — обязанность, а не инициатива.
    */
   initiativeShare?: number;
+  /**
+   * Не чаще какого срока офис сам созывает совещание о развитии
+   * (spec процессов §6.3). Нет поля — раз в неделю.
+   */
+  meetingEveryDays?: number;
 }
 
 /**
@@ -933,6 +938,8 @@ export interface LifeView {
   standupAt: number | null;
   lastRun: Partial<Record<RitualId, number>>;
   policy: RitualPolicy;
+  /** Память процессов по состоянию: «что дальше» и прочие (spec процессов §6.2). */
+  flows: Record<string, FlowMemory>;
   /** Последние прогоны, свежие в конце. */
   runs: RitualRun[];
   /** Ритуал идёт прямо сейчас. */

@@ -112,8 +112,10 @@ const triggerSchema = z.discriminatedUnion('on', [
   z.object({ on: z.literal('task.created'), type: z.string().optional() }).strict(),
   z.object({ on: z.literal('task.finished'), type: z.enum(TASK_TYPES).optional() }).strict(),
   z.object({ on: z.literal('epic.approved') }).strict(),
+  /** Доска пуста: всё закрыто или ждёт человека, сессий нет (§6.2). */
   z.object({ on: z.literal('board.idle') }).strict(),
-  z.object({ on: z.literal('quiet'), minutes: z.number().int().min(1) }).strict(),
+  /** Тихий тик: событий не было N минут; не чаще, чем раз в everyHours. */
+  z.object({ on: z.literal('quiet'), minutes: z.number().int().min(1), everyHours: z.number().min(0).optional() }).strict(),
   z.object({ on: z.literal('day.first') }).strict(),
   z.object({ on: z.literal('week') }).strict(),
   z.object({ on: z.literal('owner.answered') }).strict(),
@@ -282,7 +284,8 @@ export interface Run {
   id: string;
   workflowId: string;
   version: number;
-  subject: { taskId?: string; epicId?: string };
+  /** По чему идёт прогон: задача, фича или процесс самого офиса (`flow`). */
+  subject: { taskId?: string; epicId?: string; flow?: string };
   nodeId: string;
   /** Откуда пришли в текущий узел. null — с начала (первый заход или перезапуск). */
   from: string | null;
@@ -300,3 +303,27 @@ export interface Run {
   startedAt: number;
   updatedAt: number;
 }
+
+/**
+ * Память триггера по состоянию (§6.2): когда процесс шёл в последний раз,
+ * чем кончился, сколько раз подряд ответил «нечего делать» и до какого
+ * момента его не будить. Без дельты прогона нет; после «нечего» — затухание.
+ */
+export interface FlowMemory {
+  lastAt: number | null;
+  lastOutcome: string | null;
+  /** Причина последнего исхода — чтобы не писать одно и то же в лог каждый проход. */
+  lastNote: string | null;
+  /** Сколько раз подряд менеджер ответил «нечего делать». */
+  idleStreak: number;
+  backoffUntil: number | null;
+  /** Когда офис в последний раз сам созывал совещание о развитии. */
+  lastMeetingAt: number | null;
+  /** Сколько совещаний подряд прошло без нового направления от владельца. */
+  meetingsSinceDirection: number;
+}
+
+export const emptyFlowMemory = (): FlowMemory => ({
+  lastAt: null, lastOutcome: null, lastNote: null, idleStreak: 0, backoffUntil: null, lastMeetingAt: null,
+  meetingsSinceDirection: 0,
+});

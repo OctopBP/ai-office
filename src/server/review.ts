@@ -260,7 +260,7 @@ async function pipeline(state: OfficeState, taskId: string): Promise<void> {
   let run = state.runOf(taskId);
   if (!run || run.workflowId !== workflow.id || run.status === 'done') {
     if (run) state.runs.delete(run.id);
-    run = newRun(workflow, taskId);
+    run = newRun(workflow, { taskId });
   }
   resumeRun(run);
   // Отчёт исполнителя с запиской — артефакт, который есть у прогона с самого
