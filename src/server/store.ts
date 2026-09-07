@@ -3,6 +3,7 @@ import { dirname, resolve } from 'node:path';
 import type {
   ChatEntry, LayoutOverride, LogEntry, PermissionMode, PullRequestView, Settings, Usage,
 } from '../shared/types';
+import type { Run } from '../shared/workflow';
 import type { Direction, Epic, Fact, LifeState, Proposal, Task } from './state';
 import type { OwnerQuestion } from '../shared/types';
 import type { Role } from './roles';
@@ -47,6 +48,8 @@ export interface Persisted {
   epicSeq?: number;
   /** Пулл-реквесты конвейера ревью. В сохранениях до конвейера их нет. */
   prs?: PullRequestView[];
+  /** Прогоны процессов. В сохранениях до процессов их нет — конвейер заведёт заново. */
+  runs?: Run[];
   chat: ChatEntry[];
   log: LogEntry[];
   instances: PersistedInstance[];

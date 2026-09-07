@@ -234,6 +234,12 @@ export const en = {
   'sup.giveUpPm': '[SYSTEM] Task {task} “{title}” never made it into {base}. The office tried to carry it through {n} times, the reason it last stopped:\n{note}\nFrom here it is your call, and you act on it yourself: set a fixing task and assign it, reword this one, or give it to another role. Bother the user only if you need something nobody in the office can do (hire somebody, raise the budget) — and then say in one sentence what exactly you need from them.',
   'sup.crashed': 'The pipeline watchdog stumbled: {error}',
 
+  // --------------------------------------------------------------- processes
+  'wf.exhausted': '"{node}": the retry limit ({max}) is used up.',
+  'wf.noExecutor': 'Node "{node}" refers to action "{run}", which the office does not know.',
+  'wf.badOutcome': 'Node "{node}" ended with outcome "{outcome}", which the process does not have.',
+  'wf.badNode': 'Process "{workflow}" has no node "{node}".',
+
   // -------------------------------------------------------------------- plan
   'plan.chat.epicActive': '▶️ Started feature {epic} "{title}".',
   'plan.log.epicActive': '{epic} "{title}": feature is now in progress',

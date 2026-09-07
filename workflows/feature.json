@@ -1,0 +1,42 @@
+{
+  "id": "feature",
+  "version": 1,
+  "trigger": { "on": "task.finished" },
+  "nodes": [
+    { "id": "sync", "kind": "check", "run": "office:sync-base", "stage": "sync", "out": "conflict",
+      "next": { "pass": "checks", "conflict": { "to": "fix-conflict", "max": 1 }, "fail": "stuck" } },
+    { "id": "fix-conflict", "kind": "step", "run": "office:fix-conflict", "needs": ["code.write"],
+      "stage": "sync", "in": ["conflict"],
+      "next": { "done": "sync", "failed": "stuck" } },
+
+    { "id": "checks", "kind": "check", "run": "office:checks", "stage": "checks", "out": "checks",
+      "next": { "pass": "open-pr", "fail": { "to": "fix-checks", "max": 1 } } },
+    { "id": "fix-checks", "kind": "step", "run": "office:fix-checks", "needs": ["code.write"],
+      "stage": "rework", "in": ["checks"],
+      "next": { "done": "checks", "failed": "stuck" } },
+
+    { "id": "open-pr", "kind": "check", "run": "office:open-pr", "stage": "opening",
+      "next": { "pass": "review", "fail": "stuck" } },
+
+    { "id": "review", "kind": "step", "run": "office:review", "needs": ["code.review"],
+      "stage": "review", "out": "review",
+      "next": { "approve": "resync", "changes": { "to": "rework", "max": 2 }, "failed": "stuck" } },
+    { "id": "rework", "kind": "step", "run": "office:rework", "needs": ["code.write"],
+      "stage": "rework", "in": ["review"],
+      "next": { "done": "sync", "failed": "stuck" } },
+
+    { "id": "resync", "kind": "check", "run": "office:sync-base", "stage": "sync", "out": "conflict",
+      "next": { "pass": "recheck", "conflict": { "to": "fix-conflict-again", "max": 1 }, "fail": "stuck" } },
+    { "id": "fix-conflict-again", "kind": "step", "run": "office:fix-conflict", "needs": ["code.write"],
+      "stage": "sync", "in": ["conflict"],
+      "next": { "done": "resync", "failed": "stuck" } },
+    { "id": "recheck", "kind": "check", "run": "office:checks", "stage": "checks", "out": "checks",
+      "next": { "pass": "merge", "fail": { "to": "fix-checks-again", "max": 1 } } },
+    { "id": "fix-checks-again", "kind": "step", "run": "office:fix-checks", "needs": ["code.write"],
+      "stage": "rework", "in": ["checks"],
+      "next": { "done": "recheck", "failed": "stuck" } },
+
+    { "id": "merge", "kind": "check", "run": "office:merge", "stage": "merging",
+      "next": { "pass": "end", "moved": { "to": "resync", "max": 1 }, "fail": "stuck" } }
+  ]
+}

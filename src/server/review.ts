@@ -1,19 +1,23 @@
 /**
  * Конвейер ревью: что происходит с задачей после того, как исполнитель её сдал.
  *
- * Порядок один и тот же и для локального репозитория, и для GitHub:
+ * Порядок описан не здесь, а файлом `workflows/feature.json`
+ * (docs/design/workflows/spec.md §7.1) — это первый процесс офиса, записанный
+ * явно. Ведёт по нему раннер (runs.ts); здесь — действия узлов и то, как
+ * прогон показывается пулл-реквестом:
  *
  *   ветка задачи → подтянуть базовую ветку и разрешить конфликты
  *                → прогнать проверки проекта
  *                → открыть пулл-реквест
  *                → ревью живым ревьюером
- *                → слить в базовую ветку
- *                → убрать ветку и рабочую копию
+ *                → перед слиянием подтянуть базу и проверить ещё раз
+ *                → слить в базовую ветку, убрать ветку и рабочую копию
  *
  * Всё это идёт само: человек в цепочке не нужен. Он нужен ровно в одном
  * случае — когда конвейер встал (стадия 'stuck'): не разошлись с конфликтом,
  * не прошли проверки, ревьюер два раза подряд вернул работу. Тогда офис
- * говорит об этом менеджеру и перестаёт крутить круги за деньги.
+ * говорит об этом менеджеру и перестаёт крутить круги за деньги. Сколько
+ * именно раз можно вернуть и починить — пределы `max` в файле процесса.
  *
  * Сессии агентов сюда не импортируются: конвейер знает только, что кто-то
  * умеет «отревьюить» и «переделать» (PipelineAgents). Так этот файл не тянет
@@ -23,6 +27,7 @@
 import type { PullRequestView, ReviewVerdict } from '../shared/types';
 import { OFFICE_SENDER } from '../shared/types';
 import type { Lang } from '../shared/i18n';
+import { loopMax, nodeOf, type Run, type Workflow, type WorkflowNode } from '../shared/workflow';
 import { t } from './i18n';
 import {
   taskRepo, criteriaProgress, worktreesRoot, type OfficeState, type Task,
@@ -37,11 +42,17 @@ import { integrationDir, runTypecheck } from './merge';
 import { mergedKind, recordOutcome } from './outcomes';
 import { githubToken } from './cloud';
 import { commentOnPr, createPullRequest, githubFor, mergePullRequest } from './github';
+import { builtinWorkflow } from './workflows';
+import { drive, newRun, restartRun, type Executor, type RunHooks, type StepResult } from './runs';
 
-/** Сколько раз ревьюер может вернуть работу автору, прежде чем позовём менеджера. */
-export const MAX_ROUNDS = 2;
-/** Сколько раз даём автору починить упавшие проверки на одном круге. */
-const MAX_FIX_ATTEMPTS = 1;
+/** Процесс, по которому едет сданная задача. */
+const WORKFLOW_ID = 'feature';
+
+/**
+ * Сколько раз ревьюер может вернуть работу автору, прежде чем позовём
+ * менеджера. Число живёт в файле процесса; здесь оно нужно промпту ревьюера.
+ */
+export const MAX_ROUNDS = loopMax(builtinWorkflow(WORKFLOW_ID), 'office:review', 'changes') ?? 2;
 
 export interface ReviewOutcome {
   verdict: ReviewVerdict;
@@ -106,9 +117,6 @@ function withLock<T>(locks: Map<string, Promise<unknown>>, key: string, fn: () =
   return next;
 }
 
-/** Остановка конвейера с понятной причиной — не ошибка выполнения, а исход. */
-class Stuck extends Error {}
-
 /**
  * Провести задачу через конвейер. Вызывающему ждать не нужно — ход конвейера
  * виден по стадиям пулл-реквеста; обещание возвращается ради тестов и
@@ -120,7 +128,6 @@ export function runPipeline(state: OfficeState, taskId: string): Promise<void> {
   if (already) return already;
   const run = pipeline(state, taskId)
     .catch((err) => {
-      if (err instanceof Stuck) return;
       const task = state.tasks.get(taskId);
       state.addLog(null, 'error',
         state.say('pipe.crashed.log', { task: taskId, error: (err as Error).message }));
@@ -156,6 +163,19 @@ export async function pipelineProblem(state: OfficeState, task: Task): Promise<s
   return null;
 }
 
+/** Всё, что нужно действию узла. Собирается заново на каждый узел. */
+interface Ctx {
+  state: OfficeState;
+  task: Task;
+  pr: PullRequestView;
+  workflow: Workflow;
+  node: WorkflowNode;
+  run: Run;
+  repo: string;
+  branch: string;
+  base: string;
+}
+
 async function pipeline(state: OfficeState, taskId: string): Promise<void> {
   const task = state.tasks.get(taskId);
   if (!task) return;
@@ -177,58 +197,35 @@ async function pipeline(state: OfficeState, taskId: string): Promise<void> {
   state.updateTask(taskId, { status: 'review' });
   state.addChat(OFFICE_SENDER, state.say('pipe.started', { task: taskId, base }));
 
-  for (;;) {
-    // Пауза офиса останавливает и конвейер: сливать в основную ветку, пока
-    // пользователь нажал «стоп всему», — ровно то, чего он не просил.
-    await state.whenResumed();
-    const worktree = await workingCopy(state, task, repo, branch);
-    await syncBase(state, task, pr, repo, worktree, base);
-    await runChecks(state, task, pr, worktree);
-    await openPr(state, task, pr, repo, branch, base);
+  // Повторный заход (перезапуск конвейера) не заводит второй прогон, но
+  // возвращает его к началу: ветка снова расходится с базой. Круги ревью
+  // при этом не обнуляются — они считаются по задаче, а не по сессии.
+  const workflow = builtinWorkflow(WORKFLOW_ID);
+  const run = state.runOf(taskId) ?? newRun(workflow, taskId);
+  restartRun(run, workflow);
+  state.saveRun(run);
 
-    const outcome = await withLock(reviewLocks, state.officeId,
-      () => reviewStep(state, task, pr));
-
-    if (outcome.verdict === 'approve') {
-      await state.whenResumed();
-      // Пока пулл-реквест ждал ревью, база могла уехать: пересобираем ветку
-      // поверх свежей базы и перепроверяем — и только потом занимаем замок.
-      // Долгие шаги (автор разбирает конфликт) не держат очередь слияний.
-      for (let attempt = 0; ; attempt += 1) {
-        await syncBase(state, task, pr, repo, worktree, base);
-        await runChecks(state, task, pr, worktree);
-        const done = await withLock(mergeLocks, repo,
-          () => mergeStep(state, task, pr, repo, branch, base));
-        if (done) return;
-        if (attempt >= 1) {
-          markStuck(state, task, state.say('pipe.baseMovesFast', { base }));
-          throw new Stuck();
-        }
-        state.addChat(OFFICE_SENDER, state.say('pipe.secondRound', { task: task.id, base }));
+  const hooks: RunHooks<Ctx> = {
+    context: (node) => ({
+      state, task: state.tasks.get(taskId) ?? task, pr, workflow, node, run, repo, branch, base,
+    }),
+    enter: (ctx, node) => {
+      if (node.stage) state.patchPr(ctx.task.id, { stage: node.stage });
+    },
+    transition: (ctx, from, outcome, to) => {
+      if (from.run === 'office:review' && outcome === 'changes') {
+        // Возврат автору: круги считаем по пулл-реквесту, а не по сессии, —
+        // перезапуск сервера не должен обнулять счётчик и запускать вечный цикл.
+        const rounds = ctx.run.loops[`${from.id}>${to}`] ?? 0;
+        state.patchPr(ctx.task.id, { rounds, note: state.say('pipe.reviewReturned', { n: rounds }) });
       }
-    }
-
-    // Возврат автору: круги считаем по пулл-реквесту, а не по сессии, —
-    // перезапуск сервера не должен обнулять счётчик и запускать вечный цикл.
-    const rounds = pr.rounds + 1;
-    state.patchPr(taskId, {
-      rounds, stage: 'rework', note: state.say('pipe.reviewReturned', { n: rounds }),
-    });
-    if (rounds > MAX_ROUNDS) {
-      // Четвёртый заход к тому же исполнителю с тем же отзывом ничего не изменит.
-      markStuck(state, task,
-        state.say('pipe.tooManyRounds', { n: rounds, text: outcome.text }), true);
-      throw new Stuck();
-    }
-
-    const fix = await agents.rework(state, task, reworkPrompt(state, task, outcome.text));
-    if (task.worktreePath) await settle(task.worktreePath, task, state.say('pipe.note.rework'));
-    if (!fix.ok) {
-      markStuck(state, task,
-        state.say('pipe.reworkFailed', { problem: fix.message }), fix.needsDecision);
-      throw new Stuck();
-    }
-  }
+      if (from.run === 'office:merge' && outcome === 'moved') {
+        state.addChat(OFFICE_SENDER, state.say('pipe.secondRound', { task: ctx.task.id, base }));
+      }
+    },
+    stuck: (ctx, why) => markStuck(state, ctx.task, why.note, why.needsDecision),
+  };
+  await drive(state, workflow, run, FEATURE, hooks);
 }
 
 /**
@@ -243,271 +240,335 @@ async function settle(worktree: string, task: Task, message: string): Promise<vo
 }
 
 /** Рабочая копия ветки задачи: обычно уже есть, иначе поднимаем заново. */
-async function workingCopy(
-  state: OfficeState, task: Task, repo: string, branch: string,
-): Promise<string> {
+async function workingCopy(ctx: Ctx): Promise<string | null> {
+  const { state, task, repo, branch } = ctx;
   const path = await ensureWorktree(repo, worktreesRoot(state), task.id, branch);
-  if (!path) {
-    markStuck(state, task, state.say('pipe.noWorktree', { branch }));
-    throw new Stuck();
-  }
+  if (!path) return null;
   if (path !== task.worktreePath) state.updateTask(task.id, { worktreePath: path });
   return path;
 }
 
+const fail = (note: string, needsDecision?: boolean): StepResult =>
+  ({ outcome: 'fail', note, needsDecision });
+const failed = (note: string, needsDecision?: boolean): StepResult =>
+  ({ outcome: 'failed', note, needsDecision });
+
 /**
- * Шаг 1: подтянуть базовую ветку в ветку задачи. Конфликты разбирает автор
- * в своей копии — до основной ветки они не доходят вовсе.
+ * Подтянуть базовую ветку в ветку задачи. Конфликты разбирает автор в своей
+ * копии (узел fix-conflict) — до основной ветки они не доходят вовсе.
  */
-async function syncBase(
-  state: OfficeState, task: Task, pr: PullRequestView,
-  repo: string, worktree: string, base: string,
-): Promise<void> {
-  state.patchPr(task.id, { stage: 'sync', note: state.say('pipe.syncing', { base }) });
+const syncBase: Executor<Ctx> = {
+  async run(ctx) {
+    const { state, task, repo, base } = ctx;
+    const worktree = await workingCopy(ctx);
+    if (!worktree) return fail(state.say('pipe.noWorktree', { branch: ctx.branch }));
+    state.patchPr(task.id, { note: state.say('pipe.syncing', { base }) });
 
-  // С GitHub базой считается удалённая ветка: там же лежит и результат чужих
-  // слияний. Без удалёнки база локальная — и это единственная правда офиса.
-  const gh = await githubFor(repo);
-  let ref = base;
-  if (gh) {
-    await fetchRemote(repo, githubToken());
-    if (await revision(repo, `origin/${base}`)) ref = `origin/${base}`;
-  }
-
-  const first = await mergeBaseInto(worktree, ref, state.lang());
-  if (first.kind === 'nothing' || first.kind === 'merged') {
-    if (first.kind === 'merged') {
-      state.addLog(null, 'system',
-        state.say('pipe.mergedInto', { task: task.id, ref, branch: task.branch ?? '' }));
+    // С GitHub базой считается удалённая ветка: там же лежит и результат чужих
+    // слияний. Без удалёнки база локальная — и это единственная правда офиса.
+    const gh = await githubFor(repo);
+    let ref = base;
+    if (gh) {
+      await fetchRemote(repo, githubToken());
+      if (await revision(repo, `origin/${base}`)) ref = `origin/${base}`;
     }
-    return;
-  }
-  if (first.kind === 'failed') {
-    markStuck(state, task, first.message);
-    throw new Stuck();
-  }
 
-  // Конфликт: рабочая копия осталась в незавершённом слиянии — её и чинит автор.
-  state.patchPr(task.id, {
-    stage: 'sync',
-    note: state.say('pipe.conflictNote', { base, files: first.conflicts.join(', ') }),
-  });
-  state.addChat(OFFICE_SENDER, state.say('pipe.conflictChat', {
-    task: task.id, base, files: first.conflicts.join(', '),
-  }));
+    const result = await mergeBaseInto(worktree, ref, state.lang());
+    if (result.kind === 'nothing' || result.kind === 'merged') {
+      if (result.kind === 'merged') {
+        state.addLog(null, 'system',
+          state.say('pipe.mergedInto', { task: task.id, ref, branch: task.branch ?? '' }));
+      }
+      // Сошлось после того, как автор разбирал конфликт, — скажем об этом.
+      const before = ctx.run.from ? nodeOf(ctx.workflow, ctx.run.from) : null;
+      if (before?.run === 'office:fix-conflict') {
+        state.addChat(OFFICE_SENDER, state.say('pipe.conflictsDone', { task: task.id, base }));
+      }
+      return { outcome: 'pass' };
+    }
+    if (result.kind === 'failed') return fail(result.message);
 
-  const fix = await agents.rework(state, task, conflictPrompt(state, task, base, first.conflicts));
-  if (!fix.ok) {
-    await abortMerge(worktree);
-    markStuck(state, task,
-      state.say('pipe.conflictUnresolved', { base, problem: fix.message }), fix.needsDecision);
-    throw new Stuck();
-  }
-  // Автор мог оставить слияние незакоммиченным — доводим сами, как и обычную работу.
-  await settle(worktree, task, state.say('pipe.note.merge', { base }));
+    // Конфликт: рабочая копия осталась в незавершённом слиянии — её и чинит автор.
+    state.patchPr(task.id, {
+      note: state.say('pipe.conflictNote', { base, files: result.conflicts.join(', ') }),
+    });
+    state.addChat(OFFICE_SENDER, state.say('pipe.conflictChat', {
+      task: task.id, base, files: result.conflicts.join(', '),
+    }));
+    return {
+      outcome: 'conflict',
+      note: result.message,
+      artifact: { kind: 'conflict', text: result.conflicts.join(', '), ref: base },
+    };
+  },
+  async exhausted(ctx, last) {
+    // Автор разбирал, а конфликт остался: слияние бросаем, копию — в порядок.
+    const worktree = ctx.task.worktreePath ?? await workingCopy(ctx);
+    if (worktree) await abortMerge(worktree);
+    return { note: ctx.state.say('pipe.conflictStill', { base: ctx.base, problem: last.note ?? '' }) };
+  },
+};
 
-  const again = await mergeBaseInto(worktree, ref, state.lang());
-  if (again.kind !== 'nothing') {
-    await abortMerge(worktree);
-    markStuck(state, task, state.say('pipe.conflictStill', { base, problem: again.message }));
-    throw new Stuck();
-  }
-  state.addChat(OFFICE_SENDER, state.say('pipe.conflictsDone', { task: task.id, base }));
-}
+/** Автор разбирает конфликт с базой в своей копии. */
+const fixConflict: Executor<Ctx> = {
+  async run(ctx) {
+    const { state, task, base } = ctx;
+    const conflict = ctx.run.artifacts.conflict;
+    const files = conflict ? conflict.text.split(', ').filter(Boolean) : [];
+    const fix = await agents.rework(state, task, conflictPrompt(state, task, base, files));
+    const worktree = state.tasks.get(task.id)?.worktreePath ?? null;
+    if (!fix.ok) {
+      if (worktree) await abortMerge(worktree);
+      return failed(
+        state.say('pipe.conflictUnresolved', { base, problem: fix.message }), fix.needsDecision);
+    }
+    // Автор мог оставить слияние незакоммиченным — доводим сами, как и обычную работу.
+    if (worktree) await settle(worktree, task, state.say('pipe.note.merge', { base }));
+    return { outcome: 'done' };
+  },
+};
 
 /**
- * Шаг 2: проверки проекта в ветке задачи — до пулл-реквеста, а не после
- * слияния. Сломанную сборку чинит автор, и основная ветка про это не узнаёт.
+ * Проверки проекта в ветке задачи — до пулл-реквеста, а не после слияния.
+ * Сломанную сборку чинит автор (узел fix-checks), и основная ветка про это
+ * не узнаёт.
  */
-async function runChecks(
-  state: OfficeState, task: Task, pr: PullRequestView, worktree: string,
-): Promise<void> {
-  for (let attempt = 0; ; attempt += 1) {
-    state.patchPr(task.id, { stage: 'checks', note: state.say('pipe.checksRunning') });
+const checks: Executor<Ctx> = {
+  async run(ctx) {
+    const { state, task } = ctx;
+    const worktree = await workingCopy(ctx);
+    if (!worktree) return fail(state.say('pipe.noWorktree', { branch: ctx.branch }));
+    state.patchPr(task.id, { note: state.say('pipe.checksRunning') });
     const result = await runTypecheck(worktree, state.lang());
     if (result.ok) {
       if (!result.skipped) {
         state.addLog(null, 'system', state.say('pipe.checksPassed', { task: task.id }));
       }
-      return;
+      return { outcome: 'pass' };
     }
-    if (attempt >= MAX_FIX_ATTEMPTS) {
-      markStuck(state, task, state.say('pipe.checksFailedStuck', { message: result.message }));
-      throw new Stuck();
-    }
-    state.patchPr(task.id, { stage: 'rework', note: state.say('pipe.checksFailedNote') });
+    return {
+      outcome: 'fail', note: result.message,
+      artifact: { kind: 'checks', text: result.message },
+    };
+  },
+  exhausted(ctx, last) {
+    return { note: ctx.state.say('pipe.checksFailedStuck', { message: last.note ?? '' }) };
+  },
+};
+
+/** Автор чинит упавшие проверки. */
+const fixChecks: Executor<Ctx> = {
+  async run(ctx) {
+    const { state, task } = ctx;
+    state.patchPr(task.id, { note: state.say('pipe.checksFailedNote') });
     state.addChat(OFFICE_SENDER, state.say('pipe.checksFailedChat', { task: task.id }));
-    const fix = await agents.rework(state, task, checksPrompt(state, task, result.message));
-    await settle(worktree, task, state.say('pipe.note.fixChecks'));
+    const output = ctx.run.artifacts.checks?.text ?? '';
+    const fix = await agents.rework(state, task, checksPrompt(state, task, output));
+    const worktree = state.tasks.get(task.id)?.worktreePath ?? null;
+    if (worktree) await settle(worktree, task, state.say('pipe.note.fixChecks'));
     if (!fix.ok) {
-      markStuck(state, task,
-        state.say('pipe.checksFixFailed', { problem: fix.message }), fix.needsDecision);
-      throw new Stuck();
+      return failed(state.say('pipe.checksFixFailed', { problem: fix.message }), fix.needsDecision);
     }
-  }
-}
+    return { outcome: 'done' };
+  },
+};
 
-/** Шаг 3: открыть пулл-реквест. С GitHub — настоящий, иначе внутренний. */
-async function openPr(
-  state: OfficeState, task: Task, pr: PullRequestView,
-  repo: string, branch: string, base: string,
-): Promise<void> {
-  state.patchPr(task.id, { stage: 'opening', note: state.say('pipe.opening') });
-  const gh = await githubFor(repo);
-  if (!gh) {
-    state.patchPr(task.id, { note: state.say('pipe.localPr', { branch, base }) });
-    return;
-  }
+/** Открыть пулл-реквест. С GitHub — настоящий, иначе внутренний. */
+const openPr: Executor<Ctx> = {
+  async run(ctx) {
+    const { state, task, repo, branch, base } = ctx;
+    state.patchPr(task.id, { note: state.say('pipe.opening') });
+    const gh = await githubFor(repo);
+    if (!gh) {
+      state.patchPr(task.id, { note: state.say('pipe.localPr', { branch, base }) });
+      return { outcome: 'pass' };
+    }
 
-  const push = await pushBranch(repo, branch, gh.token, state.lang());
-  if (!push.ok) {
-    markStuck(state, task, state.say('pipe.pushFailed', { problem: push.message }));
-    throw new Stuck();
-  }
-  const created = await createPullRequest(gh, {
-    head: branch, base, title: `${task.id}: ${task.title}`, body: prBody(state, task),
-  });
-  if (!created.ok || !created.data) {
-    markStuck(state, task, state.say('pipe.prFailed', { error: created.error ?? '' }));
-    throw new Stuck();
-  }
-  state.patchPr(task.id, {
-    number: created.data.number, url: created.data.url,
-    note: state.say('pipe.prOpened', { number: created.data.number }),
-  });
-  state.addChat(OFFICE_SENDER,
-    state.say('pipe.prOpenedChat', { task: task.id, url: created.data.url }));
-}
+    const push = await pushBranch(repo, branch, gh.token, state.lang());
+    if (!push.ok) return fail(state.say('pipe.pushFailed', { problem: push.message }));
+    const created = await createPullRequest(gh, {
+      head: branch, base, title: `${task.id}: ${task.title}`, body: prBody(state, task),
+    });
+    if (!created.ok || !created.data) {
+      return fail(state.say('pipe.prFailed', { error: created.error ?? '' }));
+    }
+    state.patchPr(task.id, {
+      number: created.data.number, url: created.data.url,
+      note: state.say('pipe.prOpened', { number: created.data.number }),
+    });
+    state.addChat(OFFICE_SENDER,
+      state.say('pipe.prOpenedChat', { task: task.id, url: created.data.url }));
+    return { outcome: 'pass' };
+  },
+};
 
-/** Шаг 4: ревью. Отказ ревьюера — такой же законный исход, как одобрение. */
-async function reviewStep(
-  state: OfficeState, task: Task, pr: PullRequestView,
-): Promise<ReviewOutcome> {
-  state.patchPr(task.id, { stage: 'review', note: state.say('pipe.waitingReview') });
-  const outcome = await agents.review(state, task, pr);
-  if (outcome.error) {
-    markStuck(state, task,
-      state.say('pipe.reviewFailed', { error: outcome.error }), outcome.needsDecision);
-    throw new Stuck();
-  }
+/** Ревью. Отказ ревьюера — такой же законный исход, как одобрение. */
+const review: Executor<Ctx> = {
+  run(ctx) {
+    const { state, task, pr } = ctx;
+    return withLock(reviewLocks, state.officeId, async (): Promise<StepResult> => {
+      state.patchPr(task.id, { note: state.say('pipe.waitingReview') });
+      const outcome = await agents.review(state, task, pr);
+      if (outcome.error) {
+        return failed(state.say('pipe.reviewFailed', { error: outcome.error }), outcome.needsDecision);
+      }
 
-  state.addReview(task.id, {
-    at: Date.now(), verdict: outcome.verdict,
-    reviewerId: outcome.reviewerId, text: outcome.text,
-  });
-  state.addChat(OFFICE_SENDER, state.say('pipe.reviewVerdictChat', {
-    task: task.id,
-    verdict: state.say(outcome.verdict === 'approve'
-      ? 'pipe.verdict.approved'
-      : 'pipe.verdict.returned'),
-  }));
+      state.addReview(task.id, {
+        at: Date.now(), verdict: outcome.verdict,
+        reviewerId: outcome.reviewerId, text: outcome.text,
+      });
+      state.addChat(OFFICE_SENDER, state.say('pipe.reviewVerdictChat', {
+        task: task.id,
+        verdict: state.say(outcome.verdict === 'approve'
+          ? 'pipe.verdict.approved'
+          : 'pipe.verdict.returned'),
+      }));
 
-  // Отзыв уходит и в сам пулл-реквест: на GitHub он должен быть виден
-  // и без нашего интерфейса.
-  const fresh = state.prOf(task.id);
-  const gh = fresh?.number ? await githubFor(fresh.repoDir) : null;
-  if (gh && fresh?.number) {
-    await commentOnPr(gh, fresh.number, state.say('pipe.prComment', {
-      verdict: state.say(outcome.verdict === 'approve'
-        ? 'pipe.verdict.canMerge'
-        : 'pipe.verdict.needsWork'),
-      text: outcome.text,
-    }));
-  }
-  return outcome;
-}
+      // Отзыв уходит и в сам пулл-реквест: на GitHub он должен быть виден
+      // и без нашего интерфейса.
+      const fresh = state.prOf(task.id);
+      const gh = fresh?.number ? await githubFor(fresh.repoDir) : null;
+      if (gh && fresh?.number) {
+        await commentOnPr(gh, fresh.number, state.say('pipe.prComment', {
+          verdict: state.say(outcome.verdict === 'approve'
+            ? 'pipe.verdict.canMerge'
+            : 'pipe.verdict.needsWork'),
+          text: outcome.text,
+        }));
+      }
+      return {
+        outcome: outcome.verdict,
+        artifact: { kind: 'review', text: outcome.text, ref: outcome.verdict },
+      };
+    });
+  },
+  exhausted(ctx, last, count) {
+    // Ещё один заход к тому же исполнителю с тем же отзывом ничего не изменит.
+    ctx.state.patchPr(ctx.task.id, { rounds: count });
+    return {
+      note: ctx.state.say('pipe.tooManyRounds', { n: count, text: last.artifact?.text ?? '' }),
+      needsDecision: true,
+    };
+  },
+};
+
+/** Доработка по отзыву — тем же автором, в той же ветке. */
+const rework: Executor<Ctx> = {
+  async run(ctx) {
+    const { state, task } = ctx;
+    const text = ctx.run.artifacts.review?.text ?? '';
+    const fix = await agents.rework(state, task, reworkPrompt(state, task, text));
+    const worktree = state.tasks.get(task.id)?.worktreePath ?? null;
+    if (worktree) await settle(worktree, task, state.say('pipe.note.rework'));
+    if (!fix.ok) {
+      return failed(state.say('pipe.reworkFailed', { problem: fix.message }), fix.needsDecision);
+    }
+    return { outcome: 'done' };
+  },
+};
 
 /**
- * Шаг 5: слияние и уборка. Идёт по одному на репозиторий.
+ * Слияние и уборка. Идёт по одному на репозиторий.
  *
- * Возвращает false, если база уехала прямо под нами: это не беда, а повод
- * пересобрать ветку и зайти снова — решает вызывающий.
+ * Исход 'moved' — база уехала прямо под нами: это не беда, а повод пересобрать
+ * ветку и зайти снова; сколько раз — решает процесс.
  */
-async function mergeStep(
-  state: OfficeState, task: Task, pr: PullRequestView,
-  repo: string, branch: string, base: string,
-): Promise<boolean> {
-  state.patchPr(task.id, { stage: 'merging', note: state.say('pipe.merging', { base }) });
+const merge: Executor<Ctx> = {
+  run(ctx) {
+    const { state, task, repo, branch, base } = ctx;
+    return withLock(mergeLocks, repo, async (): Promise<StepResult> => {
+      state.patchPr(task.id, { note: state.say('pipe.merging', { base }) });
 
-  const gh = await githubFor(repo);
-  const fresh = state.prOf(task.id);
-  if (gh && fresh?.number) {
-    const push = await pushBranch(repo, branch, gh.token, state.lang());
-    if (!push.ok) {
-      markStuck(state, task, state.say('pipe.pushBeforeMerge', { problem: push.message }));
-      throw new Stuck();
-    }
-    const merged = await mergePullRequest(gh, fresh.number, `${task.id}: ${task.title}`);
-    if (!merged.ok) {
-      // Чаще всего это «база уехала» — GitHub отказывает в слиянии несвежего
-      // пулл-реквеста. Заходим на второй круг, а не зовём человека.
-      state.addLog(null, 'error',
-        state.say('pipe.githubMergeFailed', { task: task.id, error: merged.error ?? '' }));
-      return false;
-    }
-    await fetchRemote(repo, gh.token);
-    const moved = await fastForward(repo, base, `origin/${base}`);
-    if (!moved) {
-      state.addLog(null, 'system', state.say('pipe.mergedNoPull', { task: task.id, base }));
-    }
-  } else {
-    // Проверку гоняем в рабочей копии офиса на уже собранном слиянии и ДО
-    // сдвига базы: не прошла — базовая ветка остаётся рабочей.
-    const outcome = await mergeBranch(repo, branch, base, integrationDir(state), state.lang(),
-      async (worktree) => {
-        const result = await runTypecheck(worktree, state.lang());
-        return {
-          ok: result.ok,
-          message: state.say('pipe.buildFailsWithBase', { base, message: result.message }),
-        };
+      const gh = await githubFor(repo);
+      const fresh = state.prOf(task.id);
+      if (gh && fresh?.number) {
+        const push = await pushBranch(repo, branch, gh.token, state.lang());
+        if (!push.ok) return fail(state.say('pipe.pushBeforeMerge', { problem: push.message }));
+        const merged = await mergePullRequest(gh, fresh.number, `${task.id}: ${task.title}`);
+        if (!merged.ok) {
+          // Чаще всего это «база уехала» — GitHub отказывает в слиянии несвежего
+          // пулл-реквеста. Заходим на второй круг, а не зовём человека.
+          state.addLog(null, 'error',
+            state.say('pipe.githubMergeFailed', { task: task.id, error: merged.error ?? '' }));
+          return { outcome: 'moved' };
+        }
+        await fetchRemote(repo, gh.token);
+        const moved = await fastForward(repo, base, `origin/${base}`);
+        if (!moved) {
+          state.addLog(null, 'system', state.say('pipe.mergedNoPull', { task: task.id, base }));
+        }
+      } else {
+        // Проверку гоняем в рабочей копии офиса на уже собранном слиянии и ДО
+        // сдвига базы: не прошла — базовая ветка остаётся рабочей.
+        const outcome = await mergeBranch(repo, branch, base, integrationDir(state), state.lang(),
+          async (worktree) => {
+            const result = await runTypecheck(worktree, state.lang());
+            return {
+              ok: result.ok,
+              message: state.say('pipe.buildFailsWithBase', { base, message: result.message }),
+            };
+          });
+
+        if (outcome.kind === 'conflict' || outcome.kind === 'verify-failed') {
+          // Ветка расходится с базой или ломает сборку вместе с ней — это чинит
+          // автор на следующем круге, а не человек руками.
+          state.addChat(OFFICE_SENDER,
+            state.say('pipe.mergeOutcome', { task: task.id, message: outcome.message }));
+          return { outcome: 'moved' };
+        }
+        if (!outcome.ok && outcome.kind !== 'nothing') return fail(outcome.message);
+        if (outcome.kind === 'nothing') {
+          state.addLog(null, 'system', state.say('pipe.noCommits', { task: task.id, base }));
+        }
+        // Правки человека в его рабочей копии слияние больше не останавливают:
+        // оно собирается в копии офиса. Отставшую копию просто называем вслух.
+        if (outcome.checkout.state === 'lagging') {
+          state.addChat(OFFICE_SENDER,
+            state.say('pipe.mergedChat', { task: task.id, message: outcome.checkout.message }));
+        }
+      }
+
+      await cleanup(state, state.tasks.get(task.id) ?? task, repo, branch);
+
+      // Ревизию базы запоминаем до того, как её сдвинет следующее слияние: по
+      // ней надзор потом заметит, что работу откатили.
+      const mergeCommit = await revision(repo, base);
+      state.updateTask(task.id, {
+        status: 'done', merged: true, worktreePath: null, finishedAt: Date.now(), mergeCommit,
       });
+      recordOutcome(state, task.id, mergedKind(state, task));
+      state.patchPr(task.id, {
+        stage: 'merged',
+        note: fresh?.number
+          ? state.say('pipe.mergedViaPr', { number: fresh.number })
+          : state.say('pipe.mergedPlain', { base }),
+      });
+      state.addChat(OFFICE_SENDER, state.say('pipe.mergedFinal', { task: task.id, base }));
+      agents.notifyPm(state,
+        state.say('pipe.pmMerged', { task: task.id, title: task.title, base }));
+      // Влитая ветка — единственное событие, после которого зависимая задача
+      // становится готовой, а фича — закрытой. Ждать прохода надзора здесь нельзя:
+      // минута простоя на каждом звене складывается в час на большом плане.
+      dispatch(state);
+      return { outcome: 'pass' };
+    });
+  },
+  exhausted(ctx) {
+    return { note: ctx.state.say('pipe.baseMovesFast', { base: ctx.base }) };
+  },
+};
 
-    if (outcome.kind === 'conflict' || outcome.kind === 'verify-failed') {
-      // Ветка расходится с базой или ломает сборку вместе с ней — это чинит
-      // автор на следующем круге, а не человек руками.
-      state.addChat(OFFICE_SENDER,
-        state.say('pipe.mergeOutcome', { task: task.id, message: outcome.message }));
-      return false;
-    }
-    if (!outcome.ok && outcome.kind !== 'nothing') {
-      markStuck(state, task, outcome.message);
-      throw new Stuck();
-    }
-    if (outcome.kind === 'nothing') {
-      state.addLog(null, 'system', state.say('pipe.noCommits', { task: task.id, base }));
-    }
-    // Правки человека в его рабочей копии слияние больше не останавливают:
-    // оно собирается в копии офиса. Отставшую копию просто называем вслух.
-    if (outcome.checkout.state === 'lagging') {
-      state.addChat(OFFICE_SENDER,
-        state.say('pipe.mergedChat', { task: task.id, message: outcome.checkout.message }));
-    }
-  }
-
-  await cleanup(state, task, repo, branch);
-
-  // Ревизию базы запоминаем до того, как её сдвинет следующее слияние: по
-  // ней надзор потом заметит, что работу откатили.
-  const mergeCommit = await revision(repo, base);
-  state.updateTask(task.id, {
-    status: 'done', merged: true, worktreePath: null, finishedAt: Date.now(), mergeCommit,
-  });
-  recordOutcome(state, task.id, mergedKind(state, task));
-  state.patchPr(task.id, {
-    stage: 'merged',
-    note: fresh?.number
-      ? state.say('pipe.mergedViaPr', { number: fresh.number })
-      : state.say('pipe.mergedPlain', { base }),
-  });
-  state.addChat(OFFICE_SENDER, state.say('pipe.mergedFinal', { task: task.id, base }));
-  agents.notifyPm(state,
-    state.say('pipe.pmMerged', { task: task.id, title: task.title, base }));
-  // Влитая ветка — единственное событие, после которого зависимая задача
-  // становится готовой, а фича — закрытой. Ждать прохода надзора здесь нельзя:
-  // минута простоя на каждом звене складывается в час на большом плане.
-  dispatch(state);
-  return true;
-}
+/** Действия узлов процесса `feature` — по именам из `workflows/feature.json`. */
+const FEATURE: Record<string, Executor<Ctx>> = {
+  'office:sync-base': syncBase,
+  'office:fix-conflict': fixConflict,
+  'office:checks': checks,
+  'office:fix-checks': fixChecks,
+  'office:open-pr': openPr,
+  'office:review': review,
+  'office:rework': rework,
+  'office:merge': merge,
+};
 
 /** Уборка после слияния: ни рабочей копии, ни ветки — ни локально, ни в origin. */
 async function cleanup(

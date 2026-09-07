@@ -35,6 +35,7 @@
     "test:money": "tsx scripts/test-money.ts",
     "test:life": "tsx scripts/test-life.ts",
     "test:review": "tsx scripts/test-review.ts",
+    "test:workflow": "tsx scripts/test-workflow.ts",
     "test:offices": "tsx scripts/test-offices.ts",
     "test:presets": "tsx scripts/test-presets.ts",
     "presets:catalog": "tsx scripts/presets-catalog.ts",

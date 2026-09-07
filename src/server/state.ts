@@ -24,6 +24,7 @@ import {
 import { isBlocked, isEmptyOverride, passability } from '../shared/layout';
 import { isLookId } from '../shared/looks';
 import { asLang, DEFAULT_LANG, isLang, type Lang, type Vars, LANG_TITLE } from '../shared/i18n';
+import type { Run } from '../shared/workflow';
 import { t, setProcessLang, c, type ServerKey } from './i18n';
 import { activityFromFile, summarize } from './activity';
 import {
@@ -686,6 +687,8 @@ export class OfficeState {
    * не должен превращать открытый пулл-реквест в потерянную ветку.
    */
   prs = new Map<string, PullRequestView>();
+  /** Прогоны процессов по задачам, ключ — id прогона (docs/design/workflows/spec.md §8). */
+  runs = new Map<string, Run>();
   /**
    * Пауза офиса: новая работа не запускается, а живые сессии замирают
    * на следующем вызове инструмента. Не сохраняется на диск — пауза
@@ -884,6 +887,7 @@ export class OfficeState {
       epics: [...this.epics.values()],
       epicSeq: this.epicSeq,
       prs: [...this.prs.values()],
+      runs: [...this.runs.values()],
       chat: this.chat,
       log: this.log.slice(-500),
       settings: this.settings,
@@ -1282,6 +1286,12 @@ export class OfficeState {
         updatedAt: Date.now(),
       });
     }
+    // Прогон — то же самое: шедший в момент перезапуска поднимается вставшим.
+    for (const run of data.runs ?? []) {
+      this.runs.set(run.id, run.status !== 'running' ? run : {
+        ...run, status: 'stuck', note: this.say('state.pr.interrupted'), updatedAt: Date.now(),
+      });
+    }
 
     // Состав команды берём из сохранения целиком, а не дополняем им seed():
     // seed() сажает по одному сотруднику на роль и ничего не знает ни про
@@ -1364,6 +1374,7 @@ export class OfficeState {
     this.tasks.clear();
     this.epics.clear();
     this.prs.clear();
+    this.runs.clear();
     this.chat = [];
     this.log = [];
     this.taskSeq = 0;
@@ -2994,6 +3005,22 @@ export class OfficeState {
     pr.reviewerId = note.reviewerId;
     pr.updatedAt = Date.now();
     this.emit({ t: 'pr', pr });
+    this.markDirty();
+  }
+
+  // ---------- прогоны процессов ----------
+
+  /** Прогон процесса по задаче. null — процесс по ней ещё не начинался. */
+  runOf(taskId: string): Run | null {
+    for (const run of this.runs.values()) {
+      if (run.subject.taskId === taskId) return run;
+    }
+    return null;
+  }
+
+  /** Запомнить прогон как есть. Событий пока нет: интерфейс прогонов не показывает. */
+  saveRun(run: Run): void {
+    this.runs.set(run.id, run);
     this.markDirty();
   }
 
