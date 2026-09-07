@@ -5,7 +5,7 @@ import type {
   PermissionDecision,
   MarketView, PermissionMode, PermissionRequest, MeetingView, RoleDraft, RoleEditable, RoleOp, RoleView,
   ServerEvent, Settings, TaskView, Usage, CloudStatus, OfficeView, PullRequestView, PrStage,
-  EpicView, LimitsView,
+  EpicView, LimitsView, FactView, OwnerQuestion, LifeView, RitualId,
 } from '../shared/types';
 import {
   emptyLimits, emptyUsage, isOfficeSender,
@@ -238,6 +238,10 @@ interface State {
   mergeRun: MergeRun | null;
   /** Пулл-реквесты конвейера ревью, по taskId. */
   prs: Record<string, PullRequestView>;
+  /** Живой офис: журнал, вопросы владельцу, ритуалы (docs/design/living-office). */
+  facts: FactView[];
+  questions: OwnerQuestion[];
+  life: LifeView;
   toggleMergeSelect: (taskId: string) => void;
   moveMergeSelect: (taskId: string, dir: -1 | 1) => void;
   clearMergeSelection: () => void;
@@ -363,6 +367,12 @@ export const useStore = create<State>((set, get) => ({
   mergeChecking: false,
   mergeRun: null,
   prs: {},
+  facts: [],
+  questions: [],
+  life: {
+    standupDay: null, standupAt: null, lastRun: {}, runs: [], running: null,
+    policy: { consolidateEveryMs: 0, questionsPerStandup: 0, standupPmLine: false, reflectionOn: false },
+  },
   toggleMergeSelect: (taskId) => set((s) => ({
     mergeSelection: s.mergeSelection.includes(taskId)
       ? s.mergeSelection.filter((id) => id !== taskId)
@@ -479,6 +489,7 @@ export const useStore = create<State>((set, get) => ({
           mergeChecks: Object.fromEntries(e.mergeChecks.map((c) => [c.taskId, c])),
           mergeRun: e.mergeRun,
           prs: Object.fromEntries(e.prs.map((pr) => [pr.taskId, pr])),
+          facts: e.facts, questions: e.questions, life: e.life,
           booted: true, connectFailed: false,
           // Снапшот пришёл во время входа/создания — офис открыт, показываем комнату.
           screen: s.pending ? 'office' : s.screen,
@@ -681,6 +692,26 @@ export const useStore = create<State>((set, get) => ({
         break;
       case 'pr':
         set((s) => ({ prs: { ...s.prs, [e.pr.taskId]: e.pr } }));
+        break;
+      case 'fact':
+        set((s) => ({
+          facts: s.facts.some((f) => f.id === e.fact.id)
+            ? s.facts.map((f) => (f.id === e.fact.id ? e.fact : f))
+            : [...s.facts, e.fact],
+        }));
+        break;
+      case 'fact.remove':
+        set((s) => ({ facts: s.facts.filter((f) => f.id !== e.id) }));
+        break;
+      case 'question':
+        set((s) => ({
+          questions: s.questions.some((q) => q.id === e.question.id)
+            ? s.questions.map((q) => (q.id === e.question.id ? e.question : q))
+            : [...s.questions, e.question],
+        }));
+        break;
+      case 'life':
+        set({ life: e.life });
         break;
       case 'meeting': {
         set({ meeting: e.meeting });
@@ -1366,4 +1397,29 @@ export function clearSettingsSection(): void {
 
 export function reset(): void {
   socket?.send(JSON.stringify({ c: 'reset' }));
+}
+
+// ---------------------------------------------------------------- живой офис
+
+/** Ответ на вопрос офиса: ложится в журнал, менеджер узнаёт системным сообщением. */
+export function answerQuestion(id: string, answer: string): void {
+  socket?.send(JSON.stringify({ c: 'answer_question', id, answer }));
+}
+
+/** Снять вопрос без ответа: офис остаётся при своём допущении. */
+export function dismissQuestion(id: string): void {
+  socket?.send(JSON.stringify({ c: 'dismiss_question', id }));
+}
+
+export function confirmFact(id: string): void {
+  socket?.send(JSON.stringify({ c: 'fact_confirm', id }));
+}
+
+export function archiveFact(id: string): void {
+  socket?.send(JSON.stringify({ c: 'fact_archive', id }));
+}
+
+/** Запустить ритуал сейчас — тем же путём, что по расписанию. */
+export function runRitual(ritual: RitualId): void {
+  socket?.send(JSON.stringify({ c: 'ritual_run', ritual }));
 }

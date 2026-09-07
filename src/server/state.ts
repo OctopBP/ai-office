@@ -9,10 +9,11 @@ import type {
   CloudStatus, OfficeView, MergeCheck, MergeRun, LayoutOption,
   Layout, LayoutOverride, LayoutPropEdit,
   PullRequestView, PrStage, ReviewNote, TaskOutcome,
+  FactView, LifeView, OwnerQuestion, RitualId, RitualPolicy, RitualRun,
 } from '../shared/types';
 import { OFFICE_SENDER } from '../shared/types';
 import {
-  dayKey, emptyUsage,
+  dayKey, emptyUsage, DEFAULT_RITUAL_LIMIT, DEFAULT_RITUAL_POLICY,
   DEFAULT_OFFICE_WORKERS, MAX_OFFICE_WORKERS, MAX_ROLE_INSTANCES, MAX_TASK_MAX_TURNS,
   MIN_OFFICE_WORKERS, MIN_ROLE_INSTANCES, MIN_TASK_MAX_TURNS, ROLE_TITLE_LIMIT,
   DEFAULT_FOCUS_EPICS, MAX_FOCUS_EPICS, MIN_FOCUS_EPICS,
@@ -85,7 +86,19 @@ export const DEFAULT_SETTINGS: Settings = {
   // Каталог внешних серверов: с ним заводится новый офис. Дальше он живёт в
   // настройках этого офиса и правится из интерфейса.
   mcpServers: DEFAULT_MCP_SERVERS,
+  // Ритуалы включены по умолчанию: офис, который не помнит вчерашнего, —
+  // это офис, которым нужно управлять руками, а от этого он и должен избавлять.
+  ritualsEnabled: true,
+  ritualLimitThreshold: DEFAULT_RITUAL_LIMIT,
 };
+
+/** Порог лимита для ритуалов: проценты окна, целое от 10 до 100. */
+export function sanitizeRitualLimit(value: unknown): number | undefined {
+  if (typeof value !== 'number' || !Number.isFinite(value)) return undefined;
+  const n = Math.floor(value);
+  if (n < 10 || n > 100) return undefined;
+  return n;
+}
 
 /**
  * Язык, на котором заводится НОВЫЙ офис. Это свойство запуска, а не офиса:
@@ -529,9 +542,29 @@ export interface LifeState {
   /** День последней планёрки, 'ГГГГ-ММ-ДД', и её момент. */
   standupDay: string | null;
   standupAt: number | null;
+  /** Когда каждый ритуал шёл последний раз. */
+  lastRun: Partial<Record<RitualId, number>>;
+  /** Портфель ритуалов — то, что офис подкручивает в себе сам (§8.2). */
+  policy: RitualPolicy;
+  /** Последние прогоны, свежие в конце. Обрезается — см. RUNS_KEPT. */
+  runs: RitualRun[];
 }
 
-export const emptyLife = (): LifeState => ({ standupDay: null, standupAt: null });
+export const emptyLife = (): LifeState => ({
+  standupDay: null, standupAt: null, lastRun: {}, policy: { ...DEFAULT_RITUAL_POLICY }, runs: [],
+});
+
+/** Сколько прогонов ритуалов помним: портфелю хватает нескольких недель. */
+const RUNS_KEPT = 60;
+
+/**
+ * Запись журнала на сервере: то же, что видит клиент, плюс отметка «об этой
+ * записи уже спрашивали» — чтобы протухшее решение не превращалось в вопрос
+ * каждую неделю.
+ */
+export interface Fact extends FactView {
+  askedAt: number | null;
+}
 
 /** Сколько ждём ответа пользователя, прежде чем отказать. */
 const PERMISSION_TIMEOUT_MS = 10 * 60 * 1000;
@@ -654,6 +687,23 @@ export class OfficeState {
   daily: Record<string, Usage> = {};
   /** Планёрки, журнал и прочая жизнь офиса поверх доски. */
   life: LifeState = emptyLife();
+  /** Журнал офиса: записи по id (§4). */
+  facts = new Map<string, Fact>();
+  /** Вопросы владельцу по id (§6). */
+  questions = new Map<string, OwnerQuestion>();
+  /**
+   * Когда в офисе последний раз шла работа: задача менялась, кто-то писал,
+   * тратились токены. По этому «тихий тик» отличается от занятого: ритуалы
+   * идут, когда офис молчит. В памяти, а не на диске: после перезапуска
+   * тишина начинается заново.
+   */
+  lastWorkAt = Date.now();
+  /** Ритуал, который идёт прямо сейчас. Второй поверх него не запускается. */
+  ritualRunning: RitualId | null = null;
+  /** Сколько вопросов владельцу задано по каждой задаче — лимит, как у коллег. */
+  questionsByTask = new Map<string, number>();
+  private factSeq = 0;
+  private questionSeq = 0;
   /** Кого разбудить, когда паузу снимут. */
   private resumeWaiters = new Set<() => void>();
   private listeners = new Set<Listener>();
@@ -795,8 +845,138 @@ export class OfficeState {
       usage: this.usage,
       daily: this.daily,
       life: this.life,
+      facts: [...this.facts.values()],
+      factSeq: this.factSeq,
+      questions: [...this.questions.values()],
+      questionSeq: this.questionSeq,
       savedAt: Date.now(),
     };
+  }
+
+  // ---------- живой офис: журнал, вопросы, ритуалы ----------
+
+  /** Записи журнала в порядке заведения. */
+  factList(): Fact[] {
+    return [...this.facts.values()].sort((a, b) => a.createdAt - b.createdAt);
+  }
+
+  addFact(input: {
+    kind: FactView['kind']; text: string; scope: string; source?: FactView['source'];
+  }): Fact {
+    this.factSeq += 1;
+    const now = Date.now();
+    const fact: Fact = {
+      id: `J-${this.factSeq}`,
+      kind: input.kind,
+      text: input.text.trim(),
+      scope: input.scope,
+      source: input.source ?? {},
+      createdAt: now,
+      confirmedAt: now,
+      status: 'live',
+      askedAt: null,
+    };
+    this.facts.set(fact.id, fact);
+    this.emit({ t: 'fact', fact: toFactView(fact) });
+    this.markDirty();
+    return fact;
+  }
+
+  updateFact(id: string, patch: Partial<Fact>): Fact | null {
+    const fact = this.facts.get(id);
+    if (!fact) return null;
+    Object.assign(fact, patch);
+    this.emit({ t: 'fact', fact: toFactView(fact) });
+    this.markDirty();
+    return fact;
+  }
+
+  removeFact(id: string): void {
+    if (!this.facts.delete(id)) return;
+    this.emit({ t: 'fact.remove', id });
+    this.markDirty();
+  }
+
+  /** Вопросы владельцу в порядке заведения. */
+  questionList(): OwnerQuestion[] {
+    return [...this.questions.values()].sort((a, b) => a.askedAt - b.askedAt);
+  }
+
+  addQuestion(input: {
+    from: string; taskId: string | null; kind: OwnerQuestion['kind']; text: string; assumption: string;
+  }): OwnerQuestion {
+    this.questionSeq += 1;
+    const question: OwnerQuestion = {
+      id: `Q-${this.questionSeq}`,
+      from: input.from,
+      taskId: input.taskId,
+      kind: input.kind,
+      text: input.text.trim(),
+      assumption: input.assumption.trim(),
+      askedAt: Date.now(),
+      shownAt: null,
+      answer: null,
+      answeredAt: null,
+      dismissedAt: null,
+    };
+    this.questions.set(question.id, question);
+    this.emit({ t: 'question', question });
+    this.markDirty();
+    return question;
+  }
+
+  updateQuestion(id: string, patch: Partial<OwnerQuestion>): OwnerQuestion | null {
+    const question = this.questions.get(id);
+    if (!question) return null;
+    Object.assign(question, patch);
+    this.emit({ t: 'question', question });
+    this.markDirty();
+    return question;
+  }
+
+  /** Жизнь офиса глазами клиента: планёрка, прогоны, портфель. */
+  lifeView(): LifeView {
+    return {
+      standupDay: this.life.standupDay,
+      standupAt: this.life.standupAt,
+      lastRun: { ...this.life.lastRun },
+      policy: { ...this.life.policy },
+      runs: [...this.life.runs],
+      running: this.ritualRunning,
+    };
+  }
+
+  /** Разослать жизнь офиса: ритуал начался, кончился, портфель подкрутили. */
+  emitLife(): void {
+    this.emit({ t: 'life', life: this.lifeView() });
+  }
+
+  /** Записать прогон ритуала и его момент. */
+  noteRitualRun(run: Omit<RitualRun, 'id'>): RitualRun {
+    const full: RitualRun = { ...run, id: `R-${run.at.toString(36)}-${run.ritual}` };
+    this.life.runs.push(full);
+    if (this.life.runs.length > RUNS_KEPT) this.life.runs.splice(0, this.life.runs.length - RUNS_KEPT);
+    this.life.lastRun[run.ritual] = run.at;
+    this.markDirty();
+    this.emitLife();
+    return full;
+  }
+
+  /** Подкрутить портфель ритуалов — офис делает это сам (§8.2). */
+  setPolicy(patch: Partial<RitualPolicy>): void {
+    this.life.policy = { ...this.life.policy, ...patch };
+    this.markDirty();
+    this.emitLife();
+  }
+
+  /** Порог лимита подписки для ритуалов — с подстраховкой для старых сохранений. */
+  ritualLimit(): number {
+    return sanitizeRitualLimit(this.settings.ritualLimitThreshold) ?? DEFAULT_RITUAL_LIMIT;
+  }
+
+  /** В офисе шла работа: сбросить тишину, по которой идут ритуалы. */
+  noteWork(): void {
+    this.lastWorkAt = Date.now();
   }
 
   /**
@@ -871,7 +1051,22 @@ export class OfficeState {
         directionId: epic.directionId ?? null,
       });
     }
-    this.life = { ...emptyLife(), ...(data.life ?? {}) };
+    this.life = {
+      ...emptyLife(), ...(data.life ?? {}),
+      policy: { ...DEFAULT_RITUAL_POLICY, ...(data.life?.policy ?? {}) },
+      lastRun: { ...(data.life?.lastRun ?? {}) },
+      runs: [...(data.life?.runs ?? [])],
+    };
+    for (const fact of data.facts ?? []) {
+      this.facts.set(fact.id, { ...fact, askedAt: fact.askedAt ?? null, status: fact.status ?? 'live' });
+    }
+    this.factSeq = data.factSeq ?? this.facts.size;
+    for (const q of data.questions ?? []) this.questions.set(q.id, { ...q, dismissedAt: q.dismissedAt ?? null });
+    this.questionSeq = data.questionSeq ?? this.questions.size;
+    // Порог ритуалов из правленого руками файла: чужое значение либо гоняло
+    // бы ритуалы на пустом лимите, либо не давало бы им идти никогда.
+    this.settings.ritualLimitThreshold = sanitizeRitualLimit(this.settings.ritualLimitThreshold)
+      ?? DEFAULT_RITUAL_LIMIT;
     this.epicSeq = data.epicSeq ?? this.epics.size;
     // Записи из версий до появления веток чата относим к разговору с менеджером.
     this.chat = (data.chat ?? []).map((c) => ({ ...c, thread: c.thread ?? 'pm#1' }));
@@ -1009,6 +1204,11 @@ export class OfficeState {
     this.usage = emptyUsage();
     this.daily = {};
     this.life = emptyLife();
+    this.facts.clear();
+    this.questions.clear();
+    this.questionsByTask.clear();
+    this.factSeq = 0;
+    this.questionSeq = 0;
     this.setPaused(false);
     // В архивные роли не сажаем никого: их убрали именно затем, чтобы офис
     // в них не работал, — а seed заново рассаживает штат по умолчанию.
@@ -1349,6 +1549,9 @@ export class OfficeState {
     trimJournal(this.daily);
     this.emit({ t: 'usage', total: this.usage, days: this.usageDays() });
     this.markDirty();
+    // Токены тратятся — значит, кто-то работает. Ритуал сам тоже тратит,
+    // но он один за раз и следующий ждёт своей тишины.
+    if (!this.ritualRunning) this.noteWork();
   }
 
   /**
@@ -1512,6 +1715,9 @@ export class OfficeState {
     Object.assign(task, patch);
     this.emit({ t: 'task', task: toTaskView(task) });
     this.markDirty();
+    // Исход задачи ставит ритуал или закрытие — это не «работа идёт», а её
+    // конец; всё остальное сбрасывает тишину, по которой идут ритуалы.
+    if (!('outcome' in patch)) this.noteWork();
     return task;
   }
 
@@ -1554,6 +1760,9 @@ export class OfficeState {
     this.chat.push(entry);
     this.emit({ t: 'chat', entry });
     this.markDirty();
+    // Реплики самого офиса тишину не сбивают: планёрка и ритуалы пишут в
+    // чат, и считать это работой значило бы никогда не дождаться тишины.
+    if (from !== OFFICE_SENDER) this.noteWork();
   }
 
   addLog(agentId: string | null, kind: LogEntry['kind'], text: string, autoApproved?: boolean): void {
@@ -2282,6 +2491,12 @@ export class OfficeState {
       if (clean === undefined) delete next.maxConcurrentWorkers;
       else next.maxConcurrentWorkers = clean;
     }
+    if ('ritualLimitThreshold' in next) {
+      const clean = sanitizeRitualLimit(next.ritualLimitThreshold);
+      if (clean === undefined) delete next.ritualLimitThreshold;
+      else next.ritualLimitThreshold = clean;
+    }
+    if ('ritualsEnabled' in next && typeof next.ritualsEnabled !== 'boolean') delete next.ritualsEnabled;
     // Каталог серверов молча не чиним: человек заполнял форму руками, и
     // проглоченная ошибка обернулась бы ролью без инструментов, у которой
     // всё «сохранилось». Отказ называет и сервер, и что с ним не так.
@@ -2659,9 +2874,18 @@ export class OfficeState {
       mergeChecks: [...this.mergeChecks.values()],
       mergeRun: this.mergeRun,
       prs: [...this.prs.values()],
+      facts: this.factList().map(toFactView),
+      questions: this.questionList(),
+      life: this.lifeView(),
     };
   }
 }
+
+/** Запись журнала для клиента: без служебной отметки «уже спрашивали». */
+export const toFactView = (f: Fact): FactView => ({
+  id: f.id, kind: f.kind, text: f.text, scope: f.scope, source: f.source,
+  createdAt: f.createdAt, confirmedAt: f.confirmedAt, status: f.status,
+});
 
 /**
  * Список офисов для UI: реестр, отметка текущего и сводка активности.

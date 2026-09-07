@@ -26,6 +26,10 @@ import {
   type ReviewOutcome, type ReworkOutcome,
 } from './review';
 import { closeIfDone, recordOutcome } from './outcomes';
+import { journalBrief } from './journal';
+import { answerFromChat, askOwner } from './questions';
+import { setRitualAgents, type ConsolidationInput, type RitualOutput } from './rituals';
+import { resolveModel } from '../shared/models';
 import { resolve } from 'node:path';
 import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync } from 'node:fs';
 
@@ -162,17 +166,27 @@ async function repoReady(state: OfficeState, dir: string): Promise<boolean> {
   return (await isRepo(dir)) && (await hasCommits(dir));
 }
 
-function projectBrief(state: OfficeState): string {
+/**
+ * Бриф проекта плюс журнал офиса (docs/design/living-office/spec.md §4.2).
+ * Журнал едет туда же, куда OFFICE.md, и по той же причине: следующая
+ * сессия получает его первым сообщением, а не полагается на память прошлой.
+ * `roleId` решает, какие записи роль видит: общие и свои; null — менеджер,
+ * ему вместо своих достаются офисные.
+ */
+function projectBrief(state: OfficeState, roleId: string | null = null): string {
+  let brief = '';
   try {
     const text = readFileSync(resolve(state.projectDir, 'OFFICE.md'), 'utf8').trim();
-    if (!text) return '';
-    const body = text.length > BRIEF_LIMIT
-      ? `${text.slice(0, BRIEF_LIMIT)}\n${state.say('prompt.brief.clipped')}`
-      : text;
-    return `\n\n${state.say('prompt.brief.header')}\n${body}`;
+    if (text) {
+      const body = text.length > BRIEF_LIMIT
+        ? `${text.slice(0, BRIEF_LIMIT)}\n${state.say('prompt.brief.clipped')}`
+        : text;
+      brief = `\n\n${state.say('prompt.brief.header')}\n${body}`;
+    }
   } catch {
-    return '';   // брифа нет — работаем как раньше
+    // брифа нет — работаем как раньше
   }
+  return brief + journalBrief(state, roleId);
 }
 
 /**
@@ -489,7 +503,7 @@ function boardSummary(state: OfficeState): string {
  * русский офис и английский одновременно.
  */
 const pmPrompt = (state: OfficeState): string =>
-  state.say('prompt.pm.system', { lang: LANG_NAME_EN[state.lang()] });
+  state.say('prompt.pm.system', { lang: LANG_NAME_EN[state.lang()] }) + state.say('prompt.pm.life');
 
 /**
  * Почему роли сейчас нельзя отдать задачу: в ней не осталось сотрудников.
@@ -876,6 +890,48 @@ const teamTools = (state: OfficeState) => createSdkMcpServer({
     ),
 
     tool(
+      'ask_owner',
+      state.say('tool.askOwner.pm.desc'),
+      {
+        question: z.string().describe(state.say('tool.askOwner.question')),
+        assumption: z.string().describe(state.say('tool.askOwner.assumption')),
+      },
+      async (args) => {
+        const asked = askOwner(state, 'pm#1', null, args.question, args.assumption);
+        return { content: [{ type: 'text', text: asked.text }], isError: !asked.ok };
+      },
+    ),
+
+    tool(
+      'note_fact',
+      state.say('tool.noteFact.desc'),
+      {
+        kind: z.enum(['fact', 'decision', 'lesson']).describe(state.say('tool.noteFact.kind')),
+        text: z.string().describe(state.say('tool.noteFact.text')),
+        roleId: z.string().default('').describe(state.say('tool.noteFact.role')),
+      },
+      async (args) => {
+        const roleId = args.roleId?.trim() ?? '';
+        if (roleId && !state.workerRoles().some((r) => r.id === roleId)) {
+          return {
+            content: [{ type: 'text', text: state.say('tool.createTask.badRole', {
+              role: roleId, valid: state.workerRoles().map((r) => r.id).join(', '),
+            }) }],
+            isError: true,
+          };
+        }
+        if (!args.text.trim()) {
+          return { content: [{ type: 'text', text: state.say('tool.noteFact.empty') }], isError: true };
+        }
+        const fact = state.addFact({
+          kind: args.kind, text: args.text, scope: roleId ? `role:${roleId}` : 'project',
+        });
+        state.addLog('pm#1', 'system', state.say('journal.noted', { id: fact.id, text: clip(fact.text, 120) }));
+        return { content: [{ type: 'text', text: state.say('tool.noteFact.ok', { id: fact.id }) }] };
+      },
+    ),
+
+    tool(
       'say',
       state.say('tool.say.pm.desc'),
       { text: z.string().describe(state.say('tool.say.limit')) },
@@ -1011,8 +1067,11 @@ onRoleSetChanged(restartPm);
 
 /** Сообщение пользователя PM'у того офиса, в котором он его написал. */
 export function sendUserMessage(state: OfficeState, text: string): void {
-  startPm(state);
   state.addChat('user', text);
+  // «Q-3: да, оставляем» — ответ на вопрос офиса, а не реплика менеджеру:
+  // ответ ложится в журнал, а менеджер узнаёт о нём системным сообщением.
+  if (answerFromChat(state, text)) return;
+  startPm(state);
   state.setState('pm#1', 'thinking', state.say('agent.state.readingTask'));
   state.setBusy(true);
   state.pmQueue?.push(text);
@@ -1155,7 +1214,8 @@ export async function holdMeeting(
         prompt,
         options: {
           model: role.model,
-          systemPrompt: systemPrompt.join('\n') + projectBrief(meetingOffice),
+          systemPrompt: systemPrompt.join('\n')
+            + projectBrief(meetingOffice, isManager(meetingOffice, inst) ? null : role.id),
           cwd: meetingOffice.repoFor(role),
           tools: isManager(meetingOffice, inst) ? [] : ['Read', 'Glob', 'Grep'],
           permissionMode: 'default',
@@ -1258,7 +1318,7 @@ export function talkTo(talkOffice: OfficeState, instanceId: string, text: string
     role.brief,
     '',
     talkOffice.say('prompt.talk.tail'),
-  ].join('\n') + projectBrief(talkOffice);
+  ].join('\n') + projectBrief(talkOffice, role.id);
 
   const session = query({
     prompt: queue,
@@ -1386,7 +1446,7 @@ async function consultRole(
           role.brief,
           '',
           state.say('prompt.consult.systemTail'),
-        ].join('\n') + projectBrief(state),
+        ].join('\n') + projectBrief(state, role.id),
         cwd: state.repoFor(role),
         // Только чтение и никаких офисных инструментов: отвечающий не должен
         // ни править свой проект, ни звать третьего.
@@ -1464,6 +1524,18 @@ function workerTools(state: OfficeState, instanceId: string, task: Task) {
         async (args) => {
           const answer = await consultRole(state, instanceId, args.role, args.question, task.id);
           return { content: [{ type: 'text', text: answer.text }], isError: !answer.ok };
+        },
+      ),
+      tool(
+        'ask_owner',
+        state.say('tool.askOwner.desc'),
+        {
+          question: z.string().describe(state.say('tool.askOwner.question')),
+          assumption: z.string().describe(state.say('tool.askOwner.assumption')),
+        },
+        async (args) => {
+          const asked = askOwner(state, instanceId, task.id, args.question, args.assumption);
+          return { content: [{ type: 'text', text: asked.text }], isError: !asked.ok };
         },
       ),
       tool(
@@ -1583,7 +1655,8 @@ function startWorker(taskOffice: OfficeState, task: Task, inst: Instance): void 
     role.brief,
     '',
     taskOffice.say('prompt.worker.tail'),
-  ].join('\n') + projectBrief(taskOffice);
+    taskOffice.say('prompt.worker.life'),
+  ].join('\n') + projectBrief(taskOffice, role.id);
 
   if (taskOffice.settings.engine === 'cloud') {
     startCloudWorker(task, inst, role, systemPrompt, taskOffice);
@@ -2234,7 +2307,7 @@ function workerSystemPrompt(role: Role, state: OfficeState): string {
   return [
     state.say('prompt.worker.system', { role: role.title }),
     role.brief,
-  ].join('\n') + projectBrief(state);
+  ].join('\n') + projectBrief(state, role.id);
 }
 
 /**
@@ -2432,6 +2505,145 @@ async function reviewPr(
   }
   return { verdict, text, reviewerId: inst.id };
 }
+
+// ---------- ритуалы: сессии на модели ----------
+
+/** Дешёвая модель для ритуалов памяти: сворачивать дельту — не решать. */
+const RITUAL_MODEL = resolveModel('haiku');
+
+/**
+ * Инструменты ритуала — единственный способ, которым модель кладёт что-то в
+ * журнал: структурированный вызов, а не текст, который потом пришлось бы
+ * разбирать. Всё собирается в `out`, а в состояние ложится уже ритуалом
+ * (rituals.ts): так у проверок и у живой модели один и тот же путь.
+ */
+function ritualTools(state: OfficeState, out: RitualOutput) {
+  return createSdkMcpServer({
+    name: 'journal',
+    version: '1.0.0',
+    tools: [
+      tool(
+        'note_fact',
+        state.say('tool.noteFact.desc'),
+        {
+          kind: z.enum(['fact', 'decision', 'lesson']).describe(state.say('tool.noteFact.kind')),
+          text: z.string().describe(state.say('tool.noteFact.text')),
+          scope: z.string().default('project').describe(state.say('tool.ritualFact.scope')),
+          taskId: z.string().default('').describe(state.say('tool.ritualFact.task')),
+        },
+        async (args) => {
+          const scope = args.scope && args.scope !== 'project' ? `role:${args.scope.replace(/^role:/, '')}` : 'project';
+          out.facts.push({ kind: args.kind, text: args.text, scope, ...(args.taskId ? { taskId: args.taskId } : {}) });
+          return { content: [{ type: 'text', text: state.say('tool.ok') }] };
+        },
+      ),
+      tool(
+        'flag_contradiction',
+        state.say('tool.flagContradiction.desc'),
+        {
+          a: z.string().describe(state.say('tool.flagContradiction.a')),
+          b: z.string().describe(state.say('tool.flagContradiction.b')),
+          text: z.string().describe(state.say('tool.flagContradiction.text')),
+        },
+        async (args) => {
+          out.contradictions.push({ a: args.a, b: args.b, text: args.text });
+          return { content: [{ type: 'text', text: state.say('tool.ok') }] };
+        },
+      ),
+      tool(
+        'ask_owner',
+        state.say('tool.askOwner.pm.desc'),
+        {
+          question: z.string().describe(state.say('tool.ritualAsk.question')),
+          assumption: z.string().describe(state.say('tool.ritualAsk.assumption')),
+        },
+        async (args) => {
+          out.questions.push({ text: args.question, assumption: args.assumption });
+          return { content: [{ type: 'text', text: state.say('tool.ok') }] };
+        },
+      ),
+    ],
+  });
+}
+
+/**
+ * Одна короткая сессия ритуала: без файлов, без оболочки, только
+ * инструменты журнала. Расход пишется на менеджера — ритуал и есть работа
+ * офиса над собой, а не чья-то задача; id сессии не запоминается, чтобы
+ * не затереть разговор менеджера с человеком.
+ */
+async function ritualSession(
+  state: OfficeState, systemPrompt: string, prompt: string,
+): Promise<RitualOutput> {
+  const out: RitualOutput = { facts: [], contradictions: [], questions: [], costUsd: 0 };
+  if (state.dryRun) return out;
+  const before = state.instances.get('pm#1')?.usage.costUsd ?? 0;
+  try {
+    const session = query({
+      prompt,
+      options: {
+        model: RITUAL_MODEL,
+        systemPrompt,
+        cwd: state.projectDir,
+        tools: [],
+        mcpServers: { journal: ritualTools(state, out) },
+        permissionMode: 'default',
+        canUseTool: permissionHandler(state, 'pm#1'),
+        settingSources: [],
+        maxTurns: 12,
+      },
+    });
+    for await (const msg of session) {
+      consume(state, 'pm#1', msg, false);
+      if (msg.type === 'result' && !isOk(msg)) out.error = clip(resultReason(msg, state.lang()), 300);
+    }
+  } catch (err) {
+    out.error = (err as Error).message;
+  }
+  out.costUsd = Math.max(0, (state.instances.get('pm#1')?.usage.costUsd ?? 0) - before);
+  return out;
+}
+
+/** Журнал словами — для ритуалов, которые его перечитывают. */
+function journalText(state: OfficeState, facts: ConsolidationInput['facts']): string {
+  if (!facts.length) return state.say('prompt.ritual.journalEmpty');
+  return facts.map((f) => state.say('prompt.ritual.journalRow', {
+    id: f.id, kind: f.kind, scope: f.scope, text: f.text,
+  })).join('\n');
+}
+
+setRitualAgents({
+  consolidate(state, input) {
+    const lang = LANG_NAME_EN[state.lang()];
+    const closed = input.closed.map((c) => [
+      state.say('prompt.ritual.closedRow', {
+        id: c.id, title: c.title, role: c.roleId, kind: c.kind, result: c.result,
+      }),
+      ...c.reviews.map((text) => state.say('prompt.ritual.reviewRow', { text })),
+    ].join('\n'));
+    const chat = input.chat.map((c) => `- ${c.from}: ${c.text}`);
+    const prompt = [
+      state.say('prompt.consolidate.user'),
+      '',
+      closed.length ? `${state.say('prompt.ritual.closedHead')}\n${closed.join('\n')}` : '',
+      chat.length ? `${state.say('prompt.ritual.chatHead')}\n${chat.join('\n')}` : '',
+      '',
+      state.say('prompt.ritual.journalHead'),
+      journalText(state, input.facts),
+    ].filter(Boolean).join('\n');
+    return ritualSession(state, state.say('prompt.consolidate.system', { lang }), prompt);
+  },
+  contradictions(state, facts) {
+    const lang = LANG_NAME_EN[state.lang()];
+    const prompt = [
+      state.say('prompt.contradictions.user'),
+      '',
+      state.say('prompt.ritual.journalHead'),
+      journalText(state, facts),
+    ].join('\n');
+    return ritualSession(state, state.say('prompt.contradictions.system', { lang }), prompt);
+  },
+});
 
 // Конвейер знает про офис только через эти три действия — сессии агентов
 // живут здесь, а он остаётся про порядок шагов.

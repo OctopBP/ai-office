@@ -537,6 +537,18 @@ export interface Settings {
    * сообщать некому, и галочка ничего не делает.
    */
   marketTelemetry?: boolean;
+  /**
+   * Ритуалы офиса (docs/design/living-office/spec.md §5): консолидация
+   * журнала, детектор противоречий, забывание, рефлексия. Выключено —
+   * остаётся только планёрка из данных: она ничего не стоит.
+   * Поле необязательное: сохранения старше живого офиса его не содержат.
+   */
+  ritualsEnabled?: boolean;
+  /**
+   * За каким процентом любого окна лимита подписки ритуалы откладываются.
+   * Работа по задачам от этого не зависит — лимиты выше ритуалов, а не задач.
+   */
+  ritualLimitThreshold?: number;
 }
 
 /**
@@ -781,6 +793,127 @@ export const OUTCOME_KINDS: OutcomeKind[] = [
   'clean', 'reworked', 'stuck', 'failed', 'cancelled', 'reverted',
 ];
 
+// ------------------------------------------------------------- живой офис
+
+/**
+ * Запись журнала офиса (docs/design/living-office/spec.md §4): что офис узнал
+ * о проекте, что решил и на чём обжёгся. Не база знаний о мире, а память
+ * команды, производная от доски: пишут её ритуалы и ответы владельца.
+ */
+export type FactKind =
+  | 'fact'           // «сборка — vite, спрайты попадают через import.meta.glob»
+  | 'decision'       // «репозиторий один, не разделять»
+  | 'lesson'         // «дизайнер обязан читать Office3D.tsx перед планировкой»
+  | 'contradiction'; // две записи, которые не могут быть верны одновременно
+
+/**
+ * Живая запись едет в промпты; протухшая — нет, но ещё лежит; архивная —
+ * история. Факт протухает молча, решение и урок — только через вопрос
+ * владельцу (§5.4).
+ */
+export type FactStatus = 'live' | 'stale' | 'archived';
+
+export interface FactView {
+  id: string;
+  kind: FactKind;
+  text: string;
+  /** Кому подкладывать: 'project' всем, 'office' менеджеру, 'role:<id>' роли. */
+  scope: string;
+  source: { taskId?: string; questionId?: string; ritual?: RitualId };
+  createdAt: number;
+  /** Последний раз, когда запись подтвердилась (§5.4). */
+  confirmedAt: number;
+  status: FactStatus;
+}
+
+/** Откуда вопрос — по этому же считается его важность в планёрке (§6.2). */
+export type QuestionKind =
+  | 'assumption'     // исполнитель принял допущение по задаче
+  | 'contradiction'  // журнал разошёлся сам с собой
+  | 'stale'          // решение или урок давно не подтверждались
+  | 'revert';        // владелец откатил слитую работу
+
+/**
+ * Вопрос владельцу (§6). Не блокирует: агент задал, записал допущение и
+ * пошёл дальше. Ответ ложится в журнал, а офис перестаёт гадать.
+ */
+export interface OwnerQuestion {
+  id: string;
+  /** id агента или OFFICE_SENDER — от ритуала. */
+  from: string;
+  taskId: string | null;
+  kind: QuestionKind;
+  text: string;
+  /** Что делаем, пока нет ответа. */
+  assumption: string;
+  askedAt: number;
+  /** Попал в планёрку. null — ещё не показывали. */
+  shownAt: number | null;
+  answer: string | null;
+  answeredAt: number | null;
+  /** Снят без ответа. */
+  dismissedAt: number | null;
+}
+
+export type RitualId =
+  | 'standup'         // планёрка — вперёд, из данных
+  | 'consolidate'     // дельта дня в несколько строк журнала
+  | 'contradictions'  // недельный проход по журналу
+  | 'forget'          // протухание без модели
+  | 'reflect'         // недельная рефлексия менеджера
+  | 'health';         // здоровье проекта: проверки, протухшие ветки
+
+export const RITUAL_IDS: RitualId[] = [
+  'standup', 'consolidate', 'contradictions', 'forget', 'reflect', 'health',
+];
+
+/** Один прогон ритуала: что дал и во что обошёлся — для портфеля (§8.2). */
+export interface RitualRun {
+  id: string;
+  ritual: RitualId;
+  at: number;
+  costUsd: number;
+  /** Что произвёл: записей, вопросов, противоречий, предложений… */
+  produced: Record<string, number>;
+  note: string;
+}
+
+/**
+ * Портфель ритуалов — то, что офис вправе менять в себе без одобрения (§8.2):
+ * цена ошибки здесь — лишний абзац в чате, а не поведение исполнителя.
+ */
+export interface RitualPolicy {
+  /** Не чаще какого интервала консолидировать дельту. */
+  consolidateEveryMs: number;
+  /** Сколько вопросов показывать в планёрке. */
+  questionsPerStandup: number;
+  /** Просить ли менеджера добавить фразу к планёрке. */
+  standupPmLine: boolean;
+  /** Проводить ли недельную рефлексию на модели менеджера. */
+  reflectionOn: boolean;
+}
+
+export interface LifeView {
+  standupDay: string | null;
+  standupAt: number | null;
+  lastRun: Partial<Record<RitualId, number>>;
+  policy: RitualPolicy;
+  /** Последние прогоны, свежие в конце. */
+  runs: RitualRun[];
+  /** Ритуал идёт прямо сейчас. */
+  running: RitualId | null;
+}
+
+export const DEFAULT_RITUAL_POLICY: RitualPolicy = {
+  consolidateEveryMs: 6 * 60 * 60 * 1000,
+  questionsPerStandup: 4,
+  standupPmLine: true,
+  reflectionOn: true,
+};
+
+/** Порог лимита подписки (в процентах окна), за которым ритуалы откладываются. */
+export const DEFAULT_RITUAL_LIMIT = 80;
+
 /**
  * Стадия конвейера ревью: что офис делает с работой по задаче прямо сейчас.
  * 'stuck' — конвейер встал и ждёт решения человека или менеджера; это
@@ -1013,8 +1146,17 @@ export type ServerEvent =
       /** Пулл-реквесты конвейера ревью — по одному на сданную задачу. */
       prs: PullRequestView[];
       /** План: фичи в том порядке, в котором офис их ведёт. */
-      epics: EpicView[] }
+      epics: EpicView[];
+      /** Живой офис: журнал, вопросы владельцу, ритуалы. */
+      facts: FactView[]; questions: OwnerQuestion[]; life: LifeView }
   | { t: 'mcp.status'; servers: McpServerState[] }
+  /** Запись журнала завели или её статус изменился. */
+  | { t: 'fact'; fact: FactView }
+  | { t: 'fact.remove'; id: string }
+  /** Вопрос владельцу задали, показали, ответили или сняли. */
+  | { t: 'question'; question: OwnerQuestion }
+  /** Ритуалы: прогон, портфель, момент планёрки. Едет целиком — он мал. */
+  | { t: 'life'; life: LifeView }
   | { t: 'instance'; instance: InstanceView }
   | { t: 'instance.remove'; id: string }
   | { t: 'task'; task: TaskView }
@@ -1178,6 +1320,15 @@ export type ClientCommand =
   | { c: 'market_hire_team'; name: string }
   /** Сохранить ключ лицензии пакета на этой машине. Пустой — забыть. */
   | { c: 'market_license'; name: string; key: string }
+  /** Ответить на вопрос офиса: ответ ложится в журнал, менеджер узнаёт. */
+  | { c: 'answer_question'; id: string; answer: string }
+  /** Снять вопрос без ответа: офис остаётся при своём допущении. */
+  | { c: 'dismiss_question'; id: string }
+  /** Запись журнала: подтвердить (она ещё верна) или убрать в архив. */
+  | { c: 'fact_confirm'; id: string }
+  | { c: 'fact_archive'; id: string }
+  /** Запустить ритуал сейчас, не дожидаясь расписания. */
+  | { c: 'ritual_run'; ritual: RitualId }
   | { c: 'reset' };
 
 // ------------------------------------------------------------- маркет

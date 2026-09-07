@@ -3,7 +3,8 @@ import { dirname, resolve } from 'node:path';
 import type {
   ChatEntry, LayoutOverride, LogEntry, PermissionMode, PullRequestView, Settings, Usage,
 } from '../shared/types';
-import type { Epic, LifeState, Task } from './state';
+import type { Epic, Fact, LifeState, Task } from './state';
+import type { OwnerQuestion } from '../shared/types';
 import type { Role } from './roles';
 import { c } from './i18n';
 
@@ -79,6 +80,11 @@ export interface Persisted {
    * офис начинает с пустой памяти, а не с выдуманной.
    */
   life?: Partial<LifeState>;
+  /** Журнал офиса и вопросы владельцу. В сохранениях до живого офиса их нет. */
+  facts?: Fact[];
+  factSeq?: number;
+  questions?: OwnerQuestion[];
+  questionSeq?: number;
   savedAt: number;
 }
 

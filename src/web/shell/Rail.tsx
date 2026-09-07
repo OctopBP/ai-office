@@ -10,12 +10,13 @@ import { Icon, type IconName } from '../icons';
 /** Цвета аватарок офисов — по кругу, те же, что у ролей. */
 const HUES = ['var(--hue-blue)', 'var(--hue-amber)', 'var(--hue-pink)', 'var(--hue-violet)'];
 
-type WindowKind = 'board' | 'merge' | 'log' | 'money' | 'team' | 'market' | 'settings';
+type WindowKind = 'board' | 'merge' | 'log' | 'money' | 'life' | 'team' | 'market' | 'settings';
 const WINDOWS: Array<{ kind: WindowKind; icon: IconName }> = [
   { kind: 'board', icon: 'list-check' },
   { kind: 'merge', icon: 'git-merge' },
   { kind: 'log', icon: 'file-text' },
   { kind: 'money', icon: 'coin' },
+  { kind: 'life', icon: 'book' },
   { kind: 'team', icon: 'users' },
   { kind: 'market', icon: 'world' },
   { kind: 'settings', icon: 'settings' },

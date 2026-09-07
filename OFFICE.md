@@ -38,7 +38,8 @@ Node + TypeScript, React 19 + Zustand на фронте, `ws` для связи,
 | `src/registry/service.ts`, `src/registry/main.ts` | Сервис индекса: реестр по адресу, поиск, страницы, зеркало с отпечатком, публикация по GitHub-токену, админ, marketplace.json |
 | `src/server/limits.ts` | Лимиты плана подписки: проценты и время сброса из событий SDK |
 | `src/server/outcomes.ts`, `src/shared/report.ts` | Живой офис: исход задачи (чисто, с доработкой, вставала, провал, снята, откачена), поиск откатов по git, табель роли |
-| `src/server/rituals.ts` | Ритуалы офиса: планёрка при первом открытии за день — из данных доски, без модели |
+| `src/server/journal.ts`, `src/server/questions.ts` | Журнал офиса (записи, области, забывание) и вопросы владельцу (`ask_owner`, ответы в журнал, порция для планёрки) |
+| `src/server/rituals.ts` | Ритуалы офиса на тихом тике надзора: планёрка из данных, консолидация и противоречия через `RitualAgents`, забывание, порог лимита |
 | `src/server/git.ts` | Ветки, worktree, коммиты, слияние |
 | `src/server/cloud.ts` | Облачный режим на Managed Agents (написан, вживую не проверен) |
 | `src/server/index.ts` | HTTP + WebSocket, раздача собранного веба, команды от клиента |

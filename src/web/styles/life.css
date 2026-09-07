@@ -1,0 +1,24 @@
+/* Панель «Жизнь офиса»: вопросы владельцу, журнал, ритуалы. Строки — на
+   плёнке, как карточки задач; вкладки — те же, что у веток чата. */
+.life { display: flex; flex-direction: column; min-height: 0; overflow: hidden; }
+.life > .threads { flex: none; }
+.life-list { display: flex; flex-direction: column; gap: var(--space-2); overflow-y: auto; min-height: 0; padding-top: var(--space-3); }
+.life-list .section-title { margin: var(--space-2) 0 0; }
+.life-row {
+  display: flex; flex-direction: column; gap: var(--space-1);
+  padding: var(--space-3); background: var(--film); border-radius: var(--radius-card);
+}
+.life-row.closed { opacity: .65; }
+.life-row.stale { opacity: .7; }
+.life-row-head { display: flex; align-items: center; gap: var(--space-2); flex-wrap: wrap; font-size: var(--fs-small); }
+.life-row-head b { color: var(--ink); }
+.life-row-head button { margin-left: auto; }
+.life-text { color: var(--ink); white-space: pre-wrap; }
+.life-answer { color: var(--ok-ink); }
+.life-actions { display: flex; gap: var(--space-2); align-items: center; margin-top: var(--space-1); }
+.life-actions input { flex: 1; min-width: 0; }
+.life-policy { display: flex; flex-direction: column; gap: 2px; }
+.life-run { display: flex; gap: var(--space-3); flex-wrap: wrap; }
+.chip.contradiction, .chip.revert { color: var(--danger); }
+.chip.stale { color: var(--warn); }
+.chip.decision, .chip.lesson { color: var(--accent); }

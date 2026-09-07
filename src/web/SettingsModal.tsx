@@ -4,7 +4,7 @@ import {
   setCloudToken, updateSettings, useStore, type ThemeMode,
 } from './store';
 import {
-  DEFAULT_FOCUS_EPICS, DEFAULT_OFFICE_WORKERS, DEFAULT_PROCESS_WORKERS,
+  DEFAULT_FOCUS_EPICS, DEFAULT_OFFICE_WORKERS, DEFAULT_PROCESS_WORKERS, DEFAULT_RITUAL_LIMIT,
   MAX_FOCUS_EPICS, MIN_FOCUS_EPICS, type McpServerDef, type PermissionMode,
 } from '../shared/types';
 import { LANGS, LANG_TITLE, type Lang } from '../shared/i18n';
@@ -18,7 +18,7 @@ const parse = (v: string): number | null => {
   return v.trim() === '' || !Number.isFinite(n) || n <= 0 ? null : n;
 };
 
-type Section = 'general' | 'access' | 'limits' | 'tools' | 'project' | 'graphics';
+type Section = 'general' | 'access' | 'limits' | 'tools' | 'project' | 'life' | 'graphics';
 
 const THEME_MODES: Array<[ThemeMode, UiKey]> = [
   ['day', 'settings.theme.day'],
@@ -32,6 +32,7 @@ const SECTIONS: Array<[Section, UiKey]> = [
   ['limits', 'settings.section.limits'],
   ['tools', 'settings.section.tools'],
   ['project', 'settings.section.project'],
+  ['life', 'settings.section.life'],
   ['graphics', 'settings.section.graphics'],
 ];
 
@@ -118,6 +119,8 @@ export function SettingsModal({ onClose }: { onClose: () => void }) {
   const [autoPipeline, setAutoPipeline] = useState(settings.autoPipeline);
   const [focusEpics, setFocusEpics] = useState(settings.focusEpics ?? DEFAULT_FOCUS_EPICS);
   const [planApproval, setPlanApproval] = useState(settings.planApproval !== false);
+  const [ritualsEnabled, setRitualsEnabled] = useState(settings.ritualsEnabled !== false);
+  const [ritualLimit, setRitualLimit] = useState(settings.ritualLimitThreshold ?? DEFAULT_RITUAL_LIMIT);
   const [confirmAuto, setConfirmAuto] = useState(false);
   const maxTurnsParsed = parseTaskMaxTurns(maxTurns);
   const maxWorkersParsed = parseMaxWorkers(maxWorkers);
@@ -151,6 +154,8 @@ export function SettingsModal({ onClose }: { onClose: () => void }) {
       autoPipeline,
       focusEpics,
       planApproval,
+      ritualsEnabled,
+      ritualLimitThreshold: ritualLimit,
       language,
     });
     setGraphics(gfx);
@@ -359,6 +364,30 @@ export function SettingsModal({ onClose }: { onClose: () => void }) {
                     <p className="hint muted">{t('settings.cloud.tokenNote')}</p>
                   </>
                 )}
+              </>
+            )}
+
+            {section === 'life' && (
+              <>
+                <h4 className="section-title">{t('settings.life.rituals')}</h4>
+                <div className="engine">
+                  <button className={ritualsEnabled ? 'on' : ''} onClick={() => setRitualsEnabled(true)}>
+                    <span><Icon name="repeat" size={18} /> {t('settings.life.rituals.on')}</span>
+                    <span className="muted small">{t('settings.life.rituals.on.hint')}</span>
+                  </button>
+                  <button className={ritualsEnabled ? '' : 'on'} onClick={() => setRitualsEnabled(false)}>
+                    <span><Icon name="hand-stop" size={18} /> {t('settings.life.rituals.off')}</span>
+                    <span className="muted small">{t('settings.life.rituals.off.hint')}</span>
+                  </button>
+                </div>
+                <Slider
+                  label={t('settings.life.limit')}
+                  hint={t('settings.life.limit.hint')}
+                  value={ritualLimit}
+                  range={{ min: 10, max: 100, step: 5 }}
+                  disabled={!ritualsEnabled}
+                  onChange={setRitualLimit}
+                />
               </>
             )}
 

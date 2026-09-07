@@ -1,0 +1,177 @@
+import { useState } from 'react';
+import {
+  answerQuestion, archiveFact, confirmFact, dismissQuestion, runRitual, useStore,
+} from './store';
+import type { FactStatus, OwnerQuestion, RitualId } from '../shared/types';
+import { RITUAL_IDS, isOfficeSender } from '../shared/types';
+import { locale, t } from './i18n';
+import { Icon } from './icons';
+
+type Tab = 'questions' | 'journal' | 'rituals';
+
+const when = (at: number | null | undefined): string =>
+  (at ? new Date(at).toLocaleString(locale(), { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }) : '');
+
+/**
+ * Панель «Жизнь офиса» (docs/design/living-office/spec.md): вопросы владельцу,
+ * журнал и ритуалы. Планёрка показывает 3–5 вопросов; здесь — вся очередь,
+ * весь журнал и то, когда что шло.
+ */
+export function LifePanel() {
+  const [tab, setTab] = useState<Tab>('questions');
+  const open = useStore((s) => s.questions.filter((q) => !q.answeredAt && !q.dismissedAt).length);
+  return (
+    <div className="life">
+      <div className="threads">
+        {(['questions', 'journal', 'rituals'] as Tab[]).map((k) => (
+          <button key={k} className={`mini${tab === k ? ' on' : ''}`} onClick={() => setTab(k)}>
+            {t(`life.tab.${k}`)}{k === 'questions' && open ? ` · ${open}` : ''}
+          </button>
+        ))}
+      </div>
+      {tab === 'questions' && <Questions />}
+      {tab === 'journal' && <Journal />}
+      {tab === 'rituals' && <Rituals />}
+    </div>
+  );
+}
+
+function QuestionRow({ q }: { q: OwnerQuestion }) {
+  const [answer, setAnswer] = useState('');
+  const closed = Boolean(q.answeredAt || q.dismissedAt);
+  const who = isOfficeSender(q.from) ? t('common.office') : q.from;
+  return (
+    <div className={`life-row question ${q.kind}${closed ? ' closed' : ''}`}>
+      <div className="life-row-head">
+        <span className="mono dim">{q.id}</span>
+        <span className={`chip ${q.kind}`}>{t(`life.questions.kind.${q.kind}`)}</span>
+        <span className="muted small">{t('life.questions.from', { who })}</span>
+        {q.taskId && <span className="muted small">{t('life.questions.task', { task: q.taskId })}</span>}
+        <span className="muted small">{when(q.askedAt)}</span>
+      </div>
+      <div className="life-text">{q.text}</div>
+      <div className="muted small">{t('life.questions.assumed')}: {q.assumption}</div>
+      {q.answeredAt && <div className="life-answer">{t('life.questions.answered')}: {q.answer}</div>}
+      {q.dismissedAt && <div className="muted small">{t('life.questions.dismissed')} · {when(q.dismissedAt)}</div>}
+      {!closed && (
+        <div className="life-actions">
+          <input value={answer} placeholder={t('life.questions.answerPlaceholder')}
+            onChange={(e) => setAnswer(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter' && answer.trim()) { answerQuestion(q.id, answer.trim()); setAnswer(''); }
+            }} />
+          <button className="allow" disabled={!answer.trim()}
+            onClick={() => { answerQuestion(q.id, answer.trim()); setAnswer(''); }}>
+            {t('life.questions.answer')}
+          </button>
+          <button className="mini" onClick={() => dismissQuestion(q.id)}>{t('life.questions.dismiss')}</button>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function Questions() {
+  const questions = useStore((s) => s.questions);
+  const open = questions.filter((q) => !q.answeredAt && !q.dismissedAt).sort((a, b) => b.askedAt - a.askedAt);
+  const closed = questions.filter((q) => q.answeredAt || q.dismissedAt).sort((a, b) => b.askedAt - a.askedAt);
+  if (!questions.length) return <p className="empty">{t('life.questions.empty')}</p>;
+  return (
+    <div className="life-list">
+      {open.length > 0 && <div className="section-title">{t('life.questions.open')}</div>}
+      {open.map((q) => <QuestionRow key={q.id} q={q} />)}
+      {closed.length > 0 && <div className="section-title">{t('life.questions.closed')}</div>}
+      {closed.slice(0, 30).map((q) => <QuestionRow key={q.id} q={q} />)}
+    </div>
+  );
+}
+
+const scopeLabel = (scope: string): string => {
+  if (scope === 'project') return t('life.journal.scope.project');
+  if (scope === 'office') return t('life.journal.scope.office');
+  return scope.replace(/^role:/, '');
+};
+
+function Journal() {
+  const facts = useStore((s) => s.facts);
+  const [status, setStatus] = useState<FactStatus>('live');
+  const shown = facts.filter((f) => f.status === status).sort((a, b) => b.confirmedAt - a.confirmedAt);
+  if (!facts.length) return <p className="empty">{t('life.journal.empty')}</p>;
+  return (
+    <div className="life-list">
+      <div className="seg mini-seg">
+        {(['live', 'stale', 'archived'] as FactStatus[]).map((s) => (
+          <button key={s} className={status === s ? 'on' : ''} onClick={() => setStatus(s)}>
+            {t(`life.journal.${s}`)} · {facts.filter((f) => f.status === s).length}
+          </button>
+        ))}
+      </div>
+      {shown.map((f) => (
+        <div key={f.id} className={`life-row fact ${f.kind} ${f.status}`}>
+          <div className="life-row-head">
+            <span className="mono dim">{f.id}</span>
+            <span className={`chip ${f.kind}`}>{t(`life.journal.kind.${f.kind}`)}</span>
+            <span className="muted small">{scopeLabel(f.scope)}</span>
+            {f.source.taskId && <span className="muted small">{f.source.taskId}</span>}
+            {f.source.questionId && <span className="muted small">{f.source.questionId}</span>}
+            <span className="muted small">{t('life.journal.confirmed', { when: when(f.confirmedAt) })}</span>
+          </div>
+          <div className="life-text">{f.text}</div>
+          {f.status !== 'archived' && (
+            <div className="life-actions">
+              <button className="mini" onClick={() => confirmFact(f.id)}>{t('life.journal.confirm')}</button>
+              <button className="mini" onClick={() => archiveFact(f.id)}>{t('life.journal.archive')}</button>
+            </div>
+          )}
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function Rituals() {
+  const life = useStore((s) => s.life);
+  const enabled = useStore((s) => s.settings.ritualsEnabled !== false);
+  const runs = [...life.runs].reverse().slice(0, 20);
+  return (
+    <div className="life-list">
+      <p className="muted small">{t(enabled ? 'life.rituals.hint' : 'life.rituals.off')}</p>
+      {RITUAL_IDS.map((id: RitualId) => {
+        const last = life.lastRun[id];
+        const running = life.running === id;
+        return (
+          <div key={id} className="life-row ritual">
+            <div className="life-row-head">
+              <b>{t(`life.rituals.name.${id}`)}</b>
+              <span className="muted small">
+                {running ? t('life.rituals.running') : last ? t('life.rituals.last', { when: when(last) }) : t('life.rituals.never')}
+              </span>
+              <button className="mini" disabled={Boolean(life.running) || (!enabled && id !== 'standup')}
+                onClick={() => runRitual(id)}>
+                {t('life.rituals.run')}
+              </button>
+            </div>
+            <div className="muted small">{t(`life.rituals.desc.${id}`)}</div>
+          </div>
+        );
+      })}
+      <div className="section-title">{t('life.rituals.policy')}</div>
+      <div className="muted small life-policy">
+        <span>{t('life.rituals.policy.consolidate', { h: Math.round(life.policy.consolidateEveryMs / 3_600_000) })}</span>
+        <span>{t('life.rituals.policy.questions', { n: life.policy.questionsPerStandup })}</span>
+        <span>{t('life.rituals.policy.pmLine')}: {t(life.policy.standupPmLine ? 'life.rituals.on' : 'life.rituals.offShort')}</span>
+        <span>{t('life.rituals.policy.reflection')}: {t(life.policy.reflectionOn ? 'life.rituals.on' : 'life.rituals.offShort')}</span>
+      </div>
+      {runs.length > 0 && <div className="section-title">{t('life.rituals.runs')}</div>}
+      {runs.map((r) => (
+        <div key={r.id} className="life-run muted small">
+          <span className="mono dim">{when(r.at)}</span>
+          <span>{t(`life.rituals.name.${r.ritual}`)}</span>
+          <span>{r.note || Object.entries(r.produced).map(([k, v]) => `${k} ${v}`).join(', ')}</span>
+          {r.costUsd > 0 && <span>${r.costUsd.toFixed(3)}</span>}
+        </div>
+      ))}
+      <span className="dim"><Icon name="book" size={12} /></span>
+    </div>
+  );
+}

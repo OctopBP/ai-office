@@ -17,6 +17,7 @@ import type { OutcomeKind, TaskOutcome } from '../shared/types';
 import { OFFICE_SENDER } from '../shared/types';
 import { criteriaProgress, taskRepo, type OfficeState, type Task } from './state';
 import { isAncestor, isRepo } from './git';
+import { confirmFactsFor } from './journal';
 
 /** Сколько дней после слияния надзор ещё проверяет, не откатили ли работу. */
 const REVERT_WINDOW_MS = 14 * 24 * 60 * 60 * 1000;
@@ -57,6 +58,9 @@ export function recordOutcome(
   state.addLog(null, 'system', state.say('life.outcome.log', {
     task: task.id, kind: state.say(`life.outcome.${kind}`),
   }));
+  // Чистое закрытие подтверждает журнал, который задача видела: записи не
+  // помешали — значит, они верны (§5.4).
+  if (kind === 'clean') confirmFactsFor(state, task, at);
   return outcome;
 }
 

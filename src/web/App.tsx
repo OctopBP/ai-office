@@ -86,6 +86,8 @@ export function App() {
       // мнемоничных клавиш немного, а «$» на русской раскладке не набрать.
       else if (k === 'e' || k === 'у') setPanel('money');
       else if (k === 'l' || k === 'д') setPanel('log');
+      // J — жизнь офиса: вопросы, журнал, ритуалы.
+      else if (k === 'j' || k === 'о') setPanel('life');
       else if (k === 'm' || k === 'ь') setModal('meeting');
       else if (k === 'q' || k === 'й') setPanel('merge');
       // Цифра с Shift — камере (`office3d/Camera3D.tsx`): фокус на комнате.

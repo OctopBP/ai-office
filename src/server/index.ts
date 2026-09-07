@@ -15,6 +15,10 @@ import { approveEpic, cancelEpic, reorderEpics } from './plan';
 import { mergeQueue, refreshMergeChecks } from './merge';
 import { retryPipeline } from './review';
 import { startSupervisor } from './supervisor';
+import { answerQuestion, dismissQuestion } from './questions';
+import { archiveFact, confirmFact } from './journal';
+import { runRitual } from './rituals';
+import { RITUAL_IDS } from '../shared/types';
 import { githubToken, setGithubToken } from './cloud';
 import { clearInitFlag, currentOffice, ensureOffice, loadRegistry, setCurrent, type OfficeEntry } from './offices';
 import { hasCommits, initRepo, isRepo, repoProblem } from './git';
@@ -364,6 +368,22 @@ wss.on('connection', (ws) => {
     } else if (cmd.c === 'epic_reorder') {
       const outcome = reorderEpics(state, cmd.epicIds);
       if (!outcome.ok) state.addChat(OFFICE_SENDER, outcome.message);
+    } else if (cmd.c === 'answer_question') {
+      // Ответ владельца — самая надёжная запись журнала: ложится сразу, а
+      // менеджер узнаёт системным сообщением.
+      if (!answerQuestion(state, cmd.id, cmd.answer)) {
+        state.addChat(OFFICE_SENDER, state.say('questions.noSuch', { id: cmd.id }));
+      }
+    } else if (cmd.c === 'dismiss_question') {
+      dismissQuestion(state, cmd.id);
+    } else if (cmd.c === 'fact_confirm') {
+      confirmFact(state, cmd.id);
+    } else if (cmd.c === 'fact_archive') {
+      archiveFact(state, cmd.id);
+    } else if (cmd.c === 'ritual_run') {
+      // По кнопке — тот же путь, что по расписанию: порог лимита и замок
+      // «один ритуал за раз» действуют и здесь.
+      if (RITUAL_IDS.includes(cmd.ritual)) void runRitual(state, cmd.ritual);
     } else if (cmd.c === 'pause') {
       setPaused(state, cmd.paused);
     } else if (cmd.c === 'cloud_token') {
