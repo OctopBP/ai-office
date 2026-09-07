@@ -164,6 +164,18 @@ check('marketplace из файла реестра — та же форма', (ma
 const counted = await api2('/v1/packages/@alice/writer/install', { method: 'POST' });
 check('счётчик установок', [counted.body.installs, ((await api2('/v1/registry.json')).body.packages as RegistryEntry[])[0].installs], [1, 1]);
 
+// Репутация: исходы задач по согласию — доля чистых среди сданных и цена.
+const outcome = (body: Record<string, unknown>) => api2('/v1/packages/@alice/writer/outcome', {
+  method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
+});
+await outcome({ kind: 'clean', reworks: 0, costUsd: 1 });
+await outcome({ kind: 'reworked', reworks: 2, costUsd: 3 });
+const failedOutcome = await outcome({ kind: 'failed', reworks: 0, costUsd: 2 });
+const bad = await outcome({ kind: 'great', costUsd: 1 });
+check('репутация считается из исходов', failedOutcome.body.reputation, { closed: 3, cleanShare: 0.5, avgCostUsd: 2 });
+check('мусорный исход отбрасывается', bad.status, 400);
+check('репутация в реестре наружу', ((await api2('/v1/registry.json')).body.packages as RegistryEntry[])[0].reputation, { closed: 3, cleanShare: 0.5, avgCostUsd: 2 });
+
 // ------------------------------------------------------ клиент и зеркало
 
 const latest = parseRegistry(reg.body)!.packages[0].versions[0];

@@ -2667,13 +2667,36 @@ setRitualAgents({
    */
   async reflect(state, input) {
     const lang = LANG_NAME_EN[state.lang()];
-    const out: ReflectionOutput = { facts: [], contradictions: [], questions: [], costUsd: 0, features: [], summary: '' };
+    const out: ReflectionOutput = {
+      facts: [], contradictions: [], questions: [], costUsd: 0, features: [], rules: [], summary: '',
+    };
     if (state.dryRun) return out;
     const roles = state.workerRoles().map((r) => `${r.id} (${r.title})`).join(', ');
     const proposeTools = createSdkMcpServer({
       name: 'reflect',
       version: '1.0.0',
       tools: [
+        tool(
+          'propose_rule',
+          state.say('tool.proposeRule.desc'),
+          {
+            roleId: z.string().describe(state.say('tool.proposeRule.role')),
+            text: z.string().describe(state.say('tool.proposeRule.text')),
+            rationale: z.string().describe(state.say('tool.proposeRule.rationale')),
+          },
+          async (args) => {
+            if (!state.workerRoles().some((r) => r.id === args.roleId)) {
+              return {
+                content: [{ type: 'text', text: state.say('tool.createTask.badRole', {
+                  role: args.roleId, valid: state.workerRoles().map((r) => r.id).join(', '),
+                }) }],
+                isError: true,
+              };
+            }
+            out.rules.push({ roleId: args.roleId, text: args.text, rationale: args.rationale });
+            return { content: [{ type: 'text', text: state.say('tool.proposeRule.ok', { id: `#${out.rules.length}` }) }] };
+          },
+        ),
         tool(
           'propose_feature',
           state.say('tool.proposeFeature.desc'),

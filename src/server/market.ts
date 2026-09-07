@@ -31,9 +31,10 @@ import { execFile } from 'node:child_process';
 import type { Lang } from '../shared/i18n';
 import {
   OFFICE_SENDER, type ClientCommand, type MarketPackageView, type MarketRoleView, type MarketView,
-  type PackageTrust, type ServerEvent,
+  type PackageReputation, type PackageTrust, type ServerEvent, type TaskOutcome,
 } from '../shared/types';
 import { git } from './git';
+import { onOutcome } from './outcomes';
 import { c, t } from './i18n';
 import {
   cacheDir, compareVersions, listCached, listPackages, LOCK_FILE, PACKAGE_CACHE, PACKAGE_NAME_RE,
@@ -82,6 +83,8 @@ export interface RegistryEntry {
   color?: string;
   /** Сколько раз ставили — счётчик сервиса, по согласию клиентов. */
   installs?: number;
+  /** Репутация по исходам задач — считает сервис из телеметрии по согласию (§3.2 живого офиса). */
+  reputation?: PackageReputation;
   /**
    * Доступ. `licensed` — зеркало отдаёт архив только по ключу лицензии;
    * цена и адрес покупки — витрина, ключ выдаёт продавец. Сам сбор денег —
@@ -160,6 +163,7 @@ export function parseRegistry(raw: unknown): Registry | null {
       ...(typeof e.emoji === 'string' ? { emoji: e.emoji } : {}),
       ...(typeof e.color === 'string' ? { color: e.color } : {}),
       ...(typeof e.installs === 'number' ? { installs: e.installs } : {}),
+      ...(reputationOf(e.reputation) ? { reputation: reputationOf(e.reputation)! } : {}),
       ...(e.access === 'licensed' ? { access: 'licensed' as const } : {}),
       ...(typeof e.price === 'string' && e.price.trim() ? { price: e.price.trim() } : {}),
       ...(typeof e.buyUrl === 'string' && /^https?:\/\//.test(e.buyUrl) ? { buyUrl: e.buyUrl } : {}),
@@ -519,6 +523,7 @@ const emptyCard = (name: string): MarketPackageView => ({
   title: '', summary: '', tags: [], emoji: '', color: '', manager: false, model: '',
   tools: null, mcp: [], servers: [], env: [], network: false, skills: [], brief: '',
   warnings: [], roles: [], kind: 'agent', members: [], settings: {}, access: 'public', price: '', buyUrl: '', licensed: false,
+  reputation: null,
 });
 
 function fillFromPackage(card: MarketPackageView, pkg: AgentPackage, lang: Lang): void {
@@ -582,6 +587,7 @@ export async function marketView(state: OfficeState, opts: { busy?: boolean; ref
     const c0 = card(entry.name);
     const latest = latestVersion(entry);
     c0.trust = entry.trust;
+    c0.reputation = entry.reputation ?? null;
     c0.repo = entry.repo;
     c0.path = entry.path;
     c0.commit = latest?.commit ?? '';
@@ -664,6 +670,45 @@ async function tellInstalled(state: OfficeState, name: string): Promise<void> {
   if (!base || state.settings.marketTelemetry !== true) return;
   await fetch(`${base}/v1/packages/${name}/install`, { method: 'POST', signal: AbortSignal.timeout(5_000) }).catch(() => {});
 }
+
+/**
+ * Репутация из реестра: три числа, и все три должны быть числами — иначе
+ * карточка показала бы «NaN% чисто» с уверенным видом.
+ */
+function reputationOf(raw: unknown): PackageReputation | null {
+  if (!raw || typeof raw !== 'object') return null;
+  const r = raw as Record<string, unknown>;
+  const closed = r.closed; const clean = r.cleanShare; const cost = r.avgCostUsd;
+  if (typeof closed !== 'number' || typeof clean !== 'number' || typeof cost !== 'number') return null;
+  if (!Number.isFinite(closed) || !Number.isFinite(clean) || !Number.isFinite(cost)) return null;
+  return { closed: Math.max(0, Math.floor(closed)), cleanShare: Math.min(1, Math.max(0, clean)), avgCostUsd: Math.max(0, cost) };
+}
+
+/**
+ * Сообщить сервису исход задачи пакета — репутация на карточке. Та же
+ * галочка, что и у установок, и тот же принцип: молча, по согласию, без
+ * текста задачи и без имени владельца — только вид исхода, круги и цена.
+ */
+async function tellOutcome(state: OfficeState, name: string, outcome: TaskOutcome): Promise<void> {
+  const base = serviceBase();
+  if (!base || state.settings.marketTelemetry !== true) return;
+  await fetch(`${base}/v1/packages/${name}/outcome`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ kind: outcome.kind, reworks: outcome.reworks, costUsd: outcome.costUsd }),
+    signal: AbortSignal.timeout(5_000),
+  }).catch(() => {});
+}
+
+// Исход задачи с ролью из пакета — это репутация пакета. Слушаем исходы, а
+// не зовём маркет из них: исходу незачем знать про реестр и сеть.
+onOutcome((state, task, outcome) => {
+  if (!outcome.package || outcome.kind === 'cancelled') return;
+  if (!serviceBase() || state.settings.marketTelemetry !== true) return;
+  void tellOutcome(state, outcome.package, outcome).then(() => {
+    state.addLog(null, 'system', t(state.lang(), 'reputation.sentLog', { task: task.id, name: outcome.package! }));
+  });
+});
 
 /**
  * Поставить пакет по имени, если он не встроен и не в кеше: из реестра.

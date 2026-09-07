@@ -14,7 +14,7 @@ import { getOffice, unloadOfficeState } from '../src/server/state';
 import { closeIfDone, detectReverts, mergedKind, recordOutcome } from '../src/server/outcomes';
 import { cancelEpic, createPlan, setPlanAgents } from '../src/server/plan';
 import {
-  dueRitual, QUIET_MS, runRitual, runStandup, setRitualAgents, standupDue, standupText,
+  adjustPortfolio, dueRitual, QUIET_MS, runRitual, runStandup, setRitualAgents, standupDue, standupText,
 } from '../src/server/rituals';
 import { confirmFactsFor, factsFor, forget, journalBrief, STALE_AFTER_MS } from '../src/server/journal';
 import {
@@ -295,7 +295,7 @@ async function main(): Promise<void> {
       };
     },
     async contradictions() { return { facts: [], contradictions: [], questions: [], costUsd: 0 }; },
-    async reflect() { return { facts: [], contradictions: [], questions: [], costUsd: 0, features: [], summary: '' }; },
+    async reflect() { return { facts: [], contradictions: [], questions: [], costUsd: 0, features: [], rules: [], summary: '' }; },
   });
   check('пустому офису ритуал не нужен', dueRitual(r) === null);
   const closedTask = r.createTask({ title: 'Сделана', description: '', criteria: ['x'], roleId: 'backend' });
@@ -424,6 +424,7 @@ async function main(): Promise<void> {
         facts: [{ kind: 'lesson', text: `Урок недели по ${input.reports.length} табелям`, scope: 'project' }],
         contradictions: [], questions: [], costUsd: 0.05,
         features: [feature('Из рефлексии')],
+        rules: [{ roleId: 'backend', text: 'Перед сдачей прогоняй проверки.', rationale: 'три возврата подряд' }],
         summary: 'Неделя прошла ровно.',
       };
     },
@@ -433,6 +434,13 @@ async function main(): Promise<void> {
   check('рефлексия завела фичу по направлению', refl?.ritual === 'reflect'
     && d.epicList().some((e) => e.title === 'Из рефлексии' && e.origin === 'office'));
   check('рефлексия записала урок', d.factList().some((f) => f.source.ritual === 'reflect'));
+  check('правило из рефлексии — предложение, а не правка',
+    d.proposalList().some((p) => p.kind === 'rule' && p.status === 'pending' && p.roleId === 'backend')
+    && !(d.role('backend')?.package?.briefExtra ?? '').includes('прогоняй проверки'));
+  check('правило не предлагается дважды', (await (async () => {
+    d.life.lastRun.reflect = 0; d.ritualRunning = null; await runRitual(d, 'reflect');
+    return d.proposalList().filter((p) => p.kind === 'rule' && p.text.includes('прогоняй проверки')).length;
+  })()) === 1);
   check('итог рефлексии в чате и в планёрке', d.chat.some((c) => c.text.includes('🪞'))
     && standupText(d).includes('Неделя прошла ровно'));
   d.life.policy.reflectionOn = false;
@@ -443,11 +451,47 @@ async function main(): Promise<void> {
   check('выключенная рефлексия не просится', dueRitual(d) !== 'reflect');
   check('планёрка называет инициативу инициативой', standupText(d).includes('офис предлагает сам'));
 
+  // ---------- портфель ----------
+  console.log('портфель');
+  const pf = getOffice('o-life-portfolio');
+  pf.seed();
+  pf.opened = true;
+  // Записи консолидации недельной давности, все протухли: портфель смотрит на
+  // последние две недели, и пятнадцать дней назад он бы уже не увидел.
+  const tenDays = Date.now() - 10 * 24 * 3600 * 1000;
+  const two = Date.now() - 15 * 24 * 3600 * 1000;
+  for (let i = 0; i < 3; i += 1) {
+    const f = pf.addFact({ kind: 'fact', text: `протухший ${i}`, scope: 'project', source: { ritual: 'consolidate' } });
+    pf.updateFact(f.id, { status: 'archived', createdAt: tenDays, confirmedAt: tenDays });
+  }
+  const everyBefore = pf.life.policy.consolidateEveryMs;
+  adjustPortfolio(pf);
+  check('протухающие записи консолидации — консолидация реже', pf.life.policy.consolidateEveryMs === everyBefore * 2);
+  for (let i = 0; i < 3; i += 1) {
+    const q = pf.addQuestion({ from: OFFICE_SENDER, taskId: null, kind: 'assumption', text: `без ответа ${i}`, assumption: 'x' });
+    pf.updateQuestion(q.id, { shownAt: two });
+  }
+  adjustPortfolio(pf);
+  check('вопросы без ответа — порция меньше', pf.life.policy.questionsPerStandup === 3);
+  pf.touchLife({ deferrals: 3 });
+  adjustPortfolio(pf);
+  check('частые отложенные — рефлексия выключена', pf.life.policy.reflectionOn === false && pf.life.deferrals === 0);
+  adjustPortfolio(pf);
+  check('неделя без отложенных — рефлексия снова включена', pf.life.policy.reflectionOn === true);
+  for (let i = 0; i < 5; i += 1) {
+    pf.noteRitualRun({ ritual: 'standup', at: Date.now() - (5 - i) * 24 * 3600 * 1000, costUsd: 0, produced: {}, note: '' });
+  }
+  adjustPortfolio(pf);
+  check('нечитаные планёрки — без фразы менеджера', pf.life.policy.standupPmLine === false);
+  check('портфель говорит о себе в ленте', pf.log.filter((l) => l.text.startsWith('Портфель')).length >= 4);
+  check('портфель в снапшоте', (pf.snapshot() as { life: { policy: { standupPmLine: boolean } } }).life.policy.standupPmLine === false);
+
   unloadOfficeState('o-life');
   unloadOfficeState('o-life-quiet');
   unloadOfficeState('o-life-journal');
   unloadOfficeState('o-life-rituals');
   unloadOfficeState('o-life-dir');
+  unloadOfficeState('o-life-portfolio');
   console.log(results.join('\n'));
   const failedChecks = results.filter((r) => r.includes('❌'));
   console.log(failedChecks.length ? `ПРОВАЛОВ: ${failedChecks.length}` : 'ВСЕ ПРОВЕРКИ ПРОШЛИ');

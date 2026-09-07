@@ -699,6 +699,8 @@ export const ru: Record<keyof typeof en, string> = {
   'settings.life.initiative.auto.hint': 'Кладёт в план и начинает; вы узнаёте из планёрки. Ограничено долей ниже.',
   'settings.life.share': 'Доля недельного расхода, которую офис вправе тратить на своё',
   'settings.life.share.hint': 'Здоровье проекта в долю не входит: красные проверки — обязанность, а не инициатива.',
+  'market.reputation': 'репутация: закрыто {closed}, чисто {clean}%, {cost} за задачу',
+  'market.reputation.hint': 'Исходы задач из офисов, которые согласились их сообщать. Не оценка — доля чистых слияний и цена.',
   'life.title': 'Жизнь офиса',
   'life.tab.questions': 'Вопросы',
   'life.tab.journal': 'Журнал',

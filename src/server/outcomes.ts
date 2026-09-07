@@ -22,6 +22,19 @@ import { confirmFactsFor } from './journal';
 /** Сколько дней после слияния надзор ещё проверяет, не откатили ли работу. */
 const REVERT_WINDOW_MS = 14 * 24 * 60 * 60 * 1000;
 
+/**
+ * Кому сообщать о записанном исходе. Слушатель, а не импорт: исходу всё
+ * равно, кто им пользуется (телеметрия маркета, проверки), а маркет тянет за
+ * собой реестр и сеть, которым в этом модуле делать нечего.
+ */
+type OutcomeListener = (state: OfficeState, task: Task, outcome: TaskOutcome) => void;
+const listeners = new Set<OutcomeListener>();
+
+export function onOutcome(fn: OutcomeListener): () => void {
+  listeners.add(fn);
+  return () => listeners.delete(fn);
+}
+
 /** Исходы слитой работы — те, которые откат вправе перекрыть. */
 const MERGED_KINDS: OutcomeKind[] = ['clean', 'reworked', 'stuck'];
 
@@ -61,6 +74,7 @@ export function recordOutcome(
   // Чистое закрытие подтверждает журнал, который задача видела: записи не
   // помешали — значит, они верны (§5.4).
   if (kind === 'clean') confirmFactsFor(state, task, at);
+  for (const fn of listeners) fn(state, task, outcome);
   return outcome;
 }
 

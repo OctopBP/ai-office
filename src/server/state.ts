@@ -591,11 +591,13 @@ export interface LifeState {
   /** Итог последней рефлексии и когда она была — для планёрки (§5.5). */
   reflection: string | null;
   reflectionAt: number | null;
+  /** Сколько раз за неделю ритуалы откладывались из-за лимита — для портфеля (§8.2). */
+  deferrals: number;
 }
 
 export const emptyLife = (): LifeState => ({
   standupDay: null, standupAt: null, lastRun: {}, policy: { ...DEFAULT_RITUAL_POLICY }, runs: [],
-  reflection: null, reflectionAt: null,
+  reflection: null, reflectionAt: null, deferrals: 0,
 });
 
 /** Сколько прогонов ритуалов помним: портфелю хватает нескольких недель. */

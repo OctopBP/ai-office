@@ -77,7 +77,25 @@ export interface VersionMeta {
 
 interface Stats {
   installs: Record<string, number>;
+  /**
+   * Исходы задач по пакетам — репутация (docs/design/living-office/spec.md
+   * §3.2). Приезжают из офисов по согласию: не оценка, а доля чистых
+   * закрытий и цена. Поля нет в статистике, записанной до репутации.
+   */
+  outcomes?: Record<string, OutcomeStats>;
 }
+
+interface OutcomeStats {
+  closed: number;
+  delivered: number;
+  clean: number;
+  costUsd: number;
+}
+
+/** Исход одной задачи, как его шлёт офис: без текста, без владельца. */
+const OUTCOME_KINDS = ['clean', 'reworked', 'stuck', 'failed', 'cancelled', 'reverted'] as const;
+type OutcomeKind = (typeof OUTCOME_KINDS)[number];
+const DELIVERED: OutcomeKind[] = ['clean', 'reworked', 'stuck'];
 
 /**
  * Лицензии: ключ → пакет и владелец. Выдаёт админ — то есть продавец: сервис
@@ -215,7 +233,34 @@ export class RegistryService {
       ...entry,
       ...(meta ? { title: meta.title, summary: meta.summary, tags: meta.tags, emoji: meta.emoji, color: meta.color } : {}),
       installs: this.stats.installs[entry.name] ?? 0,
+      ...(this.reputation(entry.name) ? { reputation: this.reputation(entry.name)! } : {}),
     };
+  }
+
+  /** Репутация пакета из накопленных исходов: доля чистых среди сданных и цена. */
+  private reputation(name: string): { closed: number; cleanShare: number; avgCostUsd: number } | null {
+    const o = this.stats.outcomes?.[name];
+    if (!o || !o.closed) return null;
+    return {
+      closed: o.closed,
+      cleanShare: o.delivered ? Math.round((o.clean / o.delivered) * 1000) / 1000 : 0,
+      avgCostUsd: Math.round((o.costUsd / o.closed) * 1000) / 1000,
+    };
+  }
+
+  /** Принять исход задачи от офиса. Мусор отбрасывается, а не считается. */
+  private noteOutcome(name: string, body: Record<string, unknown>): boolean {
+    const kind = body.kind;
+    if (typeof kind !== 'string' || !(OUTCOME_KINDS as readonly string[]).includes(kind)) return false;
+    const cost = typeof body.costUsd === 'number' && Number.isFinite(body.costUsd) ? Math.max(0, body.costUsd) : 0;
+    this.stats.outcomes ??= {};
+    const o = this.stats.outcomes[name] ??= { closed: 0, delivered: 0, clean: 0, costUsd: 0 };
+    o.closed += 1;
+    o.costUsd += cost;
+    if (DELIVERED.includes(kind as OutcomeKind)) o.delivered += 1;
+    if (kind === 'clean') o.clean += 1;
+    this.save();
+    return true;
   }
 
   /** Реестр наружу: зеркальные адреса подписаны публичным адресом. */
@@ -454,6 +499,12 @@ export class RegistryService {
           this.stats.installs[name] = (this.stats.installs[name] ?? 0) + 1;
           this.save();
           json(res, 200, { installs: this.stats.installs[name] });
+          return;
+        }
+        if (req.method === 'POST' && tail === 'outcome') {
+          const body = JSON.parse((await readBody(req)) || '{}') as Record<string, unknown>;
+          if (!this.noteOutcome(name, body)) { json(res, 400, { error: 'bad outcome' }); return; }
+          json(res, 200, { reputation: this.reputation(name) });
           return;
         }
       }

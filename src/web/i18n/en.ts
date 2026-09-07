@@ -700,6 +700,8 @@ export const en = {
   'settings.life.initiative.auto.hint': 'Puts it on the plan and starts; you learn from the standup. Limited by the share below.',
   'settings.life.share': 'Share of weekly spend the office may use for its own work',
   'settings.life.share.hint': 'Project health is exempt: red checks are a duty, not an initiative.',
+  'market.reputation': 'reputation: {closed} closed, {clean}% clean, {cost} per task',
+  'market.reputation.hint': 'Task outcomes reported by offices that opted in. Not a rating — a share of clean merges and a price.',
   'life.title': 'Office life',
   'life.tab.questions': 'Questions',
   'life.tab.journal': 'Journal',

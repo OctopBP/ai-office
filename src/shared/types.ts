@@ -1504,6 +1504,19 @@ export interface MarketPackageView {
   buyUrl: string;
   /** Ключ на этой машине есть. Сам ключ на витрину не едет. */
   licensed: boolean;
+  /**
+   * Репутация пакета по исходам задач (docs/design/living-office/spec.md §3.2):
+   * сколько закрыто, какая доля чисто, почём задача. Собирается сервисом
+   * индекса из телеметрии офисов по согласию; null — данных нет.
+   */
+  reputation: PackageReputation | null;
+}
+
+export interface PackageReputation {
+  closed: number;
+  /** Доля закрытых чисто среди сданных, 0–1. */
+  cleanShare: number;
+  avgCostUsd: number;
 }
 
 export interface MarketTeamMemberView {

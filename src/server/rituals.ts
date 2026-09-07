@@ -84,9 +84,11 @@ export interface ReflectionInput {
   facts: Fact[];
 }
 
-/** Что рефлексия произвела сверх общего: фичи и итог для владельца. */
+/** Что рефлексия произвела сверх общего: фичи, правила и итог для владельца. */
 export interface ReflectionOutput extends RitualOutput {
   features: FeatureProposal[];
+  /** Правила из повторов (§5.5, §8.1) — становятся предложениями владельцу. */
+  rules: Array<{ roleId: string; text: string; rationale: string }>;
   summary: string;
 }
 
@@ -101,7 +103,7 @@ const emptyOutput = (): RitualOutput => ({ facts: [], contradictions: [], questi
 let agents: RitualAgents = {
   async consolidate() { return emptyOutput(); },
   async contradictions() { return emptyOutput(); },
-  async reflect() { return { ...emptyOutput(), features: [], summary: '' }; },
+  async reflect() { return { ...emptyOutput(), features: [], rules: [], summary: '' }; },
 };
 
 export function setRitualAgents(next: RitualAgents): void {
@@ -319,6 +321,9 @@ export async function runRitual(state: OfficeState, ritual: RitualId, now = Date
     }));
     // Отложенный ритуал не забывается, но и не долбится каждую минуту.
     state.life.lastRun[ritual] = now - WEEK_MS + 60 * 60 * 1000;
+    // Портфель считает отложенные: упёрлись в лимит трижды за неделю —
+    // первой отключается рефлексия, самый дорогой ритуал.
+    state.touchLife({ deferrals: state.life.deferrals + 1 });
     return null;
   }
 
@@ -414,6 +419,8 @@ const runners: Record<RitualId, Runner> = {
       }), state.say('journal.staleAssumption'));
     }
     const produced = { staled: result.staled.length, archived: result.archived.length, asked: result.toAsk.length };
+    // Раз в неделю, вместе с забыванием, офис смотрит и на сами ритуалы.
+    adjustPortfolio(state, now);
     return {
       ritual: 'forget', at: now, costUsd: 0, produced,
       note: state.say('ritual.forget.note', produced),
@@ -436,12 +443,29 @@ const runners: Record<RitualId, Runner> = {
       if (made.ok) features += 1;
       else state.addLog(null, 'system', made.message);
     }
+    // Правило из повторов — предложение, а не правка: бриф роли меняет
+    // поведение исполнителя, и без одобрения владельца офис его не трогает.
+    let rules = 0;
+    for (const rule of out.rules) {
+      if (!rule.text.trim() || !state.role(rule.roleId)) continue;
+      const dup = state.proposalList().some((p) =>
+        p.kind === 'rule' && p.status === 'pending' && p.roleId === rule.roleId && p.text.trim() === rule.text.trim());
+      if (dup) continue;
+      state.addProposal({
+        kind: 'rule', title: clip(rule.text, 80), text: rule.text.trim(), rationale: rule.rationale,
+        roleId: rule.roleId, setting: null, directionId: null, plan: null,
+      });
+      state.addChat(OFFICE_SENDER, state.say('proposal.ruleProposedChat', {
+        role: rule.roleId, text: clip(rule.text, 200), rationale: clip(rule.rationale, 200),
+      }));
+      rules += 1;
+    }
     const summary = out.summary.trim();
     if (summary) {
       state.addChat(OFFICE_SENDER, state.say('reflect.chat', { summary }));
       state.touchLife({ reflection: summary, reflectionAt: now });
     }
-    const all = { ...produced, features };
+    const all = { ...produced, features, rules };
     return {
       ritual: 'reflect', at: now, costUsd: out.costUsd, produced: all,
       note: state.say('reflect.note', all),
@@ -543,3 +567,67 @@ export function askAboutReverts(state: OfficeState, tasks: Task[]): void {
 }
 
 export { STALE_AFTER_MS };
+
+// ------------------------------------------------------------ портфель
+
+/** Через сколько дней вопрос без ответа считается проигнорированным. */
+const UNANSWERED_MS = 14 * 24 * 60 * 60 * 1000;
+/** Сколько планёрок подряд без ответа владельца, чтобы убрать фразу менеджера. */
+const UNREAD_STANDUPS = 5;
+/** Сколько отложенных ритуалов за неделю выключают рефлексию. */
+const DEFERRALS_LIMIT = 3;
+const MAX_CONSOLIDATE_EVERY_MS = 48 * 60 * 60 * 1000;
+const MIN_QUESTIONS = 2;
+
+/**
+ * Портфель ритуалов (§8.2): обучение на отклике, применённое к самим
+ * ритуалам. Это то немногое, что офис меняет в себе без одобрения — цена
+ * ошибки здесь лишний или недостающий абзац в чате, а не поведение
+ * исполнителя. Каждая подкрутка называется вслух в ленте.
+ */
+export function adjustPortfolio(state: OfficeState, now = Date.now()): void {
+  const policy = state.life.policy;
+  const twoWeeks = now - 2 * WEEK_MS;
+
+  // 1. Консолидация даёт записи, которые протухают, ни разу не подтвердившись → реже.
+  const fromConsolidation = state.factList().filter((f) => f.source.ritual === 'consolidate' && f.createdAt >= twoWeeks);
+  const archived = fromConsolidation.filter((f) => f.status !== 'live').length;
+  const confirmed = fromConsolidation.filter((f) => f.status === 'live' && f.confirmedAt > f.createdAt).length;
+  if (archived >= 3 && archived > confirmed && policy.consolidateEveryMs < MAX_CONSOLIDATE_EVERY_MS) {
+    const next = Math.min(MAX_CONSOLIDATE_EVERY_MS, policy.consolidateEveryMs * 2);
+    state.setPolicy({ consolidateEveryMs: next });
+    state.addLog(null, 'system', state.say('portfolio.consolidateSlower', {
+      archived, confirmed, h: Math.round(next / 3_600_000),
+    }));
+  }
+
+  // 2. Вопросы две недели без ответа → порция меньше.
+  const ignored = openQuestions(state).filter((q) => q.shownAt !== null && now - q.shownAt >= UNANSWERED_MS).length;
+  if (ignored >= 3 && policy.questionsPerStandup > MIN_QUESTIONS) {
+    const n = Math.max(MIN_QUESTIONS, policy.questionsPerStandup - 1);
+    state.setPolicy({ questionsPerStandup: n });
+    state.addLog(null, 'system', state.say('portfolio.fewerQuestions', { open: ignored, n }));
+  }
+
+  // 3. Планёрку не читают (в день планёрки владелец не написал ни слова) → без фразы менеджера.
+  const standups = state.life.runs.filter((r) => r.ritual === 'standup').slice(-UNREAD_STANDUPS);
+  if (standups.length >= UNREAD_STANDUPS && policy.standupPmLine) {
+    const unread = standups.every((r) => !state.chat.some((c) =>
+      c.from === 'user' && dayKey(c.at) === dayKey(r.at) && c.at > r.at));
+    if (unread) {
+      state.setPolicy({ standupPmLine: false });
+      state.addLog(null, 'system', state.say('portfolio.noPmLine', { n: UNREAD_STANDUPS }));
+    }
+  }
+
+  // 4. Лимит подписки: часто откладывались → рефлексия выключается первой;
+  //    неделя без отложенных → возвращается.
+  if (state.life.deferrals >= DEFERRALS_LIMIT && policy.reflectionOn) {
+    state.setPolicy({ reflectionOn: false });
+    state.addLog(null, 'system', state.say('portfolio.reflectionOff', { n: state.life.deferrals }));
+  } else if (state.life.deferrals === 0 && !policy.reflectionOn && state.settings.ritualsEnabled !== false) {
+    state.setPolicy({ reflectionOn: true });
+    state.addLog(null, 'system', state.say('portfolio.reflectionOn'));
+  }
+  state.touchLife({ deferrals: 0 });
+}

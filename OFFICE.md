@@ -41,6 +41,7 @@ Node + TypeScript, React 19 + Zustand на фронте, `ws` для связи,
 | `src/server/journal.ts`, `src/server/questions.ts` | Журнал офиса (записи, области, забывание) и вопросы владельцу (`ask_owner`, ответы в журнал, порция для планёрки) |
 | `src/server/rituals.ts` | Ритуалы офиса на тихом тике надзора: планёрка из данных, консолидация, противоречия и рефлексия через `RitualAgents`, забывание, здоровье проекта, порог лимита |
 | `src/server/initiatives.ts`, `src/server/selfchange.ts` | Инициативы: фича от офиса по режиму (`off`/`propose`/`auto`) и доле на своё; предложения владельцу и их применение (правило в бриф, настройка из белого списка) |
+| `src/server/market.ts` → `tellOutcome`, `src/registry/service.ts` → `/outcome` | Репутация пакета: исходы задач по согласию (галочка телеметрии) считаются сервисом в долю чистых закрытий и цену; видна на карточке маркета |
 | `src/server/git.ts` | Ветки, worktree, коммиты, слияние |
 | `src/server/cloud.ts` | Облачный режим на Managed Agents (написан, вживую не проверен) |
 | `src/server/index.ts` | HTTP + WebSocket, раздача собранного веба, команды от клиента |

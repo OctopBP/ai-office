@@ -161,6 +161,14 @@ function PackageCard({ p, busy, act }: { p: MarketPackageView; busy: boolean; ac
         {' · '}<span className={`market-badge ${p.trust}`}>{t(`market.trust.${p.trust}`)}</span>
       </p>
       {p.summary && <p className="market-summary">{p.summary}</p>}
+      {p.reputation && (
+        <p className="muted small" title={t('market.reputation.hint')}>
+          {t('market.reputation', {
+            closed: p.reputation.closed, clean: Math.round(p.reputation.cleanShare * 100),
+            cost: `$${p.reputation.avgCostUsd.toFixed(2)}`,
+          })}
+        </p>
+      )}
       {p.tags.length > 0 && <p className="muted small">{p.tags.map((tag) => `#${tag}`).join(' ')}</p>}
       {p.yanked && <div className="form-banner error">{t('market.yanked')}</div>}
 
