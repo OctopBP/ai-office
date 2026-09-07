@@ -33,6 +33,7 @@
     "test:plan": "tsx scripts/test-plan.ts",
     "test:merge": "tsx scripts/test-merge.ts",
     "test:money": "tsx scripts/test-money.ts",
+    "test:life": "tsx scripts/test-life.ts",
     "test:review": "tsx scripts/test-review.ts",
     "test:offices": "tsx scripts/test-offices.ts",
     "test:presets": "tsx scripts/test-presets.ts",

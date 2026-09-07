@@ -8,7 +8,7 @@ import type {
   EpicStatus, EpicView,
   CloudStatus, OfficeView, MergeCheck, MergeRun, LayoutOption,
   Layout, LayoutOverride, LayoutPropEdit,
-  PullRequestView, PrStage, ReviewNote,
+  PullRequestView, PrStage, ReviewNote, TaskOutcome,
 } from '../shared/types';
 import { OFFICE_SENDER } from '../shared/types';
 import {
@@ -436,6 +436,17 @@ export interface Epic {
   order: number;
   status: EpicStatus;
   approved: boolean;
+  /**
+   * Кто завёл фичу: человек через менеджера или офис себе — инициатива
+   * (docs/design/living-office/spec.md §7.2). Инициатива подчиняется тем же
+   * правилам фокуса и конвейера; отличается тем, кто её одобряет и что она
+   * считается в долю расхода на своё.
+   */
+  origin: 'owner' | 'office';
+  /** Из чего инициатива выведена — читает человек в плане. Пусто у фич владельца. */
+  rationale: string;
+  /** Направление владельца, по которому заведена. null — вне направлений. */
+  directionId: string | null;
   createdAt: number;
   startedAt: number | null;
   finishedAt: number | null;
@@ -494,6 +505,13 @@ export interface Task {
    * и придумывать ему дни офис не станет.
    */
   daily: Record<string, Usage>;
+  /** Чем задача кончилась. Ставится один раз при закрытии (outcomes.ts). */
+  outcome: TaskOutcome | null;
+  /**
+   * Ревизия базовой ветки сразу после слияния. По ней надзор замечает откат:
+   * пропала из истории базы — работу выбросили руками. null — не сливали.
+   */
+  mergeCommit: string | null;
 }
 
 interface Pending {
@@ -501,6 +519,19 @@ interface Pending {
   resolve: (d: PermissionDecision) => void;
   timer: NodeJS.Timeout;
 }
+
+/**
+ * Жизнь офиса поверх доски: то, что он помнит о себе между сессиями
+ * (docs/design/living-office/spec.md). Планёрка — единственный ритуал,
+ * который смотрит вперёд: показывается при первом открытии офиса за день.
+ */
+export interface LifeState {
+  /** День последней планёрки, 'ГГГГ-ММ-ДД', и её момент. */
+  standupDay: string | null;
+  standupAt: number | null;
+}
+
+export const emptyLife = (): LifeState => ({ standupDay: null, standupAt: null });
 
 /** Сколько ждём ответа пользователя, прежде чем отказать. */
 const PERMISSION_TIMEOUT_MS = 10 * 60 * 1000;
@@ -621,6 +652,8 @@ export class OfficeState {
   usage: Usage = emptyUsage();
   /** Расход офиса по дням. */
   daily: Record<string, Usage> = {};
+  /** Планёрки, журнал и прочая жизнь офиса поверх доски. */
+  life: LifeState = emptyLife();
   /** Кого разбудить, когда паузу снимут. */
   private resumeWaiters = new Set<() => void>();
   private listeners = new Set<Listener>();
@@ -761,8 +794,19 @@ export class OfficeState {
       })),
       usage: this.usage,
       daily: this.daily,
+      life: this.life,
       savedAt: Date.now(),
     };
+  }
+
+  /**
+   * Жизнь офиса изменилась (планёрка показана, запись журнала подтверждена).
+   * Отдельный метод, а не прямая правка поля: запись на диск идёт с дебаунсом,
+   * и о ней надо сказать — иначе планёрка после перезапуска повторилась бы.
+   */
+  touchLife(patch: Partial<LifeState> = {}): void {
+    Object.assign(this.life, patch);
+    this.markDirty();
   }
 
   /**
@@ -819,8 +863,15 @@ export class OfficeState {
     // проще, когда фичи уже на месте. Сохранения старше плана его не знают —
     // там план пуст, а задачи остаются задачами вне плана.
     for (const epic of data.epics ?? []) {
-      this.epics.set(epic.id, { ...epic, attention: epic.attention ?? null });
+      // Фичи из сохранений до инициатив — все от владельца: офис тогда
+      // ничего себе не ставил.
+      this.epics.set(epic.id, {
+        ...epic, attention: epic.attention ?? null,
+        origin: epic.origin ?? 'owner', rationale: epic.rationale ?? '',
+        directionId: epic.directionId ?? null,
+      });
     }
+    this.life = { ...emptyLife(), ...(data.life ?? {}) };
     this.epicSeq = data.epicSeq ?? this.epics.size;
     // Записи из версий до появления веток чата относим к разговору с менеджером.
     this.chat = (data.chat ?? []).map((c) => ({ ...c, thread: c.thread ?? 'pm#1' }));
@@ -957,6 +1008,7 @@ export class OfficeState {
     this.alwaysDenied.clear();
     this.usage = emptyUsage();
     this.daily = {};
+    this.life = emptyLife();
     this.setPaused(false);
     // В архивные роли не сажаем никого: их убрали именно затем, чтобы офис
     // в них не работал, — а seed заново рассаживает штат по умолчанию.
@@ -1381,6 +1433,8 @@ export class OfficeState {
       finishedAt: null,
       usage: emptyUsage(),
       daily: {},
+      outcome: null,
+      mergeCommit: null,
     };
     this.tasks.set(task.id, task);
     this.emit({ t: 'task', task: toTaskView(task) });
@@ -1395,7 +1449,10 @@ export class OfficeState {
    * может переставить план, и «раньше завели» перестало бы значить «раньше
    * делать» — а именно порядок и есть весь смысл плана.
    */
-  createEpic(input: { title: string; goal: string; order?: number; approved: boolean }): Epic {
+  createEpic(input: {
+    title: string; goal: string; order?: number; approved: boolean;
+    origin?: 'owner' | 'office'; rationale?: string; directionId?: string | null;
+  }): Epic {
     this.epicSeq += 1;
     const epic: Epic = {
       id: `F-${this.epicSeq}`,
@@ -1404,6 +1461,9 @@ export class OfficeState {
       order: input.order ?? this.epicSeq,
       status: 'planned',
       approved: input.approved,
+      origin: input.origin ?? 'owner',
+      rationale: input.rationale ?? '',
+      directionId: input.directionId ?? null,
       createdAt: Date.now(),
       startedAt: null,
       finishedAt: null,
@@ -2660,6 +2720,7 @@ export const toTaskView = (t: Task): TaskView => ({
   startedAt: t.startedAt, finishedAt: t.finishedAt,
   usage: t.usage,
   today: t.daily?.[dayKey()] ?? emptyUsage(),
+  outcome: t.outcome ?? null,
 });
 
 /**
@@ -2718,11 +2779,14 @@ function migrateTask(raw: Task & {
   // Журнала по дням в старых сохранениях нет, и восстановить его из общей
   // суммы нельзя: разложить её по прошедшим дням было бы выдумкой. Пустой
   // журнал честнее — «за сегодня» у такой задачи ноль, пока она не поработает.
+  // Исходов в сохранениях до живого офиса нет: закрытые тогда задачи остаются
+  // без исхода, а не получают выдуманный, — табель считается с этого дня.
   return {
     ...raw, criteria, usage, daily: raw.daily ?? {},
     interrupted: raw.interrupted ?? false, attention: raw.attention ?? null,
     workerSessionId: raw.workerSessionId ?? null, reviewerSessionId: raw.reviewerSessionId ?? null,
     epicId: raw.epicId ?? null, order: raw.order ?? 0, dependsOn: raw.dependsOn ?? [],
+    outcome: raw.outcome ?? null, mergeCommit: raw.mergeCommit ?? null,
   };
 }
 

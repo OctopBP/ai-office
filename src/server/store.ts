@@ -3,7 +3,7 @@ import { dirname, resolve } from 'node:path';
 import type {
   ChatEntry, LayoutOverride, LogEntry, PermissionMode, PullRequestView, Settings, Usage,
 } from '../shared/types';
-import type { Epic, Task } from './state';
+import type { Epic, LifeState, Task } from './state';
 import type { Role } from './roles';
 import { c } from './i18n';
 
@@ -73,6 +73,12 @@ export interface Persisted {
    * В сохранениях старше редактора расстановки поля нет.
    */
   layoutOverrides?: Record<string, LayoutOverride>;
+  /**
+   * Жизнь офиса: планёрки, журнал, вопросы владельцу, ритуалы
+   * (docs/design/living-office/spec.md). В сохранениях до неё поля нет —
+   * офис начинает с пустой памяти, а не с выдуманной.
+   */
+  life?: Partial<LifeState>;
   savedAt: number;
 }
 

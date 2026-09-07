@@ -17,6 +17,7 @@ import {
   type OfficeEntry,
 } from './offices';
 import { stopSupervisor } from './supervisor';
+import { noteOfficeViewed } from './rituals';
 import { c } from './i18n';
 import { OFFICE_SENDER } from '../shared/types';
 
@@ -177,6 +178,9 @@ export function sendSnapshot(ws: Sink, state: OfficeState | null = defaultState(
   // показать человеку чужой или несуществующий офис.
   if (!state || ws.readyState !== OPEN) return;
   clients.set(ws, state.officeId);
+  // Планёрка — до снапшота: тогда она уезжает внутри него, а не отдельным
+  // событием следом, и клиент видит её сразу, как открыл офис.
+  noteOfficeViewed(state);
   ws.send(JSON.stringify(state.snapshot()));
 }
 

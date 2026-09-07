@@ -555,6 +555,19 @@ export async function isDirty(dir: string): Promise<boolean> {
   return r.ok && r.stdout !== '';
 }
 
+/**
+ * Дошёл ли коммит до ревизии: лежит ли он в её истории. Нужно надзору, чтобы
+ * заметить откат: коммит слияния закрытой задачи, которого больше нет в
+ * основной ветке, — это работа, которую человек выбросил руками.
+ * null — проверить не удалось (нет такого коммита или ревизии).
+ */
+export async function isAncestor(dir: string, commit: string, ref: string): Promise<boolean | null> {
+  const r = await git(dir, ['merge-base', '--is-ancestor', commit, ref]);
+  if (r.ok) return true;
+  // Единица — честное «нет», всё остальное — поломка вызова.
+  return r.code === 1 ? false : null;
+}
+
 /** Хеш ветки или ревизии. null — такой ревизии нет. */
 export async function revision(dir: string, ref: string): Promise<string | null> {
   const r = await git(dir, ['rev-parse', '--verify', ref]);

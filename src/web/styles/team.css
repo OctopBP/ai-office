@@ -114,3 +114,22 @@
 .mcp-status { display: block; margin: calc(-1 * var(--space-1)) 0 var(--space-3); font-size: var(--fs-small); color: var(--ink-3); }
 .mcp-status.connected { color: var(--ok-ink); }
 .mcp-status.failed, .mcp-status[class*="needs-auth"] { color: var(--danger); }
+
+/* ---------- табель роли ----------
+   Сетка коротких показателей над формой роли: число крупно, подпись мелко.
+   Окно (неделя, месяц, всё время) — сегментом, как переключатель темы. */
+.role-report { margin-bottom: var(--space-5); padding-bottom: var(--space-4); border-bottom: 1px solid var(--hairline); }
+.role-report-head { display: flex; align-items: center; justify-content: space-between; gap: var(--space-3); margin-bottom: var(--space-3); }
+.role-report-head .section-title { margin: 0; }
+.mini-seg button { padding: 2px 10px; font-size: var(--fs-small); }
+.report-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(120px, 1fr)); gap: var(--space-2); }
+.report-cell {
+  display: flex; flex-direction: column; gap: 2px; padding: var(--space-2) var(--space-3);
+  background: var(--film); border-radius: var(--radius-card);
+}
+.report-cell b { font: 600 var(--fs-title)/1.2 var(--font); color: var(--ink); }
+.report-cell b.bad { color: var(--danger); }
+/* Исход задачи на её карточке: цвет — по смыслу, как у стадий конвейера. */
+.outcome-chip.clean { color: var(--ok-ink); }
+.outcome-chip.reworked, .outcome-chip.stuck { color: var(--warn); }
+.outcome-chip.failed, .outcome-chip.reverted { color: var(--danger); }

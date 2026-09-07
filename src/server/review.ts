@@ -34,6 +34,7 @@ import {
   removeWorktree, revision,
 } from './git';
 import { integrationDir, runTypecheck } from './merge';
+import { mergedKind, recordOutcome } from './outcomes';
 import { githubToken } from './cloud';
 import { commentOnPr, createPullRequest, githubFor, mergePullRequest } from './github';
 
@@ -485,9 +486,13 @@ async function mergeStep(
 
   await cleanup(state, task, repo, branch);
 
+  // Ревизию базы запоминаем до того, как её сдвинет следующее слияние: по
+  // ней надзор потом заметит, что работу откатили.
+  const mergeCommit = await revision(repo, base);
   state.updateTask(task.id, {
-    status: 'done', merged: true, worktreePath: null, finishedAt: Date.now(),
+    status: 'done', merged: true, worktreePath: null, finishedAt: Date.now(), mergeCommit,
   });
+  recordOutcome(state, task.id, mergedKind(state, task));
   state.patchPr(task.id, {
     stage: 'merged',
     note: fresh?.number
@@ -526,7 +531,10 @@ async function cleanup(
 function markStuck(
   state: OfficeState, task: Task, why: string, needsDecision = false,
 ): void {
-  state.patchPr(task.id, { stage: 'stuck', note: why, needsDecision });
+  // Остановки считаем все подряд: исходу задачи важно не «сколько раз надзор
+  // перезапускал», а вставала ли она вообще.
+  const stuckTimes = (state.prOf(task.id)?.stuckTimes ?? 0) + 1;
+  state.patchPr(task.id, { stage: 'stuck', note: why, needsDecision, stuckTimes });
   state.addChat(OFFICE_SENDER, state.say('pipe.stuckChat', { task: task.id, why }));
   state.addLog(null, 'error', state.say('pipe.stuckLog', { task: task.id, why }));
   if (!needsDecision) return;

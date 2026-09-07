@@ -35,9 +35,15 @@ import { type OfficeState, type Task } from './state';
 import { pipelineProblem, runPipeline, tellPm } from './review';
 import { officeAssign, retryTask, slotProblem } from './agents';
 import { dispatch } from './plan';
+import { detectReverts } from './outcomes';
 
 /** Как часто офис оглядывается на свои ветки. */
 const TICK_MS = 60_000;
+
+/** Как часто ходим в git за откатами: они не горят, а проверка не бесплатна. */
+const REVERT_CHECK_MS = 10 * 60_000;
+/** Когда по каждому офису последний раз искали откаты. */
+const revertChecks = new Map<string, number>();
 
 /**
  * Паузы перед повторными попытками. Растут: первая беда чаще всего проходящая
@@ -141,6 +147,15 @@ export async function superviseOffice(state: OfficeState): Promise<void> {
   }
 
   await watchBoard(state, now);
+
+  // 3½. Откаты: слитую работу человек мог выбросить руками, и офис узнаёт об
+  // этом только так. Ходить в git ради этого раз в минуту незачем — раз в
+  // десять хватает: откат не горит, а исход задачи от этого не изменится.
+  const lastReverts = revertChecks.get(state.officeId) ?? 0;
+  if (now - lastReverts > REVERT_CHECK_MS) {
+    revertChecks.set(state.officeId, now);
+    await detectReverts(state, now);
+  }
 
   // 4. План. Проход плана дублирует то, что и так делается по событиям
   // (завершилась задача, влилась ветка, согласовали фичу), — и он здесь

@@ -25,6 +25,7 @@ import {
   prDiff, retryPipeline, runPipeline, setPipelineAgents, MAX_ROUNDS,
   type ReviewOutcome, type ReworkOutcome,
 } from './review';
+import { closeIfDone, recordOutcome } from './outcomes';
 import { resolve } from 'node:path';
 import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync } from 'node:fs';
 
@@ -1562,6 +1563,7 @@ function startWorker(taskOffice: OfficeState, task: Task, inst: Instance): void 
         finishedAt: Date.now(),
         criteria: task.criteria.map((c) => ({ ...c, done: true })),
       });
+      closeIfDone(taskOffice, task.id);
       notifyPm(taskOffice, taskOffice.say('agent.pmMsg.stubDone', {
         task: task.id, title: task.title, who: inst.id,
       }));
@@ -1719,6 +1721,9 @@ function startWorker(taskOffice: OfficeState, task: Task, inst: Instance): void 
       taskOffice.updateTask(task.id, {
         status: toPipeline ? 'review' : 'done', result: summary, finishedAt: Date.now(),
       });
+      // Без конвейера сдача и есть закрытие: исход ставится здесь, а с
+      // конвейером — при слиянии, когда известны круги ревью.
+      if (!toPipeline) closeIfDone(taskOffice, task.id);
       taskOffice.setState(inst.id, 'done',
         taskOffice.say(toPipeline ? 'agent.state.handedOver' : 'agent.state.done'));
       const progress = fresh ? criteriaProgress(fresh) : { done: 0, total: 0 };
@@ -1760,6 +1765,7 @@ function startWorker(taskOffice: OfficeState, task: Task, inst: Instance): void 
           result: taskOffice.say('agent.task.error', { error: message }),
           finishedAt: Date.now(),
         });
+        recordOutcome(taskOffice, task.id, 'failed');
         taskOffice.setState(inst.id, 'failed', taskOffice.say('agent.state.error'));
         notifyPm(taskOffice,
           taskOffice.say('agent.pmMsg.failed', { task: task.id, who: inst.id, error: message }));
@@ -1813,6 +1819,7 @@ function startCloudWorker(
         status: 'done', result: outcome.summary, finishedAt: Date.now(),
         branch: outcome.branch, baseBranch: outcome.baseBranch,
       });
+      closeIfDone(taskOffice, task.id);
       taskOffice.setState(inst.id, 'done', taskOffice.say('agent.state.done'));
       const fresh = taskOffice.tasks.get(task.id);
       const progress = fresh ? criteriaProgress(fresh) : { done: 0, total: 0 };
@@ -1836,6 +1843,7 @@ function startCloudWorker(
         result: taskOffice.say('agent.task.error', { error: message }),
         finishedAt: Date.now(),
       });
+      recordOutcome(taskOffice, task.id, 'failed');
       taskOffice.setState(inst.id, 'failed', taskOffice.say('agent.state.error'));
       notifyPm(taskOffice,
         taskOffice.say('agent.pmMsg.cloudFailed', { task: task.id, who: inst.id, error: message }));
@@ -1948,6 +1956,8 @@ export async function retryTask(state: OfficeState, taskId: string): Promise<boo
     startedAt: null, finishedAt: null, usage: emptyUsage(), daily: {},
     // Отметки прошлой попытки к новой не относятся: работа начинается с нуля.
     criteria: task.criteria.map((c) => ({ ...c, done: false })),
+    // Исход прошлой попытки — тоже: судить новую по нему нельзя.
+    outcome: null, mergeCommit: null,
   });
   const fresh = state.tasks.get(taskId);
   if (fresh) startWorker(state, fresh, inst);

@@ -85,6 +85,11 @@ export function TaskDrawer() {
               </span>
             )}
             {badge && <span className={`chip merge-chip ${badge.cls}`}>{badge.label}</span>}
+            {task.outcome && (
+              <span className={`chip outcome-chip ${task.outcome.kind}`} title={t('outcome.hint')}>
+                {t(`outcome.${task.outcome.kind}`)}
+              </span>
+            )}
             {epic && (
               <span className="chip epic-chip" title={epic.goal}>{epic.id} · {epic.title}</span>
             )}

@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { clearTeamRequest, fire, hire, useStore } from './store';
 import { RoleEditor } from './RoleEditor';
 import { EmployeeCard } from './EmployeeCard';
+import { RoleReport } from './RoleReport';
 import { useActionNotice } from './useActionNotice';
 import { Avatar } from './Avatar';
 import { catalog } from './layoutData';
@@ -162,6 +163,11 @@ export function TeamWindow({ onClose }: { onClose: () => void }) {
 
           <div className="team-detail">
             {selection?.kind === 'employee' && <EmployeeCard instanceId={selection.id} />}
+            {/* Табель — над формой: «как роль работает» читают раньше, чем
+                «как она настроена», и правят второе, глядя на первое. */}
+            {selection?.kind === 'role' && !selectedRole?.isManager && (
+              <RoleReport roleId={selection.id} />
+            )}
             {(selection?.kind === 'new-role' || selection?.kind === 'role') && (
               <RoleEditor
                 key={selection.kind === 'role' ? selection.id : 'new'}

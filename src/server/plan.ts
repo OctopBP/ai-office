@@ -25,6 +25,7 @@
  */
 import { OFFICE_SENDER, taskClosed } from '../shared/types';
 import { toTaskView, type Epic, type OfficeState, type Task } from './state';
+import { recordOutcome } from './outcomes';
 
 /**
  * Живые агенты офиса глазами плана. Настоящую реализацию ставит agents.ts при
@@ -430,6 +431,11 @@ export function cancelEpic(state: OfficeState, epicId: string, reason: string): 
     return { ok: false, message: state.say('plan.err.epicDone', { epic: epicId }) };
   }
   state.updateEpic(epicId, { status: 'cancelled', finishedAt: Date.now(), attention: null });
+  // Незапущенные задачи снятой фичи закрываются исходом «снята»: они больше
+  // не начнутся, и табелю роли это важно не меньше, чем провал.
+  for (const task of state.tasksOfEpic(epicId)) {
+    if (task.status === 'planned' || task.status === 'backlog') recordOutcome(state, task.id, 'cancelled');
+  }
   state.addChat(OFFICE_SENDER, state.say('plan.chat.cancelled', {
     epic: epic.id, title: epic.title, reason: reason.trim() || state.say('plan.noReason'),
   }));

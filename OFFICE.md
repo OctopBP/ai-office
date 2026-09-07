@@ -37,6 +37,8 @@ Node + TypeScript, React 19 + Zustand на фронте, `ws` для связи,
 | `src/server/export.ts`, `src/server/publish.ts`, `src/server/bench.ts`, `src/cli/office-agent.ts` | Авторский путь: экспорт роли в пакет, заготовка, валидатор, стенд, публикация в реестр, проверка реестра |
 | `src/registry/service.ts`, `src/registry/main.ts` | Сервис индекса: реестр по адресу, поиск, страницы, зеркало с отпечатком, публикация по GitHub-токену, админ, marketplace.json |
 | `src/server/limits.ts` | Лимиты плана подписки: проценты и время сброса из событий SDK |
+| `src/server/outcomes.ts`, `src/shared/report.ts` | Живой офис: исход задачи (чисто, с доработкой, вставала, провал, снята, откачена), поиск откатов по git, табель роли |
+| `src/server/rituals.ts` | Ритуалы офиса: планёрка при первом открытии за день — из данных доски, без модели |
 | `src/server/git.ts` | Ветки, worktree, коммиты, слияние |
 | `src/server/cloud.ts` | Облачный режим на Managed Agents (написан, вживую не проверен) |
 | `src/server/index.ts` | HTTP + WebSocket, раздача собранного веба, команды от клиента |
