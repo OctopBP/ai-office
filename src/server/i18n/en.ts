@@ -256,6 +256,9 @@ export const en = {
   'wf.gateDismissed': 'Question {id} was dismissed without an answer — taking it as a no.',
   'wf.gateExhausted': 'The owner sent the work back {n} times in a row. The last answer:\n{text}',
   'wf.gateGone': 'Question {id} the process was waiting for is gone.',
+  'wf.saved': 'Process "{id}" saved into the project\'s workflows/ — new runs follow it.',
+  'wf.reset': 'Own process "{id}" removed — the office is back to the built-in one.',
+  'wf.saveFailed': 'The process was not saved: {problem}',
 
   // ------------------------------------------------- office processes
   'flow.skip': 'Process "{flow}" did not start: {why}',

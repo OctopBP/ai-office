@@ -14,6 +14,7 @@ import { assignDirect, holdMeeting, resetSessions, retryTask, sendUserMessage, s
 import { approveEpic, cancelEpic, reorderEpics } from './plan';
 import { mergeQueue, refreshMergeChecks } from './merge';
 import { retryPipeline } from './review';
+import { resetProjectWorkflow, saveProjectWorkflow } from './workflows';
 import { startSupervisor } from './supervisor';
 import { answerQuestion, dismissQuestion } from './questions';
 import { archiveFact, confirmFact } from './journal';
@@ -281,6 +282,18 @@ wss.on('connection', (ws) => {
       void refreshMergeChecks(state);
     } else if (cmd.c === 'merge_queue') {
       void mergeQueue(cmd.taskIds, state);
+    } else if (cmd.c === 'workflow_save') {
+      // Свой процесс проекта: текст разбирается до записи, отказ — готовым
+      // текстом в чат, как у настроек. Сохранённый файл офис видит сразу.
+      const problem = saveProjectWorkflow(state, cmd.id, cmd.text);
+      if (problem) state.addChat(OFFICE_SENDER, state.say('wf.saveFailed', { problem }));
+      else state.addChat(OFFICE_SENDER, state.say('wf.saved', { id: cmd.id }));
+      state.emitWorkflows();
+    } else if (cmd.c === 'workflow_reset') {
+      const problem = resetProjectWorkflow(state, cmd.id);
+      if (problem) state.addChat(OFFICE_SENDER, state.say('wf.saveFailed', { problem }));
+      else state.addChat(OFFICE_SENDER, state.say('wf.reset', { id: cmd.id }));
+      state.emitWorkflows();
     } else if (cmd.c === 'pr_retry') {
       // Вставший конвейер толкают кнопкой: чинить руками в терминале —
       // ровно то, от чего офис и должен избавлять.

@@ -42,11 +42,11 @@ import {
   fetchRemote, isDirty, isRepo, mergeBaseInto, mergeBranch, mergeInProgress, pushBranch,
   removeWorktree, revision,
 } from './git';
-import { integrationDir, runTypecheck } from './merge';
+import { integrationDir, runProjectCheck, runTypecheck } from './merge';
 import { mergedKind, recordOutcome } from './outcomes';
 import { githubToken } from './cloud';
 import { commentOnPr, createPullRequest, githubFor, mergePullRequest } from './github';
-import { builtinWorkflow, builtinWorkflows } from './workflows';
+import { builtinWorkflow, workflowFor } from './workflows';
 import {
   drive, newRun, resumeRun, type Executor, type Halt, type Resolve, type RunHooks, type StepResult,
 } from './runs';
@@ -63,14 +63,16 @@ export function workflowForTask(state: OfficeState, task: Task): Workflow | null
   const type: TaskType | null = task.type ?? (task.branch ? 'code' : null);
   if (!type) return null;
   const id = state.settings.workflows?.[type] ?? (type === 'code' ? WORKFLOW_ID : type);
-  return builtinWorkflows().get(id) ?? null;
+  return workflowFor(state, id);
 }
 
 /**
  * Сколько раз ревьюер может вернуть работу автору, прежде чем позовём
- * менеджера. Число живёт в файле процесса; здесь оно нужно промпту ревьюера.
+ * менеджера. Число живёт в файле процесса — своём у проекта или встроенном;
+ * здесь оно нужно промпту ревьюера.
  */
-export const MAX_ROUNDS = loopMax(builtinWorkflow(WORKFLOW_ID), 'office:review', 'changes') ?? 2;
+export const maxRounds = (state: OfficeState): number =>
+  loopMax(workflowFor(state, WORKFLOW_ID) ?? builtinWorkflow(WORKFLOW_ID), 'office:review', 'changes') ?? 2;
 
 export interface ReviewOutcome {
   verdict: ReviewVerdict;
@@ -287,6 +289,8 @@ async function pipeline(state: OfficeState, taskId: string): Promise<void> {
       }
     },
     stuck: (ctx, why) => markStuck(state, ctx.task, why.note, why.needsDecision),
+    // Цена узла — рост расхода задачи: сессии автора и ревьюера пишутся на неё.
+    cost: () => state.tasks.get(taskId)?.usage.costUsd ?? 0,
   };
   await drive(state, workflow, run, resolveExecutor, hooks);
 }
@@ -773,8 +777,37 @@ const OFFICE: Record<string, Executor<Ctx>> = {
   'office:merge': merge,
 };
 
+/**
+ * Своя проверка проекта (spec §8.2): `run: "project:<имя>"`, команда — из
+ * настроек офиса. Идёт в рабочей копии задачи; не настроена — стоп с
+ * объяснением, а не тихий «пройдено».
+ */
+const projectCheck = (name: string): Executor<Ctx> => ({
+  async run(ctx) {
+    const { state, task } = ctx;
+    const command = state.settings.checks?.[name];
+    if (!command) return fail(state.say('pipe.checkUnknown', { name }));
+    const worktree = await workingCopy(ctx);
+    if (!worktree) return fail(state.say('pipe.noWorktree', { branch: ctx.branch }));
+    state.patchPr(task.id, { note: state.say('pipe.checkRunning', { name }) });
+    const result = await runProjectCheck(worktree, command, state.lang());
+    if (result.ok) {
+      state.addLog(null, 'system', state.say('pipe.checkPassed', { task: task.id, name }));
+      return { outcome: 'pass', artifact: { kind: 'checks', text: result.output } };
+    }
+    return {
+      outcome: 'fail', note: state.say('pipe.checkFailed', { name, message: result.message }),
+      artifact: { kind: 'checks', text: result.message },
+    };
+  },
+  exhausted(ctx, last) {
+    return { note: ctx.state.say('pipe.checksFailedStuck', { message: last.note ?? '' }) };
+  },
+});
+
 /** Чем делается узел: действие из файла, а без него — по виду узла. */
 const resolveExecutor: Resolve<Ctx> = (node) => {
+  if (node.run?.startsWith('project:')) return projectCheck(node.run.slice('project:'.length));
   if (node.run) return OFFICE[node.run];
   if (node.kind === 'step') return step;
   if (node.kind === 'gate') return gate;

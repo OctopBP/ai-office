@@ -294,6 +294,8 @@ export interface Run {
   artifacts: Record<string, RunArtifact>;
   /** Кто делал каждый узел-шаг: для `same` и `notSameAs`. */
   actors: Record<string, string>;
+  /** Что стоил и сколько шёл каждый узел (§10): для сравнения процессов. */
+  steps: RunStep[];
   /** Вопрос владельцу, ответа на который ждёт узел согласования. */
   waitingOn: string | null;
   status: RunStatus;
@@ -302,6 +304,89 @@ export interface Run {
   note: string;
   startedAt: number;
   updatedAt: number;
+}
+
+/** Один пройденный узел: чем кончился, сколько шёл, сколько стоил. */
+export interface RunStep {
+  node: string;
+  outcome: string;
+  startedAt: number;
+  ms: number;
+  costUsd: number;
+}
+
+/** Имя своей проверки проекта (`run: "project:<имя>"`, Settings.checks). */
+export const CHECK_NAME_RE = /^[a-z][a-z0-9-]*$/;
+
+/**
+ * Процесс глазами интерфейса: откуда взят, что в файле, что с ним не так.
+ * Файл проекта с ошибкой показывается вместе с ошибкой, а офис тем временем
+ * едет по встроенному.
+ */
+export interface WorkflowEntry {
+  id: string;
+  source: 'builtin' | 'project';
+  /** Есть и встроенный, и файл проекта — проект перекрывает. */
+  overrides: boolean;
+  workflow: Workflow;
+  /** Текст файла, по которому офис едет; у встроенного — его собственный. */
+  text: string;
+  /** Файл проекта не разобрался: причина. Офис едет по встроенному. */
+  problem: string | null;
+}
+
+export interface NodeStats {
+  node: string;
+  runs: number;
+  avgMs: number;
+  avgCostUsd: number;
+  outcomes: Record<string, number>;
+}
+
+export interface WorkflowStats {
+  workflowId: string;
+  version: number;
+  runs: number;
+  done: number;
+  stuck: number;
+  costUsd: number;
+  nodes: NodeStats[];
+}
+
+/**
+ * Расход по узлам (§10) из прогонов: сколько узел стоит, сколько идёт, чем
+ * кончается. Считается по версии процесса — так две редакции одного файла
+ * можно положить рядом и увидеть, дала ли правка что-нибудь.
+ */
+export function workflowStats(runs: Run[]): WorkflowStats[] {
+  const byKey = new Map<string, WorkflowStats & { _nodes: Map<string, { n: number; ms: number; cost: number; outcomes: Record<string, number> }> }>();
+  for (const run of runs) {
+    const key = `${run.workflowId}@${run.version}`;
+    let stats = byKey.get(key);
+    if (!stats) {
+      stats = { workflowId: run.workflowId, version: run.version, runs: 0, done: 0, stuck: 0, costUsd: 0, nodes: [], _nodes: new Map() };
+      byKey.set(key, stats);
+    }
+    stats.runs += 1;
+    if (run.status === 'done') stats.done += 1;
+    if (run.status === 'stuck') stats.stuck += 1;
+    for (const step of run.steps ?? []) {
+      stats.costUsd += step.costUsd;
+      const node = stats._nodes.get(step.node) ?? { n: 0, ms: 0, cost: 0, outcomes: {} };
+      node.n += 1;
+      node.ms += step.ms;
+      node.cost += step.costUsd;
+      node.outcomes[step.outcome] = (node.outcomes[step.outcome] ?? 0) + 1;
+      stats._nodes.set(step.node, node);
+    }
+  }
+  return [...byKey.values()].map(({ _nodes, ...stats }) => ({
+    ...stats,
+    nodes: [..._nodes.entries()].map(([node, v]) => ({
+      node, runs: v.n, avgMs: v.n ? Math.round(v.ms / v.n) : 0,
+      avgCostUsd: v.n ? v.cost / v.n : 0, outcomes: v.outcomes,
+    })),
+  })).sort((a, b) => a.workflowId.localeCompare(b.workflowId) || b.version - a.version);
 }
 
 /**

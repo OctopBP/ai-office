@@ -1,3 +1,4 @@
+import { CAPABILITIES } from '../shared/workflow';
 import { useEffect, useState } from 'react';
 import {
   accessLabel, fullAccessWarning, archiveRole, clearExportResult, clearRoleFeedback, createRole,
@@ -34,7 +35,7 @@ const modes = (): Array<[PermissionMode, string]> => [
 const BLANK: RoleEditable = {
   title: '', emoji: '🙂', color: '#94a3b8', model: 'claude-sonnet-5',
   permissionMode: null, maxInstances: 1, isolate: true, maxTurns: null,
-  repoDir: '', sprite: LOOKS[0].id, brief: '', briefExtra: '', mcp: [],
+  repoDir: '', sprite: LOOKS[0].id, brief: '', briefExtra: '', mcp: [], capabilities: [],
 };
 
 /**
@@ -281,6 +282,23 @@ export function RoleEditor({ role, onSaved, onDeleted }: {
             <span className="hint">{t('role.mcp.hint')}</span>
           </>
         )}
+      </div>
+
+      <div className="role-mcp">
+        <span className="group-title">{t('role.capabilities')}</span>
+        {CAPABILITIES.map((cap) => (
+          <label key={cap} className="checkbox">
+            <input
+              type="checkbox"
+              checked={(value.capabilities ?? []).includes(cap)}
+              onChange={(e) => set('capabilities', e.target.checked
+                ? [...(value.capabilities ?? []), cap]
+                : (value.capabilities ?? []).filter((c) => c !== cap))}
+            />
+            <span className="mono">{cap}</span>
+          </label>
+        ))}
+        <span className="hint">{t('role.capabilities.hint')}</span>
       </div>
 
       {role?.package ? (

@@ -52,11 +52,14 @@ export interface RunHooks<Ctx> {
   transition?(ctx: Ctx, from: WorkflowNode, outcome: string, to: string): void;
   /** Прогон встал. Хозяин говорит об этом офису и, если надо, менеджеру. */
   stuck(ctx: Ctx, halt: Halt): void;
+  /** Сколько уже потрачено на предмет прогона — разница до и после узла и есть его цена. */
+  cost?(ctx: Ctx): number;
 }
 
 /** Новый прогон процесса — по задаче или по самому офису, на первом узле. */
 export function newRun(workflow: Workflow, subject: Run['subject'], now = Date.now()): Run {
-  const who = subject.taskId ?? subject.epicId ?? subject.flow ?? 'office';
+  // У задачи прогон один; у процесса офиса их много, и каждый — свой.
+  const who = subject.taskId ?? subject.epicId ?? `${subject.flow ?? 'office'}@${now.toString(36)}`;
   return {
     id: `${who}/${workflow.id}`,
     workflowId: workflow.id,
@@ -67,6 +70,7 @@ export function newRun(workflow: Workflow, subject: Run['subject'], now = Date.n
     loops: {},
     artifacts: {},
     actors: {},
+    steps: [],
     waitingOn: null,
     status: 'running',
     needsDecision: false,
@@ -141,9 +145,15 @@ export async function drive<Ctx>(
       run.status = 'running';
       save();
 
+      const startedAt = Date.now();
+      const costBefore = hooks.cost?.(ctx) ?? 0;
       const result = await executor.run(ctx);
       if (node.out && result.artifact) run.artifacts[node.out] = result.artifact;
       if (result.actor) run.actors[node.id] = result.actor;
+      (run.steps ??= []).push({
+        node: node.id, outcome: result.outcome, startedAt,
+        ms: Date.now() - startedAt, costUsd: Math.max(0, (hooks.cost?.(ctx) ?? 0) - costBefore),
+      });
       run.status = 'running';
       run.waitingOn = null;
 

@@ -363,8 +363,7 @@ type Runner = (state: OfficeState, now: number) => Promise<Omit<RitualRun, 'id'>
 async function runAsFlow(state: OfficeState, ritual: RitualId, now: number): Promise<Omit<RitualRun, 'id'>> {
   const workflow = builtinWorkflows().get(`ritual-${ritual}`);
   if (!workflow) return runners[ritual](state, now);
-  const previous = state.flowRun(workflow.id);
-  if (previous) state.runs.delete(previous.id);
+  state.pruneFlowRuns(workflow.id, 19);
   const run = newRun(workflow, { flow: workflow.id }, now);
   let result: Omit<RitualRun, 'id'> | null = null;
   const executor: Executor<WorkflowNode> = {

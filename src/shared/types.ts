@@ -4,7 +4,7 @@
 // который их считает. Здесь они только перевыставлены: ими пользуются и
 // снапшот, и команды клиента, а разбирать контракт по двум файлам неудобно.
 export type { Layout, LayoutOverride, LayoutPropEdit } from './layout';
-import type { FlowMemory, Handoff, Run, TaskType } from './workflow';
+import type { FlowMemory, Handoff, Run, TaskType, WorkflowEntry } from './workflow';
 import type { Layout, LayoutOverride, LayoutPropEdit } from './layout';
 
 // Язык офиса живёт в настройках, а его тип — рядом с движком словарей.
@@ -343,6 +343,8 @@ export interface RoleEditable {
    * У роли без пакета поле пустое и ни на что не влияет.
    */
   briefExtra: string;
+  /** Что роль умеет (spec процессов §5). Пусто — офис выведет по инструментам. */
+  capabilities: string[];
 }
 
 /**
@@ -581,6 +583,11 @@ export interface Settings {
    * (spec процессов §6.3). Нет поля — раз в неделю.
    */
   meetingEveryDays?: number;
+  /**
+   * Свои проверки проекта для узлов `run: "project:<имя>"` (spec процессов
+   * §8.2): имя → команда оболочки, идёт в рабочей копии задачи.
+   */
+  checks?: Record<string, string>;
 }
 
 /**
@@ -1251,6 +1258,8 @@ export type ServerEvent =
       prs: PullRequestView[];
       /** Прогоны процессов по задачам (docs/design/workflows/spec.md §8). */
       runs: Run[];
+      /** Процессы: встроенные и свои у проекта, с текстом файла и ошибками. */
+      workflows: WorkflowEntry[];
       /** План: фичи в том порядке, в котором офис их ведёт. */
       epics: EpicView[];
       /** Живой офис: журнал, вопросы владельцу, ритуалы. */
@@ -1259,6 +1268,7 @@ export type ServerEvent =
       directions: DirectionView[]; proposals: ProposalView[] }
   | { t: 'mcp.status'; servers: McpServerState[] }
   | { t: 'run'; run: Run }
+  | { t: 'workflows'; workflows: WorkflowEntry[] }
   | { t: 'direction'; direction: DirectionView }
   | { t: 'direction.remove'; id: string }
   | { t: 'proposal'; proposal: ProposalView }
@@ -1389,6 +1399,8 @@ export type ClientCommand =
   | { c: 'task_diff'; taskId: string }
   /** Толкнуть застрявший конвейер задачи заново — с той стадии, где он встал. */
   | { c: 'pr_retry'; taskId: string }
+  | { c: 'workflow_save'; id: string; text: string }
+  | { c: 'workflow_reset'; id: string }
   /**
    * «Поехали» по фиче: человек согласился, офис начинает её задачи. Кнопка
    * есть и в интерфейсе, и у менеджера (start_feature) — согласие можно дать

@@ -1,0 +1,21 @@
+/* Панель «Процессы»: доска прогонов по узлам, файлы процессов, проверки,
+   расход. Строки — те же плёнки, что в «Жизни офиса». */
+.flows-pick { display: flex; gap: var(--space-2); flex-wrap: wrap; }
+.flows-board { display: flex; gap: var(--space-2); overflow-x: auto; padding-bottom: var(--space-1); }
+.flows-col { flex: 0 0 150px; display: flex; flex-direction: column; gap: var(--space-1); }
+.flows-col-title { font-size: var(--fs-small); color: var(--ink-muted); border-bottom: 1px solid var(--line); padding-bottom: 2px; }
+.flows-card { font-size: var(--fs-small); padding: var(--space-1) var(--space-2); background: var(--surface); border-radius: var(--radius-card); display: flex; flex-direction: column; gap: 2px; }
+.flows-card.stuck { outline: 1px solid var(--danger); }
+.flows-card.waiting { outline: 1px solid var(--warn); }
+.flows-nodes { width: 100%; border-collapse: collapse; font-size: var(--fs-small); }
+.flows-nodes th { text-align: left; color: var(--ink-muted); font-weight: 500; padding: 2px var(--space-2) 2px 0; }
+.flows-nodes td { padding: 2px var(--space-2) 2px 0; vertical-align: top; border-top: 1px solid var(--line); }
+.flows-limits { display: flex; flex-direction: column; gap: var(--space-1); }
+.flows-limit { display: flex; align-items: center; gap: var(--space-2); font-size: var(--fs-small); }
+.flows-limit input { width: 64px; }
+.flows-limit select { max-width: 200px; }
+.flows-problem { color: var(--danger); font-size: var(--fs-small); white-space: pre-wrap; }
+.flows-json { width: 100%; min-height: 240px; font-size: var(--fs-small); }
+.mini.danger { color: var(--danger); }
+.chip.builtin { color: var(--ink-muted); }
+.chip.project { color: var(--accent); }

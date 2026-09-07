@@ -18,6 +18,7 @@ import {
   type ReviewOutcome, type ReworkOutcome, type StepOutcome, type StepRequest,
 } from '../src/server/review';
 import { answerQuestion } from '../src/server/questions';
+import { resetProjectWorkflow, saveProjectWorkflow, workflowCatalog } from '../src/server/workflows';
 import type { TaskType } from '../src/shared/workflow';
 import { superviseOffice } from '../src/server/supervisor';
 import { MessageQueue } from '../src/server/queue';
@@ -550,6 +551,45 @@ async function main(): Promise<void> {
     check('прогон стоит на согласовании', office.runOf(task.id)?.nodeId === 'approve');
   }
 
+  // 20. Своя проверка проекта: узел project:lint в файле процесса самого репозитория.
+  {
+    const catalog = workflowCatalog(office).find((e) => e.id === 'feature')!;
+    const own = JSON.parse(catalog.text) as { version: number; nodes: Array<Record<string, unknown> & { id: string; next: Record<string, unknown> }> };
+    own.version = 2;
+    const checks = own.nodes.find((n) => n.id === 'checks')!;
+    checks.next = { ...checks.next, pass: 'lint' };
+    const at = own.nodes.indexOf(checks) + 1;
+    own.nodes.splice(at, 0, { id: 'lint', kind: 'check', run: 'project:lint', stage: 'checks', next: { pass: 'open-pr', fail: 'stuck' } });
+    check('свой процесс сохранён в workflows/ проекта', saveProjectWorkflow(office, 'feature', JSON.stringify(own, null, 2)) === null);
+    office.settings.checks = { lint: 'test ! -e lintboom' };
+    // Файл процесса — часть проекта: коммитим в main, иначе ветка задачи
+    // унесёт его с собой при первом же checkout.
+    git(dir, 'add', '-A');
+    git(dir, 'commit', '-qm', 'процесс проекта');
+
+    const task = taskBranch(dir, 'W', { 'w.txt': 'W\n' });
+    const s = stub();
+    await runPipeline(office, task.id);
+    say('▶ Своя проверка проекта идёт узлом процесса');
+    check('задача влита', office.prOf(task.id)?.stage === 'merged');
+    check('прогон шёл по своей версии', office.runOf(task.id)?.version === 2);
+    check('узел lint пройден', office.runOf(task.id)?.steps.some((st) => st.node === 'lint' && st.outcome === 'pass') === true);
+    check('у шагов есть длительность и цена', office.runOf(task.id)?.steps.every((st) => st.ms >= 0 && st.costUsd >= 0) === true);
+    check('ревьюера спросили один раз', s.calls.reviews === 1);
+
+    const bad = taskBranch(dir, 'X', { lintboom: 'ломаем линтер\n', 'x.txt': 'X\n' });
+    const s2 = stub({ rework: () => ({ ok: true, message: 'ничего не менял' }) });
+    await runPipeline(office, bad.id);
+    say('▶ Проваленная своя проверка останавливает конвейер');
+    check('конвейер встал', office.prOf(bad.id)?.stage === 'stuck');
+    check('причина — проверка lint', (office.prOf(bad.id)?.note ?? '').includes('lint'));
+    check('до ревью не дошло', s2.calls.reviews === 0);
+
+    office.settings.checks = {};
+    check('свой процесс убран', resetProjectWorkflow(office, 'feature') === null);
+    git(dir, 'add', '-A');
+    git(dir, 'commit', '-qm', 'процесс проекта убран');
+  }
   // 14. Выключенный конвейер: задача просто остаётся сделанной, как раньше.
   {
     office.settings.autoPipeline = false;

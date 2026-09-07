@@ -89,6 +89,28 @@ const tail = (s: string, lang: Lang): string => (s.length > OUTPUT_LIMIT
   ? `${t(lang, 'merge.outputClipped')}\n${s.slice(-OUTPUT_LIMIT)}`
   : s);
 
+/**
+ * Своя проверка проекта (spec процессов §8.2): команда оболочки в рабочей
+ * копии задачи. Тот же лимит и тот же хвост вывода, что у проверки сборки.
+ */
+export async function runProjectCheck(
+  cwd: string, command: string, lang: Lang,
+): Promise<{ ok: boolean; output: string; message: string; durationMs: number }> {
+  const started = Date.now();
+  try {
+    const { stdout, stderr } = await run('/bin/sh', ['-lc', command], {
+      cwd, timeout: TYPECHECK_TIMEOUT_MS, maxBuffer: 10 * 1024 * 1024,
+      env: { ...process.env, FORCE_COLOR: '0' },
+    });
+    const output = tail(`${stdout}${stderr}`.trim(), lang);
+    return { ok: true, output, message: output, durationMs: Date.now() - started };
+  } catch (err) {
+    const e = err as { stdout?: string; stderr?: string; message?: string };
+    const output = tail(`${e.stdout ?? ''}${e.stderr ?? ''}`.trim() || (e.message ?? ''), lang);
+    return { ok: false, output, message: output, durationMs: Date.now() - started };
+  }
+}
+
 /** Есть ли в package.json репозитория такой npm-скрипт. */
 function hasScript(repoDir: string, name: string): boolean {
   try {

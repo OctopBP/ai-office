@@ -12,7 +12,7 @@ import {
   MAX_OFFICE_WORKERS, MAX_TASK_MAX_TURNS, MIN_OFFICE_WORKERS, MIN_TASK_MAX_TURNS,
 } from '../shared/types';
 import { asLang, type Lang } from '../shared/i18n';
-import type { Run } from '../shared/workflow';
+import type { Run, WorkflowEntry } from '../shared/workflow';
 import { lang as currentLang, locale, setLang, t as tr } from './i18n';
 import type { Theme } from './sprites';
 import { type Graphics, loadGraphics, saveGraphics } from './office3d/graphics';
@@ -241,6 +241,8 @@ interface State {
   prs: Record<string, PullRequestView>;
   /** Прогоны процессов, по taskId (docs/design/workflows/spec.md §8). */
   runs: Record<string, Run>;
+  /** Процессы офиса: встроенные и свои у проекта. */
+  workflows: WorkflowEntry[];
   /** Живой офис: журнал, вопросы владельцу, ритуалы (docs/design/living-office). */
   facts: FactView[];
   questions: OwnerQuestion[];
@@ -374,6 +376,7 @@ export const useStore = create<State>((set, get) => ({
   mergeRun: null,
   prs: {},
   runs: {},
+  workflows: [],
   facts: [],
   questions: [],
   directions: [],
@@ -500,6 +503,7 @@ export const useStore = create<State>((set, get) => ({
           mergeRun: e.mergeRun,
           prs: Object.fromEntries(e.prs.map((pr) => [pr.taskId, pr])),
           runs: Object.fromEntries(e.runs.map((r) => [r.subject.taskId ?? r.id, r])),
+          workflows: e.workflows,
           facts: e.facts, questions: e.questions, life: e.life,
           directions: e.directions, proposals: e.proposals,
           booted: true, connectFailed: false,
@@ -707,6 +711,9 @@ export const useStore = create<State>((set, get) => ({
         break;
       case 'run':
         set((s) => ({ runs: { ...s.runs, [e.run.subject.taskId ?? e.run.id]: e.run } }));
+        break;
+      case 'workflows':
+        set({ workflows: e.workflows });
         break;
       case 'fact':
         set((s) => ({
@@ -1452,6 +1459,14 @@ export function archiveFact(id: string): void {
 }
 
 /** Запустить ритуал сейчас — тем же путём, что по расписанию. */
+export function saveWorkflow(id: string, text: string): void {
+  socket?.send(JSON.stringify({ c: 'workflow_save', id, text }));
+}
+
+export function resetWorkflow(id: string): void {
+  socket?.send(JSON.stringify({ c: 'workflow_reset', id }));
+}
+
 export function runRitual(ritual: RitualId): void {
   socket?.send(JSON.stringify({ c: 'ritual_run', ritual }));
 }

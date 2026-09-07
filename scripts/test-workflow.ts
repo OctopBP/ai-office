@@ -8,10 +8,13 @@
  */
 import { tmpdir } from 'node:os';
 import { resolve } from 'node:path';
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import {
-  edgeKey, loopBodies, loopMax, parseWorkflow, type Workflow,
+  edgeKey, loopBodies, loopMax, parseWorkflow, workflowStats, type Workflow,
 } from '../src/shared/workflow';
-import { builtinWorkflow, builtinWorkflows } from '../src/server/workflows';
+import {
+  builtinWorkflow, builtinWorkflows, resetProjectWorkflow, saveProjectWorkflow, workflowCatalog, workflowFor,
+} from '../src/server/workflows';
 import { drive, newRun, resumeRun, type Executor, type Halt, type RunHooks } from '../src/server/runs';
 import { getOffice } from '../src/server/state';
 
@@ -211,6 +214,42 @@ async function main(): Promise<void> {
   await drive(office, toy, run5, pick, hooks).catch((err) => { crashed = (err as Error).message; });
   check('раннер упал с понятной ошибкой', crashed.includes('maybe'));
   check('прогон помечен вставшим', run5.status === 'stuck');
+
+  // ---------- свои процессы проекта
+  say('▶ Свой процесс проекта перекрывает встроенный, сломанный — нет');
+  const projectDir = mkdtempSync(resolve(tmpdir(), 'office-wf-project-'));
+  const project = { projectDir };
+  check('без папки — все встроенные', workflowCatalog(project).every((e) => e.source === 'builtin'));
+  const own = JSON.parse(workflowCatalog(project).find((e) => e.id === 'feature')!.text) as {
+    version: number; nodes: Array<{ id: string; next: Record<string, { to: string; max?: number }> }>;
+  };
+  own.version = 2;
+  const review = own.nodes.find((n) => n.id === 'review')!;
+  review.next.changes = { to: 'rework', max: 3 };
+  check('сохранение проходит разбор', saveProjectWorkflow(project, 'feature', JSON.stringify(own)) === null);
+  check('офис едет по своему', workflowFor(project, 'feature')?.version === 2
+    && loopMax(workflowFor(project, 'feature')!, 'office:review', 'changes') === 3);
+  const entry = workflowCatalog(project).find((e) => e.id === 'feature');
+  check('в каталоге он свой и перекрывает встроенный', entry?.source === 'project' && entry.overrides === true);
+  check('сломанный текст не сохраняется', (saveProjectWorkflow(project, 'feature', '{"id":"feature"}') ?? '').length > 0);
+  check('чужой id не сохраняется', (saveProjectWorkflow(project, 'feature', JSON.stringify({ ...own, id: 'other' })) ?? '').includes('id'));
+  mkdirSync(resolve(projectDir, 'workflows'), { recursive: true });
+  writeFileSync(resolve(projectDir, 'workflows', 'content.json'), '{ not json');
+  const broken = workflowCatalog(project).find((e) => e.id === 'content');
+  check('сломанный файл виден с ошибкой', Boolean(broken?.problem) && broken?.source === 'builtin');
+  check('а офис едет по встроенному', workflowFor(project, 'content')?.id === 'content' && workflowFor(project, 'content')?.version === 1);
+  check('сброс возвращает встроенный', resetProjectWorkflow(project, 'feature') === null
+    && workflowFor(project, 'feature')?.version === 1);
+  rmSync(projectDir, { recursive: true, force: true });
+
+  say('▶ Расход по узлам считается по версии процесса');
+  const stats = workflowStats([run, run2, run3, run4]);
+  const toyStats = stats.find((s) => s.workflowId === 'toy');
+  check('прогоны собраны', toyStats?.runs === 4 && toyStats.done === 1 && toyStats.stuck === 3);
+  const reviewNode = toyStats?.nodes.find((n) => n.node === 'review');
+  check('у узла — число заходов и исходы', (reviewNode?.runs ?? 0) >= 4
+    && (reviewNode?.outcomes.changes ?? 0) >= 4 && reviewNode?.outcomes.approve === 1);
+  check('шаги записаны с длительностью', run.steps.length > 0 && run.steps.every((s) => s.ms >= 0 && s.costUsd === 0));
 
   office.wipe();
   const failed = results.filter((r) => r.includes('❌'));

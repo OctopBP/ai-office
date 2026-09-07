@@ -123,7 +123,7 @@ export interface RoleLink {
 /** Поля, по которым считается разница роли с пакетом. */
 export const OVERRIDABLE_KEYS: readonly (keyof LinkOverrides)[] = [
   'title', 'emoji', 'color', 'model', 'permissionMode', 'maxInstances', 'isolate',
-  'maxTurns', 'repoDir', 'sprite', 'mcp',
+  'maxTurns', 'repoDir', 'sprite', 'mcp', 'capabilities',
 ];
 
 /**

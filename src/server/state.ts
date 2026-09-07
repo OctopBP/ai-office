@@ -25,9 +25,10 @@ import { isBlocked, isEmptyOverride, passability } from '../shared/layout';
 import { isLookId } from '../shared/looks';
 import { asLang, DEFAULT_LANG, isLang, type Lang, type Vars, LANG_TITLE } from '../shared/i18n';
 import {
-  emptyFlowMemory, typeForCapabilities,
+  CHECK_NAME_RE, TASK_TYPES, emptyFlowMemory, isCapability, typeForCapabilities,
   type Capability, type FlowMemory, type Handoff, type Run, type TaskType,
 } from '../shared/workflow';
+import { workflowCatalog } from './workflows';
 import { capabilitiesOf } from './roles';
 import { t, setProcessLang, c, type ServerKey } from './i18n';
 import { activityFromFile, summarize } from './activity';
@@ -227,8 +228,32 @@ export function onRoleSetChanged(fn: (state: OfficeState) => void): void {
  */
 const ROLE_EDITABLE_KEYS: readonly (keyof RoleEditable)[] = [
   'title', 'emoji', 'color', 'model', 'permissionMode', 'maxInstances',
-  'isolate', 'maxTurns', 'repoDir', 'sprite', 'brief', 'briefExtra', 'mcp',
+  'isolate', 'maxTurns', 'repoDir', 'sprite', 'brief', 'briefExtra', 'mcp', 'capabilities',
 ];
+
+/** Свои проверки проекта: имя по форме, команда непустая и не бесконечная. */
+function sanitizeChecks(value: unknown): Record<string, string> | undefined {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return undefined;
+  const clean: Record<string, string> = {};
+  for (const [name, command] of Object.entries(value as Record<string, unknown>)) {
+    if (!CHECK_NAME_RE.test(name) || typeof command !== 'string') continue;
+    const cmd = command.trim();
+    if (!cmd || cmd.length > 500) continue;
+    clean[name] = cmd;
+  }
+  return clean;
+}
+
+/** Какой процесс за каким типом задачи: только известные типы, id по форме. */
+function sanitizeWorkflowMap(value: unknown): Partial<Record<TaskType, string>> | undefined {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return undefined;
+  const clean: Partial<Record<TaskType, string>> = {};
+  for (const [type, id] of Object.entries(value as Record<string, unknown>)) {
+    if (!(TASK_TYPES as readonly string[]).includes(type) || typeof id !== 'string') continue;
+    if (/^[a-z][a-z0-9-]*$/.test(id.trim())) clean[type as TaskType] = id.trim();
+  }
+  return clean;
+}
 
 /**
  * Форма id модели. Точного списка на сервере нет и быть не должно: модели
@@ -1208,6 +1233,19 @@ export class OfficeState {
     this.markDirty();
     this.emitLife();
     return next;
+  }
+
+  /** Оставить у процесса офиса не больше `keep` последних прогонов. */
+  pruneFlowRuns(workflowId: string, keep: number): void {
+    const mine = [...this.runs.values()]
+      .filter((r) => r.subject.flow === workflowId)
+      .sort((a, b) => b.startedAt - a.startedAt);
+    for (const old of mine.slice(Math.max(0, keep))) this.runs.delete(old.id);
+  }
+
+  /** Показать интерфейсу процессы заново: файл проекта сохранили или убрали. */
+  emitWorkflows(): void {
+    this.emit({ t: 'workflows', workflows: workflowCatalog(this) });
   }
 
   /** Последний прогон процесса самого офиса (не по задаче). */
@@ -2423,6 +2461,8 @@ export class OfficeState {
       // Новая роль без подписки — это роль без внешних инструментов: умолчания
       // по id заведены для базовых ролей, а у заведённой руками его нет.
       mcp: Array.isArray(draft.mcp) ? draft.mcp.map((id) => String(id)) : [],
+      // Умения — из словаря; пусто — офис выведет их по инструментам.
+      capabilities: Array.isArray(draft.capabilities) ? draft.capabilities.map((c) => String(c)).filter(isCapability) : [],
       maxTurns: draft.maxTurns ?? null,
       repoDir: typeof draft.repoDir === 'string' ? draft.repoDir.trim() : '',
       sprite: typeof draft.sprite === 'string' ? draft.sprite.trim() : '',
@@ -2660,6 +2700,11 @@ export class OfficeState {
         clean.mcp = [...new Set(clean.mcp.map((id) => String(id)))].filter((id) => known.has(id));
       }
     }
+    // Умения — из словаря: чужое слово ничего бы не значило для узлов процесса.
+    if ('capabilities' in clean) {
+      if (!Array.isArray(clean.capabilities)) delete clean.capabilities;
+      else clean.capabilities = [...new Set(clean.capabilities.map((c) => String(c)))].filter(isCapability);
+    }
     // Лимит ходов роли проверяем теми же границами, что и офисный: с нулём или
     // строкой сессия роли падала бы на первом ходу. null законен — он значит
     // «как в офисе», поэтому отличаем его от непригодного значения.
@@ -2764,6 +2809,21 @@ export class OfficeState {
       const clean = sanitizeShare(next.initiativeShare);
       if (clean === undefined) delete next.initiativeShare;
       else next.initiativeShare = clean;
+    }
+    if ('meetingEveryDays' in next) {
+      const n = Number(next.meetingEveryDays);
+      if (!Number.isInteger(n) || n < 1 || n > 90) delete next.meetingEveryDays;
+      else next.meetingEveryDays = n;
+    }
+    if ('checks' in next) {
+      const clean = sanitizeChecks(next.checks);
+      if (!clean) delete next.checks;
+      else next.checks = clean;
+    }
+    if ('workflows' in next) {
+      const clean = sanitizeWorkflowMap(next.workflows);
+      if (!clean) delete next.workflows;
+      else next.workflows = clean;
     }
     // Каталог серверов молча не чиним: человек заполнял форму руками, и
     // проглоченная ошибка обернулась бы ролью без инструментов, у которой
@@ -3192,6 +3252,7 @@ export class OfficeState {
       mergeRun: this.mergeRun,
       prs: [...this.prs.values()],
       runs: [...this.runs.values()],
+      workflows: workflowCatalog(this),
       facts: this.factList().map(toFactView),
       questions: this.questionList(),
       life: this.lifeView(),

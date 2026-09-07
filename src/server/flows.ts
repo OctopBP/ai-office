@@ -17,7 +17,7 @@
 import { HEALTH_DIRECTION, OFFICE_SENDER, dayKey } from '../shared/types';
 import type { Run, Workflow, WorkflowNode } from '../shared/workflow';
 import type { OfficeState } from './state';
-import { builtinWorkflows } from './workflows';
+import { workflowCatalog } from './workflows';
 import { drive, newRun, type Executor, type Resolve, type RunHooks, type StepResult } from './runs';
 import { quiet } from './rituals';
 import { initiativeBudget, proposeFeature, type FeatureProposal } from './initiatives';
@@ -39,6 +39,8 @@ const MEETINGS_WITHOUT_DIRECTION = 1;
 const DAY_MS = 24 * 60 * 60 * 1000;
 const WEEK_MS = 7 * DAY_MS;
 const DEFAULT_MEETING_EVERY_DAYS = 7;
+/** Сколько прогонов одного процесса офиса помнить — ради расхода по узлам (§10). */
+export const KEEP_FLOW_RUNS = 20;
 
 const clip = (s: string, n = 160): string => {
   const line = s.replace(/\s+/g, ' ').trim();
@@ -394,16 +396,16 @@ const running = new Map<string, Promise<void>>();
 export const isFlowRunning = (state: OfficeState, flowId: string): boolean =>
   running.has(`${state.officeId}:${flowId}`);
 
-/** Процессы офиса с триггером по состоянию — в порядке файлов. */
-export const stateFlows = (): Workflow[] =>
-  [...builtinWorkflows().values()].filter((w) => w.trigger.on === 'board.idle');
+/** Процессы офиса с триггером по состоянию — в порядке файлов, свои поверх встроенных. */
+export const stateFlows = (state: OfficeState): Workflow[] =>
+  workflowCatalog(state).map((e) => e.workflow).filter((w) => w.trigger.on === 'board.idle');
 
 /**
  * Пора ли процессу: триггер сработал, затухание прошло, не идёт прямо
  * сейчас. Один процесс за проход — как и с ритуалами.
  */
 export function dueFlow(state: OfficeState, now = Date.now()): Workflow | null {
-  for (const workflow of stateFlows()) {
+  for (const workflow of stateFlows(state)) {
     if (isFlowRunning(state, workflow.id)) return null;
     const mem = state.flowMemory(workflow.id);
     if (mem.backoffUntil && now < mem.backoffUntil) continue;
@@ -429,8 +431,7 @@ export function runFlow(state: OfficeState, workflow: Workflow, now = Date.now()
   const already = running.get(key);
   if (already) return already;
 
-  const previous = state.flowRun(workflow.id);
-  if (previous) state.runs.delete(previous.id);
+  state.pruneFlowRuns(workflow.id, KEEP_FLOW_RUNS - 1);
   const run = newRun(workflow, { flow: workflow.id }, now);
   state.saveRun(run);
 
@@ -442,6 +443,8 @@ export function runFlow(state: OfficeState, workflow: Workflow, now = Date.now()
       state.addLog(null, 'error', state.say('flow.stuck', { flow: workflow.id, why: why.note }));
       if (why.needsDecision) tellPm(state, state.say('flow.stuck', { flow: workflow.id, why: why.note }));
     },
+    // Процесс офиса тратит сессиями менеджера — его расход и есть цена узла.
+    cost: () => state.instances.get('pm#1')?.usage.costUsd ?? 0,
   };
   const promise = drive(state, workflow, run, resolveExecutor, hooks)
     .catch((err) => {

@@ -25,7 +25,7 @@ import {
   type PlannedEpic,
 } from './plan';
 import {
-  prDiff, retryPipeline, runPipeline, setPipelineAgents, MAX_ROUNDS,
+  prDiff, retryPipeline, runPipeline, setPipelineAgents, maxRounds,
   type StepOutcome, type StepRequest,
   type ReviewOutcome, type ReworkOutcome,
 } from './review';
@@ -2601,7 +2601,7 @@ async function reviewPr(
   const tail = [
     state.say('prompt.review.noFixing'),
     state.say('prompt.review.oneCall'),
-    state.say('prompt.review.rounds', { max: MAX_ROUNDS }),
+    state.say('prompt.review.rounds', { max: maxRounds(state) }),
     state.say('prompt.review.roundsTail'),
   ];
   const prompt = resumeId

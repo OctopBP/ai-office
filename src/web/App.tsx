@@ -88,6 +88,8 @@ export function App() {
       else if (k === 'l' || k === 'д') setPanel('log');
       // J — жизнь офиса: вопросы, журнал, ритуалы.
       else if (k === 'j' || k === 'о') setPanel('life');
+      // P — процессы: доска прогонов, файлы процессов, проверки, расход.
+      else if (k === 'p' || k === 'з') setPanel('flows');
       else if (k === 'm' || k === 'ь') setModal('meeting');
       else if (k === 'q' || k === 'й') setPanel('merge');
       // Цифра с Shift — камере (`office3d/Camera3D.tsx`): фокус на комнате.
