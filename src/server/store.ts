@@ -3,7 +3,7 @@ import { dirname, resolve } from 'node:path';
 import type {
   ChatEntry, LayoutOverride, LogEntry, PermissionMode, PullRequestView, Settings, Usage,
 } from '../shared/types';
-import type { Epic, Fact, LifeState, Task } from './state';
+import type { Direction, Epic, Fact, LifeState, Proposal, Task } from './state';
 import type { OwnerQuestion } from '../shared/types';
 import type { Role } from './roles';
 import { c } from './i18n';
@@ -85,6 +85,11 @@ export interface Persisted {
   factSeq?: number;
   questions?: OwnerQuestion[];
   questionSeq?: number;
+  /** Направления владельца и предложения офиса. В старых сохранениях их нет. */
+  directions?: Direction[];
+  directionSeq?: number;
+  proposals?: Proposal[];
+  proposalSeq?: number;
   savedAt: number;
 }
 

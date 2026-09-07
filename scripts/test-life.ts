@@ -21,8 +21,10 @@ import {
   answerFromChat, answerQuestion, askOwner, dismissQuestion, openQuestions, pickForStandup,
 } from '../src/server/questions';
 import { setPipelineAgents } from '../src/server/review';
+import { decideProposal, initiativeBudget, proposeFeature } from '../src/server/initiatives';
+import { applyProposal } from '../src/server/selfchange';
 import { roleReport } from '../src/shared/report';
-import { dayKey, OFFICE_SENDER } from '../src/shared/types';
+import { dayKey, HEALTH_DIRECTION, OFFICE_SENDER } from '../src/shared/types';
 
 // Тексты офиса сверяем по-русски — значит, и офис должен быть русским.
 process.env.OFFICE_LANG = 'ru';
@@ -293,6 +295,7 @@ async function main(): Promise<void> {
       };
     },
     async contradictions() { return { facts: [], contradictions: [], questions: [], costUsd: 0 }; },
+    async reflect() { return { facts: [], contradictions: [], questions: [], costUsd: 0, features: [], summary: '' }; },
   });
   check('пустому офису ритуал не нужен', dueRitual(r) === null);
   const closedTask = r.createTask({ title: 'Сделана', description: '', criteria: ['x'], roleId: 'backend' });
@@ -318,6 +321,12 @@ async function main(): Promise<void> {
   // без модели и без тишины.
   check('с журналом первым просится забывание', dueRitual(r) === 'forget');
   r.life.lastRun.forget = Date.now();
+  // Следом просится здоровье проекта: оно тоже без модели и идёт раз в сутки.
+  check('за забыванием — здоровье проекта', dueRitual(r) === 'health');
+  r.life.lastRun.health = Date.now();
+  // И рефлексия: за неделю есть исход, а она ещё не шла.
+  check('за здоровьем — рефлексия', dueRitual(r) === 'reflect');
+  r.life.lastRun.reflect = Date.now();
   check('после консолидации дельты нет', dueRitual(r) === null);
   check('ритуал виден клиенту', r.lifeView().lastRun.consolidate !== undefined && r.lifeView().running === null);
   check('забывание пора раз в неделю', (() => { r.life.lastRun.forget = Date.now() - 8 * 24 * 3600 * 1000; return dueRitual(r) === 'forget'; })());
@@ -330,10 +339,115 @@ async function main(): Promise<void> {
   check('жизнь переживает сохранение', JSON.stringify(r.toPersisted()).includes('"consolidate"')
     && JSON.stringify(j.toPersisted()).includes('"questions"'));
 
+  // ---------- направления и инициативы ----------
+  console.log('направления');
+  const d = getOffice('o-life-dir');
+  d.seed();
+  d.opened = true;
+  d.settings.planApproval = true;
+  d.settings.focusEpics = 2;
+  check('встроенное направление есть с рождения', d.directions.has(HEALTH_DIRECTION) && d.directionList().length === 1);
+  check('встроенное не снимается', d.removeDirection(HEALTH_DIRECTION) !== null);
+  check('пустое направление отклоняется', d.createDirection('  ') !== null);
+  check('направление заводится', d.createDirection('Довести маркет до запуска') === null && d.directionList()[0].id === 'D-1');
+  check('направление приостанавливается', d.updateDirection('D-1', { active: false }) === null && d.directions.get('D-1')?.active === false);
+  check('направления в снапшоте', (d.snapshot() as { directions: unknown[] }).directions.length === 2);
+
+  const feature = (title: string, directionId: string | null = 'D-1') => ({
+    title, goal: 'цель', rationale: 'по направлению', directionId,
+    tasks: [{ key: 'a', title: 'задача', description: '', acceptanceCriteria: ['x'], roleId: 'backend' }],
+  });
+  d.settings.initiativeMode = 'off';
+  check('в режиме off — предложение, а не фича', proposeFeature(d, feature('Стенд')).ok
+    && d.proposalList().length === 1 && d.epicList().length === 0);
+  check('дубль предложения отклоняется', !proposeFeature(d, feature('Стенд')).ok);
+  d.settings.initiativeMode = 'propose';
+  check('в режиме propose — фича без согласия', proposeFeature(d, feature('OAuth')).ok
+    && d.epicList().some((e) => e.title === 'OAuth' && e.origin === 'office' && !e.approved && e.directionId === 'D-1'));
+  check('здоровье проекта не ждёт «поехали»', proposeFeature(d, feature('Починить', HEALTH_DIRECTION)).ok
+    && d.epicList().some((e) => e.title === 'Починить' && e.approved));
+  d.settings.initiativeMode = 'auto';
+  check('в режиме auto — согласована сразу', proposeFeature(d, feature('Зеркало')).ok
+    && d.epicList().some((e) => e.title === 'Зеркало' && e.approved));
+  check('принятое предложение встаёт в план согласованным', decideProposal(d, 'P-1', true, applyProposal).ok
+    && d.epicList().some((e) => e.title === 'Стенд' && e.approved && e.origin === 'office')
+    && d.proposals.get('P-1')?.status === 'accepted');
+  check('решённое второй раз не решается', !decideProposal(d, 'P-1', false, applyProposal).ok);
+  check('инициатива в чате с обоснованием', d.chat.some((c) => c.text.includes('💡') && c.text.includes('по направлению')));
+
+  // Доля на своё: пока владелец тратит, инициатива идёт в пределах доли.
+  const day = dayKey();
+  d.daily[day] = { costUsd: 10, tokensIn: 0, tokensOut: 0, cacheRead: 0, cacheWrite: 0 };
+  const mirror = d.epicList().find((e) => e.title === 'Зеркало')!;
+  const mirrorTask = d.tasksOfEpic(mirror.id)[0];
+  d.settings.initiativeShare = 0.2;
+  let budget = initiativeBudget(d);
+  check('доля считается от недельного расхода', budget.allowedUsd === 2 && !budget.exhausted);
+  mirrorTask.daily[day] = { costUsd: 2.5, tokensIn: 0, tokensOut: 0, cacheRead: 0, cacheWrite: 0 };
+  budget = initiativeBudget(d);
+  check('перерасход на своё исчерпывает долю', budget.spentUsd === 2.5 && budget.exhausted);
+  d.settings.initiativeShare = 0.5;
+  check('доля настраивается', !initiativeBudget(d).exhausted);
+  d.daily[day].costUsd = 0;
+  check('без расхода остаётся минимальный запас', initiativeBudget(d).allowedUsd === 1);
+
+  // Правило принимается в приписку к брифу пакета.
+  const rule = d.addProposal({
+    kind: 'rule', title: 'Прогонять typecheck', text: 'Перед сдачей прогоняй npm run typecheck.',
+    rationale: 'три возврата', roleId: 'backend', setting: null, directionId: null, plan: null,
+  });
+  check('правило дописывается в briefExtra роли', decideProposal(d, rule.id, true, applyProposal).ok
+    && (d.role('backend')?.package?.briefExtra ?? d.role('backend')?.brief ?? '').includes('typecheck'));
+  const setting = d.addProposal({
+    kind: 'setting', title: 'Больше ходов', text: '', rationale: 'лимит', roleId: null,
+    setting: { key: 'taskMaxTurns', value: 90 }, directionId: null, plan: null,
+  });
+  check('настройка из белого списка применяется', decideProposal(d, setting.id, true, applyProposal).ok
+    && d.settings.taskMaxTurns === 90);
+  const forbidden = d.addProposal({
+    kind: 'setting', title: 'Полный доступ', text: '', rationale: 'нет', roleId: null,
+    setting: { key: 'officePermissionMode', value: 'auto' }, directionId: null, plan: null,
+  });
+  check('настройка вне списка отклоняется', !decideProposal(d, forbidden.id, true, applyProposal).ok
+    && d.settings.officePermissionMode !== 'auto');
+  check('отклонённое остаётся отклонённым', decideProposal(d, d.addProposal({
+    kind: 'rule', title: 'x', text: 'y', rationale: '', roleId: 'backend', setting: null, directionId: null, plan: null,
+  }).id, false, applyProposal).ok);
+
+  // Рефлексия через заглушку заводит фичу по направлению и пишет итог.
+  console.log('рефлексия');
+  setRitualAgents({
+    async consolidate() { return { facts: [], contradictions: [], questions: [], costUsd: 0 }; },
+    async contradictions() { return { facts: [], contradictions: [], questions: [], costUsd: 0 }; },
+    async reflect(_state, input) {
+      return {
+        facts: [{ kind: 'lesson', text: `Урок недели по ${input.reports.length} табелям`, scope: 'project' }],
+        contradictions: [], questions: [], costUsd: 0.05,
+        features: [feature('Из рефлексии')],
+        summary: 'Неделя прошла ровно.',
+      };
+    },
+  });
+  d.settings.initiativeMode = 'propose';
+  const refl = await runRitual(d, 'reflect');
+  check('рефлексия завела фичу по направлению', refl?.ritual === 'reflect'
+    && d.epicList().some((e) => e.title === 'Из рефлексии' && e.origin === 'office'));
+  check('рефлексия записала урок', d.factList().some((f) => f.source.ritual === 'reflect'));
+  check('итог рефлексии в чате и в планёрке', d.chat.some((c) => c.text.includes('🪞'))
+    && standupText(d).includes('Неделя прошла ровно'));
+  d.life.policy.reflectionOn = false;
+  d.life.lastRun.reflect = 0;
+  d.life.lastRun.health = Date.now();
+  d.life.lastRun.forget = Date.now();
+  d.lastWorkAt = Date.now() - QUIET_MS - 1;
+  check('выключенная рефлексия не просится', dueRitual(d) !== 'reflect');
+  check('планёрка называет инициативу инициативой', standupText(d).includes('офис предлагает сам'));
+
   unloadOfficeState('o-life');
   unloadOfficeState('o-life-quiet');
   unloadOfficeState('o-life-journal');
   unloadOfficeState('o-life-rituals');
+  unloadOfficeState('o-life-dir');
   console.log(results.join('\n'));
   const failedChecks = results.filter((r) => r.includes('❌'));
   console.log(failedChecks.length ? `ПРОВАЛОВ: ${failedChecks.length}` : 'ВСЕ ПРОВЕРКИ ПРОШЛИ');

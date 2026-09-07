@@ -5,7 +5,7 @@ import type {
   PermissionDecision,
   MarketView, PermissionMode, PermissionRequest, MeetingView, RoleDraft, RoleEditable, RoleOp, RoleView,
   ServerEvent, Settings, TaskView, Usage, CloudStatus, OfficeView, PullRequestView, PrStage,
-  EpicView, LimitsView, FactView, OwnerQuestion, LifeView, RitualId,
+  EpicView, LimitsView, FactView, OwnerQuestion, LifeView, RitualId, DirectionView, ProposalView,
 } from '../shared/types';
 import {
   emptyLimits, emptyUsage, isOfficeSender,
@@ -242,6 +242,9 @@ interface State {
   facts: FactView[];
   questions: OwnerQuestion[];
   life: LifeView;
+  /** Направления владельца и предложения офиса. */
+  directions: DirectionView[];
+  proposals: ProposalView[];
   toggleMergeSelect: (taskId: string) => void;
   moveMergeSelect: (taskId: string, dir: -1 | 1) => void;
   clearMergeSelection: () => void;
@@ -369,6 +372,8 @@ export const useStore = create<State>((set, get) => ({
   prs: {},
   facts: [],
   questions: [],
+  directions: [],
+  proposals: [],
   life: {
     standupDay: null, standupAt: null, lastRun: {}, runs: [], running: null,
     policy: { consolidateEveryMs: 0, questionsPerStandup: 0, standupPmLine: false, reflectionOn: false },
@@ -490,6 +495,7 @@ export const useStore = create<State>((set, get) => ({
           mergeRun: e.mergeRun,
           prs: Object.fromEntries(e.prs.map((pr) => [pr.taskId, pr])),
           facts: e.facts, questions: e.questions, life: e.life,
+          directions: e.directions, proposals: e.proposals,
           booted: true, connectFailed: false,
           // Снапшот пришёл во время входа/создания — офис открыт, показываем комнату.
           screen: s.pending ? 'office' : s.screen,
@@ -712,6 +718,23 @@ export const useStore = create<State>((set, get) => ({
         break;
       case 'life':
         set({ life: e.life });
+        break;
+      case 'direction':
+        set((s) => ({
+          directions: s.directions.some((d) => d.id === e.direction.id)
+            ? s.directions.map((d) => (d.id === e.direction.id ? e.direction : d))
+            : [...s.directions, e.direction],
+        }));
+        break;
+      case 'direction.remove':
+        set((s) => ({ directions: s.directions.filter((d) => d.id !== e.id) }));
+        break;
+      case 'proposal':
+        set((s) => ({
+          proposals: s.proposals.some((p) => p.id === e.proposal.id)
+            ? s.proposals.map((p) => (p.id === e.proposal.id ? e.proposal : p))
+            : [...s.proposals, e.proposal],
+        }));
         break;
       case 'meeting': {
         set({ meeting: e.meeting });
@@ -1422,4 +1445,23 @@ export function archiveFact(id: string): void {
 /** Запустить ритуал сейчас — тем же путём, что по расписанию. */
 export function runRitual(ritual: RitualId): void {
   socket?.send(JSON.stringify({ c: 'ritual_run', ritual }));
+}
+
+export function createDirection(text: string): void {
+  socket?.send(JSON.stringify({ c: 'direction_create', text }));
+}
+
+export function updateDirection(
+  id: string, patch: Partial<Pick<DirectionView, 'text' | 'active' | 'priority'>>,
+): void {
+  socket?.send(JSON.stringify({ c: 'direction_update', id, patch }));
+}
+
+export function removeDirection(id: string): void {
+  socket?.send(JSON.stringify({ c: 'direction_remove', id }));
+}
+
+/** Принять или отклонить предложение офиса. Принятая фича встаёт в план согласованной. */
+export function decideProposal(id: string, accept: boolean): void {
+  socket?.send(JSON.stringify({ c: 'proposal_decide', id, accept }));
 }

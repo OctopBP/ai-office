@@ -10,10 +10,13 @@ import type {
   Layout, LayoutOverride, LayoutPropEdit,
   PullRequestView, PrStage, ReviewNote, TaskOutcome,
   FactView, LifeView, OwnerQuestion, RitualId, RitualPolicy, RitualRun,
+  DirectionView, ProposalView, InitiativeMode,
 } from '../shared/types';
 import { OFFICE_SENDER } from '../shared/types';
 import {
   dayKey, emptyUsage, DEFAULT_RITUAL_LIMIT, DEFAULT_RITUAL_POLICY,
+  DEFAULT_INITIATIVE_MODE, DEFAULT_INITIATIVE_SHARE, HEALTH_DIRECTION, INITIATIVE_MODES,
+  MAX_INITIATIVE_SHARE, MIN_INITIATIVE_SHARE,
   DEFAULT_OFFICE_WORKERS, MAX_OFFICE_WORKERS, MAX_ROLE_INSTANCES, MAX_TASK_MAX_TURNS,
   MIN_OFFICE_WORKERS, MIN_ROLE_INSTANCES, MIN_TASK_MAX_TURNS, ROLE_TITLE_LIMIT,
   DEFAULT_FOCUS_EPICS, MAX_FOCUS_EPICS, MIN_FOCUS_EPICS,
@@ -90,7 +93,44 @@ export const DEFAULT_SETTINGS: Settings = {
   // это офис, которым нужно управлять руками, а от этого он и должен избавлять.
   ritualsEnabled: true,
   ritualLimitThreshold: DEFAULT_RITUAL_LIMIT,
+  initiativeMode: DEFAULT_INITIATIVE_MODE,
+  initiativeShare: DEFAULT_INITIATIVE_SHARE,
 };
+
+/** Доля на своё: число от MIN до MAX; всё остальное — мусор. */
+export function sanitizeShare(value: unknown): number | undefined {
+  if (typeof value !== 'number' || !Number.isFinite(value)) return undefined;
+  if (value < MIN_INITIATIVE_SHARE || value > MAX_INITIATIVE_SHARE) return undefined;
+  return Math.round(value * 100) / 100;
+}
+
+export const isInitiativeMode = (value: unknown): value is InitiativeMode =>
+  typeof value === 'string' && (INITIATIVE_MODES as string[]).includes(value);
+
+/** Сколько направлений держим: больше — уже бэклог, а не курс (§7.1). */
+export const MAX_DIRECTIONS = 7;
+
+/** Направление на сервере — то же, что видит клиент. */
+export type Direction = DirectionView;
+
+/**
+ * План одной фичи, как его присылает менеджер (plan.ts → PlannedEpic).
+ * Описан здесь структурно, а не импортом: план зовёт состояние, и импорт
+ * в обратную сторону замкнул бы модули друг на друга.
+ */
+export interface PlannedEpicLike {
+  title: string;
+  goal: string;
+  tasks: Array<{
+    key: string; title: string; description: string; acceptanceCriteria: string[];
+    roleId: string; dependsOn?: string[];
+  }>;
+}
+
+/** Предложение на сервере: клиентский вид плюс план фичи, если это фича. */
+export interface Proposal extends ProposalView {
+  plan: PlannedEpicLike | null;
+}
 
 /** Порог лимита для ритуалов: проценты окна, целое от 10 до 100. */
 export function sanitizeRitualLimit(value: unknown): number | undefined {
@@ -548,10 +588,14 @@ export interface LifeState {
   policy: RitualPolicy;
   /** Последние прогоны, свежие в конце. Обрезается — см. RUNS_KEPT. */
   runs: RitualRun[];
+  /** Итог последней рефлексии и когда она была — для планёрки (§5.5). */
+  reflection: string | null;
+  reflectionAt: number | null;
 }
 
 export const emptyLife = (): LifeState => ({
   standupDay: null, standupAt: null, lastRun: {}, policy: { ...DEFAULT_RITUAL_POLICY }, runs: [],
+  reflection: null, reflectionAt: null,
 });
 
 /** Сколько прогонов ритуалов помним: портфелю хватает нескольких недель. */
@@ -702,8 +746,14 @@ export class OfficeState {
   ritualRunning: RitualId | null = null;
   /** Сколько вопросов владельцу задано по каждой задаче — лимит, как у коллег. */
   questionsByTask = new Map<string, number>();
+  /** Направления владельца по id (§7.1). Встроенное есть всегда. */
+  directions = new Map<string, Direction>();
+  /** Предложения офиса по id (§8.1). */
+  proposals = new Map<string, Proposal>();
   private factSeq = 0;
   private questionSeq = 0;
+  private directionSeq = 0;
+  private proposalSeq = 0;
   /** Кого разбудить, когда паузу снимут. */
   private resumeWaiters = new Set<() => void>();
   private listeners = new Set<Listener>();
@@ -849,6 +899,10 @@ export class OfficeState {
       factSeq: this.factSeq,
       questions: [...this.questions.values()],
       questionSeq: this.questionSeq,
+      directions: [...this.directions.values()],
+      directionSeq: this.directionSeq,
+      proposals: [...this.proposals.values()],
+      proposalSeq: this.proposalSeq,
       savedAt: Date.now(),
     };
   }
@@ -979,6 +1033,113 @@ export class OfficeState {
     this.lastWorkAt = Date.now();
   }
 
+  // ---------- направления и предложения ----------
+
+  initiativeMode(): InitiativeMode {
+    return isInitiativeMode(this.settings.initiativeMode) ? this.settings.initiativeMode : DEFAULT_INITIATIVE_MODE;
+  }
+
+  initiativeShare(): number {
+    return sanitizeShare(this.settings.initiativeShare) ?? DEFAULT_INITIATIVE_SHARE;
+  }
+
+  /** Направления по важности; встроенное — последним. */
+  directionList(): Direction[] {
+    return [...this.directions.values()]
+      .sort((a, b) => Number(a.builtin) - Number(b.builtin) || a.priority - b.priority || a.createdAt - b.createdAt);
+  }
+
+  /**
+   * Встроенное направление есть у каждого офиса (§7.1): без него офису
+   * нечего делать, когда владелец ничего не дал, а красные проверки не
+   * ждут, пока кто-то догадается их назвать направлением.
+   */
+  private ensureBuiltinDirection(): void {
+    if (this.directions.has(HEALTH_DIRECTION)) return;
+    this.directions.set(HEALTH_DIRECTION, {
+      id: HEALTH_DIRECTION, text: this.say('direction.health'), priority: 1000,
+      active: true, builtin: true, createdAt: Date.now(),
+    });
+  }
+
+  /** Завести направление. Возвращает причину отказа готовым текстом или null. */
+  createDirection(text: string): string | null {
+    const clean = String(text ?? '').trim();
+    if (!clean) return this.say('direction.empty');
+    const own = [...this.directions.values()].filter((d) => !d.builtin);
+    if (own.length >= MAX_DIRECTIONS) {
+      return this.say('direction.tooMany', { n: own.length, max: MAX_DIRECTIONS });
+    }
+    this.directionSeq += 1;
+    const direction: Direction = {
+      id: `D-${this.directionSeq}`, text: clean, priority: own.length + 1,
+      active: true, builtin: false, createdAt: Date.now(),
+    };
+    this.directions.set(direction.id, direction);
+    this.emit({ t: 'direction', direction });
+    this.addLog(null, 'system', this.say('direction.createdLog', { id: direction.id, text: clean }));
+    this.markDirty();
+    // Направления вшиты в бриф менеджера — как и перечень ролей.
+    roleSetWatcher?.(this);
+    return null;
+  }
+
+  updateDirection(id: string, patch: Partial<Pick<Direction, 'text' | 'active' | 'priority'>>): string | null {
+    const direction = this.directions.get(id);
+    if (!direction) return this.say('direction.noSuch', { id });
+    const clean: Partial<Direction> = {};
+    if (typeof patch.text === 'string') {
+      const text = patch.text.trim();
+      if (!text) return this.say('direction.empty');
+      // Текст встроенного — не правится: оно одно на все офисы по смыслу.
+      if (!direction.builtin) clean.text = text;
+    }
+    if (typeof patch.active === 'boolean') clean.active = patch.active;
+    if (typeof patch.priority === 'number' && Number.isFinite(patch.priority)) clean.priority = Math.floor(patch.priority);
+    Object.assign(direction, clean);
+    this.emit({ t: 'direction', direction });
+    this.addLog(null, 'system', this.say('direction.updatedLog', { id }));
+    this.markDirty();
+    roleSetWatcher?.(this);
+    return null;
+  }
+
+  removeDirection(id: string): string | null {
+    const direction = this.directions.get(id);
+    if (!direction) return this.say('direction.noSuch', { id });
+    if (direction.builtin) return this.say('direction.builtin', { text: direction.text });
+    this.directions.delete(id);
+    this.emit({ t: 'direction.remove', id });
+    this.addLog(null, 'system', this.say('direction.removedLog', { id }));
+    this.markDirty();
+    roleSetWatcher?.(this);
+    return null;
+  }
+
+  proposalList(): Proposal[] {
+    return [...this.proposals.values()].sort((a, b) => a.createdAt - b.createdAt);
+  }
+
+  addProposal(input: Omit<Proposal, 'id' | 'status' | 'createdAt' | 'decidedAt'>): Proposal {
+    this.proposalSeq += 1;
+    const proposal: Proposal = {
+      ...input, id: `P-${this.proposalSeq}`, status: 'pending', createdAt: Date.now(), decidedAt: null,
+    };
+    this.proposals.set(proposal.id, proposal);
+    this.emit({ t: 'proposal', proposal: toProposalView(proposal) });
+    this.markDirty();
+    return proposal;
+  }
+
+  updateProposal(id: string, patch: Partial<Proposal>): Proposal | null {
+    const proposal = this.proposals.get(id);
+    if (!proposal) return null;
+    Object.assign(proposal, patch);
+    this.emit({ t: 'proposal', proposal: toProposalView(proposal) });
+    this.markDirty();
+    return proposal;
+  }
+
   /**
    * Жизнь офиса изменилась (планёрка показана, запись журнала подтверждена).
    * Отдельный метод, а не прямая правка поля: запись на диск идёт с дебаунсом,
@@ -1063,6 +1224,17 @@ export class OfficeState {
     this.factSeq = data.factSeq ?? this.facts.size;
     for (const q of data.questions ?? []) this.questions.set(q.id, { ...q, dismissedAt: q.dismissedAt ?? null });
     this.questionSeq = data.questionSeq ?? this.questions.size;
+    for (const d of data.directions ?? []) this.directions.set(d.id, { ...d });
+    this.directionSeq = data.directionSeq ?? this.directions.size;
+    // Встроенное направление могло не попасть в сохранение старше него.
+    this.ensureBuiltinDirection();
+    for (const p of data.proposals ?? []) this.proposals.set(p.id, { ...p, plan: p.plan ?? null });
+    this.proposalSeq = data.proposalSeq ?? this.proposals.size;
+    // Режим и доля инициативы из правленого руками файла: чужой режим
+    // означал бы офис, который либо никогда ничего не предлагает, либо
+    // начинает всё подряд без спроса.
+    if (!isInitiativeMode(this.settings.initiativeMode)) this.settings.initiativeMode = DEFAULT_INITIATIVE_MODE;
+    this.settings.initiativeShare = sanitizeShare(this.settings.initiativeShare) ?? DEFAULT_INITIATIVE_SHARE;
     // Порог ритуалов из правленого руками файла: чужое значение либо гоняло
     // бы ритуалы на пустом лимите, либо не давало бы им идти никогда.
     this.settings.ritualLimitThreshold = sanitizeRitualLimit(this.settings.ritualLimitThreshold)
@@ -1207,8 +1379,13 @@ export class OfficeState {
     this.facts.clear();
     this.questions.clear();
     this.questionsByTask.clear();
+    this.directions.clear();
+    this.proposals.clear();
     this.factSeq = 0;
     this.questionSeq = 0;
+    this.directionSeq = 0;
+    this.proposalSeq = 0;
+    this.ensureBuiltinDirection();
     this.setPaused(false);
     // В архивные роли не сажаем никого: их убрали именно затем, чтобы офис
     // в них не работал, — а seed заново рассаживает штат по умолчанию.
@@ -2497,6 +2674,12 @@ export class OfficeState {
       else next.ritualLimitThreshold = clean;
     }
     if ('ritualsEnabled' in next && typeof next.ritualsEnabled !== 'boolean') delete next.ritualsEnabled;
+    if ('initiativeMode' in next && !isInitiativeMode(next.initiativeMode)) delete next.initiativeMode;
+    if ('initiativeShare' in next) {
+      const clean = sanitizeShare(next.initiativeShare);
+      if (clean === undefined) delete next.initiativeShare;
+      else next.initiativeShare = clean;
+    }
     // Каталог серверов молча не чиним: человек заполнял форму руками, и
     // проглоченная ошибка обернулась бы ролью без инструментов, у которой
     // всё «сохранилось». Отказ называет и сервер, и что с ним не так.
@@ -2877,6 +3060,8 @@ export class OfficeState {
       facts: this.factList().map(toFactView),
       questions: this.questionList(),
       life: this.lifeView(),
+      directions: this.directionList(),
+      proposals: this.proposalList().map(toProposalView),
     };
   }
 }
@@ -2885,6 +3070,13 @@ export class OfficeState {
 export const toFactView = (f: Fact): FactView => ({
   id: f.id, kind: f.kind, text: f.text, scope: f.scope, source: f.source,
   createdAt: f.createdAt, confirmedAt: f.confirmedAt, status: f.status,
+});
+
+/** Предложение для клиента: без плана фичи — он нужен только серверу. */
+export const toProposalView = (p: Proposal): ProposalView => ({
+  id: p.id, kind: p.kind, title: p.title, text: p.text, rationale: p.rationale,
+  roleId: p.roleId, setting: p.setting, directionId: p.directionId,
+  status: p.status, createdAt: p.createdAt, decidedAt: p.decidedAt,
 });
 
 /**
@@ -2930,6 +3122,7 @@ const hasLiveSessions = (state: OfficeState): boolean =>
 export const toEpicView = (e: Epic): EpicView => ({
   id: e.id, title: e.title, goal: e.goal, order: e.order,
   status: e.status, approved: e.approved,
+  origin: e.origin ?? 'owner', rationale: e.rationale ?? '', directionId: e.directionId ?? null,
   createdAt: e.createdAt, startedAt: e.startedAt, finishedAt: e.finishedAt,
 });
 

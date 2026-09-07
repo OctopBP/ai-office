@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import {
-  approveEpic, cancelEpic, mergeBadge, mergeStepFor, prStageLabel, prStageClass,
-  reorderEpics, useStore,
+  approveEpic, cancelEpic, createDirection, mergeBadge, mergeStepFor, prStageLabel, prStageClass,
+  removeDirection, reorderEpics, updateDirection, useStore,
 } from './store';
 import type { EpicView, TaskStatus, TaskView } from '../shared/types';
 import { taskClosed } from '../shared/types';
@@ -119,14 +119,21 @@ function EpicRow({ epic, order, total, filtered, onFilter }: {
     reorderEpics(ids);
   };
 
+  const initiative = epic.origin === 'office';
+
   return (
-    <div className={`epic ${epic.status}${awaiting ? ' awaiting' : ''}${filtered ? ' filtered' : ''}`}>
+    <div className={`epic ${epic.status}${awaiting ? ' awaiting' : ''}${filtered ? ' filtered' : ''}${initiative ? ' initiative' : ''}`}>
       <div className="epic-head">
         <button className="epic-pick" onClick={onFilter} title={tr('plan.filterHint')}>
           <b>{epic.id}</b>
           <span className="epic-title">{epic.title}</span>
         </button>
         <span className={`chip ${epic.status}`}>{tr(`plan.status.${epic.status}`)}</span>
+        {initiative && (
+          <span className="chip initiative-chip" title={tr('plan.initiativeHint', { rationale: epic.rationale })}>
+            {tr('plan.initiative')}{epic.directionId ? ` · ${epic.directionId}` : ''}
+          </span>
+        )}
         <span className="muted">{tr('plan.progress', { done, total: mine.length })}</span>
         {spent > 0 && <span className="muted">{`$${spent.toFixed(2)}`}</span>}
         {open && (
@@ -139,6 +146,9 @@ function EpicRow({ epic, order, total, filtered, onFilter }: {
         )}
       </div>
       {epic.goal && <div className="epic-goal muted">{epic.goal}</div>}
+      {initiative && epic.rationale && (
+        <div className="epic-rationale">{tr('plan.initiativeHint', { rationale: epic.rationale })}</div>
+      )}
       {open && (
         <div className="epic-controls">
           {awaiting && <span className="muted small">{tr('plan.awaiting')}</span>}
@@ -167,6 +177,53 @@ function EpicRow({ epic, order, total, filtered, onFilter }: {
   );
 }
 
+/**
+ * Направления владельца (docs/design/living-office/spec.md §7.1): стоящие
+ * цели без срока, по которым офис сам выбирает себе фичи. Над планом,
+ * потому что объясняют, откуда в плане взялись инициативы.
+ */
+function Directions() {
+  const directions = useStore((s) => s.directions);
+  const [text, setText] = useState('');
+  const list = [...directions].sort((a, b) =>
+    Number(a.builtin) - Number(b.builtin) || a.priority - b.priority || a.createdAt - b.createdAt);
+  const add = () => {
+    if (!text.trim()) return;
+    createDirection(text.trim());
+    setText('');
+  };
+  return (
+    <div className="directions">
+      <div className="plan-head">
+        {tr('directions.title')}
+        <span className="muted">{tr('directions.hint')}</span>
+      </div>
+      <div className="direction-rows">
+        {list.map((d) => (
+          <div key={d.id} className={`direction${d.active ? '' : ' paused'}`}>
+            <b>{d.id}</b>
+            <span className="direction-text">{d.text}</span>
+            {d.builtin && <span className="chip">{tr('directions.builtin')}</span>}
+            {!d.active && <span className="chip">{tr('directions.paused')}</span>}
+            <button className="mini" onClick={() => updateDirection(d.id, { active: !d.active })}>
+              {tr(d.active ? 'directions.pause' : 'directions.resume')}
+            </button>
+            {!d.builtin && (
+              <button className="mini link-danger" onClick={() => removeDirection(d.id)}>{tr('directions.remove')}</button>
+            )}
+          </div>
+        ))}
+        <div className="direction new">
+          <input value={text} placeholder={tr('directions.placeholder')}
+            onChange={(e) => setText(e.target.value)}
+            onKeyDown={(e) => { if (e.key === 'Enter') add(); }} />
+          <button className="mini go" disabled={!text.trim()} onClick={add}>{tr('directions.add')}</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export function Board() {
   const tasks = useStore((s) => s.tasks);
   const epics = useStore((s) => s.epics);
@@ -184,6 +241,7 @@ export function Board() {
 
   return (
     <div className="board">
+      <Directions />
       {plan.length > 0 && (
         <div className="plan">
           <div className="plan-head">

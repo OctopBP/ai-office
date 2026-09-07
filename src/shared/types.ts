@@ -74,6 +74,12 @@ export interface EpicView {
    * проставляется сразу при заведении плана.
    */
   approved: boolean;
+  /** Кто завёл: человек через менеджера или офис себе (инициатива, §7.2). */
+  origin: 'owner' | 'office';
+  /** Из чего инициатива выведена — читает человек в плане. */
+  rationale: string;
+  /** Направление владельца, по которому заведена. */
+  directionId: string | null;
   createdAt: number;
   startedAt: number | null;
   finishedAt: number | null;
@@ -549,6 +555,18 @@ export interface Settings {
    * Работа по задачам от этого не зависит — лимиты выше ритуалов, а не задач.
    */
   ritualLimitThreshold?: number;
+  /**
+   * Инициатива (§7.3): что офис делает с фичей, которую завёл себе сам.
+   * По умолчанию `propose` — заводит и ждёт «поехали»: это ответ на страх
+   * «офис начнёт переписывать проект по своему разумению».
+   */
+  initiativeMode?: InitiativeMode;
+  /**
+   * Доля недельного расхода офиса, которую он вправе тратить на своё (§7.4).
+   * Исчерпана — инициативы стоят, фичи владельца идут. Здоровье проекта в
+   * долю не входит: красные проверки — обязанность, а не инициатива.
+   */
+  initiativeShare?: number;
 }
 
 /**
@@ -915,6 +933,68 @@ export const DEFAULT_RITUAL_POLICY: RitualPolicy = {
 export const DEFAULT_RITUAL_LIMIT = 80;
 
 /**
+ * Направление владельца (§7.1): стоящая цель без срока и без задач, по
+ * которой офис сам заводит фичи на рефлексии. Фича заканчивается,
+ * направление — нет. Их мало: три-пять; больше — уже бэклог.
+ */
+export interface DirectionView {
+  id: string;
+  text: string;
+  /** Место среди направлений. Меньше — важнее. */
+  priority: number;
+  active: boolean;
+  /**
+   * Есть у каждого офиса и не удаляется: «поддерживать здоровье проекта».
+   * Это то, что офис делал бы и без владельца, и в долю на своё не входит.
+   */
+  builtin: boolean;
+  createdAt: number;
+}
+
+/** id встроенного направления — по нему инициатива освобождается от доли. */
+export const HEALTH_DIRECTION = 'D-health';
+
+/**
+ * Режим инициативы (§7.3): что офис делает с фичей, которую завёл себе сам.
+ * `off` — только предлагает в планёрке; `propose` — заводит и ждёт
+ * «поехали»; `auto` — заводит и начинает, владелец узнаёт из планёрки.
+ */
+export type InitiativeMode = 'off' | 'propose' | 'auto';
+export const INITIATIVE_MODES: InitiativeMode[] = ['off', 'propose', 'auto'];
+export const DEFAULT_INITIATIVE_MODE: InitiativeMode = 'propose';
+/** Доля недельного расхода на своё (§7.4): по умолчанию пятая часть. */
+export const DEFAULT_INITIATIVE_SHARE = 0.2;
+export const MIN_INITIATIVE_SHARE = 0.05;
+export const MAX_INITIATIVE_SHARE = 0.5;
+
+/**
+ * Предложение офиса, которое ждёт решения владельца (§8.1): фича в режиме
+ * `off`, правило для роли, настройка офиса. Ничего из этого офис не делает
+ * сам — только предлагает; принять или отклонить решает человек.
+ */
+export type ProposalKind = 'feature' | 'rule' | 'setting';
+export type ProposalStatus = 'pending' | 'accepted' | 'rejected';
+
+export interface ProposalView {
+  id: string;
+  kind: ProposalKind;
+  title: string;
+  /** Что именно предлагается: текст правила, значение настройки, цель фичи. */
+  text: string;
+  /** Из чего выведено: табель, повтор в отзывах, направление. */
+  rationale: string;
+  /** Роль, которой предназначено правило. null — не про роль. */
+  roleId: string | null;
+  /** Настройка, если kind === 'setting'. */
+  setting: { key: string; value: unknown } | null;
+  /** Направление, по которому предложена фича. */
+  directionId: string | null;
+  status: ProposalStatus;
+  createdAt: number;
+  decidedAt: number | null;
+}
+
+/**
  * Стадия конвейера ревью: что офис делает с работой по задаче прямо сейчас.
  * 'stuck' — конвейер встал и ждёт решения человека или менеджера; это
  * единственная стадия, на которой работа не двигается сама.
@@ -1148,8 +1228,13 @@ export type ServerEvent =
       /** План: фичи в том порядке, в котором офис их ведёт. */
       epics: EpicView[];
       /** Живой офис: журнал, вопросы владельцу, ритуалы. */
-      facts: FactView[]; questions: OwnerQuestion[]; life: LifeView }
+      facts: FactView[]; questions: OwnerQuestion[]; life: LifeView;
+      /** Направления владельца и предложения офиса, которые ждут решения. */
+      directions: DirectionView[]; proposals: ProposalView[] }
   | { t: 'mcp.status'; servers: McpServerState[] }
+  | { t: 'direction'; direction: DirectionView }
+  | { t: 'direction.remove'; id: string }
+  | { t: 'proposal'; proposal: ProposalView }
   /** Запись журнала завели или её статус изменился. */
   | { t: 'fact'; fact: FactView }
   | { t: 'fact.remove'; id: string }
@@ -1329,6 +1414,12 @@ export type ClientCommand =
   | { c: 'fact_archive'; id: string }
   /** Запустить ритуал сейчас, не дожидаясь расписания. */
   | { c: 'ritual_run'; ritual: RitualId }
+  /** Направления владельца: завести, поправить (текст, пауза, порядок), снять. */
+  | { c: 'direction_create'; text: string }
+  | { c: 'direction_update'; id: string; patch: Partial<Pick<DirectionView, 'text' | 'active' | 'priority'>> }
+  | { c: 'direction_remove'; id: string }
+  /** Решение по предложению офиса: принять или отклонить. */
+  | { c: 'proposal_decide'; id: string; accept: boolean }
   | { c: 'reset' };
 
 // ------------------------------------------------------------- маркет

@@ -28,7 +28,9 @@ import {
 import { closeIfDone, recordOutcome } from './outcomes';
 import { journalBrief } from './journal';
 import { answerFromChat, askOwner } from './questions';
-import { setRitualAgents, type ConsolidationInput, type RitualOutput } from './rituals';
+import {
+  setRitualAgents, type ConsolidationInput, type ReflectionOutput, type RitualOutput,
+} from './rituals';
 import { resolveModel } from '../shared/models';
 import { resolve } from 'node:path';
 import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync } from 'node:fs';
@@ -480,7 +482,12 @@ const stageText = (stage: PrStage, lang: Lang): string => t(lang, `pr.stage.${st
 
 function boardSummary(state: OfficeState): string {
   const tasks = [...state.tasks.values()];
-  const plan = planSummary(state);
+  // Направления — над планом: они объясняют, откуда взялись инициативы.
+  const directions = directionsText(state);
+  const plan = [
+    directions ? `${state.say('prompt.board.directions')}\n${directions}` : '',
+    planSummary(state),
+  ].filter(Boolean).join('\n\n');
   if (!tasks.length) return plan || state.say('prompt.board.empty');
   const lang = state.lang();
   // План идёт первым: он объясняет, почему часть задач стоит, — без него
@@ -503,7 +510,16 @@ function boardSummary(state: OfficeState): string {
  * русский офис и английский одновременно.
  */
 const pmPrompt = (state: OfficeState): string =>
-  state.say('prompt.pm.system', { lang: LANG_NAME_EN[state.lang()] }) + state.say('prompt.pm.life');
+  state.say('prompt.pm.system', { lang: LANG_NAME_EN[state.lang()] })
+  + state.say('prompt.pm.life')
+  + state.say('prompt.pm.directions', { directions: directionsText(state) || state.say('prompt.pm.noDirections') });
+
+/** Направления словами — в бриф менеджера и на доску. */
+function directionsText(state: OfficeState): string {
+  return state.directionList().map((d) => state.say('prompt.board.directionRow', {
+    id: d.id, text: d.text, paused: d.active ? '' : state.say('prompt.board.paused'),
+  })).join('\n');
+}
 
 /**
  * Почему роли сейчас нельзя отдать задачу: в ней не осталось сотрудников.
@@ -2642,6 +2658,113 @@ setRitualAgents({
       journalText(state, facts),
     ].join('\n');
     return ritualSession(state, state.say('prompt.contradictions.system', { lang }), prompt);
+  },
+
+  /**
+   * Рефлексия — на модели менеджера: это и есть менеджер, только с цифрами
+   * вместо файлов. Фичи предлагаются инструментом той же формы, что
+   * plan_features, и ложатся через режим инициативы уже в rituals.ts.
+   */
+  async reflect(state, input) {
+    const lang = LANG_NAME_EN[state.lang()];
+    const out: ReflectionOutput = { facts: [], contradictions: [], questions: [], costUsd: 0, features: [], summary: '' };
+    if (state.dryRun) return out;
+    const roles = state.workerRoles().map((r) => `${r.id} (${r.title})`).join(', ');
+    const proposeTools = createSdkMcpServer({
+      name: 'reflect',
+      version: '1.0.0',
+      tools: [
+        tool(
+          'propose_feature',
+          state.say('tool.proposeFeature.desc'),
+          {
+            title: z.string().describe(state.say('tool.planFeatures.title')),
+            goal: z.string().describe(state.say('tool.planFeatures.goal')),
+            rationale: z.string().describe(state.say('tool.proposeFeature.rationale')),
+            directionId: z.string().default('').describe(state.say('tool.proposeFeature.direction')),
+            tasks: z.array(z.object({
+              key: z.string().describe(state.say('tool.planFeatures.key')),
+              title: z.string().describe(state.say('tool.createTask.title')),
+              description: z.string().describe(state.say('tool.createTask.description')),
+              acceptanceCriteria: z.array(z.string()).describe(state.say('tool.createTask.criteria')),
+              roleId: z.string().describe(state.say('tool.planFeatures.role', { roles })),
+              dependsOn: z.array(z.string()).default([]).describe(state.say('tool.planFeatures.dependsOn')),
+            })).describe(state.say('tool.planFeatures.tasks')),
+          },
+          async (args) => {
+            out.features.push({
+              title: args.title, goal: args.goal, rationale: args.rationale,
+              directionId: args.directionId?.trim() || null,
+              tasks: args.tasks.map((t) => ({ ...t, dependsOn: t.dependsOn ?? [] })),
+            });
+            return { content: [{ type: 'text', text: state.say('tool.proposeFeature.ok', { result: args.title }) }] };
+          },
+        ),
+      ],
+    });
+    const say = state.say.bind(state);
+    const reports = input.reports.length
+      ? input.reports.map((r) => say('prompt.reflect.reportRow', {
+        role: r.roleId, closed: r.closed, clean: Math.round(r.cleanShare * 100),
+        reworked: r.byKind.reworked, stuck: r.byKind.stuck, failed: r.byKind.failed,
+        reverted: r.byKind.reverted, cost: r.avgCostUsd.toFixed(2),
+      })).join('\n')
+      : say('prompt.reflect.nothing');
+    const reviews = input.reviews.length
+      ? input.reviews.map((r) => say('prompt.reflect.reviewRow', {
+        task: r.taskId, title: r.title, role: r.roleId, text: r.text,
+      })).join('\n')
+      : say('prompt.reflect.nothing');
+    const open = input.questions.filter((q) => !q.answeredAt && !q.dismissedAt).length;
+    const questions = input.questions.length
+      ? input.questions.map((q) => say('prompt.reflect.questionRow', {
+        id: q.id, status: say(q.answeredAt ? 'prompt.reflect.answeredStatus' : 'prompt.reflect.open'),
+        text: clip(q.text, 200), answer: q.answer ? say('prompt.reflect.answered', { answer: clip(q.answer, 200) }) : '',
+      })).join('\n')
+      : say('prompt.reflect.nothing');
+    const directions = input.directions.map((d) => say('prompt.reflect.directionRow', {
+      id: d.id, text: d.text, paused: d.active ? '' : say('prompt.board.paused'),
+    })).join('\n');
+    const prompt = [
+      say('prompt.reflect.user'),
+      '',
+      say('prompt.reflect.reports'), reports, '',
+      say('prompt.reflect.reviews'), reviews, '',
+      say('prompt.reflect.rituals', { runs: input.rituals.runs, cost: input.rituals.costUsd.toFixed(2) }), '',
+      say('prompt.reflect.questions', { open }), questions, '',
+      say('prompt.reflect.directions'), directions, '',
+      say('prompt.reflect.plan'), input.plan || say('prompt.reflect.noPlan'), '',
+      say('prompt.ritual.journalHead'), journalText(state, input.facts),
+    ].join('\n');
+
+    const before = state.instances.get('pm#1')?.usage.costUsd ?? 0;
+    try {
+      const session = query({
+        prompt,
+        options: {
+          model: state.role('pm')!.model,
+          systemPrompt: say('prompt.reflect.system', { lang }),
+          cwd: state.projectDir,
+          tools: [],
+          mcpServers: { journal: ritualTools(state, out), reflect: proposeTools },
+          permissionMode: 'default',
+          canUseTool: permissionHandler(state, 'pm#1'),
+          settingSources: [],
+          maxTurns: 16,
+        },
+      });
+      for await (const msg of session) {
+        consume(state, 'pm#1', msg, false);
+        if (msg.type === 'result') {
+          if (isOk(msg)) out.summary = msg.result?.trim() ?? '';
+          else out.error = clip(resultReason(msg, state.lang()), 300);
+        }
+      }
+    } catch (err) {
+      out.error = (err as Error).message;
+    }
+    out.costUsd = Math.max(0, (state.instances.get('pm#1')?.usage.costUsd ?? 0) - before);
+    return out;
   },
 });
 

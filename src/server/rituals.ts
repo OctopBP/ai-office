@@ -22,14 +22,19 @@
  * «консолидировать» и «найти противоречия» (RitualAgents). Настоящую
  * реализацию ставит agents.ts, проверки — свою.
  */
-import { dayKey, limitReset, OFFICE_SENDER } from '../shared/types';
+import { dayKey, HEALTH_DIRECTION, limitReset, OFFICE_SENDER } from '../shared/types';
 import type { OwnerQuestion, RitualId, RitualRun } from '../shared/types';
 import { LANG_LOCALE } from '../shared/i18n';
-import type { Fact, OfficeState, Task } from './state';
+import { roleReports, WEEK_MS as REPORT_WEEK_MS, type RoleReport } from '../shared/report';
+import { toTaskView, type Fact, type OfficeState, type Task } from './state';
 import { forget, STALE_AFTER_MS } from './journal';
-import { officeAsks, pickForStandup } from './questions';
+import { officeAsks, openQuestions, pickForStandup } from './questions';
 import { limitsView } from './limits';
 import { tellPm } from './review';
+import { runTypecheck } from './merge';
+import { isRepo } from './git';
+import { planSummary } from './plan';
+import { pendingProposals, proposeFeature, type FeatureProposal } from './initiatives';
 
 /** Если планёрки ещё не было ни разу — «с прошлой» значит «за сутки». */
 const FIRST_WINDOW_MS = 24 * 60 * 60 * 1000;
@@ -66,9 +71,29 @@ export interface RitualOutput {
   error?: string;
 }
 
+/** Что рефлексия получает: неделя офиса в цифрах и текстах (§5.5). */
+export interface ReflectionInput {
+  since: number;
+  reports: RoleReport[];
+  /** Замечания ревьюера по переделанным задачам недели. */
+  reviews: Array<{ taskId: string; title: string; roleId: string; text: string }>;
+  rituals: { runs: number; costUsd: number };
+  questions: OwnerQuestion[];
+  directions: Array<{ id: string; text: string; active: boolean }>;
+  plan: string;
+  facts: Fact[];
+}
+
+/** Что рефлексия произвела сверх общего: фичи и итог для владельца. */
+export interface ReflectionOutput extends RitualOutput {
+  features: FeatureProposal[];
+  summary: string;
+}
+
 export interface RitualAgents {
   consolidate(state: OfficeState, input: ConsolidationInput): Promise<RitualOutput>;
   contradictions(state: OfficeState, facts: Fact[]): Promise<RitualOutput>;
+  reflect(state: OfficeState, input: ReflectionInput): Promise<ReflectionOutput>;
 }
 
 const emptyOutput = (): RitualOutput => ({ facts: [], contradictions: [], questions: [], costUsd: 0 });
@@ -76,6 +101,7 @@ const emptyOutput = (): RitualOutput => ({ facts: [], contradictions: [], questi
 let agents: RitualAgents = {
   async consolidate() { return emptyOutput(); },
   async contradictions() { return emptyOutput(); },
+  async reflect() { return { ...emptyOutput(), features: [], summary: '' }; },
 };
 
 export function setRitualAgents(next: RitualAgents): void {
@@ -112,11 +138,25 @@ export function standupText(state: OfficeState, now = Date.now(), questions: Own
   const unmerged = tasks.filter((t) => t.status === 'done' && t.branch && !t.merged).length;
   if (unmerged && !state.settings.autoPipeline) waiting.push(say('life.standup.unmerged', { n: unmerged }));
   for (const epic of state.epicList()) {
-    if (epic.status === 'planned' && !epic.approved) {
-      waiting.push(say('life.standup.approval', { epic: epic.id, title: epic.title }));
-    }
+    if (epic.status !== 'planned' || epic.approved) continue;
+    // Инициативу офиса называем инициативой: владелец должен видеть, что
+    // это предложил не он, и почему.
+    waiting.push(epic.origin === 'office'
+      ? say('life.standup.initiative', { epic: epic.id, title: epic.title, rationale: epic.rationale })
+      : say('life.standup.approval', { epic: epic.id, title: epic.title }));
+  }
+  const proposals = pendingProposals(state);
+  if (proposals.length) {
+    waiting.push(say('life.standup.proposals'), ...proposals.map((p) => say('life.standup.proposalRow', {
+      id: p.id, kind: say(`proposal.kind.${p.kind}`), title: p.title, rationale: clip(p.rationale),
+    })));
   }
   if (waiting.length) lines.push('', say('life.standup.waiting'), ...waiting);
+
+  // 1½. Итог рефлексии, если она была после прошлой планёрки.
+  if (state.life.reflection && (state.life.reflectionAt ?? 0) > (state.life.standupAt ?? 0)) {
+    lines.push('', say('reflect.standup'), state.life.reflection);
+  }
 
   // 2. Что случилось с прошлой планёрки — по исходам, а не по статусам.
   const since = state.life.standupAt ?? now - FIRST_WINDOW_MS;
@@ -237,8 +277,19 @@ export function dueRitual(state: OfficeState, now = Date.now()): RitualId | null
       && state.factList().filter((f) => f.status === 'live').length >= CONTRADICTIONS_MIN_FACTS) {
     return 'contradictions';
   }
+  // Здоровье проекта — раз в сутки, без модели: проверки и протухшие ветки.
+  if (now - (last.health ?? 0) >= HEALTH_EVERY_MS && state.tasks.size > 0) return 'health';
+  // Рефлексия — раз в неделю, после забывания, и только если за неделю есть
+  // исходы: рефлексировать над пустой неделей не над чем.
+  if (state.life.policy.reflectionOn && now - (last.reflect ?? 0) >= WEEK_MS
+      && [...state.tasks.values()].some((t) => t.outcome && t.outcome.at >= now - WEEK_MS)) {
+    return 'reflect';
+  }
   return null;
 }
+
+/** Как часто офис смотрит на здоровье проекта. */
+const HEALTH_EVERY_MS = 24 * 60 * 60 * 1000;
 
 /**
  * Проход расписания — из надзора. Один ритуал за проход: ритуал на модели
@@ -369,15 +420,113 @@ const runners: Record<RitualId, Runner> = {
     };
   },
 
-  // Рефлексия и здоровье проекта — следующие фазы: пока ничего не делают,
-  // но расписание про них знает, чтобы не менять форму записи потом.
-  async reflect(_state, now) {
-    return { ritual: 'reflect', at: now, costUsd: 0, produced: {}, note: '' };
+  /**
+   * Рефлексия (§5.5): единственный ритуал, который ведёт менеджер, потому
+   * что его результат — решения. Сама она ничего не меняет: заводит фичи
+   * через режим инициативы, записи в журнал и вопросы владельцу, а итог
+   * пишет в чат и запоминает для планёрки.
+   */
+  async reflect(state, now) {
+    const out = await agents.reflect(state, reflectionInput(state, now));
+    if (out.error) throw new Error(out.error);
+    const produced = applyOutput(state, 'reflect', out);
+    let features = 0;
+    for (const feature of out.features) {
+      const made = proposeFeature(state, feature);
+      if (made.ok) features += 1;
+      else state.addLog(null, 'system', made.message);
+    }
+    const summary = out.summary.trim();
+    if (summary) {
+      state.addChat(OFFICE_SENDER, state.say('reflect.chat', { summary }));
+      state.touchLife({ reflection: summary, reflectionAt: now });
+    }
+    const all = { ...produced, features };
+    return {
+      ritual: 'reflect', at: now, costUsd: out.costUsd, produced: all,
+      note: state.say('reflect.note', all),
+    };
   },
-  async health(_state, now) {
-    return { ritual: 'health', at: now, costUsd: 0, produced: {}, note: '' };
+
+  /**
+   * Здоровье проекта (§7.1, встроенное направление): то, что офис делал бы
+   * и без владельца. Без модели: красные проверки в основной ветке — фича
+   * на починку (обязанность, не инициатива: в долю не входит и «поехали» не
+   * ждёт), ветка, которая неделю ни слита, ни в конвейере, — вопрос.
+   */
+  async health(state, now) {
+    let checks = 'ok';
+    if (await isRepo(state.projectDir)) {
+      const result = await runTypecheck(state.projectDir, state.lang());
+      if (!result.ok) {
+        checks = 'red';
+        const fixer = state.workerRoles().find((r) => r.id === 'backend' && r.isolate)
+          ?? state.workerRoles().find((r) => r.isolate);
+        if (!fixer) {
+          state.addLog(null, 'error', state.say('health.noRole'));
+        } else {
+          const made = proposeFeature(state, {
+            title: state.say('health.checksFailedTitle'),
+            goal: state.say('health.checksFailedGoal'),
+            rationale: state.say('health.checksRationale'),
+            directionId: HEALTH_DIRECTION,
+            tasks: [{
+              key: 'fix', title: state.say('health.checksFailedTask'),
+              description: state.say('health.checksFailedDesc', { output: clip(result.message, 1500) }),
+              acceptanceCriteria: [state.say('health.checksCriterion1'), state.say('health.checksCriterion2')],
+              roleId: fixer.id,
+            }],
+          });
+          if (!made.ok) state.addLog(null, 'system', made.message);
+        }
+      }
+    }
+    let stale = 0;
+    for (const task of state.tasks.values()) {
+      if (!task.branch || task.merged || task.status !== 'done' || !task.finishedAt) continue;
+      if (state.prOf(task.id) && state.prOf(task.id)!.stage !== 'stuck') continue;
+      const days = Math.floor((now - task.finishedAt) / 86_400_000);
+      if (days < 7) continue;
+      const asked = state.questionList().some((q) => q.taskId === task.id && q.text.includes(task.branch!) === false
+        && q.kind === 'assumption' && q.from === OFFICE_SENDER);
+      if (asked) continue;
+      officeAsks(state, 'assumption', state.say('health.staleBranch', { task: task.id, title: task.title, days }),
+        state.say('health.staleAssumption'), task.id);
+      stale += 1;
+    }
+    const produced = { checks: checks === 'red' ? 1 : 0, stale };
+    return {
+      ritual: 'health', at: now, costUsd: 0, produced,
+      note: state.say('health.note', { checks: state.say(checks === 'red' ? 'health.red' : 'health.ok'), stale }),
+    };
   },
 };
+
+/** Неделя офиса для рефлексии — цифры и тексты, без файлов. */
+export function reflectionInput(state: OfficeState, now = Date.now()): ReflectionInput {
+  const since = now - REPORT_WEEK_MS;
+  const tasks = [...state.tasks.values()].map(toTaskView);
+  const reviews: ReflectionInput['reviews'] = [];
+  for (const task of state.tasks.values()) {
+    if (!task.outcome || task.outcome.at < since || task.outcome.reworks === 0) continue;
+    for (const r of state.prOf(task.id)?.reviews ?? []) {
+      if (r.verdict === 'changes') {
+        reviews.push({ taskId: task.id, title: task.title, roleId: task.roleId ?? '', text: clip(r.text, 300) });
+      }
+    }
+  }
+  const runs = state.life.runs.filter((r) => r.at >= since);
+  return {
+    since,
+    reports: roleReports(tasks, since),
+    reviews,
+    rituals: { runs: runs.length, costUsd: runs.reduce((s, r) => s + r.costUsd, 0) },
+    questions: state.questionList().filter((q) => q.askedAt >= since),
+    directions: state.directionList().map((d) => ({ id: d.id, text: d.text, active: d.active })),
+    plan: planSummary(state),
+    facts: state.factList().filter((f) => f.status === 'live'),
+  };
+}
 
 /**
  * Откат — повод спросить, а не переделывать: до ответа владельца офис не

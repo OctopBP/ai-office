@@ -23,9 +23,46 @@
  * Спринтов-таймбоксов здесь нет намеренно: инкремент закрывается по факту
  * («все задачи фичи в основной ветке»), а не по календарю.
  */
-import { OFFICE_SENDER, taskClosed } from '../shared/types';
+import { dayKey, HEALTH_DIRECTION, OFFICE_SENDER, taskClosed } from '../shared/types';
 import { toTaskView, type Epic, type OfficeState, type Task } from './state';
 import { recordOutcome } from './outcomes';
+
+// ------------------------------------------------------------ инициативы
+
+/** Минимальный недельный запас на своё, чтобы простаивающий офис мог за собой следить. */
+const MIN_WEEKLY_ALLOWANCE_USD = 1;
+
+export interface InitiativeBudget {
+  /** Потрачено на инициативы (без здоровья проекта) за неделю. */
+  spentUsd: number;
+  /** Весь расход офиса за неделю. */
+  totalUsd: number;
+  /** Сколько на своё можно: доля от всего, но не меньше минимального запаса. */
+  allowedUsd: number;
+  exhausted: boolean;
+}
+
+/**
+ * Доля на своё (docs/design/living-office/spec.md §7.4). Считается по
+ * журналам расхода задач за последние семь дней: инициатива узнаётся по
+ * фиче задачи. Минимальный запас нужен, чтобы офис, которому владелец
+ * неделю ничего не давал, не оказался заперт нулём: пятая часть от нуля —
+ * это ноль.
+ */
+export function initiativeBudget(state: OfficeState, now = Date.now()): InitiativeBudget {
+  const days: string[] = [];
+  for (let i = 0; i < 7; i += 1) days.push(dayKey(now - i * 86_400_000));
+  let spent = 0;
+  for (const task of state.tasks.values()) {
+    const epic = task.epicId ? state.epics.get(task.epicId) : null;
+    if (!epic || epic.origin !== 'office' || epic.directionId === HEALTH_DIRECTION) continue;
+    for (const day of days) spent += task.daily?.[day]?.costUsd ?? 0;
+  }
+  let total = 0;
+  for (const day of days) total += state.daily[day]?.costUsd ?? 0;
+  const allowed = Math.max(MIN_WEEKLY_ALLOWANCE_USD, total * state.initiativeShare());
+  return { spentUsd: spent, totalUsd: total, allowedUsd: allowed, exhausted: spent >= allowed };
+}
 
 /**
  * Живые агенты офиса глазами плана. Настоящую реализацию ставит agents.ts при
@@ -120,11 +157,29 @@ const nextUnstarted = (state: OfficeState): Epic | null =>
 function activateEpics(state: OfficeState): void {
   const open = state.epicList().filter((e) => e.status === 'active' || e.status === 'planned');
   let active = open.filter((e) => e.status === 'active').length;
+  // Долю на своё считаем один раз на проход: она не меняется, пока фичи
+  // не начались, а пересчитывать журналы расходов на каждую фичу незачем.
+  let budget: InitiativeBudget | null = null;
 
   for (const epic of open) {
     if (epic.status !== 'planned') continue;
     if (active >= state.focusLimit()) return;
     if (!epic.approved) continue;
+    // Инициатива стоит, пока доля на своё исчерпана; фича владельца идёт.
+    // Здоровье проекта — обязанность, а не инициатива: в долю не входит.
+    if (epic.origin === 'office' && epic.directionId !== HEALTH_DIRECTION) {
+      budget ??= initiativeBudget(state);
+      if (budget.exhausted) {
+        if (!epic.attention) {
+          state.updateEpic(epic.id, { attention: Date.now() });
+          state.addLog(null, 'system', state.say('initiative.shareLog', {
+            spent: budget.spentUsd.toFixed(2), allowed: budget.allowedUsd.toFixed(2),
+            share: Math.round(state.initiativeShare() * 100), total: budget.totalUsd.toFixed(2),
+          }));
+        }
+        continue;
+      }
+    }
     state.updateEpic(epic.id, { status: 'active', startedAt: Date.now(), attention: null });
     active += 1;
     state.addChat(OFFICE_SENDER,
@@ -264,7 +319,18 @@ export interface PlanResult {
  * (ссылки, циклы, роли) и ложится на доску целиком. Половина плана на доске —
  * это офис, который начал работать не по плану, а по его обрывку.
  */
-export function createPlan(state: OfficeState, epics: PlannedEpic[]): PlanResult {
+export interface PlanOrigin {
+  origin: 'owner' | 'office';
+  rationale: string;
+  directionId: string | null;
+  /**
+   * Согласие проставить сразу, минуя настройку planApproval. Нужно
+   * инициативам: там согласие решает режим инициативы, а не общий порядок.
+   */
+  approved?: boolean;
+}
+
+export function createPlan(state: OfficeState, epics: PlannedEpic[], from?: PlanOrigin): PlanResult {
   if (!epics.length) return { ok: false, message: state.say('plan.err.empty') };
 
   const roles = state.workerRoles().map((r) => r.id);
@@ -313,7 +379,7 @@ export function createPlan(state: OfficeState, epics: PlannedEpic[]): PlanResult
   // Проверки пройдены — заводим. Порядок фич продолжает уже существующий
   // план, а не начинается заново: новая фича встаёт в конец очереди, а не
   // впереди той, которую офис уже ведёт.
-  const approved = !state.needsApproval();
+  const approved = from?.approved ?? !state.needsApproval();
   let order = state.epicList().length;
   const made: Epic[] = [];
 
@@ -321,6 +387,8 @@ export function createPlan(state: OfficeState, epics: PlannedEpic[]): PlanResult
     order += 1;
     const epic = state.createEpic({
       title: planned.title.trim(), goal: planned.goal.trim(), order, approved,
+      origin: from?.origin ?? 'owner', rationale: from?.rationale ?? '',
+      directionId: from?.directionId ?? null,
     });
     made.push(epic);
     planned.tasks.forEach((task, i) => {

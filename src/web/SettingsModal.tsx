@@ -4,8 +4,9 @@ import {
   setCloudToken, updateSettings, useStore, type ThemeMode,
 } from './store';
 import {
-  DEFAULT_FOCUS_EPICS, DEFAULT_OFFICE_WORKERS, DEFAULT_PROCESS_WORKERS, DEFAULT_RITUAL_LIMIT,
-  MAX_FOCUS_EPICS, MIN_FOCUS_EPICS, type McpServerDef, type PermissionMode,
+  DEFAULT_FOCUS_EPICS, DEFAULT_INITIATIVE_MODE, DEFAULT_INITIATIVE_SHARE, DEFAULT_OFFICE_WORKERS,
+  DEFAULT_PROCESS_WORKERS, DEFAULT_RITUAL_LIMIT, INITIATIVE_MODES, MAX_FOCUS_EPICS, MAX_INITIATIVE_SHARE,
+  MIN_FOCUS_EPICS, MIN_INITIATIVE_SHARE, type InitiativeMode, type McpServerDef, type PermissionMode,
 } from '../shared/types';
 import { LANGS, LANG_TITLE, type Lang } from '../shared/i18n';
 import { DEFAULT_GRAPHICS, GRAPHICS_RANGE, type Graphics } from './office3d/graphics';
@@ -121,6 +122,9 @@ export function SettingsModal({ onClose }: { onClose: () => void }) {
   const [planApproval, setPlanApproval] = useState(settings.planApproval !== false);
   const [ritualsEnabled, setRitualsEnabled] = useState(settings.ritualsEnabled !== false);
   const [ritualLimit, setRitualLimit] = useState(settings.ritualLimitThreshold ?? DEFAULT_RITUAL_LIMIT);
+  const [initiativeMode, setInitiativeMode] = useState<InitiativeMode>(settings.initiativeMode ?? DEFAULT_INITIATIVE_MODE);
+  const [initiativeShare, setInitiativeShare] = useState(
+    Math.round((settings.initiativeShare ?? DEFAULT_INITIATIVE_SHARE) * 100));
   const [confirmAuto, setConfirmAuto] = useState(false);
   const maxTurnsParsed = parseTaskMaxTurns(maxTurns);
   const maxWorkersParsed = parseMaxWorkers(maxWorkers);
@@ -156,6 +160,8 @@ export function SettingsModal({ onClose }: { onClose: () => void }) {
       planApproval,
       ritualsEnabled,
       ritualLimitThreshold: ritualLimit,
+      initiativeMode,
+      initiativeShare: initiativeShare / 100,
       language,
     });
     setGraphics(gfx);
@@ -387,6 +393,25 @@ export function SettingsModal({ onClose }: { onClose: () => void }) {
                   range={{ min: 10, max: 100, step: 5 }}
                   disabled={!ritualsEnabled}
                   onChange={setRitualLimit}
+                />
+
+                <h4 className="section-title">{t('settings.life.initiative')}</h4>
+                <div className="engine">
+                  {INITIATIVE_MODES.map((mode) => (
+                    <button key={mode} className={initiativeMode === mode ? 'on' : ''}
+                      onClick={() => setInitiativeMode(mode)}>
+                      <span>{t(`settings.life.initiative.${mode}`)}</span>
+                      <span className="muted small">{t(`settings.life.initiative.${mode}.hint`)}</span>
+                    </button>
+                  ))}
+                </div>
+                <Slider
+                  label={t('settings.life.share')}
+                  hint={t('settings.life.share.hint')}
+                  value={initiativeShare}
+                  range={{ min: MIN_INITIATIVE_SHARE * 100, max: MAX_INITIATIVE_SHARE * 100, step: 5 }}
+                  disabled={initiativeMode === 'off'}
+                  onChange={setInitiativeShare}
                 />
               </>
             )}

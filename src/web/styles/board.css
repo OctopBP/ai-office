@@ -90,3 +90,23 @@
 .epic-move { display: flex; gap: var(--space-1); }
 .epic-move .sq { width: var(--mini-h); }
 .task .lock { display: inline-flex; align-items: center; }
+
+/* ---------- направления владельца над планом ----------
+   Строки на плёнке, как фичи; встроенное направление идёт последним и не
+   снимается — только приостанавливается. */
+.directions { flex: none; margin-bottom: var(--space-3); }
+.directions .plan-head .muted { margin-left: var(--space-3); }
+.direction-rows { display: flex; flex-direction: column; gap: var(--space-1); }
+.direction {
+  display: flex; align-items: center; gap: var(--space-2); flex-wrap: wrap;
+  padding: var(--space-2) var(--space-3); background: var(--film); border-radius: var(--radius-row);
+  font-size: var(--fs-small);
+}
+.direction b { font: 500 var(--fs-small)/1.3 var(--font-mono); color: var(--ink-3); }
+.direction-text { flex: 1; font-size: var(--fs-body); color: var(--ink); }
+.direction.paused .direction-text { color: var(--ink-3); text-decoration: line-through; }
+.direction.new { background: none; padding-left: 0; padding-right: 0; }
+.direction.new input { flex: 1; min-width: 0; }
+/* Инициатива офиса в плане: чип и обоснование под целью. */
+.epic.initiative { border-left: 3px solid var(--accent); }
+.epic-rationale { font-size: var(--fs-small); margin-top: var(--space-1); color: var(--ink-3); }

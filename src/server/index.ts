@@ -18,6 +18,8 @@ import { startSupervisor } from './supervisor';
 import { answerQuestion, dismissQuestion } from './questions';
 import { archiveFact, confirmFact } from './journal';
 import { runRitual } from './rituals';
+import { decideProposal } from './initiatives';
+import { applyProposal } from './selfchange';
 import { RITUAL_IDS } from '../shared/types';
 import { githubToken, setGithubToken } from './cloud';
 import { clearInitFlag, currentOffice, ensureOffice, loadRegistry, setCurrent, type OfficeEntry } from './offices';
@@ -380,6 +382,18 @@ wss.on('connection', (ws) => {
       confirmFact(state, cmd.id);
     } else if (cmd.c === 'fact_archive') {
       archiveFact(state, cmd.id);
+    } else if (cmd.c === 'direction_create') {
+      const problem = state.createDirection(cmd.text);
+      if (problem) state.addChat(OFFICE_SENDER, problem);
+    } else if (cmd.c === 'direction_update') {
+      const problem = state.updateDirection(cmd.id, cmd.patch);
+      if (problem) state.addChat(OFFICE_SENDER, problem);
+    } else if (cmd.c === 'direction_remove') {
+      const problem = state.removeDirection(cmd.id);
+      if (problem) state.addChat(OFFICE_SENDER, problem);
+    } else if (cmd.c === 'proposal_decide') {
+      const outcome = decideProposal(state, cmd.id, cmd.accept, applyProposal);
+      if (!outcome.ok) state.addChat(OFFICE_SENDER, outcome.message);
     } else if (cmd.c === 'ritual_run') {
       // По кнопке — тот же путь, что по расписанию: порог лимита и замок
       // «один ритуал за раз» действуют и здесь.

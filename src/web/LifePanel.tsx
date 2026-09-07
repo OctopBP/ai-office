@@ -1,13 +1,13 @@
 import { useState } from 'react';
 import {
-  answerQuestion, archiveFact, confirmFact, dismissQuestion, runRitual, useStore,
+  answerQuestion, archiveFact, confirmFact, decideProposal, dismissQuestion, runRitual, useStore,
 } from './store';
-import type { FactStatus, OwnerQuestion, RitualId } from '../shared/types';
+import type { FactStatus, OwnerQuestion, ProposalView, RitualId } from '../shared/types';
 import { RITUAL_IDS, isOfficeSender } from '../shared/types';
 import { locale, t } from './i18n';
 import { Icon } from './icons';
 
-type Tab = 'questions' | 'journal' | 'rituals';
+type Tab = 'questions' | 'proposals' | 'journal' | 'rituals';
 
 const when = (at: number | null | undefined): string =>
   (at ? new Date(at).toLocaleString(locale(), { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }) : '');
@@ -30,8 +30,50 @@ export function LifePanel() {
         ))}
       </div>
       {tab === 'questions' && <Questions />}
+      {tab === 'proposals' && <Proposals />}
       {tab === 'journal' && <Journal />}
       {tab === 'rituals' && <Rituals />}
+    </div>
+  );
+}
+
+/**
+ * Предложения офиса (§8.1): правило для роли, настройка, фича при
+ * выключенных инициативах. Офис ничего из этого не делает сам — принять или
+ * отклонить решает человек, и только здесь.
+ */
+function Proposals() {
+  const proposals = useStore((s) => s.proposals);
+  const pending = proposals.filter((p) => p.status === 'pending').sort((a, b) => b.createdAt - a.createdAt);
+  const decided = proposals.filter((p) => p.status !== 'pending').sort((a, b) => (b.decidedAt ?? 0) - (a.decidedAt ?? 0));
+  if (!proposals.length) return <p className="empty">{t('life.proposals.empty')}</p>;
+  const row = (p: ProposalView) => (
+    <div key={p.id} className={`life-row proposal ${p.kind}${p.status !== 'pending' ? ' closed' : ''}`}>
+      <div className="life-row-head">
+        <span className="mono dim">{p.id}</span>
+        <span className={`chip ${p.kind}`}>{t(`life.proposals.kind.${p.kind}`)}</span>
+        {p.roleId && <span className="muted small">{t('life.proposals.role', { role: p.roleId })}</span>}
+        {p.directionId && <span className="muted small">{p.directionId}</span>}
+        <span className="muted small">{when(p.createdAt)}</span>
+        {p.status !== 'pending' && <span className="muted small">{t(`life.proposals.status.${p.status}`)}</span>}
+      </div>
+      <div className="life-text"><b>{p.title}</b></div>
+      {p.text && p.text !== p.title && <div className="life-text">{p.text}</div>}
+      <div className="muted small">{p.rationale}</div>
+      {p.status === 'pending' && (
+        <div className="life-actions">
+          <button className="allow" onClick={() => decideProposal(p.id, true)}>{t('life.proposals.accept')}</button>
+          <button className="mini" onClick={() => decideProposal(p.id, false)}>{t('life.proposals.reject')}</button>
+        </div>
+      )}
+    </div>
+  );
+  return (
+    <div className="life-list">
+      {pending.length > 0 && <div className="section-title">{t('life.proposals.pending')}</div>}
+      {pending.map(row)}
+      {decided.length > 0 && <div className="section-title">{t('life.proposals.decided')}</div>}
+      {decided.slice(0, 30).map(row)}
     </div>
   );
 }
