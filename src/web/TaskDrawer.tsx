@@ -50,6 +50,7 @@ export function TaskDrawer() {
   const epics = useStore((s) => s.epics);
   const roles = useStore((s) => s.roles);
   const prs = useStore((s) => s.prs);
+  const runs = useStore((s) => s.runs);
   const run = useStore((s) => s.mergeRun);
   const checks = useStore((s) => s.mergeChecks);
   const autoPipeline = useStore((s) => s.settings.autoPipeline);
@@ -62,6 +63,7 @@ export function TaskDrawer() {
   const epic = task.epicId ? epics[task.epicId] : null;
   const role = roles.find((r) => r.id === task.roleId);
   const pr = prs[task.id];
+  const process = runs[task.id];
   const check = checks[task.id];
   const badge = mergeBadge(task, mergeStepFor(run, task.id), check);
   // Пока конвейер ведёт задачу, ручное слияние вырвало бы ветку у ревьюера.
@@ -183,6 +185,30 @@ export function TaskDrawer() {
         <section>
           <h3 className="section-title">{t('taskCard.files')}</h3>
           <div className="task-files mono">{task.files.join('  ·  ')}</div>
+        </section>
+      )}
+
+      {task.handoff && (
+        <section>
+          <h3 className="section-title">{t('taskCard.handoff')}</h3>
+          <div className="task-handoff">
+            <div><b>{t('taskCard.assumed')}:</b> {task.handoff.assumed}</div>
+            <div><b>{t('taskCard.left')}:</b> {task.handoff.left}</div>
+          </div>
+        </section>
+      )}
+
+      {process && (
+        <section>
+          <h3 className="section-title">{t('taskCard.process')}</h3>
+          <div className="task-process">
+            <span className="mono">{process.workflowId}</span>
+            {' · '}
+            <span className="mono">{process.nodeId}</span>
+            {' · '}
+            <span className={`chip ${process.status}`}>{t(`run.status.${process.status}`)}</span>
+            {process.note && <div className="muted">{process.note}</div>}
+          </div>
         </section>
       )}
 

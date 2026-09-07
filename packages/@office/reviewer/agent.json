@@ -19,6 +19,9 @@
   "maxInstances": 1,
   "docsDir": "docs/review",
   "license": "MIT",
+  "capabilities": [
+    "code.review"
+  ],
   "runtime": {
     "engine": "claude-code",
     "model": "sonnet",

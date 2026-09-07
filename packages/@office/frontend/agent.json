@@ -18,6 +18,9 @@
   "emoji": "🎨",
   "maxInstances": 3,
   "license": "MIT",
+  "capabilities": [
+    "code.write"
+  ],
   "runtime": {
     "engine": "claude-code",
     "model": "sonnet",

@@ -12,6 +12,7 @@ import {
   MAX_OFFICE_WORKERS, MAX_TASK_MAX_TURNS, MIN_OFFICE_WORKERS, MIN_TASK_MAX_TURNS,
 } from '../shared/types';
 import { asLang, type Lang } from '../shared/i18n';
+import type { Run } from '../shared/workflow';
 import { lang as currentLang, locale, setLang, t as tr } from './i18n';
 import type { Theme } from './sprites';
 import { type Graphics, loadGraphics, saveGraphics } from './office3d/graphics';
@@ -238,6 +239,8 @@ interface State {
   mergeRun: MergeRun | null;
   /** Пулл-реквесты конвейера ревью, по taskId. */
   prs: Record<string, PullRequestView>;
+  /** Прогоны процессов, по taskId (docs/design/workflows/spec.md §8). */
+  runs: Record<string, Run>;
   /** Живой офис: журнал, вопросы владельцу, ритуалы (docs/design/living-office). */
   facts: FactView[];
   questions: OwnerQuestion[];
@@ -370,6 +373,7 @@ export const useStore = create<State>((set, get) => ({
   mergeChecking: false,
   mergeRun: null,
   prs: {},
+  runs: {},
   facts: [],
   questions: [],
   directions: [],
@@ -494,6 +498,7 @@ export const useStore = create<State>((set, get) => ({
           mergeChecks: Object.fromEntries(e.mergeChecks.map((c) => [c.taskId, c])),
           mergeRun: e.mergeRun,
           prs: Object.fromEntries(e.prs.map((pr) => [pr.taskId, pr])),
+          runs: Object.fromEntries(e.runs.map((r) => [r.subject.taskId ?? r.id, r])),
           facts: e.facts, questions: e.questions, life: e.life,
           directions: e.directions, proposals: e.proposals,
           booted: true, connectFailed: false,
@@ -698,6 +703,9 @@ export const useStore = create<State>((set, get) => ({
         break;
       case 'pr':
         set((s) => ({ prs: { ...s.prs, [e.pr.taskId]: e.pr } }));
+        break;
+      case 'run':
+        set((s) => ({ runs: { ...s.runs, [e.run.subject.taskId ?? e.run.id]: e.run } }));
         break;
       case 'fact':
         set((s) => ({

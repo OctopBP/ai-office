@@ -2,6 +2,7 @@
 export type { PermissionMode } from '../shared/types';
 import type { PermissionMode, RoleEditable } from '../shared/types';
 import { DEFAULT_LANG, type Lang } from '../shared/i18n';
+import type { Capability } from '../shared/workflow';
 import {
   defaultTeam, loadPackage, OFFICIAL_SCOPE, packageBrief, packageModel, packageTitle,
   type AgentPackage,
@@ -41,6 +42,12 @@ export interface Role {
   mcp?: string[];
   /** Папка для артефактов у ролей без изоляции веткой. */
   docsDir?: string;
+  /**
+   * Что роль умеет — словарь `CAPABILITIES` (spec процессов §5). У роли из
+   * пакета — из манифеста; у заведённой руками поля нет, и способности
+   * выводятся из инструментов (`capabilitiesOf`).
+   */
+  capabilities?: Capability[];
   /**
    * Свой репозиторий роли. Пусто — общий репозиторий офиса.
    * Путь абсолютный либо относительный от директории офиса.
@@ -160,6 +167,7 @@ export function roleFromPackage(pkg: AgentPackage, lang: Lang, id: string, link?
     ...(m.runtime.tools ? { tools: [...m.runtime.tools] } : {}),
     mcp: [...m.runtime.mcp],
     ...(m.docsDir ? { docsDir: m.docsDir } : {}),
+    ...(m.capabilities.length ? { capabilities: [...m.capabilities] } : {}),
     ...(m.look ? { sprite: m.look } : {}),
     archived: false,
     brief: '',
@@ -189,6 +197,22 @@ export function roleFromPackage(pkg: AgentPackage, lang: Lang, id: string, link?
  * держится раздача задач, и второй такой же роли в наборе быть не может.
  */
 export const MANAGER_ROLE_ID = 'pm';
+
+/**
+ * Способности роли. Явные — из пакета; иначе по тому, чем роль работает:
+ * своя ветка и оболочка — пишет код; папка документов — пишет документы;
+ * веб-поиск — ищет; менеджер — планирует и подводит итоги.
+ */
+export function capabilitiesOf(role: Pick<Role, 'capabilities' | 'isolate' | 'tools' | 'docsDir' | 'isManager'>): Capability[] {
+  if (role.capabilities?.length) return [...role.capabilities];
+  if (role.isManager) return ['plan', 'summarize'];
+  const caps: Capability[] = [];
+  const has = (tool: string) => !role.tools || role.tools.includes(tool);
+  if (role.isolate && !role.docsDir && has('Bash') && has('Edit')) caps.push('code.write');
+  if (role.docsDir) caps.push('docs.write');
+  if (has('WebSearch')) caps.push('research.web');
+  return caps;
+}
 
 /** Имя нашего пакета по id базовой роли: `backend` → `@office/backend`. */
 export const basePackageName = (id: string): string => `${OFFICIAL_SCOPE}/${id}`;

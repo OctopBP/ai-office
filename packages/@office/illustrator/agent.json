@@ -19,6 +19,9 @@
   "emoji": "🖼",
   "maxInstances": 2,
   "license": "MIT",
+  "capabilities": [
+    "image.generate"
+  ],
   "runtime": {
     "engine": "claude-code",
     "model": "sonnet",

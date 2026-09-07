@@ -1,0 +1,26 @@
+{
+  "id": "research",
+  "version": 1,
+  "trigger": { "on": "task.finished", "type": "research" },
+  "nodes": [
+    { "id": "verify", "kind": "step", "needs": ["research.web"], "stage": "review",
+      "in": ["report"], "out": "verify",
+      "done": ["Ключевые утверждения проверены по источникам", "Пробелы и спорные места названы"],
+      "next": { "ok": "accept", "gaps": { "to": "rework", "max": 1 }, "failed": "stuck" } },
+    { "id": "rework", "kind": "step", "needs": ["research.web"], "same": "author", "stage": "rework",
+      "in": ["verify", "decision"],
+      "done": ["Пробелы закрыты", "Документ обновлён в папке задачи"],
+      "next": { "done": "verify", "failed": "stuck" } },
+    { "id": "accept", "kind": "gate", "stage": "review", "in": ["report", "verify"], "out": "decision",
+      "done": ["Владелец принял выводы"],
+      "next": { "yes": "sync", "no": { "to": "rework", "max": 1 } } },
+
+    { "id": "sync", "kind": "check", "run": "office:sync-base", "stage": "sync", "out": "conflict",
+      "next": { "pass": "merge", "conflict": { "to": "fix-conflict", "max": 1 }, "fail": "stuck" } },
+    { "id": "fix-conflict", "kind": "step", "run": "office:fix-conflict", "needs": ["research.web"],
+      "stage": "sync", "in": ["conflict"],
+      "next": { "done": "sync", "failed": "stuck" } },
+    { "id": "merge", "kind": "check", "run": "office:merge", "stage": "merging",
+      "next": { "pass": "end", "moved": { "to": "sync", "max": 1 }, "fail": "stuck" } }
+  ]
+}

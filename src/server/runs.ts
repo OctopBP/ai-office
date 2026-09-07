@@ -24,6 +24,8 @@ export interface StepResult {
   needsDecision?: boolean;
   /** Что узел оставляет после себя; кладётся в прогон под именем `out`. */
   artifact?: RunArtifact;
+  /** Кто делал шаг — для `same` и `notSameAs` следующих узлов. */
+  actor?: string;
 }
 
 export interface Halt {
@@ -63,6 +65,8 @@ export function newRun(workflow: Workflow, taskId: string, now = Date.now()): Ru
     from: null,
     loops: {},
     artifacts: {},
+    actors: {},
+    waitingOn: null,
     status: 'running',
     needsDecision: false,
     note: '',
@@ -72,18 +76,21 @@ export function newRun(workflow: Workflow, taskId: string, now = Date.now()): Ru
 }
 
 /**
- * Поставить прогон на начало. Счётчики петель остаются: они сбрасываются
- * сами, когда в узел приходят снаружи его петли (см. loopBodies), а те, что
- * должны пережить перезапуск, — вроде кругов ревью — так и переживают.
+ * Снова пустить вставший прогон — с того узла, где он встал, а не с начала:
+ * шаги процесса стоят денег, и переделывать сделанное ради перезапуска
+ * незачем. Счётчики петель остаются: они сбрасываются сами, когда в узел
+ * приходят снаружи его петли (см. loopBodies), а те, что должны пережить
+ * перезапуск, — вроде кругов ревью — так и переживают.
  */
-export function restartRun(run: Run, workflow: Workflow): void {
-  run.nodeId = firstNode(workflow).id;
-  run.from = null;
+export function resumeRun(run: Run): void {
   run.status = 'running';
   run.needsDecision = false;
   run.note = '';
   run.updatedAt = Date.now();
 }
+
+/** Чем узел делается: по действию из файла или по виду узла. */
+export type Resolve<Ctx> = (node: WorkflowNode) => Executor<Ctx> | undefined;
 
 /**
  * Провести прогон от текущего узла до конца или до остановки. Остановка —
@@ -92,7 +99,7 @@ export function restartRun(run: Run, workflow: Workflow): void {
  */
 export async function drive<Ctx>(
   state: OfficeState, workflow: Workflow, run: Run,
-  executors: Record<string, Executor<Ctx>>, hooks: RunHooks<Ctx>,
+  resolve: Resolve<Ctx>, hooks: RunHooks<Ctx>,
 ): Promise<void> {
   const bodies = loopBodies(workflow);
   const save = () => {
@@ -126,7 +133,7 @@ export async function drive<Ctx>(
 
       const ctx = hooks.context(node);
       hooks.enter?.(ctx, node);
-      const executor = executors[node.run ?? ''];
+      const executor = resolve(node);
       if (!executor) {
         throw new Error(state.say('wf.noExecutor', { node: node.id, run: node.run ?? '' }));
       }
@@ -135,6 +142,9 @@ export async function drive<Ctx>(
 
       const result = await executor.run(ctx);
       if (node.out && result.artifact) run.artifacts[node.out] = result.artifact;
+      if (result.actor) run.actors[node.id] = result.actor;
+      run.status = 'running';
+      run.waitingOn = null;
 
       const tr = node.next[result.outcome];
       if (!tr) {

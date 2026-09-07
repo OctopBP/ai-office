@@ -19,6 +19,9 @@
   "emoji": "🖌",
   "maxInstances": 1,
   "license": "MIT",
+  "capabilities": [
+    "design.sprite"
+  ],
   "runtime": {
     "engine": "claude-code",
     "model": "sonnet",

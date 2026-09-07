@@ -1,3 +1,4 @@
+import { TASK_TYPES } from '../shared/workflow';
 import { query, tool, createSdkMcpServer } from '@anthropic-ai/claude-agent-sdk';
 import type { SDKMessage, PermissionResult, SDKResultSuccess } from '@anthropic-ai/claude-agent-sdk';
 import { z } from 'zod';
@@ -23,6 +24,7 @@ import {
 } from './plan';
 import {
   prDiff, retryPipeline, runPipeline, setPipelineAgents, MAX_ROUNDS,
+  type StepOutcome, type StepRequest,
   type ReviewOutcome, type ReworkOutcome,
 } from './review';
 import { closeIfDone, recordOutcome } from './outcomes';
@@ -592,6 +594,7 @@ const teamTools = (state: OfficeState) => createSdkMcpServer({
         featureId: z.string().default('').describe(state.say('tool.createTask.feature')),
         dependsOn: z.array(z.string()).default([])
           .describe(state.say('tool.createTask.dependsOn')),
+        type: z.enum([...TASK_TYPES, '']).default('').describe(state.say('tool.createTask.type')),
       },
       async (args) => {
         // Список ролей не дублируем в схеме: перечисление в enum уже один раз
@@ -648,6 +651,7 @@ const teamTools = (state: OfficeState) => createSdkMcpServer({
           dependsOn: deps,
           status: epicId || deps.length ? 'planned' : 'backlog',
           order: epicId ? state.tasksOfEpic(epicId).length + 1 : undefined,
+          ...(args.type ? { type: args.type } : {}),
         });
         // Предупреждаем сразу: иначе менеджер узнает о пустой роли только из
         // отказа assign_task и успеет пообещать пользователю работу.
@@ -855,6 +859,7 @@ const teamTools = (state: OfficeState) => createSdkMcpServer({
             })),
             dependsOn: z.array(z.string()).default([])
               .describe(state.say('tool.planFeatures.dependsOn')),
+            type: z.enum([...TASK_TYPES, '']).default('').describe(state.say('tool.createTask.type')),
           })).describe(state.say('tool.planFeatures.tasks')),
         })).describe(state.say('tool.planFeatures.features')),
       },
@@ -1559,6 +1564,8 @@ function workerTools(state: OfficeState, instanceId: string, task: Task) {
         state.say('tool.finishTask.desc'),
         {
           summary: z.string().describe(state.say('tool.finishTask.summary')),
+          assumed: z.string().describe(state.say('tool.finishTask.assumed')),
+          left: z.string().describe(state.say('tool.finishTask.left')),
           files: z.array(z.string()).default([]).describe(state.say('tool.finishTask.files')),
         },
         async (args) => {
@@ -1571,6 +1578,9 @@ function workerTools(state: OfficeState, instanceId: string, task: Task) {
             : '';
           state.updateTask(task.id, {
             result: args.summary + gap, files: args.files, status: 'review',
+            // Записка при передаче: её читают ревьюер, владелец и следующий
+            // шаг процесса — транскрипта этой сессии они не увидят.
+            handoff: { did: args.summary, assumed: args.assumed.trim(), left: args.left.trim() },
           });
           return {
             content: [{
@@ -1819,6 +1829,8 @@ function startWorker(taskOffice: OfficeState, task: Task, inst: Instance): void 
       notifyPm(taskOffice, [
         taskOffice.say('agent.pmMsg.done', { task: task.id, title: task.title, who: inst.id }),
         taskOffice.say('agent.pmMsg.report', { report: summary }),
+        fresh?.handoff?.assumed ? taskOffice.say('agent.pmMsg.assumed', { text: fresh.handoff.assumed }) : '',
+        fresh?.handoff?.left ? taskOffice.say('agent.pmMsg.left', { text: fresh.handoff.left }) : '',
         progress.total
           ? taskOffice.say('agent.pmMsg.criteria', { done: progress.done, total: progress.total })
           : '',
@@ -2256,6 +2268,8 @@ async function runAgentSession(
     note: string;
     /** Продолжить прошлую сессию этой же задачи вместо пересборки контекста с нуля. */
     resume?: string;
+    /** Что ещё видно на чтение: документной роли — вся рабочая копия. */
+    extraDirs?: string[];
   },
 ): Promise<SessionRun> {
   if (state.budgetExhausted()) {
@@ -2279,6 +2293,7 @@ async function runAgentSession(
           append: opts.systemPrompt + mcpBrief(state.settings, role, state.lang()),
         },
         cwd: opts.cwd,
+        additionalDirectories: opts.extraDirs,
         tools: sessionTools(role),
         mcpServers: { ...opts.mcp, ...externalMcp(state.settings, role, opts.cwd) },
         plugins: employeePlugins(role),
@@ -2384,6 +2399,124 @@ async function reworkTask(
   };
 }
 
+/**
+ * Свободный сотрудник с нужными умениями. Сначала — тот, кого просили
+ * (`same`), если он свободен; потом любой подходящий; потом клон. Никого с
+ * такими умениями в офисе нет — ждать нечего, вернётся сразу с `empty`.
+ */
+async function waitForCapable(
+  state: OfficeState, needs: readonly string[], prefer: string | null, exclude: string[],
+): Promise<{ inst: Instance | null; empty: boolean }> {
+  const deadline = Date.now() + FREE_WAIT_MS;
+  for (;;) {
+    await state.whenResumed();
+    const preferred = prefer ? state.instances.get(prefer) : null;
+    if (preferred && !preferred.currentTaskId) return { inst: preferred, empty: false };
+    const found = state.findCapable(needs, { exclude });
+    if (found.inst || found.empty) return found;
+    if (Date.now() > deadline) return { inst: null, empty: false };
+    await new Promise((r) => setTimeout(r, FREE_POLL_MS));
+  }
+}
+
+/**
+ * Шаг процесса (spec §8.2): сессия исполнителя, собранная из узла — что
+ * передали, что считать сделанным, какие исходы бывают. Кончается ровно
+ * одним finish_step; всё остальное — как у доработки по ревью.
+ */
+async function runStep(state: OfficeState, task: Task, req: StepRequest): Promise<StepOutcome> {
+  const { inst, empty } = await waitForCapable(state, req.needs, req.prefer, req.exclude);
+  if (!inst) {
+    return {
+      ok: false, outcome: null, summary: '', needsDecision: empty,
+      error: state.say(empty ? 'wf.noCapableRole' : 'wf.noCapable', {
+        node: req.node, needs: req.needs.join(', '),
+      }),
+    };
+  }
+  const role = state.role(inst.roleId);
+  if (!role) return { ok: false, outcome: null, summary: '', error: state.say('review.roleGone', { role: inst.roleId }) };
+
+  // Документная роль работает в своей папке задачи внутри рабочей копии, как
+  // и на самой задаче: писать — только туда, читать — всё.
+  let cwd = req.cwd;
+  let extra = '';
+  if (role.docsDir) {
+    const dir = `${role.docsDir}/${task.id}`;
+    cwd = resolve(req.cwd, dir);
+    try { mkdirSync(cwd, { recursive: true }); } catch { /* создаст сам исполнитель */ }
+    extra = `\n${state.say('prompt.step.docsDir', { dir })}`;
+  }
+
+  let outcome: string | null = null;
+  let summary = '';
+  const outcomes = req.outcomes.join(', ');
+  const tools = createSdkMcpServer({
+    name: 'office',
+    version: '1.0.0',
+    instructions: state.say('tool.office.instructions'),
+    tools: [
+      tool(
+        'say',
+        state.say('tool.say.worker.desc'),
+        { text: z.string().describe(state.say('tool.say.worker.limit')) },
+        async (args) => {
+          state.setState(inst.id, 'working', clip(args.text));
+          return { content: [{ type: 'text', text: state.say('tool.ok') }] };
+        },
+      ),
+      tool(
+        'ask_owner',
+        state.say('tool.askOwner.desc'),
+        {
+          question: z.string().describe(state.say('tool.askOwner.question')),
+          assumption: z.string().describe(state.say('tool.askOwner.assumption')),
+        },
+        async (args) => {
+          const asked = askOwner(state, inst.id, task.id, args.question, args.assumption);
+          return { content: [{ type: 'text', text: asked.text }], isError: !asked.ok };
+        },
+      ),
+      tool(
+        'finish_step',
+        state.say('tool.finishStep.desc'),
+        {
+          outcome: z.string().describe(state.say('tool.finishStep.outcome', { outcomes })),
+          summary: z.string().describe(state.say('tool.finishStep.summary')),
+        },
+        async (args) => {
+          if (!req.outcomes.includes(args.outcome)) {
+            return {
+              content: [{ type: 'text', text: state.say('tool.finishStep.badOutcome', { outcome: args.outcome, outcomes }) }],
+              isError: true,
+            };
+          }
+          outcome = args.outcome;
+          summary = args.summary;
+          return { content: [{ type: 'text', text: state.say('tool.finishStep.ok') }] };
+        },
+      ),
+    ],
+  });
+
+  const run = await runAgentSession(state, inst, role, {
+    cwd,
+    prompt: req.prompt + extra,
+    systemPrompt: workerSystemPrompt(role, state),
+    taskId: task.id,
+    mcp: { office: tools },
+    note: state.say('agent.state.step', { node: req.node, task: task.id }),
+    extraDirs: role.docsDir ? [req.cwd] : undefined,
+  });
+  if (!run.ok || !outcome) {
+    return {
+      ok: false, outcome: null, summary, actor: inst.id, needsDecision: run.needsDecision,
+      error: run.error ?? state.say('review.noStepVerdict'),
+    };
+  }
+  return { ok: true, outcome, summary, actor: inst.id };
+}
+
 /** Ревью пулл-реквеста: смотрит живой ревьюер и выносит вердикт инструментом. */
 async function reviewPr(
   state: OfficeState, task: Task, pr: PullRequestView,
@@ -2451,7 +2584,11 @@ async function reviewPr(
   // уже помнит задачу, критерии и свои прошлые замечания — пересказывать
   // их заново незачем, нужен только актуальный дифф.
   const resumeId = task.reviewerSessionId ?? undefined;
-  const report = task.result ? `\n${state.say('prompt.review.authorReport')}\n${task.result}` : '';
+  const report = [
+    task.result ? `\n${state.say('prompt.review.authorReport')}\n${task.result}` : '',
+    task.handoff?.assumed ? `\n${state.say('prompt.review.assumed')}\n${task.handoff.assumed}` : '',
+    task.handoff?.left ? `\n${state.say('prompt.review.left')}\n${task.handoff.left}` : '',
+  ].join('');
   const tail = [
     state.say('prompt.review.noFixing'),
     state.say('prompt.review.oneCall'),
@@ -2793,5 +2930,5 @@ setRitualAgents({
 
 // Конвейер знает про офис только через эти три действия — сессии агентов
 // живут здесь, а он остаётся про порядок шагов.
-setPipelineAgents({ review: reviewPr, rework: reworkTask, notifyPm });
+setPipelineAgents({ review: reviewPr, rework: reworkTask, step: runStep, notifyPm });
 setPlanAgents({ assign: officeAssign, notifyPm });

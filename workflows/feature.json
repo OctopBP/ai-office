@@ -1,7 +1,7 @@
 {
   "id": "feature",
   "version": 1,
-  "trigger": { "on": "task.finished" },
+  "trigger": { "on": "task.finished", "type": "code" },
   "nodes": [
     { "id": "sync", "kind": "check", "run": "office:sync-base", "stage": "sync", "out": "conflict",
       "next": { "pass": "checks", "conflict": { "to": "fix-conflict", "max": 1 }, "fail": "stuck" } },

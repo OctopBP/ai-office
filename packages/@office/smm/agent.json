@@ -19,6 +19,11 @@
   "maxInstances": 2,
   "docsDir": "docs/smm",
   "license": "MIT",
+  "capabilities": [
+    "docs.marketing",
+    "docs.write",
+    "research.web"
+  ],
   "runtime": {
     "engine": "claude-code",
     "model": "haiku",

@@ -24,7 +24,8 @@ import {
 import { isBlocked, isEmptyOverride, passability } from '../shared/layout';
 import { isLookId } from '../shared/looks';
 import { asLang, DEFAULT_LANG, isLang, type Lang, type Vars, LANG_TITLE } from '../shared/i18n';
-import type { Run } from '../shared/workflow';
+import { typeForCapabilities, type Capability, type Handoff, type Run, type TaskType } from '../shared/workflow';
+import { capabilitiesOf } from './roles';
 import { t, setProcessLang, c, type ServerKey } from './i18n';
 import { activityFromFile, summarize } from './activity';
 import {
@@ -566,6 +567,13 @@ export interface Task {
    * пропала из истории базы — работу выбросили руками. null — не сливали.
    */
   mergeCommit: string | null;
+  /**
+   * Тип работы — по нему после сдачи выбирается процесс
+   * (docs/design/workflows/spec.md §7.2). Ставит менеджер; нет — по роли.
+   */
+  type: TaskType | null;
+  /** Записка при передаче (§4): что сделано, что решил сам, что не сделано. */
+  handoff: Handoff | null;
 }
 
 interface Pending {
@@ -757,6 +765,8 @@ export class OfficeState {
   proposals = new Map<string, Proposal>();
   private factSeq = 0;
   private questionSeq = 0;
+  /** Кто ждёт закрытия вопроса: узлы согласования процессов. */
+  private questionWaiters = new Map<string, Set<() => void>>();
   private directionSeq = 0;
   private proposalSeq = 0;
   /** Кого разбудить, когда паузу снимут. */
@@ -991,7 +1001,32 @@ export class OfficeState {
     Object.assign(question, patch);
     this.emit({ t: 'question', question });
     this.markDirty();
+    if (question.answeredAt || question.dismissedAt) {
+      for (const wake of this.questionWaiters.get(id) ?? []) wake();
+      this.questionWaiters.delete(id);
+    }
     return question;
+  }
+
+  /**
+   * Дождаться ответа или снятия вопроса. Закрытый вопрос возвращается сразу.
+   * Нужно узлам согласования: прогон стоит и ничего не тратит, пока
+   * владелец не скажет «да» или «нет».
+   */
+  whenQuestionClosed(id: string, signal?: AbortSignal): Promise<OwnerQuestion | null> {
+    const question = this.questions.get(id);
+    if (!question) return Promise.resolve(null);
+    if (question.answeredAt || question.dismissedAt || signal?.aborted) return Promise.resolve(question);
+    return new Promise((resolve) => {
+      const wake = () => {
+        this.questionWaiters.get(id)?.delete(wake);
+        resolve(this.questions.get(id) ?? null);
+      };
+      const set = this.questionWaiters.get(id) ?? new Set<() => void>();
+      set.add(wake);
+      this.questionWaiters.set(id, set);
+      signal?.addEventListener('abort', wake, { once: true });
+    });
   }
 
   /** Жизнь офиса глазами клиента: планёрка, прогоны, портфель. */
@@ -1287,9 +1322,12 @@ export class OfficeState {
       });
     }
     // Прогон — то же самое: шедший в момент перезапуска поднимается вставшим.
+    // Стоявший на согласовании так и стоит: вопрос владельцу никуда не делся,
+    // и надзор вернёт прогон к нему.
     for (const run of data.runs ?? []) {
-      this.runs.set(run.id, run.status !== 'running' ? run : {
-        ...run, status: 'stuck', note: this.say('state.pr.interrupted'), updatedAt: Date.now(),
+      const known = { ...run, actors: run.actors ?? {}, waitingOn: run.waitingOn ?? null };
+      this.runs.set(run.id, known.status !== 'running' ? known : {
+        ...known, status: 'stuck', note: this.say('state.pr.interrupted'), updatedAt: Date.now(),
       });
     }
 
@@ -1797,6 +1835,8 @@ export class OfficeState {
      * очереди (см. plan.ts).
      */
     status?: TaskStatus;
+    /** Тип работы. Не передан — выводится из способностей роли. */
+    type?: TaskType | null;
   }): Task {
     this.taskSeq += 1;
     const task: Task = {
@@ -1828,6 +1868,8 @@ export class OfficeState {
       daily: {},
       outcome: null,
       mergeCommit: null,
+      type: input.type === undefined ? this.typeForRole(input.roleId) : input.type,
+      handoff: null,
     };
     this.tasks.set(task.id, task);
     this.emit({ t: 'task', task: toTaskView(task) });
@@ -2178,6 +2220,7 @@ export class OfficeState {
       active: [...this.instances.values()].filter((i) => i.roleId === r.id).length,
       effectivePermissionMode: effectiveMode(null, r.permissionMode, officeMode),
       effectiveMaxTurns: this.turnsFor(r),
+      capabilities: capabilitiesOf(r),
     }));
   }
 
@@ -3018,10 +3061,43 @@ export class OfficeState {
     return null;
   }
 
-  /** Запомнить прогон как есть. Событий пока нет: интерфейс прогонов не показывает. */
+  /** Запомнить прогон и показать его интерфейсу. */
   saveRun(run: Run): void {
     this.runs.set(run.id, run);
+    this.emit({ t: 'run', run });
     this.markDirty();
+  }
+
+  /**
+   * Свободный сотрудник, который умеет всё из `needs` (spec процессов §5).
+   * Сначала свободные, потом клон в пределах maxInstances роли. Нет никого
+   * с такими умениями вовсе — null и `empty: true`: ждать некого.
+   */
+  findCapable(needs: readonly string[], opts: { exclude?: string[] } = {}): { inst: Instance | null; empty: boolean } {
+    const fits = (roleId: string) => {
+      const role = this.role(roleId);
+      if (!role || role.isManager || role.archived) return false;
+      const caps = capabilitiesOf(role);
+      return needs.every((n) => caps.includes(n as Capability));
+    };
+    const roles = this.roleList.filter((r) => fits(r.id));
+    if (!roles.length) return { inst: null, empty: true };
+    const exclude = new Set(opts.exclude ?? []);
+    const free = [...this.instances.values()].find(
+      (i) => !i.currentTaskId && !exclude.has(i.id) && fits(i.roleId),
+    );
+    if (free) return { inst: free, empty: false };
+    for (const role of roles) {
+      const spawned = this.spawn(role.id);
+      if (spawned && !exclude.has(spawned.id)) return { inst: spawned, empty: false };
+    }
+    return { inst: null, empty: false };
+  }
+
+  /** Тип задачи для роли — по её способностям. Роли нет — процесса нет. */
+  typeForRole(roleId: string | null): TaskType | null {
+    const role = roleId ? this.role(roleId) : null;
+    return role ? typeForCapabilities(capabilitiesOf(role)) : null;
   }
 
   // ---------- слияние ----------
@@ -3086,6 +3162,7 @@ export class OfficeState {
       mergeChecks: [...this.mergeChecks.values()],
       mergeRun: this.mergeRun,
       prs: [...this.prs.values()],
+      runs: [...this.runs.values()],
       facts: this.factList().map(toFactView),
       questions: this.questionList(),
       life: this.lifeView(),
@@ -3167,6 +3244,8 @@ export const toTaskView = (t: Task): TaskView => ({
   usage: t.usage,
   today: t.daily?.[dayKey()] ?? emptyUsage(),
   outcome: t.outcome ?? null,
+  type: t.type ?? null,
+  handoff: t.handoff ?? null,
 });
 
 /**

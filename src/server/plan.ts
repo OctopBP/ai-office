@@ -25,6 +25,7 @@
  */
 import { dayKey, HEALTH_DIRECTION, OFFICE_SENDER, taskClosed } from '../shared/types';
 import { toTaskView, type Epic, type OfficeState, type Task } from './state';
+import type { TaskType } from '../shared/workflow';
 import { recordOutcome } from './outcomes';
 
 // ------------------------------------------------------------ инициативы
@@ -298,6 +299,8 @@ export interface PlannedTask {
   roleId: string;
   /** Ключи задач этого же плана либо id уже заведённых задач. */
   dependsOn?: string[];
+  /** Тип работы (spec процессов §7.2). Пусто — по роли. */
+  type?: TaskType | '';
 }
 
 export interface PlannedEpic {
@@ -401,6 +404,7 @@ export function createPlan(state: OfficeState, epics: PlannedEpic[], from?: Plan
         order: i + 1,
         dependsOn: [],
         status: 'planned',
+        ...(task.type ? { type: task.type } : {}),
       });
       keys.set(task.key.trim(), created.id);
     });

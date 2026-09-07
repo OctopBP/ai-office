@@ -12,7 +12,7 @@ import {
   edgeKey, loopBodies, loopMax, parseWorkflow, type Workflow,
 } from '../src/shared/workflow';
 import { builtinWorkflow, builtinWorkflows } from '../src/server/workflows';
-import { drive, newRun, restartRun, type Executor, type Halt, type RunHooks } from '../src/server/runs';
+import { drive, newRun, resumeRun, type Executor, type Halt, type RunHooks } from '../src/server/runs';
 import { getOffice } from '../src/server/state';
 
 process.env.OFFICE_LANG = 'ru';
@@ -117,6 +117,7 @@ async function main(): Promise<void> {
     stuck: (_ctx, halt) => { halts.push(halt); },
   };
   const count = (id: string) => { calls[id] = (calls[id] ?? 0) + 1; };
+  const pick = (n: { run?: string }) => executors[n.run ?? ''];
   let failsThisVisit = 0;
   const executors: Record<string, Executor<Ctx>> = {
     't:sync': { async run() { count('sync'); return { outcome: 'pass' }; } },
@@ -152,7 +153,7 @@ async function main(): Promise<void> {
 
   say('▶ Петли считаются так, как обещает спека');
   const run = newRun(toy, 'T-1');
-  await drive(office, toy, run, executors, hooks);
+  await drive(office, toy, run, pick, hooks);
   check('прогон встал', run.status === 'stuck');
   check('ревью было три раза', calls.review === 3);
   check('доработок — две', calls.rework === 2);
@@ -163,21 +164,22 @@ async function main(): Promise<void> {
   check('прогон сохранён в офисе', office.runOf('T-1')?.id === run.id);
   check('и попадает в сохранение', office.toPersisted().runs?.some((r) => r.id === run.id) === true);
 
-  say('▶ Перезапуск начинает сначала, но круги ревью помнит');
+  say('▶ Перезапуск продолжает с того же узла и круги ревью помнит');
   verdicts = ['changes'];
   checksFailsPerVisit = 0;
-  restartRun(run, toy);
-  check('снова на первом узле', run.nodeId === 'sync' && run.from === null && run.status === 'running');
-  await drive(office, toy, run, executors, hooks);
+  resumeRun(run);
+  check('стоит на узле ревью', run.nodeId === 'review' && run.status === 'running');
+  await drive(office, toy, run, pick, hooks);
   check('четвёртый возврат — сразу остановка', run.status === 'stuck' && calls.rework === 2);
   check('и счётчик показывает четыре', run.loops[edgeKey('review', 'rework')] === 4);
+  check('ничего лишнего не переделывали', calls.sync === 3);
 
   say('▶ Предел без своего объяснения объясняет раннер');
   const run2 = newRun(toy, 'T-2');
   failsThisVisit = 0;
   checksFailsPerVisit = 5;
   verdicts = ['approve'];
-  await drive(office, toy, run2, executors, hooks);
+  await drive(office, toy, run2, pick, hooks);
   check('после одной починки проверки больше не чинят', run2.status === 'stuck');
   check('причина — предел повторов', halts[halts.length - 1]?.note.includes('предел') === true);
 
@@ -186,7 +188,7 @@ async function main(): Promise<void> {
   failsThisVisit = 0;
   checksFailsPerVisit = 1;
   fixOk = false;
-  await drive(office, toy, run3, executors, hooks);
+  await drive(office, toy, run3, pick, hooks);
   const last = halts[halts.length - 1];
   check('причина от действия', last?.note === 'не смог в fix');
   check('решение нужно', last?.needsDecision === true);
@@ -198,7 +200,7 @@ async function main(): Promise<void> {
   fixOk = true;
   checksFailsPerVisit = 0;
   verdicts = ['approve'];
-  await drive(office, toy, run4, executors, hooks);
+  await drive(office, toy, run4, pick, hooks);
   check('прогон закончен', run4.status === 'done' && run4.nodeId === 'end');
 
   say('▶ Действие вне процесса — ошибка, а не тихий стоп');
@@ -206,7 +208,7 @@ async function main(): Promise<void> {
   failsThisVisit = 0;
   verdicts = ['maybe'];
   let crashed = '';
-  await drive(office, toy, run5, executors, hooks).catch((err) => { crashed = (err as Error).message; });
+  await drive(office, toy, run5, pick, hooks).catch((err) => { crashed = (err as Error).message; });
   check('раннер упал с понятной ошибкой', crashed.includes('maybe'));
   check('прогон помечен вставшим', run5.status === 'stuck');
 

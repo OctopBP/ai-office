@@ -20,7 +20,7 @@ export const MAX_QUESTIONS_PER_TASK = 2;
 
 /** Порядок важности в планёрке: противоречие и протухшее решение выше допущений. */
 const PRIORITY: Record<QuestionKind, number> = {
-  contradiction: 0, stale: 1, revert: 2, assumption: 3,
+  gate: 0, contradiction: 1, stale: 2, revert: 3, assumption: 4,
 };
 
 /** Открытые вопросы: без ответа и не снятые. */

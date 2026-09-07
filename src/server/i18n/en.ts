@@ -232,6 +232,7 @@ export const en = {
   'sup.giveUpNote': '{note}\nThe office tried {n} times by itself — it did not go. Waiting for the manager’s decision.',
   'sup.giveUpChat': '{task}: could not sort it out in {n} attempts — handed over to the manager.',
   'sup.giveUpPm': '[SYSTEM] Task {task} “{title}” never made it into {base}. The office tried to carry it through {n} times, the reason it last stopped:\n{note}\nFrom here it is your call, and you act on it yourself: set a fixing task and assign it, reword this one, or give it to another role. Bother the user only if you need something nobody in the office can do (hire somebody, raise the budget) — and then say in one sentence what exactly you need from them.',
+  'sup.resumeWaiting': '{task}: returning the process to its approval node — it waits for the owner\'s answer.',
   'sup.crashed': 'The pipeline watchdog stumbled: {error}',
 
   // --------------------------------------------------------------- processes
@@ -239,6 +240,22 @@ export const en = {
   'wf.noExecutor': 'Node "{node}" refers to action "{run}", which the office does not know.',
   'wf.badOutcome': 'Node "{node}" ended with outcome "{outcome}", which the process does not have.',
   'wf.badNode': 'Process "{workflow}" has no node "{node}".',
+  'wf.stepStart': '{task}: step "{node}" is done by {who}.',
+  'wf.stepDone': '{task}: step "{node}" finished — {outcome}.',
+  'wf.stepFailed': 'Step "{node}" failed: {problem}',
+  'wf.stepExhausted': 'Step "{node}" sent the work back {n} times in a row. The last note:\n{text}',
+  'wf.noCapable': 'Nobody can do step "{node}": it needs a free employee who can {needs}.',
+  'wf.noCapableRole': 'The office has no role with the skill {needs} — only a person can hire one.',
+  'wf.sameGone': 'The employee who did step "{node}" ({who}) no longer works in the office.',
+  'wf.gateAsk': 'Task {task} "{title}": {what}. Answer "yes" or "no"; with "no", add what to fix.',
+  'wf.gateAssumption': 'The process is standing still and waits for the answer — nothing moves without it.',
+  'wf.gateChat': '{task}: your decision is needed — {what}. Answer in the chat "{id}: yes" or "{id}: no, …".',
+  'wf.gateWaiting': 'Waiting for the owner\'s decision (question {id}).',
+  'wf.gateYes': '{task}: the owner approved ({id}).',
+  'wf.gateNo': '{task}: the owner sent it back ({id}): {answer}',
+  'wf.gateDismissed': 'Question {id} was dismissed without an answer — taking it as a no.',
+  'wf.gateExhausted': 'The owner sent the work back {n} times in a row. The last answer:\n{text}',
+  'wf.gateGone': 'Question {id} the process was waiting for is gone.',
 
   // -------------------------------------------------------------------- plan
   'plan.chat.epicActive': '▶️ Started feature {epic} "{title}".',

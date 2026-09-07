@@ -4,6 +4,7 @@
 // который их считает. Здесь они только перевыставлены: ими пользуются и
 // снапшот, и команды клиента, а разбирать контракт по двум файлам неудобно.
 export type { Layout, LayoutOverride, LayoutPropEdit } from './layout';
+import type { Handoff, Run, TaskType } from './workflow';
 import type { Layout, LayoutOverride, LayoutPropEdit } from './layout';
 
 // Язык офиса живёт в настройках, а его тип — рядом с движком словарей.
@@ -359,6 +360,8 @@ export interface RolePackageView {
 export interface RoleView extends RoleEditable {
   id: string;
   isManager: boolean;
+  /** Что роль умеет — по манифесту пакета или по инструментам (§5 спеки процессов). */
+  capabilities: string[];
   /**
    * Роль убрана в архив: не показывается в найме и не предлагается менеджеру,
    * но по-прежнему находится по id в задачах, логах и сохранённых инстансах.
@@ -503,6 +506,12 @@ export interface Settings {
    * когда ветку сливает человек из очереди слияния.
    */
   autoPipeline: boolean;
+  /**
+   * Какой процесс за каким типом задачи (docs/design/workflows/spec.md §7.2).
+   * Нет поля или типа в нём — процесс с именем типа: `code` → `feature`,
+   * остальные — по своему имени.
+   */
+  workflows?: Partial<Record<TaskType, string>>;
   /**
    * Сколько фич офис ведёт одновременно. Строгая единица — самый чистый
    * порядок, но роль, которой в текущей фиче делать нечего (дизайнер, юрист),
@@ -724,6 +733,13 @@ export interface TaskView {
   assigneeId: string | null;
   status: TaskStatus;
   /**
+   * Тип работы — выбирает процесс, по которому задача поедет после сдачи
+   * (docs/design/workflows/spec.md §7.2). null — процесса нет: сдал и всё.
+   */
+  type: TaskType | null;
+  /** Записка при передаче: что сделано, что решил сам, что не сделано (§4). */
+  handoff: Handoff | null;
+  /**
    * Фича, частью которой заведена задача. null — задача вне плана: такие
    * раздаются сразу, как раздавались до появления плана.
    */
@@ -849,7 +865,8 @@ export type QuestionKind =
   | 'assumption'     // исполнитель принял допущение по задаче
   | 'contradiction'  // журнал разошёлся сам с собой
   | 'stale'          // решение или урок давно не подтверждались
-  | 'revert';        // владелец откатил слитую работу
+  | 'revert'         // владелец откатил слитую работу
+  | 'gate';          // процесс стоит на согласовании и ждёт «да» или «нет»
 
 /**
  * Вопрос владельцу (§6). Не блокирует: агент задал, записал допущение и
@@ -1225,6 +1242,8 @@ export type ServerEvent =
       mergeChecks: MergeCheck[]; mergeRun: MergeRun | null;
       /** Пулл-реквесты конвейера ревью — по одному на сданную задачу. */
       prs: PullRequestView[];
+      /** Прогоны процессов по задачам (docs/design/workflows/spec.md §8). */
+      runs: Run[];
       /** План: фичи в том порядке, в котором офис их ведёт. */
       epics: EpicView[];
       /** Живой офис: журнал, вопросы владельцу, ритуалы. */
@@ -1232,6 +1251,7 @@ export type ServerEvent =
       /** Направления владельца и предложения офиса, которые ждут решения. */
       directions: DirectionView[]; proposals: ProposalView[] }
   | { t: 'mcp.status'; servers: McpServerState[] }
+  | { t: 'run'; run: Run }
   | { t: 'direction'; direction: DirectionView }
   | { t: 'direction.remove'; id: string }
   | { t: 'proposal'; proposal: ProposalView }

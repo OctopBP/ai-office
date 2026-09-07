@@ -1,10 +1,11 @@
 /**
- * Конвейер ревью: что происходит с задачей после того, как исполнитель её сдал.
+ * Процессы по задаче: что происходит после того, как исполнитель её сдал.
  *
- * Порядок описан не здесь, а файлом `workflows/feature.json`
- * (docs/design/workflows/spec.md §7.1) — это первый процесс офиса, записанный
- * явно. Ведёт по нему раннер (runs.ts); здесь — действия узлов и то, как
- * прогон показывается пулл-реквестом:
+ * Порядок описан не здесь, а файлами в `workflows/` (docs/design/workflows/
+ * spec.md §7): какой из них — решает тип задачи. Ведёт по нему раннер
+ * (runs.ts); здесь — действия узлов, шаг и согласование как сессии живых
+ * агентов, и то, как прогон показывается пулл-реквестом. Первый и главный
+ * процесс — конвейер ревью кода, `feature.json`:
  *
  *   ветка задачи → подтянуть базовую ветку и разрешить конфликты
  *                → прогнать проверки проекта
@@ -27,7 +28,10 @@
 import type { PullRequestView, ReviewVerdict } from '../shared/types';
 import { OFFICE_SENDER } from '../shared/types';
 import type { Lang } from '../shared/i18n';
-import { loopMax, nodeOf, type Run, type Workflow, type WorkflowNode } from '../shared/workflow';
+import {
+  AUTHOR, REPORT_ARTIFACT, loopMax, nodeOf,
+  type Run, type TaskType, type Workflow, type WorkflowNode,
+} from '../shared/workflow';
 import { t } from './i18n';
 import {
   taskRepo, criteriaProgress, worktreesRoot, type OfficeState, type Task,
@@ -42,11 +46,25 @@ import { integrationDir, runTypecheck } from './merge';
 import { mergedKind, recordOutcome } from './outcomes';
 import { githubToken } from './cloud';
 import { commentOnPr, createPullRequest, githubFor, mergePullRequest } from './github';
-import { builtinWorkflow } from './workflows';
-import { drive, newRun, restartRun, type Executor, type RunHooks, type StepResult } from './runs';
+import { builtinWorkflow, builtinWorkflows } from './workflows';
+import {
+  drive, newRun, resumeRun, type Executor, type Halt, type Resolve, type RunHooks, type StepResult,
+} from './runs';
 
-/** Процесс, по которому едет сданная задача. */
+/** Процесс кода — конвейер ревью; остальные типы зовутся по своему имени. */
 const WORKFLOW_ID = 'feature';
+
+/**
+ * Какой процесс ведёт задачу (spec §7.2): по типу, через настройку офиса.
+ * Задача без типа, но с веткой — код: так работали все задачи до типов.
+ * null — процесса нет: сдал и всё.
+ */
+export function workflowForTask(state: OfficeState, task: Task): Workflow | null {
+  const type: TaskType | null = task.type ?? (task.branch ? 'code' : null);
+  if (!type) return null;
+  const id = state.settings.workflows?.[type] ?? (type === 'code' ? WORKFLOW_ID : type);
+  return builtinWorkflows().get(id) ?? null;
+}
 
 /**
  * Сколько раз ревьюер может вернуть работу автору, прежде чем позовём
@@ -71,6 +89,30 @@ export interface ReworkOutcome {
   needsDecision?: boolean;
 }
 
+/** Шаг процесса глазами агентов: кого искать, где работать, чем кончить. */
+export interface StepRequest {
+  node: string;
+  needs: readonly string[];
+  /** Кого просили (`same`): его берём, если свободен. */
+  prefer: string | null;
+  /** Кого нельзя (`notSameAs`). */
+  exclude: string[];
+  cwd: string;
+  prompt: string;
+  /** Исходы, из которых шаг выбирает. */
+  outcomes: string[];
+}
+
+export interface StepOutcome {
+  ok: boolean;
+  outcome: string | null;
+  summary: string;
+  /** Кто делал. */
+  actor?: string;
+  error?: string;
+  needsDecision?: boolean;
+}
+
 /**
  * Живые агенты офиса глазами конвейера. Настоящую реализацию ставит agents.ts
  * при загрузке; тесты подменяют её своей.
@@ -78,6 +120,8 @@ export interface ReworkOutcome {
 export interface PipelineAgents {
   review(state: OfficeState, task: Task, pr: PullRequestView): Promise<ReviewOutcome>;
   rework(state: OfficeState, task: Task, instruction: string): Promise<ReworkOutcome>;
+  /** Шаг процесса сессией сотрудника по способностям. Нет — шаги встают. */
+  step?(state: OfficeState, task: Task, req: StepRequest): Promise<StepOutcome>;
   notifyPm(state: OfficeState, text: string): void;
 }
 
@@ -140,6 +184,10 @@ export function runPipeline(state: OfficeState, taskId: string): Promise<void> {
   return run;
 }
 
+/** Идёт ли прогон по задаче прямо сейчас. */
+export const isPipelineRunning = (state: OfficeState, taskId: string): boolean =>
+  running.has(`${state.officeId}:${taskId}`);
+
 /**
  * Дождаться, пока в офисе не останется идущих конвейеров. Нужно тем, кто
  * смотрит на результат со стороны: надзору в тестах и остановке сервера.
@@ -191,18 +239,33 @@ async function pipeline(state: OfficeState, taskId: string): Promise<void> {
   const branch = task.branch as string;
   const base = task.baseBranch as string;
 
+  const workflow = workflowForTask(state, task);
+  if (!workflow) {
+    state.addLog(null, 'system', state.say('pipe.notStarted', {
+      task: taskId, problem: state.say('pipe.noWorkflow', { type: task.type ?? '' }),
+    }));
+    return;
+  }
+
   const pr = state.startPr({
     taskId, title: task.title, branch, base, repoDir: repo,
   });
   state.updateTask(taskId, { status: 'review' });
   state.addChat(OFFICE_SENDER, state.say('pipe.started', { task: taskId, base }));
 
-  // Повторный заход (перезапуск конвейера) не заводит второй прогон, но
-  // возвращает его к началу: ветка снова расходится с базой. Круги ревью
-  // при этом не обнуляются — они считаются по задаче, а не по сессии.
-  const workflow = builtinWorkflow(WORKFLOW_ID);
-  const run = state.runOf(taskId) ?? newRun(workflow, taskId);
-  restartRun(run, workflow);
+  // Повторный заход (перезапуск) не заводит второй прогон, а продолжает тот
+  // же с узла, где он встал. Круги ревью при этом не обнуляются — они
+  // считаются по задаче, а не по сессии. Прогон другого процесса (тип
+  // задачи поменяли) — заводим заново.
+  let run = state.runOf(taskId);
+  if (!run || run.workflowId !== workflow.id || run.status === 'done') {
+    if (run) state.runs.delete(run.id);
+    run = newRun(workflow, taskId);
+  }
+  resumeRun(run);
+  // Отчёт исполнителя с запиской — артефакт, который есть у прогона с самого
+  // начала: его читают ревьюер, юрист, владелец.
+  run.artifacts[REPORT_ARTIFACT] = { kind: 'report', text: reportText(state, task) };
   state.saveRun(run);
 
   const hooks: RunHooks<Ctx> = {
@@ -225,7 +288,16 @@ async function pipeline(state: OfficeState, taskId: string): Promise<void> {
     },
     stuck: (ctx, why) => markStuck(state, ctx.task, why.note, why.needsDecision),
   };
-  await drive(state, workflow, run, FEATURE, hooks);
+  await drive(state, workflow, run, resolveExecutor, hooks);
+}
+
+/** Отчёт исполнителя с запиской при передаче (spec §4) — одним текстом. */
+function reportText(state: OfficeState, task: Task): string {
+  return [
+    task.result ?? '',
+    task.handoff?.assumed ? state.say('agent.pmMsg.assumed', { text: task.handoff.assumed }) : '',
+    task.handoff?.left ? state.say('agent.pmMsg.left', { text: task.handoff.left }) : '',
+  ].filter(Boolean).join('\n');
 }
 
 /**
@@ -254,6 +326,17 @@ const failed = (note: string, needsDecision?: boolean): StepResult =>
   ({ outcome: 'failed', note, needsDecision });
 
 /**
+ * Что считать базой. С GitHub — удалённая ветка: там же лежит и результат
+ * чужих слияний. Без удалёнки база локальная — и это единственная правда офиса.
+ */
+async function baseRef(repo: string, base: string): Promise<string> {
+  const gh = await githubFor(repo);
+  if (!gh) return base;
+  await fetchRemote(repo, githubToken());
+  return (await revision(repo, `origin/${base}`)) ? `origin/${base}` : base;
+}
+
+/**
  * Подтянуть базовую ветку в ветку задачи. Конфликты разбирает автор в своей
  * копии (узел fix-conflict) — до основной ветки они не доходят вовсе.
  */
@@ -264,15 +347,7 @@ const syncBase: Executor<Ctx> = {
     if (!worktree) return fail(state.say('pipe.noWorktree', { branch: ctx.branch }));
     state.patchPr(task.id, { note: state.say('pipe.syncing', { base }) });
 
-    // С GitHub базой считается удалённая ветка: там же лежит и результат чужих
-    // слияний. Без удалёнки база локальная — и это единственная правда офиса.
-    const gh = await githubFor(repo);
-    let ref = base;
-    if (gh) {
-      await fetchRemote(repo, githubToken());
-      if (await revision(repo, `origin/${base}`)) ref = `origin/${base}`;
-    }
-
+    const ref = await baseRef(repo, base);
     const result = await mergeBaseInto(worktree, ref, state.lang());
     if (result.kind === 'nothing' || result.kind === 'merged') {
       if (result.kind === 'merged') {
@@ -309,21 +384,32 @@ const syncBase: Executor<Ctx> = {
   },
 };
 
-/** Автор разбирает конфликт с базой в своей копии. */
+/**
+ * Автор разбирает конфликт с базой в своей копии. Узел самодостаточен: если
+ * слияние к его приходу не начато (прошлую попытку бросили и прогон
+ * возобновили с этого узла), он начинает его сам — автору нужны именно
+ * конфликтные метки в файлах, а не пересказ.
+ */
 const fixConflict: Executor<Ctx> = {
   async run(ctx) {
-    const { state, task, base } = ctx;
-    const conflict = ctx.run.artifacts.conflict;
-    const files = conflict ? conflict.text.split(', ').filter(Boolean) : [];
+    const { state, task, base, repo } = ctx;
+    const worktree = await workingCopy(ctx);
+    if (!worktree) return failed(state.say('pipe.noWorktree', { branch: ctx.branch }));
+    let files = (ctx.run.artifacts.conflict?.text ?? '').split(', ').filter(Boolean);
+    if (!(await mergeInProgress(worktree))) {
+      const again = await mergeBaseInto(worktree, await baseRef(repo, base), state.lang());
+      if (again.kind === 'nothing' || again.kind === 'merged') return { outcome: 'done' };
+      if (again.kind === 'failed') return failed(again.message);
+      files = again.conflicts;
+    }
     const fix = await agents.rework(state, task, conflictPrompt(state, task, base, files));
-    const worktree = state.tasks.get(task.id)?.worktreePath ?? null;
     if (!fix.ok) {
-      if (worktree) await abortMerge(worktree);
+      await abortMerge(worktree);
       return failed(
         state.say('pipe.conflictUnresolved', { base, problem: fix.message }), fix.needsDecision);
     }
     // Автор мог оставить слияние незакоммиченным — доводим сами, как и обычную работу.
-    if (worktree) await settle(worktree, task, state.say('pipe.note.merge', { base }));
+    await settle(worktree, task, state.say('pipe.note.merge', { base }));
     return { outcome: 'done' };
   },
 };
@@ -558,8 +644,125 @@ const merge: Executor<Ctx> = {
   },
 };
 
-/** Действия узлов процесса `feature` — по именам из `workflows/feature.json`. */
-const FEATURE: Record<string, Executor<Ctx>> = {
+/** Артефакты узла на вход — текстом для промпта. */
+function artifactsText(ctx: Ctx): string {
+  const { state, node, run } = ctx;
+  const lines = (node.in ?? [])
+    .map((name) => [name, run.artifacts[name]] as const)
+    .filter(([, a]) => a)
+    .map(([name, a]) => state.say('prompt.step.artifact', { name, kind: a!.kind, text: a!.text }));
+  return lines.length ? `${state.say('prompt.step.artifacts')}\n${lines.join('\n')}` : '';
+}
+
+/**
+ * Шаг процесса (spec §8.2): сессия сотрудника по способностям узла. В промпт
+ * идут артефакты из `in` с записками, критерии `done` и место в процессе —
+ * и никогда чужой транскрипт.
+ */
+const step: Executor<Ctx> = {
+  async run(ctx) {
+    const { state, task, node, run, workflow } = ctx;
+    if (!agents.step) return failed(state.say('wf.stepFailed', { node: node.id, problem: state.say('pipe.noAgents.worker') }));
+    const worktree = await workingCopy(ctx);
+    if (!worktree) return failed(state.say('pipe.noWorktree', { branch: ctx.branch }));
+
+    const actorOf = (ref: string | undefined): string | null =>
+      !ref ? null : ref === AUTHOR ? task.assigneeId : run.actors[ref] ?? null;
+    const prefer = actorOf(node.same);
+    if (node.same && !prefer) {
+      return failed(state.say('wf.sameGone', { node: node.same, who: '?' }), true);
+    }
+    const excluded = actorOf(node.notSameAs);
+    const outcomes = Object.keys(node.next).filter((o) => o !== 'failed');
+    const prompt = [
+      state.say('prompt.step.header', { node: node.id, workflow: workflow.id, task: task.id, title: task.title }),
+      '',
+      state.say('prompt.step.task'),
+      task.description,
+      '',
+      artifactsText(ctx),
+      node.done?.length
+        ? `\n${state.say('prompt.step.done')}\n${node.done.map((d, i) => `${i + 1}. ${d}`).join('\n')}`
+        : '',
+      '',
+      state.say('prompt.step.finish', { outcomes: outcomes.join(', ') }),
+    ].filter(Boolean).join('\n');
+
+    const out = await agents.step(state, task, {
+      node: node.id, needs: node.needs ?? [], prefer, exclude: excluded ? [excluded] : [],
+      cwd: worktree, prompt, outcomes,
+    });
+    if (out.actor) state.addChat(OFFICE_SENDER, state.say('wf.stepStart', { task: task.id, node: node.id, who: out.actor }));
+    await settle(worktree, task, node.id);
+    if (!out.ok || !out.outcome) {
+      return {
+        outcome: 'failed', actor: out.actor, needsDecision: out.needsDecision,
+        note: state.say('wf.stepFailed', { node: node.id, problem: out.error ?? state.say('review.noStepVerdict') }),
+      };
+    }
+    state.addChat(OFFICE_SENDER, state.say('wf.stepDone', { task: task.id, node: node.id, outcome: out.outcome }));
+    return {
+      outcome: out.outcome, note: out.summary, actor: out.actor,
+      artifact: { kind: 'report', text: out.summary, ref: out.outcome },
+    };
+  },
+  exhausted(ctx, last, count) {
+    return {
+      note: ctx.state.say('wf.stepExhausted', { node: ctx.node.id, n: count, text: last.note ?? '' }),
+      needsDecision: true,
+    };
+  },
+};
+
+const YES_RE = /^\s*(да|ага|угу|yes|yep|ok|окей|поехали|approve|approved|go|\+|✅|👍)/i;
+
+/**
+ * Согласование (spec §3, `gate`): вопрос владельцу и ожидание. Прогон стоит
+ * и ничего не тратит; ответ приходит из чата («Q-1: да») или из панели.
+ * Снятый вопрос — отказ: офис не вправе счесть молчание согласием.
+ */
+const gate: Executor<Ctx> = {
+  async run(ctx) {
+    const { state, task, node, run } = ctx;
+    const what = node.done?.[0] ?? node.id;
+    let question = run.waitingOn ? state.questions.get(run.waitingOn) ?? null : null;
+    if (!question) {
+      question = state.addQuestion({
+        from: OFFICE_SENDER, taskId: task.id, kind: 'gate',
+        text: state.say('wf.gateAsk', { task: task.id, title: task.title, what }),
+        assumption: state.say('wf.gateAssumption'),
+      });
+      state.addChat(OFFICE_SENDER, state.say('wf.gateChat', { task: task.id, what, id: question.id }));
+      state.addLog(null, 'system', state.say('questions.askedLog', { id: question.id, text: what }));
+    }
+    run.waitingOn = question.id;
+    run.status = 'waiting';
+    state.saveRun(run);
+    state.patchPr(task.id, { note: state.say('wf.gateWaiting', { id: question.id }) });
+
+    const closed = await state.whenQuestionClosed(question.id);
+    if (!closed) return { outcome: 'no', note: state.say('wf.gateGone', { id: question.id }) };
+    if (!closed.answeredAt) {
+      state.addChat(OFFICE_SENDER, state.say('wf.gateDismissed', { id: question.id }));
+      return { outcome: 'no', note: state.say('wf.gateDismissed', { id: question.id }), artifact: { kind: 'decision', text: '', ref: 'no' } };
+    }
+    const answer = closed.answer ?? '';
+    const yes = YES_RE.test(answer);
+    state.addChat(OFFICE_SENDER, yes
+      ? state.say('wf.gateYes', { task: task.id, id: question.id })
+      : state.say('wf.gateNo', { task: task.id, id: question.id, answer }));
+    return { outcome: yes ? 'yes' : 'no', note: answer, artifact: { kind: 'decision', text: answer, ref: yes ? 'yes' : 'no' } };
+  },
+  exhausted(ctx, last, count): Halt {
+    return {
+      note: ctx.state.say('wf.gateExhausted', { n: count, text: last.note ?? '' }),
+      needsDecision: true,
+    };
+  },
+};
+
+/** Действия узлов из каталога офиса — по именам `run` в файлах процессов. */
+const OFFICE: Record<string, Executor<Ctx>> = {
   'office:sync-base': syncBase,
   'office:fix-conflict': fixConflict,
   'office:checks': checks,
@@ -568,6 +771,14 @@ const FEATURE: Record<string, Executor<Ctx>> = {
   'office:review': review,
   'office:rework': rework,
   'office:merge': merge,
+};
+
+/** Чем делается узел: действие из файла, а без него — по виду узла. */
+const resolveExecutor: Resolve<Ctx> = (node) => {
+  if (node.run) return OFFICE[node.run];
+  if (node.kind === 'step') return step;
+  if (node.kind === 'gate') return gate;
+  return undefined;
 };
 
 /** Уборка после слияния: ни рабочей копии, ни ветки — ни локально, ни в origin. */
@@ -610,9 +821,7 @@ function markStuck(
  */
 export function retryPipeline(state: OfficeState, taskId: string): Promise<void> {
   if (state.prOf(taskId)) {
-    state.patchPr(taskId, {
-      stage: 'sync', note: state.say('pipe.retrying'), needsDecision: false,
-    });
+    state.patchPr(taskId, { note: state.say('pipe.retrying'), needsDecision: false });
   }
   return runPipeline(state, taskId);
 }
@@ -632,6 +841,8 @@ function prBody(state: OfficeState, task: Task): string {
       : '',
     '',
     task.result ? `${state.say('pipe.prBody.report')}\n${task.result}` : '',
+    task.handoff?.assumed ? `\n${state.say('pipe.prBody.assumed')}\n${task.handoff.assumed}` : '',
+    task.handoff?.left ? `\n${state.say('pipe.prBody.left')}\n${task.handoff.left}` : '',
     '',
     state.say('pipe.prBody.footer'),
   ].filter(Boolean).join('\n');

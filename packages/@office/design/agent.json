@@ -20,6 +20,9 @@
   "maxInstances": 2,
   "docsDir": "docs/design",
   "license": "MIT",
+  "capabilities": [
+    "design.ui"
+  ],
   "runtime": {
     "engine": "claude-code",
     "model": "sonnet",

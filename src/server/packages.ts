@@ -27,6 +27,7 @@
  *
  * Спека: docs/design/agent-market/spec.md.
  */
+import { CAPABILITIES, isCapability, type Capability } from '../shared/workflow';
 import { createHash } from 'node:crypto';
 import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
 import { homedir } from 'node:os';
@@ -143,6 +144,11 @@ export interface AgentManifest {
   /** Папка артефактов у ролей, работающих не кодом. Пусто — нет. */
   docsDir: string;
   license: string;
+  /**
+   * Что агент умеет — словарь `CAPABILITIES` из shared/workflow.ts. По ним
+   * узел процесса находит исполнителя. Пусто — офис выведет по инструментам.
+   */
+  capabilities: Capability[];
   runtime: {
     engine: Engine;
     /** Как написано в манифесте: алиас или полный id. Разрешается в `roleFromPackage`. */
@@ -283,6 +289,13 @@ export function parseManifest(raw: unknown, fallbackName: string): { manifest: A
   }
   const docsDir = typeof m.docsDir === 'string' ? m.docsDir.trim().replace(/^\/+|\/+$/g, '') : '';
   if (docsDir.startsWith('..') || docsDir.includes('/../')) err('docsDir', 'must stay inside the working copy');
+  const capabilities: Capability[] = [];
+  const caps = strList(m.capabilities);
+  if (m.capabilities !== undefined && !caps) err('capabilities', 'expected a list of capability names');
+  for (const cap of caps ?? []) {
+    if (isCapability(cap)) capabilities.push(cap);
+    else warn('capabilities', `unknown capability "${cap}"; the office knows: ${CAPABILITIES.join(', ')}`);
+  }
 
   // --- runtime
   const rt = asRecord(m.runtime) ?? {};
@@ -340,7 +353,7 @@ export function parseManifest(raw: unknown, fallbackName: string): { manifest: A
   return {
     manifest: {
       schema: MANIFEST_SCHEMA, name, kind, members, settings, title, summary, tags, color, emoji, look,
-      manager, maxInstances, docsDir, license,
+      manager, maxInstances, docsDir, license, capabilities,
       runtime: { engine: engine as Engine, model, tools, permissionMode, isolate, maxTurns, mcp },
       skills, builtin, use, servers, requires,
     },
@@ -350,8 +363,8 @@ export function parseManifest(raw: unknown, fallbackName: string): { manifest: A
 
 const KNOWN_KEYS = new Set([
   'schema', 'name', 'kind', 'title', 'summary', 'tags', 'color', 'emoji', 'look', 'manager',
-  'maxInstances', 'docsDir', 'license', 'runtime', 'skills', 'builtin', 'use', 'servers', 'requires',
-  'members', 'settings',
+  'maxInstances', 'docsDir', 'license', 'capabilities', 'runtime', 'skills', 'builtin', 'use', 'servers',
+  'requires', 'members', 'settings',
 ]);
 
 // ----------------------------------------------------------------- чтение

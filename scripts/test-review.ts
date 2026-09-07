@@ -15,8 +15,10 @@ import { getOffice, worktreesRoot, type OfficeState, type Task } from '../src/se
 import { mergeableTasks } from '../src/server/merge';
 import {
   runPipeline, setPipelineAgents, whenPipelinesIdle,
-  type ReviewOutcome, type ReworkOutcome,
+  type ReviewOutcome, type ReworkOutcome, type StepOutcome, type StepRequest,
 } from '../src/server/review';
+import { answerQuestion } from '../src/server/questions';
+import type { TaskType } from '../src/shared/workflow';
 import { superviseOffice } from '../src/server/supervisor';
 import { MessageQueue } from '../src/server/queue';
 
@@ -66,7 +68,10 @@ const git = (dir: string, ...args: string[]): string => {
 };
 
 /** Ветка задачи с готовой работой — то, что оставляет после себя исполнитель. */
-function taskBranch(dir: string, id: string, files: Record<string, string>): Task {
+function taskBranch(
+  dir: string, id: string, files: Record<string, string>,
+  opts: { roleId?: string; type?: TaskType; assigneeId?: string } = {},
+): Task {
   git(dir, 'checkout', '-q', '-b', `task/${id}`, 'main');
   for (const [name, body] of Object.entries(files)) writeFileSync(resolve(dir, name), body);
   git(dir, 'add', '-A');
@@ -74,13 +79,16 @@ function taskBranch(dir: string, id: string, files: Record<string, string>): Tas
   git(dir, 'checkout', '-q', 'main');
 
   const task = office.createTask({
-    title: `Задача ${id}`, description: 'тестовая', criteria: ['готово'], roleId: 'backend',
+    title: `Задача ${id}`, description: 'тестовая', criteria: ['готово'],
+    roleId: opts.roleId ?? 'backend', ...(opts.type ? { type: opts.type } : {}),
   });
   // Ветку заводим под тем же именем, что и id задачи в офисе.
   git(dir, 'branch', '-m', `task/${id}`, `task/${task.id}`);
   office.updateTask(task.id, {
     status: 'review', branch: `task/${task.id}`, baseBranch: 'main',
     repoDir: dir, worktreePath: null, result: 'сделано',
+    assigneeId: opts.assigneeId ?? null,
+    handoff: { did: 'сделано', assumed: 'взял синий', left: 'ничего' },
   });
   return office.tasks.get(task.id) as Task;
 }
@@ -98,7 +106,9 @@ interface Stub {
   reviews: ReviewOutcome[];
   /** Что делает «автор», когда его зовут: правит файлы в своей рабочей копии. */
   rework: (state: OfficeState, task: Task, instruction: string) => ReworkOutcome;
-  calls: { reviews: number; reworks: number; instructions: string[] };
+  /** Шаг процесса: кто-то с нужными умениями делает узел. */
+  step: (state: OfficeState, task: Task, req: StepRequest) => StepOutcome;
+  calls: { reviews: number; reworks: number; instructions: string[]; steps: StepRequest[] };
   pm: string[];
 }
 
@@ -106,10 +116,15 @@ function stub(input: Partial<Stub> = {}): Stub {
   const s: Stub = {
     reviews: input.reviews ?? [],
     rework: input.rework ?? (() => ({ ok: true, message: 'ничего не потребовалось' })),
-    calls: { reviews: 0, reworks: 0, instructions: [] },
+    step: input.step ?? (() => ({ ok: true, outcome: 'ok', summary: 'шаг сделан', actor: 'someone#1' })),
+    calls: { reviews: 0, reworks: 0, instructions: [], steps: [] },
     pm: [],
   };
   setPipelineAgents({
+    async step(state, task, req) {
+      s.calls.steps.push(req);
+      return s.step(state, task, req);
+    },
     async review() {
       s.calls.reviews += 1;
       return s.reviews.shift()
@@ -432,6 +447,107 @@ async function main(): Promise<void> {
     check('помечено как «нужно решение»', office.prOf(task.id)?.needsDecision === true);
     check('менеджера позвали сразу', s.pm.some((m) => m.includes('сам он дальше не поедет')));
     check('надзор повторов не устраивал', s.calls.reviews === before);
+  }
+
+  /** Дождаться вопроса-согласования по задаче и ответить на него. */
+  const decide = async (taskId: string, answer: string): Promise<string> => {
+    for (let i = 0; i < 200; i += 1) {
+      const q = [...office.questions.values()].find(
+        (x) => x.kind === 'gate' && x.taskId === taskId && !x.answeredAt && !x.dismissedAt);
+      if (q) {
+        answerQuestion(office, q.id, answer);
+        return q.id;
+      }
+      await new Promise((r) => setTimeout(r, 25));
+    }
+    throw new Error(`согласование по ${taskId} так и не спросили`);
+  };
+
+  // 16. Контент: юрист смотрит, владелец согласует, офис вливает.
+  {
+    const task = taskBranch(dir, 'P', { 'p.md': 'Пост\n' },
+      { roleId: 'smm', type: 'content', assigneeId: 'smm#1' });
+    const s = stub();
+    const done = runPipeline(office, task.id);
+    const qid = await decide(task.id, 'да');
+    await done;
+
+    say('▶ Контент идёт к юристу и на согласование, а не к ревьюеру кода');
+    const legal = s.calls.steps[0];
+    check('первым шагом позвали юриста', legal?.node === 'legal' && legal.needs.includes('docs.legal'));
+    check('не автора', legal?.exclude.includes('smm#1'));
+    check('юристу передали отчёт с запиской', legal?.prompt.includes('взял синий'));
+    check('ревьюера кода не звали', s.calls.reviews === 0);
+    check('владельца спросили согласованием', office.questions.get(qid)?.kind === 'gate');
+    check('после «да» — влито', office.prOf(task.id)?.stage === 'merged');
+    check('прогон закончен', office.runOf(task.id)?.status === 'done');
+    check('шагов было ровно один', s.calls.steps.length === 1);
+  }
+
+  // 17. Владелец сказал «нет»: доработка тем же автором, потом снова юрист и согласование.
+  {
+    const task = taskBranch(dir, 'R', { 'r.md': 'Пост\n' },
+      { roleId: 'smm', type: 'content', assigneeId: 'smm#1' });
+    const s = stub({
+      step: (_state, _task, req) => ({
+        ok: true, outcome: req.node === 'legal' ? 'ok' : 'done', summary: `сделал ${req.node}`, actor: req.prefer ?? 'legal#1',
+      }),
+    });
+    const done = runPipeline(office, task.id);
+    await decide(task.id, 'нет, короче и без цен');
+    await decide(task.id, 'да');
+    await done;
+
+    say('▶ «Нет» владельца — доработка автором и второй круг');
+    check('порядок шагов: юрист, доработка, юрист',
+      s.calls.steps.map((r) => r.node).join(',') === 'legal,rework,legal');
+    check('доработку отдали автору', s.calls.steps[1]?.prefer === 'smm#1');
+    check('автору передали ответ владельца', s.calls.steps[1]?.prompt.includes('без цен'));
+    check('в итоге влито', office.prOf(task.id)?.stage === 'merged');
+  }
+
+  // 18. Исследование: проверяющий нашёл пробелы — автор закрывает, потом владелец.
+  {
+    const task = taskBranch(dir, 'S', { 's.md': 'Выводы\n' },
+      { roleId: 'legal', type: 'research', assigneeId: 'legal#1' });
+    let verifies = 0;
+    const s = stub({
+      step: (_state, _task, req) => {
+        if (req.node === 'verify') {
+          verifies += 1;
+          return { ok: true, outcome: verifies === 1 ? 'gaps' : 'ok', summary: 'нет источника на цифру', actor: 'legal#1' };
+        }
+        return { ok: true, outcome: 'done', summary: 'добавил источник', actor: req.prefer ?? '' };
+      },
+    });
+    const done = runPipeline(office, task.id);
+    await decide(task.id, 'ok');
+    await done;
+
+    say('▶ Исследование проверяют, пробелы закрывает автор');
+    check('проверка, доработка, проверка', s.calls.steps.map((r) => r.node).join(',') === 'verify,rework,verify');
+    check('доработке передали отзыв проверяющего', s.calls.steps[1]?.prompt.includes('нет источника'));
+    check('влито', office.prOf(task.id)?.stage === 'merged');
+  }
+
+  // 19. Макет: сразу к владельцу; три «нет» подряд — к менеджеру.
+  {
+    const task = taskBranch(dir, 'U', { 'u.md': 'Макет\n' },
+      { roleId: 'design', assigneeId: 'design#1' });
+    const s = stub({ step: (_s, _t, req) => ({ ok: true, outcome: 'done', summary: 'поправил', actor: req.prefer ?? '' }) });
+    const done = runPipeline(office, task.id);
+    await decide(task.id, 'нет');
+    await decide(task.id, 'нет, всё ещё не то');
+    await decide(task.id, 'нет');
+    await done;
+
+    say('▶ Согласование не бесконечно');
+    check('тип выведен из роли', office.tasks.get(task.id)?.type === 'design');
+    check('до слияния не дошло', office.prOf(task.id)?.stage === 'stuck');
+    check('нужно решение менеджера', office.prOf(task.id)?.needsDecision === true);
+    check('менеджеру объяснили', s.pm.some((m) => m.includes('вернул работу')));
+    check('доработок было две', s.calls.steps.length === 2);
+    check('прогон стоит на согласовании', office.runOf(task.id)?.nodeId === 'approve');
   }
 
   // 14. Выключенный конвейер: задача просто остаётся сделанной, как раньше.

@@ -15,6 +15,55 @@ import { z } from 'zod';
 export const NODE_KINDS = ['step', 'check', 'gate', 'decide', 'fanout', 'meeting'] as const;
 export type NodeKind = typeof NODE_KINDS[number];
 
+/**
+ * Способности (§5 спеки): узел просит не роль, а умение. Словарь общий и
+ * короткий — строка с точкой, область и умение.
+ */
+export const CAPABILITIES = [
+  'code.write', 'code.review',
+  'docs.write', 'docs.legal', 'docs.marketing',
+  'design.ui', 'design.sprite', 'design.3d', 'image.generate',
+  'research.web', 'plan', 'summarize',
+] as const;
+export type Capability = typeof CAPABILITIES[number];
+export const isCapability = (s: string): s is Capability =>
+  (CAPABILITIES as readonly string[]).includes(s);
+
+/**
+ * Тип задачи выбирает процесс (§7.2). Ставится менеджером или выводится из
+ * способностей роли, на которую задача заведена.
+ */
+export const TASK_TYPES = ['code', 'design', 'content', 'research'] as const;
+export type TaskType = typeof TASK_TYPES[number];
+
+/** Тип задачи по способностям роли. null — процесса для такой работы нет. */
+export function typeForCapabilities(caps: readonly string[]): TaskType | null {
+  if (caps.includes('code.write')) return 'code';
+  if (caps.some((c) => c.startsWith('design.') || c === 'image.generate')) return 'design';
+  if (caps.some((c) => c.startsWith('docs.'))) return 'content';
+  if (caps.includes('research.web')) return 'research';
+  return null;
+}
+
+/**
+ * Записка при передаче (§4): что сделано, что решил сам, что не сделано.
+ * Пишет тот, кто сдаёт; читает тот, кто принимает. Транскрипт не передаётся.
+ */
+export interface Handoff {
+  did: string;
+  assumed: string;
+  left: string;
+}
+
+/**
+ * Артефакт, который есть у любого прогона по задаче ещё до первого узла:
+ * отчёт исполнителя с запиской. Узел может брать его в `in`, не объявляя
+ * производителя.
+ */
+export const REPORT_ARTIFACT = 'report';
+/** `same: "author"` — тот, кто делал саму задачу, а не узел прогона. */
+export const AUTHOR = 'author';
+
 /** Служебные узлы: в файле не описываются, но переход в них разрешён. */
 export const END = 'end';
 export const STUCK = 'stuck';
@@ -36,8 +85,12 @@ const nodeSchema = z.object({
   kind: z.enum(NODE_KINDS),
   /** Действие узла из каталога офиса (`office:sync-base`) или проекта. */
   run: z.string().optional(),
-  /** Что должен уметь исполнитель. Пока справочно: способности — фаза 1. */
-  needs: z.array(z.string()).optional(),
+  /** Что должен уметь исполнитель (§5). У check/gate — нет. */
+  needs: z.array(z.enum(CAPABILITIES)).optional(),
+  /** Тот же исполнитель, что делал этот узел; `author` — сама задача. */
+  same: id.optional(),
+  /** Не тот, кто делал этот узел: запрет самопроверки. */
+  notSameAs: id.optional(),
   /** Какие артефакты предыдущих узлов подать на вход. */
   in: z.array(id).optional(),
   /** Под каким именем узел кладёт свой артефакт в прогон. */
@@ -57,7 +110,7 @@ const nodeSchema = z.object({
 
 const triggerSchema = z.discriminatedUnion('on', [
   z.object({ on: z.literal('task.created'), type: z.string().optional() }).strict(),
-  z.object({ on: z.literal('task.finished') }).strict(),
+  z.object({ on: z.literal('task.finished'), type: z.enum(TASK_TYPES).optional() }).strict(),
   z.object({ on: z.literal('epic.approved') }).strict(),
   z.object({ on: z.literal('board.idle') }).strict(),
   z.object({ on: z.literal('quiet'), minutes: z.number().int().min(1) }).strict(),
@@ -149,8 +202,13 @@ export function parseWorkflow(data: unknown, where = '<workflow>'): Workflow {
       throw new Error(`${where}: у узла «${node.id}» нет ни одного перехода`);
     }
     for (const name of node.in ?? []) {
-      if (!workflow.nodes.some((n) => n.out === name)) {
+      if (name !== REPORT_ARTIFACT && !workflow.nodes.some((n) => n.out === name)) {
         throw new Error(`${where}: узел «${node.id}» ждёт артефакт «${name}», который никто не производит`);
+      }
+    }
+    for (const ref of [node.same, node.notSameAs]) {
+      if (ref && ref !== AUTHOR && !seen.has(ref)) {
+        throw new Error(`${where}: узел «${node.id}» ссылается на исполнителя узла «${ref}», а такого узла нет`);
       }
     }
     for (const [outcome, tr] of Object.entries(node.next)) {
@@ -211,7 +269,8 @@ export interface RunArtifact {
   ref?: string;
 }
 
-export type RunStatus = 'running' | 'stuck' | 'done';
+/** 'waiting' — стоит на узле согласования и ничего не тратит. */
+export type RunStatus = 'running' | 'waiting' | 'stuck' | 'done';
 
 /**
  * Прогон: процесс, применённый к одной задаче (§2 спеки). Помнит, где стоит,
@@ -230,6 +289,10 @@ export interface Run {
   /** Сколько раз прошли каждую петлю, ключ — edgeKey(). */
   loops: Record<string, number>;
   artifacts: Record<string, RunArtifact>;
+  /** Кто делал каждый узел-шаг: для `same` и `notSameAs`. */
+  actors: Record<string, string>;
+  /** Вопрос владельцу, ответа на который ждёт узел согласования. */
+  waitingOn: string | null;
   status: RunStatus;
   needsDecision: boolean;
   /** Готовая фраза: почему встал. */

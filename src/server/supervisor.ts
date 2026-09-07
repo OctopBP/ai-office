@@ -32,7 +32,7 @@
 import type { PullRequestView } from '../shared/types';
 import { OFFICE_SENDER } from '../shared/types';
 import { type OfficeState, type Task } from './state';
-import { pipelineProblem, runPipeline, tellPm } from './review';
+import { isPipelineRunning, pipelineProblem, runPipeline, tellPm } from './review';
 import { officeAssign, retryTask, slotProblem } from './agents';
 import { dispatch } from './plan';
 import { detectReverts } from './outcomes';
@@ -145,6 +145,16 @@ export async function superviseOffice(state: OfficeState): Promise<void> {
 
   if (started && orphans.length > started) {
     state.addLog(null, 'system', state.say('sup.orphansLeft', { n: orphans.length - started }));
+  }
+
+  // 3. Прогоны, стоявшие на согласовании в момент перезапуска: вопрос
+  // владельцу никуда не делся, но ждать его ответа уже некому — возвращаем
+  // прогон к его узлу, и тот ждёт дальше.
+  for (const run of [...state.runs.values()]) {
+    if (run.status !== 'waiting' || !run.subject.taskId) continue;
+    if (isPipelineRunning(state, run.subject.taskId)) continue;
+    state.addLog(null, 'system', state.say('sup.resumeWaiting', { task: run.subject.taskId }));
+    void runPipeline(state, run.subject.taskId);
   }
 
   await watchBoard(state, now);

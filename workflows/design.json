@@ -1,0 +1,22 @@
+{
+  "id": "design",
+  "version": 1,
+  "trigger": { "on": "task.finished", "type": "design" },
+  "nodes": [
+    { "id": "approve", "kind": "gate", "stage": "review", "in": ["report"], "out": "decision",
+      "done": ["Макет согласован владельцем"],
+      "next": { "yes": "sync", "no": { "to": "rework", "max": 2 } } },
+    { "id": "rework", "kind": "step", "needs": ["design.ui"], "same": "author", "stage": "rework",
+      "in": ["decision"],
+      "done": ["Замечания владельца учтены", "Макет обновлён в папке задачи"],
+      "next": { "done": "approve", "failed": "stuck" } },
+
+    { "id": "sync", "kind": "check", "run": "office:sync-base", "stage": "sync", "out": "conflict",
+      "next": { "pass": "merge", "conflict": { "to": "fix-conflict", "max": 1 }, "fail": "stuck" } },
+    { "id": "fix-conflict", "kind": "step", "run": "office:fix-conflict", "needs": ["design.ui"],
+      "stage": "sync", "in": ["conflict"],
+      "next": { "done": "sync", "failed": "stuck" } },
+    { "id": "merge", "kind": "check", "run": "office:merge", "stage": "merging",
+      "next": { "pass": "end", "moved": { "to": "sync", "max": 1 }, "fail": "stuck" } }
+  ]
+}

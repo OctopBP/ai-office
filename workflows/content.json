@@ -1,0 +1,26 @@
+{
+  "id": "content",
+  "version": 1,
+  "trigger": { "on": "task.finished", "type": "content" },
+  "nodes": [
+    { "id": "legal", "kind": "step", "needs": ["docs.legal"], "notSameAs": "author", "stage": "review",
+      "in": ["report"], "out": "legal",
+      "done": ["Текст прочитан целиком", "Юридические риски названы или их нет", "Вердикт вынесен инструментом"],
+      "next": { "ok": "publish", "risky": { "to": "rework", "max": 2 }, "failed": "stuck" } },
+    { "id": "rework", "kind": "step", "needs": ["docs.write"], "same": "author", "stage": "rework",
+      "in": ["legal", "decision"],
+      "done": ["Замечания учтены", "Текст обновлён в папке задачи"],
+      "next": { "done": "legal", "failed": "stuck" } },
+    { "id": "publish", "kind": "gate", "stage": "review", "in": ["report", "legal"], "out": "decision",
+      "done": ["Владелец согласен публиковать"],
+      "next": { "yes": "sync", "no": { "to": "rework", "max": 2 } } },
+
+    { "id": "sync", "kind": "check", "run": "office:sync-base", "stage": "sync", "out": "conflict",
+      "next": { "pass": "merge", "conflict": { "to": "fix-conflict", "max": 1 }, "fail": "stuck" } },
+    { "id": "fix-conflict", "kind": "step", "run": "office:fix-conflict", "needs": ["docs.write"],
+      "stage": "sync", "in": ["conflict"],
+      "next": { "done": "sync", "failed": "stuck" } },
+    { "id": "merge", "kind": "check", "run": "office:merge", "stage": "merging",
+      "next": { "pass": "end", "moved": { "to": "sync", "max": 1 }, "fail": "stuck" } }
+  ]
+}
