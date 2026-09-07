@@ -2,7 +2,7 @@
   "id": "desk",
   "title": "Рабочий стол",
   "size": [2, 1.375],
-  "footprint": [0, 0.4, 2, 1],
+  "footprint": [0, 0, 2, 2],
   "blocks": true,
   "h": 1,
   "tone": "wood",
@@ -10,6 +10,7 @@
   "parts": [
     {
       "file": "oakDesk.glb",
+      "at": [0, 0, 0.4],
       "rot": 180,
       "probe": {
         "surface": [0, 0]
@@ -17,27 +18,27 @@
     },
     {
       "file": "computerScreen.glb",
-      "at": [0, 0.885, 0.35],
+      "at": [0, 0.885, 0.7466666666666667],
       "rot": 180
     },
     {
       "file": "computerKeyboard.glb",
-      "at": [0, 0.885, 0.1],
+      "at": [0, 0.885, 0.4],
       "rot": 180
     },
     {
       "file": "computerMouse.glb",
-      "at": [-0.5, 0.885, 0.1],
+      "at": [-0.5, 0.885, 0.4],
       "rot": 180
     }
   ],
   "components": [
     {
       "type": "work",
-      "at": [0.55, -0.75],
+      "at": [0.55, -1.15],
       "on": "chair/chairDesk",
       "height": null,
-      "offset": [-0.005, 0, -0.055]
+      "offset": [-0.005, 0.13333333333333333, 0.7333333333333333]
     },
     {
       "type": "plate",

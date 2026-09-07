@@ -2,7 +2,7 @@
   "id": "loveseat",
   "title": "Двухместный диван",
   "size": [2.25, 1.625],
-  "footprint": [0, 0.4375, 2.25, 1.1875],
+  "footprint": [0, 0, 2, 1],
   "blocks": true,
   "layer": "furniture",
   "h": 1.2,
@@ -20,20 +20,20 @@
     {
       "type": "seat",
       "shape": "point",
-      "at": [0.35, 0.45],
       "use": "sit",
       "on": "loungeSofa",
       "height": null,
-      "offset": [0, 0, 0]
+      "offset": [0, 0, 0],
+      "at": [0.1, -0.3]
     },
     {
       "type": "seat",
       "shape": "point",
-      "at": [1.15, 0.45],
       "use": "sit",
       "on": "loungeSofa",
       "height": null,
-      "offset": [0, 0, 0]
+      "offset": [0, 0, 0],
+      "at": [0.9, -0.3]
     }
   ]
 }

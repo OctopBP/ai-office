@@ -2,7 +2,7 @@
   "id": "chair",
   "title": "Стул",
   "size": [0.875, 0.8125],
-  "footprint": [0, 0.1625, 0.875, 0.65],
+  "footprint": [0.06, 0.175, 0.875, 0.65],
   "h": 1.2,
   "tone": "fabric",
   "fallback": "chair",

@@ -2,14 +2,15 @@
   "id": "sofa",
   "title": "Диван",
   "size": [3.25, 1.75],
-  "footprint": [0, 0.5, 3.25, 1.25],
+  "footprint": [0, 0, 3, 2],
   "blocks": true,
-  "h": 1.0,
+  "h": 0.6666666666666666,
   "tone": "fabric",
   "fallback": "soft",
   "parts": [
     {
       "file": "fabricSofa.glb",
+      "at": [0, 0, -0.26666666666666666],
       "probe": {
         "seat": [0, 0]
       }
@@ -23,7 +24,7 @@
       "on": "fabricSofa",
       "height": null,
       "offset": [0, 0, 0],
-      "at": [0.35, 0.575]
+      "at": [0.2, 0.1]
     },
     {
       "type": "seat",
@@ -32,7 +33,7 @@
       "on": "fabricSofa",
       "height": null,
       "offset": [0, 0, 0],
-      "at": [1.15, 0.575]
+      "at": [1, 0.1]
     },
     {
       "type": "seat",
@@ -41,7 +42,7 @@
       "on": "fabricSofa",
       "height": null,
       "offset": [0, 0, 0],
-      "at": [1.95, 0.575]
+      "at": [1.8, 0.1]
     }
   ]
 }

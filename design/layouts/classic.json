@@ -24,6 +24,7 @@
     { "sprite": "desk", "at": [16, 8] },
     { "sprite": "desk", "at": [10, 12] },
     { "sprite": "desk", "at": [14, 12] },
+    { "sprite": "desk", "at": [19, 4] },
     { "sprite": "rug", "at": [0.4, 10.0], "scale": 1.2 },
     { "sprite": "round_table", "at": [2.7, 11.1], "scale": 1.6 },
     { "sprite": "chair", "at": [3.8, 10.7] },

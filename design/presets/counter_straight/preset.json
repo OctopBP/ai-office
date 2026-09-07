@@ -2,7 +2,7 @@
   "id": "counter_straight",
   "title": "Кухонная тумба",
   "size": [2, 1.375],
-  "footprint": [0, 0.375, 2, 1],
+  "footprint": [0, 0, 2, 1],
   "blocks": true,
   "h": 1.2,
   "tone": "wood",

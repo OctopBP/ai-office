@@ -2,8 +2,8 @@
   "id": "moneyboard",
   "title": "Доска расходов",
   "size": [2.5, 1.625],
-  "footprint": [0, 1.505, 2.5, 0.12],
-  "h": 1.1,
+  "footprint": [0, 0, 2, 0.1],
+  "h": 1.3333333333333333,
   "tone": "screen",
   "fallback": "panel",
   "components": [

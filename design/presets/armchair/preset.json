@@ -2,7 +2,7 @@
   "id": "armchair",
   "title": "Кресло",
   "size": [1.3125, 1.0625],
-  "footprint": [0, 0.3125, 1.3125, 0.75],
+  "footprint": [0, 0, 1, 1],
   "blocks": true,
   "layer": "furniture",
   "h": 1,
@@ -24,7 +24,7 @@
       "on": "velvetArmchair",
       "height": null,
       "offset": [0, 0, 0],
-      "at": [0.14, 0]
+      "at": [0, -0.35]
     }
   ]
 }

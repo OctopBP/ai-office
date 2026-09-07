@@ -2,7 +2,7 @@
   "id": "clock",
   "title": "Часы",
   "size": [0.75, 0.75],
-  "footprint": [0, 0.67, 0.75, 0.08],
+  "footprint": [0.1, 0, 0.8, 0.08],
   "h": 0.7,
   "tone": "light",
   "fallback": "panel",

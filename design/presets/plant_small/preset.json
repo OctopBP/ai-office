@@ -2,7 +2,7 @@
   "id": "plant_small",
   "title": "Маленькое растение",
   "size": [0.75, 1.125],
-  "footprint": [0.125, 0.6875, 0.5, 0.4375],
+  "footprint": [0.25, 0.25, 0.5, 0.5],
   "blocks": true,
   "h": 0.95,
   "tone": "leaf",

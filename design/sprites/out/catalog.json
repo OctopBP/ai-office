@@ -60,19 +60,19 @@
     },
     "arcade": {
       "size": [1, 2],
-      "footprint": [0, 1.1, 1, 0.9],
+      "footprint": [0, 0, 1, 1],
       "blocks": true,
       "label": "Игровой автомат"
     },
     "armchair": {
       "size": [1.3125, 1.0625],
-      "footprint": [0, 0.3125, 1.3125, 0.75],
+      "footprint": [0, 0, 1, 1],
       "layer": "furniture",
       "slots": [
         {
           "kind": "seat",
-          "x": 0.14,
-          "y": 0,
+          "x": 0,
+          "y": -0.35,
           "use": "sit"
         }
       ],
@@ -81,38 +81,38 @@
     },
     "beanbag": {
       "size": [1, 0.6875],
-      "footprint": [0, 0, 1, 0.6875],
+      "footprint": [0, 0, 1, 1],
       "label": "Кресло-мешок"
     },
     "board": {
       "size": [3.25, 1.875],
-      "footprint": [0, 1.755, 3.25, 0.12],
+      "footprint": [0, 0, 3, 0.1],
       "label": "Доска задач"
     },
     "bookshelf": {
       "size": [1.625, 1.875],
-      "footprint": [0, 1.375, 1.625, 0.5],
+      "footprint": [0, 0, 2, 0.5],
       "blocks": true,
       "label": "Книжный шкаф"
     },
     "chair": {
       "size": [0.875, 0.8125],
-      "footprint": [0, 0.1625, 0.875, 0.65],
+      "footprint": [0.06, 0.175, 0.875, 0.65],
       "label": "Стул"
     },
     "clock": {
       "size": [0.75, 0.75],
-      "footprint": [0, 0.67, 0.75, 0.08],
+      "footprint": [0.1, 0, 0.8, 0.08],
       "label": "Часы"
     },
     "coffee_machine": {
       "size": [0.75, 1.125],
-      "footprint": [0, 0.525, 0.75, 0.6],
+      "footprint": [0, 0, 1, 1],
       "label": "Кофемашина"
     },
     "coffee_table": {
       "size": [1.75, 1.0625],
-      "footprint": [0, 0, 1.75, 1.0625],
+      "footprint": [0, 0, 2, 1],
       "layer": "furniture",
       "blocks": true,
       "label": "Журнальный столик"
@@ -124,12 +124,12 @@
     },
     "console": {
       "size": [1.375, 0.75],
-      "footprint": [0, 0.25, 1.375, 0.5],
+      "footprint": [0, 0.25, 1, 0.5],
       "label": "Игровая приставка"
     },
     "cooler": {
       "size": [0.625, 1.5],
-      "footprint": [0, 0.9, 0.625, 0.6],
+      "footprint": [0.2, 0, 0.6, 0.6],
       "blocks": true,
       "label": "Кулер"
     },
@@ -138,24 +138,24 @@
     },
     "counter_corner": {
       "size": [2, 2],
-      "footprint": [0, 0.375, 2, 1.625],
+      "footprint": [0, 0, 2, 2],
       "blocks": true,
       "label": "Кухонная тумба, угловая"
     },
     "counter_straight": {
       "size": [2, 1.375],
-      "footprint": [0, 0.375, 2, 1],
+      "footprint": [0, 0, 2, 1],
       "blocks": true,
       "label": "Кухонная тумба"
     },
     "desk": {
       "size": [2, 1.375],
-      "footprint": [0, 0.4, 2, 1],
+      "footprint": [0, 0, 2, 2],
       "slots": [
         {
           "kind": "work",
           "x": 0.55,
-          "y": -0.75
+          "y": -1.15
         },
         {
           "kind": "plate",
@@ -171,12 +171,12 @@
     },
     "desk_pm": {
       "size": [2, 1.375],
-      "footprint": [0, 0.4, 2, 1],
+      "footprint": [0, 0, 2, 2],
       "slots": [
         {
           "kind": "work",
           "x": 0.55,
-          "y": -0.75
+          "y": -1.15
         },
         {
           "kind": "plate",
@@ -189,7 +189,7 @@
     },
     "dining_table": {
       "size": [6, 1.375],
-      "footprint": [0, 1, 6, 0.375],
+      "footprint": [0, 0, 6, 2],
       "slots": [
         {
           "kind": "seat",
@@ -207,7 +207,7 @@
     },
     "door": {
       "size": [0.75, 1.875],
-      "footprint": [0, 1.755, 0.75, 0.12],
+      "footprint": [0, 0, 1, 1],
       "label": "Дверь"
     },
     "doormat": {
@@ -233,7 +233,7 @@
     "floor_lamp": {
       "size": [0.41, 0.47],
       "modelOnly": true,
-      "footprint": [0, 0, 0.41, 0.47],
+      "footprint": [0.25, 0.25, 0.5, 0.5],
       "layer": "furniture",
       "blocks": true,
       "label": "Торшер"
@@ -264,7 +264,7 @@
     },
     "fridge": {
       "size": [0.875, 1.875],
-      "footprint": [0, 0.975, 0.875, 0.9],
+      "footprint": [0, 0, 1, 1],
       "blocks": true,
       "label": "Холодильник"
     },
@@ -280,7 +280,7 @@
     },
     "kitchen_mugs": {
       "size": [0.75, 0.5],
-      "footprint": [0, 0.05, 0.75, 0.45],
+      "footprint": [0, 0.05, 1, 1],
       "label": "Кружки"
     },
     "kitchen_snack": {
@@ -295,7 +295,7 @@
     },
     "logscreen": {
       "size": [2.75, 1.625],
-      "footprint": [0, 1.505, 2.75, 0.12],
+      "footprint": [0, 0, 3, 0.1],
       "label": "Экран логов"
     },
     "lounge_rug": {
@@ -306,19 +306,19 @@
     },
     "loveseat": {
       "size": [2.25, 1.625],
-      "footprint": [0, 0.4375, 2.25, 1.1875],
+      "footprint": [0, 0, 2, 1],
       "layer": "furniture",
       "slots": [
         {
           "kind": "seat",
-          "x": 0.35,
-          "y": 0.45,
+          "x": 0.1,
+          "y": -0.3,
           "use": "sit"
         },
         {
           "kind": "seat",
-          "x": 1.15,
-          "y": 0.45,
+          "x": 0.9,
+          "y": -0.3,
           "use": "sit"
         }
       ],
@@ -327,48 +327,48 @@
     },
     "moneyboard": {
       "size": [2.5, 1.625],
-      "footprint": [0, 1.505, 2.5, 0.12],
+      "footprint": [0, 0, 2, 0.1],
       "label": "Доска расходов"
     },
     "neon_sign": {
       "size": [1.625, 1],
-      "footprint": [0, 0.92, 1.625, 0.08],
+      "footprint": [0, 0, 1.5, 0.1],
       "label": "Неоновая вывеска"
     },
     "plant_big": {
       "size": [1, 1.625],
-      "footprint": [0.25, 1.1875, 0.5, 0.4375],
+      "footprint": [0, 0, 1, 1],
       "blocks": true,
       "label": "Большое растение"
     },
     "plant_small": {
       "size": [0.75, 1.125],
-      "footprint": [0.125, 0.6875, 0.5, 0.4375],
+      "footprint": [0.25, 0.25, 0.5, 0.5],
       "blocks": true,
       "label": "Маленькое растение"
     },
     "poster": {
       "size": [0.875, 1.125],
-      "footprint": [0, 1.065, 0.875, 0.06],
+      "footprint": [0, 0, 1, 0.06],
       "label": "Постер"
     },
     "potted_plant": {
       "size": [0.68, 0.78],
       "modelOnly": true,
-      "footprint": [0, 0, 0.68, 0.78],
+      "footprint": [0, 0, 1, 1],
       "layer": "furniture",
       "blocks": true,
       "label": "Растение в кашпо"
     },
     "round_table": {
       "size": [1.875, 1.375],
-      "footprint": [0, 0, 1.875, 1.375],
+      "footprint": [0, 0, 3, 3],
       "slots": [
         {
           "kind": "seat",
           "ring": 8,
-          "rx": 2.6,
-          "ry": 1.5,
+          "rx": 2,
+          "ry": 2,
           "grow": true
         }
       ],
@@ -377,12 +377,12 @@
     },
     "rug": {
       "size": [7, 4],
-      "footprint": [0, 0, 7, 4],
+      "footprint": [0, 0, 6, 4],
       "label": "Ковёр"
     },
     "server_rack": {
       "size": [0.875, 1.875],
-      "footprint": [0, 1.075, 0.875, 0.8],
+      "footprint": [0, 0, 1, 1],
       "blocks": true,
       "label": "Серверная стойка"
     },
@@ -391,30 +391,30 @@
     },
     "sink_counter": {
       "size": [2, 1.375],
-      "footprint": [0, 0.375, 2, 1],
+      "footprint": [0, 0, 2, 1],
       "blocks": true,
       "label": "Тумба с мойкой"
     },
     "sofa": {
       "size": [3.25, 1.75],
-      "footprint": [0, 0.5, 3.25, 1.25],
+      "footprint": [0, 0, 3, 2],
       "slots": [
         {
           "kind": "seat",
-          "x": 0.35,
-          "y": 0.575,
+          "x": 0.2,
+          "y": 0.1,
           "use": "game"
         },
         {
           "kind": "seat",
-          "x": 1.15,
-          "y": 0.575,
+          "x": 1,
+          "y": 0.1,
           "use": "game"
         },
         {
           "kind": "seat",
-          "x": 1.95,
-          "y": 0.575,
+          "x": 1.8,
+          "y": 0.1,
           "use": "game"
         }
       ],
@@ -426,7 +426,7 @@
     },
     "tv": {
       "size": [2, 1.875],
-      "footprint": [0, 1.755, 2, 0.12],
+      "footprint": [0, 0, 2, 0.12],
       "blocks": true,
       "label": "Телевизор"
     },
@@ -545,7 +545,7 @@
     },
     "window": {
       "size": [2.125, 1.5],
-      "footprint": [0, 1.42, 2.125, 0.08],
+      "footprint": [0, 0, 2, 0.08],
       "label": "Окно"
     }
   }

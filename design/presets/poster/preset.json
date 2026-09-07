@@ -2,7 +2,7 @@
   "id": "poster",
   "title": "Постер",
   "size": [0.875, 1.125],
-  "footprint": [0, 1.065, 0.875, 0.06],
+  "footprint": [0, 0, 1, 0.06],
   "h": 1.1,
   "tone": "accent",
   "fallback": "panel",

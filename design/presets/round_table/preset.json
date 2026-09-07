@@ -2,7 +2,7 @@
   "id": "round_table",
   "title": "Круглый стол",
   "size": [1.875, 1.375],
-  "footprint": [0, 0, 1.875, 1.375],
+  "footprint": [0, 0, 3, 3],
   "blocks": true,
   "h": 1,
   "tone": "wood",
@@ -12,9 +12,10 @@
       "type": "seat",
       "shape": "ring",
       "ring": 8,
-      "rx": 2.6,
-      "ry": 1.5,
-      "grow": true
+      "rx": 2,
+      "ry": 2,
+      "grow": true,
+      "offset": [0, 0, 0]
     }
   ]
 }

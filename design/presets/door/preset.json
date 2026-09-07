@@ -2,7 +2,7 @@
   "id": "door",
   "title": "Дверь",
   "size": [0.75, 1.875],
-  "footprint": [0, 1.755, 0.75, 0.12],
+  "footprint": [0, 0, 1, 1],
   "h": 2.1,
   "tone": "wood",
   "fallback": "panel",

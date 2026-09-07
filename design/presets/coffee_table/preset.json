@@ -2,7 +2,7 @@
   "id": "coffee_table",
   "title": "Журнальный столик",
   "size": [1.75, 1.0625],
-  "footprint": [0, 0, 1.75, 1.0625],
+  "footprint": [0, 0, 2, 1],
   "blocks": true,
   "layer": "furniture",
   "h": 0.61,

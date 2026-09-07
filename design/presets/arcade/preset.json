@@ -2,7 +2,7 @@
   "id": "arcade",
   "title": "Игровой автомат",
   "size": [1, 2],
-  "footprint": [0, 1.1, 1, 0.9],
+  "footprint": [0, 0, 1, 1],
   "blocks": true,
   "h": 2.3,
   "tone": "accent",

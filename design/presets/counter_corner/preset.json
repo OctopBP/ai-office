@@ -2,7 +2,7 @@
   "id": "counter_corner",
   "title": "Кухонная тумба, угловая",
   "size": [2, 2],
-  "footprint": [0, 0.375, 2, 1.625],
+  "footprint": [0, 0, 2, 2],
   "blocks": true,
   "h": 1.2,
   "tone": "wood",
