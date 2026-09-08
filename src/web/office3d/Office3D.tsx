@@ -14,14 +14,14 @@
  * перемещение по офису.
  */
 import { Suspense, useEffect, useMemo, useRef } from 'react';
-import { Canvas, useFrame } from '@react-three/fiber';
+import { Canvas, useFrame, useLoader } from '@react-three/fiber';
 import * as THREE from 'three';
 import { propKeys } from '../../shared/layout';
 import type { LayoutProp } from '../../shared/layout';
 import { useStore } from '../store';
 import { catalog, type HotspotPanel } from '../layoutData';
 import { paletteOf, type Palette } from './palette';
-import { WALL_H, scene3, type Box3, type Scene3, type Wall3 } from './geometry';
+import { WALL_H, scene3, type Box3, type Floor3, type Scene3, type Wall3 } from './geometry';
 import { place3 } from './props';
 import { FurnitureModels, Props3D } from './Props3D';
 import { Hotspots3D, type Spot3, type SpotKind } from './Hotspots3D';
@@ -47,6 +47,80 @@ function sizeOf(b: Box3): [number, number, number] {
 }
 
 /**
+ * Текстуры стен: `inner` — грань, смотрящая в комнату, `outer` — наружная,
+ * `top` — торец сверху. Каждая необязательна: без файла грань рисуется
+ * цветом из палитры. Наружная и внутренняя разведены нарочно — снаружи
+ * офис может быть кирпичным, а внутри оштукатуренным.
+ */
+type WallFace = 'inner' | 'outer' | 'top';
+const wallModules = import.meta.glob('../../../design/textures/wall/*.{png,jpg,jpeg}', {
+  eager: true, query: '?url', import: 'default',
+}) as Record<string, string>;
+const WALL_TEXTURE_URLS: Partial<Record<WallFace, string>> = {};
+for (const [path, url] of Object.entries(wallModules)) {
+  const name = path.split('/').pop()!.replace(/\.(png|jpe?g)$/, '');
+  if (name === 'inner' || name === 'outer' || name === 'top') WALL_TEXTURE_URLS[name] = url;
+}
+const WALL_FACES = Object.keys(WALL_TEXTURE_URLS) as WallFace[];
+
+/** Сколько тайлов покрывает одна картинка текстуры стены, по обеим осям. */
+const WALL_TEXTURE_TILES = 2;
+
+type WallTextures = Partial<Record<WallFace, THREE.Texture>>;
+
+/**
+ * Коробка стены с развёрткой по координатам плана, а не по своим граням.
+ *
+ * У `BoxGeometry` каждая грань растянута на текстуру целиком от 0 до 1, и
+ * стена из трёх коробок получила бы три растянутых по-разному картинки со
+ * швами на стыках. Здесь `uv` каждой вершины считается из её положения в
+ * плане: у боковых граней — вдоль стены и по высоте, у торца — по плану.
+ * Тогда все коробки всех стен режут одну и ту же картинку, и на стыке
+ * узор просто продолжается. Текстуре при этом ни повтор, ни сдвиг не нужны.
+ */
+function wallGeometry(b: Box3): THREE.BoxGeometry {
+  const geo = new THREE.BoxGeometry(b.w, b.h, b.d);
+  const pos = geo.getAttribute('position');
+  const uv = geo.getAttribute('uv');
+  const [cx, cy, cz] = centerOf(b);
+  const k = 1 / WALL_TEXTURE_TILES;
+  for (let i = 0; i < pos.count; i++) {
+    const x = (pos.getX(i) + cx) * k;
+    const y = (pos.getY(i) + cy) * k;
+    const z = (pos.getZ(i) + cz) * k;
+    // Порядок граней BoxGeometry: +X, −X, +Y, −Y, +Z, −Z — по четыре вершины.
+    const face = i >> 2;
+    if (face < 2) uv.setXY(i, z, y);
+    else if (face < 4) uv.setXY(i, x, z);
+    else uv.setXY(i, x, y);
+  }
+  uv.needsUpdate = true;
+  return geo;
+}
+
+/** Меш одной коробки стены — со своей развёрткой (`wallGeometry`). */
+function WallBox({ box, material, userData, castShadow, receiveShadow }: {
+  box: Box3;
+  material: THREE.Material | THREE.Material[];
+  userData: Record<string, unknown>;
+  castShadow: boolean;
+  receiveShadow: boolean;
+}) {
+  const geometry = useMemo(() => wallGeometry(box), [box]);
+  useEffect(() => () => geometry.dispose(), [geometry]);
+  return (
+    <mesh
+      position={centerOf(box)}
+      geometry={geometry}
+      material={material}
+      userData={userData}
+      castShadow={castShadow}
+      receiveShadow={receiveShadow}
+    />
+  );
+}
+
+/**
  * Один отрезок стены. Гасится целиком, а не по коробкам: если считать
  * видимость покоробочно, длинная стена при облёте растворяется кусками.
  *
@@ -54,22 +128,30 @@ function sizeOf(b: Box3): [number, number, number] {
  * тот самый «кукольный» вид разрезанного домика и заодно показывает толщину
  * стены, которой на плоском рендере не было видно вовсе.
  */
-function WallSegment({ wall, offset, palette }: {
+function WallSegment({ wall, offset, palette, textures }: {
   wall: Wall3;
   /** сдвиг комнаты в мир (её центр лежит в начале координат) */
   offset: [number, number];
   palette: Palette;
+  textures: WallTextures;
 }) {
   const group = useRef<THREE.Group>(null);
   const opacity = useRef(1);
 
-  const side = useMemo(
-    () => new THREE.MeshLambertMaterial({ color: palette.wall, transparent: true }),
-    [palette.wall],
+  /** Материал грани: с текстурой — её тон из палитры, без — цвет грани. */
+  const faceMaterial = (map: THREE.Texture | undefined, color: string, tint: string) =>
+    new THREE.MeshLambertMaterial({ map, color: map ? tint : color, transparent: true });
+  const inner = useMemo(
+    () => faceMaterial(textures.inner, palette.wall, palette.wallTint),
+    [textures.inner, palette.wall, palette.wallTint],
+  );
+  const outer = useMemo(
+    () => faceMaterial(textures.outer, palette.wall, palette.wallTint),
+    [textures.outer, palette.wall, palette.wallTint],
   );
   const top = useMemo(
-    () => new THREE.MeshLambertMaterial({ color: palette.wallTop, transparent: true }),
-    [palette.wallTop],
+    () => faceMaterial(textures.top, palette.wallTop, palette.wallTint),
+    [textures.top, palette.wallTop, palette.wallTint],
   );
   const glass = useMemo(
     () => new THREE.MeshLambertMaterial({
@@ -77,10 +159,26 @@ function WallSegment({ wall, offset, palette }: {
     }),
     [palette.glass, palette.glassOpacity],
   );
-  useEffect(() => () => { side.dispose(); top.dispose(); glass.dispose(); }, [side, top, glass]);
+  useEffect(
+    () => () => { inner.dispose(); outer.dispose(); top.dispose(); glass.dispose(); },
+    [inner, outer, top, glass],
+  );
+  const solids = useMemo(() => [inner, outer, top], [inner, outer, top]);
 
-  /** Порядок граней BoxGeometry: +X, −X, +Y, −Y, +Z, −Z — торец сверху третий. */
-  const materials = useMemo(() => [side, side, top, side, side, side], [side, top]);
+  /**
+   * Материалы по граням коробки — в порядке BoxGeometry: +X, −X, +Y, −Y, +Z,
+   * −Z. Бока стены — те две грани, что поперёк её оси; какая из них смотрит
+   * в комнату, записано в `sides`. Торцы и низ — внутренние: свободный торец
+   * стены виден из дверного проёма, то есть из комнаты.
+   */
+  const materialsOf = (b: Box3): THREE.Material[] => {
+    const pick = (inside: boolean | undefined) => (inside === false ? outer : inner);
+    const pos = pick(b.sides?.pos);
+    const neg = pick(b.sides?.neg);
+    return wall.axis === 'x'
+      ? [inner, inner, top, inner, pos, neg]
+      : [pos, neg, top, inner, inner, inner];
+  };
 
   /** Центр отрезка и его нормаль сразу в мировых координатах: считать их
    *  каждый кадр через матрицу группы незачем, комната неподвижна. */
@@ -121,10 +219,10 @@ function WallSegment({ wall, offset, palette }: {
     opacity.current += (want - opacity.current) * Math.min(1, dt * 9);
 
     const solid = opacity.current > 0.95;
-    side.opacity = opacity.current;
-    top.opacity = opacity.current;
-    side.depthWrite = solid;
-    top.depthWrite = solid;
+    for (const m of solids) {
+      m.opacity = opacity.current;
+      m.depthWrite = solid;
+    }
     glass.opacity = palette.glassOpacity * opacity.current;
     // Погашенная стена не должна оставлять на полу свою тень целой.
     for (const child of g.children) {
@@ -137,22 +235,137 @@ function WallSegment({ wall, offset, palette }: {
   return (
     <group ref={group}>
       {wall.boxes.map((b, i) => (
-        <mesh
+        <WallBox
           key={i}
-          position={centerOf(b)}
-          material={b.glass ? glass : materials}
+          box={b}
+          material={b.glass ? glass : materialsOf(b)}
           userData={{ glass: b.glass === true }}
           castShadow={!b.glass}
           receiveShadow={!b.glass}
-        >
-          <boxGeometry args={sizeOf(b)} />
-        </mesh>
+        />
       ))}
     </group>
   );
 }
 
-/** Пол комнат и общая плита под всей раскладкой — иначе под стенами дыра. */
+/** Все стены раскладки одним набором текстур. */
+function WallSegments({ scene, offset, palette, textures }: {
+  scene: Scene3; offset: [number, number]; palette: Palette; textures: WallTextures;
+}) {
+  return (
+    <>
+      {scene.walls.map((wall, i) => (
+        <WallSegment key={i} wall={wall} offset={offset} palette={palette} textures={textures} />
+      ))}
+    </>
+  );
+}
+
+/** Стены с текстурами из `design/textures/wall`, когда те доехали. */
+function TexturedWalls(props: { scene: Scene3; offset: [number, number]; palette: Palette }) {
+  const loaded = useLoader(
+    THREE.TextureLoader, WALL_FACES.map((f) => WALL_TEXTURE_URLS[f]!),
+  ) as THREE.Texture[];
+  const textures = useMemo(() => {
+    const byFace: WallTextures = {};
+    loaded.forEach((tex, i) => {
+      tex.colorSpace = THREE.SRGBColorSpace;
+      tex.wrapS = THREE.RepeatWrapping;
+      tex.wrapT = THREE.RepeatWrapping;
+      tex.needsUpdate = true;
+      byFace[WALL_FACES[i]] = tex;
+    });
+    return byFace;
+  }, [loaded]);
+  return <WallSegments {...props} textures={textures} />;
+}
+
+/**
+ * Стены раскладки. Пока текстуры едут, стены стоят цветными — как и без
+ * текстур вовсе: комната без стен на секунду хуже комнаты с ровными стенами.
+ */
+function Walls(props: { scene: Scene3; offset: [number, number]; palette: Palette }) {
+  if (WALL_FACES.length === 0) return <WallSegments {...props} textures={{}} />;
+  return (
+    <Suspense fallback={<WallSegments {...props} textures={{}} />}>
+      <TexturedWalls {...props} />
+    </Suspense>
+  );
+}
+
+/**
+ * Текстуры пола по имени материала: `design/textures/floor/parquet.jpg`
+ * ложится на все комнаты с полом `parquet`. Материала без файла это не
+ * касается — он остаётся цветом из палитры, как и было.
+ */
+const floorModules = import.meta.glob('../../../design/textures/floor/*.{png,jpg,jpeg}', {
+  eager: true, query: '?url', import: 'default',
+}) as Record<string, string>;
+const FLOOR_TEXTURE_URLS: Partial<Record<Floor3['material'], string>> = {};
+for (const [path, url] of Object.entries(floorModules)) {
+  const name = path.split('/').pop()!.replace(/\.(png|jpe?g)$/, '') as Floor3['material'];
+  FLOOR_TEXTURE_URLS[name] = url;
+}
+
+/**
+ * Сколько тайлов пола покрывает одна картинка текстуры. Картинка бесшовная,
+ * дальше повторяется. Два тайла — при тайле в метр доски паркета получаются
+ * в натуральную величину, а не в ладонь и не в дверь.
+ */
+const FLOOR_TEXTURE_TILES = 2;
+
+/** Пол одной комнаты — цветом из палитры. */
+function PlainFloor({ floor, palette }: { floor: Floor3; palette: Palette }) {
+  return (
+    <mesh position={centerOf(floor)} receiveShadow>
+      <boxGeometry args={sizeOf(floor)} />
+      <meshLambertMaterial color={palette.floor[floor.material] ?? palette.ground} />
+    </mesh>
+  );
+}
+
+/**
+ * Пол одной комнаты — текстурой.
+ *
+ * Повтор и сдвиг считаются от координат комнаты в мире, а не от её угла:
+ * тогда у двух соседних комнат с одним материалом узор продолжается через
+ * порог, а не начинается заново со швом. У верхней грани коробки `u` идёт
+ * вдоль X, `v` — вдоль Z, поэтому сдвиг — это просто угол комнаты в тайлах,
+ * делённый на размер картинки.
+ *
+ * Текстура клонируется на комнату: повтор и сдвиг живут в самой текстуре,
+ * а картинка у клонов общая, так что памяти это не стоит.
+ */
+function TexturedFloor({ floor, url, palette }: { floor: Floor3; url: string; palette: Palette }) {
+  const base = useLoader(THREE.TextureLoader, url) as THREE.Texture;
+  const map = useMemo(() => {
+    const tex = base.clone();
+    tex.colorSpace = THREE.SRGBColorSpace;
+    tex.wrapS = THREE.RepeatWrapping;
+    tex.wrapT = THREE.RepeatWrapping;
+    tex.repeat.set(floor.w / FLOOR_TEXTURE_TILES, floor.d / FLOOR_TEXTURE_TILES);
+    tex.offset.set(
+      (floor.cx - floor.w / 2) / FLOOR_TEXTURE_TILES,
+      (floor.cy - floor.d / 2) / FLOOR_TEXTURE_TILES,
+    );
+    tex.needsUpdate = true;
+    return tex;
+  }, [base, floor.w, floor.d, floor.cx, floor.cy]);
+  useEffect(() => () => map.dispose(), [map]);
+  return (
+    <mesh position={centerOf(floor)} receiveShadow>
+      <boxGeometry args={sizeOf(floor)} />
+      <meshLambertMaterial map={map} color={palette.floorTint} />
+    </mesh>
+  );
+}
+
+/**
+ * Пол комнат и общая плита под всей раскладкой — иначе под стенами дыра.
+ *
+ * Пока текстура едет, комната стоит на цветном полу — том же, что и без
+ * текстуры: лучше секунду видеть ровный цвет, чем дыру до плиты.
+ */
 function Floors({ scene, palette }: { scene: Scene3; palette: Palette }) {
   const [w, d] = scene.size;
   return (
@@ -161,12 +374,14 @@ function Floors({ scene, palette }: { scene: Scene3; palette: Palette }) {
         <boxGeometry args={[w, 0.5, d]} />
         <meshLambertMaterial color={palette.ground} />
       </mesh>
-      {scene.floors.map((f) => (
-        <mesh key={f.id} position={centerOf(f)} receiveShadow>
-          <boxGeometry args={sizeOf(f)} />
-          <meshLambertMaterial color={palette.floor[f.material]} />
-        </mesh>
-      ))}
+      {scene.floors.map((f) => {
+        const url = FLOOR_TEXTURE_URLS[f.material];
+        return url ? (
+          <Suspense key={f.id} fallback={<PlainFloor floor={f} palette={palette} />}>
+            <TexturedFloor floor={f} url={url} palette={palette} />
+          </Suspense>
+        ) : <PlainFloor key={f.id} floor={f} palette={palette} />;
+      })}
     </>
   );
 }
@@ -331,9 +546,7 @@ export function Office3D({ onOpen, onDoor, active }: {
             <FloorGrid scene={scene} palette={palette} bright={graphics.dev} />
           )}
           {graphics.dev && <DevOverlay layout={layout} palette={palette} />}
-          {scene.walls.map((wall, i) => (
-            <WallSegment key={i} wall={wall} offset={offset} palette={palette} />
-          ))}
+          <Walls scene={scene} offset={offset} palette={palette} />
         </group>
         {/* Мебель ждёт своих моделей одним общим `Suspense`: пока набор не
             приехал, комната стоит пустой, но стены и пол уже нарисованы. */}

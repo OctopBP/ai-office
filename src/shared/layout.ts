@@ -113,7 +113,14 @@ export interface LayoutZone {
 export interface LayoutRoom {
   id: string;
   rect: [number, number, number, number];
-  floor: 'parquet' | 'carpet' | 'tile';
+  /**
+   * Материал пола. Три нарисованных — `parquet`, `carpet`, `tile` — есть и в
+   * плоском арте (по четыре спрайта на каждый, §6.1), и в палитре 3D. Любое
+   * другое имя — текстура из `design/textures/floor/<имя>.jpg`: 3D кладёт
+   * её на комнату, плоский вид такого материала не знает и оставляет клетки
+   * пустыми.
+   */
+  floor: 'parquet' | 'carpet' | 'tile' | (string & {});
   /**
    * Как комната называется для человека: подпись чипа, которым камера
    * наводится на неё (`office3d/Camera3D.tsx`). Необязательное — без него

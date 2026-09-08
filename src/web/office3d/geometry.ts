@@ -61,6 +61,13 @@ export const FLOOR_THICK = 0.12;
 export interface Box3 {
   /** «стекло» — заполнение оконного проёма: прозрачное и тени не бросает */
   glass?: true;
+  /**
+   * У коробки стены: смотрит ли каждая из двух её боковых граней в комнату.
+   * `pos` — грань по положительной оси поперёк стены (+Y плана у
+   * горизонтальной, +X у вертикальной), `neg` — противоположная. Грань, за
+   * которой нет комнаты, — наружная: у неё своя текстура (`Office3D.tsx`).
+   */
+  sides?: { pos: boolean; neg: boolean };
   /** центр коробки в плане, тайлы */
   cx: number;
   cy: number;
@@ -182,8 +189,26 @@ function wallBodyCells(layout: Layout): Set<string> {
   return body;
 }
 
+/**
+ * Куда смотрят бока коробки стены. Клетка стены лежит внутри комнаты, на её
+ * крайнем ряду, поэтому смотрят на соседнюю клетку поперёк стены: есть там
+ * комната — грань внутренняя, нет — наружная. Считается по всем клеткам
+ * коробки разом: если хоть за одной комната есть, вся грань внутренняя, —
+ * коробка одна, и текстуру ей не разрезать.
+ */
+function sidesOf(
+  cells: [number, number][], horizontal: boolean, rooms: LayoutRoom[],
+): { pos: boolean; neg: boolean } {
+  const inRoom = (x: number, y: number) => rooms.some(({ rect: [x0, y0, x1, y1] }) =>
+    x >= x0 && x < x1 && y >= y0 && y < y1);
+  const across = (dir: number) => cells.some(([x, y]) =>
+    horizontal ? inRoom(x, y + dir) : inRoom(x + dir, y));
+  return { pos: across(1), neg: across(-1) };
+}
+
 /** Геометрия сцены из раскладки. Чистая функция: те же данные — та же сцена. */
 export function scene3(layout: Layout): Scene3 {
+  const rooms = layout.rooms ?? [];
   const floors: Floor3[] = (layout.rooms ?? []).map((room) => {
     const [x0, y0, x1, y1] = room.rect;
     return {
@@ -232,12 +257,13 @@ export function scene3(layout: Layout): Scene3 {
         const extLast = ext(j);
         const extLo = dir > 0 ? extFirst : extLast;
         const extHi = dir > 0 ? extLast : extFirst;
+        const sides = sidesOf(cells, horizontal, rooms);
         if (kind === 'solid') {
-          boxes.push(runBox(cells, horizontal, 0, WALL_H, extLo, extHi));
+          boxes.push({ ...runBox(cells, horizontal, 0, WALL_H, extLo, extHi), sides });
         } else {
-          boxes.push(runBox(cells, horizontal, 0, WINDOW_SILL, extLo, extHi));
-          boxes.push(runBox(
-            cells, horizontal, WINDOW_HEAD, WALL_H - WINDOW_HEAD, extLo, extHi));
+          boxes.push({ ...runBox(cells, horizontal, 0, WINDOW_SILL, extLo, extHi), sides });
+          boxes.push({ ...runBox(
+            cells, horizontal, WINDOW_HEAD, WALL_H - WINDOW_HEAD, extLo, extHi), sides });
           // Стекло тоньше стены, чтобы не спорить с ней за пиксели на стыке.
           const glass = runBox(
             cells, horizontal, WINDOW_SILL, WINDOW_HEAD - WINDOW_SILL, extLo, extHi);

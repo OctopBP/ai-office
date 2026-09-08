@@ -19,8 +19,15 @@ export interface Palette {
   backdrop: string;
   /** плита под всей раскладкой — то, на чём стоят стены */
   ground: string;
-  /** материалы пола комнат */
-  floor: Record<Floor3['material'], string>;
+  /** материалы пола комнат — цвет, когда текстуры материала нет; материал
+   *  не из этого списка без текстуры рисуется цветом плиты `ground` */
+  floor: Partial<Record<Floor3['material'], string>>;
+  /**
+   * Тон текстуры пола: ею умножается картинка из `design/textures/floor`.
+   * Днём — белый, картинка как есть; ночью — серый, чтобы пол гас вместе
+   * с остальной палитрой, а не светился дневным деревом в тёмной комнате.
+   */
+  floorTint: string;
   /** линии сетки тайлов по полу; вторая — каждая пятая линия */
   grid: string;
   gridMajor: string;
@@ -33,9 +40,11 @@ export interface Palette {
    * оверлей читался поверх любой комнаты и не путался с мебелью.
    */
   dev: { grid: string; blocked: string; route: string; target: string };
-  /** стена и её торец сверху */
+  /** стена и её торец сверху — цвет, когда текстуры нет */
   wall: string;
   wallTop: string;
+  /** тон текстур стен из `design/textures/wall`, как `floorTint` у пола */
+  wallTint: string;
   /** заливка оконного проёма (тонкое «стекло» в дырке) */
   glass: string;
   glassOpacity: number;
@@ -123,11 +132,13 @@ export const PALETTES: Record<Theme, Palette> = {
       carpet: '#9aa8bb',
       tile: '#dfe4ea',
     },
+    floorTint: '#ffffff',
     grid: '#8b8f98',
     gridMajor: '#4d525c',
     dev: { grid: '#1b5cff', blocked: '#e0443a', route: '#0f9b8e', target: '#e0443a' },
     wall: '#f0f2f5',
     wallTop: '#dcdfe6',
+    wallTint: '#ffffff',
     glass: '#bcd8e8',
     glassOpacity: 0.25,
     prop: {
@@ -165,11 +176,13 @@ export const PALETTES: Record<Theme, Palette> = {
       carpet: '#4e5a73',
       tile: '#59626f',
     },
+    floorTint: '#8a8f9a',
     grid: '#8d97a8',
     gridMajor: '#c6d0e0',
     dev: { grid: '#6aa8ff', blocked: '#ff6b5e', route: '#3fd6c6', target: '#ff6b5e' },
     wall: '#4a5464',
     wallTop: '#39424f',
+    wallTint: '#8a8f9a',
     glass: '#1a2634',
     glassOpacity: 0.45,
     prop: {
