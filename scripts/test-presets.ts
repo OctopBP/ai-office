@@ -136,10 +136,11 @@ if (bad) failed += bad;
 console.log(`${bad === 0 ? '  ok  ' : '  FAIL'} разбор ${dirs.length} пресетов с диска`);
 
 // Выборка компонентов: одиночный отдаёт один, повторяемый — все, в порядке
-// объявления. Порядок важен: у дивана два места, и они не взаимозаменяемы.
+// объявления. Порядок важен: у дивана три места (диван трёхместный), и они
+// не взаимозаменяемы — у каждой подушки своя поправка посадки.
 const sofa = parsePreset(JSON.parse(fs.readFileSync(path.join(DIR, 'sofa/preset.json'), 'utf8'))).preset;
 const seats = componentsOf(sofa, 'seat');
-const pickOk = seats.length === 2 && seats[0].at?.[0] === 0.8 && componentOf(sofa, 'surface') === undefined;
+const pickOk = seats.length === 3 && seats[0].at?.[0] === 0.2 && componentOf(sofa, 'surface') === undefined;
 if (!pickOk) failed += 1;
 console.log(`${pickOk ? '  ok  ' : '  FAIL'} выборка компонентов у дивана: мест ${seats.length}`);
 
