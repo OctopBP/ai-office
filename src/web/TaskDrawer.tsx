@@ -181,6 +181,45 @@ export function TaskDrawer() {
         </section>
       )}
 
+      {pr?.gate && (
+        <section>
+          <h3 className="section-title">{t('taskCard.gate')}</h3>
+          <div className={`gate-report ${pr.gate.ok ? 'ok' : 'bad'}`}>
+            <p className="gate-message">{pr.gate.message}</p>
+            {pr.gate.checks.length > 0 && (
+              <div className="gate-checks">
+                {pr.gate.checks.map((c) => (
+                  <span key={c.command} className={`chip gate-chip ${c.ok ? 'ok' : 'bad'}`}>
+                    {c.ok ? '✓' : '✗'} {c.command}
+                  </span>
+                ))}
+              </div>
+            )}
+            {pr.gate.failed && (
+              <details className="gate-failed">
+                <summary>{t('taskCard.gateOutput')}</summary>
+                {pr.gate.failed.files.length > 0 && (
+                  <p className="mono small muted">{pr.gate.failed.files.join(', ')}</p>
+                )}
+                <pre>{pr.gate.failed.output}</pre>
+              </details>
+            )}
+            {pr.gate.overlaps.length > 0 && (
+              <div className="gate-overlaps">
+                <p className="muted small">{t('taskCard.gateOverlaps')}</p>
+                <ul>
+                  {pr.gate.overlaps.map((o) => (
+                    <li key={o.file} className="mono small">
+                      {o.file}{o.symbols.length > 0 ? ` (${o.symbols.join(', ')})` : ''}
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
+          </div>
+        </section>
+      )}
+
       {task.files.length > 0 && (
         <section>
           <h3 className="section-title">{t('taskCard.files')}</h3>

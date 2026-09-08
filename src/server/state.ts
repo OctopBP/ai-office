@@ -1380,6 +1380,7 @@ export class OfficeState {
         retries: pr.retries ?? 0,
         nextTryAt: pr.nextTryAt ?? null,
         needsDecision: pr.needsDecision ?? false,
+        gate: pr.gate ?? null,
       };
       this.prs.set(pr.taskId, alive.includes(pr.stage) ? known : {
         ...known,
@@ -3106,6 +3107,7 @@ export class OfficeState {
       reviews: [],
       createdAt: now,
       updatedAt: now,
+      gate: null,
     };
     // Повторный заход (перезапуск конвейера) не заводит второй PR, но
     // возвращает его к началу: ветка снова расходится с базой.

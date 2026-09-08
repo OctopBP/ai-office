@@ -44,7 +44,7 @@ import {
 } from './git';
 import { integrationDir, runProjectCheck, runTypecheck } from './merge';
 import { formatOverlaps, type DuplicateEdit } from './overlap';
-import { mergeChecks, preMergeGate, type PreMergeReport } from './premerge';
+import { mergeChecks, preMergeGate, toGateView, type PreMergeReport } from './premerge';
 import { mergedKind, recordOutcome } from './outcomes';
 import { githubToken } from './cloud';
 import { commentOnPr, createPullRequest, githubFor, mergePullRequest } from './github';
@@ -635,6 +635,9 @@ const merge: Executor<Ctx> = {
           repoDir: repo, branch, base, integrationDir: integrationDir(state),
           lang: state.lang(), checks, allowDirty: true, merge: false,
         });
+        // Виден в карточке задачи независимо от исхода — гейт мог остановить
+        // конвейер следующей строкой, а его вывод должен остаться на виду.
+        state.patchPr(task.id, { gate: toGateView(gate) });
         if (gate.stage === 'checks') return stopOnRedGate(ctx, gate);
         if (gate.stage === 'conflict') return retryAfterGate(ctx, gate);
         overlaps = gate.overlaps;
@@ -666,6 +669,7 @@ const merge: Executor<Ctx> = {
         state.addLog(null, gate.ok ? 'system' : 'error',
           `premerge ${branch} → ${base}: ${gate.stage},`
           + ` checks ${gate.checks.length}, gate ${gate.gateMs} ms`);
+        state.patchPr(task.id, { gate: toGateView(gate) });
 
         if (gate.stage === 'checks') return stopOnRedGate(ctx, gate);
         if (gate.stage === 'conflict') return retryAfterGate(ctx, gate);

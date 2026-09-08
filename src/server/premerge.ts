@@ -19,6 +19,7 @@
 import { createHash } from 'node:crypto';
 import { tmpdir } from 'node:os';
 import { basename, resolve } from 'node:path';
+import type { GateReportView } from '../shared/types';
 import { asLang, type Lang } from '../shared/i18n';
 import { t } from './i18n';
 import {
@@ -300,6 +301,26 @@ export async function preMergeGate(options: PreMergeOptions): Promise<PreMergeRe
     }
     report.totalMs = Date.now() - started;
   }
+}
+
+/**
+ * Отчёт гейта для карточки задачи (T-144): зелёно/красно, какая проверка
+ * упала и с каким выводом, файлы-дубли. Кладётся на пулл-реквест сразу же,
+ * как гейт прогнан, — независимо от того, чем он кончился: конвейер может
+ * встать следующим шагом, а карточка должна показывать, что видел гейт.
+ */
+export function toGateView(report: PreMergeReport): GateReportView {
+  return {
+    ok: report.ok,
+    message: report.message,
+    checks: report.checks.map((c) => ({ command: c.command, ok: c.ok, durationMs: c.durationMs })),
+    failed: report.failed
+      ? { command: report.failed.command, output: report.failed.output, files: report.failed.files }
+      : null,
+    overlaps: report.overlaps.map((o) => ({ file: o.file, symbols: o.symbols })),
+    gateMs: report.gateMs,
+    checkedAt: Date.now(),
+  };
 }
 
 /** Отчёт словами: то, что печатает консольный скрипт и кладёт в ленту офис. */
