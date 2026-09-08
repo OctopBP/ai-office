@@ -202,7 +202,13 @@ function boxOf(
   return null;
 }
 
-function Rig({ layout, size }: { layout: Layout; size: [number, number] }) {
+function Rig({ layout, size, active }: {
+  layout: Layout; size: [number, number];
+  /** Вид «Офис» сейчас показан. Клавиши камеры (WASD, Shift+цифра) не
+   *  должны перехватывать нажатия, пока пользователь смотрит доску или чат:
+   *  слушатель висит на `window` и не выключается сам вместе с холстом. */
+  active: boolean;
+}) {
   const camera = useThree((s) => s.camera) as THREE.PerspectiveCamera;
   const controls = useThree((s) => s.controls) as unknown as Orbit | null;
   const gl = useThree((s) => s.gl);
@@ -328,6 +334,7 @@ function Rig({ layout, size }: { layout: Layout; size: [number, number] }) {
   // (`App.tsx`), поэтому Shift.
   useEffect(() => {
     const down = (e: KeyboardEvent) => {
+      if (!active) return;
       const tag = (e.target as HTMLElement)?.tagName;
       if (tag === 'INPUT' || tag === 'TEXTAREA') return;
       if (e.shiftKey && /^Digit[0-9]$/.test(e.code)) {
@@ -357,7 +364,7 @@ function Rig({ layout, size }: { layout: Layout; size: [number, number] }) {
       window.removeEventListener('keyup', up);
       window.removeEventListener('blur', blur);
     };
-  }, [rooms, setFocus]);
+  }, [rooms, setFocus, active]);
 
   useFrame((_, delta) => {
     if (!controls) return;
@@ -422,7 +429,9 @@ function Rig({ layout, size }: { layout: Layout; size: [number, number] }) {
 }
 
 /** Камера сцены целиком: облёт с пределами и риг, который им управляет. */
-export function Camera3D({ layout, size }: { layout: Layout; size: [number, number] }) {
+export function Camera3D({ layout, size, active }: {
+  layout: Layout; size: [number, number]; active: boolean;
+}) {
   return (
     <>
       <OrbitControls
@@ -437,7 +446,7 @@ export function Camera3D({ layout, size }: { layout: Layout; size: [number, numb
         maxDistance={MAX_DIST}
         dampingFactor={0.12}
       />
-      <Rig layout={layout} size={size} />
+      <Rig layout={layout} size={size} active={active} />
     </>
   );
 }
