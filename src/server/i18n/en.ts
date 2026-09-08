@@ -183,6 +183,7 @@ export const en = {
   'git.baseMergedIn': 'Branch {base} merged into the task branch.',
   'git.baseMergeFailed': 'Could not merge {base} into the task branch: {error}',
   'git.conflictFiles': 'Conflict with {base} in: {files}',
+  'git.mergeAssembled': 'Merge of {branch} into {base} assembled in the office working copy.',
   'git.noOrigin': 'The repository has no origin — there is nowhere to push the branch.',
 
   // ------------------------------------------------------- очередь слияния
@@ -216,6 +217,33 @@ export const en = {
   'merge.summaryWhyConflict': ': conflict during the merge.',
   'merge.summaryRest': ' Did not reach: {tasks}.',
   'merge.summaryTail': '{head} {where}{why}{rest} Tasks already merged were not rolled back.',
+
+  // ------------------------------------------------------- pre-merge gate
+  'premerge.dirty': 'The working copy of {branch} is not clean: {files}. Nothing was merged — commit the changes, stash them, or run the gate with --stash.',
+  'premerge.stashFailed': 'Could not stash the working copy changes ({files}) — nothing was merged.',
+  'premerge.stashPopFailed': 'The stashed changes did not come back: {error} They are safe — restore them yourself with git stash pop.',
+  'premerge.conflict': 'A trial merge of {branch} into {base} conflicts: {files}. Nothing was merged, {base} is untouched.',
+  'premerge.assembleFailed': 'The trial merge could not be assembled: {error}',
+  'premerge.nothing': 'Branch {branch} has no commits beyond {base} — nothing to merge.',
+  'premerge.checkFailed': 'On the merged tree the check «{command}» fails{files}. Nothing was merged, {base} stays green.',
+  'premerge.checkFiles': ' (files: {files})',
+  'premerge.checked': 'The merge of {branch} into {base} is green: {n} check(s) on the merged tree, {time}. Nothing was merged — checks only.',
+  'premerge.merged': 'Branch {branch} merged into {base}. The gate took {gate}.',
+  'premerge.mergeFailed': 'The gate is green, but the merge did not go through: {message}',
+  'premerge.ms': '{n} ms',
+  'premerge.sec': '{n} s',
+  'premerge.reportBranch': 'Branch {branch} → {base}',
+  'premerge.reportDirty': 'Uncommitted changes in the working copy: {files}',
+  'premerge.reportStashed': 'Working copy changes were stashed and restored: {files}',
+  'premerge.reportConflicts': 'Conflicting files: {files}',
+  'premerge.reportFiles': 'Files with errors: {files}',
+  'premerge.reportOutput': 'Check output:',
+  'premerge.reportTime': 'Gate {gate}, step in total {total}.',
+  'premerge.cliUsage': 'Usage: npm run premerge -- --branch <branch> [--base main] [--repo <dir>] [--stash] [--check-only] [--check "<command>"]…',
+  'premerge.cliNoBranch': 'No branch given: --branch <branch> is required.',
+  'premerge.cliNoRepo': 'Not a git repository: {dir}',
+  'premerge.cliNoBase': 'Could not work out the base branch — pass it explicitly with --base.',
+  'premerge.cliCrashed': 'The gate crashed: {error}',
 
   // ------------------------------------------------------------------ надзор
   'sup.retryNote': '{note}\nThe office is trying again by itself (attempt {n} of {max}).',

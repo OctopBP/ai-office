@@ -1,7 +1,7 @@
 import { execFile } from 'node:child_process';
-import { join, resolve } from 'node:path';
+import { dirname, join, resolve } from 'node:path';
 import { tmpdir } from 'node:os';
-import { existsSync, statSync, symlinkSync } from 'node:fs';
+import { existsSync, mkdirSync, statSync, symlinkSync } from 'node:fs';
 import { mkdtemp, rm } from 'node:fs/promises';
 import type { Lang } from '../shared/i18n';
 import { t } from './i18n';
@@ -211,6 +211,13 @@ async function integrationWorktree(
     await rm(dir, { recursive: true, force: true });
   }
   await git(repoDir, ['worktree', 'prune']);
+  // Копия офиса может лежать где угодно, в том числе во временном каталоге:
+  // родительской директории может просто не быть, а git её не создаёт.
+  try {
+    mkdirSync(dirname(dir), { recursive: true });
+  } catch {
+    return null;
+  }
   const added = await git(repoDir, ['worktree', 'add', '--detach', dir, base]);
   if (!added.ok) return null;
   await linkNodeModules(repoDir, dir);
@@ -283,6 +290,74 @@ async function advanceBase(
   };
 }
 
+export interface AssembledMerge {
+  /** 'nothing' — в ветке нет коммитов сверх базовой; 'failed' — слить не вышло вовсе. */
+  kind: 'merged' | 'conflict' | 'nothing' | 'failed';
+  message: string;
+  conflicts: string[];
+  /** Рабочая копия офиса с собранным слиянием: там гоняются проверки. */
+  worktree: string | null;
+  /** Коммит собранного слияния и коммит базы, от которого его собирали. */
+  sha: string | null;
+  baseSha: string | null;
+}
+
+/**
+ * Собрать слияние ветки с базой в рабочей копии офиса — и остановиться на этом.
+ * Базовая ветка не двигается: результат живёт только в копии офиса, и по нему
+ * можно гонять проверки. Это «пробное слияние» пред-merge гейта и первая
+ * половина настоящего слияния (`mergeBranch`).
+ */
+export async function assembleMerge(
+  repoDir: string, branch: string, base: string, integrationDir: string, lang: Lang,
+): Promise<AssembledMerge> {
+  const stop = (message: string, kind: AssembledMerge['kind']): AssembledMerge => ({
+    kind, message, conflicts: [], worktree: null, sha: null, baseSha: null,
+  });
+
+  const baseSha = await revision(repoDir, base);
+  if (!baseSha) return stop(t(lang, 'git.noBase', { base }), 'failed');
+  if (!(await revision(repoDir, branch))) {
+    return stop(t(lang, 'git.noBranch', { branch }), 'failed');
+  }
+
+  const ahead = await git(repoDir, ['rev-list', '--count', `${base}..${branch}`]);
+  if (ahead.ok && ahead.stdout === '0') {
+    return stop(t(lang, 'git.nothingToMerge'), 'nothing');
+  }
+
+  const worktree = await integrationWorktree(repoDir, integrationDir, base);
+  if (!worktree) return stop(t(lang, 'git.noIntegrationCopy'), 'failed');
+
+  const merge = await git(worktree, [
+    '-c', 'user.name=AI Office', '-c', 'user.email=office@local',
+    'merge', '--no-ff', '--no-edit', branch,
+  ]);
+  if (!merge.ok) {
+    const conflicted = await git(worktree, ['diff', '--name-only', '--diff-filter=U']);
+    const files = splitLines(conflicted.stdout);
+    await git(worktree, ['merge', '--abort']);
+    return {
+      kind: 'conflict', worktree, conflicts: files, sha: null, baseSha,
+      message: files.length
+        ? t(lang, 'git.mergeConflict', { files: files.join(', ') })
+        : t(lang, 'git.mergeFailed', { error: merge.stderr || merge.stdout }),
+    };
+  }
+
+  const sha = await revision(worktree, 'HEAD');
+  if (!sha) return stop(t(lang, 'git.noMergeCommit'), 'failed');
+  return {
+    kind: 'merged', worktree, conflicts: [], sha, baseSha,
+    message: t(lang, 'git.mergeAssembled', { branch, base }),
+  };
+}
+
+/** Убрать собранное слияние из копии офиса: она возвращается к базовой ветке. */
+export async function dropAssembled(worktree: string, base: string): Promise<void> {
+  await git(worktree, ['reset', '--hard', base]);
+}
+
 /**
  * Влить ветку задачи в базовую. Слияние собирается в рабочей копии офиса, а
  * базовая ветка сдвигается атомарно: `update-ref` со старым значением не даст
@@ -301,45 +376,24 @@ export async function mergeBranch(
     checkout: { state: 'not-here', files: [], message: '' },
   });
 
-  const baseSha = await revision(repoDir, base);
-  if (!baseSha) return nothingToDo(t(lang, 'git.noBase', { base }), 'failed');
-  if (!(await revision(repoDir, branch))) {
-    return nothingToDo(t(lang, 'git.noBranch', { branch }), 'failed');
-  }
-
-  const ahead = await git(repoDir, ['rev-list', '--count', `${base}..${branch}`]);
-  if (ahead.ok && ahead.stdout === '0') {
-    return nothingToDo(t(lang, 'git.nothingToMerge'));
-  }
-
-  const worktree = await integrationWorktree(repoDir, integrationDir, base);
-  if (!worktree) {
-    return nothingToDo(t(lang, 'git.noIntegrationCopy'), 'failed');
-  }
-
-  const merge = await git(worktree, [
-    '-c', 'user.name=AI Office', '-c', 'user.email=office@local',
-    'merge', '--no-ff', '--no-edit', branch,
-  ]);
-  if (!merge.ok) {
-    const conflicted = await git(worktree, ['diff', '--name-only', '--diff-filter=U']);
-    const files = splitLines(conflicted.stdout);
-    await git(worktree, ['merge', '--abort']);
+  const built = await assembleMerge(repoDir, branch, base, integrationDir, lang);
+  if (built.kind === 'conflict') {
     return {
-      ok: false, kind: 'conflict', worktree,
-      message: files.length
-        ? t(lang, 'git.mergeConflict', { files: files.join(', ') })
-        : t(lang, 'git.mergeFailed', { error: merge.stderr || merge.stdout }),
-      conflicts: files,
+      ok: false, kind: 'conflict', worktree: built.worktree,
+      message: built.message, conflicts: built.conflicts,
       checkout: { state: 'not-here', files: [], message: '' },
     };
   }
+  if (built.kind !== 'merged') return nothingToDo(built.message, built.kind);
+  const worktree = built.worktree as string;
+  const baseSha = built.baseSha as string;
+  const newSha = built.sha as string;
 
   if (verify) {
     const checked = await verify(worktree);
     if (!checked.ok) {
       // Базовую ветку не двигаем вовсе: она остаётся ровно такой, какой была.
-      await git(worktree, ['reset', '--hard', base]);
+      await dropAssembled(worktree, base);
       return {
         ok: false, kind: 'verify-failed', worktree, conflicts: [],
         message: checked.message,
@@ -347,9 +401,6 @@ export async function mergeBranch(
       };
     }
   }
-
-  const newSha = await revision(worktree, 'HEAD');
-  if (!newSha) return nothingToDo(t(lang, 'git.noMergeCommit'), 'failed');
 
   // Пересечение «что меняет слияние» и «что человек правит прямо сейчас»
   // считаем ДО сдвига ветки: после него HEAD уже новый и сравнивать не с чем.
@@ -553,6 +604,49 @@ export async function fetchBranch(dir: string, branch: string): Promise<boolean>
 export async function isDirty(dir: string): Promise<boolean> {
   const r = await git(dir, ['status', '--porcelain']);
   return r.ok && r.stdout !== '';
+}
+
+/**
+ * Какие именно файлы правлены, но не закоммичены, — вместе с новыми.
+ * Имя достаём регулярным выражением, а не по колонкам: вывод git приходит
+ * сюда уже подрезанным по краям, и у первой строки ведущий пробел состояния
+ * (` M файл`) теряется — разбор по позиции символа съел бы первую букву имени.
+ */
+export async function dirtyFiles(dir: string): Promise<string[]> {
+  const r = await git(dir, ['-c', 'core.quotepath=false', 'status', '--porcelain']);
+  if (!r.ok || !r.stdout) return [];
+  const files: string[] = [];
+  for (const raw of r.stdout.split('\n')) {
+    const m = /^(\S{1,2})\s+(.+)$/.exec(raw.trim());
+    if (!m) continue;
+    // Переименование приходит как «старое -> новое»: интересно новое имя.
+    const parts = m[2].split(' -> ');
+    const name = (parts[1] ?? parts[0]).trim().replace(/^"(.*)"$/, '$1');
+    if (name && !files.includes(name)) files.push(name);
+  }
+  return files;
+}
+
+/**
+ * Убрать правки рабочей копии в stash — вместе с неотслеживаемыми файлами.
+ * Личность коммитера передаём флагами: stash делает настоящий коммит, а в
+ * чужом репозитории git может быть не настроен, и он бы просто отказал.
+ */
+export async function stashPush(dir: string, message: string): Promise<boolean> {
+  const r = await git(dir, [
+    '-c', 'user.name=AI Office', '-c', 'user.email=office@local',
+    'stash', 'push', '--include-untracked', '-m', message,
+  ]);
+  return r.ok && !/no local changes/i.test(r.stdout);
+}
+
+/** Вернуть последний stash в рабочую копию. */
+export async function stashPop(dir: string): Promise<{ ok: boolean; message: string }> {
+  const r = await git(dir, [
+    '-c', 'user.name=AI Office', '-c', 'user.email=office@local',
+    'stash', 'pop',
+  ]);
+  return { ok: r.ok, message: r.ok ? r.stdout : (r.stderr || r.stdout) };
 }
 
 /**
