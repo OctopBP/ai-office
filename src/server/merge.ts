@@ -1,6 +1,3 @@
-import { execFile } from 'node:child_process';
-import { promisify } from 'node:util';
-import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import type { MergeCheck, MergeRun, MergeStep, TypecheckResult } from '../shared/types';
 import { OFFICE_SENDER } from '../shared/types';
@@ -9,8 +6,11 @@ import { t } from './i18n';
 import { taskRepo, worktreesRoot, type OfficeState, type Task } from './state';
 import { dispatch } from './plan';
 import { checkMergeable, mergeBranch, removeWorktree } from './git';
+import { runTypecheck } from './checks';
 
-const run = promisify(execFile);
+// Прогон проверок живёт в отдельном модуле (им пользуется и пред-merge гейт),
+// но импорты `from './merge'` в конвейере ревью и ритуалах остаются рабочими.
+export { runProjectCheck, runTypecheck } from './checks';
 
 /**
  * Ручная очередь слияния — аварийный путь. В обычном порядке ветку задачи
@@ -77,97 +77,6 @@ export async function refreshMergeChecks(state: OfficeState): Promise<MergeCheck
     return [...state.mergeChecks.values()];
   } finally {
     checking.delete(state.officeId);
-  }
-}
-
-/** Сколько ждём проверку сборки, прежде чем считать её зависшей. */
-const TYPECHECK_TIMEOUT_MS = 5 * 60 * 1000;
-/** Хвост вывода: в интерфейс уходит конец лога, где и лежат ошибки. */
-const OUTPUT_LIMIT = 4000;
-
-const tail = (s: string, lang: Lang): string => (s.length > OUTPUT_LIMIT
-  ? `${t(lang, 'merge.outputClipped')}\n${s.slice(-OUTPUT_LIMIT)}`
-  : s);
-
-/**
- * Своя проверка проекта (spec процессов §8.2): команда оболочки в рабочей
- * копии задачи. Тот же лимит и тот же хвост вывода, что у проверки сборки.
- */
-export async function runProjectCheck(
-  cwd: string, command: string, lang: Lang,
-): Promise<{ ok: boolean; output: string; message: string; durationMs: number }> {
-  const started = Date.now();
-  try {
-    const { stdout, stderr } = await run('/bin/sh', ['-lc', command], {
-      cwd, timeout: TYPECHECK_TIMEOUT_MS, maxBuffer: 10 * 1024 * 1024,
-      env: { ...process.env, FORCE_COLOR: '0' },
-    });
-    const output = tail(`${stdout}${stderr}`.trim(), lang);
-    return { ok: true, output, message: output, durationMs: Date.now() - started };
-  } catch (err) {
-    const e = err as { stdout?: string; stderr?: string; message?: string };
-    const output = tail(`${e.stdout ?? ''}${e.stderr ?? ''}`.trim() || (e.message ?? ''), lang);
-    return { ok: false, output, message: output, durationMs: Date.now() - started };
-  }
-}
-
-/** Есть ли в package.json репозитория такой npm-скрипт. */
-function hasScript(repoDir: string, name: string): boolean {
-  try {
-    const pkg = JSON.parse(readFileSync(resolve(repoDir, 'package.json'), 'utf8')) as {
-      scripts?: Record<string, string>;
-    };
-    return Boolean(pkg.scripts?.[name]);
-  } catch {
-    return false;
-  }
-}
-
-/**
- * Прогнать проверку сборки в основной ветке репозитория. Запускается после
- * каждого успешного слияния: две ветки по отдельности собираются, а вместе
- * могут и не собраться — узнать об этом лучше сразу, а не через три слияния.
- */
-export async function runTypecheck(repoDir: string, lang: Lang): Promise<TypecheckResult> {
-  const started = Date.now();
-  if (!hasScript(repoDir, 'typecheck')) {
-    return {
-      ok: true, skipped: true, output: '', durationMs: 0,
-      message: t(lang, 'merge.noTypecheck'),
-    };
-  }
-  try {
-    const { stdout, stderr } = await run('npm', ['run', '--silent', 'typecheck'], {
-      cwd: repoDir,
-      timeout: TYPECHECK_TIMEOUT_MS,
-      maxBuffer: 10 * 1024 * 1024,
-      env: { ...process.env, FORCE_COLOR: '0' },
-    });
-    return {
-      ok: true, skipped: false, output: tail(`${stdout}${stderr}`.trim(), lang),
-      message: t(lang, 'merge.typecheckOk'),
-      durationMs: Date.now() - started,
-    };
-  } catch (err) {
-    const e = err as { stdout?: string; stderr?: string; message?: string; code?: string | number; killed?: boolean };
-    const output = tail(`${e.stdout ?? ''}${e.stderr ?? ''}`.trim() || (e.message ?? ''), lang);
-    // npm вообще не запустился — это не провал сборки, а отсутствие инструмента.
-    if (e.code === 'ENOENT') {
-      return {
-        ok: true, skipped: true, output, durationMs: Date.now() - started,
-        message: t(lang, 'merge.noNpm'),
-      };
-    }
-    if (e.killed) {
-      return {
-        ok: false, skipped: false, output, durationMs: Date.now() - started,
-        message: t(lang, 'merge.typecheckTimeout'),
-      };
-    }
-    return {
-      ok: false, skipped: false, output, durationMs: Date.now() - started,
-      message: t(lang, 'merge.typecheckFailed'),
-    };
   }
 }
 

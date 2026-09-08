@@ -182,6 +182,7 @@ export const ru: Record<keyof typeof en, string> = {
   'git.baseMergedIn': 'Ветка {base} влита в ветку задачи.',
   'git.baseMergeFailed': 'Не удалось влить {base} в ветку задачи: {error}',
   'git.conflictFiles': 'Конфликт с {base} в файлах: {files}',
+  'git.mergeAssembled': 'Слияние {branch} с {base} собрано в рабочей копии офиса.',
   'git.noOrigin': 'У репозитория нет origin — отправлять ветку некуда.',
 
   // ------------------------------------------------------- очередь слияния
@@ -215,6 +216,33 @@ export const ru: Record<keyof typeof en, string> = {
   'merge.summaryWhyConflict': ': конфликт при слиянии.',
   'merge.summaryRest': ' Не дошли до задач: {tasks}.',
   'merge.summaryTail': '{head} {where}{why}{rest} Уже слитые задачи не откатывались.',
+
+  // ------------------------------------------------------- пред-merge гейт
+  'premerge.dirty': 'Рабочая копия {branch} не чиста: {files}. Слияние не выполнено — закоммитьте правки, уберите их в stash или запустите гейт с --stash.',
+  'premerge.stashFailed': 'Не удалось убрать правки рабочей копии ({files}) в stash — слияние не выполнено.',
+  'premerge.stashPopFailed': 'Правки из stash не вернулись: {error} Они целы — верните их сами: git stash pop.',
+  'premerge.conflict': 'Пробное слияние {branch} в {base} даёт конфликт: {files}. Слияние не выполнено, {base} не тронута.',
+  'premerge.assembleFailed': 'Пробное слияние не собралось: {error}',
+  'premerge.nothing': 'В ветке {branch} нет коммитов сверх {base} — сливать нечего.',
+  'premerge.checkFailed': 'На слитом дереве падает проверка «{command}»{files}. Слияние не выполнено, {base} осталась зелёной.',
+  'premerge.checkFiles': ' (файлы: {files})',
+  'premerge.checked': 'Слияние {branch} с {base} зелёное: проверок на слитом дереве — {n}, заняли {time}. Слияние не выполнялось: только проверка.',
+  'premerge.merged': 'Ветка {branch} влита в {base}. Гейт занял {gate}.',
+  'premerge.mergeFailed': 'Гейт зелёный, но слияние не прошло: {message}',
+  'premerge.ms': '{n} мс',
+  'premerge.sec': '{n} с',
+  'premerge.reportBranch': 'Ветка {branch} → {base}',
+  'premerge.reportDirty': 'Незакоммиченные правки в рабочей копии: {files}',
+  'premerge.reportStashed': 'Правки рабочей копии убирались в stash и возвращены: {files}',
+  'premerge.reportConflicts': 'Конфликтные файлы: {files}',
+  'premerge.reportFiles': 'Файлы с ошибками: {files}',
+  'premerge.reportOutput': 'Вывод проверки:',
+  'premerge.reportTime': 'Гейт {gate}, шаг целиком {total}.',
+  'premerge.cliUsage': 'Запуск: npm run premerge -- --branch <ветка> [--base main] [--repo <директория>] [--stash] [--check-only] [--check "<команда>"]…',
+  'premerge.cliNoBranch': 'Не сказано, какую ветку сливать: нужен --branch <ветка>.',
+  'premerge.cliNoRepo': 'Это не репозиторий git: {dir}',
+  'premerge.cliNoBase': 'Не удалось понять базовую ветку — задайте её явно через --base.',
+  'premerge.cliCrashed': 'Гейт сорвался: {error}',
 
   // ------------------------------------------------------------------ надзор
   'sup.retryNote': '{note}\nОфис пробует снова сам (попытка {n} из {max}).',

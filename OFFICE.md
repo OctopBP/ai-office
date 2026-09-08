@@ -43,6 +43,7 @@ Node + TypeScript, React 19 + Zustand на фронте, `ws` для связи,
 | `src/server/initiatives.ts`, `src/server/selfchange.ts` | Инициативы: фича от офиса по режиму (`off`/`propose`/`auto`) и доле на своё; предложения владельцу и их применение (правило в бриф, настройка из белого списка) |
 | `src/server/market.ts` → `tellOutcome`, `src/registry/service.ts` → `/outcome` | Репутация пакета: исходы задач по согласию (галочка телеметрии) считаются сервисом в долю чистых закрытий и цену; видна на карточке маркета |
 | `src/server/git.ts` | Ветки, worktree, коммиты, слияние |
+| `src/server/premerge.ts`, `src/server/checks.ts`, `scripts/premerge.ts` | Пред-merge гейт: чистая рабочая копия, пробное слияние, typecheck и тесты на слитом дереве — и только потом слияние (`npm run premerge`) |
 | `src/server/cloud.ts` | Облачный режим на Managed Agents (написан, вживую не проверен) |
 | `src/server/index.ts` | HTTP + WebSocket, раздача собранного веба, команды от клиента |
 | `src/shared/types.ts` | Контракт между сервером и вебом |
@@ -95,6 +96,12 @@ npm run dev      # разработка: сервер с watch + vite на :5173
 npm run office   # как приложение: сборка + сервер со статикой на :3001
 npm run typecheck
 npm run test:pm  # регрессия поведения менеджера (исполнители заглушены)
+
+# Пред-merge гейт: чистая копия → пробное слияние → проверки на слитом дереве
+# → и только потом слияние. Красное — не сливает и печатает файлы и ошибки.
+npm run premerge -- --branch task/T-142            # проверить и слить
+npm run premerge -- --branch task/T-142 --check-only  # только проверить
+npm run premerge -- --branch task/T-142 --stash     # свои правки убрать в stash
 ```
 
 ## Чего в проекте сознательно нет
