@@ -113,7 +113,14 @@ export interface LayoutZone {
 export interface LayoutRoom {
   id: string;
   rect: [number, number, number, number];
-  floor: 'parquet' | 'carpet' | 'tile';
+  /**
+   * Материал пола. Три нарисованных — `parquet`, `carpet`, `tile` — есть и в
+   * плоском арте (по четыре спрайта на каждый, §6.1), и в палитре 3D. Любое
+   * другое имя — текстура из `design/textures/floor/<имя>.jpg`: 3D кладёт
+   * её на комнату, плоский вид такого материала не знает и оставляет клетки
+   * пустыми.
+   */
+  floor: 'parquet' | 'carpet' | 'tile' | (string & {});
   /**
    * Как комната называется для человека: подпись чипа, которым камера
    * наводится на неё (`office3d/Camera3D.tsx`). Необязательное — без него
@@ -491,6 +498,39 @@ export function restSeats(layout: Layout, catalog: Catalog, propId?: string): Re
 
 export function kitchenSeats(layout: Layout, catalog: Catalog, propId?: string): Pos[] {
   return restSeats(layout, catalog, propId).map((s) => s.at);
+}
+
+/** Насколько собеседники расходятся от центра зоны разговора, тайлы. */
+const TALK_GAP = 0.75;
+
+/** Место в разговоре: куда встать и куда смотреть (радианы вокруг вертикали). */
+export interface TalkSeat { at: Pos; yaw: number }
+
+/**
+ * Два места зоны `talk`: собеседники стоят по обе стороны от `at` вдоль
+ * `axis` и смотрят друг на друга — поворот это направление на соседа, а не
+ * на комнату.
+ *
+ * Каждое место прилипает к ближайшей целой клетке. Стоящий агент — это
+ * фигура на клетке, как и все точки, куда офис его водит; дробная координата
+ * (`at` ± 0.75) ставила его на стык двух клеток, и пара разговаривала,
+ * стоя между плитками пола. Разброс `TALK_GAP` при этом остаётся смыслом,
+ * а не точной координатой: центр на целой клетке даёт собеседникам клетку
+ * между ними, центр на стыке (x.5) — соседние клетки.
+ */
+export function talkSeats(zone: LayoutZone): TalkSeat[] {
+  if (zone.kind !== 'talk' || !zone.at) return [];
+  const [x, y] = zone.at;
+  const cell = (v: number): number => Math.round(v);
+  return (zone.axis ?? 'x') === 'x'
+    ? [
+      { at: { x: cell(x - TALK_GAP), y: cell(y) }, yaw: Math.PI / 2 },
+      { at: { x: cell(x + TALK_GAP), y: cell(y) }, yaw: -Math.PI / 2 },
+    ]
+    : [
+      { at: { x: cell(x), y: cell(y - TALK_GAP) }, yaw: 0 },
+      { at: { x: cell(x), y: cell(y + TALK_GAP) }, yaw: Math.PI },
+    ];
 }
 
 // ---------- Пол и стены поштучными тайлами (§6, §3.2) ----------

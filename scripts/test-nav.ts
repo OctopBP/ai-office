@@ -15,7 +15,7 @@ import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import {
   adjacentFree, deskPoint, desks, findPath, isBlocked, kitchenSeats, meetingSeat,
-  nearestFree, passability, propScale, propSize, spriteOf,
+  nearestFree, passability, propScale, propSize, spriteOf, talkSeats,
 } from '../src/shared/layout';
 import type { Catalog, Layout, Passability, Pos } from '../src/shared/layout';
 
@@ -101,11 +101,7 @@ function targetsOf(layout: Layout): { label: string; at: Pos }[] {
     list.push({ label: `переговорка ${i}/${total}`, at: meetingSeat(layout, catalog, i, total) });
   }
   for (const [i, zone] of (layout.zones ?? []).entries()) {
-    if (zone.kind !== 'talk' || !zone.at) continue;
-    const alongX = (zone.axis ?? 'x') === 'x';
-    const [x, y] = zone.at;
-    list.push({ label: `разговор ${i}a`, at: alongX ? { x: x - 0.75, y } : { x, y: y - 0.75 } });
-    list.push({ label: `разговор ${i}b`, at: alongX ? { x: x + 0.75, y } : { x, y: y + 0.75 } });
+    talkSeats(zone).forEach((seat, j) => list.push({ label: `разговор ${i}${'ab'[j]}`, at: seat.at }));
   }
   return list;
 }
