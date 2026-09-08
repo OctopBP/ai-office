@@ -50,7 +50,12 @@
 .rail-office:hover:not(:disabled) { background: var(--film); }
 .rail-office.current { background: var(--film-2); border-color: var(--hairline); cursor: default; }
 .rail-office:disabled { opacity: 1; }
-.rail-office-avatar { width: 30px; height: 30px; border-radius: var(--radius-avatar); flex: none; }
+.rail-office-avatar {
+  width: 30px; height: 30px; border-radius: var(--radius-icon); background: var(--film); flex: none;
+  display: flex; align-items: center; justify-content: center;
+  font-size: var(--fs-md); font-weight: 500; color: var(--ink-2);
+}
+.rail-office.current .rail-office-avatar { background: var(--accent); color: var(--accent-ink); }
 .rail-office-text { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
 .rail-office-name {
   font-size: var(--fs-md); font-weight: 500; color: var(--ink);
