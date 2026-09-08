@@ -1,8 +1,9 @@
 /**
  * Пред-merge гейт на настоящем репозитории, без единого токена: создаём
  * временный репозиторий, где ветка зелена в одиночку и красна вместе с main,
- * и проверяем три вещи — грязная копия останавливает слияние, красное слитое
- * дерево не уезжает в main, зелёный сценарий сливает как раньше.
+ * и проверяем четыре вещи — грязная копия останавливает слияние, красное слитое
+ * дерево не уезжает в main, зелёный сценарий сливает как раньше и, наконец, что
+ * то же самое умеет автоматический конвейер офиса, а не только консоль.
  *
  * Запуск: npm run test:premerge
  */
@@ -10,7 +11,11 @@ import { execFileSync } from 'node:child_process';
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { resolve } from 'node:path';
-import { defaultIntegrationDir, formatReport, preMergeGate } from '../src/server/premerge';
+import {
+  defaultIntegrationDir, formatReport, mergeChecks, preMergeGate,
+} from '../src/server/premerge';
+import { getOffice } from '../src/server/state';
+import { runPipeline, setPipelineAgents } from '../src/server/review';
 
 // Сообщения гейта сверяются дословно и написаны по-русски.
 process.env.OFFICE_LANG = 'ru';
@@ -63,6 +68,118 @@ function fixture(): string {
   git('commit', '-qm', 'T-green: файл, ни на что не влияющий');
   git('checkout', '-q', 'main');
   return dir;
+}
+
+/**
+ * Тот же гейт, но в автоматическом конвейере офиса (T-145).
+ *
+ * Стенд повторяет ровно ту слепоту, из-за которой поломки жили в main: узел
+ * `checks` конвейера гоняет по ветке только сборку, а расхождение видит другая,
+ * дешёвая проверка проекта — она и стоит в наборе гейта. Ветка при этом зелена
+ * сама по себе: пока main не уехал, весь набор на ней проходит.
+ */
+function pipelineFixture(): string {
+  const dir = mkdtempSync(resolve(tmpdir(), 'office-premerge-pipe-'));
+  const git = (...args: string[]) => execFileSync('git', args, { cwd: dir, encoding: 'utf8' }).trim();
+  const write = (name: string, body: string) => writeFileSync(resolve(dir, name), body);
+
+  git('init', '-q', '-b', 'main');
+  git('config', 'user.email', 'office@local');
+  git('config', 'user.name', 'AI Office');
+  write('package.json', JSON.stringify({
+    name: 'fixture', scripts: { typecheck: 'node check.js', 'test:state': 'node api-check.js' },
+  }));
+  // Сборка: слепа к версии api — ровно как typecheck в настоящем проекте.
+  write('check.js', "const fs=require('fs');if(fs.existsSync('boom')){console.error('сломано: boom');process.exit(1);}\n");
+  write('api-check.js', CHECK);
+  write('.gitignore', '.office/\n');
+  write('api.txt', 'v1\n');
+  write('use.txt', 'v1\n');
+  git('add', '-A');
+  git('commit', '-qm', 'Начало: api v1');
+  return dir;
+}
+
+async function pipelineGate(check: (name: string, ok: boolean) => void): Promise<void> {
+  const office = getOffice('o-premerge');
+  const dir = pipelineFixture();
+  const git = (...args: string[]) => execFileSync('git', args, { cwd: dir, encoding: 'utf8' }).trim();
+  const home = process.cwd();
+  // Рабочие копии задач конвейер кладёт рядом с рабочей директорией процесса.
+  process.chdir(dir);
+  office.setStateFile(resolve(tmpdir(), `office-premerge-state-${process.pid}.json`));
+  office.seed();
+  office.projectDir = dir;
+  office.settings.autoPipeline = true;
+
+  const pm: string[] = [];
+  setPipelineAgents({
+    async review() {
+      return { verdict: 'approve', text: 'Замечаний нет.', reviewerId: 'reviewer#1' };
+    },
+    async rework() { return { ok: true, message: 'ничего не менял' }; },
+    notifyPm(_state, text) { pm.push(text); },
+  });
+
+  const task = office.createTask({
+    title: 'Новый вызов api', description: 'тестовая', criteria: ['готово'], roleId: 'backend',
+  });
+  git('checkout', '-q', '-b', `task/${task.id}`, 'main');
+  writeFileSync(resolve(dir, 'use2.txt'), 'v1\n');
+  git('add', '-A');
+  git('commit', '-qm', `${task.id}: новый вызов api v1`);
+  git('checkout', '-q', 'main');
+  office.updateTask(task.id, {
+    status: 'review', branch: `task/${task.id}`, baseBranch: 'main',
+    repoDir: dir, worktreePath: null, result: 'сделано',
+  });
+
+  // Набор гейта берётся из package.json репозитория: придуманных команд в нём
+  // не бывает, а test:pm не бывает никогда — за слияние офис не платит.
+  const commands = mergeChecks(dir);
+  check('в наборе гейта только скрипты проекта',
+    commands.length === 2 && commands[0].includes('typecheck') && commands[1].includes('test:state'));
+  check('test:pm в набор не попал', commands.every((c) => !c.includes('test:pm')));
+
+  // 1. Пока main не уехал, ветка зелена под всем набором — сама по себе.
+  const alone = await preMergeGate({
+    repoDir: dir, branch: `task/${task.id}`, base: 'main', merge: false, checks: commands,
+  });
+  check('ветка зелена в одиночку', alone.ok && alone.stage === 'checked'
+    && alone.checks.length === 2 && alone.checks.every((c) => c.ok));
+
+  // 2. main уезжает вперёд — и вместе они уже не сходятся.
+  writeFileSync(resolve(dir, 'api.txt'), 'v2\n');
+  writeFileSync(resolve(dir, 'use.txt'), 'v2\n');
+  git('add', '-A');
+  git('commit', '-qm', 'main: api v2');
+  // Человек прямо сейчас правит свой файл и не коммитит: это не должно ничего
+  // менять ни в ту, ни в другую сторону (то же проверяет test:merge).
+  writeFileSync(resolve(dir, 'human.txt'), 'человек правит и не коммитит\n');
+  const headV2 = git('rev-parse', 'main');
+
+  await runPipeline(office, task.id);
+
+  const pr = office.prOf(task.id);
+  const note = pr?.note ?? '';
+  console.log('\n▶ Красная после слияния ветка не вливается конвейером');
+  check('конвейер встал', pr?.stage === 'stuck');
+  check('задача не отмечена слитой', office.tasks.get(task.id)?.merged !== true);
+  check('main не сдвинулся', git('rev-parse', 'main') === headV2);
+  check('ветка задачи цела', git('branch', '--list', `task/${task.id}`).length > 0);
+  check('в причине названа упавшая команда', note.includes('test:state'));
+  check('в причине назван файл с ошибкой', note.includes('use2.txt'));
+  check('в причине есть текст ошибки', note.includes('error TS2554'));
+  check('причина по-русски', note.includes('падает проверка') && note.includes('не тронута'));
+  check('менеджеру сказали, что конвейер встал',
+    pr?.needsDecision === true && pm.some((m) => m.includes(task.id) && m.includes('test:state')));
+  check('правка человека цела',
+    readFileSync(resolve(dir, 'human.txt'), 'utf8').includes('человек правит'));
+
+  process.chdir(home);
+  office.wipe();
+  rmSync(defaultIntegrationDir(dir), { recursive: true, force: true });
+  rmSync(dir, { recursive: true, force: true });
 }
 
 async function main(): Promise<void> {
@@ -154,6 +271,8 @@ async function main(): Promise<void> {
   // worktree от стенда, которого уже нет.
   rmSync(defaultIntegrationDir(dir), { recursive: true, force: true });
   rmSync(dir, { recursive: true, force: true });
+
+  await pipelineGate(check);
 
   const failed = results.filter((r) => !r.endsWith('true'));
   for (const r of results) console.log(`  ${r.endsWith('true') ? '✅' : '❌'} ${r}`);

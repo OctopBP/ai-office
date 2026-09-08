@@ -1,11 +1,16 @@
 /**
- * Разовая диагностика: для каждой раскладки строит сетку проходимости
+ * Проверка достижимости: для каждой раскладки строит сетку проходимости
  * (passability) и проверяет через A* (findPath), что до каждой значимой
  * точки — рабочих столов, мест кухни, мест переговорки (4 и 8 участников)
  * и зоны входа — можно дойти от заведомо свободной точки опенспейса.
  *
  * Код проекта не меняет: только читает layout.ts, раскладки и каталог.
- * Запуск: npx tsx scripts/check-reachability.ts
+ * Запуск: npm run test:reach
+ *
+ * Была разовой диагностикой и всегда выходила нулём — потому недостижимые
+ * места переговорки (T-141) и прожили в main незамеченными: скрипт печатал
+ * FAIL, а конвейеру это ни о чём не говорило. Теперь код выхода 1 при первой
+ * же недостижимой точке, и проверка годится в пред-merge гейт.
  */
 import { readFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
@@ -97,6 +102,7 @@ function checkAll(layout: Layout): { start: Pos; rows: Row[] } {
   return { start, rows };
 }
 
+let unreachable = 0;
 for (const id of LAYOUT_IDS) {
   const layout = readJson<Layout>(resolve(ROOT, `design/layouts/${id}.json`));
   const { start, rows } = checkAll(layout);
@@ -108,9 +114,19 @@ for (const id of LAYOUT_IDS) {
     console.log(`  OK   ${r.label.padEnd(32)} (${r.point.x.toFixed(2)}, ${r.point.y.toFixed(2)})`);
   }
   if (bad.length > 0) {
+    unreachable += bad.length;
+    // Файл раскладки в начале строки — по нему пред-merge гейт называет
+    // виновника в отчёте (`errorFiles` разбирает «путь(строка,колонка)»).
     console.log(`Недостижимо: ${bad.length}`);
     for (const r of bad) {
-      console.log(`  FAIL ${r.label.padEnd(32)} (${r.point.x.toFixed(2)}, ${r.point.y.toFixed(2)}) — ${r.reason}`);
+      console.error(`design/layouts/${id}.json(1,1): FAIL ${r.label} `
+        + `(${r.point.x.toFixed(2)}, ${r.point.y.toFixed(2)}) — ${r.reason}`);
     }
   }
 }
+
+if (unreachable > 0) {
+  console.error(`\nНедостижимых точек всего: ${unreachable}. Раскладку правили — места заперты.`);
+  process.exit(1);
+}
+console.log('\nВсе значимые точки достижимы во всех раскладках.');
