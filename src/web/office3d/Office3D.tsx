@@ -29,6 +29,7 @@ import { CeilingLamps, Lights } from './Lights3D';
 import { Agents3D } from './Agents3D';
 import { Pixelation } from './Pixelation';
 import { Camera3D, CameraChips, FOV, startPose } from './Camera3D';
+import { DevBadge, DevOverlay } from './Dev3D';
 import { t } from '../i18n';
 
 /** Насколько прозрачной становится погашенная стена. Не ноль: контур комнаты
@@ -184,8 +185,13 @@ function Floors({ scene, palette }: { scene: Scene3; palette: Palette }) {
  * Высота — сантиметр над нулём. Ноль здесь не «низ сцены», а отметка, на
  * которой стоит мебель: пол комнаты кончается ровно на ней. Точно на уровне
  * линию класть нельзя — она мерцает з-файтингом, а под уровнем её съедает пол.
+ *
+ * `bright` — вариант для режима разработчика: одним ярким цветом и без
+ * прозрачности. Обычная сетка полупрозрачная и серая, чтобы не спорить с
+ * комнатой, но поверх красной заливки занятых клеток и текстуры паркета
+ * она пропадает, а в этом режиме именно она — главное.
  */
-function FloorGrid({ scene, palette }: { scene: Scene3; palette: Palette }) {
+function FloorGrid({ scene, palette, bright }: { scene: Scene3; palette: Palette; bright?: boolean }) {
   const [cols, rows] = scene.size;
   const y = 0.01;
   const [minor, major] = useMemo(() => {
@@ -202,7 +208,10 @@ function FloorGrid({ scene, palette }: { scene: Scene3; palette: Palette }) {
 
   return (
     <group position={[0, y, 0]}>
-      {([[minor, palette.grid, 0.35], [major, palette.gridMajor, 0.7]] as const).map(
+      {([
+        [minor, bright ? palette.dev.grid : palette.grid, bright ? 0.9 : 0.35],
+        [major, bright ? palette.dev.grid : palette.gridMajor, bright ? 1 : 0.7],
+      ] as const).map(
         ([points, color, opacity], i) => (
           <lineSegments key={i}>
             <bufferGeometry>
@@ -316,7 +325,12 @@ export function Office3D({ onOpen, onDoor, active }: {
             та же точка, и ни одну из них не приходится возить за раскладкой. */}
         <group position={[offset[0], 0, offset[1]]}>
           <Floors scene={scene} palette={palette} />
-          {graphics.grid && <FloorGrid scene={scene} palette={palette} />}
+          {/* В режиме разработчика сетка — обязательная часть картинки: без неё
+              занятые клетки и маршруты не к чему привязать глазом. */}
+          {(graphics.grid || graphics.dev) && (
+            <FloorGrid scene={scene} palette={palette} bright={graphics.dev} />
+          )}
+          {graphics.dev && <DevOverlay layout={layout} palette={palette} />}
           {scene.walls.map((wall, i) => (
             <WallSegment key={i} wall={wall} offset={offset} palette={palette} />
           ))}
@@ -347,6 +361,7 @@ export function Office3D({ onOpen, onDoor, active }: {
       {/* Чипы фокуса — поверх канваса, обычным DOM: это интерфейс, а не
           часть сцены. */}
       <CameraChips layout={layout} />
+      {graphics.dev && <DevBadge />}
     </div>
   );
 }

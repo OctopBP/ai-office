@@ -462,6 +462,16 @@ export function SettingsModal({ onClose }: { onClose: () => void }) {
                 </label>
                 <p className="hint muted">{t('settings.gfx.grid.hint')}</p>
 
+                <h4 className="section-title">{t('settings.gfx.dev.title')}</h4>
+                <label className="checkbox">
+                  <input
+                    type="checkbox" checked={gfx.dev}
+                    onChange={(e) => patchGfx({ dev: e.target.checked })}
+                  />
+                  {t('settings.gfx.dev')}
+                </label>
+                <p className="hint muted">{t('settings.gfx.dev.hint')}</p>
+
                 <div className="settings-row">
                   <button onClick={() => setGfx(DEFAULT_GRAPHICS)}>{t('settings.gfx.reset')}</button>
                 </div>

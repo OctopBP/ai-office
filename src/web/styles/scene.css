@@ -57,6 +57,24 @@
    выделением, поэтому отделён от постоянных кнопок отступом. */
 .cam-chip.agent { margin-left: var(--space-2); }
 
+/* Режим разработчика (`office3d/Dev3D.tsx`). Бейдж — в верхнем левом углу
+   сцены, чтобы было понятно, откуда на полу красные клетки: чипы камеры
+   живут внизу, и угол свободен. Номера тайлов вдоль края — `Html` из drei,
+   как подписи агентов: обычный текст, который пикселизация не трогает. */
+.dev3d-badge {
+  position: absolute; left: var(--space-3); top: var(--space-3); z-index: var(--z-hud);
+  padding: 2px var(--space-3); font-size: var(--fs-small); font-weight: 600;
+  letter-spacing: 0.06em; text-transform: uppercase;
+  border-radius: var(--radius-pill); color: var(--accent-ink); background: var(--accent);
+  box-shadow: var(--shadow-float); pointer-events: none;
+}
+.dev3d-label {
+  font-size: 11px; font-weight: 600; line-height: 1;
+  padding: 1px 4px; border-radius: 3px;
+  color: var(--ink-3); background: var(--surface); opacity: 0.85;
+  white-space: nowrap; pointer-events: none; user-select: none;
+}
+
 /* Подписи и пузыри трёхмерного офиса. Классы свои, а не общие с плоским:
    там карточка позиционируется от спрайта фиксированными отступами
    (`top: 82px` — это ровно под человечком в 48×72), а здесь её ставит на

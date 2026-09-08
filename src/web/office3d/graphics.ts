@@ -24,6 +24,16 @@ export interface Graphics {
    * пресете.
    */
   grid: boolean;
+  /**
+   * Режим разработчика: сетка тайлов, занятые клетки карты проходимости и
+   * маршруты, по которым стор ведёт агентов (`Dev3D.tsx`).
+   *
+   * Отдельный флаг, а не «сетка плюс ещё что-то»: сетка — линейка, ею
+   * пользуются и при расстановке мебели, а занятые клетки и ломаные путей
+   * отвечают на другой вопрос — «почему агент пошёл именно так и почему не
+   * дошёл». Смотреть на них постоянно незачем, включаются клавишей G.
+   */
+  dev: boolean;
 }
 
 /**
@@ -41,6 +51,7 @@ export const DEFAULT_GRAPHICS: Graphics = {
   normalEdge: 0.3,
   depthEdge: 0.4,
   grid: false,
+  dev: false,
 };
 
 /** Пределы ползунков — они же границы, по которым чинится значение из
@@ -80,6 +91,7 @@ export function loadGraphics(): Graphics {
     normalEdge: clamp(saved.normalEdge, DEFAULT_GRAPHICS.normalEdge, GRAPHICS_RANGE.normalEdge),
     depthEdge: clamp(saved.depthEdge, DEFAULT_GRAPHICS.depthEdge, GRAPHICS_RANGE.depthEdge),
     grid: typeof saved.grid === 'boolean' ? saved.grid : DEFAULT_GRAPHICS.grid,
+    dev: typeof saved.dev === 'boolean' ? saved.dev : DEFAULT_GRAPHICS.dev,
   };
 }
 

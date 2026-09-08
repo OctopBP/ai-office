@@ -17,6 +17,8 @@
 .shell .office3d canvas { border-radius: 0; }
 /* Чипы камеры — из-под рейла в правый нижний угол, над композером. */
 .shell .cam-chips { left: auto; right: var(--space-6); bottom: 124px; }
+/* Бейдж режима разработчика — из-под рейла к левому краю сцены, в верхний ряд. */
+.shell .dev3d-badge { left: calc(var(--edge) + var(--space-4)); top: var(--space-4); }
 .shell .toasts { bottom: 120px; left: calc(var(--edge) + (100% - var(--edge) - 24px) / 2); }
 
 /* Доска и чат занимают место сцены между верхним рядом и композером. */

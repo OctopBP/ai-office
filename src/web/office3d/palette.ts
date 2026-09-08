@@ -24,6 +24,15 @@ export interface Palette {
   /** линии сетки тайлов по полу; вторая — каждая пятая линия */
   grid: string;
   gridMajor: string;
+  /**
+   * Режим разработчика (`Dev3D.tsx`): линии сетки, заливка занятой клетки
+   * карты проходимости, линия маршрута агента и метка его цели. Сетка здесь
+   * не серая линейка, а яркая — в этом режиме её должно быть видно поверх
+   * любой текстуры пола и красной заливки. Остальные цвета намеренно
+   * «служебные» — красный и бирюзовый не встречаются в обстановке, чтобы
+   * оверлей читался поверх любой комнаты и не путался с мебелью.
+   */
+  dev: { grid: string; blocked: string; route: string; target: string };
   /** стена и её торец сверху */
   wall: string;
   wallTop: string;
@@ -116,6 +125,7 @@ export const PALETTES: Record<Theme, Palette> = {
     },
     grid: '#8b8f98',
     gridMajor: '#4d525c',
+    dev: { grid: '#1b5cff', blocked: '#e0443a', route: '#0f9b8e', target: '#e0443a' },
     wall: '#f0f2f5',
     wallTop: '#dcdfe6',
     glass: '#bcd8e8',
@@ -157,6 +167,7 @@ export const PALETTES: Record<Theme, Palette> = {
     },
     grid: '#8d97a8',
     gridMajor: '#c6d0e0',
+    dev: { grid: '#6aa8ff', blocked: '#ff6b5e', route: '#3fd6c6', target: '#ff6b5e' },
     wall: '#4a5464',
     wallTop: '#39424f',
     glass: '#1a2634',

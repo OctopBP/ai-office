@@ -21,6 +21,8 @@ export function App() {
   const teamRequest = useStore((s) => s.teamRequest);
   const view = useStore((s) => s.view);
   const setView = useStore((s) => s.setView);
+  const graphics = useStore((s) => s.graphics);
+  const setGraphics = useStore((s) => s.setGraphics);
   const [panel, setPanel] = useState<PanelKind>(null);
   const [modal, setModal] = useState<ModalKind>(null);
 
@@ -92,6 +94,10 @@ export function App() {
       else if (k === 'p' || k === 'з') setPanel('flows');
       else if (k === 'm' || k === 'ь') setModal('meeting');
       else if (k === 'q' || k === 'й') setPanel('merge');
+      // G — режим разработчика трёхмерного офиса: сетка, занятые клетки и
+      // маршруты агентов (`office3d/Dev3D.tsx`). D занята панорамированием
+      // камеры (WASD в `Camera3D.tsx`).
+      else if (k === 'g' || k === 'п') setGraphics({ dev: !graphics.dev });
       // Цифра с Shift — камере (`office3d/Camera3D.tsx`): фокус на комнате.
       // Раскладка клавиатуры делает из Shift+2 то «@», то «"», поэтому
       // проверяется сам модификатор, а не то, что из него вышло.
@@ -104,7 +110,7 @@ export function App() {
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
   }, [instances, selected, select, paused, panel, modal, diff, leaveOffice, openTask, openTaskCard,
-    view, setView]);
+    view, setView, graphics.dev, setGraphics]);
 
   // До выбора офиса в меню комната вообще не монтируется — это отдельный
   // экран приложения, а не оверлей поверх неё.
