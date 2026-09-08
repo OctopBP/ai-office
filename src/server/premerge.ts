@@ -26,6 +26,7 @@ import {
   stashPop, stashPush,
 } from './git';
 import { errorFiles, hasScript, runProjectCheck } from './checks';
+import { duplicateEdits, formatOverlapFiles, type DuplicateEdit } from './overlap';
 
 /** Одна проверка на слитом дереве. */
 export interface PreMergeCheck {
@@ -60,6 +61,11 @@ export interface PreMergeReport {
   /** Правки копии убраны в stash и возвращены обратно. */
   stashed: boolean;
   conflicts: string[];
+  /**
+   * Файлы, которые после точки ветвления правили обе стороны. Слияние не
+   * останавливают — это предупреждение (см. overlap.ts и урок T-138).
+   */
+  overlaps: DuplicateEdit[];
   checks: PreMergeCheck[];
   /** Первая упавшая проверка — она и остановила гейт. */
   failed: PreMergeCheck | null;
@@ -127,7 +133,7 @@ export async function preMergeGate(options: PreMergeOptions): Promise<PreMergeRe
   const started = Date.now();
   const report: PreMergeReport = {
     ok: false, stage: 'dirty', message: '', branch, base,
-    dirty: [], stashed: false, conflicts: [], checks: [], failed: null,
+    dirty: [], stashed: false, conflicts: [], overlaps: [], checks: [], failed: null,
     merged: false, gateMs: 0, totalMs: 0, warnings: [],
   };
   const done = (stage: PreMergeStage, ok: boolean, message: string): PreMergeReport => {
@@ -175,6 +181,13 @@ export async function preMergeGate(options: PreMergeOptions): Promise<PreMergeRe
       return done('conflict', false, t(lang, 'premerge.assembleFailed', { error: built.message }));
     }
     const worktree = built.worktree;
+
+    // 2б. Дублирующие правки: что после точки ветвления правили обе стороны.
+    //     Git слил это молча — конфликта нет, — но именно так расходятся две
+    //     независимые починки одного места (урок T-138). Считаем ДО слияния:
+    //     после него база уже содержит ветку и сравнивать будет не с чем.
+    //     Ничего не блокирует: только пополняет отчёт.
+    report.overlaps = await duplicateEdits(repoDir, base, branch);
 
     // 3. Проверки на слитом дереве. Первая красная останавливает: остальные
     //    всё равно ничего не изменят — слияния не будет. Набор по умолчанию
@@ -257,6 +270,13 @@ export function formatReport(report: PreMergeReport, lang: Lang): string {
   }
   if (report.conflicts.length) {
     lines.push(t(lang, 'premerge.reportConflicts', { files: report.conflicts.join(', ') }));
+  }
+  // Предупреждение печатается и у зелёного гейта: слияние оно не отменяет,
+  // но человек должен увидеть его вместе с исходом, а не вместо него.
+  if (report.overlaps.length) {
+    lines.push(`⚠️ ${t(lang, 'premerge.reportOverlaps', {
+      files: formatOverlapFiles(report.overlaps, lang),
+    })}`);
   }
   for (const check of report.checks) {
     lines.push(`${check.ok ? '  ✅' : '  ❌'} ${check.command} — ${formatMs(check.durationMs, lang)}`);

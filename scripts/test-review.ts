@@ -198,6 +198,39 @@ async function main(): Promise<void> {
       && git(dir, 'show', 'main:shared.txt').includes('от задачи'));
   }
 
+  // 2б. Дубль правки: одну и ту же функцию правят обе стороны, но в разных
+  //     строках. Git сливает молча — офис обязан сказать вслух (урок T-138).
+  {
+    const preset = `export function entryOf(place) {
+  const cell = place.cell;
+  const dx = cell.x;
+  const dy = cell.y;
+  return { dx, dy };
+}
+`;
+    moveBase(dir, 'preset.ts', preset);
+    const task = taskBranch(dir, 'DUP', {
+      'preset.ts': preset.replace('  return { dx, dy };', '  return { dx, dy, id: place.id };'),
+    });
+    moveBase(dir, 'preset.ts', preset.replace('  const dx = cell.x;', '  const dx = cell.x ?? 0;'));
+
+    const s = stub();
+    await runPipeline(office, task.id);
+
+    const fresh = office.tasks.get(task.id) as Task;
+    const report = fresh.result ?? '';
+    say('▶ Правку одного места с двух сторон офис называет вслух');
+    check('предупреждение слияние не остановило',
+      office.prOf(task.id)?.stage === 'merged' && fresh.merged === true);
+    check('в отчёте задачи назван файл',
+      report.includes('дубль правки') && report.includes('preset.ts'));
+    check('и функция, которую правили обе стороны', report.includes('entryOf'));
+    check('отчёт исполнителя при этом цел', report.includes('сделано'));
+    check('менеджеру предупреждение ушло', s.pm.some((m) => m.includes('дубль правки')));
+    check('в логе офиса предупреждение есть',
+      office.log.some((e) => e.text.includes('дубль правки')));
+  }
+
   // 3. Конфликт, который автор не разрулил: конвейер встаёт, main цел.
   {
     const task = taskBranch(dir, 'C', { 'shared.txt': 'ещё одна версия\n' });

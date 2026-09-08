@@ -43,6 +43,7 @@ import {
   removeWorktree, revision,
 } from './git';
 import { integrationDir, runProjectCheck, runTypecheck } from './merge';
+import { duplicateEdits, formatOverlaps } from './overlap';
 import { mergedKind, recordOutcome } from './outcomes';
 import { githubToken } from './cloud';
 import { commentOnPr, createPullRequest, githubFor, mergePullRequest } from './github';
@@ -569,6 +570,13 @@ const merge: Executor<Ctx> = {
     return withLock(mergeLocks, repo, async (): Promise<StepResult> => {
       state.patchPr(task.id, { note: state.say('pipe.merging', { base }) });
 
+      // Дублирующие правки ищем ДО слияния: после него база уже содержит
+      // ветку, и «кто что правил после точки ветвления» не восстановить.
+      // Слияние это не останавливает — предупреждение уезжает в отчёт задачи
+      // и менеджеру (overlap.ts, урок T-138).
+      const overlaps = await duplicateEdits(repo, await baseRef(repo, base), branch);
+      const duplicate = formatOverlaps(overlaps, base, branch, state.lang());
+
       const gh = await githubFor(repo);
       const fresh = state.prOf(task.id);
       if (gh && fresh?.number) {
@@ -623,8 +631,12 @@ const merge: Executor<Ctx> = {
       // Ревизию базы запоминаем до того, как её сдвинет следующее слияние: по
       // ней надзор потом заметит, что работу откатили.
       const mergeCommit = await revision(repo, base);
+      // Предупреждение о дубле правки кладём в отчёт задачи: карточку читают
+      // и через неделю, а лента к тому времени уедет далеко.
+      const before = state.tasks.get(task.id)?.result ?? null;
       state.updateTask(task.id, {
         status: 'done', merged: true, worktreePath: null, finishedAt: Date.now(), mergeCommit,
+        ...(duplicate ? { result: [before, `⚠️ ${duplicate}`].filter(Boolean).join('\n\n') } : {}),
       });
       recordOutcome(state, task.id, mergedKind(state, task));
       state.patchPr(task.id, {
@@ -634,8 +646,15 @@ const merge: Executor<Ctx> = {
           : state.say('pipe.mergedPlain', { base }),
       });
       state.addChat(OFFICE_SENDER, state.say('pipe.mergedFinal', { task: task.id, base }));
+      if (duplicate) {
+        state.addLog(null, 'system', `${task.id}: ${duplicate}`);
+        state.addChat(OFFICE_SENDER, `⚠️ ${duplicate}`);
+      }
+      // Менеджеру предупреждение уходит вместе с известием о слиянии, а не
+      // отдельным сообщением: лишний заход сессии стоит денег и внимания.
       agents.notifyPm(state,
-        state.say('pipe.pmMerged', { task: task.id, title: task.title, base }));
+        state.say('pipe.pmMerged', { task: task.id, title: task.title, base })
+        + (duplicate ? `\n⚠️ ${duplicate}` : ''));
       // Влитая ветка — единственное событие, после которого зависимая задача
       // становится готовой, а фича — закрытой. Ждать прохода надзора здесь нельзя:
       // минута простоя на каждом звене складывается в час на большом плане.

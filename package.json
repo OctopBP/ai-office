@@ -34,6 +34,7 @@
     "premerge": "tsx scripts/premerge.ts",
     "test:merge": "tsx scripts/test-merge.ts",
     "test:premerge": "tsx scripts/test-premerge.ts",
+    "test:overlap": "tsx scripts/test-overlap.ts",
     "test:money": "tsx scripts/test-money.ts",
     "test:life": "tsx scripts/test-life.ts",
     "test:review": "tsx scripts/test-review.ts",
