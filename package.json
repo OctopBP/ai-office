@@ -30,6 +30,7 @@
     "test:cli": "tsx scripts/test-cli.ts",
     "test:state": "tsx scripts/test-state.ts",
     "test:nav": "tsx scripts/test-nav.ts",
+    "test:reach": "tsx scripts/check-reachability.ts",
     "test:plan": "tsx scripts/test-plan.ts",
     "premerge": "tsx scripts/premerge.ts",
     "test:merge": "tsx scripts/test-merge.ts",

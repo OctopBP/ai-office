@@ -39,10 +39,11 @@ import {
 import { dispatch } from './plan';
 import {
   abortMerge, commitAll, deleteRemoteBranch, diffBranch, ensureWorktree, fastForward,
-  fetchRemote, isDirty, isRepo, mergeBaseInto, mergeBranch, mergeInProgress, pushBranch,
+  fetchRemote, isDirty, isRepo, mergeBaseInto, mergeInProgress, pushBranch,
   removeWorktree, revision,
 } from './git';
 import { integrationDir, runProjectCheck, runTypecheck } from './merge';
+import { mergeChecks, preMergeGate, type PreMergeReport } from './premerge';
 import { mergedKind, recordOutcome } from './outcomes';
 import { githubToken } from './cloud';
 import { commentOnPr, createPullRequest, githubFor, mergePullRequest } from './github';
@@ -558,7 +559,54 @@ const rework: Executor<Ctx> = {
 };
 
 /**
+ * Причина остановки словами: какая команда упала, на каких файлах и с каким
+ * текстом. Ровно то, что печатает гейт в консоли, — иначе задача падала бы с
+ * невнятным «база уезжает быстрее, чем задача успевает слиться», а искать
+ * настоящую поломку пришлось бы человеку по логам.
+ */
+function gateReason(state: OfficeState, base: string, report: PreMergeReport): string {
+  const failed = report.failed;
+  return state.say('pipe.mergeGateRed', {
+    base,
+    command: failed?.command ?? '',
+    files: failed?.files.length
+      ? state.say('pipe.mergeGateFiles', { files: failed.files.join(', ') })
+      : '',
+    output: failed?.output ?? report.message,
+  });
+}
+
+/**
+ * Красная проверка на слитом дереве — конец пути, а не заминка. Повтор её не
+ * лечит: ветка зелена сама по себе, и второй заход даст ровно тот же результат.
+ * Поэтому конвейер встаёт и зовёт менеджера тем же путём, что и любая другая
+ * остановка, которую офис не умеет разобрать сам (needsDecision).
+ */
+function stopOnRedGate(ctx: Ctx, report: PreMergeReport): StepResult {
+  const { state, task, base } = ctx;
+  const why = gateReason(state, base, report);
+  state.addChat(OFFICE_SENDER, state.say('pipe.mergeOutcome', { task: task.id, message: why }));
+  return fail(why, true);
+}
+
+/**
+ * Пробное слияние не собралось — ветка разошлась с базой. Это чинит автор на
+ * следующем круге (resync → fix-conflict), а не человек руками.
+ */
+function retryAfterGate(ctx: Ctx, report: PreMergeReport): StepResult {
+  const { state, task } = ctx;
+  state.addChat(OFFICE_SENDER,
+    state.say('pipe.mergeOutcome', { task: task.id, message: report.message }));
+  return { outcome: 'moved' };
+}
+
+/**
  * Слияние и уборка. Идёт по одному на репозиторий.
+ *
+ * Слиянием заведует пред-merge гейт (premerge.ts): он собирает слияние в копии
+ * офиса, гоняет проверки на РЕЗУЛЬТАТЕ слияния и двигает базу только на зелёном.
+ * До T-145 конвейер проверял слитое дерево одним typecheck — и четыре поломки
+ * прожили в main незамеченными, потому что ломались не сборкой, а тестами.
  *
  * Исход 'moved' — база уехала прямо под нами: это не беда, а повод пересобрать
  * ветку и зайти снова; сколько раз — решает процесс.
@@ -568,10 +616,21 @@ const merge: Executor<Ctx> = {
     const { state, task, repo, branch, base } = ctx;
     return withLock(mergeLocks, repo, async (): Promise<StepResult> => {
       state.patchPr(task.id, { note: state.say('pipe.merging', { base }) });
+      const checks = mergeChecks(repo, state.settings.mergeChecks);
 
       const gh = await githubFor(repo);
       const fresh = state.prOf(task.id);
       if (gh && fresh?.number) {
+        // На GitHub сливает GitHub, но проверить слитое дерево до этого — наше
+        // дело: собираем слияние у себя и гоняем тот же набор, только без
+        // сдвига базы (merge: false). Красное — в origin ничего не уезжает.
+        const gate = await preMergeGate({
+          repoDir: repo, branch, base, integrationDir: integrationDir(state),
+          lang: state.lang(), checks, allowDirty: true, merge: false,
+        });
+        if (gate.stage === 'checks') return stopOnRedGate(ctx, gate);
+        if (gate.stage === 'conflict') return retryAfterGate(ctx, gate);
+
         const push = await pushBranch(repo, branch, gh.token, state.lang());
         if (!push.ok) return fail(state.say('pipe.pushBeforeMerge', { problem: push.message }));
         const merged = await mergePullRequest(gh, fresh.number, `${task.id}: ${task.title}`);
@@ -588,33 +647,29 @@ const merge: Executor<Ctx> = {
           state.addLog(null, 'system', state.say('pipe.mergedNoPull', { task: task.id, base }));
         }
       } else {
-        // Проверку гоняем в рабочей копии офиса на уже собранном слиянии и ДО
-        // сдвига базы: не прошла — базовая ветка остаётся рабочей.
-        const outcome = await mergeBranch(repo, branch, base, integrationDir(state), state.lang(),
-          async (worktree) => {
-            const result = await runTypecheck(worktree, state.lang());
-            return {
-              ok: result.ok,
-              message: state.say('pipe.buildFailsWithBase', { base, message: result.message }),
-            };
-          });
+        // Незакоммиченные правки человека слиянию не мешают: гейт собирает его
+        // в копии офиса, а копию человека двигает advanceBase, не трогая правок.
+        const gate = await preMergeGate({
+          repoDir: repo, branch, base, integrationDir: integrationDir(state),
+          lang: state.lang(), checks, allowDirty: true,
+        });
+        // Строка технического лога — как и соседняя `merge …`, не переводится:
+        // её читают в логе сервера, а не в интерфейсе.
+        state.addLog(null, gate.ok ? 'system' : 'error',
+          `premerge ${branch} → ${base}: ${gate.stage},`
+          + ` checks ${gate.checks.length}, gate ${gate.gateMs} ms`);
 
-        if (outcome.kind === 'conflict' || outcome.kind === 'verify-failed') {
-          // Ветка расходится с базой или ломает сборку вместе с ней — это чинит
-          // автор на следующем круге, а не человек руками.
-          state.addChat(OFFICE_SENDER,
-            state.say('pipe.mergeOutcome', { task: task.id, message: outcome.message }));
-          return { outcome: 'moved' };
-        }
-        if (!outcome.ok && outcome.kind !== 'nothing') return fail(outcome.message);
-        if (outcome.kind === 'nothing') {
+        if (gate.stage === 'checks') return stopOnRedGate(ctx, gate);
+        if (gate.stage === 'conflict') return retryAfterGate(ctx, gate);
+        if (!gate.ok) return fail(gate.message);
+        if (gate.stage === 'nothing') {
           state.addLog(null, 'system', state.say('pipe.noCommits', { task: task.id, base }));
         }
-        // Правки человека в его рабочей копии слияние больше не останавливают:
-        // оно собирается в копии офиса. Отставшую копию просто называем вслух.
-        if (outcome.checkout.state === 'lagging') {
+        // Отставшую копию человека гейт возвращает предупреждением: слияние она
+        // не останавливает, но сказать о ней вслух нужно.
+        for (const warning of gate.warnings) {
           state.addChat(OFFICE_SENDER,
-            state.say('pipe.mergedChat', { task: task.id, message: outcome.checkout.message }));
+            state.say('pipe.mergedChat', { task: task.id, message: warning }));
         }
       }
 
