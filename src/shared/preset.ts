@@ -30,6 +30,7 @@
  * которая на смену времени суток не реагирует.
  */
 import { z } from 'zod';
+import type { CatalogSlot, CatalogSprite } from './layout';
 
 /** Материал предмета — ключ в `palette.prop`, а не цвет (см. шапку). */
 export const TONES = ['wood', 'metal', 'fabric', 'leaf', 'screen', 'accent', 'light'] as const;
@@ -362,4 +363,43 @@ export function splitRef(ref: string): { preset?: string; part: string } {
 /** Как зовётся часть, если имя не задано явно: имя файла без расширения. */
 export function partName(part: Part): string {
   return part.name ?? part.file.replace(/\.[^.]+$/, '');
+}
+
+/**
+ * Слоты каталога из компонентов — обратный ход переноса.
+ *
+ * Порядок сохраняется: слоты каталога и компоненты пресета идут в одном
+ * порядке, и сверка сравнивает списки целиком, а не как множества. Это
+ * намеренно строго — переставленные слоты у стола означали бы, что рабочее
+ * место и табличка поменялись местами.
+ */
+export function slotsOf(preset: Preset): CatalogSlot[] {
+  const slots: CatalogSlot[] = [];
+  for (const c of preset.components) {
+    if (c.type === 'work') slots.push({ kind: 'work', x: c.at[0], y: c.at[1] });
+    else if (c.type === 'plate') slots.push({ kind: 'plate', x: c.at[0], y: c.at[1] });
+    else if (c.type === 'seat') {
+      if (c.shape === 'point') {
+        slots.push({ kind: 'seat', x: c.at![0], y: c.at![1], ...(c.use ? { use: c.use } : {}) });
+      } else if (c.shape === 'side') {
+        slots.push({ kind: 'seat', side: c.side!, count: c.count! });
+      } else {
+        slots.push({ kind: 'seat', ring: c.ring!, rx: c.rx!, ry: c.ry!, ...(c.grow ? { grow: true } : {}) });
+      }
+    }
+  }
+  return slots;
+}
+
+/** Запись каталога. Порядок ключей — как у `gen.py:dump_catalog`, ради чистого дифа. */
+export function entryOf(preset: Preset): CatalogSprite {
+  return {
+    size: preset.size,
+    ...(preset.modelOnly ? { modelOnly: true as const } : {}),
+    footprint: preset.footprint,
+    ...(preset.layer ? { layer: preset.layer } : {}),
+    ...(slotsOf(preset).length ? { slots: slotsOf(preset) } : {}),
+    ...(preset.blocks ? { blocks: true } : {}),
+    label: preset.title,
+  };
 }

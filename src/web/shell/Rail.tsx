@@ -7,8 +7,12 @@ import { money } from '../money';
 import { t } from '../i18n';
 import { Icon, type IconName } from '../icons';
 
-/** Цвета аватарок офисов — по кругу, те же, что у ролей. */
-const HUES = ['var(--hue-blue)', 'var(--hue-amber)', 'var(--hue-pink)', 'var(--hue-violet)'];
+/** Буква на иконке офиса: первый символ названия, в верхнем регистре. */
+function officeInitial(name: string): string {
+  const trimmed = name.trim();
+  if (!trimmed) return '?';
+  return Array.from(trimmed)[0].toUpperCase();
+}
 
 type WindowKind = 'board' | 'merge' | 'log' | 'money' | 'life' | 'flows' | 'team' | 'market' | 'settings';
 const WINDOWS: Array<{ kind: WindowKind; icon: IconName }> = [
@@ -80,7 +84,6 @@ export function Rail({ onPanel, onModal }: {
       <div className="section-title">{t('shell.offices')}</div>
       <div className="rail-offices">
         {list.map((o) => {
-          const i = offices.indexOf(o);
           const activity = summarizeOfficeActivity(o);
           const status = o.current
             ? t('shell.officeStatus', { n: Object.keys(instances).length, working })
@@ -90,7 +93,7 @@ export function Rail({ onPanel, onModal }: {
               onClick={() => { if (!o.current) enterOffice(o.id); }}
               disabled={pending === 'enter'}
               title={collapsed ? `${o.name} · ${status}` : o.projectDir}>
-              <span className="rail-office-avatar" style={{ background: HUES[i % HUES.length] }} />
+              <span className="rail-office-avatar">{officeInitial(o.name)}</span>
               <span className="rail-office-text">
                 <span className="rail-office-name">{o.name}</span>
                 <span className="rail-office-status">{status}</span>
