@@ -43,6 +43,7 @@ import {
   removeWorktree, revision,
 } from './git';
 import { integrationDir, runProjectCheck, runTypecheck } from './merge';
+import { formatOverlaps, type DuplicateEdit } from './overlap';
 import { mergeChecks, preMergeGate, type PreMergeReport } from './premerge';
 import { mergedKind, recordOutcome } from './outcomes';
 import { githubToken } from './cloud';
@@ -618,6 +619,12 @@ const merge: Executor<Ctx> = {
       state.patchPr(task.id, { note: state.say('pipe.merging', { base }) });
       const checks = mergeChecks(repo, state.settings.mergeChecks);
 
+      // Дублирующие правки считает сам гейт — на пробном слиянии, до того как
+      // база сдвинется (после неё «кто что правил после точки ветвления» уже
+      // не восстановить). Здесь мы только забираем список: слияние он не
+      // останавливает, но в отчёт задачи и менеджеру уходит (overlap.ts, T-138).
+      let overlaps: DuplicateEdit[] = [];
+
       const gh = await githubFor(repo);
       const fresh = state.prOf(task.id);
       if (gh && fresh?.number) {
@@ -630,6 +637,7 @@ const merge: Executor<Ctx> = {
         });
         if (gate.stage === 'checks') return stopOnRedGate(ctx, gate);
         if (gate.stage === 'conflict') return retryAfterGate(ctx, gate);
+        overlaps = gate.overlaps;
 
         const push = await pushBranch(repo, branch, gh.token, state.lang());
         if (!push.ok) return fail(state.say('pipe.pushBeforeMerge', { problem: push.message }));
@@ -662,6 +670,7 @@ const merge: Executor<Ctx> = {
         if (gate.stage === 'checks') return stopOnRedGate(ctx, gate);
         if (gate.stage === 'conflict') return retryAfterGate(ctx, gate);
         if (!gate.ok) return fail(gate.message);
+        overlaps = gate.overlaps;
         if (gate.stage === 'nothing') {
           state.addLog(null, 'system', state.say('pipe.noCommits', { task: task.id, base }));
         }
@@ -673,13 +682,19 @@ const merge: Executor<Ctx> = {
         }
       }
 
+      const duplicate = formatOverlaps(overlaps, base, branch, state.lang());
+
       await cleanup(state, state.tasks.get(task.id) ?? task, repo, branch);
 
       // Ревизию базы запоминаем до того, как её сдвинет следующее слияние: по
       // ней надзор потом заметит, что работу откатили.
       const mergeCommit = await revision(repo, base);
+      // Предупреждение о дубле правки кладём в отчёт задачи: карточку читают
+      // и через неделю, а лента к тому времени уедет далеко.
+      const before = state.tasks.get(task.id)?.result ?? null;
       state.updateTask(task.id, {
         status: 'done', merged: true, worktreePath: null, finishedAt: Date.now(), mergeCommit,
+        ...(duplicate ? { result: [before, `⚠️ ${duplicate}`].filter(Boolean).join('\n\n') } : {}),
       });
       recordOutcome(state, task.id, mergedKind(state, task));
       state.patchPr(task.id, {
@@ -689,8 +704,15 @@ const merge: Executor<Ctx> = {
           : state.say('pipe.mergedPlain', { base }),
       });
       state.addChat(OFFICE_SENDER, state.say('pipe.mergedFinal', { task: task.id, base }));
+      if (duplicate) {
+        state.addLog(null, 'system', `${task.id}: ${duplicate}`);
+        state.addChat(OFFICE_SENDER, `⚠️ ${duplicate}`);
+      }
+      // Менеджеру предупреждение уходит вместе с известием о слиянии, а не
+      // отдельным сообщением: лишний заход сессии стоит денег и внимания.
       agents.notifyPm(state,
-        state.say('pipe.pmMerged', { task: task.id, title: task.title, base }));
+        state.say('pipe.pmMerged', { task: task.id, title: task.title, base })
+        + (duplicate ? `\n⚠️ ${duplicate}` : ''));
       // Влитая ветка — единственное событие, после которого зависимая задача
       // становится готовой, а фича — закрытой. Ждать прохода надзора здесь нельзя:
       // минута простоя на каждом звене складывается в час на большом плане.

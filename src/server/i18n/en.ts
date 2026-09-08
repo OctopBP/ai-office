@@ -244,6 +244,13 @@ export const en = {
   'premerge.cliNoRepo': 'Not a git repository: {dir}',
   'premerge.cliNoBase': 'Could not work out the base branch — pass it explicitly with --base.',
   'premerge.cliCrashed': 'The gate crashed: {error}',
+  'premerge.reportOverlaps': 'Check for duplicate edits: {files}',
+
+  // ---------------------------------------------------- duplicate edits
+  'overlap.warning': 'Check for duplicate edits: since the fork point the same places were changed both in {base} and in {branch} — {files}. This does not stop the merge: git found no conflict. Have a look whether the two fixes of the same place agree.',
+  'overlap.file': '{file} ({symbols})',
+  'overlap.more': ' and {n} more',
+  'overlap.moreFiles': '; and {n} more file(s)',
 
   // ------------------------------------------------------------------ надзор
   'sup.retryNote': '{note}\nThe office is trying again by itself (attempt {n} of {max}).',

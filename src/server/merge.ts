@@ -7,6 +7,7 @@ import { taskRepo, worktreesRoot, type OfficeState, type Task } from './state';
 import { dispatch } from './plan';
 import { checkMergeable, mergeBranch, removeWorktree } from './git';
 import { runTypecheck } from './checks';
+import { duplicateEdits, formatOverlaps } from './overlap';
 
 // Прогон проверок живёт в отдельном модуле (им пользуется и пред-merge гейт),
 // но импорты `from './merge'` в конвейере ревью и ритуалах остаются рабочими.
@@ -161,6 +162,12 @@ export async function mergeQueue(taskIds: string[], state: OfficeState): Promise
       // того, как сдвинется базовая ветка: не прошла — в базовую ничего не уедет.
       // Результат проверки достаём из замыкания через объект: присваивание
       // внутри колбэка компилятор не видит, и простая переменная сузилась бы в never.
+      // Дублирующие правки считаем до слияния: после него база уже содержит
+      // ветку. Слияние они не останавливают — только пополняют отчёт задачи
+      // и ленту (overlap.ts, урок T-138).
+      const duplicate = formatOverlaps(
+        await duplicateEdits(repo, base, branch), base, branch, state.lang());
+
       const checks: { result: TypecheckResult | null } = { result: null };
       const outcome = await mergeBranch(repo, branch, base, integrationDir(state), state.lang(),
         async (worktree) => {
@@ -206,7 +213,19 @@ export async function mergeQueue(taskIds: string[], state: OfficeState): Promise
 
       // Слияние прошло (или сливать было нечего) — worktree задаче больше не нужен.
       if (task.worktreePath) await removeWorktree(repo, task.worktreePath, branch);
-      state.updateTask(task.id, { merged: true, worktreePath: null });
+      if (duplicate && outcome.kind === 'merged') {
+        state.addChat(OFFICE_SENDER, `⚠️ ${duplicate}`);
+        state.addLog(null, 'system', `${task.id}: ${duplicate}`);
+      }
+      state.updateTask(task.id, {
+        merged: true,
+        worktreePath: null,
+        // Предупреждение живёт в отчёте задачи: лента уедет, а карточку читают
+        // и через неделю.
+        ...(duplicate && outcome.kind === 'merged'
+          ? { result: [task.result, `⚠️ ${duplicate}`].filter(Boolean).join('\n\n') }
+          : {}),
+      });
       // Ветка в основной — значит, зависимые задачи плана могли созреть,
       // а фича закрыться. Слияние руками должно двигать план так же, как
       // это делает конвейер: иначе план стоял бы ровно у тех, кто сливает сам.
