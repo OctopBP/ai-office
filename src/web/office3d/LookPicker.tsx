@@ -5,10 +5,12 @@
  * (каждая карточка — свой маленький холст с живой фигурой) отложено вместе с
  * портретами в `AgentAvatar.tsx`, пока общий холст ломается при монтировании.
  * Вариантов ровно столько, сколько скинов у персонажа (`LOOKS`): выбранный
- * здесь человечек — тот же, что встанет в комнате.
+ * здесь человечек — тот же, что встанет в комнате. Подписи — из того же
+ * списка (`looks.json`), а не из словаря интерфейса: их заводят вместе со
+ * скином на стенде.
  */
-import { LOOKS } from '../../shared/looks';
-import { has, t } from '../i18n';
+import { LOOKS, lookTitle } from '../../shared/looks';
+import { lang } from '../i18n';
 
 export function LookPicker({ value, onPick }: {
   value: string | undefined;
@@ -17,8 +19,7 @@ export function LookPicker({ value, onPick }: {
   return (
     <div className="look-grid">
       {LOOKS.map((look) => {
-        const key = `look.${look.id}`;
-        const label = has(key) ? t(key) : look.id;
+        const label = lookTitle(look, lang());
         return (
           <button
             key={look.id} type="button"

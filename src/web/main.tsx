@@ -18,9 +18,12 @@ import './styles/index.css';
 const FitBench = lazy(() => import('./office3d/FitBench').then((m) => ({ default: m.FitBench })));
 /** Стенд кита — те же правила: `?kit=1`, лениво, только в разработке. */
 const KitBench = lazy(() => import('./KitBench').then((m) => ({ default: m.KitBench })));
+/** Стенд скинов — `?skins=1`: все скины персонажа в любой позе, добавление и замена. */
+const SkinBench = lazy(() => import('./office3d/SkinBench').then((m) => ({ default: m.SkinBench })));
 const params = new URLSearchParams(location.search);
 const bench = import.meta.env.DEV && params.has('fit');
 const kit = import.meta.env.DEV && params.has('kit');
+const skins = import.meta.env.DEV && params.has('skins');
 
 /**
  * Приложение целиком перемонтируется на смене языка офиса.
@@ -42,6 +45,8 @@ createRoot(document.getElementById('root')!).render(
       ? <Suspense fallback={null}><FitBench /></Suspense>
       : kit
         ? <Suspense fallback={null}><KitBench /></Suspense>
-        : <Root />}
+        : skins
+          ? <Suspense fallback={null}><SkinBench /></Suspense>
+          : <Root />}
   </React.StrictMode>,
 );

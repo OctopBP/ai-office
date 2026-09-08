@@ -22,6 +22,7 @@
     "test:packages": "tsx scripts/test-packages.ts",
     "test:market": "tsx scripts/test-market.ts",
     "test:mcp": "tsx scripts/test-mcp.ts",
+    "test:looks": "tsx scripts/test-looks.ts",
     "test:imagegen": "tsx scripts/test-imagegen.ts",
     "bench": "tsx scripts/bench-skills.ts",
     "office-agent": "tsx src/cli/office-agent.ts",

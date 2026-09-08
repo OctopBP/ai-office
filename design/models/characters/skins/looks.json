@@ -1,0 +1,60 @@
+{
+  "looks": [
+    {
+      "id": "boss",
+      "sprite": "agent_p3",
+      "title": {
+        "ru": "Босс в очках",
+        "en": "Boss in shades"
+      }
+    },
+    {
+      "id": "skaterMaleA",
+      "sprite": "agent_p4",
+      "title": {
+        "ru": "Скейтер в красном",
+        "en": "Skater in red"
+      }
+    },
+    {
+      "id": "skaterFemaleA",
+      "sprite": "agent_p10",
+      "title": {
+        "ru": "Скейтерша в косухе",
+        "en": "Skater in a leather jacket"
+      }
+    },
+    {
+      "id": "cyborgFemaleA",
+      "sprite": "agent_p1",
+      "title": {
+        "ru": "Киборг",
+        "en": "Cyborg"
+      }
+    },
+    {
+      "id": "criminalMaleA",
+      "sprite": "agent_p2",
+      "title": {
+        "ru": "Усач в жилете",
+        "en": "Moustache in a waistcoat"
+      }
+    },
+    {
+      "id": "boris",
+      "sprite": "agent_p10",
+      "title": {
+        "ru": "Бородач в фиолетовом",
+        "en": "Beard in purple"
+      }
+    },
+    {
+      "id": "jon",
+      "sprite": "agent_p2",
+      "title": {
+        "ru": "Блондин в зелёном",
+        "en": "Blond in green"
+      }
+    }
+  ]
+}
