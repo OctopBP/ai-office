@@ -362,13 +362,13 @@
     },
     "round_table": {
       "size": [1.875, 1.375],
-      "footprint": [0, 0, 3, 3],
+      "footprint": [0, 0, 1.875, 1.375],
       "slots": [
         {
           "kind": "seat",
           "ring": 8,
-          "rx": 2,
-          "ry": 2,
+          "rx": 2.6,
+          "ry": 1.8,
           "grow": true
         }
       ],
