@@ -33,7 +33,14 @@ export function Shell(props: OverlayProps) {
   return (
     <div className={`shell${collapsed ? ' rail-collapsed' : ''}${paused ? ' paused' : ''}`}>
       <div className="shell-main">
-        {view === 'office' && <Office3D onOpen={open} onDoor={door} />}
+        {/* Сцена не размонтируется при уходе на другой вид: смена камеры и
+            позы агентов живут внутри неё (Object3D, OrbitControls), и снос
+            дерева сбрасывал бы их к стартовым значениям при каждом
+            возврате. Вместо этого она прячется через CSS и останавливает
+            собственный рендер-цикл (`active` → `frameloop`), пока вид не
+            активен, — так же, как невидимая аватарка тормозит анимацию
+            (`AgentAvatar.tsx`). */}
+        <Office3D onOpen={open} onDoor={door} active={view === 'office'} />
         {view === 'board' && <div className="shell-view"><Board /></div>}
         {view === 'chat' && <div className="shell-view shell-chat"><ChatThread /></div>}
         <Toasts onOpenTask={(id) => { setView('board'); openTaskCard(id); }} />

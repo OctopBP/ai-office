@@ -216,9 +216,13 @@ function FloorGrid({ scene, palette }: { scene: Scene3; palette: Palette }) {
   );
 }
 
-export function Office3D({ onOpen, onDoor }: {
+export function Office3D({ onOpen, onDoor, active }: {
   onOpen: (panel: HotspotPanel) => void;
   onDoor: () => void;
+  /** Вид «Офис» сейчас показан. Пока он не активен, сцена остаётся
+   *  смонтированной (камера и позы агентов не должны слетать при
+   *  возврате), но прячется через CSS и держит рендер-цикл выключенным. */
+  active: boolean;
 }) {
   const layout = useStore((s) => s.layout);
   const theme = useStore((s) => s.theme);
@@ -280,7 +284,7 @@ export function Office3D({ onOpen, onDoor }: {
   const start = useMemo(() => startPose(scene.size), [scene.size]);
 
   return (
-    <div className="office-box office3d">
+    <div className={`office-box office3d${active ? '' : ' office3d-hidden'}`}>
       {/* `flat` выключает кинематографический тонмаппинг, который R3F ставит
           по умолчанию: он сжимает светлые тона и уводит всю палитру в серое.
           Минималистичной сцене из плоских цветов он не нужен — цвет на экране
@@ -288,15 +292,20 @@ export function Office3D({ onOpen, onDoor }: {
       {/* `shadows="percentage"` вместо булева: булево включает PCFSoft,
           объявленный в three устаревшим, — рендерер ругается в консоль и
           молча откатывается ровно на этот же PCF. */}
+      {/* Пока вид не активен, `frameloop="never"` полностью останавливает
+          рендер-цикл R3F (включая все `useFrame`: ходьбу, мимику стен,
+          риг камеры) — сцена не жжёт кадры за кулисами. Камера и позиции
+          агентов при этом никуда не деваются: дерево не размонтировано. */}
       <Canvas
         flat
         shadows="percentage"
+        frameloop={active ? 'always' : 'never'}
         camera={{ position: start, fov: FOV, near: 1, far: 1200 }}
         style={{ background: palette.backdrop }}
       >
         {/* Камера: облёт, наезд и фокус — на комнате, на выбранном агенте
             или там, куда её увели руками. */}
-        <Camera3D layout={layout} size={scene.size} />
+        <Camera3D layout={layout} size={scene.size} active={active} />
         <Lights scene={scene} palette={palette} />
         {/* Светильники комнат — отдельно от общего света сцены: солнце светит
             на всю раскладку разом, а лампа принадлежит комнате, в которой
