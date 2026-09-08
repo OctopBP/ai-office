@@ -545,11 +545,6 @@ export const en = {
   "help.danger.before": "Dangerous actions — deleting files,",
   "help.danger.after": ", writing outside the working folder — are stopped and ask for permission.",
   "help.team": "👥 in the header — the “Team” window: roles, hiring, letting go and the settings of every role.",
-  "look.boss": "Boss in shades",
-  "look.skaterMaleA": "Skater in red",
-  "look.skaterFemaleA": "Skater in a leather jacket",
-  "look.cyborgFemaleA": "Cyborg",
-  "look.criminalMaleA": "Moustache in a waistcoat",
 
   // ------------------------------------------------------------ оболочка
   "shell.offices": "Offices",

@@ -266,7 +266,7 @@ const MOVE_URLS: Record<Move, string> = {
   sitToType: sitToTypeUrl, typeToSit: typeToSitUrl,
 };
 export const POSE_KEYS = Object.keys(POSE_URLS) as Pose[];
-const MOVE_KEYS = Object.keys(MOVE_URLS) as Move[];
+export const MOVE_KEYS = Object.keys(MOVE_URLS) as Move[];
 const CLIP_URLS = [charUrl, ...POSE_KEYS.map((k) => POSE_URLS[k]), ...MOVE_KEYS.map((k) => MOVE_URLS[k])];
 
 export interface Loaded {
@@ -299,6 +299,18 @@ export function useCharacter(): Loaded {
 }
 
 /**
+ * Материал по текстуре скина. Один рецепт на комнату, аватарки и стенд
+ * скинов — иначе стенд показывал бы не то, что встанет в комнате.
+ */
+export function skinMaterialOf(map: THREE.Texture): THREE.Material {
+  map.colorSpace = THREE.SRGBColorSpace;
+  // Текстуры Kenney — плашки плоского цвета без градиентов: сглаживание
+  // при уменьшении только мылит их и перемешивает соседние плашки.
+  map.magFilter = THREE.NearestFilter;
+  return new THREE.MeshLambertMaterial({ map });
+}
+
+/**
  * Материалы по скинам — один на скин, а не на агента: скинов четыре, агентов
  * может быть вдвое больше, а текстура у них общая.
  */
@@ -306,13 +318,7 @@ export function useSkinMaterials(): Record<string, THREE.Material> {
   const textures = useLoader(THREE.TextureLoader, SKIN_NAMES.map((n) => SKIN_URLS[n]));
   return useMemo(() => {
     const byName: Record<string, THREE.Material> = {};
-    (textures as THREE.Texture[]).forEach((map, i) => {
-      map.colorSpace = THREE.SRGBColorSpace;
-      // Текстуры Kenney — плашки плоского цвета без градиентов: сглаживание
-      // при уменьшении только мылит их и перемешивает соседние плашки.
-      map.magFilter = THREE.NearestFilter;
-      byName[SKIN_NAMES[i]] = new THREE.MeshLambertMaterial({ map });
-    });
+    (textures as THREE.Texture[]).forEach((map, i) => { byName[SKIN_NAMES[i]] = skinMaterialOf(map); });
     return byName;
   }, [textures]);
 }

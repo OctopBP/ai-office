@@ -500,6 +500,39 @@ export function kitchenSeats(layout: Layout, catalog: Catalog, propId?: string):
   return restSeats(layout, catalog, propId).map((s) => s.at);
 }
 
+/** Насколько собеседники расходятся от центра зоны разговора, тайлы. */
+const TALK_GAP = 0.75;
+
+/** Место в разговоре: куда встать и куда смотреть (радианы вокруг вертикали). */
+export interface TalkSeat { at: Pos; yaw: number }
+
+/**
+ * Два места зоны `talk`: собеседники стоят по обе стороны от `at` вдоль
+ * `axis` и смотрят друг на друга — поворот это направление на соседа, а не
+ * на комнату.
+ *
+ * Каждое место прилипает к ближайшей целой клетке. Стоящий агент — это
+ * фигура на клетке, как и все точки, куда офис его водит; дробная координата
+ * (`at` ± 0.75) ставила его на стык двух клеток, и пара разговаривала,
+ * стоя между плитками пола. Разброс `TALK_GAP` при этом остаётся смыслом,
+ * а не точной координатой: центр на целой клетке даёт собеседникам клетку
+ * между ними, центр на стыке (x.5) — соседние клетки.
+ */
+export function talkSeats(zone: LayoutZone): TalkSeat[] {
+  if (zone.kind !== 'talk' || !zone.at) return [];
+  const [x, y] = zone.at;
+  const cell = (v: number): number => Math.round(v);
+  return (zone.axis ?? 'x') === 'x'
+    ? [
+      { at: { x: cell(x - TALK_GAP), y: cell(y) }, yaw: Math.PI / 2 },
+      { at: { x: cell(x + TALK_GAP), y: cell(y) }, yaw: -Math.PI / 2 },
+    ]
+    : [
+      { at: { x: cell(x), y: cell(y - TALK_GAP) }, yaw: 0 },
+      { at: { x: cell(x), y: cell(y + TALK_GAP) }, yaw: Math.PI },
+    ];
+}
+
 // ---------- Пол и стены поштучными тайлами (§6, §3.2) ----------
 
 export interface FloorTile { x: number; y: number; sprite: string }

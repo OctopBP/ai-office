@@ -12,7 +12,7 @@
  * источником (CONCEPT.md §2). Поэтому и раздача живёт на клиенте, рядом с
  * ходьбой, а не в состоянии офиса.
  */
-import { restSeats } from '../shared/layout';
+import { restSeats, talkSeats } from '../shared/layout';
 import type { Catalog, Layout, LayoutZone, Pos } from '../shared/layout';
 import type { InstanceView, RoleView } from '../shared/types';
 import { isBusy } from './agentState';
@@ -48,39 +48,24 @@ interface Spot {
   requiresAll: boolean;
 }
 
-/** Насколько собеседники расходятся от центра зоны разговора, тайлы. */
-const TALK_GAP = 0.75;
-
 /**
  * Места разговоров и отдыха, выведенные из раскладки.
  *
  * Разговоры описаны зонами (`kind: 'talk'`) — они не привязаны к мебели,
- * стоят просто посреди комнаты. Места отдыха приходят слотами предмета: диван
- * сам знает, где у него подушки и какая из них у приставки.
+ * стоят просто посреди комнаты, на целых клетках. Места отдыха приходят
+ * слотами предмета: диван сам знает, где у него подушки и какая из них у
+ * приставки.
  */
 function spotsOf(layout: Layout, catalog: Catalog): Spot[] {
   const spots: Spot[] = [];
 
+  // Где стоят собеседники, знает раскладка (`talkSeats`): те же точки
+  // проверяет на проходимость `scripts/test-nav.ts`, и считать их здесь ещё
+  // раз — значит однажды разойтись.
   (layout.zones ?? []).forEach((zone: LayoutZone, i) => {
-    if (zone.kind !== 'talk' || !zone.at) return;
-    const [x, y] = zone.at;
-    const alongX = (zone.axis ?? 'x') === 'x';
-    spots.push({
-      id: `talk-${i}`,
-      kind: 'talk',
-      requiresAll: true,
-      // Собеседники стоят по обе стороны точки и смотрят друг на друга:
-      // поворот — это направление на соседа, а не на комнату.
-      seats: alongX
-        ? [
-          { at: { x: x - TALK_GAP, y }, yaw: Math.PI / 2 },
-          { at: { x: x + TALK_GAP, y }, yaw: -Math.PI / 2 },
-        ]
-        : [
-          { at: { x, y: y - TALK_GAP }, yaw: 0 },
-          { at: { x, y: y + TALK_GAP }, yaw: Math.PI },
-        ],
-    });
+    const seats = talkSeats(zone);
+    if (seats.length === 0) return;
+    spots.push({ id: `talk-${i}`, kind: 'talk', requiresAll: true, seats });
   });
 
   /**
@@ -200,12 +185,18 @@ export function interestsFor(
   return result;
 }
 
-/** Шаг между стоящими, тайлы: в объёме фигуры с меньшим шагом пересекаются. */
-const OVERFLOW_GAP = 1.6;
+/**
+ * Шаг между стоящими, клетки. Стоящий агент — фигура на целой клетке, как и
+ * собеседники (`talkSeats`), поэтому шаг тоже целый: через клетку. Ближе
+ * нельзя — на соседних клетках фигуры в объёме пересекаются.
+ */
+const OVERFLOW_GAP = 2;
 
 /**
  * Куда встать тому, кому занятия не досталось. Внутри зоны отдыха, рядами —
- * та же раскладка, что была у мест кухни, когда их не хватало на всех.
+ * та же раскладка, что была у мест кухни, когда их не хватало на всех. Ряд
+ * начинается на второй клетке комнаты от стены и идёт с высоты примерно
+ * двух третей комнаты; обе координаты — целые клетки.
  */
 function overflowSpot(layout: Layout, i: number): Pos {
   const zone = layout.zones?.find((z) => z.kind === 'idle' && z.room);
@@ -214,7 +205,7 @@ function overflowSpot(layout: Layout, i: number): Pos {
   const [x0, y0, x1, y1] = room.rect;
   const perRow = Math.max(1, Math.floor((x1 - x0 - 1) / OVERFLOW_GAP));
   return {
-    x: x0 + 0.8 + (i % perRow) * OVERFLOW_GAP,
-    y: y0 + (y1 - y0) * 0.72 + Math.floor(i / perRow) * OVERFLOW_GAP,
+    x: Math.round(x0 + 1 + (i % perRow) * OVERFLOW_GAP),
+    y: Math.round(y0 + (y1 - y0) * 0.72) + Math.floor(i / perRow) * OVERFLOW_GAP,
   };
 }
