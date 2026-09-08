@@ -43,8 +43,8 @@ Node + TypeScript, React 19 + Zustand на фронте, `ws` для связи,
 | `src/server/initiatives.ts`, `src/server/selfchange.ts` | Инициативы: фича от офиса по режиму (`off`/`propose`/`auto`) и доле на своё; предложения владельцу и их применение (правило в бриф, настройка из белого списка) |
 | `src/server/market.ts` → `tellOutcome`, `src/registry/service.ts` → `/outcome` | Репутация пакета: исходы задач по согласию (галочка телеметрии) считаются сервисом в долю чистых закрытий и цену; видна на карточке маркета |
 | `src/server/git.ts` | Ветки, worktree, коммиты, слияние |
-| `src/server/premerge.ts`, `src/server/checks.ts`, `scripts/premerge.ts` | Пред-merge гейт: чистая рабочая копия, пробное слияние, typecheck и тесты на слитом дереве — и только потом слияние (`npm run premerge`) |
-| `src/server/overlap.ts` | Дублирующие правки: файлы и символы, которые после точки ветвления правили и основная ветка, и ветка задачи. Предупреждение, слияние не блокирует (`npm run test:overlap`) |
+| `src/server/premerge.ts`, `src/server/checks.ts`, `scripts/premerge.ts` | Пред-merge гейт: чистая рабочая копия, пробное слияние, набор дешёвых проверок на слитом дереве — и только потом слияние. Им же сливает конвейер офиса (`review.ts` → узел merge); набор задаётся `OFFICE_MERGE_CHECKS` в premerge.ts, настройкой `Settings.mergeChecks` или одноимённой переменной окружения |
+| `src/server/overlap.ts` | Дублирующие правки: файлы и символы, которые после точки ветвления правили и основная ветка, и ветка задачи. Предупреждение гейта, слияние не блокирует (`npm run test:overlap`) |
 | `src/server/cloud.ts` | Облачный режим на Managed Agents (написан, вживую не проверен) |
 | `src/server/index.ts` | HTTP + WebSocket, раздача собранного веба, команды от клиента |
 | `src/shared/types.ts` | Контракт между сервером и вебом |

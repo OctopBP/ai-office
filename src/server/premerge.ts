@@ -103,19 +103,64 @@ export interface PreMergeOptions {
   stash?: boolean;
   /** false — только проверить, не сливать. */
   merge?: boolean;
+  /**
+   * Незакоммиченные правки в рабочей копии — не повод останавливаться.
+   * Так гейт зовёт конвейер офиса: слияние он собирает в своей копии, а копию
+   * человека двигает `advanceBase`, которая его правки не трогает. В консоли
+   * умолчание обратное: там за гейтом стоит человек, и молча сливать поверх
+   * его несохранённой работы нельзя.
+   */
+  allowDirty?: boolean;
 }
 
 /**
- * Что гонять, если не сказано иное: сборка проекта и его тесты. Берём только
- * те скрипты, которые в проекте правда есть, — придуманная команда падала бы
- * «нет такого скрипта» и выглядела как красное слитое дерево.
+ * Что офис гоняет на слитом дереве перед тем, как двинуть основную ветку.
+ *
+ * Только дешёвое: каждая проверка считается секундами и не поднимает ни одной
+ * сессии агента. `test:pm` сюда не входит намеренно — он поднимает живого
+ * менеджера, и платить за каждое слияние деньгами офис не должен.
+ *
+ * Это имена npm-скриптов, а не команды: берутся только те, что в проекте
+ * правда есть (`hasScript`), поэтому в чужом репозитории список сам сжимается
+ * до `typecheck` и `test`. Порядок — от дешёвого к дорогому: первая красная
+ * проверка останавливает гейт, и чем раньше она найдётся, тем короче слияние.
  */
-export function defaultChecks(repoDir: string): string[] {
-  const commands: string[] = [];
-  if (hasScript(repoDir, 'typecheck')) commands.push('npm run --silent typecheck');
-  if (hasScript(repoDir, 'test')) commands.push('npm test --silent');
-  return commands;
+export const OFFICE_MERGE_CHECKS: readonly string[] = [
+  'typecheck',
+  'test:presets', 'test:nav', 'test:reach', 'test:perm',
+  'test:state', 'test:merge', 'test:offices', 'test:review',
+  // Общий прогон чужого проекта — последним: у нас его нет, а там он самый долгий.
+  'test',
+];
+
+/** Переменная окружения, которой набор проверок перебивают на один запуск. */
+export const MERGE_CHECKS_ENV = 'OFFICE_MERGE_CHECKS';
+
+/**
+ * Набор команд для гейта конвейера. Три источника, в порядке старшинства:
+ * переменная окружения (разовая правка на запуск), настройка офиса
+ * (`Settings.mergeChecks` — готовые команды оболочки; пустой список означает
+ * именно «не гонять ничего», а не «взять умолчание») и, если ничего не задано,
+ * `OFFICE_MERGE_CHECKS`, отфильтрованный по package.json репозитория.
+ */
+export function mergeChecks(
+  repoDir: string, configured?: readonly string[] | null,
+): string[] {
+  const fromEnv = (process.env[MERGE_CHECKS_ENV] ?? '').trim();
+  if (fromEnv) return fromEnv.split(',').map((c) => c.trim()).filter(Boolean);
+  if (configured) return [...configured];
+  return OFFICE_MERGE_CHECKS
+    .filter((name) => hasScript(repoDir, name))
+    .map((name) => `npm run --silent ${name}`);
 }
+
+/**
+ * Что гонять, если не сказано иное. Тот же набор, что у конвейера, и это
+ * важнее краткости: человек, прогнавший `npm run premerge` руками, должен
+ * получить тот же вердикт, что получит офис, — иначе зелёная консоль
+ * противоречила бы вставшему конвейеру, и верить было бы нечему.
+ */
+export const defaultChecks = (repoDir: string): string[] => mergeChecks(repoDir);
 
 /** Время шага человеку: миллисекунды до секунды нечитаемы, секунды — читаемы. */
 export const formatMs = (ms: number, lang: Lang): string => (ms < 1000
@@ -125,7 +170,7 @@ export const formatMs = (ms: number, lang: Lang): string => (ms < 1000
 /** Пред-merge гейт целиком. Ничего не спрашивает и ничего не печатает — только отчёт. */
 export async function preMergeGate(options: PreMergeOptions): Promise<PreMergeReport> {
   const {
-    repoDir, branch, base, stash = false, merge = true,
+    repoDir, branch, base, stash = false, merge = true, allowDirty = false,
   } = options;
   const lang = options.lang ?? asLang(process.env.OFFICE_LANG);
   const integrationDir = options.integrationDir ?? defaultIntegrationDir(repoDir);
@@ -151,7 +196,7 @@ export async function preMergeGate(options: PreMergeOptions): Promise<PreMergeRe
   //    правки в копии основной ветки роняли слияние на середине.
   report.dirty = await dirtyFiles(repoDir);
   const here = (await currentBranch(repoDir)) ?? base;
-  if (report.dirty.length) {
+  if (report.dirty.length && !allowDirty) {
     if (!stash) {
       return done('dirty', false, t(lang, 'premerge.dirty', {
         branch: here, files: report.dirty.join(', '),
