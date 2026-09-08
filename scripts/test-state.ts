@@ -12,6 +12,7 @@ import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { catalog, deskPlan, effectiveLayout } from '../src/server/layout';
 import { deskPoint } from '../src/shared/layout';
+import { LOOKS } from '../src/shared/looks';
 import {
   DEFAULT_SETTINGS, getOffice, openOfficeState, subscribeOffices, totalRunningWorkers,
   unloadOfficeState,
@@ -431,11 +432,13 @@ async function main(): Promise<void> {
   mkdirSync(crudDir, { recursive: true });
   const rc = openOfficeState({ id: 'o-roles-crud', projectDir: crudDir, stateFile: crudFile }).state;
 
-  // (а) Создание: id выдаёт сервер, форма присылает только поля.
+  // (а) Создание: id выдаёт сервер, форма присылает только поля. Внешность —
+  // id из shared/looks.ts, то есть имя скина трёхмерной модели: плоские
+  // пресеты (`agent_p3`) остались только в старых сохранениях.
   const made = await rc.createRole({
     title: 'Технический писатель',
     model: 'claude-haiku-4-5',
-    sprite: 'agent_p3',
+    sprite: LOOKS[0].id,
     maxInstances: 2,
     brief: 'Пишет документацию к тому, что сделала команда.',
   });
@@ -445,7 +448,7 @@ async function main(): Promise<void> {
     `роль заведена: ${writer !== null}`,
     `id собран сервером из русского названия: ${writerId === 'tehnicheskiy-pisatel'}`,
     `поля формы доехали до роли: ${writer?.model === 'claude-haiku-4-5'
-      && writer?.sprite === 'agent_p3' && writer?.maxInstances === 2}`,
+      && writer?.sprite === LOOKS[0].id && writer?.maxInstances === 2}`,
     `новая роль не менеджер и не в архиве: ${writer?.isManager === false && writer?.archived === false}`,
     `роль видна менеджеру: ${rc.workerRoles().some((r) => r.id === writerId)}`,
   );
@@ -599,23 +602,28 @@ async function main(): Promise<void> {
     `негодный путь до роли не доехал: ${rc.role(emptyishId)?.repoDir !== noSuchDir}`,
   );
 
-  // (и) Правка работает со всеми полями, включая внешность, а несуществующий
-  // пресет спрайта отклоняется — иначе человечек в комнате просто не нарисуется.
+  // (и) Правка работает со всеми полями, включая внешность, а несуществующая
+  // внешность отклоняется — иначе человечек в комнате просто не нарисуется.
+  // Плоский пресет (`agent_p7`) в старых сохранениях ещё встречается и
+  // рисуется, но выбрать его заново нельзя: комнате нужен скин модели.
   const badSprite = await rc.editRole(emptyishId, { sprite: 'agent_takogo_net' });
+  const legacySprite = await rc.editRole(emptyishId, { sprite: 'agent_p7' });
   const fullEdit = await rc.editRole(emptyishId, {
     title: 'Аналитик данных', emoji: '📊', color: '#22d3ee', model: 'claude-opus-5',
     permissionMode: 'readonly', maxInstances: 2, isolate: false, maxTurns: 40,
-    sprite: 'agent_p7', brief: 'Считает метрики.',
+    sprite: LOOKS[1].id, brief: 'Считает метрики.',
   });
   const edited = rc.role(emptyishId);
   results.push(
     `несуществующий спрайт отклонён под своим полем: ${badSprite.length === 1
       && badSprite[0].field === 'sprite'}`,
+    `старый плоский пресет внешности заново не выбрать: ${legacySprite.length === 1
+      && legacySprite[0].field === 'sprite'}`,
     `правка приняла все поля разом: ${fullEdit.length === 0
       && edited?.title === 'Аналитик данных' && edited?.emoji === '📊'
       && edited?.model === 'claude-opus-5' && edited?.permissionMode === 'readonly'
       && edited?.maxInstances === 2 && edited?.isolate === false
-      && edited?.maxTurns === 40 && edited?.sprite === 'agent_p7'}`,
+      && edited?.maxTurns === 40 && edited?.sprite === LOOKS[1].id}`,
     `лимит клонов ниже уже нанятых не принимается: ${(rc.hire(emptyishId) === null)
       && (await rc.editRole(emptyishId, { maxInstances: 1 })).length === 0
       && rc.hire(emptyishId) !== null}`,
@@ -671,7 +679,7 @@ async function main(): Promise<void> {
   const savedWriter = (crudSaved.roles ?? []).find((r) => r.id === writerId);
   results.push(
     `архивная роль сохранена на диск: ${savedWriter?.archived === true}`,
-    `внешность роли сохранена: ${(crudSaved.roles ?? []).some((r) => r.sprite === 'agent_p7')}`,
+    `внешность роли сохранена: ${(crudSaved.roles ?? []).some((r) => r.sprite === LOOKS[1].id)}`,
     `после восстановления архив остался архивом: ${rc.restore()
       && rc.role(writerId)?.archived === true
       && !rc.workerRoles().some((r) => r.id === writerId)}`,

@@ -366,7 +366,7 @@ export function partName(part: Part): string {
 }
 
 /**
- * Слоты каталога из компонентов — обратный ход переноса.
+ * Слоты каталога из компонентов — обратный ход переноса (см. `entryOf`).
  *
  * Порядок сохраняется: слоты каталога и компоненты пресета идут в одном
  * порядке, и сверка сравнивает списки целиком, а не как множества. Это
@@ -391,7 +391,13 @@ export function slotsOf(preset: Preset): CatalogSlot[] {
   return slots;
 }
 
-/** Запись каталога. Порядок ключей — как у `gen.py:dump_catalog`, ради чистого дифа. */
+/**
+ * Запись каталога из пресета — общая для сборки `catalog.json`
+ * (`scripts/presets-catalog.ts`) и для стенда `?fit=1`, который собирает
+ * каталог из живых, ещё не сохранённых пресетов.
+ *
+ * Порядок ключей — как у `gen.py:dump_catalog`, ради чистого дифа.
+ */
 export function entryOf(preset: Preset): CatalogSprite {
   return {
     size: preset.size,
