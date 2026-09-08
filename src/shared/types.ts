@@ -1065,6 +1065,37 @@ export interface ReviewNote {
   text: string;
 }
 
+/** Одна проверка пред-merge гейта — как она видна в карточке задачи. */
+export interface GateCheckView {
+  command: string;
+  ok: boolean;
+  durationMs: number;
+}
+
+/** Файл, который после точки ветвления правили и ветка, и базовая (T-138). */
+export interface GateOverlapView {
+  file: string;
+  /** Символы (функции, классы…), задетые обеими сторонами. Пусто — совпал только файл. */
+  symbols: string[];
+}
+
+/**
+ * Итог пред-merge гейта (premerge.ts) — зелёно/красно, какая команда упала и
+ * с каким выводом, список файлов-дублей. Кладётся на пулл-реквест задачи, как
+ * только гейт прогнан, — и не стирается, даже если конвейер после этого встал.
+ */
+export interface GateReportView {
+  ok: boolean;
+  /** Итог одной фразой — то же, что печатает гейт в логе офиса. */
+  message: string;
+  checks: GateCheckView[];
+  /** Проверка, которая остановила гейт. null — гейт зелёный или до проверок не дошло. */
+  failed: { command: string; output: string; files: string[] } | null;
+  overlaps: GateOverlapView[];
+  gateMs: number;
+  checkedAt: number;
+}
+
 /**
  * Пулл-реквест задачи. Живёт и без GitHub: если у офиса нет удалёнки с
  * токеном, это внутренняя сущность офиса, а слияние идёт локальным git merge.
@@ -1108,6 +1139,11 @@ export interface PullRequestView {
   reviews: ReviewNote[];
   createdAt: number;
   updatedAt: number;
+  /**
+   * Последний прогон пред-merge гейта. null — до узла merge конвейер ещё не
+   * дошёл. Виден в карточке задачи независимо от того, чем гейт кончился.
+   */
+  gate: GateReportView | null;
 }
 
 /**

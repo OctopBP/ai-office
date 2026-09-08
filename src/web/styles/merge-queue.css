@@ -74,3 +74,22 @@
 .pr-hint { margin: 0 0 var(--space-2); line-height: 1.4; }
 .pr-watch { margin-top: var(--space-1); font-size: var(--fs-body); color: var(--accent); }
 .pr-watch.bad { color: var(--danger); }
+
+/* ================= гейт на карточке задачи ================= */
+.gate-report { font-size: var(--fs-body); }
+.gate-message { margin: 0; color: var(--ink-2); }
+.gate-report.ok .gate-message { color: var(--ok-ink); }
+.gate-report.bad .gate-message { color: var(--danger); }
+.gate-checks { display: flex; flex-wrap: wrap; gap: var(--space-2); margin-top: var(--space-2); }
+.chip.gate-chip { color: var(--ink-3); }
+.chip.gate-chip.ok { color: var(--ok-ink); }
+.chip.gate-chip.bad { color: var(--danger); }
+.gate-failed { margin-top: var(--space-2); }
+.gate-failed summary { cursor: pointer; color: var(--danger); }
+.gate-failed pre {
+  margin: var(--space-1) 0 0; padding: var(--space-2) var(--space-3); background: var(--film);
+  border-radius: var(--radius-row); font: var(--fs-small)/1.5 var(--font-mono); white-space: pre-wrap;
+  max-height: 200px; overflow: auto; color: var(--ink-2);
+}
+.gate-overlaps { margin-top: var(--space-2); color: var(--warn); }
+.gate-overlaps ul { margin: var(--space-1) 0 0; padding-left: var(--space-4); }
