@@ -8,7 +8,8 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { parsePreset, type Preset } from '../src/shared/preset';
-import type { CatalogSlot, CatalogSprite } from '../src/shared/layout';
+
+export { entryOf, slotsOf } from '../src/shared/preset';
 
 export const ROOT = process.cwd();
 export const PRESETS = path.join(ROOT, 'design/presets');
@@ -29,44 +30,5 @@ export function readPresets(): Map<string, Preset> {
     out.set(dir, preset);
   }
   return out;
-}
-
-/**
- * Слоты каталога из компонентов — обратный ход переноса.
- *
- * Порядок сохраняется: слоты каталога и компоненты пресета идут в одном
- * порядке, и сверка сравнивает списки целиком, а не как множества. Это
- * намеренно строго — переставленные слоты у стола означали бы, что рабочее
- * место и табличка поменялись местами.
- */
-export function slotsOf(preset: Preset): CatalogSlot[] {
-  const slots: CatalogSlot[] = [];
-  for (const c of preset.components) {
-    if (c.type === 'work') slots.push({ kind: 'work', x: c.at[0], y: c.at[1] });
-    else if (c.type === 'plate') slots.push({ kind: 'plate', x: c.at[0], y: c.at[1] });
-    else if (c.type === 'seat') {
-      if (c.shape === 'point') {
-        slots.push({ kind: 'seat', x: c.at![0], y: c.at![1], ...(c.use ? { use: c.use } : {}) });
-      } else if (c.shape === 'side') {
-        slots.push({ kind: 'seat', side: c.side!, count: c.count! });
-      } else {
-        slots.push({ kind: 'seat', ring: c.ring!, rx: c.rx!, ry: c.ry!, ...(c.grow ? { grow: true } : {}) });
-      }
-    }
-  }
-  return slots;
-}
-
-/** Запись каталога. Порядок ключей — как у `gen.py:dump_catalog`, ради чистого дифа. */
-export function entryOf(preset: Preset): CatalogSprite {
-  return {
-    size: preset.size,
-    ...(preset.modelOnly ? { modelOnly: true as const } : {}),
-    footprint: preset.footprint,
-    ...(preset.layer ? { layer: preset.layer } : {}),
-    ...(slotsOf(preset).length ? { slots: slotsOf(preset) } : {}),
-    ...(preset.blocks ? { blocks: true } : {}),
-    label: preset.title,
-  };
 }
 
