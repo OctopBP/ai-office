@@ -9,9 +9,10 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import {
-  COMPONENT_TYPES, MULTIPLICITY, componentOf, componentsOf,
+  COMPONENT_TYPES, MULTIPLICITY, componentOf, componentsOf, entryOf,
   parsePreset, partName, splitRef,
 } from '../src/shared/preset';
+import { restSeats, type Catalog, type Layout } from '../src/shared/layout';
 
 const OK = { id: 'thing', title: 'Штука', size: [1, 1], footprint: [0, 0, 1, 1], h: 1, fallback: 'box' };
 const preset = (extra: object) => ({ ...OK, components: [], ...extra });
@@ -136,14 +137,35 @@ if (bad) failed += bad;
 console.log(`${bad === 0 ? '  ok  ' : '  FAIL'} разбор ${dirs.length} пресетов с диска`);
 
 // Выборка компонентов: одиночный отдаёт один, повторяемый — все, в порядке
-// объявления. Порядок важен: у дивана три места (диван трёхместный), и они
-// не взаимозаменяемы — у каждой подушки своя поправка посадки.
+// объявления. Порядок важен: места дивана не взаимозаменяемы — по номеру
+// места посадка находит поправку именно этой подушки. Сколько их у дивана,
+// проверка не знает нарочно: подушку могут дописать, и это не поломка.
 const sofa = parsePreset(JSON.parse(fs.readFileSync(path.join(DIR, 'sofa/preset.json'), 'utf8'))).preset;
 const seats = componentsOf(sofa, 'seat');
-const pickOk = seats.length === 3 && seats[0].at?.[0] === 0.2 && componentOf(sofa, 'surface') === undefined;
+const declared = sofa.components.filter((c) => c.type === 'seat');
+const pickOk = seats.length > 1
+  && seats.every((c, i) => c === declared[i])
+  && componentOf(sofa, 'seat') === seats[0]
+  && componentOf(sofa, 'surface') === undefined;
 if (!pickOk) failed += 1;
 console.log(`${pickOk ? '  ok  ' : '  FAIL'} выборка компонентов у дивана: мест ${seats.length}`);
 
-const total = cases.length + 6 + dirs.length;
+/**
+ * Номер места переживает дорогу до раскладки.
+ *
+ * `entryOf` кладёт слоты в порядке компонентов, `restSeats` возвращает места с
+ * этим же номером, а по нему посадка (`seatingFor`) берёт поправку занятой
+ * подушки. Разъедься эти два порядка — и все сидели бы по поправке первого
+ * места, причём молча: картинка осталась бы правдоподобной.
+ */
+const cat: Catalog = { version: 1, tile: 16, scale: 1, sprites: { sofa: entryOf(sofa) } };
+const room = { id: 'test', size: [8, 8], props: [{ sprite: 'sofa', at: [2, 3] }] } as unknown as Layout;
+const numbers = restSeats(room, cat).map((s) => s.seat).join(',');
+const wanted = seats.map((_, i) => i).join(',');
+const seatOk = numbers === wanted;
+if (!seatOk) failed += 1;
+console.log(`${seatOk ? '  ok  ' : '  FAIL'} номера мест дивана в раскладке: ${numbers || '—'}`);
+
+const total = cases.length + 7 + dirs.length;
 console.log(failed === 0 ? `\nвсе ${total} кейсов прошли` : `\nПРОВАЛЕНО: ${failed} из ${total}`);
 process.exit(failed === 0 ? 0 : 1);
