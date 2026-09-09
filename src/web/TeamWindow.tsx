@@ -16,7 +16,6 @@ const stateLabel = (state: AgentState): string => t(`agent.state.${state}`);
 type Selection =
   | { kind: 'role'; id: string }
   | { kind: 'employee'; id: string }
-  | { kind: 'new-role' }
   | null;
 
 /**
@@ -24,8 +23,13 @@ type Selection =
  * форма выбранной роли или карточка выбранного сотрудника. Заменяет собой
  * старую панель команды внутри «Помощи»: там она была побочной модалкой,
  * здесь — отдельная точка входа из шапки.
+ *
+ * Здесь только те, кто в офисе есть: роль без сотрудников (сервер держит её
+ * как открытую вакансию) в списке не показывается. Новые роли и первые
+ * сотрудники в них приходят через маркет, отсюда — только клоны в уже
+ * занятые роли.
  */
-export function TeamWindow({ onClose }: { onClose: () => void }) {
+export function TeamWindow({ onClose, onMarket }: { onClose: () => void; onMarket: () => void }) {
   const roles = useStore((s) => s.roles);
   const instances = useStore((s) => s.instances);
   const layout = useStore((s) => s.layout);
@@ -47,7 +51,12 @@ export function TeamWindow({ onClose }: { onClose: () => void }) {
   const seated = Object.keys(instances).length;
   const deskShortage = seated >= deskTotal;
 
-  const sorted = [...roles].sort((a, b) => Number(a.archived) - Number(b.archived));
+  const membersOf = (roleId: string) => Object.values(instances)
+    .filter((i) => i.roleId === roleId)
+    .sort((a, b) => a.id.localeCompare(b.id));
+  const staffed = roles.filter((r) => membersOf(r.id).length > 0);
+  const sorted = [...staffed].sort((a, b) => Number(a.archived) - Number(b.archived));
+  const onlyManager = staffed.every((r) => r.isManager);
   const selectedRole = selection?.kind === 'role' ? roles.find((r) => r.id === selection.id) ?? null : null;
 
   return (
@@ -62,12 +71,14 @@ export function TeamWindow({ onClose }: { onClose: () => void }) {
           <div className="team-list-pane">
             <div className="team-list-head">
               <span className="muted small">
-                {t('team.counts', { roles: roles.length, staff: seated })}
+                {t('team.counts', { roles: staffed.length, staff: seated })}
               </span>
-              <button className="mini go" onClick={() => setSelection({ kind: 'new-role' })}>
-                {t('team.addRole')}
+              <button className="mini go" onClick={onMarket} title={t('team.marketHint')}>
+                {t('team.market')}
               </button>
             </div>
+
+            {onlyManager && <p className="muted small">{t('team.empty')}</p>}
 
             {deskShortage && (
               <div className="deskless-notice">
@@ -84,9 +95,7 @@ export function TeamWindow({ onClose }: { onClose: () => void }) {
 
             <div className="team-list">
               {sorted.map((r) => {
-                const members = Object.values(instances)
-                  .filter((i) => i.roleId === r.id)
-                  .sort((a, b) => a.id.localeCompare(b.id));
+                const members = membersOf(r.id);
                 const canHire = !r.isManager && !r.archived && r.active < r.maxInstances;
                 const hireTitle = r.isManager
                   ? t('team.pmNoClone')
@@ -168,9 +177,9 @@ export function TeamWindow({ onClose }: { onClose: () => void }) {
             {selection?.kind === 'role' && !selectedRole?.isManager && (
               <RoleReport roleId={selection.id} />
             )}
-            {(selection?.kind === 'new-role' || selection?.kind === 'role') && (
+            {selection?.kind === 'role' && (
               <RoleEditor
-                key={selection.kind === 'role' ? selection.id : 'new'}
+                key={selection.id}
                 role={selectedRole}
                 onSaved={(roleId) => setSelection({ kind: 'role', id: roleId })}
                 onDeleted={() => setSelection(null)}

@@ -632,6 +632,7 @@ export async function marketView(state: OfficeState, opts: { busy?: boolean; ref
       id: role.id, title: role.title, version: link.version,
       updateTo: link.source ? newer : null,
       builtin: !link.source,
+      staff: state.staffOf(role.id).length,
     };
     c0.roles.push(view);
     if (!c0.installed && !c0.title) c0.title = role.title;

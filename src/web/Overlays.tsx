@@ -126,7 +126,7 @@ export function Overlays({ panel, setPanel, modal, setModal }: OverlayProps) {
       {modal === 'settings' && <SettingsModal onClose={() => setModal(null)} />}
       {modal === 'meeting' && <MeetingModal onClose={() => setModal(null)} />}
       {modal === 'offices' && <OfficesModal onClose={() => setModal(null)} />}
-      {modal === 'team' && <TeamWindow onClose={() => setModal(null)} />}
+      {modal === 'team' && <TeamWindow onClose={() => setModal(null)} onMarket={() => setModal('market')} />}
       {modal === 'market' && <MarketWindow onClose={() => setModal(null)} />}
     </>
   );

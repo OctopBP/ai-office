@@ -180,7 +180,12 @@ const view = await marketView(office);
 const card = view.packages.find((p) => p.name === '@acme/lawyer')!;
 check('карточка: реестр, доверие, установлен', [card.origin, card.trust, card.installed, card.version], ['registry', 'verified', true, '1.1.0']);
 check('карточка: разрешения из манифеста', [card.tools, card.env, card.network, card.servers.map((s) => s.id)], [['Read', 'Write'], ['THING_TOKEN'], true, ['thing']]);
-check('карточка: роль офиса', card.roles.map((r) => [r.id, r.version, r.builtin]), [['lawyer', '1.1.0', false]]);
+check('карточка: роль офиса', card.roles.map((r) => [r.id, r.version, r.builtin, r.staff]), [['lawyer', '1.1.0', false, 1]]);
+// Уволили последнего — роль остаётся вакансией, и витрина это видит: staff 0.
+office.fire(office.staffOf('lawyer')[0].id);
+check('роль без сотрудников — staff 0', (await marketView(office)).packages.find((p) => p.name === '@acme/lawyer')?.roles.map((r) => r.staff), [0]);
+await handleMarketCommand({ c: 'market_hire', name: '@acme/lawyer' }, office, send);
+check('найм обратно — в ту же роль', [office.roles().filter((r) => r.package?.name === '@acme/lawyer').length, office.staffOf('lawyer').length], [1, 1]);
 check('карточка по ссылке помечена', view.packages.find((p) => p.name === '@acme/other')?.trust, 'link');
 check('встроенный менеджер на витрине', view.packages.find((p) => p.name === '@office/pm')?.origin, 'builtin');
 check('неустановленный из реестра — без подробностей', view.packages.find((p) => p.name === '@acme/lawyer')?.installed, true);

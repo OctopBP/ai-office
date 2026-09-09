@@ -91,7 +91,7 @@ export function MarketWindow({ onClose }: { onClose: () => void }) {
                     <span className="market-row-sub muted small">
                       {p.name}
                       {p.version ? ` · ${p.version}` : ` · ${t('market.notInstalled')}`}
-                      {p.roles.length > 0 && ` · ${t('market.inOffice', { roles: p.roles.map((r) => r.title).join(', ') })}`}
+                      {p.roles.some((r) => r.staff > 0) && ` · ${t('market.inOffice', { roles: p.roles.filter((r) => r.staff > 0).map((r) => r.title).join(', ') })}`}
                     </span>
                   </span>
                   {p.kind === 'team' && <span className="market-badge">{t('market.kind.team')}</span>}
@@ -143,7 +143,9 @@ const howItStarts = (s: MarketPackageView['servers'][number]): string =>
 
 function PackageCard({ p, busy, act }: { p: MarketPackageView; busy: boolean; act: (fn: () => void) => void }) {
   const [key, setKey] = useState('');
-  const roleInOffice = p.roles.find((r) => !r.builtin) ?? p.roles[0] ?? null;
+  // «В офисе» — значит с людьми: роль без сотрудников для человека не
+  // существует, в команде её нет, и кнопка обязана звать «нанять», а не «ещё».
+  const roleInOffice = p.roles.find((r) => r.staff > 0) ?? null;
   const needsKey = p.access === 'licensed' && !p.licensed;
   const canInstall = !p.installed && p.origin === 'registry' && !p.yanked && !needsKey;
   const canHire = p.installed && !p.manager && p.kind === 'agent';

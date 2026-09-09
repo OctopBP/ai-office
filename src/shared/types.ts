@@ -1552,6 +1552,8 @@ export interface MarketRoleView {
   updateTo: string | null;
   /** Встроенный пакет не обновляется отдельно от офиса. */
   builtin: boolean;
+  /** Сколько сотрудников сидит в роли. Ноль — вакансия: в команде её не видно. */
+  staff: number;
 }
 
 /**
