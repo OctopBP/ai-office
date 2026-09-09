@@ -17,3 +17,37 @@
 }
 .participant input { width: auto; margin: 0; }
 .participant.busy { opacity: .5; cursor: default; }
+
+/* ---------- окно совещаний: список слева, стенограмма справа ---------- */
+.meetings { display: flex; gap: var(--space-4); flex: 1; min-height: 0; height: min(72vh, 760px); }
+.meetings-empty { flex-direction: column; align-items: center; justify-content: center; gap: var(--space-3); }
+.meetings-list {
+  width: 280px; flex: none; display: flex; flex-direction: column; gap: var(--space-2);
+  overflow-y: auto; min-height: 0; padding-right: var(--space-1);
+}
+/* Строка списка — кнопка, но выглядит карточкой: сброс кнопочных правил кита. */
+.meetings-list .meeting-row {
+  display: flex; flex-direction: column; align-items: stretch; gap: var(--space-1);
+  min-height: 0; padding: var(--space-3); text-align: left; font: inherit;
+  background: var(--film); color: var(--ink-2); border-radius: var(--radius-card);
+}
+.meetings-list .meeting-row.on { background: var(--film-3); color: var(--ink); box-shadow: inset 0 0 0 1px var(--accent); }
+.meeting-row-topic {
+  color: var(--ink); font-weight: 500;
+  display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;
+}
+.meeting-row-meta { display: flex; align-items: center; gap: var(--space-2); flex-wrap: wrap; font-size: var(--fs-small); color: var(--ink-3); }
+.meeting-faces { display: flex; gap: 2px; flex-wrap: wrap; }
+.meeting-status.running { color: var(--ok-ink); }
+.meeting-status.failed { color: var(--danger); }
+.meeting-live-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--ok-live); }
+
+.meetings-body { flex: 1; min-width: 0; display: flex; flex-direction: column; min-height: 0; }
+.meetings-head { display: flex; flex-direction: column; gap: var(--space-2); padding-bottom: var(--space-3); margin-bottom: var(--space-2); border-bottom: 1px solid var(--hairline); }
+.meetings-topic { color: var(--ink); font-weight: 600; white-space: pre-wrap; }
+.meetings-people { display: flex; gap: var(--space-2); flex-wrap: wrap; }
+.meetings-people .chip { gap: var(--space-1); }
+.meetings-speaking { color: var(--ok-ink); }
+
+/* Метка над столом переговорки: пока говорят — зелёная точка, иначе только на наведении. */
+.spot3d-live { width: 9px; height: 9px; border-radius: 50%; background: var(--ok-live); box-shadow: 0 0 0 3px rgba(var(--ok-rgb), .25); }

@@ -7,7 +7,7 @@ import { Rail } from './Rail';
 import { TopBar } from './TopBar';
 import { Composer } from './Composer';
 import { useStore } from '../store';
-import type { HotspotPanel } from '../layoutData';
+import type { SpotTarget } from '../office3d/Hotspots3D';
 
 /**
  * Новая оболочка по макету «11 · оболочка в новом стиле»: сцена во всё окно,
@@ -27,7 +27,12 @@ export function Shell(props: OverlayProps) {
   const paused = useStore((s) => s.paused);
   const openTaskCard = useStore((s) => s.openTaskCard);
 
-  const open = (kind: HotspotPanel) => (kind === 'board' ? setView('board') : setPanel(kind));
+  // Стол переговорки ведёт в окно совещаний: стенограмма идущего и история прошлых.
+  const open = (kind: SpotTarget) => {
+    if (kind === 'board') setView('board');
+    else if (kind === 'meeting') setPanel('meetings');
+    else setPanel(kind);
+  };
   const door = () => setModal('offices');
 
   return (

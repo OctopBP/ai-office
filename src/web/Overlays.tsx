@@ -14,10 +14,11 @@ import { MoneyBoard } from './MoneyBoard';
 import { OfficesModal } from './OfficesModal';
 import { LifePanel } from './LifePanel';
 import { FlowsPanel } from './FlowsPanel';
+import { MeetingsPanel } from './MeetingsPanel';
 import { useStore } from './store';
 import { t } from './i18n';
 
-export type PanelKind = 'board' | 'money' | 'log' | 'help' | 'merge' | 'life' | 'flows' | null;
+export type PanelKind = 'board' | 'money' | 'log' | 'help' | 'merge' | 'life' | 'flows' | 'meetings' | null;
 export type ModalKind = 'settings' | 'meeting' | 'offices' | 'team' | 'market' | null;
 
 export interface OverlayProps {
@@ -62,6 +63,11 @@ export function Overlays({ panel, setPanel, modal, setModal }: OverlayProps) {
       {panel === 'flows' && (
         <Panel title={t('flows.title')} wide hint="P" onClose={() => setPanel(null)}>
           <FlowsPanel />
+        </Panel>
+      )}
+      {panel === 'meetings' && (
+        <Panel title={t('meetings.title')} wide hint={t('meetings.hint')} onClose={() => setPanel(null)}>
+          <MeetingsPanel onCall={() => { setPanel(null); setModal('meeting'); }} />
         </Panel>
       )}
       {panel === 'log' && (

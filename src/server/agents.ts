@@ -13,7 +13,7 @@ import {
 import { DEFAULT_PROCESS_WORKERS, emptyUsage, OFFICE_SENDER } from '../shared/types';
 import { LANG_NAME_EN, type Lang, type Vars } from '../shared/i18n';
 import { t, type ServerKey } from './i18n';
-import type { PrStage, PullRequestView, ReviewVerdict } from '../shared/types';
+import type { MeetingView, PrStage, PullRequestView, ReviewVerdict } from '../shared/types';
 import { cloudProblem, runCloudTask, stopCloudTask } from './cloud';
 import type { Role } from './roles';
 import { externalMcp, mcpBrief } from './mcp';
@@ -1175,8 +1175,14 @@ export async function holdMeeting(
 
   meetingOffice.meetingRunning = true;
   const id = `M-${Date.now().toString(36)}`;
-  meetingOffice.setMeeting({ id, topic, participants: participants.map((p) => p.id), speaking: null, status: 'running' });
-  meetingOffice.addChat('user', meetingOffice.say('meeting.topic', { topic }), 'meeting');
+  const startedAt = Date.now();
+  /** Состояние совещания для стола и истории: меняются только говорящий и статус. */
+  const view = (speaking: string | null, status: MeetingView['status']): MeetingView => ({
+    id, topic, participants: participants.map((p) => p.id), speaking, status, startedAt,
+    finishedAt: status === 'running' ? null : Date.now(),
+  });
+  meetingOffice.setMeeting(view(null, 'running'));
+  meetingOffice.addChat('user', meetingOffice.say('meeting.topic', { topic }), 'meeting', id);
   // Что было до совещания — чтобы вернуть менеджера ровно туда, откуда позвали:
   // его сессия живёт своей жизнью, и «свободен» после совещания было бы враньём,
   // если он в это время разбирал сообщение пользователя.
@@ -1190,7 +1196,7 @@ export async function holdMeeting(
     for (const inst of participants) {
       const role = meetingOffice.role(inst.roleId);
       if (!role) continue;
-      meetingOffice.setMeeting({ id, topic, participants: participants.map((p) => p.id), speaking: inst.id, status: 'running' });
+      meetingOffice.setMeeting(view(inst.id, 'running'));
       meetingOffice.setState(inst.id, 'talking', meetingOffice.say('agent.state.speaking'));
 
       const before = said.length
@@ -1214,7 +1220,7 @@ export async function holdMeeting(
         // настоящие сессии участников тут не нужны и стоили бы дорого.
         text = meetingOffice.say('meeting.stub', { role: role.title, topic });
         said.push({ id: inst.id, title: role.title, text });
-        meetingOffice.addChat(inst.id, text, 'meeting');
+        meetingOffice.addChat(inst.id, text, 'meeting', id);
         meetingOffice.setState(inst.id, 'talking', meetingOffice.say('agent.state.inMeeting'));
         continue;
       }
@@ -1263,16 +1269,16 @@ export async function holdMeeting(
 
       if (text) {
         said.push({ id: inst.id, title: role.title, text });
-        meetingOffice.addChat(inst.id, text, 'meeting');
+        meetingOffice.addChat(inst.id, text, 'meeting', id);
       } else {
         meetingOffice.addChat(OFFICE_SENDER,
-          meetingOffice.say('meeting.noWords', { who: inst.label }), 'meeting');
+          meetingOffice.say('meeting.noWords', { who: inst.label }), 'meeting', id);
       }
       meetingOffice.setState(inst.id, 'talking', meetingOffice.say('agent.state.inMeeting'));
     }
 
-    meetingOffice.setMeeting({ id, topic, participants: participants.map((p) => p.id), speaking: null, status: 'done' });
-    meetingOffice.addChat(OFFICE_SENDER, meetingOffice.say('meeting.over'), 'meeting');
+    meetingOffice.setMeeting(view(null, 'done'));
+    meetingOffice.addChat(OFFICE_SENDER, meetingOffice.say('meeting.over'), 'meeting', id);
     ok = true;
 
     // Стенограмма уходит менеджеру — итог подводит он. Если он сам был на
@@ -1289,8 +1295,8 @@ export async function holdMeeting(
     );
   } catch (err) {
     meetingOffice.addChat(OFFICE_SENDER,
-      meetingOffice.say('meeting.crashed', { error: clip((err as Error).message, 200) }), 'meeting');
-    meetingOffice.setMeeting({ id, topic, participants: participants.map((p) => p.id), speaking: null, status: 'failed' });
+      meetingOffice.say('meeting.crashed', { error: clip((err as Error).message, 200) }), 'meeting', id);
+    meetingOffice.setMeeting(view(null, 'failed'));
   } finally {
     meetingOffice.meetingRunning = false;
     for (const p of participants) {

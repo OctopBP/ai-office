@@ -224,6 +224,8 @@ interface State {
    */
   settingsPending: boolean;
   meeting: MeetingView | null;
+  /** История совещаний, старые первыми, — вместе с идущим сейчас. */
+  meetings: MeetingView[];
   /** Порядок задач, которые пользователь набрал для следующего запуска очереди слияния. */
   mergeSelection: string[];
   /** Статусы мержабельности завершённых задач, по taskId — приходят от сервера целиком. */
@@ -369,6 +371,7 @@ export const useStore = create<State>((set, get) => ({
   dragItem: null,
   settingsPending: false,
   meeting: null,
+  meetings: [],
   mergeSelection: [],
   mcpStatus: {},
   mergeChecks: {},
@@ -495,7 +498,8 @@ export const useStore = create<State>((set, get) => ({
           epics: Object.fromEntries(e.epics.map((f) => [f.id, f])),
           chat: e.chat, log: e.log, permissions: e.permissions, settings: e.settings,
           layouts: e.layouts, layout: e.layout, layoutOverride: e.layoutOverride,
-          projectDir: e.projectDir, authSource: e.authSource, meeting: e.meeting, busy: e.busy,
+          projectDir: e.projectDir, authSource: e.authSource, meeting: e.meeting, meetings: e.meetings,
+          busy: e.busy,
           paused: e.paused, usage: e.usage.total, usageDays: e.usage.days, limits: e.limits,
           offices: e.offices, cloud: e.cloud,
           mcpStatus: Object.fromEntries(e.mcpStatus.map((m) => [m.id, m])),
@@ -753,7 +757,16 @@ export const useStore = create<State>((set, get) => ({
         }));
         break;
       case 'meeting': {
-        set({ meeting: e.meeting });
+        // История дописывается тем же событием, что двигает людей к столу:
+        // null означает «совещание ушло со стола», из истории оно не уходит.
+        const next = e.meeting;
+        set((s) => ({
+          meeting: next,
+          meetings: !next ? s.meetings
+            : s.meetings.some((m) => m.id === next.id)
+              ? s.meetings.map((m) => (m.id === next.id ? next : m))
+              : [...s.meetings, next],
+        }));
         // Рассаживаем участников за стол переговорки и возвращаем на места после —
         // каждый идёт своей ломаной, а не телепортируется.
         const s0 = get();

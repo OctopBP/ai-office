@@ -1232,6 +1232,9 @@ export interface MeetingView {
   /** Кто говорит прямо сейчас. */
   speaking: string | null;
   status: 'running' | 'done' | 'failed';
+  startedAt: number;
+  /** null — совещание ещё идёт. */
+  finishedAt: number | null;
 }
 
 /**
@@ -1261,6 +1264,13 @@ export interface ChatEntry {
   from: string;
   text: string;
   at: number;
+  /**
+   * Совещание, на котором это сказано. Все совещания пишут в одну ветку
+   * `meeting`, и без этой метки стенограммы разных совещаний в ней слипаются;
+   * по ней окно совещаний собирает каждое отдельно. Нет у реплик из версий
+   * до истории совещаний и у служебных ответов офиса («уже идёт», «занят»).
+   */
+  meetingId?: string;
 }
 
 export interface LogEntry {
@@ -1279,6 +1289,12 @@ export type ServerEvent =
       chat: ChatEntry[]; log: LogEntry[]; permissions: PermissionRequest[];
       settings: Settings; projectDir: string; authSource: AuthSource;
       meeting: MeetingView | null; busy: boolean; paused: boolean;
+      /**
+       * Все совещания офиса, старые первыми, — история для окна совещаний.
+       * Текущее совещание в ней тоже есть: `meeting` выше — про то, кто
+       * сейчас за столом, а это — про то, что было сказано.
+       */
+      meetings: MeetingView[];
       usage: { total: Usage; days: DayUsage[] };
       /** Лимиты плана подписки: сколько окон съедено и когда они обнулятся. */
       limits: LimitsView;

@@ -19,7 +19,7 @@ import {
 } from '../src/server/state';
 import { flushAll, load, save, wipe, type Persisted } from '../src/server/store';
 import {
-  DEFAULT_OFFICE_WORKERS, isOfficeSender, MAX_OFFICE_WORKERS, MAX_TASK_MAX_TURNS,
+  DEFAULT_OFFICE_WORKERS, isOfficeSender, MAX_OFFICE_WORKERS, MAX_TASK_MAX_TURNS, OFFICE_SENDER,
 } from '../src/shared/types';
 import { cloudProblem, setGithubToken } from '../src/server/cloud';
 import {
@@ -343,6 +343,46 @@ async function main(): Promise<void> {
   );
   unloadOfficeState('o-roleturns');
   wipe(junkFile);
+
+  // 7i. История совещаний переживает перезапуск, а реплики привязаны к своему
+  // совещанию. Совещание, застигнутое перезапуском, поднимается сорвавшимся:
+  // сессий участников больше нет, и «идёт» оно только на бумаге.
+  const meetFile = resolve(tmpdir(), `office-test-meetings-${process.pid}.json`);
+  const meetDir = resolve(tmpdir(), 'meetings-office');
+  const meetOffice = openOfficeState({ id: 'o-meetings', projectDir: meetDir, stateFile: meetFile }).state;
+  meetOffice.seed();
+  const doneMeeting = {
+    id: 'M-done', topic: 'Как хранить заметки', participants: ['backend#1', 'frontend#1'],
+    speaking: null, status: 'done' as const, startedAt: 1000, finishedAt: 2000,
+  };
+  meetOffice.setMeeting({ ...doneMeeting, status: 'running', finishedAt: null });
+  meetOffice.addChat('backend#1', 'Хранить в JSON.', 'meeting', 'M-done');
+  meetOffice.setMeeting(doneMeeting);
+  meetOffice.setMeeting({
+    id: 'M-cut', topic: 'Оборванное', participants: ['backend#1', 'frontend#1'],
+    speaking: 'backend#1', status: 'running', startedAt: 3000, finishedAt: null,
+  });
+  meetOffice.addChat(OFFICE_SENDER, 'уже идёт', 'meeting');
+  save(meetFile, () => meetOffice.toPersisted());
+  flushAll();
+  unloadOfficeState('o-meetings');
+  const meetAgain = openOfficeState({ id: 'o-meetings', projectDir: meetDir, stateFile: meetFile }).state;
+  const cut = meetAgain.meetings.find((m) => m.id === 'M-cut');
+  results.push(
+    `история совещаний поднялась из файла: ${meetAgain.meetings.length === 2}`,
+    `закончившееся совещание осталось закончившимся: ${
+      meetAgain.meetings.find((m) => m.id === 'M-done')?.status === 'done'}`,
+    `совещание не дописывается дважды в историю: ${
+      meetAgain.meetings.filter((m) => m.id === 'M-done').length === 1}`,
+    `оборванное перезапуском совещание сорвалось, а не идёт: ${
+      cut?.status === 'failed' && cut.speaking === null && cut.finishedAt !== null}`,
+    `реплика помнит своё совещание: ${
+      meetAgain.chat.filter((c) => c.meetingId === 'M-done').length === 1}`,
+    `служебный ответ офиса совещанию не принадлежит: ${
+      meetAgain.chat.every((c) => c.meetingId === 'M-done' || c.meetingId === undefined)}`,
+  );
+  unloadOfficeState('o-meetings');
+  wipe(meetFile);
 
   // 7h. Набор инструментов базовой роли живёт в коде, а не в сохранении: из UI
   // он не правится, и сохранённая копия старого набора означала бы, что новый

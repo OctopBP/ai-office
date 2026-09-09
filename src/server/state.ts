@@ -668,6 +668,12 @@ export class OfficeState {
   /** Режим проверки поведения PM: исполнители заглушены, задачи закрываются мгновенно. */
   dryRun = false;
   meeting: MeetingView | null = null;
+  /**
+   * История совещаний, старые первыми. Реплики лежат в чате (ветка `meeting`,
+   * `ChatEntry.meetingId`), здесь — тема, участники, статус и время: то, по
+   * чему совещание находят в списке, когда оно давно закончилось.
+   */
+  meetings: MeetingView[] = [];
   settings: Settings = { ...DEFAULT_SETTINGS, language: startupLang() };
   authSource: AuthSource = 'unknown';
   /** Чей это офис: от него зависят worktree и файл состояния. */
@@ -930,6 +936,7 @@ export class OfficeState {
       runs: [...this.runs.values()],
       chat: this.chat,
       log: this.log.slice(-500),
+      meetings: this.meetings,
       settings: this.settings,
       roles: this.roleList,
       layoutOverrides: this.layoutOverrides,
@@ -1351,6 +1358,12 @@ export class OfficeState {
     // Записи из версий до появления веток чата относим к разговору с менеджером.
     this.chat = (data.chat ?? []).map((c) => ({ ...c, thread: c.thread ?? 'pm#1' }));
     this.log = data.log ?? [];
+    // Совещание, застигнутое перезапуском, не продолжится: сессии участников
+    // умерли вместе с процессом. Оставить его «идущим» значило бы показывать
+    // в окне совещаний живую точку у стенограммы, которая никогда не допишется.
+    this.meetings = (data.meetings ?? []).map((m) => (m.status === 'running'
+      ? { ...m, status: 'failed', speaking: null, finishedAt: m.finishedAt ?? data.savedAt }
+      : m));
 
     this.usage = { ...emptyUsage(), ...(data.usage ?? {}) };
     this.daily = data.daily ?? {};
@@ -1483,6 +1496,7 @@ export class OfficeState {
     this.runs.clear();
     this.chat = [];
     this.log = [];
+    this.meetings = [];
     this.taskSeq = 0;
     this.epicSeq = 0;
     for (const p of this.pending.values()) {
@@ -2055,8 +2069,9 @@ export class OfficeState {
 
   // ---------- чат и лог ----------
 
-  addChat(from: string, text: string, thread = 'pm#1'): void {
+  addChat(from: string, text: string, thread = 'pm#1', meetingId?: string): void {
     const entry: ChatEntry = { id: randomUUID(), thread, from, text, at: Date.now() };
+    if (meetingId) entry.meetingId = meetingId;
     this.chat.push(entry);
     this.emit({ t: 'chat', entry });
     this.markDirty();
@@ -3035,6 +3050,15 @@ export class OfficeState {
 
   setMeeting(meeting: MeetingView | null): void {
     this.meeting = meeting;
+    // В историю — каждое состояние совещания, а не только итог: окно
+    // совещаний показывает и то, что идёт сейчас, и кто в нём говорит.
+    // null — совещание ушло со стола, из истории оно не уходит.
+    if (meeting) {
+      const i = this.meetings.findIndex((m) => m.id === meeting.id);
+      if (i >= 0) this.meetings[i] = meeting;
+      else this.meetings.push(meeting);
+      this.markDirty();
+    }
     this.emit({ t: 'meeting', meeting });
   }
 
@@ -3241,6 +3265,7 @@ export class OfficeState {
       projectDir: this.projectDir,
       authSource: this.authSource,
       meeting: this.meeting,
+      meetings: this.meetings,
       busy: this.busy,
       paused: this.paused,
       usage: { total: this.usage, days: this.usageDays() },

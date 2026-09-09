@@ -16,7 +16,7 @@
 import { Suspense, useEffect, useMemo, useRef } from 'react';
 import { Canvas, useFrame, useLoader } from '@react-three/fiber';
 import * as THREE from 'three';
-import { propKeys } from '../../shared/layout';
+import { propKeys, spriteOf } from '../../shared/layout';
 import type { LayoutProp } from '../../shared/layout';
 import { useStore } from '../store';
 import { catalog, type HotspotPanel } from '../layoutData';
@@ -24,7 +24,7 @@ import { paletteOf, type Palette } from './palette';
 import { WALL_H, scene3, type Box3, type Floor3, type Scene3, type Wall3 } from './geometry';
 import { place3 } from './props';
 import { FurnitureModels, Props3D } from './Props3D';
-import { Hotspots3D, type Spot3, type SpotKind } from './Hotspots3D';
+import { Hotspots3D, type Spot3, type SpotKind, type SpotTarget } from './Hotspots3D';
 import { CeilingLamps, Lights } from './Lights3D';
 import { Agents3D } from './Agents3D';
 import { Pixelation } from './Pixelation';
@@ -441,7 +441,7 @@ function FloorGrid({ scene, palette, bright }: { scene: Scene3; palette: Palette
 }
 
 export function Office3D({ onOpen, onDoor, active }: {
-  onOpen: (panel: HotspotPanel) => void;
+  onOpen: (target: SpotTarget) => void;
   onDoor: () => void;
   /** Вид «Офис» сейчас показан. Пока он не активен, сцена остаётся
    *  смонтированной (камера и позы агентов не должны слетать при
@@ -462,7 +462,7 @@ export function Office3D({ onOpen, onDoor, active }: {
    * компонентами: обстановку можно таскать в редакторе, а нажимаемое —
    * нажимать.
    */
-  const { placed, spots } = useMemo(() => {
+  const { placed, spots, meetingTable, deskItems } = useMemo(() => {
     const keys = propKeys(layout);
     const list: (LayoutProp & { key: string })[] = layout.props.map((p, i) => ({
       ...p, key: keys[i],
@@ -497,7 +497,14 @@ export function Office3D({ onOpen, onDoor, active }: {
       spotList.push({ item, ...m });
       return false;
     });
-    return { placed: propList, spots: spotList };
+    // Стол переговорки остаётся обычной мебелью — его находят по зоне
+    // `meeting`, той же, по которой рассаживают участников.
+    const tableKey = (layout.zones ?? []).find((z) => z.kind === 'meeting')?.prop;
+    const table = tableKey ? all.find((item) => item.key === tableKey) : undefined;
+    // Рабочие столы — предметы с work-слотом в порядке раскладки: ровно так
+    // `desks()` нумерует места, и `Desk.index` сотрудника указывает сюда.
+    const workDesks = all.filter((item) => spriteOf(catalog, item.sprite)?.slots?.some((s) => s.kind === 'work'));
+    return { placed: propList, spots: spotList, meetingTable: table, deskItems: workDesks };
   }, [layout]);
   const [w, d] = scene.size;
   const offset = useMemo<[number, number]>(() => [-w / 2, -d / 2], [w, d]);
@@ -554,7 +561,8 @@ export function Office3D({ onOpen, onDoor, active }: {
           <FurnitureModels>
             <Props3D items={placed} palette={palette} offset={offset} size={scene.size} />
             <Hotspots3D
-              spots={spots} layout={layout} palette={palette} offset={offset}
+              spots={spots} meetingTable={meetingTable} deskItems={deskItems}
+              layout={layout} palette={palette} offset={offset}
               onOpen={onOpen} onDoor={onDoor}
             />
           </FurnitureModels>

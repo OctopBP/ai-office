@@ -5,7 +5,7 @@ import type {
 } from '../shared/types';
 import type { Run } from '../shared/workflow';
 import type { Direction, Epic, Fact, LifeState, Proposal, Task } from './state';
-import type { OwnerQuestion } from '../shared/types';
+import type { MeetingView, OwnerQuestion } from '../shared/types';
 import type { Role } from './roles';
 import { c } from './i18n';
 
@@ -52,6 +52,8 @@ export interface Persisted {
   runs?: Run[];
   chat: ChatEntry[];
   log: LogEntry[];
+  /** История совещаний. В сохранениях до неё поля нет: старые реплики остаются в ветке `meeting` без привязки. */
+  meetings?: MeetingView[];
   instances: PersistedInstance[];
   /** Расход офиса за всё время и по дням. В старых сохранениях их нет. */
   usage?: Usage;

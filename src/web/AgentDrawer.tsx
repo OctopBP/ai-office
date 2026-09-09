@@ -79,6 +79,9 @@ export function AgentDrawer() {
   // Задачи своей роли, которые ещё никто не взял — их можно отдать этому агенту.
   const free = all.filter((t) => !t.assigneeId && t.status === 'backlog' && t.roleId === inst.roleId);
   const trail = log.filter((l) => l.agentId === inst.id).slice(-14);
+  // Последняя строка лога — «что он делает прямо сейчас»: вызов инструмента
+  // или реплика. Стенограмма ниже показывает то же, но там оно четырнадцатое.
+  const lastAct = trail[trail.length - 1];
 
   const done = mine.filter((t) => t.status === 'done').length;
   const running = mine.filter((t) => t.status === 'in_progress').length;
@@ -155,6 +158,15 @@ export function AgentDrawer() {
               {tokens(current.usage.tokensIn + current.usage.tokensOut)} tok
               {current.branch && <> · {t('drawer.branch')} <code className="mono">{current.branch}</code></>}
             </div>
+            {lastAct && (
+              <div className="last-act">
+                <span className="dim mono">
+                  {new Date(lastAct.at).toLocaleTimeString(locale(), { hour: '2-digit', minute: '2-digit' })}
+                </span>{' '}
+                <span className="muted small">{t('drawer.lastAction')}</span>{' '}
+                <span className={`trail-text${lastAct.kind === 'error' ? ' error' : ''}`}>{lastAct.text}</span>
+              </div>
+            )}
             <Criteria list={current.criteria} />
             {cap !== null && (
               <div className="budget">

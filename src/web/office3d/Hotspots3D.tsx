@@ -11,6 +11,7 @@ import { useMemo, useState } from 'react';
 import { Html } from '@react-three/drei';
 import * as THREE from 'three';
 import { desks } from '../../shared/layout';
+import type { InstanceView } from '../../shared/types';
 import type { Layout } from '../../shared/layout';
 import { catalog, type HotspotPanel } from '../layoutData';
 import { useStore } from '../store';
@@ -22,6 +23,9 @@ import { t } from '../i18n';
 
 /** Кого именно из предметов раскладки нажимают. */
 export type SpotKind = HotspotPanel | 'door';
+
+/** Куда ведёт нажатие, кроме двери: панель раскладки или стол переговорки. */
+export type SpotTarget = HotspotPanel | 'meeting';
 
 export interface Spot3 {
   kind: SpotKind;
@@ -116,20 +120,113 @@ function FreeDesk({ at }: { at: [number, number] }) {
   );
 }
 
-export function Hotspots3D({ spots, layout, palette, offset, onOpen, onDoor }: {
+/**
+ * Стол переговорки. Сам стол рисует `Props3D` вместе с остальной мебелью —
+ * здесь только невидимая мишень над ним и метка: зелёная точка, пока за ним
+ * говорят, и подсказка на наведении. В отличие от доски и экрана, стол не
+ * светится и не растёт под курсором: он мебель, а не табло.
+ */
+function MeetingTable({ item, onClick }: { item: Placed3; onClick: () => void }) {
+  const [hovered, setHovered] = useState(false);
+  const live = useStore((s) => s.meeting?.status === 'running');
+
+  return (
+    <group position={[item.cx, item.base, item.cy]} rotation={[0, -item.rot, 0]}>
+      <mesh
+        position={[0, item.h / 2, 0]}
+        onClick={(e: { stopPropagation: () => void }) => { e.stopPropagation(); onClick(); }}
+        onPointerOver={(e: { stopPropagation: () => void }) => {
+          e.stopPropagation();
+          setHovered(true);
+          document.body.style.cursor = 'pointer';
+        }}
+        onPointerOut={() => { setHovered(false); document.body.style.cursor = ''; }}
+      >
+        <boxGeometry args={[item.w, Math.max(item.h, 0.7), item.d]} />
+        <meshBasicMaterial transparent opacity={0} depthWrite={false} />
+      </mesh>
+      {(live || hovered) && (
+        <Html
+          center
+          position={[0, item.h + 0.6, 0]}
+          distanceFactor={15}
+          zIndexRange={[80, 0]}
+          style={{ pointerEvents: 'none', userSelect: 'none' }}
+        >
+          <div className="spot3d" title={t('office.meetingTable')}>
+            {live ? <span className="spot3d-live" /> : <kbd>💬</kbd>}
+          </div>
+        </Html>
+      )}
+    </group>
+  );
+}
+
+/**
+ * Занятый рабочий стол. Стол с монитором рисует `Props3D`, здесь — мишень над
+ * ним: нажатие открывает карточку того, кто за ним сидит, — ту же, что и
+ * нажатие на самого человечка. Так по столу видно, чем агент занят, даже
+ * когда фигура ушла с камеры или спряталась за спинкой стула.
+ *
+ * Мишень стола выше самого стола: экран и голова сидящего торчат над
+ * столешницей, и клик «по монитору» должен попадать сюда же.
+ */
+function DeskSpot({ item, who, onClick }: { item: Placed3; who: InstanceView; onClick: () => void }) {
+  const [hovered, setHovered] = useState(false);
+  const height = Math.max(item.h, 0.7) + 0.8;
+
+  return (
+    <group position={[item.cx, item.base, item.cy]} rotation={[0, -item.rot, 0]}>
+      <mesh
+        position={[0, height / 2, 0]}
+        onClick={(e: { stopPropagation: () => void }) => { e.stopPropagation(); onClick(); }}
+        onPointerOver={(e: { stopPropagation: () => void }) => {
+          e.stopPropagation();
+          setHovered(true);
+          document.body.style.cursor = 'pointer';
+        }}
+        onPointerOut={() => { setHovered(false); document.body.style.cursor = ''; }}
+      >
+        <boxGeometry args={[item.w, height, item.d]} />
+        <meshBasicMaterial transparent opacity={0} depthWrite={false} />
+      </mesh>
+      {hovered && (
+        <Html
+          center
+          position={[0, height + 0.4, 0]}
+          distanceFactor={15}
+          zIndexRange={[80, 0]}
+          style={{ pointerEvents: 'none', userSelect: 'none' }}
+        >
+          <div className="spot3d-desk" title={t('office.deskHint')}>
+            <b>{who.label}</b>{who.note ? ` · ${who.note}` : ''}
+          </div>
+        </Html>
+      )}
+    </group>
+  );
+}
+
+export function Hotspots3D({ spots, meetingTable, deskItems, layout, palette, offset, onOpen, onDoor }: {
   spots: Spot3[];
+  /** Стол переговорки, если он в раскладке есть: по нему открывают совещания. */
+  meetingTable?: Placed3;
+  /** Рабочие столы в порядке `Desk.index` — тем же, что у `desks()`. */
+  deskItems: Placed3[];
   layout: Layout;
   palette: Palette;
   /** сдвиг комнаты в мир — тот же, что у пола, стен и обстановки */
   offset: [number, number];
   /** Открыть панель доски, расходов или лога — те же обработчики, что у
    *  плоского офиса: какая панель открыта, знает App, а не комната. */
-  onOpen: (panel: HotspotPanel) => void;
+  onOpen: (target: SpotTarget) => void;
   onDoor: () => void;
 }) {
   const materials = usePropMaterials(palette);
   const instances = useStore((s) => s.instances);
   const tasks = useStore((s) => s.tasks);
+  const selected = useStore((s) => s.selected);
+  const select = useStore((s) => s.select);
 
   /**
    * Счётчик на доске — сколько задач ждут решения: сданные на ревью и
@@ -146,6 +243,13 @@ export function Hotspots3D({ spots, layout, palette, offset, onOpen, onDoor }: {
     return desks(layout, catalog).filter((d) => !busy.has(d.index));
   }, [instances, layout]);
 
+  /** Кто за каким столом — по номеру места, как сажает сервер. */
+  const occupied = useMemo(() => {
+    const map = new Map<number, InstanceView>();
+    for (const i of Object.values(instances)) if (!i.deskless) map.set(i.desk.index, i);
+    return map;
+  }, [instances]);
+
   return (
     <group position={[offset[0], 0, offset[1]]}>
       {spots.map((spot) => (
@@ -158,6 +262,17 @@ export function Hotspots3D({ spots, layout, palette, offset, onOpen, onDoor }: {
           onClick={() => (spot.kind === 'door' ? onDoor() : onOpen(spot.kind))}
         />
       ))}
+      {meetingTable && <MeetingTable item={meetingTable} onClick={() => onOpen('meeting')} />}
+      {deskItems.map((item, index) => {
+        const who = occupied.get(index);
+        if (!who) return null;
+        return (
+          <DeskSpot
+            key={`desk-${index}`} item={item} who={who}
+            onClick={() => select(selected === who.id ? null : who.id)}
+          />
+        );
+      })}
       {free.map((d) => (
         <FreeDesk key={`free-${d.index}`} at={[d.x + 1, d.y + 0.7]} />
       ))}

@@ -29,6 +29,17 @@
         "--strictPort"
       ],
       "port": 5175
+    },
+    {
+      "name": "office-dry",
+      "runtimeExecutable": "env",
+      "runtimeArgs": [
+        "OFFICE_DRY_RUN=1",
+        "npm",
+        "run",
+        "dev:3d"
+      ],
+      "port": 5174
     }
   ]
 }

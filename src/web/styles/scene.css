@@ -99,6 +99,15 @@
   border-radius: var(--radius-pill);
   min-width: 18px; padding: 0 var(--space-1); text-align: center;
 }
+/* Подсказка над занятым столом: кто сидит и что делает. Только на наведении:
+   постоянно она дублировала бы бейдж над головой. */
+.spot3d-desk {
+  white-space: nowrap; font: 500 var(--fs-small)/1.4 var(--font); color: var(--ink-2);
+  background: var(--surface); border: 1px solid var(--hairline); border-radius: var(--radius-pill);
+  padding: 2px 10px; box-shadow: var(--shadow-float);
+}
+.spot3d-desk b { color: var(--ink); font-weight: 600; }
+
 /* Метка свободного рабочего места. Приглушённая: это не действие, а
    наблюдение — за столом никто не сидит. */
 .spot3d-free {

@@ -14,12 +14,13 @@ function officeInitial(name: string): string {
   return Array.from(trimmed)[0].toUpperCase();
 }
 
-type WindowKind = 'board' | 'merge' | 'log' | 'money' | 'life' | 'flows' | 'team' | 'market' | 'settings';
+type WindowKind = 'board' | 'merge' | 'log' | 'money' | 'meetings' | 'life' | 'flows' | 'team' | 'market' | 'settings';
 const WINDOWS: Array<{ kind: WindowKind; icon: IconName }> = [
   { kind: 'board', icon: 'list-check' },
   { kind: 'merge', icon: 'git-merge' },
   { kind: 'log', icon: 'file-text' },
   { kind: 'money', icon: 'coin' },
+  { kind: 'meetings', icon: 'message' },
   { kind: 'life', icon: 'book' },
   { kind: 'flows', icon: 'grid-dots' },
   { kind: 'team', icon: 'users' },
@@ -57,7 +58,11 @@ export function Rail({ onPanel, onModal }: {
   const working = all.filter((x) => x.status === 'in_progress').length;
   const active = all.filter((x) => !['done', 'failed', 'planned'].includes(x.status)).length;
   const readyToMerge = all.filter((x) => x.status === 'done' && x.branch && !x.merged).length;
-  const counts: Partial<Record<WindowKind, number>> = { board: active, merge: readyToMerge };
+  // У совещаний счётчик — единица, пока одно идёт: это «сейчас говорят», а не число прошлых.
+  const meetingLive = useStore((s) => s.meeting?.status === 'running');
+  const counts: Partial<Record<WindowKind, number>> = {
+    board: active, merge: readyToMerge, meetings: meetingLive ? 1 : 0,
+  };
 
   // «Сегодня» — по агентам, как в HUD: общая сумма врала после перезапуска.
   const today = Object.values(instances).reduce((sum, i) => sum + i.today.costUsd, 0);
