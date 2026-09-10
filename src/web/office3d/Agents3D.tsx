@@ -33,7 +33,7 @@ import sitDownUrl from '../../../design/models/characters/animations/sit-down.fb
 import standUpUrl from '../../../design/models/characters/animations/stand-up.fbx?url';
 import sitToTypeUrl from '../../../design/models/characters/animations/sit-to-type.fbx?url';
 import typeToSitUrl from '../../../design/models/characters/animations/type-to-sit.fbx?url';
-import { deskPoint, deskSprite, desks } from '../../shared/layout';
+import { deskPoint, deskSprite, desks, FOOT_DX, FOOT_DY } from '../../shared/layout';
 import type { Layout } from '../../shared/layout';
 import { catalog } from '../layoutData';
 import { poseFit, useFit } from './fit';
@@ -70,19 +70,11 @@ const SKIN_NAMES = Object.keys(SKIN_URLS).sort();
  */
 
 /**
- * Спрайт человечка в раскладке ставится левым верхним углом (`pos` и слоты
- * `work` — это его координаты), а модель стоит ногами: по горизонтали ноги
- * приходятся на середину спрайта шириной в тайл.
- *
- * По вертикали смещение меньше высоты спрайта (1.5), и намеренно. В виде
- * сверху нижняя часть фигуры честно заезжала на стол — так и рисуют человека
- * за рабочим местом, стол просто закрывает его снизу. В объёме такой наезд
- * превращается в тело внутри столешницы, поэтому ноги ставятся туда, где у
- * плоского спрайта примерно пояс: фигура оказывается вплотную к столу, но
- * снаружи него.
+ * Где у фигуры ноги относительно якоря — из раскладки: там же считается
+ * обратное, якорь по клетке (`standingAt`). Реэкспорт — для стендов и
+ * отладочного слоя, которые рисуют ровно под ногами.
  */
-export const FOOT_DX = 0.5;
-export const FOOT_DY = 1.05;
+export { FOOT_DX, FOOT_DY };
 
 /**
  * Позы, в которых бывает агент. Сидячие и стоячие разделены не для красоты:
