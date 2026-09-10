@@ -24,7 +24,8 @@
       "on": "velvetArmchair",
       "height": null,
       "offset": [0, 0, 0],
-      "at": [0, -0.35]
+      "at": [0, -0.35],
+      "approach": ["s"]
     }
   ]
 }

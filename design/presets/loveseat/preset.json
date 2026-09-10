@@ -24,7 +24,8 @@
       "on": "loungeSofa",
       "height": null,
       "offset": [0, 0, 0],
-      "at": [0.1, -0.3]
+      "at": [0.1, -0.3],
+      "approach": ["s"]
     },
     {
       "type": "seat",
@@ -33,7 +34,8 @@
       "on": "loungeSofa",
       "height": null,
       "offset": [0, 0, 0],
-      "at": [0.9, -0.3]
+      "at": [0.9, -0.3],
+      "approach": ["s"]
     }
   ]
 }

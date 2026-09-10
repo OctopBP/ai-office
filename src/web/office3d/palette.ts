@@ -39,7 +39,7 @@ export interface Palette {
    * «служебные» — красный и бирюзовый не встречаются в обстановке, чтобы
    * оверлей читался поверх любой комнаты и не путался с мебелью.
    */
-  dev: { grid: string; blocked: string; route: string; target: string };
+  dev: { grid: string; blocked: string; route: string; target: string; entry: string };
   /** стена и её торец сверху — цвет, когда текстуры нет */
   wall: string;
   wallTop: string;
@@ -135,7 +135,7 @@ export const PALETTES: Record<Theme, Palette> = {
     floorTint: '#ffffff',
     grid: '#8b8f98',
     gridMajor: '#4d525c',
-    dev: { grid: '#1b5cff', blocked: '#e0443a', route: '#0f9b8e', target: '#e0443a' },
+    dev: { grid: '#1b5cff', blocked: '#e0443a', route: '#0f9b8e', target: '#e0443a', entry: '#f0b429' },
     wall: '#f0f2f5',
     wallTop: '#dcdfe6',
     wallTint: '#ffffff',
@@ -179,7 +179,7 @@ export const PALETTES: Record<Theme, Palette> = {
     floorTint: '#8a8f9a',
     grid: '#8d97a8',
     gridMajor: '#c6d0e0',
-    dev: { grid: '#6aa8ff', blocked: '#ff6b5e', route: '#3fd6c6', target: '#ff6b5e' },
+    dev: { grid: '#6aa8ff', blocked: '#ff6b5e', route: '#3fd6c6', target: '#ff6b5e', entry: '#ffd166' },
     wall: '#4a5464',
     wallTop: '#39424f',
     wallTint: '#8a8f9a',

@@ -55,10 +55,25 @@ function canon(v: unknown): string {
  * появилось там, где поля не было. `label` был у пяти предметов из сорока
  * двух: остальные подписи дописаны при переносе.
  *
+ * Входы (`approach` у слота) — то же самое, только позже: поля не было ни у
+ * кого, пока ходьба не научилась спрашивать, с какой стороны заходят на
+ * место. Дописанный вход — добавление; пропавший или изменившийся вход —
+ * потеря, как и любое другое расхождение слотов.
+ *
  * Всё прочее — потеря. Именно на это сверка и смотрит.
  */
-function expected(field: string, was: unknown): boolean {
-  return (field === 'footprint' || field === 'label') && was === undefined;
+function expected(field: string, was: unknown, now: unknown): boolean {
+  if ((field === 'footprint' || field === 'label') && was === undefined) return true;
+  return field === 'slots' && same(was, stripApproach(now));
+}
+
+/** Те же слоты без входов — чем они были до появления поля. */
+function stripApproach(slots: unknown): unknown {
+  if (!Array.isArray(slots)) return slots;
+  return slots.map((slot) => {
+    const { approach: _approach, ...rest } = slot as Record<string, unknown>;
+    return rest;
+  });
 }
 
 /**
@@ -115,7 +130,7 @@ function main(): void {
     for (const field of new Set([...Object.keys(was), ...Object.keys(now)])) {
       if (same(was[field], now[field])) continue;
       const line = `${id}.${field}: было ${JSON.stringify(was[field])}, стало ${JSON.stringify(now[field])}`;
-      (expected(field, was[field]) ? added : lost).push(line);
+      (expected(field, was[field], now[field]) ? added : lost).push(line);
     }
   }
 

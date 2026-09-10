@@ -73,7 +73,8 @@
           "kind": "seat",
           "x": 0,
           "y": -0.35,
-          "use": "sit"
+          "use": "sit",
+          "approach": ["s"]
         }
       ],
       "blocks": true,
@@ -155,7 +156,8 @@
         {
           "kind": "work",
           "x": 0.55,
-          "y": -1.15
+          "y": -1.15,
+          "approach": ["n", "w", "e"]
         },
         {
           "kind": "plate",
@@ -176,7 +178,8 @@
         {
           "kind": "work",
           "x": 0.55,
-          "y": -1.15
+          "y": -1.15,
+          "approach": ["n", "w", "e"]
         },
         {
           "kind": "plate",
@@ -313,13 +316,15 @@
           "kind": "seat",
           "x": 0.1,
           "y": -0.3,
-          "use": "sit"
+          "use": "sit",
+          "approach": ["s"]
         },
         {
           "kind": "seat",
           "x": 0.9,
           "y": -0.3,
-          "use": "sit"
+          "use": "sit",
+          "approach": ["s"]
         }
       ],
       "blocks": true,
@@ -403,19 +408,22 @@
           "kind": "seat",
           "x": 0.2,
           "y": 0.1,
-          "use": "game"
+          "use": "game",
+          "approach": ["s"]
         },
         {
           "kind": "seat",
           "x": 1,
           "y": 0.1,
-          "use": "game"
+          "use": "game",
+          "approach": ["s"]
         },
         {
           "kind": "seat",
           "x": 1.8,
           "y": 0.1,
-          "use": "game"
+          "use": "game",
+          "approach": ["s"]
         }
       ],
       "blocks": true,

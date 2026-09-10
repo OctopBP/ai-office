@@ -96,11 +96,24 @@ const partRef = z.string().min(1);
  * («сидеть у переднего края подушки, а не в середине предмета, где спинка»),
  * `height` — факт, который меряется по модели.
  */
+/** Стороны, с которых заходят на место: север — меньший `y`, юг — больший. */
+const approachSides = z.array(z.enum(['n', 's', 'e', 'w'])).min(1);
+
 export const seatSchema = z.strictObject({
   type: z.literal('seat'),
   shape: z.enum(['point', 'side', 'ring']),
   /** Чем на месте занимаются: у приставки играют, на свободном просто сидят. */
   use: z.enum(['sit', 'game']).optional(),
+  /**
+   * С каких сторон на место заходят и с каких с него сходят.
+   *
+   * Место лежит на самом предмете — подушка дивана это диван, — и клетка под
+   * ним занята. Без этого поля поиск пути считал годным любой заход на неё:
+   * агент садился на диван, зайдя из-за спинки или перелезши подлокотник.
+   * Стороны — в координатах предмета, поворот не учитывается (как и у
+   * `footprint`).
+   */
+  approach: approachSides.optional(),
   /** Часть, по которой мерить высоту подушки. */
   on: partRef.optional(),
   /** Перебив измеренной высоты сиденья; null — мерить. */
@@ -153,6 +166,8 @@ export const seatSchema = z.strictObject({
 export const workSchema = z.strictObject({
   type: z.literal('work'),
   at: vec2,
+  /** С каких сторон садятся за стол — обычно со всех, кроме самого стола. */
+  approach: approachSides.optional(),
   /** Часть, по которой мерить высоту сиденья. Обычно чужая — стул рядом. */
   on: partRef.optional(),
   height: z.number().nullable().optional(),
@@ -386,13 +401,14 @@ export function partName(part: Part): string {
 export function slotsOf(preset: Preset): CatalogSlot[] {
   const slots: CatalogSlot[] = [];
   for (const c of preset.components) {
-    if (c.type === 'work') slots.push({ kind: 'work', x: c.at[0], y: c.at[1] });
+    const approach = 'approach' in c && c.approach ? { approach: c.approach } : {};
+    if (c.type === 'work') slots.push({ kind: 'work', x: c.at[0], y: c.at[1], ...approach });
     else if (c.type === 'plate') slots.push({ kind: 'plate', x: c.at[0], y: c.at[1] });
     else if (c.type === 'seat') {
       if (c.shape === 'point') {
-        slots.push({ kind: 'seat', x: c.at![0], y: c.at![1], ...(c.use ? { use: c.use } : {}) });
+        slots.push({ kind: 'seat', x: c.at![0], y: c.at![1], ...(c.use ? { use: c.use } : {}), ...approach });
       } else if (c.shape === 'side') {
-        slots.push({ kind: 'seat', side: c.side!, count: c.count! });
+        slots.push({ kind: 'seat', side: c.side!, count: c.count!, ...approach });
       } else {
         slots.push({ kind: 'seat', ring: c.ring!, rx: c.rx!, ry: c.ry!, ...(c.grow ? { grow: true } : {}) });
       }

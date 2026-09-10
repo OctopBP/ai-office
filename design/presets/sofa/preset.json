@@ -24,7 +24,8 @@
       "on": "fabricSofa",
       "height": null,
       "offset": [0, 0, 0],
-      "at": [0.2, 0.1]
+      "at": [0.2, 0.1],
+      "approach": ["s"]
     },
     {
       "type": "seat",
@@ -33,7 +34,8 @@
       "on": "fabricSofa",
       "height": null,
       "offset": [0, 0, 0],
-      "at": [1, 0.1]
+      "at": [1, 0.1],
+      "approach": ["s"]
     },
     {
       "type": "seat",
@@ -42,7 +44,8 @@
       "on": "fabricSofa",
       "height": null,
       "offset": [0, 0, 0],
-      "at": [1.8, 0.1]
+      "at": [1.8, 0.1],
+      "approach": ["s"]
     }
   ]
 }

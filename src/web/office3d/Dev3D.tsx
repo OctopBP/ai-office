@@ -13,6 +13,9 @@
  *  - занятые клетки карты проходимости — красная заливка тайла. Это то, что
  *    видит `findPath`: стены и след мебели с `blocks` из каталога, и ничего
  *    больше;
+ *  - входы мест — жёлтая полоска вдоль той стороны занятой клетки, с которой
+ *    на неё разрешено заходить (диван, кресло, рабочее место). Занятая
+ *    клетка без полосок — это мебель, на которую не садятся, или стена;
  *  - маршруты — ломаная из стора (`pos[id].path`) ровно в тех точках, по
  *    которым рендер ведёт фигуру, с меткой у цели. Пройденный маршрут
  *    остаётся бледным: видно, откуда агент пришёл;
@@ -31,7 +34,7 @@ import { useMemo } from 'react';
 import * as THREE from 'three';
 import { Html, Line } from '@react-three/drei';
 import type { Layout } from '../../shared/layout';
-import { isBlocked } from '../../shared/layout';
+import { isBlocked, SIDE_BIT } from '../../shared/layout';
 import { passabilityFor } from '../layoutData';
 import { useStore } from '../store';
 import type { Palette } from './palette';
@@ -44,6 +47,7 @@ import { FOOT_DX, FOOT_DY } from './Agents3D';
  * на клетки; маршруты — над всем, они тоньше и должны читаться поверх.
  */
 const BLOCKED_Y = 0.006;
+const ENTRY_Y = 0.012;
 const ROUTE_Y = 0.02;
 
 /** Через сколько тайлов подписывать номер — в такт толстым линиям сетки. */
@@ -92,6 +96,51 @@ function BlockedCells({ layout, palette }: { layout: Layout; palette: Palette })
         side={THREE.DoubleSide}
       />
     </mesh>
+  );
+}
+
+/**
+ * Входы мест: полоска вдоль той стороны клетки, с которой на место заходят.
+ *
+ * Клетка места (подушка дивана, стул у стола) занята — на общей карте она
+ * такая же красная, как стена, и по картинке не отличить «сюда нельзя» от
+ * «сюда можно, но только отсюда». Полоска и есть тот ответ: сколько сторон
+ * подсвечено, столько входов у места и объявлено в пресете.
+ */
+function Entries({ layout, palette }: { layout: Layout; palette: Palette }) {
+  const bars = useMemo(() => {
+    const grid = passabilityFor(layout);
+    const out: { key: string; at: [number, number, number]; size: [number, number] }[] = [];
+    const thin = 0.12;
+    for (const [idx, entry] of grid.entries) {
+      const x = idx % grid.cols;
+      const y = Math.floor(idx / grid.cols);
+      for (const side of ['n', 's', 'w', 'e'] as const) {
+        if ((entry.sides & SIDE_BIT[side]) === 0) continue;
+        const horizontal = side === 'n' || side === 's';
+        out.push({
+          key: `${x},${y},${side}`,
+          at: [
+            x + (side === 'w' ? thin / 2 : side === 'e' ? 1 - thin / 2 : 0.5),
+            ENTRY_Y,
+            y + (side === 'n' ? thin / 2 : side === 's' ? 1 - thin / 2 : 0.5),
+          ],
+          size: horizontal ? [1, thin] : [thin, 1],
+        });
+      }
+    }
+    return out;
+  }, [layout]);
+
+  return (
+    <>
+      {bars.map((bar) => (
+        <mesh key={bar.key} position={bar.at} rotation={[-Math.PI / 2, 0, 0]}>
+          <planeGeometry args={bar.size} />
+          <meshBasicMaterial color={palette.dev.entry} depthWrite={false} side={THREE.DoubleSide} />
+        </mesh>
+      ))}
+    </>
   );
 }
 
@@ -172,6 +221,7 @@ export function DevOverlay({ layout, palette }: { layout: Layout; palette: Palet
   return (
     <>
       <BlockedCells layout={layout} palette={palette} />
+      <Entries layout={layout} palette={palette} />
       <Routes palette={palette} />
       <TileLabels layout={layout} />
     </>
