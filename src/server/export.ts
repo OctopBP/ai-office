@@ -35,7 +35,6 @@ export interface Scaffold {
   emoji?: string;
   look?: string;
   manager?: boolean;
-  maxInstances?: number;
   docsDir?: string;
   license?: string;
   runtime?: Partial<AgentManifest['runtime']>;
@@ -90,7 +89,6 @@ export function scaffoldPackage(dir: string, spec: Scaffold): { problems: Packag
     emoji: spec.emoji ?? '🙂',
     ...(spec.look ? { look: spec.look } : {}),
     ...(spec.manager ? { manager: true } : {}),
-    maxInstances: spec.maxInstances ?? 1,
     ...(spec.docsDir ? { docsDir: spec.docsDir } : {}),
     license: spec.license ?? '',
     runtime: {
@@ -177,7 +175,6 @@ export function scaffoldFromRole(role: Role, name: string, lang: Lang, extra: Pa
     emoji: role.emoji,
     look: role.sprite ?? '',
     manager: role.isManager,
-    maxInstances: role.maxInstances,
     docsDir: role.docsDir ?? '',
     license: pkg?.manifest.license ?? '',
     runtime: {

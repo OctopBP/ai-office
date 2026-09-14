@@ -17,7 +17,6 @@
   ],
   "color": "#6366f1",
   "emoji": "🧊",
-  "maxInstances": 1,
   "license": "MIT",
   "capabilities": [
     "design.3d"

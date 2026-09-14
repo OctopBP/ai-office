@@ -17,7 +17,6 @@
   ],
   "color": "#eab308",
   "emoji": "🖌",
-  "maxInstances": 1,
   "license": "MIT",
   "capabilities": [
     "design.sprite"

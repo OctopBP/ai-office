@@ -17,7 +17,6 @@
   ],
   "color": "#a855f7",
   "emoji": "🎨",
-  "maxInstances": 2,
   "docsDir": "docs/design",
   "license": "MIT",
   "capabilities": [

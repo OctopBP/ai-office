@@ -166,9 +166,14 @@ check('роль заведена из пакета', [lawyer?.id, lawyer?.packag
 check('источник в ссылке', lawyer?.package?.source, { repo, path: 'agents/lawyer', commit: c110 });
 check('сотрудник нанят', office.staffOf('lawyer').length, 1);
 check('бриф из пакета', lawyer?.brief, 'Ты юрист. Пиши кратко.');
+// Ещё один найм из того же пакета — второй сотрудник со своей ролью:
+// клонов внутри роли нет, и настройки одного не тянут за собой другого.
 await handleMarketCommand({ c: 'market_hire', name: '@acme/lawyer' }, office, send);
-check('повторный найм — в ту же роль', [office.roles().filter((r) => r.package?.name === '@acme/lawyer').length, office.staffOf('lawyer').length], [1, 1]);
-check('лимит клонов роли из пакета', /Роль/.test(lastOffice()) || lastOffice().length > 0, true);
+const lawyer2 = office.roles().find((r) => r.package?.name === '@acme/lawyer' && r.id !== 'lawyer');
+check('повторный найм — вторая роль из того же пакета',
+  [office.roles().filter((r) => r.package?.name === '@acme/lawyer').length, office.staffOf('lawyer').length, office.staffOf(lawyer2?.id ?? '').length],
+  [2, 1, 1]);
+check('у второго своё название и та же инструкция', [lawyer2?.title, lawyer2?.brief], ['Роль lawyer 2', 'Ты юрист. Пиши кратко.']);
 await handleMarketCommand({ c: 'market_hire', name: '@acme/nope' }, office, send);
 check('найм неустановленного — отказ текстом', /не установлен/.test(lastOffice()), true);
 // Менеджер в офисе уже есть: найм из его пакета идёт в ту же роль и
@@ -180,12 +185,14 @@ const view = await marketView(office);
 const card = view.packages.find((p) => p.name === '@acme/lawyer')!;
 check('карточка: реестр, доверие, установлен', [card.origin, card.trust, card.installed, card.version], ['registry', 'verified', true, '1.1.0']);
 check('карточка: разрешения из манифеста', [card.tools, card.env, card.network, card.servers.map((s) => s.id)], [['Read', 'Write'], ['THING_TOKEN'], true, ['thing']]);
-check('карточка: роль офиса', card.roles.map((r) => [r.id, r.version, r.builtin, r.staff]), [['lawyer', '1.1.0', false, 1]]);
+check('карточка: роли офиса', card.roles.map((r) => [r.id, r.version, r.builtin, r.staff]),
+  [['lawyer', '1.1.0', false, 1], [lawyer2?.id ?? '', '1.1.0', false, 1]]);
 // Уволили последнего — роль остаётся вакансией, и витрина это видит: staff 0.
 office.fire(office.staffOf('lawyer')[0].id);
-check('роль без сотрудников — staff 0', (await marketView(office)).packages.find((p) => p.name === '@acme/lawyer')?.roles.map((r) => r.staff), [0]);
+check('роль без сотрудников — staff 0', (await marketView(office)).packages.find((p) => p.name === '@acme/lawyer')?.roles.map((r) => r.staff), [0, 1]);
+// Открытая вакансия закрывается наймом, а не превращается в третью роль.
 await handleMarketCommand({ c: 'market_hire', name: '@acme/lawyer' }, office, send);
-check('найм обратно — в ту же роль', [office.roles().filter((r) => r.package?.name === '@acme/lawyer').length, office.staffOf('lawyer').length], [1, 1]);
+check('найм обратно — в пустую вакансию', [office.roles().filter((r) => r.package?.name === '@acme/lawyer').length, office.staffOf('lawyer').length], [2, 1]);
 check('карточка по ссылке помечена', view.packages.find((p) => p.name === '@acme/other')?.trust, 'link');
 check('встроенный менеджер на витрине', view.packages.find((p) => p.name === '@office/pm')?.origin, 'builtin');
 check('неустановленный из реестра — без подробностей', view.packages.find((p) => p.name === '@acme/lawyer')?.installed, true);
@@ -204,7 +211,7 @@ check('добавление по ссылке — установлено', listC
 // Обновление: откатываем роль на 1.0.0 и просим обновить.
 const back = await installFromGit({ repo, path: 'agents/lawyer', commit: c100 }, cache, 'ru');
 if (back.ok) office.updateRolePackage('lawyer', back.pkg, { repo, path: 'agents/lawyer', commit: c100 });
-office.updateRole('lawyer', { maxInstances: 2, briefExtra: 'Наш стек: Node.' });
+office.updateRole('lawyer', { model: 'claude-haiku-4-5', briefExtra: 'Наш стек: Node.' });
 check('роль откачена на 1.0.0', [office.role('lawyer')?.package?.version, office.role('lawyer')?.tools], ['1.0.0', ['Read']]);
 await handleMarketCommand({ c: 'market_check' }, office, send);
 check('проверка нашла обновление', /новая версия есть у 1/.test(lastOffice()), true);
@@ -213,7 +220,7 @@ check('витрина показывает, до чего обновлять', c
 await handleMarketCommand({ c: 'market_update', roleId: 'lawyer' }, office, send);
 const updated = office.role('lawyer')!;
 check('роль обновлена до 1.1.0', [updated.package?.version, updated.tools, updated.package?.source?.commit], ['1.1.0', ['Read', 'Write'], c110]);
-check('оверрайд и приписка пережили обновление', [updated.maxInstances, updated.brief], [2, 'Ты юрист. Пиши кратко.\n\nНаш стек: Node.']);
+check('оверрайд и приписка пережили обновление', [updated.model, updated.brief], ['claude-haiku-4-5', 'Ты юрист. Пиши кратко.\n\nНаш стек: Node.']);
 await handleMarketCommand({ c: 'market_update', roleId: 'pm' }, office, send);
 check('встроенный не обновляется отдельно', /встроенный/.test(lastOffice()), true);
 await handleMarketCommand({ c: 'market_update', roleId: 'lawyer' }, office, send);
@@ -231,8 +238,11 @@ const before = office.settings.focusEpics;
 await handleMarketCommand({ c: 'market_hire', name: '@office/squad' }, office, send);
 check('команду не нанять как агента', /команда/.test(lastOffice()), true);
 await handleMarketCommand({ c: 'market_hire_team', name: '@office/squad' }, office, send);
-check('команда: юристов стало двое, other нанят, ghost не нашёлся',
-  [office.staffOf('lawyer').length, office.staffOf('other').length, /ghost/.test(lastOffice()), /нанято/.test(lastOffice())], [2, 1, true, true]);
+// `count: 2` — это «в офисе двое», а не «добавить двоих»: оба юриста уже
+// работают, и команда никого не добирает, только ставит недостающих.
+check('команда: юристов по-прежнему двое, other нанят, ghost не нашёлся',
+  [office.roles().filter((r) => r.package?.name === '@acme/lawyer').length,
+    office.staffOf('other').length, /ghost/.test(lastOffice()), /нанято/.test(lastOffice())], [2, 1, true, true]);
 check('команда: настройки из белого списка применены', [office.settings.autoPipeline, office.settings.focusEpics, before], [false, 3, 2]);
 check('команда: менеджер остался один', office.roles().filter((r) => r.isManager).length, 1);
 const teamCard = (await marketView(office)).packages.find((p) => p.name === '@office/squad')!;

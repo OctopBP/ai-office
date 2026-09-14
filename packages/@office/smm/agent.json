@@ -16,7 +16,6 @@
   ],
   "color": "#14b8a6",
   "emoji": "📣",
-  "maxInstances": 2,
   "docsDir": "docs/smm",
   "license": "MIT",
   "capabilities": [

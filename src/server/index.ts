@@ -299,9 +299,13 @@ wss.on('connection', (ws) => {
       // ровно то, от чего офис и должен избавлять.
       retryPipeline(state, cmd.taskId);
     } else if (cmd.c === 'spawn' || cmd.c === 'hire') {
-      // Наём: и первый сотрудник в пустую роль, и очередной клон — одно и то же
-      // действие, отличается только тем, сколько народу в роли уже сидит.
+      // Наём в роль: сотрудник в ней один, и это закрытие вакансии.
       const problem = state.hire(cmd.roleId);
+      if (problem) state.addChat(OFFICE_SENDER, problem);
+    } else if (cmd.c === 'hire_copy') {
+      // «Ещё одного такого же»: отдельный сотрудник с теми же настройками —
+      // офис заводит ему свою роль из того же пакета.
+      const problem = state.hireCopy(cmd.roleId);
       if (problem) state.addChat(OFFICE_SENDER, problem);
     } else if (cmd.c === 'fire') {
       const problem = state.fire(cmd.instanceId);

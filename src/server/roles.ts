@@ -2,6 +2,7 @@
 export type { PermissionMode } from '../shared/types';
 import type { PermissionMode, RoleEditable } from '../shared/types';
 import { DEFAULT_LANG, type Lang } from '../shared/i18n';
+import { ROLE_TITLE_LIMIT } from '../shared/types';
 import type { Capability } from '../shared/workflow';
 import {
   defaultTeam, loadPackage, OFFICIAL_SCOPE, packageBrief, packageModel, packageTitle,
@@ -15,7 +16,6 @@ export interface Role {
   emoji: string;
   model: string;
   isManager: boolean;
-  maxInstances: number;
   /** null — своего режима у роли нет, берётся режим офиса. */
   permissionMode: PermissionMode | null;
   /** Работать в отдельном git worktree на задачу (для ролей, меняющих код). */
@@ -118,11 +118,24 @@ export interface RoleLink {
   overrides: LinkOverrides;
   /** Приписка к брифу пакета снизу. */
   briefExtra: string;
+  /**
+   * Какая это по счёту роль из этого пакета в офисе. 1 или нет поля —
+   * первая. Номер уезжает в название («Бэкенд 2»), чтобы двух одинаковых
+   * сотрудников можно было различить в списке, и живёт в ссылке, а не в
+   * названии: название пакета переводится вместе с языком офиса, а номер —
+   * нет. Человек, переименовавший сотрудника, кладёт своё название в
+   * оверрайды, и оно сильнее.
+   */
+  copy?: number;
 }
+
+/** Название роли с номером копии: вторая и следующие подписаны номером. */
+export const copyTitle = (title: string, copy: number | undefined): string =>
+  (copy && copy > 1 ? `${title} ${copy}` : title);
 
 /** Поля, по которым считается разница роли с пакетом. */
 export const OVERRIDABLE_KEYS: readonly (keyof LinkOverrides)[] = [
-  'title', 'emoji', 'color', 'model', 'permissionMode', 'maxInstances', 'isolate',
+  'title', 'emoji', 'color', 'model', 'permissionMode', 'isolate',
   'maxTurns', 'repoDir', 'sprite', 'mcp', 'capabilities',
 ];
 
@@ -152,15 +165,15 @@ export function roleFromPackage(pkg: AgentPackage, lang: Lang, id: string, link?
     ...(link?.source ? { source: { ...link.source } } : {}),
     overrides: { ...(link?.overrides ?? {}) },
     briefExtra: link?.briefExtra ?? '',
+    ...(link?.copy && link.copy > 1 ? { copy: link.copy } : {}),
   };
   const base: Role = {
     id,
-    title: packageTitle(pkg, lang),
+    title: copyTitle(packageTitle(pkg, lang), ref.copy),
     color: m.color,
     emoji: m.emoji,
     model: packageModel(pkg),
     isManager: m.manager,
-    maxInstances: m.maxInstances,
     permissionMode: m.runtime.permissionMode,
     isolate: m.runtime.isolate,
     maxTurns: m.runtime.maxTurns,
@@ -282,6 +295,21 @@ export function newRoleId(title: string, taken: Iterable<string>): string {
 }
 
 /**
+ * Свободное название для ещё одного такого же сотрудника: «Аналитик 2».
+ * Названия в офисе не повторяются — по ним человек различает людей в списке,
+ * а менеджер выбирает исполнителя. Хвостовой номер у исходного названия
+ * снимается, чтобы копия копии не звалась «Аналитик 2 2».
+ */
+export function newRoleTitle(title: string, taken: Iterable<string>): string {
+  const busy = new Set([...taken].map((x) => x.trim().toLowerCase()));
+  const base = (title.replace(/\s+\d+$/, '').trim() || title.trim()).slice(0, ROLE_TITLE_LIMIT - 4);
+  for (let n = 2; ; n += 1) {
+    const candidate = `${base} ${n}`;
+    if (!busy.has(candidate.toLowerCase())) return candidate;
+  }
+}
+
+/**
  * Набор ролей по умолчанию на заданном языке — с него начинается новый офис.
  * Это наши пакеты из каталога по умолчанию (`packages/default-office.json`),
  * каждый — роль без оверрайдов. Каждый вызов читает диск и отдаёт свежие
@@ -323,7 +351,6 @@ export const blankRole = (id: string): Role => ({
   emoji: '🙂',
   model: 'claude-sonnet-5',
   isManager: false,
-  maxInstances: 1,
   permissionMode: null,
   isolate: true,
   brief: '',

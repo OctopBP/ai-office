@@ -74,7 +74,7 @@ office.updateRole('backend', { briefExtra: 'Стек: Fastify.', model: 'claude-
 const exported = exportRole(office.role('backend')!, '@alice/backend', '', projectDir, 'ru');
 check('экспорт привязанной роли', exported.ok && exported.dir, resolve(projectDir, 'agents/backend'));
 const expPkg = exported.ok ? readPackage(exported.dir).pkg : null;
-check('манифест из роли: модель алиасом, инструменты, мощность', [expPkg?.manifest.runtime.model, expPkg?.manifest.maxInstances], ['haiku', 3]);
+check('манифест из роли: модель алиасом и внешность', [expPkg?.manifest.runtime.model, expPkg?.manifest.look], ['haiku', office.role('backend')!.sprite ?? '']);
 check('бриф целиком с припиской', expPkg?.briefs.ru, `${office.role('backend')!.brief}`);
 check('ссылки на исходный пакет в экспорте нет', JSON.stringify(readFileSync(resolve(projectDir, 'agents/backend/agent.json'), 'utf8')).includes('@office/backend'), false);
 check('повторный экспорт в ту же папку — отказ', exportRole(office.role('backend')!, '@alice/backend', '', projectDir, 'ru').ok, false);

@@ -1169,8 +1169,16 @@ export function mergeBadge(t: TaskView, step: MergeStep | undefined, check: Merg
   return { label: mergeCheckLabel(check.state), cls: MERGE_CHECK_CLASS[check.state] };
 }
 
-export function hire(roleId: string): void {
-  socket?.send(JSON.stringify({ c: 'spawn', roleId }));
+/**
+ * Нанять ещё одного такого же: офис заведёт отдельного сотрудника с теми же
+ * настройками — своя роль из того же пакета, своё имя и своя внешность.
+ *
+ * Первого сотрудника в роль команда `spawn` уже не шлёт ниоткуда: роль без
+ * людей в списке команды не показывается, и найм в неё идёт из маркета —
+ * там же, где нанимают и всех остальных (`marketHire`).
+ */
+export function hireCopy(roleId: string): void {
+  socket?.send(JSON.stringify({ c: 'hire_copy', roleId }));
 }
 
 export function fire(instanceId: string): void {

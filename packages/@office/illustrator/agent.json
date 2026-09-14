@@ -17,7 +17,6 @@
   ],
   "color": "#84cc16",
   "emoji": "🖼",
-  "maxInstances": 2,
   "license": "MIT",
   "capabilities": [
     "image.generate"

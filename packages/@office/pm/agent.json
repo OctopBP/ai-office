@@ -17,7 +17,6 @@
   "color": "#f0b429",
   "emoji": "📋",
   "manager": true,
-  "maxInstances": 1,
   "license": "MIT",
   "capabilities": [
     "plan",

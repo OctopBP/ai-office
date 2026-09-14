@@ -12,9 +12,7 @@ import { Icon } from './icons';
 import { LookPicker } from './office3d/LookPicker';
 import { lookById, LOOKS } from '../shared/looks';
 import type { PermissionMode, RoleDraft, RoleEditable, RoleView } from '../shared/types';
-import {
-  MAX_ROLE_INSTANCES, MAX_TASK_MAX_TURNS, MIN_ROLE_INSTANCES, MIN_TASK_MAX_TURNS,
-} from '../shared/types';
+import { MAX_TASK_MAX_TURNS, MIN_TASK_MAX_TURNS } from '../shared/types';
 
 const MODEL_IDS = ['claude-opus-5', 'claude-sonnet-5', 'claude-haiku-4-5'] as const;
 
@@ -34,7 +32,7 @@ const modes = (): Array<[PermissionMode, string]> => [
 /** Черновик новой роли — умолчания, с которых стартует форма создания. */
 const BLANK: RoleEditable = {
   title: '', emoji: '🙂', color: '#94a3b8', model: 'claude-sonnet-5',
-  permissionMode: null, maxInstances: 1, isolate: true, maxTurns: null,
+  permissionMode: null, isolate: true, maxTurns: null,
   repoDir: '', sprite: LOOKS[0].id, brief: '', briefExtra: '', mcp: [], capabilities: [],
 };
 
@@ -221,22 +219,13 @@ export function RoleEditor({ role, onSaved, onDeleted }: {
         </div>
       )}
 
-      <div className="row2">
-        <label>{t('role.maxClones')}
-          <input
-            type="number" min={MIN_ROLE_INSTANCES} max={MAX_ROLE_INSTANCES} value={value.maxInstances}
-            onChange={(e) => set('maxInstances', Math.max(MIN_ROLE_INSTANCES, Number(e.target.value)))}
-          />
-          {errFor('maxInstances') && <span className="hint error">{errFor('maxInstances')}</span>}
-        </label>
-        <label className="checkbox">
-          <input
-            type="checkbox" checked={value.isolate}
-            onChange={(e) => set('isolate', e.target.checked)}
-          />
-          {t('role.isolate')}
-        </label>
-      </div>
+      <label className="checkbox">
+        <input
+          type="checkbox" checked={value.isolate}
+          onChange={(e) => set('isolate', e.target.checked)}
+        />
+        {t('role.isolate')}
+      </label>
 
       <label>{t('settings.limits.turns')}
         <input
@@ -412,4 +401,4 @@ export function RoleEditor({ role, onSaved, onDeleted }: {
 }
 
 /** Спрайт для предпросмотра в списке ролей — тот же выбор, что и в комнате. */
-export const roleAvatarSprite = (r: RoleView): string => agentSpriteName(r.id, r.id, r.sprite);
+export const roleAvatarSprite = (r: RoleView): string => agentSpriteName(r.id, r.sprite);

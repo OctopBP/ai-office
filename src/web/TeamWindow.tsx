@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { clearTeamRequest, fire, hire, useStore } from './store';
+import { clearTeamRequest, fire, hireCopy, useStore } from './store';
 import { RoleEditor } from './RoleEditor';
 import { EmployeeCard } from './EmployeeCard';
 import { RoleReport } from './RoleReport';
@@ -25,9 +25,9 @@ type Selection =
  * здесь — отдельная точка входа из шапки.
  *
  * Здесь только те, кто в офисе есть: роль без сотрудников (сервер держит её
- * как открытую вакансию) в списке не показывается. Новые роли и первые
- * сотрудники в них приходят через маркет, отсюда — только клоны в уже
- * занятые роли.
+ * как открытую вакансию) в списке не показывается. Новые сотрудники приходят
+ * через маркет; отсюда можно нанять ещё одного такого же — он придёт своей
+ * ролью из того же пакета, с теми же настройками и своим именем.
  */
 export function TeamWindow({ onClose, onMarket }: { onClose: () => void; onMarket: () => void }) {
   const roles = useStore((s) => s.roles);
@@ -44,7 +44,7 @@ export function TeamWindow({ onClose, onMarket }: { onClose: () => void; onMarke
   // открытие окна не залипало на той же роли.
   useEffect(() => { if (teamRequest) clearTeamRequest(); }, []);
 
-  const doHire = (roleId: string) => { markPending(); hire(roleId); };
+  const doHireCopy = (roleId: string) => { markPending(); hireCopy(roleId); };
   const doFire = (instanceId: string) => { markPending(); fire(instanceId); };
 
   const deskTotal = desks(layout, catalog).length;
@@ -96,11 +96,11 @@ export function TeamWindow({ onClose, onMarket }: { onClose: () => void; onMarke
             <div className="team-list">
               {sorted.map((r) => {
                 const members = membersOf(r.id);
-                const canHire = !r.isManager && !r.archived && r.active < r.maxInstances;
+                const canHire = !r.isManager && !r.archived;
                 const hireTitle = r.isManager
-                  ? t('team.pmNoClone')
+                  ? t('team.pmNoCopy')
                   : r.archived ? t('team.archivedRole')
-                  : canHire ? t('team.hireOne') : t('team.hireLimit');
+                  : t('team.hireOne');
                 const roleSelected = selection?.kind === 'role' && selection.id === r.id;
 
                 return (
@@ -115,10 +115,9 @@ export function TeamWindow({ onClose, onMarket }: { onClose: () => void; onMarke
                         <span className="muted mono"> {r.model.replace('claude-', '')}</span>
                         {r.archived && <span className="perm-badge">{t('team.archived')}</span>}
                       </span>
-                      <span className="muted">{r.active}/{r.maxInstances}</span>
                       <button
                         className="mini" disabled={!canHire} title={hireTitle}
-                        onClick={(e) => { e.stopPropagation(); doHire(r.id); }}
+                        onClick={(e) => { e.stopPropagation(); doHireCopy(r.id); }}
                       >
                         {t('team.hire')}
                       </button>

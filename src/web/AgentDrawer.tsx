@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import {
-  accessLabel, permissionSourceLabel, assignDirect, effectivePermissionMode, fire, hire,
+  accessLabel, permissionSourceLabel, assignDirect, effectivePermissionMode, fire, hireCopy,
   mergeTask, openLayoutSettings, permissionSource, requestTeamRole, retryTask, setAgentPermission,
   showDiff, stopTask, useStore, fullAccessWarning,
 } from './store';
@@ -285,8 +285,8 @@ export function AgentDrawer() {
           <Icon name="message" size={16} /> {t('drawer.talk')}
         </button>
         {role && !role.isManager && (
-          <button disabled={role.active >= role.maxInstances} onClick={() => hire(inst.roleId)}>
-            <Icon name="copy" size={16} /> {t('drawer.clone')}
+          <button title={t('drawer.hireCopy.hint')} onClick={() => hireCopy(inst.roleId)}>
+            <Icon name="copy" size={16} /> {t('drawer.hireCopy')}
           </button>
         )}
         {current && (

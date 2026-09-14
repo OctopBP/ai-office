@@ -17,12 +17,12 @@ import {
   dayKey, emptyUsage, DEFAULT_RITUAL_LIMIT, DEFAULT_RITUAL_POLICY,
   DEFAULT_INITIATIVE_MODE, DEFAULT_INITIATIVE_SHARE, HEALTH_DIRECTION, INITIATIVE_MODES,
   MAX_INITIATIVE_SHARE, MIN_INITIATIVE_SHARE,
-  DEFAULT_OFFICE_WORKERS, MAX_OFFICE_WORKERS, MAX_ROLE_INSTANCES, MAX_TASK_MAX_TURNS,
-  MIN_OFFICE_WORKERS, MIN_ROLE_INSTANCES, MIN_TASK_MAX_TURNS, ROLE_TITLE_LIMIT,
+  DEFAULT_OFFICE_WORKERS, MAX_HIRE_COUNT, MAX_OFFICE_WORKERS, MAX_TASK_MAX_TURNS,
+  MIN_OFFICE_WORKERS, MIN_TASK_MAX_TURNS, ROLE_TITLE_LIMIT,
   DEFAULT_FOCUS_EPICS, MAX_FOCUS_EPICS, MIN_FOCUS_EPICS,
 } from '../shared/types';
 import { isBlocked, isEmptyOverride, passability } from '../shared/layout';
-import { isLookId } from '../shared/looks';
+import { isLookId, LOOKS } from '../shared/looks';
 import { asLang, DEFAULT_LANG, isLang, type Lang, type Vars, LANG_TITLE } from '../shared/i18n';
 import {
   CHECK_NAME_RE, TASK_TYPES, emptyFlowMemory, isCapability, typeForCapabilities,
@@ -49,12 +49,12 @@ import { employeeServers } from './skills';
 import { effectiveMode, isPermissionMode, modeLabel } from './permissions';
 import type { MessageQueue } from './queue';
 import {
-  basePackageName, blankRole, defaultRole, defaultRoles, newRoleId, OVERRIDABLE_KEYS,
-  roleFromPackage, roleIdFor, rolesFromOverrides, sameValue, withManagerRole,
-  type PackageSource, type Role, type RoleLink,
+  basePackageName, blankRole, defaultRole, defaultRoles, newRoleId, newRoleTitle,
+  OVERRIDABLE_KEYS, roleFromPackage, roleIdFor, rolesFromOverrides, sameValue, withManagerRole,
+  type LinkOverrides, type PackageSource, type Role, type RoleLink,
 } from './roles';
 import {
-  loadPackage, packageBrief, PACKAGE_NAME_RE, resolvePackage, type AgentPackage,
+  loadPackage, packageBrief, packageTitle, PACKAGE_NAME_RE, resolvePackage, type AgentPackage,
 } from './packages';
 import {
   DEFAULT_STATE_FILE, flush as flushFile, load, save, wipe as wipeFile,
@@ -227,7 +227,7 @@ export function onRoleSetChanged(fn: (state: OfficeState) => void): void {
  * `archived` и `isManager` — архивация и второй менеджер в обход проверок.
  */
 const ROLE_EDITABLE_KEYS: readonly (keyof RoleEditable)[] = [
-  'title', 'emoji', 'color', 'model', 'permissionMode', 'maxInstances',
+  'title', 'emoji', 'color', 'model', 'permissionMode',
   'isolate', 'maxTurns', 'repoDir', 'sprite', 'brief', 'briefExtra', 'mcp', 'capabilities',
 ];
 
@@ -290,6 +290,10 @@ function sanitizeLink(raw: unknown): RoleLink | null {
     ...(source ? { source } : {}),
     overrides: { ...overrides },
     briefExtra: typeof link.briefExtra === 'string' ? link.briefExtra : '',
+    // Номер копии — часть названия сотрудника, и без него «Бэкенд 2» после
+    // перезапуска снова стал бы «Бэкендом», неотличимым от первого.
+    ...(typeof link.copy === 'number' && Number.isFinite(link.copy) && link.copy > 1
+      ? { copy: Math.floor(link.copy) } : {}),
   };
 }
 
@@ -371,9 +375,6 @@ function sanitizeRole(raw: Partial<Role>, id: string, lang: Lang): Role {
     emoji: text(raw.emoji) ?? base.emoji,
     model: text(raw.model) ?? base.model,
     isManager: typeof raw.isManager === 'boolean' ? raw.isManager : base.isManager,
-    maxInstances: typeof raw.maxInstances === 'number' && Number.isFinite(raw.maxInstances)
-      ? Math.max(0, Math.floor(raw.maxInstances))
-      : base.maxInstances,
     // null у режима законен — «как в офисе», поэтому отличаем его от мусора.
     permissionMode: mode === null || isPermissionMode(mode) ? mode : base.permissionMode,
     isolate: typeof raw.isolate === 'boolean' ? raw.isolate : base.isolate,
@@ -483,6 +484,15 @@ function trimJournal(journal: Record<string, Usage>): void {
     delete journal[day];
   }
 }
+
+/**
+ * Подпись сотрудника в офисе — название его роли. Номер приписывается только
+ * второму и следующим в одной роли: у новых офисов сотрудник в роли один, а
+ * такие пары остались в сохранениях времён клонов, и одинаковых подписей в
+ * комнате быть не должно.
+ */
+const labelFor = (title: string, n: number | string): string =>
+  (Number(n) > 1 ? `${title} #${n}` : title);
 
 export interface Instance {
   id: string;
@@ -1458,7 +1468,7 @@ export class OfficeState {
     this.instances.set(pi.id, {
       id: pi.id,
       roleId: pi.roleId,
-      label: `${role.title}${role.maxInstances > 1 ? ` #${n}` : ''}`,
+      label: labelFor(role.title, n),
       // Координаты безместного поправит resyncDesks — он же знает, какие
       // клетки уже заняты соседями. Габарит у такого места 1×1: стола за ним
       // нет, а человечек занимает ровно одну клетку, на которую его поставят.
@@ -1781,11 +1791,16 @@ export class OfficeState {
     return n;
   }
 
+  /**
+   * Нанять сотрудника в роль. Сотрудник в роли один: второй такой же — это
+   * вторая роль из того же пакета (`hireCopy`), со своим именем, внешностью
+   * и настройками. null — сажать некуда: в роли уже есть человек или в
+   * раскладке не осталось свободных столов.
+   */
   spawn(roleId: string): Instance | null {
     const role = this.role(roleId);
     if (!role) return null;
-    const existing = this.staffOf(roleId);
-    if (existing.length >= role.maxInstances) return null;
+    if (this.staffOf(roleId).length) return null;
     // PM всегда садится за свой стол, остальные — на любой свободный.
     // Стол PM закреплён раскладкой этого офиса, а не общим на процесс числом.
     const plan = this.deskPlan();
@@ -1796,7 +1811,7 @@ export class OfficeState {
     const inst: Instance = {
       id: `${roleId}#${n}`,
       roleId,
-      label: `${role.title}${role.maxInstances > 1 ? ` #${n}` : ''}`,
+      label: labelFor(role.title, n),
       desk,
       // Нанимают только когда стол нашёлся: `spawn` без места возвращает null.
       deskless: false,
@@ -2286,7 +2301,7 @@ export class OfficeState {
     const officeMode = this.officeMode();
     return this.roles().map<RoleView>((r) => ({
       id: r.id, title: r.title, emoji: r.emoji, color: r.color, model: r.model,
-      permissionMode: r.permissionMode, maxInstances: r.maxInstances,
+      permissionMode: r.permissionMode,
       isolate: r.isolate, maxTurns: r.maxTurns ?? null,
       repoDir: r.repoDir ?? '', sprite: r.sprite ?? '', brief: r.brief,
       briefExtra: r.package?.briefExtra ?? '',
@@ -2408,23 +2423,6 @@ export class OfficeState {
     if ('model' in patch && !MODEL_RE.test(String(patch.model ?? ''))) {
       errors.push({ field: 'model', message: this.say('state.role.noModel') });
     }
-    if ('maxInstances' in patch) {
-      const n = patch.maxInstances;
-      if (typeof n !== 'number' || !Number.isFinite(n)
-          || Math.floor(n) < MIN_ROLE_INSTANCES || Math.floor(n) > MAX_ROLE_INSTANCES) {
-        errors.push({
-          field: 'maxInstances',
-          message: this.say('state.role.instancesRange', {
-            min: MIN_ROLE_INSTANCES, max: MAX_ROLE_INSTANCES,
-          }),
-        });
-      } else if (roleId && Math.floor(n) < this.staffOf(roleId).length) {
-        errors.push({
-          field: 'maxInstances',
-          message: this.say('state.role.instancesBelowStaff', { n: this.staffOf(roleId).length }),
-        });
-      }
-    }
     if ('maxTurns' in patch && sanitizeMaxTurns(patch.maxTurns) === undefined) {
       errors.push({
         field: 'maxTurns',
@@ -2472,7 +2470,6 @@ export class OfficeState {
       color: text(draft.color) ?? '#94a3b8',
       model: text(draft.model) ?? DEFAULT_ROLE_MODEL,
       permissionMode: draft.permissionMode ?? null,
-      maxInstances: typeof draft.maxInstances === 'number' ? Math.floor(draft.maxInstances) : 1,
       isolate: draft.isolate !== false,
       // Новая роль без подписки — это роль без внешних инструментов: умолчания
       // по id заведены для базовых ролей, а у заведённой руками его нет.
@@ -2497,7 +2494,6 @@ export class OfficeState {
       emoji: wanted.emoji,
       model: wanted.model,
       isManager: false,          // менеджер в офисе один, и он уже есть
-      maxInstances: wanted.maxInstances,
       permissionMode: wanted.permissionMode,
       isolate: wanted.isolate,
       maxTurns: wanted.maxTurns,
@@ -2610,20 +2606,63 @@ export class OfficeState {
   }
 
   /**
-   * Нанять из пакета: роль плюс первый сотрудник. Роль из этого пакета в
-   * офисе уже есть и не в архиве — нанимаем в неё ещё одного, новой роли не
-   * плодим. Иначе заводим роль с id по имени пакета (занятый id получает
-   * суффикс) и без оверрайдов: то, что в пакете, и есть умолчание.
+   * Некуда посадить нового сотрудника — готовый текст отказа; null — место
+   * есть. Спрашивается ДО того, как завести роль: иначе «нанять ещё одного»
+   * в полном офисе оставляло бы после себя роль без человека.
+   */
+  private noDeskProblem(): string | null {
+    return this.freeDesk() ? null : this.say('state.hire.noDesk', {
+      preset: layoutTitle(this.settings.layoutId, this.lang()),
+      desks: this.deskPlan().desks.length,
+    });
+  }
+
+  /**
+   * Внешность, которой в офисе ещё ни у кого нет. null — все разобраны, и
+   * тогда второй такой же сотрудник выйдет на одно лицо с первым, пока
+   * человек не выберет ему внешность сам.
+   */
+  private freeLook(): string | null {
+    const taken = new Set(this.roleList.map((r) => r.sprite).filter(Boolean));
+    return LOOKS.find((l) => !taken.has(l.id))?.id ?? null;
+  }
+
+  /**
+   * Нанять из пакета: роль плюс сотрудник в неё. Роль из этого пакета уже
+   * есть, но пустая — это открытая вакансия, и найм закрывает её, а не
+   * плодит вторую такую же. Иначе заводится ЕЩЁ ОДНА роль из того же пакета:
+   * клонов внутри роли нет, второй программист — это отдельный сотрудник со
+   * своим номером в названии, своей внешностью и своими настройками, и
+   * правка одного не трогает другого.
+   *
    * Возвращает причину отказа готовым текстом или null.
    */
   hireFromPackage(pkg: AgentPackage, source: PackageSource | null): string | null {
-    const existing = this.roleList.find((r) => r.package?.name === pkg.name && !r.archived);
-    if (existing) return this.hire(existing.id);
+    const fromPackage = this.roleList.filter((r) => r.package?.name === pkg.name && !r.archived);
+    const vacancy = fromPackage.find((r) => this.staffOf(r.id).length === 0);
+    if (vacancy) return this.hire(vacancy.id);
     if (pkg.manifest.manager) return this.say('market.managerTaken', { name: pkg.name });
+    if (fromPackage.length >= MAX_HIRE_COUNT) {
+      return this.say('state.hire.copies', { title: packageTitle(pkg, this.lang()), max: MAX_HIRE_COUNT });
+    }
+    const noDesk = this.noDeskProblem();
+    if (noDesk) return noDesk;
     const before = this.roleMenuSignature();
     const id = newRoleId(roleIdFor(pkg.name), this.roleList.map((r) => r.id));
+    // Номер копии — по самому большому из занятых, а не по количеству ролей:
+    // уволь и убери «Бэкенда 2», и следующий получил бы то же название, что
+    // уже лежит в истории задач.
+    const copy = fromPackage.reduce((max, r) => Math.max(max, r.package?.copy ?? 1), 0) + 1;
+    const overrides: LinkOverrides = {};
+    // Второму такому же — другая внешность: двух одинаковых человечков в
+    // комнате не различить. Это правка поверх пакета, и человек её поменяет.
+    if (copy > 1) {
+      const look = this.freeLook();
+      if (look) overrides.sprite = look;
+    }
     const link: RoleLink = {
-      name: pkg.name, version: pkg.version, ...(source ? { source } : {}), overrides: {}, briefExtra: '',
+      name: pkg.name, version: pkg.version, ...(source ? { source } : {}),
+      overrides, briefExtra: '', ...(copy > 1 ? { copy } : {}),
     };
     const role = roleFromPackage(pkg, this.lang(), id, link);
     this.roleList = [...this.roleList, role];
@@ -2632,6 +2671,43 @@ export class OfficeState {
     }));
     this.roleSetChanged(before);
     return this.hire(id);
+  }
+
+  /**
+   * Нанять ещё одного такого же. Роль из пакета — ещё одна роль из того же
+   * пакета; роль, заведённая руками, — копия её настроек. В обоих случаях
+   * это отдельный сотрудник: настройки те же, а название, внешность и
+   * дальнейшие правки — свои, и первого они не касаются.
+   */
+  hireCopy(roleId: string): string | null {
+    const role = this.role(roleId);
+    if (!role) return this.say('state.role.missing', { role: roleId });
+    if (role.isManager) return this.say('state.hire.pmCopy');
+    if (role.package) {
+      const pkg = resolvePackage(role.package);
+      // Пакета на диске нет — считать роль заново не из чего, а копировать
+      // её сохранённые поля значило бы завести подделку, которая не получит
+      // ни обновлений, ни брифа пакета.
+      if (!pkg) return this.say('state.hire.copyNoPackage', { name: role.package.name });
+      return this.hireFromPackage(pkg, role.package.source ?? null);
+    }
+    const noDesk = this.noDeskProblem();
+    if (noDesk) return noDesk;
+    const before = this.roleMenuSignature();
+    const title = newRoleTitle(role.title, this.roleList.map((r) => r.title));
+    const copy: Role = {
+      ...role,
+      id: newRoleId(title, this.roleList.map((r) => r.id)),
+      title,
+      sprite: this.freeLook() ?? role.sprite,
+      archived: false,
+    };
+    this.roleList = [...this.roleList, copy];
+    this.addLog(null, 'system', this.say('state.role.copied', {
+      title: copy.title, id: copy.id, from: role.title,
+    }));
+    this.roleSetChanged(before);
+    return this.hire(copy.id);
   }
 
   /**
@@ -2768,7 +2844,7 @@ export class OfficeState {
       if (inst.roleId !== roleId) continue;
       const role = this.role(roleId)!;
       const n = inst.id.split('#')[1] ?? '1';
-      inst.label = `${role.title}${role.maxInstances > 1 ? ` #${n}` : ''}`;
+      inst.label = labelFor(role.title, n);
       this.emit({ t: 'instance', instance: this.instanceView(inst) });
     }
     this.addLog(null, 'system',
@@ -2940,7 +3016,7 @@ export class OfficeState {
       const role = this.role(inst.roleId);
       if (!role) continue;
       const n = inst.id.split('#')[1] ?? '1';
-      inst.label = `${role.title}${role.maxInstances > 1 ? ` #${n}` : ''}`;
+      inst.label = labelFor(role.title, n);
       this.emit({ t: 'instance', instance: this.instanceView(inst) });
     }
     this.emit({ t: 'roles', roles: this.roleViews() });
@@ -3001,12 +3077,9 @@ export class OfficeState {
     if (role.archived) {
       return this.say('state.hire.archived', { title: role.title });
     }
-    const staff = this.staffOf(roleId);
-    if (staff.length >= role.maxInstances) {
-      return this.say('state.hire.full', {
-        title: role.title, n: staff.length, max: role.maxInstances,
-      });
-    }
+    // В роли один сотрудник. Второго такого же заводит `hireCopy` — он
+    // придёт отдельной ролью, со своим названием и внешностью.
+    if (this.staffOf(roleId).length) return this.say('state.hire.taken', { title: role.title });
     const inst = this.spawn(roleId);
     if (!inst) {
       // Верхняя граница штата — число столов в раскладке ЭТОГО офиса:

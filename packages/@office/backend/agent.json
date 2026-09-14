@@ -16,7 +16,6 @@
   ],
   "color": "#3b82f6",
   "emoji": "⚙️",
-  "maxInstances": 3,
   "license": "MIT",
   "capabilities": [
     "code.write"

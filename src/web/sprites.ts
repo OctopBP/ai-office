@@ -42,9 +42,6 @@ export const AGENT_SPRITE: Record<string, string> = {
   legal: 'agent_frontend1',
 };
 
-/** Второй и последующие клоны роли — другим спрайтом, чтобы различались. */
-const CLONE_SPRITE: Record<string, string> = { backend: 'agent_backend2' };
-
 /**
  * Спрайт агента в плоском офисе.
  *
@@ -57,11 +54,9 @@ const CLONE_SPRITE: Record<string, string> = { backend: 'agent_backend2' };
  * Ничего не выбрано — действует прежнее правило подбора по id роли
  * (§ RoleEditable.sprite).
  */
-export function agentSpriteName(roleId: string, instanceId: string, roleSprite?: string): string {
+export function agentSpriteName(roleId: string, roleSprite?: string): string {
   const look = lookById(roleSprite);
   if (look) return look.sprite;
   if (roleSprite) return roleSprite;
-  const n = Number(instanceId.split('#')[1] ?? '1');
-  if (n > 1 && CLONE_SPRITE[roleId]) return CLONE_SPRITE[roleId];
   return AGENT_SPRITE[roleId] ?? 'agent_backend1';
 }

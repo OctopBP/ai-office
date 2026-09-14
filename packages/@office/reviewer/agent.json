@@ -16,7 +16,6 @@
   ],
   "color": "#f97316",
   "emoji": "🔍",
-  "maxInstances": 1,
   "docsDir": "docs/review",
   "license": "MIT",
   "capabilities": [

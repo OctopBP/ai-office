@@ -278,7 +278,7 @@ export function AgentAvatar({ roleId, instanceId, look, className }: AgentAvatar
     return () => io.disconnect();
   }, []);
 
-  const fallbackSrc = spriteOf(theme, agentSpriteName(roleId, instanceId, look));
+  const fallbackSrc = spriteOf(theme, agentSpriteName(roleId, look));
   if (ownBroken || stageBroken || !webglSupported()) {
     return <img className={className} src={fallbackSrc} alt="" />;
   }

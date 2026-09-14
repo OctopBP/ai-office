@@ -36,7 +36,7 @@ import { fileURLToPath } from 'node:url';
 import { isLang, LANGS, type Lang } from '../shared/i18n';
 import { MODEL_RE, resolveModel } from '../shared/models';
 import {
-  MAX_ROLE_INSTANCES, MAX_TASK_MAX_TURNS, MIN_ROLE_INSTANCES, MIN_TASK_MAX_TURNS,
+  MAX_HIRE_COUNT, MAX_TASK_MAX_TURNS, MIN_HIRE_COUNT, MIN_TASK_MAX_TURNS,
   type McpServerDef, type PermissionMode,
 } from '../shared/types';
 import { checkMcpServers } from './mcp';
@@ -140,7 +140,6 @@ export interface AgentManifest {
    * (create_task и прочие) выдаёт ему офис по этому флагу, а не пакет.
    */
   manager: boolean;
-  maxInstances: number;
   /** Папка артефактов у ролей, работающих не кодом. Пусто — нет. */
   docsDir: string;
   license: string;
@@ -250,7 +249,7 @@ export function parseManifest(raw: unknown, fallbackName: string): { manifest: A
       const pkgName = typeof rec?.package === 'string' ? rec.package.trim() : '';
       if (!rec || !PACKAGE_NAME_RE.test(pkgName)) { err(`members[${i}]`, 'expected { "package": "@scope/name" }'); continue; }
       const n = rec.count === undefined ? 1 : (typeof rec.count === 'number' ? Math.floor(rec.count) : NaN);
-      if (!Number.isFinite(n) || n < MIN_ROLE_INSTANCES || n > MAX_ROLE_INSTANCES) { err(`members[${i}].count`, `an integer from ${MIN_ROLE_INSTANCES} to ${MAX_ROLE_INSTANCES}`); continue; }
+      if (!Number.isFinite(n) || n < MIN_HIRE_COUNT || n > MAX_HIRE_COUNT) { err(`members[${i}].count`, `an integer from ${MIN_HIRE_COUNT} to ${MAX_HIRE_COUNT}`); continue; }
       if (members.some((x) => x.package === pkgName)) { err(`members[${i}]`, `${pkgName} listed twice`); continue; }
       members.push({ package: pkgName, count: n, version: typeof rec.version === 'string' ? rec.version.trim() : '' });
     }
@@ -280,12 +279,11 @@ export function parseManifest(raw: unknown, fallbackName: string): { manifest: A
   const manager = m.manager === true;
   const license = typeof m.license === 'string' ? m.license.trim() : '';
 
-  let maxInstances = 1;
+  // Клонов внутри роли больше нет: одинаковых сотрудников офис заводит
+  // отдельными ролями из того же пакета. Старое поле не ошибка — манифесты
+  // опубликованы и живут своей жизнью, — но и не работает.
   if (m.maxInstances !== undefined) {
-    const n = typeof m.maxInstances === 'number' ? Math.floor(m.maxInstances) : NaN;
-    if (!Number.isFinite(n) || n < MIN_ROLE_INSTANCES || n > MAX_ROLE_INSTANCES) {
-      err('maxInstances', `an integer from ${MIN_ROLE_INSTANCES} to ${MAX_ROLE_INSTANCES}`);
-    } else maxInstances = n;
+    warn('maxInstances', 'clones are gone: the office hires a second copy as its own role; ignored');
   }
   const docsDir = typeof m.docsDir === 'string' ? m.docsDir.trim().replace(/^\/+|\/+$/g, '') : '';
   if (docsDir.startsWith('..') || docsDir.includes('/../')) err('docsDir', 'must stay inside the working copy');
@@ -353,7 +351,7 @@ export function parseManifest(raw: unknown, fallbackName: string): { manifest: A
   return {
     manifest: {
       schema: MANIFEST_SCHEMA, name, kind, members, settings, title, summary, tags, color, emoji, look,
-      manager, maxInstances, docsDir, license, capabilities,
+      manager, docsDir, license, capabilities,
       runtime: { engine: engine as Engine, model, tools, permissionMode, isolate, maxTurns, mcp },
       skills, builtin, use, servers, requires,
     },

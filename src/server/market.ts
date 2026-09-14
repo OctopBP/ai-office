@@ -821,7 +821,14 @@ export async function handleMarketCommand(
         if (got.pkg.manifest.kind !== 'agent') { problems.push(`${member.package}: ${t(lang, 'market.isTeam', { name: member.package })}`); continue; }
         // Менеджер в офисе уже есть: участник-менеджер — это «оставить как есть».
         if (got.pkg.manifest.manager) continue;
-        for (let i = 0; i < member.count; i += 1) {
+        // `count` — сколько таких сотрудников должно быть в офисе, а не
+        // сколько добавить: команду нанимают поверх живого офиса, и в нём
+        // двое из этого пакета уже могут работать. Считаем людей, а не роли:
+        // роль без сотрудника — открытая вакансия, её найм и закроет.
+        const headcount = () => state.roles()
+          .filter((r) => r.package?.name === member.package && !r.archived)
+          .reduce((n, r) => n + state.staffOf(r.id).length, 0);
+        for (let i = headcount(); i < member.count; i += 1) {
           const problem = state.hireFromPackage(got.pkg, got.source);
           if (problem) { problems.push(`${member.package}: ${problem}`); break; }
           hired += 1;

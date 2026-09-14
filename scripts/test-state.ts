@@ -137,32 +137,41 @@ async function main(): Promise<void> {
   );
 
   const hireBack = office.hire('smm');
-  const smmLimit = office.roleViews().find((r) => r.id === 'smm')!.maxInstances;
   results.push(
     `нанять обратно можно: ${hireBack === null && office.staffOf('smm').length === 1}`,
     `нанятый получил рабочее место: ${office.staffOf('smm')[0]?.desk !== undefined}`,
-  );
-  // Условие с наймом, а не только со счётчиком: клон садится за свободный стол,
-  // и на офисе, где столы кончились, `hire` возвращает причину отказа, а
-  // счётчик не растёт — цикл по одному счётчику крутился бы вечно. Ровно так
-  // проверка и зависла, когда набор ролей дорос до вместимости комнаты.
-  while (office.staffOf('smm').length < smmLimit && office.hire('smm') === null);
-  results.push(
-    `лимит клонов соблюдён: ${/лимит|уже нанято/.test(office.hire('smm') ?? '')}`,
+    `второго в ту же роль не нанять: ${/уже нанят/.test(office.hire('smm') ?? '')}`,
     `несуществующая роль отклонена: ${/нет в офисе/.test(office.hire('нет-такой') ?? '')}`,
   );
 
-  // Номер освобождается вместе с сотрудником и не затирает живого соседа.
-  const second = office.staffOf('smm')[1]!.id;
-  office.fire('smm#1');
-  office.hire('smm');
+  // Ещё один такой же — не клон внутри роли, а отдельный сотрудник: своя роль
+  // из того же пакета, те же настройки, своё название и своя внешность.
+  const smm = office.role('smm')!;
+  const copyProblem = office.hireCopy('smm');
+  const smmCopy = office.roles().find((r) => r.id !== 'smm' && r.package?.name === smm.package?.name);
   results.push(
-    `новый сотрудник не затёр соседа: ${office.instances.has(second) && office.staffOf('smm').length === 2}`,
+    `ещё один такой же пришёл отдельной ролью: ${copyProblem === null && smmCopy !== undefined
+      && office.staffOf(smmCopy!.id).length === 1}`,
+    `у второго своё название: ${Boolean(smmCopy) && smmCopy!.title !== smm.title}`,
+    `у второго своя внешность: ${Boolean(smmCopy?.sprite) && smmCopy!.sprite !== smm.sprite}`,
+    `настройки те же: ${smmCopy?.brief === smm.brief && smmCopy?.model === smm.model
+      && smmCopy?.isolate === smm.isolate}`,
+    `второго менеджера не нанять: ${/менеджер/i.test(office.hireCopy('pm') ?? '')}`,
   );
+  // Роль второго уходит вместе с ним только по воле человека: увольнение
+  // оставляет вакансию, и следующий найм из пакета закрывает именно её.
+  office.fire(office.staffOf(smmCopy!.id)[0]!.id);
+  const backToVacancy = office.hireCopy('smm') === null
+    && office.staffOf(smmCopy!.id).length === 1
+    && office.roles().filter((r) => r.package?.name === smm.package?.name).length === 2;
+  results.push(`найм в пустую копию не плодит третью роль: ${backToVacancy}`);
 
   // Уволенная роль не воскресает при перезапуске: состав берётся из сохранения.
-  for (const i of office.staffOf('smm')) office.fire(i.id);
-  const extraBackend = office.hire('backend') === null;
+  for (const i of office.roles().filter((r) => r.package?.name === smm.package?.name)
+    .flatMap((r) => office.staffOf(r.id))) office.fire(i.id);
+  const secondBackend = office.hireCopy('backend') === null;
+  const backendCopyId = office.roles().find((r) => r.id !== 'backend'
+    && r.package?.name === office.role('backend')?.package?.name)?.id ?? '';
   office.projectDir = office.projectDir || process.cwd();
 
   // 7b. Режим доступа: офисный, личный режим сотрудника и наследование.
@@ -268,13 +277,14 @@ async function main(): Promise<void> {
   results.push(
     `состояние восстановлено: ${restored}`,
     `уволенная роль не воскресла после перезапуска: ${office.staffOf('smm').length === 0}`,
-    `нанятые сверх одного сохранились: ${extraBackend && office.staffOf('backend').length === 2}`,
+    `второй такой же сотрудник сохранился: ${secondBackend
+      && office.staffOf(backendCopyId).length === 1}`,
     `столы не разъехались: ${new Set([...office.instances.values()].map((i) => i.desk.index)).size === office.instances.size}`,
     `по умолчанию у роли прежний режим: ${defaultMode === 'ask-risky'}`,
     `роль без своего режима наследует офисный: ${inheritedAuto === 'auto'}`,
     `неизвестный режим не принимается: ${junkIgnored}`,
     `личный режим сильнее офисного: ${personal?.effectivePermissionMode === 'auto'}`,
-    `сосед по роли остался на режиме роли: ${office.instanceViews().find((i) => i.id === 'backend#2')?.effectivePermissionMode === 'ask-risky'}`,
+    `второй такой же остался на режиме своей роли: ${office.instanceViews().find((i) => i.roleId === backendCopyId)?.effectivePermissionMode === 'ask-risky'}`,
     `личный режим пережил перезапуск: ${afterRestart?.permissionMode === 'auto'}`,
     `режим офиса пережил перезапуск: ${office.settings.officePermissionMode === 'ask-writes'}`,
     `раскладка пережила перезапуск: ${office.settings.layoutId === 'studio'}`,
@@ -479,7 +489,6 @@ async function main(): Promise<void> {
     title: 'Технический писатель',
     model: 'claude-haiku-4-5',
     sprite: LOOKS[0].id,
-    maxInstances: 2,
     brief: 'Пишет документацию к тому, что сделала команда.',
   });
   const writer = 'role' in made ? made.role : null;
@@ -488,7 +497,7 @@ async function main(): Promise<void> {
     `роль заведена: ${writer !== null}`,
     `id собран сервером из русского названия: ${writerId === 'tehnicheskiy-pisatel'}`,
     `поля формы доехали до роли: ${writer?.model === 'claude-haiku-4-5'
-      && writer?.sprite === LOOKS[0].id && writer?.maxInstances === 2}`,
+      && writer?.sprite === LOOKS[0].id}`,
     `новая роль не менеджер и не в архиве: ${writer?.isManager === false && writer?.archived === false}`,
     `роль видна менеджеру: ${rc.workerRoles().some((r) => r.id === writerId)}`,
   );
@@ -573,10 +582,12 @@ async function main(): Promise<void> {
     // Сколько исполнителей должен видеть менеджер, считаем по набору, а не
     // «все минус менеджер»: в наборе может появиться роль, заведённая в
     // архиве, и вычитание единицы молча превратило бы эту проверку в
-    // проверку длины списка.
+    // проверку длины списка. В наборе есть и нанятые вторыми такими же —
+    // отдельные роли из тех же пакетов, и их менеджер тоже обязан видеть.
     `в офисе без архива менеджер видит всех исполнителей: ${
-      untouched.workerRoles().length
-        === defaultRoles('ru').filter((r) => !r.isManager && !r.archived).length
+      untouched.workerRoles().length === untouched.roles().filter((r) => !r.isManager).length
+      && defaultRoles('ru').filter((r) => !r.isManager)
+        .every((d) => untouched.workerRoles().some((r) => r.id === d.id))
       && untouched.workerRoles().every((r) => teamSummary(untouched).includes(`- ${r.id} (`))}`,
   );
 
@@ -650,7 +661,7 @@ async function main(): Promise<void> {
   const legacySprite = await rc.editRole(emptyishId, { sprite: 'agent_p7' });
   const fullEdit = await rc.editRole(emptyishId, {
     title: 'Аналитик данных', emoji: '📊', color: '#22d3ee', model: 'claude-opus-5',
-    permissionMode: 'readonly', maxInstances: 2, isolate: false, maxTurns: 40,
+    permissionMode: 'readonly', isolate: false, maxTurns: 40,
     sprite: LOOKS[1].id, brief: 'Считает метрики.',
   });
   const edited = rc.role(emptyishId);
@@ -662,11 +673,24 @@ async function main(): Promise<void> {
     `правка приняла все поля разом: ${fullEdit.length === 0
       && edited?.title === 'Аналитик данных' && edited?.emoji === '📊'
       && edited?.model === 'claude-opus-5' && edited?.permissionMode === 'readonly'
-      && edited?.maxInstances === 2 && edited?.isolate === false
+      && edited?.isolate === false
       && edited?.maxTurns === 40 && edited?.sprite === LOOKS[1].id}`,
-    `лимит клонов ниже уже нанятых не принимается: ${(rc.hire(emptyishId) === null)
-      && (await rc.editRole(emptyishId, { maxInstances: 1 })).length === 0
-      && rc.hire(emptyishId) !== null}`,
+    // Роль, заведённая руками, копируется сама собой: пакета у неё нет, и
+    // второй такой же получает её настройки, но своё название и внешность.
+    `копия роли без пакета берёт её настройки: ${(() => {
+      if (rc.hire(emptyishId) !== null) return false;
+      // Столы в этом офисе к этому моменту заняты, а проверяется копирование
+      // настроек, а не расчёт мест: освобождаем одно сами.
+      const donor = rc.roles().find((r) => !r.isManager && r.id !== emptyishId
+        && rc.staffOf(r.id).some((i) => !i.currentTaskId));
+      const who = donor ? rc.staffOf(donor.id).find((i) => !i.currentTaskId) : null;
+      if (who) rc.fire(who.id);
+      if (rc.hireCopy(emptyishId) !== null) return false;
+      const copy = rc.roles().find((r) => r.id !== emptyishId && r.brief === edited?.brief);
+      return copy !== undefined && copy.title !== edited?.title
+        && copy.model === edited?.model && copy.package === undefined
+        && rc.staffOf(copy.id).length === 1;
+    })()}`,
   );
   // Патч приезжает из сети: с ним доехали бы и архивация, и второй менеджер
   // в обход всех проверок — белый список полей это отсекает.
@@ -904,7 +928,9 @@ async function main(): Promise<void> {
   }));
   try {
     oc.updateSettings({ layoutId: 'tight-test' });
-    const refusal = oc.hire('backend') ?? '';
+    // Ещё один такой же: роль заведётся, а сажать некуда — офис откажет по
+    // столам своей раскладки.
+    const refusal = oc.hireCopy('backend') ?? '';
     // Столов меньше, чем людей: кого можно — усадили, остальные стоят внутри
     // комнаты, а не за её стеной с координатами прежней раскладки.
     const tightDesks = deskPlan('tight-test').desks;
@@ -1313,8 +1339,10 @@ async function main(): Promise<void> {
   // офиса тоже двое. Следующая задача снова встаёт в очередь — на этот раз
   // по офисной причине, а не по общей.
   ca.updateSettings({ maxConcurrentWorkers: 2 });
+  // Роль другая: сотрудник в роли один, и вторая задача бэкенду ждала бы не
+  // слота, а его самого — проверялось бы уже не то.
   const nextTask = ca.createTask({
-    title: 'следом за первой', description: '', criteria: [], roleId: 'backend',
+    title: 'следом за первой', description: '', criteria: [], roleId: 'frontend',
   });
   const nextRefused = officeAssign(ca, nextTask.id);
   const stillQueued = !nextRefused.ok && ca.waitingForSlot.has(nextTask.id)

@@ -181,7 +181,11 @@ function PackageCard({ p, busy, act }: { p: MarketPackageView; busy: boolean; ac
           </button>
         )}
         {canHire && (
-          <button className="allow" disabled={busy} onClick={() => act(() => marketHire(p.name))}>
+          <button
+            className="allow" disabled={busy}
+            title={roleInOffice ? t('market.hireMore.hint') : ''}
+            onClick={() => act(() => marketHire(p.name))}
+          >
             {roleInOffice ? t('market.hireMore') : t('market.hire')}
           </button>
         )}

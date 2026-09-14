@@ -60,7 +60,7 @@ function makePackage(name: string, manifest: Record<string, unknown>, opts: {
 
 const good = parseManifest({
   schema: 1, name: '@acme/writer', title: { ru: 'Писатель', en: 'Writer' }, color: '#123456',
-  maxInstances: 2, docsDir: '/docs/text/', license: 'MIT',
+  docsDir: '/docs/text/', license: 'MIT',
   runtime: { model: 'haiku', tools: ['Read', 'Write'], permissionMode: 'readonly', isolate: false, maxTurns: 40, mcp: ['figma-bridge'] },
   builtin: ['design'], servers: [{ id: 'thing', transport: 'stdio', command: 'npx', args: ['thing-mcp'] }],
 }, 'x');
@@ -70,16 +70,20 @@ check('docsDir без краевых слэшей', good.manifest.docsDir, 'docs
 check('сервер из манифеста прошёл проверку', good.manifest.servers.map((s) => s.id), ['thing']);
 
 const bad = parseManifest({
-  schema: 2, name: 'writer', title: {}, color: 'red', maxInstances: 99,
+  schema: 2, name: 'writer', title: {}, color: 'red', maxInstances: 3,
   runtime: { engine: 'gpt', model: '', permissionMode: 'yolo', maxTurns: 0, tools: 'Read' },
   servers: [{ id: 'leaky', transport: 'stdio', command: 'npx', env: { TOKEN: 'secret-123' } }],
   hooks: true,
 }, 'x');
 const badPaths = bad.problems.filter((p) => p.level === 'error').map((p) => p.path).sort();
 check('ошибки по каждому негодному полю', badPaths, [
-  'color', 'maxInstances', 'name', 'runtime.engine', 'runtime.maxTurns', 'runtime.permissionMode',
+  'color', 'name', 'runtime.engine', 'runtime.maxTurns', 'runtime.permissionMode',
   'runtime.tools', 'schema', 'servers.leaky', 'title',
 ].sort());
+// Клонов больше нет: старое поле в опубликованном манифесте не ошибка, но и
+// не работает — офис говорит об этом автору пакета.
+check('лимит клонов из старого манифеста — предупреждение',
+  bad.problems.some((p) => p.level === 'warn' && p.path === 'maxInstances'), true);
 check('сервер с токеном отброшен', bad.manifest.servers, []);
 check('неизвестное поле — предупреждение', bad.problems.some((p) => p.level === 'warn' && p.path === 'hooks'), true);
 check('пустая модель — ошибка, умолчания нет',
@@ -106,7 +110,7 @@ check('агент с members — предупреждение', parseManifest({ 
 
 makePackage('@office/pm', { manager: true, title: { ru: 'Менеджер', en: 'Manager' }, runtime: { model: 'opus', isolate: false } });
 makePackage('@office/backend', {
-  title: { ru: 'Бэкенд', en: 'Backend' }, color: '#3b82f6', emoji: '⚙️', maxInstances: 3,
+  title: { ru: 'Бэкенд', en: 'Backend' }, color: '#3b82f6', emoji: '⚙️',
   runtime: { model: 'opus', permissionMode: 'ask-risky', mcp: ['figma-bridge'] }, license: 'MIT',
 }, { briefs: { ru: 'Ты бэкенд.\nПиши код.', en: 'You are backend.\nWrite code.' } });
 makePackage('@office/design', {
@@ -157,7 +161,7 @@ check('менеджер гарантирован и первый', withManagerRo
 const pkg = loadPackage('@office/backend')!;
 const tuned = roleFromPackage(pkg, 'ru', 'backend', {
   name: pkg.name, version: '0.0.1',
-  overrides: { model: 'claude-haiku-4-5', title: 'Бэкенд', maxInstances: 3, repoDir: '' },
+  overrides: { model: 'claude-haiku-4-5', title: 'Бэкенд', repoDir: '' },
   briefExtra: 'Проект на Fastify.',
 });
 check('оверрайд применяется', tuned.model, 'claude-haiku-4-5');
@@ -223,8 +227,8 @@ office.updateRole('backend', { model: 'claude-opus-5', briefExtra: 'Только
 const b2 = office.role('backend')!;
 check('поле, вернувшееся к умолчанию, ушло из разницы', b2.package?.overrides, {});
 check('приписка обновилась', b2.brief, 'Ты бэкенд.\nПиши код.\n\nТолько Fastify.');
-office.updateRole('backend', { maxInstances: 1 });
-check('новая правка легла в разницу', office.role('backend')?.package?.overrides, { maxInstances: 1 });
+office.updateRole('backend', { maxTurns: 40 });
+check('новая правка легла в разницу', office.role('backend')?.package?.overrides, { maxTurns: 40 });
 const view = office.roleViews().find((r) => r.id === 'backend')!;
 check('форма видит пакет и приписку', [view.package?.name, view.package?.brief, view.briefExtra],
   ['@office/backend', 'Ты бэкенд.\nПиши код.', 'Только Fastify.']);
@@ -233,7 +237,7 @@ check('форма роли без пакета: пакета нет', office.rol
 // Смена языка пересчитывает роль из пакета, оверрайды остаются.
 office.updateSettings({ language: 'en' });
 check('после смены языка бриф пакета на английском', office.role('backend')?.brief, 'You are backend.\nWrite code.\n\nТолько Fastify.');
-check('оверрайд пережил смену языка', office.role('backend')?.maxInstances, 1);
+check('оверрайд пережил смену языка', office.role('backend')?.maxTurns, 40);
 check('название пакета переведено', office.role('backend')?.title, 'Backend');
 office.updateSettings({ language: 'ru' });
 
@@ -241,11 +245,11 @@ office.updateSettings({ language: 'ru' });
 save(stateFile, () => office.toPersisted());
 flushAll();
 const persisted = load(stateFile)!;
-check('ссылка сохранена', persisted.roles?.find((r) => r.id === 'backend')?.package?.overrides, { maxInstances: 1 });
+check('ссылка сохранена', persisted.roles?.find((r) => r.id === 'backend')?.package?.overrides, { maxTurns: 40 });
 unloadOfficeState('o-pkg');
 const again = openOfficeState({ id: 'o-pkg', projectDir, stateFile }).state;
-check('после перезапуска роль та же', [again.role('backend')?.maxInstances, again.role('backend')?.package?.briefExtra],
-  [1, 'Только Fastify.']);
+check('после перезапуска роль та же', [again.role('backend')?.maxTurns, again.role('backend')?.package?.briefExtra],
+  [40, 'Только Fastify.']);
 
 // Отвязка — форк: бриф остаётся, пакет уходит.
 check('отвязка чужой роли — отказ', again.detachRole('design').length, 1);
