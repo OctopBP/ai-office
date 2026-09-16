@@ -2,7 +2,7 @@ import { useEffect, useRef } from 'react';
 import { isOfficeSender } from '../shared/types';
 import { useStore } from './store';
 import { t } from './i18n';
-import { AgentTag } from './Avatar';
+import { AgentTag, Avatar } from './Avatar';
 
 /**
  * Лента чата: вкладки тредов, пояснение к треду и сообщения. Без рамки и
@@ -16,7 +16,13 @@ export function ChatThread() {
   const meeting = useStore((s) => s.meeting);
   const thread = useStore((s) => s.thread);
   const setThread = useStore((s) => s.setThread);
+  const roles = useStore((s) => s.roles);
   const end = useRef<HTMLDivElement>(null);
+
+  // Собеседник треда: кнопка «Поговорить» в карточке агента переключает
+  // тред, и без шапки не видно, с кем именно теперь разговор.
+  const peer = thread !== 'meeting' ? instances[thread] : undefined;
+  const peerRole = peer && roles.find((r) => r.id === peer.roleId);
 
   const shown = chat.filter((m) => m.thread === thread);
   useEffect(() => { end.current?.scrollIntoView({ behavior: 'smooth' }); }, [shown.length]);
@@ -36,6 +42,18 @@ export function ChatThread() {
           </button>
         ))}
       </div>
+
+      {peer && (
+        <div className="chat-peer">
+          <Avatar roleId={peer.roleId} instanceId={peer.id} size="lg" />
+          <div className="chat-peer-text">
+            <b>{peer.label}</b>
+            {/* Без своего имени сотрудник и так зовётся должностью — вторая
+                строка тогда даёт его код, чтобы различать двух художников. */}
+            <span>{peer.name ? `${peerRole?.title ?? peer.roleId} · ${peer.id}` : peer.id}</span>
+          </div>
+        </div>
+      )}
 
       {thread === 'meeting' && (
         <p className="small note">{t('chat.note.meeting')}</p>
