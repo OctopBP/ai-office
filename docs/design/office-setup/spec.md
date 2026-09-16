@@ -171,8 +171,11 @@ Next, FastAPI и остальное, и это знание устареет б�
 
 **Выбор папки диалогом ОС.** Браузер абсолютных путей не отдаёт, но сервер
 работает на той же машине, что и человек, — и диалог открывает он
-(`src/server/pickfolder.ts`): на macOS `osascript` с `choose folder` поверх
-окон через System Events, на Linux zenity или kdialog, на Windows PowerShell.
+(`src/server/pickfolder.ts`): на macOS панель AppKit (`NSOpenPanel`) из
+`osascript -l JavaScript` — свою панель процесс показывает без разрешений, а
+`choose folder` через System Events требовал бы разрешения «Автоматизация» и
+падал с «Not authorized to send Apple events» (-1743); на Linux zenity или
+kdialog, на Windows PowerShell.
 Команда `pick_folder` несёт метку поля (`purpose`), ответ `folder.picked`
 возвращает её вместе с путём: так клиент знает, в какое из трёх полей пути
 класть ответ. Отмена — тишина, ошибка — строкой под полем. Диалог один на

@@ -1,8 +1,8 @@
 /**
  * Нативный диалог выбора папки. Браузер абсолютный путь не отдаёт, а сервер
  * работает на той же машине, что и человек, — значит, диалог открывает он:
- * на macOS через `osascript` и `choose folder`, на Linux через zenity или
- * kdialog, на Windows через PowerShell. Итог — путь либо «отменили».
+ * на macOS панель AppKit из `osascript -l JavaScript`, на Linux zenity или
+ * kdialog, на Windows PowerShell. Итог — путь либо «отменили».
  *
  * Диалог один на процесс: второй одновременно открытый — это два окна на
  * экране, и неясно, к какому полю относится ответ.
@@ -47,9 +47,6 @@ function run(cmd: string, args: string[]): Promise<{ ok: boolean; stdout: string
   });
 }
 
-/** Строка внутри AppleScript-литерала: кавычки и обратные слэши экранируем. */
-const asText = (s: string): string => `"${s.replace(/\\/g, '\\\\').replace(/"/g, '\\"')}"`;
-
 /**
  * Показать диалог и дождаться ответа. `start` — где открыть; если папки нет,
  * открываем домашнюю. Ответ без завершающего слэша: путь ложится в поле формы,
@@ -65,18 +62,29 @@ export async function pickFolder(start: string | undefined, lang: Lang): Promise
     let got: { ok: boolean; stdout: string; stderr: string };
     let cancelled: (r: typeof got) => boolean;
     if (process.platform === 'darwin') {
-      // System Events выводит диалог поверх окон: без activate он открылся бы
-      // за браузером, и человек не понял бы, что его о чём-то спросили.
+      // Панель открывает сам процесс osascript через AppKit, а не System
+      // Events: Apple-события другому приложению требуют разрешения
+      // «Автоматизация» для процесса сервера, и без него было бы
+      // «Not authorized to send Apple events» (-1743). Свою панель процесс
+      // показывает без разрешений; activateIgnoringOtherApps выводит её
+      // поверх окон. Пустой ответ — отмена.
       const script = [
-        `set startDir to POSIX file ${asText(from)}`,
-        'tell application "System Events"',
-        '  activate',
-        `  set f to choose folder with prompt ${asText(prompt)} default location startDir`,
-        'end tell',
-        'POSIX path of f',
+        "ObjC.import('Cocoa');",
+        'const app = $.NSApplication.sharedApplication;',
+        'app.setActivationPolicy($.NSApplicationActivationPolicyRegular);',
+        'const panel = $.NSOpenPanel.openPanel;',
+        'panel.canChooseDirectories = true;',
+        'panel.canChooseFiles = false;',
+        'panel.canCreateDirectories = true;',
+        'panel.allowsMultipleSelection = false;',
+        `panel.message = ${JSON.stringify(prompt)};`,
+        `panel.directoryURL = $.NSURL.fileURLWithPath(${JSON.stringify(from)});`,
+        'app.activateIgnoringOtherApps(true);',
+        'const ok = panel.runModal === $.NSModalResponseOK;',
+        "ok ? ObjC.unwrap(panel.URLs.objectAtIndex(0).path) : '';",
       ].join('\n');
-      got = await run('osascript', ['-e', script]);
-      cancelled = (r) => r.stderr.includes('-128');
+      got = await run('osascript', ['-l', 'JavaScript', '-e', script]);
+      cancelled = () => false;
     } else if (process.platform === 'win32') {
       const script = [
         'Add-Type -AssemblyName System.Windows.Forms',
