@@ -19,7 +19,7 @@ import type { Theme } from './sprites';
 import { type Graphics, loadGraphics, saveGraphics } from './office3d/graphics';
 import { fitNow } from './office3d/fit';
 import { catalog, DEFAULT_LAYOUT_ID, layoutFor, passabilityFor } from './layoutData';
-import { interestsFor } from './interests';
+import { interestsFor, type Interest } from './interests';
 import { isBusy } from './agentState';
 import { adjacentFree, deskPoint, findPath, meetingSeat } from '../shared/layout';
 
@@ -94,6 +94,34 @@ function homeTarget(
   // по смыслу хуже, но сцену пустой координатой не ломает.
   const spot = interestsFor(layout, catalog, instances, roles).get(inst.id)?.at;
   return spot ? { at: spot, atDesk: false } : desk();
+}
+
+/** Занятия свободных в текущем состоянии стора — как их сейчас видит сцена. */
+function interestsOf(s: Pick<State, 'layout' | 'instances' | 'roles'>): Map<string, Interest> {
+  return interestsFor(s.layout, catalog, s.instances, s.roles);
+}
+
+/**
+ * Перемена у одного меняет занятия других: собеседник ушёл работать или
+ * из офиса — разговор распался, и оставшемуся раздача находит новое место,
+ * скажем диван у приставки. Позу рендер берёт из раздачи сразу, а маршрут —
+ * из стора, и без этого шага агент играл бы, сидя посреди комнаты там, где
+ * стоял разговор. Поэтому после перемены все, у кого место сменилось, идут
+ * к новому. Раздача липкая, так что `before` — ровно то, что было на сцене.
+ *
+ * Виновника перемены не трогаем: его маршрут решается отдельно, с учётом
+ * стола. Кто на совещании — досидит его и вернётся домой после.
+ */
+function reseat(before: Map<string, Interest>, except: string): void {
+  const s = useStore.getState();
+  const after = interestsOf(s);
+  const seated = new Set(s.meeting?.status === 'running' ? s.meeting.participants : []);
+  for (const [id, next] of after) {
+    if (id === except || seated.has(id)) continue;
+    const prev = before.get(id)?.at;
+    if (prev && prev.x === next.at.x && prev.y === next.at.y) continue;
+    walkTo(id, { at: next.at, atDesk: false });
+  }
 }
 
 /**
@@ -574,20 +602,24 @@ export const useStore = create<State>((set, get) => ({
         const inMeetingNow = s0.meeting?.status === 'running'
           && s0.meeting.participants.includes(e.instance.id);
         const shouldMove = !s0.pos[e.instance.id] || (wasBusy !== nowBusy && !inMeetingNow);
+        const before = interestsOf(s0);
         set((s) => ({ instances: { ...s.instances, [e.instance.id]: e.instance } }));
         if (shouldMove) {
           const s1 = get();
           walkTo(e.instance.id, homeTarget(e.instance, s1.roles, s1.layout, s1.instances));
         }
+        reseat(before, e.instance.id);
         break;
       }
       case 'instance.remove':
         livePos.delete(e.id);
+        const before = interestsOf(get());
         set((s) => {
           const instances = { ...s.instances };
           delete instances[e.id];
           return { instances };
         });
+        reseat(before, e.id);
         break;
       case 'epic':
         set((s) => ({ epics: { ...s.epics, [e.epic.id]: e.epic } }));
