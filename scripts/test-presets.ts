@@ -65,6 +65,13 @@ const cases: Case[] = [
   ['относительная поправка к палитре', () => parsePreset(preset({
     components: [{ type: 'lamp', lamp: 'warm', gain: 1.2 }],
   })), 'ok'],
+  ['конус света в пол', () => parsePreset(preset({
+    components: [{ type: 'lamp', lamp: 'warm', cone: 50 }],
+  })), 'ok'],
+  // Половинный угол шире прямого — это уже не конус вниз, а точка.
+  ['конус шире прямого угла', () => parsePreset(preset({
+    components: [{ type: 'lamp', lamp: 'warm', cone: 120 }],
+  })), 'throw'],
 ];
 
 if (cases.length === 0) {

@@ -19,7 +19,15 @@
     {
       "type": "lamp",
       "lamp": "warm",
-      "at": [0, 2.1, 0]
+      "at": [0, 2.0, 0],
+      "cone": 50,
+      "gain": 2
+    },
+    {
+      "type": "lamp",
+      "lamp": "warm",
+      "at": [0, 2.1, 0],
+      "gain": 0.35
     }
   ]
 }

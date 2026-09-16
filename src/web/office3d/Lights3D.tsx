@@ -24,7 +24,7 @@
 import { useLayoutEffect, useMemo, useRef } from 'react';
 import * as THREE from 'three';
 import { useStore } from '../store';
-import type { Palette } from './palette';
+import type { LampLight, Palette } from './palette';
 import { WALL_H, type Scene3 } from './geometry';
 import { componentsOf } from '../../shared/preset';
 import type { Placed3 } from './props';
@@ -205,16 +205,58 @@ export function PropLamp({ item, palette, lit }: {
                 <meshBasicMaterial color={cfg.glow ?? cfg.color} />
               </mesh>
             )}
-            <pointLight
-              position={[x, y, z]}
-              color={cfg.color}
-              intensity={intensity}
-              distance={cfg.distance}
-              decay={cfg.decay}
-            />
+            {lamp.cone ? (
+              <Beam at={[x, y, z]} cfg={cfg} intensity={intensity} cone={lamp.cone} />
+            ) : (
+              <pointLight
+                position={[x, y, z]}
+                color={cfg.color}
+                intensity={intensity}
+                distance={cfg.distance}
+                decay={cfg.decay}
+              />
+            )}
           </group>
         );
       })}
+    </>
+  );
+}
+
+/**
+ * Лампа под абажуром: конус света, направленный в пол.
+ *
+ * Точечный источник на высоте абажура светит во все стороны поровну, и до
+ * пола от него доходит меньше всего — он дальше всего, а остальное уходит в
+ * стены и в воздух. У настоящего торшера абажур собирает свет и роняет его
+ * вниз, пятном вокруг ножки; это и есть то, зачем торшер ставят в лаунже.
+ *
+ * Цель конуса — точка строго под источником, в его же группе: с предметом
+ * она едет и поворачивается, а поворот вокруг вертикали направленного вниз
+ * луча не меняет. Полутень мягкая: у пятна от абажура нет резкого края.
+ */
+function Beam({ at, cfg, intensity, cone }: {
+  at: [number, number, number];
+  cfg: LampLight;
+  intensity: number;
+  /** половинный угол конуса, градусы */
+  cone: number;
+}) {
+  const target = useMemo(() => new THREE.Object3D(), []);
+  const [x, y, z] = at;
+  return (
+    <>
+      <spotLight
+        position={[x, y, z]}
+        target={target}
+        color={cfg.color}
+        intensity={intensity}
+        distance={cfg.distance}
+        decay={cfg.decay}
+        angle={THREE.MathUtils.degToRad(cone)}
+        penumbra={0.6}
+      />
+      <primitive object={target} position={[x, y - 1, z]} />
     </>
   );
 }
