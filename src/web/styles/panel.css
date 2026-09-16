@@ -15,6 +15,13 @@
 .panel.wide { width: min(1080px, 100%); }
 /* Доска — самая широкая панель: пять колонок в 1080px читаются как список. */
 .panel.board-panel { width: min(1560px, 100%); }
+/* Фиксированная высота: вкладки меняют содержимое, а не рамку окна. */
+.panel.fixed { height: min(820px, 100%); }
+.panel.fixed .panel-body { flex: 1; }
+.panel.fixed .panel-body > .life { flex: 1; }
+/* Вкладки в шапке — сегмент рядом с заголовком, как в окне «Команда». */
+.panel header .panel-tabs { box-shadow: none; background: var(--film); margin-left: var(--space-2); }
+.panel header .panel-tabs button { padding: 0 14px; }
 
 .panel header {
   display: flex; align-items: center; gap: var(--space-3);

@@ -5,6 +5,7 @@ import {
   type Run, type Workflow, type WorkflowEntry,
 } from '../shared/workflow';
 import { FlowGraph, FlowLegend } from './FlowGraph';
+import { Panel } from './Panel';
 import { t } from './i18n';
 
 type Tab = 'board' | 'processes' | 'checks' | 'stats';
@@ -15,22 +16,24 @@ type Tab = 'board' | 'processes' | 'checks' | 'stats';
  * проекта и расход по узлам. Правка ложится файлом в `workflows/` проекта —
  * текст первичен, панель лишь показывает и проверяет его.
  */
-export function FlowsPanel() {
+export function FlowsPanel({ onClose }: { onClose: () => void }) {
   const [tab, setTab] = useState<Tab>('board');
-  return (
-    <div className="life flows">
-      <div className="threads">
-        {(['board', 'processes', 'checks', 'stats'] as Tab[]).map((k) => (
-          <button key={k} className={`mini${tab === k ? ' on' : ''}`} onClick={() => setTab(k)}>
-            {t(`flows.tab.${k}`)}
-          </button>
-        ))}
-      </div>
-      {tab === 'board' && <BoardTab />}
-      {tab === 'processes' && <ProcessesTab />}
-      {tab === 'checks' && <ChecksTab />}
-      {tab === 'stats' && <StatsTab />}
+  const tabs = (
+    <div className="seg panel-tabs">
+      {(['board', 'processes', 'checks', 'stats'] as Tab[]).map((k) => (
+        <button key={k} className={tab === k ? 'on' : ''} onClick={() => setTab(k)}>{t(`flows.tab.${k}`)}</button>
+      ))}
     </div>
+  );
+  return (
+    <Panel title={t('flows.title')} tabs={tabs} wide size="board" fixed hint="P" onClose={onClose}>
+      <div className="life flows">
+        {tab === 'board' && <BoardTab />}
+        {tab === 'processes' && <ProcessesTab />}
+        {tab === 'checks' && <ChecksTab />}
+        {tab === 'stats' && <StatsTab />}
+      </div>
+    </Panel>
   );
 }
 
@@ -69,12 +72,7 @@ function BoardTab() {
   );
 }
 
-const loopEdges = (workflow: Workflow) =>
-  workflow.nodes.flatMap((n) => Object.entries(n.next)
-    .filter(([, tr]) => tr.max !== undefined)
-    .map(([outcome, tr]) => ({ node: n.id, outcome, to: tr.to, max: tr.max as number })));
-
-/** Список процессов и правка выбранного: пределы петель — полями, всё остальное — текстом. */
+/** Список процессов и правка выбранного: пределы петель — полем в карточке узла, остальное — текстом. */
 function ProcessesTab() {
   const workflows = useStore((s) => s.workflows);
   const [selected, setSelected] = useState<string | null>(null);
@@ -138,7 +136,7 @@ function Editor({ entry }: { entry: WorkflowEntry }) {
       {node ? (
         <dl className="flow-inspect">
           <dt>{t('flows.node')}</dt>
-          <dd><b className="mono">{node.id}</b> · {t(`flows.kind.${node.kind}`)} <span className="muted">— {t(`flows.kind.hint.${node.kind}`)}</span></dd>
+          <dd><b className="mono">{node.id}</b> · {t(`flows.kind.${node.kind}`)} <span className="muted">· {t(`flows.kind.hint.${node.kind}`)}</span></dd>
           {node.run && <><dt>{t('flows.node.run')}</dt><dd className="mono">{node.run}</dd></>}
           {node.needs && node.needs.length > 0 && <><dt>{t('flows.node.needs')}</dt><dd className="mono">{node.needs.join(', ')}</dd></>}
           {node.same && <><dt>{t('flows.node.same')}</dt><dd className="mono">{node.same}</dd></>}
@@ -154,30 +152,25 @@ function Editor({ entry }: { entry: WorkflowEntry }) {
           )}
           {node.stage && <><dt>{t('flows.node.stage')}</dt><dd className="mono">{node.stage}</dd></>}
           <dt>{t('flows.next')}</dt>
-          <dd className="mono">
+          <dd>
             {Object.entries(node.next).map(([o, tr]) => (
-              <div key={o} className={tr.to === 'stuck' ? 'stuck' : undefined}>
-                {o} → {tr.to === END ? t('flows.board.done') : tr.to === 'stuck' ? t('run.status.stuck') : tr.to}
-                {tr.max !== undefined ? ` ×${tr.max}` : ''}
+              <div key={o} className={`flow-next${tr.to === 'stuck' ? ' stuck' : ''}`}>
+                <span className="mono">{o}</span>
+                <span className="muted">→</span>
+                <span className="mono">{tr.to === END ? t('flows.board.done') : tr.to === 'stuck' ? t('run.status.stuck') : tr.to}</span>
+                {tr.max !== undefined && (
+                  <label className="flow-max">
+                    <span className="muted">{t('flows.node.maxBefore')}</span>
+                    <input type="number" min={1} max={20} value={tr.max}
+                      onChange={(ev) => setMax(node.id, o, Math.max(1, Math.min(20, Number(ev.target.value) || 1)))} />
+                    <span className="muted">{t('flows.node.maxAfter')}</span>
+                  </label>
+                )}
               </div>
             ))}
           </dd>
         </dl>
       ) : <p className="muted small">{t('flows.node.pick')}</p>}
-
-      {loopEdges(workflow).length > 0 && (
-        <div className="flows-limits">
-          <span className="group-title">{t('flows.limits')}</span>
-          {loopEdges(workflow).map((e) => (
-            <label key={`${e.node}>${e.to}:${e.outcome}`} className="flows-limit">
-              <span className="mono">{e.node} → {e.to}</span>
-              <span className="muted small">{e.outcome}</span>
-              <input type="number" min={1} max={20} value={e.max}
-                onChange={(ev) => setMax(e.node, e.outcome, Math.max(1, Math.min(20, Number(ev.target.value) || 1)))} />
-            </label>
-          ))}
-        </div>
-      )}
 
       <div className="life-actions">
         <button className="mini" onClick={() => setRaw(!raw)}>{t('flows.json')}</button>

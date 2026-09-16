@@ -1,5 +1,5 @@
 import { useId, useLayoutEffect, useMemo, useRef, useState } from 'react';
-import { END, STUCK, type Run, type Workflow, type WorkflowNode } from '../shared/workflow';
+import { AUTHOR, END, STUCK, type Run, type Workflow, type WorkflowNode } from '../shared/workflow';
 import { Icon, type IconName } from './icons';
 import { t } from './i18n';
 
@@ -193,8 +193,8 @@ function roundedPath(pts: Pt[], r = 8): string {
 
 const LANE_STEP = 12;
 const LANE_PAD = 14;
-const GUTTER_IN = 8;
-const LANE_X_STEP = 6;
+const GUTTER_IN = 6;
+const LANE_X_STEP = 5;
 
 interface Routed extends Edge { d: string; side: 'top' | 'bottom' | null; lane: number }
 
@@ -310,10 +310,13 @@ export function FlowGraph({ workflow, runs = [], taskTitle, selected = null, onS
       const target = { x: to.x, y: to.y + to.h / 2 };
       const p = plan.get(edgeKey(e.from, e.to));
       if (!p) {
-        const dx = target.x - from.x;
+        // Прямая стрелка: по горизонтали до середины промежутка, вниз или
+        // вверх до строки цели, и в её левый край. Ветки одного узла делят
+        // вертикаль — так граф читается как дерево, а не как пучок кривых.
+        const mid = (from.x + target.x) / 2;
         const d = Math.abs(target.y - from.y) < 1
           ? `M ${from.x} ${from.y} L ${target.x} ${target.y}`
-          : `M ${from.x} ${from.y} C ${from.x + dx * 0.5} ${from.y}, ${target.x - dx * 0.5} ${target.y}, ${target.x} ${target.y}`;
+          : roundedPath([from, { x: mid, y: from.y }, { x: mid, y: target.y }, target]);
         out.push({ ...e, d, side: null, lane: 0 });
         continue;
       }
@@ -380,24 +383,29 @@ export function FlowGraph({ workflow, runs = [], taskTitle, selected = null, onS
           }
           const node = n.node;
           const on = selected === n.id;
+          const who = (id: string) => (id === AUTHOR ? t('flows.node.author') : id);
           return (
             <div key={n.id} data-node={n.id} style={style}
               className={`flow-node kind-${node.kind}${on ? ' on' : ''}${live.length ? ' live' : ''}${onSelect ? ' pick' : ''}`}
               onClick={onSelect ? () => onSelect(n.id) : undefined}
               title={t(`flows.kind.hint.${node.kind}`)}>
-              <div className="flow-node-head">
-                <Icon name={KIND_ICON[node.kind] ?? 'circle'} size={13} />
-                <span className="flow-node-id">{node.id}</span>
-              </div>
-              <div className="flow-node-kind">{t(`flows.kind.${node.kind}`)}</div>
-              {node.run && <div className="flow-node-sub mono">{node.run}</div>}
-              {node.needs && node.needs.length > 0 && <div className="flow-node-sub">{node.needs.join(', ')}</div>}
-              {(node.same || node.notSameAs) && (
-                <div className="flow-node-sub muted">
-                  {node.same && t('flows.node.sameShort', { id: node.same })}
-                  {node.notSameAs && t('flows.node.notSameShort', { id: node.notSameAs })}
+              <div className="flow-node-main">
+                <span className="flow-node-badge"><Icon name={KIND_ICON[node.kind] ?? 'circle'} size={16} /></span>
+                <div className="flow-node-text">
+                  <div className="flow-node-id">{node.id}</div>
+                  <div className="flow-node-tags">
+                    <span className="flow-tag kind">{t(`flows.kind.${node.kind}`)}</span>
+                    {node.kind === 'gate' && (
+                      <span className="flow-tag human"><Icon name="hand-stop" size={10} />{t('flows.tag.owner')}</span>
+                    )}
+                    {node.same && <span className="flow-tag">{t('flows.tag.same', { id: who(node.same) })}</span>}
+                    {node.notSameAs && <span className="flow-tag">{t('flows.tag.notSame', { id: who(node.notSameAs) })}</span>}
+                  </div>
+                  {(node.run || node.needs?.length) && (
+                    <div className="flow-node-sub">{node.run ?? node.needs?.join(', ')}</div>
+                  )}
                 </div>
-              )}
+              </div>
               <ul className="flow-ports">
                 {n.ports.map((p) => (
                   <li key={p.to} className={`flow-port${p.stuck ? ' stuck' : ''}`}
@@ -444,6 +452,7 @@ export function FlowLegend() {
       ))}
       <span className="flow-legend-kind stuck"><i className="flow-dot" />{t('flows.legend.stuck')}</span>
       <span className="flow-legend-kind"><b>×N</b>{t('flows.legend.max')}</span>
+      <span className="flow-legend-kind"><i className="flow-legend-back" />{t('flows.legend.back')}</span>
     </div>
   );
 }
