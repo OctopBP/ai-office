@@ -7,6 +7,7 @@ import type { EpicView, TaskStatus, TaskView } from '../shared/types';
 import { taskClosed } from '../shared/types';
 import { t as tr, type UiKey } from './i18n';
 import { Icon } from './icons';
+import { AgentTag } from './Avatar';
 
 /**
  * Колонки доски. Провалы вынесены отдельно, а не свалены в «Готово»: пока они
@@ -67,7 +68,7 @@ function Card({ t }: { t: TaskView }) {
           </span>
         )}
         {badge && <span className={`chip merge-chip ${badge.cls}`}>{badge.label}</span>}
-        {t.assigneeId && <span className="muted">{t.assigneeId}</span>}
+        {t.assigneeId && <AgentTag id={t.assigneeId} className="muted" />}
         {t.criteria.length > 0 && (
           <span className="muted">{done}/{t.criteria.length}</span>
         )}

@@ -2,6 +2,7 @@ import { useEffect, useRef } from 'react';
 import { isOfficeSender } from '../shared/types';
 import { useStore } from './store';
 import { t } from './i18n';
+import { AgentTag } from './Avatar';
 
 /**
  * Лента чата: вкладки тредов, пояснение к треду и сообщения. Без рамки и
@@ -31,7 +32,7 @@ export function ChatThread() {
         </button>
         {Object.values(instances).filter((i) => i.roleId !== 'pm').map((i) => (
           <button key={i.id} className={`mini${thread === i.id ? ' on' : ''}`} onClick={() => setThread(i.id)}>
-            {i.id}
+            <AgentTag id={i.id} />
           </button>
         ))}
       </div>
@@ -54,7 +55,7 @@ export function ChatThread() {
             <div className="msg-from">
               {m.from === 'user'
                 ? t('chat.you')
-                : (isOfficeSender(m.from) ? t('common.office') : m.from)}
+                : (isOfficeSender(m.from) ? t('common.office') : <AgentTag id={m.from} size="sm" />)}
             </div>
             <div className="msg-text">{m.text}</div>
           </div>

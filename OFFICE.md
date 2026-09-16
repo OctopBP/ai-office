@@ -49,6 +49,7 @@ Node + TypeScript, React 19 + Zustand на фронте, `ws` для связи,
 | `src/server/index.ts` | HTTP + WebSocket, раздача собранного веба, команды от клиента |
 | `src/shared/types.ts` | Контракт между сервером и вебом |
 | `src/shared/looks.ts` | Внешности агентов: скины персонажа и запасные спрайты для аватарок |
+| `src/web/portraits.ts`, `src/web/Avatar.tsx` | Портреты для аватарок: `design/models/characters/portraits/<внешность>.png`; нет портрета — квадрат с кодом роли |
 | `src/web/office3d/Office3D.tsx` | Трёхмерный рендер комнаты и человечков |
 | `src/web/shell/Shell.tsx` | Оболочка: рейл офисов, сегменты видов, композер |
 | `src/web/styles/tokens.css`, `kit.css` | Токены и кит нового UI; стенд — `?kit=1` |

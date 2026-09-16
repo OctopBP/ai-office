@@ -1,4 +1,6 @@
+import type { CSSProperties } from 'react';
 import { useStore } from './store';
+import { portraitOf, useLookOf } from './portraits';
 
 /** Цвет значка, если роль неизвестна — например, её удалили из офиса. */
 export const NO_ROLE_COLOR = '#94a3b8';
@@ -19,23 +21,60 @@ export function shortCode(roleId: string, instanceId?: string): string {
   return `${abbr}${n}`;
 }
 
+export type AvatarSize = 'xs' | 'sm' | 'md' | 'lg';
+
 /**
- * Аватарка-заглушка: квадрат цвета роли с её кодом — тот же значок, что в
- * бейдже над головой в сцене и у офисов в рейле. Портреты трёхмерной
+ * Аватарка агента.
+ *
+ * Есть портрет у его внешности (`portraits.ts`) — портрет на подложке цвета
+ * роли: цвет остаётся тем, по чему роль узнают в бейдже над головой и в
+ * рейле. Нет портрета — квадрат цвета роли с её кодом. Портреты трёхмерной
  * моделью (`office3d/AgentAvatar.tsx`) отложены: общий холст ломался при
- * монтировании превью, и до починки честнее показывать код, чем пустой
- * квадрат.
+ * монтировании превью.
+ *
+ * Код сотрудника уходит в подсказку, когда вместо него лицо: двух бородачей
+ * в одном офисе различают по нему.
  */
 export function Avatar({ roleId, instanceId, size = 'md', className }: {
   roleId: string;
   instanceId?: string;
-  size?: 'sm' | 'md' | 'lg';
+  size?: AvatarSize;
   className?: string;
 }) {
   const color = useStore((s) => s.roles.find((r) => r.id === roleId)?.color) || NO_ROLE_COLOR;
+  const portrait = portraitOf(useLookOf(roleId, instanceId));
+  const code = shortCode(roleId, instanceId);
+  const cls = `${size}${className ? ` ${className}` : ''}`;
+  if (portrait) {
+    return (
+      <span className={`avatar-pic ${cls}`} style={{ '--avatar-role': color } as CSSProperties} title={instanceId ?? code}>
+        <img src={portrait} alt={code} draggable={false} />
+      </span>
+    );
+  }
   return (
-    <span className={`avatar-ph ${size}${className ? ` ${className}` : ''}`} style={{ background: color }}>
-      {shortCode(roleId, instanceId)}
+    <span className={`avatar-ph ${cls}`} style={{ background: color }} title={instanceId}>
+      {code}
+    </span>
+  );
+}
+
+/**
+ * Сотрудник строкой: маленькая аватарка и его id — там, где раньше стоял
+ * один id (исполнитель на карточке задачи, автор реплики в чате, строка
+ * расходов). Роль берётся у сотрудника, а если его уже уволили — из самого
+ * id (`backend#2` → `backend`): старые задачи и реплики остаются с лицом.
+ */
+export function AgentTag({ id, size = 'xs', className }: {
+  id: string;
+  size?: AvatarSize;
+  className?: string;
+}) {
+  const roleId = useStore((s) => s.instances[id]?.roleId) ?? id.split('#')[0];
+  return (
+    <span className={`agent-tag${className ? ` ${className}` : ''}`}>
+      <Avatar roleId={roleId} instanceId={id} size={size} />
+      <span>{id}</span>
     </span>
   );
 }

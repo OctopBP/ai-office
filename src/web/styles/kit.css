@@ -135,3 +135,27 @@ kbd {
 .avatar-ph.sm { width: 20px; height: 20px; font-size: 8px; border-radius: var(--radius-icon); }
 .avatar-ph.md { width: 30px; height: 30px; font-size: 10px; }
 .avatar-ph.lg { width: 48px; height: 48px; font-size: 14px; border-radius: var(--radius-row); }
+.avatar-ph.xs { width: 16px; height: 16px; font-size: 7px; border-radius: 4px; }
+
+/* Аватарка с портретом: бюст на подложке цвета роли. Картинка нарисована
+   бюстом с плечами, а на 20px различимо только лицо — поэтому она
+   увеличена и приподнята, плечи уходят за нижний край. Размеры и
+   скругления — те же, что у заглушки, чтобы строки не прыгали. */
+.avatar-pic {
+  --avatar-role: var(--ink-4);
+  position: relative; display: inline-block; flex: none; overflow: hidden;
+  border-radius: var(--radius-avatar);
+  background: color-mix(in srgb, var(--avatar-role) 28%, var(--surface, #fff));
+}
+.avatar-pic img {
+  position: absolute; left: 50%; top: 4%; width: 128%; height: 128%; max-width: none;
+  transform: translateX(-50%); object-fit: contain; pointer-events: none; user-select: none;
+}
+.avatar-pic.xs { width: 16px; height: 16px; border-radius: 4px; }
+.avatar-pic.sm { width: 20px; height: 20px; border-radius: var(--radius-icon); }
+.avatar-pic.md { width: 30px; height: 30px; }
+.avatar-pic.lg { width: 48px; height: 48px; border-radius: var(--radius-row); }
+
+/* Сотрудник строкой — аватарка и id (`AgentTag`). */
+.agent-tag { display: inline-flex; align-items: center; gap: 5px; min-width: 0; vertical-align: middle; }
+.agent-tag > span:last-child { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

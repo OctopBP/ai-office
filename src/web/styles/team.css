@@ -86,6 +86,7 @@
   display: flex; align-items: center; justify-content: center;
   font: 600 var(--fs-title)/1 var(--font); color: var(--ink-3);
 }
+.look-pic { object-fit: contain; object-position: bottom; }
 .look-swatch .look-name { font-size: var(--fs-caption); color: var(--ink-3); text-align: center; line-height: 1.25; }
 
 /* Каталог внешних MCP-серверов (настройки) и подписка роли на них. */

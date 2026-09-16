@@ -92,7 +92,12 @@ export function MeetingsPanel({ onCall }: { onCall: () => void }) {
               {lines.length === 0 && <p className="empty">{t('meetings.noLines')}</p>}
               {lines.map((m) => (
                 <div key={m.id} className={`msg ${m.from === 'user' ? 'from-user' : 'from-agent'}`}>
-                  <div className="msg-from">{who(m.from)}</div>
+                  <div className="msg-from">
+                    {m.from !== 'user' && !isOfficeSender(m.from) && (
+                      <Avatar roleId={instances[m.from]?.roleId ?? m.from.split('#')[0]} instanceId={m.from} size="sm" className="msg-face" />
+                    )}
+                    {who(m.from)}
+                  </div>
                   <div className="msg-text">{m.text}</div>
                 </div>
               ))}
@@ -124,9 +129,7 @@ function Faces({ ids }: { ids: string[] }) {
   const instances = useStore((s) => s.instances);
   return (
     <span className="meeting-faces">
-      {ids.map((id) => (instances[id]
-        ? <Avatar key={id} roleId={instances[id].roleId} instanceId={id} size="sm" />
-        : <span key={id} className="chip">{id}</span>))}
+      {ids.map((id) => <Avatar key={id} roleId={instances[id]?.roleId ?? id.split('#')[0]} instanceId={id} size="sm" />)}
     </span>
   );
 }

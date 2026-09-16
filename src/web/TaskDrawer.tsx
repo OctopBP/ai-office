@@ -5,6 +5,7 @@ import {
 import type { TaskView } from '../shared/types';
 import { taskClosed } from '../shared/types';
 import { locale, t } from './i18n';
+import { AgentTag } from './Avatar';
 
 /**
  * Раскрытая карточка задачи.
@@ -106,7 +107,7 @@ export function TaskDrawer() {
           <span className="muted">{t('taskCard.role')}</span>
           <span>{role?.title ?? task.roleId ?? t('common.none')}</span>
           <span className="muted">{t('taskCard.assignee')}</span>
-          <span>{task.assigneeId ?? t('common.none')}</span>
+          <span>{task.assigneeId ? <AgentTag id={task.assigneeId} size="sm" /> : t('common.none')}</span>
           {task.startedAt && (
             <>
               <span className="muted">{t('taskCard.spentTime')}</span>

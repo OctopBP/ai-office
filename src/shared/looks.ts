@@ -42,3 +42,15 @@ export function lookById(id: string | undefined): Look | undefined {
 export function isLookId(id: string): boolean {
   return LOOKS.some((l) => l.id === id);
 }
+
+/**
+ * Какая внешность у агента на самом деле. Выбранная у роли — она; не выбрана
+ * (или в поле лежит старое имя спрайта) — по кругу от порядкового номера
+ * сотрудника в офисе, чтобы соседи за столами отличались. Правило одно на
+ * комнату и аватарки: портрет обязан показывать того же человечка, что
+ * сидит за столом.
+ */
+export function lookFor(roleSprite: string | undefined, index: number): string | undefined {
+  if (LOOKS.length === 0) return undefined;
+  return lookById(roleSprite)?.id ?? LOOKS[Math.abs(index) % LOOKS.length].id;
+}

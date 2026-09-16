@@ -45,7 +45,7 @@ import { interestsFor, type Interest } from '../interests';
 import { stateText } from '../agentState';
 import { dropAnchor, setAnchor } from './anchors';
 import type { AgentState, InstanceView, RoleView, TaskView } from '../../shared/types';
-import { LOOKS } from '../../shared/looks';
+import { lookFor } from '../../shared/looks';
 import { NO_ROLE_COLOR, shortCode } from '../Avatar';
 
 /**
@@ -324,8 +324,9 @@ export function useSkinMaterials(): Record<string, THREE.Material> {
 export function skinMaterial(
   materials: Record<string, THREE.Material>, look: string | undefined, i: number,
 ): THREE.Material {
+  const id = lookFor(look, i);
   return (look ? materials[look] : undefined)
-    ?? materials[LOOKS[i % LOOKS.length].id]
+    ?? (id ? materials[id] : undefined)
     ?? materials[SKIN_NAMES[i % SKIN_NAMES.length]];
 }
 

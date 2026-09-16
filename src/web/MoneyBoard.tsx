@@ -5,6 +5,7 @@ import { Gauge, LimitBars } from './LimitBars';
 import type { TaskView, Usage } from '../shared/types';
 import { dayKey, emptyUsage } from '../shared/types';
 import { t } from './i18n';
+import { Avatar, AgentTag } from './Avatar';
 
 /**
  * Доска расходов: во что офису обошёлся день и каждая задача, и сколько
@@ -46,7 +47,7 @@ function TaskRow({ task, spent, span }: { task: TaskView; spent: Usage; span: 't
       <span className="mono dim">{task.id}</span>
       <span className="row-title">{task.title}</span>
       <span className={`chip ${task.status}`}>{t(`task.status.${task.status}`)}</span>
-      {task.assigneeId && <span className="muted small">{task.assigneeId}</span>}
+      {task.assigneeId && <AgentTag id={task.assigneeId} className="muted small" />}
       <span className="muted small">{usageLine(spent)}</span>
       {span === 'today' && task.usage.costUsd > spent.costUsd && (
         <span className="muted small">{t('money.ofTaskTotal', { total: money(task.usage.costUsd) })}</span>
@@ -159,6 +160,7 @@ export function MoneyBoard() {
       <div className="usage-rows">
         {agents.map((i) => (
           <div key={i.id} className="usage-row">
+            <Avatar roleId={i.roleId} instanceId={i.id} size="sm" />
             <span className="mono dim">{i.id}</span>
             <span className="row-title">{i.label}</span>
             <span className="muted small">{usageLine(span === 'today' ? i.today : i.usage)}</span>
