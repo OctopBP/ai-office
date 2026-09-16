@@ -15,7 +15,11 @@ import { LifePanel } from './LifePanel';
 import { FlowsPanel } from './FlowsPanel';
 import { MeetingsPanel } from './MeetingsPanel';
 import { useStore } from './store';
-import { t } from './i18n';
+import { t, locale } from './i18n';
+
+/** Время строки лога с секундами: события инструментов идут пачками в одну минуту. */
+const logClock = (at: number): string =>
+  new Date(at).toLocaleTimeString(locale(), { hour: '2-digit', minute: '2-digit', second: '2-digit' });
 
 export type PanelKind = 'board' | 'money' | 'log' | 'help' | 'merge' | 'life' | 'flows' | 'meetings' | null;
 export type ModalKind = 'settings' | 'meeting' | 'offices' | 'team' | null;
@@ -74,6 +78,7 @@ export function Overlays({ panel, setPanel, modal, setModal }: OverlayProps) {
           <div className="log">
             {(selected ? log.filter((l) => l.agentId === selected) : log).slice(-200).map((l) => (
               <div key={l.id} className={`log-row ${l.kind}${l.autoApproved ? ' auto-approved' : ''}`}>
+                <span className="log-time" title={new Date(l.at).toLocaleString(locale())}>{logClock(l.at)}</span>
                 <span className="log-agent">{l.agentId ?? t('common.office')}</span>
                 <span className="log-text">
                   {l.autoApproved && (

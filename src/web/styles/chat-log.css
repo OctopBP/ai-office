@@ -16,6 +16,7 @@
 .msg.from-user .msg-text { background: var(--accent); color: var(--accent-ink); }
 
 .log-row { display: flex; gap: var(--space-2); padding: var(--space-1) 0; font-size: var(--fs-body); border-bottom: 1px solid var(--hairline); }
+.log-time { color: var(--ink-3); font-family: var(--font-mono); font-size: var(--fs-small); font-variant-numeric: tabular-nums; white-space: nowrap; }
 .log-agent { color: var(--ink-3); min-width: 82px; font-family: var(--font-mono); font-size: var(--fs-small); }
 .log-text { flex: 1; word-break: break-word; }
 .log-row.error .log-text { color: var(--danger); }
