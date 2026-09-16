@@ -2,8 +2,9 @@ import { useMemo, useState } from 'react';
 import { resetWorkflow, saveWorkflow, updateSettings, useStore } from './store';
 import {
   parseWorkflow, workflowStats, END, TASK_TYPES,
-  type Run, type Workflow, type WorkflowEntry, type WorkflowNode,
+  type Run, type Workflow, type WorkflowEntry,
 } from '../shared/workflow';
+import { FlowGraph, FlowLegend } from './FlowGraph';
 import { t } from './i18n';
 
 type Tab = 'board' | 'processes' | 'checks' | 'stats';
@@ -33,7 +34,7 @@ export function FlowsPanel() {
   );
 }
 
-/** Доска прогонов: колонки — узлы процесса, карточки — задачи на них. */
+/** Доска прогонов: граф процесса, на узлах — задачи, которые сейчас там стоят. */
 function BoardTab() {
   const workflows = useStore((s) => s.workflows);
   const runs = useStore((s) => s.runs);
@@ -42,34 +43,28 @@ function BoardTab() {
   if (!live.length) return <p className="empty">{t('flows.board.empty')}</p>;
   const byFlow = new Map<string, Run[]>();
   for (const r of live) byFlow.set(r.workflowId, [...(byFlow.get(r.workflowId) ?? []), r]);
+  const title = (taskId: string) => tasks[taskId]?.title ?? '';
   return (
     <div className="life-list">
       {[...byFlow.entries()].map(([id, list]) => {
         const entry = workflows.find((w) => w.id === id);
-        const nodes = entry?.workflow.nodes ?? [];
-        const column = (nodeId: string) => list.filter((r) => r.nodeId === nodeId);
         return (
           <div key={id} className="life-row">
-            <div className="life-row-head"><b>{id}</b><span className="muted small">{list.length}</span></div>
-            <div className="flows-board">
-              {[...nodes.map((n) => n.id), END].map((nodeId) => (
-                <div key={nodeId} className="flows-col">
-                  <div className="flows-col-title mono">{nodeId === END ? t('flows.board.done') : nodeId}</div>
-                  {column(nodeId).map((r) => {
-                    const task = r.subject.taskId ? tasks[r.subject.taskId] : null;
-                    return (
-                      <div key={r.id} className={`flows-card ${r.status}`} title={r.note}>
-                        <b>{r.subject.taskId}</b> <span className="muted">{task?.title ?? ''}</span>
-                        <span className={`chip ${r.status}`}>{t(`run.status.${r.status}`)}</span>
-                      </div>
-                    );
-                  })}
-                </div>
-              ))}
+            <div className="life-row-head">
+              <b>{id}</b>
+              <span className="muted small">{t('flows.board.count', { n: list.length })}</span>
+              {(['running', 'waiting', 'stuck', 'done'] as const).map((st) => {
+                const n = list.filter((r) => r.status === st).length;
+                return n ? <span key={st} className={`chip ${st}`}>{t(`run.status.${st}`)} {n}</span> : null;
+              })}
             </div>
+            {entry
+              ? <FlowGraph workflow={entry.workflow} runs={list} taskTitle={title} />
+              : <p className="muted small">{t('flows.board.unknown')}</p>}
           </div>
         );
       })}
+      <FlowLegend />
     </div>
   );
 }
@@ -103,6 +98,7 @@ function ProcessesTab() {
 function Editor({ entry }: { entry: WorkflowEntry }) {
   const [text, setText] = useState(entry.text);
   const [raw, setRaw] = useState(false);
+  const [picked, setPicked] = useState<string | null>(null);
   const parsed = useMemo<{ workflow: Workflow | null; problem: string | null }>(() => {
     try {
       return { workflow: parseWorkflow(JSON.parse(text), `${entry.id}.json`), problem: null };
@@ -124,14 +120,7 @@ function Editor({ entry }: { entry: WorkflowEntry }) {
     } catch { /* сломанный текст правят руками */ }
   };
 
-  const nodeRow = (n: WorkflowNode) => (
-    <tr key={n.id}>
-      <td className="mono">{n.id}</td>
-      <td>{n.kind}</td>
-      <td className="mono muted">{n.run ?? (n.needs?.join(', ') ?? '')}</td>
-      <td className="mono muted">{Object.entries(n.next).map(([o, tr]) => `${o} → ${tr.to}${tr.max !== undefined ? ` ×${tr.max}` : ''}`).join(', ')}</td>
-    </tr>
-  );
+  const node = workflow.nodes.find((n) => n.id === picked) ?? null;
 
   return (
     <div className="life-row">
@@ -144,10 +133,37 @@ function Editor({ entry }: { entry: WorkflowEntry }) {
       </div>
       {entry.problem && <div className="flows-problem">{t('flows.problem', { problem: entry.problem })}</div>}
 
-      <table className="flows-nodes">
-        <thead><tr><th>{t('flows.node')}</th><th>{t('flows.kind')}</th><th>{t('flows.action')}</th><th>{t('flows.next')}</th></tr></thead>
-        <tbody>{workflow.nodes.map(nodeRow)}</tbody>
-      </table>
+      <FlowGraph workflow={workflow} selected={picked} onSelect={(id) => setPicked(id === picked ? null : id)} />
+      <FlowLegend />
+      {node ? (
+        <dl className="flow-inspect">
+          <dt>{t('flows.node')}</dt>
+          <dd><b className="mono">{node.id}</b> · {t(`flows.kind.${node.kind}`)} <span className="muted">— {t(`flows.kind.hint.${node.kind}`)}</span></dd>
+          {node.run && <><dt>{t('flows.node.run')}</dt><dd className="mono">{node.run}</dd></>}
+          {node.needs && node.needs.length > 0 && <><dt>{t('flows.node.needs')}</dt><dd className="mono">{node.needs.join(', ')}</dd></>}
+          {node.same && <><dt>{t('flows.node.same')}</dt><dd className="mono">{node.same}</dd></>}
+          {node.notSameAs && <><dt>{t('flows.node.notSameAs')}</dt><dd className="mono">{node.notSameAs}</dd></>}
+          {node.in && node.in.length > 0 && <><dt>{t('flows.node.in')}</dt><dd className="mono">{node.in.join(', ')}</dd></>}
+          {node.out && <><dt>{t('flows.node.out')}</dt><dd className="mono">{node.out}</dd></>}
+          {node.done && node.done.length > 0 && (
+            <><dt>{t('flows.node.done')}</dt><dd><ul>{node.done.map((d) => <li key={d}>{d}</li>)}</ul></dd></>
+          )}
+          {node.limits && (
+            <><dt>{t('flows.node.limits')}</dt>
+              <dd className="mono">{Object.entries(node.limits).map(([k, v]) => `${k} ${v}`).join(', ')}</dd></>
+          )}
+          {node.stage && <><dt>{t('flows.node.stage')}</dt><dd className="mono">{node.stage}</dd></>}
+          <dt>{t('flows.next')}</dt>
+          <dd className="mono">
+            {Object.entries(node.next).map(([o, tr]) => (
+              <div key={o} className={tr.to === 'stuck' ? 'stuck' : undefined}>
+                {o} → {tr.to === END ? t('flows.board.done') : tr.to === 'stuck' ? t('run.status.stuck') : tr.to}
+                {tr.max !== undefined ? ` ×${tr.max}` : ''}
+              </div>
+            ))}
+          </dd>
+        </dl>
+      ) : <p className="muted small">{t('flows.node.pick')}</p>}
 
       {loopEdges(workflow).length > 0 && (
         <div className="flows-limits">

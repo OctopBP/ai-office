@@ -61,7 +61,7 @@ export function Overlays({ panel, setPanel, modal, setModal }: OverlayProps) {
         </Panel>
       )}
       {panel === 'flows' && (
-        <Panel title={t('flows.title')} wide hint="P" onClose={() => setPanel(null)}>
+        <Panel title={t('flows.title')} wide size="board" hint="P" onClose={() => setPanel(null)}>
           <FlowsPanel />
         </Panel>
       )}
