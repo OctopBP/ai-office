@@ -105,9 +105,44 @@ function spotsOf(layout: Layout, catalog: Catalog): Spot[] {
  */
 let occupancy = new Map<string, (string | null)[]>();
 let signature = '';
+/**
+ * Кто у приставки играет, а кто просто сидит рядом. Липко по той же причине,
+ * что и места: решай заново на каждое событие — и сидящий то брал бы
+ * джойстик, то бросал.
+ */
+let activity = new Map<string, 'game' | 'sit'>();
 
 function reset(spots: Spot[]): void {
   occupancy = new Map(spots.map((s) => [s.id, s.seats.map(() => null)]));
+  activity = new Map();
+}
+
+/** Стабильное число от id: чтобы третий на диване выбирал сам, но всегда одно и то же. */
+function hash(id: string): number {
+  let h = 0;
+  for (let i = 0; i < id.length; i++) h = (h * 31 + id.charCodeAt(i)) | 0;
+  return Math.abs(h);
+}
+
+/**
+ * Занятия на диване у приставки. Все подушки там размечены «играть», но
+ * трое с джойстиками в ряд — тот же кордебалет, от которого уходили. Поэтому
+ * играет тот, кто пришёл к пустой приставке; второй садится рядом смотреть,
+ * а дальше каждый выбирает по своему id. Кто уже сел — своё занятие хранит.
+ */
+function gameActivities(seats: (string | null)[]): void {
+  const here = seats.filter((id): id is string => !!id);
+  const hereSet = new Set(here);
+  for (const id of [...activity.keys()]) {
+    if (!hereSet.has(id)) activity.delete(id);
+  }
+  for (const id of here) {
+    if (activity.has(id)) continue;
+    const mine = here.map((o) => activity.get(o)).filter(Boolean);
+    activity.set(id, !mine.includes('game') ? 'game'
+      : !mine.includes('sit') ? 'sit'
+        : hash(id) % 2 === 0 ? 'game' : 'sit');
+  }
 }
 
 /**
@@ -164,11 +199,12 @@ export function interestsFor(
   const result = new Map<string, Interest>();
   for (const spot of spots) {
     const seats = occupancy.get(spot.id)!;
+    if (spot.kind === 'game') gameActivities(seats);
     seats.forEach((id, i) => {
       if (!id) return;
       const mate = seats.find((other, j) => other && j !== i) ?? undefined;
       result.set(id, {
-        kind: spot.kind,
+        kind: spot.kind === 'game' ? activity.get(id)! : spot.kind,
         at: spot.seats[i].at,
         yaw: spot.seats[i].yaw,
         sprite: spot.seats[i].sprite,

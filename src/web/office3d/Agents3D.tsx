@@ -448,10 +448,14 @@ export function buildRig(
    * глаза. Сдвиг детерминированный, от номера агента: случайный менялся бы
    * при каждой перерисовке и дёргал бы позу.
    */
-  for (const key of POSE_KEYS) {
-    const a = actions[key];
-    a.time = (phase * a.getClip().duration) % a.getClip().duration;
-  }
+  const start = (key: Pose | Move): THREE.AnimationAction => {
+    const a = actions[key].reset();
+    // Переходы играются с начала: посадка с середины — это прыжок на подушку.
+    if ((POSE_KEYS as readonly string[]).includes(key)) {
+      a.time = (phase * a.getClip().duration) % a.getClip().duration;
+    }
+    return a;
+  };
   /**
    * Кости рук — для дотягивания кистей до столешницы. Ищутся один раз
    * здесь, а не в кадре: `getObjectByName` обходит всё поддерево, а костей
@@ -465,13 +469,19 @@ export function buildRig(
     }))
     .filter((a): a is Arm => !!(a.upper && a.lower && a.hand));
 
-  return { figure, mixer, actions, arms };
+  return { figure, mixer, actions, arms, start };
 }
 
 export interface Rig {
   figure: THREE.Object3D;
   mixer: THREE.AnimationMixer;
   actions: Record<Pose | Move, THREE.AnimationAction>;
+  /**
+   * Запустить клип заново. Не голым `reset()`: он обнуляет время, и сдвиг
+   * фазы жил только до первой смены позы — пришедшие на диван в одном кадре
+   * дальше играли синхронно.
+   */
+  start: (key: Pose | Move) => THREE.AnimationAction;
   arms: Arm[];
 }
 
@@ -573,7 +583,7 @@ function Agent({
     pose.current = 'idle';
     pending.current = null;
     transition.current = null;
-    rig.actions.idle.reset().play();
+    rig.start('idle').play();
 
     /**
      * Доиграл переход — включаем позу, ради которой он игрался. Отдельным
@@ -598,7 +608,7 @@ function Agent({
        * на полпути между «садится» и «сидит» — таз на ладонь глубже в диване,
        * чем у той же позы на стенде, где переходов нет.
        */
-      rig.actions[next].reset().setEffectiveWeight(1).crossFadeFrom(move, FADE, false).play();
+      rig.start(next).setEffectiveWeight(1).crossFadeFrom(move, FADE, false).play();
       pose.current = next;
     };
     rig.mixer.addEventListener('finished', onFinished);
@@ -640,13 +650,13 @@ function Agent({
 
     rig.actions[from].fadeOut(FADE);
     if (!move) {
-      rig.actions[next].reset().setEffectiveWeight(1).fadeIn(FADE).play();
+      rig.start(next).setEffectiveWeight(1).fadeIn(FADE).play();
       pose.current = next;
       return;
     }
     pending.current = next;
     transition.current = move;
-    rig.actions[move].reset().setEffectiveWeight(1).fadeIn(FADE).play();
+    rig.start(move).setEffectiveWeight(1).fadeIn(FADE).play();
   };
 
   /**
