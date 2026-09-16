@@ -38,7 +38,9 @@ import type { Layout } from '../../shared/layout';
 import { catalog } from '../layoutData';
 import { poseFit, useFit } from './fit';
 import { seatingFor } from './seating';
-import { measurePoses, useModelMeasures, BONES, type PoseMeasure } from './measure';
+import {
+  measurePoses, measureTravel, useModelMeasures, BONES, type HipsTravel, type PoseMeasure,
+} from './measure';
 import { reach, type Arm } from './ik';
 import { markArrived, reportPosition, useStore } from '../store';
 import { interestsFor, type Interest } from '../interests';
@@ -109,15 +111,17 @@ const FADE = 0.25;
 const WALK_RATE = { min: 0.25, max: 6 };
 
 /**
- * За сколько секунд фигура переезжает между «стоит» и «сидит».
+ * Переходы, во время которых подъём на сиденье едет вместе с клипом.
  *
- * Это не длительность клипа посадки, а время, за которое подъём на сиденье
- * доезжает до конца. Совпадать они не обязаны: клип рисует, как человек
- * сгибается, а подъём — где в этот момент его таз. Взято близко к длине
- * клипов `sitDown`/`standUp` (2.2 с), чуть быстрее — чтобы фигура успевала
- * сесть, а не досаживалась уже сидя.
+ * Своего таймера у подъёма нет. Раньше он ехал линейно за 1,8 с, а клип
+ * усаживал человека по своей кривой — быстро в начале, медленно в конце, —
+ * и они друг о друге не знали: агент садился в диван на месте, где стоял, и
+ * уже сидя подтягивался на подушку. Теперь доля посадки читается из самого
+ * клипа — насколько он уже опустил таз, — и на ту же долю фигуру подвозят к
+ * месту. Клип кончился — таз ровно на подушке, дотягивать нечего.
  */
-const POSTURE_TIME = 1.8;
+export type PostureMove = 'sitDown' | 'standUp';
+const isPostureMove = (move: Move): move is PostureMove => move === 'sitDown' || move === 'standUp';
 
 /** За сколько секунд кисти дотягиваются до столешницы и отпускают её. */
 const REACH_TIME = 0.35;
@@ -266,6 +270,8 @@ export interface Loaded {
   clips: Record<Pose | Move, THREE.AnimationClip>;
   /** Замеры поз: где в каждой из них таз, кисти и ступни (доли роста). */
   measure: Record<Pose, PoseMeasure>;
+  /** Ход таза в клипах посадки и подъёма: откуда и куда он едет (доли роста). */
+  travel: Record<PostureMove, HipsTravel>;
 }
 
 /**
@@ -286,7 +292,12 @@ export function useCharacter(): Loaded {
     MOVE_KEYS.forEach((k, i) => { clips[k] = loaded[1 + POSE_KEYS.length + i].animations[0]; });
     const poses = {} as Record<Pose, THREE.AnimationClip>;
     for (const k of POSE_KEYS) poses[k] = clips[k];
-    return { model: loaded[0], clips, measure: measurePoses(loaded[0], poses) };
+    return {
+      model: loaded[0],
+      clips,
+      measure: measurePoses(loaded[0], poses),
+      travel: measureTravel(loaded[0], { sitDown: clips.sitDown, standUp: clips.standUp }),
+    };
   }, [loaded]);
 }
 
@@ -469,7 +480,25 @@ export function buildRig(
     }))
     .filter((a): a is Arm => !!(a.upper && a.lower && a.hand));
 
-  return { figure, mixer, actions, arms, start };
+  /** Таз — по нему в кадре читается, насколько клип посадки уже усадил. */
+  const hips = figure.getObjectByName(BONES.hips);
+
+  /**
+   * Высота таза в долях роста, как в замерах (`measure.ts`): считается от
+   * самой фигуры, поэтому ни подъём на сиденье, ни поездка по комнате на
+   * число не влияют. Матрицы обновляются здесь же: рендер сделает это позже,
+   * а таз нужен сейчас.
+   */
+  const local = new THREE.Vector3();
+  const hipsY = (): number => {
+    if (!hips) return 0;
+    figure.updateMatrixWorld(true);
+    hips.getWorldPosition(local);
+    figure.worldToLocal(local);
+    return local.y * figure.scale.y / tall;
+  };
+
+  return { figure, mixer, actions, arms, start, hipsY };
 }
 
 export interface Rig {
@@ -483,6 +512,8 @@ export interface Rig {
    */
   start: (key: Pose | Move) => THREE.AnimationAction;
   arms: Arm[];
+  /** Высота таза в текущем кадре, доли роста — та же шкала, что у замеров. */
+  hipsY: () => number;
 }
 
 /**
@@ -854,17 +885,34 @@ function Agent({
     g.rotation.y += delta * Math.min(1, dt * TURN_SPEED);
 
     /**
-     * Подъём на сиденье. Едет он не мгновенно: между «стоит» и «сидит»
-     * играется клип посадки, и всё это время таз должен опускаться, а не
-     * прыгать на подушку в первом же кадре.
+     * Подъём на сиденье — вместе с клипом посадки, а не по своим часам.
+     *
+     * Пока играет `sitDown` или `standUp`, доля посадки читается из самой
+     * фигуры: где сейчас таз между «стоял» и «сел» по замеру этого клипа
+     * (`travel`). Клип опустил таз на треть — фигура на треть пути к подушке;
+     * клип доиграл — таз ровно на подушке. Так посадка происходит на месте,
+     * а не «сел, где стоял, и подтянулся».
+     *
+     * Вне этих клипов доля просто доезжает до цели за время кроссфейда: так
+     * прерванная посадка возвращается назад ровно с той скоростью, с какой
+     * гаснет её клип, а после доигравшего `sitDown` доводится остаток, если
+     * замер конца клипа и первый кадр сидячей позы чуть разошлись.
      *
      * Цель берётся по той позе, к которой ведёт переход, а не по нынешней:
      * пока играет `sitDown`, поза формально ещё стоячая, а человек уже
      * садится.
      */
-    const wants = SEATED[pending.current ?? pose.current] ? 1 : 0;
-    const step = dt / POSTURE_TIME;
-    posture.current += THREE.MathUtils.clamp(wants - posture.current, -step, step);
+    const move = transition.current;
+    if (move && isPostureMove(move)) {
+      const { from, to } = loaded.travel[move];
+      const done = Math.abs(from - to) > 1e-6 ? (rig.hipsY() - from) / (to - from) : 1;
+      const sitting = move === 'sitDown';
+      posture.current = THREE.MathUtils.clamp(sitting ? done : 1 - done, 0, 1);
+    } else {
+      const wants = SEATED[pending.current ?? pose.current] ? 1 : 0;
+      const step = dt / FADE;
+      posture.current += THREE.MathUtils.clamp(wants - posture.current, -step, step);
+    }
     const s = seat.current;
     if (s) {
       s.position.set(

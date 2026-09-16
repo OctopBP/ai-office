@@ -132,6 +132,56 @@ export function measurePoses<K extends string>(
 }
 
 /**
+ * Ход таза за клип перехода: где он в первом кадре и где в последнем, в
+ * долях роста. По этим двум числам в кадре читается, на какую долю клип уже
+ * усадил (или поднял) человека — и ровно на ту же долю его подвозят к подушке.
+ */
+export interface HipsTravel {
+  /** Высота таза в первом кадре клипа. */
+  from: number;
+  /** Высота таза в последнем кадре клипа. */
+  to: number;
+}
+
+/**
+ * Померить ход таза у клипов переходов. Копия фигуры и приведение к
+ * единичному росту — те же, что у `measurePoses`, чтобы числа сходились с
+ * замерами поз.
+ */
+export function measureTravel<K extends string>(
+  model: THREE.Object3D, clips: Record<K, THREE.AnimationClip>,
+): Record<K, HipsTravel> {
+  const figure = cloneSkinned(model);
+  figure.position.set(0, 0, 0);
+  figure.rotation.set(0, 0, 0);
+  const box = new THREE.Box3().setFromObject(figure);
+  figure.scale.setScalar(1 / Math.max(box.max.y - box.min.y, 1e-6));
+
+  const mixer = new THREE.AnimationMixer(figure);
+  const hips = figure.getObjectByName(BONES.hips);
+  const world = new THREE.Vector3();
+  const hipsY = (time: number): number => {
+    mixer.setTime(time);
+    figure.updateMatrixWorld(true);
+    return hips ? hips.getWorldPosition(world).y : 0;
+  };
+
+  const out = {} as Record<K, HipsTravel>;
+  for (const key of Object.keys(clips) as K[]) {
+    const clip = clips[key];
+    const action = mixer.clipAction(clip);
+    mixer.stopAllAction();
+    action.reset().setEffectiveWeight(1).play();
+    // Последний кадр — чуть раньше конца: ровно на `duration` действие с
+    // `LoopRepeat` по умолчанию перескакивает на начало.
+    out[key] = { from: hipsY(0), to: hipsY(Math.max(clip.duration - 1e-3, 0)) };
+    mixer.stopAllAction();
+    mixer.uncacheClip(clip);
+  }
+  return out;
+}
+
+/**
  * Куда ронять луч, чтобы найти поверхность у модели набора.
  *
  * Точка — в системе выровненной модели (середина по горизонтали, низ на
