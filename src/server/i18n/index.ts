@@ -43,7 +43,11 @@ let processLang: Lang | null = null;
 
 export const setProcessLang = (lang: unknown): void => { processLang = asLang(lang); };
 
-const consoleLang = (): Lang => processLang ?? asLang(process.env.OFFICE_LANG ?? DEFAULT_LANG);
+/**
+ * Язык процесса — для того, у чего офиса ещё нет: мастер нового офиса
+ * разговаривает с человеком до того, как офис открыт.
+ */
+export const consoleLang = (): Lang => processLang ?? asLang(process.env.OFFICE_LANG ?? DEFAULT_LANG);
 
 /** Фраза для терминала — на языке процесса. */
 export const c = (key: ServerKey, vars?: Vars): string => translate(consoleLang(), key, vars);

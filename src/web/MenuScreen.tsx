@@ -1,6 +1,7 @@
 import { useMemo, useState } from 'react';
 import { formatLastOpened, retryConnect, sortedOffices, useStore } from './store';
 import { LimitBars } from './LimitBars';
+import { SetupWizard } from './SetupWizard';
 import { money } from './money';
 import type { OfficeView } from '../shared/types';
 import { t } from './i18n';
@@ -11,8 +12,8 @@ const HUES = ['var(--hue-blue)', 'var(--hue-amber)', 'var(--hue-pink)', 'var(--h
 /**
  * Стартовый экран приложения: выбор существующего офиса или создание нового.
  * До входа в офис комната (office3d/Office3D.tsx) не монтируется — вся логика
- * входа и создания живёт в сторе (enterOffice/requestCreateOffice), здесь
- * только отрисовка её состояний.
+ * входа живёт в сторе (enterOffice), создание — в мастере (SetupWizard.tsx),
+ * здесь только отрисовка их состояний.
  *
  * Собран по правилам кита, а не по макету: макета для меню нет, а список
  * офисов внутри офиса уже живёт в рейле — здесь та же строка, только шире и с
@@ -27,27 +28,15 @@ export function MenuScreen() {
   const pendingLabel = useStore((s) => s.pendingLabel);
   const menuNotice = useStore((s) => s.menuNotice);
   const enterOffice = useStore((s) => s.enterOffice);
-  const requestCreateOffice = useStore((s) => s.requestCreateOffice);
   const dismissMenuNotice = useStore((s) => s.dismissMenuNotice);
 
   const [creating, setCreating] = useState(false);
-  const [name, setName] = useState('');
-  const [dir, setDir] = useState('');
 
   const list = useMemo(() => sortedOffices(offices), [offices]);
   const empty = booted && list.length === 0;
-  const showForm = creating || empty;
 
-  const startCreate = () => {
-    setName(''); setDir(''); dismissMenuNotice(); setCreating(true);
-  };
+  const startCreate = () => { dismissMenuNotice(); setCreating(true); };
   const cancelCreate = () => { setCreating(false); dismissMenuNotice(); };
-  const submitCreate = () => {
-    if (!dir.trim() || pending === 'create') return;
-    requestCreateOffice(name, dir);
-  };
-  // Начали переписывать форму после неудачной попытки — старая ошибка уже не про этот ввод.
-  const clearCreateError = () => { if (menuNotice?.kind === 'create-error') dismissMenuNotice(); };
 
   return (
     <div className="menu-screen">
@@ -75,9 +64,10 @@ export function MenuScreen() {
           <p className="menu-loading"><Spinner />{t('menu.entering', { name: pendingLabel ?? '' })}</p>
         )}
 
-        {booted && pending !== 'enter' && !showForm && (
+        {booted && pending !== 'enter' && (
           <>
             <div className="section-title">{t('menu.yourOffices')}</div>
+            {empty && <p className="empty">{t('menu.noOffices')}</p>}
             <div className="menu-offices">
               {list.map((o) => (
                 <OfficeRow key={o.id} office={o} hue={HUES[offices.indexOf(o) % HUES.length]}
@@ -92,36 +82,7 @@ export function MenuScreen() {
           </>
         )}
 
-        {booted && pending !== 'enter' && showForm && (
-          <div className="menu-form">
-            <div className="section-title">{t('menu.newOffice')}</div>
-            {empty && <p className="empty">{t('menu.noOffices')}</p>}
-
-            <label>{t('offices.name')}
-              <input value={name} placeholder={t('offices.namePlaceholder')}
-                disabled={pending === 'create'}
-                onChange={(e) => { clearCreateError(); setName(e.target.value); }} />
-            </label>
-            <label>{t('offices.dir')}
-              <input value={dir} placeholder="/Users/you/projects/my-app" disabled={pending === 'create'}
-                onChange={(e) => { clearCreateError(); setDir(e.target.value); }} />
-              <span className="hint">{t('offices.dirHint')}</span>
-            </label>
-
-            {menuNotice?.kind === 'create-error' && <p className="menu-error">{menuNotice.text}</p>}
-
-            <div className="menu-actions">
-              {!empty && (
-                <button onClick={cancelCreate} disabled={pending === 'create'}>
-                  {t('common.cancel')}
-                </button>
-              )}
-              <button className="primary" disabled={!dir.trim() || pending === 'create'} onClick={submitCreate}>
-                {pending === 'create' ? <Spinner /> : t('offices.create')}
-              </button>
-            </div>
-          </div>
-        )}
+        {creating && <SetupWizard onClose={cancelCreate} />}
       </div>
 
       <footer className="menu-footer">
@@ -148,7 +109,9 @@ function OfficeRow({ office: o, hue, onOpen }: { office: OfficeView; hue: string
       <span className="menu-office-avatar" style={{ background: hue }} />
       <span className="menu-office-text">
         <span className="menu-office-name">{o.name}</span>
-        <span className="menu-office-path mono">{o.projectDir}</span>
+        {o.noProject
+          ? <span className="menu-office-path">{t('menu.noProject')}</span>
+          : <span className="menu-office-path mono">{o.projectDir}</span>}
         <span className="menu-office-when">{t('menu.lastOpened', { when: formatLastOpened(o.lastOpenedAt) })}</span>
       </span>
       {spent > 0 && (

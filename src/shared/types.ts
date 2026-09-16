@@ -726,10 +726,71 @@ export interface OfficeView {
   id: string;
   name: string;
   projectDir: string;
+  /**
+   * Офис без проекта: корневую папку офис завёл сам в служебном месте
+   * (`~/Office/<slug>`). Меню подписывает такую карточку «без проекта», а не
+   * путём — путь здесь не выбор человека. Спека docs/design/office-setup/spec.md §2.
+   */
+  noProject: boolean;
   current: boolean;
   lastOpenedAt: number;
   /** Нет поля — сводку посчитать не удалось; ноль и «нет данных» разные вещи. */
   activity?: OfficeActivity;
+}
+
+// ---------------------------------------------------------------- мастер офиса
+// Спека docs/design/office-setup/spec.md §5.
+
+/** Где у нового офиса корень: чужая папка, новая внутри родителя или служебная. */
+export type SetupWhere =
+  | { mode: 'existing'; dir: string }
+  | { mode: 'new'; parent: string; folder: string }
+  | { mode: 'none' };
+
+/**
+ * Рабочее место участника: общий корень офиса, своя подпапка со своим
+ * репозиторием (мастер её заведёт) или уже существующий репозиторий.
+ */
+export type SetupWorkspace =
+  | { kind: 'root' }
+  | { kind: 'folder'; name: string }
+  | { kind: 'path'; dir: string };
+
+export interface SetupMember {
+  package: string;
+  count: number;
+  workspace: SetupWorkspace;
+}
+
+export interface OfficeSetupPlan {
+  name: string;
+  /** Пара строк о продукте: станет первым направлением владельца. Пусто — ничего. */
+  description: string;
+  where: SetupWhere;
+  team: SetupMember[];
+  /** Пакет-команда, с которой начали: её настройки офиса применяются после найма. */
+  teamPackage: string | null;
+}
+
+export type SetupStepStatus = 'pending' | 'running' | 'done' | 'failed';
+
+/** Шаг сборки офиса на экране прогресса. Тексты готовы к показу. */
+export interface SetupStep {
+  id: string;
+  label: string;
+  status: SetupStepStatus;
+  detail: string;
+}
+
+/** Витрина мастера: пакеты без ролей офиса (офиса ещё нет) и подсказки путей. */
+export interface SetupCatalog {
+  packages: MarketPackageView[];
+  /** Родители папок недавних офисов — предзаполнение шага «Где». */
+  recentParents: string[];
+  /** Куда ляжет корень офиса без проекта. */
+  defaultRoot: string;
+  /** На этой системе есть нативный диалог выбора папки (`pick_folder`). */
+  folderPicker: boolean;
 }
 
 export interface InstanceView {
@@ -1383,6 +1444,11 @@ export type ServerEvent =
    * проекта. Текст готов к показу как есть, переформулировать не нужно.
    */
   | { t: 'office.error'; op: OfficeOp; officeId: string | null; message: string }
+  | { t: 'setup.catalog'; catalog: SetupCatalog }
+  /** Ответ диалога папки — просившему. `dir` null — отменили или не вышло (тогда есть `error`). */
+  | { t: 'folder.picked'; purpose: string; dir: string | null; error: string | null }
+  /** Ход сборки офиса — просившему, список целиком при каждом изменении. */
+  | { t: 'setup.progress'; steps: SetupStep[] }
   | { t: 'cloud'; cloud: CloudStatus }
   | { t: 'usage'; total: Usage; days: DayUsage[] }
   | { t: 'limits'; limits: LimitsView }
@@ -1518,6 +1584,16 @@ export type ClientCommand =
   | { c: 'pause'; paused: boolean }
   | { c: 'switch_office'; officeId: string }
   | { c: 'create_office'; name: string; projectDir: string }
+  /** Витрина для мастера нового офиса: пакеты и подсказки путей. */
+  | { c: 'setup_catalog' }
+  /** Собрать офис по плану мастера: папки, реестр, команда, направления. */
+  | { c: 'setup_office'; plan: OfficeSetupPlan }
+  /**
+   * Открыть нативный диалог выбора папки на машине сервера. `purpose` —
+   * метка поля, которому нужен ответ: клиент получит её обратно и поймёт,
+   * куда класть путь. `start` — где открыть диалог.
+   */
+  | { c: 'pick_folder'; purpose: string; start?: string }
   | { c: 'rename_office'; officeId: string; name: string }
   /** Запросить список офисов, не дожидаясь снапшота: меню открывается раньше офиса. */
   | { c: 'list_offices' }
@@ -1669,6 +1745,8 @@ export interface MarketTeamMemberView {
   /** В реестре есть — можно поставить. Ни там, ни там — команду не собрать. */
   available: boolean;
   title: string;
+  /** Подпапка корня, где участнику работать по замыслу команды. Пусто — общий корень. */
+  workspace: string;
 }
 
 export interface MarketView {

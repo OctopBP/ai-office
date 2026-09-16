@@ -23,6 +23,17 @@ export interface OfficeEntry {
    */
   initGit?: boolean;
   /**
+   * С кем офис откроется в первый раз: только с менеджером, а не с набором по
+   * умолчанию. Ставит мастер нового офиса — кого нанимать, сказал план.
+   * Снимается вместе с initGit после первого открытия.
+   */
+  initTeam?: 'manager-only';
+  /**
+   * Офис без проекта: корень заведён офисом в служебном месте (`defaultRoot`).
+   * Меню подписывает такой офис «без проекта», а не путём.
+   */
+  noProject?: boolean;
+  /**
    * Убран из списка. Запись остаётся в реестре намеренно: за ней закреплён
    * файл состояния, и если тот же проект заведут снова, доска и расходы
    * вернутся, а не начнутся с нуля. Ни папку проекта, ни файл состояния
@@ -124,7 +135,13 @@ export function setCurrent(id: string): OfficeEntry | null {
 }
 
 /** Путь пользователь пишет руками, и «~/Projects/x» — обычная форма записи. */
-function expandHome(path: string): string {
+/**
+ * Корень офисов без проекта. Своя папка нужна и такому офису — журнал,
+ * артефакты и OFFICE.md должны где-то лежать, — просто выбирает её не человек.
+ */
+export const defaultRoot = (): string => resolve(homedir(), 'Office');
+
+export function expandHome(path: string): string {
   if (path === '~') return homedir();
   if (path.startsWith('~/')) return resolve(homedir(), path.slice(2));
   return path;
@@ -137,7 +154,9 @@ function expandHome(path: string): string {
  * создавать пустую папку, о ней надо сказать. Со старта сервера офис
  * заводится без этого флага, и директорию мы создаём сами.
  */
-export function createOffice(input: { name: string; projectDir: string; mustExist?: boolean }):
+export function createOffice(input: {
+  name: string; projectDir: string; mustExist?: boolean; noProject?: boolean; initTeam?: 'manager-only';
+}):
   { office: OfficeEntry; restored?: boolean } | { error: string } {
   if (!registry) return { error: c('offices.noRegistry') };
   if (!input.projectDir.trim()) return { error: c('offices.needDir') };
@@ -199,6 +218,8 @@ export function createOffice(input: { name: string; projectDir: string; mustExis
     createdAt: Date.now(),
     lastOpenedAt: 0,
     initGit: ours,
+    ...(input.noProject ? { noProject: true } : {}),
+    ...(input.initTeam ? { initTeam: input.initTeam } : {}),
   };
   registry.offices.push(office);
   write();
@@ -231,8 +252,9 @@ export function ensureOffice(input: { name: string; projectDir: string }): Offic
 /** Инициализацию гита делают один раз — при первом открытии офиса. */
 export function clearInitFlag(id: string): void {
   const office = officeById(id);
-  if (!office?.initGit) return;
+  if (!office?.initGit && !office?.initTeam) return;
   office.initGit = false;
+  delete office.initTeam;
   write();
 }
 

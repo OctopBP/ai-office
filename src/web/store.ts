@@ -6,6 +6,7 @@ import type {
   MarketView, PermissionMode, PermissionRequest, MeetingView, RoleDraft, RoleEditable, RoleOp, RoleView,
   ServerEvent, Settings, TaskView, Usage, CloudStatus, OfficeView, PullRequestView, PrStage,
   EpicView, LimitsView, FactView, OwnerQuestion, LifeView, RitualId, DirectionView, ProposalView,
+  OfficeSetupPlan, SetupCatalog, SetupStep,
 } from '../shared/types';
 import {
   emptyLimits, emptyUsage, isOfficeSender,
@@ -147,6 +148,14 @@ interface State {
   pendingLabel: string | null;
   /** Ошибка входа или создания офиса, которую нужно показать в меню. */
   menuNotice: { kind: 'blocked' | 'create-error'; text: string } | null;
+  /** Витрина мастера нового офиса. null — ещё не спрашивали. */
+  setupCatalog: SetupCatalog | null;
+  /** Ход сборки офиса мастером. null — сборка не идёт и не шла. */
+  setupSteps: SetupStep[] | null;
+  /** Метка поля, для которого открыт нативный диалог папки. null — диалога нет. */
+  picking: string | null;
+  /** Последний ответ диалога папки; `seq` растёт, чтобы одинаковые ответы не терялись. */
+  picked: { seq: number; purpose: string; dir: string | null; error: string | null } | null;
   /** Офисы = проекты: список и текущий. */
   offices: OfficeView[];
   /** Готовность облачного режима: ключ API и токен GitHub. */
@@ -314,6 +323,12 @@ interface State {
   leaveOffice: () => void;
   /** Отправить создание офиса из меню и ждать снапшот или ошибку. */
   requestCreateOffice: (name: string, projectDir: string) => void;
+  /** Собрать офис по плану мастера: прогресс приходит событиями, итог — снапшот или ошибка. */
+  requestSetupOffice: (plan: OfficeSetupPlan) => void;
+  /** Спросить витрину мастера. Повторный вызов обновляет её. */
+  loadSetupCatalog: () => void;
+  /** Открыть нативный диалог папки на машине сервера; ответ придёт в `picked`. */
+  pickFolder: (purpose: string, start?: string) => void;
   dismissMenuNotice: () => void;
 }
 
@@ -338,6 +353,10 @@ export const useStore = create<State>((set, get) => ({
   pending: null,
   pendingLabel: null,
   menuNotice: null,
+  setupCatalog: null,
+  setupSteps: null,
+  picking: null,
+  picked: null,
   offices: [],
   cloud: { hasKey: false, hasToken: false },
   usage: emptyUsage(),
@@ -468,6 +487,21 @@ export const useStore = create<State>((set, get) => ({
     createOffice(name, projectDir);
   },
 
+  requestSetupOffice: (plan) => {
+    set({ pending: 'create', pendingLabel: plan.name.trim(), menuNotice: null, setupSteps: [] });
+    socket?.send(JSON.stringify({ c: 'setup_office', plan }));
+  },
+
+  loadSetupCatalog: () => {
+    socket?.send(JSON.stringify({ c: 'setup_catalog' }));
+  },
+
+  pickFolder: (purpose, start) => {
+    if (get().picking) return;
+    set({ picking: purpose });
+    socket?.send(JSON.stringify({ c: 'pick_folder', purpose, start }));
+  },
+
   dismissMenuNotice: () => set({ menuNotice: null }),
 
   apply: (e) => {
@@ -514,6 +548,8 @@ export const useStore = create<State>((set, get) => ({
           // Снапшот пришёл во время входа/создания — офис открыт, показываем комнату.
           screen: s.pending ? 'office' : s.screen,
           pending: null, pendingLabel: null,
+          // Сборка мастером закончилась входом в офис — экран прогресса больше не нужен.
+          setupSteps: null,
           // Снапшот — это либо переподключение, либо реальное переключение
           // офиса (switch_office шлёт именно snapshot, не точечный patch):
           // выделение, ветка чата и открытый дифф предыдущего офиса тут
@@ -632,6 +668,15 @@ export const useStore = create<State>((set, get) => ({
         break;
       case 'offices':
         set({ offices: e.offices });
+        break;
+      case 'setup.catalog':
+        set({ setupCatalog: e.catalog });
+        break;
+      case 'setup.progress':
+        set({ setupSteps: e.steps });
+        break;
+      case 'folder.picked':
+        set((s) => ({ picking: null, picked: { seq: (s.picked?.seq ?? 0) + 1, purpose: e.purpose, dir: e.dir, error: e.error } }));
         break;
       case 'office.error':
         // Стартовый офис не открылся: снапшота не будет никогда, и меню без

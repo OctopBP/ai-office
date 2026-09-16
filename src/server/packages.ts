@@ -103,6 +103,12 @@ export interface TeamMember {
   count: number;
   /** Нужная версия. Пусто — старшая из доступных. */
   version: string;
+  /**
+   * Подпапка корня офиса, где участнику работать по замыслу команды; пусто —
+   * общий корень. Подсказка для мастера нового офиса (spec office-setup §5.1):
+   * найм команды в живой офис папок не заводит и поля не читает.
+   */
+  workspace: string;
 }
 
 /**
@@ -251,7 +257,12 @@ export function parseManifest(raw: unknown, fallbackName: string): { manifest: A
       const n = rec.count === undefined ? 1 : (typeof rec.count === 'number' ? Math.floor(rec.count) : NaN);
       if (!Number.isFinite(n) || n < MIN_HIRE_COUNT || n > MAX_HIRE_COUNT) { err(`members[${i}].count`, `an integer from ${MIN_HIRE_COUNT} to ${MAX_HIRE_COUNT}`); continue; }
       if (members.some((x) => x.package === pkgName)) { err(`members[${i}]`, `${pkgName} listed twice`); continue; }
-      members.push({ package: pkgName, count: n, version: typeof rec.version === 'string' ? rec.version.trim() : '' });
+      const workspace = typeof rec.workspace === 'string' ? rec.workspace.trim() : '';
+      if (rec.workspace !== undefined && (typeof rec.workspace !== 'string' || (workspace && !FOLDER_NAME_RE.test(workspace)))) {
+        err(`members[${i}].workspace`, 'a folder name: letters, digits, dots, dashes and underscores, no slashes');
+        continue;
+      }
+      members.push({ package: pkgName, count: n, version: typeof rec.version === 'string' ? rec.version.trim() : '', workspace });
     }
     if (!members.length) err('members', 'a team needs at least one member');
     const raw = asRecord(m.settings);
@@ -358,6 +369,12 @@ export function parseManifest(raw: unknown, fallbackName: string): { manifest: A
     problems,
   };
 }
+
+/**
+ * Имя подпапки: один сегмент пути, не скрытая и не служебная (`.`, `..`).
+ * Общее с мастером офиса — он тем же правилом проверяет рабочее место из формы.
+ */
+export const FOLDER_NAME_RE = /^(?!\.)[A-Za-z0-9._-]{1,64}$/;
 
 const KNOWN_KEYS = new Set([
   'schema', 'name', 'kind', 'title', 'summary', 'tags', 'color', 'emoji', 'look', 'manager',

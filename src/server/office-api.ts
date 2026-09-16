@@ -18,7 +18,9 @@ import {
 } from './offices';
 import { stopSupervisor } from './supervisor';
 import { noteOfficeViewed } from './rituals';
-import { c } from './i18n';
+import { buildOffice, planProblem, setupCatalog } from './setup';
+import { pickFolder } from './pickfolder';
+import { c, consoleLang } from './i18n';
 import { OFFICE_SENDER } from '../shared/types';
 
 /**
@@ -336,6 +338,32 @@ async function openOnce(entry: OfficeEntry): Promise<boolean> {
 }
 
 /**
+ * Собрать офис по плану мастера. Прогресс уходит просившему; итог — вход в
+ * новый офис тем же путём, что `switch_office` (офис уже поднят сборкой, так
+ * что это только снапшот), либо отказ с op `create`, как у старой формы.
+ * Язык — процесса: офиса, на языке которого говорить, ещё нет.
+ */
+async function runSetup(plan: Parameters<typeof planProblem>[0], ws: Sink): Promise<void> {
+  const lang = consoleLang();
+  const problem = planProblem(plan, lang);
+  if (problem) {
+    refuse('create', null, problem, ws);
+    return;
+  }
+  const made = await buildOffice(plan, lang, {
+    open: async (entry) => { await openOnce(entry); },
+    state: getOffice,
+    progress: (steps) => send(ws, { t: 'setup.progress', steps }),
+  });
+  if ('error' in made) {
+    refuse('create', null, made.error, ws);
+    return;
+  }
+  broadcastOffices();
+  await switchOffice(made.officeId, ws);
+}
+
+/**
  * Команды офисов. Возвращает false, если команда не про офисы, — тогда её
  * разбирает общий обработчик в index.ts.
  */
@@ -366,6 +394,25 @@ export function handleOfficeCommand(cmd: ClientCommand, ws: Sink): boolean {
     }
     broadcastOffices();
     void switchOffice(made.office.id, ws);
+    return true;
+  }
+  if (cmd.c === 'setup_catalog') {
+    void setupCatalog(consoleLang()).then((catalog) => send(ws, { t: 'setup.catalog', catalog }));
+    return true;
+  }
+  if (cmd.c === 'setup_office') {
+    void runSetup(cmd.plan, ws);
+    return true;
+  }
+  if (cmd.c === 'pick_folder') {
+    const purpose = String(cmd.purpose ?? '');
+    void pickFolder(typeof cmd.start === 'string' ? cmd.start : undefined, consoleLang()).then((got) => {
+      send(ws, {
+        t: 'folder.picked', purpose,
+        dir: 'dir' in got ? got.dir : null,
+        error: 'error' in got ? got.error : null,
+      });
+    });
     return true;
   }
   if (cmd.c === 'rename_office') {

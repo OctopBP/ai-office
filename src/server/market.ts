@@ -548,7 +548,8 @@ function fillFromPackage(card: MarketPackageView, pkg: AgentPackage, lang: Lang)
   card.kind = m.kind;
   card.settings = { ...m.settings };
   card.members = m.members.map((member) => ({
-    package: member.package, count: member.count, version: member.version, installed: false, available: false, title: '',
+    package: member.package, count: member.count, version: member.version, workspace: member.workspace,
+    installed: false, available: false, title: '',
   }));
 }
 
@@ -562,12 +563,13 @@ function skillNames(pkg: AgentPackage): string[] {
 }
 
 /**
- * Витрина для офиса: встроенные пакеты, реестр и кеш — одной таблицей по
- * имени, плюс роли этого офиса, заведённые из каждого пакета.
+ * Карточки пакетов без привязки к офису: встроенные, реестр и кеш — одной
+ * таблицей по имени. Общая часть витрины маркета и витрины мастера нового
+ * офиса: у второго офиса ещё нет, а пакеты показать надо те же.
  */
-export async function marketView(state: OfficeState, opts: { busy?: boolean; refresh?: boolean } = {}): Promise<MarketView> {
-  const lang = state.lang();
-  const { registry, error } = await loadRegistry(REGISTRY_SOURCE, opts.refresh === true);
+export async function packageCards(lang: Lang, refresh = false):
+  Promise<{ cards: Map<string, MarketPackageView>; registry: Registry | null; error: string | null }> {
+  const { registry, error } = await loadRegistry(REGISTRY_SOURCE, refresh);
   const cards = new Map<string, MarketPackageView>();
   const card = (name: string): MarketPackageView => {
     let c0 = cards.get(name);
@@ -620,6 +622,44 @@ export async function marketView(state: OfficeState, opts: { busy?: boolean; ref
     c0.yanked = entry?.yanked?.includes(pkg.version) === true;
     if (!c0.latest) c0.latest = updates.get(pkg.name)?.version ?? '';
   }
+  return { cards, registry, error };
+}
+
+/** Участники команд: установлен, есть в реестре, как называется. Плюс лицензии. */
+function finishCards(cards: Map<string, MarketPackageView>): MarketPackageView[] {
+  const licenses = readLicenses();
+  for (const c0 of cards.values()) {
+    c0.licensed = Boolean(licenses[c0.name]);
+    for (const member of c0.members) {
+      const found = cards.get(member.package);
+      member.installed = found?.installed === true;
+      member.available = Boolean(found) && (found!.installed || found!.origin === 'registry');
+      member.title = found?.title || member.package;
+    }
+  }
+  const order: Record<MarketPackageView['origin'], number> = { builtin: 0, registry: 1, link: 2 };
+  return [...cards.values()].sort((a, b) =>
+    order[a.origin] - order[b.origin] || a.name.localeCompare(b.name));
+}
+
+/** Витрина без офиса — для мастера: те же карточки, без ролей. */
+export async function catalogPackages(lang: Lang): Promise<{ packages: MarketPackageView[]; error: string | null }> {
+  const { cards, error } = await packageCards(lang);
+  return { packages: finishCards(cards), error };
+}
+
+/**
+ * Витрина для офиса: встроенные пакеты, реестр и кеш — одной таблицей по
+ * имени, плюс роли этого офиса, заведённые из каждого пакета.
+ */
+export async function marketView(state: OfficeState, opts: { busy?: boolean; refresh?: boolean } = {}): Promise<MarketView> {
+  const lang = state.lang();
+  const { cards, error } = await packageCards(lang, opts.refresh === true);
+  const card = (name: string): MarketPackageView => {
+    let c0 = cards.get(name);
+    if (!c0) { c0 = emptyCard(name); cards.set(name, c0); }
+    return c0;
+  };
   // Роли офиса из пакетов.
   for (const role of state.roles()) {
     const link = role.package;
@@ -637,21 +677,7 @@ export async function marketView(state: OfficeState, opts: { busy?: boolean; ref
     c0.roles.push(view);
     if (!c0.installed && !c0.title) c0.title = role.title;
   }
-
-  // Участники команд: установлен, есть в реестре, как называется.
-  const licenses = readLicenses();
-  for (const c0 of cards.values()) {
-    c0.licensed = Boolean(licenses[c0.name]);
-    for (const member of c0.members) {
-      const found = cards.get(member.package);
-      member.installed = found?.installed === true;
-      member.available = Boolean(found) && (found!.installed || found!.origin === 'registry');
-      member.title = found?.title || member.package;
-    }
-  }
-  const order: Record<MarketPackageView['origin'], number> = { builtin: 0, registry: 1, link: 2 };
-  const packages = [...cards.values()].sort((a, b) =>
-    order[a.origin] - order[b.origin] || a.name.localeCompare(b.name));
+  const packages = finishCards(cards);
   return {
     packages, registrySource: REGISTRY_SOURCE, registryError: error, checkedAt, busy: opts.busy === true,
     service: Boolean(serviceBase()),
@@ -715,7 +741,7 @@ onOutcome((state, task, outcome) => {
  * Поставить пакет по имени, если он не встроен и не в кеше: из реестра.
  * Общий шаг для установки, найма команды и обновления участников.
  */
-async function ensureInstalled(state: OfficeState, name: string, version = ''): Promise<{ pkg: AgentPackage; source: PackageSource | null } | { error: string }> {
+export async function ensureInstalled(state: OfficeState, name: string, version = ''): Promise<{ pkg: AgentPackage; source: PackageSource | null } | { error: string }> {
   const have = installedPackage(name);
   if (have && (!version || have.pkg.version === version)) return have;
   const { registry } = await loadRegistry();
@@ -732,7 +758,7 @@ async function ensureInstalled(state: OfficeState, name: string, version = ''): 
 }
 
 /** Установленный пакет по имени: встроенный или старшая версия из кеша. */
-function installedPackage(name: string): { pkg: AgentPackage; source: PackageSource | null } | null {
+export function installedPackage(name: string): { pkg: AgentPackage; source: PackageSource | null } | null {
   const builtin = listPackages().find((p) => p.name === name);
   if (builtin) return { pkg: builtin, source: null };
   const cached = listCached().filter((x) => x.pkg.name === name);

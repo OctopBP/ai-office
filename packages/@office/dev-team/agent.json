@@ -13,8 +13,8 @@
   "license": "MIT",
   "members": [
     { "package": "@office/pm" },
-    { "package": "@office/backend", "count": 2 },
-    { "package": "@office/frontend" },
+    { "package": "@office/backend", "count": 2, "workspace": "backend" },
+    { "package": "@office/frontend", "workspace": "frontend" },
     { "package": "@office/design" },
     { "package": "@office/reviewer" }
   ],

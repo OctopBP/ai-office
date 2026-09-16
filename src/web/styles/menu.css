@@ -69,6 +69,67 @@
 .menu-actions { display: flex; justify-content: flex-end; gap: var(--space-2); margin-top: var(--space-2); }
 .menu-error { color: var(--danger); font-size: var(--fs-small); margin: 0; }
 
+/* ---------- мастер нового офиса ---------- */
+.modal.setup { width: 680px; }
+.modal.setup .modal-head { align-items: flex-start; gap: var(--space-4); margin-bottom: var(--space-4); }
+.modal.setup textarea { display: block; width: 100%; margin-top: var(--space-1); resize: vertical; }
+.modal.setup input.invalid { border-color: var(--danger); }
+.setup-crumbs {
+  display: flex; gap: var(--space-2); margin: 0; padding: 0; list-style: none;
+  font-size: var(--fs-small); color: var(--ink-4);
+}
+.setup-crumbs li { display: flex; align-items: center; gap: var(--space-2); }
+.setup-crumbs li + li::before { content: ''; width: 12px; height: 1px; background: var(--hairline); }
+.setup-crumbs li.on { color: var(--accent); font-weight: 500; }
+.setup-crumbs li.done { color: var(--ink-3); }
+.setup-modes { align-self: flex-start; }
+.setup-path { display: flex; gap: var(--space-2); align-items: center; margin-top: var(--space-1); }
+/* Специфичность выше `.menu-form label input`: то правило даёт полю отступ сверху, а здесь отступ у обёртки. */
+.menu-form label .setup-path input { flex: 1; min-width: 0; margin-top: 0; }
+.setup-pick { flex: none; white-space: nowrap; }
+
+.setup-teams { display: flex; flex-direction: column; gap: var(--space-2); }
+.setup-team-row { display: flex; flex-wrap: wrap; gap: var(--space-2); }
+.setup-team-row .chip { cursor: pointer; }
+.setup-team-row .chip.on { background: var(--accent); color: var(--accent-ink); }
+
+.setup-agents { margin: 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: 2px; max-height: 46vh; overflow-y: auto; }
+.setup-agent {
+  display: grid; grid-template-columns: 32px 1fr auto; align-items: center; gap: var(--space-3);
+  padding: var(--space-2); border-radius: var(--radius-row);
+}
+.setup-agent.on { background: var(--film); }
+.setup-agent-emoji {
+  display: inline-flex; align-items: center; justify-content: center; width: 32px; height: 32px;
+  border-radius: var(--radius-icon); font-size: 16px;
+}
+.setup-agent-text { display: flex; flex-direction: column; min-width: 0; gap: 1px; }
+.setup-agent-title { color: var(--ink); font-weight: 500; }
+.setup-agent-summary { font-size: var(--fs-small); color: var(--ink-3); }
+.setup-agent-mcp { font-size: var(--fs-small); color: var(--ink-4); }
+.setup-count { display: inline-flex; align-items: center; gap: var(--space-1); }
+.setup-count b { min-width: 1.5em; text-align: center; color: var(--ink); font-variant-numeric: tabular-nums; }
+.setup-count button.mini { width: var(--mini-h); padding: 0; }
+.setup-ws { grid-column: 2 / -1; display: flex; gap: var(--space-2); align-items: center; }
+.setup-ws input { flex: 1; min-width: 0; }
+
+.setup-summary dl { display: grid; grid-template-columns: max-content 1fr; gap: var(--space-2) var(--space-4); margin: 0; }
+.setup-summary dt { color: var(--ink-3); }
+.setup-summary dd { margin: 0; color: var(--ink); display: flex; flex-direction: column; gap: 2px; }
+.setup-summary-member { font-size: var(--fs-md); }
+
+.setup-progress { margin: 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: var(--space-2); }
+.setup-progress li { display: flex; gap: var(--space-3); align-items: flex-start; color: var(--ink-3); }
+.setup-progress li.done, .setup-progress li.running { color: var(--ink); }
+.setup-progress li.failed { color: var(--danger); }
+.setup-progress-dot { flex: none; width: 10px; height: 10px; margin-top: 5px; border-radius: 50%; background: var(--ink-4); }
+.setup-progress li.done .setup-progress-dot { background: var(--ok); }
+.setup-progress li.failed .setup-progress-dot { background: var(--danger); }
+.setup-progress li.running .setup-progress-dot { background: var(--accent); animation: setup-pulse 1s ease-in-out infinite; }
+.setup-progress-text { display: flex; flex-direction: column; gap: 1px; }
+.setup-progress-detail { font-size: var(--fs-small); color: var(--ink-3); word-break: break-word; }
+@keyframes setup-pulse { 50% { opacity: .35; } }
+
 .menu-footer {
   display: flex; align-items: center; gap: var(--space-2);
   font-size: var(--fs-small); color: var(--ink-3);

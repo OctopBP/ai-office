@@ -1516,6 +1516,14 @@ export class OfficeState {
 
   // ---------- инстансы ----------
 
+  /**
+   * Свести набор ролей к одному менеджеру. Только для офиса без сохранения:
+   * роли из сохранения принадлежат офису, и трогать их так нельзя.
+   */
+  startWithManagerOnly(): void {
+    this.roleList = withManagerRole([], this.lang());
+  }
+
   seed(): void {
     this.instances.clear();
     this.tasks.clear();
@@ -2657,9 +2665,11 @@ export class OfficeState {
    *
    * Возвращает причину отказа готовым текстом или null.
    */
-  hireFromPackage(pkg: AgentPackage, source: PackageSource | null): string | null {
+  hireFromPackage(pkg: AgentPackage, source: PackageSource | null, extra: LinkOverrides = {}): string | null {
     const fromPackage = this.roleList.filter((r) => r.package?.name === pkg.name && !r.archived);
     const vacancy = fromPackage.find((r) => this.staffOf(r.id).length === 0);
+    // Открытая вакансия закрывается как есть: её рабочее место человек уже
+    // мог настроить, и правки мастера поверх были бы сюрпризом.
     if (vacancy) return this.hire(vacancy.id);
     if (pkg.manifest.manager) return this.say('market.managerTaken', { name: pkg.name });
     if (fromPackage.length >= MAX_HIRE_COUNT) {
@@ -2673,7 +2683,10 @@ export class OfficeState {
     // уволь и убери «Бэкенда 2», и следующий получил бы то же название, что
     // уже лежит в истории задач.
     const copy = fromPackage.reduce((max, r) => Math.max(max, r.package?.copy ?? 1), 0) + 1;
-    const overrides: LinkOverrides = {};
+    // `extra` — правки поверх пакета от того, кто нанимает: мастер нового
+    // офиса кладёт сюда рабочее место (repoDir). Они такие же оверрайды, как
+    // те, что человек потом сделает в карточке роли.
+    const overrides: LinkOverrides = { ...extra };
     // Второму такому же — другая внешность: двух одинаковых человечков в
     // комнате не различить. Это правка поверх пакета, и человек её поменяет.
     if (copy > 1) {
@@ -3436,7 +3449,7 @@ export const officeViews = (): OfficeView[] => {
   return offices().map((o) => {
     const live = states.get(o.id);
     return {
-      id: o.id, name: o.name, projectDir: o.projectDir,
+      id: o.id, name: o.name, projectDir: o.projectDir, noProject: o.noProject === true,
       current: o.id === current?.id, lastOpenedAt: o.lastOpenedAt,
       activity: live?.opened
         ? {
@@ -3662,8 +3675,14 @@ export function subscribeOffices(fn: OfficeListener): void {
  * `restored` — подняли с диска сейчас, `reused` — офис уже был открыт в этом
  * процессе; оба false означают новый офис, начатый с чистого листа.
  */
-export function openOfficeState(entry: { id: string; projectDir: string; stateFile: string }):
-  { state: OfficeState; restored: boolean; reused: boolean } {
+/**
+ * `entry.initTeam` — с кем офис начинает, если сохранения нет: с набором по
+ * умолчанию (`default-office.json`) или только с менеджером. Второе — офис
+ * из мастера: кого нанимать, сказал план, и набор «все десять» ему не нужен.
+ */
+export function openOfficeState(
+  entry: { id: string; projectDir: string; stateFile: string; initTeam?: 'manager-only' },
+): { state: OfficeState; restored: boolean; reused: boolean } {
   const state = getOffice(entry.id);
   if (state.opened) return { state, restored: false, reused: true };
 
@@ -3671,6 +3690,7 @@ export function openOfficeState(entry: { id: string; projectDir: string; stateFi
   state.setStateFile(entry.stateFile);
   state.opened = true;
   const restored = state.restore();
+  if (!restored && entry.initTeam === 'manager-only') state.startWithManagerOnly();
   // Офис с чистого листа начинается и с чистых ролей: правки ролей
   // принадлежат офису, и у нового их просто нет.
   if (!restored) state.seed();
