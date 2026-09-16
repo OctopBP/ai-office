@@ -37,13 +37,23 @@
   display: flex; flex-direction: column; padding: var(--space-4) var(--space-3) var(--space-3);
   border-radius: var(--radius-panel); z-index: var(--z-hud); overflow: hidden;
 }
+/* Сжимается только список офисов (ниже), остальное держит свою высоту. */
+.shell-rail > * { flex: none; }
 .rail-brand { display: flex; align-items: center; gap: var(--space-2); height: 28px; margin-bottom: var(--space-5); }
 .rail-logo { width: 28px; height: 28px; border-radius: var(--radius-avatar); background: var(--accent); flex: none; }
 .rail-name { font: 600 var(--fs-title)/1.2 var(--font-brand); color: var(--ink); flex: 1; }
 .rail-toggle { width: 24px; min-height: 24px; padding: 0; color: var(--ink-3); font-size: 16px; }
 .shell-rail .section-title { margin-bottom: var(--space-3); }
 
-.rail-offices { display: flex; flex-direction: column; gap: var(--space-1); margin-bottom: var(--space-5); }
+/* Офисов может быть много: список сжимается и прокручивается, а кнопка «Новый офис»,
+   окна и низ рейла остаются на месте. Меньше двух строк список не ужимается. */
+.rail-offices { display: flex; flex-direction: column; gap: var(--space-1); margin-bottom: var(--space-5); flex: 0 1 auto; min-height: 0; }
+.rail-office-list {
+  display: flex; flex-direction: column; gap: var(--space-1); flex: 0 1 auto; min-height: 116px;
+  overflow-y: auto; overscroll-behavior: contain; scrollbar-width: thin;
+  margin: 0 calc(-1 * var(--space-1)); padding: 0 var(--space-1);
+}
+.rail-office-list > * { flex: none; }
 .rail-office {
   display: flex; align-items: center; justify-content: flex-start; gap: var(--space-2);
   height: 56px; min-height: 0; padding: 0 var(--space-3); text-align: left;
@@ -73,7 +83,7 @@
 
 .rail-sep { height: 1px; background: var(--hairline); margin-bottom: var(--space-5); flex: none; }
 
-.rail-windows { display: flex; flex-direction: column; }
+.rail-windows { display: flex; flex-direction: column; flex: none; }
 .rail-win {
   text-align: left;
   display: flex; align-items: center; justify-content: flex-start; gap: var(--space-2);
@@ -120,6 +130,7 @@
 .rail-collapsed .rail-office-dot, .rail-collapsed .rail-win-label, .rail-collapsed .rail-win-count,
 .rail-collapsed .rail-spend, .rail-collapsed .meter, .rail-collapsed .rail-user-text { display: none; }
 .rail-collapsed .rail-offices, .rail-collapsed .rail-windows { width: 52px; align-items: center; }
+.rail-collapsed .rail-office-list { width: 52px; align-items: center; margin: 0; padding: 0; scrollbar-width: none; }
 .rail-collapsed .rail-office { width: 52px; padding: 0 10px; justify-content: center; }
 .rail-collapsed .rail-new { width: 42px; min-height: 41px; }
 .rail-collapsed .rail-sep { width: 52px; }

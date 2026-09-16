@@ -87,6 +87,7 @@ export function Rail({ onPanel, onModal }: {
 
       <div className="section-title">{t('shell.offices')}</div>
       <div className="rail-offices">
+        <div className="rail-office-list">
         {list.map((o) => {
           const activity = summarizeOfficeActivity(o);
           const status = o.current
@@ -106,6 +107,7 @@ export function Rail({ onPanel, onModal }: {
             </button>
           );
         })}
+        </div>
         <button className="dashed rail-new" onClick={() => onModal('offices')} title={t('shell.newOffice')}>
           {collapsed ? '+' : t('shell.newOffice')}
         </button>
