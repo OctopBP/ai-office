@@ -21,7 +21,7 @@ import type { LayoutProp } from '../../shared/layout';
 import { useStore } from '../store';
 import { catalog, type HotspotPanel } from '../layoutData';
 import { paletteOf, type Palette } from './palette';
-import { WALL_H, scene3, type Box3, type Floor3, type Scene3, type Wall3 } from './geometry';
+import { FLOOR_THICK, WALL_H, scene3, type Box3, type Floor3, type Scene3, type Wall3 } from './geometry';
 import { place3 } from './props';
 import { FurnitureModels, Props3D } from './Props3D';
 import { Hotspots3D, type Spot3, type SpotKind, type SpotTarget } from './Hotspots3D';
@@ -168,16 +168,18 @@ function WallSegment({ wall, offset, palette, textures }: {
   /**
    * Материалы по граням коробки — в порядке BoxGeometry: +X, −X, +Y, −Y, +Z,
    * −Z. Бока стены — те две грани, что поперёк её оси; какая из них смотрит
-   * в комнату, записано в `sides`. Торцы и низ — внутренние: свободный торец
-   * стены виден из дверного проёма, то есть из комнаты.
+   * в комнату, записано в `sides`, про торцы — в `ends`: торец в дверном
+   * проёме внутренний, торец на углу офиса наружный. Низ не виден вовсе.
    */
   const materialsOf = (b: Box3): THREE.Material[] => {
     const pick = (inside: boolean | undefined) => (inside === false ? outer : inner);
     const pos = pick(b.sides?.pos);
     const neg = pick(b.sides?.neg);
+    const lo = pick(b.ends?.lo);
+    const hi = pick(b.ends?.hi);
     return wall.axis === 'x'
-      ? [inner, inner, top, inner, pos, neg]
-      : [pos, neg, top, inner, inner, inner];
+      ? [hi, lo, top, inner, pos, neg]
+      : [pos, neg, top, inner, hi, lo];
   };
 
   /** Центр отрезка и его нормаль сразу в мировых координатах: считать их
@@ -367,11 +369,13 @@ function TexturedFloor({ floor, url, palette }: { floor: Floor3; url: string; pa
  * текстуры: лучше секунду видеть ровный цвет, чем дыру до плиты.
  */
 function Floors({ scene, palette }: { scene: Scene3; palette: Palette }) {
-  const [w, d] = scene.size;
+  const [x0, z0, x1, z1] = scene.ground;
   return (
     <>
-      <mesh position={[w / 2, -0.35, d / 2]} receiveShadow>
-        <boxGeometry args={[w, 0.5, d]} />
+      {/* Верх плиты — ровно под низом пола: иначе их торцы перекрываются
+          по высоте в одной плоскости и мерцают. */}
+      <mesh position={[(x0 + x1) / 2, -FLOOR_THICK - 0.25, (z0 + z1) / 2]} receiveShadow>
+        <boxGeometry args={[x1 - x0, 0.5, z1 - z0]} />
         <meshLambertMaterial color={palette.ground} />
       </mesh>
       {scene.floors.map((f) => {
