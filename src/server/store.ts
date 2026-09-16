@@ -30,6 +30,8 @@ export interface PersistedInstance {
    * в старых сохранениях его и не было, и это то же самое, что «как у роли».
    */
   permissionMode?: PermissionMode | null;
+  /** Имя от владельца. Нет поля или null — зовётся по роли; в старых сохранениях поля нет. */
+  name?: string | null;
   /** Формат до детализации расходов: только сумма, без токенов. */
   costUsd?: number;
 }

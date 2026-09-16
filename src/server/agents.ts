@@ -1238,6 +1238,7 @@ export async function holdMeeting(
           ]
         : [
             meetingOffice.say('prompt.meeting.worker', { role: role.title }),
+            inst.name ? meetingOffice.say('prompt.worker.name', { name: inst.name }) : '',
             role.brief,
             '',
             meetingOffice.say('prompt.meeting.workerTail'),
@@ -1351,6 +1352,7 @@ export function talkTo(talkOffice: OfficeState, instanceId: string, text: string
 
   const systemPrompt = [
     talkOffice.say('prompt.talk.system', { role: role.title }),
+    inst.name ? talkOffice.say('prompt.worker.name', { name: inst.name }) : '',
     role.brief,
     '',
     talkOffice.say('prompt.talk.tail'),
@@ -1693,6 +1695,8 @@ function startWorker(taskOffice: OfficeState, task: Task, inst: Instance): void 
 
   const systemPrompt = [
     taskOffice.say('prompt.worker.system', { role: role.title }),
+    // Имя — в системный промпт, а не в бриф роли: оно у сотрудника, а не у роли.
+    inst.name ? taskOffice.say('prompt.worker.name', { name: inst.name }) : '',
     role.brief,
     '',
     taskOffice.say('prompt.worker.tail'),

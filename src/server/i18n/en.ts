@@ -140,6 +140,10 @@ export const en = {
   'state.settings.language': 'Office language: {lang}',
   'state.agent.modeSet': 'Access mode of this member: “{mode}” (personal rule)',
   'state.agent.modeInherited': 'Personal rule dropped — follows the role mode: “{mode}”',
+  'state.agent.named': '{before} is now called {name}',
+  'state.agent.unnamed': '{before} goes by the role again: {label}',
+  'state.agent.nameLong': 'The name is too long — up to {max} characters.',
+  'state.agent.nameTaken': 'Somebody in the office is already called “{name}” ({id}) — two of the same name would be confusing.',
 
   'state.hire.archived': 'Role “{title}” is archived — there is nobody to hire into it. Bring it back from the archive if the work is needed again.',
   'state.hire.taken': '{title}: this one is already hired. Hire one more with “Hire one more” — they arrive as their own employee with the same settings, their own name and their own look.',

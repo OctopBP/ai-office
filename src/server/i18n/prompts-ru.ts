@@ -429,6 +429,7 @@ export const promptsRu: Record<keyof typeof promptsEn, string> = {
   'tool.finishStep.badOutcome': 'Исход «{outcome}» этому шагу не положен. Допустимые: {outcomes}.',
   'review.noStepVerdict': 'Сессия закончилась без finish_step.',
   'prompt.worker.system': 'Ты — {role} в команде AI-агентов, работаешь в директории проекта.',
+  'prompt.worker.name': 'В офисе тебя зовут {name} — так к тебе обращаются владелец и коллеги.',
   'prompt.worker.tail': [
     'Тебе выдана ровно одна задача. Ты НЕ видишь переписку PM с пользователем — вся нужная',
     'информация в тексте задачи. Если чего-то не хватает, прими разумное решение сам и опиши его',

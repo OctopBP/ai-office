@@ -14,6 +14,23 @@
 .drawer-head { display: flex; gap: var(--space-3); align-items: flex-start; margin-bottom: var(--space-5); }
 .drawer-who { flex: 1; min-width: 0; }
 .drawer-who h2 { margin: 0; font: 600 var(--fs-title)/1.3 var(--font); color: var(--ink); }
+
+/* Имя сотрудника: заголовок-кнопка, по клику становится полем. Общее для
+   дровера агента и карточки в окне «Команда» (AgentName.tsx). */
+.agent-name-btn {
+  all: unset; cursor: text; display: inline-flex; align-items: center; gap: var(--space-1);
+  max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  border-radius: 6px;
+}
+.agent-name-btn svg { color: var(--ink-3); opacity: 0; transition: opacity .12s; flex: none; }
+.agent-name-btn:hover svg, .agent-name-btn:focus-visible svg { opacity: 1; }
+.agent-name-btn:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.agent-name-input {
+  width: 100%; box-sizing: border-box; margin: 0 0 var(--space-1);
+  font: 600 var(--fs-title)/1.3 var(--font); color: var(--ink);
+  background: var(--film); border: 1px solid var(--hairline); border-radius: var(--radius-card);
+  padding: 2px var(--space-2);
+}
 .drawer-who .chip { display: inline-block; margin-top: var(--space-2); }
 
 .drawer section { margin-bottom: var(--space-5); }

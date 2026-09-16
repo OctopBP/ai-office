@@ -19,7 +19,8 @@ import {
 } from '../src/server/state';
 import { flushAll, load, save, wipe, type Persisted } from '../src/server/store';
 import {
-  DEFAULT_OFFICE_WORKERS, isOfficeSender, MAX_OFFICE_WORKERS, MAX_TASK_MAX_TURNS, OFFICE_SENDER,
+  DEFAULT_OFFICE_WORKERS, isOfficeSender, MAX_AGENT_NAME, MAX_OFFICE_WORKERS, MAX_TASK_MAX_TURNS,
+  OFFICE_SENDER,
 } from '../src/shared/types';
 import { cloudProblem, setGithubToken } from '../src/server/cloud';
 import {
@@ -186,6 +187,35 @@ async function main(): Promise<void> {
   office.updateSettings({ officePermissionMode: 'ask-writes' });
   office.setAgentPermissionMode('backend#1', 'auto');
   const personal = office.instanceViews().find((i) => i.id === 'backend#1');
+
+  // 7b'. Имя сотрудника: подпись берётся из имени, имя переживает
+  // переименование роли и перезапуск, а занятое или длинное имя — отказ.
+  const viewOf = (id: string) => office.instanceViews().find((i) => i.id === id);
+  const backendTitle = office.role('backend')!.title;
+  const namedOk = office.setAgentName('backend#1', '  Вася   Пупкин ') === null;
+  const named = viewOf('backend#1');
+  const dupe = office.setAgentName('pm#1', 'вася пупкин');
+  const other = office.instanceViews().find((i) => i.id !== 'backend#1' && i.id !== 'pm#1')!;
+  const clash = office.setAgentName('pm#1', other.label);
+  const tooLong = office.setAgentName('pm#1', 'в'.repeat(MAX_AGENT_NAME + 1));
+  office.updateRole('backend', { title: 'Другое название' });
+  const keptOnRename = viewOf('backend#1')?.label === 'Вася Пупкин';
+  office.updateRole('backend', { title: backendTitle });
+  office.flush();
+  const savedName = load(resolve(tmpdir(), `office-test-state-${process.pid}.json`))
+    ?.instances.find((i) => i.id === 'backend#1')?.name;
+  const unnamedOk = office.setAgentName('backend#1', '   ') === null;
+  const unnamed = viewOf('backend#1');
+  results.push(
+    `сотруднику можно дать имя: ${namedOk && named?.name === 'Вася Пупкин' && named.label === 'Вася Пупкин'}`,
+    `переименование записано в ленту: ${office.log.some((e) => e.agentId === 'backend#1' && /зовётся Вася Пупкин/.test(e.text))}`,
+    `занятое имя отклонено без учёта регистра: ${/уже есть «Вася Пупкин»/.test(dupe ?? '') && viewOf('pm#1')?.name === null}`,
+    `имя, совпадающее с подписью безымянного, тоже занято: ${/уже есть/.test(clash ?? '')}`,
+    `слишком длинное имя отклонено: ${/длинное/.test(tooLong ?? '')}`,
+    `имя переживает переименование роли: ${keptOnRename}`,
+    `имя уходит в сохранение: ${savedName === 'Вася Пупкин'}`,
+    `пустое имя снимает имя и возвращает подпись по роли: ${unnamedOk && unnamed?.name === null && unnamed.label === backendTitle}`,
+  );
 
   // 7c. Раскладка офиса как настройка: значение по умолчанию, отказ по
   // неизвестному id и список пресетов, из которого выбирают. Что по ней

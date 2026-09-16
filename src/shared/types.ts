@@ -644,6 +644,9 @@ export const MAX_TASK_MAX_TURNS = 1000;
  */
 export const MIN_OFFICE_WORKERS = 1;
 export const MAX_OFFICE_WORKERS = 10;
+
+/** Длиннее имя сотруднику не дать: оно должно помещаться в подпись и в чат. */
+export const MAX_AGENT_NAME = 40;
 export const DEFAULT_OFFICE_WORKERS = 3;
 
 /**
@@ -732,7 +735,18 @@ export interface OfficeView {
 export interface InstanceView {
   id: string;         // 'backend#1'
   roleId: string;
-  label: string;      // 'Backend #1'
+  /**
+   * Подпись сотрудника: его имя, если дано, иначе название роли (с номером у
+   * второго и следующих в одной роли). Всюду, где сотрудника называют —
+   * чат, лента, совещания, комната, — берётся отсюда.
+   */
+  label: string;      // 'Вася' или 'Backend #1'
+  /**
+   * Имя, которое дал владелец. null — имени нет, сотрудник зовётся по роли.
+   * Отдельно от `label`, чтобы форма правки знала, что показывать в поле:
+   * пустое поле, а не название роли, которое человек не писал.
+   */
+  name: string | null;
   desk: Desk;
   /**
    * Столов в раскладке меньше, чем сотрудников, и этому места не хватило.
@@ -1459,6 +1473,12 @@ export type ClientCommand =
   | { c: 'export_role'; roleId: string; name: string; dir: string }
   /** Режим доступа конкретного сотрудника. null — вернуть его к режиму роли. */
   | { c: 'agent_permission'; instanceId: string; mode: PermissionMode | null }
+  /**
+   * Дать сотруднику имя. Пустая строка — снять имя, он снова зовётся по роли.
+   * Отказ (занято другим, слишком длинное) приходит текстом в чат офиса, как
+   * отказ по найму или по настройкам.
+   */
+  | { c: 'agent_name'; instanceId: string; name: string }
   | { c: 'settings'; settings: Partial<Settings> }
   /**
    * Сохранить расстановку: правки поверх выбранного пресета, по одной на

@@ -353,6 +353,12 @@ wss.on('connection', (ws) => {
       if (cmd.mode === null || isPermissionMode(cmd.mode)) {
         state.setAgentPermissionMode(cmd.instanceId, cmd.mode);
       }
+    } else if (cmd.c === 'agent_name') {
+      // Отказ (занято, длинное) — готовым текстом в чат, как по найму.
+      if (typeof cmd.name === 'string') {
+        const problem = state.setAgentName(cmd.instanceId, cmd.name);
+        if (problem) state.addChat(OFFICE_SENDER, problem);
+      }
     } else if (cmd.c === 'settings') {
       // Отказ по настройкам говорим тем же способом, что и по найму: текст
       // готов к показу, придумывать формулировку клиенту не нужно.

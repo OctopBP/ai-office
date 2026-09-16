@@ -439,6 +439,7 @@ Reply to the user in {lang}, and keep it short.`,
   'tool.finishStep.badOutcome': 'Outcome "{outcome}" is not allowed for this step. Allowed: {outcomes}.',
   'review.noStepVerdict': 'The session ended without finish_step.',
   'prompt.worker.system': 'You are the {role} in a team of AI agents, working in the project directory.',
+  'prompt.worker.name': 'Your name in the office is {name} — that is how the owner and colleagues address you.',
   'prompt.worker.tail': [
     'You have been given exactly one task. You do NOT see the PM’s conversation with the user —',
     'everything you need is in the task text. If something is missing, make a sensible decision',

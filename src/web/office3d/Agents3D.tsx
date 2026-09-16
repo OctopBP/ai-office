@@ -381,7 +381,7 @@ function AgentTag({ inst, role, task, expanded }: {
             роли из её настроек и точка состояния. Название должности сюда
             не помещается — в макете у бейджа его нет, он остаётся в
             карточке агента и в панели команды. */}
-        <div className="agent-badge" title={role?.title ?? inst.label}>
+        <div className="agent-badge" title={inst.name && role ? `${inst.label} · ${role.title}` : (role?.title ?? inst.label)}>
           <span
             className="agent-badge-role"
             style={{ background: chipColor, color: inkOn(chipColor) }}

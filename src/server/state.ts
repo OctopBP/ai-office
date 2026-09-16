@@ -17,7 +17,7 @@ import {
   dayKey, emptyUsage, DEFAULT_RITUAL_LIMIT, DEFAULT_RITUAL_POLICY,
   DEFAULT_INITIATIVE_MODE, DEFAULT_INITIATIVE_SHARE, HEALTH_DIRECTION, INITIATIVE_MODES,
   MAX_INITIATIVE_SHARE, MIN_INITIATIVE_SHARE,
-  DEFAULT_OFFICE_WORKERS, MAX_HIRE_COUNT, MAX_OFFICE_WORKERS, MAX_TASK_MAX_TURNS,
+  DEFAULT_OFFICE_WORKERS, MAX_AGENT_NAME, MAX_HIRE_COUNT, MAX_OFFICE_WORKERS, MAX_TASK_MAX_TURNS,
   MIN_OFFICE_WORKERS, MIN_TASK_MAX_TURNS, ROLE_TITLE_LIMIT,
   DEFAULT_FOCUS_EPICS, MAX_FOCUS_EPICS, MIN_FOCUS_EPICS,
 } from '../shared/types';
@@ -486,20 +486,35 @@ function trimJournal(journal: Record<string, Usage>): void {
 }
 
 /**
- * Подпись сотрудника в офисе — название его роли. Номер приписывается только
- * второму и следующим в одной роли: у новых офисов сотрудник в роли один, а
- * такие пары остались в сохранениях времён клонов, и одинаковых подписей в
- * комнате быть не должно.
+ * Подпись сотрудника в офисе — его имя, а без имени название роли. Номер
+ * приписывается только второму и следующим в одной роли: у новых офисов
+ * сотрудник в роли один, а такие пары остались в сохранениях времён клонов,
+ * и одинаковых подписей в комнате быть не должно.
  */
-const labelFor = (title: string, n: number | string): string =>
-  (Number(n) > 1 ? `${title} #${n}` : title);
+const labelFor = (name: string | null, title: string, n: number | string): string =>
+  name ?? (Number(n) > 1 ? `${title} #${n}` : title);
+
+/** Порядковый номер сотрудника в роли — из его id (`backend#2` → 2). */
+const numberOf = (id: string): string => id.split('#')[1] ?? '1';
+
+/**
+ * Имя из формы в имя для хранения: обрезано, пробелы внутри схлопнуты,
+ * пустое — null (имени нет). Длину и занятость проверяет `setAgentName`.
+ */
+const cleanName = (raw: string): string | null => {
+  const name = raw.replace(/\s+/g, ' ').trim();
+  return name ? name : null;
+};
 
 export interface Instance {
   id: string;
   roleId: string;
   /** id сессии Agent SDK — чтобы продолжить разговор после перезапуска. */
   sessionId: string | null;
+  /** См. `InstanceView.label`: имя, а без него роль с номером. */
   label: string;
+  /** Имя от владельца; null — зовётся по роли. */
+  name: string | null;
   desk: Desk;
   /** Места в текущей раскладке не хватило — см. `InstanceView.deskless`. */
   deskless: boolean;
@@ -954,6 +969,7 @@ export class OfficeState {
         id: i.id, roleId: i.roleId, deskIndex: i.desk.index,
         usage: i.usage, daily: i.daily, sessionId: i.sessionId,
         permissionMode: i.permissionMode,
+        name: i.name,
       })),
       usage: this.usage,
       daily: this.daily,
@@ -1464,11 +1480,13 @@ export class OfficeState {
     const desks = this.deskPlan().desks;
     const desk = (!taken.has(pi.deskIndex) && desks.find((d) => d.index === pi.deskIndex))
       || this.freeDesk();
-    const n = pi.id.split('#')[1] ?? '1';
+    // Имя из сохранения: мусор (не строка) считаем отсутствием имени.
+    const name = typeof pi.name === 'string' ? cleanName(pi.name) : null;
     this.instances.set(pi.id, {
       id: pi.id,
       roleId: pi.roleId,
-      label: labelFor(role.title, n),
+      label: labelFor(name, role.title, numberOf(pi.id)),
+      name,
       // Координаты безместного поправит resyncDesks — он же знает, какие
       // клетки уже заняты соседями. Габарит у такого места 1×1: стола за ним
       // нет, а человечек занимает ровно одну клетку, на которую его поставят.
@@ -1811,7 +1829,9 @@ export class OfficeState {
     const inst: Instance = {
       id: `${roleId}#${n}`,
       roleId,
-      label: labelFor(role.title, n),
+      label: labelFor(null, role.title, n),
+      // Имя даёт владелец после найма; нанятый приходит под названием роли.
+      name: null,
       desk,
       // Нанимают только когда стол нашёлся: `spawn` без места возвращает null.
       deskless: false,
@@ -2200,7 +2220,7 @@ export class OfficeState {
    */
   instanceView(i: Instance): InstanceView {
     return {
-      id: i.id, roleId: i.roleId, label: i.label, desk: i.desk, deskless: i.deskless,
+      id: i.id, roleId: i.roleId, label: i.label, name: i.name, desk: i.desk, deskless: i.deskless,
       state: i.state, currentTaskId: i.currentTaskId, note: i.note,
       usage: i.usage, today: i.daily[dayKey()] ?? emptyUsage(),
       permissionMode: i.permissionMode,
@@ -2839,12 +2859,11 @@ export class OfficeState {
           title: base.title, mode: modeLabel(this.officeMode(), this.lang()),
         }));
     }
-    // Ярлыки инстансов зависят от названия роли.
+    // Ярлыки инстансов без имени зависят от названия роли.
     for (const inst of this.instances.values()) {
       if (inst.roleId !== roleId) continue;
       const role = this.role(roleId)!;
-      const n = inst.id.split('#')[1] ?? '1';
-      inst.label = labelFor(role.title, n);
+      inst.label = labelFor(inst.name, role.title, numberOf(inst.id));
       this.emit({ t: 'instance', instance: this.instanceView(inst) });
     }
     this.addLog(null, 'system',
@@ -3011,12 +3030,12 @@ export class OfficeState {
         brief: role.brief === was.brief ? now.brief : role.brief,
       };
     });
-    // Ярлык сотрудника собран из названия роли — переводится вместе с ним.
+    // Ярлык сотрудника без имени собран из названия роли — переводится вместе
+    // с ним. Имя от владельца не переводится: оно его, а не офиса.
     for (const inst of this.instances.values()) {
       const role = this.role(inst.roleId);
       if (!role) continue;
-      const n = inst.id.split('#')[1] ?? '1';
-      inst.label = labelFor(role.title, n);
+      inst.label = labelFor(inst.name, role.title, numberOf(inst.id));
       this.emit({ t: 'instance', instance: this.instanceView(inst) });
     }
     this.emit({ t: 'roles', roles: this.roleViews() });
@@ -3043,6 +3062,37 @@ export class OfficeState {
         mode: modeLabel(view.effectivePermissionMode, this.lang()),
       }));
     this.markDirty();
+  }
+
+  /**
+   * Дать сотруднику имя; пустое — снять, и он снова зовётся по роли. Отказ
+   * возвращается готовым текстом, как по найму: слишком длинное или уже
+   * занятое имя. Занятость смотрится по подписям всех остальных, включая
+   * тех, кто зовётся по роли: два «Backend» в одной комнате — та же путаница,
+   * что два Васи.
+   */
+  setAgentName(instanceId: string, raw: string): string | null {
+    const inst = this.instances.get(instanceId);
+    if (!inst) return this.say('state.fire.missing');
+    const name = cleanName(raw);
+    if (name !== null && name.length > MAX_AGENT_NAME) {
+      return this.say('state.agent.nameLong', { max: MAX_AGENT_NAME });
+    }
+    if (name === inst.name) return null;
+    const role = this.role(inst.roleId);
+    const label = labelFor(name, role?.title ?? inst.roleId, numberOf(inst.id));
+    const taken = [...this.instances.values()]
+      .find((i) => i.id !== inst.id && i.label.toLowerCase() === label.toLowerCase());
+    if (taken) return this.say('state.agent.nameTaken', { name: taken.label, id: taken.id });
+    const before = inst.label;
+    inst.name = name;
+    inst.label = label;
+    this.emit({ t: 'instance', instance: this.instanceView(inst) });
+    this.addLog(instanceId, 'system', name
+      ? this.say('state.agent.named', { before, name })
+      : this.say('state.agent.unnamed', { before, label }));
+    this.markDirty();
+    return null;
   }
 
   totalCost(): number {

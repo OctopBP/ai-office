@@ -1319,6 +1319,11 @@ export function setAgentPermission(instanceId: string, mode: PermissionMode | nu
   socket?.send(JSON.stringify({ c: 'agent_permission', instanceId, mode }));
 }
 
+/** Имя сотрудника; пустое — снять имя, зовётся по роли. Отказ придёт в чат офиса. */
+export function setAgentName(instanceId: string, name: string): void {
+  socket?.send(JSON.stringify({ c: 'agent_name', instanceId, name }));
+}
+
 export function stopTask(taskId: string): void {
   socket?.send(JSON.stringify({ c: 'stop_task', taskId }));
 }

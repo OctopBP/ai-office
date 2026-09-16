@@ -7,6 +7,7 @@ import { t } from './i18n';
 import { usageLine } from './money';
 import { Icon } from './icons';
 import { Avatar } from './Avatar';
+import { AgentName } from './AgentName';
 import type { PermissionMode } from '../shared/types';
 
 const money = (v: number) => `$${v.toFixed(v < 1 ? 3 : 2)}`;
@@ -46,8 +47,8 @@ export function EmployeeCard({ instanceId, actions }: { instanceId: string; acti
       <div className="employee-card-head">
         <Avatar roleId={inst.roleId} instanceId={inst.id} size="lg" />
         <div>
-          <h3>{inst.id}</h3>
-          <p className="muted">{role?.title} · {role?.model.replace('claude-', '')}</p>
+          <AgentName inst={inst} as="h3" />
+          <p className="muted">{inst.id} · {inst.name && role ? `${role.title} · ` : ''}{role?.model.replace('claude-', '')}</p>
         </div>
         {actions && <div className="employee-card-actions">{actions}</div>}
       </div>

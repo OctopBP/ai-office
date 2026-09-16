@@ -111,6 +111,7 @@ export function TeamWindow({ onClose }: { onClose: () => void }) {
   const q = query.trim().toLowerCase();
   const matchesStaff = (inst: InstanceView, role: RoleView | undefined): boolean => !q
     || inst.id.toLowerCase().includes(q)
+    || inst.label.toLowerCase().includes(q)
     || (role?.title ?? '').toLowerCase().includes(q)
     || (role?.package?.name ?? '').toLowerCase().includes(q);
   // Менеджер первым — как в комнате: он один и с него офис начинается.
@@ -203,9 +204,10 @@ export function TeamWindow({ onClose }: { onClose: () => void }) {
                     >
                       <Avatar roleId={inst.roleId} instanceId={inst.id} />
                       <span className="market-row-text">
-                        <span className="market-row-title">{role?.title ?? inst.id}</span>
+                        {/* С именем строка называется именем, а роль уходит в подстрочник. */}
+                        <span className="market-row-title">{inst.name ?? role?.title ?? inst.id}</span>
                         <span className="market-row-sub muted small">
-                          {inst.id} · {stateLabel(inst.state)}
+                          {inst.id}{inst.name && role ? ` · ${role.title}` : ''} · {stateLabel(inst.state)}
                           {role?.package && ` · ${role.package.name} ${role.package.version}`}
                         </span>
                       </span>

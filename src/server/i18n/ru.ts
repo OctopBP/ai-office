@@ -139,6 +139,10 @@ export const ru: Record<keyof typeof en, string> = {
   'state.settings.language': 'Язык офиса: {lang}',
   'state.agent.modeSet': 'Режим доступа сотрудника: «{mode}» (личное правило)',
   'state.agent.modeInherited': 'Личное правило снято — работает по режиму роли: «{mode}»',
+  'state.agent.named': '{before} теперь зовётся {name}',
+  'state.agent.unnamed': '{before} снова зовётся по роли: {label}',
+  'state.agent.nameLong': 'Слишком длинное имя — не больше {max} символов.',
+  'state.agent.nameTaken': 'В офисе уже есть «{name}» ({id}) — двое с одним именем запутают всех.',
 
   'state.hire.archived': 'Роль «{title}» в архиве — нанимать в неё некого. Верните её из архива, если работа снова нужна.',
   'state.hire.taken': '{title}: сотрудник уже нанят. Ещё один такой же нанимается кнопкой «Нанять ещё одного» — он придёт отдельным сотрудником с теми же настройками, своим именем и своей внешностью.',

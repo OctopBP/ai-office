@@ -10,6 +10,7 @@ import { Avatar } from './Avatar';
 import { usageLine } from './money';
 import { Icon, type IconName } from './icons';
 import type { Criterion, PermissionMode, TaskView } from '../shared/types';
+import { AgentName } from './AgentName';
 
 const money = (v: number) => `$${v.toFixed(v < 1 ? 3 : 2)}`;
 const tokens = (v: number) => (v >= 1000 ? `${Math.round(v / 1000)}k` : String(v));
@@ -94,9 +95,10 @@ export function AgentDrawer() {
       <header className="drawer-head">
         <Avatar roleId={inst.roleId} instanceId={inst.id} size="lg" />
         <div className="drawer-who">
-          <h2>{inst.id}</h2>
+          <AgentName inst={inst} as="h2" />
+          {/* Без имени заголовок и есть название роли — второй раз его не пишем. */}
           <div className="muted">
-            {role?.title} · {role?.model.replace('claude-', '')} ·{' '}
+            {inst.id} · {inst.name && role ? `${role.title} · ` : ''}{role?.model.replace('claude-', '')} ·{' '}
             {inst.deskless ? t('drawer.noDesk') : t('employee.deskNo', { index: inst.desk.index })}
           </div>
           <span className={`perm-badge ${inst.effectivePermissionMode}`}
