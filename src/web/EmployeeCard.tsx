@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, type ReactNode } from 'react';
 import {
   accessLabel, fullAccessWarning, permissionSourceLabel, effectivePermissionMode, fire,
   openLayoutSettings, permissionSource, setAgentPermission, useStore,
@@ -17,8 +17,9 @@ const PERM_OPTIONS: PermissionMode[] = ['readonly', 'ask-writes', 'ask-risky', '
  * Карточка сотрудника в окне «Команда»: режим доступа, стол, расходы.
  * Полный дровер с задачами и транскриптом остаётся на клике по человечку
  * в комнате (AgentDrawer) — здесь только то, что нужно для управления штатом.
+ * `actions` — кнопки окна в шапке карточки (например, «ещё одного такого же»).
  */
-export function EmployeeCard({ instanceId }: { instanceId: string }) {
+export function EmployeeCard({ instanceId, actions }: { instanceId: string; actions?: ReactNode }) {
   const inst = useStore((s) => s.instances[instanceId]);
   const role = useStore((s) => s.roles.find((r) => r.id === inst?.roleId));
   const settings = useStore((s) => s.settings);
@@ -48,6 +49,7 @@ export function EmployeeCard({ instanceId }: { instanceId: string }) {
           <h3>{inst.id}</h3>
           <p className="muted">{role?.title} · {role?.model.replace('claude-', '')}</p>
         </div>
+        {actions && <div className="employee-card-actions">{actions}</div>}
       </div>
 
       {inst.deskless && (

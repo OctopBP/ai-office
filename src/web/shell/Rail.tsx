@@ -14,7 +14,7 @@ function officeInitial(name: string): string {
   return Array.from(trimmed)[0].toUpperCase();
 }
 
-type WindowKind = 'board' | 'merge' | 'log' | 'money' | 'meetings' | 'life' | 'flows' | 'team' | 'market' | 'settings';
+type WindowKind = 'board' | 'merge' | 'log' | 'money' | 'meetings' | 'life' | 'flows' | 'team' | 'settings';
 const WINDOWS: Array<{ kind: WindowKind; icon: IconName }> = [
   { kind: 'board', icon: 'list-check' },
   { kind: 'merge', icon: 'git-merge' },
@@ -24,7 +24,6 @@ const WINDOWS: Array<{ kind: WindowKind; icon: IconName }> = [
   { kind: 'life', icon: 'book' },
   { kind: 'flows', icon: 'grid-dots' },
   { kind: 'team', icon: 'users' },
-  { kind: 'market', icon: 'world' },
   { kind: 'settings', icon: 'settings' },
 ];
 
@@ -34,7 +33,7 @@ const WINDOWS: Array<{ kind: WindowKind; icon: IconName }> = [
  * переживает перезагрузку.
  *
  * Список окон — то, что раньше жило только в хоткеях и в HUD: доска, очередь
- * слияния, лог, расходы, команда, настройки. Доска здесь ведёт в вид, а не в
+ * слияния, лог, расходы, команда с маркетом, настройки. Доска здесь ведёт в вид, а не в
  * панель: сегменты сверху — виды (см. `Shell.tsx`).
  */
 export function Rail({ onPanel, onModal }: {
@@ -71,7 +70,7 @@ export function Rail({ onPanel, onModal }: {
 
   const openWindow = (kind: WindowKind) => {
     if (kind === 'board') setView(view === 'board' ? 'office' : 'board');
-    else if (kind === 'team' || kind === 'settings' || kind === 'market') onModal(kind);
+    else if (kind === 'team' || kind === 'settings') onModal(kind);
     else onPanel(kind);
   };
 

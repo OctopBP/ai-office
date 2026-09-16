@@ -21,27 +21,20 @@
 }
 .team-list-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: var(--space-3); gap: var(--space-2); }
 .team-list { display: flex; flex-direction: column; gap: var(--space-1); }
-.team-role-block.archived { opacity: .55; }
 .team-role-row {
   display: flex; align-items: center; gap: var(--space-2); padding: var(--space-2) var(--space-3);
   border: 1px solid transparent; border-radius: var(--radius-row); cursor: pointer;
 }
 .team-role-row:hover { background: var(--film); }
 .team-role-row.selected { background: var(--film-2); border-color: var(--hairline); }
-
-.team-title { flex: 1; display: flex; align-items: center; gap: var(--space-2); flex-wrap: wrap; }
-.team-members {
-  display: flex; flex-direction: column; gap: var(--space-1);
-  /* Отступ под ширину строчной аватарки (26px) плюс её gap до текста. */
-  padding: var(--space-1) 0 var(--space-2) 40px;
-}
-.team-member-row {
-  display: flex; align-items: center; gap: var(--space-2); font-size: var(--fs-body); padding: var(--space-1) var(--space-2);
-  border: 1px solid transparent; border-radius: var(--radius-row); cursor: pointer;
-}
-.team-member-row:hover { background: var(--film); }
-.team-member-row.selected { background: var(--film-2); border-color: var(--hairline); }
-.team-member-row button { margin-left: auto; }
+.team-role-row.archived { opacity: .55; }
+/* Вкладки «В офисе» и «Маркет» — сегмент рядом с заголовком окна, со счётчиком
+   в каждой; у неактивной счётчик приглушён, у активной наследует цвет пилюли. */
+.team-head-left { display: flex; align-items: center; gap: var(--space-4); }
+.team-tabs { box-shadow: none; background: var(--film); }
+.team-tabs button { padding: 0 14px; }
+.team-tab-count { opacity: .6; font-weight: 400; }
+.team-group-hint { margin: 0 0 var(--space-2); }
 .team-notice {
   display: flex; align-items: center; gap: var(--space-2); padding: var(--space-2) var(--space-3); margin-bottom: var(--space-2);
   border-radius: var(--radius-row); background: rgba(var(--danger-rgb), .1); font-size: var(--fs-body); color: var(--danger);
@@ -54,6 +47,13 @@
 .role-form h3, .employee-card h3 { margin: 0 0 var(--space-1); font: 600 var(--fs-title)/1.2 var(--font); color: var(--ink); }
 .employee-card-head { display: flex; align-items: center; gap: var(--space-3); margin-bottom: var(--space-4); }
 .employee-card-head .muted { margin: 0; }
+.employee-card-actions { margin-left: auto; flex: none; }
+/* Строка пакета в карточке сотрудника: из чего собран и есть ли новая версия. */
+.team-package-line {
+  display: flex; align-items: center; gap: var(--space-2); margin-bottom: var(--space-5);
+  padding: var(--space-2) var(--space-3); background: var(--film); border-radius: var(--radius-card);
+}
+.team-package-text { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .employee-card section { margin-bottom: var(--space-5); }
 .form-banner.error {
   padding: var(--space-2) var(--space-3); margin-bottom: var(--space-4); font-size: var(--fs-md); line-height: 1.45;

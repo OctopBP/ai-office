@@ -1,147 +1,29 @@
-import { useEffect, useMemo, useState } from 'react';
-import {
-  marketAddLink, marketCheck, marketHire, marketHireTeam, marketInstall, marketLicense, marketOpen, marketUpdate,
-  updateSettings, useStore,
-} from './store';
-import { useActionNotice } from './useActionNotice';
+import { useState } from 'react';
+import { marketHire, marketHireTeam, marketInstall, marketLicense, marketUpdate } from './store';
 import { t } from './i18n';
-import { Icon } from './icons';
 import type { MarketPackageView } from '../shared/types';
-
-/**
- * Окно «Маркет агентов»: слева витрина (встроенные пакеты, реестр, кеш и
- * поле «добавить по ссылке»), справа карточка пакета — что умеет, что просит,
- * и кнопки «Установить» / «Нанять» / «Обновить».
- *
- * Установка и найм разведены намеренно: разрешения пакета читаются из его
- * манифеста, а манифест есть только у установленного. Так человек видит,
- * какие серверы и переменные просит пакет, ДО того как в офисе появится роль.
- */
-export function MarketWindow({ onClose }: { onClose: () => void }) {
-  const market = useStore((s) => s.market);
-  const lang = useStore((s) => s.lang);
-  const settings = useStore((s) => s.settings);
-  const [query, setQuery] = useState('');
-  const [link, setLink] = useState('');
-  const [selected, setSelected] = useState<string | null>(null);
-  const { notice, markPending, clear } = useActionNotice();
-
-  // Витрина читается с диска и из реестра на открытие: держать её в снапшоте незачем.
-  useEffect(() => { marketOpen(); }, []);
-
-  const packages = market?.packages ?? [];
-  const busy = market?.busy === true;
-  const q = query.trim().toLowerCase();
-  const shown = useMemo(() => packages.filter((p) => !q
-    || p.name.toLowerCase().includes(q) || p.title.toLowerCase().includes(q)
-    || p.summary.toLowerCase().includes(q) || p.tags.some((tag) => tag.toLowerCase().includes(q))), [packages, q]);
-  const current = packages.find((p) => p.name === selected) ?? null;
-
-  const act = (fn: () => void) => { markPending(); fn(); };
-  const submitLink = () => {
-    const url = link.trim();
-    if (!url || busy) return;
-    act(() => marketAddLink(url));
-    setLink('');
-  };
-
-  return (
-    <div className="modal-backdrop" onClick={onClose}>
-      <div className="team-window market-window" onClick={(e) => e.stopPropagation()}>
-        <header className="team-window-head">
-          <h2>{t('market.title')}</h2>
-          <div className="market-head-actions">
-            <button className="mini" disabled={busy} onClick={() => act(marketCheck)} title={t('market.check')}>
-              <Icon name="refresh" size={12} /> {t('market.check')}
-            </button>
-            <button className="mini ghost" disabled={busy} onClick={() => marketOpen(true)}>{t('market.refresh')}</button>
-            <button className="sq ghost" onClick={onClose} title={t('panel.close')}>✕</button>
-          </div>
-        </header>
-
-        <div className="team-window-body">
-          <div className="team-list-pane market-list-pane">
-            <p className="hint muted market-hint">{t('market.hint')}</p>
-            <input
-              className="market-search" value={query} placeholder={t('market.search')}
-              onChange={(e) => setQuery(e.target.value)}
-            />
-            {market?.registryError && (
-              <div className="team-notice">{t('market.registryError', { error: market.registryError })}</div>
-            )}
-            {notice && (
-              <div className="team-notice">
-                <span>{notice}</span>
-                <button className="sq" onClick={clear}>✕</button>
-              </div>
-            )}
-            {busy && <div className="hint muted market-busy">{t('market.busy')}</div>}
-
-            <div className="team-list">
-              {shown.length === 0 && <span className="muted small">{t('market.empty')}</span>}
-              {shown.map((p) => (
-                <button
-                  key={p.name}
-                  className={`team-role-row market-row${p.name === selected ? ' selected' : ''}`}
-                  onClick={() => setSelected(p.name)}
-                >
-                  <span className="market-emoji" style={{ background: p.color || 'var(--film-2)' }}>{p.emoji || '📦'}</span>
-                  <span className="market-row-text">
-                    <span className="market-row-title">{p.title || p.name}</span>
-                    <span className="market-row-sub muted small">
-                      {p.name}
-                      {p.version ? ` · ${p.version}` : ` · ${t('market.notInstalled')}`}
-                      {p.roles.some((r) => r.staff > 0) && ` · ${t('market.inOffice', { roles: p.roles.filter((r) => r.staff > 0).map((r) => r.title).join(', ') })}`}
-                    </span>
-                  </span>
-                  {p.kind === 'team' && <span className="market-badge">{t('market.kind.team')}</span>}
-                  {p.access === 'licensed' && <span className="market-badge link">{t('market.access.licensed')}</span>}
-                  <span className={`market-badge ${p.trust}`}>{t(`market.origin.${p.origin}`)}</span>
-                  {p.roles.some((r) => r.updateTo) && <span className="market-dot" title={t('market.updateAvailable', { version: p.roles.find((r) => r.updateTo)!.updateTo! })} />}
-                </button>
-              ))}
-            </div>
-
-            <div className="market-add">
-              <span className="group-title">{t('market.addLink')}</span>
-              <div className="market-add-row">
-                <input
-                  value={link} placeholder={t('market.addLink.placeholder')}
-                  onChange={(e) => setLink(e.target.value)}
-                  onKeyDown={(e) => { if (e.key === 'Enter') submitLink(); }}
-                />
-                <button className="mini go" disabled={busy || !link.trim()} onClick={submitLink}>+</button>
-              </div>
-              <span className="hint">{t('market.addLink.hint')}</span>
-            </div>
-            {market?.checkedAt && (
-              <span className="hint muted">{t('market.checkedAt', { time: new Date(market.checkedAt).toLocaleTimeString(lang) })}</span>
-            )}
-            {market?.service && (
-              <label className="checkbox market-telemetry">
-                <input
-                  type="checkbox" checked={settings.marketTelemetry === true}
-                  onChange={(e) => updateSettings({ marketTelemetry: e.target.checked })}
-                />
-                {t('market.telemetry')}
-              </label>
-            )}
-          </div>
-
-          <div className="team-detail">
-            {current ? <PackageCard p={current} busy={busy} act={act} /> : <span className="muted">{t('market.pick')}</span>}
-          </div>
-        </div>
-      </div>
-    </div>
-  );
-}
 
 /** Чем поднимается сервер — одной строкой, как это увидит человек. */
 const howItStarts = (s: MarketPackageView['servers'][number]): string =>
   (s.transport === 'stdio' ? [s.command, ...s.args].join(' ') : s.url);
 
-function PackageCard({ p, busy, act }: { p: MarketPackageView; busy: boolean; act: (fn: () => void) => void }) {
+/**
+ * Карточка пакета в окне «Команда»: что умеет, что просит, и кнопки
+ * «Установить» / «Нанять» / «Обновить».
+ *
+ * Установка и найм разведены намеренно: разрешения пакета читаются из его
+ * манифеста, а манифест есть только у установленного. Так человек видит,
+ * какие серверы и переменные просит пакет, ДО того как в офисе появится роль.
+ *
+ * `act` — любое действие с пометкой «жду ответа офиса»; `hire` — то же, но
+ * окно ещё и переведёт выделение на нового сотрудника, когда тот придёт.
+ */
+export function PackageCard({ p, busy, act, hire }: {
+  p: MarketPackageView;
+  busy: boolean;
+  act: (fn: () => void) => void;
+  hire: (fn: () => void) => void;
+}) {
   const [key, setKey] = useState('');
   // «В офисе» — значит с людьми: роль без сотрудников для человека не
   // существует, в команде её нет, и кнопка обязана звать «нанять», а не «ещё».
@@ -184,13 +66,13 @@ function PackageCard({ p, busy, act }: { p: MarketPackageView; busy: boolean; ac
           <button
             className="allow" disabled={busy}
             title={roleInOffice ? t('market.hireMore.hint') : ''}
-            onClick={() => act(() => marketHire(p.name))}
+            onClick={() => hire(() => marketHire(p.name))}
           >
             {roleInOffice ? t('market.hireMore') : t('market.hire')}
           </button>
         )}
         {p.kind === 'team' && p.installed && (
-          <button className="allow" disabled={busy || !canHireTeam} title={t('market.hireTeam.hint')} onClick={() => act(() => marketHireTeam(p.name))}>
+          <button className="allow" disabled={busy || !canHireTeam} title={t('market.hireTeam.hint')} onClick={() => hire(() => marketHireTeam(p.name))}>
             {t('market.hireTeam')}
           </button>
         )}
