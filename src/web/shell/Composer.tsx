@@ -3,6 +3,7 @@ import { accessLabel, send, useStore } from '../store';
 import { money } from '../money';
 import { t } from '../i18n';
 import { Icon } from '../icons';
+import { ChatPeer } from '../ChatPeer';
 
 /**
  * Курсор в композер просят снаружи — кнопка «Поставить задачу» и клавиша
@@ -61,6 +62,8 @@ export function Composer({ onSettings }: { onSettings: () => void }) {
 
   return (
     <div className="shell-composer float">
+      {/* В виде «Чат» собеседник уже стоит над лентой — второй раз не показываем. */}
+      {view !== 'chat' && <ChatPeer compact />}
       <textarea
         ref={input} value={draft} rows={1} placeholder={placeholder} disabled={meeting}
         onChange={(e) => setDraft(e.target.value)}

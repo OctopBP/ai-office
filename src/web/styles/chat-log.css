@@ -40,6 +40,12 @@
 .chat-peer-text { display: flex; flex-direction: column; min-width: 0; }
 .chat-peer-text b { font-size: var(--fs-title); font-weight: 600; color: var(--ink); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .chat-peer-text span { font-size: var(--fs-body); color: var(--ink-3); }
+/* Компактно — в композере офиса: одна строка, имя и должность рядом. */
+.chat-peer.compact { gap: var(--space-2); margin-bottom: 0; }
+.chat-peer.compact .chat-peer-text { flex-direction: row; align-items: baseline; gap: var(--space-2); }
+/* В тесноте урезается должность, а не имя: имя здесь главное. */
+.chat-peer.compact .chat-peer-text b { font-size: var(--fs-md); flex: none; }
+.chat-peer.compact .chat-peer-text span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .note { margin: 0 0 var(--space-3); color: var(--ink-3); }
 /* Лицо автора реплики рядом с подписью. */
 .msg-from:has(.msg-face, .agent-tag) { display: flex; align-items: center; gap: 6px; }
