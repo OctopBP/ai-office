@@ -586,10 +586,18 @@ function Agent({
       // играется сейчас, — иначе агент принимал бы позу, от которой уже
       // отказались.
       if (!next || !transition.current || e.action !== rig.actions[transition.current]) return;
+      const move = rig.actions[transition.current];
       pending.current = null;
       transition.current = null;
-      const action = rig.actions[next];
-      action.reset().setEffectiveWeight(1).fadeIn(FADE).play();
+      /**
+       * Доигравший переход надо погасить, а не просто оставить: клип с
+       * `clampWhenFinished` замирает на последнем кадре, но из микшера не
+       * уходит и весит по-прежнему единицу. Поза, включённая поверх него с
+       * тем же весом, смешивалась с ним поровну, и сидящий навсегда оставался
+       * на полпути между «садится» и «сидит» — таз на ладонь глубже в диване,
+       * чем у той же позы на стенде, где переходов нет.
+       */
+      rig.actions[next].reset().setEffectiveWeight(1).crossFadeFrom(move, FADE, false).play();
       pose.current = next;
     };
     rig.mixer.addEventListener('finished', onFinished);
