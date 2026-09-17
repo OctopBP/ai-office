@@ -1,5 +1,6 @@
 import { Panel } from './Panel';
 import { Kbd } from './Kbd';
+import { HOTKEY } from './hotkeys';
 import { Board } from './Board';
 import { MergeQueue } from './MergeQueue';
 import { PrPipeline } from './PrPipeline';
@@ -44,23 +45,23 @@ export function Overlays({ panel, setPanel, modal, setModal }: OverlayProps) {
   return (
     <>
       {panel === 'board' && (
-        <Panel title={t('panel.board')} wide size="board" hint="B" onClose={() => setPanel(null)}>
+        <Panel title={t('panel.board')} wide size="board" hotkey={HOTKEY.board} onClose={() => setPanel(null)}>
           <Board />
         </Panel>
       )}
       {panel === 'money' && (
-        <Panel title={t('panel.money')} wide hint="E" onClose={() => setPanel(null)}>
+        <Panel title={t('panel.money')} wide hotkey={HOTKEY.money} onClose={() => setPanel(null)}>
           <MoneyBoard />
         </Panel>
       )}
       {panel === 'merge' && (
-        <Panel title={t('panel.review')} wide hint="Q" onClose={() => setPanel(null)}>
+        <Panel title={t('panel.review')} wide hotkey={HOTKEY.merge} onClose={() => setPanel(null)}>
           <PrPipeline />
           <MergeQueue />
         </Panel>
       )}
       {panel === 'life' && (
-        <Panel title={t('life.title')} wide hint="J" onClose={() => setPanel(null)}>
+        <Panel title={t('life.title')} wide hotkey={HOTKEY.life} onClose={() => setPanel(null)}>
           <LifePanel />
         </Panel>
       )}
@@ -73,7 +74,7 @@ export function Overlays({ panel, setPanel, modal, setModal }: OverlayProps) {
         </Panel>
       )}
       {panel === 'log' && (
-        <Panel title={t('panel.log')} wide
+        <Panel title={t('panel.log')} wide hotkey={HOTKEY.log}
           hint={selected ? t('panel.log.only', { who: selected }) : t('panel.log.all')}
           onClose={() => setPanel(null)}>
           <div className="log">

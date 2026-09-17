@@ -2,6 +2,8 @@ import { useState, type KeyboardEvent } from 'react';
 import { setAgentName } from './store';
 import { t } from './i18n';
 import { Icon } from './icons';
+import { Hint, Tooltip } from './Tooltip';
+import { HOTKEY } from './hotkeys';
 import { MAX_AGENT_NAME, type InstanceView } from '../shared/types';
 
 /**
@@ -28,17 +30,22 @@ export function AgentName({ inst, as: Tag }: { inst: InstanceView; as: 'h2' | 'h
 
   if (editing) {
     return (
-      <input
-        className="agent-name-input"
-        autoFocus
-        value={draft}
-        maxLength={MAX_AGENT_NAME}
-        placeholder={t('employee.namePlaceholder')}
-        title={t('employee.nameHint')}
-        onChange={(e) => setDraft(e.target.value)}
-        onKeyDown={onKey}
-        onBlur={commit}
-      />
+      <Tooltip focus={false} tip={<>
+        <Hint label={t('employee.nameHint.save')} keys={HOTKEY.task} />
+        <Hint label={t('employee.nameHint.cancel')} keys={HOTKEY.close} />
+        <Hint label={t('employee.nameHint.empty')} />
+      </>}>
+        <input
+          className="agent-name-input"
+          autoFocus
+          value={draft}
+          maxLength={MAX_AGENT_NAME}
+          placeholder={t('employee.namePlaceholder')}
+          onChange={(e) => setDraft(e.target.value)}
+          onKeyDown={onKey}
+          onBlur={commit}
+        />
+      </Tooltip>
     );
   }
   return (

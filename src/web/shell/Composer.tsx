@@ -3,6 +3,8 @@ import { accessLabel, send, useStore } from '../store';
 import { money } from '../money';
 import { t } from '../i18n';
 import { Icon } from '../icons';
+import { Hint, Tooltip } from '../Tooltip';
+import { HOTKEY } from '../hotkeys';
 import { ChatPeer } from '../ChatPeer';
 
 /**
@@ -83,10 +85,11 @@ export function Composer({ onSettings }: { onSettings: () => void }) {
         <button className="chip-btn" onClick={onSettings} title={t('shell.chip.hint')}>
           {cap !== null ? t('shell.chip.budget', { cap: money(cap) }) : t('shell.chip.noBudget')}
         </button>
-        <button className="sq primary shell-send" onClick={submit} disabled={!connected || meeting || !draft.trim()}
-          title={t('shell.send')}>
-          <Icon name="arrow-up" size={16} />
-        </button>
+        <Tooltip tip={<><Hint label={t('shell.send')} keys={HOTKEY.task} /><Hint label={t('shell.newline')} keys="SHIFT+ENTER" /></>}>
+          <button className="sq primary shell-send" onClick={submit} disabled={!connected || meeting || !draft.trim()}>
+            <Icon name="arrow-up" size={16} />
+          </button>
+        </Tooltip>
       </div>
     </div>
   );

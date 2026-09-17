@@ -5,6 +5,8 @@ import {
 import type { TaskView } from '../shared/types';
 import { taskClosed } from '../shared/types';
 import { locale, t } from './i18n';
+import { Hint, Tooltip } from './Tooltip';
+import { HOTKEY } from './hotkeys';
 import { AgentTag } from './Avatar';
 
 /**
@@ -98,7 +100,9 @@ export function TaskDrawer() {
             )}
           </div>
         </div>
-        <button className="sq ghost" onClick={() => openTaskCard(null)} title={t('panel.close')}>✕</button>
+        <Tooltip tip={<Hint label={t('panel.close')} keys={HOTKEY.close} />}>
+          <button className="sq ghost" onClick={() => openTaskCard(null)}>✕</button>
+        </Tooltip>
       </div>
 
       <section>

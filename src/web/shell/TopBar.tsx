@@ -2,6 +2,8 @@ import { setPaused, useStore, type View } from '../store';
 import { focusComposer } from './Composer';
 import { t } from '../i18n';
 import { Icon } from '../icons';
+import { Hint, Tooltip } from '../Tooltip';
+import { HOTKEY } from '../hotkeys';
 
 const VIEWS: View[] = ['office', 'board', 'chat'];
 
@@ -31,10 +33,11 @@ export function TopBar() {
           title={t(paused ? 'hud.resume.hint' : 'hud.pause.hint')}>
           <Icon name={paused ? 'player-play' : 'player-pause'} size={16} />
         </button>
-        <button className="primary" title={t('shell.newTask.hint')}
-          onClick={() => { setThread('pm#1'); focusComposer(); }}>
-          {t('shell.newTask')}
-        </button>
+        <Tooltip tip={<Hint label={t('shell.newTask.hint')} keys={HOTKEY.task} />}>
+          <button className="primary" onClick={() => { setThread('pm#1'); focusComposer(); }}>
+            {t('shell.newTask')}
+          </button>
+        </Tooltip>
       </div>
     </div>
   );

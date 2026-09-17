@@ -7,6 +7,7 @@ import {
 import { FlowGraph, FlowLegend } from './FlowGraph';
 import { Panel } from './Panel';
 import { t } from './i18n';
+import { HOTKEY } from './hotkeys';
 
 type Tab = 'board' | 'processes' | 'checks' | 'stats';
 
@@ -26,7 +27,7 @@ export function FlowsPanel({ onClose }: { onClose: () => void }) {
     </div>
   );
   return (
-    <Panel title={t('flows.title')} tabs={tabs} wide size="board" fixed hint="P" onClose={onClose}>
+    <Panel title={t('flows.title')} tabs={tabs} wide size="board" fixed hotkey={HOTKEY.flows} onClose={onClose}>
       <div className="life flows">
         {tab === 'board' && <BoardTab />}
         {tab === 'processes' && <ProcessesTab />}

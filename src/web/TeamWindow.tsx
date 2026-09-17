@@ -13,6 +13,8 @@ import { desks } from '../shared/layout';
 import { t } from './i18n';
 import type { AgentState, InstanceView, MarketPackageView, RoleView } from '../shared/types';
 import { Icon } from './icons';
+import { Hint, Tooltip } from './Tooltip';
+import { HOTKEY } from './hotkeys';
 
 const stateLabel = (state: AgentState): string => t(`agent.state.${state}`);
 
@@ -163,7 +165,9 @@ export function TeamWindow({ onClose }: { onClose: () => void }) {
                 <button className="mini ghost" disabled={busy} onClick={() => marketOpen(true)}>{t('market.refresh')}</button>
               </>
             )}
-            <button className="sq ghost" onClick={onClose} title={t('panel.close')}>✕</button>
+            <Tooltip tip={<Hint label={t('panel.close')} keys={HOTKEY.close} />}>
+              <button className="sq ghost" onClick={onClose}>✕</button>
+            </Tooltip>
           </div>
         </header>
 

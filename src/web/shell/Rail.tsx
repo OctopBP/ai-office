@@ -7,6 +7,8 @@ import { money } from '../money';
 import { t } from '../i18n';
 import { Icon, type IconName } from '../icons';
 import { Kbd } from '../Kbd';
+import { Hint, Tooltip } from '../Tooltip';
+import { HOTKEY } from '../hotkeys';
 
 /** Буква на иконке офиса: первый символ названия, в верхнем регистре. */
 function officeInitial(name: string): string {
@@ -89,12 +91,13 @@ export function Rail({ onPanel, onModal }: {
 
       {/* Выход на главный экран — на виду, а не в меню пользователя: это единственный
           путь назад к списку офисов, расходам и настройкам без клавиатуры. */}
-      <button className="rail-win rail-home" onClick={leaveOffice} disabled={pending === 'enter'}
-        title={`${t('shell.home')} — ESC`}>
-        <span className="rail-win-icon"><Icon name="home" size={12} /></span>
-        <span className="rail-win-label">{t('shell.home')}</span>
-        <Kbd keys="ESC" className="rail-win-key" />
-      </button>
+      <Tooltip tip={collapsed && <Hint label={t('shell.home')} keys={HOTKEY.close} />}>
+        <button className="rail-win rail-home" onClick={leaveOffice} disabled={pending === 'enter'}>
+          <span className="rail-win-icon"><Icon name="home" size={12} /></span>
+          <span className="rail-win-label">{t('shell.home')}</span>
+          <Kbd keys={HOTKEY.close} className="rail-win-key" />
+        </button>
+      </Tooltip>
 
       <div className="section-title">{t('shell.offices')}</div>
       <div className="rail-offices">
@@ -130,15 +133,20 @@ export function Rail({ onPanel, onModal }: {
       <div className="rail-windows">
         {WINDOWS.map(({ kind, icon }) => {
           const n = counts[kind];
+          const key = (HOTKEY as Partial<Record<WindowKind, string>>)[kind];
           return (
-            <button key={kind} className={`rail-win${kind === 'board' && view === 'board' ? ' on' : ''}`}
-              onClick={() => openWindow(kind)} title={t(`shell.win.${kind}`)}>
-              <span className="rail-win-icon">
-                {collapsed && n ? n : <Icon name={icon} size={12} />}
-              </span>
-              <span className="rail-win-label">{t(`shell.win.${kind}`)}</span>
-              {n ? <span className="rail-win-count">{n}</span> : null}
-            </button>
+            // Подсказка — только свёрнутому рейлу: развёрнутый и так подписан.
+            <Tooltip key={kind} tip={collapsed && <Hint label={t(`shell.win.${kind}`)} keys={key} />}>
+              <button className={`rail-win${kind === 'board' && view === 'board' ? ' on' : ''}`}
+                onClick={() => openWindow(kind)}>
+                <span className="rail-win-icon">
+                  {collapsed && n ? n : <Icon name={icon} size={12} />}
+                </span>
+                <span className="rail-win-label">{t(`shell.win.${kind}`)}</span>
+                {n ? <span className="rail-win-count">{n}</span> : null}
+                {key && <Kbd keys={key} className="rail-win-key" />}
+              </button>
+            </Tooltip>
           );
         })}
       </div>

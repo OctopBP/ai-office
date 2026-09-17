@@ -32,6 +32,9 @@
   font: 600 var(--fs-title)/1.2 var(--font); color: var(--ink);
 }
 .panel header .muted { flex: 1; }
+/* Клавиша окна — сразу за заголовком; крестик прижат вправо и без подписи. */
+.panel header .panel-key { margin-left: calc(-1 * var(--space-1)); }
+.panel header > .sq { margin-left: auto; }
 .panel-body {
   display: flex; flex-direction: column; overflow: hidden;
   padding: var(--space-4); min-height: 0;

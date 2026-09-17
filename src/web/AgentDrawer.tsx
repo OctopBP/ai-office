@@ -9,6 +9,8 @@ import { useActionNotice } from './useActionNotice';
 import { Avatar } from './Avatar';
 import { usageLine } from './money';
 import { Icon, type IconName } from './icons';
+import { Hint, Tooltip } from './Tooltip';
+import { HOTKEY } from './hotkeys';
 import type { Criterion, PermissionMode, TaskView } from '../shared/types';
 import { AgentName } from './AgentName';
 
@@ -111,7 +113,9 @@ export function AgentDrawer() {
             {current && ` · ${elapsed(current.startedAt, null)} · ${current.id}`}
           </div>
         </div>
-        <button className="sq ghost" onClick={() => select(null)} title={t('common.close')}>✕</button>
+        <Tooltip tip={<Hint label={t('common.close')} keys={HOTKEY.close} />}>
+          <button className="sq ghost" onClick={() => select(null)}>✕</button>
+        </Tooltip>
       </header>
 
       {inst.deskless && (
