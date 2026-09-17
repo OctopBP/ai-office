@@ -20,6 +20,8 @@ import {
   DEFAULT_OFFICE_WORKERS, MAX_AGENT_NAME, MAX_HIRE_COUNT, MAX_OFFICE_WORKERS, MAX_TASK_MAX_TURNS,
   MIN_OFFICE_WORKERS, MIN_TASK_MAX_TURNS, ROLE_TITLE_LIMIT,
   DEFAULT_FOCUS_EPICS, MAX_FOCUS_EPICS, MIN_FOCUS_EPICS,
+  DEFAULT_PM_CONTEXT_LIMIT, MAX_PM_CONTEXT_LIMIT, MIN_PM_CONTEXT_LIMIT,
+  DEFAULT_WORKER_CONTEXT_LIMIT, MAX_WORKER_CONTEXT_LIMIT, MIN_WORKER_CONTEXT_LIMIT,
 } from '../shared/types';
 import { isBlocked, isEmptyOverride, passability } from '../shared/layout';
 import { isLookId, LOOKS } from '../shared/looks';
@@ -102,6 +104,8 @@ export const DEFAULT_SETTINGS: Settings = {
   ritualLimitThreshold: DEFAULT_RITUAL_LIMIT,
   initiativeMode: DEFAULT_INITIATIVE_MODE,
   initiativeShare: DEFAULT_INITIATIVE_SHARE,
+  pmContextLimit: DEFAULT_PM_CONTEXT_LIMIT,
+  workerContextLimit: DEFAULT_WORKER_CONTEXT_LIMIT,
 };
 
 /** Доля на своё: число от MIN до MAX; всё остальное — мусор. */
@@ -144,6 +148,22 @@ export function sanitizeRitualLimit(value: unknown): number | undefined {
   if (typeof value !== 'number' || !Number.isFinite(value)) return undefined;
   const n = Math.floor(value);
   if (n < 10 || n > 100) return undefined;
+  return n;
+}
+
+/** Порог контекста менеджера: целое число токенов в допустимом окне; всё остальное — мусор. */
+export function sanitizePmContextLimit(value: unknown): number | undefined {
+  if (typeof value !== 'number' || !Number.isFinite(value)) return undefined;
+  const n = Math.floor(value);
+  if (n < MIN_PM_CONTEXT_LIMIT || n > MAX_PM_CONTEXT_LIMIT) return undefined;
+  return n;
+}
+
+/** Окно автосжатия исполнителя: то же, но в своих границах — ниже минимума SDK не примет. */
+export function sanitizeWorkerContextLimit(value: unknown): number | undefined {
+  if (typeof value !== 'number' || !Number.isFinite(value)) return undefined;
+  const n = Math.floor(value);
+  if (n < MIN_WORKER_CONTEXT_LIMIT || n > MAX_WORKER_CONTEXT_LIMIT) return undefined;
   return n;
 }
 
@@ -531,6 +551,8 @@ export interface Instance {
    */
   permissionMode: PermissionMode | null;
   abort: AbortController | null;
+  /** Контекст последнего вызова модели, токенов — см. `InstanceView.contextTokens`. */
+  contextTokens: number;
 }
 
 /**
@@ -598,6 +620,12 @@ export interface Task {
    * перезапуском — нужно, и делать это должен офис, а не пользователь.
    */
   interrupted: boolean;
+  /**
+   * Исполнитель упёрся в лимит плана подписки — когда. Ветка и рабочая копия
+   * остаются на месте: после сброса окна офис продолжит ту же сессию, а не
+   * начнёт задачу заново. null — стоит не по лимиту.
+   */
+  limitedAt: number | null;
   /**
    * Когда офис в последний раз показывал эту задачу менеджеру, потому что она
    * стоит. Нужно, чтобы не рассказывать про одно и то же на каждом проходе.
@@ -773,10 +801,41 @@ export class OfficeState {
   pmQueue: MessageQueue | null = null;
   pmLoop: Promise<void> | null = null;
   /**
+   * Сессия менеджера ужимает память по порогу контекста (см.
+   * `Settings.pmContextLimit`): обычно командой /compact в той же сессии, а
+   * если сжатие не удалось — передачей дел и закрытием (`pmRotationKind`).
+   * Пока это идёт, новые сообщения ей не отдают, а копят в `pmPending`:
+   * команда из очереди обрабатывается только между ходами, и реплика,
+   * вставшая перед ней, снова разогнала бы контекст.
+   */
+  pmRotating = false;
+  pmRotationKind: 'compact' | 'handoff' = 'compact';
+  pmPending: { text: string; fromUser: boolean }[] = [];
+  /**
+   * Контекст на момент запроса сжатия: сам ход с ним перепишет цифру, а
+   * пользователю сообщают, до чего сессия доросла, а не сколько стоил её
+   * последний ход.
+   */
+  pmRotatingFrom = 0;
+  /** Сколько осталось после сжатия; null — граница сжатия ещё не пришла. */
+  pmCompactedTo: number | null = null;
+  /**
+   * Что менеджер помнил на момент последнего сжатия (или передача дел
+   * закрытой сессии). Нужна только новой сессии: продолжаемая несёт то же
+   * в своей стенограмме.
+   */
+  pmHandoff: string | null = null;
+  /**
    * Задачи, которые пользователь остановил вручную — чтобы отличить это от
    * падения. Ключ — id задачи, а он уникален только внутри офиса.
    */
   stoppedByUser = new Set<string>();
+  /**
+   * Сотрудники, чью сессию SDK только что отбил по лимиту плана. Ставится
+   * при разборе событий сессии, снимается тем, кто разбирает её конец:
+   * по одному тексту ошибки лимит от прочих бед не отличить.
+   */
+  limitHits = new Set<string>();
   /**
    * Сколько сессий исполнителей этого офиса живы прямо сейчас. Счётчик офисный,
    * а не процессный: по нему гаснет индикатор занятости, и чужие задачи держали
@@ -965,12 +1024,18 @@ export class OfficeState {
     this.pmQueue?.close();
     this.pmQueue = null;
     this.pmLoop = null;
+    // Сессии нет — некому и дописывать передачу дел, а накопленное за это
+    // время адресовалось разговору, которого больше нет.
+    this.pmRotating = false;
+    this.pmCompactedTo = null;
+    this.pmPending = [];
     for (const [id, talk] of this.talks) {
       talk.queue.close();
       this.talks.delete(id);
     }
     for (const inst of this.instances.values()) inst.abort?.abort();
     this.stoppedByUser.clear();
+    this.limitHits.clear();
     // Очередь за слотом — это обещание запустить задачу, а сессий больше нет:
     // держать её значило бы ждать освобождения того, что уже освобождено.
     this.waitingForSlot.clear();
@@ -998,7 +1063,9 @@ export class OfficeState {
         usage: i.usage, daily: i.daily, sessionId: i.sessionId,
         permissionMode: i.permissionMode,
         name: i.name,
+        contextTokens: i.contextTokens,
       })),
+      pmHandoff: this.pmHandoff,
       usage: this.usage,
       daily: this.daily,
       life: this.life,
@@ -1414,6 +1481,12 @@ export class OfficeState {
     // бы ритуалы на пустом лимите, либо не давало бы им идти никогда.
     this.settings.ritualLimitThreshold = sanitizeRitualLimit(this.settings.ritualLimitThreshold)
       ?? DEFAULT_RITUAL_LIMIT;
+    // Порог контекста менеджера из правленого руками файла: ноль ротировал
+    // бы сессию на каждом ходу, а миллиард — никогда.
+    this.settings.pmContextLimit = sanitizePmContextLimit(this.settings.pmContextLimit)
+      ?? DEFAULT_PM_CONTEXT_LIMIT;
+    this.settings.workerContextLimit = sanitizeWorkerContextLimit(this.settings.workerContextLimit)
+      ?? DEFAULT_WORKER_CONTEXT_LIMIT;
     this.epicSeq = data.epicSeq ?? this.epics.size;
     // Записи из версий до появления веток чата относим к разговору с менеджером.
     this.chat = (data.chat ?? []).map((c) => ({ ...c, thread: c.thread ?? 'pm#1' }));
@@ -1427,6 +1500,7 @@ export class OfficeState {
 
     this.usage = { ...emptyUsage(), ...(data.usage ?? {}) };
     this.daily = data.daily ?? {};
+    this.pmHandoff = typeof data.pmHandoff === 'string' && data.pmHandoff.trim() ? data.pmHandoff : null;
 
     for (const raw of data.tasks ?? []) {
       const t = migrateTask(raw);
@@ -1538,6 +1612,7 @@ export class OfficeState {
       // полный доступ молча пропадал бы, а человек об этом не узнал.
       permissionMode: pi.permissionMode ?? null,
       abort: null,
+      contextTokens: typeof pi.contextTokens === 'number' && pi.contextTokens > 0 ? pi.contextTokens : 0,
     });
   }
 
@@ -1545,6 +1620,39 @@ export class OfficeState {
     const inst = this.instances.get(instanceId);
     if (!inst || inst.sessionId === sessionId) return;
     inst.sessionId = sessionId;
+    this.markDirty();
+  }
+
+  /**
+   * Запомнить размер контекста последнего вызова модели. Считается по
+   * usage ответа: обычный ввод плюс прочитанный и записанный кеш — ровно
+   * столько сессия перечитала на этом вызове.
+   */
+  noteContext(instanceId: string, tokens: number): void {
+    const inst = this.instances.get(instanceId);
+    if (!inst) return;
+    const clean = Number.isFinite(tokens) && tokens > 0 ? Math.round(tokens) : 0;
+    if (inst.contextTokens === clean) return;
+    inst.contextTokens = clean;
+    this.emit({ t: 'instance', instance: this.instanceView(inst) });
+    this.markDirty();
+  }
+
+  /** Порог контекста менеджера — см. `Settings.pmContextLimit`. */
+  pmContextLimit(): number {
+    return sanitizePmContextLimit(this.settings.pmContextLimit) ?? DEFAULT_PM_CONTEXT_LIMIT;
+  }
+
+  /** Окно автосжатия исполнителя — см. `Settings.workerContextLimit`. */
+  workerContextLimit(): number {
+    return sanitizeWorkerContextLimit(this.settings.workerContextLimit) ?? DEFAULT_WORKER_CONTEXT_LIMIT;
+  }
+
+  /** Передача дел закрытой сессии менеджера: пустая строка стирает прошлую. */
+  setPmHandoff(text: string | null): void {
+    const clean = text?.trim() || null;
+    if (this.pmHandoff === clean) return;
+    this.pmHandoff = clean;
     this.markDirty();
   }
 
@@ -1599,8 +1707,13 @@ export class OfficeState {
   hardReset(): void {
     this.wipe();
     this.seed();
-    // Забываем и id сессий: разговор начинается с чистого листа.
-    for (const inst of this.instances.values()) inst.sessionId = null;
+    // Забываем и id сессий: разговор начинается с чистого листа — вместе
+    // с передачей дел и размером контекста, они от той же сессии.
+    for (const inst of this.instances.values()) {
+      inst.sessionId = null;
+      inst.contextTokens = 0;
+    }
+    this.pmHandoff = null;
     this.markDirty();
   }
 
@@ -1887,6 +2000,7 @@ export class OfficeState {
       // у роли. Права не должны появляться сами при найме.
       permissionMode: null,
       abort: null,
+      contextTokens: 0,
     };
     this.instances.set(inst.id, inst);
     this.emit({ t: 'instance', instance: this.instanceView(inst) });
@@ -2017,6 +2131,7 @@ export class OfficeState {
       repoDir: null,
       merged: false,
       interrupted: false,
+      limitedAt: null,
       attention: null,
       workerSessionId: null,
       reviewerSessionId: null,
@@ -2269,6 +2384,7 @@ export class OfficeState {
       effectivePermissionMode: effectiveMode(
         i.permissionMode, this.role(i.roleId)?.permissionMode, this.officeMode(),
       ),
+      contextTokens: i.contextTokens,
     };
   }
 
@@ -2961,6 +3077,16 @@ export class OfficeState {
       if (clean === undefined) delete next.ritualLimitThreshold;
       else next.ritualLimitThreshold = clean;
     }
+    if ('pmContextLimit' in next) {
+      const clean = sanitizePmContextLimit(next.pmContextLimit);
+      if (clean === undefined) delete next.pmContextLimit;
+      else next.pmContextLimit = clean;
+    }
+    if ('workerContextLimit' in next) {
+      const clean = sanitizeWorkerContextLimit(next.workerContextLimit);
+      if (clean === undefined) delete next.workerContextLimit;
+      else next.workerContextLimit = clean;
+    }
     if ('ritualsEnabled' in next && typeof next.ritualsEnabled !== 'boolean') delete next.ritualsEnabled;
     if ('initiativeMode' in next && !isInitiativeMode(next.initiativeMode)) delete next.initiativeMode;
     if ('initiativeShare' in next) {
@@ -3526,7 +3652,7 @@ export const toTaskView = (t: Task): TaskView => ({
   epicId: t.epicId ?? null, order: t.order ?? 0, dependsOn: t.dependsOn ?? [],
   files: t.files, branch: t.branch, baseBranch: t.baseBranch,
   worktreePath: t.worktreePath, repoDir: t.repoDir ?? null, merged: t.merged,
-  interrupted: t.interrupted, createdAt: t.createdAt,
+  interrupted: t.interrupted, limitedAt: t.limitedAt ?? null, createdAt: t.createdAt,
   startedAt: t.startedAt, finishedAt: t.finishedAt,
   usage: t.usage,
   today: t.daily?.[dayKey()] ?? emptyUsage(),
@@ -3595,7 +3721,8 @@ function migrateTask(raw: Task & {
   // без исхода, а не получают выдуманный, — табель считается с этого дня.
   return {
     ...raw, criteria, usage, daily: raw.daily ?? {},
-    interrupted: raw.interrupted ?? false, attention: raw.attention ?? null,
+    interrupted: raw.interrupted ?? false, limitedAt: raw.limitedAt ?? null,
+    attention: raw.attention ?? null,
     workerSessionId: raw.workerSessionId ?? null, reviewerSessionId: raw.reviewerSessionId ?? null,
     epicId: raw.epicId ?? null, order: raw.order ?? 0, dependsOn: raw.dependsOn ?? [],
     outcome: raw.outcome ?? null, mergeCommit: raw.mergeCommit ?? null,

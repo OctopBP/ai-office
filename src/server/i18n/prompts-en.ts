@@ -43,6 +43,8 @@ export const promptsEn = {
   'agent.state.inMeeting': 'in a meeting',
   'agent.state.speaking': 'speaking',
   'agent.state.talkingToYou': 'talking to you',
+  'agent.state.handoff': 'handing over to a new session…',
+  'agent.state.compacting': 'compacting memory…',
   'agent.state.asking': 'asking {who}',
   'agent.state.answering': 'answering {who}',
   'agent.state.handedOver': 'handed in for review',
@@ -69,6 +71,7 @@ export const promptsEn = {
   'agent.log.commitFailed': 'Could not commit branch {branch}',
   'agent.log.taskStopped': 'Task {task} stopped by you',
   'agent.log.taskFailed': 'Task {task} failed: {error}',
+  'agent.log.taskLimited': 'Task {task} stalled: the subscription plan limit is exhausted',
   'agent.log.cloudTaskFailed': 'Cloud task {task} failed: {error}',
   'agent.log.taskRestarted': 'Task {task} restarted on {who}',
   'agent.log.officePaused': 'The office is paused',
@@ -125,9 +128,6 @@ turn it into a task and assign somebody, not to explain that you have no access 
 Having no tools yourself is not a reason to refuse: the workers have the tools.
 Refuse only if the task is beyond everyone on the team.
 
-The working cycle for every user request:
-1. list_team — see who is on the team and who is free right now.
-2. Size it up. One or two tasks of work — do it right away: create_task for each, then
 But not every message is a request to do something. A question (“how does X work here?”,
 “what is in progress?”, “why did the task fail?”), a discussion of an approach, a request for
 advice or an opinion — that is a conversation with you, not work for the team. Answer in words:
@@ -137,6 +137,9 @@ answer requires looking into the code, offer to create a task, but do not create
 A task appears only on an explicit request to do something. Unsure whether it is a question or
 a request — ask in one sentence instead of acting.
 
+The working cycle for every user request:
+1. list_team — see who is on the team and who is free right now.
+2. Size it up. One or two tasks of work — do it right away: create_task for each, then
    assign_task. It returns IMMEDIATELY, the worker runs in the background; hand out all
    independent tasks one after another, do NOT wait for the first result.
    Several features, or one big one — make a PLAN first (see below), and then assign_task
@@ -185,6 +188,9 @@ not the user’s. They said what needs doing — the rest is the office’s busi
 - retry_review({taskId}) — push a pipeline that is waiting for a decision, after you removed
   the cause (fixed a neighbouring task, say). Pushing it without changes is pointless:
   it will stop in exactly the same place.
+- resume_task({taskId}) — continue a task that stalled on the subscription plan limit: the
+  worker returns to the same branch and continues their session from where it stopped.
+  Only for such tasks and only after the limit has reset — the office tells you itself.
 - You cannot merge a branch by hand, and you should not: you have no such tool.
 
 The office backs you up and sends system messages of its own when work stalls.
@@ -196,6 +202,11 @@ These are not reports for the user, they are work for you:
 - “there are failed tasks on the board” — sort them out yourself. Failed on the turn limit —
   put it back, split into smaller pieces; gone stale — leave it as it is.
 - “the work was cut short by a restart” — the office has already resumed it, nothing to do.
+- “the subscription plan limit has reset” — the listed tasks were waiting because the plan
+  window closed, not because something broke. Continue each with resume_task: do not set
+  them again, do not split them, do not assign them with assign_task. Stay silent and in ten
+  minutes the office continues them itself. While the limit is exhausted the office does not
+  call you: your turn would hit the same limit.
 Do not report any of this to the user: they keep you precisely so they do not have to watch
 such things. Tell them only when they themselves are needed — to hire somebody, to raise the
 spending limit, to grant access.
@@ -274,6 +285,12 @@ Reply to the user in {lang}, and keep it short.`,
 
   'tool.retryReview.desc': 'Push a stuck pipeline for a task: it continues from the stage where it stopped. This helps when the cause is already gone — a neighbouring task was fixed, say, and the conflict will not happen again. If the cause is still there, the pipeline stops again: pushing it repeatedly without changes is pointless.',
   'tool.retryReview.taskId': 'Task id, for example T-3',
+  'tool.resumeTask.desc': 'Continue a task that stalled on the subscription plan limit: the worker returns to the same branch and working copy and continues their session from where the limit cut it off. Only for tasks whose stop reason is the limit; the rest need assign_task or a new task. While the limit is exhausted, pushing is pointless: the session hits it again.',
+  'tool.resumeTask.taskId': 'Task id, for example T-3',
+  'tool.resumeTask.ok': 'Task {task} continued: {who} is back on it in the previous branch.',
+  'resume.noTask': 'There is no task {task}.',
+  'resume.notLimited': 'Task {task} is not waiting on the plan limit (status “{status}”). To restart, use assign_task or the “Restart” button.',
+  'resume.blocked': '{task} cannot be continued yet: {problem}',
   'tool.retryReview.noPipeline': 'There was no pipeline for {task} — there is nothing to send to review.',
   'tool.retryReview.notStuck': '{task}: the pipeline is not stuck — right now it is {stage}. Just wait.',
   'tool.retryReview.ok': '{task}: the pipeline has been started again. The result will come as a system message.',
@@ -337,6 +354,20 @@ Reply to the user in {lang}, and keep it short.`,
   'agent.pm.noAnswer': '⚠️ The PM could not answer: {reason}',
   'agent.pm.lostSession': '⚠️ The previous PM session could not be resumed. It is forgotten — send your message again and the conversation will start afresh (the task board is untouched).',
   'agent.pm.crashed': '⚠️ The PM session crashed: {error}',
+  'agent.pm.handoffAsk': '[SYSTEM] This session’s context has grown to {tokens}k tokens — the office is closing it and will open a new one. Write a handover to yourself in the new session, at most 15 lines: what you are currently discussing with the user and what you promised them; which decisions are pending (a feature waiting for approval, an unanswered question, a task you are watching); what the user asked you to remember that is not in the office journal. The new session will see the board, the plan, review status and the journal on its own — do not retell them. Do not call tools and do not answer the user: only the new session will read this text.',
+  'agent.pm.rotated': 'The manager’s session was refreshed: its context reached {tokens}k tokens with a threshold of {limit}k. The manager left themselves a handover; the board, the plan and the journal are untouched.',
+  'agent.pm.rotatedNoHandoff': 'The manager’s session was refreshed: its context reached {tokens}k tokens with a threshold of {limit}k. The handover could not be written — the new session starts from the board and the journal.',
+  'agent.log.rotating': 'Context {tokens}k tokens with a threshold of {limit}k — asking for a handover and closing the session',
+  'agent.log.handoffFailed': 'Handover not written: {reason}',
+  'agent.pm.compactAsk': 'Keep: what you are currently discussing with the user and what you promised them; which decisions are pending (a feature waiting for approval, an unanswered question, a task you are watching); what the user asked you to remember that is not in the office journal. Do not retell the board, the plan, review status or the journal — the session sees them on its own.',
+  'agent.pm.compacted': 'The manager’s memory was compacted: the context reached {tokens}k tokens with a threshold of {limit}k, {to}k remain after compaction. The conversation continues in the same session; the board, the plan and the journal are untouched.',
+  'agent.log.compacting': 'Context {tokens}k tokens with a threshold of {limit}k — compacting the session’s memory',
+  'agent.log.compacted': 'Memory compacted: context {from}k → {to}k tokens',
+  'agent.log.compactFailed': 'Could not compact memory: {reason} — asking for a handover and closing the session',
+  'agent.log.compactNoBoundary': 'the session sent no compact boundary',
+  'agent.log.resumeBroke': 'the session broke off after compaction before reaching the task',
+  'agent.log.compactError': 'Auto-compaction did not happen: {error}',
+  'agent.worker.compactAsk': 'Keep: what the task is and its criteria; which branch and working copy the work is in; what is already done and committed and what is left; which decisions and assumptions you made and why. Do not retell the contents of files you read — they can be re-read.',
   'agent.pm.restarted': 'The set of roles changed — the manager’s session has been restarted. The conversation continues from the same place, but the roles they see are the new ones.',
 
   // -------------------------------------------------------------- совещание
@@ -434,6 +465,7 @@ Reply to the user in {lang}, and keep it short.`,
   'prompt.task.criteria': 'Acceptance criteria — tick each one with check_criterion({index}) as soon as it is done and verified:',
   'prompt.task.docsDir': 'Your working directory is {dir}/, put every file for this task there. The project sources are in {project} — you may read them, but not change them. Writing outside your own folder will be stopped and will ask the user for confirmation.',
   'prompt.task.finish': 'Do the task completely and on your own, then call finish_task.',
+  'prompt.task.resumeAfterLimit': 'Continue task {task} "{title}": the previous session was cut off by the subscription plan limit, which has now reset. You are in the same working copy and the same branch, what was done is committed. See where you stopped (git log, git status, criterion marks) and finish the task against the same criteria. Finish as usual: finish_task with a report.',
   'prompt.step.header': 'You are doing step "{node}" of process "{workflow}" for task {task} "{title}".',
   'prompt.step.task': 'The task:',
   'prompt.step.artifacts': 'What was handed to you (there are no transcripts of previous steps — only this):',
@@ -534,11 +566,16 @@ Reply to the user in {lang}, and keep it short.`,
   'agent.task.noFileChanges': '⚠️ The files did not change — there is nothing to commit.',
   'agent.task.stub': '[stub] Task “{title}” done.',
   'agent.task.error': 'Error: {error}',
+  'agent.task.limited': '⏳ Stalled: the subscription plan limit is exhausted{when}. The office checks for the reset hourly and continues the work itself, from this very point.',
+  'agent.task.limitedAt': ', resets at {at}',
+  'agent.task.limitedCommit': '{task}: partial work (plan limit)',
+  'agent.chat.limited': '{task}: the worker hit the subscription plan limit{when}. What was done is saved in the branch; I check for the reset hourly and continue from this point.',
 
   'agent.pmMsg.stopped': '[SYSTEM] Task {task} was stopped by the user by hand. Do not assign it again on your own initiative — wait to be told.',
   'agent.pmMsg.stubDone': '[SYSTEM] Task {task} “{title}” was finished by worker {who}.\nReport: [stub] Task done.\nJudge the result and decide what to do next.',
   'agent.pmMsg.done': '[SYSTEM] Task {task} “{title}” was finished by worker {who}.',
   'agent.pmMsg.report': 'Report: {report}',
+  'agent.pmMsg.reportCut': ' (report shortened; the full one is on the task card)',
   'agent.pmMsg.criteria': 'Criteria: {done} of {total} ticked off.',
   'agent.pmMsg.files': 'Files: {files}',
   'agent.pmMsg.assumed': 'Decided alone: {text}',
@@ -744,6 +781,11 @@ Reply to the user in {lang}, and keep it short.`,
     'When the owner states a new long-term goal in chat — that is a direction, not a task: tell them to add it in the plan (the “Directions” block), and do not turn it into tasks yourself unless they ask.',
   ].join('\n'),
   'prompt.pm.noDirections': '(only the built-in one: keep the project healthy)',
+  'prompt.pm.handoff': `
+
+Memory of your previous session. It could not be continued; the board, the plan, review status
+and the office journal are the same — they live outside the session. This is what it remembered:
+{text}`,
   'prompt.board.directions': 'DIRECTIONS (standing goals of the owner):',
   'prompt.board.directionRow': '{id}{paused} {text}',
   'prompt.board.paused': ' [paused]',

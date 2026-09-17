@@ -180,7 +180,7 @@ export function TaskDrawer() {
           )}
           {(task.status === 'failed' || task.status === 'blocked') && (
             <p className="muted small">
-              {t(task.interrupted ? 'board.interrupted' : 'board.toldManager')}
+              {t(task.limitedAt ? 'board.limited' : task.interrupted ? 'board.interrupted' : 'board.toldManager')}
             </p>
           )}
         </section>

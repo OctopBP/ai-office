@@ -24,7 +24,11 @@
  * - работу оборвал перезапуск сервера — сессия умерла вместе с процессом,
  *   задача осталась заблокированной навсегда;
  * - задача провалилась — о ней сказали менеджеру один раз в момент падения,
- *   и если он тогда ничего не сделал, больше о ней не вспомнит никто.
+ *   и если он тогда ничего не сделал, больше о ней не вспомнит никто;
+ * - исполнителя отбил лимит плана подписки — задача стоит не по ошибке и не
+ *   по чьему-то решению, а до сброса окна. Офис раз в час смотрит, наступил
+ *   ли сброс, а когда наступил — зовёт менеджера продолжить работу с того же
+ *   места; молчит менеджер — продолжает сам.
  *
  * Пользователя надзор не зовёт никогда: его дело — сказать, что нужно сделать,
  * а не следить, дошло ли.
@@ -33,7 +37,8 @@ import type { PullRequestView } from '../shared/types';
 import { OFFICE_SENDER } from '../shared/types';
 import { type OfficeState, type Task } from './state';
 import { isPipelineRunning, pipelineProblem, runPipeline, tellPm } from './review';
-import { officeAssign, retryTask, slotProblem } from './agents';
+import { officeAssign, resumeTask, retryTask, slotProblem } from './agents';
+import { limitBlock, resetClock } from './limits';
 import { dispatch } from './plan';
 import { detectReverts } from './outcomes';
 import { askAboutReverts, tickRituals } from './rituals';
@@ -73,6 +78,21 @@ const PM_GRACE_MS = 10 * 60_000;
 /** Сколько провалившихся задач показываем менеджеру в одном сообщении. */
 const FAILED_BATCH = 8;
 
+/**
+ * Как часто офис проверяет, не сброшен ли лимит плана, пока задачи стоят из-за
+ * него. Сброс по названному SDK времени замечается сразу, на минутном тике;
+ * час — это шаг, с которым офис говорит об ожидании вслух и пробует снова,
+ * когда времени сброса SDK не назвал.
+ */
+const LIMIT_CHECK_MS = 60 * 60_000;
+/** Когда по каждому офису последний раз проверяли лимит. */
+const limitChecks = new Map<string, number>();
+
+/** Забыть, когда проверяли лимит, — только для тестов. */
+export function forgetLimitChecks(): void {
+  limitChecks.clear();
+}
+
 const clip = (s: string, n = 90): string => {
   const line = s.replace(/\s+/g, ' ').trim();
   return line.length > n ? `${line.slice(0, n - 1)}…` : line;
@@ -104,8 +124,13 @@ export async function superviseOffice(state: OfficeState): Promise<void> {
 
   const now = Date.now();
 
+  // Лимит плана закрыт — сессии не поднимаем: любая упёрлась бы в него же,
+  // а перезапуск конвейера ещё и сжёг бы попытку из трёх впустую. Задачи,
+  // вставшие по лимиту, ждут его сброса отдельно (watchLimits).
+  const limited = await watchLimits(state, now);
+
   // 1. Вставшие пулл-реквесты, которым пора попробовать снова.
-  for (const pr of [...state.prs.values()]) {
+  for (const pr of limited ? [] : [...state.prs.values()]) {
     if (pr.stage !== 'stuck' || pr.needsDecision) continue;
     const task = state.tasks.get(pr.taskId);
     if (!task || task.merged) continue;
@@ -136,7 +161,7 @@ export async function superviseOffice(state: OfficeState): Promise<void> {
     .sort((a, b) => (a.finishedAt ?? a.createdAt) - (b.finishedAt ?? b.createdAt));
 
   let started = 0;
-  for (const task of orphans) {
+  for (const task of limited ? [] : orphans) {
     if (started >= START_PER_TICK) break;
     if (await pipelineProblem(state, task)) continue;
     started += 1;
@@ -158,7 +183,7 @@ export async function superviseOffice(state: OfficeState): Promise<void> {
     void runPipeline(state, run.subject.taskId);
   }
 
-  await watchBoard(state, now);
+  if (!limited) await watchBoard(state, now);
 
   // 3½. Откаты: слитую работу человек мог выбросить руками, и офис узнаёт об
   // этом только так. Ходить в git ради этого раз в минуту незачем — раз в
@@ -180,7 +205,78 @@ export async function superviseOffice(state: OfficeState): Promise<void> {
   // (завершилась задача, влилась ветка, согласовали фичу), — и он здесь
   // именно как подстраховка: событие могло не случиться из-за перезапуска
   // сервера или упавшей сессии, а план от этого стоять не должен.
-  dispatch(state);
+  if (!limited) dispatch(state);
+}
+
+/**
+ * Задачи, вставшие по лимиту плана. Возвращает, закрыт ли лимит прямо сейчас:
+ * пока закрыт, остальному надзору делать нечего.
+ *
+ * Пока окно закрыто и время сброса известно — ничего не пробуем, раз в час
+ * говорим в чат, чего ждём. Время неизвестно — раз в час пробуем: другого
+ * способа узнать нет, а отбитый запрос ничего не стоит. Сброс наступил —
+ * зовём менеджера: продолжить работу его дело, он знает, что из вставшего
+ * ещё нужно. Молчит — продолжаем сами, как и с нерозданными задачами.
+ */
+async function watchLimits(state: OfficeState, now: number): Promise<boolean> {
+  const halted = [...state.tasks.values()]
+    .filter((t) => t.status === 'blocked' && t.limitedAt)
+    .sort((a, b) => (a.limitedAt ?? 0) - (b.limitedAt ?? 0));
+  const block = limitBlock(now);
+  if (!halted.length) return Boolean(block);
+
+  const last = limitChecks.get(state.officeId) ?? 0;
+  const due = now - last >= LIMIT_CHECK_MS;
+  const ids = halted.map((t) => t.id).join(', ');
+
+  if (block?.resetsAt) {
+    if (due) {
+      limitChecks.set(state.officeId, now);
+      state.addChat(OFFICE_SENDER, state.say('sup.limitWaiting', {
+        tasks: ids, at: resetClock(block.resetsAt, state.lang(), now),
+      }));
+    }
+    return true;
+  }
+  if (block) {
+    if (!due) return true;
+    state.addChat(OFFICE_SENDER, state.say('sup.limitProbe', { tasks: ids }));
+  }
+  limitChecks.set(state.officeId, now);
+
+  // Сначала менеджер: раз в сброс, а не на каждом проходе.
+  const unseen = halted.filter((t) => !t.attention);
+  if (unseen.length) {
+    for (const t of unseen) state.updateTask(t.id, { attention: now });
+    if (!block) {
+      state.addChat(OFFICE_SENDER, state.say('sup.limitReset', {
+        tasks: ids, minutes: Math.round(PM_GRACE_MS / 60000),
+      }));
+    }
+    tellPm(state, state.say('sup.pmLimitReset', {
+      tasks: unseen.map((t) => `${t.id} «${t.title}» (${t.assigneeId ?? t.roleId ?? '—'})`).join('\n'),
+      minutes: Math.round(PM_GRACE_MS / 60000),
+    }));
+  }
+
+  // Менеджер промолчал — продолжаем сами, по паре за проход.
+  const overdue = halted.filter((t) => t.attention && now - t.attention > PM_GRACE_MS);
+  let started = 0;
+  for (const task of overdue) {
+    if (started >= START_PER_TICK) break;
+    const outcome = resumeTask(state, task.id);
+    if (!outcome.ok) {
+      state.updateTask(task.id, { attention: now });
+      state.addLog(null, 'system', state.say('sup.resumeFailed', { task: task.id, problem: outcome.message }));
+      continue;
+    }
+    started += 1;
+    state.addChat(OFFICE_SENDER, state.say('sup.limitResumed', { task: task.id, who: outcome.message }));
+    tellPm(state, state.say('sup.limitResumedPm', {
+      task: task.id, title: task.title, who: outcome.message,
+    }));
+  }
+  return false;
 }
 
 /**

@@ -55,3 +55,5 @@
   border-radius: 0;
 }
 .usage-row.task-row:hover { background: var(--film); }
+/* Контекст менеджера у порога обновления сессии — предупреждение, а не справка. */
+.usage-lines .warn { color: var(--warn); }

@@ -37,7 +37,7 @@ Node + TypeScript, React 19 + Zustand на фронте, `ws` для связи,
 | `src/server/market.ts` | Маркет агентов: реестр `registry/registry.json`, установка из git в кеш `~/.office/packages`, найм из пакета, обновления |
 | `src/server/export.ts`, `src/server/publish.ts`, `src/server/bench.ts`, `src/cli/office-agent.ts` | Авторский путь: экспорт роли в пакет, заготовка, валидатор, стенд, публикация в реестр, проверка реестра |
 | `src/registry/service.ts`, `src/registry/main.ts` | Сервис индекса: реестр по адресу, поиск, страницы, зеркало с отпечатком, публикация по GitHub-токену, админ, marketplace.json |
-| `src/server/limits.ts` | Лимиты плана подписки: проценты и время сброса из событий SDK |
+| `src/server/limits.ts` | Лимиты плана подписки: проценты и время сброса из событий SDK; отказ по лимиту и ожидание сброса (`limitBlock`) |
 | `src/server/outcomes.ts`, `src/shared/report.ts` | Живой офис: исход задачи (чисто, с доработкой, вставала, провал, снята, откачена), поиск откатов по git, табель роли |
 | `src/server/journal.ts`, `src/server/questions.ts` | Журнал офиса (записи, области, забывание) и вопросы владельцу (`ask_owner`, ответы в журнал, порция для планёрки) |
 | `src/server/rituals.ts` | Ритуалы офиса на тихом тике надзора: планёрка из данных, консолидация, противоречия и рефлексия через `RitualAgents`, забывание, здоровье проекта, порог лимита |

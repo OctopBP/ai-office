@@ -34,6 +34,8 @@ export interface PersistedInstance {
   name?: string | null;
   /** Формат до детализации расходов: только сумма, без токенов. */
   costUsd?: number;
+  /** Контекст последнего вызова, токенов. В сохранениях до ротации менеджера поля нет. */
+  contextTokens?: number;
 }
 
 export interface Persisted {
@@ -57,6 +59,11 @@ export interface Persisted {
   /** История совещаний. В сохранениях до неё поля нет: старые реплики остаются в ветке `meeting` без привязки. */
   meetings?: MeetingView[];
   instances: PersistedInstance[];
+  /**
+   * Передача дел от закрытой по порогу контекста сессии менеджера: она
+   * входит в системный промпт следующей. null — сессию ещё не ротировали.
+   */
+  pmHandoff?: string | null;
   /** Расход офиса за всё время и по дням. В старых сохранениях их нет. */
   usage?: Usage;
   daily?: Record<string, Usage>;

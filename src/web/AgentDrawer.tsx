@@ -11,7 +11,7 @@ import { usageLine } from './money';
 import { Icon, type IconName } from './icons';
 import { Hint, Tooltip } from './Tooltip';
 import { HOTKEY } from './hotkeys';
-import type { Criterion, PermissionMode, TaskView } from '../shared/types';
+import { DEFAULT_PM_CONTEXT_LIMIT, type Criterion, type PermissionMode, type TaskView } from '../shared/types';
 import { AgentName } from './AgentName';
 
 const money = (v: number) => `$${v.toFixed(v < 1 ? 3 : 2)}`;
@@ -283,6 +283,22 @@ export function AgentDrawer() {
           <div className="muted">
             {money(inst.usage.costUsd)} {t('usage.forAgentAllTime')} · {usageLine(inst.usage)}
           </div>
+          {inst.contextTokens > 0 && (() => {
+            // Порог есть только у менеджера: у исполнителя сессия живёт одну
+            // задачу, и его контекст — справка, а не предупреждение.
+            const limit = settings.pmContextLimit ?? DEFAULT_PM_CONTEXT_LIMIT;
+            const near = Boolean(role?.isManager) && inst.contextTokens >= limit * 0.8;
+            return (
+              <div className={near ? 'warn' : 'muted'} title={t('usage.context.hint')}>
+                {t('usage.context', { k: Math.round(inst.contextTokens / 1000) })}
+                {role?.isManager && (
+                  <span className="muted">
+                    {' '}{t(near ? 'usage.context.near' : 'usage.context.limit', { limit: Math.round(limit / 1000) })}
+                  </span>
+                )}
+              </div>
+            );
+          })()}
         </div>
       </section>
 

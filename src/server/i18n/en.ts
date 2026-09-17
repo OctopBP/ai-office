@@ -275,6 +275,13 @@ export const en = {
   'sup.giveUpPm': '[SYSTEM] Task {task} “{title}” never made it into {base}. The office tried to carry it through {n} times, the reason it last stopped:\n{note}\nFrom here it is your call, and you act on it yourself: set a fixing task and assign it, reword this one, or give it to another role. Bother the user only if you need something nobody in the office can do (hire somebody, raise the budget) — and then say in one sentence what exactly you need from them.',
   'sup.resumeWaiting': '{task}: returning the process to its approval node — it waits for the owner\'s answer.',
   'sup.crashed': 'The pipeline watchdog stumbled: {error}',
+  'sup.limitWaiting': 'The subscription plan limit is still exhausted; {tasks} are waiting on it. It resets at {at} — I will check again in an hour, and we continue as soon as it resets.',
+  'sup.limitProbe': 'The subscription plan limit is exhausted and the SDK did not say when it resets. An hour has passed — trying to continue {tasks}.',
+  'sup.limitReset': 'The subscription plan limit has reset. {tasks} were waiting on it — the manager continues them; if they stay silent, I continue them myself in {minutes} minutes.',
+  'sup.pmLimitReset': '[SYSTEM] The subscription plan limit has reset, work can go on. These tasks were waiting on it:\n{tasks}\nContinue them yourself — resume_task({taskId}) for each: the worker returns to the same branch and continues their session from where it was cut off. Do not set them again and do not split them: what was done is not lost. If one is no longer worth continuing — say so in your reply. Stay silent and in {minutes} minutes the office continues them itself.',
+  'sup.limitResumed': '{task}: the limit has reset and the manager did not continue it — continuing myself, {who} took it.',
+  'sup.limitResumedPm': '[SYSTEM] Task {task} “{title}” was waiting on the plan limit, and the office continued it itself — with {who}. No need to continue it a second time.',
+  'sup.resumeFailed': '{task}: could not continue after the limit reset — {problem}',
 
   // --------------------------------------------------------------- processes
   'wf.exhausted': '"{node}": the retry limit ({max}) is used up.',

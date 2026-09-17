@@ -16,6 +16,7 @@ import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from '
 import { dirname, resolve } from 'node:path';
 import type { LimitKind, LimitsView, LimitWindow } from '../shared/types';
 import { emptyLimits, LIMIT_ORDER } from '../shared/types';
+import { LANG_LOCALE, type Lang } from '../shared/i18n';
 import { DEFAULT_STATE_FILE } from './store';
 
 /**
@@ -64,6 +65,20 @@ interface Stored {
   plan?: string | null;
   updatedAt: number | null;
   windows: LimitWindow[];
+  /** Отказ по лимиту, если он был последним словом SDK. В старом кеше поля нет. */
+  rejection?: Rejection | null;
+}
+
+/**
+ * Отказ по лимиту: SDK отбил запрос, и до сброса окна пробовать бессмысленно.
+ * Запоминается отдельно от шкал, потому что шкалы — про проценты, а здесь
+ * важен факт и время: по нему офис решает, когда возвращаться к работе.
+ */
+export interface Rejection {
+  /** Когда отбили. */
+  at: number;
+  /** Когда окно обнулится. null — SDK не сказал, и узнать можно только пробуя. */
+  resetsAt: number | null;
 }
 
 /**
@@ -104,6 +119,7 @@ const toPercent = (v: number): number =>
 
 const windows = new Map<LimitKind, LimitWindow>();
 let status: LimitsView['status'] = null;
+let rejection: Rejection | null = null;
 let plan: string | null = null;
 let updatedAt: number | null = null;
 let loaded = false;
@@ -122,6 +138,7 @@ function load(): void {
     status = data.status ?? null;
     plan = data.plan ?? null;
     updatedAt = data.updatedAt ?? null;
+    rejection = data.rejection ?? null;
   } catch {
     // Кеш шкалы, а не состояние офиса: битый файл дешевле забыть, чем чинить.
   }
@@ -131,7 +148,9 @@ function saveSoon(): void {
   if (timer) return;
   timer = setTimeout(() => {
     timer = null;
-    const data: Stored = { version: 2, status, plan, updatedAt, windows: [...windows.values()] };
+    const data: Stored = {
+      version: 2, status, plan, updatedAt, windows: [...windows.values()], rejection,
+    };
     try {
       mkdirSync(dirname(FILE), { recursive: true });
       const tmp = `${FILE}.tmp`;
@@ -159,15 +178,29 @@ export function noteRateLimit(info: RateLimitInfo): boolean {
   const next = info.status ?? null;
   if (next !== null && next !== status) { status = next; changed = true; }
 
+  const resetsAt = typeof info.resetsAt === 'number' ? toMs(info.resetsAt) : null;
+
   // Тип окна SDK присылает не всегда: без него непонятно, какую именно шкалу
   // двигать, и молча приписать проценты пятичасовому окну — соврать.
   if (isKind(info.rateLimitType) && typeof info.utilization === 'number') {
     const kind = info.rateLimitType;
     const utilization = toPercent(info.utilization);
-    const resetsAt = typeof info.resetsAt === 'number' ? toMs(info.resetsAt) : null;
     const was = windows.get(kind);
     if (!was || was.utilization !== utilization || was.resetsAt !== resetsAt) changed = true;
     windows.set(kind, { kind, utilization, resetsAt, updatedAt: now });
+  }
+
+  // Отказ запоминаем вместе со временем сброса, а разрешённый запрос его
+  // снимает: раз SDK снова пропускает, окно уже обнулилось — даже если срок
+  // сброса, который он называл, ещё не наступил.
+  if (next === 'rejected') {
+    // Время сброса из самого события; его нет — из шкалы того же окна.
+    const known = resetsAt ?? (isKind(info.rateLimitType) ? windows.get(info.rateLimitType)?.resetsAt : null) ?? null;
+    if (!rejection || rejection.resetsAt !== known) changed = true;
+    rejection = { at: rejection?.at ?? now, resetsAt: known };
+  } else if (next !== null && rejection) {
+    rejection = null;
+    changed = true;
   }
 
   // Само событие — уже факт: лимиты плана к этому аккаунту применимы. Даже
@@ -241,6 +274,33 @@ export async function pollLimits(session: LimitSource): Promise<boolean> {
   }
 }
 
+/**
+ * Упирается ли офис в лимит прямо сейчас: последний ответ SDK был отказом, а
+ * окно ещё не обнулилось. Время сброса SDK называет сам; не назвал — считаем,
+ * что упираемся, пока не докажем обратное пробой (см. supervisor.ts).
+ *
+ * Сброс по часам верим на слово: свежих событий после него ещё нет — они
+ * появятся только с первым же запросом, а его-то и надо решиться сделать.
+ */
+export function limitBlock(now = Date.now()): Rejection | null {
+  if (!loaded) load();
+  if (!rejection) return null;
+  if (rejection.resetsAt !== null && rejection.resetsAt <= now) return null;
+  return rejection;
+}
+
+/**
+ * Время сброса словами на языке офиса. Недельное окно обнуляется через дни,
+ * пятичасовое — через часы: дата показывается, только если сброс не сегодня.
+ */
+export function resetClock(resetsAt: number, lang: Lang, now = Date.now()): string {
+  const locale = LANG_LOCALE[lang];
+  const sameDay = new Date(resetsAt).toDateString() === new Date(now).toDateString();
+  return new Date(resetsAt).toLocaleString(locale, sameDay
+    ? { hour: '2-digit', minute: '2-digit' }
+    : { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' });
+}
+
 /** Что показывать в интерфейсе. Порядок окон — от самого короткого. */
 export function limitsView(): LimitsView {
   if (!loaded) load();
@@ -258,6 +318,7 @@ export function limitsView(): LimitsView {
 export function forgetLimits(): void {
   windows.clear();
   status = null;
+  rejection = null;
   plan = null;
   updatedAt = null;
   polledAt = 0;

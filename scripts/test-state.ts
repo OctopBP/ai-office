@@ -19,12 +19,13 @@ import {
 } from '../src/server/state';
 import { flushAll, load, save, wipe, type Persisted } from '../src/server/store';
 import {
-  DEFAULT_OFFICE_WORKERS, isOfficeSender, MAX_AGENT_NAME, MAX_OFFICE_WORKERS, MAX_TASK_MAX_TURNS,
-  OFFICE_SENDER, type Settings,
+  DEFAULT_OFFICE_WORKERS, DEFAULT_PM_CONTEXT_LIMIT, DEFAULT_WORKER_CONTEXT_LIMIT, isOfficeSender, MAX_AGENT_NAME,
+  MAX_OFFICE_WORKERS, MAX_TASK_MAX_TURNS, OFFICE_SENDER, type Settings,
 } from '../src/shared/types';
 import { cloudProblem, setGithubToken } from '../src/server/cloud';
 import {
-  noStaffReason, officeAssign, releaseSlot, resetSessions, sendUserMessage, slotProblem, teamSummary,
+  compactPm, completePmCompaction, completePmRotation, noStaffReason, officeAssign, pmNeedsRotation, releaseSlot,
+  resetSessions, rotatePm, sendUserMessage, slotProblem, teamSummary,
 } from '../src/server/agents';
 import { MessageQueue } from '../src/server/queue';
 import { defaultRole, defaultRoles } from '../src/server/roles';
@@ -1505,6 +1506,103 @@ async function main(): Promise<void> {
   unloadOfficeState('o-pm-b');
   wipe(pmFileA);
   wipe(pmFileB);
+
+  // 15. Сжатие памяти менеджера по порогу контекста. Настоящей сессии нет:
+  // очередь с циклом подставлены, проверяется решение о сжатии, команда
+  // /compact, буфер сообщений на это время, что остаётся после, а также
+  // запасной путь через передачу дел, когда границы сжатия не пришло.
+  const rotFile = resolve(tmpdir(), `office-test-pm-rot-${process.pid}.json`);
+  const pr = openOfficeState({ id: 'o-pm-rot', projectDir: resolve(tmpdir(), 'pm-rot'), stateFile: rotFile }).state;
+  pr.seed();
+  const rq = new MessageQueue();
+  pr.pmQueue = rq;
+  pr.pmLoop = Promise.resolve();
+  const ir = rq[Symbol.asyncIterator]();
+  pr.setSessionId('pm#1', 'sess-old');
+  pr.noteContext('pm#1', 50_000);
+  const underLimit = !pmNeedsRotation(pr);
+  pr.noteContext('pm#1', 120_000);
+  const overLimit = pmNeedsRotation(pr);
+  // Порог из правленого файла или с клиента: мусор не принимается, а
+  // поднятый порог откладывает ротацию.
+  pr.updateSettings({ pmContextLimit: 5 });
+  const junkLimitIgnored = pr.pmContextLimit() === DEFAULT_PM_CONTEXT_LIMIT;
+  pr.updateSettings({ pmContextLimit: 200_000 });
+  const raisedDefers = !pmNeedsRotation(pr);
+  pr.updateSettings({ pmContextLimit: 100_000 });
+  // Окно автосжатия исполнителя: ниже минимума SDK не принимается.
+  pr.updateSettings({ workerContextLimit: 50_000 });
+  const junkWorkerLimitIgnored = pr.workerContextLimit() === DEFAULT_WORKER_CONTEXT_LIMIT;
+  pr.updateSettings({ workerContextLimit: 150_000 });
+  const workerLimitKept = pr.workerContextLimit() === 150_000 && pr.toPersisted().settings.workerContextLimit === 150_000;
+  const contextShown = pr.instanceView(pr.instances.get('pm#1')!).contextTokens === 120_000;
+
+  compactPm(pr);
+  const askedCompact = await took(ir);
+  const askedCompaction = pr.pmRotating && pr.pmRotationKind === 'compact' && askedCompact !== null
+    && askedCompact.startsWith('/compact ') && askedCompact.includes('журнале офиса');
+  // Пока сессия ужимает память, сообщения копятся, а не уходят в очередь.
+  sendUserMessage(pr, 'а это подождёт');
+  tellPm(pr, '[СИСТЕМА] отчёт во время сжатия');
+  // В очередь не заглядываем: незакрытый took съел бы следующее сообщение.
+  const bufferedCompact = pr.pmPending.length === 2;
+  // Граница сжатия пришла: сессия живёт дальше, контекст — по границе,
+  // накопленное возвращается в ту же очередь.
+  pr.pmCompactedTo = 30_000;
+  pr.noteContext('pm#1', 30_000);
+  const afterCompact = completePmCompaction(pr, null);
+  const pmC = pr.instances.get('pm#1');
+  const compacted = !pr.pmRotating && pr.pmQueue === rq && pmC?.sessionId === 'sess-old'
+    && pmC?.contextTokens === 30_000 && afterCompact.length === 2
+    && afterCompact[0].text === 'а это подождёт' && pr.pmPending.length === 0 && !pmNeedsRotation(pr);
+  const noticedCompact = pr.chat.some((c) => isOfficeSender(c.from) && c.text.includes('Память менеджера ужата'));
+
+  // Границы не было — сжатие не удалось, и офис идёт запасным путём:
+  // просит передачу дел; накопленное продолжает ждать.
+  pr.noteContext('pm#1', 120_000);
+  compactPm(pr);
+  await took(ir);
+  sendUserMessage(pr, 'и это тоже');
+  const fallbackPending = completePmCompaction(pr, 'сессия сломалась');
+  const asked = await took(ir);
+  const askedHandoff = fallbackPending.length === 0 && pr.pmRotating && pr.pmRotationKind === 'handoff'
+    && asked !== null && asked.startsWith('[СИСТЕМА]') && asked.includes('передачу дел')
+    && pr.log.some((e) => e.agentId === 'pm#1' && e.kind === 'error' && e.text.includes('сессия сломалась'));
+  // Пока менеджер пишет передачу, сообщения копятся, а не уходят в очередь.
+  tellPm(pr, '[СИСТЕМА] отчёт во время ротации');
+  const buffered = pr.pmPending.length === 2 && pr.pmPending[0].fromUser === true
+    && pr.pmPending[1].fromUser === false && (await took(ir)) === null;
+  const pending = completePmRotation(pr, 'Обсуждаем заметки; жду «поехали» по фиче E-1.');
+  const pm = pr.instances.get('pm#1');
+  const rotated = !pr.pmRotating && pr.pmQueue === null && pr.pmLoop === null
+    && pm?.sessionId === '' && pm?.contextTokens === 0 && (await ir.next()).done === true;
+  const handoffKept = pr.pmHandoff?.includes('E-1') === true && pr.toPersisted().pmHandoff?.includes('E-1') === true;
+  const pendingReturned = pending.length === 2 && pending[0].text === 'и это тоже' && pr.pmPending.length === 0;
+  const noticed = pr.chat.some((c) => isOfficeSender(c.from) && c.text.includes('Сессия менеджера обновлена'));
+  pr.hardReset();
+  const resetForgets = pr.pmHandoff === null && pr.instances.get('pm#1')?.contextTokens === 0;
+  results.push(
+    `до порога ротация не нужна: ${underLimit}`,
+    `за порогом — нужна: ${overLimit}`,
+    `мусорный порог не принимается: ${junkLimitIgnored}`,
+    `окно исполнителя ниже минимума SDK не принимается: ${junkWorkerLimitIgnored}`,
+    `окно исполнителя сохраняется: ${workerLimitKept}`,
+    `поднятый порог откладывает ротацию: ${raisedDefers}`,
+    `размер контекста виден в карточке: ${contextShown}`,
+    `по порогу в очередь уходит /compact с наказом: ${askedCompaction}`,
+    `на время сжатия сообщения копятся: ${bufferedCompact}`,
+    `после сжатия сессия та же, контекст по границе, накопленное вернулось: ${compacted}`,
+    `пользователю сказали о сжатии: ${noticedCompact}`,
+    `без границы сжатия — запасной путь через передачу дел: ${askedHandoff}`,
+    `на время ротации сообщения копятся: ${buffered}`,
+    `после ротации сессия закрыта и забыта: ${rotated}`,
+    `передача дел сохранена: ${handoffKept}`,
+    `накопленное возвращается для новой сессии: ${pendingReturned}`,
+    `пользователю сказали об обновлении сессии: ${noticed}`,
+    `полный сброс забывает передачу дел: ${resetForgets}`,
+  );
+  unloadOfficeState('o-pm-rot');
+  wipe(rotFile);
 
   // Прошедшей считается только строка, кончающаяся на true. Раньше проверялось
   // обратное — «не false», — и любая строка, где вместо булева оказалось

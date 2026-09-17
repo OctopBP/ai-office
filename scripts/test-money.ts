@@ -214,6 +214,87 @@ results.push(
   `старое сохранение сводится в нули: ${summarize({ tasks: [] }).today.costUsd === 0}`,
 );
 
+// ---------- лимит исчерпан: ожидание сброса и продолжение ----------
+
+// Исполнителя отбил лимит плана. Задача не провалилась и не остановлена
+// человеком — она ждёт сброса окна, и ждать должен офис, а не пользователь:
+// пока сброс не наступил, никого не дёргаем и раз в час говорим, чего ждём;
+// наступил — зовём менеджера, а промолчит — продолжаем сами.
+const { superviseOffice, forgetLimitChecks } = await import('../src/server/supervisor');
+const { setPipelineAgents } = await import('../src/server/review');
+const { limitBlock } = await import('../src/server/limits');
+
+const pmInbox: string[] = [];
+setPipelineAgents({
+  async review() {
+    return { verdict: 'changes', text: '', reviewerId: null, error: 'здесь ревью нет' };
+  },
+  async rework() { return { ok: false, message: 'здесь доработки нет' }; },
+  notifyPm(_state, text) { pmInbox.push(text); },
+});
+// Исполнители заглушены: продолжение задачи должно дойти до старта, а не до сессии.
+office.dryRun = true;
+office.settings.ritualsEnabled = false;
+inst.currentTaskId = null;
+forgetLimitChecks();
+
+const resetSec = Math.floor((Date.now() + 60 * 60 * 1000) / 1000);
+noteRateLimit({ status: 'rejected', rateLimitType: 'five_hour', utilization: 1, resetsAt: resetSec });
+results.push(
+  `отказ запоминается вместе со временем сброса: ${limitBlock()?.resetsAt === resetSec * 1000}`,
+);
+
+const halted = office.createTask({
+  title: 'встала по лимиту', description: '', criteria: [], roleId: 'backend',
+});
+office.updateTask(halted.id, {
+  status: 'blocked', assigneeId: 'backend#1', limitedAt: Date.now(), result: 'встала',
+});
+const waitingLines = () => office.chat.filter((c) => c.text.includes('Сброс в')).length;
+await superviseOffice(office);
+results.push(
+  `пока сброс не наступил, офис только говорит, чего ждёт: ${waitingLines() === 1}`,
+  `задачу при этом не трогает: ${office.tasks.get(halted.id)?.status === 'blocked'}`,
+  `и менеджера не зовёт — его ход упёрся бы в тот же лимит: ${pmInbox.length === 0}`,
+);
+await superviseOffice(office);
+results.push(`второй проход в тот же час молчит: ${waitingLines() === 1}`);
+
+// Сброс наступил: SDK назвал время, и оно прошло, а новых событий ещё нет —
+// они появятся только с первым запросом, который и надо решиться сделать.
+noteRateLimit({
+  status: 'rejected', rateLimitType: 'five_hour', utilization: 1,
+  resetsAt: Math.floor(Date.now() / 1000) - 1,
+});
+results.push(`сброс по часам снимает отказ: ${limitBlock() === null}`);
+await superviseOffice(office);
+const told = office.tasks.get(halted.id)!;
+results.push(
+  `после сброса офис зовёт менеджера продолжить: ${
+    pmInbox.some((m) => m.includes('resume_task') && m.includes(halted.id))}`,
+  `и даёт ему время, а не продолжает сразу: ${told.status === 'blocked' && told.attention !== null}`,
+);
+await superviseOffice(office);
+results.push(`второй раз подряд менеджера не зовёт: ${
+  pmInbox.filter((m) => m.includes('resume_task')).length === 1}`);
+
+// Менеджер промолчал дольше отведённого — офис продолжает задачу сам.
+office.updateTask(halted.id, { attention: Date.now() - 11 * 60 * 1000 });
+await superviseOffice(office);
+const resumed = office.tasks.get(halted.id)!;
+results.push(
+  `менеджер промолчал — офис продолжил задачу сам: ${
+    resumed.status !== 'blocked' && resumed.limitedAt === null}`,
+  `тем же исполнителем, что её вёл: ${resumed.assigneeId === 'backend#1'}`,
+  `и сказал об этом в чат: ${office.chat.some((c) => c.text.includes('продолжаю сам'))}`,
+  `и менеджеру: ${pmInbox.some((m) => m.includes('продолжил её сам'))}`,
+);
+
+// Разрешённый запрос снимает отказ, даже если названный срок сброса не прошёл.
+noteRateLimit({ status: 'rejected', rateLimitType: 'five_hour', utilization: 1, resetsAt: resetSec });
+noteRateLimit({ status: 'allowed', rateLimitType: 'five_hour', utilization: 0.1 });
+results.push(`разрешённый запрос снимает отказ раньше срока: ${limitBlock() === null}`);
+
 // Прошедшей считается только строка, кончающаяся на true: «не false» пропускало
 // в зачёт всё, что вообще не булево, — например undefined из-за опечатки.
 const failed = results.filter((r) => !r.endsWith('true'));

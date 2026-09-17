@@ -5,8 +5,10 @@ import {
 } from './store';
 import {
   DEFAULT_FOCUS_EPICS, DEFAULT_INITIATIVE_MODE, DEFAULT_INITIATIVE_SHARE, DEFAULT_OFFICE_WORKERS,
-  DEFAULT_PROCESS_WORKERS, DEFAULT_RITUAL_LIMIT, INITIATIVE_MODES, MAX_FOCUS_EPICS, MAX_INITIATIVE_SHARE,
-  MIN_FOCUS_EPICS, MIN_INITIATIVE_SHARE, type InitiativeMode, type McpServerDef, type PermissionMode,
+  DEFAULT_PM_CONTEXT_LIMIT, DEFAULT_PROCESS_WORKERS, DEFAULT_RITUAL_LIMIT, DEFAULT_WORKER_CONTEXT_LIMIT,
+  INITIATIVE_MODES, MAX_FOCUS_EPICS, MAX_INITIATIVE_SHARE, MAX_PM_CONTEXT_LIMIT, MAX_WORKER_CONTEXT_LIMIT,
+  MIN_FOCUS_EPICS, MIN_INITIATIVE_SHARE, MIN_PM_CONTEXT_LIMIT, MIN_WORKER_CONTEXT_LIMIT,
+  type InitiativeMode, type McpServerDef, type PermissionMode,
 } from '../shared/types';
 import { LANGS, LANG_TITLE, type Lang } from '../shared/i18n';
 import { DEFAULT_GRAPHICS, GRAPHICS_RANGE, type Graphics } from './office3d/graphics';
@@ -122,6 +124,12 @@ export function SettingsModal({ onClose }: { onClose: () => void }) {
   const [planApproval, setPlanApproval] = useState(settings.planApproval !== false);
   const [ritualsEnabled, setRitualsEnabled] = useState(settings.ritualsEnabled !== false);
   const [ritualLimit, setRitualLimit] = useState(settings.ritualLimitThreshold ?? DEFAULT_RITUAL_LIMIT);
+  // Порог контекста менеджера показываем в тысячах токенов: точность до
+  // токена здесь никому не нужна, а шестизначные числа на ползунке не читаются.
+  const [pmContext, setPmContext] = useState(
+    Math.round((settings.pmContextLimit ?? DEFAULT_PM_CONTEXT_LIMIT) / 1000));
+  const [workerContext, setWorkerContext] = useState(
+    Math.round((settings.workerContextLimit ?? DEFAULT_WORKER_CONTEXT_LIMIT) / 1000));
   const [initiativeMode, setInitiativeMode] = useState<InitiativeMode>(settings.initiativeMode ?? DEFAULT_INITIATIVE_MODE);
   const [initiativeShare, setInitiativeShare] = useState(
     Math.round((settings.initiativeShare ?? DEFAULT_INITIATIVE_SHARE) * 100));
@@ -160,6 +168,8 @@ export function SettingsModal({ onClose }: { onClose: () => void }) {
       planApproval,
       ritualsEnabled,
       ritualLimitThreshold: ritualLimit,
+      pmContextLimit: pmContext * 1000,
+      workerContextLimit: workerContext * 1000,
       initiativeMode,
       initiativeShare: initiativeShare / 100,
       language,
@@ -273,6 +283,24 @@ export function SettingsModal({ onClose }: { onClose: () => void }) {
                   </span>
                   {maxWorkersParsed.error && <span className="hint error">{maxWorkersParsed.error}</span>}
                 </label>
+
+                <Slider
+                  label={t('settings.limits.pmContext')}
+                  hint={t('settings.limits.pmContext.hint')}
+                  value={pmContext}
+                  range={{ min: MIN_PM_CONTEXT_LIMIT / 1000, max: MAX_PM_CONTEXT_LIMIT / 1000, step: 10 }}
+                  disabled={false}
+                  onChange={setPmContext}
+                />
+
+                <Slider
+                  label={t('settings.limits.workerContext')}
+                  hint={t('settings.limits.workerContext.hint')}
+                  value={workerContext}
+                  range={{ min: MIN_WORKER_CONTEXT_LIMIT / 1000, max: MAX_WORKER_CONTEXT_LIMIT / 1000, step: 10 }}
+                  disabled={false}
+                  onChange={setWorkerContext}
+                />
               </>
             )}
 
