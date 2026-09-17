@@ -37,3 +37,23 @@
 }
 .ready.ok { color: var(--ok-ink); }
 .ready.bad { color: var(--danger); }
+
+/* ================= выбор иконки офиса ================= */
+
+.office-icon-picker { position: relative; }
+.office-icon-menu {
+  position: absolute; right: 0; top: calc(100% + 6px); width: 220px;
+  display: flex; flex-direction: column; gap: var(--space-2);
+  padding: var(--space-2); z-index: var(--z-popover);
+}
+.office-icon-menu-title { font-size: var(--fs-small); font-weight: 500; color: var(--ink-3); }
+.office-icon-palette { display: grid; grid-template-columns: repeat(4, 1fr); gap: var(--space-1); }
+.office-icon-option {
+  aspect-ratio: 1; min-height: 0; padding: 0; font-size: 18px;
+  display: flex; align-items: center; justify-content: center;
+  background: none; border-radius: var(--radius-icon);
+}
+.office-icon-option:hover:not(:disabled) { background: var(--film); }
+.office-icon-custom-row { display: flex; gap: var(--space-1); }
+.office-icon-custom-row input { flex: 1; min-width: 0; }
+.office-icon-reset { width: 100%; }

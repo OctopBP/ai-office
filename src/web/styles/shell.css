@@ -51,25 +51,25 @@
    окна и низ рейла остаются на месте. Меньше двух строк список не ужимается. */
 .rail-offices { display: flex; flex-direction: column; gap: var(--space-1); margin-bottom: var(--space-5); flex: 0 1 auto; min-height: 0; }
 .rail-office-list {
-  display: flex; flex-direction: column; gap: var(--space-1); flex: 0 1 auto; min-height: 116px;
+  display: flex; flex-direction: column; gap: var(--space-1); flex: 0 1 auto; min-height: 84px;
   overflow-y: auto; overscroll-behavior: contain; scrollbar-width: thin;
   margin: 0 calc(-1 * var(--space-1)); padding: 0 var(--space-1);
 }
 .rail-office-list > * { flex: none; }
 .rail-office {
   display: flex; align-items: center; justify-content: flex-start; gap: var(--space-2);
-  height: 56px; min-height: 0; padding: 0 var(--space-3); text-align: left;
+  height: 40px; min-height: 0; padding: 0 var(--space-2); text-align: left;
   background: none; border: 1px solid transparent; border-radius: var(--radius-row);
 }
 .rail-office:hover:not(:disabled) { background: var(--film); }
 .rail-office.current { background: var(--film-2); border-color: var(--hairline); cursor: default; }
 .rail-office:disabled { opacity: 1; }
 .rail-office-avatar {
-  width: 30px; height: 30px; border-radius: var(--radius-icon); background: var(--film); flex: none;
-  display: flex; align-items: center; justify-content: center;
-  font-size: var(--fs-md); font-weight: 500; color: var(--ink-2);
+  width: 24px; height: 24px; border-radius: var(--radius-icon); flex: none;
+  display: flex; align-items: center; justify-content: center; overflow: hidden;
+  font-size: var(--fs-body); font-weight: 500; color: var(--office-color-ink);
 }
-.rail-office.current .rail-office-avatar { background: var(--accent); color: var(--accent-ink); }
+.rail-office-icon-img { width: 100%; height: 100%; object-fit: cover; }
 .rail-office-text { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
 .rail-office-name {
   font-size: var(--fs-md); font-weight: 500; color: var(--ink);
@@ -102,6 +102,14 @@
 }
 .rail-win-label { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .rail-win-count { font-size: var(--fs-small); font-weight: 500; color: var(--ink-3); }
+/* Бейдж непрочитанных вопросов владельцу («Жизнь офиса»). Тот же язык, что у
+   счётчика над столом в 3D-сцене (`.spot3d-badge`, scene.css): заметный, но
+   не отвлекающий цвет из токенов, ширина не гуляет между «1» и «9+». */
+.rail-win-badge {
+  font: 700 var(--fs-small)/1 var(--font); color: var(--danger-ink); background: var(--danger);
+  border-radius: var(--radius-pill);
+  min-width: 18px; padding: 0 var(--space-1); text-align: center; flex: none;
+}
 .rail-win-key kbd { color: var(--ink-3); }
 
 .rail-foot { margin-top: auto; padding: 0 var(--space-2); }

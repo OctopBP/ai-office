@@ -5,7 +5,10 @@ import { extname, resolve } from 'node:path';
 import type { ClientCommand, FieldError, RoleOp, ServerEvent } from '../shared/types';
 import { OFFICE_SENDER } from '../shared/types';
 import { c, setProcessLang } from './i18n';
-import { officeViews, openedOffices, openOfficeState, subscribeOffices, type OfficeState } from './state';
+import {
+  getOffice, isOpened, officeViews, openedOffices, openOfficeState, subscribeOffices,
+  type OfficeState,
+} from './state';
 import {
   broadcast, broadcastSnapshot, greet, handleOfficeCommand, initOfficeApi, send,
   stateFor, unwatch, watch, watching,
@@ -17,13 +20,16 @@ import { retryPipeline } from './review';
 import { resetProjectWorkflow, saveProjectWorkflow } from './workflows';
 import { startSupervisor } from './supervisor';
 import { answerQuestion, dismissQuestion } from './questions';
-import { archiveFact, confirmFact } from './journal';
+import { archiveFact, confirmFact, pageFacts } from './journal';
 import { runRitual } from './rituals';
 import { decideProposal } from './initiatives';
 import { applyProposal } from './selfchange';
 import { RITUAL_IDS } from '../shared/types';
 import { githubToken, setGithubToken } from './cloud';
-import { clearInitFlag, currentOffice, ensureOffice, loadRegistry, setCurrent, type OfficeEntry } from './offices';
+import {
+  clearInitFlag, currentOffice, ensureOffice, loadRegistry, officeById, officeIconFile, setCurrent,
+  type OfficeEntry,
+} from './offices';
 import { hasCommits, initRepo, isRepo, repoProblem } from './git';
 import { isPermissionMode } from './permissions';
 import { handleMarketCommand } from './market';
@@ -168,7 +174,8 @@ const DIST = resolve(process.cwd(), 'dist');
 const MIME: Record<string, string> = {
   '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8',
   '.css': 'text/css; charset=utf-8', '.json': 'application/json; charset=utf-8',
-  '.png': 'image/png', '.jpg': 'image/jpeg', '.svg': 'image/svg+xml',
+  '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.gif': 'image/gif',
+  '.svg': 'image/svg+xml',
   '.ico': 'image/x-icon', '.woff2': 'font/woff2', '.webp': 'image/webp',
 };
 
@@ -188,6 +195,75 @@ const httpServer = createServer((req, res) => {
     }
     res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' });
     res.end(JSON.stringify({ offices: officeViews() }));
+    return;
+  }
+  // Иконка-картинка лежит в директории офиса, а браузер файл с диска не
+  // откроет: отдаём его сами. Ручка только на чтение и только по уже
+  // сохранённому пути — принять путь запросом она не может, иначе стала бы
+  // способом прочитать любой файл на машине. Что путь не ведёт за пределы
+  // офиса, проверяет officeIconFile.
+  if (url === '/api/office-icon') {
+    if (req.method !== 'GET') {
+      res.writeHead(405, { 'Content-Type': 'application/json; charset=utf-8', Allow: 'GET' });
+      res.end(JSON.stringify({ error: c('boot.officesGetOnly') }));
+      return;
+    }
+    const id = new URL(req.url ?? '/', 'http://office').searchParams.get('office') ?? '';
+    const office = officeById(id);
+    const file = office ? officeIconFile(office) : null;
+    let body: Buffer | null = null;
+    try {
+      if (file) body = readFileSync(file);
+    } catch {
+      body = null;   // файл стёрли между сохранением иконки и запросом
+    }
+    if (!body || !file) {
+      res.writeHead(404, { 'Content-Type': 'application/json; charset=utf-8' });
+      res.end(JSON.stringify({ error: c('boot.noIcon', { office: id }) }));
+      return;
+    }
+    res.writeHead(200, {
+      'Content-Type': MIME[extname(file).toLowerCase()] ?? 'application/octet-stream',
+      // Картинку меняют руками и редко, но кеш браузера не должен показывать
+      // вчерашнюю аватарку после смены: пусть спрашивает каждый раз.
+      'Cache-Control': 'no-cache',
+    });
+    res.end(body);
+    return;
+  }
+  // Журнал офиса — постранично: `?limit=50&cursor=J-120&office=<id>`.
+  // Снапшот по сокету отдаёт журнал целиком, и это правильно для интерфейса,
+  // который держит его весь; всем остальным (скрипты, проверки, сторонний
+  // просмотр) нужна страница, а не мегабайт записей за месяцы работы офиса.
+  // Только чтение и только по уже открытому офису — как у списка офисов.
+  if (url === '/api/journal') {
+    if (req.method !== 'GET') {
+      res.writeHead(405, { 'Content-Type': 'application/json; charset=utf-8', Allow: 'GET' });
+      res.end(JSON.stringify({ error: c('boot.journalGetOnly') }));
+      return;
+    }
+    const params = new URL(req.url ?? '/', 'http://office').searchParams;
+    // Без `office` — тот, который человек открывал последним: у запроса по
+    // HTTP нет подписки, и «свой» офис ему взять неоткуда.
+    const wantedId = params.get('office');
+    const office = wantedId ? officeById(wantedId) : currentOffice();
+    if (!office) {
+      res.writeHead(404, { 'Content-Type': 'application/json; charset=utf-8' });
+      res.end(JSON.stringify({ error: c('offices.notFound', { id: wantedId ?? '' }) }));
+      return;
+    }
+    // Журнал живёт в памяти поднятого офиса. Поднимать офис ради чтения не
+    // станем: это завело бы ему сессии и надзор — слишком много для GET.
+    if (!isOpened(office.id)) {
+      res.writeHead(503, { 'Content-Type': 'application/json; charset=utf-8' });
+      res.end(JSON.stringify({ error: c('boot.journalClosed', { office: office.name }) }));
+      return;
+    }
+    const page = pageFacts(getOffice(office.id), {
+      limit: params.get('limit'), cursor: params.get('cursor'),
+    });
+    res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' });
+    res.end(JSON.stringify(page));
     return;
   }
   if (url.startsWith('/api/')) {
