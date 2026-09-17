@@ -12,7 +12,7 @@
  */
 import type { OwnerQuestion, QuestionKind } from '../shared/types';
 import { OFFICE_SENDER } from '../shared/types';
-import type { OfficeState } from './state';
+import { isOpenQuestion, type OfficeState } from './state';
 import { tellPm } from './review';
 
 /** Сколько вопросов можно задать по одной задаче — как у `ask_colleague`. */
@@ -23,9 +23,10 @@ const PRIORITY: Record<QuestionKind, number> = {
   gate: 0, contradiction: 1, stale: 2, revert: 3, assumption: 4,
 };
 
-/** Открытые вопросы: без ответа и не снятые. */
+/** Открытые вопросы: без ответа и не снятые. Признак — `isOpenQuestion`, им же
+ *  считается счётчик `openQuestions`, который уходит в веб. */
 export const openQuestions = (state: OfficeState): OwnerQuestion[] =>
-  state.questionList().filter((q) => !q.answeredAt && !q.dismissedAt);
+  state.questionList().filter(isOpenQuestion);
 
 /**
  * Задать вопрос от агента по задаче. Возвращает текст для инструмента:
