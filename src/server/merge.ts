@@ -5,7 +5,7 @@ import type { Lang } from '../shared/i18n';
 import { t } from './i18n';
 import { taskRepo, worktreesRoot, type OfficeState, type Task } from './state';
 import { dispatch } from './plan';
-import { checkMergeable, mergeBranch, OFFICE_PERSON, removeWorktree } from './git';
+import { checkMergeable, liveBase, mergeBranch, OFFICE_PERSON, removeWorktree } from './git';
 import { runTypecheck } from './checks';
 import { duplicateEdits, formatOverlaps } from './overlap';
 
@@ -38,6 +38,24 @@ export function mergeableTasks(state: OfficeState): Task[] {
 }
 
 /**
+ * База задачи, в которую можно сливать прямо сейчас. Записанное на задаче имя
+ * ветки могло протухнуть, пока задача шла (подробности — у `liveBase` в
+ * git.ts). Починку записываем на задачу, а не держим в одном вызове: иначе
+ * следующий узел конвейера, очередь слияния и поиск откатов снова упрутся
+ * в мёртвую ссылку — каждый по-своему.
+ */
+export async function taskBase(state: OfficeState, task: Task): Promise<string | null> {
+  const recorded = task.baseBranch;
+  if (!recorded) return null;
+  const live = await liveBase(taskRepo(task, state), recorded);
+  if (live === recorded) return recorded;
+  state.updateTask(task.id, { baseBranch: live });
+  state.addLog(null, 'system',
+    state.say('pipe.baseGone', { task: task.id, gone: recorded, base: live }));
+  return live;
+}
+
+/**
  * Офисы, в которых проверка идёт прямо сейчас. Раньше флаг был один на процесс:
  * с несколькими живыми офисами проверка в одном молча отменяла бы проверку
  * в другом.
@@ -58,7 +76,7 @@ export async function refreshMergeChecks(state: OfficeState): Promise<MergeCheck
   try {
     for (const task of mergeableTasks(state)) {
       const branch = task.branch;
-      const base = task.baseBranch;
+      const base = await taskBase(state, task);
       if (!branch || !base) continue;
       const result = await checkMergeable(taskRepo(task, state), branch, base, state.lang());
       checks.push({
@@ -141,7 +159,7 @@ export async function mergeQueue(taskIds: string[], state: OfficeState): Promise
       const task = tasks[i];
       const step = runState.steps[i];
       const branch = task.branch;
-      const base = task.baseBranch;
+      const base = await taskBase(state, task);
 
       if (task.merged) {
         finishStep(state, runState, step, 'skipped', state.say('merge.stepMerged', {

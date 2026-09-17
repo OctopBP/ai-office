@@ -671,6 +671,7 @@ review_status, list_team), по журналу офиса и по тому, чт
   'pipe.checkFailed': 'Проверка «{name}» не прошла:\n{message}',
   'pipe.noWorkflow': 'для типа «{type}» процесса нет',
   'pipe.notStarted': '{task}: конвейер не пошёл — {problem}',
+  'pipe.baseGone': '{task}: базовой ветки {gone} в репозитории больше нет — беру за базу {base}',
   'pipe.started': '{task}: работа сдана, веду её через ревью в {base}.',
   'pipe.baseMovesFast': 'База {base} уезжает быстрее, чем задача успевает слиться. Две попытки подряд не сошлись — нужна ручная разборка.',
   'pipe.secondRound': '{task}: {base} уехала, пока сливали, — захожу на второй круг.',
