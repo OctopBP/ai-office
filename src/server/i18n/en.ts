@@ -526,6 +526,12 @@ export const en = {
   'env.roles.ok': 'Manager {manager} and {n} worker|Manager {manager} and {n} workers',
   'env.console.ok': '✅ Environment checks: all {total} are fine',
   'env.console.bad': '⚠️  Environment checks: {n} of {total} failed — the office will not do the tasks until they are fixed',
+  'env.block.reason': '{title}: {detail} {fix}',
+  'env.block.reasonBare': '{title}: {detail}',
+  'env.wait.chat': '⏸ {task} “{title}” is waiting for the environment: {reason} Not starting it and not spending money — it will start by itself once the check goes green.',
+  'env.wait.log': 'task {task} is waiting for the environment',
+  'env.wait.reply': 'The environment is not ready: {reason} Task {task} is marked “waiting for the environment” and will start by itself once it is fixed.',
+  'env.ready.chat': '✅ The environment is fine — picking up the tasks that were waiting for it ({n}).',
 
   // ------------------------------------------------------------ живой офис
   // ---------------------------------------------- живой офис: направления

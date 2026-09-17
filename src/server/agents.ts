@@ -6,10 +6,11 @@ import type { SDKMessage, PermissionResult, SDKResultSuccess } from '@anthropic-
 import { z } from 'zod';
 import { MessageQueue } from './queue';
 import {
-  criteriaProgress, loadedOffices, onRoleSetChanged, onWorkerLimitChanged, taskRepo,
+  criteriaProgress, loadedOffices, onEnvReady, onRoleSetChanged, onWorkerLimitChanged, taskRepo,
   totalRunningWorkers, worktreesRoot,
   type Instance, type OfficeState, type Task,
 } from './state';
+import { clearEnvWait, envBlock, markEnvWait } from './envcheck';
 import { DEFAULT_PROCESS_WORKERS, emptyUsage, OFFICE_SENDER } from '../shared/types';
 import { LANG_NAME_EN, type Lang, type Vars } from '../shared/i18n';
 import { t, type ServerKey } from './i18n';
@@ -153,6 +154,36 @@ function startWaiting(): void {
 // Подъём лимита в настройках отпускает очередь сразу: ждать, пока кто-то
 // доработает, человеку, который только что поднял лимит, объяснить нельзя.
 onWorkerLimitChanged(startWaiting);
+
+/**
+ * Окружение починили — снимаем пометки и берём задачи в работу сами. Ровно
+ * этого ждёт человек, который положил ключ или создал директорию: нажимать
+ * «попробовать снова» по каждой задаче он не должен.
+ */
+onEnvReady((state) => {
+  const freed = clearEnvWait(state);
+  if (!freed.length) return;
+  state.addChat(OFFICE_SENDER, state.say('env.ready.chat', { n: freed.length }));
+  // Не в этом же тике: зовут нас из середины пересчёта проверок, и стартовать
+  // сессии оттуда рано — сначала пусть окружение доедет до подписчиков.
+  setTimeout(() => {
+    for (const task of freed) {
+      const fresh = state.tasks.get(task.id);
+      // Пока ждали, задачу могли удалить, закрыть или раздать руками.
+      if (!fresh || fresh.status !== 'backlog' || fresh.assigneeId) continue;
+      const outcome = officeAssign(state, fresh.id);
+      if (outcome.ok) {
+        state.addChat(OFFICE_SENDER, state.say('agent.queue.started', {
+          task: fresh.id, title: fresh.title, message: outcome.message,
+        }));
+      }
+      // Отказ не разбираем: слотов нет — officeAssign сам поставил задачу в
+      // очередь за слотом, остальные причины (пауза, бюджет, некому взять)
+      // разберёт ближайший проход надзора.
+    }
+    dispatch(state);
+  }, 0);
+});
 
 /**
  * Бриф проекта — OFFICE.md в рабочей директории. Он идёт во все сессии: у PM
@@ -789,6 +820,21 @@ const teamTools = (state: OfficeState) => createSdkMcpServer({
             isError: true,
           };
         }
+        // Мёртвое окружение — до выбора исполнителя и до любых трат: сессия на
+        // задаче, которая гарантированно упадёт, стоит тех же денег, что и
+        // полезная. Это не отказ: задача остаётся на доске с пометкой «ждёт
+        // окружения» и стартует сама после починки.
+        const envProblem = envBlock(state);
+        if (envProblem) {
+          markEnvWait(state, task, envProblem);
+          return {
+            content: [{
+              type: 'text',
+              text: state.say('env.wait.reply', { task: task.id, reason: envProblem }),
+            }],
+          };
+        }
+
         const roleId = task.roleId ?? 'backend';
         // Роль, из которой уволили всех, не доукомплектовываем молча: сотрудников
         // убрал пользователь, и нанять обратно — тоже его решение, а не наше.
@@ -2386,6 +2432,11 @@ export async function retryTask(state: OfficeState, taskId: string): Promise<boo
     state.addChat(OFFICE_SENDER, state.say('restart.budget'));
     return false;
   }
+  const envProblem = envBlock(state);
+  if (envProblem) {
+    markEnvWait(state, task, envProblem);
+    return false;
+  }
 
   const roleId = task.roleId ?? 'backend';
   const noStaff = noStaffReason(roleId, state);
@@ -2468,6 +2519,16 @@ export function assignDirect(state: OfficeState, taskId: string, instanceId: str
     state.addChat(OFFICE_SENDER, state.say('start.budget'));
     return;
   }
+  // Задачу отдали руками — но окружение от этого не воскресает. Возвращаем в
+  // очередь с пометкой: нажатие человека объяснено, а денег на заведомо
+  // провальную сессию не потрачено.
+  const envProblem = envBlock(state);
+  if (envProblem) {
+    state.updateTask(taskId, { roleId: inst.roleId, status: 'backlog', assigneeId: null });
+    const waiting = state.tasks.get(taskId);
+    if (waiting) markEnvWait(state, waiting, envProblem);
+    return;
+  }
   // Задачу отдали руками, но лимит одновременных сессий от этого не растёт:
   // ставим в очередь и говорим об этом — молча проглотить действие человека
   // хуже, чем объяснить, почему оно случится через минуту. Роль на задаче
@@ -2514,6 +2575,14 @@ export function resumeTask(state: OfficeState, taskId: string): { ok: boolean; m
   }
   if (state.paused) return { ok: false, message: state.say('restart.paused', { task: taskId }) };
   if (state.budgetExhausted()) return { ok: false, message: state.say('restart.budget') };
+  // Задача стоит по лимиту, а теперь ещё и окружение мёртвое: продолжать
+  // сессию так же бессмысленно, как начинать новую. Пометку ставим, статус
+  // `blocked` не трогаем — она вернётся к ожиданию лимита сама.
+  const envProblem = envBlock(state);
+  if (envProblem) {
+    markEnvWait(state, task, envProblem);
+    return { ok: false, message: state.say('resume.blocked', { task: taskId, problem: envProblem }) };
+  }
   const roleId = task.roleId ?? 'backend';
   const noStaff = noStaffReason(roleId, state);
   if (noStaff) return { ok: false, message: state.say('resume.blocked', { task: taskId, problem: noStaff }) };
@@ -2547,6 +2616,14 @@ export function officeAssign(state: OfficeState, taskId: string): { ok: boolean;
   if (state.budgetExhausted()) return { ok: false, message: state.say('assign.budget') };
   const cloudBlocked = state.settings.engine === 'cloud' ? cloudProblem(state) : null;
   if (cloudBlocked) return { ok: false, message: cloudBlocked };
+
+  // Мёртвое окружение — не отказ, а ожидание: задача остаётся в backlog с
+  // причиной в карточке и поедет сама, когда проверка позеленеет.
+  const envProblem = envBlock(state);
+  if (envProblem) {
+    markEnvWait(state, task, envProblem);
+    return { ok: false, message: envProblem };
+  }
 
   const roleId = task.roleId ?? 'backend';
   const noStaff = noStaffReason(roleId, state);

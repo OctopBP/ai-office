@@ -35,7 +35,8 @@
  */
 import type { PullRequestView } from '../shared/types';
 import { OFFICE_SENDER } from '../shared/types';
-import { type OfficeState, type Task } from './state';
+import { criticalEnvFail, type OfficeState, type Task } from './state';
+import { refreshEnvChecks } from './envcheck';
 import { isPipelineRunning, pipelineProblem, runPipeline, tellPm } from './review';
 import { officeAssign, resumeTask, retryTask, slotProblem } from './agents';
 import { limitBlock, resetClock } from './limits';
@@ -125,6 +126,13 @@ export async function superviseOffice(state: OfficeState): Promise<void> {
   // не от события, а просто от времени (ветке стукнули сутки), а офис на паузе
   // или с выключенным конвейером стоит тем более и знать об этом нужно.
   refreshHealth(state, Date.now());
+
+  // Окружение чинят мимо офиса: ключ кладут в переменную, директорию создают
+  // руками. Пока критичная проверка красная, офис не берёт задачи, и узнать о
+  // починке ему неоткуда — поэтому раз в минуту ходим и смотрим сами.
+  // Позеленевшая проверка отпустит очередь через onEnvReady. Когда всё
+  // зелено, не ходим вовсе: лишний git на каждом тике ни к чему.
+  if (criticalEnvFail(state.env.checks)) await refreshEnvChecks(state);
 
   if (!state.settings.autoPipeline || state.paused) return;
 

@@ -86,6 +86,9 @@
    стояли в линию и читались столбиком, а не змейкой. */
 .kv { display: grid; grid-template-columns: max-content 1fr; gap: var(--space-1) var(--space-3); font-size: var(--fs-md); }
 .task-brief { font-size: var(--fs-md); white-space: pre-wrap; word-break: break-word; }
+/* Ожидание окружения — предупреждение, а не ошибка: задача цела, чинить надо
+   снаружи офиса, поэтому цвет предупреждающий, а не красный. */
+.task-envwait { font-size: var(--fs-md); color: var(--warn); word-break: break-word; }
 .task-drawer .task-result { font-size: var(--fs-md); white-space: pre-wrap; }
 .task-drawer .task-files { font-size: var(--fs-body); word-break: break-all; }
 .task-drawer .task-branch { display: flex; align-items: center; gap: var(--space-2); font-size: var(--fs-body); }

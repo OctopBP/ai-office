@@ -27,6 +27,7 @@
 .chip.planned { color: var(--ink-3); }
 .chip.cancelled { color: var(--ink-3); text-decoration: line-through; }
 .epic-chip { color: var(--ink-3); }
+.env-wait-chip { color: var(--warn); }
 
 .task-result { margin-top: var(--space-2); color: var(--ink-2); font-size: var(--fs-md); }
 .task-files { margin-top: var(--space-1); color: var(--ink-3); }

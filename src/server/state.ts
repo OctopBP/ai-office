@@ -243,6 +243,26 @@ export function onRoleSetChanged(fn: (state: OfficeState) => void): void {
 }
 
 /**
+ * Кого позвать, когда критичные проверки окружения из красных стали зелёными:
+ * задачи, которых офис не брал из-за мёртвого окружения, должны поехать сами,
+ * без «нажмите ещё раз». Живёт здесь по той же причине, что и watcher лимита:
+ * состояние про запуск сессий ничего не знает.
+ */
+let envReadyWatcher: ((state: OfficeState) => void) | null = null;
+
+export function onEnvReady(fn: (state: OfficeState) => void): void {
+  envReadyWatcher = fn;
+}
+
+/**
+ * Есть ли среди проверок красная критичная. Пустой список — это «ещё ни разу
+ * не считали», а не «всё плохо»: до первого пересчёта офис работает как
+ * работал, иначе старт сервера сам себе перекрыл бы доску.
+ */
+export const criticalEnvFail = (checks: EnvCheck[]): EnvCheck | null =>
+  checks.find((ch) => ch.critical && ch.status === 'fail') ?? null;
+
+/**
  * Поля роли, которые правятся из формы. Список нужен именно перечислением:
  * патч приезжает из сети, и без белого списка вместе с ним доехали бы
  * `archived` и `isManager` — архивация и второй менеджер в обход проверок.
@@ -626,6 +646,13 @@ export interface Task {
    * начнёт задачу заново. null — стоит не по лимиту.
    */
   limitedAt: number | null;
+  /**
+   * Почему задача ждёт окружения: готовый к показу текст красной критичной
+   * предполётной проверки. Пока поле заполнено, задачу не запускали и денег на
+   * неё не тратили — она лежит в backlog. Снимается само, когда проверки
+   * зеленеют. null — окружение задаче не мешает.
+   */
+  envWait: string | null;
   /**
    * Когда офис в последний раз показывал эту задачу менеджеру, потому что она
    * стоит. Нужно, чтобы не рассказывать про одно и то же на каждом проходе.
@@ -2164,6 +2191,7 @@ export class OfficeState {
       merged: false,
       interrupted: false,
       limitedAt: null,
+      envWait: null,
       attention: null,
       workerSessionId: null,
       reviewerSessionId: null,
@@ -3428,8 +3456,14 @@ export class OfficeState {
    * здесь: «когда считали» — свойство записи, а не того, кто её заказал.
    */
   setEnv(checks: EnvCheck[]): EnvReport {
+    const wasBad = this.env.at > 0 && criticalEnvFail(this.env.checks) !== null;
     this.env = { checks, at: Date.now() };
     this.emit({ t: 'env', env: this.env });
+    // Единственное место, где видно переход «красное → зелёное»: проверки
+    // пересчитываются из полудюжины мест, и если отпускать очередь в каждом,
+    // они разойдутся. Красное окружение ждущих не трогает — их пометит
+    // ближайшая попытка раздачи.
+    if (wasBad && criticalEnvFail(checks) === null) envReadyWatcher?.(this);
     return this.env;
   }
 
@@ -3711,7 +3745,8 @@ export const toTaskView = (t: Task): TaskView => ({
   epicId: t.epicId ?? null, order: t.order ?? 0, dependsOn: t.dependsOn ?? [],
   files: t.files, branch: t.branch, baseBranch: t.baseBranch,
   worktreePath: t.worktreePath, repoDir: t.repoDir ?? null, merged: t.merged,
-  interrupted: t.interrupted, limitedAt: t.limitedAt ?? null, createdAt: t.createdAt,
+  interrupted: t.interrupted, limitedAt: t.limitedAt ?? null,
+  envWait: t.envWait ?? null, createdAt: t.createdAt,
   startedAt: t.startedAt, finishedAt: t.finishedAt,
   usage: t.usage,
   today: t.daily?.[dayKey()] ?? emptyUsage(),
@@ -3782,6 +3817,9 @@ function migrateTask(raw: Task & {
   return {
     ...raw, criteria, usage, daily: raw.daily ?? {},
     interrupted: raw.interrupted ?? false, limitedAt: raw.limitedAt ?? null,
+    // Ожидание окружения на диск попадает, но живёт недолго: окружение
+    // пересчитывается на старте офиса, и текст причины там же обновится.
+    envWait: raw.envWait ?? null,
     attention: raw.attention ?? null,
     workerSessionId: raw.workerSessionId ?? null, reviewerSessionId: raw.reviewerSessionId ?? null,
     epicId: raw.epicId ?? null, order: raw.order ?? 0, dependsOn: raw.dependsOn ?? [],
