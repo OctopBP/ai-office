@@ -1536,10 +1536,10 @@ export function switchOffice(officeId: string): void {
  * стор напрямую. `?office=` обязателен: без него сервер пересчитает не тот
  * офис, что открыт в этой вкладке, а глобальный текущий офис процесса.
  */
-export function recheckEnv(): void {
+export function recheckEnv(): Promise<void> {
   const officeId = useStore.getState().offices.find((o) => o.current)?.id;
   const query = officeId ? `?office=${encodeURIComponent(officeId)}` : '';
-  void fetch(`/api/env${query}`, { method: 'POST' }).catch(() => {});
+  return fetch(`/api/env${query}`, { method: 'POST' }).then(() => undefined).catch(() => undefined);
 }
 
 export function createOffice(name: string, projectDir: string): void {

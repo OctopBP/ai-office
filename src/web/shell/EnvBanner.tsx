@@ -19,8 +19,9 @@ export function EnvBanner() {
 
   const failed = env.at === 0 ? [] : env.checks.filter((c) => c.critical && c.status === 'fail');
 
-  // Свежий отчёт после «перепроверить» приходит через WS и меняет env.at —
-  // это и есть сигнал, что запрос долетел и кнопку можно разблокировать.
+  // Свежий отчёт после «перепроверить» обычно приходит через WS раньше, чем
+  // ответит сам fetch, — снимаем блокировку по обоим путям, чтобы кнопка не
+  // зависла в «Проверяем…», если офис/сеть недоступны.
   useEffect(() => setChecking(false), [env.at]);
 
   if (!failed.length) return null;
@@ -41,7 +42,7 @@ export function EnvBanner() {
       </div>
       <button
         className="env-banner-recheck"
-        onClick={() => { setChecking(true); recheckEnv(); }}
+        onClick={() => { setChecking(true); void recheckEnv().finally(() => setChecking(false)); }}
         disabled={checking}
       >
         {checking ? t('env.banner.checking') : t('env.banner.recheck')}
