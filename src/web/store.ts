@@ -6,7 +6,7 @@ import type {
   MarketView, PermissionMode, PermissionRequest, MeetingView, RoleDraft, RoleEditable, RoleOp, RoleView,
   ServerEvent, Settings, TaskView, Usage, CloudStatus, OfficeView, OfficeIcon, PullRequestView, PrStage,
   EpicView, LimitsView, FactView, OwnerQuestion, LifeView, RitualId, DirectionView, ProposalView,
-  OfficeSetupPlan, SetupCatalog, SetupStep, OfficeHealth,
+  OfficeSetupPlan, SetupCatalog, SetupStep, OfficeHealth, EnvReport,
 } from '../shared/types';
 import {
   emptyLimits, emptyUsage, isOfficeSender,
@@ -300,6 +300,8 @@ interface State {
   life: LifeView;
   /** Сводка здоровья офиса: провалы без разбора, протухшие ветки, вставшие задачи. */
   health: OfficeHealth | null;
+  /** Предполётные проверки окружения: чего офису не хватает, чтобы брать задачи. */
+  env: EnvReport;
   /** Направления владельца и предложения офиса. */
   directions: DirectionView[];
   proposals: ProposalView[];
@@ -458,6 +460,7 @@ export const useStore = create<State>((set, get) => ({
     policy: { consolidateEveryMs: 0, questionsPerStandup: 0, standupPmLine: false, reflectionOn: false },
   },
   health: null,
+  env: { checks: [], at: 0 },
   toggleMergeSelect: (taskId) => set((s) => ({
     mergeSelection: s.mergeSelection.includes(taskId)
       ? s.mergeSelection.filter((id) => id !== taskId)
@@ -591,7 +594,7 @@ export const useStore = create<State>((set, get) => ({
           projectDir: e.projectDir, authSource: e.authSource, meeting: e.meeting, meetings: e.meetings,
           busy: e.busy,
           paused: e.paused, usage: e.usage.total, usageDays: e.usage.days, limits: e.limits,
-          offices: e.offices, cloud: e.cloud,
+          offices: e.offices, cloud: e.cloud, env: e.env,
           mcpStatus: Object.fromEntries(e.mcpStatus.map((m) => [m.id, m])),
           mergeChecks: Object.fromEntries(e.mergeChecks.map((c) => [c.taskId, c])),
           mergeRun: e.mergeRun,
@@ -860,6 +863,9 @@ export const useStore = create<State>((set, get) => ({
         break;
       case 'health':
         set({ health: e.health });
+        break;
+      case 'env':
+        set({ env: e.env });
         break;
       case 'direction':
         set((s) => ({
@@ -1522,6 +1528,18 @@ export function assignDirect(taskId: string, instanceId: string): void {
 
 export function switchOffice(officeId: string): void {
   socket?.send(JSON.stringify({ c: 'switch_office', officeId }));
+}
+
+/**
+ * Пересчитать проверки окружения по кнопке «перепроверить». Свежий отчёт
+ * приедет через WS-событие 'env' — здесь достаточно дёрнуть REST, не трогая
+ * стор напрямую. `?office=` обязателен: без него сервер пересчитает не тот
+ * офис, что открыт в этой вкладке, а глобальный текущий офис процесса.
+ */
+export function recheckEnv(): Promise<void> {
+  const officeId = useStore.getState().offices.find((o) => o.current)?.id;
+  const query = officeId ? `?office=${encodeURIComponent(officeId)}` : '';
+  return fetch(`/api/env${query}`, { method: 'POST' }).then(() => undefined).catch(() => undefined);
 }
 
 export function createOffice(name: string, projectDir: string): void {
