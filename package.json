@@ -3,6 +3,10 @@
   "version": "0.0.1",
   "private": true,
   "type": "module",
+  "license": "Apache-2.0",
+  "engines": {
+    "node": ">=22"
+  },
   "scripts": {
     "dev": "concurrently -n server,web -c cyan,magenta \"npm:dev:server\" \"npm:dev:web\"",
     "dev:3d": "concurrently -n server,web -c cyan,magenta \"OFFICE_PORT=3002 OFFICE_STATE_FILE=.office/state-3d.json tsx watch src/server/index.ts\" \"VITE_OFFICE_PORT=3002 vite --port 5174 --strictPort\"",

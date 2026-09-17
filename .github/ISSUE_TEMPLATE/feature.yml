@@ -1,0 +1,21 @@
+name: Предложение
+description: Чего офису не хватает
+labels: [enhancement]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: Какую задачу это решает
+      description: Не «добавить кнопку», а что вы пытались сделать и где упёрлись.
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Как это могло бы выглядеть
+      description: Необязательно. Если предложение — настройка или галочка, подумайте, не просится ли вместо неё режим с гарантией (см. CONTRIBUTING).
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Что уже пробовали
+      description: Обходные пути, которые не подошли, и почему.

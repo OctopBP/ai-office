@@ -1,0 +1,5 @@
+blank_issues_enabled: true
+contact_links:
+  - name: Уязвимость
+    url: https://github.com/OctopBP/ai-office/security/policy
+    about: Дыры в песочнице, разрешениях и изоляции — приватно, не через issue

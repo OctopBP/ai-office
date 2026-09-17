@@ -1,0 +1,36 @@
+# Проверки на каждый PR и на каждый коммит в main: типы, сборка веба и все
+# наборы, которые не ходят в сеть и не тратят токены. Регрессионные тесты
+# менеджера (npm run test:pm) здесь не гоняются — они стоят токенов и живут
+# на машине разработчика.
+name: ci
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+jobs:
+  checks:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # 3D-модели и текстуры лежат в LFS, а vite импортирует их из design/:
+          # без содержимого сборка получит файлы-указатели вместо моделей.
+          lfs: true
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+      - run: npm ci
+      - run: npm run typecheck
+      - run: npm run build
+      - name: тесты без сети и токенов
+        run: |
+          for t in state perm plan nav reach overlap merge premerge review \
+                   workflow flows offices setup presets money life \
+                   packages market cli registry skills mcp imagegen; do
+            echo "::group::test:$t"
+            npm run -s "test:$t"
+            echo "::endgroup::"
+          done

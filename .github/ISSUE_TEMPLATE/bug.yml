@@ -1,0 +1,36 @@
+name: Баг
+description: Офис делает не то, что обещает
+labels: [bug]
+body:
+  - type: textarea
+    id: what
+    attributes:
+      label: Что случилось
+      description: Что вы сделали, что ожидали и что произошло вместо этого.
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Как повторить
+      description: Шаги от чистого запуска. Если баг в поведении менеджера — текст задачи, которую вы ему поставили.
+      placeholder: |
+        1. npm run office
+        2. Поставить задачу «…»
+        3. …
+    validations:
+      required: true
+  - type: textarea
+    id: log
+    attributes:
+      label: Лог и лента событий
+      description: Вывод сервера в консоли и, если уместно, лента событий (клавиша L). Ключи и токены вырежьте.
+      render: text
+  - type: input
+    id: env
+    attributes:
+      label: Окружение
+      description: ОС, версия Node, коммит офиса (`git rev-parse --short HEAD`), доступ по подписке или по ключу.
+      placeholder: macOS 15, Node 22.23, 40d6eb0, подписка
+    validations:
+      required: true
