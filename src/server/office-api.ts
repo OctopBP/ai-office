@@ -17,6 +17,7 @@ import {
   type OfficeEntry,
 } from './offices';
 import { stopSupervisor } from './supervisor';
+import { stopHealth } from './health';
 import { noteOfficeViewed } from './rituals';
 import { buildOffice, planProblem, setupCatalog } from './setup';
 import { pickFolder } from './pickfolder';
@@ -242,6 +243,7 @@ export async function greet(ws: Sink, startup: Promise<string | null>): Promise<
  */
 function unloadOffice(officeId: string): void {
   stopSupervisor(officeId);
+  stopHealth(officeId);
   unloadOfficeState(officeId);
 }
 

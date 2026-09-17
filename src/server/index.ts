@@ -21,6 +21,7 @@ import { resetProjectWorkflow, saveProjectWorkflow } from './workflows';
 import { startSupervisor } from './supervisor';
 import { answerQuestion, dismissQuestion } from './questions';
 import { archiveFact, confirmFact, pageFacts } from './journal';
+import { officeHealth, watchHealth } from './health';
 import { runRitual } from './rituals';
 import { decideProposal } from './initiatives';
 import { applyProposal } from './selfchange';
@@ -127,6 +128,9 @@ async function openOffice(entry: OfficeEntry): Promise<void> {
   // Офис сам следит, что сданная работа доезжает до основной ветки: ветки,
   // оставшиеся с прошлого запуска, поедут без единого нажатия.
   startSupervisor(state);
+  // Сводка здоровья пересчитывается от событий доски, а не по опросу: так она
+  // успевает за состоянием, а не отстаёт от него на минуту тика надзора.
+  watchHealth(state);
 }
 
 loadRegistry(DEFAULT_DIR);
@@ -264,6 +268,35 @@ const httpServer = createServer((req, res) => {
     });
     res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' });
     res.end(JSON.stringify(page));
+    return;
+  }
+  // Сводка здоровья офиса: `?office=<id>`. Три списка — провалы без разбора,
+  // ветки старше суток, вставшие задачи — и возраст каждой записи. Считается
+  // на месте из доски и журнала, поэтому одинаково честна и сразу после
+  // перезапуска: ничего не копится в памяти между запусками.
+  if (url === '/api/health') {
+    if (req.method !== 'GET') {
+      res.writeHead(405, { 'Content-Type': 'application/json; charset=utf-8', Allow: 'GET' });
+      res.end(JSON.stringify({ error: c('boot.healthGetOnly') }));
+      return;
+    }
+    const params = new URL(req.url ?? '/', 'http://office').searchParams;
+    const wantedId = params.get('office');
+    const office = wantedId ? officeById(wantedId) : currentOffice();
+    if (!office) {
+      res.writeHead(404, { 'Content-Type': 'application/json; charset=utf-8' });
+      res.end(JSON.stringify({ error: c('offices.notFound', { id: wantedId ?? '' }) }));
+      return;
+    }
+    // Как и с журналом: поднимать офис ради чтения не станем — это завело бы
+    // ему сессии и надзор.
+    if (!isOpened(office.id)) {
+      res.writeHead(503, { 'Content-Type': 'application/json; charset=utf-8' });
+      res.end(JSON.stringify({ error: c('boot.healthClosed', { office: office.name }) }));
+      return;
+    }
+    res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' });
+    res.end(JSON.stringify(officeHealth(getOffice(office.id), Date.now())));
     return;
   }
   if (url.startsWith('/api/')) {
