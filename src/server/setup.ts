@@ -12,14 +12,14 @@
  * Мастер создаёт контейнеры, а не код: папки, git, README, `.gitignore`.
  * Scaffold фреймворка — первая задача команды.
  */
-import { existsSync, mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readdirSync, readFileSync, realpathSync, statSync, writeFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import type { Lang } from '../shared/i18n';
 import { slugify } from '../shared/slug';
 import {
   MAX_HIRE_COUNT, type OfficeSetupPlan, type SetupCatalog, type SetupStep, type SetupWorkspace,
 } from '../shared/types';
-import { initRepo, isRepo, repoProblem } from './git';
+import { initRepo, repoProblem, repoTop } from './git';
 import { t } from './i18n';
 import { catalogPackages, ensureInstalled, installedPackage } from './market';
 import { createOffice, defaultRoot, expandHome, offices, type OfficeEntry } from './offices';
@@ -141,6 +141,15 @@ const isDir = (path: string): boolean => {
   }
 };
 
+/** Один и тот же путь с точностью до симлинков (`/var` и `/private/var` на macOS). */
+function samePath(a: string, b: string): boolean {
+  try {
+    return realpathSync(a) === realpathSync(b);
+  } catch {
+    return resolve(a) === resolve(b);
+  }
+}
+
 /** Папка роли: завести, положить README и сделать репозиторий. Готовую не трогаем. */
 async function ensureRoleRepo(dir: string, lang: Lang): Promise<string | null> {
   try {
@@ -149,7 +158,11 @@ async function ensureRoleRepo(dir: string, lang: Lang): Promise<string | null> {
   } catch (err) {
     return t(lang, 'offices.createFailed', { dir, error: (err as Error).message });
   }
-  if (await isRepo(dir)) return null;
+  // Свой репозиторий — только если корень git совпадает с самой папкой.
+  // Папка внутри чужого репозитория тоже «внутри рабочего дерева», но ветки
+  // и рабочие копии задач ушли бы в родителя, а не в неё.
+  const top = await repoTop(dir);
+  if (top && samePath(top, dir)) return null;
   // Пустому репозиторию нечего коммитить, а без первого коммита нет ветки,
   // от которой ветвятся задачи, — README и есть этот первый коммит.
   if (!readdirSync(dir).length) writeFileSync(resolve(dir, 'README.md'), t(lang, 'setup.readme', { name: dir.split('/').pop() ?? dir }));

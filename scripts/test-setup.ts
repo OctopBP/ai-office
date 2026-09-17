@@ -11,7 +11,7 @@
  * Запуск: npm run test:setup
  */
 import { execFileSync } from 'node:child_process';
-import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { resolve } from 'node:path';
 import type { OfficeSetupPlan, SetupStep } from '../src/shared/types';
@@ -198,6 +198,25 @@ async function main(): Promise<void> {
       last.find((s) => s.id === 'hire:@nope/missing')?.status === 'failed');
     check('лента: упавшие шаги записаны', state.log.filter((l) => l.text.includes('не удался')).length === 2);
   }
+
+  // 9. Существующий корень с git и роль в своей папке: папка внутри чужого
+  //    репозитория — не «готовая», ей нужен свой git, иначе ветки и рабочие
+  //    копии задач ушли бы в родителя.
+  const NESTED_ROOT = resolve(ROOT, 'existing-repo-2');
+  mkdirSync(NESTED_ROOT, { recursive: true });
+  writeFileSync(resolve(NESTED_ROOT, 'README.md'), 'x');
+  git(NESTED_ROOT, ['init', '-q', '-b', 'main']);
+  git(NESTED_ROOT, ['add', '-A']);
+  git(NESTED_ROOT, ['-c', 'user.name=t', '-c', 'user.email=t@t', 'commit', '-q', '-m', 'init']);
+  const made6 = await buildOffice(plan({
+    name: 'Вложенный',
+    where: { mode: 'existing', dir: NESTED_ROOT },
+    team: [{ package: '@office/backend', count: 1, workspace: { kind: 'folder', name: 'backend' } }],
+  }), 'ru', hooks([]));
+  check('папка роли в чужом репозитории: офис создан', 'officeId' in made6);
+  const nested = resolve(NESTED_ROOT, 'backend');
+  check('папка роли в чужом репозитории: свой git с первым коммитом',
+    isRepoWithCommits(nested) && realpathSync(git(nested, ['rev-parse', '--show-toplevel'])) === realpathSync(nested));
 
   const failed = results.filter((r) => r.endsWith('false'));
   console.log(results.join('\n'));

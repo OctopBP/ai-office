@@ -87,6 +87,16 @@ export async function isRepo(dir: string): Promise<boolean> {
   return r.ok && r.stdout === 'true';
 }
 
+/**
+ * Корень репозитория, которому принадлежит папка, или null, если git её не
+ * знает. Отличает «папка — сама репозиторий» от «папка лежит внутри чужого»:
+ * `--is-inside-work-tree` для обоих отвечает «да».
+ */
+export async function repoTop(dir: string): Promise<string | null> {
+  const r = await git(dir, ['rev-parse', '--show-toplevel']);
+  return r.ok && r.stdout ? r.stdout : null;
+}
+
 export async function hasCommits(dir: string): Promise<boolean> {
   return (await git(dir, ['rev-parse', 'HEAD'])).ok;
 }
