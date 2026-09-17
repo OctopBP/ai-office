@@ -6,6 +6,7 @@ import { Overlays, type OverlayProps } from '../Overlays';
 import { Rail } from './Rail';
 import { TopBar } from './TopBar';
 import { Composer } from './Composer';
+import { EnvBanner } from './EnvBanner';
 import { useStore } from '../store';
 import type { SpotTarget } from '../office3d/Hotspots3D';
 
@@ -53,6 +54,7 @@ export function Shell(props: OverlayProps) {
       <Rail onPanel={setPanel} onModal={setModal} />
       <TopBar />
       <Composer onSettings={() => setModal('settings')} />
+      <EnvBanner />
       <Overlays {...props} />
     </div>
   );

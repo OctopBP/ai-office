@@ -702,6 +702,8 @@ export const en = {
   "shell.newTask": "New task",
   "shell.newTask.hint": "Write to the PM",
   "shell.composer.placeholder": "Give the PM a task — they will split it across the team…",
+  "env.banner.recheck": "Recheck",
+  "env.banner.checking": "Checking…",
   "shell.composer.agent": "Ask {who}…",
   "shell.composer.meeting": "The meeting speaks on its own — the PM sums it up in the chat",
   "shell.chip.edits": "Edits: {mode} ▾",

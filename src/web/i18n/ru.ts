@@ -701,6 +701,8 @@ export const ru: Record<keyof typeof en, string> = {
   "shell.newTask": "Поставить задачу",
   "shell.newTask.hint": "Написать менеджеру",
   "shell.composer.placeholder": "Поставьте задачу PM — он разложит её на команду…",
+  "env.banner.recheck": "Перепроверить",
+  "env.banner.checking": "Проверяем…",
   "shell.composer.agent": "Вопрос {who}…",
   "shell.composer.meeting": "Совещание идёт само — итог менеджер напишет в чате",
   "shell.chip.edits": "Правки: {mode} ▾",
