@@ -1,5 +1,5 @@
 import { WebSocketServer, type WebSocket } from 'ws';
-import { createServer } from 'node:http';
+import { createServer, type ServerResponse } from 'node:http';
 import { mkdirSync, existsSync, writeFileSync, readFileSync, statSync } from 'node:fs';
 import { extname, resolve } from 'node:path';
 import type { ClientCommand, FieldError, RoleOp, ServerEvent } from '../shared/types';
@@ -31,7 +31,10 @@ import {
   clearInitFlag, currentOffice, ensureOffice, loadRegistry, officeById, officeIconFile, setCurrent,
   type OfficeEntry,
 } from './offices';
-import { hasCommits, initRepo, isRepo, repoProblem } from './git';
+// hasCommits и repoProblem здесь больше не нужны: проверку репозитория и
+// выставление gitReady целиком делает envcheck — одно место на все проверки.
+import { initRepo, isRepo } from './git';
+import { logEnvChecks, refreshEnvChecks } from './envcheck';
 import { isPermissionMode } from './permissions';
 import { handleMarketCommand } from './market';
 import { exportRole } from './export';
@@ -51,37 +54,15 @@ const USING_KEY = Boolean(process.env.ANTHROPIC_API_KEY || process.env.ANTHROPIC
 const AUTH_SOURCE = USING_KEY ? 'api-key' : 'subscription';
 
 /**
- * Изоляция задач через git worktree работает только в репозитории.
- * Директорию, которую создали мы сами, инициализируем; чужую — не трогаем,
- * только сообщаем, что изоляция выключена.
+ * Изоляция задач через git worktree работает только в репозитории. Директорию,
+ * которую создали мы сами, инициализируем; чужую — не трогаем. Результат здесь
+ * не оценивается: годен ли git, решает проверка окружения — иначе на один
+ * вопрос было бы два ответа, и они бы разошлись.
  */
 async function setupGit(state: OfficeState, dir: string, ours: boolean): Promise<void> {
   if (ours && !(await isRepo(dir))) {
     const ok = await initRepo(dir, state.lang());
     console.log(state.say(ok ? 'boot.gitInit' : 'boot.gitInitFailed'));
-  }
-  state.gitReady = (await isRepo(dir)) && (await hasCommits(dir));
-  console.log(state.gitReady
-    ? state.say('boot.isolationOn')
-    : state.say('boot.isolationOff', { dir }));
-}
-
-/**
- * Роли могут работать в своих репозиториях. Проверяем их на старте: узнать,
- * что путь неверный, из проваленной задачи — слишком поздно.
- */
-async function reportRoleRepos(state: OfficeState): Promise<void> {
-  // Архивные роли пропускаем: работать в них некому, и ходить в git ради
-  // строчки про репозиторий уволенной роли незачем.
-  for (const role of state.activeRoles()) {
-    const dir = state.repoFor(role);
-    if (dir === state.projectDir) continue;
-    // Та же проверка, что не даёт сохранить роль с негодным путём, — иначе
-    // старт и форма роли расходились бы в том, какой путь считать рабочим.
-    const problem = await repoProblem(dir, state.lang());
-    console.log(problem === null
-      ? `   ${role.emoji} ${role.title} → ${dir}`
-      : state.say('boot.roleRepoProblem', { role: role.title, problem }));
   }
 }
 
@@ -95,14 +76,21 @@ async function openOffice(entry: OfficeEntry): Promise<void> {
   // Свою директорию офис заводит сам, чужую не трогает: от этого зависит,
   // можно ли делать в ней git init.
   const ours = entry.initGit || !existsSync(entry.projectDir);
-  if (!existsSync(entry.projectDir)) {
-    mkdirSync(entry.projectDir, { recursive: true });
-  }
-  if (ours && !existsSync(resolve(entry.projectDir, 'README.md'))) {
-    writeFileSync(
-      resolve(entry.projectDir, 'README.md'),
-      c('boot.readme'),
-    );
+  // Директорию может не получиться завести: путь занят файлом, прав нет, диск
+  // отключился. Это не повод не открывать офис — человеку нужен работающий
+  // экран с объяснением, а объяснит его проверка окружения ниже.
+  try {
+    if (!existsSync(entry.projectDir)) {
+      mkdirSync(entry.projectDir, { recursive: true });
+    }
+    if (ours && !existsSync(resolve(entry.projectDir, 'README.md'))) {
+      writeFileSync(
+        resolve(entry.projectDir, 'README.md'),
+        c('boot.readme'),
+      );
+    }
+  } catch (err) {
+    console.log(c('boot.dirFailed', { dir: entry.projectDir, error: (err as Error).message }));
   }
 
   // Состояние берётся из реестра: у каждого офиса оно своё и живёт до конца
@@ -123,7 +111,10 @@ async function openOffice(entry: OfficeEntry): Promise<void> {
   state.authSource = AUTH_SOURCE;
   state.setCloud({ hasKey: USING_KEY, hasToken: Boolean(githubToken()) });
   await setupGit(state, entry.projectDir, ours);
-  await reportRoleRepos(state);
+  // Проверки окружения — последним шагом открытия: к этому моменту известны и
+  // режим движка, и git, и состав офиса. Провал ничего не отменяет: офис
+  // открыт, а список того, что чинить, лежит в его состоянии.
+  logEnvChecks(state, await refreshEnvChecks(state));
   clearInitFlag(entry.id);
   // Офис сам следит, что сданная работа доезжает до основной ветки: ветки,
   // оставшиеся с прошлого запуска, поедут без единого нажатия.
@@ -183,8 +174,43 @@ const MIME: Record<string, string> = {
   '.ico': 'image/x-icon', '.woff2': 'font/woff2', '.webp': 'image/webp',
 };
 
+/**
+ * Проверки окружения по HTTP: GET отдаёт последний посчитанный список, POST
+ * пересчитывает его заново. Отдельным маршрутом, а не только событием по
+ * сокету, потому что ответ «почему офис не сделает задачу» нужен и тогда,
+ * когда до браузера дело не дошло: в терминале, в скрипте запуска, в CI.
+ * Офис выбирается параметром `?office=`; без него — тот, с которым стартовали.
+ */
+async function serveEnv(method: string, query: string, res: ServerResponse): Promise<void> {
+  const json = (code: number, body: unknown, headers: Record<string, string> = {}): void => {
+    res.writeHead(code, { 'Content-Type': 'application/json; charset=utf-8', ...headers });
+    res.end(JSON.stringify(body));
+  };
+  if (method !== 'GET' && method !== 'POST') {
+    json(405, { error: c('boot.envGetPost') }, { Allow: 'GET, POST' });
+    return;
+  }
+  // Ждём открытия стартового офиса: запрос может прийти раньше, чем он успел
+  // открыться, и пустой список читался бы как «вопросов к окружению нет».
+  await startup;
+  const officeId = new URLSearchParams(query).get('office') ?? currentOffice()?.id ?? '';
+  if (!isOpened(officeId)) {
+    json(409, { error: startupError ?? c('boot.officeOpening') });
+    return;
+  }
+  const state = getOffice(officeId);
+  json(200, { env: method === 'POST' ? await refreshEnvChecks(state) : state.env });
+}
+
 const httpServer = createServer((req, res) => {
-  const url = (req.url ?? '/').split('?')[0];
+  const [url = '/', query = ''] = (req.url ?? '/').split('?');
+
+  // Проверки окружения — до общего 404 по /api/: это единственный ответ,
+  // который нужен ровно тогда, когда с офисом что-то не так.
+  if (url === '/api/env') {
+    void serveEnv(req.method ?? 'GET', query, res);
+    return;
+  }
 
   // Список офисов доступен и по HTTP: меню открывается раньше, чем офис,
   // и ему хватает реестра — поднимать ради списка WebSocket не обязательно.
@@ -326,6 +352,17 @@ const httpServer = createServer((req, res) => {
 });
 
 /**
+ * Команды, после которых проверки окружения пересчитываются сами. Список
+ * перечислением, а не «на всякий случай после каждой»: проверки ходят в git,
+ * и гонять их на каждое сообщение из браузера незачем. Асинхронных правок
+ * ролей здесь нет — они пересчитывают сами, когда правка доедет.
+ */
+const ENV_AFFECTING: ReadonlySet<ClientCommand['c']> = new Set([
+  'settings', 'cloud_token', 'hire', 'hire_copy', 'spawn', 'fire',
+  'archive_role', 'remove_role', 'detach_role', 'reset',
+]);
+
+/**
  * Ответить на операцию с ролью тому клиенту, который её просил. Отказ уходит
  * разложенным по полям формы, успех — отдельным событием: список ролей видят
  * все, кто смотрит офис, а «форму можно закрывать» касается только просившего.
@@ -423,11 +460,17 @@ wss.on('connection', (ws) => {
       // Проверка репозитория ходит в git и потому длится: отвечаем событием,
       // когда она закончится, а не задерживаем разбор остальных команд.
       void state.editRole(cmd.roleId, cmd.patch)
-        .then((errors) => replyRole(ws, 'update', cmd.roleId, errors));
+        .then((errors) => {
+          replyRole(ws, 'update', cmd.roleId, errors);
+          // Пересчёт после ответа, а не вместе с командой: роль правится
+          // асинхронно, и проверка репозитория роли до записи увидела бы старый путь.
+          return refreshEnvChecks(state);
+        });
     } else if (cmd.c === 'create_role') {
       void state.createRole(cmd.role).then((made) => {
         if ('errors' in made) send(ws, { t: 'role.error', op: 'create', roleId: null, errors: made.errors });
         else send(ws, { t: 'role.saved', op: 'create', roleId: made.role.id });
+        return refreshEnvChecks(state);
       });
     } else if (cmd.c === 'archive_role') {
       const op = cmd.archived ? 'archive' : 'restore';
@@ -537,6 +580,11 @@ wss.on('connection', (ws) => {
       // всех поднятых офисах, а не только в том, из которого его ввели.
       setGithubToken(cmd.token);
       for (const open of openedOffices()) open.setCloud({ hasToken: Boolean(githubToken()) });
+    } else if (cmd.c === 'env_check') {
+      // Окружение чинят снаружи офиса: создали директорию, сделали git init,
+      // положили ключ. Узнать об этом офис может только переспросив — и это
+      // единственное, что нужно нажать вместо перезапуска процесса.
+      void refreshEnvChecks(state);
     } else if (cmd.c === 'meeting' && cmd.topic.trim()) {
       void holdMeeting(state, cmd.topic.trim(), cmd.participants);
     } else if (cmd.c === 'reset') {
@@ -544,6 +592,12 @@ wss.on('connection', (ws) => {
       state.hardReset();
       broadcastSnapshot(state);
     }
+
+    // Часть команд меняет ответ проверок не меньше, чем правка окружения
+    // снаружи: сменили движок на облачный — стал нужен ключ, уволили
+    // последнего исполнителя — задачи некому делать. Пересчитываем в одном
+    // месте, иначе список врал бы до следующего перезапуска.
+    if (ENV_AFFECTING.has(cmd.c)) void refreshEnvChecks(state);
   });
 
   ws.on('close', () => unwatch(ws));

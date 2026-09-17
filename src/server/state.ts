@@ -6,7 +6,7 @@ import type {
   McpServerDef, McpServerState, RoleEditable, RoleView, ServerEvent, Settings, TaskStatus,
   TaskView, Usage,
   EpicStatus, EpicView,
-  CloudStatus, OfficeView, MergeCheck, MergeRun, LayoutOption,
+  CloudStatus, EnvCheck, EnvReport, OfficeView, MergeCheck, MergeRun, LayoutOption,
   Layout, LayoutOverride, LayoutPropEdit,
   PullRequestView, PrStage, ReviewNote, TaskOutcome, BranchMark,
   FactView, LifeView, OwnerQuestion, RitualId, RitualPolicy, RitualRun,
@@ -783,6 +783,13 @@ export class OfficeState {
   private stateFile = DEFAULT_STATE_FILE;
   /** Готовность облачного режима. Ключ и токен в состояние не пишутся. */
   cloud: CloudStatus = { hasKey: false, hasToken: false };
+  /**
+   * Проверки окружения (envcheck.ts): ключ модели, рабочая директория, git,
+   * состав офиса. На диск не сохраняются — окружение меняется мимо офиса, и
+   * поднятый из файла ответ врал бы с уверенным видом. Пустой список значит
+   * «ещё не считали», а не «всё хорошо».
+   */
+  env: EnvReport = { checks: [], at: 0 };
   /**
    * Статусы мержабельности завершённых задач, ключ — id задачи. На диск
    * не сохраняются: порядок слияний и чужие коммиты меняют результат,
@@ -3416,6 +3423,16 @@ export class OfficeState {
     });
   }
 
+  /**
+   * Положить свежие проверки окружения и сообщить о них UI. Время ставится
+   * здесь: «когда считали» — свойство записи, а не того, кто её заказал.
+   */
+  setEnv(checks: EnvCheck[]): EnvReport {
+    this.env = { checks, at: Date.now() };
+    this.emit({ t: 'env', env: this.env });
+    return this.env;
+  }
+
   /** Сообщить UI о готовности облачного режима. */
   setCloud(patch: Partial<CloudStatus>): void {
     this.cloud = { ...this.cloud, ...patch };
@@ -3601,6 +3618,7 @@ export class OfficeState {
       layout: this.layout(),
       layoutOverride: this.override(),
       cloud: this.cloud,
+      env: this.env,
       mergeChecks: [...this.mergeChecks.values()],
       mergeRun: this.mergeRun,
       prs: [...this.prs.values()],
