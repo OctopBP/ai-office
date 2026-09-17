@@ -6,7 +6,7 @@ import type {
   MarketView, PermissionMode, PermissionRequest, MeetingView, RoleDraft, RoleEditable, RoleOp, RoleView,
   ServerEvent, Settings, TaskView, Usage, CloudStatus, OfficeView, OfficeIcon, PullRequestView, PrStage,
   EpicView, LimitsView, FactView, OwnerQuestion, LifeView, RitualId, DirectionView, ProposalView,
-  OfficeSetupPlan, SetupCatalog, SetupStep,
+  OfficeSetupPlan, SetupCatalog, SetupStep, OfficeHealth,
 } from '../shared/types';
 import {
   emptyLimits, emptyUsage, isOfficeSender,
@@ -298,6 +298,8 @@ interface State {
   /** Сколько вопросов владельцу ждут решения — для бейджа на вкладке «Жизнь офиса». */
   openQuestions: number;
   life: LifeView;
+  /** Сводка здоровья офиса: провалы без разбора, протухшие ветки, вставшие задачи. */
+  health: OfficeHealth | null;
   /** Направления владельца и предложения офиса. */
   directions: DirectionView[];
   proposals: ProposalView[];
@@ -455,6 +457,7 @@ export const useStore = create<State>((set, get) => ({
     flows: {},
     policy: { consolidateEveryMs: 0, questionsPerStandup: 0, standupPmLine: false, reflectionOn: false },
   },
+  health: null,
   toggleMergeSelect: (taskId) => set((s) => ({
     mergeSelection: s.mergeSelection.includes(taskId)
       ? s.mergeSelection.filter((id) => id !== taskId)
@@ -854,6 +857,9 @@ export const useStore = create<State>((set, get) => ({
         break;
       case 'life':
         set({ life: e.life });
+        break;
+      case 'health':
+        set({ health: e.health });
         break;
       case 'direction':
         set((s) => ({
