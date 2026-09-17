@@ -13,7 +13,7 @@ import {
   getOffice, isOpened, officeViews, runningTasksOf, unloadOfficeState, type OfficeState,
 } from './state';
 import {
-  createOffice, currentOffice, officeById, removeOffice, renameOffice, setCurrent,
+  createOffice, currentOffice, officeById, removeOffice, renameOffice, setCurrent, setOfficeIcon,
   type OfficeEntry,
 } from './offices';
 import { stopSupervisor } from './supervisor';
@@ -419,6 +419,22 @@ export function handleOfficeCommand(cmd: ClientCommand, ws: Sink): boolean {
     const problem = renameOffice(cmd.officeId, cmd.name);
     if (problem) refuse('rename', cmd.officeId, problem, ws);
     else broadcastOffices();
+    return true;
+  }
+  if (cmd.c === 'set_office_icon') {
+    const problem = setOfficeIcon(cmd.officeId, cmd.icon ?? null);
+    if (problem) {
+      refuse('icon', cmd.officeId, problem, ws);
+      return true;
+    }
+    // Список офисов уходит всем: аватарка видна в рейле, а не только в той
+    // вкладке, где её меняли.
+    broadcastOffices();
+    // И снапшот тому, кто смотрит этот офис: список офисов лежит внутри
+    // снапшота, и без этого открытая доска показывала бы старую иконку до
+    // следующего события.
+    const state = isOpened(cmd.officeId) ? getOffice(cmd.officeId) : null;
+    if (state) broadcastSnapshot(state);
     return true;
   }
   if (cmd.c === 'remove_office') {
