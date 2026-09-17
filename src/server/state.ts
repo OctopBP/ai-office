@@ -8,7 +8,7 @@ import type {
   EpicStatus, EpicView,
   CloudStatus, OfficeView, MergeCheck, MergeRun, LayoutOption,
   Layout, LayoutOverride, LayoutPropEdit,
-  PullRequestView, PrStage, ReviewNote, TaskOutcome,
+  PullRequestView, PrStage, ReviewNote, TaskOutcome, BranchMark,
   FactView, LifeView, OwnerQuestion, RitualId, RitualPolicy, RitualRun,
   DirectionView, ProposalView, InitiativeMode,
 } from '../shared/types';
@@ -664,6 +664,13 @@ export interface Task {
   compactions: number;
   /** Когда сжимала в последний раз. null — не сжимала ни разу. */
   compactedAt: number | null;
+  /**
+   * Что разбор завалов решил про повисшую ветку: слить или удалить. Метка и
+   * ничего больше — веток офис сам не сливает и не удаляет.
+   */
+  branchMark: BranchMark | null;
+  /** Когда пометил. null — не помечена. */
+  branchMarkAt: number | null;
 }
 
 interface Pending {
@@ -2164,6 +2171,8 @@ export class OfficeState {
       handoff: null,
       compactions: 0,
       compactedAt: null,
+      branchMark: null,
+      branchMarkAt: null,
     };
     this.tasks.set(task.id, task);
     this.emit({ t: 'task', task: toTaskView(task) });
@@ -2242,8 +2251,9 @@ export class OfficeState {
     this.emit({ t: 'task', task: toTaskView(task) });
     this.markDirty();
     // Исход задачи ставит ритуал или закрытие — это не «работа идёт», а её
-    // конец; всё остальное сбрасывает тишину, по которой идут ритуалы.
-    if (!('outcome' in patch)) this.noteWork();
+    // конец; метку на ветке тоже ставит ритуал. Всё остальное сбрасывает
+    // тишину, по которой идут ритуалы.
+    if (!('outcome' in patch) && !('branchMark' in patch)) this.noteWork();
     return task;
   }
 
@@ -3690,6 +3700,7 @@ export const toTaskView = (t: Task): TaskView => ({
   outcome: t.outcome ?? null,
   type: t.type ?? null,
   handoff: t.handoff ?? null,
+  branchMark: t.branchMark ?? null,
 });
 
 /**
@@ -3760,6 +3771,9 @@ function migrateTask(raw: Task & {
     // Сжатий в старых сохранениях нет: «не знаем» считаем нулём, а не
     // выдумываем — сводка здоровья скорее промолчит, чем соврёт.
     compactions: raw.compactions ?? 0, compactedAt: raw.compactedAt ?? null,
+    // Метки на ветках в старых сохранениях нет: «не помечена» — разбор завалов
+    // пройдёт по ней сам и пометит, если ветка правда повисла.
+    branchMark: raw.branchMark ?? null, branchMarkAt: raw.branchMarkAt ?? null,
   };
 }
 

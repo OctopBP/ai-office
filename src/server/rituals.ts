@@ -26,7 +26,7 @@ import type { WorkflowNode } from '../shared/workflow';
 import { builtinWorkflows } from './workflows';
 import { drive, newRun, type Executor } from './runs';
 import { dayKey, HEALTH_DIRECTION, limitReset, OFFICE_SENDER } from '../shared/types';
-import type { OwnerQuestion, RitualId, RitualRun } from '../shared/types';
+import type { BranchMark, HealthEntry, OwnerQuestion, RitualId, RitualRun } from '../shared/types';
 import { LANG_LOCALE } from '../shared/i18n';
 import { roleReports, WEEK_MS as REPORT_WEEK_MS, type RoleReport } from '../shared/report';
 import { toTaskView, type Fact, type OfficeState, type Task } from './state';
@@ -35,6 +35,7 @@ import { officeAsks, openQuestions, pickForStandup } from './questions';
 import { limitsView } from './limits';
 import { tellPm } from './review';
 import { runTypecheck } from './merge';
+import { officeHealth } from './health';
 import { isRepo } from './git';
 import { planSummary } from './plan';
 import { pendingProposals, proposeFeature, type FeatureProposal } from './initiatives';
@@ -284,6 +285,9 @@ export function dueRitual(state: OfficeState, now = Date.now()): RitualId | null
   }
   // Здоровье проекта — раз в сутки, без модели: проверки и протухшие ветки.
   if (now - (last.health ?? 0) >= HEALTH_EVERY_MS && state.tasks.size > 0) return 'health';
+  // Разбор завалов — раз в сутки, без модели, и только когда в сводке правда
+  // что-то есть: пустая сводка не повод даже начинать прогон.
+  if (now - (last.triage ?? 0) >= TRIAGE_EVERY_MS && hasTriageWork(state, now)) return 'triage';
   // Рефлексия — раз в неделю, после забывания, и только если за неделю есть
   // исходы: рефлексировать над пустой неделей не над чем.
   if (state.life.policy.reflectionOn && now - (last.reflect ?? 0) >= WEEK_MS
@@ -295,6 +299,104 @@ export function dueRitual(state: OfficeState, now = Date.now()): RitualId | null
 
 /** Как часто офис смотрит на здоровье проекта. */
 const HEALTH_EVERY_MS = 24 * 60 * 60 * 1000;
+/** Как часто офис разбирает завалы. */
+const TRIAGE_EVERY_MS = 24 * 60 * 60 * 1000;
+
+// -------------------------------------------------- разбор завалов
+
+/**
+ * Что разбору завалов есть делать прямо сейчас.
+ *
+ * Провалы берутся из сводки здоровья как есть: там они ровно те, про которые
+ * в журнале нет ни строчки. Ветки — не как есть: сводка законно держит и
+ * ветки идущих задач (ветка третьего дня работы правда расходится с основной),
+ * но разбирать в них нечего. Метка «слить или удалить» на живой ветке — это
+ * врезка в чужую работу, поэтому здесь остаются только закрытые задачи.
+ */
+export interface TriageWork {
+  failures: HealthEntry[];
+  branches: Array<{ task: Task; mark: BranchMark; days: number }>;
+}
+
+export function triageWork(state: OfficeState, now = Date.now()): TriageWork {
+  const health = officeHealth(state, now);
+  const branches: TriageWork['branches'] = [];
+  for (const item of health.branches) {
+    const task = state.tasks.get(item.taskId);
+    if (!task || !task.branch) continue;
+    // Задача ещё в работе — ветка не наша забота.
+    if (task.status !== 'done' && task.status !== 'failed') continue;
+    // Уже помечена: разбор не переставляет метку по кругу и не шумит второй раз.
+    if (task.branchMark) continue;
+    branches.push({ task, mark: markFor(task), days: Math.floor(item.ageMs / 86_400_000) });
+  }
+  return { failures: health.failures, branches };
+}
+
+const hasTriageWork = (state: OfficeState, now: number): boolean => {
+  const work = triageWork(state, now);
+  return work.failures.length > 0 || work.branches.length > 0;
+};
+
+/**
+ * Что делать с повисшей веткой: работа сдана — слить, не сдана — удалить.
+ * Метка и есть весь результат: веток офис не сливает и не удаляет сам —
+ * автоматического слияния в проекте нет, решение за владельцем.
+ */
+const markFor = (task: Task): BranchMark =>
+  task.status === 'done' && task.outcome?.kind !== 'failed' && task.outcome?.kind !== 'reverted'
+    ? 'merge'
+    : 'drop';
+
+/**
+ * Провал, который стоит вернуть в план: работу не забраковали — её оборвало
+ * снаружи, лимитом плана или перезапуском сервера. Откат и вердикт ревьюера
+ * офис вторым заходом не отменяет: это решение человека, а не сбой.
+ */
+const retryable = (task: Task): boolean =>
+  task.outcome?.kind !== 'reverted' && (task.limitedAt !== null || task.interrupted);
+
+/** Причина провала — из того, что доска и так знает. Модель не нужна. */
+function failureReason(state: OfficeState, task: Task): string {
+  if (task.outcome?.kind === 'reverted') return state.say('triage.reason.reverted');
+  if (task.limitedAt) return state.say('triage.reason.limit');
+  if (task.interrupted) return state.say('triage.reason.interrupted');
+  if (task.compactions >= 2) return state.say('triage.reason.compacting', { n: task.compactions });
+  const changes = (state.prOf(task.id)?.reviews ?? []).filter((r) => r.verdict === 'changes').pop();
+  if (changes) return state.say('triage.reason.review', { text: clip(changes.text, 200) });
+  if (task.result?.trim()) return state.say('triage.reason.result', { text: clip(task.result, 200) });
+  return state.say('triage.reason.unknown');
+}
+
+/**
+ * Вернуть задачу в план — вторым заходом, а не воскрешением прежней: у той
+ * есть исход, ветка и своя история, и переписывать их значило бы соврать
+ * табелю роли. Идёт по направлению здоровья, то есть как обязанность офиса,
+ * а не как инициатива.
+ */
+function returnToPlan(state: OfficeState, task: Task, reason: string): boolean {
+  const roles = state.workerRoles();
+  const role = roles.find((r) => r.id === task.roleId) ?? roles[0];
+  if (!role) return false;
+  const criteria = task.criteria.map((c) => c.text.trim()).filter(Boolean);
+  const made = proposeFeature(state, {
+    title: state.say('triage.retryTitle', { task: task.id, title: clip(task.title, 60) }),
+    goal: state.say('triage.retryGoal', { task: task.id, title: clip(task.title, 60) }),
+    rationale: state.say('triage.retryRationale', { task: task.id, reason }),
+    directionId: HEALTH_DIRECTION,
+    tasks: [{
+      key: 'retry',
+      title: task.title,
+      description: state.say('triage.retryDesc', {
+        task: task.id, reason, description: clip(task.description, 1500),
+      }),
+      acceptanceCriteria: criteria.length ? criteria : [state.say('triage.retryCriterion')],
+      roleId: role.id,
+    }],
+  });
+  if (!made.ok) state.addLog(null, 'system', made.message);
+  return made.ok;
+}
 
 /**
  * Проход расписания — из надзора. Один ритуал за проход: ритуал на модели
@@ -550,6 +652,64 @@ const runners: Record<RitualId, Runner> = {
     return {
       ritual: 'health', at: now, costUsd: 0, produced,
       note: state.say('health.note', { checks: state.say(checks === 'red' ? 'health.red' : 'health.ok'), stale }),
+    };
+  },
+
+  /**
+   * Разбор завалов: раз в сутки офис читает сводку здоровья и расчищает её.
+   *
+   * По каждому провалу — запись в журнал с причиной и номером задачи: именно
+   * её потом видит любая следующая сессия, и именно её отсутствие делает
+   * провал потерянной неделей. Запись заодно и есть признак разбора — с ней
+   * провал уходит из сводки, и завтрашний прогон не разбирает его заново.
+   * Провал, который оборвало снаружи, вдобавок возвращается в план.
+   *
+   * Модель здесь не нужна: и причина, и метка считаются из доски. Ритуал
+   * стоит ноль — не «дёшево», а ровно ноль.
+   */
+  async triage(state, now) {
+    const work = triageWork(state, now);
+    let noted = 0;
+    let returned = 0;
+    for (const item of work.failures) {
+      const task = state.tasks.get(item.taskId);
+      if (!task) continue;
+      const reason = failureReason(state, task);
+      const back = retryable(task) && returnToPlan(state, task, reason);
+      if (back) returned += 1;
+      const fact = state.addFact({
+        kind: 'lesson',
+        text: state.say(back ? 'triage.factRetried' : 'triage.fact', {
+          task: task.id, title: clip(task.title, 80),
+          role: task.roleId ?? state.say('triage.noRole'), reason,
+        }),
+        scope: task.roleId ? `role:${task.roleId}` : 'project',
+        source: { ritual: 'triage', taskId: task.id },
+      });
+      state.addLog(null, 'system', state.say('journal.noted', { id: fact.id, text: clip(fact.text) }));
+      noted += 1;
+    }
+
+    const marked: Record<BranchMark, string[]> = { merge: [], drop: [] };
+    for (const { task, mark, days } of work.branches) {
+      state.updateTask(task.id, { branchMark: mark, branchMarkAt: now });
+      marked[mark].push(`${task.branch} (${task.id})`);
+      state.addLog(null, 'system', state.say('triage.markLog', {
+        branch: task.branch ?? '', task: task.id, days, mark: state.say(`triage.mark.${mark}`),
+      }));
+    }
+
+    if (noted + marked.merge.length + marked.drop.length > 0) {
+      const lines = [state.say('triage.chatHead', { noted, returned })];
+      if (marked.merge.length) lines.push(state.say('triage.chatMerge', { branches: marked.merge.join(', ') }));
+      if (marked.drop.length) lines.push(state.say('triage.chatDrop', { branches: marked.drop.join(', ') }));
+      state.addChat(OFFICE_SENDER, lines.join('\n'));
+    }
+
+    const produced = { noted, returned, merge: marked.merge.length, drop: marked.drop.length };
+    return {
+      ritual: 'triage', at: now, costUsd: 0, produced,
+      note: state.say('triage.note', produced),
     };
   },
 };
