@@ -22,8 +22,18 @@ import { c, hasKey, t } from './i18n';
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '../..');
 const LAYOUTS_DIR = resolve(ROOT, 'design/layouts');
 
-/** Раскладка офиса, если своя не выбрана: то, как офис выглядел всегда. */
-export const DEFAULT_LAYOUT_ID = 'classic';
+/**
+ * Раскладка нового офиса: с ней он заводится, пока свою не выбрали. Это не то
+ * же, что запасная: старые сохранения без поля остаются на classic, а не
+ * переезжают вслед за умолчанием для новых.
+ */
+export const DEFAULT_LAYOUT_ID = 'studio_4';
+/**
+ * Запасная раскладка: на неё уходит офис, чей пресет не читается, и её же
+ * получает сохранение, заведённое до появления настройки, — так эти офисы
+ * выглядят ровно так, как выглядели.
+ */
+export const FALLBACK_LAYOUT_ID = 'classic';
 
 /**
  * id раскладки приходит от клиента и подставляется в путь файла, поэтому
@@ -222,11 +232,11 @@ function variantOf(layoutId: string, override?: LayoutOverride | null):
   try {
     preset = loadLayout(id);
   } catch (err) {
-    if (id === DEFAULT_LAYOUT_ID) throw err;
+    if (id === FALLBACK_LAYOUT_ID) throw err;
     console.log(c('layout.deskFallback', {
-      error: (err as Error).message, fallback: DEFAULT_LAYOUT_ID,
+      error: (err as Error).message, fallback: FALLBACK_LAYOUT_ID,
     }));
-    id = DEFAULT_LAYOUT_ID;
+    id = FALLBACK_LAYOUT_ID;
     preset = loadLayout(id);
   }
   // loadLayout выше уже положил свежую запись в кэш — она здесь всегда есть.

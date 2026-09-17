@@ -29,11 +29,14 @@ const LAYOUTS: Record<string, Layout> = Object.fromEntries(
   Object.values(layoutModules).map((l) => [l.id, l]),
 );
 
-export const DEFAULT_LAYOUT_ID = 'classic';
+/** Раскладка нового офиса — та же, что у сервера (src/server/layout.ts). */
+export const DEFAULT_LAYOUT_ID = 'studio_4';
+/** Запасная раскладка для неизвестного id — та же, на которую откатывается сервер. */
+export const FALLBACK_LAYOUT_ID = 'classic';
 
 /** Раскладка по id; неизвестный (старое сохранение, рассинхрон со списком сервера) — запасной classic. */
 export function layoutFor(layoutId: string): Layout {
-  return LAYOUTS[layoutId] ?? LAYOUTS[DEFAULT_LAYOUT_ID];
+  return LAYOUTS[layoutId] ?? LAYOUTS[FALLBACK_LAYOUT_ID];
 }
 
 /**

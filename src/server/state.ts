@@ -33,7 +33,8 @@ import { capabilitiesOf } from './roles';
 import { t, setProcessLang, c, type ServerKey } from './i18n';
 import { activityFromFile, summarize } from './activity';
 import {
-  DEFAULT_LAYOUT_ID, catalog, checkPropEdit, deskPlan, effectiveLayout, hasLayout, layoutOptions,
+  DEFAULT_LAYOUT_ID, FALLBACK_LAYOUT_ID, catalog, checkPropEdit, deskPlan, effectiveLayout, hasLayout,
+  layoutOptions,
   layoutTitle, type DeskPlan,
 } from './layout';
 import { repoProblem } from './git';
@@ -1312,7 +1313,13 @@ export class OfficeState {
     // такой офис заводили до появления настройки, когда офис был русским, —
     // его лог, переписка и брифы ролей написаны по-русски, и английская
     // подпись над русской лентой выглядела бы поломкой, а не выбором.
-    this.settings = { ...DEFAULT_SETTINGS, language: 'ru', ...(data.settings ?? {}) };
+    // Раскладка в старых сохранениях тоже не записана, и умолчание для новых
+    // офисов сюда не годится: заведённый раньше офис должен выглядеть так же,
+    // как выглядел, — то есть по classic.
+    // Сохранение старше поля отдаёт его как undefined: тип говорит «всегда
+    // есть», поэтому для слияния с умолчаниями оно — Partial.
+    const saved: Partial<Settings> = data.settings ?? {};
+    this.settings = { ...DEFAULT_SETTINGS, language: 'ru', layoutId: FALLBACK_LAYOUT_ID, ...saved };
     // Язык мог приехать из правленого руками файла: чужое значение оставило бы
     // офис без словаря, и каждая фраза выродилась бы в голый ключ.
     this.settings.language = asLang(this.settings.language);
@@ -1320,9 +1327,9 @@ export class OfficeState {
     // состояние, в котором его можно оставить: молча возвращаем к classic.
     if (!hasLayout(this.settings.layoutId)) {
       console.log(this.say('state.restore.noLayout', {
-        id: this.settings.layoutId, office: this.officeId, fallback: DEFAULT_LAYOUT_ID,
+        id: this.settings.layoutId, office: this.officeId, fallback: FALLBACK_LAYOUT_ID,
       }));
-      this.settings = { ...this.settings, layoutId: DEFAULT_LAYOUT_ID };
+      this.settings = { ...this.settings, layoutId: FALLBACK_LAYOUT_ID };
     }
     // Файл состояния правят руками: испорченный лимит ходов обрушил бы каждую
     // задачу офиса, поэтому непригодное значение откатываем к умолчанию.

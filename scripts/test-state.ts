@@ -20,7 +20,7 @@ import {
 import { flushAll, load, save, wipe, type Persisted } from '../src/server/store';
 import {
   DEFAULT_OFFICE_WORKERS, isOfficeSender, MAX_AGENT_NAME, MAX_OFFICE_WORKERS, MAX_TASK_MAX_TURNS,
-  OFFICE_SENDER,
+  OFFICE_SENDER, type Settings,
 } from '../src/shared/types';
 import { cloudProblem, setGithubToken } from '../src/server/cloud';
 import {
@@ -220,9 +220,9 @@ async function main(): Promise<void> {
   // 7c. Раскладка офиса как настройка: значение по умолчанию, отказ по
   // неизвестному id и список пресетов, из которого выбирают. Что по ней
   // считаются столы — отдельно, в разделе 10.
-  const layoutByDefault = office.settings.layoutId === 'classic';
+  const layoutByDefault = office.settings.layoutId === 'studio_4';
   const badLayout = office.updateSettings({ layoutId: 'нет-такой' });
-  const layoutKept = office.settings.layoutId === 'classic';
+  const layoutKept = office.settings.layoutId === 'studio_4';
   const okLayout = office.updateSettings({ layoutId: 'studio' });
   const layoutList = office.layouts();
   // Контракт с вебом: и выбранная раскладка, и список, из которого выбирают,
@@ -233,7 +233,7 @@ async function main(): Promise<void> {
     && layoutSnap.layouts.some((l) => l.id === 'studio' && l.title.length > 0)
     && layoutSnap.layouts.some((l) => l.id === 'classic');
   results.push(
-    `по умолчанию офис работает по classic: ${layoutByDefault}`,
+    `новый офис заводится со studio_4: ${layoutByDefault}`,
     `неизвестная раскладка отклонена по-русски: ${/нет в design\/layouts/.test(badLayout ?? '')}`,
     `после отказа раскладка прежняя: ${layoutKept}`,
     `известная раскладка принята: ${okLayout === null && office.settings.layoutId === 'studio'}`,
@@ -383,6 +383,27 @@ async function main(): Promise<void> {
   );
   unloadOfficeState('o-roleturns');
   wipe(junkFile);
+
+  // 7h′. Сохранение, заведённое до настройки раскладки: поля нет вовсе. Такой
+  // офис обязан подняться по classic — так он выглядел всегда, — а не по
+  // раскладке, с которой заводятся новые офисы.
+  const oldLayoutFile = resolve(tmpdir(), `office-test-oldlayout-${process.pid}.json`);
+  const oldLayoutDir = resolve(tmpdir(), 'oldlayout-office');
+  const { layoutId: _dropped, ...settingsWithoutLayout } = DEFAULT_SETTINGS;
+  save(oldLayoutFile, () => ({
+    version: 1, projectDir: oldLayoutDir, taskSeq: 0, tasks: [], chat: [], log: [],
+    instances: [], settings: settingsWithoutLayout as Settings, savedAt: Date.now(),
+  }));
+  flushAll();
+  const oldLayoutOffice = openOfficeState({
+    id: 'o-oldlayout', projectDir: oldLayoutDir, stateFile: oldLayoutFile,
+  }).state;
+  results.push(
+    `новый офис заводится не по classic: ${DEFAULT_SETTINGS.layoutId !== 'classic'}`,
+    `сохранение без раскладки поднимается по classic: ${oldLayoutOffice.settings.layoutId === 'classic'}`,
+  );
+  unloadOfficeState('o-oldlayout');
+  wipe(oldLayoutFile);
 
   // 7i. История совещаний переживает перезапуск, а реплики привязаны к своему
   // совещанию. Совещание, застигнутое перезапуском, поднимается сорвавшимся:
@@ -917,6 +938,9 @@ async function main(): Promise<void> {
   const studioPlan = deskPlan('studio');
   const oc = openOfficeState({ id: 'o-lay-classic', projectDir: resolve(tmpdir(), 'lay-a'), stateFile: layA }).state;
   const os_ = openOfficeState({ id: 'o-lay-studio', projectDir: resolve(tmpdir(), 'lay-b'), stateFile: layB }).state;
+  // Новый офис заводится не по classic — выбираем его явно: этот раздел
+  // проверяет именно старую раскладку.
+  oc.updateSettings({ layoutId: 'classic' });
   os_.updateSettings({ layoutId: 'studio' });
   // Набираем штат заново уже на studio: пересадка тех, кто сидел за столами
   // прежней раскладки, — следующая задача, здесь проверяется сам расчёт.
@@ -1173,6 +1197,8 @@ async function main(): Promise<void> {
   const presetBefore = readFileSync(classicFile, 'utf8');
   const ovDir = resolve(tmpdir(), 'ov-office');
   const oo = openOfficeState({ id: 'o-ov', projectDir: ovDir, stateFile: ovFile }).state;
+  // Правки ниже написаны по столам classic — переводим офис на него явно.
+  oo.updateSettings({ layoutId: 'classic' });
   // desk#1 — первый обычный стол classic (автоимя `<sprite>#<n>`, §3.2).
   const MOVED_KEY = 'desk#1';
   const presetPlan = deskPlan('classic');
@@ -1204,6 +1230,7 @@ async function main(): Promise<void> {
   const onext = openOfficeState({
     id: 'o-ov2', projectDir: resolve(tmpdir(), 'ov-office-2'), stateFile: ovNextFile,
   }).state;
+  onext.updateSettings({ layoutId: 'classic' });
   const nextDesk = deskPlan(onext.settings.layoutId, onext.override()).desks[movedIndex];
   onext.flush();
   const nextSaved = JSON.parse(readFileSync(ovNextFile, 'utf8')) as {
@@ -1231,6 +1258,8 @@ async function main(): Promise<void> {
   const olc = openOfficeState({
     id: 'o-cmd', projectDir: resolve(tmpdir(), 'cmd-office'), stateFile: cmdFile,
   }).state;
+  // Ключи и координаты ниже — из classic: выбираем его явно.
+  olc.updateSettings({ layoutId: 'classic' });
   olc.seed();
   const layoutEvents: { props: number; override: number | null }[] = [];
   const unsubscribe = olc.subscribe((e) => {

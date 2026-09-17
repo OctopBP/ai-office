@@ -405,11 +405,11 @@ export const useStore = create<State>((set, get) => ({
   teamRequest: null,
   settings: {
     globalBudgetUsd: null, taskBudgetUsd: null, engine: 'local', cloudRepoUrl: null,
-    officePermissionMode: 'ask-risky', layoutId: 'classic', autoPipeline: true,
+    officePermissionMode: 'ask-risky', layoutId: DEFAULT_LAYOUT_ID, autoPipeline: true,
   },
   layouts: [],
-  // До первого снапшота своей раскладки офиса ещё не знаем — берём тот же
-  // classic, что и запасное значение settings.layoutId ниже.
+  // До первого снапшота своей раскладки офиса ещё не знаем — берём ту же,
+  // с которой заводится новый офис, что и запасное значение settings.layoutId выше.
   layout: layoutFor(DEFAULT_LAYOUT_ID),
   layoutOverride: null,
   layoutPending: false,
