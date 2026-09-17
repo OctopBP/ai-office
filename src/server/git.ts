@@ -24,9 +24,13 @@ export interface GitResult {
  * и весь git молча начинал отвечать «не репозиторий» — в том числе проверкам
  * слияния и ревью. Колбэк одинаков в любой среде запуска.
  */
-export function git(cwd: string, args: string[]): Promise<GitResult> {
+export function git(cwd: string, args: string[], env?: NodeJS.ProcessEnv): Promise<GitResult> {
   return new Promise((done) => {
-    execFile('git', args, { cwd, maxBuffer: 10 * 1024 * 1024 }, (err, stdout, stderr) => {
+    const options = {
+      cwd, maxBuffer: 10 * 1024 * 1024,
+      ...(env ? { env: { ...process.env, ...env } } : {}),
+    };
+    execFile('git', args, options, (err, stdout, stderr) => {
       const e = err as (Error & { code?: number }) | null;
       done({
         ok: !e,
@@ -37,6 +41,45 @@ export function git(cwd: string, args: string[]): Promise<GitResult> {
       });
     });
   });
+}
+
+/** Кто подписывает коммит: имя и почта, как их видит git. */
+export interface GitPerson {
+  name: string;
+  email: string;
+}
+
+/**
+ * Подпись коммита. Автор — тот, чьи это правки; коммитер — тот, кто внёс их
+ * в ветку. Обычно это один и тот же сотрудник, и коммитера можно не задавать.
+ * Расходятся они на слиянии: работа — исполнителя, а влил её ревьюер.
+ */
+export interface Signature {
+  author: GitPerson;
+  committer?: GitPerson;
+}
+
+/**
+ * Сам офис — подпись технических коммитов: первый коммит нового репозитория,
+ * stash, слияние по команде человека. Всё, что сделал сотрудник, подписывается
+ * им самим (`OfficeState.gitPerson`).
+ */
+export const OFFICE_PERSON: GitPerson = { name: 'AI Office', email: 'office@local' };
+
+/**
+ * Подпись передаём окружением, а не `-c user.name`: так автор и коммитер
+ * задаются раздельно, а stash и merge подписываются тем же путём, что и
+ * commit. Заодно это спасает в чужом репозитории, где git не настроен и без
+ * подписи просто отказал бы.
+ */
+function signed(sign: Signature = { author: OFFICE_PERSON }): NodeJS.ProcessEnv {
+  const committer = sign.committer ?? sign.author;
+  return {
+    GIT_AUTHOR_NAME: sign.author.name,
+    GIT_AUTHOR_EMAIL: sign.author.email,
+    GIT_COMMITTER_NAME: committer.name,
+    GIT_COMMITTER_EMAIL: committer.email,
+  };
 }
 
 export async function isRepo(dir: string): Promise<boolean> {
@@ -98,10 +141,7 @@ export async function baseBranch(dir: string): Promise<string | null> {
 export async function initRepo(dir: string, lang: Lang): Promise<boolean> {
   if (!(await git(dir, ['init', '-b', 'main'])).ok) return false;
   await git(dir, ['add', '-A']);
-  const commit = await git(dir, [
-    '-c', 'user.name=AI Office', '-c', 'user.email=office@local',
-    'commit', '-m', t(lang, 'git.initCommit'),
-  ]);
+  const commit = await git(dir, ['commit', '-m', t(lang, 'git.initCommit')], signed());
   return commit.ok;
 }
 
@@ -154,15 +194,17 @@ async function linkNodeModules(repoDir: string, worktreePath: string): Promise<v
   }
 }
 
-/** Коммитим за исполнителя сами: так надёжнее, чем надеяться, что он не забудет. */
-export async function commitAll(worktreePath: string, message: string): Promise<'committed' | 'empty' | 'failed'> {
+/**
+ * Коммитим за исполнителя сами: так надёжнее, чем надеяться, что он не забудет.
+ * Подпись — его: в истории видно, чья это работа, а не «офис».
+ */
+export async function commitAll(
+  worktreePath: string, message: string, sign?: Signature,
+): Promise<'committed' | 'empty' | 'failed'> {
   if (!(await git(worktreePath, ['add', '-A'])).ok) return 'failed';
   const status = await git(worktreePath, ['status', '--porcelain']);
   if (status.ok && status.stdout === '') return 'empty';
-  const commit = await git(worktreePath, [
-    '-c', 'user.name=AI Office', '-c', 'user.email=office@local',
-    'commit', '-m', message,
-  ]);
+  const commit = await git(worktreePath, ['commit', '-m', message], signed(sign));
   return commit.ok ? 'committed' : 'failed';
 }
 
@@ -310,6 +352,7 @@ export interface AssembledMerge {
  */
 export async function assembleMerge(
   repoDir: string, branch: string, base: string, integrationDir: string, lang: Lang,
+  sign?: Signature,
 ): Promise<AssembledMerge> {
   const stop = (message: string, kind: AssembledMerge['kind']): AssembledMerge => ({
     kind, message, conflicts: [], worktree: null, sha: null, baseSha: null,
@@ -329,10 +372,7 @@ export async function assembleMerge(
   const worktree = await integrationWorktree(repoDir, integrationDir, base);
   if (!worktree) return stop(t(lang, 'git.noIntegrationCopy'), 'failed');
 
-  const merge = await git(worktree, [
-    '-c', 'user.name=AI Office', '-c', 'user.email=office@local',
-    'merge', '--no-ff', '--no-edit', branch,
-  ]);
+  const merge = await git(worktree, ['merge', '--no-ff', '--no-edit', branch], signed(sign));
   if (!merge.ok) {
     const conflicted = await git(worktree, ['diff', '--name-only', '--diff-filter=U']);
     const files = splitLines(conflicted.stdout);
@@ -370,13 +410,14 @@ export async function dropAssembled(worktree: string, base: string): Promise<voi
 export async function mergeBranch(
   repoDir: string, branch: string, base: string, integrationDir: string, lang: Lang,
   verify?: (worktree: string) => Promise<{ ok: boolean; message: string }>,
+  sign?: Signature,
 ): Promise<MergeOutcome> {
   const nothingToDo = (message: string, kind: MergeOutcome['kind'] = 'nothing'): MergeOutcome => ({
     ok: kind === 'nothing', kind, message, conflicts: [], worktree: null,
     checkout: { state: 'not-here', files: [], message: '' },
   });
 
-  const built = await assembleMerge(repoDir, branch, base, integrationDir, lang);
+  const built = await assembleMerge(repoDir, branch, base, integrationDir, lang, sign);
   if (built.kind === 'conflict') {
     return {
       ok: false, kind: 'conflict', worktree: built.worktree,
@@ -629,23 +670,17 @@ export async function dirtyFiles(dir: string): Promise<string[]> {
 
 /**
  * Убрать правки рабочей копии в stash — вместе с неотслеживаемыми файлами.
- * Личность коммитера передаём флагами: stash делает настоящий коммит, а в
- * чужом репозитории git может быть не настроен, и он бы просто отказал.
+ * Подпись нужна и здесь: stash делает настоящий коммит, а в чужом
+ * репозитории git может быть не настроен, и он бы просто отказал.
  */
 export async function stashPush(dir: string, message: string): Promise<boolean> {
-  const r = await git(dir, [
-    '-c', 'user.name=AI Office', '-c', 'user.email=office@local',
-    'stash', 'push', '--include-untracked', '-m', message,
-  ]);
+  const r = await git(dir, ['stash', 'push', '--include-untracked', '-m', message], signed());
   return r.ok && !/no local changes/i.test(r.stdout);
 }
 
 /** Вернуть последний stash в рабочую копию. */
 export async function stashPop(dir: string): Promise<{ ok: boolean; message: string }> {
-  const r = await git(dir, [
-    '-c', 'user.name=AI Office', '-c', 'user.email=office@local',
-    'stash', 'pop',
-  ]);
+  const r = await git(dir, ['stash', 'pop'], signed());
   return { ok: r.ok, message: r.ok ? r.stdout : (r.stderr || r.stdout) };
 }
 
@@ -685,17 +720,14 @@ export interface BaseMerge {
  * слияния — именно её и чинит автор, а потом коммитит результат.
  */
 export async function mergeBaseInto(
-  worktreePath: string, base: string, lang: Lang,
+  worktreePath: string, base: string, lang: Lang, sign?: Signature,
 ): Promise<BaseMerge> {
   const behind = await git(worktreePath, ['rev-list', '--count', `HEAD..${base}`]);
   if (behind.ok && behind.stdout === '0') {
     return { kind: 'nothing', conflicts: [], message: t(lang, 'git.alreadyIncludes', { base }) };
   }
 
-  const merge = await git(worktreePath, [
-    '-c', 'user.name=AI Office', '-c', 'user.email=office@local',
-    'merge', '--no-edit', base,
-  ]);
+  const merge = await git(worktreePath, ['merge', '--no-edit', base], signed(sign));
   if (merge.ok) {
     return { kind: 'merged', conflicts: [], message: t(lang, 'git.baseMergedIn', { base }) };
   }

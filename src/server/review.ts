@@ -39,7 +39,7 @@ import {
 import { dispatch } from './plan';
 import {
   abortMerge, commitAll, deleteRemoteBranch, diffBranch, ensureWorktree, fastForward,
-  fetchRemote, isDirty, isRepo, mergeBaseInto, mergeInProgress, pushBranch,
+  fetchRemote, isDirty, isRepo, mergeBaseInto, mergeInProgress, pushBranch, type Signature,
   removeWorktree, revision,
 } from './git';
 import { integrationDir, runProjectCheck, runTypecheck } from './merge';
@@ -311,10 +311,30 @@ function reportText(state: OfficeState, task: Task): string {
  * недоведённое слияние сломает следующий шаг. Полагаться на то, что агент
  * закоммитит сам, нельзя — офис и обычную работу коммитит за него.
  */
-async function settle(worktree: string, task: Task, message: string): Promise<void> {
+async function settle(
+  state: OfficeState, worktree: string, task: Task, message: string, authorId?: string | null,
+): Promise<void> {
   if (await mergeInProgress(worktree) || await isDirty(worktree)) {
-    await commitAll(worktree, `${task.id}: ${message}`);
+    const author = state.gitPerson(authorId ?? authorOf(state, task));
+    await commitAll(worktree, `${task.id}: ${message}`, { author });
   }
+}
+
+/** Чья это работа: исполнитель задачи по свежему состоянию — доработку мог взять другой. */
+function authorOf(state: OfficeState, task: Task): string | null {
+  return state.tasks.get(task.id)?.assigneeId ?? task.assigneeId;
+}
+
+/**
+ * Подпись слияния в базу: автор — исполнитель, чью работу вливают, коммитер —
+ * ревьюер, который её одобрил. Ревью в процессе не было — вливает менеджер,
+ * а без менеджера сам офис.
+ */
+function mergeSignature(state: OfficeState, task: Task): Signature {
+  const pr = state.prOf(task.id);
+  const approved = [...(pr?.reviews ?? [])].reverse().find((r) => r.verdict === 'approve');
+  const mergerId = approved?.reviewerId ?? pr?.reviewerId ?? state.managerId();
+  return { author: state.gitPerson(authorOf(state, task)), committer: state.gitPerson(mergerId) };
 }
 
 /** Рабочая копия ветки задачи: обычно уже есть, иначе поднимаем заново. */
@@ -354,7 +374,8 @@ const syncBase: Executor<Ctx> = {
     state.patchPr(task.id, { note: state.say('pipe.syncing', { base }) });
 
     const ref = await baseRef(repo, base);
-    const result = await mergeBaseInto(worktree, ref, state.lang());
+    const result = await mergeBaseInto(
+      worktree, ref, state.lang(), { author: state.gitPerson(authorOf(state, task)) });
     if (result.kind === 'nothing' || result.kind === 'merged') {
       if (result.kind === 'merged') {
         state.addLog(null, 'system',
@@ -403,7 +424,8 @@ const fixConflict: Executor<Ctx> = {
     if (!worktree) return failed(state.say('pipe.noWorktree', { branch: ctx.branch }));
     let files = (ctx.run.artifacts.conflict?.text ?? '').split(', ').filter(Boolean);
     if (!(await mergeInProgress(worktree))) {
-      const again = await mergeBaseInto(worktree, await baseRef(repo, base), state.lang());
+      const again = await mergeBaseInto(
+        worktree, await baseRef(repo, base), state.lang(), { author: state.gitPerson(authorOf(state, task)) });
       if (again.kind === 'nothing' || again.kind === 'merged') return { outcome: 'done' };
       if (again.kind === 'failed') return failed(again.message);
       files = again.conflicts;
@@ -415,7 +437,7 @@ const fixConflict: Executor<Ctx> = {
         state.say('pipe.conflictUnresolved', { base, problem: fix.message }), fix.needsDecision);
     }
     // Автор мог оставить слияние незакоммиченным — доводим сами, как и обычную работу.
-    await settle(worktree, task, state.say('pipe.note.merge', { base }));
+    await settle(state, worktree, task, state.say('pipe.note.merge', { base }));
     return { outcome: 'done' };
   },
 };
@@ -457,7 +479,7 @@ const fixChecks: Executor<Ctx> = {
     const output = ctx.run.artifacts.checks?.text ?? '';
     const fix = await agents.rework(state, task, checksPrompt(state, task, output));
     const worktree = state.tasks.get(task.id)?.worktreePath ?? null;
-    if (worktree) await settle(worktree, task, state.say('pipe.note.fixChecks'));
+    if (worktree) await settle(state, worktree, task, state.say('pipe.note.fixChecks'));
     if (!fix.ok) {
       return failed(state.say('pipe.checksFixFailed', { problem: fix.message }), fix.needsDecision);
     }
@@ -551,7 +573,7 @@ const rework: Executor<Ctx> = {
     const text = ctx.run.artifacts.review?.text ?? '';
     const fix = await agents.rework(state, task, reworkPrompt(state, task, text));
     const worktree = state.tasks.get(task.id)?.worktreePath ?? null;
-    if (worktree) await settle(worktree, task, state.say('pipe.note.rework'));
+    if (worktree) await settle(state, worktree, task, state.say('pipe.note.rework'));
     if (!fix.ok) {
       return failed(state.say('pipe.reworkFailed', { problem: fix.message }), fix.needsDecision);
     }
@@ -634,6 +656,7 @@ const merge: Executor<Ctx> = {
         const gate = await preMergeGate({
           repoDir: repo, branch, base, integrationDir: integrationDir(state),
           lang: state.lang(), checks, allowDirty: true, merge: false,
+          sign: mergeSignature(state, task),
         });
         // Виден в карточке задачи независимо от исхода — гейт мог остановить
         // конвейер следующей строкой, а его вывод должен остаться на виду.
@@ -662,7 +685,7 @@ const merge: Executor<Ctx> = {
         // в копии офиса, а копию человека двигает advanceBase, не трогая правок.
         const gate = await preMergeGate({
           repoDir: repo, branch, base, integrationDir: integrationDir(state),
-          lang: state.lang(), checks, allowDirty: true,
+          lang: state.lang(), checks, allowDirty: true, sign: mergeSignature(state, task),
         });
         // Строка технического лога — как и соседняя `merge …`, не переводится:
         // её читают в логе сервера, а не в интерфейсе.
@@ -778,7 +801,7 @@ const step: Executor<Ctx> = {
       cwd: worktree, prompt, outcomes,
     });
     if (out.actor) state.addChat(OFFICE_SENDER, state.say('wf.stepStart', { task: task.id, node: node.id, who: out.actor }));
-    await settle(worktree, task, node.id);
+    await settle(state, worktree, task, node.id, out.actor);
     if (!out.ok || !out.outcome) {
       return {
         outcome: 'failed', actor: out.actor, needsDecision: out.needsDecision,

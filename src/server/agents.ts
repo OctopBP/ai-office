@@ -1819,7 +1819,8 @@ function startWorker(taskOffice: OfficeState, task: Task, inst: Instance): void 
 
       // Коммитим сами: полагаться на то, что исполнитель не забудет, нельзя.
       if (fresh?.branch) {
-        const outcome = await commitAll(workRoot, `${task.id}: ${task.title}`);
+        const outcome = await commitAll(
+          workRoot, `${task.id}: ${task.title}`, { author: taskOffice.gitPerson(inst.id) });
         if (outcome === 'committed') {
           taskOffice.addLog(inst.id, 'system',
             taskOffice.say('agent.log.committed', { branch: fresh.branch }));
@@ -1868,7 +1869,8 @@ function startWorker(taskOffice: OfficeState, task: Task, inst: Instance): void 
         let note = taskOffice.say('agent.task.stopped');
         if (fresh?.branch) {
           const outcome = await commitAll(
-            workRoot, taskOffice.say('agent.task.stoppedCommit', { task: task.id }));
+            workRoot, taskOffice.say('agent.task.stoppedCommit', { task: task.id }),
+            { author: taskOffice.gitPerson(inst.id) });
           note += outcome === 'committed'
             ? taskOffice.say('agent.task.stoppedKept', { branch: fresh.branch })
             : taskOffice.say('agent.task.stoppedEmpty');
@@ -2410,7 +2412,8 @@ async function reworkTask(
 
   // Коммитим за автора, как и после обычной задачи: полагаться на то, что
   // он не забудет, нельзя — а незакоммиченная правка до ревью не доедет.
-  const committed = await commitAll(worktree, state.say('review.reworkCommit', { task: task.id }));
+  const committed = await commitAll(
+    worktree, state.say('review.reworkCommit', { task: task.id }), { author: state.gitPerson(inst.id) });
   if (committed === 'failed') return { ok: false, message: state.say('review.commitFailed') };
   return {
     ok: true,

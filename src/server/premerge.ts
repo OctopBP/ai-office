@@ -24,7 +24,7 @@ import { asLang, type Lang } from '../shared/i18n';
 import { t } from './i18n';
 import {
   assembleMerge, currentBranch, dirtyFiles, dropAssembled, mergeBranch,
-  stashPop, stashPush,
+  stashPop, stashPush, type Signature,
 } from './git';
 import { errorFiles, hasScript, runProjectCheck } from './checks';
 import { duplicateEdits, formatOverlapFiles, type DuplicateEdit } from './overlap';
@@ -112,6 +112,8 @@ export interface PreMergeOptions {
    * его несохранённой работы нельзя.
    */
   allowDirty?: boolean;
+  /** Подпись коммита слияния. Не задана — подписывает сам офис. */
+  sign?: Signature;
 }
 
 /**
@@ -213,7 +215,7 @@ export async function preMergeGate(options: PreMergeOptions): Promise<PreMergeRe
 
   try {
     // 2. Пробное слияние: собирается в копии офиса, основная ветка не двигается.
-    const built = await assembleMerge(repoDir, branch, base, integrationDir, lang);
+    const built = await assembleMerge(repoDir, branch, base, integrationDir, lang, options.sign);
     if (built.kind === 'conflict') {
       report.conflicts = built.conflicts;
       return done('conflict', false, t(lang, 'premerge.conflict', {
@@ -278,7 +280,8 @@ export async function preMergeGate(options: PreMergeOptions): Promise<PreMergeRe
     // 4. Гейт зелёный — сливаем как раньше. Слияние пересобирается в той же
     //    копии офиса из тех же коммитов, поэтому проверенное дерево и влитое —
     //    одно и то же.
-    const outcome = await mergeBranch(repoDir, branch, base, integrationDir, lang);
+    const outcome = await mergeBranch(
+      repoDir, branch, base, integrationDir, lang, undefined, options.sign);
     if (outcome.kind === 'nothing') {
       return done('nothing', true, t(lang, 'premerge.nothing', { branch, base }));
     }

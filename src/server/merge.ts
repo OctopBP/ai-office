@@ -5,7 +5,7 @@ import type { Lang } from '../shared/i18n';
 import { t } from './i18n';
 import { taskRepo, worktreesRoot, type OfficeState, type Task } from './state';
 import { dispatch } from './plan';
-import { checkMergeable, mergeBranch, removeWorktree } from './git';
+import { checkMergeable, mergeBranch, OFFICE_PERSON, removeWorktree } from './git';
 import { runTypecheck } from './checks';
 import { duplicateEdits, formatOverlaps } from './overlap';
 
@@ -177,7 +177,9 @@ export async function mergeQueue(taskIds: string[], state: OfficeState): Promise
             ok: result.ok,
             message: state.say('merge.verifyFailed', { base, message: result.message }),
           };
-        });
+        },
+        // Ручная очередь: работа исполнителя, а влил её по команде человека сам офис.
+        { author: state.gitPerson(task.assigneeId), committer: OFFICE_PERSON });
       if (checks.result) step.typecheck = checks.result;
       state.addChat(OFFICE_SENDER,
         state.say('merge.stepOutcome', { task: task.id, message: outcome.message }));

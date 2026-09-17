@@ -37,7 +37,7 @@ import {
   layoutOptions,
   layoutTitle, type DeskPlan,
 } from './layout';
-import { repoProblem } from './git';
+import { OFFICE_PERSON, repoProblem, type GitPerson } from './git';
 import {
   limitsView, noteRateLimit as recordRateLimit, pollLimits,
   type LimitSource, type RateLimitInfo,
@@ -865,6 +865,33 @@ export class OfficeState {
    */
   role(id: string): Role | undefined {
     return this.roleList.find((r) => r.id === id);
+  }
+
+  /**
+   * Подпись сотрудника для git: имя владельца и роль с номером в скобках —
+   * «Денис (Backend #2)», а без имени просто «Backend #2». Почта — из id
+   * сотрудника, она не меняется при переименовании, и хостинг рисует одному
+   * сотруднику один и тот же значок. Нет такого сотрудника (уволен, id пуст) —
+   * подписывает сам офис.
+   */
+  gitPerson(instanceId: string | null | undefined): GitPerson {
+    const inst = instanceId ? this.instances.get(instanceId) : undefined;
+    if (!inst) return OFFICE_PERSON;
+    const byRole = labelFor(null, this.role(inst.roleId)?.title ?? inst.roleId, numberOf(inst.id));
+    return {
+      name: inst.name ? `${inst.name} (${byRole})` : byRole,
+      // В подписи git запрещены только «<», «>» и перевод строки; «#» и пробелы
+      // в почте выглядят чужеродно, остальное (в том числе кириллица) оставляем.
+      email: `${inst.id.replace(/[\s#<>@]+/g, '-')}@local`,
+    };
+  }
+
+  /** Менеджер офиса — тот, кто подписывает слияния, когда ревьюера не было. */
+  managerId(): string | null {
+    for (const inst of this.instances.values()) {
+      if (this.role(inst.roleId)?.isManager) return inst.id;
+    }
+    return null;
   }
 
   /** Роли, с которыми офис работает сейчас: весь набор, кроме архива. */
