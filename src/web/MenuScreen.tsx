@@ -5,9 +5,7 @@ import { SetupWizard } from './SetupWizard';
 import { money } from './money';
 import type { OfficeView } from '../shared/types';
 import { t } from './i18n';
-
-/** Цвета аватарок офисов — те же и в том же порядке, что в рейле. */
-const HUES = ['var(--hue-blue)', 'var(--hue-amber)', 'var(--hue-pink)', 'var(--hue-violet)'];
+import { officeAvatarColor } from './officeColor';
 
 /**
  * Стартовый экран приложения: выбор существующего офиса или создание нового.
@@ -70,8 +68,7 @@ export function MenuScreen() {
             {empty && <p className="empty">{t('menu.noOffices')}</p>}
             <div className="menu-offices">
               {list.map((o) => (
-                <OfficeRow key={o.id} office={o} hue={HUES[offices.indexOf(o) % HUES.length]}
-                  onOpen={() => enterOffice(o.id)} />
+                <OfficeRow key={o.id} office={o} onOpen={() => enterOffice(o.id)} />
               ))}
               <button className="dashed" onClick={startCreate}>{t('shell.newOffice')}</button>
             </div>
@@ -100,13 +97,13 @@ export function MenuScreen() {
  * уже не сравнение. Расход неоткрытого офиса читается из его файла состояния
  * (`activity.ts`), поэтому цифры есть у всех строк, а не только у текущей.
  */
-function OfficeRow({ office: o, hue, onOpen }: { office: OfficeView; hue: string; onOpen: () => void }) {
+function OfficeRow({ office: o, onOpen }: { office: OfficeView; onOpen: () => void }) {
   const spent = o.activity?.usage.costUsd ?? 0;
   const today = o.activity?.today.costUsd ?? 0;
   return (
     <button className={`menu-office${o.current ? ' current' : ''}`} onClick={onOpen}
       title={o.projectDir}>
-      <span className="menu-office-avatar" style={{ background: hue }} />
+      <span className="menu-office-avatar" style={{ background: officeAvatarColor(o.id) }} />
       <span className="menu-office-text">
         <span className="menu-office-name">{o.name}</span>
         {o.noProject
