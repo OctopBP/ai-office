@@ -23,6 +23,7 @@ export const en = {
   'toast.needsMerge': ' · needs merging',
   'toast.settingsNotSaved': 'The settings were not saved',
   'toast.layoutNotSaved': 'The layout was not saved',
+  'toast.iconNotSaved': 'The office icon was not saved',
 
   // -------------------------------------------------- список офисов
   'office.neverOpened': 'never opened',
@@ -274,6 +275,10 @@ export const en = {
   "offices.dirHint": "An absolute path. If the folder does not exist, the office creates it and sets up a git repository — without one, task isolation by branches does not work.",
   "offices.create": "Create and open",
   "offices.new": "＋ New office",
+  "offices.icon": "Icon",
+  "offices.iconTitle": "Office icon",
+  "offices.iconCustomPlaceholder": "Custom symbol",
+  "offices.iconReset": "Reset",
   "menu.noProject": "no project",
   "setup.title": "New office",
   "setup.step.what": "What",

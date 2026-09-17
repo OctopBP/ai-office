@@ -22,6 +22,7 @@ export const ru: Record<keyof typeof en, string> = {
   'toast.needsMerge': ' · нужно слияние',
   'toast.settingsNotSaved': 'Настройки не сохранены',
   'toast.layoutNotSaved': 'Расстановка не сохранена',
+  'toast.iconNotSaved': 'Иконка офиса не сохранена',
 
   // -------------------------------------------------- список офисов
   'office.neverOpened': 'ещё не открывался',
@@ -273,6 +274,10 @@ export const ru: Record<keyof typeof en, string> = {
   "offices.dirHint": "Абсолютный путь. Если папки нет, офис создаст её и заведёт git-репозиторий — без него не работает изоляция задач по веткам.",
   "offices.create": "Создать и открыть",
   "offices.new": "＋ Новый офис",
+  "offices.icon": "Иконка",
+  "offices.iconTitle": "Иконка офиса",
+  "offices.iconCustomPlaceholder": "Свой символ",
+  "offices.iconReset": "Сбросить",
   "menu.noProject": "без проекта",
   "setup.title": "Новый офис",
   "setup.step.what": "Что строим",
