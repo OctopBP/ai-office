@@ -478,6 +478,8 @@ export const ru: Record<keyof typeof en, string> = {
   'boot.officesGetOnly': 'Список офисов отдаётся только по GET.',
   'boot.noRoute': 'Метода {url} нет.',
   'boot.noIcon': 'У офиса {office} нет иконки-картинки.',
+  'boot.journalGetOnly': 'Журнал офиса отдаётся только по GET.',
+  'boot.journalClosed': 'Офис «{office}» не открыт — журнал читать негде. Откройте его и повторите запрос.',
   'boot.notFound': 'Не найдено',
   'boot.webNotBuilt': 'Веб не собран. Соберите его: npm run build (или откройте vite на :5173).',
   'boot.officeOpening': 'Офис ещё открывается — команда не выполнена. Повторите через секунду.',
