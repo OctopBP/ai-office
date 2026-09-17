@@ -51,23 +51,23 @@
    окна и низ рейла остаются на месте. Меньше двух строк список не ужимается. */
 .rail-offices { display: flex; flex-direction: column; gap: var(--space-1); margin-bottom: var(--space-5); flex: 0 1 auto; min-height: 0; }
 .rail-office-list {
-  display: flex; flex-direction: column; gap: var(--space-1); flex: 0 1 auto; min-height: 116px;
+  display: flex; flex-direction: column; gap: var(--space-1); flex: 0 1 auto; min-height: 84px;
   overflow-y: auto; overscroll-behavior: contain; scrollbar-width: thin;
   margin: 0 calc(-1 * var(--space-1)); padding: 0 var(--space-1);
 }
 .rail-office-list > * { flex: none; }
 .rail-office {
   display: flex; align-items: center; justify-content: flex-start; gap: var(--space-2);
-  height: 56px; min-height: 0; padding: 0 var(--space-3); text-align: left;
+  height: 40px; min-height: 0; padding: 0 var(--space-2); text-align: left;
   background: none; border: 1px solid transparent; border-radius: var(--radius-row);
 }
 .rail-office:hover:not(:disabled) { background: var(--film); }
 .rail-office.current { background: var(--film-2); border-color: var(--hairline); cursor: default; }
 .rail-office:disabled { opacity: 1; }
 .rail-office-avatar {
-  width: 30px; height: 30px; border-radius: var(--radius-icon); background: var(--film); flex: none;
+  width: 24px; height: 24px; border-radius: var(--radius-icon); background: var(--film); flex: none;
   display: flex; align-items: center; justify-content: center;
-  font-size: var(--fs-md); font-weight: 500; color: var(--ink-2);
+  font-size: var(--fs-body); font-weight: 500; color: var(--ink-2);
 }
 .rail-office.current .rail-office-avatar { background: var(--accent); color: var(--accent-ink); }
 .rail-office-text { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
