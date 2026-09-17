@@ -71,6 +71,7 @@ const ROOM = 8;
 const POSE_TITLE: Record<Pose, string> = {
   walk: 'идёт', idle: 'стоит', talk: 'говорит', type: 'печатает',
   sitIdle: 'сидит', sitTalk: 'сидит и говорит', game: 'играет',
+  pushup: 'отжимается', drink: 'пьёт', dance: 'танцует',
 };
 
 /**

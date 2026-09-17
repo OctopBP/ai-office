@@ -19,7 +19,7 @@ import type { Theme } from './sprites';
 import { type Graphics, loadGraphics, saveGraphics } from './office3d/graphics';
 import { fitNow } from './office3d/fit';
 import { catalog, DEFAULT_LAYOUT_ID, layoutFor, passabilityFor } from './layoutData';
-import { interestsFor, type Interest } from './interests';
+import { interestsFor, rotateInterests, type Interest } from './interests';
 import { isBusy } from './agentState';
 import { adjacentFree, deskPoint, findPath, meetingSeat } from '../shared/layout';
 
@@ -166,6 +166,12 @@ interface State {
   paused: boolean;
   /** Стартовое меню выбора офиса или уже открытая комната. */
   screen: 'menu' | 'office';
+  /**
+   * Номер раздачи занятий: растёт при каждой ротации (`rotateRest`). Сама
+   * раздача живёт в `interests.ts` и в сторе не хранится; номер нужен
+   * рендеру, чтобы перечитать её, когда ни один агент не менялся.
+   */
+  restRev: number;
   /** Пришёл ли хоть один snapshot — до этого момента список офисов неизвестен. */
   booted: boolean;
   /** За 8 секунд после подключения snapshot не пришёл — сервер, видимо, недоступен. */
@@ -376,6 +382,7 @@ export const useStore = create<State>((set, get) => ({
   busy: false,
   paused: false,
   screen: 'menu',
+  restRev: 0,
   booted: false,
   connectFailed: false,
   pending: null,
@@ -1031,6 +1038,25 @@ function pushToast(toast: Toast): void {
 darkMedia.addEventListener('change', () => {
   if (useStore.getState().themeMode === 'system') useStore.setState({ theme: resolveTheme('system') });
 });
+
+/**
+ * Ротация занятий: у кого вышел срок, тот берётся за другое дело.
+ *
+ * Срок у каждого свой (`interests.ts`), поэтому тик частый, а меняется по
+ * нему обычно один человек. Кому идти — решает `reseat`, как и после любой
+ * другой перемены: сравнивает раздачу до и после и ведёт тех, у кого
+ * сменилось место. Сменившим занятие на том же месте идти некуда — им
+ * хватает нового номера раздачи, по которому рендер перечитает позу.
+ */
+function rotateRest(): void {
+  const s = useStore.getState();
+  if (s.screen !== 'office') return;
+  const before = interestsOf(s);
+  if (rotateInterests().length === 0) return;
+  reseat(before, '');
+  useStore.setState((st) => ({ restRev: st.restRev + 1 }));
+}
+if (typeof window !== 'undefined') setInterval(rotateRest, 1000);
 
 export function dismissToast(id: string): void {
   useStore.setState((s) => ({ toasts: s.toasts.filter((t) => t.id !== id) }));

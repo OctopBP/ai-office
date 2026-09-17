@@ -43,7 +43,9 @@ type Clip = Pose | Move;
 const CLIP_TITLE: Record<Clip, string> = {
   idle: 'стоит', walk: 'идёт', talk: 'говорит', type: 'печатает',
   sitIdle: 'сидит', sitTalk: 'сидит и говорит', game: 'играет',
+  pushup: 'отжимается', drink: 'пьёт', dance: 'танцует',
   sitDown: 'садится', standUp: 'встаёт', sitToType: 'к клавиатуре', typeToSit: 'от клавиатуры',
+  getDown: 'ложится', getUp: 'поднимается',
 };
 const CLIPS: Clip[] = [...POSE_KEYS, ...MOVE_KEYS];
 

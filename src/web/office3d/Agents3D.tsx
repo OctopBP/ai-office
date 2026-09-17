@@ -33,6 +33,10 @@ import sitDownUrl from '../../../design/models/characters/animations/sit-down.fb
 import standUpUrl from '../../../design/models/characters/animations/stand-up.fbx?url';
 import sitToTypeUrl from '../../../design/models/characters/animations/sit-to-type.fbx?url';
 import typeToSitUrl from '../../../design/models/characters/animations/type-to-sit.fbx?url';
+import pushUpUrl from '../../../design/models/characters/animations/push-up.fbx?url';
+import pushUpToIdleUrl from '../../../design/models/characters/animations/push-up-to-idle.fbx?url';
+import drinkUrl from '../../../design/models/characters/animations/drink.fbx?url';
+import danceUrl from '../../../design/models/characters/animations/dance.fbx?url';
 import { deskPoint, deskSprite, desks, FOOT_DX, FOOT_DY } from '../../shared/layout';
 import type { Layout } from '../../shared/layout';
 import { catalog } from '../layoutData';
@@ -79,19 +83,46 @@ const SKIN_NAMES = Object.keys(SKIN_URLS).sort();
 export { FOOT_DX, FOOT_DY };
 
 /**
- * Позы, в которых бывает агент. Сидячие и стоячие разделены не для красоты:
- * переход между группами нельзя проиграть кроссфейдом — человек должен встать
- * или сесть, и на это есть отдельные клипы.
+ * Позы, в которых бывает агент. Стоячие, сидячие и лежачие разделены не для
+ * красоты: переход между группами нельзя проиграть кроссфейдом — человек
+ * должен встать, сесть или лечь, и на это есть отдельные клипы.
  */
-export type Pose = 'walk' | 'idle' | 'talk' | 'type' | 'sitIdle' | 'sitTalk' | 'game';
+export type Pose = 'walk' | 'idle' | 'talk' | 'type' | 'sitIdle' | 'sitTalk' | 'game'
+  | 'pushup' | 'drink' | 'dance';
 
-export const SEATED: Record<Pose, boolean> = {
-  walk: false, idle: false, talk: false,
-  type: true, sitIdle: true, sitTalk: true, game: true,
+/** Стойка: на ногах, на сиденье или на полу. */
+export type Stance = 'stand' | 'sit' | 'floor';
+
+export const STANCE: Record<Pose, Stance> = {
+  walk: 'stand', idle: 'stand', talk: 'stand', drink: 'stand', dance: 'stand',
+  type: 'sit', sitIdle: 'sit', sitTalk: 'sit', game: 'sit',
+  pushup: 'floor',
 };
 
+export const SEATED: Record<Pose, boolean> = Object.fromEntries(
+  (Object.keys(STANCE) as Pose[]).map((p) => [p, STANCE[p] === 'sit']),
+) as Record<Pose, boolean>;
+
 /** Переходы между позами — играются один раз и замирают на последнем кадре. */
-export type Move = 'sitDown' | 'standUp' | 'sitToType' | 'typeToSit';
+export type Move = 'sitDown' | 'standUp' | 'sitToType' | 'typeToSit' | 'getDown' | 'getUp';
+
+/**
+ * Чем переходят между стойками. Пары без клипа (с сиденья на пол и обратно)
+ * в таблице нет: такой переход `goTo` собирает из двух, через стойку «стоя».
+ */
+const STANCE_MOVES: Record<Stance, Partial<Record<Stance, Move>>> = {
+  stand: { sit: 'sitDown', floor: 'getDown' },
+  sit: { stand: 'standUp' },
+  floor: { stand: 'getUp' },
+};
+
+/**
+ * Переходы, которые играются задом наперёд. У Mixamo есть клип «встать после
+ * отжиманий», а «лечь на отжимания» нет; тот же клип с конца — это и есть
+ * «лечь»: человек приседает, ставит руки и опускается. Отдельного файла для
+ * этого не заводим — клип один, действия два (`useCharacter`).
+ */
+const REVERSED: Partial<Record<Move, true>> = { getDown: true };
 
 /** Длительность кроссфейда между зацикленными позами, секунды. */
 const FADE = 0.25;
@@ -256,14 +287,20 @@ function inkOn(hex: string): string {
 const POSE_URLS: Record<Pose, string> = {
   walk: walkUrl, idle: idleUrl, talk: talkUrl, type: typeUrl,
   sitIdle: sitIdleUrl, sitTalk: sitTalkUrl, game: gameUrl,
+  pushup: pushUpUrl, drink: drinkUrl, dance: danceUrl,
 };
-const MOVE_URLS: Record<Move, string> = {
+/** У `getDown` файла нет: это `getUp` наоборот, см. `REVERSED`. */
+const MOVE_URLS: Record<Exclude<Move, 'getDown'>, string> = {
   sitDown: sitDownUrl, standUp: standUpUrl,
   sitToType: sitToTypeUrl, typeToSit: typeToSitUrl,
+  getUp: pushUpToIdleUrl,
 };
 export const POSE_KEYS = Object.keys(POSE_URLS) as Pose[];
-export const MOVE_KEYS = Object.keys(MOVE_URLS) as Move[];
-const CLIP_URLS = [charUrl, ...POSE_KEYS.map((k) => POSE_URLS[k]), ...MOVE_KEYS.map((k) => MOVE_URLS[k])];
+const MOVE_FILE_KEYS = Object.keys(MOVE_URLS) as (keyof typeof MOVE_URLS)[];
+export const MOVE_KEYS: Move[] = [...MOVE_FILE_KEYS, 'getDown'];
+const CLIP_URLS = [
+  charUrl, ...POSE_KEYS.map((k) => POSE_URLS[k]), ...MOVE_FILE_KEYS.map((k) => MOVE_URLS[k]),
+];
 
 export interface Loaded {
   model: THREE.Group;
@@ -289,7 +326,11 @@ export function useCharacter(): Loaded {
   return useMemo(() => {
     const clips = {} as Record<Pose | Move, THREE.AnimationClip>;
     POSE_KEYS.forEach((k, i) => { clips[k] = loaded[1 + i].animations[0]; });
-    MOVE_KEYS.forEach((k, i) => { clips[k] = loaded[1 + POSE_KEYS.length + i].animations[0]; });
+    MOVE_FILE_KEYS.forEach((k, i) => { clips[k] = loaded[1 + POSE_KEYS.length + i].animations[0]; });
+    // Копия, а не тот же объект: микшер выдаёт на один клип одно действие, и
+    // «лечь» с «встать» иначе делили бы одно время и одно направление.
+    clips.getDown = clips.getUp.clone();
+    clips.getDown.name = 'getDown';
     const poses = {} as Record<Pose, THREE.AnimationClip>;
     for (const k of POSE_KEYS) poses[k] = clips[k];
     return {
@@ -464,6 +505,11 @@ export function buildRig(
     // Переходы играются с начала: посадка с середины — это прыжок на подушку.
     if ((POSE_KEYS as readonly string[]).includes(key)) {
       a.time = (phase * a.getClip().duration) % a.getClip().duration;
+    } else if (REVERSED[key as Move]) {
+      // Обратный переход: с конца к началу. `reset` время обнуляет, а
+      // направление не трогает — ставим оба сами.
+      a.timeScale = -1;
+      a.time = a.getClip().duration;
     }
     return a;
   };
@@ -597,6 +643,9 @@ function Agent({
    *  прерванный переход надо погасить, а по целевой позе не понять, каким
    *  клипом в неё шли. */
   const transition = useRef<Move | null>(null);
+  /** Куда ведём через промежуточную стойку: с сиденья на пол прямого клипа
+   *  нет, и `pending` держит «встать», а сюда записана конечная поза. */
+  const via = useRef<Pose | null>(null);
 
   /**
    * Запуск анимации живёт в эффекте, а не рядом с созданием действий. React в
@@ -614,6 +663,7 @@ function Agent({
     pose.current = 'idle';
     pending.current = null;
     transition.current = null;
+    via.current = null;
     rig.start('idle').play();
 
     /**
@@ -641,6 +691,8 @@ function Agent({
        */
       rig.start(next).setEffectiveWeight(1).crossFadeFrom(move, FADE, false).play();
       pose.current = next;
+      // Промежуточная стойка достигнута: конечную позу запросит следующий кадр.
+      via.current = null;
     };
     rig.mixer.addEventListener('finished', onFinished);
     return () => { rig.mixer.removeEventListener('finished', onFinished); };
@@ -655,7 +707,8 @@ function Agent({
    * только после него включается целевая поза.
    */
   const goTo = (next: Pose) => {
-    if (next === pose.current || next === pending.current) return;
+    if (next === pose.current || next === pending.current || next === via.current) return;
+    via.current = null;
     /**
      * Незаконченный переход гасим. Без этого он доигрывал сам по себе и
      * досрочно объявлял позу, в которую вёл: агента звали в путь, пока он
@@ -674,18 +727,35 @@ function Agent({
       pending.current = null;
     }
     const from = pose.current;
-    const move: Move | null = SEATED[from] === SEATED[next]
-      ? (from === 'sitIdle' && next === 'type' ? 'sitToType'
-        : from === 'type' && next === 'sitIdle' ? 'typeToSit' : null)
-      : (SEATED[next] ? 'sitDown' : 'standUp');
+    let target = next;
+    let move: Move | null;
+    if (STANCE[from] === STANCE[next]) {
+      move = from === 'sitIdle' && next === 'type' ? 'sitToType'
+        : from === 'type' && next === 'sitIdle' ? 'typeToSit' : null;
+    } else {
+      move = STANCE_MOVES[STANCE[from]][STANCE[next]] ?? null;
+      /**
+       * Прямого клипа нет — с сиденья на пол и обратно. Кроссфейд тут не
+       * замена: подъём на подушку уезжает в ноль за четверть секунды, и
+       * человек проваливается с дивана на пол. Идём через стойку: сначала
+       * встаём, а когда поза станет стоячей, `goTo` из кадра дошлёт до цели
+       * вторым переходом.
+       */
+      if (!move) {
+        move = STANCE_MOVES[STANCE[from]].stand ?? null;
+        target = 'idle';
+        via.current = next;
+      }
+    }
 
     rig.actions[from].fadeOut(FADE);
     if (!move) {
       rig.start(next).setEffectiveWeight(1).fadeIn(FADE).play();
       pose.current = next;
+      via.current = null;
       return;
     }
-    pending.current = next;
+    pending.current = target;
     transition.current = move;
     rig.start(move).setEffectiveWeight(1).fadeIn(FADE).play();
   };
@@ -755,7 +825,10 @@ function Agent({
       : interest?.kind === 'game' ? 'game'
         : interest?.kind === 'sit' ? 'sitIdle'
           : interest?.kind === 'talk' ? 'talk'
-            : 'idle';
+            : interest?.kind === 'pushup' ? 'pushup'
+              : interest?.kind === 'drink' ? 'drink'
+                : interest?.kind === 'dance' ? 'dance'
+                  : 'idle';
 
   /** Куда смотреть стоя: занятие может попросить свой разворот — собеседники
    *  разворачиваются друг к другу, — иначе как обычно, на юг. */
@@ -1013,9 +1086,12 @@ function Crowd({ offset }: { offset: [number, number] }) {
 
   /** Кто чем занят. Считается тем же модулем, что раздаёт свободным агентам
    *  места в сторе, — иначе поза разъехалась бы с координатой. */
+  // Ротация занятий (`restRev`) меняет раздачу, не меняя ни одного агента:
+  // без неё в зависимостях человек шёл бы на новое место со старой позой.
+  const restRev = useStore((s) => s.restRev);
   const interests = useMemo(
     () => interestsFor(layout, catalog, instances, roles),
-    [layout, instances, roles],
+    [layout, instances, roles, restRev],  // eslint-disable-line react-hooks/exhaustive-deps
   );
 
   return (

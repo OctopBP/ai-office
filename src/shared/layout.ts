@@ -803,6 +803,16 @@ export function isBlocked(p: Passability, x: number, y: number): boolean {
 }
 
 /**
+ * Клетка — место (подушка дивана, стул у стола). На ней не стоят, к ней
+ * подходят: стоячее занятие на такой клетке поставило бы человека в чужое
+ * кресло.
+ */
+export function isEntry(p: Passability, x: number, y: number): boolean {
+  if (x < 0 || y < 0 || x >= p.cols || y >= p.rows) return false;
+  return p.entries.has(cellIndex(p, x, y));
+}
+
+/**
  * Клетки, которые занимает след предмета по одной оси: от `from` длиной `len`.
  *
  * След округляется до целых тайлов, а не занимает тайл по касанию

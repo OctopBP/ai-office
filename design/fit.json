@@ -43,6 +43,18 @@
     "game": {
       "anchor": "hips",
       "offset": [0, 0, 0]
+    },
+    "pushup": {
+      "anchor": "feet",
+      "offset": [0, 0, 0]
+    },
+    "drink": {
+      "anchor": "feet",
+      "offset": [0, 0, 0]
+    },
+    "dance": {
+      "anchor": "feet",
+      "offset": [0, 0, 0]
     }
   }
 }
