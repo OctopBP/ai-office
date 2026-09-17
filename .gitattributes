@@ -1,0 +1,9 @@
+# Крупные бинарные ассеты лежат в Git LFS: 3D-модели, анимации, сцены Blender
+# и фототекстуры. Пиксельные спрайты в design/sprites остаются обычными файлами:
+# они маленькие, их генерирует скрипт, и диф по ним нужен чаще, чем экономия.
+*.glb filter=lfs diff=lfs merge=lfs -text
+*.fbx filter=lfs diff=lfs merge=lfs -text
+*.blend filter=lfs diff=lfs merge=lfs -text
+*.jpg filter=lfs diff=lfs merge=lfs -text
+*.jpeg filter=lfs diff=lfs merge=lfs -text
+design/scenes/*.png filter=lfs diff=lfs merge=lfs -text
