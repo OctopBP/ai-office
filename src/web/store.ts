@@ -4,7 +4,7 @@ import type {
   McpServerState, MergeCheck, MergeCheckState, MergeRun, MergeStep, MergeStepStatus,
   PermissionDecision,
   MarketView, PermissionMode, PermissionRequest, MeetingView, RoleDraft, RoleEditable, RoleOp, RoleView,
-  ServerEvent, Settings, TaskView, Usage, CloudStatus, OfficeView, PullRequestView, PrStage,
+  ServerEvent, Settings, TaskView, Usage, CloudStatus, OfficeView, OfficeIcon, PullRequestView, PrStage,
   EpicView, LimitsView, FactView, OwnerQuestion, LifeView, RitualId, DirectionView, ProposalView,
   OfficeSetupPlan, SetupCatalog, SetupStep,
 } from '../shared/types';
@@ -295,6 +295,8 @@ interface State {
   /** Живой офис: журнал, вопросы владельцу, ритуалы (docs/design/living-office). */
   facts: FactView[];
   questions: OwnerQuestion[];
+  /** Сколько вопросов владельцу ждут решения — для бейджа на вкладке «Жизнь офиса». */
+  openQuestions: number;
   life: LifeView;
   /** Направления владельца и предложения офиса. */
   directions: DirectionView[];
@@ -445,6 +447,7 @@ export const useStore = create<State>((set, get) => ({
   workflows: [],
   facts: [],
   questions: [],
+  openQuestions: 0,
   directions: [],
   proposals: [],
   life: {
@@ -592,7 +595,7 @@ export const useStore = create<State>((set, get) => ({
           prs: Object.fromEntries(e.prs.map((pr) => [pr.taskId, pr])),
           runs: Object.fromEntries(e.runs.map((r) => [r.subject.taskId ?? r.id, r])),
           workflows: e.workflows,
-          facts: e.facts, questions: e.questions, life: e.life,
+          facts: e.facts, questions: e.questions, openQuestions: e.openQuestions, life: e.life,
           directions: e.directions, proposals: e.proposals,
           booted: true, connectFailed: false,
           // Снапшот пришёл во время входа/создания — офис открыт, показываем комнату.
@@ -740,8 +743,19 @@ export const useStore = create<State>((set, get) => ({
         // а потом врало бы, что сервер недоступен. Список офисов сервер
         // присылает прямо перед ошибкой, поэтому показываем меню с причиной:
         // человек может открыть другой проект, не перезапуская сервер.
-        // Отказы остальных операций (создание, вход, переименование) меню
-        // разбирает репликой «офис» в чате — их эта ветка не трогает.
+        // Отказы создания, входа и переименования меню разбирает репликой
+        // «офис» в чате — их эта ветка не трогает. Иконка — отдельный, более
+        // новый op: для неё протокол сразу даёт это событие, поэтому здесь же
+        // и показываем тост, без похода через чат.
+        if (e.op === 'icon') {
+          pushToast({
+            id: `office-icon-error-${e.officeId ?? 'x'}`,
+            kind: 'failed',
+            title: tr('toast.iconNotSaved'),
+            detail: e.message,
+          });
+          break;
+        }
         set((s) => (e.op === 'open' && !s.booted
           ? {
             booted: true,
@@ -835,6 +849,7 @@ export const useStore = create<State>((set, get) => ({
           questions: s.questions.some((q) => q.id === e.question.id)
             ? s.questions.map((q) => (q.id === e.question.id ? e.question : q))
             : [...s.questions, e.question],
+          openQuestions: e.openQuestions,
         }));
         break;
       case 'life':
@@ -1123,11 +1138,14 @@ export function formatLastOpened(ts: number): string {
   return new Date(ts).toLocaleDateString(locale(), { day: 'numeric', month: 'long' });
 }
 
-/** Текущий офис — всегда первой строкой, остальные по убыванию времени открытия. */
+/**
+ * Порядок списка офисов — по имени, стабильный и не зависящий от того, какой
+ * офис сейчас активен. `lastOpenedAt` для сортировки не годится: он меняется
+ * при каждом входе в офис, из-за чего строка прыгала бы наверх при выборе.
+ * Активный офис выделяется только визуально (класс `current` в `Rail.tsx`).
+ */
 export function sortedOffices(offices: OfficeView[]): OfficeView[] {
-  return [...offices].sort((a, b) => (
-    a.current !== b.current ? (a.current ? -1 : 1) : b.lastOpenedAt - a.lastOpenedAt
-  ));
+  return [...offices].sort((a, b) => a.name.localeCompare(b.name, locale()));
 }
 
 /** Сводка активности офиса для переключателя — уже посчитанные тексты и флаги, а не сырые числа. */
@@ -1506,6 +1524,11 @@ export function createOffice(name: string, projectDir: string): void {
 
 export function renameOffice(officeId: string, name: string): void {
   socket?.send(JSON.stringify({ c: 'rename_office', officeId, name }));
+}
+
+/** null сбрасывает иконку офиса к умолчанию (инициал). */
+export function setOfficeIcon(officeId: string, icon: OfficeIcon | null): void {
+  socket?.send(JSON.stringify({ c: 'set_office_icon', officeId, icon }));
 }
 
 /** Токен GitHub уходит на сервер и живёт только в памяти процесса. */

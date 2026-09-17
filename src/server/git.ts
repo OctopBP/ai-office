@@ -147,6 +147,26 @@ export async function baseBranch(dir: string): Promise<string | null> {
   return null;
 }
 
+/**
+ * Живое имя базовой ветки задачи. Имя фиксируется на задаче в момент заводки
+ * worktree — и к слиянию может протухнуть. Так и вышло с T-18: копию офиса
+ * отцепило (advanceBase уводит её с ветки, чтобы сдвинуть базу мимо чужих
+ * незакоммиченных правок), её вернули на временную ветку вида
+ * `local/2026-09-17`, задача ответвилась от неё, а потом временную ветку
+ * влили в main и удалили. Ветки больше нет — `git merge local/2026-09-17`
+ * падает с «not something we can merge», и задача стоит перед слиянием
+ * навсегда: сама по себе ссылка не воскреснет.
+ *
+ * Поэтому: записанную ветку берём, пока она есть; если её не стало — ту,
+ * которую репозиторий считает основной сейчас. Возвращаем записанное имя и
+ * когда замены не нашлось: пусть вызов упадёт с понятной ошибкой git, а не
+ * молча сольёт работу не туда.
+ */
+export async function liveBase(repoDir: string, recorded: string): Promise<string> {
+  if (await revision(repoDir, recorded)) return recorded;
+  return (await baseBranch(repoDir)) ?? recorded;
+}
+
 /** Инициализировать репозиторий с первым коммитом — только для директории, которую создали мы сами. */
 export async function initRepo(dir: string, lang: Lang): Promise<boolean> {
   if (!(await git(dir, ['init', '-b', 'main'])).ok) return false;

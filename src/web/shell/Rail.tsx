@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import {
   reset, setEditingLayout, sortedOffices, summarizeOfficeActivity, useStore,
 } from '../store';
+import type { OfficeView } from '../../shared/types';
 import type { ModalKind, PanelKind } from '../Overlays';
 import { money } from '../money';
 import { t } from '../i18n';
@@ -9,12 +10,28 @@ import { Icon, type IconName } from '../icons';
 import { Kbd } from '../Kbd';
 import { Hint, Tooltip } from '../Tooltip';
 import { HOTKEY } from '../hotkeys';
+import { officeAvatarColor } from '../officeColor';
 
 /** Буква на иконке офиса: первый символ названия, в верхнем регистре. */
 function officeInitial(name: string): string {
   const trimmed = name.trim();
   if (!trimmed) return '?';
   return Array.from(trimmed)[0].toUpperCase();
+}
+
+/**
+ * Содержимое аватарки офиса: назначенная иконка (эмодзи или картинка) —
+ * или, если её нет, инициал названия, как раньше. Картинка отдаётся сервером
+ * по id офиса (`/api/office-icon`) — путь к файлу хранится относительно
+ * директории проекта и браузеру недоступен напрямую.
+ */
+function OfficeAvatarIcon({ office }: { office: OfficeView }) {
+  const icon = office.icon;
+  if (icon?.kind === 'emoji') return <>{icon.value}</>;
+  if (icon?.kind === 'image') {
+    return <img className="rail-office-icon-img" src={`/api/office-icon?office=${office.id}`} alt="" />;
+  }
+  return <>{officeInitial(office.name)}</>;
 }
 
 type WindowKind = 'board' | 'merge' | 'log' | 'money' | 'meetings' | 'life' | 'flows' | 'team' | 'settings';
@@ -66,6 +83,11 @@ export function Rail({ onPanel, onModal }: {
   const counts: Partial<Record<WindowKind, number>> = {
     board: active, merge: readyToMerge, meetings: meetingLive ? 1 : 0,
   };
+  // Бейдж «Жизни офиса» — число вопросов владельцу, ждущих решения. Считает
+  // сервер (openQuestions в сторе), здесь только форматирование: 0 — бейджа
+  // нет вовсе, больше 9 — «9+», чтобы вкладка не гуляла по ширине.
+  const openQuestions = useStore((s) => s.openQuestions);
+  const lifeBadge = openQuestions > 0 ? (openQuestions > 9 ? '9+' : String(openQuestions)) : null;
 
   // «Сегодня» — по агентам, как в HUD: общая сумма врала после перезапуска.
   const today = Object.values(instances).reduce((sum, i) => sum + i.today.costUsd, 0);
@@ -112,7 +134,9 @@ export function Rail({ onPanel, onModal }: {
               onClick={() => { if (!o.current) enterOffice(o.id); }}
               disabled={pending === 'enter'}
               title={collapsed ? `${o.name} · ${status}` : o.projectDir}>
-              <span className="rail-office-avatar">{officeInitial(o.name)}</span>
+              <span className="rail-office-avatar" style={{ background: officeAvatarColor(o.id) }}>
+                <OfficeAvatarIcon office={o} />
+              </span>
               <span className="rail-office-text">
                 <span className="rail-office-name">{o.name}</span>
                 <span className="rail-office-status">{status}</span>
@@ -133,6 +157,7 @@ export function Rail({ onPanel, onModal }: {
       <div className="rail-windows">
         {WINDOWS.map(({ kind, icon }) => {
           const n = counts[kind];
+          const badge = kind === 'life' ? lifeBadge : null;
           const key = (HOTKEY as Partial<Record<WindowKind, string>>)[kind];
           return (
             // Подсказка — только свёрнутому рейлу: развёрнутый и так подписан.
@@ -144,6 +169,7 @@ export function Rail({ onPanel, onModal }: {
                 </span>
                 <span className="rail-win-label">{t(`shell.win.${kind}`)}</span>
                 {n ? <span className="rail-win-count">{n}</span> : null}
+                {badge && <span className="rail-win-badge">{badge}</span>}
                 {key && <Kbd keys={key} className="rail-win-key" />}
               </button>
             </Tooltip>

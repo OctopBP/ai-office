@@ -42,7 +42,7 @@ import {
   fetchRemote, isDirty, isRepo, mergeBaseInto, mergeInProgress, pushBranch, type Signature,
   removeWorktree, revision,
 } from './git';
-import { integrationDir, runProjectCheck, runTypecheck } from './merge';
+import { integrationDir, runProjectCheck, runTypecheck, taskBase } from './merge';
 import { formatOverlaps, type DuplicateEdit } from './overlap';
 import { mergeChecks, preMergeGate, toGateView, type PreMergeReport } from './premerge';
 import { mergedKind, recordOutcome } from './outcomes';
@@ -241,7 +241,10 @@ async function pipeline(state: OfficeState, taskId: string): Promise<void> {
 
   const repo = taskRepo(task, state);
   const branch = task.branch as string;
-  const base = task.baseBranch as string;
+  // Базу берём не с задачи напрямую: записанная ветка могла исчезнуть, пока
+  // задача ждала ревью, и тогда первый же `git merge` упал бы с «not something
+  // we can merge», а задача встала бы навсегда (T-18).
+  const base = (await taskBase(state, task)) as string;
 
   const workflow = workflowForTask(state, task);
   if (!workflow) {

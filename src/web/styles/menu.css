@@ -64,6 +64,8 @@
   color: #fff; font: 700 16px/1 var(--font-brand);
 }
 .office-card-avatar.sm { width: 24px; height: 24px; font-size: 11px; border-radius: var(--radius-icon); }
+.office-card-avatar { overflow: hidden; }
+.office-card-icon-img { width: 100%; height: 100%; object-fit: cover; }
 .office-card-open { color: var(--accent); opacity: 0; transition: opacity .15s; }
 .office-card:hover .office-card-open, .office-card:focus-visible .office-card-open { opacity: 1; }
 

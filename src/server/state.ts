@@ -8,7 +8,7 @@ import type {
   EpicStatus, EpicView,
   CloudStatus, EnvCheck, EnvReport, OfficeView, MergeCheck, MergeRun, LayoutOption,
   Layout, LayoutOverride, LayoutPropEdit,
-  PullRequestView, PrStage, ReviewNote, TaskOutcome,
+  PullRequestView, PrStage, ReviewNote, TaskOutcome, BranchMark,
   FactView, LifeView, OwnerQuestion, RitualId, RitualPolicy, RitualRun,
   DirectionView, ProposalView, InitiativeMode,
 } from '../shared/types';
@@ -656,6 +656,21 @@ export interface Task {
   type: TaskType | null;
   /** Записка при передаче (§4): что сделано, что решил сам, что не сделано. */
   handoff: Handoff | null;
+  /**
+   * Сколько раз сессия исполнителя сжимала контекст на этой задаче. Живёт на
+   * задаче, а не на сессии: сессия умирает вместе с процессом, а вопрос
+   * «эта задача буксует на автосжатии» остаётся и после перезапуска.
+   */
+  compactions: number;
+  /** Когда сжимала в последний раз. null — не сжимала ни разу. */
+  compactedAt: number | null;
+  /**
+   * Что разбор завалов решил про повисшую ветку: слить или удалить. Метка и
+   * ничего больше — веток офис сам не сливает и не удаляет.
+   */
+  branchMark: BranchMark | null;
+  /** Когда пометил. null — не помечена. */
+  branchMarkAt: number | null;
 }
 
 interface Pending {
@@ -1137,6 +1152,16 @@ export class OfficeState {
     return [...this.questions.values()].sort((a, b) => a.askedAt - b.askedAt);
   }
 
+  /**
+   * Сколько вопросов ждут владельца. Признак тот же, что у отбора в планёрку
+   * (`isOpenQuestion`), — иначе значок и планёрка считали бы по-разному.
+   */
+  openQuestionCount(): number {
+    let n = 0;
+    for (const q of this.questions.values()) if (isOpenQuestion(q)) n += 1;
+    return n;
+  }
+
   addQuestion(input: {
     from: string; taskId: string | null; kind: OwnerQuestion['kind']; text: string; assumption: string;
   }): OwnerQuestion {
@@ -1155,7 +1180,7 @@ export class OfficeState {
       dismissedAt: null,
     };
     this.questions.set(question.id, question);
-    this.emit({ t: 'question', question });
+    this.emit({ t: 'question', question, openQuestions: this.openQuestionCount() });
     this.markDirty();
     return question;
   }
@@ -1164,7 +1189,7 @@ export class OfficeState {
     const question = this.questions.get(id);
     if (!question) return null;
     Object.assign(question, patch);
-    this.emit({ t: 'question', question });
+    this.emit({ t: 'question', question, openQuestions: this.openQuestionCount() });
     this.markDirty();
     if (question.answeredAt || question.dismissedAt) {
       for (const wake of this.questionWaiters.get(id) ?? []) wake();
@@ -2151,6 +2176,10 @@ export class OfficeState {
       mergeCommit: null,
       type: input.type === undefined ? this.typeForRole(input.roleId) : input.type,
       handoff: null,
+      compactions: 0,
+      compactedAt: null,
+      branchMark: null,
+      branchMarkAt: null,
     };
     this.tasks.set(task.id, task);
     this.emit({ t: 'task', task: toTaskView(task) });
@@ -2229,8 +2258,9 @@ export class OfficeState {
     this.emit({ t: 'task', task: toTaskView(task) });
     this.markDirty();
     // Исход задачи ставит ритуал или закрытие — это не «работа идёт», а её
-    // конец; всё остальное сбрасывает тишину, по которой идут ритуалы.
-    if (!('outcome' in patch)) this.noteWork();
+    // конец; метку на ветке тоже ставит ритуал. Всё остальное сбрасывает
+    // тишину, по которой идут ритуалы.
+    if (!('outcome' in patch) && !('branchMark' in patch)) this.noteWork();
     return task;
   }
 
@@ -3596,12 +3626,20 @@ export class OfficeState {
       workflows: workflowCatalog(this),
       facts: this.factList().map(toFactView),
       questions: this.questionList(),
+      openQuestions: this.openQuestionCount(),
       life: this.lifeView(),
       directions: this.directionList(),
       proposals: this.proposalList().map(toProposalView),
     };
   }
 }
+
+/**
+ * Вопрос ещё ждёт владельца: без ответа и не снятый. Признак живёт здесь, а не
+ * в questions.ts, чтобы счётчик в снапшоте и отбор в планёрку не разъехались:
+ * `openQuestions` из questions.ts фильтрует этим же.
+ */
+export const isOpenQuestion = (q: OwnerQuestion): boolean => !q.answeredAt && !q.dismissedAt;
 
 /** Запись журнала для клиента: без служебной отметки «уже спрашивали». */
 export const toFactView = (f: Fact): FactView => ({
@@ -3629,6 +3667,9 @@ export const officeViews = (): OfficeView[] => {
     return {
       id: o.id, name: o.name, projectDir: o.projectDir, noProject: o.noProject === true,
       current: o.id === current?.id, lastOpenedAt: o.lastOpenedAt,
+      // Поля нет, если иконку не задавали: «нет иконки» и «иконка пустая» для
+      // веба разные вещи — во втором случае он рисовал бы пустоту.
+      ...(o.icon ? { icon: o.icon } : {}),
       activity: live?.opened
         ? {
           ...summarize({
@@ -3677,6 +3718,7 @@ export const toTaskView = (t: Task): TaskView => ({
   outcome: t.outcome ?? null,
   type: t.type ?? null,
   handoff: t.handoff ?? null,
+  branchMark: t.branchMark ?? null,
 });
 
 /**
@@ -3744,6 +3786,12 @@ function migrateTask(raw: Task & {
     workerSessionId: raw.workerSessionId ?? null, reviewerSessionId: raw.reviewerSessionId ?? null,
     epicId: raw.epicId ?? null, order: raw.order ?? 0, dependsOn: raw.dependsOn ?? [],
     outcome: raw.outcome ?? null, mergeCommit: raw.mergeCommit ?? null,
+    // Сжатий в старых сохранениях нет: «не знаем» считаем нулём, а не
+    // выдумываем — сводка здоровья скорее промолчит, чем соврёт.
+    compactions: raw.compactions ?? 0, compactedAt: raw.compactedAt ?? null,
+    // Метки на ветках в старых сохранениях нет: «не помечена» — разбор завалов
+    // пройдёт по ней сам и пометит, если ветка правда повисла.
+    branchMark: raw.branchMark ?? null, branchMarkAt: raw.branchMarkAt ?? null,
   };
 }
 

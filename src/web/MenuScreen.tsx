@@ -8,9 +8,7 @@ import { money } from './money';
 import type { OfficeView } from '../shared/types';
 import type { HomeTab } from './router';
 import { t, type UiKey } from './i18n';
-
-/** Цвета аватарок офисов — те же и в том же порядке, что в рейле. */
-const HUES = ['var(--hue-blue)', 'var(--hue-amber)', 'var(--hue-pink)', 'var(--hue-violet)'];
+import { officeAvatarColor } from './officeColor';
 
 const TABS: Array<[HomeTab, UiKey]> = [
   ['offices', 'home.tab.offices'],
@@ -25,6 +23,23 @@ const THEME_MODES: Array<[ThemeMode, UiKey]> = [
 ];
 
 const initial = (name: string): string => Array.from(name.trim())[0]?.toUpperCase() ?? '?';
+
+/**
+ * Аватарка офиса — та же, что в рейле (shell/Rail.tsx): цвет подложки по id
+ * офиса, а внутри назначенная иконка (эмодзи или картинка) или инициал имени.
+ * Картинку отдаёт сервер по id (`/api/office-icon`): путь к файлу хранится
+ * относительно директории проекта и браузеру напрямую недоступен.
+ */
+function OfficeAvatar({ office: o, small }: { office: OfficeView; small?: boolean }) {
+  const icon = o.icon;
+  return (
+    <span className={`office-card-avatar${small ? ' sm' : ''}`} style={{ background: officeAvatarColor(o.id) }}>
+      {icon?.kind === 'emoji' && icon.value}
+      {icon?.kind === 'image' && <img className="office-card-icon-img" src={`/api/office-icon?office=${o.id}`} alt="" />}
+      {!icon && initial(o.name)}
+    </span>
+  );
+}
 
 /**
  * Главный экран приложения: офисы карточками, расходы по всем офисам и
@@ -49,7 +64,6 @@ export function MenuScreen() {
 
   const [creating, setCreating] = useState(false);
   const list = useMemo(() => sortedOffices(offices), [offices]);
-  const hueOf = (o: OfficeView) => HUES[Math.max(0, offices.indexOf(o)) % HUES.length];
 
   // Вкладке настроек сервер не нужен: там только то, что живёт на этом компьютере.
   const needsServer = tab !== 'settings';
@@ -100,12 +114,12 @@ export function MenuScreen() {
                 <span className="office-card-name">{t('home.addOffice')}</span>
                 <span className="muted small">{t('home.addOfficeHint')}</span>
               </button>
-              {list.map((o) => <OfficeCard key={o.id} office={o} hue={hueOf(o)} />)}
+              {list.map((o) => <OfficeCard key={o.id} office={o} />)}
             </div>
           </>
         )}
 
-        {tab === 'spending' && booted && pending !== 'enter' && <Spending offices={list} hueOf={hueOf} />}
+        {tab === 'spending' && booted && pending !== 'enter' && <Spending offices={list} />}
 
         {tab === 'settings' && <DeviceSettings />}
       </main>
@@ -126,7 +140,7 @@ export function MenuScreen() {
  * деньги, можно только сравнив проекты между собой. Расход неоткрытого офиса
  * читается из его файла состояния (`activity.ts`), поэтому цифры есть у всех.
  */
-function OfficeCard({ office: o, hue }: { office: OfficeView; hue: string }) {
+function OfficeCard({ office: o }: { office: OfficeView }) {
   const enterOffice = useStore((s) => s.enterOffice);
   const activity = summarizeOfficeActivity(o);
   const spent = o.activity?.usage.costUsd ?? 0;
@@ -135,7 +149,7 @@ function OfficeCard({ office: o, hue }: { office: OfficeView; hue: string }) {
     <button className={`office-card float${o.current ? ' current' : ''}`}
       onClick={() => enterOffice(o.id)} title={o.projectDir}>
       <span className="office-card-top">
-        <span className="office-card-avatar" style={{ background: hue }}>{initial(o.name)}</span>
+        <OfficeAvatar office={o} />
         {o.current
           ? <span className="chip done">{t('menu.openNow')}</span>
           : <span className="chip office-card-open">{t('menu.open')}</span>}
@@ -174,7 +188,7 @@ function OfficeCard({ office: o, hue }: { office: OfficeView; hue: string }) {
  * по офисам, а лимит плана один на аккаунт, и упереться в него можно из-за
  * соседнего проекта — поэтому всё на одной вкладке.
  */
-function Spending({ offices, hueOf }: { offices: OfficeView[]; hueOf: (o: OfficeView) => string }) {
+function Spending({ offices }: { offices: OfficeView[] }) {
   const enterOffice = useStore((s) => s.enterOffice);
   const total = offices.reduce((sum, o) => sum + (o.activity?.usage.costUsd ?? 0), 0);
   const today = offices.reduce((sum, o) => sum + (o.activity?.today.costUsd ?? 0), 0);
@@ -207,7 +221,7 @@ function Spending({ offices, hueOf }: { offices: OfficeView[]; hueOf: (o: Office
             const day = o.activity?.today.costUsd ?? 0;
             return (
               <button key={o.id} className="home-spend-row" onClick={() => enterOffice(o.id)} title={o.projectDir}>
-                <span className="office-card-avatar sm" style={{ background: hueOf(o) }}>{initial(o.name)}</span>
+                <OfficeAvatar office={o} small />
                 <span className="home-spend-name">{o.name}</span>
                 <span className="meter home-spend-bar">
                   <i style={{ width: `${top > 0 ? (spent / top) * 100 : 0}%` }} />

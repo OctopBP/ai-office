@@ -66,7 +66,7 @@
    не пересчитываются под число внешностей руками — с новым скином в наборе
    ряд просто становится плотнее, а на узком окне переносится. */
 .look-grid {
-  display: grid; grid-template-columns: repeat(auto-fit, minmax(76px, 1fr));
+  display: grid; grid-template-columns: repeat(auto-fit, minmax(96px, 1fr));
   gap: var(--space-2); margin-top: var(--space-2);
 }
 .look-swatch {
@@ -80,14 +80,21 @@
 .look-swatch.on { background: var(--film-2); box-shadow: 0 0 0 2px var(--accent); }
 /* Холст растягивается по обёртке, а размер задаёт она: сам холст сцена
    размечает своими стилями, и класс на нём бы не подействовал. */
-/* Плитка-заглушка внешности — до возвращения превью моделью. */
+/* Плитка-заглушка внешности — до возвращения превью моделью. Размер на четверть
+   больше исходных 48px, чтобы облик было видно лучше. */
 .look-ph {
-  width: 48px; height: 48px; border-radius: var(--radius-row); background: var(--film-3);
+  width: 60px; height: 60px; border-radius: var(--radius-row); background: var(--film-3);
   display: flex; align-items: center; justify-content: center;
-  font: 600 var(--fs-title)/1 var(--font); color: var(--ink-3);
+  font: 600 19px/1 var(--font); color: var(--ink-3);
 }
 .look-pic { object-fit: contain; object-position: bottom; }
-.look-swatch .look-name { font-size: var(--fs-caption); color: var(--ink-3); text-align: center; line-height: 1.25; }
+/* Подпись обязана уместиться в ширину карточки: без явной ширины строка
+   flex-колонки принимает размер текста и text-overflow не срабатывает. */
+.look-swatch .look-name {
+  align-self: stretch; width: 100%; min-width: 0;
+  overflow: hidden; white-space: nowrap; text-overflow: ellipsis;
+  font-size: var(--fs-caption); color: var(--ink-3); text-align: center; line-height: 1.25;
+}
 
 /* Каталог внешних MCP-серверов (настройки) и подписка роли на них. */
 .role-mcp { margin-bottom: var(--space-4); }
