@@ -44,6 +44,8 @@
 .rail-name { font: 600 var(--fs-title)/1.2 var(--font-brand); color: var(--ink); flex: 1; }
 .rail-toggle { width: 24px; min-height: 24px; padding: 0; color: var(--ink-3); font-size: 16px; }
 .shell-rail .section-title { margin-bottom: var(--space-3); }
+/* Выход на главный экран — та же строка, что у окон офиса, но над списком офисов. */
+.rail-home { margin-bottom: var(--space-4); }
 
 /* Офисов может быть много: список сжимается и прокручивается, а кнопка «Новый офис»,
    окна и низ рейла остаются на месте. Меньше двух строк список не ужимается. */
@@ -135,6 +137,7 @@
 .rail-collapsed .rail-new { width: 42px; min-height: 41px; }
 .rail-collapsed .rail-sep { width: 52px; }
 .rail-collapsed .rail-win { width: 52px; justify-content: center; padding: 0; margin: 0; }
+.rail-collapsed .rail-home { margin-bottom: var(--space-4); }
 .rail-collapsed .rail-foot { padding: 0; }
 .rail-collapsed .rail-user { margin: 0; padding-top: var(--space-3); width: 52px; }
 .rail-collapsed .rail-user-btn { justify-content: center; padding: var(--space-1); }

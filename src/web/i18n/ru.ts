@@ -692,7 +692,7 @@ export const ru: Record<keyof typeof en, string> = {
   "shell.rail.expand": "Развернуть рейл",
   "shell.menu.layout": "Редактор расстановки",
   "shell.menu.reset": "Сбросить офис",
-  "shell.menu.leave": "К списку офисов — ESC",
+  "shell.home": "На главный экран — ESC",
 
   // ------------------------------------------------------------ живой офис
   'outcome.clean': 'чисто',

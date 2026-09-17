@@ -693,7 +693,7 @@ export const en = {
   "shell.rail.expand": "Expand the rail",
   "shell.menu.layout": "Layout editor",
   "shell.menu.reset": "Reset the office",
-  "shell.menu.leave": "To the office list — ESC",
+  "shell.home": "To the main screen — ESC",
 
   // ------------------------------------------------------------ living office
   'outcome.clean': 'clean',

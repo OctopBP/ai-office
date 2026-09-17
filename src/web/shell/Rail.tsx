@@ -50,6 +50,7 @@ export function Rail({ onPanel, onModal }: {
   const setCollapsed = useStore((s) => s.setRailCollapsed);
   const view = useStore((s) => s.view);
   const setView = useStore((s) => s.setView);
+  const leaveOffice = useStore((s) => s.leaveOffice);
 
   const list = sortedOffices(offices);
   // Счётчики те же, что были в HUD: в работе — по задачам, а не по позам агентов.
@@ -84,6 +85,14 @@ export function Rail({ onPanel, onModal }: {
           {collapsed ? '›' : '‹'}
         </button>
       </div>
+
+      {/* Выход на главный экран — на виду, а не в меню пользователя: это единственный
+          путь назад к списку офисов, расходам и настройкам без клавиатуры. */}
+      <button className="rail-win rail-home" onClick={leaveOffice} disabled={pending === 'enter'}
+        title={t('shell.home')}>
+        <span className="rail-win-icon"><Icon name="home" size={12} /></span>
+        <span className="rail-win-label">{t('shell.home')}</span>
+      </button>
 
       <div className="section-title">{t('shell.offices')}</div>
       <div className="rail-offices">
@@ -146,14 +155,14 @@ export function Rail({ onPanel, onModal }: {
 
 /**
  * Строка пользователя — и меню того, чему в макете места не нашлось:
- * редактор расстановки, сброс, выход в меню. Тема — в настройках офиса.
+ * редактор расстановки, сброс. Тема — в настройках офиса, выход на главный
+ * экран — кнопкой под логотипом.
  * В HUD это были отдельные кнопки; здесь они спрятаны, потому что нужны
  * раз в день, а не раз в минуту.
  */
 function User() {
   const authSource = useStore((s) => s.authSource);
   const editingLayout = useStore((s) => s.editingLayout);
-  const leaveOffice = useStore((s) => s.leaveOffice);
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
 
@@ -185,7 +194,6 @@ function User() {
         <div className="rail-menu float">
           {item(t('shell.menu.layout'), 'armchair', () => setEditingLayout(!editingLayout), editingLayout)}
           {item(t('shell.menu.reset'), 'refresh', reset)}
-          {item(t('shell.menu.leave'), 'home', leaveOffice)}
         </div>
       )}
     </div>
