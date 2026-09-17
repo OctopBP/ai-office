@@ -32,6 +32,7 @@ import {
 import { closeIfDone, recordOutcome } from './outcomes';
 import { limitBlock, resetClock } from './limits';
 import { journalBrief } from './journal';
+import { noteCompaction } from './health';
 import { answerFromChat, askOwner } from './questions';
 import {
   setRitualAgents, type ConsolidationInput, type ReflectionOutput, type RitualOutput,
@@ -365,6 +366,9 @@ function consume(
   if (msg.type === 'system' && msg.subtype === 'compact_boundary') {
     const { pre_tokens, post_tokens } = msg.compact_metadata;
     if (rememberSession && post_tokens !== undefined) state.noteContext(instanceId, post_tokens);
+    // Сжатие — след на задаче, а не только строка в логе: по нему сводка
+    // здоровья видит, что работа буксует, и видит это после перезапуска тоже.
+    noteCompaction(state, instanceId);
     state.addLog(instanceId, 'system', state.say('agent.log.compacted', {
       from: Math.round(pre_tokens / 1000),
       to: post_tokens === undefined ? '?' : Math.round(post_tokens / 1000),

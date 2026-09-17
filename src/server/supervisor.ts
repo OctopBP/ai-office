@@ -42,6 +42,7 @@ import { limitBlock, resetClock } from './limits';
 import { dispatch } from './plan';
 import { detectReverts } from './outcomes';
 import { askAboutReverts, tickRituals } from './rituals';
+import { refreshHealth } from './health';
 import { tickFlows } from './flows';
 
 /** Как часто офис оглядывается на свои ветки. */
@@ -120,6 +121,11 @@ function unfinished(state: OfficeState): Task[] {
 
 /** Один проход надзора. Вынесен отдельно ради тестов: их не заставишь ждать минуту. */
 export async function superviseOffice(state: OfficeState): Promise<void> {
+  // Сводка здоровья — до всех проверок и до паузы: часть её записей появляется
+  // не от события, а просто от времени (ветке стукнули сутки), а офис на паузе
+  // или с выключенным конвейером стоит тем более и знать об этом нужно.
+  refreshHealth(state, Date.now());
+
   if (!state.settings.autoPipeline || state.paused) return;
 
   const now = Date.now();

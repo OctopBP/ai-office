@@ -656,6 +656,14 @@ export interface Task {
   type: TaskType | null;
   /** Записка при передаче (§4): что сделано, что решил сам, что не сделано. */
   handoff: Handoff | null;
+  /**
+   * Сколько раз сессия исполнителя сжимала контекст на этой задаче. Живёт на
+   * задаче, а не на сессии: сессия умирает вместе с процессом, а вопрос
+   * «эта задача буксует на автосжатии» остаётся и после перезапуска.
+   */
+  compactions: number;
+  /** Когда сжимала в последний раз. null — не сжимала ни разу. */
+  compactedAt: number | null;
 }
 
 interface Pending {
@@ -2154,6 +2162,8 @@ export class OfficeState {
       mergeCommit: null,
       type: input.type === undefined ? this.typeForRole(input.roleId) : input.type,
       handoff: null,
+      compactions: 0,
+      compactedAt: null,
     };
     this.tasks.set(task.id, task);
     this.emit({ t: 'task', task: toTaskView(task) });
@@ -3747,6 +3757,9 @@ function migrateTask(raw: Task & {
     workerSessionId: raw.workerSessionId ?? null, reviewerSessionId: raw.reviewerSessionId ?? null,
     epicId: raw.epicId ?? null, order: raw.order ?? 0, dependsOn: raw.dependsOn ?? [],
     outcome: raw.outcome ?? null, mergeCommit: raw.mergeCommit ?? null,
+    // Сжатий в старых сохранениях нет: «не знаем» считаем нулём, а не
+    // выдумываем — сводка здоровья скорее промолчит, чем соврёт.
+    compactions: raw.compactions ?? 0, compactedAt: raw.compactedAt ?? null,
   };
 }
 
