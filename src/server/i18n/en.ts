@@ -479,6 +479,8 @@ export const en = {
   'boot.officesGetOnly': 'The office list is served over GET only.',
   'boot.noRoute': 'There is no {url} method.',
   'boot.noIcon': 'Office {office} has no picture icon.',
+  'boot.journalGetOnly': 'The office journal is served over GET only.',
+  'boot.journalClosed': 'Office “{office}” is not open — there is no journal to read. Open it and retry.',
   'boot.notFound': 'Not found',
   'boot.webNotBuilt': 'The web app is not built. Build it: npm run build (or open vite on :5173).',
   'boot.officeOpening': 'The office is still opening — the command was not run. Try again in a second.',
