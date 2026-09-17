@@ -4,7 +4,7 @@ import type {
   McpServerState, MergeCheck, MergeCheckState, MergeRun, MergeStep, MergeStepStatus,
   PermissionDecision,
   MarketView, PermissionMode, PermissionRequest, MeetingView, RoleDraft, RoleEditable, RoleOp, RoleView,
-  ServerEvent, Settings, TaskView, Usage, CloudStatus, OfficeView, PullRequestView, PrStage,
+  ServerEvent, Settings, TaskView, Usage, CloudStatus, OfficeView, OfficeIcon, PullRequestView, PrStage,
   EpicView, LimitsView, FactView, OwnerQuestion, LifeView, RitualId, DirectionView, ProposalView,
   OfficeSetupPlan, SetupCatalog, SetupStep,
 } from '../shared/types';
@@ -723,8 +723,19 @@ export const useStore = create<State>((set, get) => ({
         // а потом врало бы, что сервер недоступен. Список офисов сервер
         // присылает прямо перед ошибкой, поэтому показываем меню с причиной:
         // человек может открыть другой проект, не перезапуская сервер.
-        // Отказы остальных операций (создание, вход, переименование) меню
-        // разбирает репликой «офис» в чате — их эта ветка не трогает.
+        // Отказы создания, входа и переименования меню разбирает репликой
+        // «офис» в чате — их эта ветка не трогает. Иконка — отдельный, более
+        // новый op: для неё протокол сразу даёт это событие, поэтому здесь же
+        // и показываем тост, без похода через чат.
+        if (e.op === 'icon') {
+          pushToast({
+            id: `office-icon-error-${e.officeId ?? 'x'}`,
+            kind: 'failed',
+            title: tr('toast.iconNotSaved'),
+            detail: e.message,
+          });
+          break;
+        }
         set((s) => (e.op === 'open' && !s.booted
           ? {
             booted: true,
@@ -1492,6 +1503,11 @@ export function createOffice(name: string, projectDir: string): void {
 
 export function renameOffice(officeId: string, name: string): void {
   socket?.send(JSON.stringify({ c: 'rename_office', officeId, name }));
+}
+
+/** null сбрасывает иконку офиса к умолчанию (инициал). */
+export function setOfficeIcon(officeId: string, icon: OfficeIcon | null): void {
+  socket?.send(JSON.stringify({ c: 'set_office_icon', officeId, icon }));
 }
 
 /** Токен GitHub уходит на сервер и живёт только в памяти процесса. */
