@@ -14,9 +14,10 @@ import { catalog, deskPlan, effectiveLayout } from '../src/server/layout';
 import { deskPoint } from '../src/shared/layout';
 import { LOOKS } from '../src/shared/looks';
 import {
-  DEFAULT_SETTINGS, getOffice, openOfficeState, subscribeOffices, totalRunningWorkers,
+  criticalEnvFail, DEFAULT_SETTINGS, getOffice, openOfficeState, subscribeOffices, totalRunningWorkers,
   unloadOfficeState,
 } from '../src/server/state';
+import { refreshEnvChecks } from '../src/server/envcheck';
 import { flushAll, load, save, wipe, type Persisted } from '../src/server/store';
 import {
   DEFAULT_OFFICE_WORKERS, DEFAULT_PM_CONTEXT_LIMIT, DEFAULT_WORKER_CONTEXT_LIMIT, isOfficeSender, MAX_AGENT_NAME,
@@ -1603,6 +1604,62 @@ async function main(): Promise<void> {
   );
   unloadOfficeState('o-pm-rot');
   wipe(rotFile);
+
+  // 16. Мёртвое окружение. Пока критичная предполётная проверка красная, ни
+  // одна задача не выполнима, и запускать её — значит платить за
+  // гарантированный провал. Проверяется решение «держать или пускать»: сессий
+  // здесь нет, запуск заменяет dryRun.
+  const envFile = resolve(tmpdir(), `office-test-env-${process.pid}.json`);
+  const prevEnvDelay = process.env.OFFICE_DRY_RUN_DELAY;
+  process.env.OFFICE_DRY_RUN_DELAY = '5000';
+  // Директории намеренно нет: это самая честная красная критичная проверка —
+  // такую же офис увидит, когда рабочую папку унесут у него из-под ног.
+  const eo = openOfficeState({
+    id: 'o-env',
+    projectDir: resolve(tmpdir(), `office-test-env-gone-${process.pid}`),
+    stateFile: envFile,
+  }).state;
+  eo.seed();
+  eo.dryRun = true;
+
+  // (а) Пропавшая рабочая директория критична: без неё не выполнима ни одна
+  // задача, а не «одна роль пострадала».
+  await refreshEnvChecks(eo);
+  const workdirCritical = criticalEnvFail(eo.env.checks)?.id === 'workdir';
+
+  // (б) Раздача отказывает: задача остаётся в бэклоге без исполнителя, с
+  // причиной ожидания и без единой поднятой сессии.
+  const envTask = eo.createTask({
+    title: 'ждёт окружения', description: '', criteria: [], roleId: 'backend',
+  });
+  const envRefused = officeAssign(eo, envTask.id);
+  const envHeld = !envRefused.ok && eo.tasks.get(envTask.id)?.status === 'backlog'
+    && eo.tasks.get(envTask.id)?.assigneeId === null && eo.running === 0;
+  const envReasonShown = eo.tasks.get(envTask.id)?.envWait?.includes('Рабочая директория') === true;
+  const envToldWhy = eo.chat.some((c) => c.text.includes(envTask.id) && /ждёт окружения/.test(c.text));
+  // Раздачу дёргает надзор каждый проход — одно и то же в ленту не пишем.
+  const envChatBefore = eo.chat.length;
+  officeAssign(eo, envTask.id);
+  const envNoSpam = eo.chat.length === envChatBefore;
+
+  // (в) Окружение починили мимо офиса — очередь обязана поехать сама, без
+  // «нажмите ещё раз».
+  eo.setEnv(eo.env.checks.map((ch) => ({ ...ch, status: 'ok' as const, fix: '' })));
+  await new Promise((r) => setTimeout(r, 30));
+  const envStartedAfterFix = eo.tasks.get(envTask.id)?.status === 'in_progress'
+    && eo.tasks.get(envTask.id)?.envWait === null;
+
+  results.push(
+    `пропавшая рабочая директория считается критичной: ${workdirCritical}`,
+    `на красном окружении задача остаётся в бэклоге и не тратит денег: ${envHeld}`,
+    `причина ожидания записана в задаче: ${envReasonShown}`,
+    `в ленте объяснено, чего задача ждёт: ${envToldWhy}`,
+    `повторная раздача не засоряет ленту: ${envNoSpam}`,
+    `после позеленения проверки задача пошла в работу сама: ${envStartedAfterFix}`,
+  );
+  if (prevEnvDelay === undefined) delete process.env.OFFICE_DRY_RUN_DELAY;
+  else process.env.OFFICE_DRY_RUN_DELAY = prevEnvDelay;
+  wipe(envFile);
 
   // Прошедшей считается только строка, кончающаяся на true. Раньше проверялось
   // обратное — «не false», — и любая строка, где вместо булева оказалось

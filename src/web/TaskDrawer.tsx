@@ -95,6 +95,9 @@ export function TaskDrawer() {
                 {t(`outcome.${task.outcome.kind}`)}
               </span>
             )}
+            {task.envWait && (
+              <span className="chip env-wait-chip" title={task.envWait}>{t('taskCard.envWaitChip')}</span>
+            )}
             {epic && (
               <span className="chip epic-chip" title={epic.goal}>{epic.id} · {epic.title}</span>
             )}
@@ -104,6 +107,16 @@ export function TaskDrawer() {
           <button className="sq ghost" onClick={() => openTaskCard(null)}>✕</button>
         </Tooltip>
       </div>
+
+      {/* Причина ожидания стоит первой: задача не двигается и денег не тратит,
+          и человеку нужен не статус, а строка «что починить». */}
+      {task.envWait && (
+        <section>
+          <h3 className="section-title">{t('taskCard.envWait')}</h3>
+          <div className="task-envwait">{task.envWait}</div>
+          <p className="muted small">{t('taskCard.envWaitNote')}</p>
+        </section>
+      )}
 
       <section>
         <h3 className="section-title">{t('taskCard.about')}</h3>

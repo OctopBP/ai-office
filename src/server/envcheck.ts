@@ -11,18 +11,33 @@
  */
 
 import { accessSync, constants, statSync } from 'node:fs';
+import { OFFICE_SENDER } from '../shared/types';
 import type { EnvCheck, EnvReport } from '../shared/types';
 import { repoProblem } from './git';
 import type { Role } from './roles';
-import type { OfficeState } from './state';
+import { criticalEnvFail } from './state';
+import type { OfficeState, Task } from './state';
+
+/**
+ * Критичные проверки: пока такая красная, не выполнима ни одна задача, и
+ * пробовать — значит платить за гарантированный провал. Здесь ровно два id, и
+ * список намеренно короткий.
+ *
+ * `git` в него не входит: без репозитория теряется изоляция по worktree, но
+ * задача выполнима — офис работает прямо в директории. `roles` не входит,
+ * потому что пустую роль уже ловит проверка «некому взять» на раздаче, а
+ * `repo:<roleId>` — потому что он мешает одной роли, а не офису, и общий стоп
+ * из-за него остановил бы всех остальных.
+ */
+const CRITICAL = new Set(['key', 'workdir']);
 
 /** Проверка прошла: вопросов к окружению нет. */
 const ok = (id: string, title: string, detail: string): EnvCheck =>
-  ({ id, status: 'ok', title, detail, fix: '' });
+  ({ id, status: 'ok', title, detail, fix: '', critical: CRITICAL.has(id) });
 
 /** Проверка провалилась: `fix` — что человеку сделать, чтобы стало ok. */
 const fail = (id: string, title: string, detail: string, fix: string): EnvCheck =>
-  ({ id, status: 'fail', title, detail, fix });
+  ({ id, status: 'fail', title, detail, fix, critical: CRITICAL.has(id) });
 
 /**
  * Ключ модели. В облачном режиме он обязателен: Managed Agents работают только
@@ -144,6 +159,52 @@ export async function refreshEnvChecks(state: OfficeState): Promise<EnvReport> {
     }
   }
   return state.setEnv(checks);
+}
+
+/**
+ * Почему офис сейчас не может выполнить ни одной задачи, готовым к показу
+ * текстом, — или null, если критичные проверки зелёные. Одна причина, а не
+ * список: человеку чинить по одной, а карточке задачи нужна строка.
+ *
+ * Пока проверок ещё не считали (`at === 0`), молчим: на этот момент офис о
+ * своём окружении не знает ничего, и «ждут окружения» было бы догадкой.
+ */
+export function envBlock(state: OfficeState): string | null {
+  const bad = criticalEnvFail(state.env.checks);
+  if (!bad || state.env.at === 0) return null;
+  return bad.fix
+    ? state.say('env.block.reason', { title: bad.title, detail: bad.detail, fix: bad.fix })
+    : state.say('env.block.reasonBare', { title: bad.title, detail: bad.detail });
+}
+
+/**
+ * Пометить задачу ждущей окружения. Одна строка в ленту на постановку, как у
+ * очереди за слотом: раздачу дёргает надзор каждый проход, и без этого лента
+ * заполнилась бы одним и тем же сообщением.
+ */
+export function markEnvWait(state: OfficeState, task: Task, reason: string): void {
+  if (task.envWait === reason) return;
+  const first = task.envWait === null;
+  state.updateTask(task.id, { envWait: reason });
+  if (!first) return;
+  state.addChat(OFFICE_SENDER,
+    state.say('env.wait.chat', { task: task.id, title: task.title, reason }));
+  state.addLog(null, 'system', state.say('env.wait.log', { task: task.id }));
+}
+
+/**
+ * Окружение починили — снять ожидание со всех задач офиса. Причину стираем
+ * молча: про починку офис скажет одной строкой тот, кто отпускает очередь, а
+ * не каждая задача по отдельности.
+ */
+export function clearEnvWait(state: OfficeState): Task[] {
+  const freed: Task[] = [];
+  for (const task of [...state.tasks.values()]) {
+    if (!task.envWait) continue;
+    const updated = state.updateTask(task.id, { envWait: null });
+    if (updated) freed.push(updated);
+  }
+  return freed;
 }
 
 /**
