@@ -15,7 +15,9 @@ import { closeIfDone, detectReverts, mergedKind, recordOutcome } from '../src/se
 import { cancelEpic, createPlan, setPlanAgents } from '../src/server/plan';
 import {
   adjustPortfolio, dueRitual, QUIET_MS, runRitual, runStandup, setRitualAgents, standupDue, standupText,
+  triageWork,
 } from '../src/server/rituals';
+import { officeHealth } from '../src/server/health';
 import { confirmFactsFor, factsFor, forget, journalBrief, STALE_AFTER_MS } from '../src/server/journal';
 import {
   answerFromChat, answerQuestion, askOwner, dismissQuestion, openQuestions, pickForStandup,
@@ -339,6 +341,118 @@ async function main(): Promise<void> {
   check('жизнь переживает сохранение', JSON.stringify(r.toPersisted()).includes('"consolidate"')
     && JSON.stringify(j.toPersisted()).includes('"questions"'));
 
+  // ---------- разбор завалов ----------
+  console.log('разбор завалов');
+  const t = getOffice('o-life-triage');
+  t.seed();
+  t.opened = true;
+  t.dryRun = true;
+  t.settings.ritualsEnabled = true;
+  t.settings.planApproval = false;
+  // Второй заход — фича по направлению здоровья; в режиме off офис вправе
+  // только предложить её, а здесь проверяется именно постановка в план.
+  t.settings.initiativeMode = 'propose';
+  // Тишина есть, и все прочие ритуалы только что прошли: дальше просится
+  // ровно то, что нашёл разбор завалов, и ничего больше.
+  const quietNow = Date.now();
+  const hush = (): void => { t.lastWorkAt = Date.now() - QUIET_MS - 1; };
+  for (const id of ['forget', 'consolidate', 'contradictions', 'health', 'reflect'] as const) {
+    t.life.lastRun[id] = quietNow;
+  }
+  hush();
+  const chatBefore = t.chat.length;
+  const emptyRun = await runRitual(t, 'triage');
+  check('на пустой сводке разбирать нечего',
+    triageWork(t).failures.length === 0 && triageWork(t).branches.length === 0);
+  check('на пустой сводке ритуал не просится', dueRitual(t) === null);
+  check('прогон по пустой сводке ничего не делает и стоит ноль',
+    emptyRun?.costUsd === 0 && t.factList().length === 0 && t.chat.length === chatBefore
+    && emptyRun?.produced.noted === 0);
+
+  // Провал, забракованный ревьюером: причина в журнал, второго захода нет.
+  const flop = t.createTask({
+    title: 'Упало', description: 'что требовалось', criteria: ['x'], roleId: 'backend',
+  });
+  t.updateTask(flop.id, {
+    status: 'failed', startedAt: quietNow - 3600_000, finishedAt: quietNow,
+  });
+  t.startPr({ taskId: flop.id, title: 'Упало', branch: `task/${flop.id}`, base: 'main', repoDir: '/tmp' });
+  t.addReview(flop.id, { at: quietNow, verdict: 'changes', reviewerId: 'rev#1', text: 'критерий 2 не сделан' });
+  recordOutcome(t, flop.id, 'failed');
+  t.life.lastRun.triage = 0;
+  hush();
+  check('провал без разбора попадает в разбор', triageWork(t).failures.length === 1);
+  check('на непустой сводке ритуал просится', dueRitual(t) === 'triage');
+  const flopRun = await runRitual(t, 'triage');
+  const lesson = t.factList().find((f) => f.source.taskId === flop.id);
+  check('по провалу осталась запись-урок с номером задачи и причиной',
+    lesson?.kind === 'lesson' && lesson.source.ritual === 'triage'
+    && lesson.text.includes(flop.id) && lesson.text.includes('критерий 2 не сделан'));
+  check('разбор не стоит ничего', flopRun?.costUsd === 0);
+  check('вердикт ревьюера второго захода не даёт',
+    flopRun?.produced.returned === 0 && t.epicList().length === 0);
+  check('разобранный провал уходит из сводки', triageWork(t).failures.length === 0);
+
+  // Провал, оборванный лимитом плана: работу не забраковали — она вернётся.
+  const limited = t.createTask({
+    title: 'Отбило лимитом', description: 'доделать выгрузку', criteria: ['a', 'b'], roleId: 'backend',
+  });
+  t.updateTask(limited.id, { status: 'failed', limitedAt: quietNow, finishedAt: quietNow });
+  recordOutcome(t, limited.id, 'failed');
+  t.life.lastRun.triage = 0;
+  const retryRun = await runRitual(t, 'triage');
+  const retried = t.epicList().find((e) => e.title.includes(limited.id));
+  check('провал от лимита вернулся в план вторым заходом',
+    retryRun?.produced.returned === 1 && retried?.origin === 'office' && retried.approved === true);
+  check('второй заход несёт критерии, описание и роль первого', (() => {
+    const task = retried ? t.tasksOfEpic(retried.id)[0] : null;
+    return task?.roleId === 'backend' && task.criteria.length === 2
+      && task.description.includes('доделать выгрузку');
+  })());
+  check('и про возвращённый провал запись тоже есть',
+    t.factList().some((f) => f.source.taskId === limited.id && f.text.includes('вернул её в план')));
+
+  // Ветки: идущая задача — не забота разбора, закрытые — помечаются.
+  const running = t.createTask({ title: 'Ещё идёт', description: '', criteria: ['x'], roleId: 'backend' });
+  t.updateTask(running.id, {
+    status: 'in_progress', branch: `task/${running.id}`, startedAt: quietNow - 3 * 24 * 3600 * 1000,
+  });
+  const unmerged = t.createTask({ title: 'Сдана, не слита', description: '', criteria: ['x'], roleId: 'backend' });
+  t.updateTask(unmerged.id, {
+    status: 'done', branch: `task/${unmerged.id}`,
+    startedAt: quietNow - 3 * 24 * 3600 * 1000, finishedAt: quietNow - 2 * 24 * 3600 * 1000,
+  });
+  recordOutcome(t, unmerged.id, 'clean');
+  const dead = t.createTask({ title: 'Провал с веткой', description: '', criteria: ['x'], roleId: 'frontend' });
+  t.updateTask(dead.id, {
+    status: 'failed', branch: `task/${dead.id}`,
+    startedAt: quietNow - 3 * 24 * 3600 * 1000, finishedAt: quietNow - 2 * 24 * 3600 * 1000,
+  });
+  recordOutcome(t, dead.id, 'failed');
+  check('сводка здоровья видит все три ветки', officeHealth(t).branches.length === 3);
+  check('разбор берёт только ветки закрытых задач', (() => {
+    const branches = triageWork(t).branches;
+    return branches.length === 2 && branches.every((b) => b.task.id !== running.id);
+  })());
+  t.life.lastRun.triage = 0;
+  await runRitual(t, 'triage');
+  check('ветка незакрытой задачи не помечена', t.tasks.get(running.id)?.branchMark === null);
+  check('сданная, но не слитая — «слить»', t.tasks.get(unmerged.id)?.branchMark === 'merge');
+  check('ветка провала — «удалить»', t.tasks.get(dead.id)?.branchMark === 'drop');
+  check('о метках сказано владельцу, и что офис ветки не трогает — тоже',
+    t.chat.some((c) => c.text.includes('🧹') && c.text.includes('не сливает')));
+  check('метка видна клиенту', (t.snapshot() as { tasks: Array<{ id: string; branchMark: unknown }> })
+    .tasks.some((x) => x.id === unmerged.id && x.branchMark === 'merge'));
+  check('метка переживает сохранение', JSON.stringify(t.toPersisted()).includes('"branchMark":"merge"'));
+  t.life.lastRun.triage = 0;
+  const again = await runRitual(t, 'triage');
+  check('второй проход по тому же завалу ничего не переставляет',
+    again?.produced.noted === 0 && again.produced.merge === 0 && again.produced.drop === 0
+    && (t.tasks.get(unmerged.id)?.branchMarkAt ?? 0) > 0);
+  t.life.lastRun.triage = 0;
+  hush();
+  check('разобранная сводка ритуала больше не просит', dueRitual(t) === null);
+
   // ---------- направления и инициативы ----------
   console.log('направления');
   const d = getOffice('o-life-dir');
@@ -490,6 +604,7 @@ async function main(): Promise<void> {
   unloadOfficeState('o-life-quiet');
   unloadOfficeState('o-life-journal');
   unloadOfficeState('o-life-rituals');
+  unloadOfficeState('o-life-triage');
   unloadOfficeState('o-life-dir');
   unloadOfficeState('o-life-portfolio');
   console.log(results.join('\n'));
