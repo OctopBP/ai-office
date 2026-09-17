@@ -66,9 +66,10 @@
 .rail-office:disabled { opacity: 1; }
 .rail-office-avatar {
   width: 24px; height: 24px; border-radius: var(--radius-icon); flex: none;
-  display: flex; align-items: center; justify-content: center;
+  display: flex; align-items: center; justify-content: center; overflow: hidden;
   font-size: var(--fs-body); font-weight: 500; color: var(--office-color-ink);
 }
+.rail-office-icon-img { width: 100%; height: 100%; object-fit: cover; }
 .rail-office-text { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
 .rail-office-name {
   font-size: var(--fs-md); font-weight: 500; color: var(--ink);

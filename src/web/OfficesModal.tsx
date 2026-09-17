@@ -1,7 +1,14 @@
-import { useState } from 'react';
-import { createOffice, renameOffice, useStore } from './store';
+import { useEffect, useRef, useState } from 'react';
+import { createOffice, renameOffice, setOfficeIcon, useStore } from './store';
+import type { OfficeView } from '../shared/types';
 import { t } from './i18n';
 import { Icon } from './icons';
+
+// Палитра выбора без претензии на полноту — 16 эмодзи на разные темы проекта.
+const ICON_PALETTE = [
+  '🚀', '💡', '🎯', '📦', '🛠️', '🎨', '🧩', '📊',
+  '🔥', '🌊', '🌱', '⚙️', '🧠', '📚', '🗂️', '✨',
+];
 
 /**
  * Дверь офиса: список проектов и создание нового. Офис = проект: своя
@@ -48,6 +55,7 @@ export function OfficesModal({ onClose }: { onClose: () => void }) {
                 }}>
                 <Icon name="pencil" size={16} />
               </button>
+              <OfficeIconPicker office={o} />
             </div>
           ))}
         </div>
@@ -75,6 +83,62 @@ export function OfficesModal({ onClose }: { onClose: () => void }) {
           </div>
         )}
       </div>
+    </div>
+  );
+}
+
+/**
+ * Выбор иконки офиса: палитра эмодзи, поле для своего символа и сброс.
+ * Сохраняет только то, что подтвердил сервер, — состояние читается из
+ * `offices` в сторе (`case 'offices'`), локального оптимистичного значения нет.
+ */
+function OfficeIconPicker({ office }: { office: OfficeView }) {
+  const [open, setOpen] = useState(false);
+  const [custom, setCustom] = useState('');
+  const ref = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    const onOutside = (e: MouseEvent) => {
+      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
+    };
+    window.addEventListener('mousedown', onOutside);
+    return () => window.removeEventListener('mousedown', onOutside);
+  }, [open]);
+
+  const pick = (value: string) => {
+    setOfficeIcon(office.id, { kind: 'emoji', value });
+    setOpen(false);
+    setCustom('');
+  };
+
+  return (
+    <div className="office-icon-picker" ref={ref}>
+      <button className="mini" title={t('offices.icon')} onClick={() => setOpen((v) => !v)}>
+        🙂
+      </button>
+      {open && (
+        <div className="office-icon-menu float">
+          <div className="office-icon-menu-title">{t('offices.iconTitle')}</div>
+          <div className="office-icon-palette">
+            {ICON_PALETTE.map((e) => (
+              <button key={e} className="office-icon-option" onClick={() => pick(e)}>{e}</button>
+            ))}
+          </div>
+          <div className="office-icon-custom-row">
+            <input value={custom} placeholder={t('offices.iconCustomPlaceholder')}
+              onChange={(e) => setCustom(e.target.value)}
+              onKeyDown={(e) => { if (e.key === 'Enter' && custom.trim()) pick(custom.trim()); }} />
+            <button className="mini" disabled={!custom.trim()} onClick={() => pick(custom.trim())}>
+              ✓
+            </button>
+          </div>
+          <button className="mini office-icon-reset"
+            onClick={() => { setOfficeIcon(office.id, null); setOpen(false); }}>
+            {t('offices.iconReset')}
+          </button>
+        </div>
+      )}
     </div>
   );
 }
