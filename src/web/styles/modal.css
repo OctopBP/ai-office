@@ -27,8 +27,10 @@
 .risk.danger { color: var(--danger); }
 
 .modal h3 { margin: 0 0 var(--space-1); font: 600 var(--fs-title)/1.2 var(--font); color: var(--ink); }
-.modal-reason { margin: 0 0 var(--space-4); color: var(--ink-3); font-size: var(--fs-md); }
-.modal-tool { color: var(--ink-3); margin-bottom: var(--space-1); }
+.modal-reason { margin: 0 0 var(--space-4); color: var(--ink-3); font-size: var(--fs-md); overflow-wrap: anywhere; }
+/* Имя инструмента бывает длинным одним словом (вызов MCP) — переносим
+   по любому месту, чтобы оно не выезжало за край окна. */
+.modal-tool { color: var(--ink-3); margin-bottom: var(--space-1); overflow-wrap: anywhere; }
 .modal-detail {
   background: var(--film); border-radius: var(--radius-row);
   padding: var(--space-3); margin: 0 0 var(--space-4); max-height: 220px; overflow: auto;
@@ -37,9 +39,22 @@
 }
 
 /* ---------- кнопки действий ---------- */
-/* Ряд прижат к правому краю: разрешение/отмена — это не парные половины
-   окна, а последнее слово в диалоге. Размер и форма кнопок — из кита. */
-.modal-actions { display: flex; gap: var(--space-2); justify-content: flex-end; }
+/* Базовый ряд используют больше десятка окон (дровер, приглашение, настройки,
+   редактор роли и т.д.) — трогаем только добавлением переноса, сама раскладка
+   в ряд остаётся прежней, чтобы не сломать все остальные модалки разом. */
+.modal-actions { display: flex; flex-wrap: wrap; gap: var(--space-2); justify-content: flex-end; }
+/* Модалка разрешения — особый случай: у неё четыре кнопки, и они не влезают
+   даже на обычной ширине окна. Модификатор .stacked (только здесь) разбивает
+   их на два ряда — решение на этот раз (запретить/разрешить) сверху, решение
+   навсегда (запомнить для роли) снизу, — вместо переноса как попало.
+   Внутри ряда всё равно оставлен flex-wrap: на совсем узком окне кнопки
+   уходят на свою строку целиком, без сжатия и без многоточия. */
+.modal-actions.stacked { flex-direction: column; align-items: flex-end; }
+.modal-actions-row {
+  display: flex; flex-wrap: wrap; gap: var(--space-2); justify-content: flex-end;
+  max-width: 100%;
+}
+.modal-actions-row.secondary { padding-top: var(--space-2); border-top: 1px solid var(--hairline); }
 .modal-actions .allow { background: var(--accent); color: var(--accent-ink); box-shadow: var(--shadow-float); }
 .modal-actions .allow:hover:not(:disabled) { filter: brightness(1.08); }
 .modal-actions .deny,

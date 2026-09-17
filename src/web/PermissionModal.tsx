@@ -34,19 +34,23 @@ export function PermissionModal() {
         <div className="modal-tool mono">{req.toolName}</div>
         <pre className="modal-detail">{req.detail || req.summary}</pre>
 
-        <div className="modal-actions">
-          <button className="deny" onClick={() => decide(req.id, 'deny')}>
-            {t('perm.deny')}
-          </button>
-          <button className="allow" onClick={() => decide(req.id, 'allow')}>
-            {t('perm.allowOnce')}
-          </button>
-          <button className="always" onClick={() => decide(req.id, 'always')}>
-            {t('perm.always')}
-          </button>
-          <button className="never" onClick={() => decide(req.id, 'never')}>
-            {t('perm.never')}
-          </button>
+        <div className="modal-actions stacked">
+          <div className="modal-actions-row">
+            <button className="deny" onClick={() => decide(req.id, 'deny')}>
+              {t('perm.deny')}
+            </button>
+            <button className="allow" onClick={() => decide(req.id, 'allow')}>
+              {t('perm.allowOnce')}
+            </button>
+          </div>
+          <div className="modal-actions-row secondary">
+            <button className="always" onClick={() => decide(req.id, 'always')}>
+              {t('perm.always')}
+            </button>
+            <button className="never" onClick={() => decide(req.id, 'never')}>
+              {t('perm.never')}
+            </button>
+          </div>
         </div>
         <p className="modal-hint muted">
           {t('perm.hint.before')} <code className="mono">{req.key}</code> {t('perm.hint.after')}
