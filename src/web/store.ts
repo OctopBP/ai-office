@@ -291,6 +291,8 @@ interface State {
   /** Живой офис: журнал, вопросы владельцу, ритуалы (docs/design/living-office). */
   facts: FactView[];
   questions: OwnerQuestion[];
+  /** Сколько вопросов владельцу ждут решения — для бейджа на вкладке «Жизнь офиса». */
+  openQuestions: number;
   life: LifeView;
   /** Направления владельца и предложения офиса. */
   directions: DirectionView[];
@@ -436,6 +438,7 @@ export const useStore = create<State>((set, get) => ({
   workflows: [],
   facts: [],
   questions: [],
+  openQuestions: 0,
   directions: [],
   proposals: [],
   life: {
@@ -577,7 +580,7 @@ export const useStore = create<State>((set, get) => ({
           prs: Object.fromEntries(e.prs.map((pr) => [pr.taskId, pr])),
           runs: Object.fromEntries(e.runs.map((r) => [r.subject.taskId ?? r.id, r])),
           workflows: e.workflows,
-          facts: e.facts, questions: e.questions, life: e.life,
+          facts: e.facts, questions: e.questions, openQuestions: e.openQuestions, life: e.life,
           directions: e.directions, proposals: e.proposals,
           booted: true, connectFailed: false,
           // Снапшот пришёл во время входа/создания — офис открыт, показываем комнату.
@@ -818,6 +821,7 @@ export const useStore = create<State>((set, get) => ({
           questions: s.questions.some((q) => q.id === e.question.id)
             ? s.questions.map((q) => (q.id === e.question.id ? e.question : q))
             : [...s.questions, e.question],
+          openQuestions: e.openQuestions,
         }));
         break;
       case 'life':
