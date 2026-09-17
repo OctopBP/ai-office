@@ -23,7 +23,10 @@ import { decideProposal } from './initiatives';
 import { applyProposal } from './selfchange';
 import { RITUAL_IDS } from '../shared/types';
 import { githubToken, setGithubToken } from './cloud';
-import { clearInitFlag, currentOffice, ensureOffice, loadRegistry, setCurrent, type OfficeEntry } from './offices';
+import {
+  clearInitFlag, currentOffice, ensureOffice, loadRegistry, officeById, officeIconFile, setCurrent,
+  type OfficeEntry,
+} from './offices';
 import { hasCommits, initRepo, isRepo, repoProblem } from './git';
 import { isPermissionMode } from './permissions';
 import { handleMarketCommand } from './market';
@@ -168,7 +171,8 @@ const DIST = resolve(process.cwd(), 'dist');
 const MIME: Record<string, string> = {
   '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8',
   '.css': 'text/css; charset=utf-8', '.json': 'application/json; charset=utf-8',
-  '.png': 'image/png', '.jpg': 'image/jpeg', '.svg': 'image/svg+xml',
+  '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.gif': 'image/gif',
+  '.svg': 'image/svg+xml',
   '.ico': 'image/x-icon', '.woff2': 'font/woff2', '.webp': 'image/webp',
 };
 
@@ -188,6 +192,40 @@ const httpServer = createServer((req, res) => {
     }
     res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' });
     res.end(JSON.stringify({ offices: officeViews() }));
+    return;
+  }
+  // Иконка-картинка лежит в директории офиса, а браузер файл с диска не
+  // откроет: отдаём его сами. Ручка только на чтение и только по уже
+  // сохранённому пути — принять путь запросом она не может, иначе стала бы
+  // способом прочитать любой файл на машине. Что путь не ведёт за пределы
+  // офиса, проверяет officeIconFile.
+  if (url === '/api/office-icon') {
+    if (req.method !== 'GET') {
+      res.writeHead(405, { 'Content-Type': 'application/json; charset=utf-8', Allow: 'GET' });
+      res.end(JSON.stringify({ error: c('boot.officesGetOnly') }));
+      return;
+    }
+    const id = new URL(req.url ?? '/', 'http://office').searchParams.get('office') ?? '';
+    const office = officeById(id);
+    const file = office ? officeIconFile(office) : null;
+    let body: Buffer | null = null;
+    try {
+      if (file) body = readFileSync(file);
+    } catch {
+      body = null;   // файл стёрли между сохранением иконки и запросом
+    }
+    if (!body || !file) {
+      res.writeHead(404, { 'Content-Type': 'application/json; charset=utf-8' });
+      res.end(JSON.stringify({ error: c('boot.noIcon', { office: id }) }));
+      return;
+    }
+    res.writeHead(200, {
+      'Content-Type': MIME[extname(file).toLowerCase()] ?? 'application/octet-stream',
+      // Картинку меняют руками и редко, но кеш браузера не должен показывать
+      // вчерашнюю аватарку после смены: пусть спрашивает каждый раз.
+      'Cache-Control': 'no-cache',
+    });
+    res.end(body);
     return;
   }
   if (url.startsWith('/api/')) {

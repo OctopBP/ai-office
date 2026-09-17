@@ -3,9 +3,12 @@
  * свои расходы и свой файл состояния. Раньше проект задавался переменной
  * окружения и менялся только перезапуском сервера.
  */
-import { existsSync, mkdirSync, readFileSync, renameSync, statSync, writeFileSync } from 'node:fs';
+import {
+  existsSync, mkdirSync, readFileSync, realpathSync, renameSync, statSync, writeFileSync,
+} from 'node:fs';
 import { homedir } from 'node:os';
-import { dirname, resolve } from 'node:path';
+import { dirname, extname, relative, resolve, sep } from 'node:path';
+import type { OfficeIcon } from '../shared/types';
 import { c } from './i18n';
 
 export interface OfficeEntry {
@@ -13,6 +16,11 @@ export interface OfficeEntry {
   name: string;
   /** Рабочая директория команды. */
   projectDir: string;
+  /**
+   * Аватарка офиса: эмодзи или картинка в его директории (путь хранится
+   * относительно `projectDir`). Поля нет — офис рисуется умолчанием.
+   */
+  icon?: OfficeIcon;
   /** Где лежит состояние этого офиса. */
   stateFile: string;
   createdAt: number;
@@ -266,6 +274,129 @@ export function renameOffice(id: string, name: string): string | null {
   office.name = name.trim();
   write();
   return null;
+}
+
+/**
+ * Сколько символов помещается в аватарку. Считаем в кодовых точках, а не в
+ * длине строки: семья из четырёх человечков — это один видимый символ и
+ * одиннадцать единиц UTF-16, и отказывать в нём было бы странно. Запас в
+ * восемь точек берёт флаги, тона кожи и составные эмодзи и при этом не даёт
+ * положить в поле предложение.
+ */
+const ICON_EMOJI_MAX = 8;
+
+/** Путь к картинке внутри проекта. Больше — это уже не путь, а мусор. */
+const ICON_PATH_MAX = 256;
+
+/** Что умеет показать браузер. Иконка — картинка, а не произвольный файл. */
+const ICON_EXT = new Set(['.png', '.jpg', '.jpeg', '.webp', '.gif', '.svg']);
+
+/** Управляющие символы и переводы строк в аватарке не нужны никому. */
+const CONTROL = /[\u0000-\u001f\u007f]/;
+
+/** Лежит ли путь внутри корня. Сам корень — не «внутри»: это папка, не файл. */
+const inside = (root: string, path: string): boolean =>
+  path !== root && `${path}${sep}`.startsWith(`${root}${sep}`);
+
+/**
+ * Куда смотрит иконка-картинка: абсолютный путь на диске. null — иконки нет,
+ * она не картинка или путь ведёт за пределы офиса. Нужно HTTP-ручке, которая
+ * отдаёт файл браузеру: правило «путь считается от директории офиса» должно
+ * жить в одном месте, а не повторяться на каждой стороне.
+ *
+ * Проверка повторяется здесь намеренно, хотя сохранить дурной путь нельзя:
+ * реестр — обычный JSON-файл, его правят руками, и отдавать по нему любой
+ * файл с машины ручка не должна.
+ */
+export function officeIconFile(office: OfficeEntry): string | null {
+  if (office.icon?.kind !== 'image') return null;
+  const root = resolve(office.projectDir);
+  const full = resolve(root, office.icon.value);
+  if (!inside(root, full)) return null;
+  try {
+    if (!statSync(full).isFile()) return null;
+    return inside(realpathSync(root), realpathSync(full)) ? full : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Сменить аватарку офиса. `null` (и пустое значение внутри размеченного
+ * объекта) — сброс к умолчанию. Возвращает причину отказа на языке офиса
+ * или null, если всё сохранено.
+ *
+ * Путь к картинке кладём в реестр относительным: папку проекта переносят и
+ * переименовывают, а иконка должна ехать вместе с ней.
+ */
+export function setOfficeIcon(id: string, icon: OfficeIcon | null): string | null {
+  const office = officeById(id);
+  if (!office) return c('offices.notFound', { id });
+
+  const raw = typeof icon?.value === 'string' ? icon.value.trim() : '';
+  if (!icon || !raw) {
+    if (office.icon) {
+      delete office.icon;
+      write();
+    }
+    return null;
+  }
+
+  if (icon.kind === 'emoji') {
+    if (CONTROL.test(raw)) return c('offices.iconBadChars');
+    const points = [...raw].length;
+    if (points > ICON_EMOJI_MAX) {
+      return c('offices.iconTooLong', { max: ICON_EMOJI_MAX, got: points });
+    }
+    office.icon = { kind: 'emoji', value: raw };
+    write();
+    return null;
+  }
+
+  if (icon.kind === 'image') {
+    if (CONTROL.test(raw)) return c('offices.iconBadChars');
+    if (raw.length > ICON_PATH_MAX) {
+      return c('offices.iconPathTooLong', { max: ICON_PATH_MAX });
+    }
+    // Путь пришёл из сети: «../» в нём — обычное дело, и разрешить его значит
+    // отдать наружу любой файл на машине. Считаем от директории офиса и
+    // проверяем, что не выбрались за неё.
+    const root = resolve(office.projectDir);
+    const full = resolve(root, raw);
+    if (!inside(root, full)) return c('offices.iconOutside', { dir: root });
+    if (!ICON_EXT.has(extname(full).toLowerCase())) {
+      return c('offices.iconNotImage', { list: [...ICON_EXT].join(', ') });
+    }
+    let file: boolean;
+    let real: string;
+    try {
+      file = statSync(full).isFile();
+      // Проверка выше — строковая, а симлинк её проходит и ведёт куда угодно.
+      // Разворачиваем настоящий путь и повторяем проверку уже по нему. Корень
+      // тоже разворачиваем: сам проект вполне может лежать по ссылке.
+      real = realpathSync(full);
+    } catch (err) {
+      const code = (err as NodeJS.ErrnoException).code;
+      return code === 'ENOENT'
+        ? c('offices.iconMissing', { path: full })
+        : c('offices.iconUnreadable', { path: full, error: (err as Error).message });
+    }
+    if (!file) return c('offices.iconNotFile', { path: full });
+    let realRoot = root;
+    try {
+      realRoot = realpathSync(root);
+    } catch {
+      // Корня нет или он не читается — значит, и картинки внутри него нет.
+      return c('offices.iconOutside', { dir: root });
+    }
+    if (!inside(realRoot, real)) return c('offices.iconOutside', { dir: root });
+
+    office.icon = { kind: 'image', value: relative(root, full).split(sep).join('/') };
+    write();
+    return null;
+  }
+
+  return c('offices.iconKind');
 }
 
 /**

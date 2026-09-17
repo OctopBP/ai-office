@@ -3458,6 +3458,9 @@ export const officeViews = (): OfficeView[] => {
     return {
       id: o.id, name: o.name, projectDir: o.projectDir, noProject: o.noProject === true,
       current: o.id === current?.id, lastOpenedAt: o.lastOpenedAt,
+      // Поля нет, если иконку не задавали: «нет иконки» и «иконка пустая» для
+      // веба разные вещи — во втором случае он рисовал бы пустоту.
+      ...(o.icon ? { icon: o.icon } : {}),
       activity: live?.opened
         ? {
           ...summarize({
