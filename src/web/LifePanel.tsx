@@ -2,15 +2,41 @@ import { useState } from 'react';
 import {
   answerQuestion, archiveFact, confirmFact, decideProposal, dismissQuestion, runRitual, useStore,
 } from './store';
-import type { FactStatus, OwnerQuestion, ProposalView, RitualId } from '../shared/types';
+import type { FactStatus, HealthEntry, OwnerQuestion, ProposalView, RitualId } from '../shared/types';
 import { RITUAL_IDS, isOfficeSender } from '../shared/types';
 import { locale, t } from './i18n';
 import { Icon } from './icons';
 
-type Tab = 'questions' | 'proposals' | 'journal' | 'rituals';
+type Tab = 'questions' | 'proposals' | 'journal' | 'rituals' | 'health';
 
 const when = (at: number | null | undefined): string =>
   (at ? new Date(at).toLocaleString(locale(), { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }) : '');
+
+/** Русское окончание по числу: 1 день, 2 дня, 5 дней. */
+const pluralRu = (n: number, one: string, few: string, many: string): string => {
+  const mod10 = n % 10;
+  const mod100 = n % 100;
+  if (mod10 === 1 && mod100 !== 11) return one;
+  if (mod10 >= 2 && mod10 <= 4 && (mod100 < 10 || mod100 >= 20)) return few;
+  return many;
+};
+
+/** Возраст в человеческом виде: «3 дня», «5 часов», «2 минуты». */
+const ageLabel = (ageMs: number): string => {
+  const minute = 60_000;
+  const hour = 3_600_000;
+  const day = 86_400_000;
+  if (ageMs >= day) {
+    const n = Math.floor(ageMs / day);
+    return `${n} ${pluralRu(n, 'день', 'дня', 'дней')}`;
+  }
+  if (ageMs >= hour) {
+    const n = Math.floor(ageMs / hour);
+    return `${n} ${pluralRu(n, 'час', 'часа', 'часов')}`;
+  }
+  const n = Math.max(1, Math.floor(ageMs / minute));
+  return `${n} ${pluralRu(n, 'минута', 'минуты', 'минут')}`;
+};
 
 /**
  * Панель «Жизнь офиса» (docs/design/living-office/spec.md): вопросы владельцу,
@@ -23,7 +49,7 @@ export function LifePanel() {
   return (
     <div className="life">
       <div className="threads">
-        {(['questions', 'journal', 'rituals'] as Tab[]).map((k) => (
+        {(['questions', 'journal', 'rituals', 'health'] as Tab[]).map((k) => (
           <button key={k} className={`mini${tab === k ? ' on' : ''}`} onClick={() => setTab(k)}>
             {t(`life.tab.${k}`)}{k === 'questions' && open ? ` · ${open}` : ''}
           </button>
@@ -33,6 +59,7 @@ export function LifePanel() {
       {tab === 'proposals' && <Proposals />}
       {tab === 'journal' && <Journal />}
       {tab === 'rituals' && <Rituals />}
+      {tab === 'health' && <Health />}
     </div>
   );
 }
@@ -214,6 +241,44 @@ function Rituals() {
         </div>
       ))}
       <span className="dim"><Icon name="book" size={12} /></span>
+    </div>
+  );
+}
+
+/**
+ * Здоровье офиса (T-25): три счётчика — провалы без разбора, протухшие
+ * ветки, вставшие задачи. Ноль зелёным, больше нуля красным. Записи не
+ * кликабельны — переход к задаче/ветке будет отдельной задачей.
+ */
+function Health() {
+  const health = useStore((s) => s.health);
+  if (!health) return <p className="empty">{t('life.health.empty')}</p>;
+  const groups: { key: HealthEntry['kind']; label: string; entries: HealthEntry[] }[] = [
+    { key: 'failure', label: t('life.health.failures'), entries: health.failures },
+    { key: 'branch', label: t('life.health.branches'), entries: health.branches },
+    { key: 'stall', label: t('life.health.stalled'), entries: health.stalled },
+  ];
+  const entries = [...health.failures, ...health.branches, ...health.stalled].sort((a, b) => b.ageMs - a.ageMs);
+  return (
+    <div className="life-list">
+      <div className="health-counters">
+        {groups.map((g) => (
+          <div key={g.key} className={`health-counter ${g.entries.length ? 'bad' : 'good'}`}>
+            <span className="health-counter-value">{g.entries.length}</span>
+            <span className="health-counter-label">{g.label}</span>
+          </div>
+        ))}
+      </div>
+      {entries.length === 0
+        ? <p className="empty">{t('life.health.clean')}</p>
+        : entries.map((e, i) => (
+          <div key={`${e.kind}-${e.taskId}-${e.reason}-${i}`} className="life-row health-entry">
+            <div className="life-row-head">
+              <span className="muted small">{ageLabel(e.ageMs)}</span>
+            </div>
+            <div className="life-text">{e.note}</div>
+          </div>
+        ))}
     </div>
   );
 }
