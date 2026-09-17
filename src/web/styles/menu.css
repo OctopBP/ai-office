@@ -1,22 +1,23 @@
-/* Стартовое меню: карточка со списком офисов на холсте. По правилам кита,
-   без макета; строка офиса повторяет строку рейла (styles/shell.css), только
-   шире — с путём, датой и расходом. */
+/* Главный экран: шапка с вкладками, офисы карточками в сетке, расходы и
+   настройки этого компьютера. По правилам кита, без макета. */
 
-.menu-screen {
+.home {
   position: fixed; inset: 0; z-index: var(--z-menu);
-  background: var(--canvas);
-  display: flex; flex-direction: column; align-items: center; justify-content: center;
-  gap: var(--space-4); overflow-y: auto; padding: var(--space-8) var(--space-4);
+  background: var(--canvas); overflow-y: auto;
+  display: flex; flex-direction: column;
+  padding: var(--space-6) var(--space-8);
 }
 
-.menu-card {
-  width: 560px; max-width: 100%; max-height: 100%; overflow-y: auto;
-  padding: var(--space-6); border-radius: var(--radius-panel);
+.home-head {
+  display: flex; align-items: center; justify-content: space-between; gap: var(--space-4);
+  flex-wrap: wrap; width: 100%; max-width: 1180px; margin: 0 auto var(--space-6);
+}
+.home-body {
+  flex: 1; width: 100%; max-width: 1180px; margin: 0 auto;
   display: flex; flex-direction: column; gap: var(--space-4);
 }
-.menu-card .section-title { margin-bottom: calc(-1 * var(--space-2)); }
 
-.menu-brand { display: flex; align-items: center; gap: var(--space-3); margin-bottom: var(--space-2); }
+.menu-brand { display: flex; align-items: center; gap: var(--space-3); }
 .menu-logo { width: 36px; height: 36px; border-radius: var(--radius-row); background: var(--accent); flex: none; }
 .menu-name { font: 600 var(--fs-title)/1.2 var(--font-brand); color: var(--ink); }
 .menu-subtitle { font-size: var(--fs-small); color: var(--ink-3); margin-top: 2px; }
@@ -24,50 +25,104 @@
 .menu-loading { display: flex; align-items: center; gap: var(--space-2); margin: 0; color: var(--ink-3); }
 .menu-conn-error { display: flex; flex-direction: column; align-items: flex-start; gap: var(--space-3); }
 .menu-conn-error p { margin: 0; }
+.menu-error { color: var(--danger); font-size: var(--fs-small); margin: 0; }
 
-/* ---------- строки офисов ---------- */
-.menu-offices { display: flex; flex-direction: column; gap: var(--space-1); }
-.menu-office {
-  display: flex; align-items: center; justify-content: flex-start; gap: var(--space-3);
-  min-height: 0; padding: var(--space-2) var(--space-3); text-align: left;
-  background: none; border: 1px solid transparent; border-radius: var(--radius-row);
-  white-space: normal; font-weight: 400;
+/* ---------- сетка офисов ---------- */
+.home-grid {
+  display: grid; gap: var(--space-4);
+  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
 }
-.menu-office:hover:not(:disabled) { background: var(--film); }
-.menu-office.current { background: var(--film-2); border-color: var(--hairline); cursor: default; }
-.menu-office-avatar { width: 30px; height: 30px; border-radius: var(--radius-avatar); flex: none; }
-.menu-office-text { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
-.menu-office-name { font-size: var(--fs-md); font-weight: 500; color: var(--ink); }
-.menu-office-path, .menu-office-when {
+
+.office-card {
+  display: flex; flex-direction: column; align-items: stretch; justify-content: flex-start;
+  gap: var(--space-3); min-height: 196px; padding: var(--space-4);
+  text-align: left; white-space: normal; font-weight: 400; color: var(--ink-2);
+  transition: box-shadow .15s, transform .15s, border-color .15s;
+}
+.office-card.float:hover:not(:disabled) {
+  background: var(--surface); transform: translateY(-2px); border-color: var(--accent);
+}
+.office-card.current { border-color: var(--accent); }
+
+/* Карточка «добавить»: пунктир на холсте и большой плюс посередине. */
+.office-card-add {
+  align-items: center; justify-content: center; text-align: center; gap: var(--space-1);
+  background: none; border: 1.5px dashed var(--dash); border-radius: var(--radius-card);
+}
+.office-card-add:hover:not(:disabled) { background: var(--film); border-color: var(--accent); }
+.office-card-plus {
+  display: flex; align-items: center; justify-content: center;
+  width: 56px; height: 56px; margin-bottom: var(--space-2); border-radius: 50%;
+  background: var(--film-2); color: var(--accent); font: 300 36px/1 var(--font);
+}
+.office-card-add:hover .office-card-plus { background: var(--accent); color: var(--accent-ink); }
+
+.office-card-top { display: flex; align-items: center; justify-content: space-between; }
+.office-card-avatar {
+  display: inline-flex; align-items: center; justify-content: center; flex: none;
+  width: 40px; height: 40px; border-radius: var(--radius-row);
+  color: #fff; font: 700 16px/1 var(--font-brand);
+}
+.office-card-avatar.sm { width: 24px; height: 24px; font-size: 11px; border-radius: var(--radius-icon); }
+.office-card-open { color: var(--accent); opacity: 0; transition: opacity .15s; }
+.office-card:hover .office-card-open, .office-card:focus-visible .office-card-open { opacity: 1; }
+
+.office-card-text { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.office-card-name { font-size: var(--fs-title); font-weight: 600; color: var(--ink); }
+.office-card-path {
   font-size: var(--fs-small); color: var(--ink-3);
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
-/* Расход — столбиком справа, цифры табличные, чтобы строки сравнивались глазами. */
-.menu-office-money {
-  display: flex; flex-direction: column; align-items: flex-end; gap: 1px; flex: none;
-  font-size: var(--fs-small); color: var(--ink-3); font-variant-numeric: tabular-nums;
-}
-.menu-office-money b { font-size: var(--fs-body); color: var(--ink-2); font-weight: 500; }
-.menu-office-open { color: var(--accent); }
-.menu-offices .dashed { margin-top: var(--space-1); }
 
-/* ---------- расход по всем офисам ---------- */
-.menu-stats { padding-top: var(--space-4); border-top: 1px solid var(--hairline); }
-.menu-stats-head {
-  display: flex; align-items: baseline; gap: var(--space-4); margin-bottom: var(--space-3);
+.office-card-status { display: flex; align-items: center; gap: var(--space-2); font-size: var(--fs-body); }
+.office-card-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--ink-4); flex: none; }
+.office-card-dot.live { background: var(--ok-live); }
+.office-card-waiting { font-size: var(--fs-small); color: var(--warn); margin-top: calc(-1 * var(--space-2)); }
+
+/* Подвал прижат к низу: у карточек разной начинки деньги стоят на одной линии. */
+.office-card-foot {
+  margin-top: auto; padding-top: var(--space-3); border-top: 1px solid var(--hairline);
+  display: flex; align-items: flex-end; justify-content: space-between; gap: var(--space-2);
+  font-size: var(--fs-small); color: var(--ink-3);
+}
+.office-card-money {
+  display: flex; flex-direction: column; align-items: flex-end; gap: 1px;
   font-variant-numeric: tabular-nums;
 }
-.menu-stats-head .section-title { flex: 1; margin: 0; }
+.office-card-money b { font-size: var(--fs-md); color: var(--ink); font-weight: 600; }
+
+/* ---------- расходы ---------- */
+.home-spending, .home-settings { display: flex; flex-direction: column; gap: var(--space-4); max-width: 820px; }
+.home-stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: var(--space-4); }
+.home-stat { display: flex; flex-direction: column; gap: var(--space-1); padding: var(--space-4); }
+.home-stat b { font: 600 24px/1.2 var(--font-brand); color: var(--ink); font-variant-numeric: tabular-nums; }
+.home-panel { padding: var(--space-5); }
+.home-panel > .section-title { margin-bottom: var(--space-3); }
+
+.home-spend-rows { display: flex; flex-direction: column; gap: var(--space-1); }
+.home-spend-row {
+  display: grid; grid-template-columns: 24px minmax(120px, 1.2fr) 2fr minmax(90px, auto) 72px;
+  align-items: center; gap: var(--space-3); min-height: 40px; padding: var(--space-1) var(--space-2);
+  background: none; border-radius: var(--radius-row); text-align: left; font-weight: 400;
+}
+.home-spend-row:hover:not(:disabled) { background: var(--film); }
+.home-spend-name { color: var(--ink); font-weight: 500; overflow: hidden; text-overflow: ellipsis; }
+.home-spend-today { text-align: right; }
+.home-spend-total { text-align: right; color: var(--ink); font-variant-numeric: tabular-nums; }
+
+/* ---------- настройки ---------- */
+.home-settings h4 { margin: var(--space-4) 0 var(--space-2); font-size: var(--fs-md); font-weight: 500; color: var(--ink-2); }
+.home-settings .section-title + h4 { margin-top: 0; }
+.home-settings .hint { margin: var(--space-2) 0 0; font-size: var(--fs-small); color: var(--ink-3); }
+.home-checkbox { display: flex; align-items: center; gap: var(--space-2); font-size: var(--fs-md); color: var(--ink-2); }
+.home-note { margin: 0; font-size: var(--fs-md); }
 
 /* ---------- форма нового офиса ---------- */
 .menu-form { display: flex; flex-direction: column; gap: var(--space-3); }
-.menu-form .section-title { margin-bottom: 0; }
-.menu-form label { display: block; font-size: var(--fs-md); color: var(--ink-3); }
+.menu-form label { display: block; margin: 0; font-size: var(--fs-md); color: var(--ink-3); }
 .menu-form label input { display: block; width: 100%; margin-top: var(--space-1); }
 .menu-form .hint { display: block; margin-top: var(--space-1); font-size: var(--fs-small); color: var(--ink-3); }
-.menu-form .empty { padding: 0; margin: 0; }
 .menu-actions { display: flex; justify-content: flex-end; gap: var(--space-2); margin-top: var(--space-2); }
-.menu-error { color: var(--danger); font-size: var(--fs-small); margin: 0; }
 
 /* ---------- мастер нового офиса ---------- */
 .modal.setup { width: 680px; }
@@ -131,8 +186,14 @@
 @keyframes setup-pulse { 50% { opacity: .35; } }
 
 .menu-footer {
-  display: flex; align-items: center; gap: var(--space-2);
-  font-size: var(--fs-small); color: var(--ink-3);
+  display: flex; align-items: center; justify-content: center; gap: var(--space-2);
+  margin-top: var(--space-6); font-size: var(--fs-small); color: var(--ink-3);
 }
 .menu-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--danger); }
 .menu-dot.on { background: var(--ok); }
+
+@media (max-width: 640px) {
+  .home { padding: var(--space-4); }
+  .home-spend-row { grid-template-columns: 24px 1fr auto; }
+  .home-spend-bar, .home-spend-today { display: none; }
+}

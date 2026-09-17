@@ -4,6 +4,7 @@ import { type ModalKind, type PanelKind } from './Overlays';
 import { Shell } from './shell/Shell';
 import { focusComposer } from './shell/Composer';
 import { closeDiff, connect, setPaused, useStore } from './store';
+import { startRouting } from './routeSync';
 
 export function App() {
   const theme = useStore((s) => s.theme);
@@ -27,6 +28,8 @@ export function App() {
   const [modal, setModal] = useState<ModalKind>(null);
 
   useEffect(() => { connect(); }, []);
+  // Адрес ↔ открытый офис: /office/<id> и вкладки главного экрана (router.ts).
+  useEffect(() => startRouting(), []);
 
   // Ссылка «настройки раскладки» из карточки безместного сотрудника: стор
   // получает запрос на раздел «Проект», а открывает модалку уже здесь.

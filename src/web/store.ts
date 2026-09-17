@@ -21,6 +21,7 @@ import { fitNow } from './office3d/fit';
 import { catalog, DEFAULT_LAYOUT_ID, layoutFor, passabilityFor } from './layoutData';
 import { interestsFor, rotateInterests, type Interest } from './interests';
 import { isBusy } from './agentState';
+import { go, readRoute, type HomeTab } from './router';
 import { adjacentFree, deskPoint, findPath, meetingSeat } from '../shared/layout';
 
 interface Pos { x: number; y: number }
@@ -172,6 +173,9 @@ interface State {
    * рендеру, чтобы перечитать её, когда ни один агент не менялся.
    */
   restRev: number;
+  /** Вкладка главного экрана — она же адрес (`router.ts`). */
+  homeTab: HomeTab;
+  setHomeTab: (tab: HomeTab) => void;
   /** Пришёл ли хоть один snapshot — до этого момента список офисов неизвестен. */
   booted: boolean;
   /** За 8 секунд после подключения snapshot не пришёл — сервер, видимо, недоступен. */
@@ -383,6 +387,11 @@ export const useStore = create<State>((set, get) => ({
   paused: false,
   screen: 'menu',
   restRev: 0,
+  homeTab: (() => { const r = readRoute(); return r.kind === 'home' ? r.tab : 'offices'; })(),
+  setHomeTab: (tab) => {
+    go({ kind: 'home', tab });
+    set({ homeTab: tab });
+  },
   booted: false,
   connectFailed: false,
   pending: null,
@@ -493,6 +502,9 @@ export const useStore = create<State>((set, get) => ({
     const s = get();
     const office = s.offices.find((o) => o.id === officeId);
     if (!office) return;
+    // Адрес меняется раньше состояния: подписчик адреса (`routeSync.ts`)
+    // видит уже новый путь и не принимает вход за расхождение.
+    go({ kind: 'office', officeId });
     if (office.current) { set({ screen: 'office' }); return; }
     // Переключение больше не требует остановки задач в работе — сервер сам
     // держит их сессии поверх смены офиса, поэтому клиент их не проверяет.
@@ -505,17 +517,20 @@ export const useStore = create<State>((set, get) => ({
     switchOffice(officeId);
   },
 
-  leaveOffice: () => set({
-    screen: 'menu',
-    // UI-состояние привязано к конкретному офису: не должно протекать ни в
-    // меню, ни в следующий открытый офис.
-    selected: null,
-    openTask: null,
-    thread: 'pm#1',
-    diff: null,
-    view: 'office',
-    menuNotice: null,
-  }),
+  leaveOffice: () => {
+    go({ kind: 'home', tab: get().homeTab });
+    set({
+      screen: 'menu',
+      // UI-состояние привязано к конкретному офису: не должно протекать ни в
+      // меню, ни в следующий открытый офис.
+      selected: null,
+      openTask: null,
+      thread: 'pm#1',
+      diff: null,
+      view: 'office',
+      menuNotice: null,
+    });
+  },
 
   requestCreateOffice: (name, projectDir) => {
     set({ pending: 'create', pendingLabel: name.trim() || projectDir.trim(), menuNotice: null });
@@ -658,18 +673,10 @@ export const useStore = create<State>((set, get) => ({
         set((s) => {
           if (s.chat.some((c) => c.id === e.entry.id)) return {};
           const chat = [...s.chat, e.entry];
-          // Сервер сообщает об отказе входа/создания офиса обычной репликой
-          // «офис» в общий чат — отдельного события протокол пока не даёт
-          // (см. docs/design/office-menu/spec.md, §4). Пока мы ждём ответ
-          // на вход или создание, такая реплика — это и есть ошибка меню.
-          if (isOfficeSender(e.entry.from) && s.pending) {
-            return {
-              chat,
-              pending: null,
-              pendingLabel: null,
-              menuNotice: { kind: s.pending === 'create' ? 'create-error' : 'blocked', text: e.entry.text },
-            };
-          }
+          // Отказ входа/создания офиса приходит событием `office.error` (ниже).
+          // Реплику «офис» за отказ здесь больше не принимаем: пока ждём
+          // снимок нового офиса, он же может прислать свою планёрку, и меню
+          // показало бы её в форме как ошибку.
           // Тот же приём для настроек: отказ (например, неизвестная
           // раскладка) приходит репликой «офис», а не отдельным событием.
           // Пока идёт сохранение — эта реплика про него, а не про что-то
@@ -718,6 +725,16 @@ export const useStore = create<State>((set, get) => ({
         set((s) => ({ picking: null, picked: { seq: (s.picked?.seq ?? 0) + 1, purpose: e.purpose, dir: e.dir, error: e.error } }));
         break;
       case 'office.error':
+        // Отказ во входе или создании, пока меню ждёт ответа: форма
+        // показывает причину и перестаёт крутить спиннер.
+        if ((e.op === 'create' || e.op === 'switch') && get().pending) {
+          set((s) => ({
+            pending: null,
+            pendingLabel: null,
+            menuNotice: { kind: s.pending === 'create' ? 'create-error' as const : 'blocked' as const, text: e.message },
+          }));
+          break;
+        }
         // Стартовый офис не открылся: снапшота не будет никогда, и меню без
         // этой ветки висело бы на «Открываем офис…» до таймаута соединения,
         // а потом врало бы, что сервер недоступен. Список офисов сервер
