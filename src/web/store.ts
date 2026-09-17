@@ -1106,11 +1106,14 @@ export function formatLastOpened(ts: number): string {
   return new Date(ts).toLocaleDateString(locale(), { day: 'numeric', month: 'long' });
 }
 
-/** Текущий офис — всегда первой строкой, остальные по убыванию времени открытия. */
+/**
+ * Порядок списка офисов — по имени, стабильный и не зависящий от того, какой
+ * офис сейчас активен. `lastOpenedAt` для сортировки не годится: он меняется
+ * при каждом входе в офис, из-за чего строка прыгала бы наверх при выборе.
+ * Активный офис выделяется только визуально (класс `current` в `Rail.tsx`).
+ */
 export function sortedOffices(offices: OfficeView[]): OfficeView[] {
-  return [...offices].sort((a, b) => (
-    a.current !== b.current ? (a.current ? -1 : 1) : b.lastOpenedAt - a.lastOpenedAt
-  ));
+  return [...offices].sort((a, b) => a.name.localeCompare(b.name, locale()));
 }
 
 /** Сводка активности офиса для переключателя — уже посчитанные тексты и флаги, а не сырые числа. */
