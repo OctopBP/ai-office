@@ -60,8 +60,8 @@
       { "sprite": "potted_plant", "at": [1, 11] },
       { "sprite": "coffee_table", "at": [2, 13] },
       
-      { "sprite": "armchair", "at": [8, 10] },
-      { "sprite": "potted_plant", "at": [9, 10] }
+      { "sprite": "armchair", "at": [8, 9] },
+      { "sprite": "potted_plant", "at": [9, 9] }
     ],
     "zones": [
       { "kind": "meeting", "prop": "meeting_table" },
