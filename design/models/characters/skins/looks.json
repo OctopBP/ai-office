@@ -4,24 +4,24 @@
       "id": "boss",
       "sprite": "agent_p3",
       "title": {
-        "ru": "Босс в очках",
-        "en": "Boss in shades"
+        "ru": "Босс",
+        "en": "Boss"
       }
     },
     {
       "id": "skaterMaleA",
       "sprite": "agent_p4",
       "title": {
-        "ru": "Скейтер в красном",
-        "en": "Skater in red"
+        "ru": "Скейтер",
+        "en": "Skater"
       }
     },
     {
       "id": "skaterFemaleA",
       "sprite": "agent_p10",
       "title": {
-        "ru": "Скейтерша в косухе",
-        "en": "Skater in a leather jacket"
+        "ru": "Скейтерша",
+        "en": "Skater girl"
       }
     },
     {
@@ -36,24 +36,24 @@
       "id": "criminalMaleA",
       "sprite": "agent_p2",
       "title": {
-        "ru": "Усач в жилете",
-        "en": "Moustache in a waistcoat"
+        "ru": "Усач",
+        "en": "Moustache"
       }
     },
     {
       "id": "boris",
       "sprite": "agent_p10",
       "title": {
-        "ru": "Бородач в фиолетовом",
-        "en": "Beard in purple"
+        "ru": "Бородач",
+        "en": "Bearded"
       }
     },
     {
       "id": "jon",
       "sprite": "agent_p2",
       "title": {
-        "ru": "Блондин в зелёном",
-        "en": "Blond in green"
+        "ru": "Блондин",
+        "en": "Blond"
       }
     }
   ]
