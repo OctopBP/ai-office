@@ -12,6 +12,7 @@ import { Html } from '@react-three/drei';
 import * as THREE from 'three';
 import { desks } from '../../shared/layout';
 import type { InstanceView } from '../../shared/types';
+import { Kbd } from '../Kbd';
 import type { Layout } from '../../shared/layout';
 import { catalog, type HotspotPanel } from '../layoutData';
 import { useStore } from '../store';
@@ -92,7 +93,7 @@ function Spot({ spot, materials, palette, badge, onClick }: {
         style={{ pointerEvents: 'none', userSelect: 'none' }}
       >
         <div className="spot3d" title={spot.title}>
-          {spot.hotkey && <kbd>{spot.hotkey}</kbd>}
+          {spot.hotkey && <Kbd keys={spot.hotkey} />}
           {badge > 0 && <span className="spot3d-badge">{badge}</span>}
         </div>
       </Html>

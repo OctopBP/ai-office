@@ -1,4 +1,5 @@
 import { Panel } from './Panel';
+import { Kbd } from './Kbd';
 import { Board } from './Board';
 import { MergeQueue } from './MergeQueue';
 import { PrPipeline } from './PrPipeline';
@@ -95,17 +96,17 @@ export function Overlays({ panel, setPanel, modal, setModal }: OverlayProps) {
         <Panel title={t('help.title')} onClose={() => setPanel(null)}>
           <div className="help">
             <p>{t('help.office')}</p>
-            <p><kbd>ENTER</kbd> — {t('help.enter')}</p>
+            <p><Kbd keys="ENTER" /> — {t('help.enter')}</p>
             <p>
-              <kbd>B</kbd> — {t('hint.board')}, <kbd>E</kbd> — {t('hint.money')},{' '}
-              <kbd>L</kbd> — {t('hint.log')},{' '}
-              <kbd>M</kbd> — {t('hint.meeting')}, <kbd>SPACE</kbd> — {t('hint.pause')},{' '}
-              <kbd>1–9</kbd> — {t('help.keys.agent')}, <kbd>ESC</kbd> — {t('help.keys.esc')}.
+              <Kbd keys="B" /> — {t('hint.board')}, <Kbd keys="E" /> — {t('hint.money')},{' '}
+              <Kbd keys="L" /> — {t('hint.log')},{' '}
+              <Kbd keys="M" /> — {t('hint.meeting')}, <Kbd keys="SPACE" /> — {t('hint.pause')},{' '}
+              <Kbd keys="1–9" /> — {t('help.keys.agent')}, <Kbd keys="ESC" /> — {t('help.keys.esc')}.
             </p>
             <p>
-              {t('help.camera')} <kbd>WASD</kbd> {t('help.camera.keys')}{' '}
-              <kbd>SHIFT</kbd>+<kbd>1–9</kbd> {t('help.camera.room')}{' '}
-              <kbd>SHIFT</kbd>+<kbd>0</kbd> {t('help.camera.fit')}
+              {t('help.camera')} <Kbd keys="WASD" /> {t('help.camera.keys')}{' '}
+              <Kbd keys="SHIFT+1–9" /> {t('help.camera.room')}{' '}
+              <Kbd keys="SHIFT+0" /> {t('help.camera.fit')}
             </p>
             <p>{t('help.home')}</p>
             <p>{t('help.pause')}</p>

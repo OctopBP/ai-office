@@ -6,6 +6,7 @@ import type { ModalKind, PanelKind } from '../Overlays';
 import { money } from '../money';
 import { t } from '../i18n';
 import { Icon, type IconName } from '../icons';
+import { Kbd } from '../Kbd';
 
 /** Буква на иконке офиса: первый символ названия, в верхнем регистре. */
 function officeInitial(name: string): string {
@@ -89,9 +90,10 @@ export function Rail({ onPanel, onModal }: {
       {/* Выход на главный экран — на виду, а не в меню пользователя: это единственный
           путь назад к списку офисов, расходам и настройкам без клавиатуры. */}
       <button className="rail-win rail-home" onClick={leaveOffice} disabled={pending === 'enter'}
-        title={t('shell.home')}>
+        title={`${t('shell.home')} — ESC`}>
         <span className="rail-win-icon"><Icon name="home" size={12} /></span>
         <span className="rail-win-label">{t('shell.home')}</span>
+        <Kbd keys="ESC" className="rail-win-key" />
       </button>
 
       <div className="section-title">{t('shell.offices')}</div>

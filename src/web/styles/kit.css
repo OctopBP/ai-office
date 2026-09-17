@@ -71,6 +71,9 @@ kbd {
   background: var(--film); border: 1px solid var(--hairline); border-radius: var(--radius-icon);
   padding: 0 5px; font: 600 var(--fs-small)/1.6 var(--font-mono); color: var(--ink-2);
 }
+/* Сочетание клавиш (`Kbd.tsx`): плашки в ряд, плюс между ними — обычным текстом. */
+.kbd-combo { display: inline-flex; align-items: center; gap: 2px; white-space: nowrap; }
+.kbd-plus { font-size: var(--fs-small); color: var(--ink-3); }
 
 /* ---------- сегменты ----------
    «Офис · Доска · Чат»: белая пилюля с тенью, активный сегмент — синяя

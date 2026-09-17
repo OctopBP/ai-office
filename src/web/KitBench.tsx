@@ -12,6 +12,7 @@
  * `data-theme` на двух половинах страницы, токены сами переключаются по нему.
  */
 import type { Theme } from './sprites';
+import { Kbd } from './Kbd';
 
 const SWATCHES: Array<[string, string]> = [
   ['canvas', 'холст'], ['surface', 'поверхность'], ['film', 'плёнка'], ['film-2', 'активная строка'],
@@ -102,7 +103,7 @@ function Half({ theme }: { theme: Theme }) {
           <span className="chip in_progress" style={{ color: 'var(--accent)' }}>в работе</span>
           <span className="chip" style={{ color: 'var(--ok-ink)' }}>готово</span>
           <span className="chip" style={{ color: 'var(--danger)' }}>сломалось</span>
-          <kbd>B</kbd><kbd>ENTER</kbd><kbd>ESC</kbd>
+          <Kbd keys="B" /><Kbd keys="ENTER" /><Kbd keys="SHIFT+ENTER" />
         </div>
       </section>
 
