@@ -1413,6 +1413,13 @@ export type ServerEvent =
       epics: EpicView[];
       /** Живой офис: журнал, вопросы владельцу, ритуалы. */
       facts: FactView[]; questions: OwnerQuestion[]; life: LifeView;
+      /**
+       * Сколько вопросов владельцу ждут его решения: без ответа и не снятые —
+       * ровно те, из которых набирается порция планёрки. Считает сервер, чтобы
+       * значок «вас ждут N вопросов» не зависел от того, держит ли клиент
+       * полный список.
+       */
+      openQuestions: number;
       /** Направления владельца и предложения офиса, которые ждут решения. */
       directions: DirectionView[]; proposals: ProposalView[] }
   | { t: 'mcp.status'; servers: McpServerState[] }
@@ -1424,8 +1431,12 @@ export type ServerEvent =
   /** Запись журнала завели или её статус изменился. */
   | { t: 'fact'; fact: FactView }
   | { t: 'fact.remove'; id: string }
-  /** Вопрос владельцу задали, показали, ответили или сняли. */
-  | { t: 'question'; question: OwnerQuestion }
+  /**
+   * Вопрос владельцу задали, показали, ответили или сняли. Вместе с самим
+   * вопросом едет и счётчик открытых: это единственный момент, когда он
+   * меняется, поэтому опрашивать сервер отдельно не нужно.
+   */
+  | { t: 'question'; question: OwnerQuestion; openQuestions: number }
   /** Ритуалы: прогон, портфель, момент планёрки. Едет целиком — он мал. */
   | { t: 'life'; life: LifeView }
   | { t: 'instance'; instance: InstanceView }

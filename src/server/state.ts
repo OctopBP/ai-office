@@ -1036,6 +1036,16 @@ export class OfficeState {
     return [...this.questions.values()].sort((a, b) => a.askedAt - b.askedAt);
   }
 
+  /**
+   * Сколько вопросов ждут владельца. Признак тот же, что у отбора в планёрку
+   * (`isOpenQuestion`), — иначе значок и планёрка считали бы по-разному.
+   */
+  openQuestionCount(): number {
+    let n = 0;
+    for (const q of this.questions.values()) if (isOpenQuestion(q)) n += 1;
+    return n;
+  }
+
   addQuestion(input: {
     from: string; taskId: string | null; kind: OwnerQuestion['kind']; text: string; assumption: string;
   }): OwnerQuestion {
@@ -1054,7 +1064,7 @@ export class OfficeState {
       dismissedAt: null,
     };
     this.questions.set(question.id, question);
-    this.emit({ t: 'question', question });
+    this.emit({ t: 'question', question, openQuestions: this.openQuestionCount() });
     this.markDirty();
     return question;
   }
@@ -1063,7 +1073,7 @@ export class OfficeState {
     const question = this.questions.get(id);
     if (!question) return null;
     Object.assign(question, patch);
-    this.emit({ t: 'question', question });
+    this.emit({ t: 'question', question, openQuestions: this.openQuestionCount() });
     this.markDirty();
     if (question.answeredAt || question.dismissedAt) {
       for (const wake of this.questionWaiters.get(id) ?? []) wake();
@@ -3425,12 +3435,20 @@ export class OfficeState {
       workflows: workflowCatalog(this),
       facts: this.factList().map(toFactView),
       questions: this.questionList(),
+      openQuestions: this.openQuestionCount(),
       life: this.lifeView(),
       directions: this.directionList(),
       proposals: this.proposalList().map(toProposalView),
     };
   }
 }
+
+/**
+ * Вопрос ещё ждёт владельца: без ответа и не снятый. Признак живёт здесь, а не
+ * в questions.ts, чтобы счётчик в снапшоте и отбор в планёрку не разъехались:
+ * `openQuestions` из questions.ts фильтрует этим же.
+ */
+export const isOpenQuestion = (q: OwnerQuestion): boolean => !q.answeredAt && !q.dismissedAt;
 
 /** Запись журнала для клиента: без служебной отметки «уже спрашивали». */
 export const toFactView = (f: Fact): FactView => ({
