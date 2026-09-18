@@ -21,9 +21,14 @@
 .shell .dev3d-badge { left: calc(var(--edge) + var(--space-4)); top: var(--space-4); }
 .shell .toasts { bottom: 120px; left: calc(var(--edge) + (100% - var(--edge) - 24px) / 2); }
 
-/* Доска и чат занимают место сцены между верхним рядом и композером. */
+/* Доска и чат занимают место сцены между верхним рядом и композером.
+   Низ отмеряем от реальной высоты композера (`--composer-h` ставит он сам,
+   см. Composer.tsx): поле резиновое, и с многострочным вводом фиксированные
+   120px прятали бы под ним низ последнего сообщения. Запасное значение —
+   min-height композера. */
 .shell-view {
-  position: absolute; top: 62px; bottom: 120px;
+  position: absolute; top: 62px;
+  bottom: calc(var(--composer-h, 96px) + var(--gap) + var(--space-4));
   left: calc(var(--edge) + var(--space-4)); right: var(--space-6);
   overflow-y: auto;
 }
