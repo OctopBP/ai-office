@@ -53,7 +53,8 @@ import { effectiveMode, isPermissionMode, modeLabel } from './permissions';
 import type { MessageQueue } from './queue';
 import {
   basePackageName, blankRole, defaultRole, defaultRoles, newRoleId, newRoleTitle,
-  OVERRIDABLE_KEYS, roleFromPackage, roleIdFor, rolesFromOverrides, sameValue, withManagerRole,
+  OVERRIDABLE_KEYS, paletteColor, roleFromPackage, roleIdFor, rolesFromOverrides, sameValue,
+  withManagerRole,
   type LinkOverrides, type PackageSource, type Role, type RoleLink,
 } from './roles';
 import {
@@ -400,6 +401,16 @@ function sanitizeRole(raw: Partial<Role>, id: string, lang: Lang): Role {
       if (typeof link.overrides.model === 'string' && !MODEL_RE.test(link.overrides.model)) {
         delete link.overrides.model;
       }
+      // Переезд на единую палитру: оверрайд, равный прежнему умолчанию этого
+      // же пакета, — не выбор человека, а старый цвет, застрявший в состоянии
+      // офиса (у сохранения без ссылки он становится оверрайдом прямо здесь,
+      // в linkFromSave: с цветом нового манифеста он не совпадает). Снимаем
+      // его — и роль снова берёт цвет из манифеста. Идемпотентно: снятый
+      // оверрайд не возвращается, а цвет палитры в таблице не значится.
+      if (typeof link.overrides.color === 'string'
+        && paletteColor(link.overrides.color, pkg.name) !== link.overrides.color) {
+        delete link.overrides.color;
+      }
       return { ...roleFromPackage(pkg, lang, id, link), archived };
     }
   } else if (savedLink) {
@@ -412,7 +423,10 @@ function sanitizeRole(raw: Partial<Role>, id: string, lang: Lang): Role {
   return {
     id,
     title: text(raw.title) ?? base.title,
-    color: text(raw.color) ?? base.color,
+    // Роль без пакета цвет хранит сама — переводим его на палитру здесь же:
+    // совпал со старым умолчанием (своего пакета, а без пакета — с любым из
+    // прежнего набора) — берём цвет палитры, иначе оставляем как есть.
+    color: paletteColor(text(raw.color) ?? base.color, pkg?.name),
     emoji: text(raw.emoji) ?? base.emoji,
     model: text(raw.model) ?? base.model,
     isManager: typeof raw.isManager === 'boolean' ? raw.isManager : base.isManager,

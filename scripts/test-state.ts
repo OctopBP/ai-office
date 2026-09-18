@@ -525,6 +525,65 @@ async function main(): Promise<void> {
   wipe(roleFileA);
   wipe(roleFileB);
 
+  // 7j. Переезд ролей на единую палитру. Манифест пакета красит только новый
+  // найм: у роли, нанятой раньше, старый цвет лежит в состоянии офиса — либо
+  // прямо в поле роли, либо оверрайдом ссылки на пакет. Разовая миграция при
+  // загрузке снимает именно прежнее умолчание — и не трогает цвет, который
+  // владелец выбрал руками. Второй перезапуск обязан не менять ничего.
+  const paletteFile = resolve(tmpdir(), `office-test-palette-${process.pid}.json`);
+  const rp = openOfficeState({
+    id: 'o-palette', projectDir: resolve(tmpdir(), 'palette'), stateFile: paletteFile,
+  }).state;
+  rp.flush();
+  const savedP = JSON.parse(readFileSync(paletteFile, 'utf8')) as Persisted;
+  const linkWith = (role: string, color: string) => {
+    const link = defaultRole(role, 'ru')!.package!;
+    return { ...link, overrides: { ...link.overrides, color } };
+  };
+  savedP.roles = [
+    // Сохранение старше пакетов: ссылки нет, цвет — прежнее умолчание бэкенда.
+    { ...defaultRole('backend', 'ru')!, package: undefined, color: '#3b82f6' },
+    // Ссылка есть, но старый цвет застрял в ней оверрайдом.
+    { ...defaultRole('reviewer', 'ru')!, color: '#f97316', package: linkWith('reviewer', '#f97316') },
+    // Ручная покраска чужим старым значением: у дизайна умолчанием оно
+    // никогда не было — значит, это выбор человека, и его не трогают.
+    { ...defaultRole('design', 'ru')!, color: '#f97316', package: linkWith('design', '#f97316') },
+    // Ручная покраска цветом, которого в прежнем наборе нет вовсе.
+    { ...defaultRole('smm', 'ru')!, color: '#123456', package: linkWith('smm', '#123456') },
+    // Своя роль офиса: пакета нет, сверять не с чем, кроме самого значения.
+    { ...defaultRole('design', 'ru')!, package: undefined, id: 'writer', title: 'Писатель', color: '#14b8a6' },
+  ];
+  writeFileSync(paletteFile, JSON.stringify(savedP, null, 2));
+  rp.restore();
+  const colorOf = (id: string): string | undefined => rp.role(id)?.color;
+  results.push(
+    `застрявшее умолчание переехало на палитру: ${colorOf('backend') === '#2f7bf6'}`,
+    `оверрайд с прежним умолчанием снят: ${colorOf('reviewer') === '#ea580c'}`,
+    `чужое старое значение принято за ручное: ${colorOf('design') === '#f97316'}`,
+    `цвет вне прежнего набора не тронут: ${colorOf('smm') === '#123456'}`,
+    `роль без пакета тоже переехала: ${colorOf('writer') === '#0d9488'}`,
+  );
+  // Идемпотентность: сохранённое состояние после миграции поднимается второй
+  // раз — и ни цвета, ни файл не должны сдвинуться ни на байт.
+  rp.flush();
+  // Момент сохранения у двух записей разный по определению — сверяем всё
+  // остальное: миграция не должна добавить в файл ни одного нового байта.
+  const stateBody = (): string => {
+    const { savedAt: _savedAt, ...rest } = JSON.parse(readFileSync(paletteFile, 'utf8')) as Persisted;
+    return JSON.stringify(rest);
+  };
+  const afterFirst = stateBody();
+  rp.restore();
+  rp.flush();
+  results.push(
+    `повторный запуск цвета не менял: ${colorOf('backend') === '#2f7bf6'
+      && colorOf('reviewer') === '#ea580c' && colorOf('design') === '#f97316'
+      && colorOf('smm') === '#123456' && colorOf('writer') === '#0d9488'}`,
+    `и состояние на диске не тронул: ${stateBody() === afterFirst}`,
+  );
+  unloadOfficeState('o-palette');
+  wipe(paletteFile);
+
   // 7i. Заведение, правка и архивация ролей — то, чем пользуется окно
   // управления агентами. Ломается тут в первую очередь три вещи: id роли,
   // собранный по русскому названию, наезжает на уже занятый; архивная роль
