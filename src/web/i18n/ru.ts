@@ -23,6 +23,7 @@ export const ru: Record<keyof typeof en, string> = {
   'toast.settingsNotSaved': 'Настройки не сохранены',
   'toast.layoutNotSaved': 'Расстановка не сохранена',
   'toast.iconNotSaved': 'Иконка офиса не сохранена',
+  'toast.sent': 'Отправлено — ответ придёт в чат',
 
   // -------------------------------------------------- список офисов
   'office.neverOpened': 'ещё не открывался',
@@ -109,6 +110,7 @@ export const ru: Record<keyof typeof en, string> = {
   "chat.empty": "Пока пусто.",
   "chat.empty.pm": "Например: «Сделай CRUD для заметок: JSON API на бэке и страницу на фронте». Или просто спросите: «Что сейчас в работе?» — задачу PM не заведёт.",
   "chat.you": "вы",
+  "chat.typing": "печатает…",
   "meeting.title": "Созвать совещание",
   "meeting.note": "Участники высказываются по очереди, каждый видит сказанное до него. Итог менеджер напишет в чате с ним.",
   "meeting.topic": "Тема",

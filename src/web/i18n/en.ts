@@ -24,6 +24,7 @@ export const en = {
   'toast.settingsNotSaved': 'The settings were not saved',
   'toast.layoutNotSaved': 'The layout was not saved',
   'toast.iconNotSaved': 'The office icon was not saved',
+  'toast.sent': 'Sent — the reply will come to the chat',
 
   // -------------------------------------------------- список офисов
   'office.neverOpened': 'never opened',
@@ -110,6 +111,7 @@ export const en = {
   "chat.empty": "Nothing here yet.",
   "chat.empty.pm": "For example: “Build CRUD for notes: a JSON API on the backend and a page on the frontend”. Or just ask: “What is in progress?” — the PM will not create a task for that.",
   "chat.you": "you",
+  "chat.typing": "typing…",
   "meeting.title": "Call a meeting",
   "meeting.note": "The participants speak in turn, each sees what was said before them. The manager writes the outcome in the chat with them.",
   "meeting.topic": "Topic",

@@ -1,5 +1,6 @@
 import { create } from 'zustand';
 import type {
+  ChatDraft,
   ChatEntry, DayUsage, FieldError, InstanceView, Layout, LayoutOption, LayoutOverride, LogEntry,
   McpServerState, MergeCheck, MergeCheckState, MergeRun, MergeStep, MergeStepStatus,
   PermissionDecision,
@@ -158,6 +159,8 @@ export interface Toast {
   title: string;
   detail?: string;
   taskId?: string;
+  /** Сколько висеть, мс. Без него — общий срок в 20 секунд. */
+  ttl?: number;
 }
 
 interface State {
@@ -215,6 +218,18 @@ interface State {
   /** План офиса: фичи по id. Порядок держит поле `order`, а не вставка. */
   epics: Record<string, EpicView>;
   chat: ChatEntry[];
+  /**
+   * Реплики, которые агенты пишут прямо сейчас, по ветке разговора. Живут
+   * только пока идёт ход: конец хода их снимает, а готовая реплика приезжает
+   * обычным событием `chat`. В ветке пишущий один, поэтому ключ — ветка.
+   */
+  drafts: Record<string, ChatDraft>;
+  /**
+   * Менеджер ответил, а чат в это время не смотрели: сегмент «Чат» зажигает
+   * точку. Гаснет, как только чат открыли, — отдельного счётчика нет, важен
+   * сам факт «там появилось новое».
+   */
+  chatUnread: boolean;
   log: LogEntry[];
   permissions: PermissionRequest[];
   settings: Settings;
@@ -419,6 +434,8 @@ export const useStore = create<State>((set, get) => ({
   tasks: {},
   epics: {},
   chat: [],
+  drafts: {},
+  chatUnread: false,
   log: [],
   permissions: [],
   roleFeedback: null,
@@ -490,10 +507,14 @@ export const useStore = create<State>((set, get) => ({
   openTask: null,
   thread: 'pm#1',
 
-  setThread: (t) => set({ thread: t }),
+  // Вернулись в ветку менеджера прямо в чате — значит новое уже видно.
+  setThread: (t) => set((s) => (t === 'pm#1' && s.view === 'chat'
+    ? { thread: t, chatUnread: false }
+    : { thread: t })),
   setThemeMode: (m) => { localStorage.setItem('office-theme', m); set({ themeMode: m, theme: resolveTheme(m) }); },
   view: 'office',
-  setView: (v) => set({ view: v }),
+  // Открыли чат — точка непрочитанного своё отслужила.
+  setView: (v) => set(v === 'chat' ? { view: v, chatUnread: false } : { view: v }),
   railCollapsed: localStorage.getItem('office-rail') === 'collapsed',
   setRailCollapsed: (v) => { localStorage.setItem('office-rail', v ? 'collapsed' : 'open'); set({ railCollapsed: v }); },
   setGraphics: (patch) => set((s) => {
@@ -505,7 +526,9 @@ export const useStore = create<State>((set, get) => ({
   // и наоборот. Иначе две панели легли бы одна поверх другой у правого края.
   select: (id) => set((s) => ({ selected: id, openTask: id ? null : s.openTask })),
   openTaskCard: (taskId) => set((s) => ({ openTask: taskId, selected: taskId ? null : s.selected })),
-  setConnected: (v) => set({ connected: v }),
+  // Связь оборвалась — конца хода мы уже не услышим, и «печатает…» осталось бы
+  // висеть вечно. Черновики снимаем; после переподключения их вернёт снимок.
+  setConnected: (v) => set(v ? { connected: v } : { connected: v, drafts: {} }),
 
   enterOffice: (officeId) => {
     const s = get();
@@ -590,6 +613,9 @@ export const useStore = create<State>((set, get) => ({
           tasks: Object.fromEntries(e.tasks.map((t) => [t.id, t])),
           epics: Object.fromEntries(e.epics.map((f) => [f.id, f])),
           chat: e.chat, log: e.log, permissions: e.permissions, settings: e.settings,
+          // Вкладку могли открыть посреди хода менеджера: черновики из снимка
+          // и есть то, что он уже успел наговорить.
+          drafts: Object.fromEntries(e.drafts.map((d) => [d.thread, d])),
           layouts: e.layouts, layout: e.layout, layoutOverride: e.layoutOverride,
           projectDir: e.projectDir, authSource: e.authSource, meeting: e.meeting, meetings: e.meetings,
           busy: e.busy,
@@ -616,6 +642,7 @@ export const useStore = create<State>((set, get) => ({
           selected: null,
           openTask: null,
           thread: 'pm#1',
+          chatUnread: false,
           diff: null,
           roleFeedback: null,
           teamRequest: null,
@@ -682,6 +709,17 @@ export const useStore = create<State>((set, get) => ({
         set((s) => {
           if (s.chat.some((c) => c.id === e.entry.id)) return {};
           const chat = [...s.chat, e.entry];
+          // Готовая реплика пришла — черновик того же автора отслужил. Сервер
+          // снимает его и сам (`chat.draft.end` шлётся раньше), но держать
+          // «без дубля» на порядке событий не стоит: событие могло и потеряться.
+          const live = s.drafts[e.entry.thread];
+          const drafts = live && live.from === e.entry.from ? { ...s.drafts } : s.drafts;
+          if (drafts !== s.drafts) delete drafts[e.entry.thread];
+          // Ответили не нам в открытый чат — зажигаем точку на сегменте.
+          const chatUnread = s.chatUnread
+            || (e.entry.thread === 'pm#1' && e.entry.from !== 'user'
+              && !(s.view === 'chat' && s.thread === 'pm#1'));
+          const seen = { drafts, chatUnread };
           // Отказ входа/создания офиса приходит событием `office.error` (ниже).
           // Реплику «офис» за отказ здесь больше не принимаем: пока ждём
           // снимок нового офиса, он же может прислать свою планёрку, и меню
@@ -695,7 +733,7 @@ export const useStore = create<State>((set, get) => ({
               id: e.entry.id, kind: 'failed',
               title: tr('toast.settingsNotSaved'), detail: e.entry.text,
             });
-            return { chat, settingsPending: false };
+            return { chat, ...seen, settingsPending: false };
           }
           // Тот же приём для правки расстановки: отказ (предмета нет,
           // координата вне комнаты) приходит репликой «офис», а не отдельным
@@ -705,9 +743,32 @@ export const useStore = create<State>((set, get) => ({
               id: e.entry.id, kind: 'failed',
               title: tr('toast.layoutNotSaved'), detail: e.entry.text,
             });
-            return { chat, layoutPending: false };
+            return { chat, ...seen, layoutPending: false };
           }
-          return { chat };
+          return { chat, ...seen };
+        });
+        break;
+      // Черновик завели заново (или начали новое сообщение): текст берём
+      // из события целиком — прежний недописанный к ответу уже не относится.
+      case 'chat.draft':
+        set((s) => ({ drafts: { ...s.drafts, [e.draft.thread]: e.draft } }));
+        break;
+      case 'chat.draft.delta':
+        set((s) => {
+          const entry = Object.entries(s.drafts).find(([, d]) => d.id === e.id);
+          if (!entry) return {};
+          const [thread, draft] = entry;
+          return { drafts: { ...s.drafts, [thread]: { ...draft, text: draft.text + e.text } } };
+        });
+        break;
+      // Конец хода — в том числе по ошибке и обрыву: индикатор снимаем всегда.
+      case 'chat.draft.end':
+        set((s) => {
+          const thread = Object.keys(s.drafts).find((k) => s.drafts[k].id === e.id);
+          if (!thread) return {};
+          const drafts = { ...s.drafts };
+          delete drafts[thread];
+          return { drafts };
         });
         break;
       case 'log':
@@ -1071,11 +1132,11 @@ export function markArrived(instanceId: string, seq: number): void {
   });
 }
 
-function pushToast(toast: Toast): void {
+export function pushToast(toast: Toast): void {
   useStore.setState((s) => (s.toasts.some((t) => t.id === toast.id)
     ? {}
     : { toasts: [...s.toasts, toast] }));
-  setTimeout(() => dismissToast(toast.id), 20000);
+  setTimeout(() => dismissToast(toast.id), toast.ttl ?? 20000);
 }
 
 // Системная тема поменялась — офис следует за ней, если выбрано «как в системе».
