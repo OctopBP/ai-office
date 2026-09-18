@@ -2,7 +2,12 @@ import { setFlowAgents, type DecideOutput } from './flows';
 import type { FeatureProposal } from './initiatives';
 import { TASK_TYPES } from '../shared/workflow';
 import { query, tool, createSdkMcpServer, SYSTEM_PROMPT_DYNAMIC_BOUNDARY } from '@anthropic-ai/claude-agent-sdk';
-import type { SDKMessage, PermissionResult, SDKResultSuccess } from '@anthropic-ai/claude-agent-sdk';
+import type {
+  SDKMessage,
+  SDKPartialAssistantMessage,
+  PermissionResult,
+  SDKResultSuccess,
+} from '@anthropic-ai/claude-agent-sdk';
 import { z } from 'zod';
 import { MessageQueue } from './queue';
 import {
@@ -1121,7 +1126,11 @@ function startPm(state: OfficeState): void {
       permissionMode: 'default',
       canUseTool: permissionHandler(state, 'pm#1'),
       settingSources: [],                // не наследовать настройки Claude Code пользователя
-      includePartialMessages: false,
+      // Куски ответа по мере набора: по ним веб показывает реплику менеджера
+      // сразу, а не через полминуты целиком. Разбор от этого не меняется —
+      // добавляются сообщения `stream_event`, а готовое сообщение и `result`
+      // приходят следом ровно как раньше (см. streamPmChunk).
+      includePartialMessages: true,
       // Пересказ, который SDK пишет при сжатии, запоминаем как передачу
       // дел: не удастся продолжить сессию — новая начнёт хотя бы с него.
       hooks: {
@@ -1144,6 +1153,14 @@ function startPm(state: OfficeState): void {
     try {
       for await (const msg of session) {
         consume(state, 'pm#1', msg);
+        // Любое сообщение сессии — признак жизни: черновик отодвигает своего
+        // сторожа, иначе долгий ход с одними вызовами инструментов сняли бы
+        // как зависший.
+        state.touchDraft('pm#1');
+        if (msg.type === 'stream_event') {
+          streamPmChunk(state, msg);
+          continue;
+        }
         if (msg.type === 'system' && msg.subtype === 'compact_boundary'
           && state.pmRotating && state.pmQueue === queue) {
           state.pmCompactedTo = msg.compact_metadata.post_tokens
@@ -1169,6 +1186,9 @@ function startPm(state: OfficeState): void {
             for (const m of completePmRotation(state, handoff)) pushToPm(state, m.text, m.fromUser);
             continue;
           }
+          // Ход закончился — «печатает…» снимаем до того, как реплика ляжет в
+          // чат: иначе веб на миг покажет и готовый ответ, и черновик.
+          endPmTurn(state);
           if (isOk(msg) && msg.result?.trim()) {
             state.addChat('pm#1', msg.result.trim());
           } else if (!isOk(msg)) {
@@ -1190,6 +1210,9 @@ function startPm(state: OfficeState): void {
       }
     } catch (err) {
       const message = (err as Error).message;
+      // Первым делом снимаем «печатает…»: дописывать реплику некому, а висеть
+      // до перезапуска сервера она не должна.
+      endPmTurn(state, 'error');
       state.addLog('pm#1', 'error', state.say('agent.log.pmCrashed', { error: message }));
       if (resumeId) {
         // Скорее всего прошлой сессии уже нет на диске — забываем её,
@@ -1207,6 +1230,10 @@ function startPm(state: OfficeState): void {
       if (state.pmQueue === queue) {
         state.pmLoop = null;
         state.pmQueue = null;
+        // Поток кончился, а ход остался незакрытым — сессию оборвали (закрыли
+        // очередь, убили процесс SDK). Ответа уже не будет: снимаем индикатор
+        // здесь, чтобы ни один путь выхода из цикла не оставил его висеть.
+        endPmTurn(state, 'error');
         // Сессия оборвалась посреди сжатия или передачи дел: накопленное
         // адресовалось ей, но ждать её больше нечего — отдаём следующей.
         // Потерянную сессию catch выше уже забыл, так что по кругу это не
@@ -1220,6 +1247,54 @@ function startPm(state: OfficeState): void {
       }
     }
   })();
+}
+
+/**
+ * Кусок ответа менеджера из потока SDK — в черновик реплики, который веб
+ * показывает по мере набора.
+ *
+ * Берём только текст верхнего уровня: `thinking_delta` — это размышление, его
+ * место в ленте, а не в чате, а непустой `parent_tool_use_id` — речь подагента.
+ * `message_start` начинает текст заново: подводку перед вызовом инструмента в
+ * готовую реплику SDK не включит, и показывать её как ответ нельзя.
+ *
+ * Пока менеджер ужимает память или пишет передачу дел (`pmRotating`), ход
+ * вообще не про разговор с пользователем — такие куски пропускаем.
+ */
+function streamPmChunk(state: OfficeState, msg: SDKPartialAssistantMessage): void {
+  if (msg.parent_tool_use_id || state.pmRotating || state.pmTurns === 0) return;
+  const event = msg.event;
+  if (event.type === 'message_start') {
+    state.clearDraftText('pm#1');
+    return;
+  }
+  if (event.type === 'content_block_delta' && event.delta.type === 'text_delta') {
+    state.appendDraft('pm#1', 'pm#1', event.delta.text);
+  }
+}
+
+/**
+ * Ход менеджера начался: вебу пора показать «печатает…». Считаем ходы, потому
+ * что их может идти несколько подряд — реплика пользователя и следом
+ * уведомление о закрытой задаче.
+ */
+function startPmTurn(state: OfficeState): void {
+  state.pmTurns += 1;
+  state.startDraft('pm#1');
+}
+
+/**
+ * Ход менеджера закончился. Черновик закрывает только последний ход; 'error' —
+ * сессия оборвалась, и тогда закрываем сразу: ждать её больше нечего.
+ */
+function endPmTurn(state: OfficeState, reason: 'done' | 'error' = 'done'): void {
+  if (reason === 'error') {
+    state.pmTurns = 0;
+    state.endDraft('pm#1', 'error');
+    return;
+  }
+  state.pmTurns = Math.max(0, state.pmTurns - 1);
+  if (state.pmTurns === 0) state.endDraft('pm#1', 'done');
 }
 
 /**
@@ -1329,7 +1404,13 @@ function pushToPm(state: OfficeState, text: string, fromUser: boolean): void {
     state.setState('pm#1', 'thinking', state.say('agent.state.readingTask'));
     state.setBusy(true);
   }
-  state.pmQueue?.push(text);
+  // «Печатает…» нужно вебу сейчас, а не через полминуты, когда реплика готова.
+  // Только если сессия правда поднялась: индикатор без хода за ним никто бы
+  // не снял.
+  const queue = state.pmQueue;
+  if (!queue) return;
+  startPmTurn(state);
+  queue.push(text);
 }
 
 /**

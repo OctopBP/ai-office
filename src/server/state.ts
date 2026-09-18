@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { isAbsolute, resolve } from 'node:path';
 import type {
-  AgentState, ChatEntry, Criterion, DayUsage, Desk, FieldError, InstanceView, LogEntry,
+  AgentState, ChatDraft, ChatEntry, Criterion, DayUsage, Desk, FieldError, InstanceView, LogEntry,
   PermissionDecision, AuthSource, MeetingView, PermissionMode, PermissionRequest, RoleDraft,
   McpServerDef, McpServerState, RoleEditable, RoleView, ServerEvent, Settings, TaskStatus,
   TaskView, Usage,
@@ -750,12 +750,27 @@ export interface Fact extends FactView {
 /** Сколько ждём ответа пользователя, прежде чем отказать. */
 const PERMISSION_TIMEOUT_MS = 10 * 60 * 1000;
 
+/**
+ * Сколько черновик реплики живёт без единого признака жизни от сессии.
+ * С запасом: ход менеджера может простоять на модалке разрешения, и снимать
+ * «печатает…» раньше значило бы врать в обратную сторону.
+ */
+const DRAFT_IDLE_MS = 10 * 60 * 1000;
+
 export class OfficeState {
   instances = new Map<string, Instance>();
   tasks = new Map<string, Task>();
   /** План офиса: фичи по id. Порядок держится полем `order`, а не вставкой. */
   epics = new Map<string, Epic>();
   chat: ChatEntry[] = [];
+  /**
+   * Кто сейчас пишет ответ и что успел наговорить. Ключ — ветка разговора,
+   * черновик в ней ровно один. На диск не идёт: после перезапуска писать
+   * некому (см. `ChatDraft`).
+   */
+  drafts = new Map<string, ChatDraft>();
+  /** Сторожевые таймеры черновиков, ключ тот же — ветка (см. `armDraft`). */
+  private draftTimers = new Map<string, NodeJS.Timeout>();
   log: LogEntry[] = [];
   busy = false;
   projectDir = '';
@@ -849,6 +864,13 @@ export class OfficeState {
    */
   pmQueue: MessageQueue | null = null;
   pmLoop: Promise<void> | null = null;
+  /**
+   * Сколько ходов менеджера сейчас в работе. Считаем их, а не смотрим на
+   * состояние сотрудника: сообщений в очередь могло лечь несколько (реплика
+   * пользователя и следом уведомление о закрытой задаче), результат придёт на
+   * каждое, и «печатает…» снимает только последний.
+   */
+  pmTurns = 0;
   /**
    * Сессия менеджера ужимает память по порогу контекста (см.
    * `Settings.pmContextLimit`): обычно командой /compact в той же сессии, а
@@ -1078,6 +1100,9 @@ export class OfficeState {
     this.pmRotating = false;
     this.pmCompactedTo = null;
     this.pmPending = [];
+    // Живых сессий больше нет — значит и «печатает…» ни за кем не стоит.
+    this.pmTurns = 0;
+    for (const thread of [...this.drafts.keys()]) this.endDraft(thread, 'error');
     for (const [id, talk] of this.talks) {
       talk.queue.close();
       this.talks.delete(id);
@@ -2335,6 +2360,85 @@ export class OfficeState {
     // Реплики самого офиса тишину не сбивают: планёрка и ритуалы пишут в
     // чат, и считать это работой значило бы никогда не дождаться тишины.
     if (from !== OFFICE_SENDER) this.noteWork();
+  }
+
+  /**
+   * Агент начал писать ответ в ветку: вебу пора показать «печатает…».
+   * Повторный вызов на живом черновике ничего не начинает заново — ход мог
+   * прийти вторым, а индикатор уже висит.
+   */
+  startDraft(from: string, thread = 'pm#1'): void {
+    const live = this.drafts.get(thread);
+    if (live) { this.armDraft(live); return; }
+    const draft: ChatDraft = { id: randomUUID(), thread, from, text: '', at: Date.now() };
+    this.drafts.set(thread, draft);
+    this.armDraft(draft);
+    // Копией: черновик потом дописывается на месте, и подписчик, отложивший
+    // событие, увидел бы не то состояние, о котором ему сообщили.
+    this.emit({ t: 'chat.draft', draft: { ...draft } });
+  }
+
+  /**
+   * Кусок ответа от модели — дописать в конец черновика. Черновика может и не
+   * быть (сторож снял его на долгом вызове инструмента) — тогда заводим
+   * заново: текст пошёл, значит агент точно пишет.
+   */
+  appendDraft(thread: string, from: string, chunk: string): void {
+    if (!chunk) return;
+    let draft = this.drafts.get(thread);
+    if (!draft) {
+      this.startDraft(from, thread);
+      draft = this.drafts.get(thread)!;
+    }
+    draft.text += chunk;
+    this.armDraft(draft);
+    this.emit({ t: 'chat.draft.delta', id: draft.id, text: chunk });
+  }
+
+  /**
+   * Агент начал новое сообщение: прежний недописанный текст к ответу больше
+   * не относится — обычно это была подводка перед вызовом инструмента, а в
+   * чат уедет только последнее сказанное. Черновик тот же, чтобы индикатор не
+   * мигал, но текст начинается с нуля.
+   */
+  clearDraftText(thread = 'pm#1'): void {
+    const draft = this.drafts.get(thread);
+    if (!draft || !draft.text) return;
+    draft.text = '';
+    this.armDraft(draft);
+    this.emit({ t: 'chat.draft', draft: { ...draft } });
+  }
+
+  /** Признак жизни от сессии: черновик ещё пишется, сторожа отодвинуть. */
+  touchDraft(thread = 'pm#1'): void {
+    const draft = this.drafts.get(thread);
+    if (draft) this.armDraft(draft);
+  }
+
+  /**
+   * Ход закончился. Звать обязательно и на обрыве тоже, иначе «печатает…»
+   * висело бы до перезапуска сервера. Идемпотентно: черновика нет — тихо.
+   */
+  endDraft(thread = 'pm#1', reason: 'done' | 'error' = 'done'): void {
+    const draft = this.drafts.get(thread);
+    clearTimeout(this.draftTimers.get(thread));
+    this.draftTimers.delete(thread);
+    if (!draft) return;
+    this.drafts.delete(thread);
+    this.emit({ t: 'chat.draft.end', id: draft.id, reason });
+  }
+
+  /**
+   * Сторож черновика. Сессия способна умереть молча — без ошибки и без конца
+   * потока (зависший вызов, убитый процесс SDK), и тогда конец хода не позовёт
+   * никто. Поэтому у черновика есть срок: ни куска текста, ни другого признака
+   * жизни за `DRAFT_IDLE_MS` — снимаем сами, как при обрыве.
+   */
+  private armDraft(draft: ChatDraft): void {
+    clearTimeout(this.draftTimers.get(draft.thread));
+    const timer = setTimeout(() => this.endDraft(draft.thread, 'error'), DRAFT_IDLE_MS);
+    timer.unref?.();
+    this.draftTimers.set(draft.thread, timer);
   }
 
   addLog(agentId: string | null, kind: LogEntry['kind'], text: string, autoApproved?: boolean): void {
@@ -3636,6 +3740,7 @@ export class OfficeState {
       epics: this.epicList().map(toEpicView),
       mcpStatus: this.mcpStatuses(),
       chat: this.chat,
+      drafts: [...this.drafts.values()],
       log: this.log.slice(-200),
       permissions: this.pendingRequests(),
       settings: this.settings,
