@@ -17,6 +17,9 @@ export function TopBar() {
   const setView = useStore((s) => s.setView);
   const paused = useStore((s) => s.paused);
   const setThread = useStore((s) => s.setThread);
+  // Менеджер ответил, пока смотрели не чат: сегмент зажигает точку. Сколько
+  // именно реплик пришло — неважно, важен сам факт «там появилось новое».
+  const chatUnread = useStore((s) => s.chatUnread);
 
   return (
     <div className="shell-top">
@@ -25,6 +28,7 @@ export function TopBar() {
         {VIEWS.map((v) => (
           <button key={v} className={view === v ? 'on' : ''} onClick={() => setView(v)}>
             {t(`shell.view.${v}`)}
+            {v === 'chat' && chatUnread && <i className="seg-dot" />}
           </button>
         ))}
       </div>

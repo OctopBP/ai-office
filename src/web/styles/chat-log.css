@@ -50,3 +50,18 @@
 .note { margin: 0 0 var(--space-3); color: var(--ink-3); }
 /* Лицо автора реплики рядом с подписью. */
 .msg-from:has(.msg-face, .agent-tag) { display: flex; align-items: center; gap: 6px; }
+
+/* ---------- недописанная реплика ---------- */
+/* Черновик стоит на месте будущего ответа и выглядит как обычная реплика —
+   меняется он только курсором в конце и приглушённым «печатает…». */
+.msg-draft .typing { color: var(--ink-3); }
+.msg-draft .caret {
+  display: inline-block; width: 2px; height: 1em; margin-left: 2px;
+  vertical-align: text-bottom; background: currentColor;
+  animation: caret-blink 1s step-end infinite;
+}
+@keyframes caret-blink { 50% { opacity: 0; } }
+/* Мерцание — украшение: если система просит покоя, курсор просто стоит. */
+@media (prefers-reduced-motion: reduce) {
+  .msg-draft .caret { animation: none; }
+}

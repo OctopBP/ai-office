@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { accessLabel, send, useStore } from '../store';
+import { accessLabel, pushToast, send, useStore } from '../store';
 import { money } from '../money';
 import { t } from '../i18n';
 import { Icon } from '../icons';
@@ -33,7 +33,6 @@ export function Composer({ onSettings }: { onSettings: () => void }) {
   const settings = useStore((s) => s.settings);
   const connected = useStore((s) => s.connected);
   const view = useStore((s) => s.view);
-  const setView = useStore((s) => s.setView);
   const [draft, setDraft] = useState('');
   const input = useRef<HTMLTextAreaElement>(null);
   const box = useRef<HTMLDivElement>(null);
@@ -76,9 +75,17 @@ export function Composer({ onSettings }: { onSettings: () => void }) {
     if (!text || meeting || !connected) return;
     send(text);
     setDraft('');
-    // Ответ менеджера приходит в чат — туда и переключаемся, иначе он
-    // мелькнул бы тостом, а сам разговор остался бы за кадром.
-    if (view !== 'chat') setView('chat');
+    // Из «Офиса» и «Доски» вид не меняем: человек смотрел на офис — пусть и
+    // дальше смотрит. Вместо перескока — короткое подтверждение, а о том, что
+    // менеджер ответил, скажет точка на сегменте «Чат».
+    if (view !== 'chat') {
+      pushToast({
+        id: `sent:${Date.now()}`, kind: 'info',
+        title: t('toast.sent'),
+        detail: text.length > 80 ? `${text.slice(0, 80)}…` : text,
+        ttl: 2500,
+      });
+    }
   };
 
   const placeholder = meeting ? t('shell.composer.meeting')

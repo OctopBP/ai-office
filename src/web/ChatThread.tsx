@@ -17,6 +17,9 @@ export function ChatThread() {
   const meeting = useStore((s) => s.meeting);
   const thread = useStore((s) => s.thread);
   const setThread = useStore((s) => s.setThread);
+  // Реплика, которую собеседник пишет прямо сейчас. Рисуется на месте будущего
+  // ответа и исчезает, когда готовая реплика ложится в ленту.
+  const draft = useStore((s) => s.drafts[thread]);
   const box = useRef<HTMLDivElement>(null);
   // Держится ли пользователь у низа ленты. Пока держится — лента едет за
   // новыми сообщениями; отпустил и читает старое — не трогаем.
@@ -39,7 +42,7 @@ export function ChatThread() {
   // потоком) утаскивает ленту вниз, только если пользователь и так у низа.
   useLayoutEffect(() => {
     if (box.current && atBottom.current) toBottom(box.current);
-  }, [shown.length, last?.text.length]);
+  }, [shown.length, last?.text.length, draft?.id, draft?.text.length]);
 
   // Композер резиновый: вырос — область ленты стала ниже. Пользователя у низа
   // возвращаем к низу, иначе последнее сообщение уезжает за край.
@@ -84,7 +87,7 @@ export function ChatThread() {
       )}
 
       <div className="chat" ref={box} onScroll={onScroll}>
-        {shown.length === 0 && (
+        {shown.length === 0 && !draft && (
           <p className="empty">
             {t(thread === 'pm#1' ? 'chat.empty.pm' : 'chat.empty')}
           </p>
@@ -99,6 +102,20 @@ export function ChatThread() {
             <div className="msg-text">{m.text}</div>
           </div>
         ))}
+        {draft && (
+          <div className="msg from-agent msg-draft">
+            <div className="msg-from">
+              {isOfficeSender(draft.from) ? t('common.office') : <AgentTag id={draft.from} size="sm" />}
+            </div>
+            {/* Пусто — собеседник ещё думает; есть текст — показываем как есть
+                и ставим мерцающий курсор, чтобы было видно: реплика не дописана. */}
+            <div className="msg-text">
+              {draft.text
+                ? <>{draft.text}<i className="caret" /></>
+                : <span className="typing">{t('chat.typing')}</span>}
+            </div>
+          </div>
+        )}
       </div>
     </>
   );

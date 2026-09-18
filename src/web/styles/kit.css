@@ -104,6 +104,15 @@ kbd {
 .seg button:hover:not(:disabled) { background: var(--film); }
 .seg button.on { background: var(--accent); color: var(--accent-ink); font-weight: 500; }
 .seg button.on:hover:not(:disabled) { filter: none; }
+/* Точка непрочитанного на сегменте: у самой подписи, чтобы не раздвигать ряд
+   и не шевелить соседние сегменты, когда она загорается и гаснет. */
+.seg button { display: inline-flex; align-items: center; gap: 6px; }
+.seg-dot {
+  width: 6px; height: 6px; border-radius: 50%;
+  background: var(--accent); flex: none;
+}
+/* На выбранном сегменте фон уже акцентный — точку красим в его чернила. */
+.seg button.on .seg-dot { background: var(--accent-ink); }
 
 /* ---------- бейдж агента ----------
    Белая пилюля над головой: значок роли своего цвета с номером и точка
