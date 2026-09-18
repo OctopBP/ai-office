@@ -61,7 +61,9 @@
 .office-card-avatar {
   display: inline-flex; align-items: center; justify-content: center; flex: none;
   width: 40px; height: 40px; border-radius: var(--radius-row);
-  color: #fff; font: 700 16px/1 var(--font-brand);
+  /* Краску инициала ставит MenuScreen.tsx по цвету подложки (officeColor.ts);
+     здесь запасная. */
+  color: var(--accent-1-ink); font: 700 16px/1 var(--font-brand);
 }
 .office-card-avatar.sm { width: 24px; height: 24px; font-size: 11px; border-radius: var(--radius-icon); }
 .office-card-avatar { overflow: hidden; }

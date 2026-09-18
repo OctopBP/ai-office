@@ -52,7 +52,8 @@ Code без офиса вовсе (роль он там не увидит, ск�
   "title":   { "ru": "Backend разработчик", "en": "Backend developer" },
   "summary": { "ru": "…", "en": "…" },
   "tags": ["code", "backend"],
-  "color": "#3b82f6",
+  "color": "#2f7bf6",              // цвет значка роли; берите из общей палитры
+                                   // акцентов — src/web/styles/tokens.css, --accent-1..8
   "emoji": "⚙️",
   "look": "",                        // внешность из shared/looks.ts; пусто — подберёт офис
   "manager": false,                  // пакет менеджера; такой в офисе один

@@ -10,7 +10,7 @@ import { Icon, type IconName } from '../icons';
 import { Kbd } from '../Kbd';
 import { Hint, Tooltip } from '../Tooltip';
 import { HOTKEY } from '../hotkeys';
-import { officeAvatarColor } from '../officeColor';
+import { officeAvatarColor, officeAvatarInk } from '../officeColor';
 
 /** Буква на иконке офиса: первый символ названия, в верхнем регистре. */
 function officeInitial(name: string): string {
@@ -134,7 +134,8 @@ export function Rail({ onPanel, onModal }: {
               onClick={() => { if (!o.current) enterOffice(o.id); }}
               disabled={pending === 'enter'}
               title={collapsed ? `${o.name} · ${status}` : o.projectDir}>
-              <span className="rail-office-avatar" style={{ background: officeAvatarColor(o.id) }}>
+              <span className="rail-office-avatar"
+                style={{ background: officeAvatarColor(o.id), color: officeAvatarInk(o.id) }}>
                 <OfficeAvatarIcon office={o} />
               </span>
               <span className="rail-office-text">

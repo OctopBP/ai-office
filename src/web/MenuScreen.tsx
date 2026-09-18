@@ -8,7 +8,7 @@ import { money } from './money';
 import type { OfficeView } from '../shared/types';
 import type { HomeTab } from './router';
 import { t, type UiKey } from './i18n';
-import { officeAvatarColor } from './officeColor';
+import { officeAvatarColor, officeAvatarInk } from './officeColor';
 
 const TABS: Array<[HomeTab, UiKey]> = [
   ['offices', 'home.tab.offices'],
@@ -33,7 +33,8 @@ const initial = (name: string): string => Array.from(name.trim())[0]?.toUpperCas
 function OfficeAvatar({ office: o, small }: { office: OfficeView; small?: boolean }) {
   const icon = o.icon;
   return (
-    <span className={`office-card-avatar${small ? ' sm' : ''}`} style={{ background: officeAvatarColor(o.id) }}>
+    <span className={`office-card-avatar${small ? ' sm' : ''}`}
+      style={{ background: officeAvatarColor(o.id), color: officeAvatarInk(o.id) }}>
       {icon?.kind === 'emoji' && icon.value}
       {icon?.kind === 'image' && <img className="office-card-icon-img" src={`/api/office-icon?office=${o.id}`} alt="" />}
       {!icon && initial(o.name)}

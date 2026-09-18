@@ -62,8 +62,8 @@
 .flow-node.kind-step { --node-hue: var(--accent); --node-rgb: var(--accent-rgb); }
 .flow-node.kind-check { --node-hue: var(--ink-3); --node-rgb: 110, 110, 110; }
 .flow-node.kind-gate { --node-hue: var(--warn); --node-rgb: var(--warn-rgb); }
-.flow-node.kind-decide { --node-hue: var(--hue-violet); --node-rgb: 160, 108, 213; }
-.flow-node.kind-fanout { --node-hue: var(--hue-pink); --node-rgb: 224, 80, 122; }
+.flow-node.kind-decide { --node-hue: var(--accent-3); --node-rgb: 168, 85, 247; }
+.flow-node.kind-fanout { --node-hue: var(--accent-4); --node-rgb: 236, 72, 153; }
 .flow-node.kind-meeting { --node-hue: var(--ok-ink); --node-rgb: var(--ok-rgb); }
 .flow-node-main { display: flex; gap: var(--space-2); align-items: flex-start; }
 .flow-node-badge {
@@ -123,7 +123,7 @@
 .flow-legend-kind svg { color: var(--node-hue); }
 .flow-legend-kind.kind-step { --node-hue: var(--accent); }
 .flow-legend-kind.kind-gate { --node-hue: var(--warn); }
-.flow-legend-kind.kind-decide { --node-hue: var(--hue-violet); }
+.flow-legend-kind.kind-decide { --node-hue: var(--accent-3); }
 .flow-legend-kind.kind-meeting { --node-hue: var(--ok-ink); }
 .flow-legend-kind .flow-dot { position: static; margin: 0; background: var(--danger); }
 .flow-legend-kind b { font-family: var(--font-mono); font-weight: 600; color: var(--ink-2); }
