@@ -1497,6 +1497,31 @@ export interface ChatEntry {
   meetingId?: string;
 }
 
+/**
+ * Реплика, которую агент пишет прямо сейчас. В `chat` она ещё не легла, но
+ * показать уже есть что: пустой текст — «печатает…», непустой — ответ по мере
+ * набора. Живёт только в памяти сервера и только пока идёт ход: на диск не
+ * пишется, потому что после перезапуска писать некому, а висящий индикатор
+ * врал бы.
+ *
+ * Черновик на ветку ровно один: ходов подряд может быть несколько (реплика
+ * пользователя и уведомление о задаче), но пишущий в ветке один.
+ */
+export interface ChatDraft {
+  id: string;
+  /** Ветка разговора — та же, что у ChatEntry: 'pm#1' — чат с менеджером. */
+  thread: string;
+  /** Кто пишет: id сотрудника. */
+  from: string;
+  /**
+   * Что уже наговорено. Пусто — агент думает или вызывает инструменты, текста
+   * ещё нет: показывать индикатор без текста.
+   */
+  text: string;
+  /** Когда ход начался. */
+  at: number;
+}
+
 export interface LogEntry {
   id: string;
   at: number;
@@ -1573,6 +1598,12 @@ export interface OfficeHealth {
 export type ServerEvent =
   | { t: 'snapshot'; roles: RoleView[]; instances: InstanceView[]; tasks: TaskView[];
       chat: ChatEntry[]; log: LogEntry[]; permissions: PermissionRequest[];
+      /**
+       * Кто прямо сейчас пишет ответ и что успел наговорить. Едет в снапшоте,
+       * потому что вкладку могли открыть посреди хода менеджера: без этого
+       * она увидела бы пустой чат и решила, что офис молчит.
+       */
+      drafts: ChatDraft[];
       settings: Settings; projectDir: string; authSource: AuthSource;
       meeting: MeetingView | null; busy: boolean; paused: boolean;
       /**
@@ -1659,6 +1690,22 @@ export type ServerEvent =
   | { t: 'task'; task: TaskView }
   | { t: 'epic'; epic: EpicView }
   | { t: 'chat'; entry: ChatEntry }
+  /**
+   * Агент начал ход, ответ которого приедет в чат: показывать «печатает…».
+   * Приходит и посреди хода — когда агент начал новое сообщение и прежний
+   * недописанный текст к ответу больше не относится: тогда весь текст
+   * черновика надо заменить на `draft.text` (обычно пустой).
+   */
+  | { t: 'chat.draft'; draft: ChatDraft }
+  /** Кусок ответа от модели: дописать в конец черновика `id`. */
+  | { t: 'chat.draft.delta'; id: string; text: string }
+  /**
+   * Ход закончился: индикатор снять, черновик забыть. 'done' — готовая
+   * реплика приехала (или вот-вот приедет) отдельным событием `chat`;
+   * 'error' — сессия оборвалась, дописывать нечего, и недописанный текст
+   * показывать больше не надо.
+   */
+  | { t: 'chat.draft.end'; id: string; reason: 'done' | 'error' }
   | { t: 'log'; entry: LogEntry }
   | { t: 'handoff'; from: string; to: string; text: string }
   | { t: 'busy'; busy: boolean }
