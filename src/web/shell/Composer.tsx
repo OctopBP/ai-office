@@ -36,10 +36,30 @@ export function Composer({ onSettings }: { onSettings: () => void }) {
   const setView = useStore((s) => s.setView);
   const [draft, setDraft] = useState('');
   const input = useRef<HTMLTextAreaElement>(null);
+  const box = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     focus = () => input.current?.focus();
     return () => { focus = null; };
+  }, []);
+
+  // Композер плавает над видами и растёт с многострочным вводом, поэтому его
+  // высоту нельзя прибить числом в css: под ней прячется низ ленты чата.
+  // Отдаём измеренную высоту переменной `--composer-h`, от неё вид «Чат»
+  // отмеряет свой нижний край.
+  useEffect(() => {
+    const el = box.current;
+    if (!el) return;
+    const root = document.documentElement;
+    // offsetHeight, а не contentRect: нужна высота с рамкой и отступами.
+    const ro = new ResizeObserver(() => {
+      root.style.setProperty('--composer-h', `${el.offsetHeight}px`);
+    });
+    ro.observe(el);
+    return () => {
+      ro.disconnect();
+      root.style.removeProperty('--composer-h');
+    };
   }, []);
 
   // Поле растёт с текстом до четырёх-пяти строк, дальше прокручивается.
@@ -68,7 +88,7 @@ export function Composer({ onSettings }: { onSettings: () => void }) {
   const cap = settings.globalBudgetUsd;
 
   return (
-    <div className="shell-composer float">
+    <div className="shell-composer float" ref={box}>
       {/* В виде «Чат» собеседник уже стоит над лентой — второй раз не показываем. */}
       {view !== 'chat' && <ChatPeer compact />}
       <textarea

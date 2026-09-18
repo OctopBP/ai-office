@@ -1,4 +1,4 @@
-import { useEffect, useRef } from 'react';
+import { useLayoutEffect, useRef } from 'react';
 import { isOfficeSender } from '../shared/types';
 import { useStore } from './store';
 import { t } from './i18n';
@@ -17,10 +17,46 @@ export function ChatThread() {
   const meeting = useStore((s) => s.meeting);
   const thread = useStore((s) => s.thread);
   const setThread = useStore((s) => s.setThread);
-  const end = useRef<HTMLDivElement>(null);
+  const box = useRef<HTMLDivElement>(null);
+  // Держится ли пользователь у низа ленты. Пока держится — лента едет за
+  // новыми сообщениями; отпустил и читает старое — не трогаем.
+  const atBottom = useRef(true);
 
   const shown = chat.filter((m) => m.thread === thread);
-  useEffect(() => { end.current?.scrollIntoView({ behavior: 'smooth' }); }, [shown.length]);
+  const last = shown[shown.length - 1];
+
+  const toBottom = (el: HTMLDivElement) => { el.scrollTop = el.scrollHeight; };
+
+  // Открытие вкладки и смена треда: ставим ленту на последнее сообщение ДО
+  // первой отрисовки. Плавный скролл после отрисовки был бы виден как
+  // промотка ленты сверху вниз.
+  useLayoutEffect(() => {
+    atBottom.current = true;
+    if (box.current) toBottom(box.current);
+  }, [thread]);
+
+  // Новое сообщение (и дописывание текста в последнее, пока менеджер отвечает
+  // потоком) утаскивает ленту вниз, только если пользователь и так у низа.
+  useLayoutEffect(() => {
+    if (box.current && atBottom.current) toBottom(box.current);
+  }, [shown.length, last?.text.length]);
+
+  // Композер резиновый: вырос — область ленты стала ниже. Пользователя у низа
+  // возвращаем к низу, иначе последнее сообщение уезжает за край.
+  useLayoutEffect(() => {
+    const el = box.current;
+    if (!el) return;
+    const ro = new ResizeObserver(() => { if (atBottom.current) toBottom(el); });
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, []);
+
+  // «У низа» с запасом в пару строк: попасть в scrollTop пиксель в пиксель
+  // мышью нельзя, а дробные размеры дают остаток и при упоре в самый низ.
+  const onScroll = () => {
+    const el = box.current;
+    if (el) atBottom.current = el.scrollHeight - el.scrollTop - el.clientHeight < 48;
+  };
 
   return (
     <>
@@ -47,7 +83,7 @@ export function ChatThread() {
         <p className="small note">{t('chat.note.direct')}</p>
       )}
 
-      <div className="chat">
+      <div className="chat" ref={box} onScroll={onScroll}>
         {shown.length === 0 && (
           <p className="empty">
             {t(thread === 'pm#1' ? 'chat.empty.pm' : 'chat.empty')}
@@ -63,7 +99,6 @@ export function ChatThread() {
             <div className="msg-text">{m.text}</div>
           </div>
         ))}
-        <div ref={end} />
       </div>
     </>
   );
