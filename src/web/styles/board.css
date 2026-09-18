@@ -7,6 +7,16 @@
 .board { display: flex; flex-direction: column; gap: var(--space-4); }
 .shell-view .board { height: 100%; }
 
+/* ---------- подвкладки «Направления · План · Задачи» ----------
+   Показывается один блок за раз: раньше все три стояли столбиком, и десяток
+   направлений сдвигал колонки за нижний край. Ряд с переключателем держит
+   свою высоту, прокручивается только сам блок. */
+.board-tabs { flex: none; display: flex; align-items: center; gap: var(--space-3); }
+.board-pane { display: flex; flex-direction: column; gap: var(--space-4); min-height: 0; }
+.shell-view .board-pane { flex: 1; overflow-y: auto; }
+/* Блок в подвкладке один — нижний отступ ему больше не нужен. */
+.board-pane > .directions { margin-bottom: 0; }
+
 /* ---------- колонки ----------
    Колонок шесть с появлением плана: «План» стоит первой и по ширине не
    отличается — плановых задач бывает больше, чем идущих. Колонка — дорожка
