@@ -21,8 +21,9 @@ const SWATCHES: Array<[string, string]> = [
   ['ok-ink', 'зелёный текст'], ['warn', 'предупреждение'], ['danger', 'опасность'], ['danger-ink', 'текст на danger'],
 ];
 
-const ROLES: Array<[string, string]> = [
-  ['PM1', 'var(--hue-amber)'], ['B1', 'var(--hue-blue)'], ['F2', 'var(--hue-pink)'], ['D1', 'var(--hue-violet)'],
+/** Код сотрудника и номер цвета в общей палитре акцентов (tokens.css). */
+const ROLES: Array<[string, number]> = [
+  ['PM1', 6], ['B1', 1], ['F2', 4], ['D1', 3],
 ];
 
 function Half({ theme }: { theme: Theme }) {
@@ -110,9 +111,10 @@ function Half({ theme }: { theme: Theme }) {
       <section>
         <h2 className="section-title">Бейдж агента</h2>
         <div className="kit-row kit-scene">
-          {ROLES.map(([code, color], i) => (
+          {ROLES.map(([code, n], i) => (
             <span key={code} className="agent-badge">
-              <span className="agent-badge-role" style={{ background: color }}>{code}</span>
+              <span className="agent-badge-role"
+                style={{ background: `var(--accent-${n})`, color: `var(--accent-${n}-ink)` }}>{code}</span>
               <span className={`agent-badge-dot ${['live', 'live', 'warn', ''][i]}`} />
             </span>
           ))}

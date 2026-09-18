@@ -2,7 +2,11 @@ import type { CSSProperties } from 'react';
 import { useStore } from './store';
 import { portraitOf, useLookOf } from './portraits';
 
-/** Цвет значка, если роль неизвестна — например, её удалили из офиса. */
+/**
+ * Цвет значка, если роль неизвестна — например, её удалили из офиса.
+ * Нейтральный цвет общей палитры (--accent-muted в tokens.css); здесь он
+ * числом, потому что уходит в inline-стиль и в расчёт краски текста.
+ */
 export const NO_ROLE_COLOR = '#94a3b8';
 
 /**
