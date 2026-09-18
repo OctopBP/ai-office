@@ -28,6 +28,9 @@
   overflow-y: auto;
 }
 .shell-view .board { margin-top: 0; }
+/* На доске композера нет — вид доходит до нижнего края окна. Прокрутка здесь
+   только внутренняя: едет выбранная подвкладка, а ряд переключателя стоит. */
+.shell-board { bottom: var(--space-4); overflow: hidden; }
 .shell-chat { display: flex; flex-direction: column; max-width: 900px; margin: 0 auto; right: var(--space-6); }
 .shell-chat .chat { flex: 1; }
 

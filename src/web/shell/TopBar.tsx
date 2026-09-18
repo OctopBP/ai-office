@@ -34,7 +34,12 @@ export function TopBar() {
           <Icon name={paused ? 'player-play' : 'player-pause'} size={16} />
         </button>
         <Tooltip tip={<Hint label={t('shell.newTask.hint')} keys={HOTKEY.task} />}>
-          <button className="primary" onClick={() => { setThread('pm#1'); focusComposer(); }}>
+          <button className="primary" onClick={() => {
+            setThread('pm#1');
+            // На доске композера нет — задачу ставят словами в чате, туда и уводим.
+            if (view === 'board') setView('chat');
+            focusComposer();
+          }}>
             {t('shell.newTask')}
           </button>
         </Tooltip>

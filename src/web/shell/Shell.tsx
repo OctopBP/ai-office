@@ -47,13 +47,16 @@ export function Shell(props: OverlayProps) {
             активен, — так же, как невидимая аватарка тормозит анимацию
             (`AgentAvatar.tsx`). */}
         <Office3D onOpen={open} onDoor={door} active={view === 'office'} />
-        {view === 'board' && <div className="shell-view"><Board /></div>}
+        {view === 'board' && <div className="shell-view shell-board"><Board /></div>}
         {view === 'chat' && <div className="shell-view shell-chat"><ChatThread /></div>}
         <Toasts onOpenTask={(id) => { setView('board'); openTaskCard(id); }} />
       </div>
       <Rail onPanel={setPanel} onModal={setModal} />
       <TopBar />
-      <Composer onSettings={() => setModal('settings')} />
+      {/* На доске композера нет: экран целиком про задачи, а разговор с
+          менеджером живёт в виде «Чат». Освободившуюся полосу внизу забирает
+          сама доска (.shell-board). */}
+      {view !== 'board' && <Composer onSettings={() => setModal('settings')} />}
       <EnvBanner />
       <Overlays {...props} />
     </div>

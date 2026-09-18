@@ -200,6 +200,7 @@ function Directions() {
         <span className="muted">{tr('directions.hint')}</span>
       </div>
       <div className="direction-rows">
+        {list.length === 0 && <p className="empty">{tr('board.sub.empty')}</p>}
         {list.map((d) => (
           <div key={d.id} className={`direction${d.active ? '' : ' paused'}`}>
             <b>{d.id}</b>
@@ -225,6 +226,15 @@ function Directions() {
   );
 }
 
+/**
+ * Подвкладки экрана доски. Раньше направления, план и колонки стояли друг под
+ * другом, и на десятке направлений сама доска уезжала за нижний край экрана —
+ * то есть главное на экране пряталось за тем, что читают раз в неделю.
+ * Показываем один блок за раз, каждый во всю высоту.
+ */
+type BoardTab = 'directions' | 'plan' | 'tasks';
+const BOARD_TABS: BoardTab[] = ['directions', 'plan', 'tasks'];
+
 export function Board() {
   const tasks = useStore((s) => s.tasks);
   const epics = useStore((s) => s.epics);
@@ -232,6 +242,9 @@ export function Board() {
   // Фильтр по фиче живёт в доске, а не в сторе: он про то, куда человек
   // смотрит сейчас, и переживать закрытие доски ему незачем.
   const [only, setOnly] = useState<string | null>(null);
+  // Выбранная подвкладка — тоже локальная и по той же причине. Умолчание —
+  // задачи: доска и есть то, за чем на этот экран приходят.
+  const [tab, setTab] = useState<BoardTab>('tasks');
 
   const plan = Object.values(epics).sort((a, b) => a.order - b.order);
   const all = Object.values(tasks).sort((a, b) => a.createdAt - b.createdAt);
@@ -242,48 +255,63 @@ export function Board() {
 
   return (
     <div className="board">
-      <Directions />
-      {plan.length > 0 && (
-        <div className="plan">
-          <div className="plan-head">
-            {tr('plan.title')}
-            {picked && (
-              <button className="mini" onClick={() => setOnly(null)}>
-                {tr('plan.showAll', { epic: picked })}
-              </button>
-            )}
-            <span className="muted">{tr('plan.focus', { n: focus ?? 2 })}</span>
-          </div>
-          <div className="plan-rows">
-            {plan.map((epic, i) => (
-              <EpicRow
-                key={epic.id}
-                epic={epic}
-                order={i}
-                total={plan.length}
-                filtered={picked === epic.id}
-                onFilter={() => setOnly(picked === epic.id ? null : epic.id)}
-              />
-            ))}
-          </div>
+      {/* Шапка экрана: переключатель блоков и снятие фильтра по фиче. Не
+          прокручивается — фильтр ставят в «Плане», а видят его в «Задачах»,
+          и кнопка снятия нужна на обеих подвкладках. */}
+      <div className="board-tabs">
+        <div className="seg">
+          {BOARD_TABS.map((k) => (
+            <button key={k} className={tab === k ? 'on' : ''} onClick={() => setTab(k)}>
+              {tr(`board.tab.${k}`)}
+            </button>
+          ))}
         </div>
-      )}
-      {all.length === 0 && <p className="empty">{tr('board.empty')}</p>}
-      {all.length > 0 && (
-        <div className="columns">
-          {COLUMNS.map((col) => {
-            const items = list.filter((t) => col.statuses.includes(t.status));
-            return (
-              <div key={col.key} className={`column${col.tone ? ` ${col.tone}` : ''}`}>
-                <div className="column-head">
-                  {tr(col.key)} <span className="muted">{items.length}</span>
+        {picked && (
+          <button className="mini" onClick={() => setOnly(null)}>
+            {tr('plan.showAll', { epic: picked })}
+          </button>
+        )}
+      </div>
+      <div className="board-pane">
+        {tab === 'directions' && <Directions />}
+        {tab === 'plan' && (
+          <div className="plan">
+            <div className="plan-head">
+              {tr('plan.title')}
+              <span className="muted">{tr('plan.focus', { n: focus ?? 2 })}</span>
+            </div>
+            <div className="plan-rows">
+              {plan.length === 0 && <p className="empty">{tr('board.sub.empty')}</p>}
+              {plan.map((epic, i) => (
+                <EpicRow
+                  key={epic.id}
+                  epic={epic}
+                  order={i}
+                  total={plan.length}
+                  filtered={picked === epic.id}
+                  onFilter={() => setOnly(picked === epic.id ? null : epic.id)}
+                />
+              ))}
+            </div>
+          </div>
+        )}
+        {tab === 'tasks' && all.length === 0 && <p className="empty">{tr('board.empty')}</p>}
+        {tab === 'tasks' && all.length > 0 && (
+          <div className="columns">
+            {COLUMNS.map((col) => {
+              const items = list.filter((t) => col.statuses.includes(t.status));
+              return (
+                <div key={col.key} className={`column${col.tone ? ` ${col.tone}` : ''}`}>
+                  <div className="column-head">
+                    {tr(col.key)} <span className="muted">{items.length}</span>
+                  </div>
+                  {items.map((t) => <Card key={t.id} t={t} />)}
                 </div>
-                {items.map((t) => <Card key={t.id} t={t} />)}
-              </div>
-            );
-          })}
-        </div>
-      )}
+              );
+            })}
+          </div>
+        )}
+      </div>
     </div>
   );
 }

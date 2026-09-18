@@ -13,7 +13,12 @@ import { ChatPeer } from '../ChatPeer';
  * а звонящие ему — в разных ветках дерева.
  */
 let focus: (() => void) | null = null;
-export const focusComposer = (): void => { focus?.(); };
+export const focusComposer = (): void => {
+  // На виде «Доска» композера на экране нет. Просьба о курсоре приходит вместе
+  // со сменой вида, и в этот момент он ещё не смонтирован — ждём кадр.
+  if (focus) focus();
+  else requestAnimationFrame(() => focus?.());
+};
 
 /**
  * Композер внизу экрана — постоянный, а не внутри чата: задача ставится
