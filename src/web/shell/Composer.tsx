@@ -1,5 +1,5 @@
-import { useEffect, useRef, useState } from 'react';
-import { accessLabel, pushToast, send, useStore } from '../store';
+import { useEffect, useRef } from 'react';
+import { accessLabel, pushToast, send, useInputDraft, useStore } from '../store';
 import { money } from '../money';
 import { t } from '../i18n';
 import { Icon } from '../icons';
@@ -33,7 +33,10 @@ export function Composer({ onSettings }: { onSettings: () => void }) {
   const settings = useStore((s) => s.settings);
   const connected = useStore((s) => s.connected);
   const view = useStore((s) => s.view);
-  const [draft, setDraft] = useState('');
+  // Черновик — в сторе: на виде «Доска» композера на экране нет, и локальное
+  // состояние теряло бы недописанное при каждой смене вида.
+  const draft = useInputDraft();
+  const setDraft = useStore((s) => s.setInputDraft);
   const input = useRef<HTMLTextAreaElement>(null);
   const box = useRef<HTMLDivElement>(null);
 
