@@ -30,6 +30,7 @@ import { Agents3D } from './Agents3D';
 import { Pixelation } from './Pixelation';
 import { Camera3D, CameraChips, FOV, startPose } from './Camera3D';
 import { DevBadge, DevOverlay } from './Dev3D';
+import { MAX_DT, setSceneOnScreen, tickScene } from './clock';
 import { t } from '../i18n';
 
 /** Насколько прозрачной становится погашенная стена. Не ноль: контур комнаты
@@ -444,6 +445,18 @@ function FloorGrid({ scene, palette, bright }: { scene: Scene3; palette: Palette
   );
 }
 
+/**
+ * Часы сцены — один кадровый ход на всю комнату.
+ *
+ * Считать время каждому агенту по себе нельзя: очередь в разговоре держится
+ * ровно на том, что часы у собеседников общие. Ход нулевого приоритета, чтобы
+ * рендер кадра остался за R3F.
+ */
+function SceneClock() {
+  useFrame((_, dt) => tickScene(Math.min(dt, MAX_DT)));
+  return null;
+}
+
 export function Office3D({ onOpen, onDoor, active }: {
   onOpen: (target: SpotTarget) => void;
   onDoor: () => void;
@@ -518,6 +531,17 @@ export function Office3D({ onOpen, onDoor, active }: {
   // камера не оказалась внутри стен.
   const start = useMemo(() => startPose(scene.size), [scene.size]);
 
+  /**
+   * Скрытая сцена не считает кадров — значит, и вести фигуры по комнате в это
+   * время некому. Об этом должны знать те, кто их ведёт, поэтому признак
+   * уезжает в модуль часов, а не вниз пропсами: пока сцена в `display: none`,
+   * R3F не перерисовывает её дерево, и пропсы до агентов не доходят
+   * (`clock.ts`).
+   */
+  useEffect(() => {
+    setSceneOnScreen(active);
+  }, [active]);
+
   return (
     <div className={`office-box office3d${active ? '' : ' office3d-hidden'}`}>
       {/* `flat` выключает кинематографический тонмаппинг, который R3F ставит
@@ -538,6 +562,7 @@ export function Office3D({ onOpen, onDoor, active }: {
         camera={{ position: start, fov: FOV, near: 1, far: 1200 }}
         style={{ background: palette.backdrop }}
       >
+        <SceneClock />
         {/* Камера: облёт, наезд и фокус — на комнате, на выбранном агенте
             или там, куда её увели руками. */}
         <Camera3D layout={layout} size={scene.size} active={active} />
