@@ -5,7 +5,8 @@ import type {
   McpServerState, MergeCheck, MergeCheckState, MergeRun, MergeStep, MergeStepStatus,
   PermissionDecision,
   MarketView, PermissionMode, PermissionRequest, MeetingView, RoleDraft, RoleEditable, RoleOp, RoleView,
-  ServerEvent, Settings, TaskEdit, TaskView, Usage, CloudStatus, OfficeView, OfficeIcon, PullRequestView, PrStage,
+  ServerEvent, Settings, TaskEdit, TaskPriority, TaskView, Usage, CloudStatus, OfficeView, OfficeIcon,
+  PullRequestView, PrStage,
   EpicView, LimitsView, FactView, OwnerQuestion, LifeView, RitualId, DirectionView, ProposalView,
   OfficeSetupPlan, SetupCatalog, SetupStep, OfficeHealth, EnvReport,
 } from '../shared/types';
@@ -1852,6 +1853,15 @@ export function resetWorkflow(id: string): void {
 
 export function runRitual(ritual: RitualId): void {
   socket?.send(JSON.stringify({ c: 'ritual_run', ritual }));
+}
+
+/**
+ * Сменить важность задачи. Отдельная команда, а не патч задачи: сервер сам
+ * пришлёт обновлённую задачу в снимке, поэтому локально тут ничего не
+ * угадываем — иначе доска на миг показала бы то, чего офис ещё не принял.
+ */
+export function setTaskPriority(taskId: string, priority: TaskPriority): void {
+  socket?.send(JSON.stringify({ c: 'task_priority', taskId, priority }));
 }
 
 export function createDirection(text: string): void {

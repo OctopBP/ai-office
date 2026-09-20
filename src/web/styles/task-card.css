@@ -29,6 +29,19 @@
 .epic-chip { color: var(--ink-3); }
 .env-wait-chip { color: var(--warn); }
 
+/* ---------- важность ----------
+   Метка важности — такой же чип, отличается только цветом слова: высокая
+   тревожным, низкая приглушённым. Своих цветов у неё нет: важность — не
+   новое состояние задачи, а её оттенок. Средняя на доску не попадает вовсе
+   (см. Board.tsx), поэтому цвета для неё здесь нет. */
+.prio-chip { cursor: pointer; }
+.prio-chip.high { color: var(--warn); }
+.prio-chip.low { color: var(--accent-muted); }
+/* Сегменты важности в раскрытой карточке мельче навигационных: они стоят в
+   строке поля, а не в шапке, и ряд «низкая обычная высокая» не должен
+   раздвигать сетку «поле — значение». */
+.prio-seg button { min-height: 24px; padding: 0 12px; }
+
 .task-result { margin-top: var(--space-2); color: var(--ink-2); font-size: var(--fs-md); }
 .task-files { margin-top: var(--space-1); color: var(--ink-3); }
 .task-watch { margin-top: var(--space-1); }

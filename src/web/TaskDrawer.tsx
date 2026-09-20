@@ -9,6 +9,7 @@ import { locale, t } from './i18n';
 import { Hint, Tooltip } from './Tooltip';
 import { HOTKEY } from './hotkeys';
 import { AgentTag } from './Avatar';
+import { PrioritySeg } from './TaskPriority';
 
 /**
  * Раскрытая карточка задачи.
@@ -139,6 +140,10 @@ export function TaskDrawer() {
       <section>
         <h3 className="section-title">{t('taskCard.about')}</h3>
         <div className="kv">
+          {/* Важность стоит первой строкой: это единственное поле задачи,
+              которое человек меняет отсюда руками. */}
+          <span className="muted">{t('task.priority.title')}</span>
+          <span><PrioritySeg task={task} /></span>
           <span className="muted">{t('taskCard.role')}</span>
           <span>{role?.title ?? task.roleId ?? t('common.none')}</span>
           <span className="muted">{t('taskCard.assignee')}</span>
