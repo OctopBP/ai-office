@@ -15,8 +15,19 @@
 .life-row-head button { margin-left: auto; }
 .life-text { color: var(--ink); white-space: pre-wrap; }
 .life-answer { color: var(--ok-ink); }
-.life-actions { display: flex; gap: var(--space-2); align-items: center; margin-top: var(--space-1); }
+.life-actions { display: flex; gap: var(--space-2); align-items: center; margin-top: var(--space-1); flex-wrap: wrap; }
 .life-actions input { flex: 1; min-width: 0; }
+/* Готовые варианты ответа: кнопки в несколько рядов. Текст варианта может быть
+   длинным, поэтому переносим его внутри кнопки, а не растягиваем строку. */
+.life-options { display: flex; flex-wrap: wrap; gap: var(--space-2); margin-top: var(--space-1); }
+.life-options button {
+  max-width: 100%; height: auto; padding: 6px 12px;
+  white-space: normal; text-align: left; overflow-wrap: anywhere;
+  color: var(--accent); box-shadow: inset 0 0 0 1px rgba(var(--accent-rgb), .35);
+}
+.life-options button:hover:not(:disabled) {
+  background: var(--accent); color: var(--accent-ink); box-shadow: none;
+}
 .life-policy { display: flex; flex-direction: column; gap: 2px; }
 .life-run { display: flex; gap: var(--space-3); flex-wrap: wrap; }
 .chip.contradiction, .chip.revert { color: var(--danger); }
