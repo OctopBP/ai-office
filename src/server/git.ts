@@ -1,7 +1,7 @@
 import { execFile } from 'node:child_process';
 import { dirname, join, resolve } from 'node:path';
 import { tmpdir } from 'node:os';
-import { existsSync, mkdirSync, statSync, symlinkSync } from 'node:fs';
+import { existsSync, mkdirSync, readdirSync, statSync, symlinkSync } from 'node:fs';
 import { mkdtemp, rm } from 'node:fs/promises';
 import type { Lang } from '../shared/i18n';
 import { t } from './i18n';
@@ -249,6 +249,8 @@ export interface MergeOutcome {
   worktree: string | null;
   /** Что стало с рабочей копией человека после того, как базовая ветка сдвинулась. */
   checkout: CheckoutSync;
+  /** Что случилось по дороге и стоит сказать вслух, не отменяя исхода. */
+  warnings: string[];
 }
 
 export interface CheckoutSync {
@@ -263,6 +265,16 @@ export interface CheckoutSync {
   message: string;
 }
 
+/** Чем кончилась попытка поднять рабочую копию офиса для слияний. */
+interface IntegrationCopy {
+  /** Готовая к слиянию копия. null — поднять не удалось. */
+  path: string | null;
+  /** Почему не удалось — словами и с текстом от самого git. */
+  error: string;
+  /** Что пришлось сделать по дороге: об этом говорят вслух, но это не отказ. */
+  warnings: string[];
+}
+
 /**
  * Рабочая копия офиса для слияний — отдельная от той, в которой сидит человек.
  *
@@ -270,30 +282,60 @@ export interface CheckoutSync {
  * человека («git не даёт слить поверх ваших изменений») останавливала весь
  * конвейер. Это неверная зависимость: слияние двух веток — операция над
  * историей, к тому, что человек в этот момент правит у себя, отношения не имеет.
+ *
+ * Каталог копии принадлежит офису целиком. Если на его месте оказалось что-то
+ * постороннее (T-56: в `_base` лежал чужой worktree, оставленный чьим-то
+ * прогоном), `git worktree add` отказывается — «already exists», — и офис
+ * застревает навсегда: каждое следующее слияние падает на том же месте.
+ * Поэтому посторонний каталог мы забираем обратно, сказав об этом вслух.
  */
 async function integrationWorktree(
-  repoDir: string, dir: string, base: string,
-): Promise<string | null> {
+  repoDir: string, dir: string, base: string, lang: Lang,
+): Promise<IntegrationCopy> {
+  const warnings: string[] = [];
   if (existsSync(resolve(dir, '.git'))) {
     // Копия наша, чужого в ней не бывает: приводим к базовой ветке жёстко.
     await git(dir, ['reset', '--hard']);
     await git(dir, ['clean', '-fdq']);
     const moved = await git(dir, ['checkout', '--detach', base]);
-    if (moved.ok) return dir;
+    if (moved.ok) return { path: dir, error: '', warnings };
     await rm(dir, { recursive: true, force: true });
   }
+  if (existsSync(dir)) {
+    // git заводит копию только в пустом каталоге. Непустой — след чужой работы
+    // или брошенный worktree: называем, что убрали, и убираем.
+    const leftovers = readdirSync(dir);
+    if (leftovers.length) {
+      warnings.push(t(lang, 'git.integrationReclaimed', {
+        dir, files: leftovers.slice(0, 5).join(', '),
+      }));
+    }
+    await rm(dir, { recursive: true, force: true });
+  }
+  // Снятые каталоги могли быть зарегистрированы как worktree этого же
+  // репозитория: без prune git продолжит считать их живыми.
   await git(repoDir, ['worktree', 'prune']);
   // Копия офиса может лежать где угодно, в том числе во временном каталоге:
   // родительской директории может просто не быть, а git её не создаёт.
   try {
     mkdirSync(dirname(dir), { recursive: true });
-  } catch {
-    return null;
+  } catch (err) {
+    return {
+      path: null, warnings,
+      error: t(lang, 'git.integrationNoDir', { dir, error: (err as Error).message }),
+    };
   }
   const added = await git(repoDir, ['worktree', 'add', '--detach', dir, base]);
-  if (!added.ok) return null;
+  if (!added.ok) {
+    return {
+      path: null, warnings,
+      error: t(lang, 'git.integrationAddFailed', {
+        dir, error: (added.stderr || added.stdout).trim(),
+      }),
+    };
+  }
   await linkNodeModules(repoDir, dir);
-  return dir;
+  return { path: dir, error: '', warnings };
 }
 
 /**
@@ -372,6 +414,8 @@ export interface AssembledMerge {
   /** Коммит собранного слияния и коммит базы, от которого его собирали. */
   sha: string | null;
   baseSha: string | null;
+  /** Что случилось по дороге и стоит сказать вслух, не отменяя исхода. */
+  warnings: string[];
 }
 
 /**
@@ -384,8 +428,9 @@ export async function assembleMerge(
   repoDir: string, branch: string, base: string, integrationDir: string, lang: Lang,
   sign?: Signature,
 ): Promise<AssembledMerge> {
+  const warnings: string[] = [];
   const stop = (message: string, kind: AssembledMerge['kind']): AssembledMerge => ({
-    kind, message, conflicts: [], worktree: null, sha: null, baseSha: null,
+    kind, message, conflicts: [], worktree: null, sha: null, baseSha: null, warnings,
   });
 
   const baseSha = await revision(repoDir, base);
@@ -399,8 +444,15 @@ export async function assembleMerge(
     return stop(t(lang, 'git.nothingToMerge'), 'nothing');
   }
 
-  const worktree = await integrationWorktree(repoDir, integrationDir, base);
-  if (!worktree) return stop(t(lang, 'git.noIntegrationCopy'), 'failed');
+  const copy = await integrationWorktree(repoDir, integrationDir, base, lang);
+  warnings.push(...copy.warnings);
+  // Копии нет — это поломка обстановки, а не расхождение веток: так и говорим,
+  // с текстом от git. Раньше здесь была одна глухая фраза, и конвейер принимал
+  // её за конфликт (T-56).
+  if (!copy.path) {
+    return stop(copy.error || t(lang, 'git.noIntegrationCopy'), 'failed');
+  }
+  const worktree = copy.path;
 
   const merge = await git(worktree, ['merge', '--no-ff', '--no-edit', branch], signed(sign));
   if (!merge.ok) {
@@ -408,7 +460,7 @@ export async function assembleMerge(
     const files = splitLines(conflicted.stdout);
     await git(worktree, ['merge', '--abort']);
     return {
-      kind: 'conflict', worktree, conflicts: files, sha: null, baseSha,
+      kind: 'conflict', worktree, conflicts: files, sha: null, baseSha, warnings,
       message: files.length
         ? t(lang, 'git.mergeConflict', { files: files.join(', ') })
         : t(lang, 'git.mergeFailed', { error: merge.stderr || merge.stdout }),
@@ -418,7 +470,7 @@ export async function assembleMerge(
   const sha = await revision(worktree, 'HEAD');
   if (!sha) return stop(t(lang, 'git.noMergeCommit'), 'failed');
   return {
-    kind: 'merged', worktree, conflicts: [], sha, baseSha,
+    kind: 'merged', worktree, conflicts: [], sha, baseSha, warnings,
     message: t(lang, 'git.mergeAssembled', { branch, base }),
   };
 }
@@ -442,17 +494,19 @@ export async function mergeBranch(
   verify?: (worktree: string) => Promise<{ ok: boolean; message: string }>,
   sign?: Signature,
 ): Promise<MergeOutcome> {
+  const warnings: string[] = [];
   const nothingToDo = (message: string, kind: MergeOutcome['kind'] = 'nothing'): MergeOutcome => ({
     ok: kind === 'nothing', kind, message, conflicts: [], worktree: null,
-    checkout: { state: 'not-here', files: [], message: '' },
+    checkout: { state: 'not-here', files: [], message: '' }, warnings,
   });
 
   const built = await assembleMerge(repoDir, branch, base, integrationDir, lang, sign);
+  warnings.push(...built.warnings);
   if (built.kind === 'conflict') {
     return {
       ok: false, kind: 'conflict', worktree: built.worktree,
       message: built.message, conflicts: built.conflicts,
-      checkout: { state: 'not-here', files: [], message: '' },
+      checkout: { state: 'not-here', files: [], message: '' }, warnings,
     };
   }
   if (built.kind !== 'merged') return nothingToDo(built.message, built.kind);
@@ -468,7 +522,7 @@ export async function mergeBranch(
       return {
         ok: false, kind: 'verify-failed', worktree, conflicts: [],
         message: checked.message,
-        checkout: { state: 'not-here', files: [], message: '' },
+        checkout: { state: 'not-here', files: [], message: '' }, warnings,
       };
     }
   }
@@ -485,7 +539,7 @@ export async function mergeBranch(
   return {
     ok: true, kind: 'merged', worktree, conflicts: [],
     message: t(lang, 'git.merged', { branch, base }),
-    checkout: moved.checkout,
+    checkout: moved.checkout, warnings,
   };
 }
 

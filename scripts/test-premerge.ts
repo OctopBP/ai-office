@@ -1,14 +1,15 @@
 /**
  * Пред-merge гейт на настоящем репозитории, без единого токена: создаём
  * временный репозиторий, где ветка зелена в одиночку и красна вместе с main,
- * и проверяем четыре вещи — грязная копия останавливает слияние, красное слитое
- * дерево не уезжает в main, зелёный сценарий сливает как раньше и, наконец, что
+ * и проверяем пять вещей — грязная копия останавливает слияние, красное слитое
+ * дерево не уезжает в main, зелёный сценарий сливает как раньше, занятый
+ * посторонним каталог рабочей копии офиса не вешает гейт (T-56) и, наконец, что
  * то же самое умеет автоматический конвейер офиса, а не только консоль.
  *
  * Запуск: npm run test:premerge
  */
 import { execFileSync } from 'node:child_process';
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { resolve } from 'node:path';
 import {
@@ -265,6 +266,48 @@ async function main(): Promise<void> {
   const again = await preMergeGate({ repoDir: dir, branch: 'task/T-red', base: 'main' });
   check('повторный прогон говорит «нечего сливать»',
     again.ok === true && again.stage === 'nothing');
+
+  // 5. Каталог копии офиса занят посторонним (T-56). Так гейт вставал навсегда:
+  //    git worktree add не идёт в непустой каталог, а отказ выдавался за
+  //    конфликт — конвейер шёл на второй круг и объявлял «база уезжает быстрее».
+  git('checkout', '-q', '-b', 'task/T-busy', 'main');
+  writeFileSync(resolve(dir, 'busy.txt'), 'работа T-busy\n');
+  git('add', '-A');
+  git('commit', '-qm', 'T-busy: своя работа');
+  git('checkout', '-q', 'main');
+
+  const copyDir = defaultIntegrationDir(dir);
+  rmSync(copyDir, { recursive: true, force: true });
+  mkdirSync(resolve(copyDir, 'чужая-копия'), { recursive: true });
+  writeFileSync(resolve(copyDir, 'чужая-копия', 'file.txt'), 'кто-то тут работал\n');
+  const headBusy = git('rev-parse', 'main');
+
+  const busy = await preMergeGate({ repoDir: dir, branch: 'task/T-busy', base: 'main' });
+  check('занятый каталог копии офиса гейт не останавливает',
+    busy.ok === true && busy.stage === 'merged');
+  check('T-busy влита', git('rev-parse', 'main') !== headBusy);
+  check('про отобранный каталог сказано вслух',
+    busy.warnings.some((w) => w.includes('был занят посторонним') && w.includes('чужая-копия')));
+  check('посторонний каталог убран', !existsSync(resolve(copyDir, 'чужая-копия')));
+
+  // 5б. Копию поднять нельзя вовсе — это не конфликт, и говорить так нельзя.
+  //     Каталог копии кладём внутрь файла: создать его не выйдет ничем.
+  git('checkout', '-q', '-b', 'task/T-nowhere', 'main');
+  writeFileSync(resolve(dir, 'nowhere.txt'), 'работа T-nowhere\n');
+  git('add', '-A');
+  git('commit', '-qm', 'T-nowhere: своя работа');
+  git('checkout', '-q', 'main');
+  const headNowhere = git('rev-parse', 'main');
+
+  const broken = await preMergeGate({
+    repoDir: dir, branch: 'task/T-nowhere', base: 'main',
+    integrationDir: resolve(dir, 'api.txt', 'копия'),
+  });
+  check('поломка обстановки — не конфликт',
+    broken.ok === false && broken.stage === 'broken' && broken.conflicts.length === 0);
+  check('в причине сказано, что ветка ни при чём',
+    broken.message.includes('дело не в ветке'));
+  check('main при поломке не сдвинулся', git('rev-parse', 'main') === headNowhere);
 
   // Копия офиса живёт вне репозитория и репозиторий её не переживает — убираем
   // сами, иначе после каждого прогона во временном каталоге оставался бы

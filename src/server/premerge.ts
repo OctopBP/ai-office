@@ -42,13 +42,19 @@ export interface PreMergeCheck {
 
 /**
  * На чём остановился гейт:
- * 'dirty' — грязная рабочая копия; 'conflict' — пробное слияние не собралось;
- * 'checks' — проверки на слитом дереве красные; 'merge' — слияние не прошло;
- * 'nothing' — сливать было нечего; 'merged' — влито; 'checked' — гейт зелёный,
- * но слияние не просили (режим только проверки).
+ * 'dirty' — грязная рабочая копия; 'conflict' — ветка и база разошлись;
+ * 'broken' — обстановка не дала даже собрать пробное слияние (нет копии офиса,
+ * нет ветки, git отказал); 'checks' — проверки на слитом дереве красные;
+ * 'merge' — слияние не прошло; 'nothing' — сливать было нечего;
+ * 'merged' — влито; 'checked' — гейт зелёный, но слияние не просили.
+ *
+ * 'conflict' и 'broken' разведены не для красоты: конфликт лечит автор на
+ * следующем круге, а поломку обстановки — никто, и повторять её бессмысленно.
+ * Пока они были одним исходом, конвейер крутил заведомо безнадёжный повтор и
+ * объявлял итогом «база уезжает быстрее, чем задача успевает слиться» (T-56).
  */
 export type PreMergeStage =
-  | 'dirty' | 'conflict' | 'checks' | 'merge' | 'nothing' | 'merged' | 'checked';
+  | 'dirty' | 'conflict' | 'broken' | 'checks' | 'merge' | 'nothing' | 'merged' | 'checked';
 
 export interface PreMergeReport {
   ok: boolean;
@@ -198,7 +204,12 @@ export async function preMergeGate(options: PreMergeOptions): Promise<PreMergeRe
   // 1. Чистая ли рабочая копия. Это ровно ситуация из J-4: незакоммиченные
   //    правки в копии основной ветки роняли слияние на середине.
   report.dirty = await dirtyFiles(repoDir);
-  const here = (await currentBranch(repoDir)) ?? base;
+  const branchHere = await currentBranch(repoDir);
+  const here = branchHere ?? base;
+  // Отцепленный HEAD основной копии — известная болячка офиса (урок про
+  // task.baseBranch). Слиянию он не мешает — база двигается ссылкой, — но
+  // молчать о нём нельзя: человек, глядя в такую копию, не увидит влитого.
+  if (!branchHere) report.warnings.push(t(lang, 'premerge.detachedHead', { dir: repoDir, base }));
   if (report.dirty.length && !allowDirty) {
     if (!stash) {
       return done('dirty', false, t(lang, 'premerge.dirty', {
@@ -216,6 +227,7 @@ export async function preMergeGate(options: PreMergeOptions): Promise<PreMergeRe
   try {
     // 2. Пробное слияние: собирается в копии офиса, основная ветка не двигается.
     const built = await assembleMerge(repoDir, branch, base, integrationDir, lang, options.sign);
+    report.warnings.push(...built.warnings);
     if (built.kind === 'conflict') {
       report.conflicts = built.conflicts;
       return done('conflict', false, t(lang, 'premerge.conflict', {
@@ -225,8 +237,10 @@ export async function preMergeGate(options: PreMergeOptions): Promise<PreMergeRe
     if (built.kind === 'nothing') {
       return done('nothing', true, t(lang, 'premerge.nothing', { branch, base }));
     }
+    // Не конфликт, а поломка обстановки: повтор её не лечит, и звать за ней
+    // нужно человека, а не автора ветки.
     if (built.kind !== 'merged' || !built.worktree) {
-      return done('conflict', false, t(lang, 'premerge.assembleFailed', { error: built.message }));
+      return done('broken', false, t(lang, 'premerge.assembleFailed', { error: built.message }));
     }
     const worktree = built.worktree;
 
@@ -282,6 +296,7 @@ export async function preMergeGate(options: PreMergeOptions): Promise<PreMergeRe
     //    одно и то же.
     const outcome = await mergeBranch(
       repoDir, branch, base, integrationDir, lang, undefined, options.sign);
+    report.warnings.push(...outcome.warnings);
     if (outcome.kind === 'nothing') {
       return done('nothing', true, t(lang, 'premerge.nothing', { branch, base }));
     }

@@ -616,14 +616,33 @@ function stopOnRedGate(ctx: Ctx, report: PreMergeReport): StepResult {
 }
 
 /**
- * Пробное слияние не собралось — ветка разошлась с базой. Это чинит автор на
+ * Ветка разошлась с базой — пробное слияние даёт конфликт. Это чинит автор на
  * следующем круге (resync → fix-conflict), а не человек руками.
  */
 function retryAfterGate(ctx: Ctx, report: PreMergeReport): StepResult {
   const { state, task } = ctx;
   state.addChat(OFFICE_SENDER,
     state.say('pipe.mergeOutcome', { task: task.id, message: report.message }));
-  return { outcome: 'moved' };
+  // Записку несём дальше: если кругов не хватит, в причине остановки будет
+  // видно, на чём именно не сошлись, а не одно «база уезжает быстрее».
+  return { outcome: 'moved', note: report.message };
+}
+
+/**
+ * Гейт не смог даже собрать пробное слияние или встал на грязной копии — это
+ * поломка обстановки, а не расхождение веток. Повтор её не лечит: до T-56
+ * конвейер уходил на второй круг и объявлял итогом «база уезжает быстрее, чем
+ * задача успевает слиться», пока настоящей причиной был занятый каталог
+ * рабочей копии офиса. Теперь встаём сразу и говорим, что увидел гейт.
+ */
+function stopOnBrokenGate(ctx: Ctx, report: PreMergeReport): StepResult {
+  const { state, task } = ctx;
+  const why = state.say('pipe.mergeGateBroken', {
+    base: ctx.base,
+    message: [report.message, ...report.warnings].filter(Boolean).join(' '),
+  });
+  state.addChat(OFFICE_SENDER, state.say('pipe.mergeOutcome', { task: task.id, message: why }));
+  return fail(why, true);
 }
 
 /**
@@ -634,8 +653,10 @@ function retryAfterGate(ctx: Ctx, report: PreMergeReport): StepResult {
  * До T-145 конвейер проверял слитое дерево одним typecheck — и четыре поломки
  * прожили в main незамеченными, потому что ломались не сборкой, а тестами.
  *
- * Исход 'moved' — база уехала прямо под нами: это не беда, а повод пересобрать
- * ветку и зайти снова; сколько раз — решает процесс.
+ * Исход 'moved' — база уехала прямо под нами или ветка с ней разошлась: это не
+ * беда, а повод пересобрать ветку и зайти снова; сколько раз — решает процесс.
+ * Всё остальное красное — остановка с причиной, а не повтор: гейт, который не
+ * смог даже собрать пробное слияние, на втором круге скажет ровно то же (T-56).
  */
 const merge: Executor<Ctx> = {
   run(ctx) {
@@ -666,6 +687,9 @@ const merge: Executor<Ctx> = {
         state.patchPr(task.id, { gate: toGateView(gate) });
         if (gate.stage === 'checks') return stopOnRedGate(ctx, gate);
         if (gate.stage === 'conflict') return retryAfterGate(ctx, gate);
+        // Красный гейт по любой другой причине до GitHub доходить не должен:
+        // пуш и слияние пулл-реквеста — это уже правка чужого репозитория.
+        if (!gate.ok) return stopOnBrokenGate(ctx, gate);
         overlaps = gate.overlaps;
 
         const push = await pushBranch(repo, branch, gh.token, state.lang());
@@ -699,7 +723,11 @@ const merge: Executor<Ctx> = {
 
         if (gate.stage === 'checks') return stopOnRedGate(ctx, gate);
         if (gate.stage === 'conflict') return retryAfterGate(ctx, gate);
-        if (!gate.ok) return fail(gate.message);
+        // Гейт был зелёным, а слияние не прошло — чаще всего базу правда
+        // сдвинули, пока мы проверяли: вот ровно тот случай, ради которого
+        // заведён второй круг и фраза «база уезжает быстрее».
+        if (gate.stage === 'merge') return retryAfterGate(ctx, gate);
+        if (!gate.ok) return stopOnBrokenGate(ctx, gate);
         overlaps = gate.overlaps;
         if (gate.stage === 'nothing') {
           state.addLog(null, 'system', state.say('pipe.noCommits', { task: task.id, base }));
@@ -750,8 +778,11 @@ const merge: Executor<Ctx> = {
       return { outcome: 'pass' };
     });
   },
-  exhausted(ctx) {
-    return { note: ctx.state.say('pipe.baseMovesFast', { base: ctx.base }) };
+  exhausted(ctx, last) {
+    return {
+      note: ctx.state.say('pipe.baseMovesFast', { base: ctx.base })
+        + (last.note ? ` ${ctx.state.say('pipe.lastGate', { message: last.note })}` : ''),
+    };
   },
 };
 

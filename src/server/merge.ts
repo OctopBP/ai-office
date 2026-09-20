@@ -207,6 +207,9 @@ export async function mergeQueue(taskIds: string[], state: OfficeState): Promise
       if (outcome.checkout.state === 'lagging') {
         state.addChat(OFFICE_SENDER, outcome.checkout.message);
       }
+      // То же и с копией офиса: если её каталог пришлось отбирать у чужого
+      // содержимого, это слышно вслух, а не только в логе сервера.
+      for (const warning of outcome.warnings) state.addChat(OFFICE_SENDER, warning);
 
       if (outcome.kind === 'conflict') {
         finishStep(state, runState, step, 'conflict',
