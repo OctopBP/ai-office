@@ -18,6 +18,52 @@ import { tellPm } from './review';
 /** Сколько вопросов можно задать по одной задаче — как у `ask_colleague`. */
 export const MAX_QUESTIONS_PER_TASK = 2;
 
+/** Сколько вариантов ответа показываем и какой длины. Кнопка в строку не влезет. */
+const MAX_OPTIONS = 4;
+const MAX_OPTION_LEN = 40;
+/** Разобранных из текста вариантов берём меньше: эвристика ошибается чаще агента. */
+const MAX_GUESSED = 3;
+
+/**
+ * Варианты ответа для вопроса: что дал агент, а если не дал — что удалось
+ * разобрать в самом вопросе. Пустой список значит «вариантов нет», и это
+ * нормально: тогда владелец пишет ответ руками, как раньше.
+ */
+export function questionOptions(options: string[] | undefined, text: string): string[] {
+  const given = tidyOptions(options ?? [], MAX_OPTIONS);
+  return given.length > 1 ? given : guessOptions(text);
+}
+
+/** Чистка списка: обрезка, без пустых, без повторов, без длинных, не больше `max`. */
+function tidyOptions(list: string[], max: number): string[] {
+  const out: string[] = [];
+  for (const raw of list) {
+    const option = raw.replace(/\s+/g, ' ').trim();
+    if (!option || option.length > MAX_OPTION_LEN) continue;
+    if (out.some((o) => o.toLowerCase() === option.toLowerCase())) continue;
+    out.push(option);
+    if (out.length >= max) break;
+  }
+  return out;
+}
+
+/**
+ * Запасной разбор: «делаем А или Б?» в последнем предложении вопроса.
+ * Нарочно тупой — лучше не предложить ничего, чем предложить бессмыслицу:
+ * длинные куски и одиночный вариант отбрасываются целиком.
+ */
+function guessOptions(text: string): string[] {
+  const last = (text.replace(/\s+/g, ' ').trim().match(/[^.!?]+[.!?]*$/)?.[0] ?? '').trim();
+  // Отрезаем зачин до двоеточия или тире («Пагинация: по 20 или по 50?»);
+  // дефис для этого не годится — он живёт внутри слов.
+  const tail = last.replace(/^[^:—–]*[:—–]\s*/, '').replace(/[?!.]+$/, '').trim();
+  const parts = tail.split(/\s+или\s+/i).map((p) => p.replace(/^[«"'(]+|[»"')]+$/g, '').trim());
+  if (parts.length < 2 || parts.length > MAX_GUESSED) return [];
+  const tidy = tidyOptions(parts, MAX_GUESSED);
+  // Разбор засчитывается только целиком: выкинули хоть кусок — значит не поняли.
+  return tidy.length === parts.length ? tidy : [];
+}
+
 /** Порядок важности в планёрке: противоречие и протухшее решение выше допущений. */
 const PRIORITY: Record<QuestionKind, number> = {
   gate: 0, contradiction: 1, stale: 2, revert: 3, assumption: 4,
@@ -35,6 +81,7 @@ export const openQuestions = (state: OfficeState): OwnerQuestion[] =>
  */
 export function askOwner(
   state: OfficeState, from: string, taskId: string | null, text: string, assumption: string,
+  options?: string[],
 ): { ok: boolean; text: string; question: OwnerQuestion | null } {
   if (!text.trim()) return { ok: false, text: state.say('questions.empty'), question: null };
   if (taskId) {
@@ -46,6 +93,7 @@ export function askOwner(
   }
   const question = state.addQuestion({
     from, taskId, kind: 'assumption', text, assumption: assumption || state.say('questions.noAssumption'),
+    options: questionOptions(options, text),
   });
   state.addLog(from === OFFICE_SENDER ? null : from, 'system',
     state.say('questions.askedLog', { id: question.id, text: clip(text, 120) }));
@@ -55,8 +103,11 @@ export function askOwner(
 /** Вопрос от самого офиса: ритуал заметил противоречие, протухшее решение, откат. */
 export function officeAsks(
   state: OfficeState, kind: QuestionKind, text: string, assumption: string, taskId: string | null = null,
+  options?: string[],
 ): OwnerQuestion {
-  const question = state.addQuestion({ from: OFFICE_SENDER, taskId, kind, text, assumption });
+  const question = state.addQuestion({
+    from: OFFICE_SENDER, taskId, kind, text, assumption, options: questionOptions(options, text),
+  });
   state.addLog(null, 'system', state.say('questions.askedLog', { id: question.id, text: clip(text, 120) }));
   return question;
 }
