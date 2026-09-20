@@ -8,7 +8,7 @@ import {
 } from 'node:fs';
 import { homedir } from 'node:os';
 import { dirname, extname, relative, resolve, sep } from 'node:path';
-import type { OfficeIcon } from '../shared/types';
+import { compareOffices, type OfficeIcon } from '../shared/types';
 import { c } from './i18n';
 
 /**
@@ -43,6 +43,11 @@ export interface OfficeEntry {
   icon?: StoredIcon;
   /** Где лежит состояние этого офиса. */
   stateFile: string;
+  /**
+   * Когда офис завели. Порядок списка считается только по нему
+   * (`compareOffices`), поэтому поле обязательное: реестрам, заведённым до
+   * его появления, время проставляет миграция при загрузке — см. `normalize`.
+   */
   createdAt: number;
   lastOpenedAt: number;
   /**
@@ -101,6 +106,37 @@ function write(): void {
 }
 
 /**
+ * Привести список реестра к постоянному порядку — от старого офиса к новому.
+ * Возвращает true, если что-то поправили и файл надо переписать.
+ *
+ * Здесь же миграция записей без `createdAt`: реестр — обычный JSON, его
+ * писали до появления поля и правят руками. Время такой записи берём из её
+ * МЕСТА В ФАЙЛЕ — на миллисекунду позже предыдущей, — чтобы порядок, который
+ * человек видел вчера, остался тем же, а не перескочил на случайный. Даты в
+ * прошлом (1970-е) тут не страшны: они не показываются, по ним только
+ * сортируют, а новые офисы всегда получают Date.now() и встают ниже.
+ */
+function normalize(data: Registry): boolean {
+  let changed = false;
+  let prev = 0;
+  for (const office of data.offices) {
+    const own = typeof office.createdAt === 'number' && Number.isFinite(office.createdAt)
+      ? office.createdAt
+      : null;
+    if (own === null) {
+      office.createdAt = prev + 1;
+      changed = true;
+    }
+    prev = Math.max(prev, office.createdAt);
+  }
+  const before = data.offices.map((o) => o.id).join(',');
+  data.offices.sort(compareOffices);
+  // Файл держим в том же порядке, в каком список показывают: тогда «порядок
+  // переживает перезапуск» видно прямо в реестре, а не только в коде.
+  return changed || data.offices.map((o) => o.id).join(',') !== before;
+}
+
+/**
  * Загрузить реестр. Если его нет — заводим первый офис на переданной
  * директории и отдаём ему уже существующий файл состояния: у тех, кто
  * работал до появления списка офисов, доска и расходы остаются на месте.
@@ -117,6 +153,9 @@ export function loadRegistry(defaultProjectDir: string, stateFile = DEFAULT_STAT
       const data = JSON.parse(readFileSync(FILE, 'utf8')) as Registry;
       if (data.version === 1 && data.offices?.length) {
         registry = data;
+        // Порядок чиним один раз, на входе: дальше он один и тот же и в
+        // памяти, и в файле, и в списке, который уезжает в веб.
+        if (normalize(registry)) write();
         return registry;
       }
     } catch (err) {
@@ -136,9 +175,17 @@ export function loadRegistry(defaultProjectDir: string, stateFile = DEFAULT_STAT
   return registry;
 }
 
-/** Список для клиента: скрытые офисы в него не попадают. */
+/**
+ * Список для клиента: скрытые офисы в него не попадают.
+ *
+ * Порядок — по времени создания (`compareOffices`), а не в каком записи лежат
+ * в файле. Сортируем на каждой выдаче, хотя файл и так канонический: порядок
+ * списка не должен зависеть от того, куда лёг `push` нового офиса и не правил
+ * ли реестр человек. Скрытый офис из списка выпадает, а вернувшись, встаёт на
+ * своё прежнее место сам собой: `createdAt` скрытие не трогает.
+ */
 export function offices(): OfficeEntry[] {
-  return registry?.offices.filter((o) => !o.hidden) ?? [];
+  return [...(registry?.offices ?? [])].filter((o) => !o.hidden).sort(compareOffices);
 }
 
 /** Текущий офис. null — реестр ещё не загружен (так живут юнит-проверки). */
@@ -250,6 +297,10 @@ export function createOffice(input: {
     ...(input.initTeam ? { initTeam: input.initTeam } : {}),
   };
   registry.offices.push(office);
+  // Новый офис — самый молодой, и в канонический порядок он встаёт последним.
+  // Сортируем всё равно: время создания можно поправить и руками, а файл
+  // должен лежать в том же порядке, в каком список показывают.
+  registry.offices.sort(compareOffices);
   write();
   return { office };
 }
