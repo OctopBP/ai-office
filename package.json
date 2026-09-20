@@ -37,6 +37,7 @@
     "test:nav": "tsx scripts/test-nav.ts",
     "test:reach": "tsx scripts/check-reachability.ts",
     "test:plan": "tsx scripts/test-plan.ts",
+    "test:tasks": "tsx scripts/test-tasks.ts",
     "premerge": "tsx scripts/premerge.ts",
     "test:merge": "tsx scripts/test-merge.ts",
     "test:premerge": "tsx scripts/test-premerge.ts",

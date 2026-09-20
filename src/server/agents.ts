@@ -21,7 +21,7 @@ import {
 } from '../shared/types';
 import { LANG_NAME_EN, type Lang, type Vars } from '../shared/i18n';
 import { t, type ServerKey } from './i18n';
-import type { MeetingView, PrStage, PullRequestView, ReviewVerdict } from '../shared/types';
+import type { MeetingView, PrStage, PullRequestView, ReviewVerdict, TaskEdit } from '../shared/types';
 import { cloudProblem, runCloudTask, stopCloudTask } from './cloud';
 import { capabilitiesOf, type Role } from './roles';
 import { externalMcp, mcpBrief } from './mcp';
@@ -37,7 +37,8 @@ import {
   type StepOutcome, type StepRequest,
   type ReviewOutcome, type ReworkOutcome,
 } from './review';
-import { closeIfDone, recordOutcome } from './outcomes';
+import { cancelTask, closeIfDone, recordOutcome } from './outcomes';
+import { deleteTask, dropTask, editTask } from './tasks';
 import { limitBlock, resetClock } from './limits';
 import { journalBrief } from './journal';
 import { noteCompaction } from './health';
@@ -798,35 +799,52 @@ const teamTools = (state: OfficeState) => createSdkMcpServer({
       state.say('tool.editTask.desc'),
       {
         taskId: z.string().describe(state.say('tool.editTask.taskId')),
+        title: z.string().default('').describe(state.say('tool.editTask.title')),
+        description: z.string().default('').describe(state.say('tool.editTask.description')),
+        acceptanceCriteria: z.array(z.string()).default([])
+          .describe(state.say('tool.editTask.criteria')),
+        roleId: z.string().default('').describe(state.say('tool.editTask.role', {
+          roles: state.workerRoles().map((r) => `${r.id} (${r.title})`).join(', '),
+        })),
+        type: z.enum([...TASK_TYPES, '']).default('').describe(state.say('tool.createTask.type')),
         priority: z.enum([...TASK_PRIORITIES, '']).default('')
           .describe(state.say('tool.editTask.priority')),
       },
       async (args) => {
-        const task = state.tasks.get(args.taskId);
-        if (!task) {
-          return {
-            content: [{ type: 'text', text: state.say('tool.editTask.noTask', { task: args.taskId }) }],
-            isError: true,
-          };
-        }
-        // Пустой вызов — не «ничего не меняем молча», а ошибка: менеджер
-        // считал бы задачу поправленной и сказал бы об этом пользователю.
-        if (!args.priority) {
-          return {
-            content: [{ type: 'text', text: state.say('tool.editTask.nothing', { task: task.id }) }],
-            isError: true,
-          };
-        }
-        const problem = state.setTaskPriority(task.id, args.priority);
-        if (problem) return { content: [{ type: 'text', text: problem }], isError: true };
-        return {
-          content: [{
-            type: 'text',
-            text: state.say('tool.editTask.ok', {
-              task: task.id, title: clip(task.title, 40), priority: state.priorityWord(task.priority),
-            }),
-          }],
-        };
+        // Пустая строка — «поле не трогаем», а не «стереть»: иначе правка
+        // одного заголовка обнуляла бы ТЗ, которого модель не присылала.
+        const patch: TaskEdit = {};
+        if (args.title.trim()) patch.title = args.title;
+        if (args.description.trim()) patch.description = args.description;
+        if (args.acceptanceCriteria.length) patch.criteria = args.acceptanceCriteria;
+        if (args.roleId.trim()) patch.roleId = args.roleId;
+        if (args.type) patch.type = args.type;
+        if (args.priority) patch.priority = args.priority;
+        const outcome = editTask(state, args.taskId, patch);
+        return { content: [{ type: 'text', text: outcome.message }], isError: !outcome.ok };
+      },
+    ),
+
+    tool(
+      'drop_task',
+      state.say('tool.dropTask.desc'),
+      {
+        taskId: z.string().describe(state.say('tool.dropTask.taskId')),
+        reason: z.string().default('').describe(state.say('tool.dropTask.reason')),
+      },
+      async (args) => {
+        const outcome = dropTask(state, args.taskId, args.reason ?? '');
+        return { content: [{ type: 'text', text: outcome.message }], isError: !outcome.ok };
+      },
+    ),
+
+    tool(
+      'delete_task',
+      state.say('tool.deleteTask.desc'),
+      { taskId: z.string().describe(state.say('tool.deleteTask.taskId')) },
+      async (args) => {
+        const outcome = deleteTask(state, args.taskId);
+        return { content: [{ type: 'text', text: outcome.message }], isError: !outcome.ok };
       },
     ),
 
@@ -882,6 +900,20 @@ const teamTools = (state: OfficeState) => createSdkMcpServer({
             content: [{
               type: 'text',
               text: state.say('tool.assignTask.already', { task: task.id, who: task.assigneeId }),
+            }],
+            isError: true,
+          };
+        }
+        // Закрытую задачу не раздают: снятую — потому что от неё отказались,
+        // сделанную — потому что делать в ней больше нечего. Раньше сюда
+        // проходила и та и другая: проверялся только назначенный исполнитель.
+        if (task.status === 'cancelled' || task.status === 'done' || task.outcome) {
+          return {
+            content: [{
+              type: 'text',
+              text: state.say('tool.assignTask.closed', {
+                task: task.id, status: state.say(`task.state.${task.status}`),
+              }),
             }],
             isError: true,
           };
@@ -2155,6 +2187,16 @@ function startWorker(
       inst.currentTaskId = null;
       inst.abort = null;
       taskOffice.setState(inst.id, 'idle', null);
+      // Снятие и остановка приходят одним и тем же прерыванием, а кончаются
+      // по-разному: снятую задачу никто не перезапустит, и «остановлена»
+      // в проверках выглядело бы так, будто офис снятие не расслышал.
+      if (taskOffice.cancelledByUser.delete(task.id)) {
+        taskOffice.updateTask(task.id, { result: taskOffice.say('agent.task.cancelled') });
+        const cancelled = taskOffice.tasks.get(task.id);
+        if (cancelled) cancelTask(taskOffice, cancelled);
+        notifyPm(taskOffice, taskOffice.say('agent.pmMsg.cancelled', { task: task.id }));
+        return;
+      }
       if (stopped) {
         taskOffice.stoppedByUser.delete(task.id);
         taskOffice.updateTask(task.id, {
@@ -2380,7 +2422,28 @@ function startWorker(
     } catch (err) {
       const message = (err as Error).message;
 
-      if (taskOffice.stoppedByUser.delete(task.id)) {
+      if (taskOffice.cancelledByUser.delete(task.id)) {
+        // Задачу сняли на ходу. Отличие от остановки одно, но важное: к этой
+        // задаче никто не вернётся, поэтому она закрывается снятой. Сделанное
+        // всё равно коммитим — ветка переживёт решение, и если окажется, что
+        // сняли зря, работа не потеряна.
+        const fresh = taskOffice.tasks.get(task.id);
+        let note = taskOffice.say('agent.task.cancelled');
+        if (fresh?.branch) {
+          const outcome = await commitAll(
+            workRoot, taskOffice.say('agent.task.cancelledCommit', { task: task.id }),
+            { author: taskOffice.gitPerson(inst.id) });
+          note += outcome === 'committed'
+            ? taskOffice.say('agent.task.stoppedKept', { branch: fresh.branch })
+            : taskOffice.say('agent.task.stoppedEmpty');
+        }
+        taskOffice.updateTask(task.id, { result: note });
+        const cancelled = taskOffice.tasks.get(task.id);
+        if (cancelled) cancelTask(taskOffice, cancelled);
+        taskOffice.addLog(inst.id, 'system', taskOffice.say('agent.log.taskCancelled', { task: task.id }));
+        taskOffice.setState(inst.id, 'idle', null);
+        notifyPm(taskOffice, taskOffice.say('agent.pmMsg.cancelled', { task: task.id }));
+      } else if (taskOffice.stoppedByUser.delete(task.id)) {
         // Наработки не выбрасываем: то, что успели сделать, коммитим в ветку задачи.
         const fresh = taskOffice.tasks.get(task.id);
         let note = taskOffice.say('agent.task.stopped');
@@ -2460,6 +2523,24 @@ function startCloudWorker(
   void (async () => {
     try {
       const outcome = await runCloudTask(task, inst, role, systemPrompt, taskOffice);
+
+      if (taskOffice.cancelledByUser.delete(task.id)) {
+        // Снятая на ходу облачная задача: ветка, если она успела появиться,
+        // остаётся в GitHub — снятие не повод стирать чужую работу.
+        taskOffice.updateTask(task.id, {
+          result: taskOffice.say('agent.task.cancelledCloud', {
+            where: outcome.branch
+              ? taskOffice.say('agent.task.stoppedCloudBranch', { branch: outcome.branch })
+              : taskOffice.say('agent.task.stoppedCloudNoBranch'),
+          }),
+          branch: outcome.branch, baseBranch: outcome.baseBranch,
+        });
+        const cancelled = taskOffice.tasks.get(task.id);
+        if (cancelled) cancelTask(taskOffice, cancelled);
+        taskOffice.setState(inst.id, 'idle', null);
+        notifyPm(taskOffice, taskOffice.say('agent.pmMsg.cancelled', { task: task.id }));
+        return;
+      }
 
       if (taskOffice.stoppedByUser.delete(task.id)) {
         taskOffice.updateTask(task.id, {
@@ -2563,6 +2644,12 @@ export async function retryTask(state: OfficeState, taskId: string): Promise<boo
     state.addChat(OFFICE_SENDER, state.say('restart.merged', { task: taskId }));
     return false;
   }
+  // Снятую задачу перезапускать нечем: от неё отказались, и «начать заново»
+  // здесь означало бы отменить чужое решение молча.
+  if (task.status === 'cancelled') {
+    state.addChat(OFFICE_SENDER, state.say('restart.cancelled', { task: taskId }));
+    return false;
+  }
   if (state.paused) {
     state.addChat(OFFICE_SENDER, state.say('restart.paused', { task: taskId }));
     return false;
@@ -2644,6 +2731,12 @@ export function assignDirect(state: OfficeState, taskId: string, instanceId: str
   if (!task || !inst) return;
   if (task.assigneeId && task.status === 'in_progress') {
     state.addChat(OFFICE_SENDER, state.say('start.alreadyRunning', { task: taskId, who: task.assigneeId }));
+    return;
+  }
+  // Кнопка «отдать этому» есть и у снятой задачи — на доске она видна так же,
+  // как остальные. Запускать её нельзя: от задачи отказались.
+  if (task.status === 'cancelled') {
+    state.addChat(OFFICE_SENDER, state.say('start.cancelled', { task: taskId }));
     return;
   }
   if (inst.currentTaskId) {

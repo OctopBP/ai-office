@@ -23,11 +23,11 @@
  * Спринтов-таймбоксов здесь нет намеренно: инкремент закрывается по факту
  * («все задачи фичи в основной ветке»), а не по календарю.
  */
-import { asTaskPriority, dayKey, HEALTH_DIRECTION, OFFICE_SENDER, taskClosed } from '../shared/types';
+import { asTaskPriority, dayKey, HEALTH_DIRECTION, OFFICE_SENDER, taskClosed, taskOver } from '../shared/types';
 import type { TaskPriority } from '../shared/types';
 import { toTaskView, type Epic, type OfficeState, type Task } from './state';
 import type { TaskType } from '../shared/workflow';
-import { recordOutcome } from './outcomes';
+import { cancelTask } from './outcomes';
 
 // ------------------------------------------------------------ инициативы
 
@@ -92,6 +92,15 @@ export function setPlanAgents(next: PlanAgents): void {
 const closed = (state: OfficeState, task: Task): boolean =>
   taskClosed(toTaskView(task), state.settings.autoPipeline);
 
+/**
+ * Задача больше не поедет: доведена до конца или снята. Закрытие фичи идёт по
+ * этому правилу, а готовность зависимостей — по `closed`: снятая задача
+ * результата не оставляет, и ждать её нельзя, но и держать из-за неё фичу
+ * открытой навсегда тоже.
+ */
+const over = (state: OfficeState, task: Task): boolean =>
+  taskOver(toTaskView(task), state.settings.autoPipeline);
+
 /** Расход по всем задачам фичи. Считается, а не хранится: слагаемые уже есть. */
 export const epicCost = (state: OfficeState, epicId: string): number =>
   state.tasksOfEpic(epicId).reduce((sum, t) => sum + t.usage.costUsd, 0);
@@ -142,7 +151,18 @@ function closeFinishedEpics(state: OfficeState): void {
   for (const epic of state.epicList()) {
     if (epic.status !== 'active') continue;
     const tasks = state.tasksOfEpic(epic.id);
-    if (!tasks.length || !tasks.every((t) => closed(state, t))) continue;
+    if (!tasks.length || !tasks.every((t) => over(state, t))) continue;
+
+    // Фича, в которой всё сняли, закончилась не успехом: доводить в ней было
+    // нечего. Говорить про такую «готово» — врать в ленте и в табеле.
+    if (!tasks.some((t) => closed(state, t))) {
+      state.updateEpic(epic.id, { status: 'cancelled', finishedAt: Date.now(), attention: null });
+      state.addChat(OFFICE_SENDER, state.say('plan.chat.epicEmpty', {
+        epic: epic.id, title: epic.title,
+      }));
+      agents.notifyPm(state, state.say('plan.pm.epicEmpty', { epic: epic.id, title: epic.title }));
+      continue;
+    }
 
     state.updateEpic(epic.id, { status: 'done', finishedAt: Date.now(), attention: null });
     const spent = epicCost(state, epic.id).toFixed(2);
@@ -290,7 +310,7 @@ function reportStalls(state: OfficeState, now: number): void {
     if (task.status !== 'planned' || task.attention) continue;
     const dead = waitingFor(state, task)
       .map((id) => state.tasks.get(id))
-      .filter((dep): dep is Task => dep?.status === 'failed');
+      .filter((dep): dep is Task => dep?.status === 'failed' || dep?.status === 'cancelled');
     if (!dead.length) continue;
     state.updateTask(task.id, { attention: now });
     agents.notifyPm(state, state.say('plan.pm.blocked', {
@@ -533,7 +553,7 @@ export function cancelEpic(state: OfficeState, epicId: string, reason: string): 
   // Незапущенные задачи снятой фичи закрываются исходом «снята»: они больше
   // не начнутся, и табелю роли это важно не меньше, чем провал.
   for (const task of state.tasksOfEpic(epicId)) {
-    if (task.status === 'planned' || task.status === 'backlog') recordOutcome(state, task.id, 'cancelled');
+    if (task.status === 'planned' || task.status === 'backlog') cancelTask(state, task);
   }
   state.addChat(OFFICE_SENDER, state.say('plan.chat.cancelled', {
     epic: epic.id, title: epic.title, reason: reason.trim() || state.say('plan.noReason'),

@@ -126,7 +126,10 @@ function stalled(state: OfficeState, now: number): HealthEntry[] {
   }
 
   for (const task of state.tasks.values()) {
-    if (task.merged || task.status === 'done' || task.status === 'failed') continue;
+    // Снятая задача не стоит, а закрыта: спрашивать с офиса за то, что её
+    // никто не делает, — значит звать чинить чужое решение.
+    if (task.merged || task.status === 'done' || task.status === 'failed'
+      || task.status === 'cancelled') continue;
     const pr = state.prs.get(task.id);
 
     let reason: HealthReason | null = null;

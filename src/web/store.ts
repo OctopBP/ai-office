@@ -5,7 +5,7 @@ import type {
   McpServerState, MergeCheck, MergeCheckState, MergeRun, MergeStep, MergeStepStatus,
   PermissionDecision,
   MarketView, PermissionMode, PermissionRequest, MeetingView, RoleDraft, RoleEditable, RoleOp, RoleView,
-  ServerEvent, Settings, TaskView, Usage, CloudStatus, OfficeView, OfficeIcon, PullRequestView, PrStage,
+  ServerEvent, Settings, TaskEdit, TaskView, Usage, CloudStatus, OfficeView, OfficeIcon, PullRequestView, PrStage,
   EpicView, LimitsView, FactView, OwnerQuestion, LifeView, RitualId, DirectionView, ProposalView,
   OfficeSetupPlan, SetupCatalog, SetupStep, OfficeHealth, EnvReport,
 } from '../shared/types';
@@ -769,6 +769,15 @@ export const useStore = create<State>((set, get) => ({
         }
         break;
       }
+      case 'task.remove':
+        set((s) => {
+          const tasks = { ...s.tasks };
+          delete tasks[e.id];
+          // Карточка стёртой задачи открыта — закрываем её: показывать в ней
+          // больше нечего, а пустая панель выглядит как поломка.
+          return s.openTask === e.id ? { tasks, openTask: null } : { tasks };
+        });
+        break;
       case 'chat':
         set((s) => {
           if (s.chat.some((c) => c.id === e.entry.id)) return {};
@@ -1615,6 +1624,27 @@ export function stopTask(taskId: string): void {
 
 export function retryTask(taskId: string): void {
   socket?.send(JSON.stringify({ c: 'retry_task', taskId }));
+}
+
+/**
+ * Снять задачу: делать её больше не надо. Идущую офис остановит сам, а
+ * задачи, которые ждали её результата, снимет вместе с ней.
+ */
+export function dropTask(taskId: string, reason = ''): void {
+  socket?.send(JSON.stringify({ c: 'task_drop', taskId, reason }));
+}
+
+/**
+ * Стереть задачу с доски насовсем. Сервер откажет, если за задачей уже стоит
+ * работа, — отказ придёт готовым текстом в чат офиса.
+ */
+export function deleteTask(taskId: string): void {
+  socket?.send(JSON.stringify({ c: 'task_delete', taskId }));
+}
+
+/** Переписать задачу: шлём только изменённые поля. */
+export function editTask(taskId: string, patch: TaskEdit): void {
+  socket?.send(JSON.stringify({ c: 'task_edit', taskId, patch }));
 }
 
 /**

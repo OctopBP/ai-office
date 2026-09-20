@@ -39,6 +39,14 @@ interface Run {
   maxParallel: number;
   /** Задачи на текущий момент — нужны сценариям, которые вмешиваются по ходу. */
   snapshot: () => TaskView[];
+  /**
+   * Сколько офис молчит, миллисекунд. Сценарию, который говорит с менеджером
+   * дважды, ждать одного лишь появления задачи нельзя: реплика про паузу и
+   * первая задача приходят задолго до конца хода, и второе сообщение
+   * приезжало посреди него — менеджер дочитывал его уже после ответа и
+   * молчал. Тишина — единственный надёжный признак, что ход закончился.
+   */
+  quietMs: () => number;
 }
 
 interface Scenario {
@@ -50,6 +58,19 @@ interface Scenario {
   /** Вместо обычного сообщения PM'у: сценарий сам решает, что послать. */
   drive?: (ws: WebSocket, run: Run) => Promise<void>;
   checks: Array<{ what: string; ok: (r: Run) => boolean }>;
+}
+
+/**
+ * Дождаться следующей реплики менеджера — для сценариев, которые говорят с ним
+ * дважды. Меряется по длине накопленного ответа: «сказал ещё что-то» — это
+ * единственный признак конца хода, который виден снаружи.
+ */
+async function reply(run: Run, said: number, limit = 180000): Promise<void> {
+  const until = Date.now() + limit;
+  while (Date.now() < until) {
+    if (run.pmText.length > said + 20) return;
+    await new Promise((r) => setTimeout(r, 200));
+  }
 }
 
 const SCENARIOS: Scenario[] = [
@@ -236,6 +257,80 @@ const SCENARIOS: Scenario[] = [
     ],
   },
   {
+    name: 'Переделывает задачу правкой, а не второй такой же',
+    prompt: '',
+    // На паузе задача остаётся на доске нетронутой — именно в этом состоянии
+    // человек обычно и спохватывается, что просил не то.
+    before: (ws) => ws.send(JSON.stringify({ c: 'pause', paused: true })),
+    drive: async (ws, run) => {
+      ws.send(JSON.stringify({
+        c: 'user_message',
+        text: 'Поручи бэкендеру сделать эндпоинт GET /notes со списком заметок.',
+      }));
+      // Ждём не появления задачи, а ответа менеджера: сообщение, посланное
+      // посреди его хода, разбирается следующим ходом, и проверка
+      // превращалась в гонку — прогон успевал кончиться раньше правки.
+      for (let i = 0; i < 900; i += 1) {
+        if (run.snapshot().length > 0 && run.quietMs() > 6000) {
+          const said = run.pmText.length;
+          ws.send(JSON.stringify({
+            c: 'user_message',
+            text: 'Стой, я передумал: пусть это будет не список, а поиск по заметкам — GET /notes/search'
+              + ' с параметром q. Переделай ту же задачу, вторую рядом не заводи.',
+          }));
+          // Ответа на вторую просьбу ждём здесь, а не общей тишиной: между
+          // сообщением и первым вызовом инструмента менеджер молчит дольше
+          // QUIET_MS, и прогон заканчивался, не дождавшись правки.
+          await reply(run, said);
+          return;
+        }
+        await new Promise((r) => setTimeout(r, 200));
+      }
+    },
+    checks: [
+      { what: 'вызвал edit_task', ok: (r) => r.toolCalls.some((t) => t.includes('edit_task')) },
+      { what: 'задача осталась одна', ok: (r) => r.tasks.length === 1 },
+      {
+        what: 'в ТЗ переехал поиск',
+        ok: (r) => r.tasks.some((t) => /search|поиск/i.test(`${t.title} ${t.description}`)),
+      },
+    ],
+  },
+  {
+    name: 'Ненужную задачу снимает, а не оставляет на доске',
+    prompt: '',
+    before: (ws) => ws.send(JSON.stringify({ c: 'pause', paused: true })),
+    drive: async (ws, run) => {
+      ws.send(JSON.stringify({
+        c: 'user_message',
+        text: 'Поручи бэкендеру сделать выгрузку заметок в CSV.',
+      }));
+      for (let i = 0; i < 900; i += 1) {
+        if (run.snapshot().length > 0 && run.quietMs() > 6000) {
+          const said = run.pmText.length;
+          ws.send(JSON.stringify({
+            c: 'user_message',
+            text: 'Выгрузка в CSV больше не нужна, отказываемся от неё. Убери эту задачу с доски.',
+          }));
+          await reply(run, said);
+          return;
+        }
+        await new Promise((r) => setTimeout(r, 200));
+      }
+    },
+    checks: [
+      {
+        what: 'снял или стёр задачу',
+        ok: (r) => r.toolCalls.some((t) => t.includes('drop_task') || t.includes('delete_task')),
+      },
+      {
+        what: 'на доске не осталось живых задач',
+        ok: (r) => r.tasks.every((t) => t.status === 'cancelled'),
+      },
+      { what: 'дубля не завёл', ok: (r) => r.tasks.length <= 1 },
+    ],
+  },
+  {
     name: 'Ненастроенное облако не выдаётся за работу',
     prompt: 'Поручи бэкендеру создать файл cloud.txt.',
     before: (ws) => ws.send(JSON.stringify({ c: 'settings', settings: { engine: 'cloud' } })),
@@ -287,6 +382,7 @@ async function runScenario(sc: Scenario): Promise<Run> {
     tasks: [], toolCalls: [], pmText: '', officeText: '', meetingLines: 0, meetingSpeakers: [],
     maxParallel: 0,
     snapshot: () => [...byId.values()],
+    quietMs: () => Date.now() - last,
   };
   let last = Date.now();
 
@@ -299,6 +395,9 @@ async function runScenario(sc: Scenario): Promise<Run> {
       const parallel = [...byId.values()].filter((t) => t.status === 'in_progress').length;
       run.maxParallel = Math.max(run.maxParallel, parallel);
     }
+    // Стёртая задача обязана исчезнуть и из проверок: иначе она остаётся на
+    // доске сценария навсегда — той самой, которой на доске офиса уже нет.
+    if (e.t === 'task.remove') byId.delete(e.id);
     if (e.t === 'log' && e.entry.kind === 'tool' && e.entry.agentId === 'pm#1') {
       run.toolCalls.push(e.entry.text);
     }

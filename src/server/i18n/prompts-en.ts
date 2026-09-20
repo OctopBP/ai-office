@@ -169,6 +169,17 @@ gets finished. So big work you plan, you do not hand out.
 - Plans change: reorder_features changes the order, cancel_feature drops what is no longer
   needed, create_task with featureId adds a forgotten task to an existing feature.
 
+The user changed their mind — that is an edit to the board, not a second task beside the first.
+- edit_task — rewrite a task that already exists: headline, brief, criteria, role, importance. When the
+  user says “do it differently” about a task that is still waiting for a worker, do it this
+  way rather than with a new task: duplicates on the board are work somebody will do twice.
+- drop_task — drop a task: it does not need doing any more. A worker already on it is stopped
+  by the office, and the tasks that were waiting for its result are dropped with it.
+- delete_task — erase a task that should never have existed: only while nobody has started it.
+  A task that was started has a branch and money behind it — that one is dropped, not erased.
+- A task somebody has already started cannot be rewritten: the worker is working off the brief
+  they read. If the work is not needed in this shape — drop it and create a new one.
+
 When a system message about a finished task arrives — judge the result.
 All good → tell the user what is done and that the task went to review.
 Needs real rework → create and assign a new task.
@@ -272,12 +283,6 @@ Reply to the user in {lang}, and keep it short.`,
   'tool.createTask.priority': 'How important the task is: high — it blocks the owner or other tasks (something else waits until it is done); normal — ordinary work; low — can be done whenever, nobody is waiting. Empty — normal. Use high only for what really matters more than the rest: when every task is high, high means nothing.',
   'tool.createTask.priorityNote': '. Priority: {priority}',
 
-  'tool.editTask.desc': 'Change a task that is already on the board. For now only its importance changes — e.g. when the user says “this is urgent” or, the other way round, “this can wait”. The brief and the criteria are not edited this way: if the task is wrong, cancel it and create it anew.',
-  'tool.editTask.taskId': 'Task id from the board, e.g. T-1',
-  'tool.editTask.priority': 'New importance: high — blocks the owner or other tasks; normal — ordinary work; low — can be done whenever. Empty — leave as is (then the call is pointless).',
-  'tool.editTask.noTask': 'There is no task {task} on the board. Check get_board for the ids that exist.',
-  'tool.editTask.nothing': 'The edit_task call for {task} changes nothing: pass a priority.',
-  'tool.editTask.ok': 'Task {task} “{title}”: priority is now {priority}.',
 
   'tool.assignTask.desc': 'Assign a task to a worker and start the work. RETURNS IMMEDIATELY — the worker runs in the background and the result comes to you as a separate system message. Call it one after another for all independent tasks so that the team works in parallel.',
   'tool.assignTask.taskId': 'Task id from create_task, for example T-1',
@@ -309,6 +314,83 @@ Reply to the user in {lang}, and keep it short.`,
   'tool.retryReview.noPipeline': 'There was no pipeline for {task} — there is nothing to send to review.',
   'tool.retryReview.notStuck': '{task}: the pipeline is not stuck — right now it is {stage}. Just wait.',
   'tool.retryReview.ok': '{task}: the pipeline has been started again. The result will come as a system message.',
+
+  // ------------------------------------ editing, dropping and deleting tasks
+  'tool.editTask.desc': 'Rewrite a task that already exists: headline, brief, criteria, role, importance. This is what keeps the board free of duplicates when the user changed their mind or clarified the request. Only the fields you pass are changed: an empty field means “leave it alone”. A task somebody is already working on cannot be rewritten — the worker is working off the brief they read.',
+  'tool.editTask.taskId': 'Task id, e.g. T-3',
+  'tool.editTask.title': 'New headline. Empty — keep the old one.',
+  'tool.editTask.description': 'The whole new brief, as the worker will read it. Empty — keep the old one.',
+  'tool.editTask.criteria': 'The whole new list of acceptance criteria: it replaces the old one and the ticks are cleared. Empty list — keep the old criteria.',
+  'tool.editTask.role': 'New role to do the work, one of: {roles}. Empty — keep the old one.',
+  'tool.editTask.priority': 'New importance: high — blocks the owner or other tasks; normal — ordinary work; low — can be done whenever. Empty — leave the importance alone.',
+  'tool.dropTask.desc': 'Drop a task: it does not need doing any more. It stays on the board as dropped — it shows what was abandoned. If somebody has already started it, the worker is stopped; whatever they did stays in the branch. Tasks that were waiting for its result are dropped with it.',
+  'tool.dropTask.taskId': 'Task id, e.g. T-3',
+  'tool.dropTask.reason': 'Why it is being dropped, in one phrase. It goes into the office feed.',
+  'tool.deleteTask.desc': 'Erase a task from the board for good. Only for a task nobody ever started: no session, no branch, no money spent. Everything else is dropped (drop_task) rather than erased — otherwise the office would lose its history. Created a task by mistake — erase it; changed your mind about work already started — drop it.',
+  'tool.deleteTask.taskId': 'Task id, e.g. T-3',
+  'tool.assignTask.closed': '{task} is closed ({status}) — there is nothing to hand out. If work like that is needed, create a new task.',
+
+  'task.err.noTask': 'There is no task {task} on the board.',
+  'task.state.planned': 'in the plan',
+  'task.state.backlog': 'waiting for a worker',
+  'task.state.assigned': 'assigned',
+  'task.state.in_progress': 'in progress',
+  'task.state.review': 'in review',
+  'task.state.blocked': 'stopped',
+  'task.state.done': 'done',
+  'task.state.failed': 'failed',
+  'task.state.cancelled': 'dropped',
+
+  'task.edit.closed': 'Task {task} is already closed — there is nothing to rewrite in it. If different work is needed, create a new task.',
+  'task.edit.running': 'Somebody has already started {task}: the worker is working off the brief they read, and changing it midway means lying to them. If the work is no longer needed in this shape, drop the task (drop_task) and create a new one.',
+  'task.edit.emptyTitle': 'The headline cannot be empty.',
+  'task.edit.emptyDescription': 'The brief cannot be empty.',
+  'task.edit.badType': 'Unknown kind of work “{type}”. Available: {valid}.',
+  'task.edit.nothing': 'Nothing to change in {task}: what you sent matches what is already on the board.',
+  'task.edit.field.title': 'headline',
+  'task.edit.field.description': 'brief',
+  'task.edit.field.criteria': 'criteria ({n})',
+  'task.edit.field.role': 'role → {role}',
+  'task.edit.field.type': 'kind → {type}',
+  'task.edit.field.priority': 'importance → {priority}',
+  'task.edit.chat': '✏️ {task} rewritten ({changed}). It is now “{title}”.',
+  'task.edit.log': '{task} rewritten: {changed}',
+  'task.edit.ok': '{task} updated ({changed}). It is now “{title}”.',
+  'task.edit.needsRestart': ' The task is stopped and will not move on its own: it will be started again from the new brief when somebody presses “Restart” in its card.',
+
+  'task.drop.already': '{task} is already dropped.',
+  'task.drop.done': '{task} is done — there is nothing to drop.',
+  'task.drop.review': '{task} has been handed in and is going through review: too late to drop it. Decide by its result — merge it or send it back.',
+  'task.drop.noReason': 'no reason given',
+  'task.drop.chainReason': 'dropped together with {task}, which it depended on',
+  'task.drop.stopping': '🚫 {task} "{title}" is being dropped: {reason}. Stopping {who} — whatever is done stays in the task branch.',
+  'task.drop.chat': '🚫 {task} "{title}" dropped: {reason}',
+  'task.drop.chatPlain': '🚫 {task} "{title}" dropped',
+  'task.drop.log': '{task} "{title}" dropped',
+  'task.drop.ok': '{task} "{title}" dropped from the board.',
+  'task.drop.okStopping': '{task} "{title}" is being dropped: the worker is being stopped and whatever is done stays in the branch. The task will close as dropped by itself — there is no result to wait for.',
+  'task.drop.chained': ' The tasks that were waiting for it are dropped too: {tasks}.',
+
+  'task.delete.refused': '{task} cannot be erased: {trace} A task like that is dropped (drop_task) — it stays on the board as dropped and the history of the office survives.',
+  'task.delete.traceStatus': 'it is past simply waiting in the queue ({status}).',
+  'task.delete.traceOutcome': 'it is closed, and its outcome counts towards the role scorecard.',
+  'task.delete.traceBranch': 'there is already a branch behind it: {branch}.',
+  'task.delete.traceStarted': 'somebody has already started it.',
+  'task.delete.traceSpent': '${spent} has been spent on it.',
+  'task.delete.tracePr': 'it already has a review pipeline.',
+  'task.delete.chat': '🗑 {task} "{title}" erased from the board.',
+  'task.delete.log': '{task} "{title}" erased',
+  'task.delete.ok': '{task} "{title}" erased from the board for good.',
+  'task.delete.freed': ' It has been removed from the dependencies of: {tasks}.',
+
+  'agent.task.cancelled': 'The task was dropped while it was being worked on.',
+  'agent.task.cancelledCommit': '{task}: task dropped, saving what was done',
+  'agent.task.cancelledCloud': 'The task was dropped while it was being worked on. {where}',
+  'agent.log.taskCancelled': 'task {task} dropped while in progress, the worker has been stopped',
+  'agent.pmMsg.cancelled': 'Task {task} is dropped: the worker has been stopped and the task is closed. There is no need to hand it out again.',
+  'restart.cancelled': '{task} has been dropped — there is nothing to restart. If work like that is needed, create a new task.',
+  'start.cancelled': '{task} has been dropped — there is nothing to hand to a worker.',
+  'plan.pm.epicEmpty': 'Feature {epic} "{title}" is closed: there is nothing left to do in it — every task was dropped. Tell the user and suggest what comes next.',
 
   'tool.getBoard.desc': 'The current state of the task board with statuses and results — and the plan, if there is one: features in order and what each task is waiting for.',
 

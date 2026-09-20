@@ -46,7 +46,7 @@
    в плане и в ветке карточки. */
 .task-controls { display: flex; gap: var(--space-2); margin-top: var(--space-2); }
 .task-controls:empty { display: none; }
-button.stop, button.retry, button.merge {
+button.stop, button.retry, button.merge, button.drop {
   min-height: var(--mini-h); padding: 0 var(--space-2); font-size: var(--fs-small);
 }
 button.stop { color: var(--danger); }
@@ -55,6 +55,10 @@ button.retry { color: var(--accent); }
 button.retry:hover:not(:disabled) { background: rgba(var(--accent-rgb), .12); }
 button.merge { color: var(--ok-ink); }
 button.merge:hover:not(:disabled) { background: rgba(var(--ok-rgb), .12); }
+/* Снять и стереть — действия про отказ от работы: приглушены, пока на них не
+   навели. Красным горит только «Остановить»: там прерывают живую сессию. */
+button.drop { color: var(--ink-3); }
+button.drop:hover:not(:disabled) { color: var(--danger); background: rgba(var(--danger-rgb), .12); }
 
 /* ================= критерии готовности ================= */
 .criteria-head {

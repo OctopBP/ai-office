@@ -14,6 +14,7 @@ import {
   stateFor, unwatch, watch, watching,
 } from './office-api';
 import { assignDirect, holdMeeting, resetSessions, retryTask, sendUserMessage, setPaused, stopTask, taskDiff, talkTo } from './agents';
+import { deleteTask, dropTask, editTask } from './tasks';
 import { approveEpic, cancelEpic, reorderEpics } from './plan';
 import { mergeQueue, refreshMergeChecks } from './merge';
 import { retryPipeline } from './review';
@@ -499,6 +500,17 @@ wss.on('connection', (ws) => {
       stopTask(state, cmd.taskId);
     } else if (cmd.c === 'retry_task') {
       void retryTask(state, cmd.taskId);
+    } else if (cmd.c === 'task_edit') {
+      // Правка из карточки и правка менеджером — одно и то же действие: отказ
+      // («за неё уже взялись», «пустое ТЗ») говорим готовым текстом в чат.
+      const outcome = editTask(state, cmd.taskId, cmd.patch);
+      if (!outcome.ok) state.addChat(OFFICE_SENDER, outcome.message);
+    } else if (cmd.c === 'task_drop') {
+      const outcome = dropTask(state, cmd.taskId, cmd.reason ?? '');
+      if (!outcome.ok) state.addChat(OFFICE_SENDER, outcome.message);
+    } else if (cmd.c === 'task_delete') {
+      const outcome = deleteTask(state, cmd.taskId);
+      if (!outcome.ok) state.addChat(OFFICE_SENDER, outcome.message);
     } else if (cmd.c === 'task_diff') {
       void taskDiff(state, cmd.taskId);
     } else if (cmd.c === 'task_priority') {

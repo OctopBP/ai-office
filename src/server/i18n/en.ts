@@ -354,6 +354,7 @@ export const en = {
   'plan.chat.epicActive': '▶️ Started feature {epic} "{title}".',
   'plan.log.epicActive': '{epic} "{title}": feature is now in progress',
   'plan.log.released': '{task} "{title}" is ready to be picked up ({epic})',
+  'plan.chat.epicEmpty': '🚫 Feature {epic} "{title}" is closed: every task in it was dropped, there is nothing to finish.',
   'plan.chat.epicDone': '✅ Feature {epic} "{title}" is done: every task is on the main branch. Spent ${spent}.',
   'plan.chat.waiting': '⏸ Feature {epic} "{title}" is next in the plan — the office is waiting for your go-ahead.',
   'plan.chat.approved': '👍 Feature {epic} "{title}" approved.',

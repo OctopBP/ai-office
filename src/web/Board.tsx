@@ -18,16 +18,28 @@ import { AgentTag } from './Avatar';
  * задача стоит по замыслу, а не потому, что о ней забыли. Свалив её к
  * ожидающим, доска показывала бы намеренную паузу как затор.
  */
-const COLUMNS: Array<{ key: UiKey; statuses: TaskStatus[]; tone?: 'bad' }> = [
+const COLUMNS: Array<{
+  key: UiKey; statuses: TaskStatus[]; tone?: 'bad' | 'muted';
+  /** Пустую колонку не показываем: место на доске дороже ровного ряда. */
+  hideEmpty?: boolean;
+}> = [
   { key: 'board.col.planned', statuses: ['planned'] },
   { key: 'board.col.waiting', statuses: ['backlog', 'assigned'] },
   { key: 'board.col.working', statuses: ['in_progress'] },
   { key: 'board.col.review', statuses: ['review'] },
   { key: 'board.col.done', statuses: ['done'] },
   { key: 'board.col.failed', statuses: ['failed', 'blocked'], tone: 'bad' },
+  // Снятые стоят отдельно от провалов: провал — это попытка, которая не
+  // вышла, а снятое никто и не пробовал доводить. В табеле роли они тоже
+  // считаются по-разному, и валить их в одну кучу на доске значит врать.
+  { key: 'board.col.cancelled', statuses: ['cancelled'], tone: 'muted', hideEmpty: true },
 ];
 
 const statusLabel = (status: TaskStatus): string => tr(`task.status.${status}`);
+
+/** Колонки, которые сейчас имеет смысл показывать. */
+const columnsOf = (tasks: TaskView[]): typeof COLUMNS =>
+  COLUMNS.filter((col) => !col.hideEmpty || tasks.some((t) => col.statuses.includes(t.status)));
 
 /**
  * Карточка на доске — только то, по чему задачу узнаю́т глазами: номер,
@@ -297,8 +309,11 @@ export function Board() {
         )}
         {tab === 'tasks' && all.length === 0 && <p className="empty">{tr('board.empty')}</p>}
         {tab === 'tasks' && all.length > 0 && (
-          <div className="columns">
-            {COLUMNS.map((col) => {
+          <div
+            className="columns"
+            style={{ gridTemplateColumns: `repeat(${columnsOf(list).length}, minmax(0, 1fr))` }}
+          >
+            {columnsOf(list).map((col) => {
               const items = list.filter((t) => col.statuses.includes(t.status));
               return (
                 <div key={col.key} className={`column${col.tone ? ` ${col.tone}` : ''}`}>

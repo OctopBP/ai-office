@@ -930,6 +930,13 @@ export class OfficeState {
    */
   stoppedByUser = new Set<string>();
   /**
+   * Задачи, которые сняли прямо во время работы: исполнителя прерывают так
+   * же, как остановкой, но задача после этого не ждёт перезапуска, а
+   * закрывается снятой. Отдельно от `stoppedByUser` именно поэтому — конец
+   * у них разный.
+   */
+  cancelledByUser = new Set<string>();
+  /**
    * Сотрудники, чью сессию SDK только что отбил по лимиту плана. Ставится
    * при разборе событий сессии, снимается тем, кто разбирает её конец:
    * по одному тексту ошибки лимит от прочих бед не отличить.
@@ -1162,6 +1169,7 @@ export class OfficeState {
     }
     for (const inst of this.instances.values()) inst.abort?.abort();
     this.stoppedByUser.clear();
+    this.cancelledByUser.clear();
     this.limitHits.clear();
     // Очередь за слотом — это обещание запустить задачу, а сессий больше нет:
     // держать её значило бы ждать освобождения того, что уже освобождено.
@@ -2400,6 +2408,20 @@ export class OfficeState {
   /** Приоритет словом на языке офиса — в ленту, в доску менеджера и в отказы. */
   priorityWord(priority: TaskPriority): string {
     return this.say(`task.priority.${asTaskPriority(priority)}`);
+  }
+
+  /**
+   * Стереть задачу насовсем. Только само хранилище: решает, можно ли её
+   * стирать, и чистит ссылки на неё — `deleteTask` в tasks.ts.
+   */
+  removeTask(id: string): boolean {
+    if (!this.tasks.delete(id)) return false;
+    this.waitingForSlot.delete(id);
+    this.stoppedByUser.delete(id);
+    this.cancelledByUser.delete(id);
+    this.emit({ t: 'task.remove', id });
+    this.markDirty();
+    return true;
   }
 
   /**

@@ -354,6 +354,7 @@ export const ru: Record<keyof typeof en, string> = {
   'plan.chat.epicActive': '▶️ Взяли в работу фичу {epic} «{title}».',
   'plan.log.epicActive': '{epic} «{title}»: фича пошла в работу',
   'plan.log.released': '{task} «{title}» готова к работе ({epic})',
+  'plan.chat.epicEmpty': '🚫 Фича {epic} «{title}» закрыта: все её задачи сняты, доводить нечего.',
   'plan.chat.epicDone': '✅ Фича {epic} «{title}» готова: все задачи в основной ветке. Потрачено ${spent}.',
   'plan.chat.waiting': '⏸ Дальше по плану фича {epic} «{title}» — офис ждёт вашего «поехали».',
   'plan.chat.approved': '👍 Фича {epic} «{title}» согласована.',

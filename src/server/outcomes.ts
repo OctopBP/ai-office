@@ -39,6 +39,29 @@ export function onOutcome(fn: OutcomeListener): () => void {
 const MERGED_KINDS: OutcomeKind[] = ['clean', 'reworked', 'stuck'];
 
 /**
+ * Снять задачу: делать её больше не надо. Одно место на весь офис — снимают
+ * и по одной (drop_task, кнопка в карточке), и пачкой вместе с фичей, а
+ * закрываться они обязаны одинаково: статус «снята» держит её подальше от
+ * раздачи, исход «снята» попадает в табель роли.
+ *
+ * Прервать работающего исполнителя этим нельзя: сессию гасит тот, кто снимает
+ * (tasks.ts), а сюда задача приходит уже без сессии.
+ */
+export function cancelTask(state: OfficeState, task: Task, at = Date.now()): void {
+  state.updateTask(task.id, {
+    status: 'cancelled',
+    finishedAt: task.finishedAt ?? at,
+    // Ожидания снятой задачи больше никого не касаются: она не поедет ни
+    // после починки окружения, ни когда освободится слот.
+    envWait: null,
+    attention: null,
+    assigneeId: null,
+  });
+  state.waitingForSlot.delete(task.id);
+  recordOutcome(state, task.id, 'cancelled', at);
+}
+
+/**
  * Записать исход задачи. Повторный вызов на закрытой задаче ничего не меняет:
  * исход — факт о закрытии, а не текущее состояние. Возвращает записанный
  * исход либо null, если задача уже закрыта или её нет.

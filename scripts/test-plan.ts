@@ -163,7 +163,8 @@ async function main(): Promise<void> {
   const leftovers = took();
   results.push(
     `снятая фича не начинается: ${office.epics.get('F-3')?.status === 'cancelled'}`,
-    `её задачи не раздаются: ${leftovers.length === 0 && office.tasks.get('T-4')?.status === 'planned'}`,
+    `её задачи не раздаются: ${leftovers.length === 0 && office.tasks.get('T-4')?.status === 'cancelled'}`,
+    `и закрыты снятыми: ${office.tasks.get('T-4')?.outcome?.kind === 'cancelled'}`,
   );
 
   // 7. Фокус в двойку: две фичи идут одновременно, третья ждёт.

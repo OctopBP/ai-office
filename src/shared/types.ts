@@ -32,6 +32,11 @@ export type AgentState =
  *
  * `backlog` — задачу пора делать, и она ждёт только исполнителя. Именно этот
  * статус подхватывают очередь за слотом и надзор.
+ *
+ * `cancelled` — задачу сняли: человек или менеджер решили, что делать её не
+ * надо. Отдельный статус, а не один лишь исход: по статусу задачу пропускают
+ * все, кто раздаёт работу, — иначе снятая задача уезжала бы исполнителю от
+ * надзора через десять минут после того, как от неё отказались.
  */
 export type TaskStatus =
   | 'planned'
@@ -41,7 +46,8 @@ export type TaskStatus =
   | 'review'
   | 'blocked'
   | 'done'
-  | 'failed';
+  | 'failed'
+  | 'cancelled';
 
 /**
  * Важность задачи. Три значения и ни одного больше: шкала из десяти
@@ -125,6 +131,15 @@ export interface EpicView {
 export const taskClosed = (
   task: Pick<TaskView, 'status' | 'merged' | 'branch'>, autoPipeline: boolean,
 ): boolean => task.status === 'done' && (task.merged || !task.branch || !autoPipeline);
+
+/**
+ * Задача больше не поедет: доведена до конца или снята. Отличается от
+ * `taskClosed` ровно снятыми — они не результат, и зависимость от них готовой
+ * не считается, но фича, в которой не осталось ничего живого, закрыта.
+ */
+export const taskOver = (
+  task: Pick<TaskView, 'status' | 'merged' | 'branch'>, autoPipeline: boolean,
+): boolean => task.status === 'cancelled' || taskClosed(task, autoPipeline);
 
 /**
  * Расход одной сессии, агента, задачи или всего офиса.
@@ -1042,6 +1057,21 @@ export interface TaskView {
 }
 
 /**
+ * Что в задаче можно переписать после того, как её завели. Поле, которого
+ * нет в правке, остаётся прежним: «поменяй роль» не должно молча стирать
+ * критерии. Пустой список критериев не принимается — задача без них
+ * непроверяема, и заводить её так же нельзя, как и править.
+ */
+export interface TaskEdit {
+  title?: string;
+  description?: string;
+  criteria?: string[];
+  roleId?: string;
+  type?: TaskType | '';
+  priority?: TaskPriority;
+}
+
+/**
  * Метка на повисшей ветке: слить (работа сдана, но не попала в основную
  * ветку) или удалить (задача провалилась или снята — сливать нечего).
  */
@@ -1750,6 +1780,8 @@ export type ServerEvent =
   | { t: 'instance'; instance: InstanceView }
   | { t: 'instance.remove'; id: string }
   | { t: 'task'; task: TaskView }
+  /** Задачу стёрли насовсем: убрать её с доски и из всех списков. */
+  | { t: 'task.remove'; id: string }
   | { t: 'epic'; epic: EpicView }
   | { t: 'chat'; entry: ChatEntry }
   /**
@@ -1897,6 +1929,22 @@ export type ClientCommand =
   | { c: 'talk'; instanceId: string; text: string }
   | { c: 'stop_task'; taskId: string }
   | { c: 'retry_task'; taskId: string }
+  /**
+   * Переписать задачу, которую ещё не начали (или уже остановили): ТЗ,
+   * критерии, роль. Присылается только то, что меняется, — остальное
+   * остаётся как было.
+   */
+  | { c: 'task_edit'; taskId: string; patch: TaskEdit }
+  /**
+   * Снять задачу: делать её больше не надо. Остаётся на доске со снятым
+   * исходом — по ней видно, от чего отказались.
+   */
+  | { c: 'task_drop'; taskId: string; reason?: string }
+  /**
+   * Стереть задачу насовсем. Разрешено только для задачи без следа: её
+   * никогда не начинали, денег на неё не тратили. Всё остальное — снятие.
+   */
+  | { c: 'task_delete'; taskId: string }
   | { c: 'meeting'; topic: string; participants: string[] }
   | { c: 'assign_direct'; taskId: string; instanceId: string }
   | { c: 'task_diff'; taskId: string }

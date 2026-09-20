@@ -1,6 +1,7 @@
+import { useEffect, useState } from 'react';
 import {
-  mergeBadge, mergeStepFor, mergeTask, prStageLabel, prStageClass, retryPipeline,
-  retryTask, showDiff, stopTask, useStore,
+  deleteTask, dropTask, mergeBadge, mergeStepFor, mergeTask, prStageLabel, prStageClass,
+  retryPipeline, retryTask, showDiff, stopTask, useStore,
 } from './store';
 import type { TaskView } from '../shared/types';
 import { taskClosed } from '../shared/types';
@@ -47,6 +48,10 @@ function Linked({ task, onOpen }: { task: TaskView; onOpen: (id: string) => void
 }
 
 export function TaskDrawer() {
+  // Снятие и стирание спрашивают подтверждения прямо в карточке — так же,
+  // как отвязка роли от пакета. Нативный confirm() в офисе не используется:
+  // он выпадает из окна и его нечем оформить.
+  const [confirming, setConfirming] = useState<'drop' | 'delete' | null>(null);
   const openTask = useStore((s) => s.openTask);
   const openTaskCard = useStore((s) => s.openTaskCard);
   const tasks = useStore((s) => s.tasks);
@@ -57,6 +62,10 @@ export function TaskDrawer() {
   const run = useStore((s) => s.mergeRun);
   const checks = useStore((s) => s.mergeChecks);
   const autoPipeline = useStore((s) => s.settings.autoPipeline);
+
+  // Переключились на другую задачу — занесённая рука опускается: подтверждать
+  // снятие одной задачи и нажать «да» уже на другой нельзя.
+  useEffect(() => { setConfirming(null); }, [openTask]);
 
   const task = openTask ? tasks[openTask] : null;
   // Задачу могли закрыть, слить и убрать, пока карточка была открыта, —
@@ -71,6 +80,13 @@ export function TaskDrawer() {
   const badge = mergeBadge(task, mergeStepFor(run, task.id), check);
   // Пока конвейер ведёт задачу, ручное слияние вырвало бы ветку у ревьюера.
   const pipelineRunning = Boolean(pr) && pr.stage !== 'stuck' && pr.stage !== 'merged';
+
+  // Снять можно всё, что ещё не сдано и не закрыто.
+  const droppable = !task.outcome && task.status !== 'review' && task.status !== 'done'
+    && !task.merged;
+  const erasable = (task.status === 'planned' || task.status === 'backlog')
+    && !task.outcome && !task.branch && !task.assigneeId && !task.startedAt
+    && task.usage.costUsd === 0 && !pr;
 
   const waits = task.dependsOn.map((id) => tasks[id]).filter(Boolean)
     .filter((dep) => !taskClosed(dep, autoPipeline));
@@ -90,7 +106,9 @@ export function TaskDrawer() {
               </span>
             )}
             {badge && <span className={`chip merge-chip ${badge.cls}`}>{badge.label}</span>}
-            {task.outcome && (
+            {/* У снятой задачи исход и статус — одно и то же слово: два
+                одинаковых чипа подряд ничего не добавляют. */}
+            {task.outcome && task.status !== 'cancelled' && (
               <span className={`chip outcome-chip ${task.outcome.kind}`} title={t('outcome.hint')}>
                 {t(`outcome.${task.outcome.kind}`)}
               </span>
@@ -298,7 +316,36 @@ export function TaskDrawer() {
           && (task.status === 'done' || pr?.stage === 'stuck') && (
           <button className="merge" onClick={() => mergeTask(task.id)}>{t('board.merge')}</button>
         )}
+        {/* Снять можно всё, что ещё не сдано: идущую задачу офис остановит
+            сам. Сданное и слитое не снимают — там решает ревью. */}
+        {droppable && !confirming && (
+          <button className="drop" onClick={() => setConfirming('drop')}>{t('board.drop')}</button>
+        )}
+        {/* Стереть — только задачу без следа. Остальным сервер откажет, и
+            отказ придёт в чат офиса, поэтому кнопку зря не показываем. */}
+        {erasable && !confirming && (
+          <button className="drop" onClick={() => setConfirming('delete')}>{t('board.delete')}</button>
+        )}
       </div>
+
+      {confirming && (
+        <div className="access-confirm">
+          <p>{t(confirming === 'drop' ? 'board.dropConfirm' : 'board.deleteConfirm',
+            { title: task.title })}</p>
+          <div className="modal-actions">
+            <button onClick={() => setConfirming(null)}>{t('common.cancel')}</button>
+            <button
+              className="danger"
+              onClick={() => {
+                if (confirming === 'drop') dropTask(task.id); else deleteTask(task.id);
+                setConfirming(null);
+              }}
+            >
+              {t(confirming === 'drop' ? 'board.drop' : 'board.delete')}
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
