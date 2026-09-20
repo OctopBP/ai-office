@@ -225,6 +225,15 @@ interface State {
    */
   drafts: Record<string, ChatDraft>;
   /**
+   * Недописанное пользователем сообщение композера — по офису и ветке
+   * (ключ считает `inputDraftKey`). Живёт здесь, а не в самом композере:
+   * на виде «Доска» его не рендерят, и локальный useState терял бы набранный
+   * текст при каждой смене вида. Читать — хуком `useInputDraft`.
+   */
+  inputDrafts: Record<string, string>;
+  /** Записать черновик ввода в текущую ветку. Пустая строка — стереть. */
+  setInputDraft: (text: string) => void;
+  /**
    * Менеджер ответил, а чат в это время не смотрели: сегмент «Чат» зажигает
    * точку. Гаснет, как только чат открыли, — отдельного счётчика нет, важен
    * сам факт «там появилось новое».
@@ -402,6 +411,49 @@ function initialThemeMode(): ThemeMode {
   return v === 'day' || v === 'night' || v === 'system' ? v : 'system';
 }
 
+const INPUT_DRAFTS_KEY = 'office-input-drafts';
+
+/**
+ * Ключ черновика ввода: офис и ветка. Офис в ключе обязателен — ветка 'pm#1'
+ * есть в каждом офисе, и без него недописанное в одном офисе всплыло бы в
+ * другом. Перевод строки как разделитель: в id офиса и ветки его не бывает.
+ */
+function inputDraftKey(s: Pick<State, 'offices' | 'thread'>): string {
+  return `${s.offices.find((o) => o.current)?.id ?? ''}\n${s.thread}`;
+}
+
+function loadInputDrafts(): Record<string, string> {
+  try {
+    const raw = localStorage.getItem(INPUT_DRAFTS_KEY);
+    if (!raw) return {};
+    const saved: unknown = JSON.parse(raw);
+    if (!saved || typeof saved !== 'object') return {};
+    const out: Record<string, string> = {};
+    for (const [k, v] of Object.entries(saved as Record<string, unknown>)) {
+      if (typeof v === 'string' && v) out[k] = v;
+    }
+    return out;
+  } catch {
+    return {};
+  }
+}
+
+function saveInputDrafts(drafts: Record<string, string>): void {
+  try {
+    localStorage.setItem(INPUT_DRAFTS_KEY, JSON.stringify(drafts));
+  } catch {
+    // Приватный режим браузера — черновик просто не переживёт перезагрузку.
+  }
+}
+
+/**
+ * Черновик ввода текущей ветки текущего офиса. Хук, а не поле: ключ считается
+ * из состояния, а компоненту нужна подписка ровно на свою строку.
+ */
+export function useInputDraft(): string {
+  return useStore((s) => s.inputDrafts[inputDraftKey(s)] ?? '');
+}
+
 export const useStore = create<State>((set, get) => ({
   connected: false,
   busy: false,
@@ -435,6 +487,7 @@ export const useStore = create<State>((set, get) => ({
   epics: {},
   chat: [],
   drafts: {},
+  inputDrafts: loadInputDrafts(),
   chatUnread: false,
   log: [],
   permissions: [],
@@ -511,6 +564,17 @@ export const useStore = create<State>((set, get) => ({
   setThread: (t) => set((s) => (t === 'pm#1' && s.view === 'chat'
     ? { thread: t, chatUnread: false }
     : { thread: t })),
+  // Пишем в localStorage на каждое нажатие: строка короткая, а всё, что сложнее
+  // (таймер, сброс на unload), стоило бы дороже самой пользы.
+  setInputDraft: (text) => set((s) => {
+    const key = inputDraftKey(s);
+    if ((s.inputDrafts[key] ?? '') === text) return {};
+    const inputDrafts = { ...s.inputDrafts };
+    if (text) inputDrafts[key] = text;
+    else delete inputDrafts[key];
+    saveInputDrafts(inputDrafts);
+    return { inputDrafts };
+  }),
   setThemeMode: (m) => { localStorage.setItem('office-theme', m); set({ themeMode: m, theme: resolveTheme(m) }); },
   view: 'office',
   // Открыли чат — точка непрочитанного своё отслужила.
