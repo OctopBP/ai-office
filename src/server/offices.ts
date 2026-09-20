@@ -4,12 +4,32 @@
  * окружения и менялся только перезапуском сервера.
  */
 import {
-  existsSync, mkdirSync, readFileSync, realpathSync, renameSync, statSync, writeFileSync,
+  existsSync, mkdirSync, readFileSync, realpathSync, renameSync, rmSync, statSync, writeFileSync,
 } from 'node:fs';
 import { homedir } from 'node:os';
 import { dirname, extname, relative, resolve, sep } from 'node:path';
 import type { OfficeIcon } from '../shared/types';
 import { c } from './i18n';
+
+/**
+ * Как аватарка лежит в реестре — это не то же, что уезжает в веб. Браузеру мы
+ * отдаём адрес (`OfficeIcon`), а здесь хранится, где взять файл:
+ *
+ * `emoji`  — сама строка;
+ * `image`  — путь к файлу ВНУТРИ директории офиса, относительно `projectDir`;
+ *            так иконку задают руками, указав картинку прямо в проекте;
+ * `upload` — файл, который загрузили через настройки офиса: он лежит в
+ *            служебной папке рядом с реестром (`iconsDir`), а не в проекте.
+ *            Загруженная картинка — не часть проекта, и класть её в чужой
+ *            репозиторий, где она попадёт в диффы и коммиты, неправильно.
+ *
+ * `version` у загрузки — отметка времени последней замены. Она уходит в адрес
+ * картинки: без неё браузер показывал бы прежнюю аватарку после замены.
+ */
+export type StoredIcon =
+  | { kind: 'emoji'; value: string }
+  | { kind: 'image'; value: string }
+  | { kind: 'upload'; file: string; version: number };
 
 export interface OfficeEntry {
   id: string;
@@ -17,10 +37,10 @@ export interface OfficeEntry {
   /** Рабочая директория команды. */
   projectDir: string;
   /**
-   * Аватарка офиса: эмодзи или картинка в его директории (путь хранится
-   * относительно `projectDir`). Поля нет — офис рисуется умолчанием.
+   * Аватарка офиса: эмодзи, картинка в его директории или загруженный файл
+   * (см. `StoredIcon`). Поля нет — офис рисуется умолчанием.
    */
-  icon?: OfficeIcon;
+  icon?: StoredIcon;
   /** Где лежит состояние этого офиса. */
   stateFile: string;
   createdAt: number;
@@ -291,6 +311,65 @@ const ICON_PATH_MAX = 256;
 /** Что умеет показать браузер. Иконка — картинка, а не произвольный файл. */
 const ICON_EXT = new Set(['.png', '.jpg', '.jpeg', '.webp', '.gif', '.svg']);
 
+/**
+ * Что принимаем загрузкой и с каким расширением кладём на диск. Набор уже,
+ * чем ICON_EXT: там путь указывает человек и файл уже лежит на машине, а тут
+ * байты приходят из сети — принимать имеет смысл только то, что мы умеем
+ * узнать по содержимому (см. `looksLike`).
+ */
+const UPLOAD_TYPES: Record<string, string> = {
+  'image/png': 'png',
+  'image/jpeg': 'jpg',
+  'image/webp': 'webp',
+  'image/svg+xml': 'svg',
+};
+
+/** Список для сообщений об ошибке: чем ручка отвечает на «а что можно?». */
+export const ICON_UPLOAD_TYPES = Object.keys(UPLOAD_TYPES);
+
+/**
+ * Потолок загружаемой картинки. Мегабайта хватает на аватарку с запасом:
+ * рисуется она размером в пару десятков пикселей. Ограничение не про диск,
+ * а про то, что ручка не должна становиться способом залить в офис что угодно.
+ */
+export const ICON_MAX_BYTES = 1024 * 1024;
+
+/** Имя офиса попадает в имя файла, поэтому id проверяем, а не доверяем ему. */
+const SAFE_ID = /^[A-Za-z0-9_-]{1,64}$/;
+
+/** Куда складываются загруженные картинки: рядом с реестром и состояниями. */
+export const iconsDir = (): string => resolve(dirname(FILE), 'icons');
+
+/**
+ * Похоже ли содержимое на заявленный тип. Заголовок запроса — слова клиента,
+ * и верить им на слово значит положить в папку офиса что угодно под именем
+ * `o-2.png`. Проверка грубая, по сигнатуре формата: отличить картинку от
+ * архива и исполняемого файла её достаточно.
+ */
+function looksLike(ext: string, bytes: Buffer): boolean {
+  if (ext === 'png') {
+    return bytes.subarray(0, 8).equals(Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]));
+  }
+  if (ext === 'jpg') return bytes[0] === 0xff && bytes[1] === 0xd8 && bytes[2] === 0xff;
+  if (ext === 'webp') {
+    return bytes.subarray(0, 4).toString('latin1') === 'RIFF'
+      && bytes.subarray(8, 12).toString('latin1') === 'WEBP';
+  }
+  // SVG — текст: ищем корневой тег в начале файла, пропустив BOM, пролог XML
+  // и комментарии. Дальше первого килобайта корневого тега не бывает.
+  if (ext === 'svg') return /<svg[\s>]/i.test(bytes.subarray(0, 1024).toString('utf8'));
+  return false;
+}
+
+/** Время последней правки файла — версия для адреса картинки. */
+function mtimeOf(file: string): number {
+  try {
+    return Math.round(statSync(file).mtimeMs);
+  } catch {
+    return 0;
+  }
+}
+
 /** Управляющие символы и переводы строк в аватарке не нужны никому. */
 const CONTROL = /[\u0000-\u001f\u007f]/;
 
@@ -309,6 +388,19 @@ const inside = (root: string, path: string): boolean =>
  * файл с машины ручка не должна.
  */
 export function officeIconFile(office: OfficeEntry): string | null {
+  // Загруженную картинку искать негде, кроме служебной папки: имя файла в
+  // реестре — только имя, любой путь в нём был бы дырой ровно такого же
+  // размера, как «../» в пути к картинке проекта.
+  if (office.icon?.kind === 'upload') {
+    const name = office.icon.file;
+    if (!/^[A-Za-z0-9_-]+\.[A-Za-z0-9]+$/.test(name)) return null;
+    const full = resolve(iconsDir(), name);
+    try {
+      return statSync(full).isFile() ? full : null;
+    } catch {
+      return null;
+    }
+  }
   if (office.icon?.kind !== 'image') return null;
   const root = resolve(office.projectDir);
   const full = resolve(root, office.icon.value);
@@ -319,6 +411,103 @@ export function officeIconFile(office: OfficeEntry): string | null {
   } catch {
     return null;
   }
+}
+
+/**
+ * Адрес, по которому веб заберёт картинку офиса, — то самое значение, которое
+ * уезжает в снимок как `icon.value`. null — иконки-картинки нет.
+ *
+ * Адрес относительный намеренно. В собранном офисе (`npm run office`) страница
+ * и сервер — это один адрес на :3001, а в деве страницу отдаёт vite на :5173 и
+ * проксирует `/api` на сервер (vite.config.ts). Абсолютный адрес пришлось бы
+ * собирать из имени хоста, и он врал бы всем, кто зашёл не с localhost.
+ *
+ * `v` — версия файла. Браузер держит кеш картинок крепче, чем хотелось бы, и
+ * без версии после замены аватарки в рейле висела бы прежняя.
+ */
+export function officeIconUrl(office: OfficeEntry): string | null {
+  const file = officeIconFile(office);
+  if (!file) return null;
+  const version = office.icon?.kind === 'upload' ? office.icon.version : mtimeOf(file);
+  return `/api/office-icon?office=${encodeURIComponent(office.id)}&v=${version}`;
+}
+
+/**
+ * Иконка офиса для веба: эмодзи как есть, картинка — адресом. Одно место, где
+ * хранимый вид превращается в контрактный, — иначе список офисов и снимок
+ * состояния разошлись бы в форме значения.
+ */
+export function officeIconView(office: OfficeEntry): OfficeIcon | null {
+  if (office.icon?.kind === 'emoji') return { kind: 'emoji', value: office.icon.value };
+  const url = officeIconUrl(office);
+  return url ? { kind: 'image', value: url } : null;
+}
+
+/**
+ * Убрать загруженный файл иконки. Вызывается при любой смене аватарки: файл
+ * нужен ровно до тех пор, пока на него смотрит реестр, а дальше это мусор в
+ * служебной папке, который никто никогда не найдёт и не сотрёт.
+ */
+function dropUpload(office: OfficeEntry, keep?: string): void {
+  if (office.icon?.kind !== 'upload' || office.icon.file === keep) return;
+  const file = officeIconFile(office);
+  if (file) rmSync(file, { force: true });
+}
+
+/**
+ * Положить загруженную картинку в офис. Возвращает готовую для веба иконку
+ * или отказ с причиной на языке офиса: `reason` нужен ручке, чтобы выбрать
+ * код ответа, а текст — человеку.
+ */
+export function saveOfficeIcon(id: string, bytes: Buffer, contentType: string):
+  { icon: OfficeIcon } | { error: string; reason: 'office' | 'type' | 'size' | 'content' | 'io' } {
+  const office = officeById(id);
+  if (!office) return { error: c('offices.notFound', { id }), reason: 'office' };
+  if (!SAFE_ID.test(office.id)) {
+    return { error: c('offices.iconBadOffice', { id: office.id }), reason: 'office' };
+  }
+
+  const type = (contentType.split(';')[0] ?? '').trim().toLowerCase();
+  const ext = UPLOAD_TYPES[type];
+  const allowed = Object.keys(UPLOAD_TYPES).join(', ');
+  if (!ext) return { error: c('offices.iconBadType', { type: type || '—', list: allowed }), reason: 'type' };
+  if (!bytes.length) return { error: c('offices.iconEmpty'), reason: 'content' };
+  if (bytes.length > ICON_MAX_BYTES) {
+    return {
+      error: c('offices.iconTooBig', { max: Math.round(ICON_MAX_BYTES / 1024), got: Math.ceil(bytes.length / 1024) }),
+      reason: 'size',
+    };
+  }
+  if (!looksLike(ext, bytes)) return { error: c('offices.iconNotReally', { type }), reason: 'content' };
+
+  const name = `${office.id}.${ext}`;
+  const file = resolve(iconsDir(), name);
+  try {
+    mkdirSync(iconsDir(), { recursive: true });
+    // Через временный файл: замену аватарки может застать запрос за ней, и
+    // отдавать половину картинки не стоит.
+    const tmp = `${file}.tmp`;
+    writeFileSync(tmp, bytes);
+    renameSync(tmp, file);
+  } catch (err) {
+    return { error: c('offices.iconWriteFailed', { path: file, error: (err as Error).message }), reason: 'io' };
+  }
+
+  // Прежний файл убираем после записи нового и только если он другой: png
+  // поверх png — это то же имя, и удаление стёрло бы свежую картинку.
+  dropUpload(office, name);
+  office.icon = { kind: 'upload', file: name, version: Date.now() };
+  write();
+  return { icon: { kind: 'image', value: officeIconUrl(office)! } };
+}
+
+/**
+ * Снять аватарку: офис возвращается к умолчанию (инициалы на подложке), а
+ * загруженный файл стирается — хранить картинку, на которую никто не смотрит,
+ * незачем. Возвращает причину отказа или null.
+ */
+export function clearOfficeIcon(id: string): string | null {
+  return setOfficeIcon(id, null);
 }
 
 /**
@@ -336,6 +525,7 @@ export function setOfficeIcon(id: string, icon: OfficeIcon | null): string | nul
   const raw = typeof icon?.value === 'string' ? icon.value.trim() : '';
   if (!icon || !raw) {
     if (office.icon) {
+      dropUpload(office);
       delete office.icon;
       write();
     }
@@ -348,6 +538,7 @@ export function setOfficeIcon(id: string, icon: OfficeIcon | null): string | nul
     if (points > ICON_EMOJI_MAX) {
       return c('offices.iconTooLong', { max: ICON_EMOJI_MAX, got: points });
     }
+    dropUpload(office);
     office.icon = { kind: 'emoji', value: raw };
     write();
     return null;
@@ -355,6 +546,10 @@ export function setOfficeIcon(id: string, icon: OfficeIcon | null): string | nul
 
   if (icon.kind === 'image') {
     if (CONTROL.test(raw)) return c('offices.iconBadChars');
+    // В снимок картинка уходит адресом, а этой командой ждут путь к файлу.
+    // Вернуть адрес обратно — частая и понятная путаница: говорим прямо, куда
+    // идти, вместо «картинка должна лежать внутри директории офиса».
+    if (raw.startsWith('/api/office-icon')) return c('offices.iconIsUrl');
     if (raw.length > ICON_PATH_MAX) {
       return c('offices.iconPathTooLong', { max: ICON_PATH_MAX });
     }
@@ -391,6 +586,7 @@ export function setOfficeIcon(id: string, icon: OfficeIcon | null): string | nul
     }
     if (!inside(realRoot, real)) return c('offices.iconOutside', { dir: root });
 
+    dropUpload(office);
     office.icon = { kind: 'image', value: relative(root, full).split(sep).join('/') };
     write();
     return null;
