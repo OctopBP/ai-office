@@ -27,6 +27,7 @@ export const promptsEn = {
   'bubble.search': 'searching for {what}',
   'bubble.artifact': 'publishing {what}',
   'bubble.createTask': 'creating a task: {what}',
+  'bubble.editTask': 'editing {what}',
   'bubble.assignTask': 'assigning {what}',
   'bubble.finishTask': 'handing the work in',
   'bubble.listTeam': 'checking who is free',
@@ -97,6 +98,7 @@ export const promptsEn = {
 
   'prompt.board.empty': 'The board is empty.',
   'prompt.board.review': 'review',
+  'prompt.board.priority': 'priority {priority}',
   'prompt.board.criteria': 'criteria',
   'prompt.board.result': 'result',
 
@@ -243,6 +245,10 @@ Rules for splitting work up:
   sees the progress as “2 of 4”.
 - Do not create tasks like “discuss”, “think about”, “plan” — only ones with an artifact.
 - Do not slice into micro-tasks: 2–4 tasks for a typical request.
+- Set priority deliberately. normal is the default and the right choice almost always.
+  high — only for what really matters more than the rest: it blocks the user or other tasks.
+  low — for what can be done whenever. Marking everything high speeds up nothing:
+  a priority is a difference from the rest. Changed your mind, or the user pushed — edit_task.
 
 Reply to the user in {lang}, and keep it short.`,
 
@@ -263,6 +269,15 @@ Reply to the user in {lang}, and keep it short.`,
   'tool.createTask.badDep': 'No such tasks on the board: {deps}. Refer to the id of an existing task.',
   'tool.createTask.planned': '. The task is placed in the plan: the office will hand it out itself when its turn comes — do not call assign_task for it.',
   'tool.createTask.ok': 'Created task {task}: {title} (role {role}), {n} criterion|Created task {task}: {title} (role {role}), {n} criteria',
+  'tool.createTask.priority': 'How important the task is: high — it blocks the owner or other tasks (something else waits until it is done); normal — ordinary work; low — can be done whenever, nobody is waiting. Empty — normal. Use high only for what really matters more than the rest: when every task is high, high means nothing.',
+  'tool.createTask.priorityNote': '. Priority: {priority}',
+
+  'tool.editTask.desc': 'Change a task that is already on the board. For now only its importance changes — e.g. when the user says “this is urgent” or, the other way round, “this can wait”. The brief and the criteria are not edited this way: if the task is wrong, cancel it and create it anew.',
+  'tool.editTask.taskId': 'Task id from the board, e.g. T-1',
+  'tool.editTask.priority': 'New importance: high — blocks the owner or other tasks; normal — ordinary work; low — can be done whenever. Empty — leave as is (then the call is pointless).',
+  'tool.editTask.noTask': 'There is no task {task} on the board. Check get_board for the ids that exist.',
+  'tool.editTask.nothing': 'The edit_task call for {task} changes nothing: pass a priority.',
+  'tool.editTask.ok': 'Task {task} “{title}”: priority is now {priority}.',
 
   'tool.assignTask.desc': 'Assign a task to a worker and start the work. RETURNS IMMEDIATELY — the worker runs in the background and the result comes to you as a separate system message. Call it one after another for all independent tasks so that the team works in parallel.',
   'tool.assignTask.taskId': 'Task id from create_task, for example T-1',

@@ -43,6 +43,10 @@ export const en = {
   'state.restore.otherDir': '⚠️  The save belongs to a different working directory — starting fresh',
   'state.restore.noLayout': '⚠️  Layout “{id}” not found — office {office} opened with “{fallback}”',
   'state.task.interrupted': '⚠️ The work was cut short by a server restart. The branch and the working copy are intact; the office will resume the task on its own.',
+  'state.task.priority': 'Priority of task {task} “{title}” — {priority}',
+  'task.priority.low': 'low',
+  'task.priority.normal': 'normal',
+  'task.priority.high': 'high',
   'state.pr.interrupted': 'The pipeline was cut short by a server restart. The branch and the working copy are intact — push it again.',
   'state.pr.pullingBase': 'Pulling the base branch.',
 

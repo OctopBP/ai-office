@@ -4,7 +4,7 @@ import type {
   AgentState, ChatDraft, ChatEntry, Criterion, DayUsage, Desk, FieldError, InstanceView, LogEntry,
   PermissionDecision, AuthSource, MeetingView, PermissionMode, PermissionRequest, RoleDraft,
   McpServerDef, McpServerState, RoleEditable, RoleView, ServerEvent, Settings, TaskStatus,
-  TaskView, Usage,
+  TaskPriority, TaskView, Usage,
   EpicStatus, EpicView,
   CloudStatus, EnvCheck, EnvReport, OfficeView, MergeCheck, MergeRun, LayoutOption,
   Layout, LayoutOverride, LayoutPropEdit,
@@ -14,6 +14,7 @@ import type {
 } from '../shared/types';
 import { OFFICE_SENDER } from '../shared/types';
 import {
+  asTaskPriority, DEFAULT_TASK_PRIORITY,
   dayKey, emptyUsage, DEFAULT_RITUAL_LIMIT, DEFAULT_RITUAL_POLICY,
   DEFAULT_INITIATIVE_MODE, DEFAULT_INITIATIVE_SHARE, HEALTH_DIRECTION, INITIATIVE_MODES,
   MAX_INITIATIVE_SHARE, MIN_INITIATIVE_SHARE,
@@ -632,6 +633,12 @@ export interface Task {
   status: TaskStatus;
   epicId: string | null;
   order: number;
+  /**
+   * Важность задачи. Не путать с `order`: порядок — это место внутри фичи,
+   * а приоритет говорит, насколько работа важна сама по себе. В сохранениях
+   * старше приоритета поля нет — там подставляется средний (migrateTask).
+   */
+  priority: TaskPriority;
   dependsOn: string[];
   result: string | null;
   files: string[];
@@ -2208,6 +2215,8 @@ export class OfficeState {
     status?: TaskStatus;
     /** Тип работы. Не передан — выводится из способностей роли. */
     type?: TaskType | null;
+    /** Важность. Не передана — средняя: важность — это отличие от остального. */
+    priority?: TaskPriority;
   }): Task {
     this.taskSeq += 1;
     const task: Task = {
@@ -2220,6 +2229,7 @@ export class OfficeState {
       status: input.status ?? 'backlog',
       epicId: input.epicId ?? null,
       order: input.order ?? this.taskSeq,
+      priority: asTaskPriority(input.priority),
       dependsOn: input.dependsOn ?? [],
       result: null,
       files: [],
@@ -2329,6 +2339,31 @@ export class OfficeState {
     // тишину, по которой идут ритуалы.
     if (!('outcome' in patch) && !('branchMark' in patch)) this.noteWork();
     return task;
+  }
+
+  /**
+   * Сменить важность задачи. Одна точка на всех, кто её меняет: команда из
+   * веба, инструмент менеджера `edit_task`. Возвращает текст отказа или null.
+   * Менять можно у любой задачи, в том числе у идущей и у закрытой: приоритет
+   * ничего не запускает и не останавливает — он говорит, что важнее, и на
+   * закрытой задаче остаётся частью её истории.
+   */
+  setTaskPriority(id: string, priority: TaskPriority): string | null {
+    const task = this.tasks.get(id);
+    if (!task) return this.say('state.criteria.noTask', { task: id });
+    if (task.priority === priority) return null;
+    task.priority = priority;
+    this.emit({ t: 'task', task: toTaskView(task) });
+    this.addLog(null, 'system', this.say('state.task.priority', {
+      task: task.id, title: clipText(task.title, 40), priority: this.priorityWord(priority),
+    }));
+    this.markDirty();
+    return null;
+  }
+
+  /** Приоритет словом на языке офиса — в ленту, в доску менеджера и в отказы. */
+  priorityWord(priority: TaskPriority): string {
+    return this.say(`task.priority.${asTaskPriority(priority)}`);
   }
 
   /**
@@ -3862,6 +3897,8 @@ export const toTaskView = (t: Task): TaskView => ({
   criteria: t.criteria, roleId: t.roleId,
   assigneeId: t.assigneeId, status: t.status, result: t.result,
   epicId: t.epicId ?? null, order: t.order ?? 0, dependsOn: t.dependsOn ?? [],
+  // Веб про старые форматы не знает: в снимке приоритет есть всегда.
+  priority: asTaskPriority(t.priority),
   files: t.files, branch: t.branch, baseBranch: t.baseBranch,
   worktreePath: t.worktreePath, repoDir: t.repoDir ?? null, merged: t.merged,
   interrupted: t.interrupted, limitedAt: t.limitedAt ?? null,
@@ -3942,6 +3979,9 @@ function migrateTask(raw: Task & {
     attention: raw.attention ?? null,
     workerSessionId: raw.workerSessionId ?? null, reviewerSessionId: raw.reviewerSessionId ?? null,
     epicId: raw.epicId ?? null, order: raw.order ?? 0, dependsOn: raw.dependsOn ?? [],
+    // Приоритета в сохранениях до него нет, и угадывать его по чему-либо
+    // нельзя: «средний» — это ровно то, чем такая задача и была.
+    priority: asTaskPriority(raw.priority),
     outcome: raw.outcome ?? null, mergeCommit: raw.mergeCommit ?? null,
     // Сжатий в старых сохранениях нет: «не знаем» считаем нулём, а не
     // выдумываем — сводка здоровья скорее промолчит, чем соврёт.
