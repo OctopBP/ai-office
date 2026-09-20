@@ -14,6 +14,7 @@ import { LANGS, LANG_TITLE, type Lang } from '../shared/i18n';
 import { DEFAULT_GRAPHICS, GRAPHICS_RANGE, type Graphics } from './office3d/graphics';
 import { t, type UiKey } from './i18n';
 import { McpCatalog, type McpRequest } from './McpCatalog';
+import { OfficeIconSetting } from './OfficeIcon';
 import { Icon } from './icons';
 
 const parse = (v: string): number | null => {
@@ -310,6 +311,10 @@ export function SettingsModal({ onClose }: { onClose: () => void }) {
 
             {section === 'project' && (
               <>
+                {/* Иконка сохраняется сразу, без «Сохранить»: картинка уходит
+                    отдельной ручкой, а не вместе с настройками офиса. */}
+                <OfficeIconSetting />
+
                 <h4 className="section-title">{t('settings.layout.title')}</h4>
                 <div className="engine">
                   {layouts.map((l) => (
