@@ -2,7 +2,6 @@ import { useEffect, useRef, useState } from 'react';
 import {
   reset, setEditingLayout, sortedOffices, summarizeOfficeActivity, useStore,
 } from '../store';
-import type { OfficeView } from '../../shared/types';
 import type { ModalKind, PanelKind } from '../Overlays';
 import { money } from '../money';
 import { t } from '../i18n';
@@ -11,28 +10,7 @@ import { Kbd } from '../Kbd';
 import { Hint, Tooltip } from '../Tooltip';
 import { HOTKEY } from '../hotkeys';
 import { officeAvatarColor, officeAvatarInk } from '../officeColor';
-
-/** Буква на иконке офиса: первый символ названия, в верхнем регистре. */
-function officeInitial(name: string): string {
-  const trimmed = name.trim();
-  if (!trimmed) return '?';
-  return Array.from(trimmed)[0].toUpperCase();
-}
-
-/**
- * Содержимое аватарки офиса: назначенная иконка (эмодзи или картинка) —
- * или, если её нет, инициал названия, как раньше. Картинка отдаётся сервером
- * по id офиса (`/api/office-icon`) — путь к файлу хранится относительно
- * директории проекта и браузеру недоступен напрямую.
- */
-function OfficeAvatarIcon({ office }: { office: OfficeView }) {
-  const icon = office.icon;
-  if (icon?.kind === 'emoji') return <>{icon.value}</>;
-  if (icon?.kind === 'image') {
-    return <img className="rail-office-icon-img" src={`/api/office-icon?office=${office.id}`} alt="" />;
-  }
-  return <>{officeInitial(office.name)}</>;
-}
+import { OfficeAvatarIcon } from '../OfficeIcon';
 
 type WindowKind = 'board' | 'merge' | 'log' | 'money' | 'meetings' | 'life' | 'flows' | 'team' | 'settings';
 const WINDOWS: Array<{ kind: WindowKind; icon: IconName }> = [
@@ -145,7 +123,7 @@ export function Rail({ onPanel, onModal }: {
               title={collapsed ? `${o.name} · ${status}` : o.projectDir}>
               <span className="rail-office-avatar"
                 style={{ background: officeAvatarColor(o.id), color: officeAvatarInk(o.id) }}>
-                <OfficeAvatarIcon office={o} />
+                <OfficeAvatarIcon office={o} imgClass="rail-office-icon-img" />
               </span>
               <span className="rail-office-text">
                 <span className="rail-office-name">{o.name}</span>
