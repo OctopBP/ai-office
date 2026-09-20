@@ -107,8 +107,23 @@ function Proposals() {
 
 function QuestionRow({ q }: { q: OwnerQuestion }) {
   const [answer, setAnswer] = useState('');
+  // Поле ввода раскрывается ссылкой только у вопроса с вариантами: без них
+  // строка должна выглядеть ровно как раньше.
+  const [own, setOwn] = useState(false);
+  // Ответ уходит по сокету, а вопрос закрывается уже следующим состоянием от
+  // сервера — до этого момента держим кнопки заблокированными, иначе клик по
+  // второму варианту отправит второй ответ.
+  const [sending, setSending] = useState(false);
   const closed = Boolean(q.answeredAt || q.dismissedAt);
   const who = isOfficeSender(q.from) ? t('common.office') : q.from;
+  const options = q.options ?? [];
+  const send = (text: string) => {
+    const value = text.trim();
+    if (!value || sending) return;
+    setSending(true);
+    answerQuestion(q.id, value);
+    setAnswer('');
+  };
   return (
     <div className={`life-row question ${q.kind}${closed ? ' closed' : ''}`}>
       <div className="life-row-head">
@@ -122,18 +137,33 @@ function QuestionRow({ q }: { q: OwnerQuestion }) {
       <div className="muted small">{t('life.questions.assumed')}: {q.assumption}</div>
       {q.answeredAt && <div className="life-answer">{t('life.questions.answered')}: {q.answer}</div>}
       {q.dismissedAt && <div className="muted small">{t('life.questions.dismissed')} · {when(q.dismissedAt)}</div>}
+      {!closed && options.length > 0 && (
+        <div className="life-options">
+          {options.map((opt, i) => (
+            <button key={`${i}:${opt}`} className="mini" disabled={sending} onClick={() => send(opt)}>{opt}</button>
+          ))}
+        </div>
+      )}
       {!closed && (
         <div className="life-actions">
-          <input value={answer} placeholder={t('life.questions.answerPlaceholder')}
-            onChange={(e) => setAnswer(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === 'Enter' && answer.trim()) { answerQuestion(q.id, answer.trim()); setAnswer(''); }
-            }} />
-          <button className="allow" disabled={!answer.trim()}
-            onClick={() => { answerQuestion(q.id, answer.trim()); setAnswer(''); }}>
-            {t('life.questions.answer')}
+          {options.length > 0 && !own ? (
+            <button className="mini ghost" disabled={sending} onClick={() => setOwn(true)}>
+              {t('life.questions.ownWords')}
+            </button>
+          ) : (
+            <>
+              <input value={answer} placeholder={t('life.questions.answerPlaceholder')}
+                autoFocus={own} disabled={sending}
+                onChange={(e) => setAnswer(e.target.value)}
+                onKeyDown={(e) => { if (e.key === 'Enter') send(answer); }} />
+              <button className="allow" disabled={sending || !answer.trim()} onClick={() => send(answer)}>
+                {t('life.questions.answer')}
+              </button>
+            </>
+          )}
+          <button className="mini" disabled={sending} onClick={() => dismissQuestion(q.id)}>
+            {t('life.questions.dismiss')}
           </button>
-          <button className="mini" onClick={() => dismissQuestion(q.id)}>{t('life.questions.dismiss')}</button>
         </div>
       )}
     </div>
