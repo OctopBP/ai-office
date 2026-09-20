@@ -1262,8 +1262,11 @@ export class OfficeState {
 
   addQuestion(input: {
     from: string; taskId: string | null; kind: OwnerQuestion['kind']; text: string; assumption: string;
+    options?: string[];
   }): OwnerQuestion {
     this.questionSeq += 1;
+    // Вариантов либо нет вовсе, либо их больше одного: один вариант — не выбор.
+    const options = (input.options ?? []).map((o) => o.trim()).filter(Boolean);
     const question: OwnerQuestion = {
       id: `Q-${this.questionSeq}`,
       from: input.from,
@@ -1271,6 +1274,7 @@ export class OfficeState {
       kind: input.kind,
       text: input.text.trim(),
       assumption: input.assumption.trim(),
+      ...(options.length > 1 ? { options } : {}),
       askedAt: Date.now(),
       shownAt: null,
       answer: null,

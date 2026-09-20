@@ -1049,9 +1049,10 @@ const teamTools = (state: OfficeState) => createSdkMcpServer({
       {
         question: z.string().describe(state.say('tool.askOwner.question')),
         assumption: z.string().describe(state.say('tool.askOwner.assumption')),
+        options: z.array(z.string()).default([]).describe(state.say('tool.askOwner.options')),
       },
       async (args) => {
-        const asked = askOwner(state, 'pm#1', null, args.question, args.assumption);
+        const asked = askOwner(state, 'pm#1', null, args.question, args.assumption, args.options);
         return { content: [{ type: 'text', text: asked.text }], isError: !asked.ok };
       },
     ),
@@ -1972,9 +1973,10 @@ function workerTools(state: OfficeState, instanceId: string, task: Task) {
         {
           question: z.string().describe(state.say('tool.askOwner.question')),
           assumption: z.string().describe(state.say('tool.askOwner.assumption')),
+          options: z.array(z.string()).default([]).describe(state.say('tool.askOwner.options')),
         },
         async (args) => {
-          const asked = askOwner(state, instanceId, task.id, args.question, args.assumption);
+          const asked = askOwner(state, instanceId, task.id, args.question, args.assumption, args.options);
           return { content: [{ type: 'text', text: asked.text }], isError: !asked.ok };
         },
       ),
@@ -3107,9 +3109,10 @@ async function runStep(state: OfficeState, task: Task, req: StepRequest): Promis
         {
           question: z.string().describe(state.say('tool.askOwner.question')),
           assumption: z.string().describe(state.say('tool.askOwner.assumption')),
+          options: z.array(z.string()).default([]).describe(state.say('tool.askOwner.options')),
         },
         async (args) => {
-          const asked = askOwner(state, inst.id, task.id, args.question, args.assumption);
+          const asked = askOwner(state, inst.id, task.id, args.question, args.assumption, args.options);
           return { content: [{ type: 'text', text: asked.text }], isError: !asked.ok };
         },
       ),
@@ -3356,9 +3359,10 @@ function ritualTools(state: OfficeState, out: RitualOutput) {
         {
           question: z.string().describe(state.say('tool.ritualAsk.question')),
           assumption: z.string().describe(state.say('tool.ritualAsk.assumption')),
+          options: z.array(z.string()).default([]).describe(state.say('tool.askOwner.options')),
         },
         async (args) => {
-          out.questions.push({ text: args.question, assumption: args.assumption });
+          out.questions.push({ text: args.question, assumption: args.assumption, options: args.options });
           return { content: [{ type: 'text', text: state.say('tool.ok') }] };
         },
       ),

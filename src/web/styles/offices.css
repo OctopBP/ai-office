@@ -57,3 +57,10 @@
 .office-icon-custom-row { display: flex; gap: var(--space-1); }
 .office-icon-custom-row input { flex: 1; min-width: 0; }
 .office-icon-reset { width: 100%; }
+
+/* Блок «Иконка офиса» в настройках (OfficeIcon.tsx): превью слева, кнопки
+   справа. Само поле выбора файла спрятано — вид у него свой в каждом
+   браузере, а нажимают по обычной кнопке рядом. */
+.office-icon-setting { display: flex; align-items: center; gap: var(--space-3); }
+.office-icon-setting-actions { display: flex; align-items: center; gap: var(--space-2); }
+.office-icon-file { display: none; }

@@ -267,6 +267,29 @@ async function main(): Promise<void> {
   check('снять вопрос можно', dismissQuestion(j, qOffice.id) && !dismissQuestion(j, qOffice.id));
   check('открытых не осталось', openQuestions(j).length === 0);
 
+  // Варианты ответа: от агента, разобранные из текста и отброшенные.
+  const withOpts = askOwner(j, OFFICE_SENDER, null, 'Какой стек берём?', 'Node',
+    ['Node', 'Node', '  Go  ', '', 'x'.repeat(41)]).question!;
+  check('варианты чистятся и сохраняются',
+    JSON.stringify(withOpts.options) === JSON.stringify(['Node', 'Go']));
+  const guessed = askOwner(j, OFFICE_SENDER, null, 'Пагинация: по 20 или по 50?', 'по 20').question!;
+  check('варианты разбираются из текста',
+    JSON.stringify(guessed.options) === JSON.stringify(['по 20', 'по 50']));
+  const freeform = askOwner(j, OFFICE_SENDER, null, 'Как назвать раздел?', 'Жизнь офиса').question!;
+  check('свободному вопросу варианты не выдумываются', freeform.options === undefined);
+  const wordy = askOwner(j, OFFICE_SENDER, null,
+    `Делаем ${'а'.repeat(50)} или ${'б'.repeat(50)}?`, 'первое').question!;
+  check('длинные куски в варианты не идут', wordy.options === undefined);
+  const single = askOwner(j, OFFICE_SENDER, null, 'Точно делаем?', 'да', ['Да']).question!;
+  check('один вариант — не выбор', single.options === undefined);
+  pmMessages.length = 0;
+  check('ответ вариантом закрывает вопрос', answerQuestion(j, withOpts.id, withOpts.options![1]));
+  check('ответ вариантом попал в журнал',
+    j.factList().some((f) => f.source.questionId === withOpts.id && f.text.includes('Go')));
+  check('менеджер узнаёт и об ответе вариантом', pmMessages.some((m) => m.includes(withOpts.id)));
+  for (const q of openQuestions(j)) dismissQuestion(j, q.id);
+  check('вопросы про варианты разобраны', openQuestions(j).length === 0);
+
   // Порция для планёрки: важные вперёд, показанные — один раз.
   const a1 = askOwner(j, inst.id, null, 'допущение', 'x').question!;
   j.addQuestion({ from: OFFICE_SENDER, taskId: null, kind: 'contradiction', text: 'противоречие', assumption: 'x' });
