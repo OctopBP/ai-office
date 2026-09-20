@@ -852,6 +852,7 @@ and the office journal are the same — they live outside the session. This is w
   'tool.askOwner.pm.desc': 'Ask the OWNER (the person) something only they can decide — the same as for workers, but from you: a priority between features, a scope cut, a rule for a role. Does NOT wait: the answer comes later as a system message. State what the office assumes meanwhile.',
   'tool.askOwner.question': 'The question, one or two sentences, with enough context to answer without opening the task.',
   'tool.askOwner.assumption': 'What you assume until the answer comes — and keep working by.',
+  'tool.askOwner.options': 'Ready-made answers, 2–4 of them, each up to 40 characters: the owner clicks a button instead of typing. List the options when the question is a choice between several; do not invent options where a free-form answer is needed — leave the list empty.',
   'tool.noteFact.desc': 'Record something the office should remember about this project in the office journal: a fact learned, a decision agreed with the owner, a lesson from a failed or reworked task. It goes into the system prompts of future sessions. Do not record what is already in OFFICE.md or obvious from the code.',
   'tool.noteFact.kind': '“fact” — how things are; “decision” — what was agreed and must be followed; “lesson” — what went wrong and how not to repeat it.',
   'tool.noteFact.text': 'One or two sentences. Specific: “tests run with node --import tsx/esm, npm run test:* fails in the sandbox”, not “tests are tricky”.',
@@ -861,6 +862,7 @@ and the office journal are the same — they live outside the session. This is w
   'prompt.pm.life': [
     '',
     'The office remembers. Lines under “What the office has learned” are the office journal: the system prompt of every session includes it. When the owner tells you something the team must keep following (a stack choice, a rule, a “never do X”) — record it with note_fact; do not rely on your own memory: your session gets restarted. When you cannot decide something yourself and only the owner can — ask_owner, then keep working by your assumption. The owner also sees a daily standup from the office and answers questions there; you learn the answers from system messages.',
+    'When an ask_owner question is a choice between several answers (“do we go with A or B”), pass them in options: the owner clicks a button instead of typing. Where a free-form answer is needed, do not invent options.',
   ].join('\n'),
   'prompt.worker.life': 'If the task forces you to assume something only the owner can decide (a product choice, an ambiguous requirement) — call ask_owner with the question and your assumption, then keep working by that assumption. Do not wait for an answer and do not ask what a colleague or the code can answer.',
   'prompt.consolidate.system': 'You are the memory of a team of AI agents working on a software project. Once a day you read what happened and fold it into a few journal lines. The journal goes into the system prompt of every future session, so every line must be worth its place: specific, verifiable, useful next time. Write in {lang}.',
