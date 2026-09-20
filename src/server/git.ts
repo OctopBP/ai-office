@@ -1,7 +1,8 @@
 import { execFile } from 'node:child_process';
+import { randomUUID } from 'node:crypto';
 import { dirname, join, resolve } from 'node:path';
 import { tmpdir } from 'node:os';
-import { existsSync, mkdirSync, statSync, symlinkSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, realpathSync, statSync, symlinkSync } from 'node:fs';
 import { mkdtemp, rm } from 'node:fs/promises';
 import type { Lang } from '../shared/i18n';
 import { t } from './i18n';
@@ -240,11 +241,16 @@ export async function commitAll(
 
 export interface MergeOutcome {
   ok: boolean;
-  /** 'nothing' — в ветке нет коммитов сверх базовой; 'verify-failed' — проверка после слияния. */
-  kind: 'merged' | 'conflict' | 'nothing' | 'verify-failed' | 'failed';
+  /**
+   * 'nothing' — в ветке нет коммитов сверх базовой; 'verify-failed' — проверка
+   * после слияния; 'no-copy' — не поднялась рабочая копия офиса для слияния.
+   */
+  kind: 'merged' | 'conflict' | 'nothing' | 'verify-failed' | 'no-copy' | 'failed';
   message: string;
   /** Файлы, на которых встало слияние. Пусто, если конфликта не было. */
   conflicts: string[];
+  /** Обходы по дороге: занятый каталог интеграции, снятые хвосты worktree. */
+  warnings: string[];
   /** Рабочая копия офиса, в которой собрано слияние: там же гоняются проверки. */
   worktree: string | null;
   /** Что стало с рабочей копией человека после того, как базовая ветка сдвинулась. */
@@ -263,6 +269,154 @@ export interface CheckoutSync {
   message: string;
 }
 
+/** Рабочая копия офиса, поднятая под слияние, и всё, что пришлось сделать по дороге. */
+export interface IntegrationCopy {
+  /** Каталог, в котором собирается слияние. null — поднять копию не удалось вовсе. */
+  path: string | null;
+  /**
+   * Каталог запасной: основной был занят, и после сборки этот надо убрать —
+   * иначе рядом с копией офиса копился бы мусор от каждого слияния.
+   */
+  temporary: boolean;
+  /** Текст git, из-за которого копию поднять не вышло. */
+  error: string;
+  /** Что случилось по дороге: убрали застрявший worktree, ушли в запасной каталог. */
+  warnings: string[];
+}
+
+/** Одна строка `git worktree list --porcelain`: где лежит копия и на какой она ветке. */
+interface WorktreeEntry {
+  path: string;
+  /** Полная ссылка вида `refs/heads/task/T-58`; null — копия отцеплена. */
+  branch: string | null;
+}
+
+/**
+ * Путь так, как его видит файловая система: git печатает пути уже разрешёнными,
+ * и на macOS `/var/...` из tmpdir не совпал бы с `/private/var/...` из git.
+ */
+function realOf(path: string): string {
+  try {
+    return realpathSync(path);
+  } catch {
+    return resolve(path);
+  }
+}
+
+/** Копии, о которых знает сам репозиторий. Чужих worktree здесь не бывает по определению. */
+async function listWorktrees(repoDir: string): Promise<WorktreeEntry[]> {
+  const listed = await git(repoDir, ['worktree', 'list', '--porcelain']);
+  if (!listed.ok) return [];
+  const entries: WorktreeEntry[] = [];
+  for (const line of listed.stdout.split('\n')) {
+    if (line.startsWith('worktree ')) {
+      entries.push({ path: line.slice('worktree '.length).trim(), branch: null });
+    } else if (line.startsWith('branch ') && entries.length) {
+      entries[entries.length - 1].branch = line.slice('branch '.length).trim();
+    }
+  }
+  return entries;
+}
+
+/** Запись репозитория о копии в этом каталоге — или null, если каталог ему не принадлежит. */
+async function registeredWorktree(repoDir: string, dir: string): Promise<WorktreeEntry | null> {
+  const want = realOf(dir);
+  return (await listWorktrees(repoDir)).find((w) => realOf(w.path) === want) ?? null;
+}
+
+/**
+ * Брошенная копия этого же репозитория: каталог есть, а записи о нём уже нет
+ * (её сняли `worktree prune` или удалённый .git/worktrees). Файл `.git` внутри
+ * такой копии указывает на служебный каталог репозитория — по нему и отличаем
+ * свой хвост от чужого содержимого, которое трогать нельзя.
+ */
+async function abandonedCopy(repoDir: string, dir: string): Promise<boolean> {
+  const marker = resolve(dir, '.git');
+  if (!existsSync(marker)) return false;
+  try {
+    if (statSync(marker).isDirectory()) return false;   // это самостоятельный репозиторий
+    const pointer = readFileSync(marker, 'utf8').trim();
+    if (!pointer.startsWith('gitdir:')) return false;
+    const common = await git(repoDir, ['rev-parse', '--git-common-dir']);
+    if (!common.ok) return false;
+    const ours = realOf(resolve(repoDir, common.stdout));
+    return realOf(pointer.slice('gitdir:'.length).trim()).startsWith(ours);
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Поднять копию офиса в конкретном каталоге, разбирая по дороге завалы.
+ *
+ * `git worktree add` отказывает на занятом каталоге одинаково — «already
+ * exists», — а причин у этого три: протухшая запись (лечится `prune`), наш же
+ * застрявший worktree (снимаем `remove --force`) и чужое содержимое (не наше
+ * дело). Разбираем их по очереди, потому что первые две офис обязан чинить сам:
+ * иначе одно постороннее слияние останавливает весь конвейер до прихода человека.
+ */
+async function raiseCopy(
+  repoDir: string, dir: string, base: string, lang: Lang,
+): Promise<{ ok: boolean; error: string; warnings: string[] }> {
+  const warnings: string[] = [];
+  // Копия офиса может лежать где угодно, в том числе во временном каталоге:
+  // родительской директории может просто не быть, а git её не создаёт.
+  try {
+    mkdirSync(dirname(dir), { recursive: true });
+  } catch (err) {
+    return { ok: false, error: (err as Error).message, warnings };
+  }
+
+  const add = async (): Promise<GitResult> => {
+    const added = await git(repoDir, ['worktree', 'add', '--detach', dir, base]);
+    if (added.ok) await linkNodeModules(repoDir, dir);
+    return added;
+  };
+
+  let last = await add();
+  if (last.ok) return { ok: true, error: '', warnings };
+
+  // 1. Протухшая запись о копии, которой на диске уже нет.
+  await git(repoDir, ['worktree', 'prune']);
+  if (!existsSync(dir)) {
+    last = await add();
+    if (last.ok) {
+      warnings.push(t(lang, 'git.integration.pruned', { dir }));
+      return { ok: true, error: '', warnings };
+    }
+  }
+
+  // 2. Наш же worktree, застрявший в каталоге. Рабочую копию живой задачи
+  //    не трогаем ни при каких обстоятельствах: там чужая несданная работа.
+  const mine = await registeredWorktree(repoDir, dir);
+  if (mine) {
+    if (mine.branch?.startsWith('refs/heads/task/')) {
+      const branch = mine.branch.slice('refs/heads/'.length);
+      warnings.push(t(lang, 'git.integration.busyTask', { dir, branch }));
+      return { ok: false, error: last.stderr || last.stdout, warnings };
+    }
+    await git(repoDir, ['worktree', 'remove', '--force', dir]);
+    await rm(dir, { recursive: true, force: true });
+    await git(repoDir, ['worktree', 'prune']);
+    last = await add();
+    if (last.ok) {
+      warnings.push(t(lang, 'git.integration.removed', { dir }));
+      return { ok: true, error: '', warnings };
+    }
+  } else if (await abandonedCopy(repoDir, dir)) {
+    // 3. Брошенный хвост нашего же репозитория: записи нет, каталог остался.
+    await rm(dir, { recursive: true, force: true });
+    await git(repoDir, ['worktree', 'prune']);
+    last = await add();
+    if (last.ok) {
+      warnings.push(t(lang, 'git.integration.cleaned', { dir }));
+      return { ok: true, error: '', warnings };
+    }
+  }
+
+  return { ok: false, error: last.stderr || last.stdout, warnings };
+}
+
 /**
  * Рабочая копия офиса для слияний — отдельная от той, в которой сидит человек.
  *
@@ -270,30 +424,61 @@ export interface CheckoutSync {
  * человека («git не даёт слить поверх ваших изменений») останавливала весь
  * конвейер. Это неверная зависимость: слияние двух веток — операция над
  * историей, к тому, что человек в этот момент правит у себя, отношения не имеет.
+ *
+ * Каталог у копии фиксированный, и занять его может кто угодно — например
+ * посторонний ручной прогон офиса из той же папки. Тогда слияние идёт в
+ * запасной каталог рядом (`_base-<id>`), а не встаёт: в основную ветку не
+ * вливалось НИЧЕГО, пока человек не приходил разбирать это руками (T-56, T-58).
  */
 async function integrationWorktree(
-  repoDir: string, dir: string, base: string,
-): Promise<string | null> {
-  if (existsSync(resolve(dir, '.git'))) {
-    // Копия наша, чужого в ней не бывает: приводим к базовой ветке жёстко.
+  repoDir: string, dir: string, base: string, lang: Lang,
+): Promise<IntegrationCopy> {
+  const warnings: string[] = [];
+
+  // Каталог уже наш — переиспользуем: чужого в нашей копии не бывает, поэтому
+  // приводим её к базовой ветке жёстко. Проверяем принадлежность по списку
+  // git, а не по наличию `.git`: жёсткий reset в чужой копии стёр бы чужую работу.
+  if (await registeredWorktree(repoDir, dir)) {
     await git(dir, ['reset', '--hard']);
     await git(dir, ['clean', '-fdq']);
     const moved = await git(dir, ['checkout', '--detach', base]);
-    if (moved.ok) return dir;
+    if (moved.ok) return { path: dir, temporary: false, error: '', warnings };
+    // Копия наша, но негодная: сносим и заводим заново.
+    warnings.push(t(lang, 'git.integration.rebuilt', { dir, error: moved.stderr }));
+    await git(repoDir, ['worktree', 'remove', '--force', dir]);
     await rm(dir, { recursive: true, force: true });
+    await git(repoDir, ['worktree', 'prune']);
   }
+
+  const here = await raiseCopy(repoDir, dir, base, lang);
+  warnings.push(...here.warnings);
+  if (here.ok) return { path: dir, temporary: false, error: '', warnings };
+
+  // Основной каталог занят и не освобождается — собираем рядом, в своём.
+  const spare = `${dir}-${randomUUID().slice(0, 8)}`;
+  const alt = await raiseCopy(repoDir, spare, base, lang);
+  warnings.push(...alt.warnings);
+  if (!alt.ok) {
+    return { path: null, temporary: false, error: alt.error || here.error, warnings };
+  }
+  warnings.push(t(lang, 'git.integration.fallback', { dir, alt: spare, error: here.error }));
+  return { path: spare, temporary: true, error: '', warnings };
+}
+
+/**
+ * Отпустить копию офиса после сборки. Постоянная остаётся жить — её
+ * переиспользует следующее слияние; запасную убираем целиком, вместе с записью
+ * о ней: иначе каждое слияние на занятом каталоге оставляло бы по worktree.
+ */
+export async function releaseIntegration(
+  repoDir: string, dir: string | null, temporary: boolean, lang: Lang,
+): Promise<string[]> {
+  if (!temporary || !dir) return [];
+  await git(repoDir, ['worktree', 'remove', '--force', dir]);
+  await rm(dir, { recursive: true, force: true });
   await git(repoDir, ['worktree', 'prune']);
-  // Копия офиса может лежать где угодно, в том числе во временном каталоге:
-  // родительской директории может просто не быть, а git её не создаёт.
-  try {
-    mkdirSync(dirname(dir), { recursive: true });
-  } catch {
-    return null;
-  }
-  const added = await git(repoDir, ['worktree', 'add', '--detach', dir, base]);
-  if (!added.ok) return null;
-  await linkNodeModules(repoDir, dir);
-  return dir;
+  return [t(lang, existsSync(dir) ? 'git.integration.releaseFailed' : 'git.integration.released',
+    { dir })];
 }
 
 /**
@@ -363,15 +548,22 @@ async function advanceBase(
 }
 
 export interface AssembledMerge {
-  /** 'nothing' — в ветке нет коммитов сверх базовой; 'failed' — слить не вышло вовсе. */
-  kind: 'merged' | 'conflict' | 'nothing' | 'failed';
+  /**
+   * 'nothing' — в ветке нет коммитов сверх базовой; 'no-copy' — не удалось
+   * поднять рабочую копию офиса; 'failed' — слить не вышло вовсе.
+   */
+  kind: 'merged' | 'conflict' | 'nothing' | 'no-copy' | 'failed';
   message: string;
   conflicts: string[];
   /** Рабочая копия офиса с собранным слиянием: там гоняются проверки. */
   worktree: string | null;
+  /** Копия запасная — после того, как она отработала, её надо отпустить. */
+  temporary: boolean;
   /** Коммит собранного слияния и коммит базы, от которого его собирали. */
   sha: string | null;
   baseSha: string | null;
+  /** Обходы, которые понадобились по дороге: занятый каталог, снятые хвосты. */
+  warnings: string[];
 }
 
 /**
@@ -384,8 +576,10 @@ export async function assembleMerge(
   repoDir: string, branch: string, base: string, integrationDir: string, lang: Lang,
   sign?: Signature,
 ): Promise<AssembledMerge> {
+  const warnings: string[] = [];
   const stop = (message: string, kind: AssembledMerge['kind']): AssembledMerge => ({
-    kind, message, conflicts: [], worktree: null, sha: null, baseSha: null,
+    kind, message, conflicts: [], worktree: null, temporary: false,
+    sha: null, baseSha: null, warnings,
   });
 
   const baseSha = await revision(repoDir, base);
@@ -399,28 +593,40 @@ export async function assembleMerge(
     return stop(t(lang, 'git.nothingToMerge'), 'nothing');
   }
 
-  const worktree = await integrationWorktree(repoDir, integrationDir, base);
-  if (!worktree) return stop(t(lang, 'git.noIntegrationCopy'), 'failed');
+  const copy = await integrationWorktree(repoDir, integrationDir, base, lang);
+  warnings.push(...copy.warnings);
+  const worktree = copy.path;
+  // Каталог интеграции занят и обойти его не вышло — это своя беда, со своим
+  // текстом git. Раньше она приезжала как 'failed' и выше читалась как
+  // расхождение с базой: человек видел «база уезжает», а дело было в каталоге.
+  if (!worktree) {
+    return stop(t(lang, 'git.noIntegrationCopy', {
+      dir: integrationDir, error: copy.error,
+    }), 'no-copy');
+  }
+  const assembled = (rest: Partial<AssembledMerge> & Pick<AssembledMerge, 'kind' | 'message'>)
+  : AssembledMerge => ({
+    conflicts: [], worktree, temporary: copy.temporary, sha: null, baseSha, warnings, ...rest,
+  });
 
   const merge = await git(worktree, ['merge', '--no-ff', '--no-edit', branch], signed(sign));
   if (!merge.ok) {
     const conflicted = await git(worktree, ['diff', '--name-only', '--diff-filter=U']);
     const files = splitLines(conflicted.stdout);
     await git(worktree, ['merge', '--abort']);
-    return {
-      kind: 'conflict', worktree, conflicts: files, sha: null, baseSha,
+    return assembled({
+      kind: 'conflict', conflicts: files,
       message: files.length
         ? t(lang, 'git.mergeConflict', { files: files.join(', ') })
         : t(lang, 'git.mergeFailed', { error: merge.stderr || merge.stdout }),
-    };
+    });
   }
 
   const sha = await revision(worktree, 'HEAD');
-  if (!sha) return stop(t(lang, 'git.noMergeCommit'), 'failed');
-  return {
-    kind: 'merged', worktree, conflicts: [], sha, baseSha,
-    message: t(lang, 'git.mergeAssembled', { branch, base }),
-  };
+  if (!sha) return assembled({ kind: 'failed', message: t(lang, 'git.noMergeCommit') });
+  return assembled({
+    kind: 'merged', sha, message: t(lang, 'git.mergeAssembled', { branch, base }),
+  });
 }
 
 /** Убрать собранное слияние из копии офиса: она возвращается к базовой ветке. */
@@ -442,20 +648,33 @@ export async function mergeBranch(
   verify?: (worktree: string) => Promise<{ ok: boolean; message: string }>,
   sign?: Signature,
 ): Promise<MergeOutcome> {
+  const warnings: string[] = [];
   const nothingToDo = (message: string, kind: MergeOutcome['kind'] = 'nothing'): MergeOutcome => ({
-    ok: kind === 'nothing', kind, message, conflicts: [], worktree: null,
+    ok: kind === 'nothing', kind, message, conflicts: [], worktree: null, warnings,
     checkout: { state: 'not-here', files: [], message: '' },
   });
 
   const built = await assembleMerge(repoDir, branch, base, integrationDir, lang, sign);
+  warnings.push(...built.warnings);
+  // Запасную копию отпускаем на любом исходе: она нужна ровно на время сборки,
+  // а остаться должна только постоянная копия офиса.
+  const release = async (): Promise<void> => {
+    warnings.push(...await releaseIntegration(repoDir, built.worktree, built.temporary, lang));
+  };
   if (built.kind === 'conflict') {
+    await release();
     return {
-      ok: false, kind: 'conflict', worktree: built.worktree,
-      message: built.message, conflicts: built.conflicts,
+      ok: false, kind: 'conflict',
+      // Запасной копии уже нет на диске — возвращать её путь было бы враньём.
+      worktree: built.temporary ? null : built.worktree,
+      message: built.message, conflicts: built.conflicts, warnings,
       checkout: { state: 'not-here', files: [], message: '' },
     };
   }
-  if (built.kind !== 'merged') return nothingToDo(built.message, built.kind);
+  if (built.kind !== 'merged') {
+    await release();
+    return nothingToDo(built.message, built.kind);
+  }
   const worktree = built.worktree as string;
   const baseSha = built.baseSha as string;
   const newSha = built.sha as string;
@@ -465,8 +684,10 @@ export async function mergeBranch(
     if (!checked.ok) {
       // Базовую ветку не двигаем вовсе: она остаётся ровно такой, какой была.
       await dropAssembled(worktree, base);
+      await release();
       return {
-        ok: false, kind: 'verify-failed', worktree, conflicts: [],
+        ok: false, kind: 'verify-failed', warnings,
+        worktree: built.temporary ? null : worktree, conflicts: [],
         message: checked.message,
         checkout: { state: 'not-here', files: [], message: '' },
       };
@@ -480,10 +701,14 @@ export async function mergeBranch(
   const overlap = mergedFiles.filter((f) => localMods.includes(f));
 
   const moved = await advanceBase(repoDir, base, baseSha, newSha, overlap, lang);
+  // Копию отпускаем после сдвига базы: до него её дерево — единственное место,
+  // где живёт собранное слияние.
+  await release();
   if (!moved.ok) return nothingToDo(moved.message, 'failed');
 
   return {
-    ok: true, kind: 'merged', worktree, conflicts: [],
+    ok: true, kind: 'merged', warnings,
+    worktree: built.temporary ? null : worktree, conflicts: [],
     message: t(lang, 'git.merged', { branch, base }),
     checkout: moved.checkout,
   };

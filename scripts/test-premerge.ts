@@ -8,7 +8,9 @@
  * Запуск: npm run test:premerge
  */
 import { execFileSync } from 'node:child_process';
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import {
+  chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync,
+} from 'node:fs';
 import { tmpdir } from 'node:os';
 import { resolve } from 'node:path';
 import {
@@ -182,6 +184,126 @@ async function pipelineGate(check: (name: string, ok: boolean) => void): Promise
   rmSync(dir, { recursive: true, force: true });
 }
 
+/**
+ * Занятый каталог интеграции (T-56, T-58).
+ *
+ * Гейт собирает слияние в фиксированном каталоге, и занять его может кто
+ * угодно — хоть посторонний ручной прогон офиса из той же папки. Раньше на этом
+ * в основную ветку переставало вливаться вообще всё, а человек читал
+ * бессмысленное «база уезжает быстрее, чем задача успевает слиться». Проверяем
+ * три исхода: свой застрявший worktree офис снимает сам, чужой обходит запасным
+ * каталогом, а то, что обойти нельзя, доезжает отдельной стадией с текстом ошибки.
+ */
+async function busyIntegration(check: (name: string, ok: boolean) => void): Promise<void> {
+  const dir = fixture();
+  const git = (...args: string[]) => execFileSync('git', args, { cwd: dir, encoding: 'utf8' }).trim();
+  const holder = mkdtempSync(resolve(tmpdir(), 'office-base-'));
+
+  console.log('\n▶ Занятый каталог интеграции');
+
+  // 1а. Протухшая запись: worktree в git числится, а каталога уже нет.
+  //     Лечится `worktree prune` — офис обязан сделать это сам.
+  const stale = resolve(holder, 'stale', '_base');
+  execFileSync('git', ['worktree', 'add', '--detach', stale, 'main'], { cwd: dir });
+  rmSync(stale, { recursive: true, force: true });
+  const headBefore = git('rev-parse', 'main');
+
+  const afterStale = await preMergeGate({
+    repoDir: dir, branch: 'task/T-green', base: 'main', integrationDir: stale,
+  });
+  check('протухшая запись worktree не мешает слиянию',
+    afterStale.ok === true && afterStale.stage === 'merged');
+  check('слияние собрано в основном каталоге', afterStale.integrationDir === stale);
+  check('main сдвинулся', git('rev-parse', 'main') !== headBefore);
+  check('в отчёте сказано про prune',
+    afterStale.warnings.some((w) => w.includes('worktree prune')));
+  rmSync(stale, { recursive: true, force: true });
+  execFileSync('git', ['worktree', 'prune'], { cwd: dir });
+
+  // 1б. Свой же worktree, застрявший в каталоге негодным: запись есть, каталог
+  //     есть, а копия сломана — её и переиспользовать нельзя, и git на неё
+  //     ругается. Офис снимает её сам (`worktree remove --force`).
+  const broken = resolve(holder, 'broken', '_base');
+  execFileSync('git', ['worktree', 'add', '--detach', broken, 'main'], { cwd: dir });
+  rmSync(resolve(broken, '.git'), { force: true });
+  const headBroken = git('rev-parse', 'main');
+
+  const afterBroken = await preMergeGate({
+    repoDir: dir, branch: 'task/T-red', base: 'main', integrationDir: broken,
+  });
+  check('застрявший worktree офиса не мешает слиянию',
+    afterBroken.ok === true && afterBroken.stage === 'merged');
+  check('слияние собрано в основном каталоге', afterBroken.integrationDir === broken);
+  check('в отчёте сказано, что копию пересобрали',
+    afterBroken.warnings.some((w) => w.includes('пересобираем')));
+  check('main сдвинулся после снятия застрявшей копии',
+    git('rev-parse', 'main') !== headBroken);
+  rmSync(broken, { recursive: true, force: true });
+  execFileSync('git', ['worktree', 'prune'], { cwd: dir });
+
+  // 2. Каталог занят ЧУЖИМ worktree — из другого репозитория. Трогать его
+  //    нельзя, а сливать надо: слияние уезжает в запасной каталог рядом.
+  const other = mkdtempSync(resolve(tmpdir(), 'office-other-'));
+  const oth = (...args: string[]) => execFileSync('git', args, { cwd: other, encoding: 'utf8' }).trim();
+  oth('init', '-q', '-b', 'main');
+  oth('config', 'user.email', 'office@local');
+  oth('config', 'user.name', 'AI Office');
+  writeFileSync(resolve(other, 'readme.txt'), 'чужой репозиторий\n');
+  oth('add', '-A');
+  oth('commit', '-qm', 'Чужое начало');
+  const busy = resolve(holder, 'busy', '_base');
+  oth('worktree', 'add', '--detach', busy, 'main');
+  writeFileSync(resolve(busy, 'чужое.txt'), 'чужая несохранённая работа\n');
+
+  git('checkout', '-q', '-b', 'task/T-aside', 'main');
+  writeFileSync(resolve(dir, 'aside.txt'), 'работа в обход занятого каталога\n');
+  git('add', '-A');
+  git('commit', '-qm', 'T-aside');
+  git('checkout', '-q', 'main');
+  const headBusy = git('rev-parse', 'main');
+  const aside = await preMergeGate({
+    repoDir: dir, branch: 'task/T-aside', base: 'main', integrationDir: busy,
+  });
+  check('чужой каталог не остановил слияние', aside.ok === true && aside.stage === 'merged');
+  check('слияние ушло в запасной каталог рядом',
+    aside.integrationDir !== busy && aside.integrationDir.startsWith(`${busy}-`));
+  check('запасной каталог после себя убран', !existsSync(aside.integrationDir));
+  check('в отчёте назван обход',
+    aside.warnings.some((w) => w.includes('запасном каталоге')));
+  check('main сдвинулся', git('rev-parse', 'main') !== headBusy);
+  check('чужая работа цела',
+    readFileSync(resolve(busy, 'чужое.txt'), 'utf8').includes('чужая несохранённая'));
+  check('чужой worktree остался на месте', oth('worktree', 'list').includes(busy));
+
+  // 3. Каталог поднять нельзя вовсе: родительская папка закрыта на запись.
+  //    Такая беда обязана доехать своей стадией и текстом ошибки, а не
+  //    притвориться расхождением с базой.
+  git('checkout', '-q', '-b', 'task/T-locked', 'main');
+  writeFileSync(resolve(dir, 'locked.txt'), 'работа третьей задачи\n');
+  git('add', '-A');
+  git('commit', '-qm', 'T-locked');
+  git('checkout', '-q', 'main');
+  const readonly = resolve(holder, 'readonly');
+  mkdirSync(readonly, { recursive: true });
+  chmodSync(readonly, 0o500);
+  const headLocked = git('rev-parse', 'main');
+  const locked = await preMergeGate({
+    repoDir: dir, branch: 'task/T-locked', base: 'main',
+    integrationDir: resolve(readonly, 'wt', '_base'),
+  });
+  check('неустранимая беда останавливает гейт', locked.ok === false);
+  check('у неё своя стадия, а не «конфликт»', locked.stage === 'integration');
+  check('в сообщении назван каталог', locked.message.includes(readonly));
+  check('в сообщении есть текст ошибки', locked.message.includes('EACCES'));
+  check('сказано, что основная ветка не тронута', locked.message.includes('не тронута'));
+  check('main не сдвинулся', git('rev-parse', 'main') === headLocked);
+  chmodSync(readonly, 0o700);
+
+  rmSync(holder, { recursive: true, force: true });
+  rmSync(other, { recursive: true, force: true });
+  rmSync(dir, { recursive: true, force: true });
+}
+
 async function main(): Promise<void> {
   const dir = fixture();
   const git = (...args: string[]) => execFileSync('git', args, { cwd: dir, encoding: 'utf8' }).trim();
@@ -272,6 +394,7 @@ async function main(): Promise<void> {
   rmSync(defaultIntegrationDir(dir), { recursive: true, force: true });
   rmSync(dir, { recursive: true, force: true });
 
+  await busyIntegration(check);
   await pipelineGate(check);
 
   const failed = results.filter((r) => !r.endsWith('true'));
