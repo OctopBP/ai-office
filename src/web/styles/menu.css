@@ -81,6 +81,8 @@
 .office-card-status { display: flex; align-items: center; gap: var(--space-2); font-size: var(--fs-body); }
 .office-card-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--ink-4); flex: none; }
 .office-card-dot.live { background: var(--ok-live); }
+/* Пауза — тем же янтарным, что и метка паузы в рейле: один статус, один цвет. */
+.office-card-dot.paused { background: var(--warn); }
 .office-card-waiting { font-size: var(--fs-small); color: var(--warn); margin-top: calc(-1 * var(--space-2)); }
 
 /* Подвал прижат к низу: у карточек разной начинки деньги стоят на одной линии. */
