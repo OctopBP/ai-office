@@ -8,6 +8,7 @@ import { taskClosed } from '../shared/types';
 import { t as tr, type UiKey } from './i18n';
 import { Icon } from './icons';
 import { AgentTag } from './Avatar';
+import { PriorityChip } from './TaskPriority';
 
 /**
  * Колонки доски. Провалы вынесены отдельно, а не свалены в «Готово»: пока они
@@ -73,6 +74,10 @@ function Card({ t }: { t: TaskView }) {
         <span className="task-title">{t.title}</span>
       </div>
       <div className="task-meta">
+        {/* Средней важности на доске нет намеренно: она у большинства задач, и
+            чип «обычная» на каждой карточке ничего бы не отличал, а колонки
+            запестрили бы. Поднять среднюю можно из раскрытой карточки. */}
+        {t.priority !== 'normal' && <PriorityChip task={t} />}
         <span className={`chip ${t.status}`}>{statusLabel(t.status)}</span>
         {pr && pr.stage !== 'merged' && (
           <span className={`chip merge-chip ${prStageClass(pr.stage)}`} title={pr.note}>
