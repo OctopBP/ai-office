@@ -3,7 +3,7 @@ import { createServer, type ServerResponse } from 'node:http';
 import { mkdirSync, existsSync, writeFileSync, readFileSync, statSync } from 'node:fs';
 import { extname, resolve } from 'node:path';
 import type { ClientCommand, FieldError, RoleOp, ServerEvent } from '../shared/types';
-import { OFFICE_SENDER } from '../shared/types';
+import { asTaskPriority, OFFICE_SENDER } from '../shared/types';
 import { c, setProcessLang } from './i18n';
 import {
   getOffice, isOpened, officeViews, openedOffices, openOfficeState, subscribeOffices,
@@ -501,6 +501,11 @@ wss.on('connection', (ws) => {
       void retryTask(state, cmd.taskId);
     } else if (cmd.c === 'task_diff') {
       void taskDiff(state, cmd.taskId);
+    } else if (cmd.c === 'task_priority') {
+      // Значение приводим к допустимому здесь же: команда приходит из браузера,
+      // и чужое слово в приоритете не должно портить доску.
+      const problem = state.setTaskPriority(cmd.taskId, asTaskPriority(cmd.priority));
+      if (problem) state.addChat(OFFICE_SENDER, problem);
     } else if (cmd.c === 'assign_direct') {
       assignDirect(state, cmd.taskId, cmd.instanceId);
     } else if (cmd.c === 'epic_approve') {

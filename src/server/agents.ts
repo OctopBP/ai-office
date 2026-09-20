@@ -16,7 +16,9 @@ import {
   type Instance, type OfficeState, type Task,
 } from './state';
 import { clearEnvWait, envBlock, markEnvWait } from './envcheck';
-import { DEFAULT_PROCESS_WORKERS, emptyUsage, OFFICE_SENDER } from '../shared/types';
+import {
+  DEFAULT_PROCESS_WORKERS, DEFAULT_TASK_PRIORITY, emptyUsage, OFFICE_SENDER, TASK_PRIORITIES,
+} from '../shared/types';
 import { LANG_NAME_EN, type Lang, type Vars } from '../shared/i18n';
 import { t, type ServerKey } from './i18n';
 import type { MeetingView, PrStage, PullRequestView, ReviewVerdict } from '../shared/types';
@@ -305,6 +307,7 @@ function toolBrief(name: string, input: Record<string, unknown>, lang: Lang): st
         const short = name.split('__').pop() ?? name;
         if (short === 'say') return clip(input.text, 70);
         if (short === 'create_task') return say('bubble.createTask', clip(input.title, 40));
+        if (short === 'edit_task') return say('bubble.editTask', input.taskId);
         if (short === 'assign_task') return say('bubble.assignTask', input.taskId);
         if (short === 'finish_task') return t(lang, 'bubble.finishTask');
         if (short === 'list_team') return t(lang, 'bubble.listTeam');
@@ -595,7 +598,12 @@ function boardSummary(state: OfficeState): string {
     const { done, total } = criteriaProgress(task);
     const marks = task.criteria.map((c) => `${c.done ? '✓' : '·'} ${c.text}`).join('; ');
     const pr = state.prOf(task.id);
-    return `${task.id} [${task.status}] ${task.title} → ${task.assigneeId ?? '—'}` +
+    // Средний приоритет в строку не пишем: он у большинства задач, и подпись
+    // «средний» у каждой строки скрыла бы те две, что правда важнее.
+    const priority = task.priority === DEFAULT_TASK_PRIORITY
+      ? ''
+      : ` ${state.say('prompt.board.priority', { priority: state.priorityWord(task.priority) })}`;
+    return `${task.id} [${task.status}]${priority} ${task.title} → ${task.assigneeId ?? '—'}` +
       (pr ? `\n    ${state.say('prompt.board.review')}: ${stageText(pr.stage, lang)} — ${clip(pr.note, 160)}` : '') +
       (total ? `\n    ${state.say('prompt.board.criteria')} ${done}/${total}: ${clip(marks, 200)}` : '') +
       (task.result ? `\n    ${state.say('prompt.board.result')}: ${clip(task.result, 160)}` : '');
@@ -695,6 +703,8 @@ const teamTools = (state: OfficeState) => createSdkMcpServer({
         dependsOn: z.array(z.string()).default([])
           .describe(state.say('tool.createTask.dependsOn')),
         type: z.enum([...TASK_TYPES, '']).default('').describe(state.say('tool.createTask.type')),
+        priority: z.enum([...TASK_PRIORITIES, '']).default('')
+          .describe(state.say('tool.createTask.priority')),
       },
       async (args) => {
         // Список ролей не дублируем в схеме: перечисление в enum уже один раз
@@ -752,6 +762,8 @@ const teamTools = (state: OfficeState) => createSdkMcpServer({
           status: epicId || deps.length ? 'planned' : 'backlog',
           order: epicId ? state.tasksOfEpic(epicId).length + 1 : undefined,
           ...(args.type ? { type: args.type } : {}),
+          // Пусто — средний: умолчание одно на весь офис (DEFAULT_TASK_PRIORITY).
+          ...(args.priority ? { priority: args.priority } : {}),
         });
         // Предупреждаем сразу: иначе менеджер узнает о пустой роли только из
         // отказа assign_task и успеет пообещать пользователю работу.
@@ -764,8 +776,50 @@ const teamTools = (state: OfficeState) => createSdkMcpServer({
         // Плановую задачу офис раздаст сам — про это надо сказать прямо,
         // иначе менеджер вызовет на неё assign_task и запустит раньше срока.
         const planned = task.status === 'planned' ? state.say('tool.createTask.planned') : '';
+        // Про непривычный приоритет говорим вслух: иначе менеджер не узнает,
+        // приняли его «высокий» или он потерялся в пустом значении.
+        const marked = task.priority === DEFAULT_TASK_PRIORITY ? '' : state.say('tool.createTask.priorityNote', {
+          priority: state.priorityWord(task.priority),
+        });
         if (task.status === 'planned') dispatch(state);
-        return { content: [{ type: 'text', text: `${ok}${empty}${planned}` }] };
+        return { content: [{ type: 'text', text: `${ok}${marked}${empty}${planned}` }] };
+      },
+    ),
+
+    tool(
+      'edit_task',
+      state.say('tool.editTask.desc'),
+      {
+        taskId: z.string().describe(state.say('tool.editTask.taskId')),
+        priority: z.enum([...TASK_PRIORITIES, '']).default('')
+          .describe(state.say('tool.editTask.priority')),
+      },
+      async (args) => {
+        const task = state.tasks.get(args.taskId);
+        if (!task) {
+          return {
+            content: [{ type: 'text', text: state.say('tool.editTask.noTask', { task: args.taskId }) }],
+            isError: true,
+          };
+        }
+        // Пустой вызов — не «ничего не меняем молча», а ошибка: менеджер
+        // считал бы задачу поправленной и сказал бы об этом пользователю.
+        if (!args.priority) {
+          return {
+            content: [{ type: 'text', text: state.say('tool.editTask.nothing', { task: task.id }) }],
+            isError: true,
+          };
+        }
+        const problem = state.setTaskPriority(task.id, args.priority);
+        if (problem) return { content: [{ type: 'text', text: problem }], isError: true };
+        return {
+          content: [{
+            type: 'text',
+            text: state.say('tool.editTask.ok', {
+              task: task.id, title: clip(task.title, 40), priority: state.priorityWord(task.priority),
+            }),
+          }],
+        };
       },
     ),
 

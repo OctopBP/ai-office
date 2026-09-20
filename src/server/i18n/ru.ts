@@ -42,6 +42,11 @@ export const ru: Record<keyof typeof en, string> = {
   'state.restore.otherDir': '⚠️  Сохранение относится к другой рабочей директории — начинаю с чистого листа',
   'state.restore.noLayout': '⚠️  Раскладка «{id}» не найдена — офис {office} открыт по «{fallback}»',
   'state.task.interrupted': '⚠️ Работа прервана перезапуском сервера. Ветка и рабочая копия сохранены; офис возобновит задачу сам.',
+  'state.task.priority': 'Приоритет задачи {task} «{title}» — {priority}',
+  // Приоритет словом: и в ленту офиса, и в ответы инструментов менеджера.
+  'task.priority.low': 'низкий',
+  'task.priority.normal': 'средний',
+  'task.priority.high': 'высокий',
   'state.pr.interrupted': 'Конвейер прервал перезапуск сервера. Ветка и рабочая копия целы — толкните заново.',
   'state.pr.pullingBase': 'Подтягиваю основную ветку.',
 

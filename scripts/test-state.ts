@@ -14,8 +14,8 @@ import { catalog, deskPlan, effectiveLayout } from '../src/server/layout';
 import { deskPoint } from '../src/shared/layout';
 import { LOOKS } from '../src/shared/looks';
 import {
-  criticalEnvFail, DEFAULT_SETTINGS, getOffice, openOfficeState, subscribeOffices, totalRunningWorkers,
-  unloadOfficeState,
+  criticalEnvFail, DEFAULT_SETTINGS, getOffice, openOfficeState, subscribeOffices, toTaskView,
+  totalRunningWorkers, unloadOfficeState,
 } from '../src/server/state';
 import { refreshEnvChecks } from '../src/server/envcheck';
 import { flushAll, load, save, wipe, type Persisted } from '../src/server/store';
@@ -406,6 +406,70 @@ async function main(): Promise<void> {
   );
   unloadOfficeState('o-oldlayout');
   wipe(oldLayoutFile);
+
+  // 7h″. Приоритет задачи: умолчание, смена и перезапуск. Проверяется ровно
+  // то, на чём приоритет соврал бы незаметно, — задача из сохранения старше
+  // поля (её приоритет обязан быть средним, а не пустым) и правленый руками
+  // файл с чужим словом вместо приоритета.
+  const prioFile = resolve(tmpdir(), `office-test-priority-${process.pid}.json`);
+  const prioDir = resolve(tmpdir(), 'priority-office');
+  const prioOffice = openOfficeState({ id: 'o-priority', projectDir: prioDir, stateFile: prioFile }).state;
+  prioOffice.seed();
+  const plain = prioOffice.createTask({
+    title: 'обычная работа', description: '', criteria: [], roleId: 'backend',
+  });
+  const urgent = prioOffice.createTask({
+    title: 'блокирует владельца', description: '', criteria: [], roleId: 'backend',
+    priority: 'high',
+  });
+  const later = prioOffice.createTask({
+    title: 'когда угодно', description: '', criteria: [], roleId: 'backend',
+  });
+  const lowered = prioOffice.setTaskPriority(later.id, 'low');
+  const noSuchTask = prioOffice.setTaskPriority('T-404', 'high');
+  results.push(
+    `по умолчанию приоритет средний: ${plain.priority === 'normal'}`,
+    `create_task принимает высокий: ${urgent.priority === 'high'}`,
+    `приоритет меняется на низкий: ${lowered === null && later.priority === 'low'}`,
+    `приоритет уходит в снимок для веба: ${toTaskView(urgent).priority === 'high'}`,
+    `смена приоритета у несуществующей задачи — отказ словами: ${
+      typeof noSuchTask === 'string' && noSuchTask.includes('T-404')}`,
+    `смена видна в ленте офиса: ${prioOffice.log.some((e) => e.text.includes('низкий'))}`,
+  );
+
+  flushAll();
+  const reopenedPrio = openOfficeState({
+    id: 'o-priority-again', projectDir: prioDir, stateFile: prioFile,
+  }).state;
+  results.push(
+    `высокий пережил перезапуск: ${reopenedPrio.tasks.get(urgent.id)?.priority === 'high'}`,
+    `низкий пережил перезапуск: ${reopenedPrio.tasks.get(later.id)?.priority === 'low'}`,
+  );
+  unloadOfficeState('o-priority-again');
+
+  // Сохранение, сделанное до приоритета, поля не знает вовсе; а в правленом
+  // руками файле на его месте может оказаться что угодно.
+  const rawPrio = JSON.parse(readFileSync(prioFile, 'utf8')) as {
+    tasks: Array<Record<string, unknown>>;
+  };
+  for (const t of rawPrio.tasks) {
+    if (t.id === urgent.id) t.priority = 'НЕМЕДЛЕННО';
+    else delete t.priority;
+  }
+  writeFileSync(prioFile, JSON.stringify(rawPrio, null, 2), 'utf8');
+  const oldPrioOffice = openOfficeState({
+    id: 'o-priority-old', projectDir: prioDir, stateFile: prioFile,
+  }).state;
+  results.push(
+    `задача из сохранения без приоритета читается средней: ${
+      oldPrioOffice.tasks.get(plain.id)?.priority === 'normal'}`,
+    `чужое слово вместо приоритета становится средним: ${
+      oldPrioOffice.tasks.get(urgent.id)?.priority === 'normal'}`,
+    `и доска из старого сохранения не потерялась: ${oldPrioOffice.tasks.size === 3}`,
+  );
+  unloadOfficeState('o-priority-old');
+  unloadOfficeState('o-priority');
+  wipe(prioFile);
 
   // 7i. История совещаний переживает перезапуск, а реплики привязаны к своему
   // совещанию. Совещание, застигнутое перезапуском, поднимается сорвавшимся:
