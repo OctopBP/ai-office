@@ -11,6 +11,7 @@
 import { getOffice, unloadOfficeState } from '../src/server/state';
 import { dispatch, setPlanAgents } from '../src/server/plan';
 import { deleteTask, dropTask, editTask } from '../src/server/tasks';
+import { retryTask } from '../src/server/agents';
 
 // Тексты офиса сверяем по-русски — значит, и офис должен быть русским.
 process.env.OFFICE_LANG = 'ru';
@@ -145,6 +146,21 @@ async function main(): Promise<void> {
   const inReview = add({ title: 'Сдана на ревью' });
   office.updateTask(inReview.id, { status: 'review', branch: 'task/T-x' });
   check('сданную на ревью снимать поздно', !dropTask(office, inReview.id).ok);
+
+  // ------------------------------------------------------------- перезапуск
+  // Перезапуск — второй конец правки: переписал остановленную задачу, и её
+  // надо чем-то двинуть. Живых сессий здесь нет, поэтому проверяем отказы —
+  // те самые, из-за которых менеджер иначе решил бы, что задача поехала.
+  const chatBefore = office.chat.length;
+  const goneRestart = await retryTask(office, 'T-404', { quiet: true });
+  check('перезапуск несуществующей отклонён', !goneRestart.ok);
+  check('в отказе назван id', goneRestart.message.includes('T-404'));
+  check('снятую перезапускать нельзя', !(await retryTask(office, dropped.id, { quiet: true })).ok);
+  check('слитую перезапускать нельзя', !(await retryTask(office, closed.id, { quiet: true })).ok);
+  check('тихий отказ не сыплется в ленту офиса', office.chat.length === chatBefore);
+
+  const loud = await retryTask(office, dropped.id);
+  check('обычный отказ ленту не обходит', !loud.ok && office.chat.length > chatBefore);
 
   // ---------------------------------------------------------------- удаление
   const spare = add({ title: 'Завели по ошибке' });

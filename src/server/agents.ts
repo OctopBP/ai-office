@@ -316,6 +316,7 @@ function toolBrief(name: string, input: Record<string, unknown>, lang: Lang): st
         if (short === 'say') return clip(input.text, 70);
         if (short === 'create_task') return say('bubble.createTask', clip(input.title, 40));
         if (short === 'edit_task') return say('bubble.editTask', input.taskId);
+        if (short === 'restart_task') return say('bubble.restartTask', input.taskId);
         if (short === 'assign_task') return say('bubble.assignTask', input.taskId);
         if (short === 'finish_task') return t(lang, 'bubble.finishTask');
         if (short === 'list_team') return t(lang, 'bubble.listTeam');
@@ -1064,6 +1065,18 @@ const teamTools = (state: OfficeState) => createSdkMcpServer({
             text: state.say('tool.resumeTask.ok', { task: args.taskId, who: outcome.message }),
           }],
         };
+      },
+    ),
+
+    tool(
+      'restart_task',
+      state.say('tool.restartTask.desc'),
+      { taskId: z.string().describe(state.say('tool.restartTask.taskId')) },
+      async (args) => {
+        // Перезапуск ходит в git (снимает рабочую копию, прячет прежнюю ветку)
+        // и потому ждёт: менеджеру нужен готовый ответ, а не «я начал».
+        const outcome = await retryTask(state, args.taskId, { quiet: true });
+        return { content: [{ type: 'text', text: outcome.message }], isError: !outcome.ok };
       },
     ),
 
@@ -2632,61 +2645,50 @@ export function stopTask(state: OfficeState, taskId: string): void {
  * Запустить задачу заново: с нуля, но с тем же ТЗ. Офис приходит аргументом:
  * перезапуск ходит в git и потому длится, а звать его может и надзор
  * покинутого офиса — задача обязана остаться на своей доске.
+ *
+ * Отказ возвращается текстом и, если зовут кнопкой или надзором, уходит в
+ * ленту офиса. Менеджер зовёт с `quiet`: ему тот же текст приходит ответом
+ * инструмента, и дублировать его в ленте значит говорить человеку дважды.
  */
-export async function retryTask(state: OfficeState, taskId: string): Promise<boolean> {
+export async function retryTask(
+  state: OfficeState, taskId: string, opts: { quiet?: boolean } = {},
+): Promise<{ ok: boolean; message: string }> {
+  // Отказ — одной строкой: сказать и вернуть. Разные ветки отличаются только
+  // текстом, и растаскивать их на два действия каждый раз значит однажды
+  // забыть одно из них.
+  const no = (key: ServerKey, vars?: Vars): { ok: false; message: string } => {
+    const text = state.say(key, vars);
+    if (!opts.quiet) state.addChat(OFFICE_SENDER, text);
+    return { ok: false, message: text };
+  };
   const task = state.tasks.get(taskId);
-  if (!task) return false;
-  if (task.status === 'in_progress') {
-    state.addChat(OFFICE_SENDER, state.say('restart.running', { task: taskId }));
-    return false;
-  }
-  if (task.merged) {
-    state.addChat(OFFICE_SENDER, state.say('restart.merged', { task: taskId }));
-    return false;
-  }
+  if (!task) return no('restart.noTask', { task: taskId });
+  if (task.status === 'in_progress') return no('restart.running', { task: taskId });
+  if (task.merged) return no('restart.merged', { task: taskId });
   // Снятую задачу перезапускать нечем: от неё отказались, и «начать заново»
   // здесь означало бы отменить чужое решение молча.
-  if (task.status === 'cancelled') {
-    state.addChat(OFFICE_SENDER, state.say('restart.cancelled', { task: taskId }));
-    return false;
-  }
-  if (state.paused) {
-    state.addChat(OFFICE_SENDER, state.say('restart.paused', { task: taskId }));
-    return false;
-  }
+  if (task.status === 'cancelled') return no('restart.cancelled', { task: taskId });
+  if (state.paused) return no('restart.paused', { task: taskId });
   const cloudBlocked = state.settings.engine === 'cloud' ? cloudProblem(state) : null;
-  if (cloudBlocked) {
-    state.addChat(OFFICE_SENDER, state.say('restart.cloudBroken', { problem: cloudBlocked }));
-    return false;
-  }
-  if (state.budgetExhausted()) {
-    state.addChat(OFFICE_SENDER, state.say('restart.budget'));
-    return false;
-  }
+  if (cloudBlocked) return no('restart.cloudBroken', { problem: cloudBlocked });
+  if (state.budgetExhausted()) return no('restart.budget');
   const envProblem = envBlock(state);
   if (envProblem) {
+    // Мёртвое окружение — не отказ, а ожидание: задача остаётся на доске с
+    // причиной в карточке и поедет сама, когда проверка позеленеет.
     markEnvWait(state, task, envProblem);
-    return false;
+    return { ok: false, message: state.say('env.wait.reply', { task: taskId, reason: envProblem }) };
   }
 
   const roleId = task.roleId ?? 'backend';
   const noStaff = noStaffReason(roleId, state);
-  if (noStaff) {
-    state.addChat(OFFICE_SENDER, state.say('restart.noStaff', { problem: noStaff, task: taskId }));
-    return false;
-  }
+  if (noStaff) return no('restart.noStaff', { problem: noStaff, task: taskId });
   // Перезапуск ходит в git и переписывает задачу в backlog, поэтому лимит
   // проверяем до всего этого: на потолке задача просто вернётся в очередь.
   const noSlot = slotProblem(state);
-  if (noSlot) {
-    state.addChat(OFFICE_SENDER, state.say('restart.noSlot', { task: taskId, problem: noSlot }));
-    return false;
-  }
+  if (noSlot) return no('restart.noSlot', { task: taskId, problem: noSlot });
   const inst = state.findFree(roleId) ?? state.spawn(roleId) ?? state.findFree(roleId);
-  if (!inst) {
-    state.addChat(OFFICE_SENDER, state.say('restart.allBusy', { role: roleId, task: taskId }));
-    return false;
-  }
+  if (!inst) return no('restart.allBusy', { role: roleId, task: taskId });
 
   // Если в прошлой попытке что-то успели сделать — сохраняем ветку под другим
   // именем, а не удаляем: при остановке офис обещал, что работа не пропадёт.
@@ -2716,9 +2718,10 @@ export async function retryTask(state: OfficeState, taskId: string): Promise<boo
     outcome: null, mergeCommit: null,
   });
   const fresh = state.tasks.get(taskId);
-  if (fresh) startWorker(state, fresh, inst);
+  if (!fresh) return no('restart.noTask', { task: taskId });
+  startWorker(state, fresh, inst);
   state.addLog(null, 'system', state.say('agent.log.taskRestarted', { task: taskId, who: inst.id }));
-  return Boolean(fresh);
+  return { ok: true, message: state.say('restart.ok', { task: taskId, who: inst.id }) };
 }
 
 /**

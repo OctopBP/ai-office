@@ -28,6 +28,7 @@ export const promptsEn = {
   'bubble.artifact': 'publishing {what}',
   'bubble.createTask': 'creating a task: {what}',
   'bubble.editTask': 'editing {what}',
+  'bubble.restartTask': 'restarting {what}',
   'bubble.assignTask': 'assigning {what}',
   'bubble.finishTask': 'handing the work in',
   'bubble.listTeam': 'checking who is free',
@@ -177,6 +178,8 @@ The user changed their mind — that is an edit to the board, not a second task 
   by the office, and the tasks that were waiting for its result are dropped with it.
 - delete_task — erase a task that should never have existed: only while nobody has started it.
   A task that was started has a branch and money behind it — that one is dropped, not erased.
+- Rewrote a failed or stopped task — restart_task: editing the brief does not move the task
+  by itself, and without a restart it just keeps sitting on the board.
 - A task somebody has already started cannot be rewritten: the worker is working off the brief
   they read. If the work is not needed in this shape — drop it and create a new one.
 
@@ -305,6 +308,8 @@ Reply to the user in {lang}, and keep it short.`,
 
   'tool.retryReview.desc': 'Push a stuck pipeline for a task: it continues from the stage where it stopped. This helps when the cause is already gone — a neighbouring task was fixed, say, and the conflict will not happen again. If the cause is still there, the pipeline stops again: pushing it repeatedly without changes is pointless.',
   'tool.retryReview.taskId': 'Task id, for example T-3',
+  'tool.restartTask.desc': 'Start a task again — from scratch, but against its current brief. This is what edit_task needs afterwards: once you have rewritten a failed or stopped task, restart it, otherwise it just sits there. The previous attempt is not lost: its branch is kept under another name. A task that is running right now or already merged cannot be restarted; one stopped by the subscription plan limit is continued with resume_task instead.',
+  'tool.restartTask.taskId': 'Task id, e.g. T-3',
   'tool.resumeTask.desc': 'Continue a task that stalled on the subscription plan limit: the worker returns to the same branch and working copy and continues their session from where the limit cut it off. Only for tasks whose stop reason is the limit; the rest need assign_task or a new task. While the limit is exhausted, pushing is pointless: the session hits it again.',
   'tool.resumeTask.taskId': 'Task id, for example T-3',
   'tool.resumeTask.ok': 'Task {task} continued: {who} is back on it in the previous branch.',
@@ -356,7 +361,7 @@ Reply to the user in {lang}, and keep it short.`,
   'task.edit.chat': '✏️ {task} rewritten ({changed}). It is now “{title}”.',
   'task.edit.log': '{task} rewritten: {changed}',
   'task.edit.ok': '{task} updated ({changed}). It is now “{title}”.',
-  'task.edit.needsRestart': ' The task is stopped and will not move on its own: it will be started again from the new brief when somebody presses “Restart” in its card.',
+  'task.edit.needsRestart': ' The task is stopped and will not move on its own: call restart_task to have it started again from the new brief.',
 
   'task.drop.already': '{task} is already dropped.',
   'task.drop.done': '{task} is done — there is nothing to drop.',
@@ -687,6 +692,7 @@ Reply to the user in {lang}, and keep it short.`,
   'agent.pmMsg.resumed': '[SYSTEM] The user lifted the office pause. Waiting to be handed out: {tasks}. Assign them with assign_task.',
 
   // --------------------------------------------------------- перезапуск задачи
+  'restart.noTask': 'There is no task {task} on the board — nothing to restart.',
   'restart.notRunning': '{task} is not being worked on by anybody — there is nothing to stop.',
   'restart.running': '{task} is already running. Stop it first.',
   'restart.merged': '{task} is already merged into the main branch — restarting would create a duplicate.',
@@ -696,6 +702,7 @@ Reply to the user in {lang}, and keep it short.`,
   'restart.noStaff': '{problem} Hire somebody to restart {task}.',
   'restart.noSlot': '⏳ {task} does not restart right now: {problem}. Wait for a free slot or raise the limit in the office settings.',
   'restart.allBusy': 'Every worker in role {role} is busy — there is nobody to restart {task} right now.',
+  'restart.ok': '{task} has been started again from scratch against its current brief: {who} has taken it. The result will arrive as a system message.',
   'restart.branchKept': 'What the previous attempt at {task} produced is saved in branch {branch} — it is not going anywhere.',
 
   'start.alreadyRunning': '{task} is already running ({who}).',
