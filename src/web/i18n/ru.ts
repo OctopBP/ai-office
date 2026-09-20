@@ -876,6 +876,7 @@ export const ru: Record<keyof typeof en, string> = {
   'life.questions.assumed': 'исходили из',
   'life.questions.answer': 'Ответить',
   'life.questions.answerPlaceholder': 'Ваш ответ — он ляжет в журнал офиса',
+  'life.questions.ownWords': 'Ответить своими словами',
   'life.questions.dismiss': 'Оставить как есть',
   'life.questions.answered': 'отвечен',
   'life.questions.dismissed': 'снят',

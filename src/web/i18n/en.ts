@@ -877,6 +877,7 @@ export const en = {
   'life.questions.assumed': 'assumed',
   'life.questions.answer': 'Answer',
   'life.questions.answerPlaceholder': 'Your answer — it goes into the office journal',
+  'life.questions.ownWords': 'Answer in my own words',
   'life.questions.dismiss': 'Leave as is',
   'life.questions.answered': 'answered',
   'life.questions.dismissed': 'dismissed',
