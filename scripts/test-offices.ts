@@ -16,7 +16,9 @@ import { resolve } from 'node:path';
 import type { ServerEvent } from '../src/shared/types';
 import {
   getOffice, isOpened, officeViews, openedOffices, openOfficeState, subscribeOffices,
+  unloadOfficeState,
 } from '../src/server/state';
+import { officeAssign, setPaused } from '../src/server/agents';
 import { MessageQueue } from '../src/server/queue';
 import { isSupervised, startSupervisor } from '../src/server/supervisor';
 import {
@@ -63,7 +65,7 @@ class Fake implements Sink {
 }
 
 /** Читать реестр с диска: это и есть то, что переживает перезапуск. */
-function onDisk(): { currentId: string; offices: Array<{ id: string; name: string; projectDir: string; stateFile: string; hidden?: boolean }> } {
+function onDisk(): { currentId: string; offices: Array<{ id: string; name: string; projectDir: string; stateFile: string; hidden?: boolean; paused?: boolean }> } {
   return JSON.parse(readFileSync(REGISTRY, 'utf8'));
 }
 
@@ -493,7 +495,52 @@ async function main(): Promise<void> {
   await sleep(20);
   check('отключённый клиент событий не получает', closed.count('chat') === 0);
 
-  // 24. Всё сделанное записано на диск: следующий запуск увидит то же самое.
+  // 24. Пауза офиса. Она не про живые сессии, а про сам офис: человек
+  //     остановил работу, и перезапуск сервера не должен её возобновлять.
+  //     Поэтому признак лежит в реестре рядом с именем и путём и пишется
+  //     сразу, а не отложенной записью состояния.
+  const pauseOffice = getOffice('o-1');
+  setPaused(pauseOffice, true);
+  check('пауза оказалась в реестре на диске сразу, без ожидания дебаунса',
+    onDisk().offices.find((o) => o.id === 'o-1')?.paused === true);
+  check('офис на паузе помечен в списке офисов',
+    officeViews().find((o) => o.id === 'o-1')?.activity?.paused === true);
+
+  // Задача, заведённая на паузе, остаётся в очереди: офис её не раздаёт.
+  // officeAssign — то же место, куда ходит надзор (supervisor.watchBoard).
+  const idle = pauseOffice.createTask({
+    title: 'ждёт снятия паузы', description: '', criteria: [], roleId: 'backend',
+  });
+  check('офис на паузе задачу не берёт',
+    !officeAssign(pauseOffice, idle.id).ok
+    && pauseOffice.tasks.get(idle.id)?.status === 'backlog');
+
+  // Выгрузка офиса из памяти: состояния больше нет, а метка осталась —
+  // и список показывает паузу, не поднимая офис обратно.
+  unloadOfficeState('o-1');
+  check('выгруженный офис из памяти ушёл', !isOpened('o-1'));
+  check('неподнятый офис в списке всё равно на паузе',
+    officeViews().find((o) => o.id === 'o-1')?.activity?.paused === true);
+
+  // Перезапуск сервера: запись берём с диска, а не из памяти, — сервер
+  // поднимает офис ровно из неё.
+  const fromDisk = onDisk().offices.find((o) => o.id === 'o-1')!;
+  const restarted = openOfficeState(fromDisk).state;
+  check('после перезапуска офис поднялся на паузе', restarted.paused === true);
+  check('после перезапуска офис задачу по-прежнему не берёт',
+    !officeAssign(restarted, idle.id).ok
+    && restarted.tasks.get(idle.id)?.status === 'backlog');
+
+  // Снятие паузы тоже доезжает до диска сразу. Зовём метод состояния, а не
+  // agents.setPaused: обвязка снятия будит живую сессию менеджера, чтобы тот
+  // разобрал очередь, а проверки токенов не тратят.
+  restarted.setPaused(false);
+  check('снятая пауза убрана из реестра на диске',
+    onDisk().offices.find((o) => o.id === 'o-1')?.paused === undefined);
+  check('после снятия паузы список офисов её больше не показывает',
+    officeViews().find((o) => o.id === 'o-1')?.activity?.paused === false);
+
+  // 25. Всё сделанное записано на диск: следующий запуск увидит то же самое.
   const saved = onDisk();
   check('реестр на диске знает все четыре офиса, включая скрытый',
     saved.offices.length === 4 && saved.offices.filter((o) => o.hidden).length === 1);

@@ -45,7 +45,7 @@ import {
   limitsView, noteRateLimit as recordRateLimit, pollLimits,
   type LimitSource, type RateLimitInfo,
 } from './limits';
-import { currentOffice, officeIconView, offices } from './offices';
+import { currentOffice, officeIconView, officePaused, offices, setOfficePaused } from './offices';
 import {
   checkMcpServers, DEFAULT_MCP_SERVERS, mcpNamesFor, pollMcpStatus, type McpStatusSource,
 } from './mcp';
@@ -881,8 +881,10 @@ export class OfficeState {
   runs = new Map<string, Run>();
   /**
    * Пауза офиса: новая работа не запускается, а живые сессии замирают
-   * на следующем вызове инструмента. Не сохраняется на диск — пауза
-   * относится к живым сессиям, а после перезапуска их всё равно нет.
+   * на следующем вызове инструмента. Сохраняется — в реестре офисов
+   * (`OfficeEntry.paused`), а не в файле состояния: пауза относится к офису,
+   * а не к сессиям, и офис, оставленный на паузе, после перезапуска сервера
+   * обязан остаться на паузе, а не начать раздавать задачи.
    */
   paused = false;
   /**
@@ -3642,6 +3644,10 @@ export class OfficeState {
   setPaused(paused: boolean): void {
     if (this.paused === paused) return;
     this.paused = paused;
+    // Запоминаем сразу, а не отложенной записью состояния: между нажатием
+    // паузы и закрытием сервера может не быть и секунды, а проснуться офис
+    // обязан таким, каким его оставили.
+    setOfficePaused(this.officeId, paused);
     this.emit({ t: 'paused', paused });
     if (!paused) {
       for (const wake of this.resumeWaiters) wake();
@@ -3943,7 +3949,10 @@ export const officeViews = (): OfficeView[] => {
           // во втором случае работа не начнётся сама.
           paused: live.paused,
         }
-        : activityFromFile(o.stateFile),
+        // Неподнятый офис тоже может стоять на паузе: признак лежит в реестре,
+        // а не в файле состояния, поэтому за ним никуда идти не надо.
+        // Сводку из файла копируем — её отдаёт кеш, и править его нельзя.
+        : { ...activityFromFile(o.stateFile), paused: o.paused === true },
     };
   });
 };
@@ -4172,7 +4181,10 @@ export function subscribeOffices(fn: OfficeListener): void {
  * из мастера: кого нанимать, сказал план, и набор «все десять» ему не нужен.
  */
 export function openOfficeState(
-  entry: { id: string; projectDir: string; stateFile: string; initTeam?: 'manager-only' },
+  entry: {
+    id: string; projectDir: string; stateFile: string;
+    initTeam?: 'manager-only'; paused?: boolean;
+  },
 ): { state: OfficeState; restored: boolean; reused: boolean } {
   const state = getOffice(entry.id);
   if (state.opened) return { state, restored: false, reused: true };
@@ -4185,6 +4197,12 @@ export function openOfficeState(
   // Офис с чистого листа начинается и с чистых ролей: правки ролей
   // принадлежат офису, и у нового их просто нет.
   if (!restored) state.seed();
+  // Паузу вспоминаем последним шагом — и обязательно после seed(), который
+  // сбрасывает её вместе со всем остальным. Запись реестра уже содержит поле,
+  // а неполной заготовке (так офисы заводят проверки) отвечает сам реестр.
+  // Раньше первой раздачи задач: и надзор, и планировщик включаются после
+  // открытия, и оба смотрят на этот признак.
+  state.paused = entry.paused ?? officePaused(entry.id);
   return { state, restored, reused: false };
 }
 
