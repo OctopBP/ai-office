@@ -45,7 +45,7 @@ import {
   limitsView, noteRateLimit as recordRateLimit, pollLimits,
   type LimitSource, type RateLimitInfo,
 } from './limits';
-import { currentOffice, offices } from './offices';
+import { currentOffice, officeIconView, offices } from './offices';
 import {
   checkMcpServers, DEFAULT_MCP_SERVERS, mcpNamesFor, pollMcpStatus, type McpStatusSource,
 } from './mcp';
@@ -3852,12 +3852,17 @@ export const officeViews = (): OfficeView[] => {
   const current = currentOffice();
   return offices().map((o) => {
     const live = states.get(o.id);
+    const icon = officeIconView(o);
     return {
       id: o.id, name: o.name, projectDir: o.projectDir, noProject: o.noProject === true,
       current: o.id === current?.id, lastOpenedAt: o.lastOpenedAt,
       // Поля нет, если иконку не задавали: «нет иконки» и «иконка пустая» для
-      // веба разные вещи — во втором случае он рисовал бы пустоту.
-      ...(o.icon ? { icon: o.icon } : {}),
+      // веба разные вещи — во втором случае он рисовал бы пустоту. Картинка
+      // уезжает адресом, а не путём к файлу: с диска браузер её не откроет,
+      // а файл иконки вообще может лежать вне проекта (см. officeIconView).
+      // Пропавший файл — тоже «нет иконки»: рисовать сломанную картинку хуже,
+      // чем инициалы.
+      ...(icon ? { icon } : {}),
       activity: live?.opened
         ? {
           ...summarize({
