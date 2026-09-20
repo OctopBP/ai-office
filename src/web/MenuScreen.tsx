@@ -9,6 +9,7 @@ import type { OfficeView } from '../shared/types';
 import type { HomeTab } from './router';
 import { t, type UiKey } from './i18n';
 import { officeAvatarColor, officeAvatarInk } from './officeColor';
+import { OfficeAvatarIcon } from './OfficeIcon';
 
 const TABS: Array<[HomeTab, UiKey]> = [
   ['offices', 'home.tab.offices'],
@@ -22,22 +23,16 @@ const THEME_MODES: Array<[ThemeMode, UiKey]> = [
   ['system', 'settings.theme.system'],
 ];
 
-const initial = (name: string): string => Array.from(name.trim())[0]?.toUpperCase() ?? '?';
-
 /**
  * Аватарка офиса — та же, что в рейле (shell/Rail.tsx): цвет подложки по id
- * офиса, а внутри назначенная иконка (эмодзи или картинка) или инициал имени.
- * Картинку отдаёт сервер по id (`/api/office-icon`): путь к файлу хранится
- * относительно директории проекта и браузеру напрямую недоступен.
+ * офиса, а внутри назначенная иконка (картинка или эмодзи) или инициал имени.
+ * Что рисовать внутри, решает общий OfficeAvatarIcon (OfficeIcon.tsx).
  */
 function OfficeAvatar({ office: o, small }: { office: OfficeView; small?: boolean }) {
-  const icon = o.icon;
   return (
     <span className={`office-card-avatar${small ? ' sm' : ''}`}
       style={{ background: officeAvatarColor(o.id), color: officeAvatarInk(o.id) }}>
-      {icon?.kind === 'emoji' && icon.value}
-      {icon?.kind === 'image' && <img className="office-card-icon-img" src={`/api/office-icon?office=${o.id}`} alt="" />}
-      {!icon && initial(o.name)}
+      <OfficeAvatarIcon office={o} imgClass="office-card-icon-img" />
     </span>
   );
 }

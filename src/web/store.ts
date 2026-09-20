@@ -1616,6 +1616,31 @@ export function setOfficeIcon(officeId: string, icon: OfficeIcon | null): void {
   socket?.send(JSON.stringify({ c: 'set_office_icon', officeId, icon }));
 }
 
+/**
+ * Загрузить картинку-иконку офиса. Тело запроса — сам файл: ручка
+ * `POST /api/office/icon` берёт формат из Content-Type (src/server/officeicon.ts),
+ * multipart она не разбирает. Идёт по HTTP, а не по сокету, потому что байты
+ * файла в JSON-команде пришлось бы гнать base64-строкой.
+ *
+ * Возвращает текст отказа сервера (его же показываем человеку) или null, если
+ * всё сохранилось: новый список офисов с адресом картинки приедет сам событием
+ * 'offices', отдельного обновления стора здесь не нужно.
+ */
+export async function uploadOfficeIcon(officeId: string, file: File): Promise<string | null> {
+  try {
+    const res = await fetch(`/api/office/icon?office=${encodeURIComponent(officeId)}`, {
+      method: 'POST',
+      headers: { 'Content-Type': file.type || 'application/octet-stream' },
+      body: file,
+    });
+    const body = await res.json().catch(() => null) as { error?: string } | null;
+    if (!res.ok) return body?.error ?? `HTTP ${res.status}`;
+    return null;
+  } catch (err) {
+    return (err as Error).message;
+  }
+}
+
 /** Токен GitHub уходит на сервер и живёт только в памяти процесса. */
 export function setCloudToken(token: string): void {
   socket?.send(JSON.stringify({ c: 'cloud_token', token }));
