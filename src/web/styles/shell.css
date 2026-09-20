@@ -66,6 +66,8 @@
 .rail-office-list > * { flex: none; }
 .rail-office {
   display: flex; align-items: center; justify-content: flex-start; gap: var(--space-2);
+  /* Свёрнутому рейлу метка паузы вешается в угол строки — отсюда relative. */
+  position: relative;
   height: 40px; min-height: 0; padding: 0 var(--space-2); text-align: left;
   background: none; border: 1px solid transparent; border-radius: var(--radius-row);
 }
@@ -91,7 +93,19 @@
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
 .rail-office.current .rail-office-status { color: var(--ink-4); }
-.rail-office-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--ok); flex: none; }
+/* Метка статуса офиса. Размер держим фиксированным для всех трёх состояний:
+   строка рейла высотой 40px, и подросшая метка растянула бы её. */
+.rail-office-dot {
+  width: 12px; height: 12px; border-radius: 50%; flex: none;
+  display: flex; align-items: center; justify-content: center;
+  background: none; color: var(--warn);
+}
+.rail-office-dot.live, .rail-office-dot.idle {
+  width: 7px; height: 7px; margin: 0 2px; background: var(--ok);
+}
+/* Простаивает — метка на месте, но приглушена: пустота на её месте читалась бы
+   как «данных нет», а это другое. */
+.rail-office-dot.idle { background: var(--ink-4); }
 .rail-new { min-height: 40px; }
 
 .rail-sep { height: 1px; background: var(--hairline); margin-bottom: var(--space-5); flex: none; }
@@ -155,6 +169,12 @@
 .rail-collapsed .rail-offices, .rail-collapsed .rail-windows { width: 52px; align-items: center; }
 .rail-collapsed .rail-office-list { width: 52px; align-items: center; margin: 0; padding: 0; scrollbar-width: none; }
 .rail-collapsed .rail-office { width: 52px; padding: 0 10px; justify-content: center; }
+/* Пауза видна и в свёрнутом рейле: подписи там прячутся, но «офис стоит» —
+   не подпись, а предупреждение. Место для неё берём в углу строки, чтобы её
+   высота (40px) и центрированная аватарка остались прежними. */
+.rail-collapsed .rail-office-dot.paused {
+  display: flex; position: absolute; top: 3px; right: 3px;
+}
 .rail-collapsed .rail-new { width: 42px; min-height: 41px; }
 .rail-collapsed .rail-sep { width: 52px; }
 .rail-collapsed .rail-win { width: 52px; justify-content: center; padding: 0; margin: 0; }

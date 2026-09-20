@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { createOffice, renameOffice, setOfficeIcon, useStore } from './store';
+import { createOffice, renameOffice, setOfficeIcon, summarizeOfficeActivity, useStore } from './store';
 import type { OfficeView } from '../shared/types';
 import { t } from './i18n';
 import { Icon } from './icons';
@@ -38,6 +38,7 @@ export function OfficesModal({ onClose }: { onClose: () => void }) {
             <div key={o.id} className={`office-row ${o.current ? 'current' : ''}`}>
               <div className="office-who">
                 <b>{o.name}</b>
+                <OfficeStatusMark office={o} />
                 <div className="muted mono">{o.projectDir}</div>
               </div>
               {o.current ? (
@@ -84,6 +85,25 @@ export function OfficesModal({ onClose }: { onClose: () => void }) {
         )}
       </div>
     </div>
+  );
+}
+
+/**
+ * Статус офиса рядом с именем: стоит он на паузе, идёт ли в нём работа или он
+ * простаивает. Тот же расчёт, что у рейла и главного экрана
+ * (`summarizeOfficeActivity`), — иначе три списка говорили бы разное.
+ */
+function OfficeStatusMark({ office }: { office: OfficeView }) {
+  const a = summarizeOfficeActivity(office);
+  const mark = a.paused ? 'paused' : a.live ? 'live' : 'idle';
+  const hint = a.paused
+    ? t('office.paused.hint')
+    : a.live ? t('office.working.hint') : t('office.idle.hint');
+  return (
+    <span className={`office-status ${mark}`} title={hint}>
+      {a.paused && <Icon name="player-pause" size={10} />}
+      {a.paused ? t('office.paused') : a.text}
+    </span>
   );
 }
 

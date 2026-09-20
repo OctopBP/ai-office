@@ -35,6 +35,10 @@ export const ru: Record<keyof typeof en, string> = {
   'office.toMerge': '{n} к слиянию',
   'office.working': 'идёт работа',
   'office.idle': 'простаивает',
+  'office.paused': 'на паузе',
+  'office.paused.hint': 'Офис на паузе: новые задачи не запускаются, исполнители замерли до ▶',
+  'office.working.hint': 'В офисе прямо сейчас работают сессии',
+  'office.idle.hint': 'В офисе сейчас никто не работает',
 
   // ------------------------------------------------------- режимы доступа
   'access.readonly': 'Только чтение',

@@ -36,6 +36,10 @@ export const en = {
   'office.toMerge': '{n} to merge',
   'office.working': 'work in progress',
   'office.idle': 'idle',
+  'office.paused': 'paused',
+  'office.paused.hint': 'Office is paused: no new tasks start and workers are frozen until ▶',
+  'office.working.hint': 'Sessions are running in this office right now',
+  'office.idle.hint': 'Nobody is working in this office right now',
 
   // ------------------------------------------------------- режимы доступа
   'access.readonly': 'Read only',

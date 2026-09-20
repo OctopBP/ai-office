@@ -163,8 +163,9 @@ function OfficeCard({ office: o }: { office: OfficeView }) {
           : <span className="office-card-path mono">{o.projectDir}</span>}
       </span>
 
-      <span className="office-card-status">
-        <span className={`office-card-dot${activity.live ? ' live' : ''}`} />
+      <span className="office-card-status"
+        title={activity.paused ? t('office.paused.hint') : undefined}>
+        <span className={`office-card-dot${activity.paused ? ' paused' : activity.live ? ' live' : ''}`} />
         {activity.text}
       </span>
       {activity.waiting > 0 && (

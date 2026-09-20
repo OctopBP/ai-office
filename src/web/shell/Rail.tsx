@@ -126,9 +126,18 @@ export function Rail({ onPanel, onModal }: {
         <div className="rail-office-list">
         {list.map((o) => {
           const activity = summarizeOfficeActivity(o);
-          const status = o.current
-            ? t('shell.officeStatus', { n: Object.keys(instances).length, working })
-            : activity.text;
+          // У текущего офиса подпись своя — сколько в нём людей и сколько
+          // занято. Пауза важнее этой арифметики: пока она стоит, «занято 0»
+          // означает не «все свободны», а «работа не начнётся».
+          const status = activity.paused
+            ? t('office.paused')
+            : o.current
+              ? t('shell.officeStatus', { n: Object.keys(instances).length, working })
+              : activity.text;
+          const mark = activity.paused ? 'paused' : activity.live ? 'live' : 'idle';
+          const markHint = activity.paused
+            ? t('office.paused.hint')
+            : activity.live ? t('office.working.hint') : t('office.idle.hint');
           return (
             <button key={o.id} className={`rail-office${o.current ? ' current' : ''}`}
               onClick={() => { if (!o.current) enterOffice(o.id); }}
@@ -142,7 +151,14 @@ export function Rail({ onPanel, onModal }: {
                 <span className="rail-office-name">{o.name}</span>
                 <span className="rail-office-status">{status}</span>
               </span>
-              {(o.current || activity.live) && <span className="rail-office-dot" />}
+              {/* Метка статуса есть у каждого офиса — иначе «на паузе» и
+                  «простаивает» в списке выглядят одинаково. Пауза помечена не
+                  только цветом, но и знаком ⏸: по одному цвету статус читают
+                  не все. Подсказка висит на самой метке: заголовок строки
+                  занят путём проекта. */}
+              <span className={`rail-office-dot ${mark}`} title={markHint}>
+                {activity.paused && <Icon name="player-pause" size={9} />}
+              </span>
             </button>
           );
         })}

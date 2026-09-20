@@ -1233,6 +1233,8 @@ export interface OfficeActivitySummary {
   hasUnmerged: boolean;
   /** Сколько запросов доступа ждут решения человека. */
   waiting: number;
+  /** Офис стоит на паузе: сам он работу не продолжит, пока паузу не снимут. */
+  paused: boolean;
 }
 
 /** Считает сводку по офису из списка `offices` для короткого переключателя. */
@@ -1241,15 +1243,23 @@ export function summarizeOfficeActivity(o: OfficeView): OfficeActivitySummary {
   if (!a) {
     return {
       text: tr('office.noData'), live: false, hasQueue: false, hasUnmerged: false, waiting: 0,
+      paused: false,
     };
   }
   const parts: string[] = [];
   if (a.inProgress > 0) parts.push(tr('office.inProgress', { n: a.inProgress }));
   if (a.doneUnmerged > 0) parts.push(tr('office.toMerge', { n: a.doneUnmerged }));
-  const text = parts.length
-    ? parts.join(' · ')
-    : tr(a.live ? 'office.working' : 'office.idle');
-  return { text, live: a.live, hasQueue: a.inProgress > 0, hasUnmerged: a.doneUnmerged > 0, waiting: a.waiting };
+  // Пауза идёт первой строкой и не спорит со счётчиками: «2 в работе» у офиса
+  // на паузе врало бы — работа там стоит, и сама она не возобновится.
+  const text = a.paused
+    ? (parts.length ? `${tr('office.paused')} · ${parts.join(' · ')}` : tr('office.paused'))
+    : parts.length
+      ? parts.join(' · ')
+      : tr(a.live ? 'office.working' : 'office.idle');
+  return {
+    text, live: a.live, hasQueue: a.inProgress > 0, hasUnmerged: a.doneUnmerged > 0,
+    waiting: a.waiting, paused: a.paused,
+  };
 }
 
 /**

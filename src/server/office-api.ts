@@ -128,6 +128,10 @@ export function broadcast(event: ServerEvent, officeId: string): void {
   if (event.t === 'task' || event.t === 'permission.request' || event.t === 'permission.resolved') {
     scheduleOffices();
   }
+  // Пауза — редкое ручное действие одного человека, а не поток событий доски,
+  // поэтому её рассылаем без склейки: нажал SPACE — метка в списке офисов
+  // переключилась сразу, а не через секунду.
+  if (event.t === 'paused') broadcastOffices();
 }
 
 /**

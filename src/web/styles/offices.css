@@ -11,6 +11,13 @@
 .office-row.current { background: var(--film-2); border-radius: var(--radius-row); }
 .office-who { flex: 1; min-width: 0; }
 .office-who .mono { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* Статус офиса рядом с именем: мелкая подпись, а не второй заголовок. */
+.office-status {
+  display: inline-flex; align-items: center; gap: 4px; margin-left: var(--space-2);
+  font-size: var(--fs-small); color: var(--ink-3); vertical-align: middle;
+}
+.office-status.live { color: var(--ok-ink); }
+.office-status.paused { color: var(--warn); }
 /* Кнопки движка — обычные кнопки кита в столбик; активный получает .on из kit.css. */
 /* Группа вариантов с описаниями: карточки в сетке, которая переносится, а не
    вылезает за окно, когда вариантов четыре. Выбранный — плёнка с акцентным
