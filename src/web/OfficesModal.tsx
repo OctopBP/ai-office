@@ -1,5 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
-import { createOffice, renameOffice, setOfficeIcon, summarizeOfficeActivity, useStore } from './store';
+import {
+  createOffice, renameOffice, setOfficeIcon, sortedOffices, summarizeOfficeActivity, useStore,
+} from './store';
 import type { OfficeView } from '../shared/types';
 import { t } from './i18n';
 import { Icon } from './icons';
@@ -17,6 +19,10 @@ const ICON_PALETTE = [
 export function OfficesModal({ onClose }: { onClose: () => void }) {
   const offices = useStore((s) => s.offices);
   const enterOffice = useStore((s) => s.enterOffice);
+  // Порядок тот же, что в рейле и на главном экране: список один, и видеть
+  // его в трёх разных порядках человеку не за что. Раньше здесь показывался
+  // сырой порядок записей реестра, а рейл сортировал по имени.
+  const list = sortedOffices(offices);
   const [name, setName] = useState('');
   const [dir, setDir] = useState('');
   const [creating, setCreating] = useState(false);
@@ -34,7 +40,7 @@ export function OfficesModal({ onClose }: { onClose: () => void }) {
         <p className="modal-reason">{t('offices.note')}</p>
 
         <div className="offices">
-          {offices.map((o) => (
+          {list.map((o) => (
             <div key={o.id} className={`office-row ${o.current ? 'current' : ''}`}>
               <div className="office-who">
                 <b>{o.name}</b>
