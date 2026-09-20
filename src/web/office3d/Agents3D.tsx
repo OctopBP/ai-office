@@ -50,6 +50,7 @@ import { markArrived, reportPosition, useStore } from '../store';
 import { interestsFor, type Interest } from '../interests';
 import { stateText } from '../agentState';
 import { dropAnchor, setAnchor } from './anchors';
+import { MAX_DT, sceneOnScreen, sceneTime } from './clock';
 import type { AgentState, InstanceView, RoleView, TaskView } from '../../shared/types';
 import { lookFor } from '../../shared/looks';
 import { NO_ROLE_COLOR, shortCode } from '../Avatar';
@@ -773,8 +774,13 @@ function Agent({
    * Маршрут, по которому рендер сейчас ведёт фигуру: точки в мировых
    * координатах и номер той, к которой идём. Стор отдаёт ломаную целиком
    * (§7), а расстояние по ней проходится в кадре — по времени кадра, а не по
-   * часам. Из-за этого фигура не может «догнать» пропущенные кадры прыжком:
-   * пока вкладка в фоне и кадров нет, агент просто стоит там, где стоял.
+   * часам, и шаг ограничен сверху (`MAX_DT`): пропущенные кадры фигура не
+   * «догоняет» прыжком через полкомнаты.
+   *
+   * Пока кадров нет вовсе — вкладка в фоне, вид офиса скрыт, — агент стоит
+   * там, где стоял. Новые маршруты в это время не откладываются на потом, а
+   * применяются сразу концом (см. эффект ниже): иначе к возврату набирается
+   * очередь переходов, и возврат выглядит как сбой анимации.
    */
   const route = useRef<THREE.Vector3[]>([]);
   const legIdx = useRef(0);
@@ -874,10 +880,22 @@ function Agent({
       .map((pt) => new THREE.Vector3(pt.x + FOOT_DX + offset[0], 0, pt.y + FOOT_DY + offset[1]));
     // Маршрут из одной точки — это «стой здесь»: первое появление, снапшот,
     // смена раскладки. Вести фигуру через всю комнату тут было бы неправдой.
-    if (pts.length < 2 || g.position.lengthSq() === 0) {
+    //
+    // Скрытый вид офиса — то же самое «стой здесь», только в конце маршрута:
+    // кадров нет, вести фигуру некому, и к возврату у агента накопилась бы
+    // очередь чужих переходов. Проиграть её при возврате — и есть то самое
+    // дёрганье: человечки идут туда, где по событиям давно стоят. Поэтому
+    // агент оказывается в конце маршрута сразу, никем не увиденный, а на
+    // экране анимация продолжается с места, а не догоняет прошлое.
+    if (!sceneOnScreen() || pts.length < 2 || g.position.lengthSq() === 0) {
       g.position.copy(pts[pts.length - 1]);
       route.current = [];
       legIdx.current = 0;
+      // Обычно это говорит кадр — только он знает, где фигура и дошла ли она.
+      // Пока кадров нет, сказать некому: без этого стор считал бы следующий
+      // маршрут от покинутой точки, а монитор на столе не загорелся бы.
+      reportPosition(inst.id, g.position.x - FOOT_DX - offset[0], g.position.z - FOOT_DY - offset[1]);
+      markArrived(inst.id, walkSeq);
       return;
     }
     route.current = pts.slice(1);
@@ -895,7 +913,11 @@ function Agent({
     g.position.set(px, 0, pz);
   }, [px, pz]);
 
-  useFrame((state, dt) => {
+  useFrame((_, frameDt) => {
+    // Длина кадра, но не больше разумной: часы браузера идут и в фоне, и
+    // первый кадр после возврата к вкладке иначе прошёл бы за фигуру
+    // полкомнаты одним шагом (`MAX_DT` в `clock.ts`).
+    const dt = Math.min(frameDt, MAX_DT);
     rig.mixer.update(dt);
     const g = group.current;
     if (!g) return;
@@ -903,7 +925,11 @@ function Agent({
     // В разговоре говорят по очереди: пока один жестикулирует, второй просто
     // стоит и слушает. Без этого пара выглядит как два человека, говорящих
     // одновременно и мимо друг друга.
-    const speaking = speaksFirst === (Math.floor(state.clock.elapsedTime / TALK_TURN) % 2 === 0);
+    //
+    // Часы — свои, сцены: часы R3F обнуляются на каждом переключении
+    // `frameloop`, то есть на каждом уходе с вида офиса и возврате, и очередь
+    // начиналась заново — собеседники разом менялись ролями (`clock.ts`).
+    const speaking = speaksFirst === (Math.floor(sceneTime() / TALK_TURN) % 2 === 0);
     const still: Pose = restPose === 'talk' && !speaking ? 'idle' : restPose;
 
     if (legIdx.current < route.current.length) {
