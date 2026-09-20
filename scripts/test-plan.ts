@@ -235,10 +235,61 @@ async function main(): Promise<void> {
     `и не завёлся наполовину: ${half.epics.size === 0 && half.tasks.size === 0}`,
   );
 
+  // 10. Важное вперёд. Из готовых к работе задач офис берёт сначала высокий
+  //     приоритет, при равном — по-старому (кто заведён раньше), а обойти
+  //     зависимость или фокус на числе фич приоритет не вправе.
+  const prio = getOffice('o-plan-prio');
+  prio.seed();
+  prio.settings.planApproval = true;
+  prio.settings.focusEpics = 1;
+  /** Что запустилось в офисе приоритетов — в порядке запуска, а не по алфавиту. */
+  const prioTook = (): string[] => {
+    const mark = 'o-plan-prio/';
+    const list = started.filter((id) => id.startsWith(mark)).map((id) => id.slice(mark.length));
+    started = [];
+    return list;
+  };
+  const line = (key: string, title: string, deps?: string[]) => ({
+    key, title, description: 'работа', acceptanceCriteria: ['сделано'], roleId: 'backend',
+    ...(deps ? { dependsOn: deps } : {}),
+  });
+  createPlan(prio, [
+    {
+      title: 'Важное',
+      goal: 'разобрать по важности',
+      tasks: [line('p-a', 'A'), line('p-b', 'B'), line('p-c', 'C'), line('p-d', 'D'),
+        line('p-e', 'E', ['p-a'])],
+    },
+    { title: 'Следующая', goal: 'ждёт очереди', tasks: [line('p-f', 'F')] },
+  ]);
+  const id = (title: string): string =>
+    [...prio.tasks.values()].find((t) => t.title === title)?.id ?? `нет-задачи-${title}`;
+  // A и D остаются средними: на них и видно, что равный приоритет очередь
+  // не тасует. E и F высокие, но одну держит зависимость, другую — фокус.
+  prio.setTaskPriority(id('B'), 'low');
+  prio.setTaskPriority(id('C'), 'high');
+  prio.setTaskPriority(id('E'), 'high');
+  prio.setTaskPriority(id('F'), 'high');
+
+  approveEpic(prio, 'F-1');
+  const order = prioTook();
+  results.push(
+    `из готовых первой уходит важная: ${order[0] === id('C')}`,
+    `дальше идут по важности: ${order.join(',') === [id('C'), id('A'), id('D'), id('B')].join(',')}`,
+    `при равной важности прежний порядок: ${order.indexOf(id('A')) < order.indexOf(id('D'))}`,
+    `высокая задача с незакрытой зависимостью ждёт: ${prio.tasks.get(id('E'))?.status === 'planned'}`,
+  );
+
+  approveEpic(prio, 'F-2');
+  results.push(
+    `высокий приоритет не обходит фокус на числе фич: ${prio.epics.get('F-2')?.status === 'planned' && prioTook().length === 0}`,
+  );
+
   unloadOfficeState('o-plan');
   unloadOfficeState('o-plan-2');
   unloadOfficeState('o-plan-3');
   unloadOfficeState('o-plan-4');
+  unloadOfficeState('o-plan-prio');
 
   // Прошедшей считается только строка, кончающаяся на true: строка, где вместо
   // булева оказалось undefined, — это не «не false», а несостоявшаяся проверка.

@@ -23,7 +23,8 @@
  * Спринтов-таймбоксов здесь нет намеренно: инкремент закрывается по факту
  * («все задачи фичи в основной ветке»), а не по календарю.
  */
-import { dayKey, HEALTH_DIRECTION, OFFICE_SENDER, taskClosed } from '../shared/types';
+import { asTaskPriority, dayKey, HEALTH_DIRECTION, OFFICE_SENDER, taskClosed } from '../shared/types';
+import type { TaskPriority } from '../shared/types';
 import { toTaskView, type Epic, type OfficeState, type Task } from './state';
 import type { TaskType } from '../shared/workflow';
 import { recordOutcome } from './outcomes';
@@ -108,6 +109,28 @@ export function waitingFor(state: OfficeState, task: Task): string[] {
     return dep ? !closed(state, dep) : false;
   });
 }
+
+/**
+ * Вес приоритета при выборе: меньше — раньше. Отдельной таблицей, а не
+ * позицией в TASK_PRIORITIES, чтобы новый уровень в середине списка не
+ * переставил молча всю очередь офиса.
+ */
+const PRIORITY_RANK: Record<TaskPriority, number> = { high: 0, normal: 1, low: 2 };
+
+/** Вес задачи. Задачи, которой уже нет на доске, — средний: её всё равно выкинут. */
+export const priorityRank = (task: Task | undefined): number =>
+  PRIORITY_RANK[asTaskPriority(task?.priority)];
+
+/**
+ * Сравнение задач по важности: сначала высокие. Равный приоритет даёт ноль —
+ * и прежний порядок (сначала старые) сохраняется сам: сортировка в JS
+ * стабильна, а значит, приоритет только поднимает важное, а не перетасовывает
+ * всё остальное.
+ *
+ * Это выбор «что взять следующим», а не право обойти правила: зависимости,
+ * фокус на числе фич и порядок самих фич считаются раньше и сильнее.
+ */
+export const byPriority = (a: Task, b: Task): number => priorityRank(a) - priorityRank(b);
 
 /**
  * Одна фича закончилась. Считается по задачам, а не по отметке менеджера:
@@ -209,8 +232,12 @@ function releaseReady(state: OfficeState): void {
     // Задача вне плана в статусе planned ничьей очереди не ждёт: её держат
     // только собственные зависимости.
     .filter((t) => t.epicId === null || active.has(t.epicId))
+    // Порядок фич считается раньше приоритета: важная задача поздней фичи не
+    // должна обгонять фичу, которую офис ведёт сейчас, — иначе приоритет
+    // задачи тихо переставлял бы план целиком. А вот внутри уже созревшей
+    // работы решает важность, и только при равной — прежний порядок.
     .sort((a, b) => epicOrder(state, a) - epicOrder(state, b)
-      || a.order - b.order || a.createdAt - b.createdAt);
+      || byPriority(a, b) || a.order - b.order || a.createdAt - b.createdAt);
 
   for (const task of queue) {
     if (waitingFor(state, task).length) continue;
