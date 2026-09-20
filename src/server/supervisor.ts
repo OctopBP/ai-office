@@ -40,7 +40,7 @@ import { refreshEnvChecks } from './envcheck';
 import { isPipelineRunning, pipelineProblem, runPipeline, tellPm } from './review';
 import { officeAssign, resumeTask, retryTask, slotProblem } from './agents';
 import { limitBlock, resetClock } from './limits';
-import { dispatch } from './plan';
+import { byPriority, dispatch } from './plan';
 import { detectReverts } from './outcomes';
 import { askAboutReverts, tickRituals } from './rituals';
 import { refreshHealth } from './health';
@@ -304,7 +304,12 @@ async function watchBoard(state: OfficeState, now: number): Promise<void> {
   let started = 0;
 
   // 1. Работу оборвал перезапуск — это не решение человека, а авария.
-  for (const task of tasks.filter((t) => t.status === 'blocked' && t.interrupted)) {
+  // За проход поднимаем не всё (START_PER_TICK), поэтому важное возобновляем
+  // первым; при равной важности порядок прежний — сначала старые задачи.
+  const interrupted = tasks
+    .filter((t) => t.status === 'blocked' && t.interrupted)
+    .sort(byPriority);
+  for (const task of interrupted) {
     if (started >= START_PER_TICK) break;
     // Свободного исполнителя ждём молча: retryTask на занятой роли напишет
     // в чат отказ, и на каждом проходе это был бы один и тот же шум.
@@ -331,7 +336,11 @@ async function watchBoard(state: OfficeState, now: number): Promise<void> {
     }));
   }
 
-  const overdue = queued.filter((t) => t.attention && now - t.attention > PM_GRACE_MS);
+  // Менеджер за ними не пришёл — раздаёт офис, и раздаёт сначала важное.
+  // Равный приоритет очередь не трогает: кто дольше ждёт, тот и первый.
+  const overdue = queued
+    .filter((t) => t.attention && now - t.attention > PM_GRACE_MS)
+    .sort(byPriority);
   for (const task of overdue) {
     if (started >= START_PER_TICK) break;
     const outcome = officeAssign(state, task.id);

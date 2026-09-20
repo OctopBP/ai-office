@@ -29,8 +29,8 @@ import { employeePlugins, employeeSkills, sessionTools } from './skills';
 import { autoApprovedText, classify, decide, effectiveMode } from './permissions';
 import { commitAll, createWorktree, diffBranch, hasCommits, hasWork, isRepo, preserveBranch, removeWorktree } from './git';
 import {
-  approveEpic, cancelEpic, createPlan, dispatch, planSummary, reorderEpics, setPlanAgents,
-  type PlannedEpic,
+  approveEpic, byPriority, cancelEpic, createPlan, dispatch, planSummary, priorityRank,
+  reorderEpics, setPlanAgents, type PlannedEpic,
 } from './plan';
 import {
   prDiff, retryPipeline, runPipeline, setPipelineAgents, maxRounds,
@@ -141,7 +141,12 @@ export function releaseSlot(state: OfficeState): void {
 function startWaiting(): void {
   for (const state of loadedOffices()) {
     if (state.waitingForSlot.size === 0) continue;
-    for (const taskId of [...state.waitingForSlot]) {
+    // Освободившийся слот достаётся важному: очередь за слотом — это тот же
+    // выбор «кого запустить следующим». При равной важности порядок остаётся
+    // прежним — кто раньше встал, тот раньше и поедет.
+    const queue = [...state.waitingForSlot]
+      .sort((a, b) => priorityRank(state.tasks.get(a)) - priorityRank(state.tasks.get(b)));
+    for (const taskId of queue) {
       const task = state.tasks.get(taskId);
       // Задачу могли удалить, назначить вручную или закрыть, пока она ждала.
       if (!task || task.status !== 'backlog' || task.assigneeId) {
@@ -174,7 +179,9 @@ onEnvReady((state) => {
   // Не в этом же тике: зовут нас из середины пересчёта проверок, и стартовать
   // сессии оттуда рано — сначала пусть окружение доедет до подписчиков.
   setTimeout(() => {
-    for (const task of freed) {
+    // Окружение чинят разом на весь офис, и слотов на всех может не хватить —
+    // поэтому отпущенные задачи берём по важности, а при равной по-старому.
+    for (const task of [...freed].sort(byPriority)) {
       const fresh = state.tasks.get(task.id);
       // Пока ждали, задачу могли удалить, закрыть или раздать руками.
       if (!fresh || fresh.status !== 'backlog' || fresh.assigneeId) continue;
