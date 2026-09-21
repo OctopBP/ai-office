@@ -407,6 +407,95 @@ async function main(): Promise<void> {
   unloadOfficeState('o-oldlayout');
   wipe(oldLayoutFile);
 
+  // 7h‴. Три языка. У офиса их два (общения и реализации), третий —
+  // интерфейсный — глобальный и живёт в реестре, его проверяет test-offices.
+  // Проверяется главное: сохранение старше разделения поднимается ровно так
+  // же, как поднималось (миграция не меняет видимого поведения), миграция
+  // идемпотентна, значения независимы и переживают перезапуск.
+  const langFile = resolve(tmpdir(), `office-test-langs-${process.pid}.json`);
+  const langDir = resolve(tmpdir(), 'langs-office');
+  // Так выглядят настройки офиса, заведённого до разделения языков: полей
+  // chatLanguage и codeLanguage в них нет вовсе, а язык один и русский.
+  const {
+    chatLanguage: _noChat, codeLanguage: _noCode, ...settingsBeforeSplit
+  } = DEFAULT_SETTINGS;
+  save(langFile, () => ({
+    version: 1, projectDir: langDir, taskSeq: 0, tasks: [], chat: [], log: [],
+    instances: [], savedAt: Date.now(),
+    settings: { ...settingsBeforeSplit, language: 'ru' } as Settings,
+  }));
+  flushAll();
+  const langOffice = openOfficeState({
+    id: 'o-langs', projectDir: langDir, stateFile: langFile,
+  }).state;
+  const oldSaveUnchanged = langOffice.lang() === 'ru' && langOffice.codeLang() === 'ru'
+    && langOffice.settings.chatLanguage === 'ru' && langOffice.settings.codeLanguage === 'ru';
+  // Видимое поведение — это в первую очередь то, на каком языке офис говорит:
+  // названия базовых ролей и его собственные реплики.
+  const oldSaveStillRussian = langOffice.role('backend')?.title === defaultRole('backend', 'ru')!.title
+    && langOffice.say('state.settings.officeMode', { mode: 'x' }).startsWith('Режим');
+
+  // Идемпотентность: мигрированное сохранение пишется на диск и поднимается
+  // ещё раз — второй проход обязан дать ровно то же самое.
+  save(langFile, () => langOffice.toPersisted());
+  flushAll();
+  unloadOfficeState('o-langs');
+  const langAgain = openOfficeState({
+    id: 'o-langs', projectDir: langDir, stateFile: langFile,
+  }).state;
+  const migrationIdempotent = langAgain.lang() === 'ru' && langAgain.codeLang() === 'ru'
+    && langAgain.settings.chatLanguage === 'ru' && langAgain.settings.codeLanguage === 'ru'
+    && langAgain.settings.language === 'ru';
+
+  // Независимость: каждый язык меняется, не утаскивая за собой второй.
+  langAgain.updateSettings({ codeLanguage: 'en' });
+  const codeMovedAlone = langAgain.codeLang() === 'en' && langAgain.lang() === 'ru';
+  langAgain.updateSettings({ chatLanguage: 'en' });
+  const chatMovedAlone = langAgain.lang() === 'en' && langAgain.codeLang() === 'en';
+  langAgain.updateSettings({ codeLanguage: 'ru' });
+  const splitApart = langAgain.lang() === 'en' && langAgain.codeLang() === 'ru';
+  // Старое поле — зеркало языка общения: клиент прежней сборки читает язык
+  // офиса именно отсюда, и разъехаться они не должны.
+  const legacyMirrors = langAgain.settings.language === 'en';
+  // Чужое слово вместо языка не применяется: команда приходит из браузера.
+  langAgain.updateSettings({
+    chatLanguage: 'klingon' as unknown as Settings['chatLanguage'],
+    codeLanguage: 'klingon' as unknown as Settings['codeLanguage'],
+  });
+  const junkLangIgnored = langAgain.lang() === 'en' && langAgain.codeLang() === 'ru';
+
+  // Перезапуск: оба языка обязаны подняться такими же, какими их оставили, —
+  // именно разными, иначе проверка не отличила бы их от одного значения.
+  save(langFile, () => langAgain.toPersisted());
+  flushAll();
+  unloadOfficeState('o-langs');
+  const langRestarted = openOfficeState({
+    id: 'o-langs', projectDir: langDir, stateFile: langFile,
+  }).state;
+  const survivedRestart = langRestarted.lang() === 'en' && langRestarted.codeLang() === 'ru';
+
+  // Совместимость: клиент прежней сборки шлёт только `language`, и для него
+  // это единственный способ сменить язык офиса. Читается как язык общения.
+  langRestarted.updateSettings({ language: 'ru' });
+  const legacyPatchIsChat = langRestarted.lang() === 'ru'
+    && langRestarted.settings.chatLanguage === 'ru'
+    && langRestarted.codeLang() === 'ru';
+
+  results.push(
+    `сохранение до разделения языков поднимается на прежней локали: ${oldSaveUnchanged}`,
+    `после миграции офис говорит так же, как говорил: ${oldSaveStillRussian}`,
+    `повторный подъём мигрированного сохранения ничего не меняет: ${migrationIdempotent}`,
+    `язык реализации меняется один, без языка общения: ${codeMovedAlone}`,
+    `язык общения меняется один, без языка реализации: ${chatMovedAlone}`,
+    `два языка офиса держатся разными: ${splitApart}`,
+    `старое поле осталось зеркалом языка общения: ${legacyMirrors}`,
+    `чужое слово вместо языка не применяется: ${junkLangIgnored}`,
+    `оба языка офиса пережили перезапуск: ${survivedRestart}`,
+    `старая команда смены языка меняет язык общения: ${legacyPatchIsChat}`,
+  );
+  unloadOfficeState('o-langs');
+  wipe(langFile);
+
   // 7h″. Приоритет задачи: умолчание, смена и перезапуск. Проверяется ровно
   // то, на чём приоритет соврал бы незаметно, — задача из сохранения старше
   // поля (её приоритет обязан быть средним, а не пустым) и правленый руками
@@ -939,7 +1028,10 @@ async function main(): Promise<void> {
     version: 1, projectDir: pmRolesDir, taskSeq: 0, tasks: [], chat: [], log: [],
     // Язык в сохранении задан явно: набор ролей ниже русский, и офис,
     // поднявшийся английским, дополнил бы его английским же менеджером.
-    instances: [], settings: { ...DEFAULT_SETTINGS, language: 'ru' }, savedAt: Date.now(),
+    // Языков теперь три, и роли поднимаются на языке ОБЩЕНИЯ — задаём его,
+    // а не только старое зеркало.
+    instances: [], savedAt: Date.now(),
+    settings: { ...DEFAULT_SETTINGS, language: 'ru', chatLanguage: 'ru', codeLanguage: 'ru' },
     roles: [
       // PM в файле нет вовсе, зато менеджером объявлен backend — и он же
       // записан дважды, вторым разом с другой моделью.
