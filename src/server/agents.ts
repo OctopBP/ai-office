@@ -864,11 +864,11 @@ const teamTools = (state: OfficeState) => createSdkMcpServer({
         instanceId: z.string().default('').describe(state.say('tool.assignTask.instanceId')),
       },
       async (args) => {
-        if (state.paused) {
+        if (state.paused || state.archived) {
           return {
             content: [{
               type: 'text',
-              text: state.say('tool.assignTask.paused'),
+              text: state.say(state.archived ? 'archive.stopped' : 'tool.assignTask.paused'),
             }],
             isError: true,
           };
@@ -1736,6 +1736,10 @@ export async function holdMeeting(
   }
   if (meetingOffice.paused) {
     meetingOffice.addChat(OFFICE_SENDER, meetingOffice.say('meeting.paused'), 'meeting');
+    return none;
+  }
+  if (meetingOffice.archived) {
+    meetingOffice.addChat(OFFICE_SENDER, meetingOffice.say('archive.stopped'), 'meeting');
     return none;
   }
   if (meetingOffice.budgetExhausted()) {
@@ -2735,6 +2739,7 @@ export async function retryTask(
   // здесь означало бы отменить чужое решение молча.
   if (task.status === 'cancelled') return no('restart.cancelled', { task: taskId });
   if (state.paused) return no('restart.paused', { task: taskId });
+  if (state.archived) return no('archive.stopped');
   const cloudBlocked = state.settings.engine === 'cloud' ? cloudProblem(state) : null;
   if (cloudBlocked) return no('restart.cloudBroken', { problem: cloudBlocked });
   if (state.budgetExhausted()) return no('restart.budget');
@@ -2816,6 +2821,10 @@ export function assignDirect(state: OfficeState, taskId: string, instanceId: str
     state.addChat(OFFICE_SENDER, state.say('start.paused', { task: taskId }));
     return;
   }
+  if (state.archived) {
+    state.addChat(OFFICE_SENDER, state.say('archive.stopped'));
+    return;
+  }
   const cloudBlocked = state.settings.engine === 'cloud' ? cloudProblem(state) : null;
   if (cloudBlocked) {
     state.addChat(OFFICE_SENDER, state.say('start.cloudBroken', { problem: cloudBlocked }));
@@ -2880,6 +2889,7 @@ export function resumeTask(state: OfficeState, taskId: string): { ok: boolean; m
     };
   }
   if (state.paused) return { ok: false, message: state.say('restart.paused', { task: taskId }) };
+  if (state.archived) return { ok: false, message: state.say('archive.stopped') };
   if (state.budgetExhausted()) return { ok: false, message: state.say('restart.budget') };
   // Задача стоит по лимиту, а теперь ещё и окружение мёртвое: продолжать
   // сессию так же бессмысленно, как начинать новую. Пометку ставим, статус
@@ -2919,6 +2929,7 @@ export function officeAssign(state: OfficeState, taskId: string): { ok: boolean;
     return { ok: false, message: state.say('assign.notQueued', { task: taskId }) };
   }
   if (state.paused) return { ok: false, message: state.say('assign.paused') };
+  if (state.archived) return { ok: false, message: state.say('archive.stopped') };
   if (state.budgetExhausted()) return { ok: false, message: state.say('assign.budget') };
   const cloudBlocked = state.settings.engine === 'cloud' ? cloudProblem(state) : null;
   if (cloudBlocked) return { ok: false, message: cloudBlocked };

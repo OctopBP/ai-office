@@ -116,9 +116,13 @@ export function setRitualAgents(next: RitualAgents): void {
 
 // ------------------------------------------------------------ планёрка
 
-/** Пора ли показывать планёрку: день сменился с прошлой. */
+/**
+ * Пора ли показывать планёрку: день сменился с прошлой. Архивному офису не
+ * пора никогда — он не поднимается, а если его успели увидеть до выгрузки,
+ * сводка о работе, которой не будет, только сбивает с толку.
+ */
 export const standupDue = (state: OfficeState, now = Date.now()): boolean =>
-  state.life.standupDay !== dayKey(now);
+  !state.archived && state.life.standupDay !== dayKey(now);
 
 /**
  * Текст планёрки из данных доски: что ждёт человека, что офис сделал сам с
@@ -272,7 +276,8 @@ const hasDelta = (input: ConsolidationInput): boolean => input.closed.length > 0
 
 /** Ритуал, которому пора. null — ничего не пора. Порядок — по дешевизне. */
 export function dueRitual(state: OfficeState, now = Date.now()): RitualId | null {
-  if (state.settings.ritualsEnabled === false || state.paused || state.ritualRunning) return null;
+  if (state.settings.ritualsEnabled === false || state.paused || state.archived
+      || state.ritualRunning) return null;
   const last = state.life.lastRun;
   // Забывание — без модели и без тишины: смотрит только на даты.
   if (now - (last.forget ?? 0) >= WEEK_MS && state.facts.size > 0) return 'forget';
@@ -414,6 +419,9 @@ export async function tickRituals(state: OfficeState, now = Date.now()): Promise
  */
 export async function runRitual(state: OfficeState, ritual: RitualId, now = Date.now()): Promise<RitualRun | null> {
   if (state.ritualRunning) return null;
+  // Архив держим и здесь, а не только в расписании: ритуал запускают ещё и по
+  // кнопке, а по архивному офису не должно идти никакой работы.
+  if (state.archived) return null;
   if (ritual === 'standup') {
     runStandup(state, now);
     return state.life.runs[state.life.runs.length - 1] ?? null;

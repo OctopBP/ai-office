@@ -138,6 +138,13 @@ function unfinished(state: OfficeState): Task[] {
 
 /** Один проход надзора. Вынесен отдельно ради тестов: их не заставишь ждать минуту. */
 export async function superviseOffice(state: OfficeState): Promise<void> {
+  // Архив — раньше всего остального, даже раньше здоровья и проверок среды:
+  // по офису в архиве не идёт никакая работа, а тихий тик надзора — это работа.
+  // Пауза так не может: с паузы возвращаются, и сводка здоровья к возвращению
+  // должна быть свежей. Из архива возвращаются командой, и она поднимет офис
+  // заново — считать за него нечего.
+  if (state.archived) return;
+
   // Сводка здоровья — до всех проверок и до паузы: часть её записей появляется
   // не от события, а просто от времени (ветке стукнули сутки), а офис на паузе
   // или с выключенным конвейером стоит тем более и знать об этом нужно.
@@ -481,6 +488,8 @@ async function giveUp(state: OfficeState, task: Task, pr: PullRequestView): Prom
  */
 export function startSupervisor(state: OfficeState): void {
   stopSupervisor(state.officeId);
+  // Архивному офису сторож не нужен вовсе: таймер только жёг бы тики впустую.
+  if (state.archived) return;
   const tick = () => {
     void superviseOffice(state).catch((err) => {
       state.addLog(null, 'error', state.say('sup.crashed', { error: (err as Error).message }));

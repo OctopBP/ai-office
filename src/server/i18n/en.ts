@@ -449,6 +449,12 @@ export const en = {
   'office.openElsewhere': 'Office “{name}” is open right now — in this tab or in another one. Switch to another office there, and then remove this one from the list.',
   'office.stillOpening': 'Office “{name}” is still opening. Wait until it opens, and then remove it from the list.',
   'office.removed': 'Office “{name}” was removed from the list and unloaded. The project files and its board are still on disk — they come back with the office.',
+  'office.archived': 'Office “{name}” was moved to the archive: no work runs there any more — no tasks, no rituals, no supervision. Nothing was deleted: bring it back from the archive and the board, the spending and the conversations are all there.',
+  'office.unarchived': 'Office “{name}” is back from the archive and works as usual again.',
+  'office.archiveBusy': 'Office “{name}” still has work running: {tasks}. Wait for those tasks or stop them, and then move the office to the archive.',
+  'office.archiveOpenElsewhere': 'Office “{name}” is open right now — in this tab or in another one. Switch to another office there, and then move this one to the archive.',
+  'office.archiveOpening': 'Office “{name}” is still opening. Wait until it opens, and then move it to the archive.',
+  'office.archivedOpen': 'Office “{name}” is in the archive — no work runs there. Bring it back from the archive to open it.',
 
   // ------------------------------------------------------------------ облако
   'cloud.needApiKey': 'Cloud mode works only on the paid API: set ANTHROPIC_API_KEY and restart the server.',
@@ -511,6 +517,7 @@ export const en = {
   'boot.reused': '🔁 Office “{name}” is already open in this run: {board}',
   'boot.restored': '💾 Office “{name}” restored: {board}',
   'boot.noOffice': 'Could not work out which office to start with',
+  'boot.allArchived': 'Every office is in the archive, so none was opened. Bring back from the archive the one you are going to work in.',
   'boot.openFailed': 'Office “{name}” did not open: {error}. Check that directory {dir} is there and reachable. For now pick another office in the menu or create a new one — the server is running.',
   'boot.officesGetOnly': 'The office list is served over GET only.',
   'boot.envGetPost': 'The environment checks are read over GET and recomputed over POST.',
