@@ -399,6 +399,13 @@ interface State {
    * события по-прежнему долетают до стора, просто пока не отрисовываются.
    */
   leaveOffice: () => void;
+  /**
+   * Убрать офис в архив из интерфейса. Открытый сейчас офис сначала меняется
+   * на соседний — иначе сервер откажет: гасить офис, на который смотрит
+   * вкладка, нельзя. Возврат из архива отдельной обёртки не требует —
+   * `archiveOffice(id, false)`.
+   */
+  requestArchiveOffice: (officeId: string) => void;
   /** Отправить создание офиса из меню и ждать снапшот или ошибку. */
   requestCreateOffice: (name: string, projectDir: string) => void;
   /** Собрать офис по плану мастера: прогресс приходит событиями, итог — снапшот или ошибка. */
@@ -639,6 +646,20 @@ export const useStore = create<State>((set, get) => ({
     });
   },
 
+  requestArchiveOffice: (officeId) => {
+    const s = get();
+    const office = s.offices.find((o) => o.id === officeId);
+    if (!office || office.archived) return;
+    if (!office.current) { archiveOffice(officeId, true); return; }
+    // Архивируем тот офис, в котором сидим: уходим в соседний и оставляем
+    // метку — архивация уедет, когда придёт его снапшот. Соседа нет —
+    // уходить некуда, и кнопка в интерфейсе для этого случая недоступна.
+    const next = activeOffices(s.offices).find((o) => o.id !== officeId);
+    if (!next) return;
+    archivingAfterSwitch = officeId;
+    get().enterOffice(next.id);
+  },
+
   requestCreateOffice: (name, projectDir) => {
     set({ pending: 'create', pendingLabel: name.trim() || projectDir.trim(), menuNotice: null });
     createOffice(name, projectDir);
@@ -727,6 +748,9 @@ export const useStore = create<State>((set, get) => ({
           // Панель спросит их заново, когда её откроют.
           rules: null,
         }));
+        // Снапшот соседнего офиса — это и есть ответ «мы больше не смотрим на
+        // тот, который убираем в архив»: теперь команду можно слать.
+        flushArchiveAfterSwitch(e.offices);
         break;
       }
       case 'instance': {
@@ -891,6 +915,9 @@ export const useStore = create<State>((set, get) => ({
         set((s) => ({ picking: null, picked: { seq: (s.picked?.seq ?? 0) + 1, purpose: e.purpose, dir: e.dir, error: e.error } }));
         break;
       case 'office.error':
+        // Переключение ради архивации не удалось — архивацию отменяем: иначе
+        // она уехала бы после следующего, ни к чему не относящегося снапшота.
+        if (e.op === 'switch') archivingAfterSwitch = null;
         // Отказ во входе или создании, пока меню ждёт ответа: форма
         // показывает причину и перестаёт крутить спиннер.
         if ((e.op === 'create' || e.op === 'switch') && get().pending) {
@@ -915,6 +942,18 @@ export const useStore = create<State>((set, get) => ({
             id: `office-icon-error-${e.officeId ?? 'x'}`,
             kind: 'failed',
             title: tr('toast.iconNotSaved'),
+            detail: e.message,
+          });
+          break;
+        }
+        // Архивация — такой же новый op: сервер отказывает по делу (в офисе
+        // идут задачи, на него смотрят из другой вкладки), и причину надо
+        // показать там, где нажали, а не оставить в чате чужого офиса.
+        if (e.op === 'archive') {
+          pushToast({
+            id: `office-archive-error-${e.officeId ?? 'x'}`,
+            kind: 'failed',
+            title: tr('toast.archiveNotDone'),
             detail: e.message,
           });
           break;
@@ -1324,6 +1363,21 @@ export function formatLastOpened(ts: number): string {
  */
 export function sortedOffices(offices: OfficeView[]): OfficeView[] {
   return [...offices].sort(compareOffices);
+}
+
+/**
+ * Офисы для обычных списков — рейла, модалки и главного экрана: архивные
+ * скрыты. Архив — это «проектом больше не занимаемся», и держать такие офисы
+ * вперемешку с рабочими значит каждый раз глазами отделять одни от других.
+ * Порядок тот же `compareOffices`: фильтр не переставляет строки.
+ */
+export function activeOffices(offices: OfficeView[]): OfficeView[] {
+  return sortedOffices(offices.filter((o) => !o.archived));
+}
+
+/** Только архивные офисы — для свёрнутого раздела «Архив» в модалке. */
+export function archivedOffices(offices: OfficeView[]): OfficeView[] {
+  return sortedOffices(offices.filter((o) => o.archived));
 }
 
 /** Сводка активности офиса для переключателя — уже посчитанные тексты и флаги, а не сырые числа. */
@@ -1772,6 +1826,39 @@ export function reorderOffice(officeId: string, index: number): void {
 /** null сбрасывает иконку офиса к умолчанию (инициал). */
 export function setOfficeIcon(officeId: string, icon: OfficeIcon | null): void {
   socket?.send(JSON.stringify({ c: 'set_office_icon', officeId, icon }));
+}
+
+/**
+ * Убрать офис в архив или вернуть его оттуда. Ответ — новый список офисов
+ * событием 'offices' (или отказ 'office.error' с op 'archive'), поэтому
+ * локально ничего не меняем: оптимистично спрятанный офис, которому сервер
+ * отказал из-за идущих задач, пришлось бы возвращать обратно.
+ */
+export function archiveOffice(officeId: string, archived: boolean): void {
+  socket?.send(JSON.stringify({ c: 'archive_office', officeId, archived }));
+}
+
+/**
+ * Офис, который человек убирает в архив, не выходя из него. Сервер гасит
+ * архивный офис целиком и поэтому не трогает тот, на который смотрит хоть
+ * одна вкладка (`viewers` в office-api.ts): у зрителя просто перестали бы
+ * работать команды. Значит, сначала переключаемся в соседний офис, и только
+ * когда придёт его снапшот — шлём архивацию. Здесь лежит id того, кого
+ * архивируем, пока идёт переключение.
+ */
+let archivingAfterSwitch: string | null = null;
+
+/**
+ * Переключение прошло — можно архивировать покинутый офис. Признак `current`
+ * в списке считает сервер, и пока он стоит на архивируемом офисе, вкладка
+ * всё ещё смотрит именно его.
+ */
+function flushArchiveAfterSwitch(offices: OfficeView[]): void {
+  const id = archivingAfterSwitch;
+  if (!id) return;
+  if (offices.some((o) => o.id === id && o.current)) return;
+  archivingAfterSwitch = null;
+  archiveOffice(id, true);
 }
 
 /**

@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react';
 import {
-  formatLastOpened, retryConnect, setUiLanguage, sortedOffices, summarizeOfficeActivity, useStore,
+  activeOffices, formatLastOpened, retryConnect, setUiLanguage, summarizeOfficeActivity, useStore,
   type ThemeMode,
 } from './store';
 import { LANGS, LANG_TITLE } from '../shared/i18n';
@@ -61,7 +61,11 @@ export function MenuScreen() {
   const dismissMenuNotice = useStore((s) => s.dismissMenuNotice);
 
   const [creating, setCreating] = useState(false);
-  const list = useMemo(() => sortedOffices(offices), [offices]);
+  // Архивные офисы на главный экран не выходят — ни карточкой, ни строкой
+  // расходов: архив виден только в модалке офисов, откуда офис и возвращают.
+  // Деньги архивного офиса вместе с ним уходят и из итогов вкладки расходов —
+  // иначе сумма сверху не сходилась бы со строками под ней.
+  const list = useMemo(() => activeOffices(offices), [offices]);
 
   // Вкладку настроек показываем и без сервера: тема и картинка комнаты живут
   // на этом компьютере, а язык интерфейса без связи просто не переключается
