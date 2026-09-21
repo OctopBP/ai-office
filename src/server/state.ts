@@ -46,7 +46,8 @@ import {
   type LimitSource, type RateLimitInfo,
 } from './limits';
 import {
-  currentOffice, officeIconView, officePaused, offices, setOfficePaused, uiLanguage,
+  currentOffice, officeArchived, officeIconView, officePaused, offices, setOfficePaused,
+  uiLanguage,
 } from './offices';
 import {
   checkMcpServers, DEFAULT_MCP_SERVERS, mcpNamesFor, pollMcpStatus, type McpStatusSource,
@@ -904,6 +905,21 @@ export class OfficeState {
    * обязан остаться на паузе, а не начать раздавать задачи.
    */
   paused = false;
+  /**
+   * Офис в архиве: проект больше не ведут, и работы по нему нет никакой — ни
+   * задач, ни ритуалов, ни планёрок, ни надзора. Признак тоже живёт в реестре
+   * (`OfficeEntry.archived`), а здесь лежит его копия для тех мест, которые
+   * работают с уже поднятым состоянием и про реестр не знают.
+   *
+   * Обычно архивный офис в памяти и не живёт — его туда не поднимают, а
+   * поднятый при архивации выгружают. Признак здесь нужен для двух случаев:
+   * между архивацией и выгрузкой и в проверках, которые поднимают состояние
+   * напрямую из записи реестра.
+   *
+   * От паузы отличается смыслом и не связан с ней: архивный офис не
+   * «снимается с паузы» и не ставится на неё.
+   */
+  archived = false;
   /**
    * Живая сессия менеджера этого офиса: очередь сообщений и цикл её чтения.
    * Принадлежат офису, а не процессу: иначе второй открытый офис не поднял бы
@@ -3994,9 +4010,10 @@ export const toProposalView = (p: Proposal): ProposalView => ({
  * покинутый офис продолжает работать, и его файл отстаёт на дебаунс записи —
  * счётчик «в работе» в списке иначе врал бы про идущие там задачи.
  *
- * Порядок здесь и есть порядок списка на экране: `offices()` отдаёт офисы по
- * времени создания, и тот же `createdAt` уезжает в веб — чтобы рейл, модалка
- * и главный экран сортировали одинаково, а не каждый по-своему.
+ * Порядок здесь и есть порядок списка на экране: `offices()` отдаёт офисы уже
+ * упорядоченными (`compareOffices`), и оба ключа этого порядка — ручная
+ * расстановка `order` и время создания `createdAt` — уезжают в веб, чтобы
+ * рейл, модалка и главный экран сортировали одинаково, а не каждый по-своему.
  */
 export const officeViews = (): OfficeView[] => {
   const current = currentOffice();
@@ -4006,6 +4023,13 @@ export const officeViews = (): OfficeView[] => {
     return {
       id: o.id, name: o.name, projectDir: o.projectDir, noProject: o.noProject === true,
       current: o.id === current?.id, createdAt: o.createdAt, lastOpenedAt: o.lastOpenedAt,
+      // Ручной порядок уезжает только если он есть: «руками не двигали» и
+      // «стоит нулевым» для сортировки разные вещи — во втором случае офис
+      // всплыл бы наверх списка.
+      ...(typeof o.order === 'number' ? { order: o.order } : {}),
+      // Архив — свойство самой записи, а не сводки активности: архивный офис
+      // в памяти не живёт, и спрашивать про него состояние не у кого.
+      archived: o.archived === true,
       // Поля нет, если иконку не задавали: «нет иконки» и «иконка пустая» для
       // веба разные вещи — во втором случае он рисовал бы пустоту. Картинка
       // уезжает адресом, а не путём к файлу: с диска браузер её не откроет,
@@ -4269,7 +4293,7 @@ export function subscribeOffices(fn: OfficeListener): void {
 export function openOfficeState(
   entry: {
     id: string; projectDir: string; stateFile: string;
-    initTeam?: 'manager-only'; paused?: boolean;
+    initTeam?: 'manager-only'; paused?: boolean; archived?: boolean;
   },
 ): { state: OfficeState; restored: boolean; reused: boolean } {
   const state = getOffice(entry.id);
@@ -4289,6 +4313,11 @@ export function openOfficeState(
   // Раньше первой раздачи задач: и надзор, и планировщик включаются после
   // открытия, и оба смотрят на этот признак.
   state.paused = entry.paused ?? officePaused(entry.id);
+  // Архив вспоминаем тем же способом и там же: открывать архивный офис никто
+  // не должен, но если состояние подняли напрямую записью реестра, признак
+  // обязан приехать вместе с ней — иначе поднятая копия начала бы раздавать
+  // задачи проекта, который больше не ведут.
+  state.archived = entry.archived ?? officeArchived(entry.id);
   return { state, restored, reused: false };
 }
 

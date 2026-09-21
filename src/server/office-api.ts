@@ -1,6 +1,7 @@
 /**
- * Серверный API офисов: список, создание, переключение и скрытие, плюс
- * привязка подключённого клиента к тому офису, который он смотрит.
+ * Серверный API офисов: список, создание, переключение, перестановка и
+ * скрытие, плюс привязка подключённого клиента к тому офису, который он
+ * смотрит.
  *
  * Живёт отдельно от index.ts по двум причинам. Во-первых, это цельная часть
  * контракта: одни и те же правила («список без скрытых», «отказ уходит
@@ -10,11 +11,12 @@
  */
 import type { ClientCommand, OfficeOp, ServerEvent } from '../shared/types';
 import {
-  getOffice, isOpened, officeViews, runningTasksOf, unloadOfficeState, type OfficeState,
+  getOffice, isOpened, officeViews, openedOffices, runningTasksOf, unloadOfficeState,
+  type OfficeState,
 } from './state';
 import {
-  createOffice, currentOffice, officeById, removeOffice, renameOffice, setCurrent, setOfficeIcon,
-  setUiLanguage, uiLanguage, type OfficeEntry,
+  createOffice, currentOffice, officeById, removeOffice, renameOffice, reorderOffice, setCurrent,
+  setOfficeArchived, setOfficeIcon, setUiLanguage, uiLanguage, type OfficeEntry,
 } from './offices';
 import { stopSupervisor } from './supervisor';
 import { stopHealth } from './health';
@@ -243,9 +245,9 @@ export async function greet(ws: Sink, startup: Promise<string | null>): Promise<
 
 /**
  * Погасить офис целиком: надзор, живые сессии, хвост записи на диск и место
- * в памяти. Зовётся при скрытии офиса из списка — до этого поднятый офис жил
- * до конца процесса, и десяток проектов за смену означал десяток досок в
- * памяти и десяток тикающих надзирателей.
+ * в памяти. Зовётся при скрытии офиса из списка и при уборке его в архив —
+ * до этого поднятый офис жил до конца процесса, и десяток проектов за смену
+ * означал десяток досок в памяти и десяток тикающих надзирателей.
  *
  * Первым гасим надзор: его проход перезапускает конвейеры и будит сессии, и
  * попади он между закрытием сессий и удалением состояния — офис ожил бы уже
@@ -301,6 +303,13 @@ export async function switchOffice(officeId: string, ws?: Sink): Promise<void> {
   const target = officeById(officeId);
   if (!target || target.hidden) {
     refuse('switch', officeId, c('offices.notFound', { id: officeId }), ws);
+    return;
+  }
+  // Архивный офис не открывается: открытие и есть начало работы — состояние
+  // в памяти, надзор, сессии. Из списка он при этом не пропадает, иначе
+  // вернуть его было бы неоткуда.
+  if (target.archived) {
+    refuse('switch', officeId, c('office.archivedOpen', { name: target.name }), ws);
     return;
   }
 
@@ -456,6 +465,23 @@ export function handleOfficeCommand(cmd: ClientCommand, ws: Sink): boolean {
     else broadcastOffices();
     return true;
   }
+  if (cmd.c === 'reorder_office') {
+    const problem = reorderOffice(cmd.officeId, cmd.index);
+    if (problem) {
+      refuse('reorder', cmd.officeId, problem, ws);
+      return true;
+    }
+    // Порядок списка уходит всем сокетам, а не только тому, кто перетаскивал:
+    // рейл с офисами висит в каждой вкладке, и во второй он иначе остался бы
+    // с прежним порядком до перезагрузки страницы.
+    broadcastOffices();
+    // И снапшот тем, кто смотрит открытые офисы: список офисов лежит внутри
+    // снапшота, и без этого доска показывала бы старый порядок до следующего
+    // события. Снапшот идёт КАЖДОМУ поднятому офису: порядок общий на процесс,
+    // а не свойство того офиса, в котором нажали.
+    for (const state of openedOffices()) broadcastSnapshot(state);
+    return true;
+  }
   if (cmd.c === 'set_office_icon') {
     const problem = setOfficeIcon(cmd.officeId, cmd.icon ?? null);
     if (problem) {
@@ -470,6 +496,59 @@ export function handleOfficeCommand(cmd: ClientCommand, ws: Sink): boolean {
     // следующего события.
     const state = isOpened(cmd.officeId) ? getOffice(cmd.officeId) : null;
     if (state) broadcastSnapshot(state);
+    return true;
+  }
+  if (cmd.c === 'archive_office') {
+    const office = officeById(cmd.officeId);
+    if (!office || office.hidden) {
+      refuse('archive', cmd.officeId, c('offices.notFound', { id: cmd.officeId }), ws);
+      return true;
+    }
+    // Уже в том состоянии, которое просят: отвечаем списком, а не отказом —
+    // две вкладки вполне могут нажать одно и то же.
+    if ((office.archived === true) === cmd.archived) {
+      broadcastOffices();
+      return true;
+    }
+    if (!cmd.archived) {
+      // Возврат из архива ничего не поднимает: офис становится обычным, и
+      // человек входит в него тем же переключением, что и в любой другой.
+      setOfficeArchived(office.id, false);
+      here?.addLog(null, 'system', c('office.unarchived', { name: office.name }));
+      broadcastOffices();
+      return true;
+    }
+    // Дальше — уборка в архив. Запреты те же, что у скрытия из списка, и по
+    // тем же причинам: архивация гасит офис целиком.
+    // Идущая работа: оборвать её на середине означало бы бросить ветку и
+    // рабочую копию посередине задачи.
+    const running = runningTasksOf(office.id);
+    if (running.length) {
+      refuse('archive', office.id,
+        c('office.archiveBusy', { name: office.name, tasks: running.join(', ') }), ws);
+      return true;
+    }
+    // На офис смотрят — свой или чужой вкладкой: у зрителя просто перестали бы
+    // работать команды, потому что состояние выгружено.
+    if (viewers(office.id)) {
+      refuse('archive', office.id, c('office.archiveOpenElsewhere', { name: office.name }), ws);
+      return true;
+    }
+    // Офис прямо сейчас поднимается: выгрузить его посередине значит получить
+    // обратно офис с надзором и сессиями — уже архивный.
+    if (opening.has(office.id)) {
+      refuse('archive', office.id, c('office.archiveOpening', { name: office.name }), ws);
+      return true;
+    }
+    setOfficeArchived(office.id, true);
+    // Признак — на живое состояние до выгрузки: между этими двумя строками
+    // офис ещё может успеть дёрнуть надзор или раздачу задачи.
+    if (isOpened(office.id)) getOffice(office.id).archived = true;
+    // И гасим: надзор, сессии, хвост записи, место в памяти. Файлы целы —
+    // архив это не удаление.
+    unloadOffice(office.id);
+    here?.addLog(null, 'system', c('office.archived', { name: office.name }));
+    broadcastOffices();
     return true;
   }
   if (cmd.c === 'remove_office') {

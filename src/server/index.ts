@@ -30,7 +30,8 @@ import { applyProposal } from './selfchange';
 import { RITUAL_IDS } from '../shared/types';
 import { githubToken, setGithubToken } from './cloud';
 import {
-  clearInitFlag, currentOffice, ensureOffice, loadRegistry, officeById, setCurrent, uiLanguage,
+  clearInitFlag, currentOffice, ensureOffice, loadRegistry, officeById, offices, setCurrent,
+  uiLanguage,
   type OfficeEntry,
 } from './offices';
 import { handleOfficeIcon } from './officeicon';
@@ -141,8 +142,20 @@ if (process.env.OFFICE_PROJECT_DIR) {
   });
   setCurrent(wanted.id);
 }
-const opened = currentOffice();
-if (!opened) throw new Error(c('boot.noOffice'));
+const wanted = currentOffice();
+if (!wanted) throw new Error(c('boot.noOffice'));
+
+/**
+ * С каким офисом поднимаемся. Обычно это тот, который человек открывал
+ * последним, но архивный офис не поднимается ни при каких условиях: по нему
+ * не идёт никакая работа, а открытие — это уже работа. Тогда берём самый
+ * старый неархивный; нет и такого (все офисы в архиве) — не поднимаем ничего.
+ *
+ * Отметку «открыт сейчас» при подмене переставляем в реестре: иначе следующий
+ * запуск снова пришёл бы к архивному офису и снова искал замену.
+ */
+const opened = wanted.archived ? offices().find((o) => !o.archived) ?? null : wanted;
+if (opened && opened.id !== wanted.id) setCurrent(opened.id);
 
 /**
  * Причина, по которой стартовый офис не открылся, — или null, если открылся.
@@ -151,15 +164,21 @@ if (!opened) throw new Error(c('boot.noOffice'));
  * экраном. Держим и переменной, и значением обещания: обещание нужно тем,
  * кто подключается, пока офис ещё открывается, а переменная — командам,
  * которые придут уже после.
+ *
+ * «Все офисы в архиве» — такая же причина: сервер поднимается, список офисов
+ * отдаётся, и человеку есть чем ответить — вернуть офис из архива командой,
+ * для которой открытый офис не нужен.
  */
 let startupError: string | null = null;
-const startup: Promise<string | null> = openOffice(opened).then(() => null, (err: unknown) => {
-  startupError = c('boot.openFailed', {
-    name: opened.name, error: (err as Error).message, dir: opened.projectDir,
-  });
-  console.log(`⚠️  ${startupError}`);
-  return startupError;
-});
+const startup: Promise<string | null> = opened
+  ? openOffice(opened).then(() => null, (err: unknown) => {
+    startupError = c('boot.openFailed', {
+      name: opened.name, error: (err as Error).message, dir: opened.projectDir,
+    });
+    console.log(`⚠️  ${startupError}`);
+    return startupError;
+  })
+  : Promise.resolve(startupError = c('boot.allArchived'));
 
 // Досохранить перед выходом, чтобы не потерять последние события.
 for (const sig of ['SIGINT', 'SIGTERM'] as const) {
@@ -616,5 +635,6 @@ httpServer.listen(PORT);
 
 const built = existsSync(resolve(DIST, 'index.html'));
 console.log(c(built ? 'boot.listening' : 'boot.listeningNoWeb', { port: PORT }));
-console.log(c('boot.workingIn', { dir: opened.projectDir }));
+// Рабочей директории может и не быть: все офисы в архиве — тогда говорим об этом.
+console.log(opened ? c('boot.workingIn', { dir: opened.projectDir }) : c('boot.allArchived'));
 console.log(c(USING_KEY ? 'boot.paidApi' : 'boot.subscription'));
