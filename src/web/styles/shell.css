@@ -15,11 +15,21 @@
 .shell-main .office-box { width: 100%; height: 100%; }
 .shell .office3d { border: none; border-radius: 0; }
 .shell .office3d canvas { border-radius: 0; }
-/* Чипы камеры — из-под рейла в правый нижний угол, над композером. */
-.shell .cam-chips { left: auto; right: var(--space-6); bottom: 124px; }
+/* Чипы камеры — из-под рейла в правый нижний угол, над композером. Низ, как у
+   видов ниже, отмеряем от реальной высоты композера (`--composer-h`): поле
+   резиновое, и фиксированные 124px с многострочным вводом уходили под него. */
+.shell .cam-chips {
+  left: auto; right: var(--space-6);
+  bottom: calc(var(--composer-h, 96px) + var(--gap) + var(--space-4));
+}
 /* Бейдж режима разработчика — из-под рейла к левому краю сцены, в верхний ряд. */
 .shell .dev3d-badge { left: calc(var(--edge) + var(--space-4)); top: var(--space-4); }
-.shell .toasts { bottom: 120px; left: calc(var(--edge) + (100% - var(--edge) - 24px) / 2); }
+/* Тосты всплывают над композером по той же мерке — иначе выросшее поле
+   накрывало бы нижний тост. */
+.shell .toasts {
+  bottom: calc(var(--composer-h, 96px) + var(--gap) + var(--space-4));
+  left: calc(var(--edge) + (100% - var(--edge) - 24px) / 2);
+}
 
 /* Доска и чат занимают место сцены между верхним рядом и композером.
    Низ отмеряем от реальной высоты композера (`--composer-h` ставит он сам,
@@ -204,6 +214,9 @@
 .shell-composer textarea {
   background: none; border: none; padding: 0; resize: none;
   font-size: var(--fs-md); line-height: 1.4; color: var(--ink); min-height: 20px;
+  /* Поле внутри карточки не выделяется само по себе, и общий радиус из кита
+     здесь только подрезал буквы по углам: скругление оставляем карточке. */
+  border-radius: 0;
 }
 .shell-composer textarea:focus { border: none; }
 .shell-composer-row { display: flex; align-items: center; gap: var(--space-2); }
