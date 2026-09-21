@@ -3,8 +3,10 @@
    разом можно на стенде `?kit=1`. */
 
 /* ---------- кнопка ----------
-   Пилюля 32 px на плёнке, без рамки. Главное действие — синяя с тенью,
-   как «Поставить задачу» в макете. */
+   Пилюля 32 px на плёнке, без рамки. Главное действие — синяя заливка,
+   как «Поставить задачу» в макете; тень ей не нужна — заливка акцентом уже
+   отделяет её от фона. Кнопка над сценой (та же «Поставить задачу» в
+   верхнем ряду) получает тень отдельно, в shell.css. */
 button {
   display: inline-flex; align-items: center; justify-content: center; gap: 6px;
   min-height: var(--control-h); padding: 0 14px;
@@ -20,7 +22,6 @@ button:disabled { opacity: .45; cursor: default; }
 button.primary, button.on {
   background: var(--accent); color: var(--accent-ink);
 }
-button.primary { box-shadow: var(--shadow-float); }
 button.primary:hover:not(:disabled), button.on:hover:not(:disabled) {
   background: var(--accent); filter: brightness(1.08);
 }
@@ -48,12 +49,23 @@ button.dashed:hover:not(:disabled) { background: var(--film); }
   font-size: var(--fs-small); font-weight: 500; line-height: 1.4;
 }
 
-/* ---------- карточка ----------
-   Всё, что плавает над сценой: рейл, тост, композер, список офисов. */
+/* ---------- карточка над сценой ----------
+   Только для того, что реально плавает над трёхмерной сценой или над
+   затемнением: рейл, тост, композер, окна офиса, всплывающие меню. На
+   плоских экранах (доска, настройки, команда, главный экран) этот класс не
+   вешать — там поверхность без тени, `.card` ниже. */
 .float {
   background: var(--surface); color: var(--ink-2);
   border: 1px solid var(--hairline); border-radius: var(--radius-card);
   box-shadow: var(--shadow-float);
+}
+
+/* ---------- карточка на плоском экране ----------
+   Тот же язык поверхности, что у `.float`, но без тени: под ней обычный фон
+   приложения, а не сцена, — разделяет только волосяная граница. */
+.card {
+  background: var(--surface); color: var(--ink-2);
+  border: 1px solid var(--hairline); border-radius: var(--radius-card);
 }
 
 /* ---------- поле ввода ---------- */
@@ -90,16 +102,18 @@ kbd {
 .tip-item + .tip-item::before { content: '·'; color: var(--ink-3); margin-right: 2px; }
 
 /* ---------- сегменты ----------
-   «Офис · Доска · Чат»: белая пилюля с тенью, активный сегмент — синяя
-   пилюля внутри. Кнопки внутри теряют подложку кнопки. */
+   Белая пилюля, активный сегмент — синяя пилюля внутри. Кнопки внутри
+   теряют подложку кнопки. На плоских экранах граница из `--hairline`
+   отделяет её от фона; переключатель видов «Офис · Доска · Чат» в верхнем
+   ряду шапки — над сценой, там вместо границы тень (`.shell-top .seg` в
+   shell.css). */
 .seg {
   display: inline-flex; padding: 3px;
-  background: var(--surface); border-radius: var(--radius-pill);
-  box-shadow: var(--shadow-float);
+  background: var(--surface); border: 1px solid var(--hairline); border-radius: var(--radius-pill);
 }
 .seg button {
   min-height: 26px; padding: 0 18px; background: none; color: var(--ink);
-  font-weight: 400; box-shadow: none;
+  font-weight: 400;
 }
 .seg button:hover:not(:disabled) { background: var(--film); }
 .seg button.on { background: var(--accent); color: var(--accent-ink); font-weight: 500; }
@@ -116,7 +130,11 @@ kbd {
 
 /* ---------- бейдж агента ----------
    Белая пилюля над головой: значок роли своего цвета с номером и точка
-   состояния. Цвет значка приходит из настроек роли — в разметке. */
+   состояния. Цвет значка приходит из настроек роли — в разметке.
+
+   Здесь только подложка и её содержимое в одну строку. В сцене офиса тот же
+   бейдж раскладывается в две строки (задача справа, текущая команда снизу) —
+   раскладка для сцены живёт в `scene.css` под `.tag3d`. */
 .agent-badge {
   display: inline-flex; align-items: center; gap: 2px; padding: 2px;
   background: var(--surface); border-radius: var(--radius-pill);

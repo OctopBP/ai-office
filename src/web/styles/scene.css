@@ -75,19 +75,53 @@
   white-space: nowrap; pointer-events: none; user-select: none;
 }
 
-/* Подписи и пузыри трёхмерного офиса. Классы свои, а не общие с плоским:
+/* Подпись над головой в трёхмерном офисе — один бейдж на одной подложке
+   (`.agent-badge` из kit.css): сверху код агента, точка состояния и код
+   задачи, снизу текущая команда. Классы свои, а не общие с плоским офисом:
    там карточка позиционируется от спрайта фиксированными отступами
    (`top: 82px` — это ровно под человечком в 48×72), а здесь её ставит на
-   место сама сцена, и от CSS нужно только оформление. Бейдж — общий с новой
-   оболочкой (`.agent-badge` из kit.css), остальное — плавающие карточки в
-   том же языке: поверхность, волосяная граница, тень `--shadow-float`. */
-.tag3d { position: relative; display: flex; flex-direction: column; align-items: center; gap: var(--space-1); }
-.tag3d-bubble {
-  background: var(--surface); color: var(--ink-2);
-  border: 1px solid var(--hairline); border-radius: var(--radius-card);
-  box-shadow: var(--shadow-float);
-  padding: var(--space-1) var(--space-2); font-size: var(--fs-small); white-space: nowrap;
-  max-width: 320px; overflow: hidden; text-overflow: ellipsis;
+   место сама сцена, и от CSS нужно только оформление.
+
+   `.tag3d` — точка привязки нулевого размера: `Html center` ставит её ровно
+   над макушкой, а бейдж висит на ней нижним краем и растёт ВВЕРХ. Так
+   появление и исчезновение нижней строки не двигает ни агента, ни верхнюю
+   строку, и бейдж никогда не наползает на голову. */
+.tag3d { position: relative; width: 0; height: 0; }
+.tag3d .agent-badge {
+  --role: var(--ink-4);
+  position: absolute; left: 50%; bottom: 0; transform: translateX(-50%);
+  flex-direction: column; align-items: stretch; gap: 1px;
+  /* Пилюля годится для одной строки, для двух она превращается в капсулу с
+     полукруглыми боками — берём скругление строки, на однострочном бейдже
+     высотой в 22 px оно и так читается почти как пилюля. */
+  border-radius: var(--radius-row);
+  /* Цвет роли на всём бейдже, а не только на значке: волосяной обводкой —
+     она связывает обе строки в одну плашку и в дневной теме, и в ночной.
+     Сам цвет приходит из настроек роли в разметке, новых красок нет. */
+  border: 1px solid color-mix(in srgb, var(--role) 55%, transparent);
+  /* Потолок ширины: без него длинная команда растянула бы бейдж на полкомнаты
+     и он перекрыл бы соседей. */
+  max-width: 164px;
+}
+.tag3d .agent-badge-head { display: flex; align-items: center; gap: 2px; }
+/* Код задачи — справа от точки состояния, приглушённым моноширинным: это
+   спутник кода агента, а не второй такой же ярлык. */
+.tag3d .agent-badge-task {
+  margin-left: auto; padding: 0 var(--space-1);
+  font: 600 var(--fs-caption)/1.6 var(--font-mono); letter-spacing: .02em;
+  color: var(--ink-3); background: var(--film-2); border-radius: var(--radius-icon);
+  white-space: nowrap;
+}
+/* Текущая команда. Одна строка с многоточием: полный текст всё равно виден в
+   ленте агента, а две строки здесь превратили бы бейдж в карточку.
+
+   Ширина строки фиксированная, а не по тексту: команды меняются по несколько
+   раз в минуту, и бейдж, подогнанный под каждую, дёргался бы в ширину без
+   остановки. Вместе с отступами она и задаёт те самые 164 px потолка. */
+.tag3d .agent-badge-note {
+  width: 156px; padding: 0 var(--space-1) 1px;
+  font: 500 var(--fs-caption)/1.5 var(--font); color: var(--ink-3);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
 
 /* Подписи нажимаемых предметов: горячая клавиша у доски и лога, счётчик
@@ -118,17 +152,7 @@
   display: flex; align-items: center; justify-content: center;
 }
 
-/* Задача — своя табличка под бейджем. Тот же плавающий стиль, что у пузыря
-   реплики: белая карточка с волосяной границей, без толстой обводки и без
-   моноширинного шрифта — тот остаётся только для голого ID на столе
-   (`.tag3d-plate`), а тут рядом с ним ещё и название задачи. */
-.tag3d-task {
-  background: var(--surface); color: var(--ink-2);
-  border: 1px solid var(--hairline); border-radius: var(--radius-card);
-  box-shadow: var(--shadow-float);
-  padding: 0 var(--space-2); font-size: var(--fs-caption); line-height: 1.5; text-align: center;
-  max-width: 160px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
-}
+/* Голый код задачи на столе — моноширинным, как ярлык на папке. */
 .tag3d-plate {
   font: 700 var(--fs-small)/1.5 var(--font-mono); letter-spacing: .04em;
   color: var(--surface); background: var(--ink); border-radius: var(--radius-icon); padding: 0 var(--space-1);

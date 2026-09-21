@@ -52,12 +52,11 @@
   padding: 10px 10px 8px;
   background: var(--surface); color: var(--ink-2);
   border: 1.5px solid rgba(var(--node-rgb), .55); border-radius: var(--radius-card);
-  box-shadow: 0 1px 2px rgba(0, 0, 0, .06);
   font-size: var(--fs-small);
 }
-.flow-node.pick { cursor: pointer; transition: box-shadow .12s, border-color .12s; }
-.flow-node.pick:hover { border-color: rgba(var(--node-rgb), .9); box-shadow: 0 3px 10px rgba(0, 0, 0, .1); }
-.flow-node.on { border-color: var(--node-hue); box-shadow: 0 0 0 3px rgba(var(--node-rgb), .18), 0 3px 10px rgba(0, 0, 0, .1); }
+.flow-node.pick { cursor: pointer; transition: border-color .12s; }
+.flow-node.pick:hover { border-color: rgba(var(--node-rgb), .9); }
+.flow-node.on { border-color: var(--node-hue); box-shadow: 0 0 0 3px rgba(var(--node-rgb), .18); }
 .flow-node.live { background: color-mix(in srgb, var(--node-hue) 6%, var(--surface)); }
 .flow-node.kind-step { --node-hue: var(--accent); --node-rgb: var(--accent-rgb); }
 .flow-node.kind-check { --node-hue: var(--ink-3); --node-rgb: 110, 110, 110; }

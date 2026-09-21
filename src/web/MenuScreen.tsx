@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react';
 import {
-  formatLastOpened, retryConnect, setUiLanguage, sortedOffices, summarizeOfficeActivity, useStore,
+  activeOffices, formatLastOpened, retryConnect, setUiLanguage, summarizeOfficeActivity, useStore,
   type ThemeMode,
 } from './store';
 import { LANGS, LANG_TITLE } from '../shared/i18n';
@@ -61,7 +61,11 @@ export function MenuScreen() {
   const dismissMenuNotice = useStore((s) => s.dismissMenuNotice);
 
   const [creating, setCreating] = useState(false);
-  const list = useMemo(() => sortedOffices(offices), [offices]);
+  // Архивные офисы на главный экран не выходят — ни карточкой, ни строкой
+  // расходов: архив виден только в модалке офисов, откуда офис и возвращают.
+  // Деньги архивного офиса вместе с ним уходят и из итогов вкладки расходов —
+  // иначе сумма сверху не сходилась бы со строками под ней.
+  const list = useMemo(() => activeOffices(offices), [offices]);
 
   // Вкладку настроек показываем и без сервера: тема и картинка комнаты живут
   // на этом компьютере, а язык интерфейса без связи просто не переключается
@@ -146,7 +150,7 @@ function OfficeCard({ office: o }: { office: OfficeView }) {
   const spent = o.activity?.usage.costUsd ?? 0;
   const today = o.activity?.today.costUsd ?? 0;
   return (
-    <button className={`office-card float${o.current ? ' current' : ''}`}
+    <button className={`office-card card${o.current ? ' current' : ''}`}
       onClick={() => enterOffice(o.id)} title={o.projectDir}>
       <span className="office-card-top">
         <OfficeAvatar office={o} />
@@ -199,21 +203,21 @@ function Spending({ offices }: { offices: OfficeView[] }) {
   return (
     <div className="home-spending">
       <div className="home-stats">
-        <div className="home-stat float">
+        <div className="home-stat card">
           <span className="muted small">{t('common.today')}</span>
           <b>{money(today)}</b>
         </div>
-        <div className="home-stat float">
+        <div className="home-stat card">
           <span className="muted small">{t('usage.allTime')}</span>
           <b>{money(total)}</b>
         </div>
       </div>
 
-      <section className="home-panel float">
+      <section className="home-panel card">
         <LimitBars />
       </section>
 
-      <section className="home-panel float">
+      <section className="home-panel card">
         <div className="section-title">{t('home.spending.byOffice')}</div>
         {total === 0 && <p className="muted">{t('home.spending.none')}</p>}
         <div className="home-spend-rows">
@@ -264,7 +268,7 @@ function AppSettings() {
 
   return (
     <div className="home-settings">
-      <section className="home-panel float">
+      <section className="home-panel card">
         <div className="section-title">{t('home.settings.app')}</div>
 
         <h4>{t('settings.lang.ui')}</h4>
@@ -282,7 +286,7 @@ function AppSettings() {
         <p className="hint">{t('settings.lang.ui.hint')}</p>
       </section>
 
-      <section className="home-panel float">
+      <section className="home-panel card">
         <div className="section-title">{t('home.settings.device')}</div>
 
         <h4>{t('settings.theme')}</h4>
