@@ -217,6 +217,21 @@ async function busyIntegration(check: (name: string, ok: boolean) => void): Prom
     afterStale.ok === true && afterStale.stage === 'merged');
   check('слияние собрано в основном каталоге', afterStale.integrationDir === stale);
   check('main сдвинулся', git('rev-parse', 'main') !== headBefore);
+  console.log('DIAG git', execFileSync('git', ['--version']).toString().trim());
+  console.log('DIAG afterStale', JSON.stringify({ ok: afterStale.ok, stage: afterStale.stage, warnings: afterStale.warnings }));
+  {
+    const probe = resolve(holder, 'probe', 'wt');
+    execFileSync('git', ['worktree', 'add', '--detach', probe, 'main'], { cwd: dir });
+    rmSync(probe, { recursive: true, force: true });
+    try {
+      const out = execFileSync('git', ['worktree', 'add', '--detach', probe, 'main'], { cwd: dir, stdio: 'pipe' });
+      console.log('DIAG re-add over stale record: OK', out.toString().trim());
+    } catch (e) {
+      console.log('DIAG re-add over stale record: REFUSED', String((e as { stderr?: Buffer }).stderr));
+    }
+    try { execFileSync('git', ['worktree', 'remove', '--force', probe], { cwd: dir, stdio: 'pipe' }); } catch { /* пусто */ }
+    execFileSync('git', ['worktree', 'prune'], { cwd: dir });
+  }
   check('в отчёте сказано про prune',
     afterStale.warnings.some((w) => w.includes('worktree prune')));
   rmSync(stale, { recursive: true, force: true });

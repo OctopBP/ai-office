@@ -418,6 +418,9 @@ async function main(): Promise<void> {
   await sleep(20);
   check('каждый клиент получил только своё',
     a.count('chat', aSplit) === 1 && b.count('chat', bSplit) === 1);
+  for (const [n, c, from] of [['a', a, aSplit], ['b', b, bSplit]] as const) {
+    console.log('DIAG', n, JSON.stringify(c.events.slice(from).map((e) => (e.t === 'chat' ? ['chat', e.entry.from, e.entry.thread, e.entry.text.slice(0, 200)] : e.t))));
+  }
   check('первому пришла именно его реплика',
     a.last('chat', aSplit)?.entry.text === 'это первому');
   check('второму пришла именно его реплика',
