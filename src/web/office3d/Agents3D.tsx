@@ -15,7 +15,7 @@
  * мерить второе часами первого значит получать рывки на каждой заминке.
  * Офис остаётся визуализацией событий, а не их источником (CONCEPT.md §2).
  */
-import { Suspense, useEffect, useMemo, useRef, useState } from 'react';
+import { type CSSProperties, Suspense, useEffect, useMemo, useRef } from 'react';
 import { useFrame, useLoader } from '@react-three/fiber';
 import { Html } from '@react-three/drei';
 import * as THREE from 'three';
@@ -398,28 +398,36 @@ function Ring({ color }: { color: string }) {
 }
 
 /**
- * Подпись над головой: кто это, что делает и над чем. Бейдж — тот же, что в
- * новой оболочке (`.agent-badge` из kit.css); плоский офис рисует ту же
- * информацию по-своему, старым пиксельным стилем — переносить его на этот
- * рендер не входило в задачу.
+ * Подпись над головой: кто это, над чем работает и что делает прямо сейчас —
+ * всё в одном бейдже на одной подложке (`.agent-badge` из kit.css, раскладка
+ * для сцены — в scene.css). Раньше над агентом висели три отдельные плашки
+ * (пузырь с командой, бейдж и табличка задачи); над восемью агентами это
+ * превращалось в три этажа карточек, перекрывающих друг друга.
+ *
+ * Верхняя строка — код агента, точка состояния и код задачи; нижняя —
+ * текущая команда. Нет задачи или нет команды — соответствующая часть просто
+ * отсутствует, и бейдж сжимается. Плоский офис рисует ту же информацию
+ * по-своему, старым пиксельным стилем — переносить его на этот рендер не
+ * входило в задачу.
  *
  * Сделана обычным DOM поверх канваса (`Html` из drei), а не текстурой с
  * текстом: текст остаётся настоящим текстом — чётким на любом зуме, с теми же
  * шрифтом и цветами темы, что во всём остальном интерфейсе. Мышь она не
  * ловит, иначе карточки перехватывали бы вращение камеры.
  */
-function AgentTag({ inst, role, task, expanded }: {
+function AgentTag({ inst, role, task }: {
   inst: InstanceView;
   role?: RoleView;
   task?: TaskView | null;
-  /** Показывать табличку задачи, а не только бейдж. */
-  expanded: boolean;
 }) {
   const chipColor = role?.color || NO_ROLE_COLOR;
   // Подпись висит над макушкой стоящего — и остаётся там же, когда агент
   // сядет: карточки восьми агентов и так липнут друг к другу, а прыгающая
   // вслед за посадкой подпись читалась бы ещё хуже.
   const tall = useFit((s) => s.fit.figure.tall);
+  // Свободному агенту показывать нечего: команда у него осталась от прошлой
+  // задачи, и висела бы над головой до самой следующей.
+  const note = inst.state === 'idle' ? null : inst.note;
   return (
     <Html
       center
@@ -428,26 +436,33 @@ function AgentTag({ inst, role, task, expanded }: {
       zIndexRange={[100, 0]}
       style={{ pointerEvents: 'none', userSelect: 'none' }}
     >
+      {/* `.tag3d` — точка привязки нулевого размера, бейдж растёт от неё
+          вверх (см. scene.css). Иначе `center` у `Html` держал бы по центру
+          середину бейджа, и каждое появление нижней строки сдвигало бы
+          верхнюю — над неподвижным агентом подпись дёргалась бы сама. */}
       <div className="tag3d">
-        {inst.note && inst.state !== 'idle' && <div className="tag3d-bubble">{inst.note}</div>}
-        {/* Тот же бейдж, что в макете: белая пилюля, значок роли цветом
-            роли из её настроек и точка состояния. Название должности сюда
-            не помещается — в макете у бейджа его нет, он остаётся в
-            карточке агента и в панели команды. */}
-        <div className="agent-badge" title={inst.name && role ? `${inst.label} · ${role.title}` : (role?.title ?? inst.label)}>
-          <span
-            className="agent-badge-role"
-            style={{ background: chipColor, color: inkOn(chipColor) }}
-          >
-            {shortCode(inst.roleId, inst.id)}
-          </span>
-          <span
-            className={`agent-badge-dot${STATE_DOT[inst.state] ? ` ${STATE_DOT[inst.state]}` : ''}`}
-            title={stateText(inst.state)}
-          />
+        <div
+          className="agent-badge"
+          // Цвет роли уезжает в CSS переменной: им красится и значок, и
+          // обводка всей подложки — см. `.tag3d .agent-badge` в scene.css.
+          style={{ '--role': chipColor } as CSSProperties}
+          title={inst.name && role ? `${inst.label} · ${role.title}` : (role?.title ?? inst.label)}
+        >
+          <div className="agent-badge-head">
+            <span
+              className="agent-badge-role"
+              style={{ background: chipColor, color: inkOn(chipColor) }}
+            >
+              {shortCode(inst.roleId, inst.id)}
+            </span>
+            <span
+              className={`agent-badge-dot${STATE_DOT[inst.state] ? ` ${STATE_DOT[inst.state]}` : ''}`}
+              title={stateText(inst.state)}
+            />
+            {task && <span className="agent-badge-task" title={task.title}>{task.id}</span>}
+          </div>
+          {note && <div className="agent-badge-note">{note}</div>}
         </div>
-        {/* Задача — отдельной табличкой под бейджем. */}
-        {expanded && task && <div className="tag3d-task">{task.id} · {task.title}</div>}
       </div>
     </Html>
   );
@@ -603,26 +618,12 @@ function Agent({
    * подъезжал бы к столу уже сидя, по воздуху.
    */
   const seat = useRef<THREE.Group>(null);
-  const [hovered, setHovered] = useState(false);
 
   /** Числа подгонки: рост фигуры, высоты посадки, скорость, IK. */
   const fit = useFit((s) => s.fit);
   const tall = fit.figure.tall;
   /** Высоты поверхностей у моделей набора — сиденья и столешницы. */
   const models = useModelMeasures();
-
-  /**
-   * Табличка задачи под бейджем — только там, где её есть смысл читать.
-   *
-   * Бейдж (значок должности с номером и точка состояния) виден всегда, как
-   * в макете. Табличка с кодом и названием задачи под ним — нет: восемь
-   * табличек превращаются в кашу, стоит агентам собраться рядом в зоне
-   * отдыха. Она появляется тогда, когда там правда есть что прочесть: агент
-   * выбран, под курсором, или занят делом. Свободный агент, стоящий в
-   * лаунже, ничего интересного ею не сообщает.
-   */
-  const idle = inst.state === 'idle' || inst.state === 'walking';
-  const expanded = selected || hovered || !idle;
 
   /**
    * Фигура, микшер и действия создаются одним куском.
@@ -1081,11 +1082,9 @@ function Agent({
         }}
         onPointerOver={(e: { stopPropagation: () => void }) => {
           e.stopPropagation();
-          setHovered(true);
           document.body.style.cursor = 'pointer';
         }}
         onPointerOut={() => {
-          setHovered(false);
           document.body.style.cursor = '';
         }}
       >
@@ -1093,7 +1092,7 @@ function Agent({
         <meshBasicMaterial transparent opacity={0} depthWrite={false} />
       </mesh>
       {ring && <Ring color={ring} />}
-      <AgentTag inst={inst} role={role} task={task} expanded={expanded} />
+      <AgentTag inst={inst} role={role} task={task} />
     </group>
   );
 }
