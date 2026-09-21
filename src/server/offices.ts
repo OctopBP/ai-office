@@ -7,7 +7,7 @@ import {
   existsSync, mkdirSync, readFileSync, realpathSync, renameSync, rmSync, statSync, writeFileSync,
 } from 'node:fs';
 import { homedir } from 'node:os';
-import { dirname, extname, relative, resolve, sep } from 'node:path';
+import { basename, dirname, extname, relative, resolve, sep } from 'node:path';
 import { compareOffices, type OfficeIcon } from '../shared/types';
 import { asLang, isLang, type Lang } from '../shared/i18n';
 import { c } from './i18n';
@@ -284,7 +284,7 @@ export function loadRegistry(defaultProjectDir: string, stateFile = DEFAULT_STAT
   }
   const first: OfficeEntry = {
     id: 'o-1',
-    name: defaultProjectDir.split('/').filter(Boolean).pop() ?? c('offices.defaultName'),
+    name: basename(defaultProjectDir) || c('offices.defaultName'),
     projectDir: defaultProjectDir,
     stateFile: stateAt,
     createdAt: Date.now(),
@@ -361,7 +361,7 @@ export function createOffice(input: {
   if (!input.projectDir.trim()) return { error: c('offices.needDir') };
   const projectDir = resolve(expandHome(input.projectDir.trim()));
   const name = input.name.trim()
-    || projectDir.split('/').filter(Boolean).pop()
+    || basename(projectDir)
     || c('offices.defaultName');
 
   const taken = registry.offices.find((o) => o.projectDir === projectDir);

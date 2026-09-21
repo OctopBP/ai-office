@@ -1,11 +1,11 @@
 import { readdirSync, readFileSync, statSync } from 'node:fs';
-import { dirname, resolve } from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { resolve } from 'node:path';
 import { applyOverride, desks as deskList, isEmptyOverride, pmDeskIndex, propKeys } from '../shared/layout';
 import type { Catalog, Layout, LayoutOverride, LayoutPropEdit } from '../shared/layout';
 import type { Desk, LayoutOption } from '../shared/types';
 import type { Lang } from '../shared/i18n';
 import { c, hasKey, t } from './i18n';
+import { ROOT } from './root';
 
 /**
  * Раскладка офиса для сервера: каталог спрайтов и раскладки лежат в design/,
@@ -19,7 +19,7 @@ import { c, hasKey, t } from './i18n';
  * Здесь нет ни одной величины «текущая раскладка»: офисов в памяти несколько,
  * у каждого свой layoutId, и любая функция получает его аргументом.
  */
-const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '../..');
+
 const LAYOUTS_DIR = resolve(ROOT, 'design/layouts');
 
 /**

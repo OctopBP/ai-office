@@ -1,0 +1,74 @@
+# Установщики приложения: по тегу `v*` собираются .dmg для macOS и .exe для
+# Windows и складываются в черновик релиза. Черновик, а не готовый релиз, —
+# сборку надо проверить руками на обеих системах, прежде чем её кто-то скачает.
+#
+# Движок Claude Code внутрь установщиков не кладётся: он проприетарный, и
+# приложение ставит его само при первом запуске (docs/design/desktop-app/spec.md §3).
+name: release
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-latest
+            target: mac
+          - os: windows-latest
+            target: win
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          # Сцена и текстуры лежат в LFS: без них веб соберётся с файлами-
+          # указателями вместо моделей, и офис приедет пустой комнатой.
+          lfs: true
+      - uses: actions/setup-node@v7
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+      - run: npm ci
+      - name: ресурсы приложения
+        run: npm run build:desktop
+      - name: зависимости оболочки
+        run: npm ci
+        working-directory: desktop
+      - name: установщик
+        run: npm run dist:${{ matrix.target }} -- --publish never
+        working-directory: desktop
+        env:
+          # Подпись включается секретами; без них сборка выходит
+          # неподписанной, и это рабочий режим для первых версий.
+          CSC_LINK: ${{ secrets.CSC_LINK }}
+          CSC_KEY_PASSWORD: ${{ secrets.CSC_KEY_PASSWORD }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+      - uses: actions/upload-artifact@v5
+        with:
+          name: ai-office-${{ matrix.target }}
+          path: |
+            desktop/out/*.dmg
+            desktop/out/*.exe
+          if-no-files-found: error
+
+  draft:
+    needs: build
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v6
+        with:
+          path: out
+          merge-multiple: true
+      - uses: softprops/action-gh-release@v2
+        with:
+          draft: true
+          files: out/*

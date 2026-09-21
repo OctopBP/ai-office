@@ -1,0 +1,62 @@
+# Сборка установщиков. Запускается из этой папки: `npm run dist`,
+# а ресурсы к этому моменту уже лежат в resources/ (npm run build:desktop).
+appId: dev.aioffice.app
+productName: AI Office
+copyright: Apache-2.0
+
+directories:
+  buildResources: build
+  output: out
+
+# В app.asar едет только оболочка. Ресурсы — отдельно: сервер читает их с
+# диска обычным fs, а внутри асара их пришлось бы распаковывать.
+files:
+  - main.js
+  - paths.js
+  - server.js
+  - engine.js
+  - preload.js
+  - boot.html
+  - build/icon.png
+  - package.json
+
+extraResources:
+  - from: resources
+    to: .
+  # Agent SDK перечислен отдельно: общий набор ресурсов electron-builder
+  # копирует своим фильтром, а тот выбрасывает node_modules — и SDK молча
+  # не доезжал в собранное приложение.
+  - from: resources/node_modules
+    to: node_modules
+
+mac:
+  category: public.app-category.developer-tools
+  icon: build/icon.icns
+  target:
+    - target: dmg
+      arch: [arm64, x64]
+  hardenedRuntime: true
+  entitlements: build/entitlements.mac.plist
+  entitlementsInherit: build/entitlements.mac.plist
+  # Без сертификата в окружении сборка не падает, а выходит неподписанной:
+  # первым версиям этого хватает, а в CI подпись включают секреты.
+  identity: null
+
+win:
+  icon: build/icon.ico
+  target:
+    - target: nsis
+      arch: [x64]
+
+nsis:
+  oneClick: false
+  perMachine: false
+  allowToChangeInstallationDirectory: true
+  # Офис держит состояние в папке данных пользователя — её удаление при
+  # деинсталляции стёрло бы доски и журналы, а они не часть программы.
+  deleteAppDataOnUninstall: false
+
+publish:
+  provider: github
+  owner: OctopBP
+  repo: ai-office

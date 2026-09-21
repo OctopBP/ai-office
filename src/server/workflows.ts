@@ -12,12 +12,11 @@
  * человек редактирует файл и ждёт, что офис увидит его без перезапуска.
  */
 import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
-import { basename, dirname, resolve } from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { basename, resolve } from 'node:path';
 import { parseWorkflow, type Workflow, type WorkflowEntry } from '../shared/workflow';
 import type { OfficeState } from './state';
+import { ROOT } from './root';
 
-const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '../..');
 const DIR = resolve(ROOT, 'workflows');
 
 let cache: Map<string, Workflow> | null = null;

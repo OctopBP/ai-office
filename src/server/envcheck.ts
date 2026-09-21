@@ -15,6 +15,7 @@ import { codexStatus } from './providers/diagnostics';
 import { accessSync, constants, statSync } from 'node:fs';
 import { OFFICE_SENDER } from '../shared/types';
 import type { EnvCheck, EnvReport } from '../shared/types';
+import { claudeBin } from './providers';
 import { repoProblem } from './git';
 import type { Role } from './roles';
 import { criticalEnvFail } from './state';
@@ -31,7 +32,7 @@ import type { OfficeState, Task } from './state';
  * `repo:<roleId>` — потому что он мешает одной роли, а не офису, и общий стоп
  * из-за него остановил бы всех остальных.
  */
-const CRITICAL = new Set(['key', 'workdir', 'provider:codex']);
+const CRITICAL = new Set(['key', 'workdir', 'provider:codex', 'engine']);
 
 /** Проверка прошла: вопросов к окружению нет. */
 const ok = (id: string, title: string, detail: string): EnvCheck =>
@@ -58,6 +59,26 @@ function keyCheck(state: OfficeState): EnvCheck {
       : fail('key', title, state.say('env.key.cloudNone'), state.say('cloud.needApiKey'));
   }
   return ok('key', title, state.say(hasKey ? 'env.key.apiKey' : 'env.key.subscription'));
+}
+
+/**
+ * Движок агентов — нативный Claude Code, которым SDK и считает.
+ *
+ * Проверка живёт только в приложении (`OFFICE_APP=1`): запущенный из
+ * исходников офис получает движок пакетом рядом с SDK, и SDK находит его сам —
+ * повторять здесь его поиск значило бы завести второй ответ на тот же вопрос.
+ * У приложения такого пакета нет: движок ставится отдельно, и его отсутствие
+ * надо назвать до первой задачи, а не после её провала.
+ */
+function engineCheck(state: OfficeState): EnvCheck | null {
+  if (process.env.OFFICE_APP !== '1') return null;
+  // Как и проверка Codex рядом: движок нужен ровно тем, кто им считает.
+  if (!state.activeRoles().some((role) => providerOf(role) === 'claude-code')) return null;
+  const title = state.say('env.engine.title');
+  const bin = claudeBin();
+  return bin
+    ? ok('engine', title, state.say('env.engine.ok', { path: bin }))
+    : fail('engine', title, state.say('env.engine.none'), state.say('env.engine.noneFix'));
 }
 
 /**
@@ -140,6 +161,8 @@ function rolesCheck(state: OfficeState): EnvCheck {
  */
 export async function refreshEnvChecks(state: OfficeState): Promise<EnvReport> {
   const checks: EnvCheck[] = [keyCheck(state), dirCheck(state)];
+  const engine = engineCheck(state);
+  if (engine) checks.push(engine);
   try {
     checks.push(await gitCheck(state));
   } catch (err) {

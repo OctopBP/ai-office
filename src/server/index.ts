@@ -46,6 +46,10 @@ import { exportRole } from './export';
 import { flushAll } from './store';
 
 const PORT = Number(process.env.OFFICE_PORT ?? 3001);
+// Интерфейс, на котором слушаем. По умолчанию все — так офис открывается с
+// соседней машины, и это поведение менять не надо. Приложение ставит
+// 127.0.0.1: у него сервер свой, и в сеть ему выходить незачем.
+const HOST = process.env.OFFICE_HOST ?? '';
 const DEFAULT_DIR = resolve(process.env.OFFICE_PROJECT_DIR ?? './workspace');
 
 /** Режим проверки PM — свойство запуска, а не офиса: он же и у следующего. */
@@ -193,7 +197,9 @@ process.on('exit', () => flushAll());
  * запустить как приложение и спокойно работать над его же исходниками —
  * запущенный процесс держит код в памяти и от правок в репозитории не зависит.
  */
-const DIST = resolve(process.cwd(), 'dist');
+// Папку собранного веба можно указать снаружи: в приложении она лежит внутри
+// ресурсов, а не рядом с текущей директорией, — своей у приложения нет.
+const DIST = resolve(process.env.OFFICE_DIST_DIR ?? resolve(process.cwd(), 'dist'));
 const MIME: Record<string, string> = {
   '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8',
   '.css': 'text/css; charset=utf-8', '.json': 'application/json; charset=utf-8',
@@ -640,10 +646,16 @@ wss.on('connection', (ws) => {
   ws.on('close', () => unwatch(ws));
 });
 
-httpServer.listen(PORT);
-
-const built = existsSync(resolve(DIST, 'index.html'));
-console.log(c(built ? 'boot.listening' : 'boot.listeningNoWeb', { port: PORT }));
-// Рабочей директории может и не быть: все офисы в архиве — тогда говорим об этом.
-console.log(opened ? c('boot.workingIn', { dir: opened.projectDir }) : c('boot.allArchived'));
-console.log(c(USING_KEY ? 'boot.paidApi' : 'boot.subscription'));
+// Приветствие печатаем из колбэка, а не следом за listen: порт становится
+// известен только после привязки, а с OFFICE_PORT=0 его выбирает система — и
+// число из переменной было бы неправдой.
+const hello = (): void => {
+  const built = existsSync(resolve(DIST, 'index.html'));
+  const addr = httpServer.address();
+  const livePort = typeof addr === 'object' && addr ? addr.port : PORT;
+  console.log(c(built ? 'boot.listening' : 'boot.listeningNoWeb', { port: livePort }));
+  // Рабочей директории может и не быть: все офисы в архиве — тогда говорим об этом.
+  console.log(opened ? c('boot.workingIn', { dir: opened.projectDir }) : c('boot.allArchived'));
+  console.log(c(USING_KEY ? 'boot.paidApi' : 'boot.subscription'));
+};
+if (HOST) httpServer.listen(PORT, HOST, hello); else httpServer.listen(PORT, hello);

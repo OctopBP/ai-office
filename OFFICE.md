@@ -49,6 +49,8 @@ Node + TypeScript, React 19 + Zustand на фронте, `ws` для связи,
 | `src/server/overlap.ts` | Дублирующие правки: файлы и символы, которые после точки ветвления правили и основная ветка, и ветка задачи. Предупреждение гейта, слияние не блокирует (`npm run test:overlap`) |
 | `src/server/cloud.ts` | Облачный режим на Managed Agents (написан, вживую не проверен) |
 | `src/server/index.ts` | HTTP + WebSocket, раздача собранного веба, команды от клиента |
+| `desktop/`, `scripts/pack-desktop.mjs` | Приложение для macOS и Windows: окно, движок Claude Code, сервер отдельным процессом, установщики — `docs/design/desktop-app/spec.md` |
+| `src/server/root.ts` | Корень, от которого сервер читает пакеты, процессы, раскладки и реестр: репозиторий или ресурсы приложения |
 | `src/shared/types.ts` | Контракт между сервером и вебом |
 | `src/shared/looks.ts` | Внешности агентов: скины персонажа и запасные спрайты для аватарок |
 | `src/web/portraits.ts`, `src/web/Avatar.tsx` | Портреты для аватарок: `design/models/characters/portraits/<внешность>.png`; нет портрета — квадрат с кодом роли |
@@ -104,6 +106,7 @@ Node + TypeScript, React 19 + Zustand на фронте, `ws` для связи,
 ```
 npm run dev      # разработка: сервер с watch + vite на :5173
 npm run office   # как приложение: сборка + сервер со статикой на :3001
+npm run desktop  # настоящее приложение: окно Electron со своим сервером
 npm run typecheck
 npm run test:pm  # регрессия поведения менеджера (исполнители заглушены)
 

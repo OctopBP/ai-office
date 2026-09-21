@@ -21,11 +21,20 @@ export function createSdkMcpServer(options: Parameters<typeof claudeServer>[0]) 
   return server;
 }
 
+/**
+ * Чем считает claude-code. Пусто — SDK ищет свой нативный бинарь сам, рядом с
+ * собой: так устроен офис, поставленный из исходников. У приложения такого
+ * пакета нет — движок ставится отдельно, и путь к нему приходит переменной
+ * (см. docs/design/desktop-app/spec.md §3).
+ */
+export const claudeBin = (): string => process.env.OFFICE_CLAUDE_BIN ?? '';
+
 type Adapter = (request: SessionRequest) => AgentSession;
 const adapters: Record<ProviderId, Adapter> = {
   'claude-code': ({ prompt, options }) => {
     const { provider: _, ...sdk } = options;
-    return claudeQuery({ prompt, options: sdk });
+    const bin = claudeBin();
+    return claudeQuery({ prompt, options: bin ? { ...sdk, pathToClaudeCodeExecutable: bin } : sdk });
   },
   codex: codexQuery,
 };

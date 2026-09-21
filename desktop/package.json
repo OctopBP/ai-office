@@ -1,0 +1,20 @@
+{
+  "name": "ai-office-desktop",
+  "productName": "AI Office",
+  "version": "0.0.1",
+  "private": true,
+  "description": "Офис с видом сверху, где команда AI-агентов выполняет ваши задачи",
+  "license": "Apache-2.0",
+  "homepage": "https://github.com/OctopBP/ai-office",
+  "main": "main.js",
+  "scripts": {
+    "start": "electron .",
+    "dist": "electron-builder",
+    "dist:mac": "electron-builder --mac",
+    "dist:win": "electron-builder --win"
+  },
+  "devDependencies": {
+    "electron": "^44.4.3",
+    "electron-builder": "^26.15.3"
+  }
+}

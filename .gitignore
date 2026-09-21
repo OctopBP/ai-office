@@ -16,3 +16,8 @@ __pycache__/
 
 # Служебные файлы Finder.
 .DS_Store
+
+# Приложение: ресурсы и установщики собираются, в репозитории их нет
+desktop/node_modules/
+desktop/resources/
+desktop/out/

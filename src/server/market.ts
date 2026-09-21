@@ -26,7 +26,6 @@ import { cpSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, write
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { basename, dirname, resolve } from 'node:path';
-import { fileURLToPath } from 'node:url';
 import { execFile } from 'node:child_process';
 import type { Lang } from '../shared/i18n';
 import {
@@ -43,8 +42,7 @@ import {
 } from './packages';
 import type { PackageSource } from './roles';
 import type { OfficeState } from './state';
-
-const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '../..');
+import { ROOT } from './root';
 
 // --------------------------------------------------------------- реестр
 

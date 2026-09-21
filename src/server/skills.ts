@@ -40,14 +40,12 @@
 import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { basename, dirname, resolve } from 'node:path';
-import { fileURLToPath } from 'node:url';
 import type { SdkPluginConfig } from '@anthropic-ai/claude-agent-sdk';
 import type { McpServerDef } from '../shared/types';
 import { checkMcpServers } from './mcp';
 import { packageDir, parseManifest } from './packages';
 import type { Role } from './roles';
-
-const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '../..');
+import { ROOT } from './root';
 
 /**
  * Где офис ищет наборы ролей, заведённых руками. Имя папки — id роли.

@@ -15,7 +15,15 @@ or Russian; the docs are in Russian for now.*
 
 ## Быстрый старт
 
-Понадобится:
+Офис ставится приложением — `.dmg` для macOS и `.exe` для Windows — со
+страницы [релизов](https://github.com/OctopBP/ai-office/releases). Клон
+репозитория и Node для этого не нужны: движок Claude Code приложение ставит
+себе само при первом запуске, а состояние держит в папке данных пользователя.
+Подробности — [docs/guide/desktop.md](docs/guide/desktop.md).
+
+## Запуск из исходников
+
+Так офис запускают те, кто правит его сам. Понадобится:
 
 - **Node 22** (версия в `.nvmrc`);
 - **Git и Git LFS** — 3D-модели и текстуры лежат в LFS, без него сцена не
@@ -74,6 +82,7 @@ npm run dev        # http://localhost:5173
 | Файл | О чём |
 |---|---|
 | [docs/guide/running.md](docs/guide/running.md) | Запуск, подписка или API, переменные окружения, бриф `OFFICE.md`, все команды |
+| [docs/guide/desktop.md](docs/guide/desktop.md) | Приложение для macOS и Windows: установка, движок, папка данных, сборка установщика |
 | [docs/guide/office.md](docs/guide/office.md) | Интерфейс, язык, совещания, карточка агента, критерии готовности, пауза |
 | [docs/guide/team.md](docs/guide/team.md) | Роли и модели, найм, бюджеты, маркет пакетов |
 | [docs/guide/architecture.md](docs/guide/architecture.md) | Как устроено, разрешения, песочница, изоляция задач |

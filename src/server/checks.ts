@@ -35,7 +35,12 @@ export async function runProjectCheck(
 ): Promise<{ ok: boolean; output: string; message: string; durationMs: number }> {
   const started = Date.now();
   try {
-    const { stdout, stderr } = await run('/bin/sh', ['-lc', command], {
+    // Оболочка своя на каждой системе: на Windows `/bin/sh` нет, и проверка
+    // падала бы не на команде, а на попытке её запустить.
+    const [shell, shellArgs] = process.platform === 'win32'
+      ? ['cmd.exe', ['/d', '/s', '/c', command]]
+      : ['/bin/sh', ['-lc', command]];
+    const { stdout, stderr } = await run(shell as string, shellArgs as string[], {
       cwd, timeout: CHECK_TIMEOUT_MS, maxBuffer: 10 * 1024 * 1024,
       env: { ...process.env, FORCE_COLOR: '0' },
     });

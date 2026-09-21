@@ -33,8 +33,7 @@ import { CAPABILITIES, isCapability, type Capability } from '../shared/workflow'
 import { createHash } from 'node:crypto';
 import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
 import { homedir } from 'node:os';
-import { dirname, relative, resolve } from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { relative, resolve } from 'node:path';
 import { isLang, LANGS, type Lang } from '../shared/i18n';
 import { MODEL_RE, resolveModel } from '../shared/models';
 import {
@@ -43,8 +42,7 @@ import {
 } from '../shared/types';
 import { checkMcpServers } from './mcp';
 import { isPermissionMode } from './permissions';
-
-const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '../..');
+import { ROOT } from './root';
 
 /**
  * Где лежат пакеты. Сейчас — папка в репозитории: там живут наши, `@office/*`.

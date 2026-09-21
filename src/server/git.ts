@@ -25,13 +25,20 @@ export interface GitResult {
  * и весь git молча начинал отвечать «не репозиторий» — в том числе проверкам
  * слияния и ревью. Колбэк одинаков в любой среде запуска.
  */
+/**
+ * Чем запускать git. Обычно — тем, что нашлось в PATH; приложение на Windows
+ * приносит свой MinGit и указывает путь к нему: системного git там может не
+ * быть вовсе, а ставить его ради офиса человек не должен.
+ */
+const GIT_BIN = process.env.OFFICE_GIT_BIN || 'git';
+
 export function git(cwd: string, args: string[], env?: NodeJS.ProcessEnv): Promise<GitResult> {
   return new Promise((done) => {
     const options = {
       cwd, maxBuffer: 10 * 1024 * 1024,
       ...(env ? { env: { ...process.env, ...env } } : {}),
     };
-    execFile('git', args, options, (err, stdout, stderr) => {
+    execFile(GIT_BIN, args, options, (err, stdout, stderr) => {
       const e = err as (Error & { code?: number }) | null;
       done({
         ok: !e,

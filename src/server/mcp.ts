@@ -21,13 +21,13 @@
  * целиком уезжают на фронт в каждом снимке — записанный здесь токен утёк бы
  * дважды.
  */
-import { dirname, resolve } from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { resolve } from 'node:path';
 import type { McpServerConfig } from '@anthropic-ai/claude-agent-sdk';
 import type { Lang } from '../shared/i18n';
 import type { McpServerDef, McpServerState, Settings } from '../shared/types';
 import { hasKey, t } from './i18n';
 import type { Role } from './roles';
+import { ROOT } from './root';
 
 /**
  * Корень репозитория офиса. Нужен одному серверу — своему: он лежит здесь же,
@@ -35,9 +35,25 @@ import type { Role } from './roles';
  * Текущая директория для этого не годится: офис поднимают и из другой папки,
  * а каталог с относительным путём молча перестал бы работать.
  */
-const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '../..');
 
 /** Заготовка сервера: остальное добивается умолчаниями. */
+/**
+ * Чем на самом деле запускается свой node-сервер каталога.
+ *
+ * В каталоге он записан как `node` — так его и надо читать человеку. Но у
+ * приложения отдельного node рядом нет: оно запускает такие серверы собой,
+ * и по переменной ELECTRON_RUN_AS_NODE Electron работает обычной нодой
+ * (настоящий node её просто не замечает). Подмена делается здесь, на запуске,
+ * а не в каталоге: каталог сохраняется в настройки офиса, и путь к текущей
+ * сборке приложения застрял бы там навсегда.
+ */
+function nodeCommand(command: string): { command: string; env: Record<string, string> } {
+  const bin = process.env.OFFICE_NODE_BIN || '';
+  return bin && (command === 'node' || command === bin)
+    ? { command: bin, env: { ELECTRON_RUN_AS_NODE: '1' } }
+    : { command, env: {} };
+}
+
 const server = (def: Partial<McpServerDef> & { id: string }): McpServerDef => ({
   title: '',
   transport: 'stdio',
@@ -183,10 +199,11 @@ function resolveEnv(env: Record<string, string>): Record<string, string> {
 function toSdkConfig(def: McpServerDef, cwd?: string): McpServerConfig {
   const env = resolveEnv(def.env);
   if (def.transport === 'stdio') {
-    const withCwd = cwd ? { ...env, OFFICE_WORKDIR: cwd } : env;
+    const node = nodeCommand(def.command);
+    const withCwd = { ...env, ...node.env, ...(cwd ? { OFFICE_WORKDIR: cwd } : {}) };
     return {
       type: 'stdio',
-      command: def.command,
+      command: node.command,
       args: def.args,
       ...(Object.keys(withCwd).length ? { env: withCwd } : {}),
       alwaysLoad: def.alwaysLoad,
