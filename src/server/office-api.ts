@@ -15,13 +15,8 @@ import {
   type OfficeState,
 } from './state';
 import {
-<<<<<<< HEAD
   createOffice, currentOffice, officeById, removeOffice, renameOffice, reorderOffice, setCurrent,
-  setOfficeIcon, type OfficeEntry,
-=======
-  createOffice, currentOffice, officeById, removeOffice, renameOffice, setCurrent,
   setOfficeArchived, setOfficeIcon, type OfficeEntry,
->>>>>>> main
 } from './offices';
 import { stopSupervisor } from './supervisor';
 import { stopHealth } from './health';

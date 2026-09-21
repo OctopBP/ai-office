@@ -72,11 +72,7 @@ function onDisk(): {
   currentId: string;
   offices: Array<{
     id: string; name: string; projectDir: string; stateFile: string;
-<<<<<<< HEAD
-    createdAt?: number; order?: number; hidden?: boolean; paused?: boolean;
-=======
-    createdAt?: number; hidden?: boolean; paused?: boolean; archived?: boolean;
->>>>>>> main
+    createdAt?: number; order?: number; hidden?: boolean; paused?: boolean; archived?: boolean;
   }>;
 } {
   return JSON.parse(readFileSync(REGISTRY, 'utf8'));
