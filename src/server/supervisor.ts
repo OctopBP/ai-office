@@ -438,8 +438,13 @@ function changedSince(state: OfficeState, was: PrSituation, now: PrSituation): s
  * Такое сменой обстановки не отменяется: это к менеджеру, и его уже позвали.
  */
 async function revive(state: OfficeState, task: Task, pr: PullRequestView): Promise<void> {
-  if (!pr.situation) return;
-  const what = changedSince(state, pr.situation, await situationOf(state, task));
+  // Сохранения старше этого поля: отпечатка нет, но по исчерпанному счётчику
+  // видно, что отступился именно надзор. Что изменилось с тех пор, знать
+  // неоткуда — и один заход дешевле, чем задача, стоящая до конца времён.
+  const legacy = !pr.situation && pr.retries >= BACKOFF_MS.length;
+  const what = pr.situation
+    ? changedSince(state, pr.situation, await situationOf(state, task))
+    : (legacy ? state.say('sup.change.unknown') : '');
   if (!what) return;
 
   state.patchPr(task.id, {

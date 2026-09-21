@@ -287,6 +287,7 @@ export const en = {
   'sup.pmFailedMore': '\n…and {n} more.',
   'sup.giveUpNote': '{note}\nThe office tried {n} times by itself — it did not go. Waiting for the manager’s decision.',
   'sup.change.base': 'the base branch has moved',
+  'sup.change.unknown': 'the previous situation was not recorded',
   'sup.change.branch': 'the task branch has new commits',
   'sup.change.boot': 'the office was restarted — its code may differ',
   'sup.reviveNote': 'The situation has changed ({what}) — trying again without waiting for a decision.',
