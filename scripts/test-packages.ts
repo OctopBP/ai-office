@@ -202,7 +202,10 @@ const savedPm = { ...defaultRole('pm', 'ru')! };
 delete (savedPm as { package?: unknown }).package;
 save(stateFile, () => ({
   version: 1, projectDir, taskSeq: 0, tasks: [], chat: [], log: [], instances: [],
-  settings: { ...DEFAULT_SETTINGS, language: 'ru' }, savedAt: Date.now(),
+  // Офис здесь русский: роли в сохранении русские. Поднимаются они на языке
+  // ОБЩЕНИЯ, поэтому задаём его, а не только старое зеркало `language`.
+  settings: { ...DEFAULT_SETTINGS, language: 'ru', chatLanguage: 'ru', codeLanguage: 'ru' },
+  savedAt: Date.now(),
   roles: [savedPm, savedBackend, savedDesign, {
     ...defaultRole('backend', 'ru')!, id: 'gone', title: 'Пропавший',
     package: { name: '@acme/gone', version: '0.1.0', overrides: {}, briefExtra: '' },

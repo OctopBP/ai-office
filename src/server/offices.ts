@@ -9,6 +9,7 @@ import {
 import { homedir } from 'node:os';
 import { dirname, extname, relative, resolve, sep } from 'node:path';
 import { compareOffices, type OfficeIcon } from '../shared/types';
+import { asLang, isLang, type Lang } from '../shared/i18n';
 import { c } from './i18n';
 
 /**
@@ -119,6 +120,17 @@ interface Registry {
   version: 1;
   currentId: string;
   seq: number;
+  /**
+   * Язык интерфейса — один на всё приложение. Лежит здесь, а не в настройках
+   * офиса, именно поэтому: переключение проекта не должно менять язык подписей
+   * под руками у человека. Реестр для этого и подходит — он один на процесс,
+   * читается раньше любого офиса и пишется целиком на каждое изменение.
+   *
+   * Поля нет — реестр заведён до разделения языков: значение ему проставляет
+   * миграция при загрузке, забирая нынешнюю локаль открытого офиса
+   * (см. `adoptUiLanguage`).
+   */
+  uiLanguage?: Lang;
   offices: OfficeEntry[];
 }
 
@@ -185,6 +197,63 @@ function normalize(data: Registry): boolean {
 }
 
 /**
+ * Язык интерфейса для реестра, у которого его ещё нет. Возвращает true, если
+ * поле проставили и файл надо переписать.
+ *
+ * Миграция без сюрпризов: язык интерфейса берёт нынешнюю локаль офиса, с
+ * которым работали, — того, что записан текущим. Читаем его файл состояния
+ * напрямую, а не через состояние офиса: реестр загружается раньше, чем хоть
+ * один офис поднят, и поднимать офис ради одной строки было бы дороже самой
+ * миграции. Файла нет, он битый или языка в нём нет — берём язык запуска
+ * (`OFFICE_LANG`), как это делает новый офис.
+ *
+ * Идемпотентность: годное значение в реестре мы не трогаем, поэтому второй
+ * и десятый запуск ничего не меняют и файл не переписывают.
+ */
+function adoptUiLanguage(data: Registry): boolean {
+  if (isLang(data.uiLanguage)) return false;
+  const current = data.offices.find((o) => o.id === data.currentId) ?? data.offices[0];
+  let fromOffice: unknown;
+  if (current) {
+    try {
+      const saved = JSON.parse(readFileSync(resolve(current.stateFile), 'utf8')) as
+        { settings?: { language?: unknown; chatLanguage?: unknown } };
+      // Язык общения уже разделён — значит, сохранение новее миграции, и
+      // интерфейсу правильнее взять его, а не осиротевшее старое поле.
+      fromOffice = saved.settings?.chatLanguage ?? saved.settings?.language;
+    } catch {
+      fromOffice = undefined;
+    }
+  }
+  data.uiLanguage = isLang(fromOffice) ? fromOffice : asLang(process.env.OFFICE_LANG);
+  return true;
+}
+
+/**
+ * Язык интерфейса: один на всё приложение, для всех офисов один и тот же.
+ * Реестр ещё не загружен (так живут юнит-проверки) — отвечаем языком запуска.
+ */
+export function uiLanguage(): Lang {
+  return asLang(registry?.uiLanguage ?? process.env.OFFICE_LANG);
+}
+
+/**
+ * Сменить язык интерфейса. Возвращает true, если он правда стал другим, —
+ * вызывающему это нужно, чтобы не рассылать событие на каждое повторное
+ * нажатие той же кнопки. Чужое значение молча игнорируем: команда приходит
+ * из браузера, и языка без словаря в реестре быть не должно.
+ *
+ * Пишем на диск сразу, тем же вызовом: это решение человека, и оно обязано
+ * пережить перезапуск, даже если сервер погасят через секунду после нажатия.
+ */
+export function setUiLanguage(lang: unknown): boolean {
+  if (!registry || !isLang(lang) || registry.uiLanguage === lang) return false;
+  registry.uiLanguage = lang;
+  write();
+  return true;
+}
+
+/**
  * Загрузить реестр. Если его нет — заводим первый офис на переданной
  * директории и отдаём ему уже существующий файл состояния: у тех, кто
  * работал до появления списка офисов, доска и расходы остаются на месте.
@@ -202,8 +271,11 @@ export function loadRegistry(defaultProjectDir: string, stateFile = DEFAULT_STAT
       if (data.version === 1 && data.offices?.length) {
         registry = data;
         // Порядок чиним один раз, на входе: дальше он один и тот же и в
-        // памяти, и в файле, и в списке, который уезжает в веб.
-        if (normalize(registry)) write();
+        // памяти, и в файле, и в списке, который уезжает в веб. Тем же заходом
+        // достаётся язык интерфейса реестрам, заведённым до его появления.
+        const fixed = normalize(registry);
+        const adopted = adoptUiLanguage(registry);
+        if (fixed || adopted) write();
         return registry;
       }
     } catch (err) {
@@ -219,6 +291,9 @@ export function loadRegistry(defaultProjectDir: string, stateFile = DEFAULT_STAT
     lastOpenedAt: Date.now(),
   };
   registry = { version: 1, currentId: first.id, seq: 1, offices: [first] };
+  // Реестра не было, а файл состояния вполне мог остаться от запусков до
+  // появления списка офисов: язык интерфейса берём из него, а не из умолчания.
+  adoptUiLanguage(registry);
   write();
   return registry;
 }
