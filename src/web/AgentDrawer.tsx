@@ -157,8 +157,8 @@ export function AgentDrawer() {
       <section>
         <h3 className="section-title">{t('drawer.doingNow')}</h3>
         {current ? (
-          <div className="card">
-            <div className="card-head"><b>{current.id}</b> {current.title}</div>
+          <div className="drawer-card">
+            <div className="drawer-card-head"><b>{current.id}</b> {current.title}</div>
             <div className="muted small">
               {elapsed(current.startedAt, null)} · {money(current.usage.costUsd)} ·{' '}
               {tokens(current.usage.tokensIn + current.usage.tokensOut)} tok
