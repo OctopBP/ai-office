@@ -340,10 +340,13 @@ interface State {
   moveMergeSelect: (taskId: string, dir: -1 | 1) => void;
   clearMergeSelection: () => void;
   /**
-   * Язык офиса, на котором нарисован интерфейс. В сторе он лежит не ради
-   * подписей — их отдаёт `t()`, — а ради перерисовки: приложение
-   * перемонтируется по нему целиком (`main.tsx`), иначе после смены языка
-   * половина экрана осталась бы на прежнем.
+   * Язык интерфейса — глобальная настройка приложения, одна на все офисы
+   * (`uiLanguage` в снапшоте, событие `ui.language`). Языки офиса — общения и
+   * реализации — лежат в `settings` и интерфейс не переводят.
+   *
+   * В сторе он лежит не ради подписей — их отдаёт `t()`, — а ради
+   * перерисовки: приложение перемонтируется по нему целиком (`main.tsx`),
+   * иначе после смены языка половина экрана осталась бы на прежнем.
    */
   lang: Lang;
   /**
@@ -661,9 +664,11 @@ export const useStore = create<State>((set, get) => ({
   apply: (e) => {
     switch (e.t) {
       case 'snapshot': {
-        // Язык офиса запоминаем раньше, чем раскладываем снимок: подписи в
-        // нём уже собираются на новом языке.
-        setLang(e.settings.language);
+        // Язык интерфейса запоминаем раньше, чем раскладываем снимок: подписи
+        // в нём уже собираются на новом языке. Берётся он из `uiLanguage` —
+        // глобальной настройки приложения, а не из языка офиса: переход в
+        // соседний проект интерфейс не переводит.
+        setLang(e.uiLanguage);
         const instances = Object.fromEntries(e.instances.map((i) => [i.id, i]));
         // Снапшот — это не приход в офис, а картина офиса, который уже
         // работает: агентов ставим по местам без ходьбы. Живые позиции
@@ -680,7 +685,7 @@ export const useStore = create<State>((set, get) => ({
           }];
         }));
         set((s) => ({
-          lang: asLang(e.settings.language),
+          lang: asLang(e.uiLanguage),
           roles: e.roles, instances, pos,
           tasks: Object.fromEntries(e.tasks.map((t) => [t.id, t])),
           epics: Object.fromEntries(e.epics.map((f) => [f.id, f])),
@@ -869,6 +874,13 @@ export const useStore = create<State>((set, get) => ({
       case 'offices':
         set({ offices: e.offices });
         break;
+      case 'ui.language':
+        // Язык интерфейса сменили — где угодно и в каком угодно офисе. Сначала
+        // его запоминает словарь, и только потом обновляется стор: иначе
+        // перерисовка успела бы пройти по старому языку. Событие приходит и
+        // первым ответом на подключение, когда офиса ещё нет вовсе.
+        if (setLang(e.lang)) set({ lang: asLang(e.lang) });
+        break;
       case 'setup.catalog':
         set({ setupCatalog: e.catalog });
         break;
@@ -945,10 +957,8 @@ export const useStore = create<State>((set, get) => ({
         set({ exportResult: { roleId: e.roleId, dir: e.dir, warnings: e.warnings, error: e.error } });
         break;
       case 'settings':
-        // Язык приезжает вместе с остальными настройками офиса: сначала его
-        // запоминает словарь, и только потом обновляется стор — иначе
-        // перерисовка успела бы пройти по старому языку.
-        if (setLang(e.settings.language)) set({ lang: asLang(e.settings.language) });
+        // Языки офиса (общения и реализации) интерфейс не переводят: он живёт
+        // на глобальном `uiLanguage` и меняется событием `ui.language`.
         set({ settings: e.settings, settingsPending: false });
         break;
       case 'layout': {
@@ -1594,6 +1604,18 @@ export function updateSettings(settings: Partial<Settings>): void {
 }
 
 /**
+ * Сменить язык интерфейса. Настройка глобальная: она не про офис, и команда
+ * уходит даже с главного экрана, где офиса ещё нет. Применяется сразу, без
+ * «Сохранить», — как тема: смотреть на чужой язык до нажатия кнопки незачем.
+ *
+ * Локально здесь ничего не переключаем: язык приедет обратно событием
+ * `ui.language` всем вкладкам сразу, и второго источника правды не заводим.
+ */
+export function setUiLanguage(lang: Lang): void {
+  socket?.send(JSON.stringify({ c: 'ui_language', lang }));
+}
+
+/**
  * Разбирает поле лимита шагов исполнителя. Пустая строка — «без ограничения»
  * (null, отправлять можно). Значение вне [MIN_TASK_MAX_TURNS; MAX_TASK_MAX_TURNS]
  * или нецелое — ошибка, value в этом случае отправлять нельзя.
@@ -1735,6 +1757,16 @@ export function createOffice(name: string, projectDir: string): void {
 
 export function renameOffice(officeId: string, name: string): void {
   socket?.send(JSON.stringify({ c: 'rename_office', officeId, name }));
+}
+
+/**
+ * Перетащили строку офиса в рейле. `index` — место в ВИДИМОМ списке (том, что
+ * рисует `sortedOffices`), считая от нуля и БЕЗ самого переставляемого офиса —
+ * ровно так, как ждёт `reorderOffice` на сервере. Правда — то, что сервер
+ * пришлёт следующим событием `offices`; здесь только отправка команды.
+ */
+export function reorderOffice(officeId: string, index: number): void {
+  socket?.send(JSON.stringify({ c: 'reorder_office', officeId, index }));
 }
 
 /** null сбрасывает иконку офиса к умолчанию (инициал). */

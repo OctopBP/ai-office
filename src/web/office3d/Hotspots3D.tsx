@@ -18,6 +18,7 @@ import { catalog, type HotspotPanel } from '../layoutData';
 import { useStore } from '../store';
 import type { Palette } from './palette';
 import { PropLamp } from './Lights3D';
+import { BoardArt } from './Boards3D';
 import { PropShape, usePropMaterials } from './Props3D';
 import type { Placed3 } from './props';
 import { t } from '../i18n';
@@ -64,6 +65,12 @@ function Spot({ spot, materials, palette, badge, onClick }: {
     <group position={[item.cx, item.base, item.cy]} rotation={[0, -item.rot, 0]}>
       <group scale={[scale, scale, scale]}>
         <PropShape item={{ ...item, cx: 0, cy: 0, base: 0 }} materials={materials} />
+        {/* Схематичная картинка данных на лицевой стороне — своя у каждой из
+            трёх досок. Внутри растущей группы, чтобы она не отставала от
+            панели, когда та подрастает под курсором. У двери лица нет. */}
+        {spot.kind !== 'door' && (
+          <BoardArt kind={spot.kind} item={item} hovered={hovered} />
+        )}
       </group>
       {/* Доска и экран лога светятся всегда: это единственные предметы
           комнаты, которые сами что-то показывают, и погашенными они читаются
