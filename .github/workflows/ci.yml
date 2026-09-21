@@ -26,11 +26,11 @@ jobs:
       - run: npm run typecheck
       - run: npm run build
       - name: тесты без сети и токенов
+        # Список берётся из package.json, а не ведётся руками: новый набор
+        # попадает в CI сам. Исключение одно — test:pm, он ходит в модель.
         run: |
-          for t in state perm plan nav reach overlap merge premerge review \
-                   workflow flows offices setup presets money life \
-                   packages market cli registry skills mcp imagegen; do
-            echo "::group::test:$t"
-            npm run -s "test:$t"
+          for t in $(node -p "Object.keys(require('./package.json').scripts).filter((k) => k.startsWith('test:') && k !== 'test:pm').join(' ')"); do
+            echo "::group::$t"
+            npm run -s "$t"
             echo "::endgroup::"
           done
