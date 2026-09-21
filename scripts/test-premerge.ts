@@ -272,6 +272,31 @@ async function busyIntegration(check: (name: string, ok: boolean) => void): Prom
   rmSync(nest, { recursive: true, force: true });
   execFileSync('git', ['worktree', 'prune'], { cwd: dir });
 
+  // 1в-бис. Посторонняя копия завелась ВНУТРИ уже нашего каталога слияний.
+  //     `git clean` такой каталог не берёт (у него свой `.git`), и он остался
+  //     бы лежать под ногами у проверок слитого дерева.
+  git('checkout', '-q', '-b', 'task/T-again', 'main');
+  writeFileSync(resolve(dir, 'again.txt'), 'работа поверх обжитого каталога\n');
+  git('add', '-A');
+  git('commit', '-qm', 'T-again');
+  git('checkout', '-q', 'main');
+  const reused = resolve(holder, 'reused', '_base');
+  execFileSync('git', ['worktree', 'add', '--detach', reused, 'main'], { cwd: dir });
+  const insider = resolve(reused, 'office-b0cc4212');
+  execFileSync('git', ['worktree', 'add', '--detach', insider, 'main'], { cwd: dir });
+
+  const afterReuse = await preMergeGate({
+    repoDir: dir, branch: 'task/T-again', base: 'main', integrationDir: reused,
+  });
+  check('копия внутри обжитого каталога не мешает слиянию',
+    afterReuse.ok === true && afterReuse.stage === 'merged');
+  check('копия внутри обжитого каталога снята', !existsSync(insider));
+  check('в отчёте названа снятая копия изнутри',
+    afterReuse.warnings.some((w) => w.includes('office-b0cc4212')));
+  execFileSync('git', ['worktree', 'remove', '--force', reused], { cwd: dir });
+  rmSync(reused, { recursive: true, force: true });
+  execFileSync('git', ['worktree', 'prune'], { cwd: dir });
+
   // 1г. То же самое, но внутри лежит рабочая копия живой задачи: её не трогаем
   //     ни при каких обстоятельствах — там несданная работа исполнителя.
   git('checkout', '-q', '-b', 'task/T-live', 'main');
