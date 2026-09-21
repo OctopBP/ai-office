@@ -46,16 +46,21 @@ export function Composer({ onSettings }: { onSettings: () => void }) {
   }, []);
 
   // Композер плавает над видами и растёт с многострочным вводом, поэтому его
-  // высоту нельзя прибить числом в css: под ней прячется низ ленты чата.
-  // Отдаём измеренную высоту переменной `--composer-h`, от неё вид «Чат»
-  // отмеряет свой нижний край.
+  // высоту нельзя прибить числом в css: под ней прячется низ ленты чата, чипы
+  // камеры и тосты. Отдаём измеренную высоту переменной `--composer-h` — от
+  // неё все они отмеряют свой нижний край (см. shell.css).
   useEffect(() => {
     const el = box.current;
     if (!el) return;
     const root = document.documentElement;
-    // offsetHeight, а не contentRect: нужна высота с рамкой и отступами.
+    let last = -1;
+    // offsetHeight, а не contentRect: нужна высота с рамкой и отступами. Он же
+    // целый, поэтому дробные колебания не дёргают всё, что висит над полем.
     const ro = new ResizeObserver(() => {
-      root.style.setProperty('--composer-h', `${el.offsetHeight}px`);
+      const h = el.offsetHeight;
+      if (h === last) return;
+      last = h;
+      root.style.setProperty('--composer-h', `${h}px`);
     });
     ro.observe(el);
     return () => {
