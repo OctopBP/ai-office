@@ -211,7 +211,16 @@ export async function preMergeGate(options: PreMergeOptions): Promise<PreMergeRe
   // 1. Чистая ли рабочая копия. Это ровно ситуация из J-4: незакоммиченные
   //    правки в копии основной ветки роняли слияние на середине.
   report.dirty = await dirtyFiles(repoDir);
-  const here = (await currentBranch(repoDir)) ?? base;
+  // Отцепленная копия человека — известная болячка офиса (advanceBase уводит
+  // её с ветки, чтобы сдвинуть базу мимо незакоммиченных правок). Слиянию она
+  // не мешает: база двигается ссылкой. Но молчать нельзя — влитого в такой
+  // копии не видно, и человек решит, что слияния не было. `--abbrev-ref` на
+  // отцепленной копии отвечает буквальным «HEAD», а не пустотой: отсюда и
+  // сравнение, а не просто проверка на null.
+  const branchHere = await currentBranch(repoDir);
+  const detachedHere = !branchHere || branchHere === 'HEAD';
+  const here = detachedHere ? base : branchHere;
+  if (detachedHere) report.warnings.push(t(lang, 'premerge.detachedHead', { dir: repoDir, base }));
   if (report.dirty.length && !allowDirty) {
     if (!stash) {
       return done('dirty', false, t(lang, 'premerge.dirty', {

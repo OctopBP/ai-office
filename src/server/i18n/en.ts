@@ -244,6 +244,7 @@ export const en = {
   'premerge.conflict': 'A trial merge of {branch} into {base} conflicts: {files}. Nothing was merged, {base} is untouched.',
   'premerge.assembleFailed': 'The trial merge could not be assembled: {error}',
   'premerge.integrationFailed': 'The office working copy for the merge could not be raised (directory {dir}). {error} Nothing was merged, the base branch is untouched.',
+  'premerge.detachedHead': 'HEAD of the working copy {dir} is detached from {base}: the merge still goes through, but merged work is invisible there. To return: git checkout {base}.',
   'premerge.nothing': 'Branch {branch} has no commits beyond {base} — nothing to merge.',
   'premerge.checkFailed': 'On the merged tree the check «{command}» fails{files}. Nothing was merged, {base} stays green.',
   'premerge.checkFiles': ' (files: {files})',
