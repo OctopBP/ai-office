@@ -55,7 +55,7 @@
   max-width: 100%;
 }
 .modal-actions-row.secondary { padding-top: var(--space-2); border-top: 1px solid var(--hairline); }
-.modal-actions .allow { background: var(--accent); color: var(--accent-ink); box-shadow: var(--shadow-float); }
+.modal-actions .allow { background: var(--accent); color: var(--accent-ink); }
 .modal-actions .allow:hover:not(:disabled) { filter: brightness(1.08); }
 .modal-actions .deny,
 .modal-actions .never,

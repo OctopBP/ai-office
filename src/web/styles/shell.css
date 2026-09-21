@@ -15,11 +15,21 @@
 .shell-main .office-box { width: 100%; height: 100%; }
 .shell .office3d { border: none; border-radius: 0; }
 .shell .office3d canvas { border-radius: 0; }
-/* Чипы камеры — из-под рейла в правый нижний угол, над композером. */
-.shell .cam-chips { left: auto; right: var(--space-6); bottom: 124px; }
+/* Чипы камеры — из-под рейла в правый нижний угол, над композером. Низ, как у
+   видов ниже, отмеряем от реальной высоты композера (`--composer-h`): поле
+   резиновое, и фиксированные 124px с многострочным вводом уходили под него. */
+.shell .cam-chips {
+  left: auto; right: var(--space-6);
+  bottom: calc(var(--composer-h, 96px) + var(--gap) + var(--space-4));
+}
 /* Бейдж режима разработчика — из-под рейла к левому краю сцены, в верхний ряд. */
 .shell .dev3d-badge { left: calc(var(--edge) + var(--space-4)); top: var(--space-4); }
-.shell .toasts { bottom: 120px; left: calc(var(--edge) + (100% - var(--edge) - 24px) / 2); }
+/* Тосты всплывают над композером по той же мерке — иначе выросшее поле
+   накрывало бы нижний тост. */
+.shell .toasts {
+  bottom: calc(var(--composer-h, 96px) + var(--gap) + var(--space-4));
+  left: calc(var(--edge) + (100% - var(--edge) - 24px) / 2);
+}
 
 /* Доска и чат занимают место сцены между верхним рядом и композером.
    Низ отмеряем от реальной высоты композера (`--composer-h` ставит он сам,
@@ -106,6 +116,26 @@
 /* Простаивает — метка на месте, но приглушена: пустота на её месте читалась бы
    как «данных нет», а это другое. */
 .rail-office-dot.idle { background: var(--ink-4); }
+
+/* Перетаскивание строки офиса (Rail.tsx, useOfficeDrag): ручка — вся строка,
+   архивный офис (T-64) её не получает вовсе. */
+.rail-office.draggable { cursor: grab; touch-action: none; }
+.rail-office.dragging {
+  cursor: grabbing; background: var(--film-2); border-color: var(--hairline);
+  box-shadow: var(--shadow-float); z-index: 1;
+}
+/* Место вставки — тонкая линия у верхнего или нижнего края соседней строки,
+   а не сдвиг всего списка: рейл и так тесный, а прыгающие строки во время
+   перетаскивания читались бы хуже одной чёткой отметки. */
+.rail-office.drop-before::before, .rail-office.drop-after::after {
+  content: ''; position: absolute; left: var(--space-2); right: var(--space-2);
+  height: 2px; border-radius: 1px; background: var(--accent);
+}
+.rail-office.drop-before::before { top: -3px; }
+.rail-office.drop-after::after { bottom: -3px; }
+/* Пока строку тащат, курсор «хватания» держится и вне неё самой — иначе он
+   на долю секунды переключался бы на обычный при быстром движении мыши. */
+body.office-dragging, body.office-dragging * { cursor: grabbing !important; user-select: none; }
 .rail-new { min-height: 40px; }
 
 .rail-sep { height: 1px; background: var(--hairline); margin-bottom: var(--space-5); flex: none; }
@@ -193,6 +223,10 @@
 .shell-top > * { pointer-events: auto; }
 .shell-top-right { display: flex; justify-content: flex-end; gap: var(--space-3); }
 .shell-top .sq.float { border: none; }
+/* Верхний ряд лежит прямо над сценой — здесь, в отличие от плоских экранов,
+   тень оставляем: переключатель видов и главное действие. */
+.shell-top .seg, .shell-top button.primary { box-shadow: var(--shadow-float); }
+.shell-top .seg { border: none; }
 
 /* ---------- композер ---------- */
 .shell-composer {
@@ -204,6 +238,9 @@
 .shell-composer textarea {
   background: none; border: none; padding: 0; resize: none;
   font-size: var(--fs-md); line-height: 1.4; color: var(--ink); min-height: 20px;
+  /* Поле внутри карточки не выделяется само по себе, и общий радиус из кита
+     здесь только подрезал буквы по углам: скругление оставляем карточке. */
+  border-radius: 0;
 }
 .shell-composer textarea:focus { border: none; }
 .shell-composer-row { display: flex; align-items: center; gap: var(--space-2); }

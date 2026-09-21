@@ -8,7 +8,8 @@ import {
 } from 'node:fs';
 import { homedir } from 'node:os';
 import { dirname, extname, relative, resolve, sep } from 'node:path';
-import type { OfficeIcon } from '../shared/types';
+import { compareOffices, type OfficeIcon } from '../shared/types';
+import { asLang, isLang, type Lang } from '../shared/i18n';
 import { c } from './i18n';
 
 /**
@@ -43,7 +44,24 @@ export interface OfficeEntry {
   icon?: StoredIcon;
   /** Где лежит состояние этого офиса. */
   stateFile: string;
+  /**
+   * Когда офис завели. Порядок списка считается по нему у всех офисов, кроме
+   * расставленных руками (`compareOffices`), поэтому поле обязательное:
+   * реестрам, заведённым до его появления, время проставляет миграция при
+   * загрузке — см. `normalize`.
+   */
   createdAt: number;
+  /**
+   * Место офиса в списке, расставленное человеком перетаскиванием
+   * (`reorderOffice`). Поля нет — офис стоит по времени создания и уходит ниже
+   * всех расставленных; так живёт и реестр, в котором офисы не двигали, и
+   * только что заведённый офис. Миграции поле не требует по той же причине.
+   *
+   * Значения нормализуются на каждой перестановке (шаг `ORDER_STEP`), а не
+   * дописываются по краям: в реестр смотрят руками, и список 10, 20, 30
+   * читается, а 1, 0.5, 0.25 — нет.
+   */
+  order?: number;
   lastOpenedAt: number;
   /**
    * Директорию завёл сам офис — значит, при первом открытии её можно
@@ -75,6 +93,21 @@ export interface OfficeEntry {
    */
   paused?: boolean;
   /**
+   * Офис убран в архив: проект больше не ведут. По архивному офису не идёт
+   * никакая работа — он не поднимается в память ни на старте, ни фоном, не
+   * берёт задач и не проводит ритуалов.
+   *
+   * Метка живёт в реестре по тем же причинам, что и пауза: пишется целиком и
+   * сразу, и видна до того, как офис подняли, — а поднимать его как раз и не
+   * надо. Поля нет — офис обычный; возврат из архива поле удаляет, поэтому
+   * старым записям миграция не нужна.
+   *
+   * Архив — не пауза: признаки независимы, и снятие одного не трогает другой.
+   * Пауза говорит «остановились и сейчас продолжим», архив — «этим проектом
+   * больше не занимаемся».
+   */
+  archived?: boolean;
+  /**
    * Убран из списка. Запись остаётся в реестре намеренно: за ней закреплён
    * файл состояния, и если тот же проект заведут снова, доска и расходы
    * вернутся, а не начнутся с нуля. Ни папку проекта, ни файл состояния
@@ -87,6 +120,17 @@ interface Registry {
   version: 1;
   currentId: string;
   seq: number;
+  /**
+   * Язык интерфейса — один на всё приложение. Лежит здесь, а не в настройках
+   * офиса, именно поэтому: переключение проекта не должно менять язык подписей
+   * под руками у человека. Реестр для этого и подходит — он один на процесс,
+   * читается раньше любого офиса и пишется целиком на каждое изменение.
+   *
+   * Поля нет — реестр заведён до разделения языков: значение ему проставляет
+   * миграция при загрузке, забирая нынешнюю локаль открытого офиса
+   * (см. `adoptUiLanguage`).
+   */
+  uiLanguage?: Lang;
   offices: OfficeEntry[];
 }
 
@@ -114,6 +158,102 @@ function write(): void {
 }
 
 /**
+ * Привести список реестра к постоянному порядку: сначала расставленные руками,
+ * потом остальные от старого офиса к новому (`compareOffices`). Возвращает
+ * true, если что-то поправили и файл надо переписать.
+ *
+ * Здесь же миграция записей без `createdAt`: реестр — обычный JSON, его
+ * писали до появления поля и правят руками. Время такой записи берём из её
+ * МЕСТА В ФАЙЛЕ — на миллисекунду позже предыдущей, — чтобы порядок, который
+ * человек видел вчера, остался тем же, а не перескочил на случайный. Даты в
+ * прошлом (1970-е) тут не страшны: они не показываются, по ним только
+ * сортируют, а новые офисы всегда получают Date.now() и встают ниже.
+ */
+function normalize(data: Registry): boolean {
+  let changed = false;
+  let prev = 0;
+  for (const office of data.offices) {
+    const own = typeof office.createdAt === 'number' && Number.isFinite(office.createdAt)
+      ? office.createdAt
+      : null;
+    if (own === null) {
+      office.createdAt = prev + 1;
+      changed = true;
+    }
+    prev = Math.max(prev, office.createdAt);
+    // Ручной порядок из файла может оказаться не числом: реестр правят руками.
+    // Мусор убираем, а не терпим, — `compareOffices` всё равно считает такой
+    // офис нерасставленным, и поле в файле врало бы про порядок.
+    if ('order' in office && !(typeof office.order === 'number' && Number.isFinite(office.order))) {
+      delete office.order;
+      changed = true;
+    }
+  }
+  const before = data.offices.map((o) => o.id).join(',');
+  data.offices.sort(compareOffices);
+  // Файл держим в том же порядке, в каком список показывают: тогда «порядок
+  // переживает перезапуск» видно прямо в реестре, а не только в коде.
+  return changed || data.offices.map((o) => o.id).join(',') !== before;
+}
+
+/**
+ * Язык интерфейса для реестра, у которого его ещё нет. Возвращает true, если
+ * поле проставили и файл надо переписать.
+ *
+ * Миграция без сюрпризов: язык интерфейса берёт нынешнюю локаль офиса, с
+ * которым работали, — того, что записан текущим. Читаем его файл состояния
+ * напрямую, а не через состояние офиса: реестр загружается раньше, чем хоть
+ * один офис поднят, и поднимать офис ради одной строки было бы дороже самой
+ * миграции. Файла нет, он битый или языка в нём нет — берём язык запуска
+ * (`OFFICE_LANG`), как это делает новый офис.
+ *
+ * Идемпотентность: годное значение в реестре мы не трогаем, поэтому второй
+ * и десятый запуск ничего не меняют и файл не переписывают.
+ */
+function adoptUiLanguage(data: Registry): boolean {
+  if (isLang(data.uiLanguage)) return false;
+  const current = data.offices.find((o) => o.id === data.currentId) ?? data.offices[0];
+  let fromOffice: unknown;
+  if (current) {
+    try {
+      const saved = JSON.parse(readFileSync(resolve(current.stateFile), 'utf8')) as
+        { settings?: { language?: unknown; chatLanguage?: unknown } };
+      // Язык общения уже разделён — значит, сохранение новее миграции, и
+      // интерфейсу правильнее взять его, а не осиротевшее старое поле.
+      fromOffice = saved.settings?.chatLanguage ?? saved.settings?.language;
+    } catch {
+      fromOffice = undefined;
+    }
+  }
+  data.uiLanguage = isLang(fromOffice) ? fromOffice : asLang(process.env.OFFICE_LANG);
+  return true;
+}
+
+/**
+ * Язык интерфейса: один на всё приложение, для всех офисов один и тот же.
+ * Реестр ещё не загружен (так живут юнит-проверки) — отвечаем языком запуска.
+ */
+export function uiLanguage(): Lang {
+  return asLang(registry?.uiLanguage ?? process.env.OFFICE_LANG);
+}
+
+/**
+ * Сменить язык интерфейса. Возвращает true, если он правда стал другим, —
+ * вызывающему это нужно, чтобы не рассылать событие на каждое повторное
+ * нажатие той же кнопки. Чужое значение молча игнорируем: команда приходит
+ * из браузера, и языка без словаря в реестре быть не должно.
+ *
+ * Пишем на диск сразу, тем же вызовом: это решение человека, и оно обязано
+ * пережить перезапуск, даже если сервер погасят через секунду после нажатия.
+ */
+export function setUiLanguage(lang: unknown): boolean {
+  if (!registry || !isLang(lang) || registry.uiLanguage === lang) return false;
+  registry.uiLanguage = lang;
+  write();
+  return true;
+}
+
+/**
  * Загрузить реестр. Если его нет — заводим первый офис на переданной
  * директории и отдаём ему уже существующий файл состояния: у тех, кто
  * работал до появления списка офисов, доска и расходы остаются на месте.
@@ -130,6 +270,12 @@ export function loadRegistry(defaultProjectDir: string, stateFile = DEFAULT_STAT
       const data = JSON.parse(readFileSync(FILE, 'utf8')) as Registry;
       if (data.version === 1 && data.offices?.length) {
         registry = data;
+        // Порядок чиним один раз, на входе: дальше он один и тот же и в
+        // памяти, и в файле, и в списке, который уезжает в веб. Тем же заходом
+        // достаётся язык интерфейса реестрам, заведённым до его появления.
+        const fixed = normalize(registry);
+        const adopted = adoptUiLanguage(registry);
+        if (fixed || adopted) write();
         return registry;
       }
     } catch (err) {
@@ -145,13 +291,25 @@ export function loadRegistry(defaultProjectDir: string, stateFile = DEFAULT_STAT
     lastOpenedAt: Date.now(),
   };
   registry = { version: 1, currentId: first.id, seq: 1, offices: [first] };
+  // Реестра не было, а файл состояния вполне мог остаться от запусков до
+  // появления списка офисов: язык интерфейса берём из него, а не из умолчания.
+  adoptUiLanguage(registry);
   write();
   return registry;
 }
 
-/** Список для клиента: скрытые офисы в него не попадают. */
+/**
+ * Список для клиента: скрытые офисы в него не попадают.
+ *
+ * Порядок — тот же `compareOffices`, что и в вебе: ручная расстановка, потом
+ * время создания. Не тот, в каком записи лежат в файле: сортируем на каждой
+ * выдаче, хотя файл и так канонический, — порядок списка не должен зависеть
+ * от того, куда лёг `push` нового офиса и не правил ли реестр человек. Скрытый
+ * офис из списка выпадает, а вернувшись, встаёт на своё прежнее место сам
+ * собой: ни `createdAt`, ни `order` скрытие не трогает.
+ */
 export function offices(): OfficeEntry[] {
-  return registry?.offices.filter((o) => !o.hidden) ?? [];
+  return [...(registry?.offices ?? [])].filter((o) => !o.hidden).sort(compareOffices);
 }
 
 /** Текущий офис. null — реестр ещё не загружен (так живут юнит-проверки). */
@@ -263,6 +421,12 @@ export function createOffice(input: {
     ...(input.initTeam ? { initTeam: input.initTeam } : {}),
   };
   registry.offices.push(office);
+  // Новый офис встаёт последним, и ручного порядка ему не выдаём: офис без
+  // `order` стоит ниже всех расставленных руками (`compareOffices`), то есть в
+  // конце — и не влезает в середину списка, который человек только что
+  // разложил. Сортируем всё равно: время создания можно поправить и руками,
+  // а файл должен лежать в том же порядке, в каком список показывают.
+  registry.offices.sort(compareOffices);
   write();
   return { office };
 }
@@ -276,9 +440,12 @@ export function ensureOffice(input: { name: string; projectDir: string }): Offic
   const found = registry?.offices.find((o) => o.projectDir === projectDir);
   if (found) {
     // Открываемый офис не может оставаться скрытым: иначе его не видно
-    // в списке, из которого в него же предлагается вернуться.
-    if (found.hidden) {
+    // в списке, из которого в него же предлагается вернуться. С архивом то же
+    // самое: сюда приходят по прямому указанию человека («открой офис вот
+    // этого проекта»), а это и есть возвращение проекта в работу.
+    if (found.hidden || found.archived) {
       found.hidden = false;
+      delete found.archived;
       write();
     }
     return found;
@@ -314,6 +481,33 @@ export function setOfficePaused(id: string, paused: boolean): void {
   write();
 }
 
+/** Лежит ли офис в архиве по реестру. Записи нет или поля нет — не лежит. */
+export function officeArchived(id: string): boolean {
+  return officeById(id)?.archived === true;
+}
+
+/**
+ * Убрать офис в архив или вернуть оттуда. Пишем на диск сразу, тем же вызовом
+ * и по той же причине, что и паузу: это решение человека, и оно не должно
+ * потеряться, если сервер погасят следом.
+ *
+ * Возврат стирает поле, а не кладёт `false`: «не в архиве» у нового офиса и у
+ * записи, которая про архив ничего не знала, обязано выглядеть одинаково.
+ *
+ * Паузу не трогаем ни в ту, ни в другую сторону: признаки независимы, и офис,
+ * убранный в архив с паузы, вернётся из него на паузе — таким, каким его
+ * оставили.
+ */
+export function setOfficeArchived(id: string, archived: boolean): void {
+  const office = officeById(id);
+  // Офиса в реестре нет — запоминать некуда: так живут проверки, поднимающие
+  // состояние офиса без реестра вообще.
+  if (!office || (office.archived === true) === archived) return;
+  if (archived) office.archived = true;
+  else delete office.archived;
+  write();
+}
+
 /** Инициализацию гита делают один раз — при первом открытии офиса. */
 export function clearInitFlag(id: string): void {
   const office = officeById(id);
@@ -329,6 +523,62 @@ export function renameOffice(id: string, name: string): string | null {
   if (!office) return c('offices.notFound', { id });
   if (!name.trim()) return c('offices.needName');
   office.name = name.trim();
+  write();
+  return null;
+}
+
+/**
+ * Шаг между значениями ручного порядка. Не единица — чтобы в реестр, который
+ * читают и правят руками, можно было вписать офис между двумя соседями, не
+ * перенумеровывая весь список.
+ */
+const ORDER_STEP = 10;
+
+/**
+ * Переставить офис в списке: `index` — место, считая от нуля и по ВИДИМОМУ
+ * списку (тому, что человек перетаскивает мышью). Возвращает причину отказа на
+ * языке офиса или null.
+ *
+ * Принимаем один офис и одно место, а не весь порядок списком: пока человек
+ * тащит строку, офис может завестись сам — мастером в другой вкладке или самим
+ * офисом, — и присланный целиком порядок его бы не знал. Одно перемещение
+ * применяется к текущему списку сервера, поэтому незнакомый клиенту офис
+ * просто остаётся на своём месте, а не теряется и не всплывает наверх.
+ *
+ * После перестановки порядок нормализуется У ВСЕХ записей, включая скрытые:
+ * половина списка с ручным порядком, а половина без него означала бы, что
+ * «поднять офис на одну строку» иногда перебрасывает его через весь список
+ * (офис без `order` стоит ниже любого расставленного). Скрытому офису значение
+ * тоже достаётся — тогда, вернувшись в список, он встанет между теми же
+ * соседями, между которыми стоял, а не в конец.
+ *
+ * Идемпотентность здесь не случайность: место считается от списка БЕЗ самого
+ * переставляемого офиса, поэтому «поставить туда, где он и стоит» даёт тот же
+ * список и те же значения порядка.
+ */
+export function reorderOffice(id: string, index: number): string | null {
+  if (!registry) return c('offices.noRegistry');
+  const office = officeById(id);
+  // Скрытый офис двигать нечем: в видимом списке его нет, и «место» для него
+  // ничего не значит.
+  if (!office || office.hidden) return c('offices.notFound', { id });
+  if (typeof index !== 'number' || !Number.isFinite(index)) {
+    return c('offices.orderBadIndex', { index: String(index) });
+  }
+
+  const rest = [...registry.offices].sort(compareOffices).filter((o) => o !== office);
+  const visible = rest.filter((o) => !o.hidden);
+  // Выход за края прижимаем к ближнему краю: перетащить строку ниже последней —
+  // обычное движение мышью, а не ошибка, о которой стоит говорить человеку.
+  const place = Math.max(0, Math.min(Math.trunc(index), visible.length));
+  // Место в полном списке ищем по видимому соседу: скрытые офисы в счёте
+  // позиций не участвуют, иначе убранный из списка проект сдвигал бы всё под
+  // собой, оставаясь невидимым.
+  const at = place < visible.length ? rest.indexOf(visible[place]) : rest.length;
+  rest.splice(at, 0, office);
+  rest.forEach((o, i) => { o.order = (i + 1) * ORDER_STEP; });
+  // Файл держим в том же порядке, в каком список показывают.
+  registry.offices.splice(0, registry.offices.length, ...rest);
   write();
   return null;
 }

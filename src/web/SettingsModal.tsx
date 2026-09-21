@@ -10,7 +10,7 @@ import {
   MIN_FOCUS_EPICS, MIN_INITIATIVE_SHARE, MIN_PM_CONTEXT_LIMIT, MIN_WORKER_CONTEXT_LIMIT,
   type InitiativeMode, type McpServerDef, type PermissionMode,
 } from '../shared/types';
-import { LANGS, LANG_TITLE, type Lang } from '../shared/i18n';
+import { DEFAULT_LANG, LANGS, LANG_TITLE, type Lang } from '../shared/i18n';
 import { DEFAULT_GRAPHICS, GRAPHICS_RANGE, type Graphics } from './office3d/graphics';
 import { t, type UiKey } from './i18n';
 import { McpCatalog, type McpRequest } from './McpCatalog';
@@ -115,9 +115,18 @@ export function SettingsModal({ onClose }: { onClose: () => void }) {
   const [layoutId, setLayoutId] = useState(settings.layoutId);
   const [token, setToken] = useState('');
   const [access, setAccess] = useState(settings.officePermissionMode);
-  const [language, setLanguage] = useState<Lang>(settings.language ?? 'en');
+  // Два языка офиса — независимые: договариваться по-русски и держать код и
+  // комментарии английскими это обычное требование, а не ошибка ввода.
+  // Старое `settings.language` тут только запасным значением для офисов,
+  // заведённых до разделения языков; язык интерфейса сюда не приходит вовсе.
+  const [chatLanguage, setChatLanguage] = useState<Lang>(
+    settings.chatLanguage ?? settings.language ?? DEFAULT_LANG);
+  const [codeLanguage, setCodeLanguage] = useState<Lang>(
+    settings.codeLanguage ?? settings.chatLanguage ?? settings.language ?? DEFAULT_LANG);
   const themeMode = useStore((s) => s.themeMode);
   const setThemeMode = useStore((s) => s.setThemeMode);
+  // Язык интерфейса — только для показа: меняют его на главном экране.
+  const uiLang = useStore((s) => s.lang);
   const [gfx, setGfx] = useState<Graphics>(graphics);
   const patchGfx = (patch: Partial<Graphics>) => setGfx((g) => ({ ...g, ...patch }));
   const [autoPipeline, setAutoPipeline] = useState(settings.autoPipeline);
@@ -173,7 +182,8 @@ export function SettingsModal({ onClose }: { onClose: () => void }) {
       workerContextLimit: workerContext * 1000,
       initiativeMode,
       initiativeShare: initiativeShare / 100,
-      language,
+      chatLanguage,
+      codeLanguage,
     });
     setGraphics(gfx);
     if (token.trim()) setCloudToken(token.trim());
@@ -197,16 +207,43 @@ export function SettingsModal({ onClose }: { onClose: () => void }) {
           <div className="settings-content">
             {section === 'general' && (
               <>
-                <h4 className="section-title">{t('common.language')}</h4>
+                {/* Два языка офиса стоят рядом и переключаются порознь: так
+                    видно, что это разные настройки, а не одна с уточнением. */}
+                <h4 className="section-title">{t('settings.lang.chat')}</h4>
                 <div className="engine">
                   {LANGS.map((code) => (
-                    <button key={code} className={language === code ? 'on' : ''}
-                      onClick={() => setLanguage(code)}>
+                    <button key={code} className={chatLanguage === code ? 'on' : ''}
+                      onClick={() => setChatLanguage(code)}>
                       {LANG_TITLE[code]}
                     </button>
                   ))}
                 </div>
-                <p className="hint muted">{t('settings.language.hint')}</p>
+                <p className="hint muted">{t('settings.lang.chat.hint')}</p>
+
+                <h4 className="section-title">{t('settings.lang.code')}</h4>
+                <div className="engine">
+                  {LANGS.map((code) => (
+                    <button key={code} className={codeLanguage === code ? 'on' : ''}
+                      onClick={() => setCodeLanguage(code)}>
+                      {LANG_TITLE[code]}
+                    </button>
+                  ))}
+                </div>
+                <p className="hint muted">{t('settings.lang.code.hint')}</p>
+                {chatLanguage !== codeLanguage && (
+                  <p className="hint muted">
+                    {t('settings.lang.split', {
+                      chat: LANG_TITLE[chatLanguage], code: LANG_TITLE[codeLanguage],
+                    })}
+                  </p>
+                )}
+
+                {/* Язык интерфейса здесь не настраивается: он один на всё
+                    приложение, и место у него одно — главный экран. Строка
+                    оставлена, чтобы его не искали в настройках офиса. */}
+                <p className="hint muted settings-elsewhere">
+                  {t('settings.lang.ui.elsewhere', { lang: LANG_TITLE[uiLang] })}
+                </p>
 
                 {/* Тема применяется сразу, без «Сохранить»: она живёт на этом
                     компьютере, а не в настройках офиса на сервере. */}

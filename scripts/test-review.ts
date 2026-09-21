@@ -462,6 +462,85 @@ async function main(): Promise<void> {
     check('ждущий решения PR надзор больше не дёргает', s.calls.reworks === before);
   }
 
+  // 12½. Офис отступился — но обстановка изменилась, и он вернулся сам.
+  //      Раньше задача стояла до чьего-нибудь клика, даже когда причина
+  //      давным-давно ушла (например, починку уже влили в main).
+  {
+    const task = taskBranch(dir, 'M2', { 'shared.txt': 'версия M2\n' });
+    moveBase(dir, 'shared.txt', 'main поменялся до M2\n');
+    let canFix = false;
+    const s = stub({
+      rework: (_state, t) => {
+        if (!canFix) return { ok: false, message: 'исполнитель был занят' };
+        const wt = office.tasks.get(t.id)?.worktreePath as string;
+        writeFileSync(resolve(wt, 'shared.txt'), 'main поменялся до M2\nверсия M2\n');
+        return { ok: true, message: 'разрешил' };
+      },
+    });
+    await runPipeline(office, task.id);
+    for (let i = 0; i < 4; i += 1) {
+      office.patchPr(task.id, { nextTryAt: null });
+      await superviseOffice(office);
+      await whenPipelinesIdle(office);
+    }
+
+    say('▶ Обстановка изменилась — офис возвращается к задаче сам');
+    check('офис отступился', office.prOf(task.id)?.needsDecision === true);
+    check('и запомнил обстановку', Boolean(office.prOf(task.id)?.situation));
+
+    // Пока вокруг всё то же самое, повторять нечего: ни попыток, ни денег.
+    const before = s.calls.reworks;
+    await superviseOffice(office);
+    await whenPipelinesIdle(office);
+    check('без перемен офис не дёргается',
+      s.calls.reworks === before && office.prOf(task.id)?.needsDecision === true);
+
+    // Причина ушла (а заодно сдвинулась и база) — офис пробует снова сам.
+    canFix = true;
+    moveBase(dir, 'поехали.txt', 'main поехал дальше\n');
+    await superviseOffice(office);
+    await whenPipelinesIdle(office);
+    check('офис вернулся к задаче без кнопки', office.tasks.get(task.id)?.merged === true);
+    check('и сказал в ленту, что изменилось',
+      office.log.some((l) => l.text.includes(task.id) && l.text.includes('обстановка изменилась')));
+    check('менеджера второй раз не дёргали',
+      s.pm.filter((m) => m.includes('не доехала')).length === 1);
+    check('отпечаток обстановки снят', !office.prOf(task.id)?.situation);
+  }
+
+  // 12¾. Сохранение старше отпечатка: офис отступился ещё прежним кодом, и
+  //      обстановки того момента не знает никто. Один заход всё равно дешевле,
+  //      чем задача, стоящая до конца времён.
+  {
+    const task = taskBranch(dir, 'M3', { 'shared.txt': 'версия M3\n' });
+    moveBase(dir, 'shared.txt', 'main поменялся до M3\n');
+    let canFix = false;
+    const s = stub({
+      rework: (_state, t) => {
+        if (!canFix) return { ok: false, message: 'исполнитель был занят' };
+        const wt = office.tasks.get(t.id)?.worktreePath as string;
+        writeFileSync(resolve(wt, 'shared.txt'), 'main поменялся до M3\nверсия M3\n');
+        return { ok: true, message: 'разрешил' };
+      },
+    });
+    await runPipeline(office, task.id);
+    for (let i = 0; i < 4; i += 1) {
+      office.patchPr(task.id, { nextTryAt: null });
+      await superviseOffice(office);
+      await whenPipelinesIdle(office);
+    }
+    // Ровно то, что лежит в старых сохранениях: решения ждёт, отпечатка нет.
+    office.patchPr(task.id, { situation: null });
+
+    say('▶ Задача из старого сохранения тоже не ждёт кнопки');
+    canFix = true;
+    await superviseOffice(office);
+    await whenPipelinesIdle(office);
+    check('офис попробовал и довёл её до main', office.tasks.get(task.id)?.merged === true);
+    check('в ленте сказано, что обстановку не помним',
+      office.log.some((l) => l.text.includes(task.id) && l.text.includes('не запомнили')));
+  }
+
   // 13. Ревьюер трижды завернул — это сразу к менеджеру, без повторов.
   {
     const task = taskBranch(dir, 'N', { 'n.txt': 'N\n' });

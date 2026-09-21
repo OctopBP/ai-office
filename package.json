@@ -43,6 +43,7 @@
     "test:premerge": "tsx scripts/test-premerge.ts",
     "test:overlap": "tsx scripts/test-overlap.ts",
     "test:money": "tsx scripts/test-money.ts",
+    "test:rules": "tsx scripts/test-rules.ts",
     "test:life": "tsx scripts/test-life.ts",
     "test:review": "tsx scripts/test-review.ts",
     "test:workflow": "tsx scripts/test-workflow.ts",

@@ -326,7 +326,9 @@ function reportStalls(state: OfficeState, now: number): void {
  * согласовал фичу, тикнул надзор.
  */
 export function dispatch(state: OfficeState): void {
-  if (state.paused) return;
+  // Архив — та же остановка, что и пауза, только окончательная: по офису в
+  // архиве не двигается ничего, включая планировщик.
+  if (state.paused || state.archived) return;
   const now = Date.now();
   closeFinishedEpics(state);
   activateEpics(state);

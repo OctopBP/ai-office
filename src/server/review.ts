@@ -616,14 +616,35 @@ function stopOnRedGate(ctx: Ctx, report: PreMergeReport): StepResult {
 }
 
 /**
- * Пробное слияние не собралось — ветка разошлась с базой. Это чинит автор на
- * следующем круге (resync → fix-conflict), а не человек руками.
+ * Ветка разошлась с базой — пробное слияние даёт конфликт, или база уехала,
+ * пока гейт гонял проверки. Это чинит автор на следующем круге
+ * (resync → fix-conflict), а не человек руками.
  */
 function retryAfterGate(ctx: Ctx, report: PreMergeReport): StepResult {
   const { state, task } = ctx;
   state.addChat(OFFICE_SENDER,
     state.say('pipe.mergeOutcome', { task: task.id, message: report.message }));
-  return { outcome: 'moved' };
+  // Записку несём дальше: если кругов не хватит, в причине остановки будет
+  // видно, на чём именно не сошлись, а не одно «база уезжает быстрее».
+  return { outcome: 'moved', note: report.message };
+}
+
+/**
+ * Гейт красный не на проверках и не на расхождении веток — значит, сломана
+ * обстановка: не поднялась рабочая копия офиса, грязна копия человека, git
+ * отказал. Повтор этого не лечит: до T-56/T-58 конвейер уходил на второй круг
+ * и объявлял итогом «база уезжает быстрее, чем задача успевает слиться», пока
+ * настоящей причиной был занятый каталог копии офиса. Встаём сразу, зовём
+ * человека и говорим, что именно увидел гейт — вместе с его обходами.
+ */
+function stopOnBrokenGate(ctx: Ctx, report: PreMergeReport): StepResult {
+  const { state, task, base } = ctx;
+  const why = state.say('pipe.mergeGateBroken', {
+    base,
+    message: [report.message, ...report.warnings].filter(Boolean).join(' '),
+  });
+  state.addChat(OFFICE_SENDER, state.say('pipe.mergeOutcome', { task: task.id, message: why }));
+  return fail(why, true);
 }
 
 /**
@@ -634,8 +655,10 @@ function retryAfterGate(ctx: Ctx, report: PreMergeReport): StepResult {
  * До T-145 конвейер проверял слитое дерево одним typecheck — и четыре поломки
  * прожили в main незамеченными, потому что ломались не сборкой, а тестами.
  *
- * Исход 'moved' — база уехала прямо под нами: это не беда, а повод пересобрать
- * ветку и зайти снова; сколько раз — решает процесс.
+ * Исход 'moved' — база уехала прямо под нами или ветка с ней разошлась: это не
+ * беда, а повод пересобрать ветку и зайти снова; сколько раз — решает процесс.
+ * Всё остальное красное — остановка с причиной, а не повтор: гейт, который не
+ * смог даже собрать пробное слияние, на втором круге скажет ровно то же (T-56).
  */
 const merge: Executor<Ctx> = {
   run(ctx) {
@@ -666,6 +689,10 @@ const merge: Executor<Ctx> = {
         state.patchPr(task.id, { gate: toGateView(gate) });
         if (gate.stage === 'checks') return stopOnRedGate(ctx, gate);
         if (gate.stage === 'conflict') return retryAfterGate(ctx, gate);
+        // Гейт мог встать и не на проверках — например, не поднялась копия для
+        // слияния. Молча идти дальше нельзя: проверенного дерева нет, а ветка
+        // уехала бы в origin и влилась бы непроверенной.
+        if (!gate.ok) return stopOnBrokenGate(ctx, gate);
         overlaps = gate.overlaps;
 
         const push = await pushBranch(repo, branch, gh.token, state.lang());
@@ -694,12 +721,17 @@ const merge: Executor<Ctx> = {
         // её читают в логе сервера, а не в интерфейсе.
         state.addLog(null, gate.ok ? 'system' : 'error',
           `premerge ${branch} → ${base}: ${gate.stage},`
-          + ` checks ${gate.checks.length}, gate ${gate.gateMs} ms`);
+          + ` checks ${gate.checks.length}, gate ${gate.gateMs} ms,`
+          + ` copy ${gate.integrationDir}`);
         state.patchPr(task.id, { gate: toGateView(gate) });
 
         if (gate.stage === 'checks') return stopOnRedGate(ctx, gate);
         if (gate.stage === 'conflict') return retryAfterGate(ctx, gate);
-        if (!gate.ok) return fail(gate.message);
+        // Гейт был зелёным, а само слияние не прошло — чаще всего базу правда
+        // сдвинули, пока мы проверяли: вот ровно тот случай, ради которого
+        // заведён второй круг и фраза «база уезжает быстрее».
+        if (gate.stage === 'merge') return retryAfterGate(ctx, gate);
+        if (!gate.ok) return stopOnBrokenGate(ctx, gate);
         overlaps = gate.overlaps;
         if (gate.stage === 'nothing') {
           state.addLog(null, 'system', state.say('pipe.noCommits', { task: task.id, base }));
@@ -750,8 +782,13 @@ const merge: Executor<Ctx> = {
       return { outcome: 'pass' };
     });
   },
-  exhausted(ctx) {
-    return { note: ctx.state.say('pipe.baseMovesFast', { base: ctx.base }) };
+  exhausted(ctx, last) {
+    // К общей фразе про уезжающую базу добавляем то, что сказал гейт в
+    // последний раз: без этого причина остановки не объясняет ничего.
+    return {
+      note: ctx.state.say('pipe.baseMovesFast', { base: ctx.base })
+        + (last.note ? ` ${ctx.state.say('pipe.lastGate', { message: last.note })}` : ''),
+    };
   },
 };
 

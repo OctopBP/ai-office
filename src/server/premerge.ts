@@ -24,7 +24,7 @@ import { asLang, type Lang } from '../shared/i18n';
 import { t } from './i18n';
 import {
   assembleMerge, currentBranch, dirtyFiles, dropAssembled, mergeBranch,
-  stashPop, stashPush, type Signature,
+  releaseIntegration, stashPop, stashPush, type Signature,
 } from './git';
 import { errorFiles, hasScript, runProjectCheck } from './checks';
 import { duplicateEdits, formatOverlapFiles, type DuplicateEdit } from './overlap';
@@ -43,12 +43,20 @@ export interface PreMergeCheck {
 /**
  * На чём остановился гейт:
  * 'dirty' — грязная рабочая копия; 'conflict' — пробное слияние не собралось;
- * 'checks' — проверки на слитом дереве красные; 'merge' — слияние не прошло;
- * 'nothing' — сливать было нечего; 'merged' — влито; 'checked' — гейт зелёный,
- * но слияние не просили (режим только проверки).
+ * 'integration' — не поднялась рабочая копия офиса, в которой гейт собирает
+ * слияние (занят каталог, нет прав); 'checks' — проверки на слитом дереве
+ * красные; 'merge' — слияние не прошло; 'nothing' — сливать было нечего;
+ * 'merged' — влито; 'checked' — гейт зелёный, но слияние не просили
+ * (режим только проверки).
+ *
+ * 'integration' стоит отдельно намеренно: раньше любая неудача сборки слияния
+ * приезжала стадией 'conflict', конвейер читал это как расхождение с базой и
+ * показывал «база уезжает быстрее, чем задача успевает слиться» — при том что
+ * ветка с базой не расходилась вовсе (T-56, T-58).
  */
 export type PreMergeStage =
-  | 'dirty' | 'conflict' | 'checks' | 'merge' | 'nothing' | 'merged' | 'checked';
+  | 'dirty' | 'conflict' | 'integration' | 'checks' | 'merge' | 'nothing'
+  | 'merged' | 'checked';
 
 export interface PreMergeReport {
   ok: boolean;
@@ -71,6 +79,11 @@ export interface PreMergeReport {
   /** Первая упавшая проверка — она и остановила гейт. */
   failed: PreMergeCheck | null;
   merged: boolean;
+  /**
+   * Каталог, в котором гейт собирал слияние и гонял проверки. Может отличаться
+   * от заказанного: основной бывает занят, и тогда берётся запасной.
+   */
+  integrationDir: string;
   /** Сколько занял сам гейт: статус, пробное слияние и проверки. */
   gateMs: number;
   /** Сколько занял шаг целиком, вместе со слиянием. */
@@ -182,7 +195,7 @@ export async function preMergeGate(options: PreMergeOptions): Promise<PreMergeRe
   const report: PreMergeReport = {
     ok: false, stage: 'dirty', message: '', branch, base,
     dirty: [], stashed: false, conflicts: [], overlaps: [], checks: [], failed: null,
-    merged: false, gateMs: 0, totalMs: 0, warnings: [],
+    merged: false, integrationDir, gateMs: 0, totalMs: 0, warnings: [],
   };
   const done = (stage: PreMergeStage, ok: boolean, message: string): PreMergeReport => {
     report.stage = stage;
@@ -198,7 +211,16 @@ export async function preMergeGate(options: PreMergeOptions): Promise<PreMergeRe
   // 1. Чистая ли рабочая копия. Это ровно ситуация из J-4: незакоммиченные
   //    правки в копии основной ветки роняли слияние на середине.
   report.dirty = await dirtyFiles(repoDir);
-  const here = (await currentBranch(repoDir)) ?? base;
+  // Отцепленная копия человека — известная болячка офиса (advanceBase уводит
+  // её с ветки, чтобы сдвинуть базу мимо незакоммиченных правок). Слиянию она
+  // не мешает: база двигается ссылкой. Но молчать нельзя — влитого в такой
+  // копии не видно, и человек решит, что слияния не было. `--abbrev-ref` на
+  // отцепленной копии отвечает буквальным «HEAD», а не пустотой: отсюда и
+  // сравнение, а не просто проверка на null.
+  const branchHere = await currentBranch(repoDir);
+  const detachedHere = !branchHere || branchHere === 'HEAD';
+  const here = detachedHere ? base : branchHere;
+  if (detachedHere) report.warnings.push(t(lang, 'premerge.detachedHead', { dir: repoDir, base }));
   if (report.dirty.length && !allowDirty) {
     if (!stash) {
       return done('dirty', false, t(lang, 'premerge.dirty', {
@@ -216,17 +238,37 @@ export async function preMergeGate(options: PreMergeOptions): Promise<PreMergeRe
   try {
     // 2. Пробное слияние: собирается в копии офиса, основная ветка не двигается.
     const built = await assembleMerge(repoDir, branch, base, integrationDir, lang, options.sign);
+    // Обходы по дороге (занятый каталог, снятые хвосты worktree) не отменяют
+    // исхода, но человек должен их увидеть: слияние собралось не там, где обычно.
+    report.warnings.push(...built.warnings);
+    if (built.worktree) report.integrationDir = built.worktree;
+    // Собранное слияние живёт в копии офиса: запасную после себя убираем.
+    const release = async (): Promise<void> => {
+      report.warnings.push(
+        ...await releaseIntegration(repoDir, built.worktree, built.temporary, lang));
+    };
     if (built.kind === 'conflict') {
       report.conflicts = built.conflicts;
+      await release();
       return done('conflict', false, t(lang, 'premerge.conflict', {
         branch, base, files: built.conflicts.join(', ') || built.message,
       }));
     }
     if (built.kind === 'nothing') {
+      await release();
       return done('nothing', true, t(lang, 'premerge.nothing', { branch, base }));
     }
+    // Каталог для слияния поднять не вышло — это не расхождение с базой, а
+    // своя беда с текстом git: отдаём её отдельной стадией, как есть.
+    if (built.kind === 'no-copy') {
+      await release();
+      return done('integration', false, t(lang, 'premerge.integrationFailed', {
+        dir: integrationDir, error: built.message,
+      }));
+    }
     if (built.kind !== 'merged' || !built.worktree) {
-      return done('conflict', false, t(lang, 'premerge.assembleFailed', { error: built.message }));
+      await release();
+      return done('merge', false, t(lang, 'premerge.assembleFailed', { error: built.message }));
     }
     const worktree = built.worktree;
 
@@ -260,6 +302,7 @@ export async function preMergeGate(options: PreMergeOptions): Promise<PreMergeRe
       // Собранное слияние убираем: копия офиса не должна остаться с деревом,
       // которое мы только что признали красным.
       await dropAssembled(worktree, base);
+      await release();
       const failed = report.failed;
       return done('checks', false, t(lang, 'premerge.checkFailed', {
         command: failed.command,
@@ -272,6 +315,7 @@ export async function preMergeGate(options: PreMergeOptions): Promise<PreMergeRe
 
     if (!merge) {
       await dropAssembled(worktree, base);
+      await release();
       return done('checked', true, t(lang, 'premerge.checked', {
         branch, base, n: String(report.checks.length), time: formatMs(report.gateMs, lang),
       }));
@@ -279,11 +323,20 @@ export async function preMergeGate(options: PreMergeOptions): Promise<PreMergeRe
 
     // 4. Гейт зелёный — сливаем как раньше. Слияние пересобирается в той же
     //    копии офиса из тех же коммитов, поэтому проверенное дерево и влитое —
-    //    одно и то же.
+    //    одно и то же. Запасную копию перед этим отпускаем: слияние поднимет
+    //    себе свою, а два одноразовых каталога рядом нам ни к чему.
+    await release();
     const outcome = await mergeBranch(
       repoDir, branch, base, integrationDir, lang, undefined, options.sign);
+    report.warnings.push(...outcome.warnings);
+    if (outcome.worktree) report.integrationDir = outcome.worktree;
     if (outcome.kind === 'nothing') {
       return done('nothing', true, t(lang, 'premerge.nothing', { branch, base }));
+    }
+    if (outcome.kind === 'no-copy') {
+      return done('integration', false, t(lang, 'premerge.integrationFailed', {
+        dir: integrationDir, error: outcome.message,
+      }));
     }
     if (!outcome.ok) {
       report.conflicts = outcome.conflicts;
@@ -331,6 +384,9 @@ export function formatReport(report: PreMergeReport, lang: Lang): string {
   const lines: string[] = [
     `${report.ok ? '✅' : '❌'} ${report.message}`,
     t(lang, 'premerge.reportBranch', { branch: report.branch, base: report.base }),
+    // Каталог сборки печатаем всегда: когда основной занят, слияние уезжает
+    // в запасной, и человек должен видеть, где на самом деле гонялись проверки.
+    t(lang, 'premerge.reportCopy', { dir: report.integrationDir }),
   ];
   if (report.dirty.length) {
     lines.push(t(lang, report.stashed ? 'premerge.reportStashed' : 'premerge.reportDirty', {

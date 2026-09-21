@@ -33,6 +33,10 @@ export const promptsEn = {
   'bubble.finishTask': 'handing the work in',
   'bubble.listTeam': 'checking who is free',
   'bubble.getBoard': 'checking the board',
+  'bubble.listRules': 'reading the office rules',
+  'bubble.addRule': 'adding a rule: {what}',
+  'bubble.editRule': 'rewording rule {what}',
+  'bubble.dropRule': 'dropping rule {what}',
 
   // -------------------------------------------------- состояния и лента
   'agent.state.thinking': 'thinking…',
@@ -106,6 +110,56 @@ export const promptsEn = {
   // ------------------------------------------------------------ бриф проекта
   'prompt.brief.clipped': '… (brief truncated, the full text is in OFFICE.md)',
   'prompt.brief.header': 'ABOUT THE PROJECT — from OFFICE.md in the working directory:',
+
+  // ------------------------------------------------------------ правила офиса
+  'prompt.rules.office': 'OFFICE RULES — they hold for everyone, from RULES.md in the office root:',
+  'prompt.rules.repo': 'RULES OF THE {label} REPOSITORY — from its RULES.md:',
+  'prompt.rules.role': 'RULES OF THE ROLE {role} — from its brief:',
+  'prompt.rules.clipped': '… (the rules are truncated, the full list is in RULES.md)',
+
+  // ------------------------------------------------------------- языки офиса
+  // Два языка, и путать их нельзя: язык общения — для человека, язык
+  // реализации — для репозитория. Названия языков подставляются по-английски
+  // («Russian», а не «Русский»): так модель читает инструкцию увереннее.
+  'prompt.lang.pm': [
+    'LANGUAGES. The office has two of them, they are set separately, and both come from the',
+    'office settings rather than from your own preference.',
+    '— The language of communication is {chat}. Everything the owner reads is written in it:',
+    '  your replies in the chat, the wording of tasks and acceptance criteria, reports,',
+    '  questions to the owner, journal entries, the standup and the other rituals.',
+    '— The language of implementation is {code}. The project itself is written in it: code,',
+    '  names in the code, comments, commit messages, documentation and the files in docs/.',
+    'When the two differ, do not mix them up. An artefact of the project is written in the',
+    'language of implementation even when you discuss it in the language of communication;',
+    'anything addressed to the owner is written in the language of communication even when the',
+    'code around it is in the other language. You write no code yourself, but a task is the',
+    'order for it: when a task is about the language of a comment, a document or a commit, that',
+    'is the language of implementation, not the language the task itself is written in.',
+    'A rule like “comments in such-and-such language” from OFFICE.md, from the office rules or',
+    'from a role brief holds only while it matches the setting; if they contradict, the setting',
+    'wins.',
+    'The interface language of the app is a third, global thing and has nothing to do with this:',
+    'it changes nothing in how you write.',
+  ].join('\n'),
+  'prompt.lang.worker': [
+    'LANGUAGES. The office has two of them, they are set separately, and both come from the',
+    'office settings rather than from your own preference.',
+    '— The language of communication is {chat}. Everything the owner reads is written in it:',
+    '  say(), the report in finish_task, questions to the owner, answers to colleagues, what',
+    '  you say at a meeting.',
+    '— The language of implementation is {code}. What you make is written in it: code, names of',
+    '  files, functions and variables, comments, commit messages, documentation and the files',
+    '  in docs/.',
+    'When the two differ, do not mix them up. A comment in the code is written in the language',
+    'of implementation even when the task is written in the language of communication; the',
+    'report is written in the language of communication even when the code around it is in the',
+    'other language.',
+    'A rule like “comments in such-and-such language” from OFFICE.md, from the office rules or',
+    'from your brief holds only while it matches the setting; if they contradict, the setting',
+    'wins.',
+    'The interface language of the app is a third, global thing and has nothing to do with this:',
+    'it changes nothing in how you write.',
+  ].join('\n'),
 
   // ------------------------------------------------------------- состав команды
   'prompt.team.header': 'The team:',
@@ -264,7 +318,7 @@ Rules for splitting work up:
   low — for what can be done whenever. Marking everything high speeds up nothing:
   a priority is a difference from the rest. Changed your mind, or the user pushed — edit_task.
 
-Reply to the user in {lang}, and keep it short.`,
+Keep your replies to the user short. Which language to write them in is said in a separate block below.`,
 
   // -------------------------------------------------- инструменты менеджера
   'tool.team.instructions': 'Tools for running the office team.',
@@ -715,6 +769,10 @@ Reply to the user in {lang}, and keep it short.`,
   'assign.noTask': 'there is no task {task} on the board',
   'assign.notQueued': '{task} is no longer in the queue',
   'assign.paused': 'the office is paused',
+  // Одна фраза на все отказы по архиву: и задачам, и ритуалам, и инструменту
+  // менеджера. Архив — не временная заминка, поэтому «попробуйте ещё раз»
+  // здесь нет: пока офис в архиве, ничего не изменится.
+  'archive.stopped': 'The office is in the archive — no work runs there: no new tasks start and the rituals do not run. The board keeps everything; work resumes only when the office is brought back from the archive.',
   'assign.budget': 'the office budget is spent',
   'assign.allBusy': 'every worker in role {role} is busy',
 
@@ -790,6 +848,7 @@ Reply to the user in {lang}, and keep it short.`,
   'pipe.baseGone': '{task}: base branch {gone} is gone from the repository — using {base} instead',
   'pipe.started': '{task}: the work is handed in, taking it through review into {base}.',
   'pipe.baseMovesFast': 'Base {base} moves faster than the task can be merged. Two attempts in a row did not converge — this needs sorting out by hand.',
+  'pipe.lastGate': 'The last thing the gate said: {message}',
   'pipe.secondRound': '{task}: {base} moved on while we were merging — going round again.',
   'pipe.reviewReturned': 'The reviewer sent the work back (round {n}).',
   'pipe.tooManyRounds': 'The reviewer sent the work back {n} times in a row. The last review:\n{text}',
@@ -831,6 +890,7 @@ Reply to the user in {lang}, and keep it short.`,
   'pipe.mergedNoPull': '{task}: merged on GitHub, but the local {base} did not follow — the office working copy is on another branch or has uncommitted edits.',
   'pipe.mergeGateRed': 'Together with {base} the check “{command}” fails.{files}\nCheck output:\n{output}\nOn the branch alone it passes, on the merged tree it does not: {base} is untouched, and nothing gets merged until this is fixed.',
   'pipe.mergeGateFiles': ' Files: {files}.',
+  'pipe.mergeGateBroken': 'The merge into {base} did not happen, and the branch is not to blame: {message} Retrying is pointless — the environment the office assembles merges in has to be fixed first.',
   'pipe.mergeOutcome': '{task}: {message}',
   'pipe.noCommits': '{task}: the branch has no commits beyond {base}',
   'pipe.mergedChat': '{task}: merged. {message}',
@@ -952,6 +1012,18 @@ and the office journal are the same — they live outside the session. This is w
   'tool.proposeRule.text': 'The rule itself, as it will go into the brief: one or two imperative sentences.',
   'tool.proposeRule.rationale': 'Why: which tasks, how many times.',
   'tool.proposeRule.ok': 'Proposed as {id}; the owner decides.',
+  'tool.listRules.desc': 'All the office rules with their ids and circles: the whole office, a repository (a direction — everyone working in it), a role. Read them before you write acceptance criteria for a task and before you add a rule: the criteria of a task must follow from the rules of the circle the assignee belongs to, and a rule that repeats an existing one only makes the list longer.',
+  'tool.addRule.desc': 'Add a standing rule to a circle — when the OWNER asks for it in the chat, or when the team has agreed on it in a meeting. The rule is applied at once, is written into the office feed and reaches the agents of that circle on their next session. Not for a one-off instruction on a task (that is what the task text is for) and not for a lesson learned from a failure (that is note_fact).',
+  'tool.addRule.scope': 'Circle id from list_rules: office — everyone, repo:<folder> — everyone working in that repository.',
+  'tool.addRule.text': 'The rule itself: one checkable imperative sentence, up to 500 characters.',
+  'tool.addRule.ok': 'Rule {id} added to the circle “{scope}”. It reaches the agents of that circle on their next session; sessions already running keep working by the old rules.',
+  'tool.editRule.desc': 'Reword an existing rule — narrow it, make it checkable, fix what the owner corrected. The text is replaced whole, so pass the full new wording.',
+  'tool.editRule.id': 'Rule id from list_rules, for example repo:web#2.',
+  'tool.editRule.text': 'The new wording, in full.',
+  'tool.editRule.ok': 'Rule {id} now reads: {text}',
+  'tool.dropRule.desc': 'Remove a rule that no longer holds: the owner cancelled it, the stack changed, two rules say the same thing. Removing is honest — a rule nobody follows teaches the team to ignore the rest of the list.',
+  'tool.dropRule.id': 'Rule id from list_rules.',
+  'tool.dropRule.ok': 'Rule {id} dropped: {text}',
   'tool.askOwner.desc': 'Ask the OWNER (the person) something only they can decide: a product choice, an ambiguous requirement, a trade-off with money or scope. Does NOT wait for an answer: the question goes into the office queue, the owner sees it at the next standup, and the answer lands in the office journal. Keep working by your assumption — and state it here. Not for things a colleague or the code can answer.',
   'tool.askOwner.pm.desc': 'Ask the OWNER (the person) something only they can decide — the same as for workers, but from you: a priority between features, a scope cut, a rule for a role. Does NOT wait: the answer comes later as a system message. State what the office assumes meanwhile.',
   'tool.askOwner.question': 'The question, one or two sentences, with enough context to answer without opening the task.',
