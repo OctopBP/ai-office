@@ -41,6 +41,7 @@ const DIR_A = resolve(ROOT, 'proj-a');
 const DIR_B = resolve(ROOT, 'proj-b');
 const DIR_C = resolve(ROOT, 'proj-c');
 const DIR_D = resolve(ROOT, 'proj-d');
+const DIR_E = resolve(ROOT, 'proj-e');
 
 const results: string[] = [];
 const check = (text: string, ok: boolean): void => { results.push(`${text}: ${ok}`); };
@@ -71,7 +72,7 @@ function onDisk(): {
   currentId: string;
   offices: Array<{
     id: string; name: string; projectDir: string; stateFile: string;
-    createdAt?: number; hidden?: boolean; paused?: boolean; archived?: boolean;
+    createdAt?: number; order?: number; hidden?: boolean; paused?: boolean; archived?: boolean;
   }>;
 } {
   return JSON.parse(readFileSync(REGISTRY, 'utf8'));
@@ -80,9 +81,13 @@ function onDisk(): {
 /** Порядок видимых офисов — тот самый, который человек видит в рейле. */
 const order = (): string => officeViews().map((o) => o.id).join(',');
 
+/** Ручной порядок, как он лёг на диск: «id:значение», по всем записям реестра. */
+const savedOrder = (): string =>
+  onDisk().offices.map((o) => `${o.id}:${o.order ?? '—'}`).join(',');
+
 async function main(): Promise<void> {
   rmSync(ROOT, { recursive: true, force: true });
-  for (const dir of [DIR_A, DIR_B, DIR_C, DIR_D]) mkdirSync(dir, { recursive: true });
+  for (const dir of [DIR_A, DIR_B, DIR_C, DIR_D, DIR_E]) mkdirSync(dir, { recursive: true });
 
   // 1. Холодный старт с уже лежащего на диске реестра — ровно то, что делает
   //    сервер после перезапуска. Второй офис здесь скрыт: он не должен попасть
@@ -699,6 +704,115 @@ async function main(): Promise<void> {
   check('текущий офис записан', saved.currentId === slowId);
   check('возвращённый офис на диске уже не скрыт',
     saved.offices.find((o) => o.id === madeId)?.hidden === false);
+
+  // 27. Ручной порядок офисов: человек расставляет их сам, перетаскивая строки
+  //     в рейле. Порядок по времени создания при этом никуда не девается — он
+  //     остаётся правилом для всех, кого руками не двигали.
+  //     К этому месту в реестре четыре офиса (один скрыт) и ни у кого нет
+  //     ручного порядка: всё, что было до сих пор, считалось по createdAt.
+  check('до перестановки ручного порядка ни у кого нет',
+    onDisk().offices.every((o) => o.order === undefined));
+  check('без ручного порядка список идёт по времени создания', order() === fixed);
+
+  // Нижний офис уезжает на самый верх — движение, которого прежним правилом
+  // было не добиться никак.
+  const bMark = b.events.length;
+  const aMark = a.events.length;
+  handleOfficeCommand({ c: 'reorder_office', officeId: slowId, index: 0 }, b);
+  const moved = [slowId, 'o-1', madeId].join(',');
+  check('перестановка подняла офис на запрошенное место', order() === moved);
+  check('ручной порядок сильнее времени создания', order() !== fixed);
+  // Порядок уезжает в веб сам, без перезагрузки страницы: и рассылкой списка
+  // всем сокетам, и снапшотом тем, кто смотрит открытый офис.
+  check('новый порядок разослан всем клиентам',
+    b.last('offices', bMark)?.offices.map((o) => o.id).join(',') === moved
+    && a.last('offices', aMark)?.offices.map((o) => o.id).join(',') === moved);
+  check('новый порядок доехал и в снапшоте открытого офиса',
+    b.last('snapshot', bMark)?.offices.map((o) => o.id).join(',') === moved);
+  // Ключ сортировки уезжает в веб целиком: без `order` браузер сортировал бы
+  // тот же список по-своему и получил бы прежний порядок.
+  check('в списке для веба есть само значение ручного порядка',
+    officeViews().every((o) => typeof o.order === 'number'));
+  // Значения нормализованы у ВСЕХ записей, включая скрытую: иначе «поднять на
+  // строку» иногда перебрасывало бы офис через весь список.
+  check('порядок нормализован у всех записей реестра, включая скрытую',
+    savedOrder() === [slowId, 'o-1', 'o-2', madeId].map((id, i) => `${id}:${(i + 1) * 10}`).join(','));
+
+  // Все три выдачи обязаны показывать один и тот же список: реестр, сводка для
+  // UI и снапшот. Разъехавшись, они дали бы рейл и главный экран с разным
+  // порядком строк.
+  const snap = restarted.snapshot();
+  check('реестр, список для UI и снапшот согласны в порядке',
+    offices().map((o) => o.id).join(',') === moved
+    && order() === moved
+    && snap.t === 'snapshot' && snap.offices.map((o) => o.id).join(',') === moved);
+
+  // Перезапуск сервера: реестр читается с диска заново вторым экземпляром
+  // модуля — для него это холодный старт.
+  const restart2 = '../src/server/offices.ts?restart=2';
+  const afterRestart = await import(restart2) as typeof import('../src/server/offices');
+  afterRestart.loadRegistry(DIR_A, STATE_FILE);
+  check('перестановка пережила перезапуск сервера',
+    afterRestart.offices().map((o) => o.id).join(',') === moved);
+
+  // Скрытый офис в расчёте порядка не мешает: в позициях он не участвует, но
+  // и место своё не теряет — вернувшись, встаёт между прежними соседями.
+  const backHidden = createOffice({ name: 'Убранный вернулся', projectDir: DIR_C, mustExist: true });
+  check('скрытый офис вернулся со своим id',
+    'office' in backHidden && backHidden.office.id === 'o-2');
+  check('вернувшийся офис встал между прежними соседями, а не в конец',
+    order() === [slowId, 'o-1', 'o-2', madeId].join(','));
+
+  // Новый офис встаёт в конец: ручного порядка ему не выдают, а офис без него
+  // стоит ниже всех расставленных.
+  const fresh5 = createOffice({ name: 'Пятый', projectDir: DIR_E, mustExist: true });
+  const freshId = 'office' in fresh5 ? fresh5.office.id : '';
+  check('новый офис встал в конец списка',
+    order() === [slowId, 'o-1', 'o-2', madeId, freshId].join(','));
+  check('новому офису ручной порядок не выдавали',
+    onDisk().offices.find((o) => o.id === freshId)?.order === undefined);
+  check('созданный офис не сдвинул расставленные руками',
+    officeViews()[0].id === slowId);
+
+  // Перестановка идемпотентна: «поставить туда, где он и стоит» не двигает
+  // список и не меняет значения порядка. Иначе каждое лишнее событие от
+  // клиента незаметно перенумеровывало бы реестр.
+  const stable = order();
+  handleOfficeCommand({ c: 'reorder_office', officeId: slowId, index: 0 }, b);
+  const onceOrder = savedOrder();
+  handleOfficeCommand({ c: 'reorder_office', officeId: slowId, index: 0 }, b);
+  check('повторная перестановка на то же место список не меняет', order() === stable);
+  check('повторная перестановка не меняет и значений порядка', savedOrder() === onceOrder);
+
+  // Место за концом списка прижимается к концу: перетащить строку ниже
+  // последней — обычное движение мышью.
+  handleOfficeCommand({ c: 'reorder_office', officeId: slowId, index: 99 }, b);
+  check('место за концом списка прижато к концу',
+    order() === ['o-1', 'o-2', madeId, freshId, slowId].join(','));
+
+  // Отказы: офиса нет в списке, место — не число.
+  mark = b.events.length;
+  handleOfficeCommand({ c: 'reorder_office', officeId: 'o-404', index: 0 }, b);
+  check('перестановка неизвестного офиса отклонена',
+    b.last('office.error', mark)?.op === 'reorder');
+  const beforeBad = order();
+  mark = b.events.length;
+  handleOfficeCommand({ c: 'reorder_office', officeId: slowId, index: Number.NaN }, b);
+  check('место не числом отклонено', b.last('office.error', mark)?.op === 'reorder');
+  check('после отказа порядок не изменился', order() === beforeBad);
+
+  // Мусор в поле порядка реестр правят руками: при загрузке он убирается, и
+  // такой офис считается нерасставленным — то есть идёт по createdAt.
+  const dirty = onDisk();
+  dirty.offices.find((o) => o.id === 'o-1')!.order = 'первый' as unknown as number;
+  writeFileSync(REGISTRY, JSON.stringify(dirty), 'utf8');
+  const restart3 = '../src/server/offices.ts?restart=3';
+  const cleaned = await import(restart3) as typeof import('../src/server/offices');
+  cleaned.loadRegistry(DIR_A, STATE_FILE);
+  check('нечисловой порядок из файла убран при загрузке',
+    onDisk().offices.find((o) => o.id === 'o-1')?.order === undefined);
+  check('офис с убранным порядком ушёл к нерасставленным, в хвост по createdAt',
+    cleaned.offices().map((o) => o.id).join(',') === ['o-2', madeId, freshId, slowId, 'o-1'].join(','));
 
   // Досохраняем все поднятые офисы: у каждого свой файл и свой отложенный
   // таймер записи, и оставленный хвост дописался бы уже после уборки.

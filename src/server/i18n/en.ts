@@ -395,6 +395,7 @@ export const en = {
   'offices.needName': 'An office needs a name.',
   'offices.openNow': 'Office “{name}” is open right now. Switch to another office, and then remove this one from the list.',
   'offices.lastOne': 'This is the only office — there is nothing to remove from the list.',
+  'offices.orderBadIndex': 'A place in the list is a number, and this one came as “{index}”.',
   'offices.iconKind': 'An icon is either a symbol or a picture — there is no third kind.',
   'offices.iconTooLong': 'An icon holds up to {max} characters, and this one has {got}.',
   'offices.iconBadChars': 'An icon cannot contain line breaks or control characters.',
