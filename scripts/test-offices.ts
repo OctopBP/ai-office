@@ -1,7 +1,7 @@
 /**
  * Проверки API офисов: список, создание с валидацией пути, переключение,
- * скрытие из списка, постоянный порядок списка и то, что события одного офиса
- * не текут в клиента, который смотрит другой.
+ * скрытие из списка, пауза, архив, постоянный порядок списка и то, что
+ * события одного офиса не текут в клиента, который смотрит другой.
  *
  * Проверка идёт против office-api.ts — того же кода, который вызывает сокет, —
  * но с подставным клиентом (`Sink`) вместо WebSocket: сеть здесь ничего не
@@ -20,6 +20,8 @@ import {
 } from '../src/server/state';
 import { officeAssign, setPaused } from '../src/server/agents';
 import { MessageQueue } from '../src/server/queue';
+import { dispatch } from '../src/server/plan';
+import { dueRitual, runRitual, standupDue } from '../src/server/rituals';
 import { isSupervised, startSupervisor } from '../src/server/supervisor';
 import {
   broadcast, greet, handleOfficeCommand, initOfficeApi, sendSnapshot, stateFor, unwatch, watch,
@@ -69,7 +71,7 @@ function onDisk(): {
   currentId: string;
   offices: Array<{
     id: string; name: string; projectDir: string; stateFile: string;
-    createdAt?: number; hidden?: boolean; paused?: boolean;
+    createdAt?: number; hidden?: boolean; paused?: boolean; archived?: boolean;
   }>;
 } {
   return JSON.parse(readFileSync(REGISTRY, 'utf8'));
@@ -615,7 +617,82 @@ async function main(): Promise<void> {
   check('после снятия паузы список офисов её больше не показывает',
     officeViews().find((o) => o.id === 'o-1')?.activity?.paused === false);
 
-  // 26. Всё сделанное записано на диск: следующий запуск увидит то же самое.
+  // 26. Архив офиса. Пауза — «остановились и сейчас продолжим», архив —
+  //     «этим проектом больше не занимаемся»: по архивному офису не идёт
+  //     никакая работа, в память он не поднимается, задач не берёт и ритуалов
+  //     не проводит. Из списка при этом не исчезает — иначе его нечем было бы
+  //     вернуть, — а данные целы: архив это не удаление.
+  mark = b.events.length;
+  handleOfficeCommand({ c: 'archive_office', officeId: 'o-1', archived: true }, b);
+  check('признак архива лёг в реестр на диске сразу, без ожидания дебаунса',
+    onDisk().offices.find((o) => o.id === 'o-1')?.archived === true);
+  check('архивный офис выгружен из памяти', !isOpened('o-1'));
+  check('надзор за архивным офисом остановлен', !isSupervised('o-1'));
+  check('архивный офис остался в списке — иначе его нечем вернуть',
+    officeViews().some((o) => o.id === 'o-1'));
+  check('в списке офис помечен архивным',
+    officeViews().find((o) => o.id === 'o-1')?.archived === true);
+  check('клиенту уехал список с признаком архива',
+    b.last('offices', mark)?.offices.find((o) => o.id === 'o-1')?.archived === true);
+  check('порядок списка архивация не сбила', order() === fixed);
+
+  // Войти в архивный офис нельзя: открытие — это уже работа по нему.
+  mark = b.events.length;
+  handleOfficeCommand({ c: 'switch_office', officeId: 'o-1' }, b);
+  await sleep(20);
+  check('в архивный офис не переключиться, и он от этого не поднялся',
+    b.last('office.error', mark)?.op === 'switch' && !isOpened('o-1'));
+
+  // Дальше поднимаем состояние из архивной записи руками — так делать
+  // некому, кроме этой проверки, но иначе не увидеть, что заслоны стоят
+  // именно в работе, а не только в команде архивации.
+  const dead = openOfficeState(onDisk().offices.find((o) => o.id === 'o-1')!).state;
+  check('состояние из архивной записи знает, что офис в архиве', dead.archived === true);
+  check('архив и пауза независимы: архивный офис не «на паузе»', dead.paused === false);
+  check('доска архивного офиса цела: задача на месте', dead.tasks.has(idle.id));
+  const refusedByArchive = officeAssign(dead, idle.id);
+  check('архивный офис задачу не берёт',
+    !refusedByArchive.ok && dead.tasks.get(idle.id)?.status === 'backlog');
+  check('отказ объясняет причину архивом, а не паузой',
+    refusedByArchive.message === dead.say('archive.stopped'));
+  dispatch(dead);
+  check('планировщик по архивному офису ничего не двигает',
+    dead.tasks.get(idle.id)?.status === 'backlog');
+  check('ритуала архивному офису не полагается', dueRitual(dead) === null);
+  // Завтрашним временем: планёрку этому офису сегодня уже показывали, и «не
+  // пора» вышло бы само собой, ничего не доказав про архив.
+  const tomorrow = Date.now() + 36 * 60 * 60 * 1000;
+  check('планёрка архивному офису не нужна и назавтра', !standupDue(dead, tomorrow));
+  const runsBefore = dead.life.runs.length;
+  const forced = await runRitual(dead, 'standup');
+  check('ритуал по кнопке в архиве тоже не идёт',
+    forced === null && dead.life.runs.length === runsBefore);
+  startSupervisor(dead);
+  check('надзор для архивного офиса не заводится', !isSupervised('o-1'));
+  unloadOfficeState('o-1');
+
+  // Возврат из архива: поле в реестре стирается целиком (нет поля — обычный
+  // офис, и миграция никому не нужна), а офис снова готов работать. Чтобы
+  // проверить это, не тратя токенов на настоящую сессию, ставим вернувшийся
+  // офис на паузу: заслон архива снят, если отказ стал про паузу.
+  mark = b.events.length;
+  handleOfficeCommand({ c: 'archive_office', officeId: 'o-1', archived: false }, b);
+  check('возврат из архива стёр поле в реестре, а не записал false',
+    'archived' in (onDisk().offices.find((o) => o.id === 'o-1') ?? {}) === false);
+  check('в списке офис снова обычный',
+    officeViews().find((o) => o.id === 'o-1')?.archived === false);
+  const revived = openOfficeState(onDisk().offices.find((o) => o.id === 'o-1')!).state;
+  check('вернувшийся офис про архив не помнит', revived.archived === false);
+  check('вернувшемуся офису снова полагается планёрка', standupDue(revived, tomorrow));
+  check('доска пережила архив: задача на месте с тем же названием',
+    revived.tasks.get(idle.id)?.title === 'ждёт снятия паузы');
+  revived.setPaused(true);
+  const refusedByPause = officeAssign(revived, idle.id);
+  check('заслон архива снят: офис держит пауза, а не архив',
+    !refusedByPause.ok && refusedByPause.message === revived.say('assign.paused'));
+  revived.setPaused(false);
+
+  // 27. Всё сделанное записано на диск: следующий запуск увидит то же самое.
   const saved = onDisk();
   check('реестр на диске знает все четыре офиса, включая скрытый',
     saved.offices.length === 4 && saved.offices.filter((o) => o.hidden).length === 1);
