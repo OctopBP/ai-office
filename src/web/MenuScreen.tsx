@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react';
 import {
-  formatLastOpened, retryConnect, sortedOffices, summarizeOfficeActivity, useStore, type ThemeMode,
+  activeOffices, formatLastOpened, retryConnect, summarizeOfficeActivity, useStore, type ThemeMode,
 } from './store';
 import { LimitBars } from './LimitBars';
 import { SetupWizard } from './SetupWizard';
@@ -59,7 +59,11 @@ export function MenuScreen() {
   const dismissMenuNotice = useStore((s) => s.dismissMenuNotice);
 
   const [creating, setCreating] = useState(false);
-  const list = useMemo(() => sortedOffices(offices), [offices]);
+  // Архивные офисы на главный экран не выходят — ни карточкой, ни строкой
+  // расходов: архив виден только в модалке офисов, откуда офис и возвращают.
+  // Деньги архивного офиса вместе с ним уходят и из итогов вкладки расходов —
+  // иначе сумма сверху не сходилась бы со строками под ней.
+  const list = useMemo(() => activeOffices(offices), [offices]);
 
   // Вкладке настроек сервер не нужен: там только то, что живёт на этом компьютере.
   const needsServer = tab !== 'settings';

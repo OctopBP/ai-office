@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import {
-  reset, setEditingLayout, sortedOffices, summarizeOfficeActivity, useStore,
+  activeOffices, reset, setEditingLayout, summarizeOfficeActivity, useStore,
 } from '../store';
 import type { ModalKind, PanelKind } from '../Overlays';
 import { money } from '../money';
@@ -50,7 +50,9 @@ export function Rail({ onPanel, onModal }: {
   const setView = useStore((s) => s.setView);
   const leaveOffice = useStore((s) => s.leaveOffice);
 
-  const list = sortedOffices(offices);
+  // Архивные офисы в рейле не показываем: работы по ним нет, а вернуть их
+  // можно из модалки офисов (раздел «Архив»).
+  const list = activeOffices(offices);
   // Счётчики те же, что были в HUD: в работе — по задачам, а не по позам агентов.
   const all = Object.values(tasks);
   const working = all.filter((x) => x.status === 'in_progress').length;

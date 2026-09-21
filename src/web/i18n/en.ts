@@ -24,6 +24,7 @@ export const en = {
   'toast.settingsNotSaved': 'The settings were not saved',
   'toast.layoutNotSaved': 'The layout was not saved',
   'toast.iconNotSaved': 'The office icon was not saved',
+  'toast.archiveNotDone': 'The office was not archived',
   'toast.sent': 'Sent — the reply will come to the chat',
 
   // -------------------------------------------------- список офисов
@@ -303,6 +304,15 @@ export const en = {
   "offices.iconTitle": "Office icon",
   "offices.iconCustomPlaceholder": "Custom symbol",
   "offices.iconReset": "Reset",
+  "offices.archive": "Move to archive",
+  "offices.archiveAction": "Move to archive",
+  "offices.archiveConfirm": "Move the office “{name}” to the archive? All work on it stops: no tasks, no standups, no rituals. The data stays — the board, the spending and the conversations are kept, and the office can be brought back from the archive.",
+  "offices.archiveCurrentNote": "This office is open right now — the view will switch to a neighbouring one.",
+  "offices.archiveLastHint": "The only office cannot be archived: there would be nowhere to go from it. Create a second office first.",
+  "offices.archiveSection": "Archive · {n}",
+  "offices.archivedMark": "archived",
+  "offices.unarchive": "restore",
+  "offices.unarchiveHint": "Bring the office back from the archive: it shows up in the lists again, and no work starts there by itself",
   "menu.noProject": "no project",
   "setup.title": "New office",
   "setup.step.what": "What",
