@@ -21,9 +21,10 @@ import type { LayoutProp } from '../../shared/layout';
 import { useStore } from '../store';
 import { catalog, type HotspotPanel } from '../layoutData';
 import { paletteOf, type Palette } from './palette';
-import { FLOOR_THICK, WALL_H, scene3, type Box3, type Floor3, type Scene3, type Wall3 } from './geometry';
+import { FLOOR_THICK, WALL_H, WALL_THICK, scene3, type Box3, type Floor3, type Scene3, type Wall3 } from './geometry';
 import { place3 } from './props';
 import { FurnitureModels, Props3D } from './Props3D';
+import { Window3D } from './Window3D';
 import { Hotspots3D, type Spot3, type SpotKind, type SpotTarget } from './Hotspots3D';
 import { CeilingLamps, Lights } from './Lights3D';
 import { Agents3D } from './Agents3D';
@@ -232,21 +233,37 @@ function WallSegment({ wall, offset, palette, textures }: {
       if (child instanceof THREE.Mesh && child.userData.glass !== true) {
         child.castShadow = opacity.current > 0.5;
       }
+      // Модель окна не участвует в перетекании прозрачности стены (у неё
+      // свои материалы, не общий `glass`), поэтому гасится целиком —
+      // иначе на месте растворившейся стены осталось бы висеть окно.
+      if (child.userData.window === true) child.visible = opacity.current > 0.5;
     }
   });
 
   return (
     <group ref={group}>
-      {wall.boxes.map((b, i) => (
-        <WallBox
-          key={i}
-          box={b}
-          material={b.glass ? glass : materialsOf(b)}
-          userData={{ glass: b.glass === true }}
-          castShadow={!b.glass}
-          receiveShadow={!b.glass}
-        />
-      ))}
+      {wall.boxes.map((b, i) => {
+        if (!b.glass) {
+          return (
+            <WallBox key={i} box={b} material={materialsOf(b)} userData={{ glass: false }}
+              castShadow receiveShadow />
+          );
+        }
+        const glassBox = (
+          <WallBox box={b} material={glass} userData={{ glass: true }} castShadow={false} receiveShadow={false} />
+        );
+        return (
+          <Window3D
+            key={i}
+            position={centerOf(b)}
+            rotationY={wall.axis === 'y' ? Math.PI / 2 : 0}
+            width={wall.axis === 'x' ? b.w : b.d}
+            height={b.h}
+            depth={WALL_THICK * 0.9}
+            fallback={glassBox}
+          />
+        );
+      })}
     </group>
   );
 }

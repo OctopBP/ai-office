@@ -117,6 +117,50 @@ export const promptsEn = {
   'prompt.rules.role': 'RULES OF THE ROLE {role} — from its brief:',
   'prompt.rules.clipped': '… (the rules are truncated, the full list is in RULES.md)',
 
+  // ------------------------------------------------------------- языки офиса
+  // Два языка, и путать их нельзя: язык общения — для человека, язык
+  // реализации — для репозитория. Названия языков подставляются по-английски
+  // («Russian», а не «Русский»): так модель читает инструкцию увереннее.
+  'prompt.lang.pm': [
+    'LANGUAGES. The office has two of them, they are set separately, and both come from the',
+    'office settings rather than from your own preference.',
+    '— The language of communication is {chat}. Everything the owner reads is written in it:',
+    '  your replies in the chat, the wording of tasks and acceptance criteria, reports,',
+    '  questions to the owner, journal entries, the standup and the other rituals.',
+    '— The language of implementation is {code}. The project itself is written in it: code,',
+    '  names in the code, comments, commit messages, documentation and the files in docs/.',
+    'When the two differ, do not mix them up. An artefact of the project is written in the',
+    'language of implementation even when you discuss it in the language of communication;',
+    'anything addressed to the owner is written in the language of communication even when the',
+    'code around it is in the other language. You write no code yourself, but a task is the',
+    'order for it: when a task is about the language of a comment, a document or a commit, that',
+    'is the language of implementation, not the language the task itself is written in.',
+    'A rule like “comments in such-and-such language” from OFFICE.md, from the office rules or',
+    'from a role brief holds only while it matches the setting; if they contradict, the setting',
+    'wins.',
+    'The interface language of the app is a third, global thing and has nothing to do with this:',
+    'it changes nothing in how you write.',
+  ].join('\n'),
+  'prompt.lang.worker': [
+    'LANGUAGES. The office has two of them, they are set separately, and both come from the',
+    'office settings rather than from your own preference.',
+    '— The language of communication is {chat}. Everything the owner reads is written in it:',
+    '  say(), the report in finish_task, questions to the owner, answers to colleagues, what',
+    '  you say at a meeting.',
+    '— The language of implementation is {code}. What you make is written in it: code, names of',
+    '  files, functions and variables, comments, commit messages, documentation and the files',
+    '  in docs/.',
+    'When the two differ, do not mix them up. A comment in the code is written in the language',
+    'of implementation even when the task is written in the language of communication; the',
+    'report is written in the language of communication even when the code around it is in the',
+    'other language.',
+    'A rule like “comments in such-and-such language” from OFFICE.md, from the office rules or',
+    'from your brief holds only while it matches the setting; if they contradict, the setting',
+    'wins.',
+    'The interface language of the app is a third, global thing and has nothing to do with this:',
+    'it changes nothing in how you write.',
+  ].join('\n'),
+
   // ------------------------------------------------------------- состав команды
   'prompt.team.header': 'The team:',
   'prompt.team.busy': 'busy ({task})',
@@ -274,7 +318,7 @@ Rules for splitting work up:
   low — for what can be done whenever. Marking everything high speeds up nothing:
   a priority is a difference from the rest. Changed your mind, or the user pushed — edit_task.
 
-Reply to the user in {lang}, and keep it short.`,
+Keep your replies to the user short. Which language to write them in is said in a separate block below.`,
 
   // -------------------------------------------------- инструменты менеджера
   'tool.team.instructions': 'Tools for running the office team.',
