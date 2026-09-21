@@ -142,7 +142,7 @@ function OfficeCard({ office: o }: { office: OfficeView }) {
   const spent = o.activity?.usage.costUsd ?? 0;
   const today = o.activity?.today.costUsd ?? 0;
   return (
-    <button className={`office-card float${o.current ? ' current' : ''}`}
+    <button className={`office-card card${o.current ? ' current' : ''}`}
       onClick={() => enterOffice(o.id)} title={o.projectDir}>
       <span className="office-card-top">
         <OfficeAvatar office={o} />
@@ -195,21 +195,21 @@ function Spending({ offices }: { offices: OfficeView[] }) {
   return (
     <div className="home-spending">
       <div className="home-stats">
-        <div className="home-stat float">
+        <div className="home-stat card">
           <span className="muted small">{t('common.today')}</span>
           <b>{money(today)}</b>
         </div>
-        <div className="home-stat float">
+        <div className="home-stat card">
           <span className="muted small">{t('usage.allTime')}</span>
           <b>{money(total)}</b>
         </div>
       </div>
 
-      <section className="home-panel float">
+      <section className="home-panel card">
         <LimitBars />
       </section>
 
-      <section className="home-panel float">
+      <section className="home-panel card">
         <div className="section-title">{t('home.spending.byOffice')}</div>
         {total === 0 && <p className="muted">{t('home.spending.none')}</p>}
         <div className="home-spend-rows">
@@ -249,7 +249,7 @@ function DeviceSettings() {
 
   return (
     <div className="home-settings">
-      <section className="home-panel float">
+      <section className="home-panel card">
         <div className="section-title">{t('home.settings.device')}</div>
 
         <h4>{t('settings.theme')}</h4>

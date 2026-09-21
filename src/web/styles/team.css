@@ -31,7 +31,7 @@
 /* Вкладки «В офисе» и «Маркет» — сегмент рядом с заголовком окна, со счётчиком
    в каждой; у неактивной счётчик приглушён, у активной наследует цвет пилюли. */
 .team-head-left { display: flex; align-items: center; gap: var(--space-4); }
-.team-tabs { box-shadow: none; background: var(--film); }
+.team-tabs { background: var(--film); }
 .team-tabs button { padding: 0 14px; }
 .team-tab-count { opacity: .6; font-weight: 400; }
 .team-group-hint { margin: 0 0 var(--space-2); }
