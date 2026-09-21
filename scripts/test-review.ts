@@ -8,7 +8,9 @@
  * Запуск: npm run test:review
  */
 import { execFileSync } from 'node:child_process';
-import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import {
+  appendFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync,
+} from 'node:fs';
 import { tmpdir } from 'node:os';
 import { resolve } from 'node:path';
 import { getOffice, worktreesRoot, type OfficeState, type Task } from '../src/server/state';
@@ -90,6 +92,46 @@ function taskBranch(
     repoDir: dir, worktreePath: null, result: 'сделано',
     assigneeId: opts.assigneeId ?? null,
     handoff: { did: 'сделано', assumed: 'взял синий', left: 'ничего' },
+  });
+  return office.tasks.get(task.id) as Task;
+}
+
+/**
+ * Второй репозиторий офиса — вложенный, как у ролей с разными проектами.
+ * Имя основной ветки у него то же самое: именно на этом совпадении и держалась
+ * ошибка, пока копия офиса для слияний была одна на офис.
+ */
+function nestedRepo(parent: string, name: string): string {
+  const dir = resolve(parent, name);
+  mkdirSync(dir, { recursive: true });
+  git(dir, 'init', '-q', '-b', 'main');
+  git(dir, 'config', 'user.email', 'office@local');
+  git(dir, 'config', 'user.name', 'AI Office');
+  writeFileSync(resolve(dir, 'readme.txt'), `${name}\n`);
+  git(dir, 'add', '-A');
+  git(dir, 'commit', '-qm', 'Начало');
+  appendFileSync(resolve(parent, '.gitignore'), `${name}/\n`);
+  git(parent, 'add', '-A');
+  git(parent, 'commit', '-qm', `игнорируем ${name}`);
+  return dir;
+}
+
+/** Готовая работа в заданном репозитории — как `taskBranch`, но не в родительском. */
+function repoTask(repo: string, id: string, files: Record<string, string>): Task {
+  git(repo, 'checkout', '-q', '-b', `task/${id}`, 'main');
+  for (const [name, body] of Object.entries(files)) writeFileSync(resolve(repo, name), body);
+  git(repo, 'add', '-A');
+  git(repo, 'commit', '-qm', `${id}: работа`);
+  git(repo, 'checkout', '-q', 'main');
+
+  const task = office.createTask({
+    title: `Задача ${id}`, description: 'тестовая', criteria: ['готово'], roleId: 'backend',
+  });
+  git(repo, 'branch', '-m', `task/${id}`, `task/${task.id}`);
+  office.updateTask(task.id, {
+    status: 'review', branch: `task/${task.id}`, baseBranch: 'main',
+    repoDir: repo, worktreePath: null, result: 'сделано',
+    handoff: { did: 'сделано', assumed: 'ничего', left: 'ничего' },
   });
   return office.tasks.get(task.id) as Task;
 }
@@ -702,6 +744,80 @@ async function main(): Promise<void> {
     git(dir, 'add', '-A');
     git(dir, 'commit', '-qm', 'процесс проекта убран');
   }
+  // 21. Второй репозиторий офиса: задача вложенного репозитория доезжает до
+  //     его main. Пока копия офиса для слияний была одна на офис, сюда
+  //     приезжала копия РОДИТЕЛЬСКОГО репозитория, и конвейер гонял задачу по
+  //     кругу «база уехала», пока не кончались попытки.
+  {
+    const back = nestedRepo(dir, 'back');
+    const task = repoTask(back, 'Y', { 'y.txt': 'Y\n' });
+    const s = stub();
+    await runPipeline(office, task.id);
+
+    say('▶ Задача второго репозитория офиса вливается в его же main');
+    check('стадия — влито', office.prOf(task.id)?.stage === 'merged');
+    check('файл появился в main вложенного репозитория',
+      git(back, 'show', 'main:y.txt').includes('Y'));
+    check('родительский репозиторий не тронут', !existsSync(resolve(dir, 'y.txt')));
+    check('автора чинить конфликты не звали', s.calls.reworks === 0);
+    check('ревьюера спросили один раз', s.calls.reviews === 1);
+  }
+
+  // 22. Ветки задачи нет в её репозитории (а в родительском — есть): это
+  //     поломка настройки. Конвейер обязан встать сразу, а не выдавать её за
+  //     уехавшую базу и заходить на второй круг. Сообщение с именем
+  //     репозитория проверяется на очереди слияния (test:merge).
+  {
+    const back = nestedRepo(dir, 'other');
+    const task = repoTask(back, 'Z', { 'z.txt': 'Z\n' });
+    // Ветка есть в родительском репозитории, но не в том, где ведётся задача.
+    git(dir, 'branch', `task/${task.id}`, 'main');
+    git(back, 'branch', '-D', `task/${task.id}`);
+    const headBefore = git(back, 'rev-parse', 'main');
+
+    const s = stub();
+    await runPipeline(office, task.id);
+
+    const pr = office.prOf(task.id);
+    say('▶ Ветка не в том репозитории — стоп на первой же попытке');
+    check('конвейер встал', pr?.stage === 'stuck');
+    check('в причине названа ветка', (pr?.note ?? '').includes(`task/${task.id}`));
+    check('ревьюера не звали', s.calls.reviews === 0);
+    check('про «база уехала» не сказано ни слова',
+      !office.chat.some((m) => m.text.includes('уехала') && m.text.includes(task.id)));
+    check('main вложенного репозитория цел', git(back, 'rev-parse', 'main') === headBefore);
+    check('автора не дёргали', s.calls.reworks === 0);
+  }
+
+  // 23. Исследование в офисе, где проверить его некому: шаг пропускается, и
+  //     работа доезжает до владельца. Раньше она застревала навсегда — нанять
+  //     роль может только человек, а сказать ему об этом было некому.
+  {
+    // Архивная роль не может держать сотрудников: сначала распускаем их.
+    const hidden = office.capableRoles(['research.web']).map((r) => r.id);
+    for (const id of hidden) for (const inst of office.staffOf(id)) office.fire(inst.id);
+    const archiveErrors = hidden.flatMap((id) => office.archiveRole(id, true));
+    const task = taskBranch(dir, 'V', { 'v.md': 'Выводы\n' },
+      { roleId: 'backend', type: 'research', assigneeId: 'backend#1' });
+    const s = stub();
+    const nobodyLeft = hidden.length > 0 && archiveErrors.length === 0
+      && office.capableRoles(['research.web']).length === 0;
+    const done = runPipeline(office, task.id);
+    await decide(task.id, 'да');
+    await done;
+    for (const id of hidden) office.archiveRole(id, false);
+
+    say('▶ Некому проверить — работа едет к владельцу, а не встаёт навсегда');
+    check('в офисе правда некому проверять', nobodyLeft);
+    check('проверяющего не звали', s.calls.steps.length === 0);
+    check('шаг проверки пройден пропуском',
+      office.runOf(task.id)?.steps.some((st) => st.node === 'verify' && st.outcome === 'ok') === true);
+    check('офис сказал об этом вслух',
+      office.chat.some((m) => m.text.includes(task.id) && m.text.includes('research.web')));
+    check('владельца всё равно спросили', office.runOf(task.id)?.steps.some((st) => st.node === 'accept') === true);
+    check('после «да» — влито', office.prOf(task.id)?.stage === 'merged');
+  }
+
   // 14. Выключенный конвейер: задача просто остаётся сделанной, как раньше.
   {
     office.settings.autoPipeline = false;

@@ -1,3 +1,4 @@
+import { providerOf } from '../shared/providers';
 /**
  * Стенд: срабатывают ли скилы роли.
  *
@@ -21,7 +22,7 @@
  */
 import { existsSync, readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
-import { query } from '@anthropic-ai/claude-agent-sdk';
+import { query } from './providers';
 import type { Lang } from '../shared/i18n';
 import type { Settings } from '../shared/types';
 import { t } from './i18n';
@@ -95,6 +96,7 @@ export async function runBenchCase(
     prompt: c.prompt,
     options: {
       model: role.model,
+      provider: providerOf(role),
       systemPrompt: {
         type: 'preset',
         preset: 'claude_code',

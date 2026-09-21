@@ -1,4 +1,4 @@
-import type { SDKUserMessage } from '@anthropic-ai/claude-agent-sdk';
+import type { SDKUserMessage } from './providers';
 
 /**
  * Очередь сообщений для streaming-input режима Agent SDK.

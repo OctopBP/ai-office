@@ -33,6 +33,7 @@ import { toTaskView, type Fact, type OfficeState, type Task } from './state';
 import { forget, STALE_AFTER_MS } from './journal';
 import { officeAsks, openQuestions, pickForStandup } from './questions';
 import { limitsView } from './limits';
+import { providerOf } from '../shared/providers';
 import { tellPm } from './review';
 import { runTypecheck } from './merge';
 import { officeHealth } from './health';
@@ -244,7 +245,7 @@ export function noteOfficeViewed(state: OfficeState, now = Date.now()): void {
 /** Окно подписки съедено за порог — ритуалы на модели откладываются. */
 export function limitsBusy(state: OfficeState, now = Date.now()): { percent: number } | null {
   const threshold = state.ritualLimit();
-  const limits = limitsView();
+  const limits = limitsView(providerOf(state.role('pm')));
   if (!limits.available) return null;
   const hot = limits.windows.find((w) => w.utilization >= threshold && !limitReset(w, now));
   return hot ? { percent: Math.round(hot.utilization) } : null;

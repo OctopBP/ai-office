@@ -1,3 +1,4 @@
+import { codexStatus } from './providers/diagnostics';
 import { WebSocketServer, type WebSocket } from 'ws';
 import { createServer, type ServerResponse } from 'node:http';
 import { mkdirSync, existsSync, writeFileSync, readFileSync, statSync } from 'node:fs';
@@ -234,6 +235,14 @@ const httpServer = createServer((req, res) => {
 
   // Проверки окружения — до общего 404 по /api/: это единственный ответ,
   // который нужен ровно тогда, когда с офисом что-то не так.
+  if (url === '/api/providers/codex') {
+    if (req.method !== 'GET') { res.writeHead(405); res.end(); return; }
+    void codexStatus().then(status => {
+      res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' });
+      res.end(JSON.stringify(status));
+    });
+    return;
+  }
   if (url === '/api/env') {
     void serveEnv(req.method ?? 'GET', query, res);
     return;

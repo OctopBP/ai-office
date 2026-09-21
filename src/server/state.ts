@@ -1,3 +1,4 @@
+import { isProviderId, providerOf, PROVIDERS, type ProviderId } from '../shared/providers';
 import { randomUUID } from 'node:crypto';
 import { isAbsolute, resolve } from 'node:path';
 import type {
@@ -22,7 +23,7 @@ import {
   MIN_OFFICE_WORKERS, MIN_TASK_MAX_TURNS, ROLE_TITLE_LIMIT,
   DEFAULT_FOCUS_EPICS, MAX_FOCUS_EPICS, MIN_FOCUS_EPICS,
   DEFAULT_PM_CONTEXT_LIMIT, MAX_PM_CONTEXT_LIMIT, MIN_PM_CONTEXT_LIMIT,
-  DEFAULT_WORKER_CONTEXT_LIMIT, MAX_WORKER_CONTEXT_LIMIT, MIN_WORKER_CONTEXT_LIMIT,
+  DEFAULT_WORKER_CONTEXT_LIMIT, MAX_WORKER_CONTEXT_LIMIT, MIN_WORKER_CONTEXT_LIMIT, workerWindowFor,
 } from '../shared/types';
 import { isBlocked, isEmptyOverride, passability } from '../shared/layout';
 import { isLookId, LOOKS } from '../shared/looks';
@@ -169,7 +170,7 @@ export function sanitizePmContextLimit(value: unknown): number | undefined {
   return n;
 }
 
-/** Окно автосжатия исполнителя: то же, но в своих границах — ниже минимума SDK не примет. */
+/** Окно автосжатия исполнителя: то же, но в своих границах — ниже минимума сессия зацикливается на сжатии. */
 export function sanitizeWorkerContextLimit(value: unknown): number | undefined {
   if (typeof value !== 'number' || !Number.isFinite(value)) return undefined;
   const n = Math.floor(value);
@@ -282,7 +283,7 @@ export const criticalEnvFail = (checks: EnvCheck[]): EnvCheck | null =>
  * `archived` и `isManager` — архивация и второй менеджер в обход проверок.
  */
 const ROLE_EDITABLE_KEYS: readonly (keyof RoleEditable)[] = [
-  'title', 'emoji', 'color', 'model', 'permissionMode',
+  'title', 'emoji', 'color', 'model', 'provider', 'permissionMode',
   'isolate', 'maxTurns', 'repoDir', 'sprite', 'brief', 'briefExtra', 'mcp', 'capabilities',
 ];
 
@@ -411,6 +412,7 @@ function sanitizeRole(raw: Partial<Role>, id: string, lang: Lang): Role {
       if ('maxTurns' in link.overrides && sanitizeMaxTurns(link.overrides.maxTurns) === undefined) {
         delete link.overrides.maxTurns;
       }
+      if ('provider' in link.overrides && !isProviderId(link.overrides.provider)) delete link.overrides.provider;
       if (typeof link.overrides.model === 'string' && !MODEL_RE.test(link.overrides.model)) {
         delete link.overrides.model;
       }
@@ -442,6 +444,7 @@ function sanitizeRole(raw: Partial<Role>, id: string, lang: Lang): Role {
     color: paletteColor(text(raw.color) ?? base.color, pkg?.name),
     emoji: text(raw.emoji) ?? base.emoji,
     model: text(raw.model) ?? base.model,
+    provider: isProviderId(raw.provider) ? raw.provider : 'claude-code',
     isManager: typeof raw.isManager === 'boolean' ? raw.isManager : base.isManager,
     // null у режима законен — «как в офисе», поэтому отличаем его от мусора.
     permissionMode: mode === null || isPermissionMode(mode) ? mode : base.permissionMode,
@@ -533,6 +536,7 @@ function accumulate(into: Usage, delta: Usage): Usage {
   into.tokensOut += delta.tokensOut;
   into.cacheRead += delta.cacheRead;
   into.cacheWrite += delta.cacheWrite;
+  if (delta.costUnavailable) into.costUnavailable = true;
   return into;
 }
 
@@ -977,6 +981,11 @@ export class OfficeState {
    * по одному тексту ошибки лимит от прочих бед не отличить.
    */
   limitHits = new Set<string>();
+  /**
+   * Наибольший замеренный префикс сессии исполнителя, токенов; ноль — замера
+   * не было. Живёт в памяти: после перезапуска первая же сессия замерит заново.
+   */
+  workerPrefixTokens = 0;
   /**
    * Сколько сессий исполнителей этого офиса живы прямо сейчас. Счётчик офисный,
    * а не процессный: по нему гаснет индикатор занятости, и чужие задачи держали
@@ -1850,6 +1859,26 @@ export class OfficeState {
     return sanitizeWorkerContextLimit(this.settings.workerContextLimit) ?? DEFAULT_WORKER_CONTEXT_LIMIT;
   }
 
+  /**
+   * Запомнить префикс сессии исполнителя: контекст первого хода свежей
+   * сессии, то есть всё, что лежит в ней до начала работы. Держим наибольший
+   * из виденных — окно выбирается до старта сессии, когда роль следующего
+   * исполнителя и его набор серверов ещё могут оказаться самыми тяжёлыми.
+   */
+  noteWorkerPrefix(tokens: number): void {
+    if (!Number.isFinite(tokens) || tokens <= 0) return;
+    this.workerPrefixTokens = Math.max(this.workerPrefixTokens, Math.round(tokens));
+  }
+
+  /**
+   * Окно, с которым запускать сессию исполнителя: настроенное, но не уже
+   * того, что нужно замеренному префиксу. `atLeast` — пол сверх этого:
+   * повтор после зацикленного сжатия просит окно шире прежнего.
+   */
+  workerWindow(atLeast = 0): number {
+    return workerWindowFor(Math.max(this.workerContextLimit(), atLeast), this.workerPrefixTokens);
+  }
+
   /** Передача дел закрытой сессии менеджера: пустая строка стирает прошлую. */
   setPmHandoff(text: string | null): void {
     const clean = text?.trim() || null;
@@ -2263,8 +2292,8 @@ export class OfficeState {
    * шлём только когда цифры и правда изменились: `rate_limit_event` прилетает
    * на каждый ответ модели, и рассылать в UI одно и то же незачем.
    */
-  noteRateLimit(info: RateLimitInfo): void {
-    if (recordRateLimit(info)) this.emit({ t: 'limits', limits: limitsView() });
+  noteRateLimit(info: RateLimitInfo, provider: ProviderId = 'claude-code'): void {
+    if (recordRateLimit(info, provider)) this.emit({ t: 'limits', limits: limitsView() });
   }
 
   /**
@@ -2827,7 +2856,7 @@ export class OfficeState {
   roleViews(): RoleView[] {
     const officeMode = this.officeMode();
     return this.roles().map<RoleView>((r) => ({
-      id: r.id, title: r.title, emoji: r.emoji, color: r.color, model: r.model,
+      id: r.id, title: r.title, emoji: r.emoji, color: r.color, model: r.model, provider: providerOf(r),
       permissionMode: r.permissionMode,
       isolate: r.isolate, maxTurns: r.maxTurns ?? null,
       repoDir: r.repoDir ?? '', sprite: r.sprite ?? '', brief: r.brief,
@@ -2904,7 +2933,9 @@ export class OfficeState {
    * тот ходит в состояние офиса на каждый вызов и видит правки сразу.
    */
   private roleMenuSignature(): string {
-    return this.workerRoles().map((r) => `${r.id} ${r.title}`).join('');
+    const pm = this.activeRoles().find((r) => r.isManager);
+    const runtime = pm ? `${providerOf(pm)}\u0000${pm.model}` : '';
+    return `${runtime}\u0002${this.workerRoles().map((r) => `${r.id}\u0000${r.title}`).join('\u0001')}`;
   }
 
   /**
@@ -2946,6 +2977,9 @@ export class OfficeState {
           message: this.say('state.role.titleTaken', { title }),
         });
       }
+    }
+    if ('provider' in patch && !isProviderId(patch.provider)) {
+      errors.push({ field: 'provider', message: 'Unknown provider' });
     }
     if ('model' in patch && !MODEL_RE.test(String(patch.model ?? ''))) {
       errors.push({ field: 'model', message: this.say('state.role.noModel') });
@@ -2995,7 +3029,8 @@ export class OfficeState {
       title: String(draft.title ?? '').trim(),
       emoji: text(draft.emoji) ?? '🙂',
       color: text(draft.color) ?? '#94a3b8',
-      model: text(draft.model) ?? DEFAULT_ROLE_MODEL,
+      provider: draft.provider ?? 'claude-code',
+      model: text(draft.model) ?? PROVIDERS[isProviderId(draft.provider) ? draft.provider : 'claude-code'].defaultModel,
       permissionMode: draft.permissionMode ?? null,
       isolate: draft.isolate !== false,
       // Новая роль без подписки — это роль без внешних инструментов: умолчания
@@ -3020,6 +3055,7 @@ export class OfficeState {
       color: wanted.color,
       emoji: wanted.emoji,
       model: wanted.model,
+      provider: wanted.provider,
       isManager: false,          // менеджер в офисе один, и он уже есть
       permissionMode: wanted.permissionMode,
       isolate: wanted.isolate,
@@ -3303,6 +3339,10 @@ export class OfficeState {
     const clean: Partial<RoleEditable> = {};
     for (const key of ROLE_EDITABLE_KEYS) {
       if (key in patch) (clean as Record<string, unknown>)[key] = patch[key];
+    }
+    if ('provider' in clean && !isProviderId(clean.provider)) delete clean.provider;
+    if (clean.provider && clean.provider !== providerOf(base) && !('model' in clean)) {
+      clean.model = PROVIDERS[clean.provider].defaultModel;
     }
     // Пути и внешность приходят из поля ввода — с пробелами по краям.
     if (typeof clean.repoDir === 'string') clean.repoDir = clean.repoDir.trim();
@@ -3648,7 +3688,7 @@ export class OfficeState {
   /** Исчерпан ли общий бюджет офиса. */
   budgetExhausted(): boolean {
     const cap = this.settings.globalBudgetUsd;
-    return cap !== null && this.totalCost() >= cap;
+    return cap !== null && (this.totalCost() >= cap || this.usage.costUnavailable === true);
   }
 
   /**
@@ -3878,13 +3918,8 @@ export class OfficeState {
    * с такими умениями вовсе — null и `empty: true`: ждать некого.
    */
   findCapable(needs: readonly string[], opts: { exclude?: string[] } = {}): { inst: Instance | null; empty: boolean } {
-    const fits = (roleId: string) => {
-      const role = this.role(roleId);
-      if (!role || role.isManager || role.archived) return false;
-      const caps = capabilitiesOf(role);
-      return needs.every((n) => caps.includes(n as Capability));
-    };
-    const roles = this.roleList.filter((r) => fits(r.id));
+    const fits = (roleId: string) => this.roleFits(roleId, needs);
+    const roles = this.capableRoles(needs);
     if (!roles.length) return { inst: null, empty: true };
     const exclude = new Set(opts.exclude ?? []);
     const free = [...this.instances.values()].find(
@@ -3896,6 +3931,22 @@ export class OfficeState {
       if (spawned && !exclude.has(spawned.id)) return { inst: spawned, empty: false };
     }
     return { inst: null, empty: false };
+  }
+
+  /** Умеет ли роль всё из `needs`. Менеджер и уволенные не в счёт. */
+  private roleFits(roleId: string, needs: readonly string[]): boolean {
+    const role = this.role(roleId);
+    if (!role || role.isManager || role.archived) return false;
+    const caps = capabilitiesOf(role);
+    return needs.every((n) => caps.includes(n as Capability));
+  }
+
+  /**
+   * Роли офиса, которые умеют всё из `needs`. Никого — значит, шаг процесса
+   * делать некому и ждать нечего: нанять роль может только человек.
+   */
+  capableRoles(needs: readonly string[]): Role[] {
+    return this.roleList.filter((r) => this.roleFits(r.id, needs));
   }
 
   /** Тип задачи для роли — по её способностям. Роли нет — процесса нет. */

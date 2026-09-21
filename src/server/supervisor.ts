@@ -1,3 +1,4 @@
+import { providerOf, type ProviderId } from '../shared/providers';
 /**
  * Надзор за конвейером: офис сам следит, что сданная работа доезжает до
  * основной ветки, и сам её подталкивает.
@@ -263,19 +264,26 @@ export async function superviseOffice(state: OfficeState): Promise<void> {
  * ещё нужно. Молчит — продолжаем сами, как и с нерозданными задачами.
  */
 async function watchLimits(state: OfficeState, now: number): Promise<boolean> {
+  const providers = [...new Set(state.workerRoles().map(providerOf))];
+  const blocked = await Promise.all(providers.map(provider => watchProviderLimits(state, now, provider)));
+  return blocked.length > 0 && blocked.every(Boolean);
+}
+
+async function watchProviderLimits(state: OfficeState, now: number, provider: ProviderId): Promise<boolean> {
+  const limitKey = `${state.officeId}:${provider}`;
   const halted = [...state.tasks.values()]
-    .filter((t) => t.status === 'blocked' && t.limitedAt)
+    .filter((t) => t.status === 'blocked' && t.limitedAt && providerOf(state.role(t.roleId ?? '')) === provider)
     .sort((a, b) => (a.limitedAt ?? 0) - (b.limitedAt ?? 0));
-  const block = limitBlock(now);
+  const block = limitBlock(now, provider);
   if (!halted.length) return Boolean(block);
 
-  const last = limitChecks.get(state.officeId) ?? 0;
+  const last = limitChecks.get(limitKey) ?? 0;
   const due = now - last >= LIMIT_CHECK_MS;
   const ids = halted.map((t) => t.id).join(', ');
 
   if (block?.resetsAt) {
     if (due) {
-      limitChecks.set(state.officeId, now);
+      limitChecks.set(limitKey, now);
       state.addChat(OFFICE_SENDER, state.say('sup.limitWaiting', {
         tasks: ids, at: resetClock(block.resetsAt, state.lang(), now),
       }));
@@ -286,7 +294,7 @@ async function watchLimits(state: OfficeState, now: number): Promise<boolean> {
     if (!due) return true;
     state.addChat(OFFICE_SENDER, state.say('sup.limitProbe', { tasks: ids }));
   }
-  limitChecks.set(state.officeId, now);
+  limitChecks.set(limitKey, now);
 
   // Сначала менеджер: раз в сброс, а не на каждом проходе.
   const unseen = halted.filter((t) => !t.attention);

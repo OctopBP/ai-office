@@ -10,6 +10,7 @@ import { Hint, Tooltip } from './Tooltip';
 import { HOTKEY } from './hotkeys';
 import { AgentTag } from './Avatar';
 import { PrioritySeg } from './TaskPriority';
+import { usageMoney } from './money';
 
 /**
  * Раскрытая карточка задачи.
@@ -25,7 +26,6 @@ import { PrioritySeg } from './TaskPriority';
  * задачей, приходилось бы заново искать место, где стоял взгляд.
  */
 
-const money = (v: number) => `$${v.toFixed(v < 1 ? 3 : 2)}`;
 const tokens = (v: number) => (v >= 1000 ? `${Math.round(v / 1000)}k` : String(v));
 
 function elapsed(from: number | null, to: number | null): string {
@@ -81,7 +81,9 @@ export function TaskDrawer() {
   const badge = mergeBadge(task, mergeStepFor(run, task.id), check);
   // Пока конвейер ведёт задачу, ручное слияние вырвало бы ветку у ревьюера.
   const pipelineRunning = Boolean(pr) && pr.stage !== 'stuck' && pr.stage !== 'merged';
-
+  // Стереть насовсем можно только задачу без следа: за остальными стоит
+  // работа, деньги или ветка, и они снимаются. Правило то же, что на сервере
+  // (tasks.ts) — здесь оно решает лишь, показывать ли кнопку.
   // Снять можно всё, что ещё не сдано и не закрыто.
   const droppable = !task.outcome && task.status !== 'review' && task.status !== 'done'
     && !task.merged;
@@ -156,7 +158,7 @@ export function TaskDrawer() {
           )}
           <span className="muted">{t('taskCard.money')}</span>
           <span>
-            {money(task.usage.costUsd)}
+            {usageMoney(task.usage)}
             {' · '}{tokens(task.usage.tokensIn + task.usage.tokensOut)} tok
           </span>
           <span className="muted">{t('taskCard.created')}</span>

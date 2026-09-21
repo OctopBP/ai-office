@@ -1,3 +1,4 @@
+import { PROVIDERS } from '../shared/providers';
 import { useEffect, useState } from 'react';
 import type { LimitKind } from '../shared/types';
 import { freshness, limitTone, resetLine } from './money';
@@ -12,6 +13,8 @@ import { t, type UiKey } from './i18n';
  */
 
 const KIND_KEY: Record<LimitKind, UiKey> = {
+  codex_primary: 'limits.kind.codexPrimary',
+  codex_secondary: 'limits.kind.codexSecondary',
   five_hour: 'limits.kind.fiveHour',
   seven_day: 'limits.kind.sevenDay',
   seven_day_opus: 'limits.kind.sevenDayOpus',
@@ -71,8 +74,8 @@ export function LimitBars() {
       <div className="limit-rows">
         {limits.windows.map((w) => (
           <Gauge
-            key={w.kind}
-            label={t(KIND_KEY[w.kind])}
+            key={`${w.provider ?? 'claude-code'}:${w.kind}`}
+            label={`${w.provider ? PROVIDERS[w.provider].label + ' · ' : ''}${t(KIND_KEY[w.kind])}`}
             percent={w.utilization}
             note={resetLine(w, now)}
             tone={limitTone(w.utilization)}

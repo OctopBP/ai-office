@@ -100,9 +100,12 @@ export interface PreMergeReport {
  * на собственном следе. Имя устойчивое: репозиторий переиспользует свою копию.
  */
 export const defaultIntegrationDir = (repoDir: string): string => resolve(
-  tmpdir(), 'office-premerge',
-  `${basename(repoDir)}-${createHash('sha1').update(repoDir).digest('hex').slice(0, 8)}`,
+  tmpdir(), 'office-premerge', repoSlug(repoDir),
 );
+
+/** Stable, collision-resistant directory name shared by both merge paths. */
+export const repoSlug = (repoDir: string): string =>
+  `${basename(repoDir)}-${createHash('sha1').update(repoDir).digest('hex').slice(0, 8)}`;
 
 export interface PreMergeOptions {
   repoDir: string;

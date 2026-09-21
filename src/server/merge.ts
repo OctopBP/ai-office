@@ -1,3 +1,4 @@
+import { existsSync, rmSync } from 'node:fs';
 import { resolve } from 'node:path';
 import type { MergeCheck, MergeRun, MergeStep, TypecheckResult } from '../shared/types';
 import { OFFICE_SENDER } from '../shared/types';
@@ -8,6 +9,7 @@ import { dispatch } from './plan';
 import { checkMergeable, liveBase, mergeBranch, OFFICE_PERSON, removeWorktree } from './git';
 import { runTypecheck } from './checks';
 import { duplicateEdits, formatOverlaps } from './overlap';
+import { repoSlug } from './premerge';
 
 // Прогон проверок живёт в отдельном модуле (им пользуется и пред-merge гейт),
 // но импорты `from './merge'` в конвейере ревью и ритуалах остаются рабочими.
@@ -106,11 +108,36 @@ export async function refreshMergeChecks(state: OfficeState): Promise<MergeCheck
 const queueRunning = new Set<string>();
 
 /**
- * Рабочая копия офиса для слияний — своя на офис, рядом с копиями задач.
- * Имя не может совпасть с задачей: у задач имена вида T-3.
+ * Рабочая копия офиса для слияний — своя на КАЖДЫЙ репозиторий, рядом с
+ * копиями задач. Имя не может совпасть с задачей: у задач имена вида T-3.
+ *
+ * Была одна на офис — и этого хватало ровно до второго репозитория. У офиса
+ * их столько, сколько у ролей: родительский проект и вложенные репозитории.
+ * Общая копия заводилась от того репозитория, чья задача добралась до слияния
+ * первой, а дальше в неё приходили ветки чужих репозиториев: `checkout main`
+ * проходил (ветка main есть у всех), `merge task/T-8` падал — ветки в этом
+ * репозитории нет. Задачи вложенных репозиториев не сливались никогда.
  */
-export const integrationDir = (state: OfficeState): string =>
-  resolve(worktreesRoot(state), '_base');
+export const integrationDir = (state: OfficeState, repoDir: string): string => {
+  const root = resolve(worktreesRoot(state), '_base');
+  dropLegacyBase(root);
+  return resolve(root, repoSlug(repoDir));
+};
+
+/**
+ * Раньше по этому пути лежала сама рабочая копия, а теперь это папка с
+ * копиями по репозиториям. Оставить её нельзя: новые копии легли бы внутрь
+ * чужого worktree, и он на следующем же прогоне увидел бы их как мусор в
+ * рабочем дереве. Административную запись о ней уберёт `worktree prune` —
+ * его всё равно зовёт создание копии.
+ *
+ * Проверка идёт каждый раз и сама себя гасит: после уборки `.git` по этому
+ * пути больше нет. Копию офиса заводят раз в слияние — лишний existsSync
+ * рядом с git-командами не стоит ничего.
+ */
+function dropLegacyBase(root: string): void {
+  if (existsSync(resolve(root, '.git'))) rmSync(root, { recursive: true, force: true });
+}
 
 const pendingStep = (task: Task, lang: Lang): MergeStep => ({
   taskId: task.id,
@@ -187,7 +214,7 @@ export async function mergeQueue(taskIds: string[], state: OfficeState): Promise
         await duplicateEdits(repo, base, branch), base, branch, state.lang());
 
       const checks: { result: TypecheckResult | null } = { result: null };
-      const outcome = await mergeBranch(repo, branch, base, integrationDir(state), state.lang(),
+      const outcome = await mergeBranch(repo, branch, base, integrationDir(state, repo), state.lang(),
         async (worktree) => {
           const result = await runTypecheck(worktree, state.lang());
           checks.result = result;
@@ -202,7 +229,7 @@ export async function mergeQueue(taskIds: string[], state: OfficeState): Promise
       state.addChat(OFFICE_SENDER,
         state.say('merge.stepOutcome', { task: task.id, message: outcome.message }));
       state.addLog(null, outcome.ok ? 'system' : 'error',
-        `merge ${branch}: ${outcome.kind}, copy ${outcome.worktree ?? integrationDir(state)}`);
+        `merge ${branch}: ${outcome.kind}, copy ${outcome.worktree ?? integrationDir(state, repo)}`);
       // Обходы по дороге (занятый каталог интеграции, снятые хвосты worktree)
       // слияние не отменяют, но в ленте им место: иначе следа не остаётся вовсе.
       for (const warning of outcome.warnings) {

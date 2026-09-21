@@ -1,3 +1,4 @@
+import { isProviderId } from '../shared/providers';
 /**
  * office-agent — инструменты автора пакета. `npm run office-agent -- <команда>`
  *
@@ -79,7 +80,10 @@ async function main(argv: string[]): Promise<number> {
     if (!positional[0] || !name) usage();
     const lang: Lang = asLang(str(flags.lang) || 'en');
     const title = str(flags.title) || name.split('/').pop() || name;
+    const provider = str(flags.provider) || 'claude-code';
+    if (!isProviderId(provider)) { console.error(`unknown provider: ${provider}`); return 1; }
     const { problems } = scaffoldPackage(dir, {
+      runtime: { engine: provider, ...(str(flags.model) ? { model: str(flags.model) } : {}) },
       name,
       title: { [lang]: title },
       briefs: { [lang]: lang === 'ru'

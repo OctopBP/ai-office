@@ -3,7 +3,7 @@
 Офис с видом сверху, где команда AI-агентов выполняет ваши задачи. Вы ставите
 задачу менеджеру, он режет её на задачи и раздаёт исполнителям, а человечки в
 комнате показывают, кто чем занят прямо сейчас. Исполнители работают
-настоящими инструментами Claude Code, каждый в своей ветке вашего
+настоящими инструментами Claude Code или Codex, каждый в своей ветке вашего
 репозитория; сданную работу смотрит ревьюер, и конвейер вливает её сам.
 
 *AI Office is a top-down office where a team of AI agents works on your
@@ -20,8 +20,8 @@ or Russian; the docs are in Russian for now.*
 - **Node 22** (версия в `.nvmrc`);
 - **Git и Git LFS** — 3D-модели и текстуры лежат в LFS, без него сцена не
   соберётся;
-- **Claude Code CLI**, залогиненный через `claude` → `/login`, либо ключ
-  `ANTHROPIC_API_KEY`;
+- **Claude Code CLI** (`claude` → `/login` либо `ANTHROPIC_API_KEY`) и/или
+  актуальный **Codex CLI** (`codex login`). Провайдер выбирается для каждой роли;
 - Blender и python3 — только если правите 3D-сцену.
 
 ```bash
@@ -30,6 +30,7 @@ git clone git@github.com:OctopBP/ai-office.git
 cd ai-office
 npm ci
 npm run smoke      # доступ к Claude: должно напечатать RESULT: success
+npm run test:providers # адаптер Codex без расхода токенов
 npm run office     # сборка и сервер, откройте http://localhost:3001
 ```
 

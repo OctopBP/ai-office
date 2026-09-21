@@ -1,9 +1,9 @@
 {
   "id": "research",
-  "version": 1,
+  "version": 2,
   "trigger": { "on": "task.finished", "type": "research" },
   "nodes": [
-    { "id": "verify", "kind": "step", "needs": ["research.web"], "stage": "review",
+    { "id": "verify", "kind": "step", "needs": ["research.web"], "noRole": "ok", "stage": "review",
       "in": ["report"], "out": "verify",
       "done": ["Ключевые утверждения проверены по источникам", "Пробелы и спорные места названы"],
       "next": { "ok": "accept", "gaps": { "to": "rework", "max": 1 }, "failed": "stuck" } },

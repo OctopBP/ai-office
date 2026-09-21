@@ -1,3 +1,4 @@
+import type { ProviderId } from '../shared/providers';
 // Режим доступа живёт в общем контракте: его правит UI и наследует офис.
 export type { PermissionMode } from '../shared/types';
 import type { PermissionMode, RoleEditable } from '../shared/types';
@@ -15,6 +16,7 @@ export interface Role {
   color: string;
   emoji: string;
   model: string;
+  provider?: ProviderId;
   isManager: boolean;
   /** null — своего режима у роли нет, берётся режим офиса. */
   permissionMode: PermissionMode | null;
@@ -135,7 +137,7 @@ export const copyTitle = (title: string, copy: number | undefined): string =>
 
 /** Поля, по которым считается разница роли с пакетом. */
 export const OVERRIDABLE_KEYS: readonly (keyof LinkOverrides)[] = [
-  'title', 'emoji', 'color', 'model', 'permissionMode', 'isolate',
+  'title', 'emoji', 'color', 'model', 'provider', 'permissionMode', 'isolate',
   'maxTurns', 'repoDir', 'sprite', 'mcp', 'capabilities',
 ];
 
@@ -173,6 +175,7 @@ export function roleFromPackage(pkg: AgentPackage, lang: Lang, id: string, link?
     color: m.color,
     emoji: m.emoji,
     model: packageModel(pkg),
+    provider: m.runtime.engine,
     isManager: m.manager,
     permissionMode: m.runtime.permissionMode,
     isolate: m.runtime.isolate,

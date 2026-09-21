@@ -1,3 +1,4 @@
+import { providerOf } from '../shared/providers';
 /**
  * Облачный режим: задачу выполняет не локальный Claude Code, а Managed
  * Agents — Anthropic держит и цикл агента, и контейнер, в котором работают
@@ -62,6 +63,9 @@ const clip = (s: unknown, n = 70): string => {
 
 /** Почему облачный режим сейчас не запустится. null — всё готово. */
 export function cloudProblem(state: OfficeState): string | null {
+  if (state.activeRoles().some(role => providerOf(role) !== 'claude-code')) {
+    return state.lang() === 'ru' ? 'Облачный режим поддерживает только Claude. Для сотрудников Codex выберите локальный режим офиса.' : 'Cloud execution supports Claude only. Select local execution for Codex workers.';
+  }
   if (!process.env.ANTHROPIC_API_KEY && !process.env.ANTHROPIC_AUTH_TOKEN) {
     return state.say('cloud.needApiKey');
   }

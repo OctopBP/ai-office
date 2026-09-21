@@ -1,3 +1,4 @@
+import type { ProviderId } from './providers';
 // Общие типы между сервером и вебом.
 
 // Раскладка и её оверрайд описаны в src/shared/layout.ts — там же, где код,
@@ -147,6 +148,8 @@ export const taskOver = (
  * и без разделения непонятно, почему 200k токенов стоили копейки.
  */
 export interface Usage {
+  /** At least one session did not report a dollar cost. Zero must not imply free. */
+  costUnavailable?: boolean;
   costUsd: number;
   /** Свежий ввод — то, что модель читает по полной цене. */
   tokensIn: number;
@@ -185,6 +188,8 @@ export const emptyUsage = (): Usage => ({
  * окне, которое Anthropic добавит.
  */
 export type LimitKind =
+  | 'codex_primary'
+  | 'codex_secondary'
   | 'five_hour'
   | 'seven_day'
   | 'seven_day_opus'
@@ -195,11 +200,13 @@ export type LimitKind =
 
 /** Порядок показа окон: сначала то, во что упираются раньше всего. */
 export const LIMIT_ORDER: LimitKind[] = [
+  'codex_primary', 'codex_secondary',
   'five_hour', 'seven_day', 'seven_day_opus', 'seven_day_sonnet',
   'seven_day_oauth_apps', 'seven_day_overage_included', 'overage',
 ];
 
 export interface LimitWindow {
+  provider?: ProviderId;
   kind: LimitKind;
   /** Сколько окна съедено, 0–100. */
   utilization: number;
@@ -329,6 +336,7 @@ export interface McpServerState {
 
 /** Поля роли, которые пользователь может менять из UI. */
 export interface RoleEditable {
+  provider?: ProviderId;
   title: string;
   emoji: string;
   color: string;
@@ -669,8 +677,10 @@ export interface Settings {
    * Окно автосжатия исполнителя, токенов: дорастя до него, сессия задачи
    * сама переписывает разговор пересказом и работает дальше. Исполнитель
    * работает без пауз и кеш у него тёплый, поэтому окно шире порога
-   * менеджера; но за полторы сотни тысяч и качество падает, и лимит ходов
-   * уходит на перечитывание. Поле необязательное, как и порог менеджера.
+   * менеджера. Узкое окно не экономит, а ломает: половину его занимает
+   * постоянная часть сессии — см. `MIN_WORKER_CONTEXT_LIMIT`. Значение ниже
+   * границы (в том числе сохранённое прежней версией) заменяется умолчанием.
+   * Поле необязательное, как и порог менеджера.
    */
   workerContextLimit?: number;
   /**
@@ -1412,12 +1422,38 @@ export const MAX_PM_CONTEXT_LIMIT = 900_000;
 
 /**
  * Окно автосжатия исполнителя (`Settings.workerContextLimit`), токенов.
- * Нижняя граница — минимум, который принимает SDK; сто двадцать тысяч —
- * долгая задача с десятками прочитанных файлов, но ещё без потери нити.
+ *
+ * Окно — не порог: Claude Code сжимает заметно раньше (на 2.1.251 — около
+ * 0,8 окна минус 13 тыс.), а постоянная часть сессии исполнителя — пресет
+ * claude_code, схемы инструментов, бриф — сама занимает порядка 57 тыс.
+ * После сжатия к ней добавляются пересказ и заново приложенные файлы, ещё
+ * тысяч тридцать. При окне в 120 тыс. контекст после сжатия сразу равен
+ * порогу, сессия сжимается на каждом ходу и SDK обрывает её с «Autocompact
+ * is thrashing». Отсюда нижняя граница в полтораста тысяч и двести по
+ * умолчанию: после сжатия остаётся тысяч шестьдесят на работу.
+ * Префикс бывает и больше (внешние MCP-серверы, скилы) — на этот случай
+ * окно поднимается по замеру, см. `workerWindowFor`.
  */
-export const DEFAULT_WORKER_CONTEXT_LIMIT = 120_000;
-export const MIN_WORKER_CONTEXT_LIMIT = 100_000;
+export const DEFAULT_WORKER_CONTEXT_LIMIT = 200_000;
+export const MIN_WORKER_CONTEXT_LIMIT = 150_000;
 export const MAX_WORKER_CONTEXT_LIMIT = 900_000;
+
+/**
+ * Сколько окна оставить сверх удвоенного префикса сессии. Удвоение — это
+ * префикс плюс то, что сжатие кладёт поверх него (пересказ, файлы), запас —
+ * место на саму работу между сжатиями и на зазор, с которым сжимает SDK.
+ */
+export const WORKER_WINDOW_SLACK = 60_000;
+
+/**
+ * Окно, с которым сессию исполнителя можно запускать: настроенное, но не
+ * меньше того, что нужно замеренному префиксу. `prefixTokens` — контекст
+ * первого хода свежей сессии; ноль — замера ещё не было.
+ */
+export function workerWindowFor(limit: number, prefixTokens: number): number {
+  const needed = prefixTokens > 0 ? prefixTokens * 2 + WORKER_WINDOW_SLACK : 0;
+  return Math.min(MAX_WORKER_CONTEXT_LIMIT, Math.max(limit, needed));
+}
 
 /**
  * Направление владельца (§7.1): стоящая цель без срока и без задач, по

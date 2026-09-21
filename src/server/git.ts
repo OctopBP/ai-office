@@ -655,9 +655,9 @@ export async function assembleMerge(
   });
 
   const baseSha = await revision(repoDir, base);
-  if (!baseSha) return stop(t(lang, 'git.noBase', { base }), 'failed');
+  if (!baseSha) return stop(t(lang, 'git.noBase', { base, repo: repoDir }), 'failed');
   if (!(await revision(repoDir, branch))) {
-    return stop(t(lang, 'git.noBranch', { branch }), 'failed');
+    return stop(t(lang, 'git.noBranch', { branch, repo: repoDir }), 'failed');
   }
 
   const ahead = await git(repoDir, ['rev-list', '--count', `${base}..${branch}`]);
@@ -686,11 +686,15 @@ export async function assembleMerge(
     const conflicted = await git(worktree, ['diff', '--name-only', '--diff-filter=U']);
     const files = splitLines(conflicted.stdout);
     await git(worktree, ['merge', '--abort']);
+    if (!files.length) {
+      return assembled({
+        kind: 'failed',
+        message: t(lang, 'git.mergeFailed', { error: merge.stderr || merge.stdout, repo: repoDir }),
+      });
+    }
     return assembled({
       kind: 'conflict', conflicts: files,
-      message: files.length
-        ? t(lang, 'git.mergeConflict', { files: files.join(', ') })
-        : t(lang, 'git.mergeFailed', { error: merge.stderr || merge.stdout }),
+      message: t(lang, 'git.mergeConflict', { files: files.join(', ') }),
     });
   }
 

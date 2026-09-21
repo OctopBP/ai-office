@@ -11,6 +11,8 @@ import { locale, t } from './i18n';
 /** Сумма: мелочь до цента не округляем — на ней и видно цену одной задачи. */
 export const money = (v: number): string => `$${v.toFixed(v < 1 ? 3 : 2)}`;
 
+export const usageMoney = (usage: Usage): string => usage.costUnavailable ? t('usage.costUnavailable') : money(usage.costUsd);
+
 /** Токены: точное число здесь никому не нужно, а порядок — нужен. */
 export const tok = (v: number): string => (v >= 1_000_000 ? `${(v / 1_000_000).toFixed(1)}M`
   : v >= 1000 ? `${Math.round(v / 1000)}k` : String(v));

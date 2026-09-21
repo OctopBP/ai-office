@@ -22,6 +22,7 @@
     "scene:check": "python3 tools/blender/inspect_glb.py",
     "units": "python3 scripts/units.py",
     "test:perm": "tsx scripts/test-permissions.ts",
+    "test:providers": "node --import tsx scripts/test-providers.ts",
     "test:skills": "tsx scripts/test-skills.ts",
     "test:packages": "tsx scripts/test-packages.ts",
     "test:market": "tsx scripts/test-market.ts",

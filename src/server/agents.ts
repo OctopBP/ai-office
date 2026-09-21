@@ -1,13 +1,14 @@
+import { providerOf } from '../shared/providers';
 import { setFlowAgents, type DecideOutput } from './flows';
 import type { FeatureProposal } from './initiatives';
 import { TASK_TYPES } from '../shared/workflow';
-import { query, tool, createSdkMcpServer, SYSTEM_PROMPT_DYNAMIC_BOUNDARY } from '@anthropic-ai/claude-agent-sdk';
+import { query, tool, createSdkMcpServer, SYSTEM_PROMPT_DYNAMIC_BOUNDARY } from './providers';
 import type {
   SDKMessage,
   SDKPartialAssistantMessage,
   PermissionResult,
   SDKResultSuccess,
-} from '@anthropic-ai/claude-agent-sdk';
+} from './providers';
 import { z } from 'zod';
 import { MessageQueue } from './queue';
 import {
@@ -210,6 +211,15 @@ onEnvReady((state) => {
  * подхватит следующая задача, перезапускать офис не нужно.
  */
 const BRIEF_LIMIT = 8000;
+
+/**
+ * Настройки SDK для любой сессии офиса. `settingSources: []` отрезает файлы
+ * настроек, но не облачные коннекторы аккаунта: без этого флага в сессию
+ * приезжают личные подключения владельца с claude.ai (Figma, Claude Docs) —
+ * мимо каталога офиса, разбора рисков и подтверждений, и ещё тысячами токенов
+ * схем в каждом префиксе. Подключения роли выдаёт только офис (server/mcp.ts).
+ */
+const OFFICE_SESSION_SETTINGS = { disableClaudeAiConnectors: true } as const;
 
 /**
  * Изоляция веткой возможна только в репозитории с историей. Раньше хватало
@@ -434,7 +444,7 @@ function consume(
   // живой сессии, а поднимать её ради шкалы значит тратить лимит, чтобы на
   // него посмотреть.
   if (msg.type === 'rate_limit_event') {
-    state.noteRateLimit(msg.rate_limit_info);
+    state.noteRateLimit(msg.rate_limit_info, (msg as unknown as { provider?: 'codex' }).provider ?? 'claude-code');
     if (msg.rate_limit_info.status === 'rejected') state.limitHits.add(instanceId);
     return;
   }
@@ -466,6 +476,7 @@ function consume(
     // дешевле, и без разделения расход выглядит необъяснимым.
     state.addUsage(instanceId, {
       costUsd: msg.total_cost_usd ?? 0,
+      ...((msg as unknown as { cost_unavailable?: boolean }).cost_unavailable ? { costUnavailable: true } : {}),
       tokensIn: usage?.input_tokens ?? 0,
       tokensOut: usage?.output_tokens ?? 0,
       cacheRead: usage?.cache_read_input_tokens ?? 0,
@@ -1314,6 +1325,7 @@ function startPm(state: OfficeState): void {
     options: {
       resume: resumeId,
       model: state.role('pm')!.model,
+      provider: providerOf(state.role('pm')),
       // Менеджера разрез не трогает: его промпт начинается с направлений и
       // передачи дел, а они меняются. Чтобы маркер дал что-то и здесь, их
       // надо унести в хвост — то есть переставить промпт местами, а это уже
@@ -1325,6 +1337,7 @@ function startPm(state: OfficeState): void {
       permissionMode: 'default',
       canUseTool: permissionHandler(state, 'pm#1'),
       settingSources: [],                // не наследовать настройки Claude Code пользователя
+      settings: OFFICE_SESSION_SETTINGS,
       // Куски ответа по мере набора: по ним веб показывает реплику менеджера
       // сразу, а не через полминуты целиком. Разбор от этого не меняется —
       // добавляются сообщения `stream_event`, а готовое сообщение и `result`
@@ -1848,6 +1861,7 @@ export async function holdMeeting(
         prompt,
         options: {
           model: role.model,
+          provider: providerOf(role),
           systemPrompt: systemBlocks(
             meetingOffice,
             isManager(meetingOffice, inst) ? null : role.id,
@@ -1858,6 +1872,7 @@ export async function holdMeeting(
           permissionMode: 'default',
           canUseTool: permissionHandler(meetingOffice, inst.id),
           settingSources: [],
+          settings: OFFICE_SESSION_SETTINGS,
           sandbox: SANDBOX,
           maxTurns: 8,
         },
@@ -1967,12 +1982,14 @@ export function talkTo(talkOffice: OfficeState, instanceId: string, text: string
     prompt: queue,
     options: {
       model: role.model,
+      provider: providerOf(role),
       systemPrompt,
       cwd: talkOffice.repoFor(role),
       tools: ['Read', 'Glob', 'Grep', 'WebSearch', 'WebFetch'],
       permissionMode: 'default',
       canUseTool: permissionHandler(talkOffice, instanceId),
       settingSources: [],
+      settings: OFFICE_SESSION_SETTINGS,
       sandbox: SANDBOX,
     },
   });
@@ -2084,6 +2101,7 @@ async function consultRole(
       ].join('\n'),
       options: {
         model: role.model,
+        provider: providerOf(role),
         systemPrompt: systemBlocks(state, role.id, [
           state.say('prompt.consult.system', { role: role.title }),
           role.brief,
@@ -2097,6 +2115,7 @@ async function consultRole(
         permissionMode: 'default',
         canUseTool: permissionHandler(state, answerer.id),
         settingSources: [],
+        settings: OFFICE_SESSION_SETTINGS,
         sandbox: SANDBOX,
         maxTurns: 12,
       },
@@ -2250,8 +2269,8 @@ function hitLimit(state: OfficeState, instanceId: string, message: string): bool
 }
 
 /** «, сброс в 15:00» — или ничего, если SDK времени сброса не назвал. */
-function limitWhen(state: OfficeState): string {
-  const block = limitBlock();
+function limitWhen(state: OfficeState, role: Role): string {
+  const block = limitBlock(Date.now(), providerOf(role));
   return block?.resetsAt
     ? state.say('agent.task.limitedAt', { at: resetClock(block.resetsAt, state.lang()) })
     : '';
@@ -2420,11 +2439,16 @@ function startWorker(
       const resumed = resumeId
         ? resumedPrompt(taskOffice, inst.id, taskOffice.say('prompt.task.resumeAfterLimit', { task: task.id, title: task.title }))
         : null;
-      const session = query({
+      const run = await driveWorker(taskOffice, inst, role, {
+        resume: resumeId,
         prompt: resumed?.prompt ?? workerPrompt(taskOffice, task, artifactsDir, repoDir),
+        resumed,
+      }, (o) => query({
+        prompt: o.prompt,
         options: {
-          resume: resumeId,
+          resume: o.resume,
           model: role.model,
+          provider: providerOf(role),
           // Про внешние инструменты рассказываем только здесь: в облаке
           // локального моста до Figma нет, и обещать его там нельзя.
           systemPrompt: {
@@ -2454,32 +2478,12 @@ function startWorker(
           // офисного, null — без ограничения.
           maxTurns: taskOffice.turnsFor(role) ?? undefined,
           maxBudgetUsd: taskOffice.settings.taskBudgetUsd ?? undefined,
-          settings: workerSettings(taskOffice),
+          settings: workerSettings(o.window),
           abortController: abort,
         },
-      });
-
-      taskOffice.pollLimits(session);
-
-      // Что с внешними серверами роли — узнаём попутно, пока сессия работает:
-      // без этого отказ инструмента неотличим от неоткрытого плагина.
-      taskOffice.pollMcp(inst.id, role, session);
-
-      let finalText = '';
-      let sessionFailed: string | null = null;
-      try {
-        for await (const msg of session) {
-          consume(taskOffice, inst.id, msg);
-          if (msg.type === 'result') {
-            if (resumed?.onResult(msg)) continue;
-            if (isOk(msg)) finalText = msg.result ?? '';
-            else sessionFailed = clip(resultReason(msg, taskOffice.lang()), 300);
-          }
-        }
-      } finally {
-        resumed?.prompt.close();
-      }
-      sessionFailed ??= resumed?.unanswered() ?? null;
+      }));
+      const finalText = run.text;
+      const sessionFailed = run.failed;
 
       // Запоминаем сессию задачи: если дело дойдёт до доработки по ревью,
       // автор продолжит этот же разговор вместо пересборки контекста с нуля.
@@ -2580,7 +2584,7 @@ function startWorker(
         // сессию оставляем — после сброса надзор продолжит с этого места.
         // Менеджера сейчас не зовём: его ход упёрся бы в тот же лимит.
         const fresh = taskOffice.tasks.get(task.id);
-        const when = limitWhen(taskOffice);
+        const when = limitWhen(taskOffice, role);
         let note = taskOffice.say('agent.task.limited', { when });
         if (fresh?.branch) {
           const outcome = await commitAll(
@@ -3101,13 +3105,122 @@ interface SessionRun {
  * и рабочая копия уже есть, поэтому ни ветки, ни статуса «в работе» тут нет.
  */
 /**
- * Настройки SDK для сессии исполнителя: окно автосжатия из настроек офиса.
- * Дорастя до него, сессия сама переписывает разговор пересказом и работает
- * дальше (проверено на SDK 0.3.234: окно из `options.settings` соблюдается).
- * Ниже ста тысяч SDK окно не принимает — см. MIN_WORKER_CONTEXT_LIMIT.
+ * Настройки SDK для сессии исполнителя: окно автосжатия. Дорастя до него,
+ * сессия сама переписывает разговор пересказом и работает дальше (проверено
+ * на SDK 0.3.234: окно из `options.settings` соблюдается). Какое окно —
+ * решает `state.workerWindow()`: настройка офиса, но не уже замеренного
+ * префикса сессии.
  */
-function workerSettings(state: OfficeState): { autoCompactWindow: number } {
-  return { autoCompactWindow: state.workerContextLimit() };
+function workerSettings(window: number) {
+  return { ...OFFICE_SESSION_SETTINGS, autoCompactWindow: window };
+}
+
+/**
+ * Так SDK называет зацикленное автосжатие: контекст трижды подряд вернулся
+ * к порогу за пару ходов после сжатия. Причина почти всегда одна — окно мало
+ * для постоянной части сессии, и лечится это окном, а не повтором задачи.
+ * Текст приходит дважды: в результате сессии и в исключении вслед за ним.
+ */
+const THRASH_MARK = 'Autocompact is thrashing';
+
+interface WorkerRun {
+  text: string;
+  failed: string | null;
+  /** Сессию оборвало зацикленное автосжатие — см. THRASH_MARK. */
+  thrashed: boolean;
+}
+
+/** Открыть сессию исполнителя: всё, кроме этих трёх полей, у вызывающего своё. */
+export type WorkerOpen = (o: {
+  resume: string | undefined; prompt: string | MessageQueue; window: number;
+}) => ReturnType<typeof query>;
+
+/**
+ * Дочитать сессию исполнителя до результата. `fresh` — сессия начата с нуля:
+ * тогда контекст её первого хода и есть префикс, по которому офис выбирает
+ * окно следующим сессиям.
+ */
+async function collectWorker(
+  state: OfficeState, inst: Instance, role: Role, session: ReturnType<typeof query>,
+  resumed: ReturnType<typeof resumedPrompt> | null, fresh: boolean,
+): Promise<WorkerRun> {
+  state.pollLimits(session);
+  // Что с внешними серверами роли — узнаём попутно, пока сессия работает:
+  // без этого отказ инструмента неотличим от неоткрытого плагина.
+  state.pollMcp(inst.id, role, session);
+
+  const run: WorkerRun = { text: '', failed: null, thrashed: false };
+  let measured = !fresh;
+  try {
+    for await (const msg of session) {
+      consume(state, inst.id, msg);
+      if (!measured && msg.type === 'assistant' && msg.message.usage) {
+        measured = true;
+        const u = msg.message.usage;
+        state.noteWorkerPrefix(
+          (u.input_tokens ?? 0) + (u.cache_read_input_tokens ?? 0) + (u.cache_creation_input_tokens ?? 0));
+      }
+      if (msg.type === 'result') {
+        if (resumed?.onResult(msg)) continue;
+        if (isOk(msg)) {
+          run.text = msg.result ?? '';
+        } else {
+          const reason = resultReason(msg, state.lang());
+          run.thrashed = reason.includes(THRASH_MARK);
+          run.failed = clip(reason, 300);
+        }
+      }
+    }
+  } catch (err) {
+    // Вслед за результатом с ошибкой SDK бросает исключение с тем же текстом.
+    // Зацикленное сжатие разбирает driveWorker, остальное — как и раньше, наверх.
+    const message = (err as Error).message ?? '';
+    if (!message.includes(THRASH_MARK)) throw err;
+    run.thrashed = true;
+    run.failed ??= clip(message, 300);
+  } finally {
+    resumed?.prompt.close();
+  }
+  run.failed ??= resumed?.unanswered() ?? null;
+  return run;
+}
+
+/**
+ * Сессия исполнителя от старта до результата. Зацикленное автосжатие —
+ * не провал задачи: та же сессия продолжается один раз с окном вдвое шире,
+ * и работа идёт с места, где её оборвали. Второй обрыв подряд уже отдаём
+ * человеку — с объяснением, что поднимать, а не с текстом SDK про «большой файл».
+ */
+export async function driveWorker(
+  state: OfficeState, inst: Instance, role: Role,
+  first: { resume: string | undefined; prompt: string | MessageQueue; resumed: ReturnType<typeof resumedPrompt> | null },
+  open: WorkerOpen,
+): Promise<WorkerRun> {
+  const k = (tokens: number) => Math.round(tokens / 1000);
+  const window = state.workerWindow();
+  if (window > state.workerContextLimit()) {
+    state.addLog(inst.id, 'system', state.say('agent.log.windowRaised', {
+      from: k(state.workerContextLimit()), to: k(window), prefix: k(state.workerPrefixTokens),
+    }));
+  }
+  const run = await collectWorker(
+    state, inst, role, open({ resume: first.resume, prompt: first.prompt, window }),
+    first.resumed, !first.resume);
+  if (!run.thrashed) return run;
+
+  // Окно для повтора считаем заново: первый ход успел замерить префикс.
+  const wider = state.workerWindow(window * 2);
+  const sessionId = inst.sessionId;
+  if (!sessionId || wider <= window || inst.abort?.signal?.aborted) {
+    return { ...run, failed: state.say('agent.result.thrash', { window: k(window) }) };
+  }
+  state.addLog(inst.id, 'system', state.say('agent.log.thrash', { from: k(window), to: k(wider) }));
+  const again = await collectWorker(
+    state, inst, role,
+    open({ resume: sessionId, prompt: state.say('prompt.worker.afterThrash'), window: wider }),
+    null, false);
+  if (again.thrashed) again.failed = state.say('agent.result.thrash', { window: k(wider) });
+  return again;
 }
 
 /**
@@ -3178,11 +3291,16 @@ async function runAgentSession(
     // Продолжаемый разговор сначала ужимаем: доработка не должна платить за
     // каждый ход первой попытки.
     const resumed = opts.resume ? resumedPrompt(state, inst.id, opts.prompt) : null;
-    const session = query({
+    const run = await driveWorker(state, inst, role, {
+      resume: opts.resume,
       prompt: resumed?.prompt ?? opts.prompt,
+      resumed,
+    }, (o) => query({
+      prompt: o.prompt,
       options: {
-        resume: opts.resume,
+        resume: o.resume,
         model: role.model,
+        provider: providerOf(role),
         systemPrompt: {
           type: 'preset',
           preset: 'claude_code',
@@ -3202,29 +3320,12 @@ async function runAgentSession(
         // и лимит ходов у них тот же: свой у роли, иначе офисный.
         maxTurns: state.turnsFor(role) ?? undefined,
         maxBudgetUsd: state.settings.taskBudgetUsd ?? undefined,
-        settings: workerSettings(state),
+        settings: workerSettings(o.window),
         abortController: abort,
       },
-    });
-
-    state.pollLimits(session);
-    state.pollMcp(inst.id, role, session);
-
-    let finalText = '';
-    let failed: string | null = null;
-    try {
-      for await (const msg of session) {
-        consume(state, inst.id, msg);
-        if (msg.type === 'result') {
-          if (resumed?.onResult(msg)) continue;
-          if (isOk(msg)) finalText = msg.result ?? '';
-          else failed = clip(resultReason(msg, state.lang()), 300);
-        }
-      }
-    } finally {
-      resumed?.prompt.close();
-    }
-    failed ??= resumed?.unanswered() ?? null;
+    }));
+    const finalText = run.text;
+    const failed = run.failed;
     return { ok: !failed, text: finalText, error: failed };
   } catch (err) {
     return { ok: false, text: '', error: (err as Error).message };
@@ -3654,7 +3755,8 @@ async function ritualSession(
     const session = query({
       prompt,
       options: {
-        model: RITUAL_MODEL,
+        model: providerOf(state.role('pm')) === 'codex' ? state.role('pm')!.model : RITUAL_MODEL,
+        provider: providerOf(state.role('pm')),
         systemPrompt,
         cwd: state.projectDir,
         tools: [],
@@ -3662,6 +3764,7 @@ async function ritualSession(
         permissionMode: 'default',
         canUseTool: permissionHandler(state, 'pm#1'),
         settingSources: [],
+        settings: OFFICE_SESSION_SETTINGS,
         maxTurns: 12,
       },
     });
@@ -3734,6 +3837,7 @@ async function flowSession(
       prompt: opts.prompt,
       options: {
         model: state.role('pm')?.model ?? RITUAL_MODEL,
+        provider: providerOf(state.role('pm')),
         systemPrompt: opts.system,
         cwd: state.projectDir,
         tools: [],
@@ -3741,6 +3845,7 @@ async function flowSession(
         permissionMode: 'default',
         canUseTool: permissionHandler(state, 'pm#1'),
         settingSources: [],
+        settings: OFFICE_SESSION_SETTINGS,
         maxTurns: opts.maxTurns,
       },
     });
@@ -3943,6 +4048,7 @@ setRitualAgents({
         prompt,
         options: {
           model: state.role('pm')!.model,
+          provider: providerOf(state.role('pm')),
           systemPrompt: say('prompt.reflect.system', { lang }),
           cwd: state.projectDir,
           tools: [],
@@ -3950,6 +4056,7 @@ setRitualAgents({
           permissionMode: 'default',
           canUseTool: permissionHandler(state, 'pm#1'),
           settingSources: [],
+          settings: OFFICE_SESSION_SETTINGS,
           maxTurns: 16,
         },
       });

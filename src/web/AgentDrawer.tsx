@@ -1,3 +1,5 @@
+import { usageMoney } from './money';
+import { PROVIDERS, providerOf } from '../shared/providers';
 import { useState } from 'react';
 import {
   accessLabel, permissionSourceLabel, assignDirect, effectivePermissionMode, fire, hireCopy,
@@ -100,7 +102,7 @@ export function AgentDrawer() {
           <AgentName inst={inst} as="h2" />
           {/* Без имени заголовок и есть название роли — второй раз его не пишем. */}
           <div className="muted">
-            {inst.id} · {inst.name && role ? `${role.title} · ` : ''}{role?.model.replace('claude-', '')} ·{' '}
+            {inst.id} · {inst.name && role ? `${role.title} · ` : ''}{role ? `${PROVIDERS[providerOf(role)].label} · ${role.model.replace('claude-', '')}` : ''} ·{' '}
             {inst.deskless ? t('drawer.noDesk') : t('employee.deskNo', { index: inst.desk.index })}
           </div>
           <span className={`perm-badge ${inst.effectivePermissionMode}`}
@@ -160,7 +162,7 @@ export function AgentDrawer() {
           <div className="drawer-card">
             <div className="drawer-card-head"><b>{current.id}</b> {current.title}</div>
             <div className="muted small">
-              {elapsed(current.startedAt, null)} · {money(current.usage.costUsd)} ·{' '}
+              {elapsed(current.startedAt, null)} · {usageMoney(current.usage)} ·{' '}
               {tokens(current.usage.tokensIn + current.usage.tokensOut)} tok
               {current.branch && <> · {t('drawer.branch')} <code className="mono">{current.branch}</code></>}
             </div>
@@ -206,7 +208,7 @@ export function AgentDrawer() {
                 {progress(t.criteria).done}/{progress(t.criteria).total} {tr('drawer.crit')}
               </span>
             )}
-            {t.usage.costUsd > 0 && <span className="muted small">{money(t.usage.costUsd)}</span>}
+            {(t.usage.costUsd > 0 || t.usage.costUnavailable) && <span className="muted small">{usageMoney(t.usage)}</span>}
             {t.status === 'in_progress' && (
               <button className="mini stop" onClick={() => stopTask(t.id)}>{tr('drawer.stop')}</button>
             )}
@@ -272,16 +274,16 @@ export function AgentDrawer() {
         <div className="usage-lines">
           {current && (
             <div>
-              <b>{money(current.usage.costUsd)}</b> {t('usage.forTask')} ·{' '}
+              <b>{usageMoney(current.usage)}</b> {t('usage.forTask')} ·{' '}
               <span className="muted">{usageLine(current.usage)}</span>
             </div>
           )}
           <div>
-            <b>{money(inst.today.costUsd)}</b> {t('usage.forToday')} ·{' '}
+            <b>{usageMoney(inst.today)}</b> {t('usage.forToday')} ·{' '}
             <span className="muted">{usageLine(inst.today)}</span>
           </div>
           <div className="muted">
-            {money(inst.usage.costUsd)} {t('usage.forAgentAllTime')} · {usageLine(inst.usage)}
+            {usageMoney(inst.usage)} {t('usage.forAgentAllTime')} · {usageLine(inst.usage)}
           </div>
           {inst.contextTokens > 0 && (() => {
             // Порог есть только у менеджера: у исполнителя сессия живёт одну

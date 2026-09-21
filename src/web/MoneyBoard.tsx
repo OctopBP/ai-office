@@ -1,3 +1,4 @@
+import { usageMoney } from './money';
 import { useState } from 'react';
 import { useStore } from './store';
 import { cacheShare, limitTone, money, tok, usageLine } from './money';
@@ -32,7 +33,7 @@ function Budget() {
       <Gauge
         label={t('money.budget.label')}
         percent={percent}
-        note={t('money.budget.line', { spent: money(usage.costUsd), cap: money(cap) })}
+        note={t('money.budget.line', { spent: usageMoney(usage), cap: money(cap) })}
         tone={limitTone(percent)}
       />
     </div>
@@ -50,9 +51,9 @@ function TaskRow({ task, spent, span }: { task: TaskView; spent: Usage; span: 't
       {task.assigneeId && <AgentTag id={task.assigneeId} className="muted small" />}
       <span className="muted small">{usageLine(spent)}</span>
       {span === 'today' && task.usage.costUsd > spent.costUsd && (
-        <span className="muted small">{t('money.ofTaskTotal', { total: money(task.usage.costUsd) })}</span>
+        <span className="muted small">{t('money.ofTaskTotal', { total: usageMoney(task.usage) })}</span>
       )}
-      <b>{money(spent.costUsd)}</b>
+      <b>{usageMoney(spent)}</b>
     </button>
   );
 }
@@ -76,11 +77,14 @@ export function MoneyBoard() {
 
   const spentOn = (task: TaskView): Usage => (span === 'today' ? task.today : task.usage);
   const list = Object.values(tasks)
-    .filter((task) => spentOn(task).costUsd > 0)
+    .filter((task) => spentOn(task).costUsd > 0 || spentOn(task).costUnavailable)
     .sort((a, b) => spentOn(b).costUsd - spentOn(a).costUsd);
 
   const agents = Object.values(instances)
-    .filter((i) => (span === 'today' ? i.today : i.usage).costUsd > 0)
+    .filter((i) => {
+      const spent = span === 'today' ? i.today : i.usage;
+      return spent.costUsd > 0 || spent.costUnavailable;
+    })
     .sort((a, b) => (span === 'today' ? b.today.costUsd - a.today.costUsd
       : b.usage.costUsd - a.usage.costUsd));
 
@@ -97,7 +101,7 @@ export function MoneyBoard() {
 
       <div className="usage-total">
         <div>
-          <b>{money(total.costUsd)}</b>
+          <b>{usageMoney(total)}</b>
           <span className="muted small">
             {t(span === 'today' ? 'common.today' : 'usage.allTime')}
           </span>
@@ -116,7 +120,7 @@ export function MoneyBoard() {
             счётом нужен общий, а рядом с общим — сегодняшний. Одинаковая
             подпись на двух плитках читалась бы как ошибка в счёте. */}
         <div>
-          <b>{money(span === 'today' ? usage.costUsd : today.costUsd)}</b>
+          <b>{usageMoney(span === 'today' ? usage : today)}</b>
           <span className="muted small">
             {t(span === 'today' ? 'usage.allTime' : 'common.today')}
           </span>
@@ -135,10 +139,10 @@ export function MoneyBoard() {
       <div className="usage-days">
         {week.map((d) => (
           <div key={d.day} className="usage-day"
-            title={`${d.day}: ${money(d.usage.costUsd)} · ${usageLine(d.usage)}`}>
+            title={`${d.day}: ${usageMoney(d.usage)} · ${usageLine(d.usage)}`}>
             <div className="usage-bar" style={{ height: `${Math.max(4, (d.usage.costUsd / peak) * 56)}px` }} />
             <span className="muted small">{dayLabel(d.day)}</span>
-            <span className="mono small">{money(d.usage.costUsd)}</span>
+            <span className="mono small">{usageMoney(d.usage)}</span>
           </div>
         ))}
       </div>
@@ -164,7 +168,7 @@ export function MoneyBoard() {
             <span className="mono dim">{i.id}</span>
             <span className="row-title">{i.label}</span>
             <span className="muted small">{usageLine(span === 'today' ? i.today : i.usage)}</span>
-            <b>{money((span === 'today' ? i.today : i.usage).costUsd)}</b>
+            <b>{usageMoney(span === 'today' ? i.today : i.usage)}</b>
           </div>
         ))}
       </div>

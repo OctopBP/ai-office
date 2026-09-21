@@ -87,6 +87,13 @@ const nodeSchema = z.object({
   run: z.string().optional(),
   /** Что должен уметь исполнитель (§5). У check/gate — нет. */
   needs: z.array(z.enum(CAPABILITIES)).optional(),
+  /**
+   * Исход узла, если в офисе НЕТ ни одной роли с такими умениями. Без него
+   * работа встаёт навсегда: нанять роль может только человек, а сделанная
+   * работа тем временем не доезжает даже до согласования. Указывать имеет
+   * смысл там, где шаг — проверка чужой работы, а не сама работа.
+   */
+  noRole: z.string().optional(),
   /** Тот же исполнитель, что делал этот узел; `author` — сама задача. */
   same: id.optional(),
   /** Не тот, кто делал этот узел: запрет самопроверки. */
@@ -206,6 +213,14 @@ export function parseWorkflow(data: unknown, where = '<workflow>'): Workflow {
     for (const name of node.in ?? []) {
       if (name !== REPORT_ARTIFACT && !workflow.nodes.some((n) => n.out === name)) {
         throw new Error(`${where}: узел «${node.id}» ждёт артефакт «${name}», который никто не производит`);
+      }
+    }
+    if (node.noRole !== undefined) {
+      if (!node.needs?.length) {
+        throw new Error(`${where}: у узла «${node.id}» есть noRole, но нет умений needs — пропускать нечего`);
+      }
+      if (!(node.noRole in node.next)) {
+        throw new Error(`${where}: узел «${node.id}» по noRole уходит в исход «${node.noRole}», которого нет среди переходов`);
       }
     }
     for (const ref of [node.same, node.notSameAs]) {

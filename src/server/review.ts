@@ -680,7 +680,7 @@ const merge: Executor<Ctx> = {
         // дело: собираем слияние у себя и гоняем тот же набор, только без
         // сдвига базы (merge: false). Красное — в origin ничего не уезжает.
         const gate = await preMergeGate({
-          repoDir: repo, branch, base, integrationDir: integrationDir(state),
+          repoDir: repo, branch, base, integrationDir: integrationDir(state, repo),
           lang: state.lang(), checks, allowDirty: true, merge: false,
           sign: mergeSignature(state, task),
         });
@@ -714,7 +714,7 @@ const merge: Executor<Ctx> = {
         // Незакоммиченные правки человека слиянию не мешают: гейт собирает его
         // в копии офиса, а копию человека двигает advanceBase, не трогая правок.
         const gate = await preMergeGate({
-          repoDir: repo, branch, base, integrationDir: integrationDir(state),
+          repoDir: repo, branch, base, integrationDir: integrationDir(state, repo),
           lang: state.lang(), checks, allowDirty: true, sign: mergeSignature(state, task),
         });
         // Строка технического лога — как и соседняя `merge …`, не переводится:
@@ -811,8 +811,6 @@ const step: Executor<Ctx> = {
   async run(ctx) {
     const { state, task, node, run, workflow } = ctx;
     if (!agents.step) return failed(state.say('wf.stepFailed', { node: node.id, problem: state.say('pipe.noAgents.worker') }));
-    const worktree = await workingCopy(ctx);
-    if (!worktree) return failed(state.say('pipe.noWorktree', { branch: ctx.branch }));
 
     const actorOf = (ref: string | undefined): string | null =>
       !ref ? null : ref === AUTHOR ? task.assigneeId : run.actors[ref] ?? null;
@@ -820,6 +818,21 @@ const step: Executor<Ctx> = {
     if (node.same && !prefer) {
       return failed(state.say('wf.sameGone', { node: node.same, who: '?' }), true);
     }
+    const needs = node.needs ?? [];
+    if (!prefer && node.noRole && needs.length && !state.capableRoles(needs).length) {
+      const note = state.say('wf.stepNoRole', {
+        node: node.id, needs: needs.join(', '), outcome: node.noRole,
+      });
+      state.addChat(OFFICE_SENDER, state.say('wf.stepNoRoleChat', { task: task.id, problem: note }));
+      state.addLog(null, 'system', `${task.id}: ${note}`);
+      return {
+        outcome: node.noRole, note,
+        artifact: { kind: 'report', text: note, ref: node.noRole },
+      };
+    }
+
+    const worktree = await workingCopy(ctx);
+    if (!worktree) return failed(state.say('pipe.noWorktree', { branch: ctx.branch }));
     const excluded = actorOf(node.notSameAs);
     const outcomes = Object.keys(node.next).filter((o) => o !== 'failed');
     const prompt = [
@@ -837,7 +850,7 @@ const step: Executor<Ctx> = {
     ].filter(Boolean).join('\n');
 
     const out = await agents.step(state, task, {
-      node: node.id, needs: node.needs ?? [], prefer, exclude: excluded ? [excluded] : [],
+      node: node.id, needs, prefer, exclude: excluded ? [excluded] : [],
       cwd: worktree, prompt, outcomes,
     });
     if (out.actor) state.addChat(OFFICE_SENDER, state.say('wf.stepStart', { task: task.id, node: node.id, who: out.actor }));

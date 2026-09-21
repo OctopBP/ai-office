@@ -90,6 +90,7 @@ export const promptsEn = {
 
   'agent.result.budget': 'the task budget is spent — raise the limit in the office settings or split the task up',
   'agent.result.maxTurns': 'the worker step limit is spent — raise it in the office settings (“Models and limits”) or split the task up',
+  'agent.result.thrash': 'the session got stuck compacting its memory even with a {window}k-token window: the fixed part of the session (tools, connected servers, the brief) takes up almost all of it. Raise “Worker auto-compaction window” in the office settings (“Models and limits”) or disconnect MCP servers the role does not need',
 
   // ------------------------------------------------------- доска для модели
   'pr.stage.sync': 'pulling the base branch',
@@ -523,6 +524,8 @@ Keep your replies to the user short. Which language to write them in is said in 
   'agent.log.compactNoBoundary': 'the session sent no compact boundary',
   'agent.log.resumeBroke': 'the session broke off after compaction before reaching the task',
   'agent.log.compactError': 'Auto-compaction did not happen: {error}',
+  'agent.log.thrash': 'The session got stuck compacting its memory: a {from}k-token window is too small for it. Continuing the same session with a {to}k window.',
+  'agent.log.windowRaised': 'Auto-compaction window raised from {from}k to {to}k tokens: the fixed part of the session alone takes {prefix}k.',
   'agent.worker.compactAsk': 'Keep: what the task is and its criteria; which branch and working copy the work is in; what is already done and committed and what is left; which decisions and assumptions you made and why. Do not retell the contents of files you read — they can be re-read.',
   'agent.pm.restarted': 'The set of roles changed — the manager’s session has been restarted. The conversation continues from the same place, but the roles they see are the new ones.',
 
@@ -622,6 +625,7 @@ Keep your replies to the user short. Which language to write them in is said in 
   'prompt.task.docsDir': 'Your working directory is {dir}/, put every file for this task there. The project sources are in {project} — you may read them, but not change them. Writing outside your own folder will be stopped and will ask the user for confirmation.',
   'prompt.task.finish': 'Do the task completely and on your own, then call finish_task.',
   'prompt.task.resumeAfterLimit': 'Continue task {task} "{title}": the previous session was cut off by the subscription plan limit, which has now reset. You are in the same working copy and the same branch, what was done is committed. See where you stopped (git log, git status, criterion marks) and finish the task against the same criteria. Finish as usual: finish_task with a report.',
+  'prompt.worker.afterThrash': 'Continue the same task from where you stopped: the session was cut off by a memory compaction failure, and it now has more room. You are in the same working copy and the same branch. First see what is already done (git status, git diff, git log), re-read only what the remaining work needs, and carry the task through to handover.',
   'prompt.step.header': 'You are doing step "{node}" of process "{workflow}" for task {task} "{title}".',
   'prompt.step.task': 'The task:',
   'prompt.step.artifacts': 'What was handed to you (there are no transcripts of previous steps — only this):',

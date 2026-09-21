@@ -1,3 +1,5 @@
+import { providerOf } from '../shared/providers';
+import { codexStatus } from './providers/diagnostics';
 /**
  * Проверки окружения офиса: всё, без чего он не сможет выполнять задачи.
  *
@@ -20,8 +22,8 @@ import type { OfficeState, Task } from './state';
 
 /**
  * Критичные проверки: пока такая красная, не выполнима ни одна задача, и
- * пробовать — значит платить за гарантированный провал. Здесь ровно два id, и
- * список намеренно короткий.
+ * пробовать — значит платить за гарантированный провал. Список намеренно
+ * короткий.
  *
  * `git` в него не входит: без репозитория теряется изоляция по worktree, но
  * задача выполнима — офис работает прямо в директории. `roles` не входит,
@@ -29,7 +31,7 @@ import type { OfficeState, Task } from './state';
  * `repo:<roleId>` — потому что он мешает одной роли, а не офису, и общий стоп
  * из-за него остановил бы всех остальных.
  */
-const CRITICAL = new Set(['key', 'workdir']);
+const CRITICAL = new Set(['key', 'workdir', 'provider:codex']);
 
 /** Проверка прошла: вопросов к окружению нет. */
 const ok = (id: string, title: string, detail: string): EnvCheck =>
@@ -146,6 +148,13 @@ export async function refreshEnvChecks(state: OfficeState): Promise<EnvReport> {
       state.say('env.git.fix', { dir: state.projectDir })));
   }
   checks.push(rolesCheck(state));
+  if (state.activeRoles().some(role => providerOf(role) === 'codex')) {
+    const codex = await codexStatus();
+    checks.push(codex.available && codex.authenticated
+      ? ok('provider:codex', 'Codex', state.lang() === 'ru' ? 'CLI и авторизация доступны' : 'CLI and authentication available')
+      : fail('provider:codex', 'Codex', codex.error ?? 'Codex is not authenticated',
+        state.lang() === 'ru' ? 'Установите актуальный Codex CLI, выполните codex login; при необходимости задайте OFFICE_CODEX_PATH.' : 'Install a current Codex CLI, run codex login; set OFFICE_CODEX_PATH if needed.'));
+  }
   // Архивные роли пропускаем: работать в них некому, и ходить в git ради
   // строчки про репозиторий уволенной роли незачем.
   for (const role of state.activeRoles()) {

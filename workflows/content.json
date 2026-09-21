@@ -1,9 +1,9 @@
 {
   "id": "content",
-  "version": 1,
+  "version": 2,
   "trigger": { "on": "task.finished", "type": "content" },
   "nodes": [
-    { "id": "legal", "kind": "step", "needs": ["docs.legal"], "notSameAs": "author", "stage": "review",
+    { "id": "legal", "kind": "step", "needs": ["docs.legal"], "noRole": "ok", "notSameAs": "author", "stage": "review",
       "in": ["report"], "out": "legal",
       "done": ["Текст прочитан целиком", "Юридические риски названы или их нет", "Вердикт вынесен инструментом"],
       "next": { "ok": "publish", "risky": { "to": "rework", "max": 2 }, "failed": "stuck" } },

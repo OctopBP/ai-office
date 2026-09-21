@@ -1,7 +1,9 @@
+import { PROVIDER_IDS } from '../shared/providers';
 /**
  * Пакеты агентов: то, из чего в офисе заводится роль.
  *
- * Пакет — папка в формате плагина Claude Code плюс манифест офиса:
+ * Пакет — переносимая папка навыков плюс манифест офиса. Обёртка плагина
+ * Claude Code хранит имя и версию для совместимости с существующим маркетом:
  *
  *   packages/@office/backend/
  *     .claude-plugin/plugin.json   имя плагина, версия, описание — формат Claude Code
@@ -18,8 +20,8 @@
  * - Пакет объявляет умения, офис выдаёт инструменты. Серверы из пакета —
  *   просьба, а не подключение; хуки, команды и сабагенты плагина офис не
  *   берёт вовсе (см. `IGNORED_PLUGIN_PARTS`).
- * - Модель — алиасом (`opus`, `sonnet`, `haiku`), а не полным id: пакет
- *   должен пережить смену поколения моделей. Алиас разрешает офис.
+ * - У Claude модель можно назвать алиасом (`opus`, `sonnet`, `haiku`), чтобы
+ *   пакет пережил смену поколения. Codex принимает `default` или точный id.
  * - Бриф — файлами по языкам, а не строкой в JSON: он длинный и его правят
  *   руками. Нет своего языка — берётся английский.
  * - Диск читается на каждый запрос, а не один раз при старте: поправленный
@@ -81,7 +83,7 @@ export const MANIFEST_SCHEMA = 1;
 export const PACKAGE_NAME_RE = /^@[a-z0-9][a-z0-9-]{0,38}\/[a-z0-9][a-z0-9-]{0,38}$/;
 
 /** Движки, для которых офис умеет собирать сессию. Пока один. */
-export const ENGINES = ['claude-code'] as const;
+export const ENGINES = PROVIDER_IDS;
 export type Engine = (typeof ENGINES)[number];
 
 /**
@@ -311,7 +313,7 @@ export function parseManifest(raw: unknown, fallbackName: string): { manifest: A
   if (m.runtime !== undefined && !asRecord(m.runtime)) err('runtime', 'expected an object');
   const engine = rt.engine === undefined ? 'claude-code' : rt.engine;
   if (!ENGINES.includes(engine as Engine)) err('runtime.engine', `unknown engine, the office runs: ${ENGINES.join(', ')}`);
-  const model = typeof rt.model === 'string' && rt.model.trim() ? rt.model.trim() : 'sonnet';
+  const model = typeof rt.model === 'string' && rt.model.trim() ? rt.model.trim() : (engine === 'codex' ? 'default' : 'sonnet');
   if (!MODEL_RE.test(model)) err('runtime.model', 'an alias (opus, sonnet, haiku) or a full model id');
   let tools: string[] | null = null;
   if (rt.tools !== undefined) {
@@ -536,7 +538,7 @@ export const packageTitle = (pkg: AgentPackage, lang: Lang): string =>
   pick(pkg.manifest.title, lang) || pkg.name.split('/').pop() || pkg.name;
 
 /** Модель роли из пакета: алиас разрешён в актуальный id. */
-export const packageModel = (pkg: AgentPackage): string => resolveModel(pkg.manifest.runtime.model);
+export const packageModel = (pkg: AgentPackage): string => pkg.manifest.runtime.engine === 'claude-code' ? resolveModel(pkg.manifest.runtime.model) : pkg.manifest.runtime.model;
 
 /**
  * Каталог по умолчанию: с него начинается новый офис. Порядок — порядок

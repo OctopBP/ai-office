@@ -237,7 +237,8 @@ async function main(): Promise<void> {
   writeFileSync(resolve(projectDir, 'workflows', 'content.json'), '{ not json');
   const broken = workflowCatalog(project).find((e) => e.id === 'content');
   check('сломанный файл виден с ошибкой', Boolean(broken?.problem) && broken?.source === 'builtin');
-  check('а офис едет по встроенному', workflowFor(project, 'content')?.id === 'content' && workflowFor(project, 'content')?.version === 1);
+  check('а офис едет по встроенному', workflowFor(project, 'content')?.id === 'content'
+    && workflowFor(project, 'content')?.version === builtinWorkflow('content').version);
   check('сброс возвращает встроенный', resetProjectWorkflow(project, 'feature') === null
     && workflowFor(project, 'feature')?.version === 1);
   rmSync(projectDir, { recursive: true, force: true });

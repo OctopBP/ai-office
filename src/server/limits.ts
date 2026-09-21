@@ -1,3 +1,4 @@
+import { PROVIDER_IDS, type ProviderId } from '../shared/providers';
 /**
  * Лимиты плана подписки — второй потолок офиса помимо денег.
  *
@@ -24,7 +25,7 @@ import { DEFAULT_STATE_FILE } from './store';
  * столько же, сколько офисов. Путь берётся от файла по умолчанию — тестовый
  * сервер уводит `OFFICE_STATE_FILE` в свою папку и вместе с ним уносит и это.
  */
-const FILE = resolve(dirname(DEFAULT_STATE_FILE), 'limits.json');
+
 
 const SAVE_DEBOUNCE_MS = 2000;
 
@@ -50,6 +51,7 @@ export interface UsageReport {
 
 /** Живая сессия, у которой можно спросить лимиты. */
 export interface LimitSource {
+  provider?: ProviderId;
   usage_EXPERIMENTAL_MAY_CHANGE_DO_NOT_RELY_ON_THIS_API_YET(): Promise<UsageReport>;
 }
 
@@ -89,6 +91,7 @@ export interface Rejection {
  * превратиться в шкалу с непонятной подписью.
  */
 const REPORT_KINDS: LimitKind[] = [
+  'codex_primary', 'codex_secondary',
   'five_hour', 'seven_day', 'seven_day_opus', 'seven_day_sonnet', 'seven_day_oauth_apps',
 ];
 
@@ -117,6 +120,8 @@ const toMs = (v: number): number => (v < 1e12 ? Math.round(v * 1000) : Math.roun
 const toPercent = (v: number): number =>
   Math.max(0, Math.min(100, v <= 1 ? v * 100 : v));
 
+export function createLimitTracker(provider: ProviderId) {
+const FILE = resolve(dirname(DEFAULT_STATE_FILE), provider === 'claude-code' ? 'limits.json' : `limits-${provider}.json`);
 const windows = new Map<LimitKind, LimitWindow>();
 let status: LimitsView['status'] = null;
 let rejection: Rejection | null = null;
@@ -170,7 +175,7 @@ function saveSoon(): void {
  * изменилась, — по этому признаку офис решает, слать ли событие в UI: события
  * приходят на каждый ответ модели, а меняются цифры куда реже.
  */
-export function noteRateLimit(info: RateLimitInfo): boolean {
+function noteRateLimit(info: RateLimitInfo): boolean {
   if (!loaded) load();
   const now = Date.now();
   let changed = false;
@@ -220,7 +225,7 @@ export function noteRateLimit(info: RateLimitInfo): boolean {
  * Проценты здесь задокументированы как 0–100, и долю от единицы к ним не
  * применяем: 0.5 в этом ответе — это полпроцента, а не половина окна.
  */
-export function noteUsageReport(report: UsageReport): boolean {
+function noteUsageReport(report: UsageReport): boolean {
   if (!loaded) load();
   const now = Date.now();
   let changed = false;
@@ -260,7 +265,7 @@ export function noteUsageReport(report: UsageReport): boolean {
  * сессию ради шкалы означало бы тратить лимит, чтобы на него посмотреть, —
  * поэтому вопрос задаётся попутно, когда сессия и так заведена.
  */
-export async function pollLimits(session: LimitSource): Promise<boolean> {
+async function pollLimits(session: LimitSource): Promise<boolean> {
   const now = Date.now();
   if (now - polledAt < POLL_EVERY_MS) return false;
   polledAt = now;
@@ -282,11 +287,38 @@ export async function pollLimits(session: LimitSource): Promise<boolean> {
  * Сброс по часам верим на слово: свежих событий после него ещё нет — они
  * появятся только с первым же запросом, а его-то и надо решиться сделать.
  */
-export function limitBlock(now = Date.now()): Rejection | null {
+function limitBlock(now = Date.now()): Rejection | null {
   if (!loaded) load();
   if (!rejection) return null;
   if (rejection.resetsAt !== null && rejection.resetsAt <= now) return null;
   return rejection;
+}
+
+/** Что показывать в интерфейсе. Порядок окон — от самого короткого. */
+function limitsView(): LimitsView {
+  if (!loaded) load();
+  if (updatedAt === null) return emptyLimits();
+  return {
+    available: true,
+    windows: LIMIT_ORDER.map((k) => windows.get(k)).filter((w): w is LimitWindow => Boolean(w)),
+    status,
+    plan,
+    updatedAt,
+  };
+}
+
+/** Забыть всё — только для тестов, чтобы прогон не зависел от чужого файла. */
+function forgetLimits(): void {
+  windows.clear();
+  status = null;
+  rejection = null;
+  plan = null;
+  updatedAt = null;
+  polledAt = 0;
+  loaded = true;
+}
+
+return { noteRateLimit, noteUsageReport, pollLimits, limitBlock, limitsView, forgetLimits };
 }
 
 /**
@@ -301,26 +333,19 @@ export function resetClock(resetsAt: number, lang: Lang, now = Date.now()): stri
     : { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' });
 }
 
-/** Что показывать в интерфейсе. Порядок окон — от самого короткого. */
-export function limitsView(): LimitsView {
-  if (!loaded) load();
-  if (updatedAt === null) return emptyLimits();
-  return {
-    available: true,
-    windows: LIMIT_ORDER.map((k) => windows.get(k)).filter((w): w is LimitWindow => Boolean(w)),
-    status,
-    plan,
-    updatedAt,
-  };
-}
-
-/** Забыть всё — только для тестов, чтобы прогон не зависел от чужого файла. */
-export function forgetLimits(): void {
-  windows.clear();
-  status = null;
-  rejection = null;
-  plan = null;
-  updatedAt = null;
-  polledAt = 0;
-  loaded = true;
+const trackers = Object.fromEntries(PROVIDER_IDS.map(id => [id, createLimitTracker(id)])) as Record<ProviderId, ReturnType<typeof createLimitTracker>>;
+export const noteRateLimit = (info: RateLimitInfo, provider: ProviderId = 'claude-code') => trackers[provider].noteRateLimit(info);
+export const noteUsageReport = (info: UsageReport, provider: ProviderId = 'claude-code') => trackers[provider].noteUsageReport(info);
+export const pollLimits = (session: LimitSource) => trackers[session.provider ?? 'claude-code'].pollLimits(session);
+export const limitBlock = (now = Date.now(), provider: ProviderId = 'claude-code') => trackers[provider].limitBlock(now);
+export const forgetLimits = () => { for (const tracker of Object.values(trackers)) tracker.forgetLimits(); };
+export function limitsView(provider?: ProviderId): LimitsView {
+  if (provider) return trackers[provider].limitsView();
+  const views = PROVIDER_IDS.map(id => ({ id, view: trackers[id].limitsView() }));
+  const known = views.filter(v => v.view.available);
+  if (!known.length) return emptyLimits();
+  if (known.length === 1 && known[0].id === 'claude-code') return known[0].view;
+  return { available: true, windows: known.flatMap(({id,view}) => view.windows.map(w => ({ ...w, provider: id }))),
+    status: known.some(v => v.view.status === 'rejected') ? 'rejected' : null,
+    plan: null, updatedAt: Math.max(...known.map(v => v.view.updatedAt ?? 0)) };
 }

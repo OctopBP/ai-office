@@ -1,4 +1,5 @@
 import { CAPABILITIES } from '../shared/workflow';
+import { PROVIDERS, PROVIDER_IDS, providerOf, type ProviderId } from '../shared/providers';
 import { useEffect, useState } from 'react';
 import {
   accessLabel, fullAccessWarning, archiveRole, clearExportResult, clearRoleFeedback, createRole,
@@ -13,8 +14,6 @@ import { LookPicker } from './office3d/LookPicker';
 import { lookById, LOOKS } from '../shared/looks';
 import type { PermissionMode, RoleDraft, RoleEditable, RoleView } from '../shared/types';
 import { MAX_TASK_MAX_TURNS, MIN_TASK_MAX_TURNS } from '../shared/types';
-
-const MODEL_IDS = ['claude-opus-5', 'claude-sonnet-5', 'claude-haiku-4-5'] as const;
 
 const models = (): Array<[string, string]> => [
   ['claude-opus-5', t('role.model.opus')],
@@ -50,6 +49,14 @@ export function RoleEditor({ role, onSaved, onDeleted }: {
   const roleFeedback = useStore((s) => s.roleFeedback);
   const layout = useStore((s) => s.layout);
   const instanceCount = useStore((s) => Object.keys(s.instances).length);
+  const [codexModels, setCodexModels] = useState<Array<[string, string]>>([]);
+  useEffect(() => {
+    const controller = new AbortController();
+    void fetch('/api/providers/codex', { signal: controller.signal })
+      .then(r => r.json()).then(data => setCodexModels((data.models ?? []).map((m: { id: string; label: string }) => [m.id, m.label])))
+      .catch(() => {});
+    return () => controller.abort();
+  }, []);
   const [draft, setDraft] = useState<Partial<RoleEditable>>({});
   const [turns, setTurns] = useState(role?.maxTurns?.toString() ?? '');
   const [confirmAuto, setConfirmAuto] = useState(false);
@@ -185,10 +192,23 @@ export function RoleEditor({ role, onSaved, onDeleted }: {
         {errFor('sprite') && <span className="hint error">{errFor('sprite')}</span>}
       </label>
 
-      <label>{t('role.model')}
-        <select value={value.model} onChange={(e) => set('model', e.target.value)}>
-          {models().map(([id, label]) => <option key={id} value={id}>{label}</option>)}
+      <label>{t('role.provider')}
+        <select value={providerOf(value)} onChange={(e) => {
+          const provider = e.target.value as ProviderId;
+          setDraft(d => ({ ...d, provider, model: PROVIDERS[provider].defaultModel }));
+        }}>
+          {PROVIDER_IDS.map(id => <option key={id} value={id}>{PROVIDERS[id].label}</option>)}
         </select>
+        {errFor('provider') && <span className="hint error">{errFor('provider')}</span>}
+      </label>
+
+      <label>{t('role.model')}
+        <input list="role-models" value={value.model} onChange={(e) => set('model', e.target.value)} />
+        <datalist id="role-models">
+          {(providerOf(value) === 'codex' ? [['default', t('role.model.codexDefault')], ...codexModels] : models())
+            .map(([id, label]) => <option key={id} value={id}>{label}</option>)}
+        </datalist>
+        {providerOf(value) === 'codex' && <span className="hint">{t('role.codexHint')}</span>}
         {errFor('model') && <span className="hint error">{errFor('model')}</span>}
       </label>
 

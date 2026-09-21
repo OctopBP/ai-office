@@ -21,12 +21,12 @@ import { refreshEnvChecks } from '../src/server/envcheck';
 import { flushAll, load, save, wipe, type Persisted } from '../src/server/store';
 import {
   DEFAULT_OFFICE_WORKERS, DEFAULT_PM_CONTEXT_LIMIT, DEFAULT_WORKER_CONTEXT_LIMIT, isOfficeSender, MAX_AGENT_NAME,
-  MAX_OFFICE_WORKERS, MAX_TASK_MAX_TURNS, OFFICE_SENDER, type Settings,
+  MAX_OFFICE_WORKERS, MAX_TASK_MAX_TURNS, MAX_WORKER_CONTEXT_LIMIT, OFFICE_SENDER, WORKER_WINDOW_SLACK, type Settings,
 } from '../src/shared/types';
 import { cloudProblem, setGithubToken } from '../src/server/cloud';
 import {
-  compactPm, completePmCompaction, completePmRotation, noStaffReason, officeAssign, pmNeedsRotation, releaseSlot,
-  resetSessions, rotatePm, sendUserMessage, slotProblem, teamSummary,
+  compactPm, completePmCompaction, completePmRotation, driveWorker, noStaffReason, officeAssign, pmNeedsRotation,
+  releaseSlot, resetSessions, rotatePm, sendUserMessage, slotProblem, teamSummary, type WorkerOpen,
 } from '../src/server/agents';
 import { MessageQueue } from '../src/server/queue';
 import { defaultRole, defaultRoles } from '../src/server/roles';
@@ -1746,9 +1746,75 @@ async function main(): Promise<void> {
   pr.updateSettings({ pmContextLimit: 200_000 });
   const raisedDefers = !pmNeedsRotation(pr);
   pr.updateSettings({ pmContextLimit: 100_000 });
-  // Окно автосжатия исполнителя: ниже минимума SDK не принимается.
+  // Окно автосжатия исполнителя: ниже границы не принимается. 120 тыс. —
+  // умолчание прежней версии: половину такого окна занимает постоянная часть
+  // сессии, и она зацикливалась на сжатии, — сохранённое значение уступает умолчанию.
   pr.updateSettings({ workerContextLimit: 50_000 });
   const junkWorkerLimitIgnored = pr.workerContextLimit() === DEFAULT_WORKER_CONTEXT_LIMIT;
+  pr.updateSettings({ workerContextLimit: 120_000 });
+  const legacyWorkerLimitRaised = pr.workerContextLimit() === DEFAULT_WORKER_CONTEXT_LIMIT;
+  // Окно запуска: настройка, пока префикс сессии в неё помещается с запасом,
+  // и подъём по замеру, когда нет. Повтор после зацикленного сжатия просит шире.
+  const windowIsSetting = pr.workerWindow() === DEFAULT_WORKER_CONTEXT_LIMIT;
+  pr.noteWorkerPrefix(57_000);
+  const usualPrefixFits = pr.workerWindow() === DEFAULT_WORKER_CONTEXT_LIMIT;
+  pr.noteWorkerPrefix(90_000);
+  pr.noteWorkerPrefix(10_000);
+  const heavyPrefixRaises = pr.workerWindow() === 90_000 * 2 + WORKER_WINDOW_SLACK;
+  const retryAsksWider = pr.workerWindow(480_000) === 480_000
+    && pr.workerWindow(5_000_000) === MAX_WORKER_CONTEXT_LIMIT;
+  pr.workerPrefixTokens = 0;
+
+  // Зацикленное автосжатие — не провал задачи: та же сессия продолжается с
+  // окном шире. Сессии поддельные: поток сообщений SDK и исключение вслед за
+  // результатом с ошибкой, как его бросает настоящий SDK.
+  const thrashText = 'Autocompact is thrashing: the context refilled to the limit within 3 turns';
+  const fakeSession = (id: string, ending: 'thrash' | 'ok') => {
+    const stream = (async function* () {
+      yield { type: 'system', subtype: 'init', session_id: id };
+      yield {
+        type: 'assistant',
+        message: { content: [], usage: { input_tokens: 2, cache_read_input_tokens: 0, cache_creation_input_tokens: 56_998 } },
+      };
+      if (ending === 'ok') {
+        yield { type: 'result', subtype: 'success', is_error: false, result: 'готово' };
+        return;
+      }
+      yield { type: 'result', subtype: 'error_during_execution', is_error: true, result: thrashText };
+      throw new Error(`Claude Code returned an error result: ${thrashText}`);
+    })();
+    return Object.assign(stream, {
+      usage_EXPERIMENTAL_MAY_CHANGE_DO_NOT_RELY_ON_THIS_API_YET: async () => { throw new Error('нет'); },
+      mcpServerStatus: async () => [],
+    });
+  };
+  const worker = pr.instances.get('backend#1')!;
+  const workerRole = pr.role('backend')!;
+  type Opened = { resume: string | undefined; window: number; prompt: unknown };
+  const drive = async (endings: Array<'thrash' | 'ok'>) => {
+    const opened: Opened[] = [];
+    pr.workerPrefixTokens = 0;
+    const run = await driveWorker(pr, worker, workerRole, { resume: undefined, prompt: 'задача', resumed: null },
+      // Поддельной сессии хватает потока и двух опросов — остального Query офис тут не зовёт.
+      ((o: Opened) => {
+        opened.push(o);
+        return fakeSession('sess-w', endings[opened.length - 1]);
+      }) as unknown as WorkerOpen);
+    return { run, opened };
+  };
+  const healed = await drive(['thrash', 'ok']);
+  const thrashRetried = healed.run.failed === null && healed.run.text === 'готово'
+    && healed.opened.length === 2
+    && healed.opened[0].resume === undefined && healed.opened[0].window === DEFAULT_WORKER_CONTEXT_LIMIT
+    && healed.opened[1].resume === 'sess-w' && healed.opened[1].window === DEFAULT_WORKER_CONTEXT_LIMIT * 2
+    && typeof healed.opened[1].prompt === 'string' && healed.opened[1].prompt.includes('Продолжай');
+  const prefixMeasured = pr.workerPrefixTokens === 57_000;
+  const stuck = await drive(['thrash', 'thrash']);
+  const thrashTwiceFails = stuck.opened.length === 2 && stuck.run.failed !== null
+    && stuck.run.failed.includes('Окно автосжатия исполнителя') && !stuck.run.failed.includes('Autocompact');
+  const calm = await drive(['ok']);
+  const okRunsOnce = calm.opened.length === 1 && calm.run.failed === null;
+  pr.workerPrefixTokens = 0;
   pr.updateSettings({ workerContextLimit: 150_000 });
   const workerLimitKept = pr.workerContextLimit() === 150_000 && pr.toPersisted().settings.workerContextLimit === 150_000;
   const contextShown = pr.instanceView(pr.instances.get('pm#1')!).contextTokens === 120_000;
@@ -1801,7 +1867,16 @@ async function main(): Promise<void> {
     `до порога ротация не нужна: ${underLimit}`,
     `за порогом — нужна: ${overLimit}`,
     `мусорный порог не принимается: ${junkLimitIgnored}`,
-    `окно исполнителя ниже минимума SDK не принимается: ${junkWorkerLimitIgnored}`,
+    `окно исполнителя ниже границы не принимается: ${junkWorkerLimitIgnored}`,
+    `прежнее окно в 120 тыс. уступает умолчанию: ${legacyWorkerLimitRaised}`,
+    `окно запуска без замера — настройка: ${windowIsSetting}`,
+    `обычный префикс в окно помещается: ${usualPrefixFits}`,
+    `тяжёлый префикс поднимает окно, лёгкий замер его не сбивает: ${heavyPrefixRaises}`,
+    `повтор просит окно шире, но не выше предела: ${retryAsksWider}`,
+    `зацикленное сжатие: та же сессия продолжается с окном вдвое шире: ${thrashRetried}`,
+    `префикс сессии замерен по первому ходу: ${prefixMeasured}`,
+    `второе зацикливание подряд — отказ с понятной причиной: ${thrashTwiceFails}`,
+    `обычная сессия идёт один раз: ${okRunsOnce}`,
     `окно исполнителя сохраняется: ${workerLimitKept}`,
     `поднятый порог откладывает ротацию: ${raisedDefers}`,
     `размер контекста виден в карточке: ${contextShown}`,

@@ -6,12 +6,15 @@
  * Запуск: npm run test:merge
  */
 import { execFileSync } from 'node:child_process';
-import { existsSync, mkdtempSync, readFileSync, writeFileSync, rmSync } from 'node:fs';
+import {
+  appendFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync,
+  rmSync, writeFileSync,
+} from 'node:fs';
 import { tmpdir } from 'node:os';
 import { resolve } from 'node:path';
 import { getOffice } from '../src/server/state';
 import { checkMergeable } from '../src/server/git';
-import { mergeQueue, refreshMergeChecks } from '../src/server/merge';
+import { integrationDir, mergeQueue, refreshMergeChecks } from '../src/server/merge';
 
 // Проверки сверяют тексты офиса дословно и написаны по-русски — значит,
 // и офисы здесь должны быть русскими. Язык нового офиса берётся из
@@ -20,6 +23,36 @@ process.env.OFFICE_LANG = 'ru';
 
 /** Офис проверки — по id: общего «текущего офиса» на процесс больше нет. */
 const office = getOffice('o-1');
+
+/**
+ * Вложенный репозиторий внутри родительского: у офиса они разные у разных
+ * ролей, а имя основной ветки у всех одно — на этом совпадении и держалась
+ * ошибка. Родительскому он не виден (лежит в .gitignore), как и бывает.
+ */
+function nested(parent: string, name: string, branch: string): string {
+  const dir = resolve(parent, name);
+  mkdirSync(dir, { recursive: true });
+  const git = (...args: string[]) => execFileSync('git', args, { cwd: dir, encoding: 'utf8' }).trim();
+  git('init', '-q', '-b', 'main');
+  git('config', 'user.email', 'office@local');
+  git('config', 'user.name', 'AI Office');
+  writeFileSync(resolve(dir, 'readme.txt'), `${name}\n`);
+  git('add', '-A');
+  git('commit', '-qm', 'Начало');
+  git('checkout', '-q', '-b', branch);
+  writeFileSync(resolve(dir, 'work.txt'), `работа ${branch}\n`);
+  git('add', '-A');
+  git('commit', '-qm', branch);
+  git('checkout', '-q', 'main');
+  appendFileSync(resolve(parent, '.gitignore'), `${name}/\n`);
+  execFileSync('git', ['add', '-A'], { cwd: parent });
+  execFileSync('git', ['commit', '-qm', `игнорируем ${name}`], { cwd: parent });
+  return dir;
+}
+
+/** Общая служебная директория репозитория — по ней видно, чей это worktree. */
+const commonDir = (dir: string): string => realpathSync(resolve(dir,
+  execFileSync('git', ['rev-parse', '--git-common-dir'], { cwd: dir, encoding: 'utf8' }).trim()));
 
 /** Тестовый репозиторий: main, три ветки задач, свой скрипт typecheck. */
 function fixture(): string {
@@ -137,6 +170,64 @@ async function main(): Promise<void> {
     `влитое доехало до рабочей копии: ${existsSync(resolve(dir, 'later.txt'))}`,
   );
   git('checkout', '--', 'shared.txt');
+
+  // 7. Несколько репозиториев в одном офисе. Копия офиса для слияний одна на
+  //    репозиторий: пока она была одна на офис, ветка вложенного репозитория
+  //    приезжала в копию родительского, где её просто нет, — и ни одна задача
+  //    вложенного репозитория не сливалась никогда.
+  const back = nested(dir, 'back', 'task/T-5');
+  const front = nested(dir, 'front', 'task/T-6');
+  const inBack = office.createTask({ title: 'Во вложенном back', description: '', criteria: [], roleId: 'backend' });
+  office.updateTask(inBack.id, {
+    status: 'done', branch: 'task/T-5', baseBranch: 'main', repoDir: back,
+  });
+  const inFront = office.createTask({ title: 'Во вложенном front', description: '', criteria: [], roleId: 'backend' });
+  office.updateTask(inFront.id, {
+    status: 'done', branch: 'task/T-6', baseBranch: 'main', repoDir: front,
+  });
+
+  const parentMain = git('rev-parse', 'main');
+  const nestedRun = await mergeQueue([inBack.id, inFront.id], office);
+  const at = (repo: string, ref: string) =>
+    execFileSync('git', ['rev-parse', ref], { cwd: repo, encoding: 'utf8' }).trim();
+  /** Влита ли ветка в основную этого репозитория. Слияние идёт --no-ff. */
+  const merged = (repo: string, branch: string) => {
+    try {
+      execFileSync('git', ['merge-base', '--is-ancestor', branch, 'main'], { cwd: repo });
+      return true;
+    } catch {
+      return false;
+    }
+  };
+  results.push(
+    `задача вложенного репозитория влита: ${nestedRun?.steps[0]?.status === 'merged'}`,
+    `задача второго вложенного влита: ${nestedRun?.steps[1]?.status === 'merged'}`,
+    `ветка доехала до main вложенного back: ${merged(back, 'task/T-5')}`,
+    `ветка доехала до main вложенного front: ${merged(front, 'task/T-6')}`,
+    `main родительского репозитория не тронут: ${git('rev-parse', 'main') === parentMain}`,
+    `у каждого репозитория своя копия офиса: ${new Set([
+      integrationDir(office, dir), integrationDir(office, back), integrationDir(office, front),
+    ]).size === 3}`,
+    `копия офиса заведена от своего репозитория: ${existsSync(resolve(integrationDir(office, back), '.git'))
+      && commonDir(integrationDir(office, back)) === commonDir(back)}`,
+  );
+
+  // 8. Ветки задачи нет в её репозитории — это поломка настройки, а не гонка
+  //    с базой: очередь обязана встать и назвать репозиторий, а не молча
+  //    слить что-то в чужом.
+  const lost = office.createTask({ title: 'Ветка не в том репозитории', description: '', criteria: [], roleId: 'backend' });
+  office.updateTask(lost.id, {
+    status: 'done', branch: 'task/T-1', baseBranch: 'main', repoDir: back,
+  });
+  const backMain = at(back, 'main');
+  const lostRun = await mergeQueue([lost.id], office);
+  const lostStep = lostRun?.steps[0];
+  results.push(
+    `чужая ветка не выдана за конфликт: ${lostStep?.status === 'failed'}`,
+    `в отказе назван репозиторий: ${Boolean(lostStep?.message.includes(back))}`,
+    `в отказе названа ветка: ${Boolean(lostStep?.message.includes('task/T-1'))}`,
+    `в чужом репозитории ничего не влито: ${at(back, 'main') === backMain}`,
+  );
 
   rmSync(dir, { recursive: true, force: true });
   office.wipe();

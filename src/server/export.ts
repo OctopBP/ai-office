@@ -1,3 +1,4 @@
+import { providerOf } from '../shared/providers';
 /**
  * Экспорт роли в пакет и заготовка пакета с нуля.
  *
@@ -92,8 +93,8 @@ export function scaffoldPackage(dir: string, spec: Scaffold): { problems: Packag
     ...(spec.docsDir ? { docsDir: spec.docsDir } : {}),
     license: spec.license ?? '',
     runtime: {
-      engine: 'claude-code',
-      model: spec.runtime?.model ?? 'sonnet',
+      engine: spec.runtime?.engine ?? 'claude-code',
+      model: spec.runtime?.model ?? (spec.runtime?.engine === 'codex' ? 'default' : 'sonnet'),
       ...(spec.runtime?.tools ? { tools: spec.runtime.tools } : {}),
       permissionMode: spec.runtime?.permissionMode ?? null,
       isolate: spec.runtime?.isolate ?? true,
@@ -178,7 +179,8 @@ export function scaffoldFromRole(role: Role, name: string, lang: Lang, extra: Pa
     docsDir: role.docsDir ?? '',
     license: pkg?.manifest.license ?? '',
     runtime: {
-      model: modelAlias(role.model),
+      engine: providerOf(role),
+      model: providerOf(role) === 'claude-code' ? modelAlias(role.model) : role.model,
       tools: role.tools ?? null,
       permissionMode: role.permissionMode,
       isolate: role.isolate,
