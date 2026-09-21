@@ -16,7 +16,6 @@
   ],
   "color": "#ea580c",
   "emoji": "🔍",
-  "docsDir": "docs/review",
   "license": "MIT",
   "capabilities": [
     "code.review"
