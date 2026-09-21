@@ -57,6 +57,7 @@ export type IconName =
   | 'device-desktop'
   | 'cloud'
   | 'grid-dots'
+  | 'archive'
   | 'circle';
 
 const ICON_PATHS: Record<IconName, string[]> = {
@@ -299,6 +300,13 @@ const ICON_PATHS: Record<IconName, string[]> = {
     'M5 19m-1 0a1 1 0 1 0 2 0a1 1 0 1 0 -2 0',
     'M12 19m-1 0a1 1 0 1 0 2 0a1 1 0 1 0 -2 0',
     'M19 19m-1 0a1 1 0 1 0 2 0a1 1 0 1 0 -2 0',
+  ],
+  // Коробка с крышкой: у Tabler крышка нарисована <rect>, здесь тот же
+  // прямоугольник со скруглением записан путём — Icon рисует только <path>.
+  archive: [
+    'M5 4h14a2 2 0 0 1 2 2v0a2 2 0 0 1 -2 2h-14a2 2 0 0 1 -2 -2v0a2 2 0 0 1 2 -2z',
+    'M5 8v10a2 2 0 0 0 2 2h10a2 2 0 0 0 2 -2v-10',
+    'M10 12l4 0',
   ],
   circle: [
     'M12 12m-9 0a9 9 0 1 0 18 0a9 9 0 1 0 -18 0',

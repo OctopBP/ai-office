@@ -340,10 +340,13 @@ interface State {
   moveMergeSelect: (taskId: string, dir: -1 | 1) => void;
   clearMergeSelection: () => void;
   /**
-   * Язык офиса, на котором нарисован интерфейс. В сторе он лежит не ради
-   * подписей — их отдаёт `t()`, — а ради перерисовки: приложение
-   * перемонтируется по нему целиком (`main.tsx`), иначе после смены языка
-   * половина экрана осталась бы на прежнем.
+   * Язык интерфейса — глобальная настройка приложения, одна на все офисы
+   * (`uiLanguage` в снапшоте, событие `ui.language`). Языки офиса — общения и
+   * реализации — лежат в `settings` и интерфейс не переводят.
+   *
+   * В сторе он лежит не ради подписей — их отдаёт `t()`, — а ради
+   * перерисовки: приложение перемонтируется по нему целиком (`main.tsx`),
+   * иначе после смены языка половина экрана осталась бы на прежнем.
    */
   lang: Lang;
   /**
@@ -396,6 +399,13 @@ interface State {
    * события по-прежнему долетают до стора, просто пока не отрисовываются.
    */
   leaveOffice: () => void;
+  /**
+   * Убрать офис в архив из интерфейса. Открытый сейчас офис сначала меняется
+   * на соседний — иначе сервер откажет: гасить офис, на который смотрит
+   * вкладка, нельзя. Возврат из архива отдельной обёртки не требует —
+   * `archiveOffice(id, false)`.
+   */
+  requestArchiveOffice: (officeId: string) => void;
   /** Отправить создание офиса из меню и ждать снапшот или ошибку. */
   requestCreateOffice: (name: string, projectDir: string) => void;
   /** Собрать офис по плану мастера: прогресс приходит событиями, итог — снапшот или ошибка. */
@@ -636,6 +646,20 @@ export const useStore = create<State>((set, get) => ({
     });
   },
 
+  requestArchiveOffice: (officeId) => {
+    const s = get();
+    const office = s.offices.find((o) => o.id === officeId);
+    if (!office || office.archived) return;
+    if (!office.current) { archiveOffice(officeId, true); return; }
+    // Архивируем тот офис, в котором сидим: уходим в соседний и оставляем
+    // метку — архивация уедет, когда придёт его снапшот. Соседа нет —
+    // уходить некуда, и кнопка в интерфейсе для этого случая недоступна.
+    const next = activeOffices(s.offices).find((o) => o.id !== officeId);
+    if (!next) return;
+    archivingAfterSwitch = officeId;
+    get().enterOffice(next.id);
+  },
+
   requestCreateOffice: (name, projectDir) => {
     set({ pending: 'create', pendingLabel: name.trim() || projectDir.trim(), menuNotice: null });
     createOffice(name, projectDir);
@@ -661,9 +685,11 @@ export const useStore = create<State>((set, get) => ({
   apply: (e) => {
     switch (e.t) {
       case 'snapshot': {
-        // Язык офиса запоминаем раньше, чем раскладываем снимок: подписи в
-        // нём уже собираются на новом языке.
-        setLang(e.settings.language);
+        // Язык интерфейса запоминаем раньше, чем раскладываем снимок: подписи
+        // в нём уже собираются на новом языке. Берётся он из `uiLanguage` —
+        // глобальной настройки приложения, а не из языка офиса: переход в
+        // соседний проект интерфейс не переводит.
+        setLang(e.uiLanguage);
         const instances = Object.fromEntries(e.instances.map((i) => [i.id, i]));
         // Снапшот — это не приход в офис, а картина офиса, который уже
         // работает: агентов ставим по местам без ходьбы. Живые позиции
@@ -680,7 +706,7 @@ export const useStore = create<State>((set, get) => ({
           }];
         }));
         set((s) => ({
-          lang: asLang(e.settings.language),
+          lang: asLang(e.uiLanguage),
           roles: e.roles, instances, pos,
           tasks: Object.fromEntries(e.tasks.map((t) => [t.id, t])),
           epics: Object.fromEntries(e.epics.map((f) => [f.id, f])),
@@ -722,6 +748,9 @@ export const useStore = create<State>((set, get) => ({
           // Панель спросит их заново, когда её откроют.
           rules: null,
         }));
+        // Снапшот соседнего офиса — это и есть ответ «мы больше не смотрим на
+        // тот, который убираем в архив»: теперь команду можно слать.
+        flushArchiveAfterSwitch(e.offices);
         break;
       }
       case 'instance': {
@@ -869,6 +898,13 @@ export const useStore = create<State>((set, get) => ({
       case 'offices':
         set({ offices: e.offices });
         break;
+      case 'ui.language':
+        // Язык интерфейса сменили — где угодно и в каком угодно офисе. Сначала
+        // его запоминает словарь, и только потом обновляется стор: иначе
+        // перерисовка успела бы пройти по старому языку. Событие приходит и
+        // первым ответом на подключение, когда офиса ещё нет вовсе.
+        if (setLang(e.lang)) set({ lang: asLang(e.lang) });
+        break;
       case 'setup.catalog':
         set({ setupCatalog: e.catalog });
         break;
@@ -879,6 +915,9 @@ export const useStore = create<State>((set, get) => ({
         set((s) => ({ picking: null, picked: { seq: (s.picked?.seq ?? 0) + 1, purpose: e.purpose, dir: e.dir, error: e.error } }));
         break;
       case 'office.error':
+        // Переключение ради архивации не удалось — архивацию отменяем: иначе
+        // она уехала бы после следующего, ни к чему не относящегося снапшота.
+        if (e.op === 'switch') archivingAfterSwitch = null;
         // Отказ во входе или создании, пока меню ждёт ответа: форма
         // показывает причину и перестаёт крутить спиннер.
         if ((e.op === 'create' || e.op === 'switch') && get().pending) {
@@ -903,6 +942,18 @@ export const useStore = create<State>((set, get) => ({
             id: `office-icon-error-${e.officeId ?? 'x'}`,
             kind: 'failed',
             title: tr('toast.iconNotSaved'),
+            detail: e.message,
+          });
+          break;
+        }
+        // Архивация — такой же новый op: сервер отказывает по делу (в офисе
+        // идут задачи, на него смотрят из другой вкладки), и причину надо
+        // показать там, где нажали, а не оставить в чате чужого офиса.
+        if (e.op === 'archive') {
+          pushToast({
+            id: `office-archive-error-${e.officeId ?? 'x'}`,
+            kind: 'failed',
+            title: tr('toast.archiveNotDone'),
             detail: e.message,
           });
           break;
@@ -945,10 +996,8 @@ export const useStore = create<State>((set, get) => ({
         set({ exportResult: { roleId: e.roleId, dir: e.dir, warnings: e.warnings, error: e.error } });
         break;
       case 'settings':
-        // Язык приезжает вместе с остальными настройками офиса: сначала его
-        // запоминает словарь, и только потом обновляется стор — иначе
-        // перерисовка успела бы пройти по старому языку.
-        if (setLang(e.settings.language)) set({ lang: asLang(e.settings.language) });
+        // Языки офиса (общения и реализации) интерфейс не переводят: он живёт
+        // на глобальном `uiLanguage` и меняется событием `ui.language`.
         set({ settings: e.settings, settingsPending: false });
         break;
       case 'layout': {
@@ -1299,9 +1348,10 @@ export function formatLastOpened(ts: number): string {
 }
 
 /**
- * Порядок списка офисов — по времени создания, самый старый сверху
- * (`compareOffices` из общего контракта). Один и тот же на всех трёх экранах:
- * рейл, модалка офисов и главный экран зовут именно эту функцию.
+ * Порядок списка офисов — ручная расстановка человека, а для всех, кого руками
+ * не двигали, время создания, самый старый сверху (`compareOffices` из общего
+ * контракта). Один и тот же на всех трёх экранах: рейл, модалка офисов и
+ * главный экран зовут именно эту функцию.
  *
  * Ни выбор офиса, ни его активность, ни события обновления списка порядка не
  * меняют. `lastOpenedAt` для сортировки не годится — он едет при каждом входе,
@@ -1313,6 +1363,21 @@ export function formatLastOpened(ts: number): string {
  */
 export function sortedOffices(offices: OfficeView[]): OfficeView[] {
   return [...offices].sort(compareOffices);
+}
+
+/**
+ * Офисы для обычных списков — рейла, модалки и главного экрана: архивные
+ * скрыты. Архив — это «проектом больше не занимаемся», и держать такие офисы
+ * вперемешку с рабочими значит каждый раз глазами отделять одни от других.
+ * Порядок тот же `compareOffices`: фильтр не переставляет строки.
+ */
+export function activeOffices(offices: OfficeView[]): OfficeView[] {
+  return sortedOffices(offices.filter((o) => !o.archived));
+}
+
+/** Только архивные офисы — для свёрнутого раздела «Архив» в модалке. */
+export function archivedOffices(offices: OfficeView[]): OfficeView[] {
+  return sortedOffices(offices.filter((o) => o.archived));
 }
 
 /** Сводка активности офиса для переключателя — уже посчитанные тексты и флаги, а не сырые числа. */
@@ -1593,6 +1658,18 @@ export function updateSettings(settings: Partial<Settings>): void {
 }
 
 /**
+ * Сменить язык интерфейса. Настройка глобальная: она не про офис, и команда
+ * уходит даже с главного экрана, где офиса ещё нет. Применяется сразу, без
+ * «Сохранить», — как тема: смотреть на чужой язык до нажатия кнопки незачем.
+ *
+ * Локально здесь ничего не переключаем: язык приедет обратно событием
+ * `ui.language` всем вкладкам сразу, и второго источника правды не заводим.
+ */
+export function setUiLanguage(lang: Lang): void {
+  socket?.send(JSON.stringify({ c: 'ui_language', lang }));
+}
+
+/**
  * Разбирает поле лимита шагов исполнителя. Пустая строка — «без ограничения»
  * (null, отправлять можно). Значение вне [MIN_TASK_MAX_TURNS; MAX_TASK_MAX_TURNS]
  * или нецелое — ошибка, value в этом случае отправлять нельзя.
@@ -1736,9 +1813,52 @@ export function renameOffice(officeId: string, name: string): void {
   socket?.send(JSON.stringify({ c: 'rename_office', officeId, name }));
 }
 
+/**
+ * Перетащили строку офиса в рейле. `index` — место в ВИДИМОМ списке (том, что
+ * рисует `sortedOffices`), считая от нуля и БЕЗ самого переставляемого офиса —
+ * ровно так, как ждёт `reorderOffice` на сервере. Правда — то, что сервер
+ * пришлёт следующим событием `offices`; здесь только отправка команды.
+ */
+export function reorderOffice(officeId: string, index: number): void {
+  socket?.send(JSON.stringify({ c: 'reorder_office', officeId, index }));
+}
+
 /** null сбрасывает иконку офиса к умолчанию (инициал). */
 export function setOfficeIcon(officeId: string, icon: OfficeIcon | null): void {
   socket?.send(JSON.stringify({ c: 'set_office_icon', officeId, icon }));
+}
+
+/**
+ * Убрать офис в архив или вернуть его оттуда. Ответ — новый список офисов
+ * событием 'offices' (или отказ 'office.error' с op 'archive'), поэтому
+ * локально ничего не меняем: оптимистично спрятанный офис, которому сервер
+ * отказал из-за идущих задач, пришлось бы возвращать обратно.
+ */
+export function archiveOffice(officeId: string, archived: boolean): void {
+  socket?.send(JSON.stringify({ c: 'archive_office', officeId, archived }));
+}
+
+/**
+ * Офис, который человек убирает в архив, не выходя из него. Сервер гасит
+ * архивный офис целиком и поэтому не трогает тот, на который смотрит хоть
+ * одна вкладка (`viewers` в office-api.ts): у зрителя просто перестали бы
+ * работать команды. Значит, сначала переключаемся в соседний офис, и только
+ * когда придёт его снапшот — шлём архивацию. Здесь лежит id того, кого
+ * архивируем, пока идёт переключение.
+ */
+let archivingAfterSwitch: string | null = null;
+
+/**
+ * Переключение прошло — можно архивировать покинутый офис. Признак `current`
+ * в списке считает сервер, и пока он стоит на архивируемом офисе, вкладка
+ * всё ещё смотрит именно его.
+ */
+function flushArchiveAfterSwitch(offices: OfficeView[]): void {
+  const id = archivingAfterSwitch;
+  if (!id) return;
+  if (offices.some((o) => o.id === id && o.current)) return;
+  archivingAfterSwitch = null;
+  archiveOffice(id, true);
 }
 
 /**

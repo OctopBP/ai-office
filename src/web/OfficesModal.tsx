@@ -1,6 +1,7 @@
-import { useEffect, useRef, useState } from 'react';
+import { Fragment, useEffect, useRef, useState } from 'react';
 import {
-  createOffice, renameOffice, setOfficeIcon, sortedOffices, summarizeOfficeActivity, useStore,
+  activeOffices, archiveOffice, archivedOffices, createOffice, renameOffice, setOfficeIcon,
+  summarizeOfficeActivity, useStore,
 } from './store';
 import type { OfficeView } from '../shared/types';
 import { t } from './i18n';
@@ -19,13 +20,21 @@ const ICON_PALETTE = [
 export function OfficesModal({ onClose }: { onClose: () => void }) {
   const offices = useStore((s) => s.offices);
   const enterOffice = useStore((s) => s.enterOffice);
+  const requestArchiveOffice = useStore((s) => s.requestArchiveOffice);
   // Порядок тот же, что в рейле и на главном экране: список один, и видеть
   // его в трёх разных порядках человеку не за что. Раньше здесь показывался
   // сырой порядок записей реестра, а рейл сортировал по имени.
-  const list = sortedOffices(offices);
+  const list = activeOffices(offices);
+  const archived = archivedOffices(offices);
   const [name, setName] = useState('');
   const [dir, setDir] = useState('');
   const [creating, setCreating] = useState(false);
+  // Занесённая рука над архивацией — id офиса, про который спрашиваем. Своё
+  // подтверждение прямо в списке, а не нативный confirm(): он выпадает из
+  // окна и его нечем оформить (так же сделано снятие задачи в TaskDrawer).
+  const [archiving, setArchiving] = useState<string | null>(null);
+  // Архив свёрнут по умолчанию: это склад, а не рабочий список.
+  const [openArchive, setOpenArchive] = useState(false);
 
   const create = () => {
     if (!dir.trim()) return;
@@ -40,32 +49,93 @@ export function OfficesModal({ onClose }: { onClose: () => void }) {
         <p className="modal-reason">{t('offices.note')}</p>
 
         <div className="offices">
-          {list.map((o) => (
-            <div key={o.id} className={`office-row ${o.current ? 'current' : ''}`}>
-              <div className="office-who">
-                <b>{o.name}</b>
-                <OfficeStatusMark office={o} />
-                <div className="muted mono">{o.projectDir}</div>
-              </div>
-              {o.current ? (
-                <span className="chip done">{t('offices.open')}</span>
-              ) : (
-                <button className="mini go" title={t('offices.openHint')}
-                  onClick={() => { enterOffice(o.id); onClose(); }}>
-                  {t('offices.openAction')}
-                </button>
-              )}
-              <button className="mini" title={t('offices.rename')}
-                onClick={() => {
-                  const next = prompt(t('offices.namePrompt'), o.name);
-                  if (next) renameOffice(o.id, next);
-                }}>
-                <Icon name="pencil" size={16} />
-              </button>
-              <OfficeIconPicker office={o} />
-            </div>
-          ))}
+          {list.map((o) => {
+            // Последний рабочий офис в архив не уходит: архивация открытого
+            // офиса — это переключение в соседний, а соседнего нет. Сервер
+            // отказал бы тем же самым, но уже после нажатия.
+            const lastOne = o.current && list.length < 2;
+            return (
+              <Fragment key={o.id}>
+                <div className={`office-row ${o.current ? 'current' : ''}`}>
+                  <div className="office-who">
+                    <b>{o.name}</b>
+                    <OfficeStatusMark office={o} />
+                    <div className="muted mono">{o.projectDir}</div>
+                  </div>
+                  {o.current ? (
+                    <span className="chip done">{t('offices.open')}</span>
+                  ) : (
+                    <button className="mini go" title={t('offices.openHint')}
+                      onClick={() => { enterOffice(o.id); onClose(); }}>
+                      {t('offices.openAction')}
+                    </button>
+                  )}
+                  <button className="mini" title={t('offices.rename')}
+                    onClick={() => {
+                      const next = prompt(t('offices.namePrompt'), o.name);
+                      if (next) renameOffice(o.id, next);
+                    }}>
+                    <Icon name="pencil" size={16} />
+                  </button>
+                  <OfficeIconPicker office={o} />
+                  <button className="mini" disabled={lastOne}
+                    title={t(lastOne ? 'offices.archiveLastHint' : 'offices.archive')}
+                    onClick={() => setArchiving(archiving === o.id ? null : o.id)}>
+                    <Icon name="archive" size={16} />
+                  </button>
+                </div>
+                {archiving === o.id && (
+                  <div className="office-archive-confirm">
+                    <p>{t('offices.archiveConfirm', { name: o.name })}</p>
+                    {o.current && <p className="muted small">{t('offices.archiveCurrentNote')}</p>}
+                    <div className="modal-actions">
+                      <button onClick={() => setArchiving(null)}>{t('common.cancel')}</button>
+                      <button className="danger" onClick={() => {
+                        setArchiving(null);
+                        requestArchiveOffice(o.id);
+                        // Открытый офис уходит в архив через переключение в
+                        // соседний: список под модалкой меняется целиком, и
+                        // держать её поверх входа в другой проект незачем.
+                        if (o.current) onClose();
+                      }}>
+                        {t('offices.archiveAction')}
+                      </button>
+                    </div>
+                  </div>
+                )}
+              </Fragment>
+            );
+          })}
         </div>
+
+        {/* Пустого раздела нет вовсе: пока в архив ничего не убирали, про
+            архив и говорить не о чем. */}
+        {archived.length > 0 && (
+          <div className="offices-archive">
+            <button className="ghost offices-archive-head" onClick={() => setOpenArchive((v) => !v)}>
+              <span className="offices-archive-caret" aria-hidden>{openArchive ? '▾' : '▸'}</span>
+              <Icon name="archive" size={14} />
+              {t('offices.archiveSection', { n: archived.length })}
+            </button>
+            {openArchive && (
+              <div className="offices">
+                {archived.map((o) => (
+                  <div key={o.id} className="office-row archived">
+                    <div className="office-who">
+                      <b>{o.name}</b>
+                      <span className="office-status">{t('offices.archivedMark')}</span>
+                      <div className="muted mono">{o.projectDir}</div>
+                    </div>
+                    <button className="mini go" title={t('offices.unarchiveHint')}
+                      onClick={() => archiveOffice(o.id, false)}>
+                      {t('offices.unarchive')}
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
 
         {creating ? (
           <>
