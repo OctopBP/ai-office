@@ -45,7 +45,9 @@ import {
   limitsView, noteRateLimit as recordRateLimit, pollLimits,
   type LimitSource, type RateLimitInfo,
 } from './limits';
-import { currentOffice, officeIconView, officePaused, offices, setOfficePaused } from './offices';
+import {
+  currentOffice, officeIconView, officePaused, offices, setOfficePaused, uiLanguage,
+} from './offices';
 import {
   checkMcpServers, DEFAULT_MCP_SERVERS, mcpNamesFor, pollMcpStatus, type McpStatusSource,
 } from './mcp';
@@ -81,7 +83,12 @@ const DAYS_KEPT = 14;
 
 /** Настройки офиса по умолчанию — они же дополняют старые сохранения. */
 export const DEFAULT_SETTINGS: Settings = {
+  // Три языка нового офиса совпадают: разделение существует ради тех, кому
+  // нужны разные, а не ради того, чтобы каждый офис заводился разноязыким.
+  // `language` здесь — зеркало языка общения, см. Settings в контракте.
   language: DEFAULT_LANG,
+  chatLanguage: DEFAULT_LANG,
+  codeLanguage: DEFAULT_LANG,
   globalBudgetUsd: null,
   taskBudgetUsd: null,
   // 60 — то, что и так стояло в коде константой MAX_WORKER_TURNS: возврат
@@ -806,7 +813,11 @@ export class OfficeState {
    * чему совещание находят в списке, когда оно давно закончилось.
    */
   meetings: MeetingView[] = [];
-  settings: Settings = { ...DEFAULT_SETTINGS, language: startupLang() };
+  // Новый офис заводится на языке запуска — и общается, и реализует на нём же.
+  settings: Settings = {
+    ...DEFAULT_SETTINGS,
+    language: startupLang(), chatLanguage: startupLang(), codeLanguage: startupLang(),
+  };
   authSource: AuthSource = 'unknown';
   /** Чей это офис: от него зависят worktree и файл состояния. */
   readonly officeId: string;
@@ -1548,9 +1559,12 @@ export class OfficeState {
       return false;
     }
 
-    // Язык узнаём раньше всего: на нём поднимаются базовые роли, и не зная
-    // его, офис поставил бы английские названия рядом с русской перепиской.
-    const lang = asLang((data.settings as Partial<Settings> | undefined)?.language ?? 'ru');
+    // Язык общения узнаём раньше всего: на нём поднимаются базовые роли, и не
+    // зная его, офис поставил бы английские названия рядом с русской
+    // перепиской. У сохранения старше разделения языков поля нет — там язык
+    // общения и есть то, что лежало в старом `language`.
+    const settingsOnDisk = (data.settings ?? {}) as Partial<Settings>;
+    const lang = asLang(settingsOnDisk.chatLanguage ?? settingsOnDisk.language ?? 'ru');
     // Роли восстанавливаем ДО seed: от них зависят названия и лимиты инстансов.
     this.roleList = rolesFromSave(data, lang);
     // Сохранения старше настройки движка не знают про облако — дополняем.
@@ -1563,11 +1577,26 @@ export class OfficeState {
     // как выглядел, — то есть по classic.
     // Сохранение старше поля отдаёт его как undefined: тип говорит «всегда
     // есть», поэтому для слияния с умолчаниями оно — Partial.
-    const saved: Partial<Settings> = data.settings ?? {};
+    const saved: Partial<Settings> = settingsOnDisk;
     this.settings = { ...DEFAULT_SETTINGS, language: 'ru', layoutId: FALLBACK_LAYOUT_ID, ...saved };
     // Язык мог приехать из правленого руками файла: чужое значение оставило бы
     // офис без словаря, и каждая фраза выродилась бы в голый ключ.
     this.settings.language = asLang(this.settings.language);
+    // Три языка вместо одного. Миграция обязана быть незаметной: офис,
+    // заведённый до разделения, продолжает и общаться, и реализовывать на той
+    // же локали, что стояла у него раньше, — пока владелец сам не выставит
+    // другое. Поэтому оба новых поля берут старое `language`, а не умолчание
+    // из DEFAULT_SETTINGS (оно английское и перевело бы русский офис).
+    // Идемпотентность: у сохранения, которое уже прошло миграцию, поля на
+    // месте, и тогда берутся они, а не старое значение.
+    const legacyLang = this.settings.language;
+    this.settings.chatLanguage = asLang(settingsOnDisk.chatLanguage ?? legacyLang);
+    this.settings.codeLanguage = asLang(
+      settingsOnDisk.codeLanguage ?? settingsOnDisk.chatLanguage ?? legacyLang,
+    );
+    // Старое поле держим зеркалом языка общения: его читает веб предыдущей
+    // сборки, и разъехаться они не должны. Источник правды — chatLanguage.
+    this.settings.language = this.settings.chatLanguage;
     // Файл раскладки могли удалить между запусками. Офис без мебели — не
     // состояние, в котором его можно оставить: молча возвращаем к classic.
     if (!hasLayout(this.settings.layoutId)) {
@@ -2676,12 +2705,32 @@ export class OfficeState {
   }
 
   /**
-   * Язык офиса. Своя обёртка по той же причине, что и у режима доступа:
-   * в старых сохранениях поля нет, и подстраховку не должен повторять каждый,
-   * кто пишет человеку хоть строчку.
+   * Язык ОБЩЕНИЯ офиса: переписка с менеджером, отчёты, вопросы владельцу,
+   * тексты задач, записи журнала и лента событий. Всё, что офис говорит
+   * человеку, идёт через него — отсюда и короткое имя `lang()`.
+   *
+   * Своя обёртка по той же причине, что и у режима доступа: в старых
+   * сохранениях поля нет, и подстраховку не должен повторять каждый, кто
+   * пишет человеку хоть строчку. Старое `language` здесь — запасной путь для
+   * состояния, поднятого мимо `restore` (его миграция проставляет поле сама).
+   *
+   * Язык интерфейса это НЕ он: тот один на всё приложение и живёт в реестре
+   * офисов (`uiLanguage` в offices.ts).
    */
   lang(): Lang {
-    return asLang(this.settings.language);
+    return asLang(this.settings.chatLanguage ?? this.settings.language);
+  }
+
+  /**
+   * Язык РЕАЛИЗАЦИИ: код, комментарии, документация и служебные артефакты.
+   * Отдельно от языка общения намеренно — договариваться по-русски и держать
+   * комментарии английскими это обычное требование к репозиторию.
+   *
+   * Поля нет (сохранение старше разделения языков) — работаем на языке
+   * общения: ровно так офис вёл себя до этой настройки.
+   */
+  codeLang(): Lang {
+    return asLang(this.settings.codeLanguage ?? this.lang());
   }
 
   /**
@@ -3324,10 +3373,20 @@ export class OfficeState {
     const prevLayout = this.settings.layoutId;
     const prevWorkers = this.workerLimit();
     const prevLang = this.lang();
+    const prevCodeLang = this.codeLang();
     const next = { ...patch };
-    // Язык приходит от клиента: неизвестное значение оставило бы офис без
+    // Языки приходят от клиента: неизвестное значение оставило бы офис без
     // словаря, и каждая фраза выродилась бы в голый ключ.
-    if ('language' in next && !isLang(next.language)) delete next.language;
+    if ('chatLanguage' in next && !isLang(next.chatLanguage)) delete next.chatLanguage;
+    if ('codeLanguage' in next && !isLang(next.codeLanguage)) delete next.codeLanguage;
+    // Старое поле: клиент прежней сборки шлёт только его, и это для него
+    // единственный способ сменить язык офиса. Читаем как смену языка общения —
+    // иначе переключатель в такой вкладке молча перестал бы работать. Явно
+    // присланный chatLanguage сильнее: он от того, кто знает про три языка.
+    if ('language' in next) {
+      if (!isLang(next.language)) delete next.language;
+      else if (!('chatLanguage' in next)) next.chatLanguage = next.language;
+    }
     // Режим приходит от клиента: чужое значение испортило бы решение по
     // каждому вызову инструмента, поэтому непонятное просто не берём.
     if ('officePermissionMode' in next && !isPermissionMode(next.officePermissionMode)) {
@@ -3410,6 +3469,9 @@ export class OfficeState {
     }
 
     this.settings = { ...this.settings, ...next };
+    // Старое поле — зеркало языка общения, и поправить его надо ДО рассылки:
+    // клиент прежней сборки читает язык офиса именно отсюда.
+    this.settings.language = this.lang();
     this.emit({ t: 'settings', settings: this.settings });
     if (this.settings.layoutId !== prevLayout) {
       // Раскладка меняет офис на глаз, а не одно число в форме, — это событие
@@ -3434,6 +3496,14 @@ export class OfficeState {
     // базовых ролей и системный промпт менеджера. Поэтому смена языка — это
     // отдельная работа, а не просто новое значение в настройках.
     if (this.lang() !== prevLang) this.applyLanguage(prevLang);
+    // Язык реализации на голос офиса не влияет: он про код, комментарии и
+    // документацию, то есть про то, что агенты пишут в репозиторий. Поэтому
+    // ни ролей, ни сессий он не трогает — только запись в ленту, чтобы смена
+    // была видна человеку так же, как смена языка общения.
+    if (this.codeLang() !== prevCodeLang) {
+      this.addLog(null, 'system',
+        this.say('state.settings.codeLanguage', { lang: LANG_TITLE[this.codeLang()] }));
+    }
     // Смена режима офиса меняет эффективный режим всех, кто его наследует, —
     // без этого UI показывал бы старое до следующего снимка.
     if (this.settings.officePermissionMode !== prevMode) {
@@ -3857,6 +3927,9 @@ export class OfficeState {
       log: this.log.slice(-200),
       permissions: this.pendingRequests(),
       settings: this.settings,
+      // Язык интерфейса берётся у реестра, а не у офиса: он один на всё
+      // приложение, и переключение проекта его не меняет.
+      uiLanguage: uiLanguage(),
       projectDir: this.projectDir,
       authSource: this.authSource,
       meeting: this.meeting,

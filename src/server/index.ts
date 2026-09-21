@@ -30,7 +30,7 @@ import { applyProposal } from './selfchange';
 import { RITUAL_IDS } from '../shared/types';
 import { githubToken, setGithubToken } from './cloud';
 import {
-  clearInitFlag, currentOffice, ensureOffice, loadRegistry, officeById, setCurrent,
+  clearInitFlag, currentOffice, ensureOffice, loadRegistry, officeById, setCurrent, uiLanguage,
   type OfficeEntry,
 } from './offices';
 import { handleOfficeIcon } from './officeicon';
@@ -99,9 +99,11 @@ async function openOffice(entry: OfficeEntry): Promise<void> {
   // Состояние берётся из реестра: у каждого офиса оно своё и живёт до конца
   // процесса — вернувшийся офис продолжается, а не читается заново.
   const { state, restored, reused } = openOfficeState(entry);
-  // Язык процесса берёт открытый офис: терминал у процесса один, и говорить
-  // он должен на языке того офиса, с которым сейчас работают.
-  setProcessLang(state.lang());
+  // Язык процесса — язык ИНТЕРФЕЙСА: терминал читает тот же человек, что и
+  // подписи на экране, и язык у них один на всё приложение. Раньше его брал
+  // открытый офис, но язык офиса теперь про общение с командой, а не про то,
+  // на каком языке владельцу показывают приложение.
+  setProcessLang(uiLanguage());
   const board = state.say('boot.board', {
     tasks: state.tasks.size, messages: state.chat.length,
   });
@@ -128,6 +130,9 @@ async function openOffice(entry: OfficeEntry): Promise<void> {
 }
 
 loadRegistry(DEFAULT_DIR);
+// Язык интерфейса лежит в реестре и известен раньше любого офиса — на нём
+// говорит терминал ещё до того, как хоть один офис откроется.
+setProcessLang(uiLanguage());
 // Переменная окружения по-прежнему решает, с каким проектом открыться:
 // на неё опираются тесты и запуск «в другой папке» одной командой.
 if (process.env.OFFICE_PROJECT_DIR) {
@@ -227,7 +232,10 @@ const httpServer = createServer((req, res) => {
       return;
     }
     res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' });
-    res.end(JSON.stringify({ offices: officeViews() }));
+    // Язык интерфейса отдаём вместе со списком: меню открывается раньше офиса,
+    // а подписать его надо уже на языке владельца. Настройка глобальная, и
+    // офиса, у которого её спросить, у такого запроса нет.
+    res.end(JSON.stringify({ offices: officeViews(), uiLanguage: uiLanguage() }));
     return;
   }
   // Аватарка офиса: отдача картинки, загрузка и снятие — см. officeicon.ts.
