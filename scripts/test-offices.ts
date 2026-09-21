@@ -72,6 +72,19 @@ class Fake implements Sink {
   }
 }
 
+/**
+ * Поднять офис так, как это делает сервер в режиме проверки: с заглушёнными
+ * сессиями. Иначе первый же взгляд клиента на офис запускает планёрку, та
+ * пишет менеджеру, и поднимается НАСТОЯЩАЯ сессия: у разработчика она молча
+ * тратит токены, а на раннере без входа падает и пишет об этом в чат — ровно
+ * посреди проверки «каждый клиент получил только своё».
+ */
+function openQuiet(entry: Parameters<typeof openOfficeState>[0]): ReturnType<typeof openOfficeState> {
+  const opened = openOfficeState(entry);
+  opened.state.dryRun = true;
+  return opened;
+}
+
 /** Читать реестр с диска: это и есть то, что переживает перезапуск. */
 function onDisk(): {
   currentId: string;
@@ -127,7 +140,7 @@ async function main(): Promise<void> {
   check('текущий офис определён', currentOffice()?.id === 'o-1');
 
   const first = currentOffice()!;
-  openOfficeState(first);
+  openQuiet(first);
   // Дальше офисы держим за явные ссылки, а не через `office`: офисов в памяти
   // несколько, и «текущий на процесс» больше не отвечает на вопрос, в чей
   // именно офис ушло событие.
@@ -144,7 +157,7 @@ async function main(): Promise<void> {
     openOffice: async (entry) => {
       opens += 1;
       await sleep(openDelayMs);
-      openOfficeState(entry);
+      openQuiet(entry);
     },
   });
   // Подписчик один на все офисы: покинутый офис продолжает слать события,
@@ -429,6 +442,7 @@ async function main(): Promise<void> {
   stateA.addChat('офис', 'это первому');
   leaving.addChat('офис', 'это второму');
   await sleep(20);
+  check('планёрка при входе не подняла настоящую сессию менеджера', stateA.pmLoop === null);
   check('каждый клиент получил только своё',
     a.count('chat', aSplit) === 1 && b.count('chat', bSplit) === 1);
   check('первому пришла именно его реплика',
@@ -613,7 +627,7 @@ async function main(): Promise<void> {
   // Перезапуск сервера: запись берём с диска, а не из памяти, — сервер
   // поднимает офис ровно из неё.
   const fromDisk = onDisk().offices.find((o) => o.id === 'o-1')!;
-  const restarted = openOfficeState(fromDisk).state;
+  const restarted = openQuiet(fromDisk).state;
   check('после перезапуска офис поднялся на паузе', restarted.paused === true);
   check('после перезапуска офис задачу по-прежнему не берёт',
     !officeAssign(restarted, idle.id).ok
@@ -657,7 +671,7 @@ async function main(): Promise<void> {
   // Дальше поднимаем состояние из архивной записи руками — так делать
   // некому, кроме этой проверки, но иначе не увидеть, что заслоны стоят
   // именно в работе, а не только в команде архивации.
-  const dead = openOfficeState(onDisk().offices.find((o) => o.id === 'o-1')!).state;
+  const dead = openQuiet(onDisk().offices.find((o) => o.id === 'o-1')!).state;
   check('состояние из архивной записи знает, что офис в архиве', dead.archived === true);
   check('архив и пауза независимы: архивный офис не «на паузе»', dead.paused === false);
   check('доска архивного офиса цела: задача на месте', dead.tasks.has(idle.id));
@@ -692,7 +706,7 @@ async function main(): Promise<void> {
     'archived' in (onDisk().offices.find((o) => o.id === 'o-1') ?? {}) === false);
   check('в списке офис снова обычный',
     officeViews().find((o) => o.id === 'o-1')?.archived === false);
-  const revived = openOfficeState(onDisk().offices.find((o) => o.id === 'o-1')!).state;
+  const revived = openQuiet(onDisk().offices.find((o) => o.id === 'o-1')!).state;
   check('вернувшийся офис про архив не помнит', revived.archived === false);
   check('вернувшемуся офису снова полагается планёрка', standupDue(revived, tomorrow));
   check('доска пережила архив: задача на месте с тем же названием',
@@ -863,7 +877,7 @@ async function main(): Promise<void> {
   // приложение на английский, и русский офис рядом был бы сюрпризом. Языкам
   // уже заведённых офисов это ничего не меняет — они приезжают с диска.
   const born = createOffice({ name: 'Новый', projectDir: DIR_F, mustExist: true });
-  const bornState = 'office' in born ? openOfficeState(born.office).state : null;
+  const bornState = 'office' in born ? openQuiet(born.office).state : null;
   check('новый офис заводится на языке интерфейса',
     bornState?.lang() === 'en' && bornState?.codeLang() === 'en');
   check('языки уже заведённого офиса от смены интерфейса не поехали',
@@ -970,7 +984,7 @@ async function main(): Promise<void> {
 
   // Офис старше разделения языков: поля codeLanguage у него нет, и язык
   // реализации обязан молча совпасть с языком общения.
-  const legacy = openOfficeState(offices()[0]!).state;
+  const legacy = openQuiet(offices()[0]!).state;
   legacy.updateSettings({ chatLanguage: 'ru' });
   delete legacy.settings.codeLanguage;
   check('без настройки язык реализации равен языку общения',
