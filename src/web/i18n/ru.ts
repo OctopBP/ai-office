@@ -22,6 +22,7 @@ export const ru: Record<keyof typeof en, string> = {
   'toast.settingsNotSaved': 'Настройки не сохранены',
   'toast.layoutNotSaved': 'Расстановка не сохранена',
   'toast.iconNotSaved': 'Иконка офиса не сохранена',
+  'toast.archiveNotDone': 'Офис не убран в архив',
   'toast.sent': 'Отправлено — ответ придёт в чат',
 
   // -------------------------------------------------- список офисов
@@ -301,6 +302,15 @@ export const ru: Record<keyof typeof en, string> = {
   "offices.iconTitle": "Иконка офиса",
   "offices.iconCustomPlaceholder": "Свой символ",
   "offices.iconReset": "Сбросить",
+  "offices.archive": "Убрать в архив",
+  "offices.archiveAction": "Убрать в архив",
+  "offices.archiveConfirm": "Убрать офис «{name}» в архив? Работа по офису остановится: задачи, планёрки и ритуалы проводиться не будут. Данные сохранятся — доска, расходы и переписка на месте, и офис можно вернуть из архива.",
+  "offices.archiveCurrentNote": "Этот офис открыт сейчас — вид переключится на соседний.",
+  "offices.archiveLastHint": "Единственный офис в архив не убрать: уходить из него было бы некуда. Заведите второй офис.",
+  "offices.archiveSection": "Архив · {n}",
+  "offices.archivedMark": "в архиве",
+  "offices.unarchive": "вернуть",
+  "offices.unarchiveHint": "Вернуть офис из архива: он снова появится в списках, работа по нему не начнётся сама",
   "menu.noProject": "без проекта",
   "setup.title": "Новый офис",
   "setup.step.what": "Что строим",
