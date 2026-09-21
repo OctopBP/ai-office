@@ -1,8 +1,13 @@
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from 'react';
 import {
+<<<<<<< HEAD
   activeOffices, reset, setEditingLayout, summarizeOfficeActivity, useStore,
+=======
+  reorderOffice, reset, setEditingLayout, sortedOffices, summarizeOfficeActivity, useStore,
+>>>>>>> main
 } from '../store';
 import type { ModalKind, PanelKind } from '../Overlays';
+import type { OfficeView } from '../../shared/types';
 import { money } from '../money';
 import { t } from '../i18n';
 import { Icon, type IconName } from '../icons';
@@ -11,6 +16,141 @@ import { Hint, Tooltip } from '../Tooltip';
 import { HOTKEY } from '../hotkeys';
 import { officeAvatarColor, officeAvatarInk } from '../officeColor';
 import { OfficeAvatarIcon } from '../OfficeIcon';
+
+/** Сколько пикселей нужно сдвинуть указатель, прежде чем короткий клик по
+ * строке офиса считается началом перетаскивания. Меньше — щелчок мышью с
+ * лёгкой дрожью руки срывался бы в drag; больше — перетаскивание ощущалось бы
+ * вязким. */
+const DRAG_THRESHOLD_PX = 5;
+
+/**
+ * Список офисов в порядке `ids`. Офис, которого нет в `ids` (список успел
+ * измениться, пока прикидка ещё висела — например, завёлся новый офис), не
+ * теряется — он просто уходит в конец в своём прежнем относительном порядке.
+ */
+function reorderByIds(list: OfficeView[], ids: string[]): OfficeView[] {
+  const byId = new Map(list.map((o) => [o.id, o] as const));
+  const ordered = ids.map((id) => byId.get(id)).filter((o): o is OfficeView => !!o);
+  const placed = new Set(ordered.map((o) => o.id));
+  return [...ordered, ...list.filter((o) => !placed.has(o.id))];
+}
+
+/**
+ * Перетаскивание строк офиса в рейле — на pointer events, без библиотек.
+ *
+ * Порядок при отпускании считается местом в списке БЕЗ самого перетаскиваемого
+ * офиса — ровно то, что ждёт команда `reorder_office` на сервере
+ * (см. `reorderOffice` в `offices.ts`), поэтому индекс можно послать как есть.
+ *
+ * Пока сервер не подтвердил перестановку своим событием `offices`, список
+ * держит собственную прикидку (`optimisticOrder`): иначе строка на секунду
+ * прыгала бы обратно и потом снова на новое место. Правда остаётся за
+ * сервером — прикидка снимается, как только придёт новое состояние офисов
+ * (`offices` из стора — не пересчитанный на каждый рендер `list`: у него
+ * новая ссылка при каждом вызове `sortedOffices`, и завязка на него снимала
+ * бы прикидку раньше, чем она успела бы отрисоваться), а если ответа нет
+ * вовсе (отказ сервера не меняет список), снимается запасным таймером.
+ */
+function useOfficeDrag(offices: OfficeView[]) {
+  const list = sortedOffices(offices);
+  const [drag, setDrag] = useState<{ id: string; overIndex: number } | null>(null);
+  const [optimisticOrder, setOptimisticOrder] = useState<string[] | null>(null);
+  const rowRefs = useRef(new Map<string, HTMLButtonElement>());
+  const session = useRef<{ id: string; startX: number; startY: number; moved: boolean } | null>(null);
+  const suppressClickRef = useRef(false);
+
+  useEffect(() => { setOptimisticOrder(null); }, [offices]);
+
+  useEffect(() => {
+    if (!optimisticOrder) return undefined;
+    const timer = window.setTimeout(() => setOptimisticOrder(null), 4000);
+    return () => window.clearTimeout(timer);
+  }, [optimisticOrder]);
+
+  // Место вставки — по вертикальной середине строк: курсор выше середины
+  // строки значит «встать перед ней», иначе — двигаемся ниже. Список берём
+  // свежим из стора (а не замыканием на `list`), чтобы не потерять офис,
+  // заведшийся прямо во время перетаскивания.
+  const overIndexAt = useCallback((clientY: number, dragId: string) => {
+    const compare = sortedOffices(useStore.getState().offices).filter((o) => o.id !== dragId);
+    for (let i = 0; i < compare.length; i++) {
+      const el = rowRefs.current.get(compare[i].id);
+      if (!el) continue;
+      if (clientY < el.getBoundingClientRect().top + el.getBoundingClientRect().height / 2) return i;
+    }
+    return compare.length;
+  }, []);
+
+  const onMove = useCallback((e: PointerEvent) => {
+    const s = session.current;
+    if (!s) return;
+    if (!s.moved) {
+      if (Math.hypot(e.clientX - s.startX, e.clientY - s.startY) < DRAG_THRESHOLD_PX) return;
+      s.moved = true;
+      document.body.classList.add('office-dragging');
+    }
+    e.preventDefault();
+    setDrag({ id: s.id, overIndex: overIndexAt(e.clientY, s.id) });
+  }, [overIndexAt]);
+
+  const onRelease = useCallback((e: PointerEvent | null) => {
+    window.removeEventListener('pointermove', onMove);
+    window.removeEventListener('pointerup', onUp);
+    window.removeEventListener('pointercancel', onCancel);
+    document.body.classList.remove('office-dragging');
+    const s = session.current;
+    session.current = null;
+    setDrag(null);
+    if (!s || !s.moved || !e) return;
+    const idx = overIndexAt(e.clientY, s.id);
+    const ids = sortedOffices(useStore.getState().offices).filter((o) => o.id !== s.id).map((o) => o.id);
+    ids.splice(idx, 0, s.id);
+    setOptimisticOrder(ids);
+    reorderOffice(s.id, idx);
+    // Клик, которым браузер обычно продолжает жест указателя, тут лишний:
+    // строку только что перетащили, а не выбрали. `Rail` снимет флаг сам,
+    // когда этот клик придёт.
+    suppressClickRef.current = true;
+  }, [onMove, overIndexAt]);
+
+  const onUp = useCallback((e: PointerEvent) => onRelease(e), [onRelease]);
+  const onCancel = useCallback(() => onRelease(null), [onRelease]);
+
+  const onRowPointerDown = useCallback((e: ReactPointerEvent<HTMLButtonElement>, id: string) => {
+    if (e.button !== 0) return;
+    session.current = { id, startX: e.clientX, startY: e.clientY, moved: false };
+    window.addEventListener('pointermove', onMove);
+    window.addEventListener('pointerup', onUp);
+    window.addEventListener('pointercancel', onCancel);
+  }, [onMove, onUp, onCancel]);
+
+  const rowRef = useCallback((id: string) => (el: HTMLButtonElement | null) => {
+    if (el) rowRefs.current.set(id, el); else rowRefs.current.delete(id);
+  }, []);
+
+  const consumeSuppressedClick = useCallback(() => {
+    if (!suppressClickRef.current) return false;
+    suppressClickRef.current = false;
+    return true;
+  }, []);
+
+  const dropIndicator = (() => {
+    if (!drag) return null;
+    const compare = list.filter((o) => o.id !== drag.id);
+    if (drag.overIndex < compare.length) return { before: compare[drag.overIndex].id };
+    const last = compare[compare.length - 1];
+    return last ? { after: last.id } : null;
+  })();
+
+  return {
+    renderList: optimisticOrder ? reorderByIds(list, optimisticOrder) : list,
+    dropIndicator,
+    isDragging: (id: string) => drag?.id === id,
+    onRowPointerDown,
+    rowRef,
+    consumeSuppressedClick,
+  };
+}
 
 type WindowKind = 'board' | 'merge' | 'log' | 'money' | 'meetings' | 'life' | 'flows' | 'team' | 'settings';
 const WINDOWS: Array<{ kind: WindowKind; icon: IconName }> = [
@@ -50,9 +190,14 @@ export function Rail({ onPanel, onModal }: {
   const setView = useStore((s) => s.setView);
   const leaveOffice = useStore((s) => s.leaveOffice);
 
+<<<<<<< HEAD
   // Архивные офисы в рейле не показываем: работы по ним нет, а вернуть их
   // можно из модалки офисов (раздел «Архив»).
   const list = activeOffices(offices);
+=======
+  const { renderList, dropIndicator, isDragging, onRowPointerDown, rowRef, consumeSuppressedClick } =
+    useOfficeDrag(offices);
+>>>>>>> main
   // Счётчики те же, что были в HUD: в работе — по задачам, а не по позам агентов.
   const all = Object.values(tasks);
   const working = all.filter((x) => x.status === 'in_progress').length;
@@ -104,7 +249,7 @@ export function Rail({ onPanel, onModal }: {
       <div className="section-title">{t('shell.offices')}</div>
       <div className="rail-offices">
         <div className="rail-office-list">
-        {list.map((o) => {
+        {renderList.map((o) => {
           const activity = summarizeOfficeActivity(o);
           // У текущего офиса подпись своя — сколько в нём людей и сколько
           // занято. Пауза важнее этой арифметики: пока она стоит, «занято 0»
@@ -118,9 +263,25 @@ export function Rail({ onPanel, onModal }: {
           const markHint = activity.paused
             ? t('office.paused.hint')
             : activity.live ? t('office.working.hint') : t('office.idle.hint');
+          // Архивный офис перетащить нечем (T-64/T-65 его не показывают
+          // человеку как рабочий) — строка остаётся кликабельной, но без
+          // ручки перетаскивания и её курсора.
+          const draggable = !o.archived;
+          const cls = [
+            'rail-office',
+            o.current && 'current',
+            draggable && 'draggable',
+            isDragging(o.id) && 'dragging',
+            dropIndicator?.before === o.id && 'drop-before',
+            dropIndicator?.after === o.id && 'drop-after',
+          ].filter(Boolean).join(' ');
           return (
-            <button key={o.id} className={`rail-office${o.current ? ' current' : ''}`}
-              onClick={() => { if (!o.current) enterOffice(o.id); }}
+            <button key={o.id} ref={rowRef(o.id)} className={cls}
+              onPointerDown={draggable ? (e) => onRowPointerDown(e, o.id) : undefined}
+              onClick={() => {
+                if (consumeSuppressedClick()) return;
+                if (!o.current) enterOffice(o.id);
+              }}
               disabled={pending === 'enter'}
               title={collapsed ? `${o.name} · ${status}` : o.projectDir}>
               <span className="rail-office-avatar"

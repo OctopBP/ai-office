@@ -1,7 +1,8 @@
 /**
  * Проверки API офисов: список, создание с валидацией пути, переключение,
- * скрытие из списка, пауза, архив, постоянный порядок списка и то, что
- * события одного офиса не текут в клиента, который смотрит другой.
+ * скрытие из списка, пауза, архив, постоянный порядок списка, глобальный язык
+ * интерфейса и то, что события одного офиса не текут в клиента, который
+ * смотрит другой.
  *
  * Проверка идёт против office-api.ts — того же кода, который вызывает сокет, —
  * но с подставным клиентом (`Sink`) вместо WebSocket: сеть здесь ничего не
@@ -18,7 +19,9 @@ import {
   getOffice, isOpened, officeViews, openedOffices, openOfficeState, subscribeOffices,
   unloadOfficeState,
 } from '../src/server/state';
-import { officeAssign, setPaused } from '../src/server/agents';
+import {
+  languageBrief, officeAssign, pmPrompt, setPaused, workerSystemPrompt,
+} from '../src/server/agents';
 import { MessageQueue } from '../src/server/queue';
 import { dispatch } from '../src/server/plan';
 import { dueRitual, runRitual, standupDue } from '../src/server/rituals';
@@ -27,7 +30,8 @@ import {
   broadcast, greet, handleOfficeCommand, initOfficeApi, sendSnapshot, stateFor, unwatch, watch,
   watching, type Sink,
 } from '../src/server/office-api';
-import { createOffice, currentOffice, loadRegistry, offices } from '../src/server/offices';
+import { createOffice, currentOffice, loadRegistry, offices, uiLanguage } from '../src/server/offices';
+import type { Lang } from '../src/shared/i18n';
 
 // Проверки сверяют тексты офиса дословно и написаны по-русски — значит,
 // и офисы здесь должны быть русскими. Язык нового офиса берётся из
@@ -41,6 +45,8 @@ const DIR_A = resolve(ROOT, 'proj-a');
 const DIR_B = resolve(ROOT, 'proj-b');
 const DIR_C = resolve(ROOT, 'proj-c');
 const DIR_D = resolve(ROOT, 'proj-d');
+const DIR_E = resolve(ROOT, 'proj-e');
+const DIR_F = resolve(ROOT, 'proj-f');
 
 const results: string[] = [];
 const check = (text: string, ok: boolean): void => { results.push(`${text}: ${ok}`); };
@@ -69,9 +75,10 @@ class Fake implements Sink {
 /** Читать реестр с диска: это и есть то, что переживает перезапуск. */
 function onDisk(): {
   currentId: string;
+  uiLanguage?: string;
   offices: Array<{
     id: string; name: string; projectDir: string; stateFile: string;
-    createdAt?: number; hidden?: boolean; paused?: boolean; archived?: boolean;
+    createdAt?: number; order?: number; hidden?: boolean; paused?: boolean; archived?: boolean;
   }>;
 } {
   return JSON.parse(readFileSync(REGISTRY, 'utf8'));
@@ -80,9 +87,13 @@ function onDisk(): {
 /** Порядок видимых офисов — тот самый, который человек видит в рейле. */
 const order = (): string => officeViews().map((o) => o.id).join(',');
 
+/** Ручной порядок, как он лёг на диск: «id:значение», по всем записям реестра. */
+const savedOrder = (): string =>
+  onDisk().offices.map((o) => `${o.id}:${o.order ?? '—'}`).join(',');
+
 async function main(): Promise<void> {
   rmSync(ROOT, { recursive: true, force: true });
-  for (const dir of [DIR_A, DIR_B, DIR_C, DIR_D]) mkdirSync(dir, { recursive: true });
+  for (const dir of [DIR_A, DIR_B, DIR_C, DIR_D, DIR_E, DIR_F]) mkdirSync(dir, { recursive: true });
 
   // 1. Холодный старт с уже лежащего на диске реестра — ровно то, что делает
   //    сервер после перезапуска. Второй офис здесь скрыт: он не должен попасть
@@ -699,6 +710,271 @@ async function main(): Promise<void> {
   check('текущий офис записан', saved.currentId === slowId);
   check('возвращённый офис на диске уже не скрыт',
     saved.offices.find((o) => o.id === madeId)?.hidden === false);
+
+  // 28. Ручной порядок офисов: человек расставляет их сам, перетаскивая строки
+  //     в рейле. Порядок по времени создания при этом никуда не девается — он
+  //     остаётся правилом для всех, кого руками не двигали.
+  //     К этому месту в реестре четыре офиса (один скрыт) и ни у кого нет
+  //     ручного порядка: всё, что было до сих пор, считалось по createdAt.
+  check('до перестановки ручного порядка ни у кого нет',
+    onDisk().offices.every((o) => o.order === undefined));
+  check('без ручного порядка список идёт по времени создания', order() === fixed);
+
+  // Нижний офис уезжает на самый верх — движение, которого прежним правилом
+  // было не добиться никак.
+  const bMark = b.events.length;
+  const aMark = a.events.length;
+  handleOfficeCommand({ c: 'reorder_office', officeId: slowId, index: 0 }, b);
+  const moved = [slowId, 'o-1', madeId].join(',');
+  check('перестановка подняла офис на запрошенное место', order() === moved);
+  check('ручной порядок сильнее времени создания', order() !== fixed);
+  // Порядок уезжает в веб сам, без перезагрузки страницы: и рассылкой списка
+  // всем сокетам, и снапшотом тем, кто смотрит открытый офис.
+  check('новый порядок разослан всем клиентам',
+    b.last('offices', bMark)?.offices.map((o) => o.id).join(',') === moved
+    && a.last('offices', aMark)?.offices.map((o) => o.id).join(',') === moved);
+  check('новый порядок доехал и в снапшоте открытого офиса',
+    b.last('snapshot', bMark)?.offices.map((o) => o.id).join(',') === moved);
+  // Ключ сортировки уезжает в веб целиком: без `order` браузер сортировал бы
+  // тот же список по-своему и получил бы прежний порядок.
+  check('в списке для веба есть само значение ручного порядка',
+    officeViews().every((o) => typeof o.order === 'number'));
+  // Значения нормализованы у ВСЕХ записей, включая скрытую: иначе «поднять на
+  // строку» иногда перебрасывало бы офис через весь список.
+  check('порядок нормализован у всех записей реестра, включая скрытую',
+    savedOrder() === [slowId, 'o-1', 'o-2', madeId].map((id, i) => `${id}:${(i + 1) * 10}`).join(','));
+
+  // Все три выдачи обязаны показывать один и тот же список: реестр, сводка для
+  // UI и снапшот. Разъехавшись, они дали бы рейл и главный экран с разным
+  // порядком строк.
+  const snap = restarted.snapshot();
+  check('реестр, список для UI и снапшот согласны в порядке',
+    offices().map((o) => o.id).join(',') === moved
+    && order() === moved
+    && snap.t === 'snapshot' && snap.offices.map((o) => o.id).join(',') === moved);
+
+  // Перезапуск сервера: реестр читается с диска заново вторым экземпляром
+  // модуля — для него это холодный старт.
+  const restart2 = '../src/server/offices.ts?restart=2';
+  const afterRestart = await import(restart2) as typeof import('../src/server/offices');
+  afterRestart.loadRegistry(DIR_A, STATE_FILE);
+  check('перестановка пережила перезапуск сервера',
+    afterRestart.offices().map((o) => o.id).join(',') === moved);
+
+  // Скрытый офис в расчёте порядка не мешает: в позициях он не участвует, но
+  // и место своё не теряет — вернувшись, встаёт между прежними соседями.
+  const backHidden = createOffice({ name: 'Убранный вернулся', projectDir: DIR_C, mustExist: true });
+  check('скрытый офис вернулся со своим id',
+    'office' in backHidden && backHidden.office.id === 'o-2');
+  check('вернувшийся офис встал между прежними соседями, а не в конец',
+    order() === [slowId, 'o-1', 'o-2', madeId].join(','));
+
+  // Новый офис встаёт в конец: ручного порядка ему не выдают, а офис без него
+  // стоит ниже всех расставленных.
+  const fresh5 = createOffice({ name: 'Пятый', projectDir: DIR_E, mustExist: true });
+  const freshId = 'office' in fresh5 ? fresh5.office.id : '';
+  check('новый офис встал в конец списка',
+    order() === [slowId, 'o-1', 'o-2', madeId, freshId].join(','));
+  check('новому офису ручной порядок не выдавали',
+    onDisk().offices.find((o) => o.id === freshId)?.order === undefined);
+  check('созданный офис не сдвинул расставленные руками',
+    officeViews()[0].id === slowId);
+
+  // Перестановка идемпотентна: «поставить туда, где он и стоит» не двигает
+  // список и не меняет значения порядка. Иначе каждое лишнее событие от
+  // клиента незаметно перенумеровывало бы реестр.
+  const stable = order();
+  handleOfficeCommand({ c: 'reorder_office', officeId: slowId, index: 0 }, b);
+  const onceOrder = savedOrder();
+  handleOfficeCommand({ c: 'reorder_office', officeId: slowId, index: 0 }, b);
+  check('повторная перестановка на то же место список не меняет', order() === stable);
+  check('повторная перестановка не меняет и значений порядка', savedOrder() === onceOrder);
+
+  // Место за концом списка прижимается к концу: перетащить строку ниже
+  // последней — обычное движение мышью.
+  handleOfficeCommand({ c: 'reorder_office', officeId: slowId, index: 99 }, b);
+  check('место за концом списка прижато к концу',
+    order() === ['o-1', 'o-2', madeId, freshId, slowId].join(','));
+
+  // Отказы: офиса нет в списке, место — не число.
+  mark = b.events.length;
+  handleOfficeCommand({ c: 'reorder_office', officeId: 'o-404', index: 0 }, b);
+  check('перестановка неизвестного офиса отклонена',
+    b.last('office.error', mark)?.op === 'reorder');
+  const beforeBad = order();
+  mark = b.events.length;
+  handleOfficeCommand({ c: 'reorder_office', officeId: slowId, index: Number.NaN }, b);
+  check('место не числом отклонено', b.last('office.error', mark)?.op === 'reorder');
+  check('после отказа порядок не изменился', order() === beforeBad);
+
+  // Мусор в поле порядка реестр правят руками: при загрузке он убирается, и
+  // такой офис считается нерасставленным — то есть идёт по createdAt.
+  const dirty = onDisk();
+  dirty.offices.find((o) => o.id === 'o-1')!.order = 'первый' as unknown as number;
+  writeFileSync(REGISTRY, JSON.stringify(dirty), 'utf8');
+  const restart3 = '../src/server/offices.ts?restart=3';
+  const cleaned = await import(restart3) as typeof import('../src/server/offices');
+  cleaned.loadRegistry(DIR_A, STATE_FILE);
+  check('нечисловой порядок из файла убран при загрузке',
+    onDisk().offices.find((o) => o.id === 'o-1')?.order === undefined);
+  check('офис с убранным порядком ушёл к нерасставленным, в хвост по createdAt',
+    cleaned.offices().map((o) => o.id).join(',') === ['o-2', madeId, freshId, slowId, 'o-1'].join(','));
+
+  // 29. Язык интерфейса. Из трёх языков офиса он единственный глобальный: один
+  //     на всё приложение, лежит в реестре рядом со списком и не зависит от
+  //     того, какой офис сейчас открыт. Проверяется ровно то, на чём он соврал
+  //     бы незаметно, — что он общий для всех офисов, что язык общения офиса
+  //     его не утаскивает, что он доезжает до диска и переживает перезапуск и
+  //     что реестру старше разделения языков миграция проставляет нынешнюю
+  //     локаль, а не умолчание.
+  //     Раздел идёт последним: он заводит ещё один офис, а проверки порядка
+  //     выше считают офисы поимённо и лишнего в списке не ждут.
+  check('реестр без языка интерфейса получил его на загрузке',
+    uiLanguage() === 'ru' && onDisk().uiLanguage === 'ru');
+
+  // Смена языка: команда не про офис, и услышать её обязаны все подключённые
+  // клиенты, включая того, кто ни в каком офисе не сидит.
+  const noOffice = new Fake();
+  watch(noOffice);
+  mark = b.events.length;
+  handleOfficeCommand({ c: 'ui_language', lang: 'en' }, b);
+  check('язык интерфейса сменился', uiLanguage() === 'en');
+  check('о смене узнал и клиент без открытого офиса',
+    b.last('ui.language', mark)?.lang === 'en' && noOffice.last('ui.language')?.lang === 'en');
+  check('язык интерфейса лёг в реестр на диск сразу', onDisk().uiLanguage === 'en');
+
+  // Один на все офисы: в снапшоте любого из них он один и тот же и от языка
+  // общения этого офиса не зависит.
+  stateB.updateSettings({ chatLanguage: 'ru' });
+  check('язык общения офиса язык интерфейса не трогает',
+    uiLanguage() === 'en' && stateB.lang() === 'ru');
+  const snapOne = new Fake();
+  const snapTwo = new Fake();
+  sendSnapshot(snapOne, revived);
+  sendSnapshot(snapTwo, stateB);
+  check('в снапшотах разных офисов язык интерфейса один и тот же',
+    snapOne.last('snapshot')?.uiLanguage === 'en' && snapTwo.last('snapshot')?.uiLanguage === 'en');
+  check('язык офиса в снапшот едет отдельно от языка интерфейса',
+    snapTwo.last('snapshot')?.settings.chatLanguage === 'ru');
+  unwatch(snapOne);
+  unwatch(snapTwo);
+
+  // Новый офис заводится на языке интерфейса: владелец только что переключил
+  // приложение на английский, и русский офис рядом был бы сюрпризом. Языкам
+  // уже заведённых офисов это ничего не меняет — они приезжают с диска.
+  const born = createOffice({ name: 'Новый', projectDir: DIR_F, mustExist: true });
+  const bornState = 'office' in born ? openOfficeState(born.office).state : null;
+  check('новый офис заводится на языке интерфейса',
+    bornState?.lang() === 'en' && bornState?.codeLang() === 'en');
+  check('языки уже заведённого офиса от смены интерфейса не поехали',
+    revived.lang() === 'ru' && revived.codeLang() === 'ru');
+
+  // Чужое значение и повтор того же: рассылать нечего, реестр не трогаем.
+  mark = b.events.length;
+  handleOfficeCommand({ c: 'ui_language', lang: 'klingon' as Lang }, b);
+  handleOfficeCommand({ c: 'ui_language', lang: 'en' }, b);
+  check('чужой язык интерфейса не принимается и рассылки не вызывает',
+    uiLanguage() === 'en' && b.count('ui.language', mark) === 0);
+
+  // Подключение: язык интерфейса уходит первым, до снапшота, — на нём клиент
+  // рисует экран загрузки, и мигнуть чужим языком он не должен.
+  const joining = new Fake();
+  watch(joining);
+  await greet(joining, Promise.resolve(null));
+  check('язык интерфейса приходит клиенту первым событием',
+    joining.events[0]?.t === 'ui.language' && joining.last('ui.language')?.lang === 'en');
+  unwatch(joining);
+  unwatch(noOffice);
+
+  // Перезапуск сервера: реестр читается с диска четвёртым экземпляром модуля.
+  // Адрес через переменную — иначе tsc ищет модуль по строке с хвостом.
+  const restart4 = '../src/server/offices.ts?restart=4';
+  const restartUi = await import(restart4) as typeof import('../src/server/offices');
+  restartUi.loadRegistry(DIR_A, STATE_FILE);
+  check('язык интерфейса пережил перезапуск', restartUi.uiLanguage() === 'en');
+
+  // Миграция реестра, заведённого до разделения языков: язык интерфейса берётся
+  // у офиса, с которым работали. Русский офис не должен на перезапуске
+  // заговорить по-английски — и наоборот. Язык запуска здесь 'ru', поэтому
+  // английский в ответе доказывает, что взяли именно локаль офиса.
+  const oldRoot = resolve(ROOT, 'old-ui-lang');
+  const oldState = resolve(oldRoot, 'state.json');
+  const oldRegistry = resolve(oldRoot, 'offices.json');
+  mkdirSync(oldRoot, { recursive: true });
+  writeFileSync(oldState, JSON.stringify({
+    version: 1, projectDir: DIR_A, taskSeq: 0, tasks: [], chat: [], log: [], instances: [],
+    // Так выглядит сохранение до разделения языков: одно поле `language`.
+    settings: { language: 'en' }, savedAt: Date.now(),
+  }), 'utf8');
+  writeFileSync(oldRegistry, JSON.stringify({
+    version: 1,
+    currentId: 'o-1',
+    seq: 1,
+    offices: [{
+      id: 'o-1', name: 'Старый', projectDir: DIR_A, stateFile: oldState, lastOpenedAt: 1,
+    }],
+  }), 'utf8');
+  const firstPath = '../src/server/offices.ts?uilang=1';
+  const migrate1 = await import(firstPath) as typeof import('../src/server/offices');
+  migrate1.loadRegistry(DIR_A, oldState);
+  check('старому реестру язык интерфейса достался от локали офиса',
+    migrate1.uiLanguage() === 'en');
+  const afterMigration = readFileSync(oldRegistry, 'utf8');
+  check('миграция записала язык интерфейса в файл',
+    JSON.parse(afterMigration).uiLanguage === 'en');
+  // Идемпотентность: тот же файл поднимается ещё раз и не меняется ни в
+  // памяти, ни на диске.
+  const secondPath = '../src/server/offices.ts?uilang=2';
+  const migrate2 = await import(secondPath) as typeof import('../src/server/offices');
+  migrate2.loadRegistry(DIR_A, oldState);
+  check('повторный подъём язык интерфейса не переписал',
+    migrate2.uiLanguage() === 'en' && readFileSync(oldRegistry, 'utf8') === afterMigration);
+
+  // 30. Языки в системных промптах. Настройки офиса две, и в промпт они обязаны
+  //     попасть обе и порознь: язык общения — для всего, что читает владелец,
+  //     язык реализации — для кода, комментариев, коммитов и документации.
+  //     Язык интерфейса здесь сейчас английский (его переключили выше), а офис
+  //     говорит по-русски — на этой разнице и видно, что промпт берёт языки
+  //     офиса, а не глобальную настройку приложения.
+  stateB.updateSettings({ chatLanguage: 'ru', codeLanguage: 'en' });
+  const workerLang = languageBrief(stateB, 'worker');
+  const pmLang = languageBrief(stateB, 'pm');
+  check('блок исполнителя называет оба языка врозь',
+    workerLang.includes('Язык общения — Russian') && workerLang.includes('Язык реализации — English'));
+  check('блок менеджера называет оба языка врозь',
+    pmLang.includes('Язык общения — Russian') && pmLang.includes('Язык реализации — English'));
+  check('язык реализации отвечает за код, комментарии, коммиты и документацию',
+    ['код', 'комментарии', 'коммитов', 'документация'].every((word) =>
+      workerLang.slice(workerLang.indexOf('Язык реализации')).includes(word)));
+  check('язык общения отвечает за отчёт и вопросы владельцу',
+    workerLang.slice(workerLang.indexOf('Язык общения'), workerLang.indexOf('Язык реализации'))
+      .includes('finish_task'));
+  check('язык интерфейса в блок про языки не попадает',
+    uiLanguage() === 'en' && workerLang.startsWith('ЯЗЫКИ') && pmLang.startsWith('ЯЗЫКИ'));
+
+  // Блок обязан доехать до самого промпта: забытый вызов ниже по коду — ровно
+  // та поломка, которую эта проверка и ловит.
+  const someRole = stateB.workerRoles()[0];
+  check('блок про языки есть в системном промпте исполнителя',
+    Boolean(someRole) && workerSystemPrompt(someRole!, stateB).includes(workerLang));
+  check('блок про языки есть в системном промпте менеджера',
+    pmPrompt(stateB, false).includes(pmLang));
+
+  // Смена настройки — смена блока: язык реализации переключается отдельно от
+  // языка общения, и промпт обязан поехать за ним.
+  stateB.updateSettings({ codeLanguage: 'ru' });
+  check('смена языка реализации переписала блок',
+    languageBrief(stateB, 'worker').includes('Язык реализации — Russian'));
+  check('язык общения при этом остался прежним',
+    languageBrief(stateB, 'worker').includes('Язык общения — Russian') && stateB.lang() === 'ru');
+
+  // Офис старше разделения языков: поля codeLanguage у него нет, и язык
+  // реализации обязан молча совпасть с языком общения.
+  const legacy = openOfficeState(offices()[0]!).state;
+  legacy.updateSettings({ chatLanguage: 'ru' });
+  delete legacy.settings.codeLanguage;
+  check('без настройки язык реализации равен языку общения',
+    languageBrief(legacy, 'worker').includes('Язык реализации — Russian'));
 
   // Досохраняем все поднятые офисы: у каждого свой файл и свой отложенный
   // таймер записи, и оставленный хвост дописался бы уже после уборки.

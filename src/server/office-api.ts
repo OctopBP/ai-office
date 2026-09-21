@@ -1,6 +1,7 @@
 /**
- * Серверный API офисов: список, создание, переключение и скрытие, плюс
- * привязка подключённого клиента к тому офису, который он смотрит.
+ * Серверный API офисов: список, создание, переключение, перестановка и
+ * скрытие, плюс привязка подключённого клиента к тому офису, который он
+ * смотрит.
  *
  * Живёт отдельно от index.ts по двум причинам. Во-первых, это цельная часть
  * контракта: одни и те же правила («список без скрытых», «отказ уходит
@@ -10,18 +11,19 @@
  */
 import type { ClientCommand, OfficeOp, ServerEvent } from '../shared/types';
 import {
-  getOffice, isOpened, officeViews, runningTasksOf, unloadOfficeState, type OfficeState,
+  getOffice, isOpened, officeViews, openedOffices, runningTasksOf, unloadOfficeState,
+  type OfficeState,
 } from './state';
 import {
-  createOffice, currentOffice, officeById, removeOffice, renameOffice, setCurrent,
-  setOfficeArchived, setOfficeIcon, type OfficeEntry,
+  createOffice, currentOffice, officeById, removeOffice, renameOffice, reorderOffice, setCurrent,
+  setOfficeArchived, setOfficeIcon, setUiLanguage, uiLanguage, type OfficeEntry,
 } from './offices';
 import { stopSupervisor } from './supervisor';
 import { stopHealth } from './health';
 import { noteOfficeViewed } from './rituals';
 import { buildOffice, planProblem, setupCatalog } from './setup';
 import { pickFolder } from './pickfolder';
-import { c, consoleLang } from './i18n';
+import { c, consoleLang, setProcessLang } from './i18n';
 import { OFFICE_SENDER } from '../shared/types';
 
 /**
@@ -176,6 +178,19 @@ export function broadcastOffices(): void {
 }
 
 /**
+ * Язык интерфейса сменили — сказать об этом всем сокетам, как и про реестр
+ * офисов. Фильтровать по подписке нельзя по той же причине: настройка одна на
+ * всё приложение, и вкладка, в которой офис ещё не выбран, обязана
+ * перерисоваться вместе с остальными.
+ */
+export function broadcastUiLanguage(): void {
+  const payload = JSON.stringify({ t: 'ui.language', lang: uiLanguage() } satisfies ServerEvent);
+  for (const ws of clients.keys()) {
+    if (ws.readyState === OPEN) ws.send(payload);
+  }
+}
+
+/**
  * Отдать клиенту открытый офис целиком и записать, что он смотрит именно его.
  * Закрытый сокет в карту не возвращаем: между командой и ответом вкладку
  * успевают закрыть, а карта живёт до конца процесса.
@@ -204,6 +219,11 @@ export function sendSnapshot(ws: Sink, state: OfficeState | null = defaultState(
  * новый, не перезапуская сервер.
  */
 export async function greet(ws: Sink, startup: Promise<string | null>): Promise<void> {
+  // Язык интерфейса — первым, ещё до ожидания старта: он глобальный, читается
+  // из реестра без единого офиса, и на нём клиент рисует экран загрузки. Если
+  // отдать его вместе со снапшотом, вкладка успевала бы мигнуть чужим языком,
+  // а при неудачном старте не узнала бы его вовсе.
+  send(ws, { t: 'ui.language', lang: uiLanguage() });
   const problem = await startup;
   const officeId = watching(ws);
   // Вкладку успели закрыть, пока офис открывался.
@@ -389,6 +409,17 @@ export function handleOfficeCommand(cmd: ClientCommand, ws: Sink): boolean {
     send(ws, { t: 'offices', offices: officeViews() });
     return true;
   }
+  if (cmd.c === 'ui_language') {
+    // Команда не про офис: язык интерфейса один на всё приложение, и менять
+    // его можно с экрана входа, когда открывать ещё нечего. Молчим, если
+    // значение то же самое или чужое, — рассылать нечего.
+    // Терминал у процесса тоже интерфейсный: он говорит с тем же человеком.
+    if (setUiLanguage(cmd.lang)) {
+      setProcessLang(uiLanguage());
+      broadcastUiLanguage();
+    }
+    return true;
+  }
   if (cmd.c === 'switch_office') {
     void switchOffice(cmd.officeId, ws);
     return true;
@@ -432,6 +463,23 @@ export function handleOfficeCommand(cmd: ClientCommand, ws: Sink): boolean {
     const problem = renameOffice(cmd.officeId, cmd.name);
     if (problem) refuse('rename', cmd.officeId, problem, ws);
     else broadcastOffices();
+    return true;
+  }
+  if (cmd.c === 'reorder_office') {
+    const problem = reorderOffice(cmd.officeId, cmd.index);
+    if (problem) {
+      refuse('reorder', cmd.officeId, problem, ws);
+      return true;
+    }
+    // Порядок списка уходит всем сокетам, а не только тому, кто перетаскивал:
+    // рейл с офисами висит в каждой вкладке, и во второй он иначе остался бы
+    // с прежним порядком до перезагрузки страницы.
+    broadcastOffices();
+    // И снапшот тем, кто смотрит открытые офисы: список офисов лежит внутри
+    // снапшота, и без этого доска показывала бы старый порядок до следующего
+    // события. Снапшот идёт КАЖДОМУ поднятому офису: порядок общий на процесс,
+    // а не свойство того офиса, в котором нажали.
+    for (const state of openedOffices()) broadcastSnapshot(state);
     return true;
   }
   if (cmd.c === 'set_office_icon') {
