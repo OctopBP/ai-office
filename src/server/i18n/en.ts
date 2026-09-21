@@ -180,6 +180,7 @@ export const en = {
   'git.integration.pruned': 'The merge directory {dir} was held by a stale git worktree record — pruned (worktree prune).',
   'git.integration.removed': 'A previous office worktree was stuck in the merge directory {dir} — removed (worktree remove --force).',
   'git.integration.cleaned': 'An abandoned office worktree was left in the merge directory {dir} — the directory was deleted.',
+  'git.integration.unnested': 'The merge directory {dir} held stray office copies ({copies}) — removed, the directory is back in use.',
   'git.integration.rebuilt': 'The office working copy {dir} would not move onto the base branch ({error}) — rebuilding it.',
   'git.integration.busyTask': 'The merge directory {dir} holds the working copy of branch {branch} — leaving it alone.',
   'git.integration.fallback': 'The merge directory {dir} is busy and will not free up ({error}) — the merge was assembled in the spare directory {alt}.',

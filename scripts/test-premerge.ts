@@ -191,7 +191,8 @@ async function pipelineGate(check: (name: string, ok: boolean) => void): Promise
  * угодно — хоть посторонний ручной прогон офиса из той же папки. Раньше на этом
  * в основную ветку переставало вливаться вообще всё, а человек читал
  * бессмысленное «база уезжает быстрее, чем задача успевает слиться». Проверяем
- * три исхода: свой застрявший worktree офис снимает сам, чужой обходит запасным
+ * исходы: свой застрявший worktree офис снимает сам, посторонний — снимает и
+ * изнутри каталога, копию живой задачи и чужой репозиторий обходит запасным
  * каталогом, а то, что обойти нельзя, доезжает отдельной стадией с текстом ошибки.
  */
 async function busyIntegration(check: (name: string, ok: boolean) => void): Promise<void> {
@@ -239,6 +240,68 @@ async function busyIntegration(check: (name: string, ok: boolean) => void): Prom
   check('main сдвинулся после снятия застрявшей копии',
     git('rev-parse', 'main') !== headBroken);
   rmSync(broken, { recursive: true, force: true });
+  execFileSync('git', ['worktree', 'prune'], { cwd: dir });
+
+  // 1в. Сам каталог репозиторию не принадлежит, а ВНУТРИ него лежит наша же
+  //     копия от постороннего прогона гейта. Ровно на этом встали все слияния
+  //     офиса в сентябре: `prune` и `remove` по самому каталогу такой завал
+  //     не берут, и убрать его мог только человек руками.
+  git('checkout', '-q', '-b', 'task/T-nested', 'main');
+  writeFileSync(resolve(dir, 'nested.txt'), 'работа поверх завала\n');
+  git('add', '-A');
+  git('commit', '-qm', 'T-nested');
+  git('checkout', '-q', 'main');
+  const nest = resolve(holder, 'nested', '_base');
+  const stray = resolve(nest, 'office-b0cc4212');
+  mkdirSync(nest, { recursive: true });
+  execFileSync('git', ['worktree', 'add', '--detach', stray, 'main'], { cwd: dir });
+  const headNested = git('rev-parse', 'main');
+
+  const afterNested = await preMergeGate({
+    repoDir: dir, branch: 'task/T-nested', base: 'main', integrationDir: nest,
+  });
+  check('посторонняя копия внутри каталога не мешает слиянию',
+    afterNested.ok === true && afterNested.stage === 'merged');
+  check('слияние собрано в основном каталоге, без запасного',
+    afterNested.integrationDir === nest);
+  check('посторонняя копия снята', !existsSync(stray)
+    && !git('worktree', 'list').includes(stray));
+  check('в отчёте названа снятая копия',
+    afterNested.warnings.some((w) => w.includes('office-b0cc4212')));
+  check('main сдвинулся', git('rev-parse', 'main') !== headNested);
+  rmSync(nest, { recursive: true, force: true });
+  execFileSync('git', ['worktree', 'prune'], { cwd: dir });
+
+  // 1г. То же самое, но внутри лежит рабочая копия живой задачи: её не трогаем
+  //     ни при каких обстоятельствах — там несданная работа исполнителя.
+  git('checkout', '-q', '-b', 'task/T-live', 'main');
+  writeFileSync(resolve(dir, 'live.txt'), 'работа живой задачи\n');
+  git('add', '-A');
+  git('commit', '-qm', 'T-live');
+  git('checkout', '-q', 'main');
+  git('checkout', '-q', '-b', 'task/T-other', 'main');
+  writeFileSync(resolve(dir, 'other.txt'), 'работа соседней задачи\n');
+  git('add', '-A');
+  git('commit', '-qm', 'T-other');
+  git('checkout', '-q', 'main');
+  const withLive = resolve(holder, 'live', '_base');
+  const liveCopy = resolve(withLive, 'T-live');
+  mkdirSync(withLive, { recursive: true });
+  execFileSync('git', ['worktree', 'add', liveCopy, 'task/T-live'], { cwd: dir });
+  writeFileSync(resolve(liveCopy, 'черновик.txt'), 'несданная работа\n');
+
+  const asideLive = await preMergeGate({
+    repoDir: dir, branch: 'task/T-other', base: 'main', integrationDir: withLive,
+  });
+  check('копия живой задачи внутри каталога не остановила слияние',
+    asideLive.ok === true && asideLive.stage === 'merged');
+  check('слияние ушло в запасной каталог', asideLive.integrationDir.startsWith(`${withLive}-`));
+  check('копия живой задачи цела',
+    readFileSync(resolve(liveCopy, 'черновик.txt'), 'utf8').includes('несданная'));
+  check('в отчёте сказано, чья копия заняла каталог',
+    asideLive.warnings.some((w) => w.includes('task/T-live')));
+  execFileSync('git', ['worktree', 'remove', '--force', liveCopy], { cwd: dir });
+  rmSync(withLive, { recursive: true, force: true });
   execFileSync('git', ['worktree', 'prune'], { cwd: dir });
 
   // 2. Каталог занят ЧУЖИМ worktree — из другого репозитория. Трогать его
