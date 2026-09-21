@@ -630,6 +630,17 @@ function retryAfterGate(ctx: Ctx, report: PreMergeReport): StepResult {
 }
 
 /**
+ * Конфликт без единого конфликтного файла — не конфликт, а поломка обстановки:
+ * так выглядит отказ самого git («not something we can merge», «no such ref»).
+ * Второй круг тут не поможет — ветку пересобирать не от чего, — и до этой
+ * развилки задача дважды ходила по кругу и вставала с «база уезжает быстрее,
+ * чем задача успевает слиться», пока причиной был чужой каталог слияний.
+ */
+function afterConflict(ctx: Ctx, report: PreMergeReport): StepResult {
+  return report.conflicts.length ? retryAfterGate(ctx, report) : stopOnBrokenGate(ctx, report);
+}
+
+/**
  * Гейт красный не на проверках и не на расхождении веток — значит, сломана
  * обстановка: не поднялась рабочая копия офиса, грязна копия человека, git
  * отказал. Повтор этого не лечит: до T-56/T-58 конвейер уходил на второй круг
@@ -688,7 +699,7 @@ const merge: Executor<Ctx> = {
         // конвейер следующей строкой, а его вывод должен остаться на виду.
         state.patchPr(task.id, { gate: toGateView(gate) });
         if (gate.stage === 'checks') return stopOnRedGate(ctx, gate);
-        if (gate.stage === 'conflict') return retryAfterGate(ctx, gate);
+        if (gate.stage === 'conflict') return afterConflict(ctx, gate);
         // Гейт мог встать и не на проверках — например, не поднялась копия для
         // слияния. Молча идти дальше нельзя: проверенного дерева нет, а ветка
         // уехала бы в origin и влилась бы непроверенной.
@@ -726,7 +737,7 @@ const merge: Executor<Ctx> = {
         state.patchPr(task.id, { gate: toGateView(gate) });
 
         if (gate.stage === 'checks') return stopOnRedGate(ctx, gate);
-        if (gate.stage === 'conflict') return retryAfterGate(ctx, gate);
+        if (gate.stage === 'conflict') return afterConflict(ctx, gate);
         // Гейт был зелёным, а само слияние не прошло — чаще всего базу правда
         // сдвинули, пока мы проверяли: вот ровно тот случай, ради которого
         // заведён второй круг и фраза «база уезжает быстрее».

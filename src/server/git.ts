@@ -328,6 +328,45 @@ async function listWorktrees(repoDir: string): Promise<WorktreeEntry[]> {
   return entries;
 }
 
+/**
+ * Правда ли каталог — копия ИМЕННО этого репозитория, как её видит сам каталог.
+ *
+ * Запись в `git worktree list` — только половина правды: она лежит в
+ * репозитории и переживает и чужой `worktree add` поверх того же каталога, и
+ * пропавший `.git` внутри него. Вторая половина лежит в каталоге, и спросить
+ * надо её: `git -C dir` идёт от каталога, а не от репозитория, и, не найдя
+ * в нём файла `.git`, поднимается ВВЕРХ по дереву — в тот репозиторий, внутри
+ * которого каталог лежит. Копии офиса лежат в `.office/worktrees`, то есть
+ * внутри рабочей копии самого офиса, а один офис может вести несколько
+ * репозиториев из одной папки проекта, — и односторонняя проверка отправляла
+ * `reset --hard`, `clean -fdq` и `merge` в посторонний репозиторий. Человек
+ * видел «merge: task/T-NN - not something we can merge» и «база уезжает
+ * быстрее, чем задача успевает слиться», а ветка задачи была на месте
+ * (bg-polka/polka-smm, сентябрь).
+ *
+ * Спрашиваем каталог дважды: общий git-каталог у него наш, и верхушка рабочей
+ * копии — он сам, а не что-то выше него.
+ */
+/**
+ * Каталог принадлежит ДРУГОМУ репозиторию: у него есть свой `.git`, и он ведёт
+ * не к нам. Такой каталог не наш ни в каком смысле — ни переиспользовать, ни
+ * сносить. Обломок без `.git` (запись о копии есть, а хвоста в каталоге нет)
+ * чужим не считается: это наш же след, и убрать его — наше дело.
+ */
+async function foreignCopy(repoDir: string, dir: string): Promise<boolean> {
+  if (!existsSync(resolve(dir, '.git'))) return false;
+  return !(await ownsCopy(repoDir, dir));
+}
+
+async function ownsCopy(repoDir: string, dir: string): Promise<boolean> {
+  const ours = await git(repoDir, ['rev-parse', '--git-common-dir']);
+  const theirs = await git(dir, ['rev-parse', '--git-common-dir']);
+  if (!ours.ok || !theirs.ok) return false;
+  if (realOf(resolve(repoDir, ours.stdout)) !== realOf(resolve(dir, theirs.stdout))) return false;
+  const top = await git(dir, ['rev-parse', '--show-toplevel']);
+  return top.ok && realOf(top.stdout) === realOf(dir);
+}
+
 /** Запись репозитория о копии в этом каталоге — или null, если каталог ему не принадлежит. */
 async function registeredWorktree(repoDir: string, dir: string): Promise<WorktreeEntry | null> {
   const want = realOf(dir);
@@ -442,6 +481,14 @@ async function raiseCopy(
   // 2. Наш же worktree, застрявший в каталоге. Рабочую копию живой задачи
   //    не трогаем ни при каких обстоятельствах: там чужая несданная работа.
   const mine = await registeredWorktree(repoDir, dir);
+  // Запись наша, а каталог смотрит в другой репозиторий: `remove --force` и
+  // `rm -rf` снесли бы чужую рабочую копию. Такую запись не берёт и `prune` —
+  // каталог-то на месте: говорим о ней вслух и уходим в запасной каталог.
+  // Каталог БЕЗ своего `.git` — другое дело: это наш же обломок, его убираем.
+  if (mine && await foreignCopy(repoDir, dir)) {
+    warnings.push(t(lang, 'git.integration.foreign', { dir }));
+    return { ok: false, error: last.stderr || last.stdout, warnings };
+  }
   if (mine) {
     if (mine.branch?.startsWith(TASK_REF)) {
       const branch = mine.branch.slice('refs/heads/'.length);
@@ -509,6 +556,9 @@ async function integrationWorktree(
   // Каталог уже наш — переиспользуем: чужого в нашей копии не бывает, поэтому
   // приводим её к базовой ветке жёстко. Проверяем принадлежность по списку
   // git, а не по наличию `.git`: жёсткий reset в чужой копии стёр бы чужую работу.
+  // Мало того, что репозиторий помнит про копию, — надо, чтобы и каталог
+  // помнил про репозиторий: `reset --hard` ниже идёт `git -C dir` и ушёл бы
+  // в чужую рабочую копию (см. ownsCopy).
   const registered = await registeredWorktree(repoDir, dir);
   if (registered && !existsSync(dir)) {
     // Запись есть, каталога нет — протухшая запись, а не негодная копия:
@@ -519,6 +569,23 @@ async function integrationWorktree(
     // записью git не совпадал, а на Linux и в обычном проекте — совпадал.
     await git(repoDir, ['worktree', 'prune']);
     warnings.push(t(lang, 'git.integration.pruned', { dir }));
+  } else if (registered && !(await ownsCopy(repoDir, dir))) {
+    // Запись наша, каталог — нет. Чужой не трогаем вовсе: разберётся raiseCopy
+    // и уйдёт в запасной. А вот свой же обломок (файла `.git` в каталоге не
+    // осталось) убираем здесь: `prune` его не возьмёт, пока каталог на месте.
+    if (!(await foreignCopy(repoDir, dir))) {
+      const left = await dropNestedCopies(repoDir, dir);
+      if (left.busy.length) {
+        warnings.push(t(lang, 'git.integration.busyTask', { dir, branch: left.busy.join(', ') }));
+      } else {
+        warnings.push(t(lang, 'git.integration.rebuilt', {
+          dir, error: t(lang, 'git.integration.noMarker'),
+        }));
+        await git(repoDir, ['worktree', 'remove', '--force', dir]);
+        await rm(dir, { recursive: true, force: true });
+        await git(repoDir, ['worktree', 'prune']);
+      }
+    }
   } else if (registered) {
     // Посторонняя копия может завестись и ВНУТРИ нашей: `git clean` её не
     // берёт, и она осталась бы лежать под ногами у проверок слитого дерева.
@@ -697,6 +764,16 @@ export async function assembleMerge(
   : AssembledMerge => ({
     conflicts: [], worktree, temporary: copy.temporary, sha: null, baseSha, warnings, ...rest,
   });
+
+  // Ветку задачи мы уже видели в репозитории — значит, видеть её обязана и
+  // поднятая копия. Не видит — копия смотрит в другой репозиторий, и `merge`
+  // ответил бы «not something we can merge», а конвейер прочёл бы это как
+  // расхождение с базой и погнал задачу на второй круг.
+  if (!(await revision(worktree, branch))) {
+    return assembled({
+      kind: 'no-copy', message: t(lang, 'git.foreignCopy', { dir: worktree, branch }),
+    });
+  }
 
   const merge = await git(worktree, ['merge', '--no-ff', '--no-edit', branch], signed(sign));
   if (!merge.ok) {

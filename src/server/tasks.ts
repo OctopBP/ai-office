@@ -161,7 +161,16 @@ export function dropTask(state: OfficeState, taskId: string, reason = ''): TaskR
   if (task.merged || task.status === 'done') {
     return { ok: false, message: state.say('task.drop.done', { task: task.id }) };
   }
-  if (task.status === 'review') {
+  // Пока конвейер по задаче едет, снимать её и правда поздно: она вот-вот
+  // сольётся или вернётся на доработку. А вот вставший конвейер (`stuck`) как
+  // раз и ждёт ответа человека — и «слить или отправить на доработку» этот
+  // список не исчерпывает: ветку, которую обогнала другая задача, сливать
+  // некуда и дорабатывать незачем. Без третьего ответа такие зомби оставались
+  // на доске навсегда (T-22 и T-25 в bg-polka, T-3 в live-table): кнопка
+  // отказывала, менеджеру инструмент отвечал тем же отказом, и закрыть их не
+  // мог никто. Ветку и рабочую копию снятие не трогает — работа остаётся
+  // на месте, если за ней вернутся.
+  if (task.status === 'review' && state.prOf(task.id)?.stage !== 'stuck') {
     return { ok: false, message: state.say('task.drop.review', { task: task.id }) };
   }
 

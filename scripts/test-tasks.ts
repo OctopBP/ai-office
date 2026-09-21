@@ -120,6 +120,24 @@ async function main(): Promise<void> {
   check('дальний зависимый снят тоже', office.tasks.get(last.id)?.status === 'cancelled');
   check('в ответе перечислены снятые следом', chain.message.includes(next.id));
 
+  // Задача на ревью: пока конвейер едет — снимать поздно, а вставший конвейер
+  // ждёт ответа человека, и «снять» — такой же ответ, как «слить» или «на
+  // доработку». Без него ветка, которую обогнала соседняя задача, оставалась
+  // на доске навсегда: и кнопка, и инструмент менеджера отвечали отказом.
+  const onReview = add({ title: 'Сдана и идёт по ревью' });
+  office.updateTask(onReview.id, { status: 'review' });
+  office.startPr({
+    taskId: onReview.id, title: onReview.title,
+    branch: `task/${onReview.id}`, base: 'main', repoDir: '/tmp/нет',
+  });
+  check('пока конвейер едет, снимать нельзя', !dropTask(office, onReview.id).ok);
+  office.patchPr(onReview.id, { stage: 'stuck' });
+  const stuckDrop = dropTask(office, onReview.id, 'дубль: работа уже на main');
+  check('вставшую на ревью задачу снять можно', stuckDrop.ok);
+  check('снятая с ревью закрыта', office.tasks.get(onReview.id)?.status === 'cancelled');
+  check('исход снятой с ревью — «снята»',
+    office.tasks.get(onReview.id)?.outcome?.kind === 'cancelled');
+
   // Снятие на ходу: живой сессии в проверке нет, и задача закрывается сразу.
   const onTheFly = add({ title: 'Уже в работе' });
   office.updateTask(onTheFly.id, { status: 'in_progress', assigneeId: 'backend#1' });

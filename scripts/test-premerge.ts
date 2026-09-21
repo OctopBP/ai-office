@@ -364,6 +364,39 @@ async function busyIntegration(check: (name: string, ok: boolean) => void): Prom
     readFileSync(resolve(busy, 'чужое.txt'), 'utf8').includes('чужая несохранённая'));
   check('чужой worktree остался на месте', oth('worktree', 'list').includes(busy));
 
+  // 2-бис. То же, но запись о каталоге осталась и у НАС: копию поднимал наш
+  //    репозиторий, каталог перехватил соседний, а `git worktree list` у нас
+  //    по-прежнему считает её своей — `prune` такую запись не берёт, пока
+  //    каталог на месте. Односторонняя проверка отправляла в чужой репозиторий
+  //    `reset --hard`, `clean -fdq` и `merge`; ветки задачи там нет, git отвечал
+  //    «not something we can merge», и конвейер объявлял, что «база уезжает
+  //    быстрее, чем задача успевает слиться» (bg-polka/polka-smm, сентябрь).
+  git('checkout', '-q', '-b', 'task/T-hijack', 'main');
+  writeFileSync(resolve(dir, 'hijack.txt'), 'работа мимо перехваченного каталога\n');
+  git('add', '-A');
+  git('commit', '-qm', 'T-hijack');
+  git('checkout', '-q', 'main');
+  const hijacked = resolve(holder, 'hijacked', '_base');
+  git('worktree', 'add', '--detach', hijacked, 'main');
+  rmSync(hijacked, { recursive: true, force: true });
+  oth('worktree', 'add', '--detach', hijacked, 'main');
+  writeFileSync(resolve(hijacked, 'чужое.txt'), 'чужая несохранённая работа\n');
+  const headHijack = git('rev-parse', 'main');
+
+  const hijack = await preMergeGate({
+    repoDir: dir, branch: 'task/T-hijack', base: 'main', integrationDir: hijacked,
+  });
+  check('перехваченный каталог не выдал себя за конфликт',
+    hijack.stage !== 'conflict' && !hijack.message.includes('not something we can merge'));
+  check('перехваченный каталог не остановил слияние',
+    hijack.ok === true && hijack.stage === 'merged');
+  check('слияние ушло в запасной каталог рядом', hijack.integrationDir.startsWith(`${hijacked}-`));
+  check('main сдвинулся мимо перехваченного каталога',
+    git('rev-parse', 'main') !== headHijack);
+  check('чужая работа в перехваченном каталоге цела',
+    readFileSync(resolve(hijacked, 'чужое.txt'), 'utf8').includes('чужая несохранённая'));
+  check('чужой worktree остался на месте', oth('worktree', 'list').includes(hijacked));
+
   // 3. Каталог поднять нельзя вовсе: родительская папка закрыта на запись.
   //    Такая беда обязана доехать своей стадией и текстом ошибки, а не
   //    притвориться расхождением с базой.
