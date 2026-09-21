@@ -666,6 +666,10 @@ const merge: Executor<Ctx> = {
         state.patchPr(task.id, { gate: toGateView(gate) });
         if (gate.stage === 'checks') return stopOnRedGate(ctx, gate);
         if (gate.stage === 'conflict') return retryAfterGate(ctx, gate);
+        // Гейт мог встать и не на проверках — например, не поднялась копия для
+        // слияния. Молча идти дальше нельзя: проверенного дерева нет, а ветка
+        // уехала бы в origin и влилась бы непроверенной.
+        if (!gate.ok) return fail(gate.message);
         overlaps = gate.overlaps;
 
         const push = await pushBranch(repo, branch, gh.token, state.lang());
@@ -694,7 +698,8 @@ const merge: Executor<Ctx> = {
         // её читают в логе сервера, а не в интерфейсе.
         state.addLog(null, gate.ok ? 'system' : 'error',
           `premerge ${branch} → ${base}: ${gate.stage},`
-          + ` checks ${gate.checks.length}, gate ${gate.gateMs} ms`);
+          + ` checks ${gate.checks.length}, gate ${gate.gateMs} ms,`
+          + ` copy ${gate.integrationDir}`);
         state.patchPr(task.id, { gate: toGateView(gate) });
 
         if (gate.stage === 'checks') return stopOnRedGate(ctx, gate);
