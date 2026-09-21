@@ -11,7 +11,7 @@ import type {
   OfficeSetupPlan, SetupCatalog, SetupStep, OfficeHealth, EnvReport, RuleScopeView,
 } from '../shared/types';
 import {
-  emptyLimits, emptyUsage, isOfficeSender,
+  compareOffices, emptyLimits, emptyUsage, isOfficeSender,
   MAX_OFFICE_WORKERS, MAX_TASK_MAX_TURNS, MIN_OFFICE_WORKERS, MIN_TASK_MAX_TURNS,
 } from '../shared/types';
 import { asLang, type Lang } from '../shared/i18n';
@@ -1299,13 +1299,20 @@ export function formatLastOpened(ts: number): string {
 }
 
 /**
- * Порядок списка офисов — по имени, стабильный и не зависящий от того, какой
- * офис сейчас активен. `lastOpenedAt` для сортировки не годится: он меняется
- * при каждом входе в офис, из-за чего строка прыгала бы наверх при выборе.
- * Активный офис выделяется только визуально (класс `current` в `Rail.tsx`).
+ * Порядок списка офисов — по времени создания, самый старый сверху
+ * (`compareOffices` из общего контракта). Один и тот же на всех трёх экранах:
+ * рейл, модалка офисов и главный экран зовут именно эту функцию.
+ *
+ * Ни выбор офиса, ни его активность, ни события обновления списка порядка не
+ * меняют. `lastOpenedAt` для сортировки не годится — он едет при каждом входе,
+ * и строка прыгала бы наверх под рукой. Имя тоже не годится, хотя раньше
+ * сортировали по нему: его переименовывают, а `localeCompare` считает по
+ * локали ОТКРЫТОГО офиса (язык — настройка офиса), и вход в соседний проект
+ * с другим языком мог переставить список. Активный офис выделяется только
+ * видом (класс `current` в `Rail.tsx`).
  */
 export function sortedOffices(offices: OfficeView[]): OfficeView[] {
-  return [...offices].sort((a, b) => a.name.localeCompare(b.name, locale()));
+  return [...offices].sort(compareOffices);
 }
 
 /** Сводка активности офиса для переключателя — уже посчитанные тексты и флаги, а не сырые числа. */

@@ -1,7 +1,7 @@
 /**
  * Проверки API офисов: список, создание с валидацией пути, переключение,
- * скрытие из списка и то, что события одного офиса не текут в клиента,
- * который смотрит другой.
+ * скрытие из списка, постоянный порядок списка и то, что события одного офиса
+ * не текут в клиента, который смотрит другой.
  *
  * Проверка идёт против office-api.ts — того же кода, который вызывает сокет, —
  * но с подставным клиентом (`Sink`) вместо WebSocket: сеть здесь ничего не
@@ -63,9 +63,18 @@ class Fake implements Sink {
 }
 
 /** Читать реестр с диска: это и есть то, что переживает перезапуск. */
-function onDisk(): { currentId: string; offices: Array<{ id: string; name: string; projectDir: string; stateFile: string; hidden?: boolean }> } {
+function onDisk(): {
+  currentId: string;
+  offices: Array<{
+    id: string; name: string; projectDir: string; stateFile: string;
+    createdAt?: number; hidden?: boolean;
+  }>;
+} {
   return JSON.parse(readFileSync(REGISTRY, 'utf8'));
 }
+
+/** Порядок видимых офисов — тот самый, который человек видит в рейле. */
+const order = (): string => officeViews().map((o) => o.id).join(',');
 
 async function main(): Promise<void> {
   rmSync(ROOT, { recursive: true, force: true });
@@ -74,20 +83,29 @@ async function main(): Promise<void> {
   // 1. Холодный старт с уже лежащего на диске реестра — ровно то, что делает
   //    сервер после перезапуска. Второй офис здесь скрыт: он не должен попасть
   //    в список, но обязан остаться в файле вместе со своим состоянием.
+  //    Времени создания у записей нет намеренно: так выглядит реестр, заведённый
+  //    до того, как порядок списка стали считать по нему, — и миграция обязана
+  //    проставить его, никого не переставив.
   writeFileSync(REGISTRY, JSON.stringify({
     version: 1,
     currentId: 'o-1',
     seq: 2,
     offices: [
-      { id: 'o-1', name: 'Первый', projectDir: DIR_A, stateFile: STATE_FILE, createdAt: 1, lastOpenedAt: 111 },
+      { id: 'o-1', name: 'Первый', projectDir: DIR_A, stateFile: STATE_FILE, lastOpenedAt: 111 },
       {
         id: 'o-2', name: 'Убранный', projectDir: DIR_C, hidden: true,
-        stateFile: resolve(ROOT, 'offices', 'o-2.json'), createdAt: 2, lastOpenedAt: 222,
+        stateFile: resolve(ROOT, 'offices', 'o-2.json'), lastOpenedAt: 222,
       },
     ],
   }), 'utf8');
 
   loadRegistry(DIR_A, STATE_FILE);
+  const migrated = onDisk().offices;
+  check('записям без времени создания его проставила миграция',
+    migrated.every((o) => typeof o.createdAt === 'number' && Number.isFinite(o.createdAt)));
+  check('миграция никого не переставила: порядок остался тот же, что в файле',
+    migrated.map((o) => o.id).join(',') === 'o-1,o-2'
+    && migrated[0].createdAt! < migrated[1].createdAt!);
   check('реестр поднялся с диска: офисы пережили перезапуск', offices().length === 1);
   check('скрытый офис в списке не показывается',
     offices().every((o) => o.projectDir !== DIR_C));
@@ -125,6 +143,9 @@ async function main(): Promise<void> {
     && view[0].projectDir === DIR_A);
   check('в списке есть время последней активности',
     view[0].lastOpenedAt === 111 && typeof view[0].activity?.lastEventAt !== 'undefined');
+  // Время создания уезжает в веб: по нему рейл, модалка и главный экран
+  // строят один и тот же порядок, не выдумывая свой.
+  check('в списке есть время создания офиса', view[0].createdAt > 0);
   stateA.createTask({ title: 'в работе', description: '', criteria: [], roleId: 'backend' });
   const inWork = [...stateA.tasks.values()][0];
   stateA.updateTask(inWork.id, { status: 'in_progress' });
@@ -455,7 +476,61 @@ async function main(): Promise<void> {
   leaving.pmQueue = null;
   leaving.pmLoop = null;
 
-  // 22. Стартовый офис не открылся. Клиенту в этом случае обязана уйти
+  // 22. Порядок списка офисов зафиксирован раз и навсегда: по времени
+  //     создания, самый старый сверху. Его не двигают ни выбор офиса, ни
+  //     скрытие с возвратом, ни перезапуск сервера. Список к этому месту
+  //     из трёх видимых офисов — есть и верх, и низ, и середина.
+  const fixed = order();
+  check('список идёт по времени создания офисов',
+    fixed === ['o-1', madeId, slowId].join(','));
+  const byName = [...officeViews()]
+    .sort((x, y) => x.name.localeCompare(y.name, 'ru')).map((o) => o.id).join(',');
+  // Без этой проверки следующие ничего не доказывали бы: совпади порядок по
+  // имени с порядком по времени, сортировка по имени прошла бы незамеченной.
+  check('порядок по времени и порядок по имени в этом прогоне разные', byName !== fixed);
+
+  // Выбор офиса — и верхнего, и нижнего — только подсвечивает строку.
+  handleOfficeCommand({ c: 'switch_office', officeId: 'o-1' }, b);
+  await sleep(50);
+  check('переключение на верхний офис порядок не меняет', order() === fixed);
+  const bottomId = fixed.split(',').pop()!;
+  mark = b.events.length;
+  handleOfficeCommand({ c: 'switch_office', officeId: bottomId }, b);
+  await sleep(50);
+  check('переключение на нижний офис порядок не меняет', order() === fixed);
+  check('текущий офис не всплыл наверх, а остался на своём месте',
+    officeViews().findIndex((o) => o.current) === officeViews().length - 1);
+  // Клиент видит ровно тот же порядок — и в рассылке списка, и в снапшоте:
+  // именно из них веб строит рейл, модалку офисов и главный экран.
+  check('в разосланном списке офисов порядок тот же',
+    b.last('offices', mark)?.offices.map((o) => o.id).join(',') === fixed);
+  check('в снапшоте после переключения порядок тот же',
+    b.last('snapshot', mark)?.offices.map((o) => o.id).join(',') === fixed);
+
+  // Скрытие и возврат: офис уходит из середины списка и встаёт обратно туда же,
+  // а не в конец, — время создания скрытие не трогает. Возвращаем напрямую
+  // реестром, а не командой: create_office заодно входит в офис, а здесь
+  // проверяется порядок, а не переключение.
+  mark = b.events.length;
+  handleOfficeCommand({ c: 'remove_office', officeId: madeId }, b);
+  check('скрытый офис ушёл из списка', order() === ['o-1', slowId].join(','));
+  const back2 = createOffice({ name: 'Второй снова', projectDir: DIR_B, mustExist: true });
+  check('офис вернулся со своим id', 'office' in back2 && back2.office.id === madeId);
+  check('возвращённый офис встал на своё прежнее место, а не в конец',
+    order() === fixed);
+
+  // Перезапуск сервера: реестр читается с диска заново. Поднимаем модуль
+  // офисов вторым экземпляром (у импорта с другим адресом своё состояние) —
+  // для реестра это и есть холодный старт, только без поднятия всего сервера.
+  const fresh = '../src/server/offices.ts?restart=1';
+  const again = await import(fresh) as typeof import('../src/server/offices');
+  again.loadRegistry(DIR_A, STATE_FILE);
+  check('после перезапуска порядок тот же',
+    again.offices().map((o) => o.id).join(',') === fixed);
+  check('в файле реестра офисы лежат в том же порядке, в каком показываются',
+    onDisk().offices.filter((o) => !o.hidden).map((o) => o.id).join(',') === fixed);
+
+  // 23. Стартовый офис не открылся. Клиенту в этом случае обязана уйти
   //     причина по-русски, а не тишина: снапшота не будет никогда, и без
   //     ответа экран входа остаётся в загрузке до таймаута соединения.
   //     Проверяем ту же функцию, которой отвечает на подключение сервер.
@@ -481,7 +556,7 @@ async function main(): Promise<void> {
   check('при удачном старте отказа не приходит', warm.count('office.error') === 0);
   unwatch(warm);
 
-  // 23. Отключившийся клиент из рассылки уходит: ни событий, ни подписки,
+  // 24. Отключившийся клиент из рассылки уходит: ни событий, ни подписки,
   //     ни офиса, к которому его команды могли бы отнести.
   const closed = new Fake();
   watch(closed);
@@ -493,7 +568,7 @@ async function main(): Promise<void> {
   await sleep(20);
   check('отключённый клиент событий не получает', closed.count('chat') === 0);
 
-  // 24. Всё сделанное записано на диск: следующий запуск увидит то же самое.
+  // 25. Всё сделанное записано на диск: следующий запуск увидит то же самое.
   const saved = onDisk();
   check('реестр на диске знает все четыре офиса, включая скрытый',
     saved.offices.length === 4 && saved.offices.filter((o) => o.hidden).length === 1);

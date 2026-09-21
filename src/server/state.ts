@@ -3905,6 +3905,10 @@ export const toProposalView = (p: Proposal): ProposalView => ({
  * Из памяти берём сводку по КАЖДОМУ поднятому офису, а не только по текущему:
  * покинутый офис продолжает работать, и его файл отстаёт на дебаунс записи —
  * счётчик «в работе» в списке иначе врал бы про идущие там задачи.
+ *
+ * Порядок здесь и есть порядок списка на экране: `offices()` отдаёт офисы по
+ * времени создания, и тот же `createdAt` уезжает в веб — чтобы рейл, модалка
+ * и главный экран сортировали одинаково, а не каждый по-своему.
  */
 export const officeViews = (): OfficeView[] => {
   const current = currentOffice();
@@ -3913,7 +3917,7 @@ export const officeViews = (): OfficeView[] => {
     const icon = officeIconView(o);
     return {
       id: o.id, name: o.name, projectDir: o.projectDir, noProject: o.noProject === true,
-      current: o.id === current?.id, lastOpenedAt: o.lastOpenedAt,
+      current: o.id === current?.id, createdAt: o.createdAt, lastOpenedAt: o.lastOpenedAt,
       // Поля нет, если иконку не задавали: «нет иконки» и «иконка пустая» для
       // веба разные вещи — во втором случае он рисовал бы пустоту. Картинка
       // уезжает адресом, а не путём к файлу: с диска браузер её не откроет,
