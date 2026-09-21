@@ -116,6 +116,26 @@
 /* Простаивает — метка на месте, но приглушена: пустота на её месте читалась бы
    как «данных нет», а это другое. */
 .rail-office-dot.idle { background: var(--ink-4); }
+
+/* Перетаскивание строки офиса (Rail.tsx, useOfficeDrag): ручка — вся строка,
+   архивный офис (T-64) её не получает вовсе. */
+.rail-office.draggable { cursor: grab; touch-action: none; }
+.rail-office.dragging {
+  cursor: grabbing; background: var(--film-2); border-color: var(--hairline);
+  box-shadow: var(--shadow-float); z-index: 1;
+}
+/* Место вставки — тонкая линия у верхнего или нижнего края соседней строки,
+   а не сдвиг всего списка: рейл и так тесный, а прыгающие строки во время
+   перетаскивания читались бы хуже одной чёткой отметки. */
+.rail-office.drop-before::before, .rail-office.drop-after::after {
+  content: ''; position: absolute; left: var(--space-2); right: var(--space-2);
+  height: 2px; border-radius: 1px; background: var(--accent);
+}
+.rail-office.drop-before::before { top: -3px; }
+.rail-office.drop-after::after { bottom: -3px; }
+/* Пока строку тащат, курсор «хватания» держится и вне неё самой — иначе он
+   на долю секунды переключался бы на обычный при быстром движении мыши. */
+body.office-dragging, body.office-dragging * { cursor: grabbing !important; user-select: none; }
 .rail-new { min-height: 40px; }
 
 .rail-sep { height: 1px; background: var(--hairline); margin-bottom: var(--space-5); flex: none; }
