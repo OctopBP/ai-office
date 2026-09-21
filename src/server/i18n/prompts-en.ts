@@ -725,6 +725,10 @@ Reply to the user in {lang}, and keep it short.`,
   'assign.noTask': 'there is no task {task} on the board',
   'assign.notQueued': '{task} is no longer in the queue',
   'assign.paused': 'the office is paused',
+  // Одна фраза на все отказы по архиву: и задачам, и ритуалам, и инструменту
+  // менеджера. Архив — не временная заминка, поэтому «попробуйте ещё раз»
+  // здесь нет: пока офис в архиве, ничего не изменится.
+  'archive.stopped': 'The office is in the archive — no work runs there: no new tasks start and the rituals do not run. The board keeps everything; work resumes only when the office is brought back from the archive.',
   'assign.budget': 'the office budget is spent',
   'assign.allBusy': 'every worker in role {role} is busy',
 
