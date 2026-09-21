@@ -20,7 +20,7 @@
 .panel.fixed .panel-body { flex: 1; }
 .panel.fixed .panel-body > .life { flex: 1; }
 /* Вкладки в шапке — сегмент рядом с заголовком, как в окне «Команда». */
-.panel header .panel-tabs { box-shadow: none; background: var(--film); margin-left: var(--space-2); }
+.panel header .panel-tabs { background: var(--film); margin-left: var(--space-2); }
 .panel header .panel-tabs button { padding: 0 14px; }
 
 .panel header {

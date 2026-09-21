@@ -223,6 +223,10 @@ body.office-dragging, body.office-dragging * { cursor: grabbing !important; user
 .shell-top > * { pointer-events: auto; }
 .shell-top-right { display: flex; justify-content: flex-end; gap: var(--space-3); }
 .shell-top .sq.float { border: none; }
+/* Верхний ряд лежит прямо над сценой — здесь, в отличие от плоских экранов,
+   тень оставляем: переключатель видов и главное действие. */
+.shell-top .seg, .shell-top button.primary { box-shadow: var(--shadow-float); }
+.shell-top .seg { border: none; }
 
 /* ---------- композер ---------- */
 .shell-composer {
