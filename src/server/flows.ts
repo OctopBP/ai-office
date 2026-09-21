@@ -106,7 +106,8 @@ export function setFlowAgents(next: FlowAgents): void {
  * человек или менеджер, а не новая фича.
  */
 export function boardIdle(state: OfficeState, now = Date.now()): boolean {
-  if (state.settings.ritualsEnabled === false || state.paused) return false;
+  // Архивный офис не придумывает себе работу: инициатива — тоже работа.
+  if (state.settings.ritualsEnabled === false || state.paused || state.archived) return false;
   if (state.initiativeMode() === 'off') return false;
   if (state.ritualRunning || !quiet(state, now)) return false;
   for (const t of state.tasks.values()) {

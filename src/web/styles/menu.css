@@ -37,10 +37,10 @@
   display: flex; flex-direction: column; align-items: stretch; justify-content: flex-start;
   gap: var(--space-3); min-height: 196px; padding: var(--space-4);
   text-align: left; white-space: normal; font-weight: 400; color: var(--ink-2);
-  transition: box-shadow .15s, transform .15s, border-color .15s;
+  transition: transform .15s, border-color .15s;
 }
-.office-card.float:hover:not(:disabled) {
-  background: var(--surface); transform: translateY(-2px); border-color: var(--accent);
+.office-card.card:hover:not(:disabled) {
+  transform: translateY(-2px); border-color: var(--accent);
 }
 .office-card.current { border-color: var(--accent); }
 

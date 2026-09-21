@@ -15,7 +15,12 @@
  * - есть вставшие пулл-реквесты, которые могли встать по проходящей причине —
  *   перезапускает их с растущей паузой, а не долбит подряд;
  * - попытки кончились или причина не механическая — один раз зовёт менеджера
- *   и больше не дёргает никого.
+ *   и больше не дёргает никого;
+ * - но и отступившись, офис не забывает: попытки считаются от времени, а беды
+ *   уходят не по времени, а вместе с обстановкой. Поэтому у вставшего PR
+ *   запоминается, что вокруг него было (куда смотрели ветки, на каком запуске
+ *   сервера), и как только это меняется — офис пробует снова сам. Иначе
+ *   задача, причина которой давно ушла, стоит до чьего-нибудь клика.
  *
  * Тем же проходом офис смотрит и на саму доску — потому что встать может не
  * только слияние:
@@ -33,9 +38,11 @@
  * Пользователя надзор не зовёт никогда: его дело — сказать, что нужно сделать,
  * а не следить, дошло ли.
  */
-import type { PullRequestView } from '../shared/types';
+import { randomUUID } from 'node:crypto';
+import type { PrSituation, PullRequestView } from '../shared/types';
 import { OFFICE_SENDER } from '../shared/types';
-import { criticalEnvFail, type OfficeState, type Task } from './state';
+import { criticalEnvFail, taskRepo, type OfficeState, type Task } from './state';
+import { liveBase, revision } from './git';
 import { refreshEnvChecks } from './envcheck';
 import { isPipelineRunning, pipelineProblem, runPipeline, tellPm } from './review';
 import { officeAssign, resumeTask, retryTask, slotProblem } from './agents';
@@ -59,6 +66,15 @@ const revertChecks = new Map<string, number>();
  * (кто-то был занят), а если не прошла с третьего раза — дело не во времени.
  */
 const BACKOFF_MS = [2 * 60_000, 10 * 60_000, 30 * 60_000];
+
+/**
+ * Метка этого запуска сервера. Входит в отпечаток обстановки: перезапуск почти
+ * всегда означает, что код офиса другой — а значит, и беда, которую старый код
+ * не умел разобрать, могла исчезнуть. Ровно так было с завалом в каталоге
+ * слияний: починка уже лежала в main, сервер её уже крутил, а пять задач всё
+ * равно ждали, пока владелец нажмёт «повторить».
+ */
+const BOOT = randomUUID().slice(0, 8);
 
 /**
  * Сколько задач заводим в конвейер за один проход. Копившиеся неделями ветки
@@ -122,6 +138,13 @@ function unfinished(state: OfficeState): Task[] {
 
 /** Один проход надзора. Вынесен отдельно ради тестов: их не заставишь ждать минуту. */
 export async function superviseOffice(state: OfficeState): Promise<void> {
+  // Архив — раньше всего остального, даже раньше здоровья и проверок среды:
+  // по офису в архиве не идёт никакая работа, а тихий тик надзора — это работа.
+  // Пауза так не может: с паузы возвращаются, и сводка здоровья к возвращению
+  // должна быть свежей. Из архива возвращаются командой, и она поднимет офис
+  // заново — считать за него нечего.
+  if (state.archived) return;
+
   // Сводка здоровья — до всех проверок и до паузы: часть её записей появляется
   // не от события, а просто от времени (ветке стукнули сутки), а офис на паузе
   // или с выключенным конвейером стоит тем более и знать об этом нужно.
@@ -145,12 +168,19 @@ export async function superviseOffice(state: OfficeState): Promise<void> {
 
   // 1. Вставшие пулл-реквесты, которым пора попробовать снова.
   for (const pr of limited ? [] : [...state.prs.values()]) {
-    if (pr.stage !== 'stuck' || pr.needsDecision) continue;
+    if (pr.stage !== 'stuck') continue;
     const task = state.tasks.get(pr.taskId);
     if (!task || task.merged) continue;
 
+    // Тот, на ком офис уже отступился: возвращаемся к нему, только если вокруг
+    // что-то изменилось. Не изменилось — ждём дальше, не жгя ни попытки, ни денег.
+    if (pr.needsDecision) {
+      await revive(state, task, pr);
+      continue;
+    }
+
     if (pr.retries >= BACKOFF_MS.length) {
-      giveUp(state, task, pr);
+      await giveUp(state, task, pr);
       continue;
     }
     if (pr.nextTryAt && now < pr.nextTryAt) continue;
@@ -377,10 +407,72 @@ async function watchBoard(state: OfficeState, now: number): Promise<void> {
  * Попытки кончились. Дальше не гадаем и не крутим круги: один раз говорим
  * менеджеру, что именно не поехало, и перестаём трогать этот пулл-реквест.
  */
-function giveUp(state: OfficeState, task: Task, pr: PullRequestView): void {
+/**
+ * Что вокруг задачи прямо сейчас. Две ссылки git и метка запуска — этого
+ * хватает, чтобы отличить «ничего не изменилось» от «мир другой»: беда
+ * механического слияния живёт ровно в них. Ссылку берём живую (`liveBase`):
+ * записанной базы могло уже не стать.
+ */
+async function situationOf(state: OfficeState, task: Task): Promise<PrSituation> {
+  const repo = taskRepo(task, state);
+  const base = task.baseBranch ? await liveBase(repo, task.baseBranch) : null;
+  return {
+    base: (base ? await revision(repo, base) : null) ?? '',
+    branch: (task.branch ? await revision(repo, task.branch) : null) ?? '',
+    boot: BOOT,
+  };
+}
+
+/** Что изменилось с тех пор, как офис отступился. Пустая строка — ничего. */
+function changedSince(state: OfficeState, was: PrSituation, now: PrSituation): string {
+  const what: string[] = [];
+  if (was.base !== now.base) what.push(state.say('sup.change.base'));
+  if (was.branch !== now.branch) what.push(state.say('sup.change.branch'));
+  if (was.boot !== now.boot) what.push(state.say('sup.change.boot'));
+  return what.join(', ');
+}
+
+/**
+ * Вернуться к задаче, на которой офис отступился, — если обстановка изменилась.
+ *
+ * Отступается надзор по счётчику попыток, то есть по времени. Но беды уходят
+ * не по времени: базу подвинули, автор дослал коммит, офис перезапустили с
+ * починкой. Пока вокруг всё то же самое, повторять действительно бессмысленно;
+ * как только изменилось — пробуем снова и не ждём, пока кто-то нажмёт кнопку.
+ *
+ * Отпечатка нет — значит, конвейер встал не по счётчику, а с просьбой решить
+ * (спор с ревьюером, кончившийся бюджет, красные проверки слитого дерева).
+ * Такое сменой обстановки не отменяется: это к менеджеру, и его уже позвали.
+ */
+async function revive(state: OfficeState, task: Task, pr: PullRequestView): Promise<void> {
+  // Сохранения старше этого поля: отпечатка нет, но по исчерпанному счётчику
+  // видно, что отступился именно надзор. Что изменилось с тех пор, знать
+  // неоткуда — и один заход дешевле, чем задача, стоящая до конца времён.
+  const legacy = !pr.situation && pr.retries >= BACKOFF_MS.length;
+  const what = pr.situation
+    ? changedSince(state, pr.situation, await situationOf(state, task))
+    : (legacy ? state.say('sup.change.unknown') : '');
+  if (!what) return;
+
+  state.patchPr(task.id, {
+    needsDecision: false,
+    // Счётчик обнуляем: это не продолжение прежних попыток, а новая обстановка.
+    retries: 0,
+    nextTryAt: null,
+    situation: null,
+    note: state.say('sup.reviveNote', { what }),
+  });
+  state.addLog(null, 'system', state.say('sup.reviveLog', { task: task.id, what }));
+  void runPipeline(state, task.id);
+}
+
+async function giveUp(state: OfficeState, task: Task, pr: PullRequestView): Promise<void> {
   state.patchPr(task.id, {
     needsDecision: true,
     nextTryAt: null,
+    // Запоминаем обстановку: по ней надзор потом поймёт, что мир изменился
+    // и пробовать снова уже не бессмысленно.
+    situation: await situationOf(state, task),
     note: state.say('sup.giveUpNote', { note: pr.note, n: pr.retries }),
   });
   state.addChat(OFFICE_SENDER,
@@ -396,6 +488,8 @@ function giveUp(state: OfficeState, task: Task, pr: PullRequestView): void {
  */
 export function startSupervisor(state: OfficeState): void {
   stopSupervisor(state.officeId);
+  // Архивному офису сторож не нужен вовсе: таймер только жёг бы тики впустую.
+  if (state.archived) return;
   const tick = () => {
     void superviseOffice(state).catch((err) => {
       state.addLog(null, 'error', state.say('sup.crashed', { error: (err as Error).message }));

@@ -1,13 +1,16 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import {
-  answerQuestion, archiveFact, confirmFact, decideProposal, dismissQuestion, runRitual, useStore,
+  addRule, answerQuestion, archiveFact, confirmFact, decideProposal, dismissQuestion, dropRule,
+  editRule, listRules, requestTeamRole, runRitual, useStore,
 } from './store';
-import type { FactStatus, HealthEntry, OwnerQuestion, ProposalView, RitualId } from '../shared/types';
+import type {
+  FactStatus, HealthEntry, OwnerQuestion, ProposalView, RitualId, RuleScopeView, RuleView,
+} from '../shared/types';
 import { RITUAL_IDS, isOfficeSender } from '../shared/types';
 import { locale, t } from './i18n';
 import { Icon } from './icons';
 
-type Tab = 'questions' | 'proposals' | 'journal' | 'rituals' | 'health';
+type Tab = 'questions' | 'proposals' | 'rules' | 'journal' | 'rituals' | 'health';
 
 const when = (at: number | null | undefined): string =>
   (at ? new Date(at).toLocaleString(locale(), { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }) : '');
@@ -49,7 +52,7 @@ export function LifePanel() {
   return (
     <div className="life">
       <div className="threads">
-        {(['questions', 'journal', 'rituals', 'health'] as Tab[]).map((k) => (
+        {(['questions', 'rules', 'journal', 'rituals', 'health'] as Tab[]).map((k) => (
           <button key={k} className={`mini${tab === k ? ' on' : ''}`} onClick={() => setTab(k)}>
             {t(`life.tab.${k}`)}{k === 'questions' && open ? ` · ${open}` : ''}
           </button>
@@ -57,6 +60,7 @@ export function LifePanel() {
       </div>
       {tab === 'questions' && <Questions />}
       {tab === 'proposals' && <Proposals />}
+      {tab === 'rules' && <Rules />}
       {tab === 'journal' && <Journal />}
       {tab === 'rituals' && <Rituals />}
       {tab === 'health' && <Health />}
@@ -190,6 +194,127 @@ const scopeLabel = (scope: string): string => {
   if (scope === 'office') return t('life.journal.scope.office');
   return scope.replace(/^role:/, '');
 };
+
+/**
+ * Правила офиса (docs/design/rules/spec.md) — единственное место, где видно
+ * сразу все круги: весь офис, направления (репозитории) и роли.
+ *
+ * Список приходит с сервера целиком на каждую правку и своей копии здесь нет:
+ * правила лежат файлами, номера пунктов после удаления съезжают, и угаданный
+ * локально список разошёлся бы с тем, что доедет до агентов.
+ */
+function Rules() {
+  const scopes = useStore((s) => s.rules);
+  // Спрашиваем при открытии вкладки, а не в снимке офиса: файлы читаются с
+  // диска, и делать это на каждое подключение ради панели, которую открывают
+  // раз в неделю, незачем.
+  useEffect(() => { listRules(); }, []);
+  if (!scopes) return <p className="empty">{t('life.rules.loading')}</p>;
+  return (
+    <div className="life-list">
+      {scopes.map((scope) => <RuleScope key={scope.id} scope={scope} />)}
+      <p className="muted small">{t('life.rules.hint')}</p>
+    </div>
+  );
+}
+
+function RuleScope({ scope }: { scope: RuleScopeView }) {
+  const [draft, setDraft] = useState('');
+  const [adding, setAdding] = useState(false);
+  const who = scope.roles.map((r) => r.title).join(', ');
+  const submit = () => {
+    const text = draft.trim();
+    if (!text) return;
+    addRule(scope.id, text);
+    setDraft('');
+    setAdding(false);
+  };
+  return (
+    <div className={`life-row rules-scope ${scope.kind}`}>
+      <div className="life-row-head">
+        <span className={`chip ${scope.kind}`}>{t(`life.rules.kind.${scope.kind}`)}</span>
+        <b>{scope.label}</b>
+        <span className="muted small">
+          {who ? t('life.rules.who', { who }) : t('life.rules.nobody')}
+        </span>
+        {scope.path && <span className="mono dim small">{scope.path}/RULES.md</span>}
+      </div>
+
+      {scope.rules.length === 0 && <div className="muted small">{t('life.rules.empty')}</div>}
+      {scope.rules.map((rule) => <RuleRow key={rule.id} rule={rule} editable={scope.editable} />)}
+
+      {scope.editable ? (
+        <div className="life-actions">
+          {adding ? (
+            <>
+              <input
+                autoFocus value={draft} placeholder={t('life.rules.placeholder')}
+                onChange={(e) => setDraft(e.target.value)}
+                onKeyDown={(e) => { if (e.key === 'Enter') submit(); if (e.key === 'Escape') setAdding(false); }}
+              />
+              <button className="allow" onClick={submit}>{t('life.rules.save')}</button>
+              <button className="mini" onClick={() => { setAdding(false); setDraft(''); }}>{t('life.rules.cancel')}</button>
+            </>
+          ) : (
+            <button className="mini" onClick={() => setAdding(true)}>{t('life.rules.add')}</button>
+          )}
+        </div>
+      ) : (
+        // Правила роли — часть её брифа, и правятся там же. Второй редактор
+        // того же текста разошёлся бы с первым.
+        <div className="life-actions">
+          <span className="muted small">{t('life.rules.roleOwned')}</span>
+          <button className="mini" onClick={() => requestTeamRole(scope.roles[0]?.id ?? '')}>
+            {t('life.rules.openRole')}
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function RuleRow({ rule, editable }: { rule: RuleView; editable: boolean }) {
+  const [text, setText] = useState(rule.text);
+  const [editing, setEditing] = useState(false);
+  // Снятие правила спрашивается прямо на кнопке: модальное окно ради одной
+  // строки — перебор, а снять правило случайным кликом неприятно.
+  const [confirm, setConfirm] = useState(false);
+  const save = () => {
+    const clean = text.trim();
+    if (!clean || clean === rule.text) { setEditing(false); setText(rule.text); return; }
+    editRule(rule.id, clean);
+    setEditing(false);
+  };
+  if (editing) {
+    return (
+      <div className="rule-row editing">
+        <input
+          autoFocus value={text} onChange={(e) => setText(e.target.value)}
+          onKeyDown={(e) => { if (e.key === 'Enter') save(); if (e.key === 'Escape') { setEditing(false); setText(rule.text); } }}
+        />
+        <button className="allow" onClick={save}>{t('life.rules.save')}</button>
+        <button className="mini" onClick={() => { setEditing(false); setText(rule.text); }}>{t('life.rules.cancel')}</button>
+      </div>
+    );
+  }
+  return (
+    <div className="rule-row">
+      <span className="life-text">{rule.text}</span>
+      {editable && (
+        <span className="rule-row-actions">
+          <button className="mini" onClick={() => setEditing(true)}>{t('life.rules.edit')}</button>
+          <button
+            className="mini"
+            onClick={() => (confirm ? dropRule(rule.id) : setConfirm(true))}
+            onBlur={() => setConfirm(false)}
+          >
+            {t(confirm ? 'life.rules.dropConfirm' : 'life.rules.drop')}
+          </button>
+        </span>
+      )}
+    </div>
+  );
+}
 
 function Journal() {
   const facts = useStore((s) => s.facts);

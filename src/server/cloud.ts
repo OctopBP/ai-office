@@ -15,6 +15,7 @@
  *   режим разрешений роли раскладывается в permission_policy инструментов,
  *   и «спросить» приходит в ту же модалку, что и локально.
  */
+import { createHash } from 'node:crypto';
 import Anthropic from '@anthropic-ai/sdk';
 import { criteriaProgress, type Instance, type OfficeState, type Task } from './state';
 import type { PermissionMode } from '../shared/types';
@@ -197,7 +198,12 @@ async function ensureAgent(
   // В ключе именно эффективный режим: у двух сотрудников одной роли он может
   // отличаться, и агент с чужими политиками инструментов им не подойдёт.
   // Язык там же: от него зависят описания инструментов агента.
-  const key = `${role.id}:${role.model}:${mode}:${lang}:${systemPrompt.length}:${systemPrompt.slice(0, 64)}`;
+  //
+  // Промпт — отпечатком целиком, а не длиной с началом строки: смена языка
+  // реализации правит блок про языки в середине, а длина и первые 64 символа
+  // при этом не меняются, и офис молча переиспользовал бы старого агента.
+  const digest = createHash('sha1').update(systemPrompt).digest('hex');
+  const key = `${role.id}:${role.model}:${mode}:${lang}:${digest}`;
   const known = agentIds.get(key);
   if (known) return known;
 

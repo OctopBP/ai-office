@@ -201,15 +201,19 @@ export async function mergeQueue(taskIds: string[], state: OfficeState): Promise
       if (checks.result) step.typecheck = checks.result;
       state.addChat(OFFICE_SENDER,
         state.say('merge.stepOutcome', { task: task.id, message: outcome.message }));
-      state.addLog(null, outcome.ok ? 'system' : 'error', `merge ${branch}: ${outcome.kind}`);
+      state.addLog(null, outcome.ok ? 'system' : 'error',
+        `merge ${branch}: ${outcome.kind}, copy ${outcome.worktree ?? integrationDir(state)}`);
+      // Обходы по дороге (занятый каталог интеграции, снятые хвосты worktree)
+      // слияние не отменяют, но в ленте им место: иначе следа не остаётся вовсе.
+      for (const warning of outcome.warnings) {
+        state.addLog(null, 'system', warning);
+        state.addChat(OFFICE_SENDER, `⚠️ ${warning}`);
+      }
       // Рабочая копия человека могла отстать: его незакоммиченные правки — не
       // повод останавливать очередь, но сказать об этом нужно.
       if (outcome.checkout.state === 'lagging') {
         state.addChat(OFFICE_SENDER, outcome.checkout.message);
       }
-      // То же и с копией офиса: если её каталог пришлось отбирать у чужого
-      // содержимого, это слышно вслух, а не только в логе сервера.
-      for (const warning of outcome.warnings) state.addChat(OFFICE_SENDER, warning);
 
       if (outcome.kind === 'conflict') {
         finishStep(state, runState, step, 'conflict',

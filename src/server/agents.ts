@@ -41,6 +41,7 @@ import { cancelTask, closeIfDone, recordOutcome } from './outcomes';
 import { deleteTask, dropTask, editTask } from './tasks';
 import { limitBlock, resetClock } from './limits';
 import { journalBrief } from './journal';
+import { addRule, dropRule, editRule, ruleScopes, rulesBrief, rulesText } from './rules';
 import { noteCompaction } from './health';
 import { answerFromChat, askOwner } from './questions';
 import {
@@ -228,7 +229,26 @@ async function repoReady(state: OfficeState, dir: string): Promise<boolean> {
  * ему вместо своих достаются офисные.
  */
 function projectBrief(state: OfficeState, roleId: string | null = null): string {
-  return officeBrief(state) + journalBrief(state, roleId);
+  return officeBrief(state) + rulesBrief(state, roleId) + journalBrief(state, roleId);
+}
+
+/**
+ * Языки офиса словами — явный блок в системный промпт.
+ *
+ * Языков два, и они независимы: язык ОБЩЕНИЯ (`state.lang()`) — всё, что
+ * читает владелец, язык РЕАЛИЗАЦИИ (`state.codeLang()`) — код, комментарии,
+ * коммиты и документация. Блок отдельный, а не строчка в хвосте брифа:
+ * «пиши по-русски» без разделения заставляло модель выбирать одно на всё,
+ * и комментарии уезжали на язык переписки.
+ *
+ * Языка интерфейса здесь нет намеренно: он глобальный, живёт в реестре офисов
+ * (`uiLanguage`) и к тому, на чём агент пишет, отношения не имеет.
+ */
+export function languageBrief(state: OfficeState, kind: 'pm' | 'worker'): string {
+  return state.say(kind === 'pm' ? 'prompt.lang.pm' : 'prompt.lang.worker', {
+    chat: LANG_NAME_EN[state.lang()],
+    code: LANG_NAME_EN[state.codeLang()],
+  });
 }
 
 /** Бриф проекта без журнала: та часть, которая от сессии к сессии не меняется. */
@@ -260,7 +280,13 @@ function officeBrief(state: OfficeState): string {
  * Проверять — по плитке «% ввода из кеша» на доске расходов.
  */
 function systemBlocks(state: OfficeState, roleId: string | null, head: string): string[] {
-  const statics = [head, officeBrief(state)].filter((block) => block.trim());
+  // Правила — в статику рядом с брифом: они меняются раз в неделю, и платить
+  // за них заново в каждой короткой сессии (реплика, вопрос коллеге) не за что.
+  // Языки — туда же и по той же причине: настройка офиса, а не свойство сессии.
+  const statics = [
+    head, languageBrief(state, roleId === null ? 'pm' : 'worker'),
+    officeBrief(state), rulesBrief(state, roleId),
+  ].filter((block) => block.trim());
   const journal = journalBrief(state, roleId);
   // Без журнала маркер не ставим: пустой хвост за ним — блок ни о чём.
   return journal ? [...statics, SYSTEM_PROMPT_DYNAMIC_BOUNDARY, journal] : statics;
@@ -321,6 +347,10 @@ function toolBrief(name: string, input: Record<string, unknown>, lang: Lang): st
         if (short === 'finish_task') return t(lang, 'bubble.finishTask');
         if (short === 'list_team') return t(lang, 'bubble.listTeam');
         if (short === 'get_board') return t(lang, 'bubble.getBoard');
+        if (short === 'list_rules') return t(lang, 'bubble.listRules');
+        if (short === 'add_rule') return say('bubble.addRule', clip(input.text, 40));
+        if (short === 'edit_rule') return say('bubble.editRule', input.ruleId);
+        if (short === 'drop_rule') return say('bubble.dropRule', input.ruleId);
         return short;
       }
       return name;
@@ -624,8 +654,11 @@ function boardSummary(state: OfficeState): string {
  * константа: язык у каждого офиса свой, и один и тот же процесс держит
  * русский офис и английский одновременно.
  */
-const pmPrompt = (state: OfficeState, fresh: boolean): string =>
-  state.say('prompt.pm.system', { lang: LANG_NAME_EN[state.lang()] })
+export const pmPrompt = (state: OfficeState, fresh: boolean): string =>
+  state.say('prompt.pm.system')
+  // Языки — сразу за основным промптом: на них написано всё остальное, что
+  // менеджер сочиняет, и ниже они бы утонули между направлениями и передачей дел.
+  + `\n\n${languageBrief(state, 'pm')}`
   + state.say('prompt.pm.life')
   + state.say('prompt.pm.directions', { directions: directionsText(state) || state.say('prompt.pm.noDirections') })
   // Передача дел — только новой сессии, и в промпт, а не первым сообщением:
@@ -857,11 +890,11 @@ const teamTools = (state: OfficeState) => createSdkMcpServer({
         instanceId: z.string().default('').describe(state.say('tool.assignTask.instanceId')),
       },
       async (args) => {
-        if (state.paused) {
+        if (state.paused || state.archived) {
           return {
             content: [{
               type: 'text',
-              text: state.say('tool.assignTask.paused'),
+              text: state.say(state.archived ? 'archive.stopped' : 'tool.assignTask.paused'),
             }],
             isError: true,
           };
@@ -1160,6 +1193,65 @@ const teamTools = (state: OfficeState) => createSdkMcpServer({
       async (args) => {
         const asked = askOwner(state, 'pm#1', null, args.question, args.assumption, args.options);
         return { content: [{ type: 'text', text: asked.text }], isError: !asked.ok };
+      },
+    ),
+
+    tool(
+      'list_rules',
+      state.say('tool.listRules.desc'),
+      {},
+      async () => ({ content: [{ type: 'text', text: rulesText(state) }] }),
+      { annotations: { readOnlyHint: true } },
+    ),
+
+    // Правила менеджер применяет сразу, без согласия владельца, — но громко:
+    // каждая правка идёт записью в ленту и видна в панели правил. Принцип
+    // «офис не меняет поведение исполнителей молча» (selfchange.ts) требует,
+    // чтобы владелец знал, а не чтобы он кликал; предложение с кликом
+    // остаётся там, где правило рождается без него, — на рефлексии.
+    tool(
+      'add_rule',
+      state.say('tool.addRule.desc'),
+      {
+        scopeId: z.string().describe(state.say('tool.addRule.scope')),
+        text: z.string().describe(state.say('tool.addRule.text')),
+      },
+      async (args) => {
+        const out = addRule(state, args.scopeId, args.text);
+        if (!out.ok) return { content: [{ type: 'text', text: out.error }], isError: true };
+        const scope = ruleScopes(state).find((s) => s.id === out.rule.scopeId);
+        return { content: [{ type: 'text', text: state.say('tool.addRule.ok', {
+          id: out.rule.id, scope: scope?.label ?? out.rule.scopeId,
+        }) }] };
+      },
+    ),
+
+    tool(
+      'edit_rule',
+      state.say('tool.editRule.desc'),
+      {
+        ruleId: z.string().describe(state.say('tool.editRule.id')),
+        text: z.string().describe(state.say('tool.editRule.text')),
+      },
+      async (args) => {
+        const out = editRule(state, args.ruleId, args.text);
+        if (!out.ok) return { content: [{ type: 'text', text: out.error }], isError: true };
+        return { content: [{ type: 'text', text: state.say('tool.editRule.ok', {
+          id: out.rule.id, text: out.rule.text,
+        }) }] };
+      },
+    ),
+
+    tool(
+      'drop_rule',
+      state.say('tool.dropRule.desc'),
+      { ruleId: z.string().describe(state.say('tool.dropRule.id')) },
+      async (args) => {
+        const out = dropRule(state, args.ruleId);
+        if (!out.ok) return { content: [{ type: 'text', text: out.error }], isError: true };
+        return { content: [{ type: 'text', text: state.say('tool.dropRule.ok', {
+          id: out.rule.id, text: out.rule.text,
+        }) }] };
       },
     ),
 
@@ -1670,6 +1762,10 @@ export async function holdMeeting(
   }
   if (meetingOffice.paused) {
     meetingOffice.addChat(OFFICE_SENDER, meetingOffice.say('meeting.paused'), 'meeting');
+    return none;
+  }
+  if (meetingOffice.archived) {
+    meetingOffice.addChat(OFFICE_SENDER, meetingOffice.say('archive.stopped'), 'meeting');
     return none;
   }
   if (meetingOffice.budgetExhausted()) {
@@ -2248,6 +2344,12 @@ function startWorker(
     role.brief,
     '',
     taskOffice.say('prompt.worker.tail'),
+    '',
+    // Языки — рядом с порядком работы, а не в хвосте: OFFICE.md и правила
+    // офиса могут нести своё «комментарии по-русски», и блок про языки сам
+    // говорит, что при расхождении сильнее настройка.
+    languageBrief(taskOffice, 'worker'),
+    '',
     taskOffice.say('prompt.worker.life'),
   ].join('\n') + projectBrief(taskOffice, role.id);
 
@@ -2669,6 +2771,7 @@ export async function retryTask(
   // здесь означало бы отменить чужое решение молча.
   if (task.status === 'cancelled') return no('restart.cancelled', { task: taskId });
   if (state.paused) return no('restart.paused', { task: taskId });
+  if (state.archived) return no('archive.stopped');
   const cloudBlocked = state.settings.engine === 'cloud' ? cloudProblem(state) : null;
   if (cloudBlocked) return no('restart.cloudBroken', { problem: cloudBlocked });
   if (state.budgetExhausted()) return no('restart.budget');
@@ -2750,6 +2853,10 @@ export function assignDirect(state: OfficeState, taskId: string, instanceId: str
     state.addChat(OFFICE_SENDER, state.say('start.paused', { task: taskId }));
     return;
   }
+  if (state.archived) {
+    state.addChat(OFFICE_SENDER, state.say('archive.stopped'));
+    return;
+  }
   const cloudBlocked = state.settings.engine === 'cloud' ? cloudProblem(state) : null;
   if (cloudBlocked) {
     state.addChat(OFFICE_SENDER, state.say('start.cloudBroken', { problem: cloudBlocked }));
@@ -2814,6 +2921,7 @@ export function resumeTask(state: OfficeState, taskId: string): { ok: boolean; m
     };
   }
   if (state.paused) return { ok: false, message: state.say('restart.paused', { task: taskId }) };
+  if (state.archived) return { ok: false, message: state.say('archive.stopped') };
   if (state.budgetExhausted()) return { ok: false, message: state.say('restart.budget') };
   // Задача стоит по лимиту, а теперь ещё и окружение мёртвое: продолжать
   // сессию так же бессмысленно, как начинать новую. Пометку ставим, статус
@@ -2853,6 +2961,7 @@ export function officeAssign(state: OfficeState, taskId: string): { ok: boolean;
     return { ok: false, message: state.say('assign.notQueued', { task: taskId }) };
   }
   if (state.paused) return { ok: false, message: state.say('assign.paused') };
+  if (state.archived) return { ok: false, message: state.say('archive.stopped') };
   if (state.budgetExhausted()) return { ok: false, message: state.say('assign.budget') };
   const cloudBlocked = state.settings.engine === 'cloud' ? cloudProblem(state) : null;
   if (cloudBlocked) return { ok: false, message: cloudBlocked };
@@ -3128,10 +3237,12 @@ async function runAgentSession(
 }
 
 /** Системный промпт исполнителя — один и тот же и для задачи, и для доработки. */
-function workerSystemPrompt(role: Role, state: OfficeState): string {
+export function workerSystemPrompt(role: Role, state: OfficeState): string {
   return [
     state.say('prompt.worker.system', { role: role.title }),
     role.brief,
+    '',
+    languageBrief(state, 'worker'),
   ].join('\n') + projectBrief(state, role.id);
 }
 

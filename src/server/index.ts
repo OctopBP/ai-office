@@ -22,6 +22,7 @@ import { resetProjectWorkflow, saveProjectWorkflow } from './workflows';
 import { startSupervisor } from './supervisor';
 import { answerQuestion, dismissQuestion } from './questions';
 import { archiveFact, confirmFact, pageFacts } from './journal';
+import { addRule, dropRule, editRule, ruleScopes } from './rules';
 import { officeHealth, watchHealth } from './health';
 import { runRitual } from './rituals';
 import { decideProposal } from './initiatives';
@@ -29,7 +30,8 @@ import { applyProposal } from './selfchange';
 import { RITUAL_IDS } from '../shared/types';
 import { githubToken, setGithubToken } from './cloud';
 import {
-  clearInitFlag, currentOffice, ensureOffice, loadRegistry, officeById, setCurrent,
+  clearInitFlag, currentOffice, ensureOffice, loadRegistry, officeById, offices, setCurrent,
+  uiLanguage,
   type OfficeEntry,
 } from './offices';
 import { handleOfficeIcon } from './officeicon';
@@ -98,9 +100,11 @@ async function openOffice(entry: OfficeEntry): Promise<void> {
   // Состояние берётся из реестра: у каждого офиса оно своё и живёт до конца
   // процесса — вернувшийся офис продолжается, а не читается заново.
   const { state, restored, reused } = openOfficeState(entry);
-  // Язык процесса берёт открытый офис: терминал у процесса один, и говорить
-  // он должен на языке того офиса, с которым сейчас работают.
-  setProcessLang(state.lang());
+  // Язык процесса — язык ИНТЕРФЕЙСА: терминал читает тот же человек, что и
+  // подписи на экране, и язык у них один на всё приложение. Раньше его брал
+  // открытый офис, но язык офиса теперь про общение с командой, а не про то,
+  // на каком языке владельцу показывают приложение.
+  setProcessLang(uiLanguage());
   const board = state.say('boot.board', {
     tasks: state.tasks.size, messages: state.chat.length,
   });
@@ -127,6 +131,9 @@ async function openOffice(entry: OfficeEntry): Promise<void> {
 }
 
 loadRegistry(DEFAULT_DIR);
+// Язык интерфейса лежит в реестре и известен раньше любого офиса — на нём
+// говорит терминал ещё до того, как хоть один офис откроется.
+setProcessLang(uiLanguage());
 // Переменная окружения по-прежнему решает, с каким проектом открыться:
 // на неё опираются тесты и запуск «в другой папке» одной командой.
 if (process.env.OFFICE_PROJECT_DIR) {
@@ -135,8 +142,20 @@ if (process.env.OFFICE_PROJECT_DIR) {
   });
   setCurrent(wanted.id);
 }
-const opened = currentOffice();
-if (!opened) throw new Error(c('boot.noOffice'));
+const wanted = currentOffice();
+if (!wanted) throw new Error(c('boot.noOffice'));
+
+/**
+ * С каким офисом поднимаемся. Обычно это тот, который человек открывал
+ * последним, но архивный офис не поднимается ни при каких условиях: по нему
+ * не идёт никакая работа, а открытие — это уже работа. Тогда берём самый
+ * старый неархивный; нет и такого (все офисы в архиве) — не поднимаем ничего.
+ *
+ * Отметку «открыт сейчас» при подмене переставляем в реестре: иначе следующий
+ * запуск снова пришёл бы к архивному офису и снова искал замену.
+ */
+const opened = wanted.archived ? offices().find((o) => !o.archived) ?? null : wanted;
+if (opened && opened.id !== wanted.id) setCurrent(opened.id);
 
 /**
  * Причина, по которой стартовый офис не открылся, — или null, если открылся.
@@ -145,15 +164,21 @@ if (!opened) throw new Error(c('boot.noOffice'));
  * экраном. Держим и переменной, и значением обещания: обещание нужно тем,
  * кто подключается, пока офис ещё открывается, а переменная — командам,
  * которые придут уже после.
+ *
+ * «Все офисы в архиве» — такая же причина: сервер поднимается, список офисов
+ * отдаётся, и человеку есть чем ответить — вернуть офис из архива командой,
+ * для которой открытый офис не нужен.
  */
 let startupError: string | null = null;
-const startup: Promise<string | null> = openOffice(opened).then(() => null, (err: unknown) => {
-  startupError = c('boot.openFailed', {
-    name: opened.name, error: (err as Error).message, dir: opened.projectDir,
-  });
-  console.log(`⚠️  ${startupError}`);
-  return startupError;
-});
+const startup: Promise<string | null> = opened
+  ? openOffice(opened).then(() => null, (err: unknown) => {
+    startupError = c('boot.openFailed', {
+      name: opened.name, error: (err as Error).message, dir: opened.projectDir,
+    });
+    console.log(`⚠️  ${startupError}`);
+    return startupError;
+  })
+  : Promise.resolve(startupError = c('boot.allArchived'));
 
 // Досохранить перед выходом, чтобы не потерять последние события.
 for (const sig of ['SIGINT', 'SIGTERM'] as const) {
@@ -226,7 +251,10 @@ const httpServer = createServer((req, res) => {
       return;
     }
     res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' });
-    res.end(JSON.stringify({ offices: officeViews() }));
+    // Язык интерфейса отдаём вместе со списком: меню открывается раньше офиса,
+    // а подписать его надо уже на языке владельца. Настройка глобальная, и
+    // офиса, у которого её спросить, у такого запроса нет.
+    res.end(JSON.stringify({ offices: officeViews(), uiLanguage: uiLanguage() }));
     return;
   }
   // Аватарка офиса: отдача картинки, загрузка и снятие — см. officeicon.ts.
@@ -552,6 +580,20 @@ wss.on('connection', (ws) => {
     } else if (cmd.c === 'direction_remove') {
       const problem = state.removeDirection(cmd.id);
       if (problem) state.addChat(OFFICE_SENDER, problem);
+    } else if (cmd.c === 'rules_list') {
+      // Правила читаются с диска, а не из состояния: файл могли поправить
+      // руками или веткой задачи, и панель обязана показывать то, что лежит.
+      send(ws, { t: 'rules', scopes: ruleScopes(state) });
+    } else if (cmd.c === 'rule_add' || cmd.c === 'rule_edit' || cmd.c === 'rule_drop') {
+      const out = cmd.c === 'rule_add'
+        ? addRule(state, cmd.scopeId, cmd.text)
+        : cmd.c === 'rule_edit' ? editRule(state, cmd.id, cmd.text) : dropRule(state, cmd.id);
+      // Удачная правка уже разослала событие всем зрителям офиса; отказ
+      // касается только того, кто просил, и идёт ему в чат.
+      if (!out.ok) {
+        state.addChat(OFFICE_SENDER, out.error);
+        send(ws, { t: 'rules', scopes: ruleScopes(state) });
+      }
     } else if (cmd.c === 'proposal_decide') {
       const outcome = decideProposal(state, cmd.id, cmd.accept, applyProposal);
       if (!outcome.ok) state.addChat(OFFICE_SENDER, outcome.message);
@@ -593,5 +635,6 @@ httpServer.listen(PORT);
 
 const built = existsSync(resolve(DIST, 'index.html'));
 console.log(c(built ? 'boot.listening' : 'boot.listeningNoWeb', { port: PORT }));
-console.log(c('boot.workingIn', { dir: opened.projectDir }));
+// Рабочей директории может и не быть: все офисы в архиве — тогда говорим об этом.
+console.log(opened ? c('boot.workingIn', { dir: opened.projectDir }) : c('boot.allArchived'));
 console.log(c(USING_KEY ? 'boot.paidApi' : 'boot.subscription'));

@@ -44,3 +44,17 @@
 .health-counter.good .health-counter-value { color: var(--ok); }
 .health-counter.bad .health-counter-value { color: var(--danger); }
 .health-counter-label { font-size: var(--fs-small); color: var(--ink); opacity: .7; text-align: center; }
+
+/* Правила офиса: строка правила и её кнопки. Кнопки прижаты вправо и не
+   толкают текст — правило бывает длинным и переносится. */
+.rules-scope .chip.office { color: var(--accent); }
+.rules-scope .chip.repo { color: var(--ok); }
+.rules-scope .chip.role { color: var(--ink); opacity: .7; }
+.rule-row {
+  display: flex; gap: var(--space-2); align-items: flex-start;
+  padding: var(--space-1) 0; border-top: 1px solid var(--hairline);
+}
+.rule-row:first-of-type { border-top: 0; }
+.rule-row .life-text { flex: 1; min-width: 0; }
+.rule-row input { flex: 1; min-width: 0; }
+.rule-row-actions { display: flex; gap: var(--space-1); flex-shrink: 0; }

@@ -1,7 +1,9 @@
 import { useMemo, useState } from 'react';
 import {
-  formatLastOpened, retryConnect, sortedOffices, summarizeOfficeActivity, useStore, type ThemeMode,
+  activeOffices, formatLastOpened, retryConnect, setUiLanguage, summarizeOfficeActivity, useStore,
+  type ThemeMode,
 } from './store';
+import { LANGS, LANG_TITLE } from '../shared/i18n';
 import { LimitBars } from './LimitBars';
 import { SetupWizard } from './SetupWizard';
 import { money } from './money';
@@ -59,9 +61,15 @@ export function MenuScreen() {
   const dismissMenuNotice = useStore((s) => s.dismissMenuNotice);
 
   const [creating, setCreating] = useState(false);
-  const list = useMemo(() => sortedOffices(offices), [offices]);
+  // Архивные офисы на главный экран не выходят — ни карточкой, ни строкой
+  // расходов: архив виден только в модалке офисов, откуда офис и возвращают.
+  // Деньги архивного офиса вместе с ним уходят и из итогов вкладки расходов —
+  // иначе сумма сверху не сходилась бы со строками под ней.
+  const list = useMemo(() => activeOffices(offices), [offices]);
 
-  // Вкладке настроек сервер не нужен: там только то, что живёт на этом компьютере.
+  // Вкладку настроек показываем и без сервера: тема и картинка комнаты живут
+  // на этом компьютере, а язык интерфейса без связи просто не переключается
+  // (кнопки там гаснут) — ждать соединения ради темы незачем.
   const needsServer = tab !== 'settings';
 
   return (
@@ -117,7 +125,7 @@ export function MenuScreen() {
 
         {tab === 'spending' && booted && pending !== 'enter' && <Spending offices={list} />}
 
-        {tab === 'settings' && <DeviceSettings />}
+        {tab === 'settings' && <AppSettings />}
       </main>
 
       <footer className="menu-footer">
@@ -142,7 +150,7 @@ function OfficeCard({ office: o }: { office: OfficeView }) {
   const spent = o.activity?.usage.costUsd ?? 0;
   const today = o.activity?.today.costUsd ?? 0;
   return (
-    <button className={`office-card float${o.current ? ' current' : ''}`}
+    <button className={`office-card card${o.current ? ' current' : ''}`}
       onClick={() => enterOffice(o.id)} title={o.projectDir}>
       <span className="office-card-top">
         <OfficeAvatar office={o} />
@@ -195,21 +203,21 @@ function Spending({ offices }: { offices: OfficeView[] }) {
   return (
     <div className="home-spending">
       <div className="home-stats">
-        <div className="home-stat float">
+        <div className="home-stat card">
           <span className="muted small">{t('common.today')}</span>
           <b>{money(today)}</b>
         </div>
-        <div className="home-stat float">
+        <div className="home-stat card">
           <span className="muted small">{t('usage.allTime')}</span>
           <b>{money(total)}</b>
         </div>
       </div>
 
-      <section className="home-panel float">
+      <section className="home-panel card">
         <LimitBars />
       </section>
 
-      <section className="home-panel float">
+      <section className="home-panel card">
         <div className="section-title">{t('home.spending.byOffice')}</div>
         {total === 0 && <p className="muted">{t('home.spending.none')}</p>}
         <div className="home-spend-rows">
@@ -237,19 +245,48 @@ function Spending({ offices }: { offices: OfficeView[] }) {
 }
 
 /**
- * Настройки этого компьютера: тема и картинка комнаты. Применяются сразу —
- * на сервер они не уезжают, и комнаты, которую надо было бы пересобрать, на
- * главном экране нет. Всё, что про офис, — в настройках внутри офиса.
+ * Настройки приложения и этого компьютера.
+ *
+ * Язык интерфейса — единственное место на всё приложение: он глобальный,
+ * живёт на сервере в реестре офисов и переключает подписи во всех офисах
+ * сразу. Поэтому он и стоит здесь, на общем экране, а не в настройках
+ * какого-то одного офиса.
+ *
+ * Остальное — тема и картинка комнаты — живёт на этом компьютере и на сервер
+ * не уезжает. Всё, что про офис (включая языки общения и реализации), — в
+ * настройках внутри офиса.
  */
-function DeviceSettings() {
+function AppSettings() {
   const themeMode = useStore((s) => s.themeMode);
   const setThemeMode = useStore((s) => s.setThemeMode);
   const graphics = useStore((s) => s.graphics);
   const setGraphics = useStore((s) => s.setGraphics);
+  // Язык берём из стора, а не из `t()`: перерисоваться на его смене должна и
+  // сама эта кнопка, а стор — то, на что подписан React.
+  const lang = useStore((s) => s.lang);
+  const connected = useStore((s) => s.connected);
 
   return (
     <div className="home-settings">
-      <section className="home-panel float">
+      <section className="home-panel card">
+        <div className="section-title">{t('home.settings.app')}</div>
+
+        <h4>{t('settings.lang.ui')}</h4>
+        {/* Применяется сразу, без «Сохранить»: язык уезжает на сервер и тем
+            же событием возвращается всем вкладкам. Без связи с сервером
+            менять нечего — кнопки гаснут, чтобы нажатие не пропало молча. */}
+        <div className="engine">
+          {LANGS.map((code) => (
+            <button key={code} className={lang === code ? 'on' : ''} disabled={!connected}
+              onClick={() => setUiLanguage(code)}>
+              {LANG_TITLE[code]}
+            </button>
+          ))}
+        </div>
+        <p className="hint">{t('settings.lang.ui.hint')}</p>
+      </section>
+
+      <section className="home-panel card">
         <div className="section-title">{t('home.settings.device')}</div>
 
         <h4>{t('settings.theme')}</h4>
