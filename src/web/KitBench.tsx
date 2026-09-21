@@ -160,8 +160,8 @@ function Half({ theme }: { theme: Theme }) {
             </header>
             <section>
               <h3 className="section-title">Сейчас делает</h3>
-              <div className="card">
-                <div className="card-head"><b>T-125</b>Шаблон окна офиса</div>
+              <div className="drawer-card">
+                <div className="drawer-card-head"><b>T-125</b>Шаблон окна офиса</div>
                 <div className="budget"><div className="meter"><i style={{ width: '40%' }} /></div><span className="muted small">$1.87 из $5.00</span></div>
               </div>
             </section>

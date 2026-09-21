@@ -37,9 +37,9 @@
 .drawer h3.section-title { margin: 0 0 var(--space-2); }
 .drawer .dim { color: var(--ink-3); }
 
-.card { background: var(--film); border-radius: var(--radius-card); padding: var(--space-3); }
-.card-head { margin-bottom: var(--space-1); }
-.card-head b { color: var(--accent); margin-right: var(--space-2); font-size: var(--fs-body); }
+.drawer-card { background: var(--film); border-radius: var(--radius-card); padding: var(--space-3); }
+.drawer-card-head { margin-bottom: var(--space-1); }
+.drawer-card-head b { color: var(--accent); margin-right: var(--space-2); font-size: var(--fs-body); }
 .criteria { margin-top: var(--space-2); font-size: var(--fs-body); color: var(--ink-2); }
 .budget { margin-top: var(--space-2); }
 .budget .meter { margin-bottom: var(--space-1); }
