@@ -244,6 +244,7 @@ export const ru: Record<keyof typeof en, string> = {
   'premerge.conflict': 'Пробное слияние {branch} в {base} даёт конфликт: {files}. Слияние не выполнено, {base} не тронута.',
   'premerge.assembleFailed': 'Пробное слияние не собралось: {error}',
   'premerge.integrationFailed': 'Рабочую копию офиса для слияния поднять не удалось (каталог {dir}). {error} Слияние не выполнено, основная ветка не тронута.',
+  'premerge.detachedHead': 'HEAD рабочей копии {dir} отцеплен от {base}: слиянию это не мешает, но влитого в ней не видно. Вернуться: git checkout {base}.',
   'premerge.nothing': 'В ветке {branch} нет коммитов сверх {base} — сливать нечего.',
   'premerge.checkFailed': 'На слитом дереве падает проверка «{command}»{files}. Слияние не выполнено, {base} осталась зелёной.',
   'premerge.checkFiles': ' (файлы: {files})',
