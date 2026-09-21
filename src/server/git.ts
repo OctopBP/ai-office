@@ -502,7 +502,17 @@ async function integrationWorktree(
   // Каталог уже наш — переиспользуем: чужого в нашей копии не бывает, поэтому
   // приводим её к базовой ветке жёстко. Проверяем принадлежность по списку
   // git, а не по наличию `.git`: жёсткий reset в чужой копии стёр бы чужую работу.
-  if (await registeredWorktree(repoDir, dir)) {
+  const registered = await registeredWorktree(repoDir, dir);
+  if (registered && !existsSync(dir)) {
+    // Запись есть, каталога нет — протухшая запись, а не негодная копия:
+    // приводить к базовой ветке нечего, git в несуществующей папке даже не
+    // запустится («spawn git ENOENT»), и в отчёт уехала бы эта невнятица.
+    // Раньше сюда попадали только пути без симлинков: для удалённого каталога
+    // `realOf` отдаёт путь как есть, и на macOS во временной папке он с
+    // записью git не совпадал, а на Linux и в обычном проекте — совпадал.
+    await git(repoDir, ['worktree', 'prune']);
+    warnings.push(t(lang, 'git.integration.pruned', { dir }));
+  } else if (registered) {
     // Посторонняя копия может завестись и ВНУТРИ нашей: `git clean` её не
     // берёт, и она осталась бы лежать под ногами у проверок слитого дерева.
     const nested = await dropNestedCopies(repoDir, dir);
