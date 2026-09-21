@@ -287,6 +287,7 @@ export const ru: Record<keyof typeof en, string> = {
   'sup.pmFailedMore': '\n…и ещё {n}.',
   'sup.giveUpNote': '{note}\nОфис пробовал сам {n} раза — не поехало. Жду решения менеджера.',
   'sup.change.base': 'основная ветка сдвинулась',
+  'sup.change.unknown': 'обстановку в прошлый раз не запомнили',
   'sup.change.branch': 'в ветке задачи появились новые коммиты',
   'sup.change.boot': 'офис перезапустили — код мог измениться',
   'sup.reviveNote': 'Обстановка изменилась ({what}) — пробую снова, не дожидаясь решения.',
