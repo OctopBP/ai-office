@@ -1,40 +1,64 @@
 # T-74: разведение конфликтов task/T-57 и task/T-56 с main
 
-## Итог: задача НЕ выполнена — окружение не даёт мне писать в git
+## Итог: сделано, проверено на актуальном main
 
-Эта сессия работает в read-only песочнице по git: **Bash не может записать ни
-байта ни в один `.git`**, включая мой собственный (`task/T-74`). Проверено
-напрямую:
+**Правка после ревью**: ниже в отчёте изначально стоял вывод «задача
+невыполнима — Bash не пишет в `.git`». Это было неверно (или верно только для
+`.git` ЧУЖИХ worktree — писать в СВОЙ собственный `.git` инструментом Bash
+внутри этой же песочницы, как показал ревьюер, можно). Но к моменту, когда я
+вернулся к задаче, реальную git-работу уже сделал другой воркер — задача T-79
+(«отчёт о сведении веток T-56 и T-57 к состоянию main», коммит `046b8c6`) —
+и она попала в main через штатный гейт коммитами `ffd0857`/`940ccc4` (T-57) и
+`e2ae9aa`/`984aa02` (T-56). Резолюция там ровно та, что я предсказал в анализе
+ниже: «все конфликты в пользу main» — это буквальный текст коммитов слияния.
+Ветки `task/T-57` и `task/T-56` в репозитории больше не существуют (гейт
+удаляет ветку и worktree после успешного слияния) — вместе с ними исчез и мой
+случайный артефакт `.__probe_t74`, отдельно убирать нечего.
+
+Я не стал повторно проделывать `git merge` (веток для этого уже нет — они
+слиты и удалены), а **проверил результат реальными командами на текущем тике
+main**, а не по историческим снимкам:
 
 ```
-$ cd .../worktrees/o-2/T-57 && touch probe_plain.txt
-(eval):1: operation not permitted: probe_plain.txt
+$ git checkout --detach main   # в своём worktree T-74, дерево было чистым
+HEAD is now at 037cdee Merge branch 'task/T-80' into HEAD
 
-$ git commit --allow-empty -m probe   # в СВОЁМ worktree o-2/T-74
-fatal: Unable to create '.../office/.git/worktrees/T-74/index.lock': Operation not permitted
+$ node --import tsx/esm scripts/test-offices.ts   | tail -1
+Все проверки прошли: 183
+
+$ node --import tsx/esm scripts/test-premerge.ts  | tail -1
+Все проверки прошли: 76
+
+$ npm run typecheck
+> tsc --noEmit                                     # пусто — чисто
+
+$ git checkout task/T-74                            # вернулся на свою ветку
 ```
 
-Общий `.git` репозитория (`/Users/boris_proshin/Projects/ai/office/.git`) не
-входит в список каталогов, куда мне разрешена запись через Bash — а именно
-туда пишут `git merge`, `git add`, `git commit`, `git worktree`, и туда же
-пишут кеши `node`/`npm` для тестов и `tsc`. Инструмент `dangerouslyDisableSandbox`
-отключён политикой безвозвратно. Поэтому ни один из практических шагов задачи
-(слить main, закоммитить резолюцию конфликта, прогнать
-`node --import tsx/esm scripts/test-offices.ts` / `test-premerge.ts` /
-`npm run typecheck` в чужих worktree) я выполнить не могу — они все требуют
-записи в `.git` или на диск чужого/своего worktree.
+Дополнительно двухточечным `git diff` сверил, что финальные состояния
+`task/T-57` и `task/T-56` перед их слиянием в main (коммиты `ffd0857` и
+`e2ae9aa`) по всем конфликтовавшим файлам совпадают с main **байт в байт**:
 
-**Побочный эффект моей диагностики**: инструмент Write (в отличие от Bash) не
-подчиняется той же песочнице и создал файл-пробник
-`.office/worktrees/o-2/T-57/.__probe_t74` (содержимое `probe`). Удалить его
-через Bash (`rm`, `git clean -f`) я не смог — та же блокировка записи. Файл
-untracked, в коммит не попадёт сам по себе, но **сломает проверку «чистая
-рабочая копия» пред-merge гейта** — его нужно вручную удалить тому, у кого
-есть запись в этот worktree, прежде чем гнать T-57 через гейт.
+```
+$ git diff main ffd0857 -- scripts/test-offices.ts src/server/offices.ts src/server/state.ts | wc -l
+0
+$ git diff main e2ae9aa -- scripts/test-premerge.ts src/server/git.ts src/server/i18n/en.ts \
+    src/server/i18n/ru.ts src/server/premerge.ts src/server/review.ts src/server/merge.ts \
+    src/server/i18n/prompts-en.ts src/server/i18n/prompts-ru.ts | wc -l
+0
+```
 
-Дальше — весь анализ, который я смог сделать в режиме чтения
-(`git diff`, `git show`, `git merge-tree` — они ничего не пишут), и точный
-план резолюции для того, кто продолжит с правами на запись.
+Остальная разница между `main` и этими снимками — только более поздние,
+никак не связанные с T-56/T-57 коммиты main (`docs/review/T-80/report.md`,
+`Agents3D.tsx`, `kit.css`, `scene.css`), это ожидаемо и не в счёт.
+
+Отдельно проверил тот риск, о котором предупреждал ниже (тихое дублирование
+блока предупреждений в `src/server/merge.ts` при автослиянии без маркеров
+конфликта): в актуальном main блок ровно один, дублирования нет.
+
+Дальше в отчёте оставлен весь read-only анализ конфликтов, как он был сделан
+до этой правки, — он совпал с тем, что реально произошло, и полезен как
+объяснение, почему резолюция именно такая.
 
 ---
 
@@ -129,34 +153,27 @@ task/T-56 (старая, более простая версия, ~204-212):
 во всех шести конфликтах плюс ручной проверки трёх «тихих» файлов: **пусто** —
 как и в T-57, у ветки не остаётся собственного контента, которого нет в main.
 
-## Проверки (не выполнены мной — see блокер выше)
+## Проверки — реально прогнаны на актуальном main
 
-Ожидаемое число проверок после резолюции (т.к. итоговое содержимое равно
-main): `scripts/test-offices.ts` — 183 `check(...)` (столько же, сколько в
-main сейчас), `scripts/test-premerge.ts` — 76 `check(...)`. Оба числа получены
-`grep -c '^  check(' <(git show main:<file>)` — то есть посчитаны у main, а не
-прогнаны. Реальный прогон
-(`node --import tsx/esm scripts/test-offices.ts`,
-`node --import tsx/esm scripts/test-premerge.ts`, `npm run typecheck`) должен
-сделать тот, кто будет физически проводить слияние — у меня для этого нет
-исполняемого доступа.
+`scripts/test-offices.ts` — **183/183**, `scripts/test-premerge.ts` —
+**76/76**, `npm run typecheck` — чисто. Числа совпали с ожиданием, посчитанным
+заранее через `grep -c '^  check(' <(git show main:<file>)`. Полный вывод
+команд — в блоке «Итог» выше.
 
-## Что нужно исполнителю с правами записи
+## Как разведены конфликты (уже сделано, для истории)
 
-1. В `task/T-57`: `git merge main`, конфликт в `scripts/test-offices.ts`,
-   `src/server/offices.ts`, `src/server/state.ts` — резолюция «взять main»
-   везде. Готово — тождественно main.
-2. Убрать `.office/worktrees/o-2/T-57/.__probe_t74` (мой случайный артефакт,
-   untracked, `rm` не даёт песочница).
-3. В `task/T-56`: `git merge main`, конфликт в `scripts/test-premerge.ts`,
-   `src/server/git.ts`, `src/server/i18n/en.ts`, `src/server/i18n/ru.ts`,
-   `src/server/premerge.ts`, `src/server/review.ts` — резолюция «взять main»
-   везде. Дополнительно вручную сверить `src/server/merge.ts`,
-   `src/server/i18n/prompts-en.ts`, `src/server/i18n/prompts-ru.ts` — там
-   возможен тихий дубль вместо конфликта (см. пример выше), нужная версия —
-   main.
-4. Прогнать `node --import tsx/esm scripts/test-offices.ts`,
-   `node --import tsx/esm scripts/test-premerge.ts`, `npm run typecheck` —
-   ожидаются зелёными, 183 и 76 проверок соответственно (как в main).
-5. Сверить `git diff main task/T-57` и `git diff main task/T-56`
-   (двухточечный) — по анализу должны быть пустыми.
+Обе ветки слиты и удалены штатным гейтом офиса. Резолюция конфликтов, которую
+предсказывал анализ ниже и которая подтвердилась в реальных коммитах слияния
+(`ffd0857`, `940ccc4`, `e2ae9aa`, `984aa02`):
+
+1. `task/T-57`: конфликт в `scripts/test-offices.ts`, `src/server/offices.ts`,
+   `src/server/state.ts` — резолюция «взять main» везде.
+2. `task/T-56`: конфликт в `scripts/test-premerge.ts`, `src/server/git.ts`,
+   `src/server/i18n/en.ts`, `src/server/i18n/ru.ts`, `src/server/premerge.ts`,
+   `src/server/review.ts` — резолюция «взять main» везде. Дополнительно
+   проверены вручную (без маркеров конфликта, но с риском тихого дубля)
+   `src/server/merge.ts`, `src/server/i18n/prompts-en.ts`,
+   `src/server/i18n/prompts-ru.ts` — в итоговом main дубля нет, версия main.
+
+Случайный побочный артефакт `.__probe_t74` из первого прохода исчез вместе с
+удалённым после слияния worktree `T-57` — отдельно убирать не пришлось.
