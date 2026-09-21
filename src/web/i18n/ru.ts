@@ -115,6 +115,8 @@ export const ru: Record<keyof typeof en, string> = {
   "chat.empty.pm": "Например: «Сделай CRUD для заметок: JSON API на бэке и страницу на фронте». Или просто спросите: «Что сейчас в работе?» — задачу PM не заведёт.",
   "chat.you": "вы",
   "chat.typing": "печатает…",
+  "chat.date.today": "Сегодня",
+  "chat.date.yesterday": "Вчера",
   "meeting.title": "Созвать совещание",
   "meeting.note": "Участники высказываются по очереди, каждый видит сказанное до него. Итог менеджер напишет в чате с ним.",
   "meeting.topic": "Тема",

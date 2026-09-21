@@ -116,6 +116,8 @@ export const en = {
   "chat.empty.pm": "For example: “Build CRUD for notes: a JSON API on the backend and a page on the frontend”. Or just ask: “What is in progress?” — the PM will not create a task for that.",
   "chat.you": "you",
   "chat.typing": "typing…",
+  "chat.date.today": "Today",
+  "chat.date.yesterday": "Yesterday",
   "meeting.title": "Call a meeting",
   "meeting.note": "The participants speak in turn, each sees what was said before them. The manager writes the outcome in the chat with them.",
   "meeting.topic": "Topic",

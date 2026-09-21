@@ -8,12 +8,21 @@
 .chat, .log { overflow-y: auto; padding: var(--space-1); min-height: 0; flex: 1; }
 .msg { margin-bottom: var(--space-3); }
 .msg-from { font-size: var(--fs-small); color: var(--ink-3); margin-bottom: var(--space-1); }
+/* Время реплики отжимает подпись автора влево, а само садится в правый край строки. */
+.msg-from:has(.msg-time) { display: flex; align-items: center; justify-content: space-between; gap: var(--space-2); }
+.msg-from-name { display: inline-flex; align-items: center; gap: 6px; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.msg-time { flex: none; font-variant-numeric: tabular-nums; white-space: nowrap; cursor: default; }
 .msg-text {
   white-space: pre-wrap; word-break: break-word;
   background: var(--film); border-radius: var(--radius-card);
   padding: var(--space-2) var(--space-3); color: var(--ink-2);
 }
 .msg.from-user .msg-text { background: var(--accent); color: var(--accent-ink); }
+
+/* Разделитель дат: тихая полоса между сутками, чтобы лента не пестрила
+   временем на каждой реплике. */
+.chat-date-sep { display: flex; align-items: center; gap: var(--space-2); margin: var(--space-3) 0; color: var(--ink-3); font-size: var(--fs-small); }
+.chat-date-sep::before, .chat-date-sep::after { content: ''; flex: 1; height: 1px; background: var(--hairline); }
 
 .log-row { display: flex; gap: var(--space-2); padding: var(--space-1) 0; font-size: var(--fs-body); border-bottom: 1px solid var(--hairline); }
 .log-time { color: var(--ink-3); font-family: var(--font-mono); font-size: var(--fs-small); font-variant-numeric: tabular-nums; white-space: nowrap; }
