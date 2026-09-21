@@ -232,6 +232,25 @@ function projectBrief(state: OfficeState, roleId: string | null = null): string 
   return officeBrief(state) + rulesBrief(state, roleId) + journalBrief(state, roleId);
 }
 
+/**
+ * Языки офиса словами — явный блок в системный промпт.
+ *
+ * Языков два, и они независимы: язык ОБЩЕНИЯ (`state.lang()`) — всё, что
+ * читает владелец, язык РЕАЛИЗАЦИИ (`state.codeLang()`) — код, комментарии,
+ * коммиты и документация. Блок отдельный, а не строчка в хвосте брифа:
+ * «пиши по-русски» без разделения заставляло модель выбирать одно на всё,
+ * и комментарии уезжали на язык переписки.
+ *
+ * Языка интерфейса здесь нет намеренно: он глобальный, живёт в реестре офисов
+ * (`uiLanguage`) и к тому, на чём агент пишет, отношения не имеет.
+ */
+export function languageBrief(state: OfficeState, kind: 'pm' | 'worker'): string {
+  return state.say(kind === 'pm' ? 'prompt.lang.pm' : 'prompt.lang.worker', {
+    chat: LANG_NAME_EN[state.lang()],
+    code: LANG_NAME_EN[state.codeLang()],
+  });
+}
+
 /** Бриф проекта без журнала: та часть, которая от сессии к сессии не меняется. */
 function officeBrief(state: OfficeState): string {
   try {
@@ -263,7 +282,11 @@ function officeBrief(state: OfficeState): string {
 function systemBlocks(state: OfficeState, roleId: string | null, head: string): string[] {
   // Правила — в статику рядом с брифом: они меняются раз в неделю, и платить
   // за них заново в каждой короткой сессии (реплика, вопрос коллеге) не за что.
-  const statics = [head, officeBrief(state), rulesBrief(state, roleId)].filter((block) => block.trim());
+  // Языки — туда же и по той же причине: настройка офиса, а не свойство сессии.
+  const statics = [
+    head, languageBrief(state, roleId === null ? 'pm' : 'worker'),
+    officeBrief(state), rulesBrief(state, roleId),
+  ].filter((block) => block.trim());
   const journal = journalBrief(state, roleId);
   // Без журнала маркер не ставим: пустой хвост за ним — блок ни о чём.
   return journal ? [...statics, SYSTEM_PROMPT_DYNAMIC_BOUNDARY, journal] : statics;
@@ -631,8 +654,11 @@ function boardSummary(state: OfficeState): string {
  * константа: язык у каждого офиса свой, и один и тот же процесс держит
  * русский офис и английский одновременно.
  */
-const pmPrompt = (state: OfficeState, fresh: boolean): string =>
-  state.say('prompt.pm.system', { lang: LANG_NAME_EN[state.lang()] })
+export const pmPrompt = (state: OfficeState, fresh: boolean): string =>
+  state.say('prompt.pm.system')
+  // Языки — сразу за основным промптом: на них написано всё остальное, что
+  // менеджер сочиняет, и ниже они бы утонули между направлениями и передачей дел.
+  + `\n\n${languageBrief(state, 'pm')}`
   + state.say('prompt.pm.life')
   + state.say('prompt.pm.directions', { directions: directionsText(state) || state.say('prompt.pm.noDirections') })
   // Передача дел — только новой сессии, и в промпт, а не первым сообщением:
@@ -2318,6 +2344,12 @@ function startWorker(
     role.brief,
     '',
     taskOffice.say('prompt.worker.tail'),
+    '',
+    // Языки — рядом с порядком работы, а не в хвосте: OFFICE.md и правила
+    // офиса могут нести своё «комментарии по-русски», и блок про языки сам
+    // говорит, что при расхождении сильнее настройка.
+    languageBrief(taskOffice, 'worker'),
+    '',
     taskOffice.say('prompt.worker.life'),
   ].join('\n') + projectBrief(taskOffice, role.id);
 
@@ -3205,10 +3237,12 @@ async function runAgentSession(
 }
 
 /** Системный промпт исполнителя — один и тот же и для задачи, и для доработки. */
-function workerSystemPrompt(role: Role, state: OfficeState): string {
+export function workerSystemPrompt(role: Role, state: OfficeState): string {
   return [
     state.say('prompt.worker.system', { role: role.title }),
     role.brief,
+    '',
+    languageBrief(state, 'worker'),
   ].join('\n') + projectBrief(state, role.id);
 }
 
