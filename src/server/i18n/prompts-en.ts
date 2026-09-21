@@ -33,6 +33,10 @@ export const promptsEn = {
   'bubble.finishTask': 'handing the work in',
   'bubble.listTeam': 'checking who is free',
   'bubble.getBoard': 'checking the board',
+  'bubble.listRules': 'reading the office rules',
+  'bubble.addRule': 'adding a rule: {what}',
+  'bubble.editRule': 'rewording rule {what}',
+  'bubble.dropRule': 'dropping rule {what}',
 
   // -------------------------------------------------- состояния и лента
   'agent.state.thinking': 'thinking…',
@@ -106,6 +110,12 @@ export const promptsEn = {
   // ------------------------------------------------------------ бриф проекта
   'prompt.brief.clipped': '… (brief truncated, the full text is in OFFICE.md)',
   'prompt.brief.header': 'ABOUT THE PROJECT — from OFFICE.md in the working directory:',
+
+  // ------------------------------------------------------------ правила офиса
+  'prompt.rules.office': 'OFFICE RULES — they hold for everyone, from RULES.md in the office root:',
+  'prompt.rules.repo': 'RULES OF THE {label} REPOSITORY — from its RULES.md:',
+  'prompt.rules.role': 'RULES OF THE ROLE {role} — from its brief:',
+  'prompt.rules.clipped': '… (the rules are truncated, the full list is in RULES.md)',
 
   // ------------------------------------------------------------- состав команды
   'prompt.team.header': 'The team:',
@@ -952,6 +962,18 @@ and the office journal are the same — they live outside the session. This is w
   'tool.proposeRule.text': 'The rule itself, as it will go into the brief: one or two imperative sentences.',
   'tool.proposeRule.rationale': 'Why: which tasks, how many times.',
   'tool.proposeRule.ok': 'Proposed as {id}; the owner decides.',
+  'tool.listRules.desc': 'All the office rules with their ids and circles: the whole office, a repository (a direction — everyone working in it), a role. Read them before you write acceptance criteria for a task and before you add a rule: the criteria of a task must follow from the rules of the circle the assignee belongs to, and a rule that repeats an existing one only makes the list longer.',
+  'tool.addRule.desc': 'Add a standing rule to a circle — when the OWNER asks for it in the chat, or when the team has agreed on it in a meeting. The rule is applied at once, is written into the office feed and reaches the agents of that circle on their next session. Not for a one-off instruction on a task (that is what the task text is for) and not for a lesson learned from a failure (that is note_fact).',
+  'tool.addRule.scope': 'Circle id from list_rules: office — everyone, repo:<folder> — everyone working in that repository.',
+  'tool.addRule.text': 'The rule itself: one checkable imperative sentence, up to 500 characters.',
+  'tool.addRule.ok': 'Rule {id} added to the circle “{scope}”. It reaches the agents of that circle on their next session; sessions already running keep working by the old rules.',
+  'tool.editRule.desc': 'Reword an existing rule — narrow it, make it checkable, fix what the owner corrected. The text is replaced whole, so pass the full new wording.',
+  'tool.editRule.id': 'Rule id from list_rules, for example repo:web#2.',
+  'tool.editRule.text': 'The new wording, in full.',
+  'tool.editRule.ok': 'Rule {id} now reads: {text}',
+  'tool.dropRule.desc': 'Remove a rule that no longer holds: the owner cancelled it, the stack changed, two rules say the same thing. Removing is honest — a rule nobody follows teaches the team to ignore the rest of the list.',
+  'tool.dropRule.id': 'Rule id from list_rules.',
+  'tool.dropRule.ok': 'Rule {id} dropped: {text}',
   'tool.askOwner.desc': 'Ask the OWNER (the person) something only they can decide: a product choice, an ambiguous requirement, a trade-off with money or scope. Does NOT wait for an answer: the question goes into the office queue, the owner sees it at the next standup, and the answer lands in the office journal. Keep working by your assumption — and state it here. Not for things a colleague or the code can answer.',
   'tool.askOwner.pm.desc': 'Ask the OWNER (the person) something only they can decide — the same as for workers, but from you: a priority between features, a scope cut, a rule for a role. Does NOT wait: the answer comes later as a system message. State what the office assumes meanwhile.',
   'tool.askOwner.question': 'The question, one or two sentences, with enough context to answer without opening the task.',

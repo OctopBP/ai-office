@@ -8,7 +8,7 @@ import type {
   ServerEvent, Settings, TaskEdit, TaskPriority, TaskView, Usage, CloudStatus, OfficeView, OfficeIcon,
   PullRequestView, PrStage,
   EpicView, LimitsView, FactView, OwnerQuestion, LifeView, RitualId, DirectionView, ProposalView,
-  OfficeSetupPlan, SetupCatalog, SetupStep, OfficeHealth, EnvReport,
+  OfficeSetupPlan, SetupCatalog, SetupStep, OfficeHealth, EnvReport, RuleScopeView,
 } from '../shared/types';
 import {
   emptyLimits, emptyUsage, isOfficeSender,
@@ -330,6 +330,12 @@ interface State {
   /** Направления владельца и предложения офиса. */
   directions: DirectionView[];
   proposals: ProposalView[];
+  /**
+   * Правила офиса по кругам. Приезжают по запросу панели, а не в снимке:
+   * они лежат файлами в репозиториях, и читать их на каждое подключение
+   * незачем — панель правил открывают куда реже, чем офис.
+   */
+  rules: RuleScopeView[] | null;
   toggleMergeSelect: (taskId: string) => void;
   moveMergeSelect: (taskId: string, dir: -1 | 1) => void;
   clearMergeSelection: () => void;
@@ -525,6 +531,7 @@ export const useStore = create<State>((set, get) => ({
   openQuestions: 0,
   directions: [],
   proposals: [],
+  rules: null,
   life: {
     standupDay: null, standupAt: null, lastRun: {}, runs: [], running: null,
     flows: {},
@@ -711,6 +718,9 @@ export const useStore = create<State>((set, get) => ({
           diff: null,
           roleFeedback: null,
           teamRequest: null,
+          // Правила — чужие: у нового офиса свои файлы и свои круги.
+          // Панель спросит их заново, когда её откроют.
+          rules: null,
         }));
         break;
       }
@@ -995,6 +1005,9 @@ export const useStore = create<State>((set, get) => ({
         break;
       case 'life':
         set({ life: e.life });
+        break;
+      case 'rules':
+        set({ rules: e.scopes });
         break;
       case 'health':
         set({ health: e.health });
@@ -1876,6 +1889,27 @@ export function updateDirection(
 
 export function removeDirection(id: string): void {
   socket?.send(JSON.stringify({ c: 'direction_remove', id }));
+}
+
+/**
+ * Правила офиса. Своего списка клиент не держит и после правки ничего не
+ * угадывает: номера пунктов в файле после удаления съезжают, и правду о них
+ * знает только сервер — он и присылает круги целиком на каждую команду.
+ */
+export function listRules(): void {
+  socket?.send(JSON.stringify({ c: 'rules_list' }));
+}
+
+export function addRule(scopeId: string, text: string): void {
+  socket?.send(JSON.stringify({ c: 'rule_add', scopeId, text }));
+}
+
+export function editRule(id: string, text: string): void {
+  socket?.send(JSON.stringify({ c: 'rule_edit', id, text }));
+}
+
+export function dropRule(id: string): void {
+  socket?.send(JSON.stringify({ c: 'rule_drop', id }));
 }
 
 /** Принять или отклонить предложение офиса. Принятая фича встаёт в план согласованной. */

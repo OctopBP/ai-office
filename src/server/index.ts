@@ -22,6 +22,7 @@ import { resetProjectWorkflow, saveProjectWorkflow } from './workflows';
 import { startSupervisor } from './supervisor';
 import { answerQuestion, dismissQuestion } from './questions';
 import { archiveFact, confirmFact, pageFacts } from './journal';
+import { addRule, dropRule, editRule, ruleScopes } from './rules';
 import { officeHealth, watchHealth } from './health';
 import { runRitual } from './rituals';
 import { decideProposal } from './initiatives';
@@ -552,6 +553,20 @@ wss.on('connection', (ws) => {
     } else if (cmd.c === 'direction_remove') {
       const problem = state.removeDirection(cmd.id);
       if (problem) state.addChat(OFFICE_SENDER, problem);
+    } else if (cmd.c === 'rules_list') {
+      // Правила читаются с диска, а не из состояния: файл могли поправить
+      // руками или веткой задачи, и панель обязана показывать то, что лежит.
+      send(ws, { t: 'rules', scopes: ruleScopes(state) });
+    } else if (cmd.c === 'rule_add' || cmd.c === 'rule_edit' || cmd.c === 'rule_drop') {
+      const out = cmd.c === 'rule_add'
+        ? addRule(state, cmd.scopeId, cmd.text)
+        : cmd.c === 'rule_edit' ? editRule(state, cmd.id, cmd.text) : dropRule(state, cmd.id);
+      // Удачная правка уже разослала событие всем зрителям офиса; отказ
+      // касается только того, кто просил, и идёт ему в чат.
+      if (!out.ok) {
+        state.addChat(OFFICE_SENDER, out.error);
+        send(ws, { t: 'rules', scopes: ruleScopes(state) });
+      }
     } else if (cmd.c === 'proposal_decide') {
       const outcome = decideProposal(state, cmd.id, cmd.accept, applyProposal);
       if (!outcome.ok) state.addChat(OFFICE_SENDER, outcome.message);

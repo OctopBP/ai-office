@@ -41,6 +41,7 @@ import { cancelTask, closeIfDone, recordOutcome } from './outcomes';
 import { deleteTask, dropTask, editTask } from './tasks';
 import { limitBlock, resetClock } from './limits';
 import { journalBrief } from './journal';
+import { addRule, dropRule, editRule, ruleScopes, rulesBrief, rulesText } from './rules';
 import { noteCompaction } from './health';
 import { answerFromChat, askOwner } from './questions';
 import {
@@ -228,7 +229,7 @@ async function repoReady(state: OfficeState, dir: string): Promise<boolean> {
  * ему вместо своих достаются офисные.
  */
 function projectBrief(state: OfficeState, roleId: string | null = null): string {
-  return officeBrief(state) + journalBrief(state, roleId);
+  return officeBrief(state) + rulesBrief(state, roleId) + journalBrief(state, roleId);
 }
 
 /** Бриф проекта без журнала: та часть, которая от сессии к сессии не меняется. */
@@ -260,7 +261,9 @@ function officeBrief(state: OfficeState): string {
  * Проверять — по плитке «% ввода из кеша» на доске расходов.
  */
 function systemBlocks(state: OfficeState, roleId: string | null, head: string): string[] {
-  const statics = [head, officeBrief(state)].filter((block) => block.trim());
+  // Правила — в статику рядом с брифом: они меняются раз в неделю, и платить
+  // за них заново в каждой короткой сессии (реплика, вопрос коллеге) не за что.
+  const statics = [head, officeBrief(state), rulesBrief(state, roleId)].filter((block) => block.trim());
   const journal = journalBrief(state, roleId);
   // Без журнала маркер не ставим: пустой хвост за ним — блок ни о чём.
   return journal ? [...statics, SYSTEM_PROMPT_DYNAMIC_BOUNDARY, journal] : statics;
@@ -321,6 +324,10 @@ function toolBrief(name: string, input: Record<string, unknown>, lang: Lang): st
         if (short === 'finish_task') return t(lang, 'bubble.finishTask');
         if (short === 'list_team') return t(lang, 'bubble.listTeam');
         if (short === 'get_board') return t(lang, 'bubble.getBoard');
+        if (short === 'list_rules') return t(lang, 'bubble.listRules');
+        if (short === 'add_rule') return say('bubble.addRule', clip(input.text, 40));
+        if (short === 'edit_rule') return say('bubble.editRule', input.ruleId);
+        if (short === 'drop_rule') return say('bubble.dropRule', input.ruleId);
         return short;
       }
       return name;
@@ -1160,6 +1167,65 @@ const teamTools = (state: OfficeState) => createSdkMcpServer({
       async (args) => {
         const asked = askOwner(state, 'pm#1', null, args.question, args.assumption, args.options);
         return { content: [{ type: 'text', text: asked.text }], isError: !asked.ok };
+      },
+    ),
+
+    tool(
+      'list_rules',
+      state.say('tool.listRules.desc'),
+      {},
+      async () => ({ content: [{ type: 'text', text: rulesText(state) }] }),
+      { annotations: { readOnlyHint: true } },
+    ),
+
+    // Правила менеджер применяет сразу, без согласия владельца, — но громко:
+    // каждая правка идёт записью в ленту и видна в панели правил. Принцип
+    // «офис не меняет поведение исполнителей молча» (selfchange.ts) требует,
+    // чтобы владелец знал, а не чтобы он кликал; предложение с кликом
+    // остаётся там, где правило рождается без него, — на рефлексии.
+    tool(
+      'add_rule',
+      state.say('tool.addRule.desc'),
+      {
+        scopeId: z.string().describe(state.say('tool.addRule.scope')),
+        text: z.string().describe(state.say('tool.addRule.text')),
+      },
+      async (args) => {
+        const out = addRule(state, args.scopeId, args.text);
+        if (!out.ok) return { content: [{ type: 'text', text: out.error }], isError: true };
+        const scope = ruleScopes(state).find((s) => s.id === out.rule.scopeId);
+        return { content: [{ type: 'text', text: state.say('tool.addRule.ok', {
+          id: out.rule.id, scope: scope?.label ?? out.rule.scopeId,
+        }) }] };
+      },
+    ),
+
+    tool(
+      'edit_rule',
+      state.say('tool.editRule.desc'),
+      {
+        ruleId: z.string().describe(state.say('tool.editRule.id')),
+        text: z.string().describe(state.say('tool.editRule.text')),
+      },
+      async (args) => {
+        const out = editRule(state, args.ruleId, args.text);
+        if (!out.ok) return { content: [{ type: 'text', text: out.error }], isError: true };
+        return { content: [{ type: 'text', text: state.say('tool.editRule.ok', {
+          id: out.rule.id, text: out.rule.text,
+        }) }] };
+      },
+    ),
+
+    tool(
+      'drop_rule',
+      state.say('tool.dropRule.desc'),
+      { ruleId: z.string().describe(state.say('tool.dropRule.id')) },
+      async (args) => {
+        const out = dropRule(state, args.ruleId);
+        if (!out.ok) return { content: [{ type: 'text', text: out.error }], isError: true };
+        return { content: [{ type: 'text', text: state.say('tool.dropRule.ok', {
+          id: out.rule.id, text: out.rule.text,
+        }) }] };
       },
     ),
 
