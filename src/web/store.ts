@@ -1759,6 +1759,16 @@ export function renameOffice(officeId: string, name: string): void {
   socket?.send(JSON.stringify({ c: 'rename_office', officeId, name }));
 }
 
+/**
+ * Перетащили строку офиса в рейле. `index` — место в ВИДИМОМ списке (том, что
+ * рисует `sortedOffices`), считая от нуля и БЕЗ самого переставляемого офиса —
+ * ровно так, как ждёт `reorderOffice` на сервере. Правда — то, что сервер
+ * пришлёт следующим событием `offices`; здесь только отправка команды.
+ */
+export function reorderOffice(officeId: string, index: number): void {
+  socket?.send(JSON.stringify({ c: 'reorder_office', officeId, index }));
+}
+
 /** null сбрасывает иконку офиса к умолчанию (инициал). */
 export function setOfficeIcon(officeId: string, icon: OfficeIcon | null): void {
   socket?.send(JSON.stringify({ c: 'set_office_icon', officeId, icon }));
