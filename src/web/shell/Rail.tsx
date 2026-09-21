@@ -1,10 +1,7 @@
 import { useCallback, useEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from 'react';
 import {
-<<<<<<< HEAD
-  activeOffices, reset, setEditingLayout, summarizeOfficeActivity, useStore,
-=======
-  reorderOffice, reset, setEditingLayout, sortedOffices, summarizeOfficeActivity, useStore,
->>>>>>> main
+  activeOffices, reorderOffice, reset, setEditingLayout, sortedOffices, summarizeOfficeActivity,
+  useStore,
 } from '../store';
 import type { ModalKind, PanelKind } from '../Overlays';
 import type { OfficeView } from '../../shared/types';
@@ -36,11 +33,30 @@ function reorderByIds(list: OfficeView[], ids: string[]): OfficeView[] {
 }
 
 /**
+ * Место среди видимых строк → место в полном списке офисов, как его считает
+ * `reorder_office`: берём активного соседа, перед которым встаёт строка, и
+ * отдаём его позицию среди всех; бросок ниже последней строки — конец списка.
+ * Без этого перевода офис, утащенный вниз, вставал бы выше на столько строк,
+ * сколько архивных лежит выше места броска.
+ */
+function serverIndex(dragId: string, placeAmongActive: number): number {
+  const rest = sortedOffices(useStore.getState().offices).filter((o) => o.id !== dragId);
+  const visible = rest.filter((o) => !o.archived);
+  if (placeAmongActive >= visible.length) return rest.length;
+  return rest.indexOf(visible[placeAmongActive]);
+}
+
+/**
  * Перетаскивание строк офиса в рейле — на pointer events, без библиотек.
  *
  * Порядок при отпускании считается местом в списке БЕЗ самого перетаскиваемого
  * офиса — ровно то, что ждёт команда `reorder_office` на сервере
- * (см. `reorderOffice` в `offices.ts`), поэтому индекс можно послать как есть.
+ * (см. `reorderOffice` в `offices.ts`).
+ *
+ * Считается это место дважды, и не зря: в рейле архивных офисов нет, а сервер
+ * их из счёта позиций не выкидывает (там пропускаются только `hidden`).
+ * Поэтому по экрану место ищется среди видимых строк, а серверу уезжает
+ * позиция того же соседа в полном списке — `serverIndex`.
  *
  * Пока сервер не подтвердил перестановку своим событием `offices`, список
  * держит собственную прикидку (`optimisticOrder`): иначе строка на секунду
@@ -52,7 +68,7 @@ function reorderByIds(list: OfficeView[], ids: string[]): OfficeView[] {
  * вовсе (отказ сервера не меняет список), снимается запасным таймером.
  */
 function useOfficeDrag(offices: OfficeView[]) {
-  const list = sortedOffices(offices);
+  const list = activeOffices(offices);
   const [drag, setDrag] = useState<{ id: string; overIndex: number } | null>(null);
   const [optimisticOrder, setOptimisticOrder] = useState<string[] | null>(null);
   const rowRefs = useRef(new Map<string, HTMLButtonElement>());
@@ -72,7 +88,7 @@ function useOfficeDrag(offices: OfficeView[]) {
   // свежим из стора (а не замыканием на `list`), чтобы не потерять офис,
   // заведшийся прямо во время перетаскивания.
   const overIndexAt = useCallback((clientY: number, dragId: string) => {
-    const compare = sortedOffices(useStore.getState().offices).filter((o) => o.id !== dragId);
+    const compare = activeOffices(useStore.getState().offices).filter((o) => o.id !== dragId);
     for (let i = 0; i < compare.length; i++) {
       const el = rowRefs.current.get(compare[i].id);
       if (!el) continue;
@@ -103,10 +119,10 @@ function useOfficeDrag(offices: OfficeView[]) {
     setDrag(null);
     if (!s || !s.moved || !e) return;
     const idx = overIndexAt(e.clientY, s.id);
-    const ids = sortedOffices(useStore.getState().offices).filter((o) => o.id !== s.id).map((o) => o.id);
+    const ids = activeOffices(useStore.getState().offices).filter((o) => o.id !== s.id).map((o) => o.id);
     ids.splice(idx, 0, s.id);
     setOptimisticOrder(ids);
-    reorderOffice(s.id, idx);
+    reorderOffice(s.id, serverIndex(s.id, idx));
     // Клик, которым браузер обычно продолжает жест указателя, тут лишний:
     // строку только что перетащили, а не выбрали. `Rail` снимет флаг сам,
     // когда этот клик придёт.
@@ -190,14 +206,11 @@ export function Rail({ onPanel, onModal }: {
   const setView = useStore((s) => s.setView);
   const leaveOffice = useStore((s) => s.leaveOffice);
 
-<<<<<<< HEAD
   // Архивные офисы в рейле не показываем: работы по ним нет, а вернуть их
-  // можно из модалки офисов (раздел «Архив»).
-  const list = activeOffices(offices);
-=======
+  // можно из модалки офисов (раздел «Архив»). Перетаскивание идёт по тому же
+  // видимому списку — внутри `useOfficeDrag`.
   const { renderList, dropIndicator, isDragging, onRowPointerDown, rowRef, consumeSuppressedClick } =
     useOfficeDrag(offices);
->>>>>>> main
   // Счётчики те же, что были в HUD: в работе — по задачам, а не по позам агентов.
   const all = Object.values(tasks);
   const working = all.filter((x) => x.status === 'in_progress').length;

@@ -1,11 +1,7 @@
 import { useMemo, useState } from 'react';
 import {
-<<<<<<< HEAD
-  activeOffices, formatLastOpened, retryConnect, summarizeOfficeActivity, useStore, type ThemeMode,
-=======
-  formatLastOpened, retryConnect, setUiLanguage, sortedOffices, summarizeOfficeActivity, useStore,
+  activeOffices, formatLastOpened, retryConnect, setUiLanguage, summarizeOfficeActivity, useStore,
   type ThemeMode,
->>>>>>> main
 } from './store';
 import { LANGS, LANG_TITLE } from '../shared/i18n';
 import { LimitBars } from './LimitBars';
