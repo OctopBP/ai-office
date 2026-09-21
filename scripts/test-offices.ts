@@ -19,7 +19,9 @@ import {
   getOffice, isOpened, officeViews, openedOffices, openOfficeState, subscribeOffices,
   unloadOfficeState,
 } from '../src/server/state';
-import { officeAssign, setPaused } from '../src/server/agents';
+import {
+  languageBrief, officeAssign, pmPrompt, setPaused, workerSystemPrompt,
+} from '../src/server/agents';
 import { MessageQueue } from '../src/server/queue';
 import { dispatch } from '../src/server/plan';
 import { dueRitual, runRitual, standupDue } from '../src/server/rituals';
@@ -927,6 +929,52 @@ async function main(): Promise<void> {
   migrate2.loadRegistry(DIR_A, oldState);
   check('повторный подъём язык интерфейса не переписал',
     migrate2.uiLanguage() === 'en' && readFileSync(oldRegistry, 'utf8') === afterMigration);
+
+  // 30. Языки в системных промптах. Настройки офиса две, и в промпт они обязаны
+  //     попасть обе и порознь: язык общения — для всего, что читает владелец,
+  //     язык реализации — для кода, комментариев, коммитов и документации.
+  //     Язык интерфейса здесь сейчас английский (его переключили выше), а офис
+  //     говорит по-русски — на этой разнице и видно, что промпт берёт языки
+  //     офиса, а не глобальную настройку приложения.
+  stateB.updateSettings({ chatLanguage: 'ru', codeLanguage: 'en' });
+  const workerLang = languageBrief(stateB, 'worker');
+  const pmLang = languageBrief(stateB, 'pm');
+  check('блок исполнителя называет оба языка врозь',
+    workerLang.includes('Язык общения — Russian') && workerLang.includes('Язык реализации — English'));
+  check('блок менеджера называет оба языка врозь',
+    pmLang.includes('Язык общения — Russian') && pmLang.includes('Язык реализации — English'));
+  check('язык реализации отвечает за код, комментарии, коммиты и документацию',
+    ['код', 'комментарии', 'коммитов', 'документация'].every((word) =>
+      workerLang.slice(workerLang.indexOf('Язык реализации')).includes(word)));
+  check('язык общения отвечает за отчёт и вопросы владельцу',
+    workerLang.slice(workerLang.indexOf('Язык общения'), workerLang.indexOf('Язык реализации'))
+      .includes('finish_task'));
+  check('язык интерфейса в блок про языки не попадает',
+    uiLanguage() === 'en' && workerLang.startsWith('ЯЗЫКИ') && pmLang.startsWith('ЯЗЫКИ'));
+
+  // Блок обязан доехать до самого промпта: забытый вызов ниже по коду — ровно
+  // та поломка, которую эта проверка и ловит.
+  const someRole = stateB.workerRoles()[0];
+  check('блок про языки есть в системном промпте исполнителя',
+    Boolean(someRole) && workerSystemPrompt(someRole!, stateB).includes(workerLang));
+  check('блок про языки есть в системном промпте менеджера',
+    pmPrompt(stateB, false).includes(pmLang));
+
+  // Смена настройки — смена блока: язык реализации переключается отдельно от
+  // языка общения, и промпт обязан поехать за ним.
+  stateB.updateSettings({ codeLanguage: 'ru' });
+  check('смена языка реализации переписала блок',
+    languageBrief(stateB, 'worker').includes('Язык реализации — Russian'));
+  check('язык общения при этом остался прежним',
+    languageBrief(stateB, 'worker').includes('Язык общения — Russian') && stateB.lang() === 'ru');
+
+  // Офис старше разделения языков: поля codeLanguage у него нет, и язык
+  // реализации обязан молча совпасть с языком общения.
+  const legacy = openOfficeState(offices()[0]!).state;
+  legacy.updateSettings({ chatLanguage: 'ru' });
+  delete legacy.settings.codeLanguage;
+  check('без настройки язык реализации равен языку общения',
+    languageBrief(legacy, 'worker').includes('Язык реализации — Russian'));
 
   // Досохраняем все поднятые офисы: у каждого свой файл и свой отложенный
   // таймер записи, и оставленный хвост дописался бы уже после уборки.
