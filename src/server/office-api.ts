@@ -1,6 +1,7 @@
 /**
- * Серверный API офисов: список, создание, переключение и скрытие, плюс
- * привязка подключённого клиента к тому офису, который он смотрит.
+ * Серверный API офисов: список, создание, переключение, перестановка и
+ * скрытие, плюс привязка подключённого клиента к тому офису, который он
+ * смотрит.
  *
  * Живёт отдельно от index.ts по двум причинам. Во-первых, это цельная часть
  * контракта: одни и те же правила («список без скрытых», «отказ уходит
@@ -10,11 +11,12 @@
  */
 import type { ClientCommand, OfficeOp, ServerEvent } from '../shared/types';
 import {
-  getOffice, isOpened, officeViews, runningTasksOf, unloadOfficeState, type OfficeState,
+  getOffice, isOpened, officeViews, openedOffices, runningTasksOf, unloadOfficeState,
+  type OfficeState,
 } from './state';
 import {
-  createOffice, currentOffice, officeById, removeOffice, renameOffice, setCurrent, setOfficeIcon,
-  type OfficeEntry,
+  createOffice, currentOffice, officeById, removeOffice, renameOffice, reorderOffice, setCurrent,
+  setOfficeIcon, type OfficeEntry,
 } from './offices';
 import { stopSupervisor } from './supervisor';
 import { stopHealth } from './health';
@@ -425,6 +427,23 @@ export function handleOfficeCommand(cmd: ClientCommand, ws: Sink): boolean {
     const problem = renameOffice(cmd.officeId, cmd.name);
     if (problem) refuse('rename', cmd.officeId, problem, ws);
     else broadcastOffices();
+    return true;
+  }
+  if (cmd.c === 'reorder_office') {
+    const problem = reorderOffice(cmd.officeId, cmd.index);
+    if (problem) {
+      refuse('reorder', cmd.officeId, problem, ws);
+      return true;
+    }
+    // Порядок списка уходит всем сокетам, а не только тому, кто перетаскивал:
+    // рейл с офисами висит в каждой вкладке, и во второй он иначе остался бы
+    // с прежним порядком до перезагрузки страницы.
+    broadcastOffices();
+    // И снапшот тем, кто смотрит открытые офисы: список офисов лежит внутри
+    // снапшота, и без этого доска показывала бы старый порядок до следующего
+    // события. Снапшот идёт КАЖДОМУ поднятому офису: порядок общий на процесс,
+    // а не свойство того офиса, в котором нажали.
+    for (const state of openedOffices()) broadcastSnapshot(state);
     return true;
   }
   if (cmd.c === 'set_office_icon') {
