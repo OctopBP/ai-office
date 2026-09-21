@@ -48,3 +48,11 @@
 
 /* Ряд одиночных действий внутри раздела — не карточка выбора. */
 .settings-row { display: flex; gap: var(--space-2); margin-top: var(--space-4); }
+
+/* Заметка «это настраивается не здесь»: отбита линией, чтобы её не приняли за
+   подпись к предыдущему переключателю. Сама ничего не переключает. */
+.settings-content .settings-elsewhere {
+  margin-top: var(--space-5);
+  padding-top: var(--space-4);
+  border-top: 1px solid var(--hairline);
+}
