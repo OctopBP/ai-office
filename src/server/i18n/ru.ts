@@ -180,6 +180,7 @@ export const ru: Record<keyof typeof en, string> = {
   'git.integration.pruned': 'Каталог слияний {dir} держала протухшая запись git worktree — снята (worktree prune).',
   'git.integration.removed': 'В каталоге слияний {dir} застрял прежний worktree офиса — убран (worktree remove --force).',
   'git.integration.cleaned': 'В каталоге слияний {dir} остался брошенный worktree офиса — каталог удалён.',
+  'git.integration.unnested': 'В каталоге слияний {dir} лежали посторонние копии офиса ({copies}) — сняты, каталог возвращён под сборку.',
   'git.integration.rebuilt': 'Рабочая копия офиса {dir} не встала на базовую ветку ({error}) — пересобираем её заново.',
   'git.integration.busyTask': 'Каталог слияний {dir} занят рабочей копией ветки {branch} — её не трогаем.',
   'git.integration.fallback': 'Каталог слияний {dir} занят и не освобождается ({error}) — слияние собрано в запасном каталоге {alt}.',

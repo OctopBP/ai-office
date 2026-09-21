@@ -1,6 +1,6 @@
 import { execFile } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
-import { dirname, join, resolve } from 'node:path';
+import { dirname, join, resolve, sep } from 'node:path';
 import { tmpdir } from 'node:os';
 import { existsSync, mkdirSync, readFileSync, realpathSync, statSync, symlinkSync } from 'node:fs';
 import { mkdtemp, rm } from 'node:fs/promises';
@@ -284,6 +284,9 @@ export interface IntegrationCopy {
   warnings: string[];
 }
 
+/** Ветка задачи: в её рабочей копии лежит несданная работа исполнителя — трогать нельзя. */
+const TASK_REF = 'refs/heads/task/';
+
 /** Одна строка `git worktree list --porcelain`: где лежит копия и на какой она ветке. */
 interface WorktreeEntry {
   path: string;
@@ -325,6 +328,20 @@ async function registeredWorktree(repoDir: string, dir: string): Promise<Worktre
 }
 
 /**
+ * Наши копии, лежащие ВНУТРИ каталога, а не в нём самом.
+ *
+ * Ровно на этом в сентябре встали все слияния офиса: в каталоге `_base`
+ * оказалась копия от постороннего прогона гейта (`_base/office-b0cc4212`), а
+ * сам `_base` репозиторию не принадлежал — ни `prune`, ни `remove` по самому
+ * каталогу такой завал не берут, и разобрать его мог только человек:
+ * исполнителю песочница не даёт писать за пределами своей рабочей копии.
+ */
+async function nestedCopies(repoDir: string, dir: string): Promise<WorktreeEntry[]> {
+  const inside = `${realOf(dir)}${sep}`;
+  return (await listWorktrees(repoDir)).filter((w) => realOf(w.path).startsWith(inside));
+}
+
+/**
  * Брошенная копия этого же репозитория: каталог есть, а записи о нём уже нет
  * (её сняли `worktree prune` или удалённый .git/worktrees). Файл `.git` внутри
  * такой копии указывает на служебный каталог репозитория — по нему и отличаем
@@ -350,10 +367,12 @@ async function abandonedCopy(repoDir: string, dir: string): Promise<boolean> {
  * Поднять копию офиса в конкретном каталоге, разбирая по дороге завалы.
  *
  * `git worktree add` отказывает на занятом каталоге одинаково — «already
- * exists», — а причин у этого три: протухшая запись (лечится `prune`), наш же
- * застрявший worktree (снимаем `remove --force`) и чужое содержимое (не наше
- * дело). Разбираем их по очереди, потому что первые две офис обязан чинить сам:
- * иначе одно постороннее слияние останавливает весь конвейер до прихода человека.
+ * exists», — а причин у этого четыре: протухшая запись (лечится `prune`), наш
+ * же застрявший worktree (снимаем `remove --force`), наша копия, лежащая
+ * ВНУТРИ каталога (снимаем её — каталог освобождается сам), и чужое
+ * содержимое (не наше дело). Разбираем их по очереди, потому что первые три
+ * офис обязан чинить сам: иначе одно постороннее слияние останавливает весь
+ * конвейер до прихода человека.
  */
 async function raiseCopy(
   repoDir: string, dir: string, base: string, lang: Lang,
@@ -390,7 +409,7 @@ async function raiseCopy(
   //    не трогаем ни при каких обстоятельствах: там чужая несданная работа.
   const mine = await registeredWorktree(repoDir, dir);
   if (mine) {
-    if (mine.branch?.startsWith('refs/heads/task/')) {
+    if (mine.branch?.startsWith(TASK_REF)) {
       const branch = mine.branch.slice('refs/heads/'.length);
       warnings.push(t(lang, 'git.integration.busyTask', { dir, branch }));
       return { ok: false, error: last.stderr || last.stdout, warnings };
@@ -410,6 +429,33 @@ async function raiseCopy(
     last = await add();
     if (last.ok) {
       warnings.push(t(lang, 'git.integration.cleaned', { dir }));
+      return { ok: true, error: '', warnings };
+    }
+  }
+
+  // 4. Наши копии ВНУТРИ каталога. Сам каталог репозиторию не принадлежит, и
+  //    шаги 1–3 его не видят вовсе: убираем то, что лежит внутри, и каталог
+  //    освобождается. Копию живой задачи по-прежнему не трогаем.
+  const nested = await nestedCopies(repoDir, dir);
+  if (nested.length) {
+    const busy = nested
+      .map((w) => w.branch ?? '')
+      .filter((ref) => ref.startsWith(TASK_REF))
+      .map((ref) => ref.slice('refs/heads/'.length));
+    if (busy.length) {
+      warnings.push(t(lang, 'git.integration.busyTask', { dir, branch: busy.join(', ') }));
+      return { ok: false, error: last.stderr || last.stdout, warnings };
+    }
+    for (const copy of nested) {
+      await git(repoDir, ['worktree', 'remove', '--force', copy.path]);
+      await rm(copy.path, { recursive: true, force: true });
+    }
+    await git(repoDir, ['worktree', 'prune']);
+    last = await add();
+    if (last.ok) {
+      warnings.push(t(lang, 'git.integration.unnested', {
+        dir, copies: nested.map((w) => w.path).join(', '),
+      }));
       return { ok: true, error: '', warnings };
     }
   }
