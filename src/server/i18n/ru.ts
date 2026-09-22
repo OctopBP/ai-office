@@ -534,6 +534,8 @@ export const ru: Record<keyof typeof en, string> = {
   'boot.iconCutOff': 'Загрузка оборвалась, картинка не сохранена.',
   'boot.journalGetOnly': 'Журнал офиса отдаётся только по GET.',
   'boot.journalClosed': 'Офис «{office}» не открыт — журнал читать негде. Откройте его и повторите запрос.',
+  'boot.spendGetOnly': 'Детализация трат отдаётся только по GET.',
+  'boot.spendClosed': 'Офис «{office}» не открыт — траты читать негде. Откройте его и повторите запрос.',
   'boot.healthGetOnly': 'Сводка здоровья офиса отдаётся только по GET.',
   'boot.healthClosed': 'Офис «{office}» не открыт — сводку здоровья считать не из чего. Откройте его и повторите запрос.',
   'boot.notFound': 'Не найдено',

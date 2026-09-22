@@ -23,6 +23,7 @@ import { resetProjectWorkflow, saveProjectWorkflow } from './workflows';
 import { startSupervisor } from './supervisor';
 import { answerQuestion, dismissQuestion } from './questions';
 import { archiveFact, confirmFact, pageFacts } from './journal';
+import { pageSpend } from './spend';
 import { addRule, dropRule, editRule, ruleScopes } from './rules';
 import { officeHealth, watchHealth } from './health';
 import { runRitual } from './rituals';
@@ -303,6 +304,38 @@ const httpServer = createServer((req, res) => {
       return;
     }
     const page = pageFacts(getOffice(office.id), {
+      limit: params.get('limit'), cursor: params.get('cursor'),
+    });
+    res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' });
+    res.end(JSON.stringify(page));
+    return;
+  }
+  // Детализация трат: `?office=<id>&from=&to=&step=hour|day&limit=&cursor=`.
+  // Всё, кроме офиса, необязательно — без параметров это последняя неделя по
+  // суткам. В ответе и строки, и агрегаты по выбранному шагу.
+  if (url === '/api/spend') {
+    if (req.method !== 'GET') {
+      res.writeHead(405, { 'Content-Type': 'application/json; charset=utf-8', Allow: 'GET' });
+      res.end(JSON.stringify({ error: c('boot.spendGetOnly') }));
+      return;
+    }
+    const params = new URL(req.url ?? '/', 'http://office').searchParams;
+    const wantedId = params.get('office');
+    const office = wantedId ? officeById(wantedId) : currentOffice();
+    if (!office) {
+      res.writeHead(404, { 'Content-Type': 'application/json; charset=utf-8' });
+      res.end(JSON.stringify({ error: c('offices.notFound', { id: wantedId ?? '' }) }));
+      return;
+    }
+    // Как и с журналом: поднимать офис ради чтения не станем — это завело бы
+    // ему сессии и надзор.
+    if (!isOpened(office.id)) {
+      res.writeHead(503, { 'Content-Type': 'application/json; charset=utf-8' });
+      res.end(JSON.stringify({ error: c('boot.spendClosed', { office: office.name }) }));
+      return;
+    }
+    const page = pageSpend(getOffice(office.id), {
+      from: params.get('from'), to: params.get('to'), step: params.get('step'),
       limit: params.get('limit'), cursor: params.get('cursor'),
     });
     res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' });

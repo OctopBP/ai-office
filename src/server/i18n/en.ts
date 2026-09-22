@@ -534,6 +534,8 @@ export const en = {
   'boot.iconCutOff': 'The upload broke off, the picture was not saved.',
   'boot.journalGetOnly': 'The office journal is served over GET only.',
   'boot.journalClosed': 'Office “{office}” is not open — there is no journal to read. Open it and retry.',
+  'boot.spendGetOnly': 'The spend breakdown is served over GET only.',
+  'boot.spendClosed': 'Office “{office}” is not open — there is no spend to read. Open it and retry.',
   'boot.healthGetOnly': 'The office health summary is served over GET only.',
   'boot.healthClosed': 'Office “{office}” is not open — there is nothing to build a health summary from. Open it and retry.',
   'boot.notFound': 'Not found',

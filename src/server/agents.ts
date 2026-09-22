@@ -390,6 +390,30 @@ function resultReason(msg: Extract<SDKMessage, { type: 'result' }>, lang: Lang):
 }
 
 /**
+ * Модель, на которую ушла основная часть хода. SDK присылает расход по всем
+ * моделям сразу (`modelUsage`): в один ход попадают и главная модель, и мелкие
+ * служебные вызовы вроде подбора заголовка. Для строки в детализации трат
+ * нужна одна — берём ту, что стоила дороже всех, а при равных деньгах (их
+ * может и не быть) — ту, что прочитала больше токенов.
+ *
+ * Ничего не назвали — null: пусть модель подставит `addUsage` из роли, чем мы
+ * здесь выберем наугад первую попавшуюся.
+ */
+function mainModel(msg: Extract<SDKMessage, { type: 'result' }>): string | null {
+  const byModel = Object.entries(msg.modelUsage ?? {});
+  if (!byModel.length) return null;
+  const weight = (u: { costUSD?: number; inputTokens?: number; outputTokens?: number }): [number, number] =>
+    [u.costUSD ?? 0, (u.inputTokens ?? 0) + (u.outputTokens ?? 0)];
+  let best = byModel[0]!;
+  for (const entry of byModel.slice(1)) {
+    const [cost, tokens] = weight(entry[1]);
+    const [bestCost, bestTokens] = weight(best[1]);
+    if (cost > bestCost || (cost === bestCost && tokens > bestTokens)) best = entry;
+  }
+  return best[1].canonicalModel ?? best[0];
+}
+
+/**
  * Разбор потока сообщений SDK в состояние офиса и события UI.
  *
  * Офис передаётся явно, а не ищется по «текущему»: сессия живёт минутами, и
@@ -481,7 +505,7 @@ function consume(
       tokensOut: usage?.output_tokens ?? 0,
       cacheRead: usage?.cache_read_input_tokens ?? 0,
       cacheWrite: usage?.cache_creation_input_tokens ?? 0,
-    });
+    }, mainModel(msg));
     if (!isOk(msg)) {
       const reason = resultReason(msg, state.lang());
       state.addLog(instanceId, 'error',

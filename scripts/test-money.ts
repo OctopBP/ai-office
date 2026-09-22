@@ -295,6 +295,205 @@ noteRateLimit({ status: 'rejected', rateLimitType: 'five_hour', utilization: 1, 
 noteRateLimit({ status: 'allowed', rateLimitType: 'five_hour', utilization: 0.1 });
 results.push(`разрешённый запрос снимает отказ раньше срока: ${limitBlock() === null}`);
 
+// ---------- детализация трат ----------
+
+// Накопители отвечают «сколько», детализация — «на что и когда». Проверяется
+// то, на чём она врёт незаметно: потерянное поле записи, свёртка, съедающая
+// деньги, и постраничность, у которой агрегаты зависят от страницы.
+const {
+  pageSpend, foldSpend, dayStart, PAGE_SPEND, PAGE_SPEND_MAX, SPEND_MAX,
+  SPEND_RAW_DAYS, SPEND_KEEP_DAYS,
+} = await import('../src/server/spend');
+
+const HOUR_MS = 60 * 60 * 1000;
+const DAY_MS = 24 * HOUR_MS;
+
+const spDir = mkdtempSync(resolve(tmpdir(), 'office-spend-'));
+const spStateFile = resolve(spDir, 'state.json');
+const spOffice = openOfficeState({ id: 'o-spend', projectDir: spDir, stateFile: spStateFile }).state;
+const spTask = spOffice.createTask({
+  title: 'траты по времени', description: '', criteria: [], roleId: 'backend',
+});
+const spInst = spOffice.instances.get('backend#1')!;
+spInst.currentTaskId = spTask.id;
+
+spOffice.addUsage('backend#1', {
+  costUsd: 0.4, tokensIn: 120, tokensOut: 30, cacheRead: 900, cacheWrite: 10,
+}, 'claude-opus-5');
+const spFirst = spOffice.spendList()[0];
+results.push(
+  `трата легла отдельной записью: ${spOffice.spendList().length === 1}`,
+  `у записи есть момент времени: ${typeof spFirst?.at === 'number' && spFirst.at > 0}`,
+  `и офис: ${spFirst?.office === 'o-spend'}`,
+  `и задача: ${spFirst?.taskId === spTask.id}`,
+  `и роль с исполнителем: ${spFirst?.roleId === 'backend' && spFirst.instanceId === 'backend#1'}`,
+  `и модель, как её назвал SDK: ${spFirst?.model === 'claude-opus-5'}`,
+  `и токены с суммой: ${spFirst?.usage.tokensIn === 120 && spFirst.usage.tokensOut === 30
+    && spFirst.usage.cacheRead === 900 && spFirst.usage.costUsd === 0.4}`,
+);
+
+// SDK модель не назвал — колонку заполняет роль: это хуже точного ответа, но
+// лучше пустого места.
+spOffice.addUsage('backend#1', {
+  costUsd: 0.2, tokensIn: 50, tokensOut: 10, cacheRead: 0, cacheWrite: 0,
+});
+const spRoleModel = spOffice.role('backend')?.model ?? null;
+results.push(`без модели от SDK берётся модель роли: ${
+  spOffice.spendList()[1]?.model === spRoleModel && spRoleModel !== null}`);
+
+// Ход, который ничего не стоил, строкой не становится: таких результатов SDK
+// присылает немало, и нули только разбавляли бы таблицу.
+const spBeforeEmpty = spOffice.spendList().length;
+spOffice.addUsage('backend#1', emptyUsage());
+results.push(`нулевая трата записи не заводит: ${spOffice.spendList().length === spBeforeEmpty}`);
+
+// Разговор с менеджером и ритуалы идут вне задачи — деньги на них уходят те же.
+spInst.currentTaskId = null;
+spOffice.addUsage('backend#1', {
+  costUsd: 0.05, tokensIn: 5, tokensOut: 1, cacheRead: 0, cacheWrite: 0,
+}, 'claude-haiku-4-5-20251001');
+results.push(`трата вне задачи тоже записана: ${
+  spOffice.spendList().length === 3 && spOffice.spendList()[2]?.taskId === null}`);
+
+// ---------- маршрут GET /api/spend ----------
+
+// Время трат расставляем руками: иначе все три попадут в один час и проверить
+// шаг группировки будет нечем. Полдень сегодняшних суток взят опорой, чтобы
+// прогон в 23:50 не перекинул часть записей на завтра.
+const spNoon = dayStart(Date.now()) + 12 * HOUR_MS;
+const spAsked = spNoon + 30 * 60 * 1000;
+spOffice.spendList()[0]!.at = spNoon - 2 * HOUR_MS;
+spOffice.spendList()[1]!.at = spNoon + 10 * 60 * 1000;
+spOffice.spendList()[2]!.at = spNoon + 20 * 60 * 1000;
+
+// Параметры приходят из URL строками — так их и подаём.
+const spPage1 = pageSpend(spOffice, { step: 'hour', limit: '2' }, spAsked);
+results.push(
+  `страница отдаёт столько строк, сколько попросили: ${spPage1.items.length === 2}`,
+  `от свежих к старым: ${spPage1.items[0]?.id === 'S-3' && spPage1.items[1]?.id === 'S-2'}`,
+  `есть чем спросить следующую: ${spPage1.hasMore && spPage1.nextCursor === 'S-2'}`,
+  `строк в периоде всего три: ${spPage1.rows === 3}`,
+  `итог считается по периоду, а не по странице: ${Math.abs(spPage1.total.costUsd - 0.65) < 1e-9}`,
+  `часовых интервалов два: ${spPage1.buckets.length === 2}`,
+  `свежий интервал первый, и в нём две записи: ${
+    spPage1.buckets[0]?.entries === 2 && Math.abs(spPage1.buckets[0].usage.costUsd - 0.25) < 1e-9}`,
+);
+
+const spPage2 = pageSpend(spOffice, { step: 'hour', limit: '2', cursor: spPage1.nextCursor }, spAsked);
+results.push(
+  `по курсору приходит остаток: ${spPage2.items.length === 1 && spPage2.items[0]?.id === 'S-1'}`,
+  `и он последний: ${spPage2.hasMore === false && spPage2.nextCursor === null}`,
+  `агрегаты от страницы не зависят: ${spPage2.buckets.length === 2 && spPage2.rows === 3}`,
+);
+
+const spByDay = pageSpend(spOffice, { step: 'day' }, spAsked);
+results.push(`шаг в сутки сводит всё в один интервал: ${
+  spByDay.buckets.length === 1 && spByDay.buckets[0]?.entries === 3}`);
+
+const spNarrow = pageSpend(spOffice, { from: String(spNoon), to: String(spAsked), step: 'hour' }, spAsked);
+results.push(`период отсекает то, что было раньше: ${spNarrow.rows === 2 && spNarrow.from === spNoon}`);
+
+// Перепутанные местами границы меняются обратно: пустой период молча — это
+// «трат нет», и человек поверит.
+const spSwapped = pageSpend(spOffice, { from: String(spAsked), to: String(spNoon), step: 'hour' }, spAsked);
+results.push(`перепутанные границы меняются обратно: ${spSwapped.rows === 2}`);
+
+// Мусор в параметрах — не повод падать: худшее, что он может сделать, — это
+// вернуть период и страницу по умолчанию.
+const spJunk = pageSpend(
+  spOffice, { from: 'вчера', to: '', step: 'век', limit: '-5', cursor: 'нет такого' }, spAsked,
+);
+results.push(
+  `мусор в параметрах выдачу не роняет: ${spJunk.rows === 3}`,
+  `и приводится к умолчаниям: ${spJunk.step === 'day' && spJunk.limit === PAGE_SPEND}`,
+);
+results.push(`больше предела за раз не отдаём: ${
+  pageSpend(spOffice, { limit: '100000' }, spAsked).limit === PAGE_SPEND_MAX}`);
+
+// ---------- свёртка и предел хранения ----------
+
+const spNow = Date.now();
+const spEntry = (seq: number, at: number, extra: Partial<{ taskId: string | null; model: string | null }> = {}) => ({
+  id: `S-${seq}`,
+  at,
+  office: 'o-spend',
+  taskId: 'T-1' as string | null,
+  roleId: 'backend',
+  instanceId: 'backend#1',
+  model: 'claude-opus-5' as string | null,
+  usage: { costUsd: 1, tokensIn: 10, tokensOut: 2, cacheRead: 0, cacheWrite: 0 },
+  ...extra,
+});
+const spOldDay = spNow - (SPEND_RAW_DAYS + 3) * DAY_MS;
+const spFolded = foldSpend([
+  spEntry(1, spOldDay),
+  spEntry(2, spOldDay + HOUR_MS),
+  spEntry(3, spOldDay + 2 * HOUR_MS),
+  // Та же дата, но другая задача: свёртка посуточная, а не «всё в одну кучу».
+  spEntry(4, spOldDay + 3 * HOUR_MS, { taskId: 'T-2' }),
+  // Старше срока хранения — такому в файле состояния делать нечего.
+  spEntry(5, spNow - (SPEND_KEEP_DAYS + 5) * DAY_MS),
+  spEntry(6, spNow - HOUR_MS),
+], spNow);
+const spRolled = spFolded.find((e) => e.id === 'S-1');
+results.push(
+  `свёртка оставила три записи из шести: ${spFolded.length === 3}`,
+  `траты одних суток по одной задаче слились: ${spRolled?.rolled === 3}`,
+  `и деньги при этом не потерялись: ${spRolled?.usage.costUsd === 3 && spRolled.usage.tokensIn === 30}`,
+  `свёрнутая запись встала на полночь своих суток: ${spRolled?.at === dayStart(spOldDay)}`,
+  `у соседней задачи своя свёртка: ${
+    spFolded.find((e) => e.taskId === 'T-2')?.rolled === 1}`,
+  `запись старше срока хранения выброшена: ${!spFolded.some((e) => e.id === 'S-5')}`,
+  `свежая осталась детальной: ${spFolded.find((e) => e.id === 'S-6')?.rolled === undefined}`,
+  `порядок по номеру записи сохранился: ${
+    spFolded.map((e) => e.id).join() === 'S-1,S-4,S-6'}`,
+);
+
+// Свёртка по дате не спасёт от аномального потока записей за одни сутки —
+// на этот случай есть жёсткий предел, и режет он самые старые.
+const spFlood = foldSpend(
+  Array.from({ length: SPEND_MAX + 10 }, (_, i) => spEntry(i + 1, spNow - HOUR_MS)), spNow,
+);
+results.push(`жёсткий предел режет самые старые: ${
+  spFlood.length === SPEND_MAX && spFlood[0]?.id === 'S-11'}`);
+
+// ---------- перезапуск ----------
+
+flush(spStateFile);
+const spSaved = JSON.parse(readFileSync(spStateFile, 'utf8')) as { spend?: unknown[]; spendSeq?: number };
+results.push(
+  `траты попали в файл состояния: ${spSaved.spend?.length === 3}`,
+  `и счётчик номеров вместе с ними: ${spSaved.spendSeq === 3}`,
+);
+
+const spBack = openOfficeState({ id: 'o-spend-again', projectDir: spDir, stateFile: spStateFile }).state;
+const spBackFirst = spBack.spendList()[0];
+results.push(
+  `траты пережили перезапуск: ${spBack.spendList().length === 3}`,
+  `вместе с задачей и моделью: ${
+    spBackFirst?.taskId === spTask.id && spBackFirst.model === 'claude-opus-5'}`,
+);
+spBack.instances.get('backend#1')!.currentTaskId = null;
+spBack.addUsage('backend#1', {
+  costUsd: 0.01, tokensIn: 1, tokensOut: 1, cacheRead: 0, cacheWrite: 0,
+});
+results.push(`после перезапуска номера продолжаются, а не начинаются заново: ${
+  spBack.spendList()[3]?.id === 'S-4'}`);
+
+// Сохранение, сделанное до детализации, трат не знает: такое надо читать как
+// есть, а не падать на отсутствующем поле.
+const spNoField = { ...spSaved };
+delete spNoField.spend;
+delete spNoField.spendSeq;
+writeFileSync(spStateFile, JSON.stringify(spNoField, null, 2), 'utf8');
+const spLegacy = openOfficeState({ id: 'o-spend-legacy', projectDir: spDir, stateFile: spStateFile }).state;
+spLegacy.instances.get('backend#1')!.currentTaskId = null;
+spLegacy.addUsage('backend#1', {
+  costUsd: 0.02, tokensIn: 2, tokensOut: 1, cacheRead: 0, cacheWrite: 0,
+});
+results.push(`старое сохранение поднимается с пустой детализацией: ${
+  spLegacy.spendList().length === 1 && spLegacy.spendList()[0]?.id === 'S-1'}`);
+
 // Прошедшей считается только строка, кончающаяся на true: «не false» пропускало
 // в зачёт всё, что вообще не булево, — например undefined из-за опечатки.
 const failed = results.filter((r) => !r.endsWith('true'));
