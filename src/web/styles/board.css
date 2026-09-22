@@ -18,12 +18,9 @@
 .board-pane > .directions { margin-bottom: 0; }
 
 /* ---------- группы по фичам ----------
-   Задачи собраны в группы по фичам плана, «Разное» последним. Раньше здесь
-   были колонки по статусам, но под сотню задач в офисе — это сотня влитых
-   карточек, в которых терялись те одна-две, что идут сейчас: статус видно на
-   самой карточке, а вот фичу — только из группы. Группа доделанной фичи
-   схлопывается в одну строку, закрытые задачи внутри живой — в одну строку
-   «Закрытые». */
+   Задачи собраны в группы по фичам плана, «Разное» последним, а колонки по
+   статусам стоят внутри группы. Группа доделанной фичи схлопывается в одну
+   строку, закрытые задачи внутри живой — в полоску «Закрытые». */
 .task-groups { display: flex; flex-direction: column; gap: var(--space-2); }
 .task-group {
   border: 1px solid var(--hairline); border-radius: var(--radius-card);
@@ -86,20 +83,49 @@
   padding: var(--space-2) var(--space-3) var(--space-3);
   border-top: 1px solid var(--hairline);
 }
-/* Карточки в сетке, а не в колонку: на широком экране в ряд их влезает
-   четыре, на узком — одна, и обе крайности читаются. */
-.task-cards {
-  display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: var(--space-2);
-  align-items: start;
+/* ---------- колонки статусов внутри фичи ----------
+   Колонки стоят ВНУТРИ группы, а не поверх неё: фича отвечает на вопрос «про
+   что задача», статус — «где она сейчас». Пустые колонки группа не рисует
+   вовсе, поэтому фича из двух задач занимает два столбца, а не четыре, три из
+   которых пустые. Переносятся, а не сжимаются: на узком окне колонка уходит
+   на строку ниже, и горизонтальной прокрутки у страницы не появляется. */
+.task-cols { display: flex; flex-wrap: wrap; gap: var(--space-2); align-items: flex-start; }
+/* Верхняя граница ширины — чтобы одна-единственная колонка не растянулась
+   полосой во весь экран; нижняя (min-width: 0) — чтобы на узком окне колонка
+   сжималась, а не выдавливала соседей за край. */
+.task-col {
+  flex: 1 1 200px; min-width: 0; max-width: 300px;
+  display: flex; flex-direction: column; gap: var(--space-1);
 }
-/* Закрытое — история, а не работа: приглушаем целиком, чтобы не спорило за
-   внимание с идущим. */
-.task-cards.closed { opacity: .72; }
-.task-group-closed {
+.task-col-head {
   display: flex; align-items: center; gap: var(--space-2); width: 100%;
-  justify-content: flex-start; color: var(--ink-3); font-size: var(--fs-small);
+  justify-content: flex-start; text-align: left; font: inherit;
+  padding: 0 var(--space-1); min-height: 0; background: none; border: none; border-radius: 0;
+  font-size: var(--fs-caption); font-weight: 500; letter-spacing: .04em; text-transform: uppercase;
+  color: var(--ink-3);
 }
-.task-group-closed .caret { width: 10px; }
+.task-col-head:hover:not(:disabled) { background: none; color: var(--ink-2); }
+.task-col-head .caret { width: 10px; }
+.task-col-name { min-width: 0; }
+.task-col-head .muted { margin-left: auto; letter-spacing: 0; }
+/* Свёрнутые «Закрытые» — узкая полоса со счётчиком, а не колонка: история
+   фичи не должна стоять в ряд с идущей работой. */
+.task-col-closed {
+  flex: 0 0 auto; display: flex; align-items: center; gap: var(--space-2);
+  color: var(--ink-3); font-size: var(--fs-small);
+}
+.task-col-closed .caret { width: 10px; }
+/* Карточки в колонке — стопкой: ширину задаёт колонка. */
+.task-cards { display: flex; flex-direction: column; gap: var(--space-2); }
+/* Закрытое — история, а не работа: приглушаем, чтобы не спорило за внимание с
+   идущим. Провал и снятая из приглушения выведены: иначе неудача растворяется
+   среди влитого, а её как раз и ищут глазами. */
+.task-col.closed .task { opacity: .72; }
+.task-col.closed .task.failed, .task-col.closed .task.cancelled { opacity: 1; }
+/* Исход — полоской у левого края карточки: чип со словом стоит в ряду других
+   чипов и на беглом взгляде теряется. */
+.task.failed { border-left: 3px solid var(--danger); }
+.task.cancelled { border-left: 3px solid var(--ink-4); }
 
 /* Карточка на доске короче, чем в дровере: только то, по чему её узнают. */
 .task-cards .task { margin: 0; }
