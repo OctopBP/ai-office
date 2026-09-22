@@ -54,6 +54,7 @@ import { MAX_DT, sceneOnScreen, sceneTime } from './clock';
 import type { AgentState, InstanceView, RoleView, TaskView } from '../../shared/types';
 import { LOOKS, lookFor, type Look } from '../../shared/looks';
 import { NO_ROLE_COLOR } from '../Avatar';
+import { useInstanceName } from '../instanceName';
 
 /**
  * Текстуры персонажей по имени скина — оно же идентификатор внешности
@@ -496,15 +497,14 @@ function AgentTag({ anchorRef, inst, role, task }: {
   const chipColor = role?.color || NO_ROLE_COLOR;
   /**
    * Подпись сотрудника — ровно та, что в карточке окна «Команда» и в шапке
-   * дровера (см. `AgentName`): `inst.label`. Офис собирает её на сервере и
-   * ставит в неё номер, когда роль нанята не в одном экземпляре
-   * («Backend разработчик #2»), поэтому голый `role.title` не годится — у трёх
-   * бэкендеров он одинаковый, и различить их над головой стало бы нельзя.
+   * дровера: общая `displayInstance`. Номер она ставит только когда роль
+   * нанята не в одном экземпляре, — у трёх бэкендеров голое название
+   * должности одинаковое, и различить их над головой стало бы нельзя.
    * `role.title` остаётся запасным на случай, когда роль в веб не доехала.
    * Своей строки здесь не собираем: короткий код остался на аватарках, где он
    * и нужен, а переводить название нечего — его пишет сам владелец.
    */
-  const title = inst.label || role?.title || '';
+  const title = useInstanceName(inst.id) || role?.title || '';
   // Свободному агенту показывать нечего: команда у него осталась от прошлой
   // задачи, и висела бы над головой до самой следующей.
   const note = inst.state === 'idle' ? null : inst.note;

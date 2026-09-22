@@ -8,6 +8,7 @@ import { RoleReport } from './RoleReport';
 import { PackageCard } from './PackageCard';
 import { useActionNotice } from './useActionNotice';
 import { Avatar } from './Avatar';
+import { displayInstance } from './instanceName';
 import { catalog } from './layoutData';
 import { desks } from '../shared/layout';
 import { t } from './i18n';
@@ -209,9 +210,9 @@ export function TeamWindow({ onClose }: { onClose: () => void }) {
                       <Avatar roleId={inst.roleId} instanceId={inst.id} />
                       <span className="market-row-text">
                         {/* С именем строка называется именем, а роль уходит в подстрочник. */}
-                        <span className="market-row-title">{inst.name ?? role?.title ?? inst.id}</span>
+                        <span className="market-row-title">{displayInstance(inst.id, instances, roles)}</span>
                         <span className="market-row-sub muted small">
-                          {inst.id}{inst.name && role ? ` · ${role.title}` : ''} · {stateLabel(inst.state)}
+                          {inst.name && role ? `${role.title} · ` : ''}{stateLabel(inst.state)}
                           {role?.package && ` · ${role.package.name} ${role.package.version}`}
                         </span>
                       </span>

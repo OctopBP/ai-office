@@ -2864,7 +2864,11 @@ export function assignDirect(state: OfficeState, taskId: string, instanceId: str
   const inst = state.instances.get(instanceId);
   if (!task || !inst) return;
   if (task.assigneeId && task.status === 'in_progress') {
-    state.addChat(OFFICE_SENDER, state.say('start.alreadyRunning', { task: taskId, who: task.assigneeId }));
+    // В чат владельцу — подпись исполнителя, а не код экземпляра.
+    const busy = state.instances.get(task.assigneeId);
+    state.addChat(OFFICE_SENDER, state.say('start.alreadyRunning', {
+      task: taskId, who: busy?.label ?? task.assigneeId,
+    }));
     return;
   }
   // Кнопка «отдать этому» есть и у снятой задачи — на доске она видна так же,

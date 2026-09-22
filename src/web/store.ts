@@ -23,6 +23,7 @@ import { fitNow } from './office3d/fit';
 import { catalog, DEFAULT_LAYOUT_ID, layoutFor, passabilityFor } from './layoutData';
 import { interestsFor, rotateInterests, type Interest } from './interests';
 import { isBusy } from './agentState';
+import { displayInstance } from './instanceName';
 import { go, readRoute, type HomeTab } from './router';
 import { adjacentFree, deskPoint, findPath, meetingSeat } from '../shared/layout';
 
@@ -841,7 +842,13 @@ export const useStore = create<State>((set, get) => ({
             id: `${t.id}-${t.status}`,
             kind: t.status === 'done' ? 'done' : 'failed',
             title: tr(t.status === 'done' ? 'toast.taskDone' : 'toast.taskFailed', {
-              who: t.assigneeId ?? tr('common.someone'), task: t.id, title: t.title,
+              // Исполнитель зовётся так же, как везде: подписью, а не кодом
+              // экземпляра. `Toasts.tsx` красит её первым словом заголовка и
+              // ищет её тем же `displayInstance`.
+              who: t.assigneeId
+                ? displayInstance(t.assigneeId, get().instances, get().roles)
+                : tr('common.someone'),
+              task: t.id, title: t.title,
             }),
             detail: t.status === 'done'
               ? `+$${t.usage.costUsd.toFixed(3)}${files}`

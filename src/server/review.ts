@@ -864,7 +864,11 @@ const step: Executor<Ctx> = {
       node: node.id, needs, prefer, exclude: excluded ? [excluded] : [],
       cwd: worktree, prompt, outcomes,
     });
-    if (out.actor) state.addChat(OFFICE_SENDER, state.say('wf.stepStart', { task: task.id, node: node.id, who: out.actor }));
+    if (out.actor) {
+      // Владельцу в чат — подпись исполнителя: код экземпляра ему ни о чём.
+      const who = state.instances.get(out.actor)?.label ?? out.actor;
+      state.addChat(OFFICE_SENDER, state.say('wf.stepStart', { task: task.id, node: node.id, who }));
+    }
     await settle(state, worktree, task, node.id, out.actor);
     if (!out.ok || !out.outcome) {
       return {

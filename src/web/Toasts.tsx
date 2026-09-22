@@ -1,20 +1,26 @@
 import { dismissToast, showDiff, useStore } from './store';
+import { displayInstance } from './instanceName';
 import { t as tr } from './i18n';
 
 /** Всплывающие сообщения о заметных событиях: завершение, провал, слияние. */
 export function Toasts({ onOpenTask }: { onOpenTask: (id: string) => void }) {
   const toasts = useStore((s) => s.toasts);
   const tasks = useStore((s) => s.tasks);
+  const instances = useStore((s) => s.instances);
+  const roles = useStore((s) => s.roles);
   if (toasts.length === 0) return null;
 
   return (
     <div className="toasts">
       {toasts.map((t) => {
         const task = t.taskId ? tasks[t.taskId] : undefined;
-        // Ник агента приходит уже вшитым в переведённый заголовок первым
+        // Подпись агента приходит уже вшитой в переведённый заголовок первым
         // словом (шаблон toast.taskDone/toast.taskFailed начинается с
-        // {who}) — красим этот кусок, отделяя его по assigneeId задачи.
-        const who = task?.assigneeId;
+        // {who}) — красим этот кусок, собирая ту же подпись, какой её собрал
+        // стор, когда заводил тост.
+        const who = task?.assigneeId
+          ? displayInstance(task.assigneeId, instances, roles)
+          : undefined;
         const [titleHead, titleTail] = who && t.title.startsWith(who)
           ? [who, t.title.slice(who.length)]
           : [null, t.title];
