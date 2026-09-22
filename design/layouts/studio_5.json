@@ -1,0 +1,80 @@
+{
+    "version": 1,
+    "id": "studio_5",
+    "title": "Студия 5",
+    "size": [24, 16],
+    "rooms": [
+      { "id": "meeting", "title": "Переговорка", "rect": [18, 8, 24, 16], "floor": "tiles" },
+      { "id": "lounge", "title": "Зона отдыха", "rect": [0, 8, 18, 16], "floor": "parquet" },
+      { "id": "open", "title": "Опенспейс", "rect": [0, 0, 24, 8], "floor": "parquet3" }
+    ],
+    "walls": [
+      { "a": [0, 0], "b": [24, 0], "windows": [2, 4, 6, 17, 19, 21] },
+      { "a": [0, 0], "b": [0, 16] },
+      { "a": [0, 15], "b": [24, 15], "doors": [[15, 2]], "windows": [3, 21] },
+      { "a": [23, 0], "b": [23, 16] }
+    ],
+    "props": [
+      { "sprite": "desk_pm", "at": [2, 2] },
+      { "sprite": "desk", "at": [5, 2] },
+      { "sprite": "desk", "at": [8, 2] },
+      { "sprite": "desk", "at": [11, 2] },
+      { "sprite": "desk", "at": [14, 2] },
+      { "sprite": "desk", "at": [17, 2] },
+      { "sprite": "desk", "at": [20, 2] },
+      { "sprite": "desk", "at": [2, 5] },
+      { "sprite": "desk", "at": [5, 5] },
+      { "sprite": "desk", "at": [8, 5] },
+      { "sprite": "desk", "at": [11, 5] },
+      { "sprite": "desk", "at": [14, 5] },
+      { "sprite": "desk", "at": [17, 5] },
+      { "sprite": "desk", "at": [20, 5] },
+
+      { "sprite": "chair", "at": [2.5, 1.8] },
+      { "sprite": "chair", "at": [5.5, 1.8] },
+      { "sprite": "chair", "at": [8.5, 1.8] },
+      { "sprite": "chair", "at": [11.5, 1.8] },
+      { "sprite": "chair", "at": [14.5, 1.8] },
+      { "sprite": "chair", "at": [17.5, 1.8] },
+      { "sprite": "chair", "at": [20.5, 1.8] },
+      { "sprite": "chair", "at": [2.5, 4.8] },
+      { "sprite": "chair", "at": [5.5, 4.8] },
+      { "sprite": "chair", "at": [8.5, 4.8] },
+      { "sprite": "chair", "at": [11.5, 4.8] },
+      { "sprite": "chair", "at": [14.5, 4.8] },
+      { "sprite": "chair", "at": [17.5, 4.8] },
+      { "sprite": "chair", "at": [20.5, 4.8] },
+  
+      { "sprite": "round_table", "at": [20, 12], "id": "meeting_table", "scale": 1 },
+      { "sprite": "potted_plant", "at": [1, 1] },
+      { "sprite": "potted_plant", "at": [22, 1] },
+  
+      { "sprite": "potted_plant", "at": [2, 9] },
+      { "sprite": "sofa", "at": [3, 9] },
+      { "sprite": "coffee_table", "at": [3, 11] },
+      { "sprite": "lounge_rug", "at": [2, 10] },
+      { "sprite": "floor_lamp", "at": [6, 9] },
+
+      { "sprite": "sofa", "at": [12, 9] },
+      { "sprite": "lounge_rug", "at": [11, 10] },
+      { "sprite": "coffee_table", "at": [12, 11] },
+      { "sprite": "floor_lamp", "at": [15, 9] },
+      { "sprite": "potted_plant", "at": [11, 9] },
+      
+      { "sprite": "potted_plant", "at": [8, 9] },
+      { "sprite": "armchair", "at": [9, 9] }
+    ],
+    "zones": [
+      { "kind": "meeting", "prop": "meeting_table" },
+      { "kind": "idle", "room": "lounge" },
+  
+      { "kind": "talk", "at": [4.0, 14.0], "axis": "x" },
+      { "kind": "talk", "at": [7.6, 11.0], "axis": "y" }
+    ],
+    "hotspots": [
+      { "panel": "log", "sprite": "logscreen", "at": [8, 0], "key": "L", "title": "Лог событий — L" },
+      { "panel": "board", "sprite": "board", "at": [10, 0], "key": "B", "title": "Доска задач — B" },
+      { "panel": "money", "sprite": "moneyboard", "at": [14, 0], "key": "E", "title": "Расходы — E" }
+    ]
+  }
+  
