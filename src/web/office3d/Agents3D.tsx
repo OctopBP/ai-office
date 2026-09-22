@@ -38,7 +38,9 @@ import pushUpUrl from '../../../design/models/characters/animations/push-up.fbx?
 import pushUpToIdleUrl from '../../../design/models/characters/animations/push-up-to-idle.fbx?url';
 import drinkUrl from '../../../design/models/characters/animations/drink.fbx?url';
 import danceUrl from '../../../design/models/characters/animations/dance.fbx?url';
-import { deskPoint, deskSprite, desks, FOOT_DX, FOOT_DY } from '../../shared/layout';
+import {
+  deskFacing, deskPoint, deskSprite, desks, FOOT_DX, FOOT_DY, yawOfSide,
+} from '../../shared/layout';
 import type { Layout } from '../../shared/layout';
 import { catalog } from '../layoutData';
 import { poseFit, useFit } from './fit';
@@ -952,9 +954,15 @@ function Agent({
                 : interest?.kind === 'dance' ? 'dance'
                   : 'idle';
 
-  /** Куда смотреть стоя: занятие может попросить свой разворот — собеседники
-   *  разворачиваются друг к другу, — иначе как обычно, на юг. */
-  const restYaw = interest?.yaw ?? REST_YAW;
+  /**
+   * Куда смотреть стоя: за своим столом — в стол, с учётом его поворота
+   * (`deskFacing`); занятие может попросить свой разворот — собеседники
+   * разворачиваются друг к другу, места отдыха разворачивают от спинки
+   * (`interest.yaw` из `restSeats`); иначе как обычно, на юг.
+   */
+  const restYaw = atDesk && fallbackDesk
+    ? yawOfSide(deskFacing(layout, catalog, inst.desk.index))
+    : interest?.yaw ?? REST_YAW;
 
   /** Первый в паре по алфавиту начинает говорить: правило одинаково у обоих,
    *  поэтому договариваться им не о чем. */

@@ -12,7 +12,7 @@
  */
 import type { Preset } from '../../shared/preset';
 import type { Catalog, Layout, LayoutProp } from '../../shared/layout';
-import { propScale } from '../../shared/layout';
+import { propFootprint, propRot } from '../../shared/layout';
 import { WALL_THICK } from './geometry';
 import { isFlat, presetOf, wallMount } from './presets';
 
@@ -102,14 +102,18 @@ export interface Placed3 {
  * Растяжение из раскладки (`scale` или явный `size`, §3.2) трогает только
  * след. Высоту оно не трогает намеренно: она задана человеком, а не артом, и
  * «стол в полтора раза больше» означает столешницу шире, а не стол по грудь.
+ *
+ * Поворот (`LayoutProp.rot`) считается той же функцией, что и на сервере
+ * (`propFootprint`, §`shared/layout.ts`) — иначе след в комнате разошёлся бы
+ * со следом, по которому там же посчитана проходимость. Ключ каталога
+ * (footprint, размер арта) у пресета и у каталога один и тот же набор чисел,
+ * поэтому сюда идёт флэт-каталог: только у него есть тип `CatalogSprite`,
+ * который эта функция принимает.
  */
 export function floorRect(cat: Catalog, prop: LayoutProp): FloorRect {
   const sprite = cat.sprites[prop.sprite];
-  const def = presetOf(prop.sprite);
-  const [sx, sy] = propScale(prop, sprite);
-  const [ax, ay] = prop.at;
-  const [fx, fy, fw, fh] = def.footprint;
-  return { x: ax + fx * sx, y: ay + fy * sy, w: fw * sx, d: fh * sy };
+  const r = propFootprint(prop, sprite);
+  return { x: r.x, y: r.y, w: r.w, d: r.h };
 }
 
 /**
@@ -149,7 +153,7 @@ export function place3(
       d: wall ? (wall.thickness ?? 0.12) : r.d,
       h: def.h,
       base: wall ? wall.at : 0,
-      rot: prop.rot !== undefined ? (prop.rot * Math.PI) / 180 : 0,
+      rot: (propRot(prop) * Math.PI) / 180,
     };
   });
 
