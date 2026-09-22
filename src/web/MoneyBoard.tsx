@@ -1,10 +1,10 @@
 import { usageMoney } from './money';
-import { useState } from 'react';
-import { useStore } from './store';
-import { cacheShare, limitTone, money, tok, usageLine } from './money';
+import { useEffect, useMemo, useState } from 'react';
+import { useStore, type SpendPeriod } from './store';
+import { cacheShare, clock, limitTone, money, tok, usageLine } from './money';
 import { Gauge, LimitBars } from './LimitBars';
-import type { TaskView, Usage } from '../shared/types';
-import { dayKey, emptyUsage } from '../shared/types';
+import type { SpendBucket, SpendEntryView, SpendPage, SpendStep, TaskView, Usage } from '../shared/types';
+import { accumulate, dayKey, emptyUsage } from '../shared/types';
 import { t } from './i18n';
 import { Avatar, AgentTag } from './Avatar';
 
@@ -55,6 +55,203 @@ function TaskRow({ task, spent, span }: { task: TaskView; spent: Usage; span: 't
       )}
       <b>{usageMoney(spent)}</b>
     </button>
+  );
+}
+
+/** Сколько строк детализации спрашивать за раз — максимум, который отдаёт сервер. */
+const SPEND_ITEMS_LIMIT = 500;
+/** Сколько групп разбивки показывать в строке интервала, остальные — «ещё N». */
+const BREAKDOWN_SHOWN = 3;
+
+/** Границы периода в мс по выбору человека — от начала окна до текущего момента. */
+function spendRange(period: SpendPeriod, now: number): { from: number; to: number } {
+  if (period === 'today') {
+    const start = new Date(now);
+    start.setHours(0, 0, 0, 0);
+    return { from: start.getTime(), to: now };
+  }
+  const days = period === 'week' ? 7 : 30;
+  return { from: now - days * 24 * 60 * 60 * 1000, to: now };
+}
+
+/** Ключ интервала выбранного шага — та же формула, что группирует агрегаты на сервере (`stepKey` в `spend.ts`). */
+function bucketKeyOf(at: number, step: SpendStep): string {
+  const day = dayKey(at);
+  return step === 'day' ? day : `${day}T${String(new Date(at).getHours()).padStart(2, '0')}`;
+}
+
+/** Подпись интервала: «22.09» для суток, «22.09 14:00» для часа. */
+function bucketLabel(at: number, step: SpendStep): string {
+  const day = dayLabel(dayKey(at));
+  return step === 'day' ? day : `${day} ${clock(at)}`;
+}
+
+interface BreakdownGroup {
+  key: string;
+  taskId: string | null;
+  instanceId: string;
+  model: string | null;
+  usage: Usage;
+}
+
+interface SpendRow {
+  bucket: SpendBucket;
+  breakdown: BreakdownGroup[];
+  cumulative: Usage;
+}
+
+/**
+ * Строки таблицы из страницы трат: сумма и накопительный итог берём из
+ * серверных агрегатов (`buckets`, `total`) — они честны за весь период, даже
+ * если строк детализации (`items`) в периоде больше, чем отдано на странице.
+ * Разбивку по задаче/роли/модели строим из `items`: если страница неполная,
+ * это видно по `truncated` и показывается отдельной оговоркой, а не молчком.
+ */
+function buildSpendRows(page: SpendPage, step: SpendStep): { rows: SpendRow[]; truncated: boolean } {
+  const byBucket = new Map<string, SpendEntryView[]>();
+  for (const e of page.items) {
+    const key = bucketKeyOf(e.at, step);
+    const list = byBucket.get(key);
+    if (list) list.push(e); else byBucket.set(key, [e]);
+  }
+
+  const ascending = [...page.buckets].sort((a, b) => a.at - b.at);
+  const running = emptyUsage();
+  const rows: SpendRow[] = ascending.map((bucket) => {
+    accumulate(running, bucket.usage);
+    const entries = byBucket.get(bucket.key) ?? [];
+    const groups = new Map<string, BreakdownGroup>();
+    for (const e of entries) {
+      const gKey = [e.taskId ?? '', e.instanceId, e.model ?? ''].join(' ');
+      const found = groups.get(gKey);
+      if (found) accumulate(found.usage, e.usage);
+      else groups.set(gKey, { key: gKey, taskId: e.taskId, instanceId: e.instanceId, model: e.model, usage: { ...e.usage } });
+    }
+    const breakdown = [...groups.values()].sort((a, b) => b.usage.costUsd - a.usage.costUsd);
+    return { bucket, breakdown, cumulative: { ...running } };
+  });
+  rows.reverse();
+  return { rows, truncated: page.hasMore };
+}
+
+/** Одна строка разбивки: задача, исполнитель и модель — сумма правее. */
+function BreakdownItem({ g }: { g: BreakdownGroup }) {
+  return (
+    <div className="spend-break-item">
+      <span className="mono dim">{g.taskId ?? t('money.table.noTask')}</span>
+      <span className="muted small row-title">
+        {g.instanceId} · {g.model ?? t('money.table.noModel')}
+      </span>
+      <span className="mono small">{usageMoney(g.usage)}</span>
+    </div>
+  );
+}
+
+/** Строка таблицы: интервал, сумма, разбивка, накопительный итог. */
+function SpendTableRow({ row, step }: { row: SpendRow; step: SpendStep }) {
+  const extra = row.breakdown.length - BREAKDOWN_SHOWN;
+  return (
+    <tr>
+      <td className="mono">{bucketLabel(row.bucket.at, step)}</td>
+      <td className="mono">{usageMoney(row.bucket.usage)}</td>
+      <td>
+        <div className="spend-breakdown">
+          {row.breakdown.slice(0, BREAKDOWN_SHOWN).map((g) => <BreakdownItem key={g.key} g={g} />)}
+          {extra > 0 && <span className="muted small">{t('money.table.more', { n: extra })}</span>}
+        </div>
+      </td>
+      <td className="mono">{usageMoney(row.cumulative)}</td>
+    </tr>
+  );
+}
+
+/**
+ * Таблица трат по времени: строки — интервалы выбранного шага, столбцы —
+ * время, сумма за интервал, разбивка по задаче/исполнителю/модели и
+ * накопительный итог. Данные — с маршрута `/api/spend` (T-88): период и шаг
+ * летят в запрос, страница отдаёт и сырые записи, и готовые агрегаты.
+ */
+function SpendTable() {
+  const officeId = useStore((s) => s.offices.find((o) => o.current)?.id);
+  const period = useStore((s) => s.spendPeriod);
+  const step = useStore((s) => s.spendStep);
+  const setPeriod = useStore((s) => s.setSpendPeriod);
+  const setStep = useStore((s) => s.setSpendStep);
+
+  const [state, setState] = useState<{ loading: boolean; failed: boolean; page: SpendPage | null }>(
+    { loading: true, failed: false, page: null },
+  );
+
+  useEffect(() => {
+    if (!officeId) return;
+    let cancelled = false;
+    setState((s) => ({ ...s, loading: true, failed: false }));
+    const { from, to } = spendRange(period, Date.now());
+    const params = new URLSearchParams({
+      office: officeId, from: String(from), to: String(to), step, limit: String(SPEND_ITEMS_LIMIT),
+    });
+    fetch(`/api/spend?${params}`)
+      .then((res) => (res.ok ? res.json() as Promise<SpendPage> : Promise.reject(res.status)))
+      .then((page) => { if (!cancelled) setState({ loading: false, failed: false, page }); })
+      .catch(() => { if (!cancelled) setState({ loading: false, failed: true, page: null }); });
+    return () => { cancelled = true; };
+  }, [officeId, period, step]);
+
+  const built = useMemo(() => (state.page ? buildSpendRows(state.page, step) : null), [state.page, step]);
+
+  return (
+    <>
+      <h4 className="section-title">{t('money.table.title')}</h4>
+      <div className="spend-controls">
+        <div className="seg money-switch">
+          <button className={period === 'today' ? 'on' : ''} onClick={() => setPeriod('today')}>
+            {t('money.table.period.today')}
+          </button>
+          <button className={period === 'week' ? 'on' : ''} onClick={() => setPeriod('week')}>
+            {t('money.table.period.week')}
+          </button>
+          <button className={period === 'month' ? 'on' : ''} onClick={() => setPeriod('month')}>
+            {t('money.table.period.month')}
+          </button>
+        </div>
+        <div className="seg money-switch">
+          <button className={step === 'hour' ? 'on' : ''} onClick={() => setStep('hour')}>
+            {t('money.table.step.hour')}
+          </button>
+          <button className={step === 'day' ? 'on' : ''} onClick={() => setStep('day')}>
+            {t('money.table.step.day')}
+          </button>
+        </div>
+      </div>
+
+      {state.loading && <p className="muted small">{t('money.table.loading')}</p>}
+      {!state.loading && state.failed && <p className="muted small">{t('money.table.error')}</p>}
+      {!state.loading && !state.failed && built && built.rows.length === 0 && (
+        <p className="muted small">{t('money.table.empty')}</p>
+      )}
+      {!state.loading && !state.failed && built && built.rows.length > 0 && (
+        <div className="card spend-table-wrap">
+          {built.truncated && (
+            <p className="modal-reason spend-truncated">
+              {t('money.table.truncated', { n: SPEND_ITEMS_LIMIT })}
+            </p>
+          )}
+          <table className="spend-table">
+            <thead>
+              <tr>
+                <th>{t('money.table.col.time')}</th>
+                <th>{t('money.table.col.amount')}</th>
+                <th>{t('money.table.col.breakdown')}</th>
+                <th>{t('money.table.col.total')}</th>
+              </tr>
+            </thead>
+            <tbody>
+              {built.rows.map((row) => <SpendTableRow key={row.bucket.key} row={row} step={step} />)}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </>
   );
 }
 
@@ -172,6 +369,8 @@ export function MoneyBoard() {
           </div>
         ))}
       </div>
+
+      <SpendTable />
 
       <p className="modal-reason">{t('usage.note')}</p>
     </div>

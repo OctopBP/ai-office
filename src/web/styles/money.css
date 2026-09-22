@@ -57,3 +57,24 @@
 .usage-row.task-row:hover { background: var(--film); }
 /* Контекст менеджера у порога обновления сессии — предупреждение, а не справка. */
 .usage-lines .warn { color: var(--warn); }
+
+/* ---------- таблица трат по времени ----------
+   Панель уже даёт тень как поверхность над сценой (`.float` в Panel.tsx);
+   таблица внутри неё — на плоском фоне, поэтому `.card`: та же граница из
+   `--hairline`, без своей тени. */
+.spend-controls { display: flex; flex-wrap: wrap; gap: var(--space-2); margin-bottom: var(--space-2); }
+.spend-table-wrap { padding: var(--space-3); overflow-x: auto; }
+.spend-truncated { margin: 0 0 var(--space-2); }
+.spend-table { width: 100%; border-collapse: collapse; font-size: var(--fs-md); }
+.spend-table th {
+  text-align: left; font-weight: 500; color: var(--ink-3); font-size: var(--fs-small);
+  padding: var(--space-1) var(--space-2); border-bottom: 1px solid var(--hairline); white-space: nowrap;
+}
+.spend-table td {
+  padding: var(--space-2); border-bottom: 1px solid var(--hairline);
+  vertical-align: top; font-variant-numeric: tabular-nums;
+}
+.spend-table tr:last-child td { border-bottom: none; }
+.spend-breakdown { display: flex; flex-direction: column; gap: 2px; min-width: 220px; }
+.spend-break-item { display: flex; align-items: center; gap: var(--space-2); }
+.spend-break-item .row-title { flex: 1; min-width: 0; }
