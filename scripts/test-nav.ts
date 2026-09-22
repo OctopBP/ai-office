@@ -10,21 +10,19 @@
  *
  * Запуск: npm run test:nav
  */
-import { readFileSync } from 'node:fs';
-import { dirname, resolve } from 'node:path';
-import { fileURLToPath } from 'node:url';
 import {
   adjacentFree, deskPoint, desks, findPath, isBlocked, kitchenSeats, meetingSeat,
   nearestFree, passability, propScale, propSize, spriteOf, standingAt, talkSeats,
   walkerCell,
 } from '../src/shared/layout';
-import type { Catalog, Layout, Passability, Pos } from '../src/shared/layout';
+import type { Layout, Passability, Pos } from '../src/shared/layout';
+import { catalog, layoutIds, loadLayout } from '../src/server/layout';
 
-const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
-const catalog = JSON.parse(
-  readFileSync(resolve(ROOT, 'design/sprites/out/catalog.json'), 'utf8'),
-) as Catalog;
-const LAYOUT_IDS = ['classic', 'studio', 'studio_2', 'studio_3', 'studio_4'];
+// Раскладки и каталог спрайтов читаем тем же модулем, что и сервер: корень
+// считает src/server/root.ts, а список пресетов — сама директория. Свой
+// список имён здесь уже подводил — проверка падала на слитом дереве, где
+// раскладку успели удалить в main (см. layoutIds).
+const LAYOUT_IDS = layoutIds();
 
 let passed = 0;
 const failures: string[] = [];
@@ -137,7 +135,7 @@ function targetsOf(layout: Layout): { label: string; at: Pos }[] {
 }
 
 for (const id of LAYOUT_IDS) {
-  const layout = JSON.parse(readFileSync(resolve(ROOT, `design/layouts/${id}.json`), 'utf8')) as Layout;
+  const layout = loadLayout(id);
   const p = passability(layout, catalog);
   const targets = targetsOf(layout);
 

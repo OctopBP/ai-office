@@ -402,6 +402,42 @@ function findRingSeat(layout: Layout, catalog: Catalog, propId?: string) {
 }
 
 /**
+ * Точка, прижатая к карте: клетка ног обязана лежать внутри сетки.
+ *
+ * Кольцо мест переговорки растёт вместе с числом участников и про размеры
+ * карты не знает. В раскладке `studio_5` стол стоит в углу комнаты, и при
+ * полном составе (14 столов) семь мест из четырнадцати уезжали за край карты:
+ * подойти туда нельзя вовсе, а офис вёл туда агента — маршрут из такого места
+ * начинался шагом сквозь стену. Точку за краем прижимаем к центру крайней
+ * клетки: место остаётся у стола с той же стороны, но на карте, а как к нему
+ * подойти, решает `nearestFree` в момент поиска пути.
+ *
+ * Мест на занятых клетках это не лечит и лечить не должно — место человека и
+ * так лежит на мебели (см. `passability`), к нему подходят, а не проходят.
+ */
+function onMap(layout: Layout, at: Pos): Pos {
+  const [cols, rows] = layout.size;
+  const clamp = (v: number, lo: number, hi: number): number => Math.min(Math.max(v, lo), hi);
+  return {
+    x: clamp(at.x, 0.5 - FOOT_DX, cols - 0.5 - FOOT_DX),
+    y: clamp(at.y, 0.5 - FOOT_DY, rows - 0.5 - FOOT_DY),
+  };
+}
+
+/** Позиция места кольца: эллипс вокруг центра предмета, общая формула на всех. */
+function ringSeatAt(
+  layout: Layout, center: Pos, slot: SlotRing, seatIndex: number, total: number,
+): Pos {
+  const n = Math.max(total, 1);
+  const grow = slot.grow && n > slot.ring ? n / slot.ring : 1;
+  const angle = (seatIndex / n) * Math.PI * 2 - Math.PI / 2;
+  return onMap(layout, {
+    x: center.x + Math.cos(angle) * slot.rx * grow,
+    y: center.y + Math.sin(angle) * slot.ry * grow,
+  });
+}
+
+/**
  * Место seatIndex из total за столом переговорки: эллипс вокруг центра
  * предмета, фиксированного размера, пока участников не больше ring, дальше
  * растёт вместе с их числом (§3.1, meetingSeat()/meetingSeats.ts:22 — то же
@@ -413,27 +449,16 @@ export function meetingSeat(
   const found = findRingSeat(layout, catalog, propId);
   if (!found) throw new Error('layout: в раскладке нет стола со слотом seat/ring');
   const { prop, sprite, slot } = found;
-  const center = propCenter(prop, sprite);
-  const n = Math.max(total, 1);
-  const grow = slot.grow && n > slot.ring ? n / slot.ring : 1;
-  const angle = (seatIndex / n) * Math.PI * 2 - Math.PI / 2;
-  return {
-    x: center.x + Math.cos(angle) * slot.rx * grow,
-    y: center.y + Math.sin(angle) * slot.ry * grow,
-  };
+  return ringSeatAt(layout, propCenter(prop, sprite), slot, seatIndex, total);
 }
 
 /** Позиции ring-слота при заданном total — та же формула, что в `meetingSeat()`. */
-function ringSeatsAt(prop: LayoutProp, sprite: CatalogSprite, slot: SlotRing, total: number): Pos[] {
+function ringSeatsAt(
+  layout: Layout, prop: LayoutProp, sprite: CatalogSprite, slot: SlotRing, total: number,
+): Pos[] {
   const center = propCenter(prop, sprite);
   const n = Math.max(total, 1);
-  const grow = slot.grow && n > slot.ring ? n / slot.ring : 1;
-  const seats: Pos[] = [];
-  for (let i = 0; i < n; i++) {
-    const angle = (i / n) * Math.PI * 2 - Math.PI / 2;
-    seats.push({ x: center.x + Math.cos(angle) * slot.rx * grow, y: center.y + Math.sin(angle) * slot.ry * grow });
-  }
-  return seats;
+  return Array.from({ length: n }, (_, i) => ringSeatAt(layout, center, slot, i, n));
 }
 
 /** Места вдоль одной стороны предмета — шаг width/count, отступ от кромки SEAT_GAP (§3.1). */
