@@ -27,7 +27,7 @@ import {
   DEFAULT_WORKER_CONTEXT_LIMIT, MAX_WORKER_CONTEXT_LIMIT, MIN_WORKER_CONTEXT_LIMIT, workerWindowFor,
 } from '../shared/types';
 import { isBlocked, isEmptyOverride, passability } from '../shared/layout';
-import { isLookId, LOOKS } from '../shared/looks';
+import { isLookId, liveLookId, LOOKS } from '../shared/looks';
 import { asLang, DEFAULT_LANG, isLang, type Lang, type Vars, LANG_TITLE } from '../shared/i18n';
 import {
   CHECK_NAME_RE, TASK_TYPES, emptyFlowMemory, isCapability, typeForCapabilities,
@@ -428,6 +428,13 @@ function sanitizeRole(raw: Partial<Role>, id: string, lang: Lang): Role {
         && paletteColor(link.overrides.color, pkg.name) !== link.overrides.color) {
         delete link.overrides.color;
       }
+      // Снятая внешность: запись убрали из `looks.json`, а выбор человека
+      // остался оверрайдом — подменяем на замену из реестра (`liveLookId`),
+      // иначе агент стоял бы в комнате с внешностью, которой нет. Совпала
+      // замена с умолчанием пакета — оверрайд снимет сам `roleFromPackage`.
+      if (typeof link.overrides.sprite === 'string') {
+        link.overrides.sprite = liveLookId(link.overrides.sprite);
+      }
       return { ...roleFromPackage(pkg, lang, id, link), archived };
     }
   } else if (savedLink) {
@@ -470,8 +477,10 @@ function sanitizeRole(raw: Partial<Role>, id: string, lang: Lang): Role {
     docsDir: text(raw.docsDir) ?? pkg?.manifest.docsDir ?? base.docsDir,
     // Пустой repoDir — законное «общий репозиторий офиса», а не пропуск.
     repoDir: typeof raw.repoDir === 'string' ? raw.repoDir : base.repoDir,
-    // Пустой спрайт — тоже законное значение: «подбери по id роли».
-    sprite: typeof raw.sprite === 'string' ? raw.sprite : base.sprite,
+    // Пустой спрайт — тоже законное значение: «подбери по id роли». Снятую
+    // внешность подменяем на замену из реестра (`liveLookId`): сохранение
+    // переживает удаление записи из `looks.json`.
+    sprite: typeof raw.sprite === 'string' ? liveLookId(raw.sprite) : base.sprite,
     archived,
     brief: typeof raw.brief === 'string' ? raw.brief : base.brief,
     // Ссылка на пропавший пакет остаётся: вернётся пакет — вернётся и связь.
