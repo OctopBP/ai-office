@@ -387,6 +387,20 @@ interface State {
    */
   openTask: string | null;
   openTaskCard: (taskId: string | null) => void;
+  /**
+   * Свёрнутые и развёрнутые группы фич на доске, по ключу группы. Живёт в
+   * сторе, а не в самой доске: с доски уходят в офис и в чат, и держи это
+   * состояние в компоненте — каждый возврат разворачивал бы всё заново.
+   *
+   * Записи здесь только там, где человек нажимал сам. Пусто — значит умолчание
+   * считается по данным (группа с незакрытыми задачами открыта), и оно
+   * меняется вместе с ними, а не застывает на первом кадре.
+   */
+  taskGroupsOpen: Record<string, boolean>;
+  setTaskGroupOpen: (key: string, open: boolean) => void;
+  /** То же для строки «Закрытые» внутри группы; умолчание — свёрнута. */
+  taskGroupClosedOpen: Record<string, boolean>;
+  setTaskGroupClosedOpen: (key: string, open: boolean) => void;
   /** Активная ветка чата: 'pm#1' или id агента. */
   thread: string;
   setThread: (t: string) => void;
@@ -589,7 +603,14 @@ export const useStore = create<State>((set, get) => ({
   pos: {},
   selected: null,
   openTask: null,
+  taskGroupsOpen: {},
+  taskGroupClosedOpen: {},
   thread: 'pm#1',
+
+  setTaskGroupOpen: (key, open) => set((s) => ({ taskGroupsOpen: { ...s.taskGroupsOpen, [key]: open } })),
+  setTaskGroupClosedOpen: (key, open) => set((s) => ({
+    taskGroupClosedOpen: { ...s.taskGroupClosedOpen, [key]: open },
+  })),
 
   // Вернулись в ветку менеджера прямо в чате — значит новое уже видно.
   setThread: (t) => set((s) => (t === 'pm#1' && s.view === 'chat'
@@ -644,6 +665,9 @@ export const useStore = create<State>((set, get) => ({
     set({
       pending: 'enter', pendingLabel: office.name, menuNotice: null,
       selected: null, openTask: null, thread: 'pm#1', diff: null, view: 'office',
+      // Номера фич в офисах повторяются: не сбросить — и E-1 чужого офиса
+      // открыл бы или свернул одноимённую группу в этом.
+      taskGroupsOpen: {}, taskGroupClosedOpen: {},
     });
     switchOffice(officeId);
   },
@@ -656,6 +680,8 @@ export const useStore = create<State>((set, get) => ({
       // меню, ни в следующий открытый офис.
       selected: null,
       openTask: null,
+      taskGroupsOpen: {},
+      taskGroupClosedOpen: {},
       thread: 'pm#1',
       diff: null,
       view: 'office',
