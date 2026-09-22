@@ -15,7 +15,7 @@
  */
 export const MODEL_ALIASES = {
   fable: 'claude-fable-5',
-  opus: 'claude-opus-5',
+  opus: 'claude-opus-5-5',
   sonnet: 'claude-sonnet-5',
   haiku: 'claude-haiku-4-5',
 } as const;
@@ -32,9 +32,15 @@ export type ModelAlias = keyof typeof MODEL_ALIASES;
  * (`claude-haiku-4-5-20251001` и подобные) — это те же модели, закреплённые за
  * снимком, и в списке они были бы дублями. Поле ввода свободное: кому нужен
  * именно такой id, вписывает его руками, проверка пропустит.
+ *
+ * `claude-opus-5-5` в типе установленного SDK ещё не значится — модель вышла
+ * позже пакета, а тип у него открытый (`(string & {})`), так что id проходит.
+ * Opus 5 из списка не убран: он нужен, чтобы старые сохранения читались и
+ * показывались подписью, а не голым id.
  */
 export const MODEL_IDS: readonly string[] = [
   'claude-fable-5',
+  'claude-opus-5-5',
   'claude-opus-5',
   'claude-opus-4-8',
   'claude-opus-4-7',

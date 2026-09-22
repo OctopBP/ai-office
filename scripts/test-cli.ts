@@ -50,7 +50,7 @@ check('заготовка читается как пакет', readPackage(fresh
 check('в непустую папку не пишем', (() => { try { scaffoldPackage(fresh, { name: '@alice/x', title: {} }); return 'wrote'; } catch (e) { return /not empty/.test((e as Error).message); } })(), true);
 check('плохое имя — отказ', (() => { try { scaffoldPackage(resolve(root, 'bad'), { name: 'writer', title: {} }); return 'wrote'; } catch { return 'refused'; } })(), 'refused');
 check('стенд заготовки читается', readBenchCases(fresh).length, 1);
-check('алиас модели из полного id', [modelAlias('claude-opus-5'), modelAlias('claude-x-1')], ['opus', 'claude-x-1']);
+check('алиас модели из полного id', [modelAlias('claude-opus-5-5'), modelAlias('claude-x-1')], ['opus', 'claude-x-1']);
 
 // ----------------------------------------------------------------- CLI
 

@@ -2,7 +2,7 @@
 
 ## Что уже есть (MVP-0)
 
-- 3 роли: **PM** (Opus 5), **Backend** и **Frontend** (Sonnet 5)
+- 3 роли: **PM** (Opus 5.5), **Backend** и **Frontend** (Sonnet 5)
 - Живая сессия PM'а с командными инструментами `list_team`, `create_task`,
   `assign_task`, `get_board`, `say`
 - `assign_task` асинхронный: PM раздаёт несколько задач подряд, исполнители
