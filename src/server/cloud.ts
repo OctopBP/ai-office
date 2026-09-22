@@ -361,7 +361,9 @@ export async function runCloudTask(
         cacheRead: usage?.cache_read_input_tokens ?? 0,
         cacheWrite: (usage?.cache_creation?.ephemeral_5m_input_tokens ?? 0)
           + (usage?.cache_creation?.ephemeral_1h_input_tokens ?? 0),
-      });
+      // Облако отдаёт расход одной суммой за сессию, без разбивки по моделям:
+      // модель здесь та, с которой агент и заводился.
+      }, role.model);
       costRecorded = cents / 100;
     } catch { /* расход уже не узнать — не повод терять результат */ }
 

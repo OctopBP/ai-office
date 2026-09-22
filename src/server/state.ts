@@ -12,10 +12,11 @@ import type {
   PullRequestView, PrStage, ReviewNote, TaskOutcome, BranchMark,
   FactView, LifeView, OwnerQuestion, RitualId, RitualPolicy, RitualRun,
   DirectionView, ProposalView, InitiativeMode,
+  SpendEntryView,
 } from '../shared/types';
 import { OFFICE_SENDER } from '../shared/types';
 import {
-  asTaskPriority, DEFAULT_TASK_PRIORITY,
+  asTaskPriority, DEFAULT_TASK_PRIORITY, accumulate,
   dayKey, emptyUsage, DEFAULT_RITUAL_LIMIT, DEFAULT_RITUAL_POLICY,
   DEFAULT_INITIATIVE_MODE, DEFAULT_INITIATIVE_SHARE, HEALTH_DIRECTION, INITIATIVE_MODES,
   MAX_INITIATIVE_SHARE, MIN_INITIATIVE_SHARE,
@@ -33,6 +34,7 @@ import {
   type Capability, type FlowMemory, type Handoff, type Run, type TaskType,
 } from '../shared/workflow';
 import { workflowCatalog } from './workflows';
+import { foldSpend, spendSeq, SPEND_MAX } from './spend';
 import { capabilitiesOf } from './roles';
 import { t, c, type ServerKey } from './i18n';
 import { activityFromFile, summarize } from './activity';
@@ -529,17 +531,6 @@ function sanitizeOverrides(raw: Record<string, LayoutOverride> | undefined): Rec
   return clean;
 }
 
-/** Складывает расход в накопитель. Возвращает его же — удобно в цепочках. */
-function accumulate(into: Usage, delta: Usage): Usage {
-  into.costUsd += delta.costUsd;
-  into.tokensIn += delta.tokensIn;
-  into.tokensOut += delta.tokensOut;
-  into.cacheRead += delta.cacheRead;
-  into.cacheWrite += delta.cacheWrite;
-  if (delta.costUnavailable) into.costUnavailable = true;
-  return into;
-}
-
 /** Расход за день из журнала: отсутствующий день — это нули, а не пропуск. */
 function dayOf(journal: Record<string, Usage>, day: string): Usage {
   const found = journal[day];
@@ -1034,6 +1025,14 @@ export class OfficeState {
   directions = new Map<string, Direction>();
   /** Предложения офиса по id (§8.1). */
   proposals = new Map<string, Proposal>();
+  /**
+   * Детализация трат, от старых к свежим (см. `spend.ts`). Накопители `usage`
+   * и `daily` отвечают «сколько», эти записи — «на что и когда».
+   */
+  spend: SpendEntryView[] = [];
+  private spendSeqNo = 0;
+  /** Сутки последней свёртки: гонять её на каждую трату незачем. */
+  private spendFoldedDay = '';
   private factSeq = 0;
   private questionSeq = 0;
   /** Кто ждёт закрытия вопроса: узлы согласования процессов. */
@@ -1248,6 +1247,8 @@ export class OfficeState {
       usage: this.usage,
       daily: this.daily,
       life: this.life,
+      spend: this.spend,
+      spendSeq: this.spendSeqNo,
       facts: [...this.facts.values()],
       factSeq: this.factSeq,
       questions: [...this.questions.values()],
@@ -1671,6 +1672,15 @@ export class OfficeState {
       runs: [...(data.life?.runs ?? [])],
       flows: { ...(data.life?.flows ?? {}) },
     };
+    // Детализация трат: сворачиваем прямо на подъёме — за время, пока сервер
+    // был выключен, сутки могли смениться не раз, и без этого файл вернулся бы
+    // с диска ровно таким же большим, каким на него лёг.
+    this.spend = foldSpend(data.spend ?? []);
+    this.spendFoldedDay = dayKey();
+    // Счётчик — не длина массива: свёртка и подрезка выкидывают записи, а
+    // номера должны продолжаться, иначе новая трата получит чужой id.
+    this.spendSeqNo = data.spendSeq
+      ?? this.spend.reduce((max, e) => Math.max(max, spendSeq(e.id) ?? 0), 0);
     for (const fact of data.facts ?? []) {
       this.facts.set(fact.id, { ...fact, askedAt: fact.askedAt ?? null, status: fact.status ?? 'live' });
     }
@@ -1917,6 +1927,9 @@ export class OfficeState {
     this.alwaysDenied.clear();
     this.usage = emptyUsage();
     this.daily = {};
+    this.spend = [];
+    this.spendSeqNo = 0;
+    this.spendFoldedDay = '';
     this.life = emptyLife();
     this.facts.clear();
     this.questions.clear();
@@ -2252,11 +2265,18 @@ export class OfficeState {
    * задачи, агент, день агента, офис и день офиса. «Сколько стоила задача»,
    * «сколько стоил агент» и «сколько потрачено сегодня» — разные вопросы,
    * и ответ на каждый нужен в своём месте интерфейса.
+   *
+   * Седьмое место — отдельная запись в детализации (`spend`): накопители
+   * отвечают «сколько», а она одна помнит, на что и когда ушли деньги.
+   *
+   * `model` — модель, которой платили, как её назвал SDK. Не назвал — берём
+   * ту, что стоит у роли: это хуже точного ответа, но лучше пустой колонки.
    */
-  addUsage(id: string, delta: Usage): void {
+  addUsage(id: string, delta: Usage, model?: string | null): void {
     const inst = this.instances.get(id);
     if (!inst) return;
     const day = dayKey();
+    this.addSpend(inst, delta, model ?? null);
 
     if (inst.currentTaskId) {
       const task = this.tasks.get(inst.currentTaskId);
@@ -2307,6 +2327,46 @@ export class OfficeState {
     void pollLimits(session).then((changed) => {
       if (changed) this.emit({ t: 'limits', limits: limitsView() });
     });
+  }
+
+  /**
+   * Записать трату отдельной строкой. Пустая трата строкой не становится:
+   * SDK присылает результат и на ход, который ничего не стоил, и такие нули
+   * только разбавляли бы таблицу.
+   */
+  private addSpend(inst: Instance, delta: Usage, model: string | null): void {
+    const empty = !delta.costUsd && !delta.tokensIn && !delta.tokensOut
+      && !delta.cacheRead && !delta.cacheWrite;
+    if (empty) return;
+    this.spendSeqNo += 1;
+    this.spend.push({
+      id: `S-${this.spendSeqNo}`,
+      at: Date.now(),
+      office: this.officeId,
+      taskId: inst.currentTaskId,
+      roleId: inst.roleId,
+      instanceId: inst.id,
+      model: model ?? this.role(inst.roleId)?.model ?? null,
+      usage: accumulate(emptyUsage(), delta),
+    });
+    this.trimSpend();
+  }
+
+  /**
+   * Свернуть историю трат, если пора. Считать её на каждую трату незачем:
+   * сворачивать нечего, пока не сменились сутки, — а на всякий случай ещё и
+   * предел длины, чтобы аномальный поток записей не пережил проверку по дате.
+   */
+  private trimSpend(): void {
+    const today = dayKey();
+    if (today === this.spendFoldedDay && this.spend.length <= SPEND_MAX) return;
+    this.spendFoldedDay = today;
+    this.spend = foldSpend(this.spend);
+  }
+
+  /** Детализация трат, от старых к свежим. */
+  spendList(): SpendEntryView[] {
+    return this.spend;
   }
 
   /** История расходов офиса по дням, от старых к новым. */

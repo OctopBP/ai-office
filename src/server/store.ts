@@ -1,7 +1,8 @@
 import { mkdirSync, readFileSync, renameSync, writeFileSync, existsSync, rmSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import type {
-  ChatEntry, LayoutOverride, LogEntry, PermissionMode, PullRequestView, Settings, Usage,
+  ChatEntry, LayoutOverride, LogEntry, PermissionMode, PullRequestView, Settings,
+  SpendEntryView, Usage,
 } from '../shared/types';
 import type { Run } from '../shared/workflow';
 import type { Direction, Epic, Fact, LifeState, Proposal, Task } from './state';
@@ -67,6 +68,15 @@ export interface Persisted {
   /** Расход офиса за всё время и по дням. В старых сохранениях их нет. */
   usage?: Usage;
   daily?: Record<string, Usage>;
+  /**
+   * Детализация трат: каждая трата отдельной записью (см. `spend.ts`).
+   * В сохранениях до неё поля нет — такой офис поднимается с пустой
+   * детализацией, а накопленные `usage` и `daily` остаются как были:
+   * разложить итог обратно на траты уже нельзя, и выдумывать их не станем.
+   */
+  spend?: SpendEntryView[];
+  /** Номер последней траты. Не длина массива: свёртка выкидывает записи. */
+  spendSeq?: number;
   settings: Settings;
   /**
    * Набор ролей офиса целиком: у каждого проекта он свой, и роли переживают
