@@ -16,6 +16,7 @@ import { Kbd } from '../Kbd';
 import type { Layout } from '../../shared/layout';
 import { catalog, type HotspotPanel } from '../layoutData';
 import { useStore } from '../store';
+import { useInstanceName } from '../instanceName';
 import type { Palette } from './palette';
 import { PropLamp } from './Lights3D';
 import { BoardArt } from './Boards3D';
@@ -181,6 +182,7 @@ function MeetingTable({ item, onClick }: { item: Placed3; onClick: () => void })
  */
 function DeskSpot({ item, who, onClick }: { item: Placed3; who: InstanceView; onClick: () => void }) {
   const [hovered, setHovered] = useState(false);
+  const name = useInstanceName(who.id);
   const height = Math.max(item.h, 0.7) + 0.8;
 
   return (
@@ -207,7 +209,7 @@ function DeskSpot({ item, who, onClick }: { item: Placed3; who: InstanceView; on
           style={{ pointerEvents: 'none', userSelect: 'none' }}
         >
           <div className="spot3d-desk" title={t('office.deskHint')}>
-            <b>{who.label}</b>{who.note ? ` · ${who.note}` : ''}
+            <b>{name}</b>{who.note ? ` · ${who.note}` : ''}
           </div>
         </Html>
       )}

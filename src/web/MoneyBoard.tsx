@@ -7,6 +7,7 @@ import type { SpendBucket, SpendEntryView, SpendPage, SpendStep, TaskView, Usage
 import { accumulate, dayKey, emptyUsage } from '../shared/types';
 import { t } from './i18n';
 import { Avatar, AgentTag } from './Avatar';
+import { displayInstance, useInstanceName } from './instanceName';
 
 /**
  * Доска расходов: во что офису обошёлся день и каждая задача, и сколько
@@ -136,11 +137,12 @@ function buildSpendRows(page: SpendPage, step: SpendStep): { rows: SpendRow[]; t
 
 /** Одна строка разбивки: задача, исполнитель и модель — сумма правее. */
 function BreakdownItem({ g }: { g: BreakdownGroup }) {
+  const who = useInstanceName(g.instanceId);
   return (
     <div className="spend-break-item">
       <span className="mono dim">{g.taskId ?? t('money.table.noTask')}</span>
       <span className="muted small row-title">
-        {g.instanceId} · {g.model ?? t('money.table.noModel')}
+        {who} · {g.model ?? t('money.table.noModel')}
       </span>
       <span className="mono small">{usageMoney(g.usage)}</span>
     </div>
@@ -259,6 +261,7 @@ export function MoneyBoard() {
   const usage = useStore((s) => s.usage);
   const days = useStore((s) => s.usageDays);
   const instances = useStore((s) => s.instances);
+  const roles = useStore((s) => s.roles);
   const tasks = useStore((s) => s.tasks);
   // Период показывает и итог, и список задач. Живёт в доске, а не в сторе:
   // это про то, куда человек смотрит сейчас, и переживать закрытие доски ему
@@ -362,8 +365,7 @@ export function MoneyBoard() {
         {agents.map((i) => (
           <div key={i.id} className="usage-row">
             <Avatar roleId={i.roleId} instanceId={i.id} size="sm" />
-            <span className="mono dim">{i.id}</span>
-            <span className="row-title">{i.label}</span>
+            <span className="row-title">{displayInstance(i.id, instances, roles)}</span>
             <span className="muted small">{usageLine(span === 'today' ? i.today : i.usage)}</span>
             <b>{usageMoney(span === 'today' ? i.today : i.usage)}</b>
           </div>

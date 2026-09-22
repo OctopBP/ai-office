@@ -1,6 +1,7 @@
 import type { CSSProperties } from 'react';
 import { useStore } from './store';
 import { portraitOf, useLookOf } from './portraits';
+import { roleOfInstance, useInstanceName } from './instanceName';
 
 /**
  * Цвет значка, если роль неизвестна — например, её удалили из офиса.
@@ -48,37 +49,44 @@ export function Avatar({ roleId, instanceId, size = 'md', className }: {
   const color = useStore((s) => s.roles.find((r) => r.id === roleId)?.color) || NO_ROLE_COLOR;
   const portrait = portraitOf(useLookOf(roleId, instanceId));
   const code = shortCode(roleId, instanceId);
+  // В подсказке — человеческая подпись сотрудника, а не его код экземпляра:
+  // наведением спрашивают «кто это», и решётка с номером тут не ответ.
+  const name = useInstanceName(instanceId ?? '');
+  const tip = instanceId ? name : undefined;
   const cls = `${size}${className ? ` ${className}` : ''}`;
   if (portrait) {
     return (
-      <span className={`avatar-pic ${cls}`} style={{ '--avatar-role': color } as CSSProperties} title={instanceId ?? code}>
+      <span className={`avatar-pic ${cls}`} style={{ '--avatar-role': color } as CSSProperties} title={tip ?? code}>
         <img src={portrait} alt={code} draggable={false} />
       </span>
     );
   }
   return (
-    <span className={`avatar-ph ${cls}`} style={{ background: color }} title={instanceId}>
+    <span className={`avatar-ph ${cls}`} style={{ background: color }} title={tip}>
       {code}
     </span>
   );
 }
 
 /**
- * Сотрудник строкой: маленькая аватарка и его id — там, где раньше стоял
+ * Сотрудник строкой: маленькая аватарка и его подпись — там, где раньше стоял
  * один id (исполнитель на карточке задачи, автор реплики в чате, строка
  * расходов). Роль берётся у сотрудника, а если его уже уволили — из самого
  * id (`backend#2` → `backend`): старые задачи и реплики остаются с лицом.
+ * Подпись — общая для всего интерфейса (`displayInstance`), без кода
+ * экземпляра.
  */
 export function AgentTag({ id, size = 'xs', className }: {
   id: string;
   size?: AvatarSize;
   className?: string;
 }) {
-  const roleId = useStore((s) => s.instances[id]?.roleId) ?? id.split('#')[0];
+  const roleId = useStore((s) => s.instances[id]?.roleId) ?? roleOfInstance(id);
+  const name = useInstanceName(id);
   return (
     <span className={`agent-tag${className ? ` ${className}` : ''}`}>
       <Avatar roleId={roleId} instanceId={id} size={size} />
-      <span>{id}</span>
+      <span>{name}</span>
     </span>
   );
 }

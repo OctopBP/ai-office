@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { isOfficeSender, type MeetingView } from '../shared/types';
 import { useStore } from './store';
 import { Avatar } from './Avatar';
+import { displayInstance, roleOfInstance } from './instanceName';
 import { locale, t } from './i18n';
 
 /** Когда совещание началось: день и время — совещаний в день бывает несколько. */
@@ -22,6 +23,7 @@ export function MeetingsPanel({ onCall }: { onCall: () => void }) {
   const meetings = useStore((s) => s.meetings);
   const chat = useStore((s) => s.chat);
   const instances = useStore((s) => s.instances);
+  const roles = useStore((s) => s.roles);
 
   const live = meetings.find((m) => m.status === 'running');
   // На открытии — идущее совещание, а без него последнее: за столом обычно
@@ -38,7 +40,7 @@ export function MeetingsPanel({ onCall }: { onCall: () => void }) {
 
   const who = (id: string): string => id === 'user'
     ? t('chat.you')
-    : isOfficeSender(id) ? t('common.office') : (instances[id]?.label ?? id);
+    : isOfficeSender(id) ? t('common.office') : displayInstance(id, instances, roles);
 
   const ordered = [...meetings].reverse();
 
@@ -94,7 +96,7 @@ export function MeetingsPanel({ onCall }: { onCall: () => void }) {
                 <div key={m.id} className={`msg ${m.from === 'user' ? 'from-user' : 'from-agent'}`}>
                   <div className="msg-from">
                     {m.from !== 'user' && !isOfficeSender(m.from) && (
-                      <Avatar roleId={instances[m.from]?.roleId ?? m.from.split('#')[0]} instanceId={m.from} size="sm" className="msg-face" />
+                      <Avatar roleId={instances[m.from]?.roleId ?? roleOfInstance(m.from)} instanceId={m.from} size="sm" className="msg-face" />
                     )}
                     {who(m.from)}
                   </div>
@@ -129,7 +131,7 @@ function Faces({ ids }: { ids: string[] }) {
   const instances = useStore((s) => s.instances);
   return (
     <span className="meeting-faces">
-      {ids.map((id) => <Avatar key={id} roleId={instances[id]?.roleId ?? id.split('#')[0]} instanceId={id} size="sm" />)}
+      {ids.map((id) => <Avatar key={id} roleId={instances[id]?.roleId ?? roleOfInstance(id)} instanceId={id} size="sm" />)}
     </span>
   );
 }

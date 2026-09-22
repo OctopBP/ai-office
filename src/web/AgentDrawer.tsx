@@ -102,7 +102,7 @@ export function AgentDrawer() {
           <AgentName inst={inst} as="h2" />
           {/* Без имени заголовок и есть название роли — второй раз его не пишем. */}
           <div className="muted">
-            {inst.id} · {inst.name && role ? `${role.title} · ` : ''}{role ? `${PROVIDERS[providerOf(role)].label} · ${role.model.replace('claude-', '')}` : ''} ·{' '}
+            {inst.name && role ? `${role.title} · ` : ''}{role ? `${PROVIDERS[providerOf(role)].label} · ${role.model.replace('claude-', '')} · ` : ''}
             {inst.deskless ? t('drawer.noDesk') : t('employee.deskNo', { index: inst.desk.index })}
           </div>
           <span className={`perm-badge ${inst.effectivePermissionMode}`}

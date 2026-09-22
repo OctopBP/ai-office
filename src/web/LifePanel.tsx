@@ -8,6 +8,7 @@ import type {
 } from '../shared/types';
 import { RITUAL_IDS, isOfficeSender } from '../shared/types';
 import { locale, t } from './i18n';
+import { useInstanceName } from './instanceName';
 import { Icon } from './icons';
 
 type Tab = 'questions' | 'proposals' | 'rules' | 'journal' | 'rituals' | 'health';
@@ -119,7 +120,8 @@ function QuestionRow({ q }: { q: OwnerQuestion }) {
   // второму варианту отправит второй ответ.
   const [sending, setSending] = useState(false);
   const closed = Boolean(q.answeredAt || q.dismissedAt);
-  const who = isOfficeSender(q.from) ? t('common.office') : q.from;
+  const asked = useInstanceName(q.from);
+  const who = isOfficeSender(q.from) ? t('common.office') : asked;
   const options = q.options ?? [];
   const send = (text: string) => {
     const value = text.trim();

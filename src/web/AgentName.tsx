@@ -1,5 +1,6 @@
 import { useState, type KeyboardEvent } from 'react';
 import { setAgentName } from './store';
+import { useInstanceName } from './instanceName';
 import { t } from './i18n';
 import { Icon } from './icons';
 import { Hint, Tooltip } from './Tooltip';
@@ -15,6 +16,7 @@ import { MAX_AGENT_NAME, type InstanceView } from '../shared/types';
 export function AgentName({ inst, as: Tag }: { inst: InstanceView; as: 'h2' | 'h3' }) {
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState('');
+  const name = useInstanceName(inst.id);
 
   const start = () => { setDraft(inst.name ?? ''); setEditing(true); };
   const commit = () => {
@@ -51,7 +53,7 @@ export function AgentName({ inst, as: Tag }: { inst: InstanceView; as: 'h2' | 'h
   return (
     <Tag className="agent-name">
       <button className="agent-name-btn" title={t('employee.rename')} onClick={start}>
-        {inst.label} <Icon name="pencil" size={14} />
+        {name} <Icon name="pencil" size={14} />
       </button>
     </Tag>
   );

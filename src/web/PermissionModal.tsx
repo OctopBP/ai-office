@@ -1,4 +1,5 @@
 import { useStore, decide } from './store';
+import { displayInstance } from './instanceName';
 import { t } from './i18n';
 
 const riskLabel = (risk: string): string => (
@@ -10,10 +11,10 @@ const riskLabel = (risk: string): string => (
 export function PermissionModal() {
   const queue = useStore((s) => s.permissions);
   const instances = useStore((s) => s.instances);
+  const roles = useStore((s) => s.roles);
   if (queue.length === 0) return null;
 
   const req = queue[0];
-  const agent = instances[req.agentId];
 
   return (
     <div className="modal-backdrop">
@@ -26,7 +27,7 @@ export function PermissionModal() {
         </div>
 
         <h3>
-          {t('perm.asks', { who: agent?.label ?? req.agentId })}
+          {t('perm.asks', { who: displayInstance(req.agentId, instances, roles) })}
           {req.taskId && <span className="muted"> · {req.taskId}</span>}
         </h3>
         <p className="modal-reason">{req.reason}</p>

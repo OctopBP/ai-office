@@ -30,6 +30,7 @@ import { OrbitControls } from '@react-three/drei';
 import * as THREE from 'three';
 import type { Layout } from '../../shared/layout';
 import { useStore } from '../store';
+import { displayInstance } from '../instanceName';
 import { WALL_H } from './geometry';
 import { anchorOf } from './anchors';
 import { focusRooms, roomTitle, useCamera, type Focus } from './camera';
@@ -462,6 +463,7 @@ export function CameraChips({ layout }: { layout: Layout }) {
   const select = useStore((s) => s.select);
   const selected = useStore((s) => s.selected);
   const instances = useStore((s) => s.instances);
+  const roles = useStore((s) => s.roles);
   const rooms = focusRooms(layout);
   const agent = selected ? instances[selected] : null;
 
@@ -494,7 +496,7 @@ export function CameraChips({ layout }: { layout: Layout }) {
           title={t(focus.kind === 'agent' ? 'cam.following' : 'cam.backToAgent')}
           onClick={() => setFocus({ kind: 'agent', id: agent.id })}
         >
-          ◎ {agent.label}
+          ◎ {displayInstance(agent.id, instances, roles)}
         </button>
       )}
     </div>

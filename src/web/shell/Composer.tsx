@@ -6,6 +6,7 @@ import { Icon } from '../icons';
 import { Hint, Tooltip } from '../Tooltip';
 import { HOTKEY } from '../hotkeys';
 import { ChatPeer } from '../ChatPeer';
+import { displayInstance } from '../instanceName';
 
 /**
  * Курсор в композер просят снаружи — кнопка «Поставить задачу» и клавиша
@@ -98,7 +99,7 @@ export function Composer({ onSettings }: { onSettings: () => void }) {
 
   const placeholder = meeting ? t('shell.composer.meeting')
     : thread === 'pm#1' ? t('shell.composer.placeholder')
-    : t('shell.composer.agent', { who: instances[thread]?.label ?? thread });
+    : t('shell.composer.agent', { who: displayInstance(thread, instances, roles) });
   const model = roles.find((r) => r.id === 'pm')?.model;
   const cap = settings.globalBudgetUsd;
 

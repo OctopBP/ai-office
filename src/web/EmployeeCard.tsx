@@ -50,7 +50,9 @@ export function EmployeeCard({ instanceId, actions }: { instanceId: string; acti
         <Avatar roleId={inst.roleId} instanceId={inst.id} size="lg" />
         <div>
           <AgentName inst={inst} as="h3" />
-          <p className="muted">{inst.id} · {inst.name && role ? `${role.title} · ` : ''}{role ? `${PROVIDERS[providerOf(role)].label} · ${role.model.replace('claude-', '')}` : ''}</p>
+          {/* Кода экземпляра здесь нет: владельцу он ничего не говорит, а
+              должность под именем нужна — по ней сотрудника и узнают. */}
+          <p className="muted">{inst.name && role ? `${role.title} · ` : ''}{role ? `${PROVIDERS[providerOf(role)].label} · ${role.model.replace('claude-', '')}` : ''}</p>
         </div>
         {actions && <div className="employee-card-actions">{actions}</div>}
       </div>

@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { callMeeting, useStore } from './store';
 import { Avatar } from './Avatar';
+import { displayInstance } from './instanceName';
 import { t } from './i18n';
 
 export function MeetingModal({ onClose }: { onClose: () => void }) {
@@ -41,7 +42,7 @@ export function MeetingModal({ onClose }: { onClose: () => void }) {
                 onChange={() => toggle(i.id)}
               />
               <Avatar roleId={i.roleId} instanceId={i.id} size="sm" />
-              {i.label}
+              {displayInstance(i.id, instances, roles)}
               {i.currentTaskId && (
                 <span className="muted"> — {t('meeting.busy', { task: i.currentTaskId })}</span>
               )}
