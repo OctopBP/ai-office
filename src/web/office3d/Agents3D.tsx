@@ -15,7 +15,7 @@
  * мерить второе часами первого значит получать рывки на каждой заминке.
  * Офис остаётся визуализацией событий, а не их источником (CONCEPT.md §2).
  */
-import { type CSSProperties, Suspense, useEffect, useMemo, useRef } from 'react';
+import { type CSSProperties, type RefObject, Suspense, useEffect, useMemo, useRef } from 'react';
 import { useFrame, useLoader } from '@react-three/fiber';
 import { Html } from '@react-three/drei';
 import * as THREE from 'three';
@@ -161,6 +161,29 @@ const REACH_TIME = 0.35;
 /** Общая мишень для кистей: считается каждый кадр, но новая на каждого агента
  *  и каждый кадр была бы мусором на ровном месте. */
 const hand = new THREE.Vector3();
+
+/** Тот же приём — общий скретч под мировую позицию головы (высота бейджа). */
+const headWorld = new THREE.Vector3();
+
+/**
+ * Отступ бейджа над костью головы, в тех же единицах, что рост фигуры
+ * (`fit.figure.tall`). Кость сидит примерно на уровне глаз, а не макушки, —
+ * отступ подобран так, чтобы бейдж стоял стоящему агенту так же, как раньше
+ * фиксированное `tall + 0.55`. Число на глаз, правится тут же.
+ */
+const HEAD_TAG_MARGIN = 0.8;
+
+/** Тот же отступ, но от подошв — на случай, если кости головы вдруг нет. */
+const FALLBACK_TAG_MARGIN = 0.55;
+
+/**
+ * Скорость, с которой высота бейджа догоняет голову, — параметр
+ * `THREE.MathUtils.damp` (экспоненциальное сглаживание, не зависящее от
+ * частоты кадров). Больше число — быстрее догоняет и заметнее дрожание от
+ * шага; меньше — дольше запаздывает за резкими движениями. Подобрано так,
+ * чтобы шаг при ходьбе не дрожал, а поклон или посадка не выглядели вязкими.
+ */
+const TAG_DAMP = 12;
 
 /** Ниже этого расстояния до цели (тайлы) считаем, что агент стоит. */
 const MOVING_EPS = 0.02;
@@ -414,57 +437,64 @@ function Ring({ color }: { color: string }) {
  * текстом: текст остаётся настоящим текстом — чётким на любом зуме, с теми же
  * шрифтом и цветами темы, что во всём остальном интерфейсе. Мышь она не
  * ловит, иначе карточки перехватывали бы вращение камеры.
+ *
+ * Высоту держит не сама подпись, а группа-якорь снаружи (`tagAnchor` в
+ * `Agent`): её `position.y` каждый кадр подтягивается к мировой высоте кости
+ * головы — см. `useFrame` там же. Здесь она не читается, чтобы не заводить
+ * второй источник той же высоты.
  */
-function AgentTag({ inst, role, task }: {
+function AgentTag({ anchorRef, inst, role, task }: {
+  anchorRef: RefObject<THREE.Group | null>;
   inst: InstanceView;
   role?: RoleView;
   task?: TaskView | null;
 }) {
   const chipColor = role?.color || NO_ROLE_COLOR;
-  // Подпись висит над макушкой стоящего — и остаётся там же, когда агент
-  // сядет: карточки восьми агентов и так липнут друг к другу, а прыгающая
-  // вслед за посадкой подпись читалась бы ещё хуже.
-  const tall = useFit((s) => s.fit.figure.tall);
   // Свободному агенту показывать нечего: команда у него осталась от прошлой
   // задачи, и висела бы над головой до самой следующей.
   const note = inst.state === 'idle' ? null : inst.note;
+  // Начальная высота — только для первого рендера, до первого кадра, где
+  // `useFrame` в `Agent` поставит настоящую, от головы: без неё группа была
+  // бы на секунду видна на полу.
+  const tall = useFit((s) => s.fit.figure.tall);
   return (
-    <Html
-      center
-      position={[0, tall + 0.55, 0]}
-      distanceFactor={TAG_SCALE}
-      zIndexRange={[100, 0]}
-      style={{ pointerEvents: 'none', userSelect: 'none' }}
-    >
-      {/* `.tag3d` — точка привязки нулевого размера, бейдж растёт от неё
-          вверх (см. scene.css). Иначе `center` у `Html` держал бы по центру
-          середину бейджа, и каждое появление нижней строки сдвигало бы
-          верхнюю — над неподвижным агентом подпись дёргалась бы сама. */}
-      <div className="tag3d">
-        <div
-          className="agent-badge"
-          // Цвет роли уезжает в CSS переменной: им красится и значок, и
-          // обводка всей подложки — см. `.tag3d .agent-badge` в scene.css.
-          style={{ '--role': chipColor } as CSSProperties}
-          title={inst.name && role ? `${inst.label} · ${role.title}` : (role?.title ?? inst.label)}
-        >
-          <div className="agent-badge-head">
-            <span
-              className="agent-badge-role"
-              style={{ background: chipColor, color: inkOn(chipColor) }}
-            >
-              {shortCode(inst.roleId, inst.id)}
-            </span>
-            <span
-              className={`agent-badge-dot${STATE_DOT[inst.state] ? ` ${STATE_DOT[inst.state]}` : ''}`}
-              title={stateText(inst.state)}
-            />
-            {task && <span className="agent-badge-task" title={task.title}>{task.id}</span>}
+    <group ref={anchorRef} position={[0, tall + FALLBACK_TAG_MARGIN, 0]}>
+      <Html
+        center
+        distanceFactor={TAG_SCALE}
+        zIndexRange={[100, 0]}
+        style={{ pointerEvents: 'none', userSelect: 'none' }}
+      >
+        {/* `.tag3d` — точка привязки нулевого размера, бейдж растёт от неё
+            вверх (см. scene.css). Иначе `center` у `Html` держал бы по центру
+            середину бейджа, и каждое появление нижней строки сдвигало бы
+            верхнюю — над неподвижным агентом подпись дёргалась бы сама. */}
+        <div className="tag3d">
+          <div
+            className="agent-badge"
+            // Цвет роли уезжает в CSS переменной: им красится и значок, и
+            // обводка всей подложки — см. `.tag3d .agent-badge` в scene.css.
+            style={{ '--role': chipColor } as CSSProperties}
+            title={inst.name && role ? `${inst.label} · ${role.title}` : (role?.title ?? inst.label)}
+          >
+            <div className="agent-badge-head">
+              <span
+                className="agent-badge-role"
+                style={{ background: chipColor, color: inkOn(chipColor) }}
+              >
+                {shortCode(inst.roleId, inst.id)}
+              </span>
+              <span
+                className={`agent-badge-dot${STATE_DOT[inst.state] ? ` ${STATE_DOT[inst.state]}` : ''}`}
+                title={stateText(inst.state)}
+              />
+              {task && <span className="agent-badge-task" title={task.title}>{task.id}</span>}
+            </div>
+            {note && <div className="agent-badge-note">{note}</div>}
           </div>
-          {note && <div className="agent-badge-note">{note}</div>}
         </div>
-      </div>
-    </Html>
+      </Html>
+    </group>
   );
 }
 
@@ -546,6 +576,12 @@ export function buildRig(
   const hips = figure.getObjectByName(BONES.hips);
 
   /**
+   * Голова — по ней в кадре читается высота бейджа: ищется один раз здесь,
+   * тем же приёмом, что кости рук и таз, а не обходом сцены в каждом кадре.
+   */
+  const head = figure.getObjectByName('Head') ?? null;
+
+  /**
    * Высота таза в долях роста, как в замерах (`measure.ts`): считается от
    * самой фигуры, поэтому ни подъём на сиденье, ни поездка по комнате на
    * число не влияют. Матрицы обновляются здесь же: рендер сделает это позже,
@@ -560,7 +596,7 @@ export function buildRig(
     return local.y * figure.scale.y / tall;
   };
 
-  return { figure, mixer, actions, arms, start, hipsY };
+  return { figure, mixer, actions, arms, start, hipsY, head };
 }
 
 export interface Rig {
@@ -576,6 +612,8 @@ export interface Rig {
   arms: Arm[];
   /** Высота таза в текущем кадре, доли роста — та же шкала, что у замеров. */
   hipsY: () => number;
+  /** Кость головы — нет её, только если модель пришла без скелета. */
+  head: THREE.Object3D | null;
 }
 
 /**
@@ -618,6 +656,16 @@ function Agent({
    * подъезжал бы к столу уже сидя, по воздуху.
    */
   const seat = useRef<THREE.Group>(null);
+
+  /**
+   * Якорь бейджа — третья группа на внешней, рядом с кольцом и мишенью, но
+   * с собственной высотой: в кадре её `position.y` подтягивается к мировой
+   * высоте головы (см. useFrame), пока `group` и `seat` едут и поднимаются
+   * каждая по своему закону.
+   */
+  const tagAnchor = useRef<THREE.Group>(null);
+  /** Текущая высота бейджа со сглаживанием; `null` — ещё не было кадра. */
+  const tagY = useRef<number | null>(null);
 
   /** Числа подгонки: рост фигуры, высоты посадки, скорость, IK. */
   const fit = useFit((s) => s.fit);
@@ -1023,20 +1071,41 @@ function Agent({
     }
 
     /**
+     * Мировые матрицы обновляются здесь один раз за кадр: и голове для
+     * бейджа, и рукам для дотягивания ниже нужны мировые координаты уже
+     * поставленной фигуры, а не той, что рендер посчитает только на выходе.
+     */
+    g.updateMatrixWorld(true);
+
+    /**
+     * Высота бейджа — мировая высота кости головы, переведённая в систему
+     * координат внешней группы (`g`): так из неё вычитаются положение агента
+     * в комнате и его разворот, но остаётся всё, что меняет рост фигуры на
+     * месте — присед в шаге, посадка, наклон анимации. Дальше — сглаживание
+     * `damp`, чтобы шум по кадрам не превращался в дрожание таблички.
+     */
+    let targetTagY = tall + FALLBACK_TAG_MARGIN;
+    if (rig.head) {
+      rig.head.getWorldPosition(headWorld);
+      targetTagY = g.worldToLocal(headWorld).y + HEAD_TAG_MARGIN;
+    }
+    tagY.current = tagY.current === null
+      ? targetTagY
+      : THREE.MathUtils.damp(tagY.current, targetTagY, TAG_DAMP, dt);
+    if (tagAnchor.current) tagAnchor.current.position.y = tagY.current;
+
+    /**
      * Дотягивание кистей до столешницы.
      *
      * Вес нарастает и спадает, а не включается щелчком: рука, мгновенно
      * поднятая на стол в момент смены позы, — это дёрганье, которое видно
-     * даже мельком. Кости считаются от уже поставленной фигуры, поэтому
-     * матрицы приходится обновить вручную: рендер сделает это позже, а нам
-     * нужны мировые координаты кистей прямо сейчас.
+     * даже мельком.
      */
     const pull = handsY !== null && !pending.current
       && poseFit(fit, pose.current).reach ? 1 : 0;
     const rstep = dt / REACH_TIME;
     reachW.current += THREE.MathUtils.clamp(pull - reachW.current, -rstep, rstep);
     if (reachW.current > 1e-3 && handsY !== null) {
-      g.updateMatrixWorld(true);
       for (const arm of rig.arms) {
         arm.hand.getWorldPosition(hand);
         hand.y = handsY;
@@ -1057,8 +1126,9 @@ function Agent({
   return (
     <group ref={group}>
       {/* Фигура — во второй группе: её поднимает посадка, пока внешняя везёт
-          агента по комнате. Кольцо, мишень и подпись остаются на внешней,
-          то есть на полу и над макушкой стоящего. */}
+          агента по комнате. Кольцо и мишень остаются на внешней, то есть на
+          полу; у подписи своя, третья группа — `tagAnchor` в `AgentTag`,
+          её высота в кадре подтягивается к голове (см. useFrame выше). */}
       <group ref={seat}>
         <primitive object={rig.figure} />
       </group>
@@ -1092,7 +1162,7 @@ function Agent({
         <meshBasicMaterial transparent opacity={0} depthWrite={false} />
       </mesh>
       {ring && <Ring color={ring} />}
-      <AgentTag inst={inst} role={role} task={task} />
+      <AgentTag anchorRef={tagAnchor} inst={inst} role={role} task={task} />
     </group>
   );
 }
