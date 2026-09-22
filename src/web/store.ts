@@ -5,7 +5,7 @@ import type {
   McpServerState, MergeCheck, MergeCheckState, MergeRun, MergeStep, MergeStepStatus,
   PermissionDecision,
   MarketView, PermissionMode, PermissionRequest, MeetingView, RoleDraft, RoleEditable, RoleOp, RoleView,
-  ServerEvent, Settings, TaskEdit, TaskPriority, TaskView, Usage, CloudStatus, OfficeView, OfficeIcon,
+  ServerEvent, Settings, SpendStep, TaskEdit, TaskPriority, TaskView, Usage, CloudStatus, OfficeView, OfficeIcon,
   PullRequestView, PrStage,
   EpicView, LimitsView, FactView, OwnerQuestion, LifeView, RitualId, DirectionView, ProposalView,
   OfficeSetupPlan, SetupCatalog, SetupStep, OfficeHealth, EnvReport, RuleScopeView,
@@ -25,6 +25,9 @@ import { interestsFor, rotateInterests, type Interest } from './interests';
 import { isBusy } from './agentState';
 import { go, readRoute, type HomeTab } from './router';
 import { adjacentFree, deskPoint, findPath, meetingSeat } from '../shared/layout';
+
+/** Период таблицы трат по времени на доске расходов. */
+export type SpendPeriod = 'today' | 'week' | 'month';
 
 interface Pos { x: number; y: number }
 
@@ -415,6 +418,16 @@ interface State {
   /** Открыть нативный диалог папки на машине сервера; ответ придёт в `picked`. */
   pickFolder: (purpose: string, start?: string) => void;
   dismissMenuNotice: () => void;
+  /**
+   * Период и шаг группировки таблицы трат по времени на доске расходов.
+   * Живут в сторе, а не в локальном состоянии `MoneyBoard`: панель
+   * размонтируется при закрытии, и `useState` терял бы выбор при каждом
+   * открытии заново.
+   */
+  spendPeriod: SpendPeriod;
+  spendStep: SpendStep;
+  setSpendPeriod: (p: SpendPeriod) => void;
+  setSpendStep: (s: SpendStep) => void;
 }
 
 export type View = 'office' | 'board' | 'chat';
@@ -599,6 +612,10 @@ export const useStore = create<State>((set, get) => ({
   setView: (v) => set(v === 'chat' ? { view: v, chatUnread: false } : { view: v }),
   railCollapsed: localStorage.getItem('office-rail') === 'collapsed',
   setRailCollapsed: (v) => { localStorage.setItem('office-rail', v ? 'collapsed' : 'open'); set({ railCollapsed: v }); },
+  spendPeriod: 'today',
+  spendStep: 'day',
+  setSpendPeriod: (p) => set({ spendPeriod: p }),
+  setSpendStep: (s) => set({ spendStep: s }),
   setGraphics: (patch) => set((s) => {
     const graphics = { ...s.graphics, ...patch };
     saveGraphics(graphics);
