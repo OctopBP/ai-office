@@ -1,6 +1,8 @@
 import { readdirSync, readFileSync, statSync } from 'node:fs';
 import { resolve } from 'node:path';
-import { applyOverride, desks as deskList, isEmptyOverride, pmDeskIndex, propKeys } from '../shared/layout';
+import {
+  applyOverride, desks as deskList, isEmptyOverride, normalizeRot, pmDeskIndex, propKeys,
+} from '../shared/layout';
 import type { Catalog, Layout, LayoutOverride, LayoutPropEdit } from '../shared/layout';
 import type { Desk, LayoutOption } from '../shared/types';
 import type { Lang } from '../shared/i18n';
@@ -325,9 +327,12 @@ export function checkPropEdit(
   if (edit.flip !== undefined) clean.flip = Boolean(edit.flip);
   if (edit.rot !== undefined) {
     if (!Number.isFinite(edit.rot)) return { error: t(lang, 'layout.badRotation', { key }) };
-    // Приводим к [0, 360): поворот на 450° и на 90° — один и тот же предмет,
-    // но в файле состояния это были бы две разные записи.
-    clean.rot = round3(((edit.rot % 360) + 360) % 360);
+    // Приводим к 0/90/180/270 тем же правилом, что и чтение раскладки
+    // (`propRot`): поворот на 450° и на 90° — один и тот же предмет, но в
+    // файле состояния это были бы две разные записи. Промежуточные углы
+    // офис не хранит — занятые клетки считаются прямоугольником, и держать
+    // в данных угол, которого сетка не различает, значило бы врать.
+    clean.rot = normalizeRot(edit.rot);
   }
   if (edit.scale !== undefined) {
     if (!Number.isFinite(edit.scale) || edit.scale < MIN_SCALE || edit.scale > MAX_SCALE) {

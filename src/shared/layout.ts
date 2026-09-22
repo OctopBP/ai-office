@@ -22,10 +22,10 @@ export type Side = 'n' | 's' | 'e' | 'w';
  * подушку с любой стороны, до которой дотягивалась соседняя свободная клетка,
  * — в том числе из-за спинки и через подлокотник.
  *
- * Стороны записаны у предмета в его собственных координатах и поворот не
- * учитывают — ровно как `footprint` (см. `LayoutProp.rot`): повёрнутых
- * предметов в раскладках пока нет, а когда появятся, поворачивать придётся и
- * след, и входы, и в одном месте.
+ * Стороны записаны у предмета в его собственных координатах: у дивана вход с
+ * юга — это «спереди», а не «с южной стены комнаты». Поворот предмета
+ * (`LayoutProp.rot`) разворачивает их вместе со следом и местами —
+ * `rotateSide` в одном месте на всех, `markEntries`.
  */
 export type Approach = Side[];
 
@@ -95,16 +95,22 @@ export interface LayoutProp {
   flip?: boolean;
   scale?: number;
   /**
-   * Поворот предмета вокруг своей оси, градусы по часовой стрелке. Плоский
-   * рендер его не знает и знать не может: развернуть спрайт вида сверху —
-   * это нарисовать его заново, по кадру на сторону. Трёхмерный рендер
-   * поворачивает меш одним числом, ради чего поле и заведено.
+   * Поворот предмета вокруг своей оси, градусы по часовой стрелке, кратно
+   * прямому углу: 0, 90, 180, 270. Поля нет — ноль, и старый пресет читается
+   * ровно как раньше.
    *
-   * След предмета (`footprint`, а значит и проходимость) считается **без**
-   * поворота: `passability` живёт в общем модуле и обслуживает обоих
-   * рендеров, а повёрнутого следа у плоского не бывает. Пока повёрнутых
-   * предметов в пресетах нет, расхождения не возникает; когда редактор
-   * научится поворачивать (шаг 6), след придётся поворачивать здесь же.
+   * Поворачивается предмет целиком, а не только картинка: след на полу
+   * (`propFootprint`, а значит и проходимость), габарит (`propBox`),
+   * посадочные места и стороны, с которых на них заходят. У предмета 2×1,
+   * повёрнутого на 90°, занятые клетки становятся 1×2 — считает это
+   * `propFootprint`, и всё, что спрашивает про занятость, обязано спрашивать
+   * его, а не `footprint` из каталога.
+   *
+   * Ось поворота — центр следа (`propPivot`): предмет разворачивается на
+   * месте, а не уезжает от якоря. Плоский рендер поворота не рисует и
+   * нарисовать не может (развернуть спрайт вида сверху — значит нарисовать
+   * его заново, по кадру на сторону), трёхмерный крутит меш вокруг той же
+   * оси.
    */
   rot?: number;
   /**
@@ -324,13 +330,253 @@ export function propSize(prop: LayoutProp, sprite?: CatalogSprite): [number, num
   return [w * k, h * k];
 }
 
-/** Абсолютная точка слота-координаты предмета: якорь плюс смещение с учётом растяжения. */
-function resolvePoint(prop: LayoutProp, sprite: CatalogSprite | undefined, slot: SlotPoint): Pos {
-  const [sx, sy] = propScale(prop, sprite);
-  return { x: prop.at[0] + slot.x * sx, y: prop.at[1] + slot.y * sy };
+// ---------- Поворот предмета (§3.2, `LayoutProp.rot`) ----------
+
+/** Поворот предмета: кратный прямому углу, по часовой стрелке. */
+export type Rotation = 0 | 90 | 180 | 270;
+
+/**
+ * Угол в градусах, приведённый к 0/90/180/270.
+ *
+ * Пусто — ноль: так читаются все раскладки, написанные до поворота, и
+ * выглядят они ровно как раньше. Угол, не кратный прямому, прижимается к
+ * ближайшему кратному: занятость считается прямоугольником клеток, и предмет,
+ * повёрнутый на 37°, по сетке всё равно займёт один из четырёх — честнее
+ * выбрать ближайший, чем молча считать его неповёрнутым. Отрицательные и
+ * большие 360 приводятся сюда же: −90 и 270 — один и тот же предмет.
+ */
+export function normalizeRot(rot?: number): Rotation {
+  if (!Number.isFinite(rot ?? 0)) return 0;
+  const steps = ((Math.round((rot ?? 0) / 90) % 4) + 4) % 4;
+  return (steps * 90) as Rotation;
 }
 
-/** Центр габарита предмета — якорь плюс половина размера. */
+/** Поворот предмета раскладки, приведённый к 0/90/180/270 (`normalizeRot`). */
+export function propRot(prop: LayoutProp): Rotation {
+  return normalizeRot(prop.rot);
+}
+
+/** Стороны по часовой стрелке: поворот на 90° сдвигает сторону на шаг вперёд. */
+const SIDES_CW: Side[] = ['n', 'e', 's', 'w'];
+
+/**
+ * Сторона предмета, развёрнутая вместе с ним: север предмета, повёрнутого на
+ * 90°, смотрит в комнате на восток.
+ */
+export function rotateSide(side: Side, rot: Rotation): Side {
+  return SIDES_CW[(SIDES_CW.indexOf(side) + rot / 90) % 4];
+}
+
+/** Противоположная сторона: за северным краем стола сидят лицом на юг. */
+export function oppositeSide(side: Side): Side {
+  return SIDES_CW[(SIDES_CW.indexOf(side) + 2) % 4];
+}
+
+/**
+ * Точка, повёрнутая вокруг оси предмета.
+ *
+ * Оси комнаты экранные — x вправо, y вниз, — поэтому поворот по часовой
+ * стрелке это (dx, dy) → (−dy, dx). Та же формула стоит в трёхмерном рендере
+ * (`rotation={[0, −rot, 0]}` при x→x, y→z), и разъехаться им нельзя: место,
+ * посчитанное здесь, должно совпасть с мебелью, нарисованной там.
+ */
+function rotateAround(pt: Pos, pivot: Pos, rot: Rotation): Pos {
+  const dx = pt.x - pivot.x;
+  const dy = pt.y - pivot.y;
+  switch (rot) {
+    case 90: return { x: pivot.x - dy, y: pivot.y + dx };
+    case 180: return { x: pivot.x - dx, y: pivot.y - dy };
+    case 270: return { x: pivot.x + dy, y: pivot.y - dx };
+    default: return { x: pt.x, y: pt.y };
+  }
+}
+
+/** Прямоугольник в тайлах: левый верхний угол и размер. */
+export interface Rect { x: number; y: number; w: number; h: number }
+
+/** След предмета до поворота: прямоугольник от якоря, растянутый как сам предмет. */
+function baseFootprint(prop: LayoutProp, sprite: CatalogSprite | undefined): Rect {
+  const [sx, sy] = propScale(prop, sprite);
+  const [bw, bh] = sprite?.size ?? [1, 1];
+  const [fx, fy, fw, fh] = sprite?.footprint ?? [0, 0, bw, bh];
+  return { x: prop.at[0] + fx * sx, y: prop.at[1] + fy * sy, w: fw * sx, h: fh * sy };
+}
+
+/**
+ * Как именно поворачивается этот предмет: вокруг какой точки и с какой
+ * поправкой.
+ *
+ * Поворот вокруг центра следа стороны меняет местами правильно, но у следа с
+ * разной чётностью сторон (диван 3×2) уводит предмет на полтайла: центр
+ * остаётся, а углы съезжают на 0.5. Полтайла для этой комнаты — известная
+ * беда: след округляется до целых клеток, а точки мест — нет, и предмет
+ * разъезжается со своим же местом (см. проверку 6 в `test-nav`, диван на 9.5
+ * в бывшей раскладке `studio`).
+ *
+ * Поэтому после поворота след возвращается левым верхним углом на место:
+ * угол следа у повёрнутого предмета тот же, что у неповёрнутого, а стороны
+ * поменялись местами. Предмет, стоящий на целых тайлах, на них и остаётся при
+ * любом повороте — а вместе со следом на ту же поправку уезжают все точки
+ * предмета, поэтому места остаются там, где нарисована мебель.
+ */
+interface Turn { rot: Rotation; pivot: Pos; dx: number; dy: number }
+
+function turnOf(prop: LayoutProp, sprite: CatalogSprite | undefined): Turn {
+  const rot = propRot(prop);
+  const base = baseFootprint(prop, sprite);
+  const pivot = { x: base.x + base.w / 2, y: base.y + base.h / 2 };
+  const swapped = rot === 90 || rot === 270;
+  return {
+    rot,
+    pivot,
+    dx: swapped ? (base.h - base.w) / 2 : 0,
+    dy: swapped ? (base.w - base.h) / 2 : 0,
+  };
+}
+
+/** Точка предмета после поворота — с той же поправкой, что и его след. */
+function turnPoint(turn: Turn, pt: Pos): Pos {
+  if (turn.rot === 0) return pt;
+  const at = rotateAround(pt, turn.pivot, turn.rot);
+  return { x: at.x + turn.dx, y: at.y + turn.dy };
+}
+
+/**
+ * След предмета на полу с учётом поворота — то, что он занимает в комнате.
+ *
+ * Это единственный ответ на вопрос «какие клетки заняты»: `footprint` из
+ * каталога записан в координатах картинки и у повёрнутого предмета не
+ * совпадает с тем, что на полу. У следа 2×1, развёрнутого на 90°, здесь
+ * получается 1×2 — и ровно по этому прямоугольнику считает `passability`.
+ */
+export function propFootprint(prop: LayoutProp, sprite?: CatalogSprite): Rect {
+  const base = baseFootprint(prop, sprite);
+  const { rot } = turnOf(prop, sprite);
+  if (rot === 0 || rot === 180) return base;
+  return { x: base.x, y: base.y, w: base.h, h: base.w };
+}
+
+/**
+ * Центр следа предмета в комнате — точка, вокруг которой он и нарисован, и
+ * повёрнут. Трёхмерному рендеру нужна именно она: меш ставится сюда и
+ * доворачивается на `propRot` градусов.
+ */
+export function propPivot(prop: LayoutProp, sprite?: CatalogSprite): Pos {
+  const r = propFootprint(prop, sprite);
+  return { x: r.x + r.w / 2, y: r.y + r.h / 2 };
+}
+
+/**
+ * Габарит предмета в комнате с учётом поворота: у предмета 2×1, повёрнутого
+ * на 90°, это 1×2, и левый верхний угол у него уже не там, где якорь.
+ *
+ * `propSize` остаётся размером предмета «как он нарисован» — от него считаются
+ * растяжение и размер меша, и поворачивать там нечего.
+ */
+export function propBox(prop: LayoutProp, sprite?: CatalogSprite): Rect {
+  const [w, h] = propSize(prop, sprite);
+  const turn = turnOf(prop, sprite);
+  if (turn.rot === 0) return { x: prop.at[0], y: prop.at[1], w, h };
+  const a = turnPoint(turn, { x: prop.at[0], y: prop.at[1] });
+  const b = turnPoint(turn, { x: prop.at[0] + w, y: prop.at[1] + h });
+  return {
+    x: Math.min(a.x, b.x),
+    y: Math.min(a.y, b.y),
+    w: Math.abs(b.x - a.x),
+    h: Math.abs(b.y - a.y),
+  };
+}
+
+/**
+ * Точка предмета, уехавшая вместе с ним при повороте.
+ *
+ * `standing` — точка, в которой стоит или сидит человек. Такая точка записана
+ * якорем фигуры (левый верхний угол спрайта, `FOOT_DX`/`FOOT_DY`), а
+ * поворачивать надо клетку пола под ногами: диван развернулся, человек — нет,
+ * он по-прежнему стоит ногами вниз. Без этой поправки место уезжало бы от
+ * повёрнутого дивана на разницу между якорем и ногами.
+ */
+function rotatePropPoint(
+  prop: LayoutProp, sprite: CatalogSprite | undefined, at: Pos, standing: boolean,
+): Pos {
+  const turn = turnOf(prop, sprite);
+  if (turn.rot === 0) return at;
+  if (!standing) return turnPoint(turn, at);
+  const foot = turnPoint(turn, { x: at.x + FOOT_DX, y: at.y + FOOT_DY });
+  return { x: foot.x - FOOT_DX, y: foot.y - FOOT_DY };
+}
+
+/**
+ * Абсолютная точка слота-координаты предмета: якорь плюс смещение с учётом
+ * растяжения и поворота (§3.1).
+ */
+export function slotPoint(
+  prop: LayoutProp, sprite: CatalogSprite | undefined, slot: SlotPoint,
+): Pos {
+  const [sx, sy] = propScale(prop, sprite);
+  const at = { x: prop.at[0] + slot.x * sx, y: prop.at[1] + slot.y * sy };
+  return rotatePropPoint(prop, sprite, at, slot.kind === 'seat' || slot.kind === 'work');
+}
+
+/** Преобладающая сторона вектора — та ось, по которой он длиннее. */
+function sideOfVector(dx: number, dy: number): Side {
+  if (Math.abs(dx) >= Math.abs(dy)) return dx >= 0 ? 'e' : 'w';
+  return dy >= 0 ? 's' : 'n';
+}
+
+/**
+ * Куда смотрит человек, занявший точечное место, — сторона комнаты.
+ *
+ * Считается по уже повёрнутой точке места, и поворачивать результат отдельно
+ * не надо: ось предмета (`propPivot`) при повороте стоит на месте, поэтому
+ * «от оси к ногам» разворачивается вместе с мебелью само.
+ *
+ * Правило разное у двух видов точечных мест, и разница не в геометрии, а в
+ * том, где человек сидит:
+ *
+ * - рабочее место (`work`) лежит **перед** предметом: сидящий смотрит в стол,
+ *   то есть в сторону оси;
+ * - место на самом предмете (`seat`: подушка дивана, кресло) — сидящий
+ *   смотрит наружу, от спинки. Наружу — это туда, откуда на место заходят
+ *   (`approach`, уже повёрнутый); сторон захода бывает несколько, тогда
+ *   берётся та, что совпадает с направлением «от оси к ногам», а если ни одна
+ *   не совпала — первая объявленная. Не объявлено ни одной — само это
+ *   направление.
+ */
+function pointFacing(
+  prop: LayoutProp, sprite: CatalogSprite | undefined, slot: SlotPoint, at: Pos,
+): Side {
+  const pivot = propPivot(prop, sprite);
+  const outward = sideOfVector(at.x + FOOT_DX - pivot.x, at.y + FOOT_DY - pivot.y);
+  if (slot.kind !== 'seat') return oppositeSide(outward);
+  const sides = (slot.approach ?? []).map((s) => rotateSide(s, propRot(prop)));
+  if (sides.length === 0) return outward;
+  return sides.includes(outward) ? outward : sides[0];
+}
+
+/**
+ * Направление взгляда радианами вокруг вертикали: юг 0, восток π/2, север π,
+ * запад −π/2.
+ *
+ * Та же система, что у `TalkSeat.yaw`, и второй быть не должно: собеседники и
+ * сидящие на диване разворачиваются одним и тем же числом в одном и том же
+ * рендере. Данным удобнее сторона, рендеру — угол, поэтому у места есть обе
+ * записи одного направления.
+ */
+export function yawOfSide(side: Side): number {
+  switch (side) {
+    case 's': return 0;
+    case 'e': return Math.PI / 2;
+    case 'n': return Math.PI;
+    case 'w': return -Math.PI / 2;
+  }
+}
+
+/**
+ * Центр габарита предмета — якорь плюс половина размера, **до** поворота.
+ * Всё, что от него считается (кольцо мест переговорки), поворачивается потом
+ * целиком вокруг оси предмета, а не по частям.
+ */
 function propCenter(prop: LayoutProp, sprite: CatalogSprite): Pos {
   const [w, h] = propSize(prop, sprite);
   return { x: prop.at[0] + w / 2, y: prop.at[1] + h / 2 };
@@ -355,8 +601,11 @@ function deskProps(layout: Layout, catalog: Catalog): DeskProp[] {
  */
 export function desks(layout: Layout, catalog: Catalog): Desk[] {
   return deskProps(layout, catalog).map(({ prop, sprite }, index) => {
-    const [w, h] = propSize(prop, sprite);
-    return { index, x: prop.at[0], y: prop.at[1], w, h };
+    // Габарит повёрнутый (`propBox`): стол, развёрнутый на 90°, занимает в
+    // комнате другой прямоугольник, и подсветка свободного места обязана
+    // лечь на него, а не на тот, что был бы без поворота.
+    const box = propBox(prop, sprite);
+    return { index, x: box.x, y: box.y, w: box.w, h: box.h };
   });
 }
 
@@ -380,14 +629,34 @@ export function deskSprite(layout: Layout, catalog: Catalog, deskIndex: number):
   return deskProps(layout, catalog)[deskIndex]?.prop.sprite;
 }
 
-/** Точка work (где стоит человечек) или plate (табличка с кодом задачи) у стола с данным индексом. */
-export function deskPoint(layout: Layout, catalog: Catalog, deskIndex: number, kind: 'work' | 'plate'): Pos {
-  const list = deskProps(layout, catalog);
-  const found = list[deskIndex];
+/**
+ * Стол с данным индексом и его слот нужного вида. Бросает, если стола нет
+ * или слот у спрайта не описан: и то и другое — ошибка раскладки, молчать о
+ * ней нельзя, агента некуда сажать.
+ */
+function deskSlot(layout: Layout, catalog: Catalog, deskIndex: number, kind: 'work' | 'plate') {
+  const found = deskProps(layout, catalog)[deskIndex];
   if (!found) throw new Error(`layout: нет рабочего стола с индексом ${deskIndex}`);
   const slot = found.sprite.slots?.find((s): s is SlotPoint => isPoint(s) && s.kind === kind);
   if (!slot) throw new Error(`layout: у стола ${found.prop.sprite} нет слота ${kind}`);
-  return resolvePoint(found.prop, found.sprite, slot);
+  return { ...found, slot };
+}
+
+/** Точка work (где стоит человечек) или plate (табличка с кодом задачи) у стола с данным индексом. */
+export function deskPoint(layout: Layout, catalog: Catalog, deskIndex: number, kind: 'work' | 'plate'): Pos {
+  const { prop, sprite, slot } = deskSlot(layout, catalog, deskIndex, kind);
+  return slotPoint(prop, sprite, slot);
+}
+
+/**
+ * Куда смотрит сидящий за столом с данным индексом — в стол, с учётом его
+ * поворота. Рабочее место лежит перед столом, и разворот у него один
+ * осмысленный: у стола, повёрнутого на 90°, место уехало на восточную
+ * сторону, и смотреть оттуда надо на запад.
+ */
+export function deskFacing(layout: Layout, catalog: Catalog, deskIndex: number): Side {
+  const { prop, sprite, slot } = deskSlot(layout, catalog, deskIndex, 'work');
+  return pointFacing(prop, sprite, slot, slotPoint(prop, sprite, slot));
 }
 
 /** Первый предмет в раскладке, у чьего спрайта есть ring-слот мест (переговорка). */
@@ -424,17 +693,27 @@ function onMap(layout: Layout, at: Pos): Pos {
   };
 }
 
-/** Позиция места кольца: эллипс вокруг центра предмета, общая формула на всех. */
+/**
+ * Позиция места кольца: эллипс вокруг центра предмета, общая формула на всех.
+ *
+ * Эллипс считается в неповёрнутых координатах и поворачивается целиком:
+ * у вытянутого стола (rx ≠ ry) развёрнутый на 90° предмет обязан получить
+ * развёрнутое кольцо, а не прежнее. Прижимаем к карте (`onMap`) уже после
+ * поворота — иначе прижималось бы место, которого в комнате нет.
+ */
 function ringSeatAt(
-  layout: Layout, center: Pos, slot: SlotRing, seatIndex: number, total: number,
+  layout: Layout, prop: LayoutProp, sprite: CatalogSprite, slot: SlotRing,
+  seatIndex: number, total: number,
 ): Pos {
+  const center = propCenter(prop, sprite);
   const n = Math.max(total, 1);
   const grow = slot.grow && n > slot.ring ? n / slot.ring : 1;
   const angle = (seatIndex / n) * Math.PI * 2 - Math.PI / 2;
-  return onMap(layout, {
+  const at = {
     x: center.x + Math.cos(angle) * slot.rx * grow,
     y: center.y + Math.sin(angle) * slot.ry * grow,
-  });
+  };
+  return onMap(layout, rotatePropPoint(prop, sprite, at, true));
 }
 
 /**
@@ -449,19 +728,23 @@ export function meetingSeat(
   const found = findRingSeat(layout, catalog, propId);
   if (!found) throw new Error('layout: в раскладке нет стола со слотом seat/ring');
   const { prop, sprite, slot } = found;
-  return ringSeatAt(layout, propCenter(prop, sprite), slot, seatIndex, total);
+  return ringSeatAt(layout, prop, sprite, slot, seatIndex, total);
 }
 
 /** Позиции ring-слота при заданном total — та же формула, что в `meetingSeat()`. */
 function ringSeatsAt(
   layout: Layout, prop: LayoutProp, sprite: CatalogSprite, slot: SlotRing, total: number,
 ): Pos[] {
-  const center = propCenter(prop, sprite);
   const n = Math.max(total, 1);
-  return Array.from({ length: n }, (_, i) => ringSeatAt(layout, center, slot, i, n));
+  return Array.from({ length: n }, (_, i) => ringSeatAt(layout, prop, sprite, slot, i, n));
 }
 
-/** Места вдоль одной стороны предмета — шаг width/count, отступ от кромки SEAT_GAP (§3.1). */
+/**
+ * Места вдоль одной стороны предмета — шаг width/count, отступ от кромки
+ * SEAT_GAP (§3.1). Ряд раскладывается по неповёрнутому предмету и целиком
+ * уезжает вместе с ним: у стола, развёрнутого на 90°, «северный» ряд
+ * оказывается у восточной кромки.
+ */
 function sideSeats(prop: LayoutProp, sprite: CatalogSprite, slot: SlotSide): Pos[] {
   const [width, height] = propSize(prop, sprite);
   const along = slot.side === 'n' || slot.side === 's' ? width : height;
@@ -476,7 +759,7 @@ function sideSeats(prop: LayoutProp, sprite: CatalogSprite, slot: SlotSide): Pos
       case 'e': seats.push({ x: prop.at[0] + width + SEAT_GAP, y: prop.at[1] + offset }); break;
     }
   }
-  return seats;
+  return seats.map((at) => rotatePropPoint(prop, sprite, at, true));
 }
 
 /**
@@ -507,6 +790,13 @@ export interface RestSeat {
    * доводятся одной поправкой.
    */
   seat: number;
+  /**
+   * Куда смотрит севший — сторона комнаты, уже с учётом поворота предмета:
+   * за столом в стол, на диване от спинки (`pointFacing`, `oppositeSide`).
+   */
+  facing: Side;
+  /** То же направление радианами вокруг вертикали (`yawOfSide`) — для рендера. */
+  yaw: number;
 }
 
 /**
@@ -527,17 +817,27 @@ export function restSeats(layout: Layout, catalog: Catalog, propId?: string): Re
     // данным отношения не имеет.
     const seatSlots = slots.filter((s) => s.kind === 'seat');
     for (const slot of slots.filter(isSide)) {
+      // Ряд вдоль стороны — это места **у** предмета: сидят лицом к нему, то
+      // есть в сторону, противоположную той, вдоль которой ряд стоит.
+      const facing = rotateSide(oppositeSide(slot.side), propRot(prop));
       for (const at of sideSeats(prop, sprite!, slot)) {
-        seats.push({ at, sprite: prop.sprite, seat: seatSlots.indexOf(slot) });
+        seats.push({
+          at, sprite: prop.sprite, seat: seatSlots.indexOf(slot),
+          facing, yaw: yawOfSide(facing),
+        });
       }
     }
     for (const slot of slots) {
       if (!isPoint(slot) || slot.kind !== 'seat') continue;
+      const at = slotPoint(prop, sprite, slot);
+      const facing = pointFacing(prop, sprite, slot, at);
       seats.push({
-        at: resolvePoint(prop, sprite, slot),
+        at,
         use: slot.use,
         sprite: prop.sprite,
         seat: seatSlots.indexOf(slot),
+        facing,
+        yaw: yawOfSide(facing),
       });
     }
   }
@@ -895,10 +1195,12 @@ export function passability(layout: Layout, catalog: Catalog): Passability {
   for (const prop of layout.props) {
     const sprite = spriteOf(catalog, prop.sprite);
     if (!sprite?.blocks) continue;
-    const [sx, sy] = propScale(prop, sprite);
-    const [fx, fy, fw, fh] = sprite.footprint ?? [0, 0, sprite.size[0], sprite.size[1]];
-    const [x0, x1] = tileSpan(prop.at[0] + fx * sx, fw * sx);
-    const [y0, y1] = tileSpan(prop.at[1] + fy * sy, fh * sy);
+    // След повёрнутый: у предмета 2×1, развёрнутого на 90°, занятые клетки
+    // становятся 1×2 (`propFootprint`). Считать здесь `footprint` из каталога
+    // значило бы, что повёрнутый диван перегораживает не то, что видно.
+    const rect = propFootprint(prop, sprite);
+    const [x0, x1] = tileSpan(rect.x, rect.w);
+    const [y0, y1] = tileSpan(rect.y, rect.h);
     for (let y = y0; y < y1; y++) {
       for (let x = x0; x < x1; x++) mark(x, y, 1);
     }
@@ -939,17 +1241,27 @@ function markEntries(
     p.entries.set(idx, { sides: was ? was.sides | sides : sides, prop: was?.prop ?? index });
   };
 
+  // Стороны захода записаны у предмета в его собственных координатах, а
+  // спрашиваются в координатах комнаты: у дивана, развёрнутого на 90°,
+  // «спереди» это уже не юг, а запад. Поворачиваем здесь, один раз на все
+  // слоты, — тем же `rotateSide`, что и всё остальное.
+  const rot = propRot(prop);
+  const turned = (approach: Approach | undefined): Approach | undefined => (
+    approach?.map((side) => rotateSide(side, rot))
+  );
+
   for (const slot of sprite?.slots ?? []) {
     if (isSide(slot)) {
       // Умолчание ряда — «с любой стороны, кроме самого предмета»: за
       // северный край стола садятся хоть с севера, хоть сбоку, но не сквозь
       // стол. Той же меркой мерится рабочее место у стола (`approach` в
       // пресете `desk`), и это одно и то же правило, а не совпадение.
-      const sides = sidesMask(slot.approach, ALL_SIDES & ~OPPOSITE_BIT[SIDE_BIT[slot.side]]);
+      const side = rotateSide(slot.side, rot);
+      const sides = sidesMask(turned(slot.approach), ALL_SIDES & ~OPPOSITE_BIT[SIDE_BIT[side]]);
       for (const at of sideSeats(prop, sprite!, slot)) put(at, sides);
     } else if (isPoint(slot) && (slot.kind === 'seat' || slot.kind === 'work')) {
       if (!slot.approach || slot.approach.length === 0) continue;
-      put(resolvePoint(prop, sprite, slot), sidesMask(slot.approach));
+      put(slotPoint(prop, sprite, slot), sidesMask(turned(slot.approach)));
     }
   }
 }

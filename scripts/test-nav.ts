@@ -11,11 +11,12 @@
  * Запуск: npm run test:nav
  */
 import {
-  adjacentFree, deskPoint, desks, findPath, isBlocked, kitchenSeats, meetingSeat,
-  nearestFree, passability, propScale, propSize, spriteOf, standingAt, talkSeats,
-  walkerCell,
+  adjacentFree, deskFacing, deskPoint, desks, findPath, FOOT_DX, FOOT_DY, isBlocked,
+  kitchenSeats, meetingSeat, nearestFree, oppositeSide, passability, propBox,
+  propFootprint, propPivot, restSeats, rotateSide, SIDE_BIT, slotPoint, spriteOf,
+  standingAt, talkSeats, walkerCell, yawOfSide,
 } from '../src/shared/layout';
-import type { Layout, Passability, Pos } from '../src/shared/layout';
+import type { Layout, LayoutProp, Passability, Pos, Rotation, Side } from '../src/shared/layout';
 import { catalog, layoutIds, loadLayout } from '../src/server/layout';
 
 // Раскладки и каталог спрайтов читаем тем же модулем, что и сервер: корень
@@ -145,12 +146,12 @@ for (const id of LAYOUT_IDS) {
   for (const prop of layout.props) {
     const sprite = spriteOf(catalog, prop.sprite);
     if (!sprite?.blocks) continue;
-    const [fx, fy, fw, fh] = sprite.footprint ?? [0, 0, sprite.size[0], sprite.size[1]];
-    const [kx, ky] = propScale(prop, sprite);
-    const x0 = prop.at[0] + fx * kx;
-    const y0 = prop.at[1] + fy * ky;
-    const x1 = x0 + fw * kx;
-    const y1 = y0 + fh * ky;
+    // След берём повёрнутый (`propFootprint`) — тот же, по которому считает
+    // `passability`. Считать здесь `footprint` из каталога значило бы, что
+    // проверка и карта расходятся ровно на повёрнутых предметах.
+    const { x: x0, y: y0, w, h } = propFootprint(prop, sprite);
+    const x1 = x0 + w;
+    const y1 = y0 + h;
     const holes: string[] = [];
     // Только клетки целиком внутри следа: задетые кромкой — вопрос точности
     // следа (docs/design/office-units/spec.md §4), а не проходимости.
@@ -211,10 +212,9 @@ for (const id of LAYOUT_IDS) {
   for (const prop of layout.props) {
     const sprite = spriteOf(catalog, prop.sprite);
     if (!sprite?.blocks) continue;
-    const [sx, sy] = propScale(prop, sprite);
     for (const slot of sprite.slots ?? []) {
       if (slot.kind !== 'seat' || !('x' in slot)) continue;
-      const cell = walkerCell({ x: prop.at[0] + slot.x * sx, y: prop.at[1] + slot.y * sy });
+      const cell = walkerCell(slotPoint(prop, sprite, slot));
       check(isBlocked(p, cell.x, cell.y),
         `${id}: место ${prop.sprite}@${prop.at} лежит вне следа предмета`
         + ` — клетка (${cell.x},${cell.y}) свободна, предмет стоит не на целых тайлах`);
@@ -238,6 +238,159 @@ for (const id of LAYOUT_IDS) {
     const bit = dx > 0 ? 4 : dx < 0 ? 8 : dy > 0 ? 1 : 2; // w, e, n, s
     check(sameProp || (dx === 0 || dy === 0) && (entry.sides & bit) !== 0,
       `${id}: на «${to.label}» заходят не с объявленной стороны — из (${prev.x},${prev.y})`);
+  }
+}
+
+// ---------- Поворот предмета (§3.2, `LayoutProp.rot`) ----------
+//
+// Проверяется на предмете, стоящем в пустой комнате в одиночестве: у поворота
+// свойства точные — габарит меняет стороны местами, место уезжает вместе с
+// предметом, войти на него можно с повёрнутой стороны, — и соседняя мебель
+// тут только мешала бы понять, что именно сломалось.
+
+const ROTATIONS: Rotation[] = [0, 90, 180, 270];
+
+/** Пустая комната с одним предметом. */
+function alone(prop: LayoutProp): Layout {
+  return { version: 1, id: 'rot', title: 'поворот', size: [16, 16], props: [prop] };
+}
+
+const near = (a: number, b: number): boolean => Math.abs(a - b) < 1e-6;
+
+/** Сторона, с которой шагнули из клетки `from` в клетку `to`. */
+function stepSide(from: Pos, to: Pos): Side | null {
+  if (to.x === from.x && to.y === from.y) return null;
+  if (to.x !== from.x && to.y !== from.y) return null;
+  if (to.x !== from.x) return to.x > from.x ? 'w' : 'e';
+  return to.y > from.y ? 'n' : 's';
+}
+
+const sofaSprite = spriteOf(catalog, 'sofa');
+const deskSprite = spriteOf(catalog, 'desk');
+check(!!sofaSprite && !!deskSprite, 'поворот: в каталоге нет sofa или desk');
+
+if (sofaSprite && deskSprite) {
+  // 1. Старый предмет — тот, у которого поля вовсе нет, — читается как rot: 0
+  //    и считается ровно так же. Это и есть обратная совместимость раскладок,
+  //    написанных до поворота.
+  const plain: LayoutProp = { sprite: 'sofa', at: [5, 5] };
+  const explicitZero: LayoutProp = { ...plain, rot: 0 };
+  const a = propFootprint(plain, sofaSprite);
+  const b = propFootprint(explicitZero, sofaSprite);
+  check(near(a.x, b.x) && near(a.y, b.y) && near(a.w, b.w) && near(a.h, b.h),
+    'поворот: предмет без поля rot считается не как rot: 0');
+  check(JSON.stringify(restSeats(alone(plain), catalog))
+    === JSON.stringify(restSeats(alone(explicitZero), catalog)),
+    'поворот: места предмета без поля rot разошлись с rot: 0');
+
+  // 2. Габарит поворачивается вместе с предметом: у 3×2 при 90° занятые
+  //    клетки становятся 2×3, а угол следа остаётся на месте — предмет
+  //    разворачивается, а не уезжает, и с целых тайлов не съезжает.
+  const base = propFootprint(plain, sofaSprite);
+  for (const rot of ROTATIONS) {
+    const turned = propFootprint({ ...plain, rot }, sofaSprite);
+    const swapped = rot === 90 || rot === 270;
+    check(near(turned.w, swapped ? base.h : base.w) && near(turned.h, swapped ? base.w : base.h),
+      `поворот ${rot}°: стороны следа не поменялись местами`);
+    check(near(turned.x, base.x) && near(turned.y, base.y),
+      `поворот ${rot}°: след уехал с угла предмета`);
+    const box = propBox({ ...plain, rot }, sofaSprite);
+    const plainBox = propBox(plain, sofaSprite);
+    check(near(box.w, swapped ? plainBox.h : plainBox.w)
+      && near(box.h, swapped ? plainBox.w : plainBox.h),
+      `поворот ${rot}°: габарит предмета не повернулся`);
+  }
+
+  // 3. Углы, не кратные прямому, и обороты сверх круга приводятся к четырём
+  //    положениям: −90 это 270, 450 это 90.
+  for (const [given, same] of [[-90, 270], [450, 90], [359, 0], [46, 90]] as const) {
+    const one = propFootprint({ ...plain, rot: given }, sofaSprite);
+    const two = propFootprint({ ...plain, rot: same }, sofaSprite);
+    check(near(one.x, two.x) && near(one.y, two.y) && near(one.w, two.w) && near(one.h, two.h),
+      `поворот: ${given}° не привёлся к ${same}°`);
+  }
+
+  // 4. Сторона предмета разворачивается вместе с ним: север повёрнутого на
+  //    90° смотрит на восток, а «лицом к предмету» остаётся напротив.
+  check(rotateSide('n', 90) === 'e' && rotateSide('e', 90) === 's'
+    && rotateSide('s', 90) === 'w' && rotateSide('w', 90) === 'n',
+    'поворот: сторона предмета разворачивается не по часовой стрелке');
+  check(oppositeSide('n') === 's' && oppositeSide('w') === 'e',
+    'поворот: противоположная сторона названа неверно');
+
+  // 5. Места дивана уезжают вместе с ним: остаются на самом предмете, а
+  //    взгляд разворачивается на тот же угол.
+  const flat = restSeats(alone(plain), catalog);
+  for (const rot of ROTATIONS) {
+    const prop: LayoutProp = { ...plain, rot };
+    const layout = alone(prop);
+    const grid = passability(layout, catalog);
+    const seats = restSeats(layout, catalog);
+    check(seats.length === flat.length, `поворот ${rot}°: мест у дивана стало другое число`);
+    seats.forEach((seat, i) => {
+      const cell = walkerCell(seat.at);
+      check(isBlocked(grid, cell.x, cell.y),
+        `поворот ${rot}°: место ${i} съехало с дивана — клетка (${cell.x},${cell.y}) свободна`);
+      check(seat.facing === rotateSide(flat[i].facing, rot),
+        `поворот ${rot}°: место ${i} смотрит ${seat.facing}, а должно`
+        + ` ${rotateSide(flat[i].facing, rot)}`);
+      check(near(seat.yaw, yawOfSide(seat.facing)),
+        `поворот ${rot}°: у места ${i} yaw не совпал со стороной взгляда`);
+    });
+  }
+
+  // 6. На диване сидят от спинки — туда, откуда на место и заходят.
+  check(flat.every((s) => s.facing === 's'),
+    'поворот: на неповёрнутом диване сидят не лицом от спинки');
+
+  // 7. За столом смотрят в стол, и поворот стола разворачивает взгляд.
+  const deskProp: LayoutProp = { sprite: 'desk', at: [5, 5] };
+  for (const rot of ROTATIONS) {
+    const layout = alone({ ...deskProp, rot });
+    check(deskFacing(layout, catalog, 0) === rotateSide('s', rot),
+      `поворот ${rot}°: сидящий за столом смотрит не в стол`);
+    // Место уехало на ту сторону, куда стол повёрнут: у оси предмета и точки
+    // места одна и та же сторона до и после поворота.
+    const at = deskPoint(layout, catalog, 0, 'work');
+    const pivot = propPivot({ ...deskProp, rot }, deskSprite);
+    const away = oppositeSide(deskFacing(layout, catalog, 0));
+    const foot = { x: at.x + FOOT_DX, y: at.y + FOOT_DY };
+    const side: Side = Math.abs(foot.x - pivot.x) >= Math.abs(foot.y - pivot.y)
+      ? (foot.x >= pivot.x ? 'e' : 'w')
+      : (foot.y >= pivot.y ? 's' : 'n');
+    check(side === away, `поворот ${rot}°: рабочее место осталось на прежней стороне стола`);
+  }
+
+  // 8. К повёрнутому месту подходят с той стороны, где оно доступно, и не
+  //    сквозь мебель: маршрут доходит до самой точки, последний шаг идёт с
+  //    объявленной (повёрнутой) стороны, и по занятым клеткам он не гуляет.
+  for (const prop of [plain, deskProp]) {
+    for (const rot of ROTATIONS) {
+      const layout = alone({ ...prop, rot });
+      const grid = passability(layout, catalog);
+      const targets = prop === plain
+        ? restSeats(layout, catalog).map((s) => s.at)
+        : [deskPoint(layout, catalog, 0, 'work')];
+      const start = standingAt(1, 1);
+      targets.forEach((to, i) => {
+        const path = findPath(grid, start, to, { bestEffort: true });
+        const end = path?.[path.length - 1];
+        check(!!end && near(end.x, to.x) && near(end.y, to.y),
+          `поворот ${rot}° (${prop.sprite}): до места ${i} не дойти`);
+        if (!path) return;
+        const dirty = pathIsClean(grid, path);
+        check(!dirty, `поворот ${rot}° (${prop.sprite}): путь к месту ${i} — ${dirty}`);
+        const cell = walkerCell(to);
+        const entry = grid.entries.get(cell.y * grid.cols + cell.x);
+        if (!entry || path.length < 2) return;
+        const prev = walkerCell(path[path.length - 2]);
+        if (prev.x === cell.x && prev.y === cell.y) return;
+        const sameProp = grid.entries.get(prev.y * grid.cols + prev.x)?.prop === entry.prop;
+        const side = stepSide(prev, cell);
+        check(sameProp || (!!side && (entry.sides & SIDE_BIT[side]) !== 0),
+          `поворот ${rot}° (${prop.sprite}): на место ${i} зашли не с объявленной стороны`);
+      });
+    }
   }
 }
 
