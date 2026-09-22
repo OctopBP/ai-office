@@ -17,12 +17,23 @@ export interface Look {
   sprite: string;
   /** Подпись по языкам; пустая — показывается `id`. */
   title: Partial<Record<Lang, string>>;
+  /**
+   * Детализированная модель вместо текстуры на общем теле — имя файла в
+   * `design/models/characters` (не в `skins`), с расширением `.glb`. Такая
+   * внешность приходит со своим мешем и своими материалами (шевелюра, глаза,
+   * одежда отдельными кусками), поэтому текстуру скина на неё не кладут —
+   * скелет и имена костей те же, что у общей фигуры, и клипы играются прямо
+   * на ней. Поля нет — внешность красится скином на общем теле, как раньше.
+   */
+  model?: string;
 }
 
 /** Имя скина попадает в путь к файлу, поэтому — только буквы, цифры, `_` и `-`. */
 export const LOOK_ID = /^[A-Za-z0-9][A-Za-z0-9_-]*$/;
 /** Человечки плоского офиса, между которыми выбирают спрайт внешности. */
 export const SPRITE_ID = /^agent_p\d+$/;
+/** Имя файла детализированной модели — только безопасные символы и `.glb`. */
+export const MODEL_FILE = /^[A-Za-z0-9][A-Za-z0-9_-]*\.glb$/;
 
 /**
  * Разобрать `looks.json`. Ошибка — исключением с адресом поля: файл правит
@@ -48,7 +59,14 @@ export function parseLooks(data: unknown): Look[] {
       if (typeof v !== 'string') throw new Error(`${at}.title.${lang}: ожидается строка`);
       if (v.trim()) title[lang] = v.trim();
     }
-    return { id: r.id, sprite: r.sprite, title };
+    let model: string | undefined;
+    if (r.model !== undefined) {
+      if (typeof r.model !== 'string' || !MODEL_FILE.test(r.model)) {
+        throw new Error(`${at}.model: ожидается имя файла «name.glb», а не «${String(r.model)}»`);
+      }
+      model = r.model;
+    }
+    return { id: r.id, sprite: r.sprite, title, ...(model ? { model } : {}) };
   });
 }
 
