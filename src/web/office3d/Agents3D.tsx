@@ -74,9 +74,9 @@ const SKIN_NAMES = Object.keys(SKIN_URLS).sort();
  * меш и свои материалы вместо текстуры на общем теле (§`Look.model` в
  * `shared/look.ts`). Список моделей собирается из реестра, а не перечислен
  * здесь, — новая детализированная модель попадает в комнату без правки
- * этого файла.
+ * этого файла. Ни одной такой внешности (и ни одного `.glb` в папке) —
+ * законное состояние: весь офис рисуется общим телом со скинами.
  */
-const DETAILED_LOOKS = LOOKS.filter((l): l is Look & { model: string } => !!l.model);
 const modelModules = import.meta.glob('../../../design/models/characters/*.glb', {
   eager: true, query: '?url', import: 'default',
 }) as Record<string, string>;
@@ -84,6 +84,15 @@ const MODEL_URLS: Record<string, string> = {};
 for (const [path, url] of Object.entries(modelModules)) {
   MODEL_URLS[path.split('/').pop()!] = url;
 }
+// Запись с моделью, которой нет в папке, пропускаем: загрузчику досталось бы
+// `undefined` вместо адреса и комната не отрисовалась бы целиком из-за одной
+// внешности. Такая внешность просто красится скином, как обычная.
+const DETAILED_LOOKS = LOOKS.filter((l): l is Look & { model: string } => {
+  if (!l.model) return false;
+  if (MODEL_URLS[l.model]) return true;
+  console.warn(`внешность «${l.id}»: нет файла модели ${l.model}, рисую скином`);
+  return false;
+});
 const DETAILED_MODEL_URLS = DETAILED_LOOKS.map((l) => MODEL_URLS[l.model]);
 
 /**
@@ -375,7 +384,10 @@ export function useCharacter(): Loaded {
  * геометрии: пропорции у неё свои, и высота таза или кистей в долях роста —
  * не те же числа, что у общего тела.
  *
- * Ключ — идентификатор внешности, тот же, что в `shared/looks.ts`.
+ * Ключ — идентификатор внешности, тот же, что в `shared/looks.ts`. Нет ни
+ * одной детализированной внешности — список адресов пуст, `useLoader`
+ * отдаёт пустой массив, и хук возвращает пустую таблицу: все рисуются общим
+ * телом. Хук вызывается всё равно, безусловно, — иначе он то есть, то нет.
  */
 export function useDetailedLooks(clips: Record<Pose | Move, THREE.AnimationClip>): Record<string, Loaded> {
   const gltfs = useLoader(GLTFLoader, DETAILED_MODEL_URLS) as unknown as { scene: THREE.Group }[];

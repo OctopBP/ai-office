@@ -12,7 +12,7 @@ import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { catalog, deskPlan, effectiveLayout } from '../src/server/layout';
 import { deskPoint } from '../src/shared/layout';
-import { LOOKS } from '../src/shared/looks';
+import { isLookId, LOOKS } from '../src/shared/looks';
 import {
   criticalEnvFail, DEFAULT_SETTINGS, getOffice, openOfficeState, subscribeOffices, toTaskView,
   totalRunningWorkers, unloadOfficeState,
@@ -736,6 +736,43 @@ async function main(): Promise<void> {
   );
   unloadOfficeState('o-palette');
   wipe(paletteFile);
+
+  // 7k. Снятая внешность. Запись убирают из `looks.json`, а в состоянии офиса
+  // её имя остаётся: без подмены такой агент оказался бы с внешностью, которой
+  // нет. Подменяется только снятая и только на замену из реестра; выбранная
+  // руками живая внешность и незнакомое имя остаются как есть.
+  const lookFile = resolve(tmpdir(), `office-test-look-${process.pid}.json`);
+  const rl = openOfficeState({
+    id: 'o-look', projectDir: resolve(tmpdir(), 'look'), stateFile: lookFile,
+  }).state;
+  rl.flush();
+  const savedL = JSON.parse(readFileSync(lookFile, 'utf8')) as Persisted;
+  // Выбранная внешность у роли с пакетом живёт оверрайдом ссылки, у своей
+  // роли офиса — прямо в поле: проверяем оба хранилища.
+  const lookLink = (role: string, sprite: string) => {
+    const link = defaultRole(role, 'ru')!.package!;
+    return { ...link, overrides: { ...link.overrides, sprite } };
+  };
+  savedL.roles = [
+    { ...defaultRole('backend', 'ru')!, sprite: 'jonDetailed', package: lookLink('backend', 'jonDetailed') },
+    { ...defaultRole('design', 'ru')!, sprite: 'boss', package: lookLink('design', 'boss') },
+    // Внешность из чужого офиса или из будущей версии: не наша, не трогаем.
+    { ...defaultRole('smm', 'ru')!, sprite: 'agent_p7', package: lookLink('smm', 'agent_p7') },
+    // Своя роль офиса: пакета нет, внешность лежит в самой роли.
+    { ...defaultRole('design', 'ru')!, package: undefined, id: 'writer', title: 'Писатель', sprite: 'jonDetailed' },
+  ];
+  writeFileSync(lookFile, JSON.stringify(savedL, null, 2));
+  rl.restore();
+  const spriteOf = (id: string): string | undefined => rl.role(id)?.sprite;
+  results.push(
+    `снятая внешность подменилась на блондина: ${spriteOf('backend') === 'jon'}`,
+    `подмена дала внешность из реестра: ${isLookId(spriteOf('backend') ?? '')}`,
+    `у своей роли офиса подмена тоже сработала: ${spriteOf('writer') === 'jon'}`,
+    `живая внешность не тронута: ${spriteOf('design') === 'boss'}`,
+    `незнакомая внешность не тронута: ${spriteOf('smm') === 'agent_p7'}`,
+  );
+  unloadOfficeState('o-look');
+  wipe(lookFile);
 
   // 7i. Заведение, правка и архивация ролей — то, чем пользуется окно
   // управления агентами. Ломается тут в первую очередь три вещи: id роли,

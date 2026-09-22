@@ -55,15 +55,6 @@
         "ru": "Блондин",
         "en": "Blond"
       }
-    },
-    {
-      "id": "jonDetailed",
-      "sprite": "agent_p2",
-      "title": {
-        "ru": "Детальный",
-        "en": "Detailed"
-      },
-      "model": "jonDetailed.glb"
     }
   ]
 }
