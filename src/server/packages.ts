@@ -20,7 +20,7 @@ import { PROVIDER_IDS } from '../shared/providers';
  * - Пакет объявляет умения, офис выдаёт инструменты. Серверы из пакета —
  *   просьба, а не подключение; хуки, команды и сабагенты плагина офис не
  *   берёт вовсе (см. `IGNORED_PLUGIN_PARTS`).
- * - У Claude модель можно назвать алиасом (`opus`, `sonnet`, `haiku`), чтобы
+ * - У Claude модель можно назвать алиасом (`fable`, `opus`, `sonnet`, `haiku`), чтобы
  *   пакет пережил смену поколения. Codex принимает `default` или точный id.
  * - Бриф — файлами по языкам, а не строкой в JSON: он длинный и его правят
  *   руками. Нет своего языка — берётся английский.
@@ -312,7 +312,7 @@ export function parseManifest(raw: unknown, fallbackName: string): { manifest: A
   const engine = rt.engine === undefined ? 'claude-code' : rt.engine;
   if (!ENGINES.includes(engine as Engine)) err('runtime.engine', `unknown engine, the office runs: ${ENGINES.join(', ')}`);
   const model = typeof rt.model === 'string' && rt.model.trim() ? rt.model.trim() : (engine === 'codex' ? 'default' : 'sonnet');
-  if (!MODEL_RE.test(model)) err('runtime.model', 'an alias (opus, sonnet, haiku) or a full model id');
+  if (!MODEL_RE.test(model)) err('runtime.model', 'an alias (fable, opus, sonnet, haiku) or a full model id');
   let tools: string[] | null = null;
   if (rt.tools !== undefined) {
     tools = strList(rt.tools);
