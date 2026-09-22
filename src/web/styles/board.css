@@ -29,17 +29,58 @@
   border: 1px solid var(--hairline); border-radius: var(--radius-card);
   background: var(--surface); overflow: hidden;
 }
-/* Заголовок — кнопка во всю ширину: целиться в треугольник мышью незачем. */
+/* Заголовок — кнопка во всю ширину: целиться в треугольник мышью незачем.
+   Переносится по строкам только в крайности: название ужимается многоточием
+   раньше, чем счётчики уедут на вторую строку. */
 .task-group-head {
+  position: relative;
   display: flex; align-items: center; gap: var(--space-2); width: 100%;
-  justify-content: flex-start; text-align: left; font: inherit;
+  justify-content: flex-start; text-align: left; font: inherit; flex-wrap: wrap;
   background: none; border: none; border-radius: 0;
   padding: var(--space-2) var(--space-3); font-size: var(--fs-small);
 }
 .task-group-head:hover:not(:disabled) { background: var(--film); }
-.task-group-head b { font: 500 var(--fs-small)/1.3 var(--font-mono); color: var(--ink-3); }
-.task-group-head .caret { width: 10px; color: var(--ink-3); }
-.task-group-title { flex: 1; min-width: 0; font-size: var(--fs-body); font-weight: 500; color: var(--ink); }
+.task-group-head b { flex: none; font: 500 var(--fs-small)/1.3 var(--font-mono); color: var(--ink-3); }
+.task-group-head .caret { flex: none; width: 10px; color: var(--ink-3); }
+.task-group-head .muted { flex: none; white-space: nowrap; }
+.task-group-title {
+  flex: 1 1 80px; min-width: 0; font-size: var(--fs-body); font-weight: 500; color: var(--ink);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+
+/* ---------- состояние фичи в строке заголовка ----------
+   Счётчики живых задач по смыслу ожидания, пометки «закрыта» и «не начата»,
+   число провалов и снятий. Цвета — те же, что у чипов статуса на карточках
+   внутри группы: в работе акцентом, очередь приглушённым, провал тревожным;
+   у ревью своего цвета на карточке нет, ему достаётся --warn, которым в ките
+   помечено ожидание чужого действия. */
+.task-group-counts { display: flex; align-items: center; gap: var(--space-1); flex: none; flex-wrap: wrap; }
+.task-group-head .group-count {
+  flex: none; gap: 3px; padding: 1px 6px; white-space: nowrap;
+}
+.task-group-head .group-count.left { color: var(--ink-2); }
+.task-group-head .group-count.run { color: var(--accent); }
+.task-group-head .group-count.rev { color: var(--warn); }
+.task-group-head .group-count.wait { color: var(--ink-3); }
+.task-group-head .group-count.fail { color: var(--danger); }
+/* Снятое — не беда, но и не успех: приглушать его до общего серого нельзя,
+   иначе закрытая фича со снятыми задачами читается как доделанная. */
+.task-group-head .group-count.drop { color: var(--warn); }
+.task-group-head .group-count.closed { color: var(--ok-ink); }
+.task-group-head .group-count.fresh { color: var(--ink-3); }
+
+/* Полоса прогресса по фиче — отдельным слоем по нижней границе заголовка,
+   поэтому строка от неё не становится выше ни на пиксель. */
+.group-bar {
+  position: absolute; left: 0; right: 0; bottom: 0; height: 2px;
+  background: var(--film); pointer-events: none;
+}
+.group-bar-fill { display: block; height: 100%; background: var(--ok-ink); transition: width .2s; }
+
+/* Закрытая фича — история: заголовок приглушён целиком и проявляется под
+   курсором, когда в неё всё-таки заглядывают. */
+.task-group.all-closed .task-group-head { opacity: .62; }
+.task-group.all-closed .task-group-head:hover:not(:disabled) { opacity: 1; }
 .task-group-body {
   display: flex; flex-direction: column; gap: var(--space-2);
   padding: var(--space-2) var(--space-3) var(--space-3);
