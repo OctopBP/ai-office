@@ -27,6 +27,33 @@ const MISC_GROUP = '#misc';
 const taskIdle = (t: TaskView, autoPipeline: boolean): boolean =>
   t.status === 'failed' || taskOver(t, autoPipeline);
 
+/**
+ * Живые задачи фичи, разложенные по смыслу ожидания, плюс то, что закончилось
+ * плохо. Ровно эти числа и стоят в заголовке группы: по свёрнутой строке видно,
+ * что с фичей происходит, не разворачивая её.
+ */
+type GroupCounts = {
+  /** Назначена или уже делается. */
+  running: number;
+  /** На проверке у ревьюера или едет конвейером слияния. */
+  review: number;
+  /** Ещё никто не взял: в плане, в бэклоге, заблокирована. */
+  queued: number;
+  failed: number;
+  cancelled: number;
+};
+
+/**
+ * Куда положить живую задачу. `done` сюда попадает только непритом: доведённая,
+ * но ещё не влитая задача не закрыта — её везёт конвейер, а это то же ожидание
+ * чужого действия, что и ревью, и смотрят на неё так же.
+ */
+const liveBucket = (status: TaskStatus): 'running' | 'review' | 'queued' => {
+  if (status === 'assigned' || status === 'in_progress') return 'running';
+  if (status === 'review' || status === 'done') return 'review';
+  return 'queued';
+};
+
 /** Группа задач одной фичи: что показать в заголовке и что под ним. */
 type TaskGroup = {
   key: string;
@@ -40,6 +67,7 @@ type TaskGroup = {
   done: number;
   total: number;
   spent: number;
+  counts: GroupCounts;
 };
 
 /**
@@ -52,8 +80,10 @@ type TaskGroup = {
  * на соседней подвкладке «План».
  */
 function groupTasks(list: TaskView[], plan: EpicView[], autoPipeline: boolean): TaskGroup[] {
-  const empty = (key: string, id: string | null, title: string): TaskGroup =>
-    ({ key, id, title, live: [], closed: [], done: 0, total: 0, spent: 0 });
+  const empty = (key: string, id: string | null, title: string): TaskGroup => ({
+    key, id, title, live: [], closed: [], done: 0, total: 0, spent: 0,
+    counts: { running: 0, review: 0, queued: 0, failed: 0, cancelled: 0 },
+  });
   const groups = new Map<string, TaskGroup>();
   for (const epic of plan) groups.set(epic.id, empty(epic.id, epic.id, epic.title));
   // «Разное» заводим последним — Map держит порядок вставки, и отдельная
@@ -62,10 +92,19 @@ function groupTasks(list: TaskView[], plan: EpicView[], autoPipeline: boolean): 
 
   for (const t of list) {
     const group = (t.epicId && groups.get(t.epicId)) || groups.get(MISC_GROUP)!;
-    (taskIdle(t, autoPipeline) ? group.closed : group.live).push(t);
+    const idle = taskIdle(t, autoPipeline);
+    (idle ? group.closed : group.live).push(t);
     group.total += 1;
     if (taskClosed(t, autoPipeline)) group.done += 1;
     group.spent += t.usage.costUsd;
+    if (idle) {
+      // Провал и снятие — единственные исходы, о которых надо сказать и у
+      // закрытой фичи: иначе закрытая с провалом выглядит как успешная.
+      if (t.status === 'failed') group.counts.failed += 1;
+      if (t.status === 'cancelled') group.counts.cancelled += 1;
+    } else {
+      group.counts[liveBucket(t.status)] += 1;
+    }
   }
   return [...groups.values()].filter((g) => g.total > 0);
 }
@@ -144,15 +183,73 @@ function TaskGroupBlock({ group }: { group: TaskGroup }) {
   const open = openFlag ?? group.live.length > 0;
   const closedOpen = closedFlag ?? false;
 
+  const { running, review, queued, failed, cancelled } = group.counts;
+  const left = group.live.length;
+  // Фича закрыта, когда ничего живого не осталось, — тем же правилом, каким
+  // офис считает закрытой саму фичу. Ещё не начата — когда все задачи до
+  // единой стоят в очереди: ни одной взятой, ни одной законченной.
+  const allClosed = left === 0;
+  const fresh = !allClosed && queued === group.total;
+  // «Осталось» имеет смысл, только когда оно больше любого отдельного
+  // счётчика: у фичи, где всё стоит в очереди, это то же самое число третий
+  // раз подряд — рядом с «в очереди 2» и «готово 0 из 2».
+  const showLeft = [running, review, queued].filter((n) => n > 0).length > 1;
+  const percent = group.total > 0 ? Math.round((group.done / group.total) * 100) : 0;
+
   return (
-    <div className={`task-group${open ? ' open' : ''}`}>
+    <div className={`task-group${open ? ' open' : ''}${allClosed ? ' all-closed' : ''}`}>
       <button className="task-group-head" onClick={() => setOpen(group.key, !open)}
         title={tr('board.group.toggle')}>
         <span className="caret" aria-hidden>{open ? '▾' : '▸'}</span>
         {group.id && <b>{group.id}</b>}
-        <span className="task-group-title">{group.title}</span>
+        <span className="task-group-title" title={group.title}>{group.title}</span>
+        {/* Счётчики — только ненулевые: строка заголовка узкая, и чип «на ревью
+            0» в ней занимает место ровно ничем. У закрытой фичи счётчиков нет
+            вовсе, остаётся итог: считать в ней уже нечего. */}
+        <span className="task-group-counts">
+          {allClosed ? (
+            <span className="chip group-count closed">
+              <Icon name="circle-check" size={12} />{tr('board.group.allClosed')}
+            </span>
+          ) : (
+            <>
+              {fresh && (
+                <span className="chip group-count fresh">
+                  <Icon name="hourglass" size={11} />{tr('board.group.fresh')}
+                </span>
+              )}
+              {showLeft && (
+                <span className="chip group-count left">{tr('board.group.left', { n: left })}</span>
+              )}
+              {running > 0 && (
+                <span className="chip group-count run">{tr('board.group.running', { n: running })}</span>
+              )}
+              {review > 0 && (
+                <span className="chip group-count rev">{tr('board.group.review', { n: review })}</span>
+              )}
+              {queued > 0 && (
+                <span className="chip group-count wait">{tr('board.group.queued', { n: queued })}</span>
+              )}
+            </>
+          )}
+          {failed > 0 && (
+            <span className="chip group-count fail" title={tr('board.group.failedHint')}>
+              {tr('board.group.failed', { n: failed })}
+            </span>
+          )}
+          {cancelled > 0 && (
+            <span className="chip group-count drop" title={tr('board.group.cancelledHint')}>
+              {tr('board.group.cancelled', { n: cancelled })}
+            </span>
+          )}
+        </span>
         <span className="muted">{tr('board.group.progress', { done: group.done, total: group.total })}</span>
         {group.spent > 0 && <span className="muted">{`$${group.spent.toFixed(2)}`}</span>}
+        {/* Полоса прогресса лежит на нижней границе заголовка отдельным слоем:
+            в потоке она добавила бы строке высоты, а её здесь и так впритык. */}
+        <span className="group-bar" aria-hidden>
+          <span className="group-bar-fill" style={{ width: `${percent}%` }} />
+        </span>
       </button>
       {open && (
         <div className="task-group-body">
