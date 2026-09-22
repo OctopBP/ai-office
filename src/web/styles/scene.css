@@ -14,7 +14,7 @@
      считается от расстояния до камеры в пределах `zIndexRange` (у нас до 100)
      и меняется при облёте. Без своего контекста наложения эти числа попадают
      в общий стек приложения и спорят с оверлеями — HUD (30), тосты (40),
-     панели (50), дровер (60): табличка над столом оказывалась поверх открытой
+     панели (50), дровер (60): бейдж над агентом оказывался поверх открытой
      доски задач. `isolation` запирает весь диапазон внутри сцены, не трогая
      порядок самой сцены, — снаружи коробка остаётся одним слоем под UI. */
   isolation: isolate;
@@ -175,11 +175,4 @@
   border: 1px dashed var(--ink-4); border-radius: var(--radius-pill);
   width: var(--space-5); height: var(--space-5);
   display: flex; align-items: center; justify-content: center;
-}
-
-/* Голый код задачи на столе — моноширинным, как ярлык на папке. */
-.tag3d-plate {
-  font: 700 var(--fs-small)/1.5 var(--font-mono); letter-spacing: .04em;
-  color: var(--surface); background: var(--ink); border-radius: var(--radius-icon); padding: 0 var(--space-1);
-  white-space: nowrap;
 }
