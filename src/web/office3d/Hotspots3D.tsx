@@ -69,7 +69,7 @@ function Spot({ spot, materials, palette, badge, onClick }: {
             трёх досок. Внутри растущей группы, чтобы она не отставала от
             панели, когда та подрастает под курсором. У двери лица нет. */}
         {spot.kind !== 'door' && (
-          <BoardArt kind={spot.kind} item={item} hovered={hovered} />
+          <BoardArt kind={spot.kind} item={item} palette={palette} hovered={hovered} />
         )}
       </group>
       {/* Доска и экран лога светятся всегда: это единственные предметы
