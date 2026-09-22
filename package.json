@@ -61,11 +61,11 @@
     "test:pm": "bash scripts/run-pm-tests.sh"
   },
   "dependencies": {
-    "@anthropic-ai/claude-agent-sdk": "^0.3.234",
+    "@anthropic-ai/claude-agent-sdk": "^0.3.280",
     "@anthropic-ai/sdk": "^0.117.1",
-    "@modelcontextprotocol/sdk": "^1.30.0",
     "@fontsource-variable/inter": "^5.3.0",
     "@fontsource-variable/sora": "^5.3.0",
+    "@modelcontextprotocol/sdk": "^1.30.0",
     "@react-three/drei": "^10.7.8",
     "@react-three/fiber": "^9.7.0",
     "@tabler/icons-react": "^3.46.0",

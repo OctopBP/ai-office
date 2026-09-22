@@ -193,7 +193,9 @@ export function codexQuery({ prompt, options }: SessionRequest): AgentSession {
     rpc.send({ method: 'initialized' });
     catalog = await codexTools(options, rpc);
     const system = (typeof options.systemPrompt === 'string' ? options.systemPrompt
-      : Array.isArray(options.systemPrompt) ? options.systemPrompt.join('\n\n') : options.systemPrompt?.append ?? '')
+      : Array.isArray(options.systemPrompt) ? options.systemPrompt.join('\n\n')
+      : options.systemPrompt?.type === 'custom' ? [options.systemPrompt.prompt].flat().join('\n\n')
+      : options.systemPrompt?.append ?? '')
       .replaceAll('__SYSTEM_PROMPT_DYNAMIC_BOUNDARY__', '');
     const config: Record<string, unknown> = {
       'features.shell_tool': false, 'features.unified_exec': false, 'features.apply_patch_freeform': false,
