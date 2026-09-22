@@ -4,43 +4,71 @@ import {
   removeDirection, reorderEpics, updateDirection, useStore,
 } from './store';
 import type { EpicView, TaskStatus, TaskView } from '../shared/types';
-import { taskClosed } from '../shared/types';
-import { t as tr, type UiKey } from './i18n';
+import { taskClosed, taskOver } from '../shared/types';
+import { t as tr } from './i18n';
 import { Icon } from './icons';
 import { AgentTag } from './Avatar';
 import { PriorityChip } from './TaskPriority';
 
-/**
- * Колонки доски. Провалы вынесены отдельно, а не свалены в «Готово»: пока они
- * лежали рядом со сделанным, их не замечали ни человек, ни менеджер — а это
- * ровно та стопка, из-за которой работа встаёт.
- *
- * «План» — тоже отдельная колонка, и по той же причине наоборот: плановая
- * задача стоит по замыслу, а не потому, что о ней забыли. Свалив её к
- * ожидающим, доска показывала бы намеренную паузу как затор.
- */
-const COLUMNS: Array<{
-  key: UiKey; statuses: TaskStatus[]; tone?: 'bad' | 'muted';
-  /** Пустую колонку не показываем: место на доске дороже ровного ряда. */
-  hideEmpty?: boolean;
-}> = [
-  { key: 'board.col.planned', statuses: ['planned'] },
-  { key: 'board.col.waiting', statuses: ['backlog', 'assigned'] },
-  { key: 'board.col.working', statuses: ['in_progress'] },
-  { key: 'board.col.review', statuses: ['review'] },
-  { key: 'board.col.done', statuses: ['done'] },
-  { key: 'board.col.failed', statuses: ['failed', 'blocked'], tone: 'bad' },
-  // Снятые стоят отдельно от провалов: провал — это попытка, которая не
-  // вышла, а снятое никто и не пробовал доводить. В табеле роли они тоже
-  // считаются по-разному, и валить их в одну кучу на доске значит врать.
-  { key: 'board.col.cancelled', statuses: ['cancelled'], tone: 'muted', hideEmpty: true },
-];
-
 const statusLabel = (status: TaskStatus): string => tr(`task.status.${status}`);
 
-/** Колонки, которые сейчас имеет смысл показывать. */
-const columnsOf = (tasks: TaskView[]): typeof COLUMNS =>
-  COLUMNS.filter((col) => !col.hideEmpty || tasks.some((t) => col.statuses.includes(t.status)));
+/**
+ * Ключ группы «Разное» — задачи, заведённые мимо плана, и задачи фичи,
+ * которой в плане уже нет. Не пересекается с номерами фич: в них решётки нет.
+ */
+const MISC_GROUP = '#misc';
+
+/**
+ * Задача остановилась насовсем: доведена до конца, снята или провалена и не
+ * перезапущена. Провал лежит здесь же — пока его не перезапустили, в задаче
+ * ничего не происходит, а перезапуск меняет статус и возвращает её наверх, к
+ * живым. «Готова, но ещё не влита» закрытой не считается: конвейер её везёт.
+ */
+const taskIdle = (t: TaskView, autoPipeline: boolean): boolean =>
+  t.status === 'failed' || taskOver(t, autoPipeline);
+
+/** Группа задач одной фичи: что показать в заголовке и что под ним. */
+type TaskGroup = {
+  key: string;
+  /** Номер фичи для заголовка; у «Разного» его нет. */
+  id: string | null;
+  title: string;
+  /** Идущие задачи — видны сразу. */
+  live: TaskView[];
+  /** Закрытые — под свёрнутой строкой. */
+  closed: TaskView[];
+  done: number;
+  total: number;
+  spent: number;
+};
+
+/**
+ * Задачи по фичам плана. Связь берём из `task.epicId` — того самого поля, по
+ * которому офис и считает фичу закрытой; угадывать фичу по названию задачи
+ * нельзя, названия совпадают у половины доски.
+ *
+ * Порядок групп — как фичи стоят в плане, «Разное» последним. Фичи без задач
+ * не показываем: на подвкладке «Задачи» им нечего показать, а сама фича видна
+ * на соседней подвкладке «План».
+ */
+function groupTasks(list: TaskView[], plan: EpicView[], autoPipeline: boolean): TaskGroup[] {
+  const empty = (key: string, id: string | null, title: string): TaskGroup =>
+    ({ key, id, title, live: [], closed: [], done: 0, total: 0, spent: 0 });
+  const groups = new Map<string, TaskGroup>();
+  for (const epic of plan) groups.set(epic.id, empty(epic.id, epic.id, epic.title));
+  // «Разное» заводим последним — Map держит порядок вставки, и отдельная
+  // сортировка групп не нужна.
+  groups.set(MISC_GROUP, empty(MISC_GROUP, null, tr('board.group.misc')));
+
+  for (const t of list) {
+    const group = (t.epicId && groups.get(t.epicId)) || groups.get(MISC_GROUP)!;
+    (taskIdle(t, autoPipeline) ? group.closed : group.live).push(t);
+    group.total += 1;
+    if (taskClosed(t, autoPipeline)) group.done += 1;
+    group.spent += t.usage.costUsd;
+  }
+  return [...groups.values()].filter((g) => g.total > 0);
+}
 
 /**
  * Карточка на доске — только то, по чему задачу узнаю́т глазами: номер,
@@ -75,7 +103,7 @@ function Card({ t }: { t: TaskView }) {
       </div>
       <div className="task-meta">
         {/* Средней важности на доске нет намеренно: она у большинства задач, и
-            чип «обычная» на каждой карточке ничего бы не отличал, а колонки
+            чип «обычная» на каждой карточке ничего бы не отличал, а группы
             запестрили бы. Поднять среднюю можно из раскрытой карточки. */}
         {t.priority !== 'normal' && <PriorityChip task={t} />}
         <span className={`chip ${t.status}`}>{statusLabel(t.status)}</span>
@@ -99,6 +127,59 @@ function Card({ t }: { t: TaskView }) {
         )}
       </div>
     </button>
+  );
+}
+
+/**
+ * Группа фичи на доске. Свёрнута или развёрнута — решает человек, а пока он не
+ * решал, умолчание считается по задачам: там, где ещё что-то идёт, группа
+ * открыта, а доделанная фича лежит одной строкой. Иначе экран на сотню задач
+ * занимает влитая история, а работа сегодняшнего дня теряется в ней.
+ */
+function TaskGroupBlock({ group }: { group: TaskGroup }) {
+  const openFlag = useStore((s) => s.taskGroupsOpen[group.key]);
+  const closedFlag = useStore((s) => s.taskGroupClosedOpen[group.key]);
+  const setOpen = useStore((s) => s.setTaskGroupOpen);
+  const setClosedOpen = useStore((s) => s.setTaskGroupClosedOpen);
+  const open = openFlag ?? group.live.length > 0;
+  const closedOpen = closedFlag ?? false;
+
+  return (
+    <div className={`task-group${open ? ' open' : ''}`}>
+      <button className="task-group-head" onClick={() => setOpen(group.key, !open)}
+        title={tr('board.group.toggle')}>
+        <span className="caret" aria-hidden>{open ? '▾' : '▸'}</span>
+        {group.id && <b>{group.id}</b>}
+        <span className="task-group-title">{group.title}</span>
+        <span className="muted">{tr('board.group.progress', { done: group.done, total: group.total })}</span>
+        {group.spent > 0 && <span className="muted">{`$${group.spent.toFixed(2)}`}</span>}
+      </button>
+      {open && (
+        <div className="task-group-body">
+          {/* Идущие задачи — первыми и без всяких переключателей: ради них
+              на доску и заходят. */}
+          {group.live.length > 0 && (
+            <div className="task-cards">
+              {group.live.map((t) => <Card key={t.id} t={t} />)}
+            </div>
+          )}
+          {group.closed.length > 0 && (
+            <>
+              <button className="ghost task-group-closed"
+                onClick={() => setClosedOpen(group.key, !closedOpen)}>
+                <span className="caret" aria-hidden>{closedOpen ? '▾' : '▸'}</span>
+                {tr('board.group.closed', { n: group.closed.length })}
+              </button>
+              {closedOpen && (
+                <div className="task-cards closed">
+                  {group.closed.map((t) => <Card key={t.id} t={t} />)}
+                </div>
+              )}
+            </>
+          )}
+        </div>
+      )}
+    </div>
   );
 }
 
@@ -256,6 +337,9 @@ export function Board() {
   const tasks = useStore((s) => s.tasks);
   const epics = useStore((s) => s.epics);
   const focus = useStore((s) => s.settings.focusEpics);
+  // Тем же признаком, что и в плане, считаем «готово N из M»: доведённой
+  // задача считается по правилу офиса, а не по одному статусу.
+  const autoPipeline = useStore((s) => s.settings.autoPipeline);
   // Фильтр по фиче живёт в доске, а не в сторе: он про то, куда человек
   // смотрит сейчас, и переживать закрытие доски ему незачем.
   const [only, setOnly] = useState<string | null>(null);
@@ -314,21 +398,10 @@ export function Board() {
         )}
         {tab === 'tasks' && all.length === 0 && <p className="empty">{tr('board.empty')}</p>}
         {tab === 'tasks' && all.length > 0 && (
-          <div
-            className="columns"
-            style={{ gridTemplateColumns: `repeat(${columnsOf(list).length}, minmax(0, 1fr))` }}
-          >
-            {columnsOf(list).map((col) => {
-              const items = list.filter((t) => col.statuses.includes(t.status));
-              return (
-                <div key={col.key} className={`column${col.tone ? ` ${col.tone}` : ''}`}>
-                  <div className="column-head">
-                    {tr(col.key)} <span className="muted">{items.length}</span>
-                  </div>
-                  {items.map((t) => <Card key={t.id} t={t} />)}
-                </div>
-              );
-            })}
+          <div className="task-groups">
+            {groupTasks(list, plan, autoPipeline).map((group) => (
+              <TaskGroupBlock key={group.key} group={group} />
+            ))}
           </div>
         )}
       </div>

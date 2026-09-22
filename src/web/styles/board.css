@@ -1,8 +1,8 @@
-/* Доска задач: план фич над колонками и сами колонки. Рисуется в двух
-   местах — как окно поверх офиса (классика) и как вид «Доска» новой
-   оболочки (.shell-view); во втором случае колонки тянутся на всю высоту и
-   прокручиваются каждая сама, чтобы «Готово» с сотней карточек не утаскивало
-   вниз остальные пять. */
+/* Доска задач: направления, план фич и сами задачи группами по фичам.
+   Рисуется в двух местах — как окно поверх офиса (классика) и как вид «Доска»
+   новой оболочки (.shell-view); во втором случае прокручивается подвкладка
+   целиком, а не каждая группа отдельно: группы разной высоты, и свои полосы
+   прокрутки у каждой читались бы как решётка. */
 
 .board { display: flex; flex-direction: column; gap: var(--space-4); }
 .shell-view .board { height: 100%; }
@@ -17,59 +17,66 @@
 /* Блок в подвкладке один — нижний отступ ему больше не нужен. */
 .board-pane > .directions { margin-bottom: 0; }
 
-/* ---------- колонки ----------
-   Колонок шесть с появлением плана: «План» стоит первой и по ширине не
-   отличается — плановых задач бывает больше, чем идущих. Седьмая, «Сняты»,
-   появляется только когда снятые задачи есть, и число колонок в этом случае
-   проставляет сама доска — инлайновым grid-template-columns. Колонка —
-   дорожка на плёнке: на белом окне и на сером холсте она читается одинаково. */
-.columns {
-  display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: var(--space-3);
+/* ---------- группы по фичам ----------
+   Задачи собраны в группы по фичам плана, «Разное» последним. Раньше здесь
+   были колонки по статусам, но под сотню задач в офисе — это сотня влитых
+   карточек, в которых терялись те одна-две, что идут сейчас: статус видно на
+   самой карточке, а вот фичу — только из группы. Группа доделанной фичи
+   схлопывается в одну строку, закрытые задачи внутри живой — в одну строку
+   «Закрытые». */
+.task-groups { display: flex; flex-direction: column; gap: var(--space-2); }
+.task-group {
+  border: 1px solid var(--hairline); border-radius: var(--radius-card);
+  background: var(--surface); overflow: hidden;
+}
+/* Заголовок — кнопка во всю ширину: целиться в треугольник мышью незачем. */
+.task-group-head {
+  display: flex; align-items: center; gap: var(--space-2); width: 100%;
+  justify-content: flex-start; text-align: left; font: inherit;
+  background: none; border: none; border-radius: 0;
+  padding: var(--space-2) var(--space-3); font-size: var(--fs-small);
+}
+.task-group-head:hover:not(:disabled) { background: var(--film); }
+.task-group-head b { font: 500 var(--fs-small)/1.3 var(--font-mono); color: var(--ink-3); }
+.task-group-head .caret { width: 10px; color: var(--ink-3); }
+.task-group-title { flex: 1; min-width: 0; font-size: var(--fs-body); font-weight: 500; color: var(--ink); }
+.task-group-body {
+  display: flex; flex-direction: column; gap: var(--space-2);
+  padding: var(--space-2) var(--space-3) var(--space-3);
+  border-top: 1px solid var(--hairline);
+}
+/* Карточки в сетке, а не в колонку: на широком экране в ряд их влезает
+   четыре, на узком — одна, и обе крайности читаются. */
+.task-cards {
+  display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: var(--space-2);
   align-items: start;
 }
-.shell-view .columns { flex: 1; min-height: 0; align-items: stretch; }
-.column {
-  min-width: 0; display: flex; flex-direction: column; gap: var(--space-2);
-  padding: var(--space-2); border-radius: var(--radius-card); background: var(--film);
+/* Закрытое — история, а не работа: приглушаем целиком, чтобы не спорило за
+   внимание с идущим. */
+.task-cards.closed { opacity: .72; }
+.task-group-closed {
+  display: flex; align-items: center; gap: var(--space-2); width: 100%;
+  justify-content: flex-start; color: var(--ink-3); font-size: var(--fs-small);
 }
-.shell-view .column { overflow-y: auto; min-height: 0; }
-/* Дорожка — flex-колонка, и без этого прокручиваемая дорожка ужимала бы
-   карточки по высоте вместо того, чтобы прокручивать их. */
-.column > * { flex: none; }
-.column-head {
-  display: flex; align-items: center; gap: var(--space-2);
-  padding: var(--space-1) var(--space-1) var(--space-2);
-  font-size: var(--fs-caption); font-weight: 500; letter-spacing: .04em; text-transform: uppercase;
-  color: var(--ink-3);
-}
-.column-head .muted { margin-left: auto; font-size: var(--fs-small); letter-spacing: 0; text-transform: none; }
-.column.bad .column-head { color: var(--danger); }
-/* Снятое на доску попадает как история, а не как работа: колонка приглушена
-   целиком, вместе с карточками, чтобы не спорить за внимание с идущим. */
-.column.muted { opacity: .72; }
+.task-group-closed .caret { width: 10px; }
 
-/* Карточка в колонке короче, чем в дровере: только то, по чему её узнают. */
-.column .task { margin: 0; }
-.column .task-head { display: block; }
-.column .task-head b {
+/* Карточка на доске короче, чем в дровере: только то, по чему её узнают. */
+.task-cards .task { margin: 0; }
+.task-cards .task-head { display: block; }
+.task-cards .task-head b {
   display: block; margin-bottom: 2px;
   font: 500 var(--fs-small)/1.3 var(--font-mono); color: var(--ink-3);
 }
-.column .task-title { font-size: var(--fs-body); font-weight: 500; color: var(--ink); }
+.task-cards .task-title { font-size: var(--fs-body); font-weight: 500; color: var(--ink); }
 /* Мета переносится по строкам: чипов на карточке бывает много (статус,
    стадия конвейера, фича), и без переноса они выдавливают друг друга. */
 .task-meta {
   display: flex; align-items: center; gap: var(--space-2); margin-top: var(--space-2); flex-wrap: wrap;
   font-size: var(--fs-small);
 }
-.column .task-result {
-  font-size: var(--fs-small); max-height: 74px; overflow: hidden;
-  display: -webkit-box; -webkit-line-clamp: 4; -webkit-box-orient: vertical;
-}
-
-/* ---------- план: фичи над колонками ----------
-   План стоит над доской, а не сбоку: он объясняет, почему часть задач стоит,
-   и читать его нужно раньше колонок, а не вместо них. */
+/* ---------- план: фичи отдельной подвкладкой ----------
+   План объясняет, почему часть задач стоит, и читается раньше самих задач,
+   а не вместо них. */
 .plan { flex: none; }
 .plan-head {
   display: flex; align-items: center; gap: var(--space-2);
