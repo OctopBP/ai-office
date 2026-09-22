@@ -263,10 +263,6 @@ const ACCENT = '#f0b429';
 /** Радиус кольца в тайлах: чуть шире плеч, чтобы не срезалось ступнями. */
 const RING_R = 0.45;
 
-/** Высота столешницы — та же, что у формы `desk` в props.ts. Табличка с кодом
- *  задачи лежит на столе, а не проваливается сквозь него. */
-const DESK_TOP = 1.05;
-
 /**
  * Делитель размера подписей: чем дальше камера, тем мельче карточка. Ноль
  * (постоянный экранный размер) читался бы лучше вблизи, но при отдалении
@@ -1218,41 +1214,6 @@ function Crowd({ offset }: { offset: [number, number] }) {
             // синхронность возвращается — просто со сдвигом.
             phase={(i * 0.618) % 1}
           />
-        );
-      })}
-      <DeskPlates offset={offset} />
-    </>
-  );
-}
-
-/**
- * Таблички с кодом задачи на столах — те же, что в плоском офисе. Точка
- * `plate` объявлена слотом в каталоге рядом со столом, поэтому табличка
- * переезжает вместе с ним и в 3D её не приходится ставить заново; поднимаем
- * её только на высоту столешницы, которой в плоском рендере не было.
- *
- * У безместного сотрудника стола нет — вешать табличку не на что.
- */
-function DeskPlates({ offset }: { offset: [number, number] }) {
-  const instances = useStore((s) => s.instances);
-  const layout = useStore((s) => s.layout);
-  const list = Object.values(instances).filter((i) => i.currentTaskId && !i.deskless);
-
-  return (
-    <>
-      {list.map((inst) => {
-        const plate = deskPoint(layout, catalog, inst.desk.index, 'plate');
-        return (
-          <Html
-            key={`plate-${inst.id}`}
-            center
-            position={[plate.x + offset[0], DESK_TOP, plate.y + offset[1]]}
-            distanceFactor={TAG_SCALE}
-            zIndexRange={[90, 0]}
-            style={{ pointerEvents: 'none', userSelect: 'none' }}
-          >
-            <div className="tag3d-plate">{inst.currentTaskId}</div>
-          </Html>
         );
       })}
     </>
