@@ -152,6 +152,11 @@ export const en = {
   "board.group.cancelledHint": "Tasks dropped from this feature",
   "board.group.allClosed": "all closed",
   "board.group.fresh": "not started",
+  // Колонки статусов внутри фичи: путь задачи слева направо.
+  "board.col.wait": "Waiting",
+  "board.col.work": "In progress",
+  "board.col.review": "In review",
+  "board.col.closed": "Closed",
   "board.tab.directions": "Directions",
   "board.tab.plan": "Plan",
   "board.tab.tasks": "Tasks",

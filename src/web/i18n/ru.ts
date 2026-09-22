@@ -151,6 +151,11 @@ export const ru: Record<keyof typeof en, string> = {
   "board.group.cancelledHint": "Снятые задачи фичи",
   "board.group.allClosed": "все закрыты",
   "board.group.fresh": "не начата",
+  // Колонки статусов внутри фичи: путь задачи слева направо.
+  "board.col.wait": "Ждут",
+  "board.col.work": "В работе",
+  "board.col.review": "На ревью",
+  "board.col.closed": "Закрытые",
   "board.tab.directions": "Направления",
   "board.tab.plan": "План",
   "board.tab.tasks": "Задачи",
