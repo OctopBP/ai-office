@@ -5,7 +5,8 @@ import {
   accessLabel, fullAccessWarning, archiveRole, clearExportResult, clearRoleFeedback, createRole,
   detachRole, exportRole, parseTaskMaxTurns, removeRole, updateRole, useStore,
 } from './store';
-import { t } from './i18n';
+import { has, t } from './i18n';
+import { MODEL_IDS } from '../shared/models';
 import { catalog } from './layoutData';
 import { desks } from '../shared/layout';
 import { agentSpriteName } from './sprites';
@@ -15,11 +16,16 @@ import { lookById, LOOKS } from '../shared/looks';
 import type { PermissionMode, RoleDraft, RoleEditable, RoleView } from '../shared/types';
 import { MAX_TASK_MAX_TURNS, MIN_TASK_MAX_TURNS } from '../shared/types';
 
-const models = (): Array<[string, string]> => [
-  ['claude-opus-5', t('role.model.opus')],
-  ['claude-sonnet-5', t('role.model.sonnet')],
-  ['claude-haiku-4-5', t('role.model.haiku')],
-];
+/**
+ * Модели Claude для подсказки в поле — одним списком с сервером
+ * (`shared/models.ts`), чтобы новая модель появлялась в форме сама. Подпись
+ * ищется по ключу `role.model.<id>`; нет подписи — показывается сам id, это
+ * лучше пустой строки в выпадающем списке.
+ */
+const models = (): Array<[string, string]> => MODEL_IDS.map((id) => {
+  const key = `role.model.${id}`;
+  return [id, has(key) ? t(key) : id];
+});
 
 const modes = (): Array<[PermissionMode, string]> => [
   ['readonly', accessLabel('readonly')],
