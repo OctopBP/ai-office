@@ -4,21 +4,27 @@
  * по-прежнему считает `geometry.ts`, этот модуль только вписывает в него
  * готовую модель или, если та не загрузилась, прежний плоский вариант,
  * который вызывающий код (`Office3D.tsx`) передаёт сюда через `fallback`.
+ *
+ * Модель садится в проём один к одному: дырка в стене вырезана по внешнему
+ * контуру окна (габариты всей модели вместе с рамой, `WINDOW_MODEL_SIZE` в
+ * `geometry.ts`), поэтому раму больше не нужно рисовать крупнее проёма с
+ * нахлёстом на стену (T-97).
  */
 import { Component, Suspense, useMemo, useState, type ReactNode } from 'react';
 import { useLoader } from '@react-three/fiber';
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
+import { WINDOW_ASPECT } from './geometry';
 import windowUrl from '../../../design/models/furniture/window.glb?url';
 
 /**
- * Насколько рама модели шире и выше самого проёма. Больше единицы: у
- * настоящего окна рама (откос) перекрывает край проёма, а не подрезана
- * впритык к дырке в стене. Кладётся на соседние коробки стены (подоконник,
- * перемычка), а не в пустоту — те того же цвета, что и рама, поэтому
- * нахлёст не виден.
+ * Насколько замеренная модель может разойтись с числами в `geometry.ts`,
+ * прежде чем ругаться: 2% — это уже другая модель, а не погрешность замера.
  */
-const FRAME_OVERHANG = 1.12;
+const ASPECT_TOLERANCE = 0.02;
+
+/** Окон в офисе много, а модель у них одна: ругаться стоит один раз. */
+let aspectWarned = false;
 
 /**
  * Падение при загрузке модели не должно ронять всю сцену — только это
@@ -64,12 +70,25 @@ function WindowModel({ width, height, depth, position, rotationY }: {
     // Центр модели — в начало координат, чтобы дальше сажать её в проём по
     // его собственному центру, не гадая, как автор модели её разместил.
     scene.position.sub(center);
+    // Проём в стене вырезан по этому самому габариту (`WINDOW_MODEL_SIZE` в
+    // geometry.ts), поэтому модель садится в него один к одному: рама видна
+    // целиком и никуда не утопает. Если файл модели подменят, числа в
+    // geometry.ts протухнут молча — поэтому замер тут же и сверяется.
+    if (!aspectWarned
+      && Math.abs(size.y / (size.x || 1) - WINDOW_ASPECT) > WINDOW_ASPECT * ASPECT_TOLERANCE) {
+      aspectWarned = true;
+      // eslint-disable-next-line no-console
+      console.warn(
+        `окно: пропорция модели ${(size.y / (size.x || 1)).toFixed(3)} разошлась с ` +
+        `WINDOW_ASPECT ${WINDOW_ASPECT.toFixed(3)} из geometry.ts — перемерьте проём`,
+      );
+    }
     const group = new THREE.Group();
     group.userData.window = true;
     group.add(scene);
     group.scale.set(
-      (width * FRAME_OVERHANG) / (size.x || 1),
-      (height * FRAME_OVERHANG) / (size.y || 1),
+      width / (size.x || 1),
+      height / (size.y || 1),
       depth / (size.z || 1),
     );
     return group;
@@ -78,9 +97,9 @@ function WindowModel({ width, height, depth, position, rotationY }: {
 }
 
 export interface Window3DProps {
-  /** ширина проёма вдоль стены, тайлы */
+  /** ширина проёма вдоль стены, тайлы — она же ширина модели вместе с рамой */
   width: number;
-  /** высота проёма, тайлы */
+  /** высота проёма, тайлы — она же высота модели вместе с рамой */
   height: number;
   /** сколько модель занимает по толщине стены, тайлы — чуть меньше
    *  `WALL_THICK`, чтобы не спорить гранями с соседними коробками стены */
