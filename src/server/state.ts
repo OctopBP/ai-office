@@ -60,7 +60,7 @@ import { effectiveMode, isPermissionMode, modeLabel } from './permissions';
 import type { MessageQueue } from './queue';
 import {
   basePackageName, blankRole, defaultRole, defaultRoles, newRoleId, newRoleTitle,
-  OVERRIDABLE_KEYS, paletteColor, roleFromPackage, roleIdFor, rolesFromOverrides, sameValue,
+  currentModel, OVERRIDABLE_KEYS, paletteColor, roleFromPackage, roleIdFor, rolesFromOverrides, sameValue,
   withManagerRole,
   type LinkOverrides, type PackageSource, type Role, type RoleLink,
 } from './roles';
@@ -418,6 +418,14 @@ function sanitizeRole(raw: Partial<Role>, id: string, lang: Lang): Role {
       if (typeof link.overrides.model === 'string' && !MODEL_RE.test(link.overrides.model)) {
         delete link.overrides.model;
       }
+      // Смена поколения модели: у роли, нанятой раньше, в сохранении лежит
+      // разрешённый полный id прошлого поколения — переводим его. Совпал
+      // перевод с моделью манифеста (пакет называет её алиасом, и алиас уже
+      // показывает на новое поколение) — оверрайд снимет сам `roleFromPackage`.
+      // Идемпотентно: переведённого id в таблице нет.
+      if (typeof link.overrides.model === 'string') {
+        link.overrides.model = currentModel(link.overrides.model);
+      }
       // Переезд на единую палитру: оверрайд, равный прежнему умолчанию этого
       // же пакета, — не выбор человека, а старый цвет, застрявший в состоянии
       // офиса (у сохранения без ссылки он становится оверрайдом прямо здесь,
@@ -452,7 +460,9 @@ function sanitizeRole(raw: Partial<Role>, id: string, lang: Lang): Role {
     // прежнего набора) — берём цвет палитры, иначе оставляем как есть.
     color: paletteColor(text(raw.color) ?? base.color, pkg?.name),
     emoji: text(raw.emoji) ?? base.emoji,
-    model: text(raw.model) ?? base.model,
+    // Роль без пакета модель хранит сама — переводим её на нынешнее поколение
+    // здесь же, иначе она осталась бы на прошлом навсегда.
+    model: currentModel(text(raw.model) ?? base.model),
     provider: isProviderId(raw.provider) ? raw.provider : 'claude-code',
     isManager: typeof raw.isManager === 'boolean' ? raw.isManager : base.isManager,
     // null у режима законен — «как в офисе», поэтому отличаем его от мусора.

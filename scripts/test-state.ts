@@ -31,7 +31,7 @@ import {
   releaseSlot, resetSessions, rotatePm, sendUserMessage, slotProblem, teamSummary, type WorkerOpen,
 } from '../src/server/agents';
 import { MessageQueue } from '../src/server/queue';
-import { defaultRole, defaultRoles } from '../src/server/roles';
+import { currentModel, defaultRole, defaultRoles } from '../src/server/roles';
 import { tellPm } from '../src/server/review';
 
 /**
@@ -1122,6 +1122,51 @@ async function main(): Promise<void> {
   );
   unloadOfficeState('o-roles-pm');
   wipe(pmRolesFile);
+
+  // Смена поколения модели: полный id прошлого поколения, застрявший в
+  // сохранении, переводится на нынешний — иначе офис, нанявший агента раньше,
+  // остался бы на старой модели навсегда, сколько бы пакет ни обновляли.
+  const modelFile = resolve(tmpdir(), `office-test-roles-model-${process.pid}.json`);
+  const modelDir = resolve(tmpdir(), 'roles-model-office');
+  const { package: _backendLink, ...legacyBackend } = defaultRole('backend', 'ru')!;
+  const reviewer = defaultRole('reviewer', 'ru')!;
+  save(modelFile, () => ({
+    version: 1, projectDir: modelDir, taskSeq: 0, tasks: [], chat: [], log: [],
+    instances: [], savedAt: Date.now(),
+    settings: { ...DEFAULT_SETTINGS, language: 'ru', chatLanguage: 'ru', codeLanguage: 'ru' },
+    roles: [
+      // Сохранение старше пакетов: ссылки нет, модель записана полным id.
+      { ...legacyBackend, model: 'claude-opus-5' },
+      // Роль из пакета, которой модель выбрали руками: выбор лежит в разнице.
+      {
+        ...reviewer,
+        model: 'claude-opus-5',
+        package: { ...reviewer.package!, overrides: { model: 'claude-opus-5' } },
+      },
+      // Роль, заведённая руками: пакета нет, модель хранит она сама.
+      { ...legacyBackend, id: 'analyst', title: 'Аналитик', model: 'claude-opus-5' },
+    ],
+  }));
+  flushAll();
+  const modelRoles = openOfficeState({
+    id: 'o-roles-model', projectDir: modelDir, stateFile: modelFile,
+  }).state;
+  results.push(
+    `модель из сохранения старше пакетов переведена: ${
+      modelRoles.role('backend')?.model === 'claude-opus-5-5'}`,
+    // Пакет называет модель алиасом, а алиас показывает на нынешнее поколение —
+    // значит, после перевода это снова умолчание пакета, а не выбор человека.
+    `перевод не остался разницей с пакетом: ${
+      Object.keys(modelRoles.role('backend')?.package?.overrides ?? {}).length === 0}`,
+    `выбранная руками модель переведена и осталась разницей: ${
+      modelRoles.role('reviewer')?.model === 'claude-opus-5-5'
+      && modelRoles.role('reviewer')?.package?.overrides.model === 'claude-opus-5-5'}`,
+    `модель роли без пакета переведена: ${modelRoles.role('analyst')?.model === 'claude-opus-5-5'}`,
+    `повторный перевод ничего не меняет: ${currentModel('claude-opus-5-5') === 'claude-opus-5-5'
+      && currentModel('claude-sonnet-5') === 'claude-sonnet-5'}`,
+  );
+  unloadOfficeState('o-roles-model');
+  wipe(modelFile);
 
   // 8. Хранилище пер-офисное: сохранение одного офиса не отменяет сохранение
   // другого. С общим на процесс таймером второй save() просто заменял первый
