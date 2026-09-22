@@ -145,13 +145,13 @@ function spotsOf(layout: Layout, catalog: Catalog): Spot[] {
       id: 'game',
       kind: 'game',
       requiresAll: false,
-      seats: gamers.map((s) => ({ at: s.at, yaw: 0, sprite: s.sprite, seat: s.seat })),
+      seats: gamers.map((s) => ({ at: s.at, yaw: s.yaw, sprite: s.sprite, seat: s.seat })),
     });
   }
   seatPoints.filter((s) => s.use !== 'game').forEach((s, i) => {
     spots.push({
       id: `sit-${i}`, kind: 'sit', requiresAll: false,
-      seats: [{ at: s.at, yaw: 0, sprite: s.sprite, seat: s.seat }],
+      seats: [{ at: s.at, yaw: s.yaw, sprite: s.sprite, seat: s.seat }],
     });
   });
 
