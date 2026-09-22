@@ -77,6 +77,68 @@ node scripts/import-offices.mjs             # перенести
   (живые сессии исполнителей при этом обрываются, как и при `npm run office -- --restart`);
 - **Папка данных**, **Журнал сервера** — то, что спросят при первой же поломке.
 
+## Подпись и нотаризация (macOS)
+
+Без сертификата приложение подписано «для себя», и macOS при первом запуске
+говорит, что не может проверить разработчика. С аккаунтом Apple Developer это
+убирается совсем: подписанное сертификатом **Developer ID Application** и
+заверенное у Apple приложение открывается двойным щелчком, как любое другое.
+
+Сертификат нужен именно этот. Ни `Apple Development`, ни `Apple Distribution`
+не подойдут: первый — для отладки на своих устройствах, второй — для App
+Store, и раздачу файлом ни один из них не закрывает.
+
+**1. Завести сертификат.** Xcode → Settings → Accounts → ваша команда →
+Manage Certificates → + → «Developer ID Application». Либо на
+developer.apple.com → Certificates, Identifiers & Profiles → Certificates →
++ → Developer ID Application. Нужна роль Account Holder или Admin в команде,
+состоящей в Apple Developer Program.
+
+**2. Выгрузить его в файл.** Keychain Access → My Certificates → правый
+щелчок по «Developer ID Application: …» → Export → формат `.p12`, задать
+пароль.
+
+**3. Завести данные для нотаризации.** Проще ключом App Store Connect:
+appstoreconnect.apple.com → Users and Access → Integrations → Team Keys →
++ → роль Developer. Скачивается файл `AuthKey_XXXX.p8` (один раз), рядом
+видны Key ID и Issuer ID. Альтернатива — Apple ID и пароль приложения
+(appleid.apple.com → App-Specific Passwords) вместе с Team ID.
+
+**4. Положить в секреты репозитория** (Settings → Secrets and variables →
+Actions). Значения вводите сами — они нигде больше не появляются:
+
+| Секрет | Что класть |
+|---|---|
+| `CSC_LINK` | `.p12` в base64: `base64 -i cert.p12 \| pbcopy` |
+| `CSC_KEY_PASSWORD` | пароль, заданный при выгрузке `.p12` |
+| `APPLE_API_KEY_P8` | содержимое файла `AuthKey_XXXX.p8` целиком |
+| `APPLE_API_KEY_ID` | Key ID ключа |
+| `APPLE_API_ISSUER` | Issuer ID |
+
+Вместо трёх последних можно положить `APPLE_ID`,
+`APPLE_APP_SPECIFIC_PASSWORD` и `APPLE_TEAM_ID` — сборка принимает оба
+способа.
+
+После этого достаточно поставить новый тег: сборка сама увидит секреты,
+подпишет приложение, отправит его на нотаризацию и прикрепит результат к
+образу. Строчку «подпись macOS: …» видно в начале шага «установщик» — по ней
+проверяется, что секреты подхватились.
+
+**Собрать подписанное у себя** (сертификат к этому моменту в связке ключей):
+
+```bash
+export CSC_NAME="Developer ID Application: Имя (TEAMID)"
+npm run desktop:dist
+```
+
+Нотаризация при этом включится, если рядом есть `APPLE_API_KEY` (путь к
+`.p8`), `APPLE_API_KEY_ID` и `APPLE_API_ISSUER` — или тройка с Apple ID.
+Без них выйдет подписанная, но не заверенная сборка: на вашей машине она
+откроется, а на чужой macOS всё равно спросит.
+
+Windows это не лечит: там своя подпись, отдельный сертификат и отдельные
+деньги, а пока остаётся «Подробнее → Выполнить в любом случае».
+
 ## Собрать установщик самому
 
 ```bash
