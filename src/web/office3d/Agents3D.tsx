@@ -20,6 +20,7 @@ import { useFrame, useLoader } from '@react-three/fiber';
 import { Html } from '@react-three/drei';
 import * as THREE from 'three';
 import { FBXLoader } from 'three/examples/jsm/loaders/FBXLoader.js';
+import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import { clone as cloneSkinned } from 'three/examples/jsm/utils/SkeletonUtils.js';
 import charUrl from '../../../design/models/characters/character.fbx?url';
 import idleUrl from '../../../design/models/characters/animations/idle.fbx?url';
@@ -51,7 +52,7 @@ import { interestsFor, type Interest } from '../interests';
 import { dropAnchor, setAnchor } from './anchors';
 import { MAX_DT, sceneOnScreen, sceneTime } from './clock';
 import type { AgentState, InstanceView, RoleView, TaskView } from '../../shared/types';
-import { lookFor } from '../../shared/looks';
+import { LOOKS, lookFor, type Look } from '../../shared/looks';
 import { NO_ROLE_COLOR } from '../Avatar';
 
 /**
@@ -67,6 +68,23 @@ for (const [path, url] of Object.entries(skinModules)) {
   SKIN_URLS[path.split('/').pop()!.replace('.png', '')] = url;
 }
 const SKIN_NAMES = Object.keys(SKIN_URLS).sort();
+
+/**
+ * Детализированные внешности — те, у которых в реестре есть `model`: свой
+ * меш и свои материалы вместо текстуры на общем теле (§`Look.model` в
+ * `shared/look.ts`). Список моделей собирается из реестра, а не перечислен
+ * здесь, — новая детализированная модель попадает в комнату без правки
+ * этого файла.
+ */
+const DETAILED_LOOKS = LOOKS.filter((l): l is Look & { model: string } => !!l.model);
+const modelModules = import.meta.glob('../../../design/models/characters/*.glb', {
+  eager: true, query: '?url', import: 'default',
+}) as Record<string, string>;
+const MODEL_URLS: Record<string, string> = {};
+for (const [path, url] of Object.entries(modelModules)) {
+  MODEL_URLS[path.split('/').pop()!] = url;
+}
+const DETAILED_MODEL_URLS = DETAILED_LOOKS.map((l) => MODEL_URLS[l.model]);
 
 /**
  * Рост фигуры, скорость ходьбы, высоты посадки и прочие числа подгонки живут
@@ -350,6 +368,35 @@ export function useCharacter(): Loaded {
 }
 
 /**
+ * Детализированные фигуры: свой меш вместо общего тела, но те же клипы, что
+ * у него (`useCharacter`) — они завязаны на имена костей, а не на геометрию,
+ * а у детализированной модели имена костей те же, что у общей фигуры
+ * (см. `Look.model`). Замеры (`measure`, `travel`) считаются заново на этой
+ * геометрии: пропорции у неё свои, и высота таза или кистей в долях роста —
+ * не те же числа, что у общего тела.
+ *
+ * Ключ — идентификатор внешности, тот же, что в `shared/looks.ts`.
+ */
+export function useDetailedLooks(clips: Record<Pose | Move, THREE.AnimationClip>): Record<string, Loaded> {
+  const gltfs = useLoader(GLTFLoader, DETAILED_MODEL_URLS) as unknown as { scene: THREE.Group }[];
+  return useMemo(() => {
+    const poses = {} as Record<Pose, THREE.AnimationClip>;
+    for (const k of POSE_KEYS) poses[k] = clips[k];
+    const out: Record<string, Loaded> = {};
+    DETAILED_LOOKS.forEach((look, i) => {
+      const model = gltfs[i].scene;
+      out[look.id] = {
+        model,
+        clips,
+        measure: measurePoses(model, poses),
+        travel: measureTravel(model, { sitDown: clips.sitDown, standUp: clips.standUp }),
+      };
+    });
+    return out;
+  }, [gltfs, clips]);
+}
+
+/**
  * Материал по текстуре скина. Один рецепт на комнату, аватарки и стенд
  * скинов — иначе стенд показывал бы не то, что встанет в комнате.
  */
@@ -509,9 +556,13 @@ function AgentTag({ anchorRef, inst, role, task }: {
  * вторым способом значило бы проверять на стенде не то, что в комнате.
  *
  * `phase` — доля цикла, с которой начинаются анимации: 0…1.
+ *
+ * `material` — `null` у детализированных внешностей: у них уже двадцать
+ * мешей со своими материалами (шевелюра, глаза, одежда), и красить их одной
+ * плашкой скина значило бы стереть всю раскраску модели.
  */
 export function buildRig(
-  loaded: Loaded, material: THREE.Material, tall: number, phase: number,
+  loaded: Loaded, material: THREE.Material | null, tall: number, phase: number,
 ): Rig {
   // Клонировать скелет обычным `clone()` нельзя: у копий остались бы кости
   // оригинала и все агенты двигались бы как один.
@@ -521,7 +572,7 @@ export function buildRig(
   figure.rotation.y = MODEL_YAW;
   figure.traverse((o) => {
     if (o instanceof THREE.Mesh) {
-      o.material = material;
+      if (material) o.material = material;
       o.castShadow = true;
       // Принимать тени фигуре незачем: сама на себя она их почти не
       // отбрасывает, а лишний проход по скиннингу не бесплатный.
@@ -634,7 +685,8 @@ function Agent({
 }: {
   inst: InstanceView;
   loaded: Loaded;
-  material: THREE.Material;
+  /** `null` у детализированных внешностей — своя раскраска, поверх её не кладут. */
+  material: THREE.Material | null;
   layout: Layout;
   offset: [number, number];
   role?: RoleView;
@@ -1179,6 +1231,7 @@ function Crowd({ offset }: { offset: [number, number] }) {
   const meeting = useStore((s) => s.meeting);
   const loaded = useCharacter();
   const materials = useSkinMaterials();
+  const detailed = useDetailedLooks(loaded.clips);
   const list = Object.values(instances);
   const inMeeting = new Set(meeting?.status === 'running' ? meeting.participants : []);
 
@@ -1196,12 +1249,17 @@ function Crowd({ offset }: { offset: [number, number] }) {
     <>
       {list.map((inst, i) => {
         const role = roles.find((r) => r.id === inst.roleId);
+        // Детализированная внешность приносит свою фигуру и свою раскраску
+        // (`Look.model`): скиновую текстуру на неё не кладут — `material`
+        // остаётся `null`, а `buildRig` оставляет меши как есть.
+        const lookId = lookFor(role?.sprite, i);
+        const detail = lookId ? detailed[lookId] : undefined;
         return (
           <Agent
             key={inst.id}
             inst={inst}
-            loaded={loaded}
-            material={skinMaterial(materials, role?.sprite, i)}
+            loaded={detail ?? loaded}
+            material={detail ? null : skinMaterial(materials, role?.sprite, i)}
             layout={layout}
             offset={offset}
             role={role}

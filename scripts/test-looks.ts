@@ -6,12 +6,17 @@
  * запись, а положенный руками файл — нет. Запись без файла — агент без
  * текстуры, поэтому это ошибка; файл без записи — просто не предлагается в
  * форме роли, поэтому это предупреждение.
+ *
+ * Детализированная внешность (`look.model`) текстуры не носит — вместо неё
+ * своя модель уровнем выше, в `design/models/characters`; для неё проверяем
+ * файл модели, а не png в папке скинов.
  */
 import fs from 'node:fs';
 import path from 'node:path';
 import { parseLooks } from '../src/shared/look';
 
 const dir = path.resolve('design/models/characters/skins');
+const modelsDir = path.resolve('design/models/characters');
 const catalog = JSON.parse(fs.readFileSync('design/sprites/out/catalog.json', 'utf8')) as {
   sprites: Record<string, unknown>;
 };
@@ -29,7 +34,11 @@ try {
 
 const files = fs.readdirSync(dir).filter((f) => f.endsWith('.png')).map((f) => f.slice(0, -4));
 for (const look of looks) {
-  if (!files.includes(look.id)) fail(`«${look.id}»: нет файла ${look.id}.png`);
+  if (look.model) {
+    if (!fs.existsSync(path.join(modelsDir, look.model))) fail(`«${look.id}»: нет файла модели ${look.model}`);
+  } else if (!files.includes(look.id)) {
+    fail(`«${look.id}»: нет файла ${look.id}.png`);
+  }
   if (!catalog.sprites[look.sprite]) fail(`«${look.id}»: спрайта ${look.sprite} нет в каталоге`);
   for (const lang of ['ru', 'en'] as const) {
     if (!look.title[lang]) console.log(`! «${look.id}»: нет подписи ${lang} — покажется имя файла`);
