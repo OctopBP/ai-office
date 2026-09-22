@@ -27,7 +27,7 @@
       { "sprite": "desk", "at": [11, 8] },
       { "sprite": "desk", "at": [14, 8] },
       { "sprite": "desk", "at": [17, 8] },
-      { "sprite": "desk", "at": [20, 8] },
+      { "sprite": "desk", "at": [20, 8], "rot": 90 },
 
       { "sprite": "chair", "at": [11.5, 10.8] },
       { "sprite": "chair", "at": [11.5, 1.8] },
@@ -41,7 +41,7 @@
       { "sprite": "chair", "at": [11.5, 7.8] },
       { "sprite": "chair", "at": [14.5, 7.8] },
       { "sprite": "chair", "at": [17.5, 7.8] },
-      { "sprite": "chair", "at": [20.5, 7.8] },
+      { "sprite": "chair", "at": [22.2, 8.6], "rot": 90 },
   
       { "sprite": "round_table", "at": [4, 2], "id": "meeting_table", "scale": 1 },
       { "sprite": "potted_plant", "at": [1, 1] },
@@ -55,10 +55,10 @@
       { "sprite": "armchair", "at": [8, 6] },
       { "sprite": "floor_lamp", "at": [9, 6] },
   
-      { "sprite": "sofa", "at": [2, 11] },
+      { "sprite": "sofa", "at": [2, 11], "rot": 270 },
       { "sprite": "lounge_rug", "at": [1, 12] },
       { "sprite": "potted_plant", "at": [1, 11] },
-      { "sprite": "coffee_table", "at": [2, 13] },
+      { "sprite": "coffee_table", "at": [5, 12] },
       
       { "sprite": "armchair", "at": [8, 9] },
       { "sprite": "potted_plant", "at": [9, 9] }
