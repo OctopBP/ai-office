@@ -11,6 +11,8 @@ project: you brief the manager, agents pick up tasks in isolated git
 worktrees, and the room shows who is doing what. The office speaks English
 or Russian; the docs are in Russian for now.*
 
+![Офис с видом сверху: команда агентов за работой](docs/images/office.webp)
+
 Концепт и план развития — [CONCEPT.md](CONCEPT.md).
 
 ## Быстрый старт
