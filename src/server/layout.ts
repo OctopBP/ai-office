@@ -115,11 +115,32 @@ export function loadLayout(id: string): Layout {
 }
 
 /**
- * Пресеты из design/layouts для выбора в интерфейсе. Директорию перечитываем
- * на каждый вызов: список короткий, а раскладки в этом проекте добавляют прямо
- * во время работы офиса — кэш показывал бы вчерашний набор. Разбор файлов при
- * этом закэширован по mtime, так что вызов стоит readdir и одного stat на пресет.
+ * id всех пресетов из design/layouts, по возрастанию имени файла.
+ *
+ * Каталог — единственный источник этого списка, и второго быть не должно:
+ * список, записанный руками, расходится с директорией молча. Ровно на этом
+ * встал пред-merge гейт T-103 — раскладки `studio` и `studio_2` удалили из
+ * репозитория, а проверки ходьбы продолжали читать их по именам и падали
+ * с ENOENT на слитом дереве, хотя в ветке задачи файлы ещё были.
+ *
+ * Директорию перечитываем на каждый вызов: список короткий, а раскладки в
+ * этом проекте добавляют прямо во время работы офиса — кэш показывал бы
+ * вчерашний набор.
  */
+export function layoutIds(): string[] {
+  let files: string[];
+  try {
+    files = readdirSync(LAYOUTS_DIR);
+  } catch (err) {
+    console.log(c('layout.allUnreadable', { error: (err as Error).message }));
+    return [];
+  }
+  return files.sort()
+    .filter((file) => file.endsWith('.json'))
+    .map((file) => file.slice(0, -'.json'.length))
+    .filter((id) => ID_RE.test(id));
+}
+
 /**
  * Подпись пресета раскладки. У пресетов, которые едут в комплекте, название —
  * часть приложения, а не данных: оно переводится вместе с интерфейсом. У
@@ -131,26 +152,20 @@ function presetTitle(id: string, lang: Lang, fromFile: string): string {
   return hasKey(key) ? t(lang, key) : (fromFile || id);
 }
 
+/**
+ * Пресеты из design/layouts для выбора в интерфейсе. Разбор файлов закэширован
+ * по mtime, так что вызов стоит readdir и одного stat на пресет.
+ */
 export function layoutOptions(lang: Lang): LayoutOption[] {
-  let files: string[];
-  try {
-    files = readdirSync(LAYOUTS_DIR);
-  } catch (err) {
-    console.log(c('layout.allUnreadable', { error: (err as Error).message }));
-    return [];
-  }
   const options: LayoutOption[] = [];
-  for (const file of files.sort()) {
-    if (!file.endsWith('.json')) continue;
-    const id = file.slice(0, -'.json'.length);
-    if (!ID_RE.test(id)) continue;
+  for (const id of layoutIds()) {
     try {
       // Подпись берём из самой раскладки: название пресета живёт рядом с ним,
       // а не вторым списком на сервере, который забудут дополнить.
       options.push({ id, title: presetTitle(id, lang, loadLayout(id).title) });
     } catch (err) {
       // Битый пресет не должен ронять список остальных — говорим и идём дальше.
-      console.log(c('layout.fileSkipped', { file, error: (err as Error).message }));
+      console.log(c('layout.fileSkipped', { file: `${id}.json`, error: (err as Error).message }));
     }
   }
   return options;

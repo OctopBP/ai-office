@@ -12,23 +12,16 @@
  * FAIL, а конвейеру это ни о чём не говорило. Теперь код выхода 1 при первой
  * же недостижимой точке, и проверка годится в пред-merge гейт.
  */
-import { readFileSync } from 'node:fs';
-import { dirname, resolve } from 'node:path';
-import { fileURLToPath } from 'node:url';
 import {
   desks, deskPoint, findPath, isBlocked, kitchenSeats, meetingSeat, passability,
 } from '../src/shared/layout';
 
-import type { Catalog, Layout, Pos } from '../src/shared/layout';
+import type { Layout, Pos } from '../src/shared/layout';
+import { catalog, layoutIds, loadLayout } from '../src/server/layout';
 
-const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
-
-function readJson<T>(path: string): T {
-  return JSON.parse(readFileSync(path, 'utf8')) as T;
-}
-
-const catalog = readJson<Catalog>(resolve(ROOT, 'design/sprites/out/catalog.json'));
-const LAYOUT_IDS = ['classic', 'studio', 'studio_2', 'studio_3', 'studio_4'];
+// Раскладки и каталог спрайтов — тем же модулем, что у сервера: корень из
+// src/server/root.ts, а список пресетов собирает сама директория (layoutIds).
+const LAYOUT_IDS = layoutIds();
 
 /** Свободная точка опенспейса — ближайшая к центру сетки, ищем спиралью колец. */
 function findOpenspaceStart(p: ReturnType<typeof passability>): Pos {
@@ -104,7 +97,7 @@ function checkAll(layout: Layout): { start: Pos; rows: Row[] } {
 
 let unreachable = 0;
 for (const id of LAYOUT_IDS) {
-  const layout = readJson<Layout>(resolve(ROOT, `design/layouts/${id}.json`));
+  const layout = loadLayout(id);
   const { start, rows } = checkAll(layout);
   console.log(`\n=== Раскладка «${id}» — старт (${start.x.toFixed(2)}, ${start.y.toFixed(2)}) ===`);
   const ok = rows.filter((r) => r.reachable);

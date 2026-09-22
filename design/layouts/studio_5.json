@@ -45,7 +45,7 @@
       { "sprite": "chair", "at": [17.5, 4.8] },
       { "sprite": "chair", "at": [20.5, 4.8] },
   
-      { "sprite": "round_table", "at": [20, 12], "id": "meeting_table", "scale": 1 },
+      { "sprite": "round_table", "at": [19, 10], "id": "meeting_table", "scale": 1 },
       { "sprite": "potted_plant", "at": [1, 1] },
       { "sprite": "potted_plant", "at": [22, 1] },
   
