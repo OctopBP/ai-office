@@ -129,11 +129,11 @@ kbd {
 .seg button.on .seg-dot { background: var(--accent-ink); }
 
 /* ---------- бейдж агента ----------
-   Белая пилюля над головой: значок роли своего цвета с номером и точка
-   состояния. Цвет значка приходит из настроек роли — в разметке.
+   Белая пилюля над головой: значок роли своего цвета с номером. Цвет значка
+   приходит из настроек роли — в разметке.
 
    Здесь только подложка и её содержимое в одну строку. В сцене офиса тот же
-   бейдж раскладывается в две строки (задача справа, текущая команда снизу) —
+   бейдж раскладывается в три ряда (подпись сотрудника, задача, текущая команда) —
    раскладка для сцены живёт в `scene.css` под `.tag3d`. */
 .agent-badge {
   display: inline-flex; align-items: center; gap: 2px; padding: 2px;
@@ -144,13 +144,6 @@ kbd {
   min-width: 22px; padding: 4px; border-radius: 8px; text-align: center;
   font: 700 10px/1 var(--font); color: #fff; background: var(--ink-3);
 }
-.agent-badge-dot {
-  width: 10px; height: 10px; margin: 0 2px; border-radius: 50%;
-  background: var(--ink-4);
-}
-.agent-badge-dot.live { background: var(--ok-live); }
-.agent-badge-dot.warn { background: var(--warn); }
-.agent-badge-dot.danger { background: var(--danger); }
 
 /* ---------- шкала ----------
    Бюджет в подвале рейла: 4 px, скруглённая, заполнение акцентом. */

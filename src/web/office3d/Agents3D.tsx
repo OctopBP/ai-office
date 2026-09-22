@@ -48,12 +48,11 @@ import {
 import { reach, type Arm } from './ik';
 import { markArrived, reportPosition, useStore } from '../store';
 import { interestsFor, type Interest } from '../interests';
-import { stateText } from '../agentState';
 import { dropAnchor, setAnchor } from './anchors';
 import { MAX_DT, sceneOnScreen, sceneTime } from './clock';
 import type { AgentState, InstanceView, RoleView, TaskView } from '../../shared/types';
 import { lookFor } from '../../shared/looks';
-import { NO_ROLE_COLOR, shortCode } from '../Avatar';
+import { NO_ROLE_COLOR } from '../Avatar';
 
 /**
  * Текстуры персонажей по имени скина — оно же идентификатор внешности
@@ -277,18 +276,6 @@ const DESK_TOP = 1.05;
 const TAG_SCALE = 15;
 
 /**
- * Модификатор точки состояния в бейдже (`.agent-badge-dot`): свободен и
- * закончил — зелёная, занят разговором или работой — жёлтая, застрял или
- * сломался — красная. `walking` и `paused` остаются без модификатора: это
- * переходные состояния, для них хватает нейтрально-серой точки по умолчанию.
- */
-const STATE_DOT: Partial<Record<AgentState, 'live' | 'warn' | 'danger'>> = {
-  idle: 'live', done: 'live',
-  thinking: 'warn', working: 'warn', talking: 'warn',
-  waiting_approval: 'danger', blocked: 'danger', failed: 'danger',
-};
-
-/**
  * Тёмный или светлый текст поверх цвета роли — по яркости самого цвета.
  *
  * Цвета ролей задаёт пользователь, и среди них есть и жёлтый, и тёмно-синий.
@@ -427,11 +414,13 @@ function Ring({ color }: { color: string }) {
  * (пузырь с командой, бейдж и табличка задачи); над восемью агентами это
  * превращалось в три этажа карточек, перекрывающих друг друга.
  *
- * Верхняя строка — код агента, точка состояния и код задачи; нижняя —
- * текущая команда. Нет задачи или нет команды — соответствующая часть просто
- * отсутствует, и бейдж сжимается. Плоский офис рисует ту же информацию
- * по-своему, старым пиксельным стилем — переносить его на этот рендер не
- * входило в задачу.
+ * Рядов ровно три, и появляются они все вместе: подпись сотрудника (та же, что
+ * в окне «Команда»: имя или профессия с номером), задача (номер плашкой и
+ * название), текущая команда. Без задачи остаётся один верхний ряд —
+ * пустых строк в бейдже нет. Точки состояния здесь больше нет: по сцене и так
+ * видно, идёт человек, сидит за столом или стоит без дела. Плоский офис рисует
+ * ту же информацию по-своему, старым пиксельным стилем — переносить его на
+ * этот рендер не входило в задачу.
  *
  * Сделана обычным DOM поверх канваса (`Html` из drei), а не текстурой с
  * текстом: текст остаётся настоящим текстом — чётким на любом зуме, с теми же
@@ -450,6 +439,17 @@ function AgentTag({ anchorRef, inst, role, task }: {
   task?: TaskView | null;
 }) {
   const chipColor = role?.color || NO_ROLE_COLOR;
+  /**
+   * Подпись сотрудника — ровно та, что в карточке окна «Команда» и в шапке
+   * дровера (см. `AgentName`): `inst.label`. Офис собирает её на сервере и
+   * ставит в неё номер, когда роль нанята не в одном экземпляре
+   * («Backend разработчик #2»), поэтому голый `role.title` не годится — у трёх
+   * бэкендеров он одинаковый, и различить их над головой стало бы нельзя.
+   * `role.title` остаётся запасным на случай, когда роль в веб не доехала.
+   * Своей строки здесь не собираем: короткий код остался на аватарках, где он
+   * и нужен, а переводить название нечего — его пишет сам владелец.
+   */
+  const title = inst.label || role?.title || '';
   // Свободному агенту показывать нечего: команда у него осталась от прошлой
   // задачи, и висела бы над головой до самой следующей.
   const note = inst.state === 'idle' ? null : inst.note;
@@ -467,30 +467,37 @@ function AgentTag({ anchorRef, inst, role, task }: {
       >
         {/* `.tag3d` — точка привязки нулевого размера, бейдж растёт от неё
             вверх (см. scene.css). Иначе `center` у `Html` держал бы по центру
-            середину бейджа, и каждое появление нижней строки сдвигало бы
-            верхнюю — над неподвижным агентом подпись дёргалась бы сама. */}
+            середину бейджа, и каждое появление нижних рядов сдвигало бы
+            верхний — над неподвижным агентом подпись дёргалась бы сама. */}
         <div className="tag3d">
           <div
             className="agent-badge"
-            // Цвет роли уезжает в CSS переменной: им красится и значок, и
-            // обводка всей подложки — см. `.tag3d .agent-badge` в scene.css.
+            // Цвет роли уезжает в CSS переменной: им красится обводка всей
+            // подложки — см. `.tag3d .agent-badge` в scene.css.
             style={{ '--role': chipColor } as CSSProperties}
-            title={inst.name && role ? `${inst.label} · ${role.title}` : (role?.title ?? inst.label)}
+            // У названного сотрудника `label` — это его имя, профессии в нём
+            // нет; подсказка дописывает её, чтобы «Вася» не оставался без
+            // должности. У безымянного подсказка равна самой подписи.
+            title={inst.name && role ? `${inst.name} · ${role.title}` : title}
           >
-            <div className="agent-badge-head">
-              <span
-                className="agent-badge-role"
-                style={{ background: chipColor, color: inkOn(chipColor) }}
-              >
-                {shortCode(inst.roleId, inst.id)}
-              </span>
-              <span
-                className={`agent-badge-dot${STATE_DOT[inst.state] ? ` ${STATE_DOT[inst.state]}` : ''}`}
-                title={stateText(inst.state)}
-              />
-              {task && <span className="agent-badge-task" title={task.title}>{task.id}</span>}
+            {/* Верхний ряд — цветом роли: значка с кодом больше нет, и краска
+                роли держится на самой шапке. Чернила по её яркости, иначе
+                тёмно-синяя роль съела бы чёрный текст. */}
+            <div
+              className="agent-badge-head"
+              style={{ background: chipColor, color: inkOn(chipColor) }}
+            >
+              {title}
             </div>
-            {note && <div className="agent-badge-note">{note}</div>}
+            {task && (
+              <>
+                <div className="agent-badge-task-row">
+                  <span className="agent-badge-task">{task.id}</span>
+                  <span className="agent-badge-title" title={task.title}>{task.title}</span>
+                </div>
+                {note && <div className="agent-badge-note">{note}</div>}
+              </>
+            )}
           </div>
         </div>
       </Html>

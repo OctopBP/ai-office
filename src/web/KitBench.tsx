@@ -111,11 +111,10 @@ function Half({ theme }: { theme: Theme }) {
       <section>
         <h2 className="section-title">Бейдж агента</h2>
         <div className="kit-row kit-scene">
-          {ROLES.map(([code, n], i) => (
+          {ROLES.map(([code, n]) => (
             <span key={code} className="agent-badge">
               <span className="agent-badge-role"
                 style={{ background: `var(--accent-${n})`, color: `var(--accent-${n}-ink)` }}>{code}</span>
-              <span className={`agent-badge-dot ${['live', 'live', 'warn', ''][i]}`} />
             </span>
           ))}
         </div>
