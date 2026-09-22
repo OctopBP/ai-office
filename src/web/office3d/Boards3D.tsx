@@ -32,23 +32,57 @@ import type { LogEntry, TaskPriority, TaskStatus, TaskView } from '../../shared/
 import type { HotspotPanel } from '../layoutData';
 import { NO_ROLE_COLOR } from '../Avatar';
 import { useStore } from '../store';
+import type { Palette } from './palette';
 import type { Placed3 } from './props';
 
 /**
- * Доля панели, которую занимает лицевая сторона. Ровно та же, что у
- * светящейся плашки в `PropLamp`: содержимое обязано лечь на подсветку, а не
- * рядом с ней.
+ * Толщина рамки доски — в мировых единицах сцены (1 = тайл пола). Одна на все
+ * три доски: правится здесь одним числом.
+ *
+ * Рамкой раньше служила кромка панели вокруг лицевой стороны, а лицевая
+ * сторона задавалась долей габарита (0.86 × 0.82 от панели). Доля от размера —
+ * это разная рамка у разных досок: у ленты событий шириной в тайл выходило
+ * 0.07, у доски задач шириной в три — 0.21, а по вертикали ещё третье число.
+ * Теперь рамка рисуется здесь же и всегда одинаковой ширины, а лицо доски —
+ * это габарит минус две толщины.
  */
-const FACE_W = 0.86;
-const FACE_H = 0.82;
+const FRAME = 0.1;
 
-/** Насколько содержимое выступает вперёд из панели. Лицо предмета — его +Z
- *  (`place3` разворачивает настенное в комнату), плашка подсветки стоит на
- *  0.015, поэтому картинка чуть впереди неё. */
+/** Насколько лицевая сторона выступает вперёд из панели. Лицо предмета — его
+ *  +Z (`place3` разворачивает настенное в комнату), плашка подсветки в
+ *  `PropLamp` стоит на 0.015, поэтому картинка впереди неё. */
 const FRONT = 0.03;
 
-/** Зазор между слоями картинки: фон, содержимое, подсветка наведения. */
-const LAYER = 0.004;
+/**
+ * Порядок отрисовки слоёв доски: рамка, подложка, поле, содержимое, отметки
+ * поверх содержимого, подсветка наведения.
+ *
+ * Все слои лежат в ОДНОЙ плоскости и ни один не пишет глубину — кто кого
+ * закрывает, решает только этот порядок. Так сделано из-за мерцания:
+ * прозрачные меши three сортирует по глубине центра меша, а центр полоски
+ * лежит не там, где центр подложки. При косом взгляде на стену полоска слева
+ * оказывается ДАЛЬШЕ от камеры, чем центр доски, и уезжает в сортировке за
+ * подложку — та рисуется поверх и стирает её. Развернули камеру — порядок
+ * другой, и содержимое моргает. Явный `renderOrder` сравнивается раньше
+ * глубины, поэтому от ракурса он не зависит вовсе.
+ *
+ * Числа начинаются с единицы, а не с нуля: нулевой порядок у всего остального
+ * прозрачного в сцене, и доска должна ложиться поверх, а не вперемешку.
+ */
+const ORDER = {
+  /** Рамка: единственный слой во весь габарит панели. */
+  frame: 1,
+  /** Подложка лицевой стороны. */
+  back: 2,
+  /** Разметка под содержимым: поле колонки, ось диаграммы. */
+  plot: 3,
+  /** Само содержимое: полоски ленты, карточки, столбики. */
+  item: 4,
+  /** Отметки поверх содержимого: акцент карточки, линия лимита. */
+  mark: 5,
+  /** Засветка под курсором. */
+  hover: 6,
+} as const;
 
 /**
  * Цвета взяты из `styles/tokens.css` — новых тут не заводится. Скопированы
@@ -67,19 +101,19 @@ const INK = {
 /**
  * Простая плашка: прямоугольник заданного цвета в плоскости доски.
  *
- * Материал помечен прозрачным, даже когда непрозрачен, и не пишет глубину.
- * Это не украшение: все плашки доски лежат в одной плоскости с разницей в
- * миллиметры, и порядок их отрисовки решает, что видно. Непрозрачные меши
- * three сортирует по материалу, и слои доски могли бы встать в любом
- * порядке; прозрачные сортируются строго от дальнего к ближнему — то есть
- * ровно по нашему `z`.
+ * Материал помечен прозрачным, даже когда непрозрачен, и не пишет глубину:
+ * глубину за всю доску держит её панель, а внутри лицевой стороны порядок
+ * задаёт `order` и только он. Поэтому слой — обязательный параметр, а не
+ * умолчание: плашка без него встала бы в общую кучу.
  */
-function Bar({ x, y, w, h, color, opacity, z = 0 }: {
-  x: number; y: number; w: number; h: number; color: string; opacity?: number; z?: number;
+function Bar({ x, y, w, h, color, opacity, order }: {
+  x: number; y: number; w: number; h: number; color: string; opacity?: number;
+  /** Слой из `ORDER`. */
+  order: number;
 }) {
   if (!(w > 0) || !(h > 0)) return null;
   return (
-    <mesh position={[x, y, z]}>
+    <mesh position={[x, y, 0]} renderOrder={order}>
       <planeGeometry args={[w, h]} />
       <meshBasicMaterial color={color} transparent opacity={opacity ?? 1} depthWrite={false} />
     </mesh>
@@ -163,7 +197,7 @@ function FeedArt({ w, h }: { w: number; h: number }) {
     <>
       {/* Тёмная подложка: лента — единственная из трёх досок, которая читается
           как экран, а не как бумага, и полоски на тёмном видно издалека. */}
-      <Bar x={0} y={0} w={w} h={h} color="#12161f" />
+      <Bar x={0} y={0} w={w} h={h} color="#12161f" order={ORDER.back} />
       {rows.map((row, i) => (
         <Bar
           key={row.id}
@@ -174,7 +208,7 @@ function FeedArt({ w, h }: { w: number; h: number }) {
           color={row.color}
           // Чем ниже строка, тем она старше и тусклее.
           opacity={1 - (i / FEED_ROWS) * 0.7}
-          z={LAYER}
+          order={ORDER.item}
         />
       ))}
     </>
@@ -242,19 +276,19 @@ function TasksArt({ w, h }: { w: number; h: number }) {
   return (
     <>
       {/* Светлая подложка: доска задач — это белая маркерная доска. */}
-      <Bar x={0} y={0} w={w} h={h} color="#f2f5fa" />
+      <Bar x={0} y={0} w={w} h={h} color="#f2f5fa" order={ORDER.back} />
       {columns.map((col, c) => {
         const cx = -w / 2 + padX + colW * (c + 0.5);
         return (
           <group key={c}>
             {/* Колонка — чуть притопленное поле, чтобы канбан читался как
                 канбан даже у пустой доски. */}
-            <Bar x={cx} y={0} w={colW * 0.78} h={plotH} color="#d9e1ef" z={LAYER} />
+            <Bar x={cx} y={0} w={colW * 0.78} h={plotH} color="#d9e1ef" order={ORDER.plot} />
             {col.cards.map((card, i) => {
               const cy = top - rowH * (i + 0.6);
               return (
-                <group key={card.id} position={[cx, cy, LAYER * 2]}>
-                  <mesh geometry={cardGeo}>
+                <group key={card.id} position={[cx, cy, 0]}>
+                  <mesh geometry={cardGeo} renderOrder={ORDER.item}>
                     <meshBasicMaterial color="#ffffff" transparent depthWrite={false} />
                   </mesh>
                   {/* Акцент слева — цвет роли, за которой задача. */}
@@ -264,7 +298,7 @@ function TasksArt({ w, h }: { w: number; h: number }) {
                     w={cardW * 0.09}
                     h={cardH * 0.62}
                     color={card.accent}
-                    z={LAYER}
+                    order={ORDER.mark}
                   />
                 </group>
               );
@@ -276,7 +310,7 @@ function TasksArt({ w, h }: { w: number; h: number }) {
                 w={cardW * 0.5}
                 h={cardH * 0.3}
                 color="#94a3b8"
-                z={LAYER * 2}
+                order={ORDER.item}
               />
             )}
           </group>
@@ -333,9 +367,9 @@ function MoneyArt({ w, h }: { w: number; h: number }) {
   return (
     <>
       {/* Подложка светлее подсветки, но не белая: диаграмма — не бумага. */}
-      <Bar x={0} y={0} w={w} h={h} color="#e7eef8" />
+      <Bar x={0} y={0} w={w} h={h} color="#e7eef8" order={ORDER.back} />
       {/* Ось: по ней стоят столбики. */}
-      <Bar x={0} y={base} w={plotW} h={h * 0.018} color="#8fa3bd" z={LAYER} />
+      <Bar x={0} y={base} w={plotW} h={h * 0.018} color="#8fa3bd" order={ORDER.plot} />
       {chart.bars.map((bar, i) => (
         <Bar
           key={bar.day}
@@ -344,7 +378,7 @@ function MoneyArt({ w, h }: { w: number; h: number }) {
           w={barW}
           h={Math.max(plotH * bar.v, 0)}
           color={bar.over ? INK.danger : INK.teal}
-          z={LAYER}
+          order={ORDER.item}
         />
       ))}
       {/* Линия лимита поверх столбиков: важно видеть, какой из них её пробил. */}
@@ -355,7 +389,7 @@ function MoneyArt({ w, h }: { w: number; h: number }) {
         h={h * 0.022}
         color={INK.danger}
         opacity={0.85}
-        z={LAYER * 2}
+        order={ORDER.mark}
       />
     </>
   );
@@ -364,19 +398,21 @@ function MoneyArt({ w, h }: { w: number; h: number }) {
 // ——— Сборка ————————————————————————————————————————————————————————
 
 /**
- * Картинка на лицевой стороне доски плюс подсветка наведения.
+ * Картинка на лицевой стороне доски плюс рамка и подсветка наведения.
  *
  * Рисуется внутри группы предмета (`Hotspots3D`), поэтому едет и
  * поворачивается вместе с ним и ничего не знает о том, где доска висит.
  */
-export function BoardArt({ kind, item, hovered }: {
+export function BoardArt({ kind, item, palette, hovered }: {
   kind: HotspotPanel;
   item: Placed3;
+  /** Палитра сцены: рамка берёт из неё тон панели и вместе с ней темнеет к ночи. */
+  palette: Palette;
   /** Курсор над доской: к картинке добавляется лёгкая засветка. */
   hovered: boolean;
 }) {
-  const w = item.w * FACE_W;
-  const h = item.h * FACE_H;
+  const w = item.w - FRAME * 2;
+  const h = item.h - FRAME * 2;
 
   return (
     <>
@@ -390,11 +426,22 @@ export function BoardArt({ kind, item, hovered }: {
         </mesh>
       )}
       <group position={[0, item.h / 2, item.d / 2 + FRONT]}>
+        {/* Рамка — во весь габарит панели, содержимое ложится поверх и
+            оставляет от неё ровно `FRAME` с каждой стороны. Тон тот же, что у
+            самой панели (`PropShape`, тон `screen`), и материал тоже
+            освещаемый: у плоскости и у передней грани коробки нормаль одна, так
+            что светом они закрашиваются одинаково и стыка не видно. Заодно
+            рамка закрывает светящуюся плашку `PropLamp`, которая задана долей
+            габарита и иначе выглядывала бы из-под содержимого у узких досок. */}
+        <mesh renderOrder={ORDER.frame}>
+          <planeGeometry args={[item.w, item.h]} />
+          <meshLambertMaterial color={palette.prop.screen} transparent depthWrite={false} />
+        </mesh>
         {kind === 'log' && <FeedArt w={w} h={h} />}
         {kind === 'board' && <TasksArt w={w} h={h} />}
         {kind === 'money' && <MoneyArt w={w} h={h} />}
         {hovered && (
-          <mesh position={[0, 0, LAYER * 4]}>
+          <mesh renderOrder={ORDER.hover}>
             <planeGeometry args={[w * 1.04, h * 1.04]} />
             <meshBasicMaterial
               color="#ffffff"
