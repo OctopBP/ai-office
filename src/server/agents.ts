@@ -323,6 +323,33 @@ const SANDBOX = {
   autoAllowBashIfSandboxed: false,
 } as const;
 
+/**
+ * Команды, которые 3D-роли запускают вне песочницы. Blender 4.3 при старте,
+ * ещё до скрипта и даже с --background, спрашивает у системы Metal-устройство,
+ * а Seatbelt к GPU не пускает — и Blender падает SIGSEGV (T-116). Лечится
+ * только запуском вне песочницы; владелец это разрешил (T-117).
+ *
+ * Исключаем обёртку, а не сам Blender: так вне песочницы уходит ровно одна
+ * точка входа — фон, заводские настройки, проверка Metal как предохранитель,
+ * а путь к Blender она берёт из $BLENDER, то есть к машине не привязана.
+ * Шаблон `:*` — совпадение по префиксу, с любыми аргументами; путь
+ * относительный, потому что Bash исполнителя стоит в корне своей рабочей копии.
+ * Модалку разрешений исключение не снимает: вызов по-прежнему идёт через
+ * классификатор рисков.
+ */
+const BLENDER_UNSANDBOXED = ['tools/blender/run.sh:*', './tools/blender/run.sh:*'];
+
+/**
+ * Песочница под роль. Исключение для Blender получают только роли со
+ * способностью `design.3d` (3D-художник и его копии): остальным незачем
+ * выходить из песочницы, и лишняя дыра им не нужна.
+ */
+function sandboxFor(role: Role) {
+  return capabilitiesOf(role).includes('design.3d')
+    ? { ...SANDBOX, excludedCommands: BLENDER_UNSANDBOXED }
+    : SANDBOX;
+}
+
 // ---------------------------------------------------------------- утилиты
 
 const base = (p: unknown): string => String(p ?? '').split('/').filter(Boolean).pop() ?? String(p ?? '');
@@ -2495,7 +2522,7 @@ function startWorker(
           permissionMode: 'default',
           canUseTool: permissionHandler(taskOffice, inst.id, task.id, workdir),
           settingSources: [],
-          sandbox: SANDBOX,
+          sandbox: sandboxFor(role),
           // Лимит ходов берём из настроек офиса задачи, а не из константы:
           // задачи разной величины упираются в него по-разному, и поднять его
           // должно быть можно без правки кода. Свой лимит роли сильнее
@@ -3343,7 +3370,7 @@ async function runAgentSession(
         permissionMode: 'default',
         canUseTool: permissionHandler(state, inst.id, opts.taskId, opts.cwd),
         settingSources: [],
-        sandbox: SANDBOX,
+        sandbox: sandboxFor(role),
         // Доработка по отзыву и разбор конфликта — та же работа исполнителя,
         // и лимит ходов у них тот же: свой у роли, иначе офисный.
         maxTurns: state.turnsFor(role) ?? undefined,
