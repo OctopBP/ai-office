@@ -29,19 +29,22 @@ const taskIdle = (t: TaskView, autoPipeline: boolean): boolean =>
 
 /**
  * Колонки внутри фичи — путь задачи по офису слева направо: ждёт исполнителя,
- * идёт у него, едет через ревью и слияние, остановилась насовсем.
+ * идёт у него, едет через ревью и слияние, а затем один из трёх исходов.
+ * Исходы стоят отдельными колонками, а не общей «Закрытые»: провал среди
+ * влитого терялся, а свёрнутый блок прятал задачи готовой фичи за вторым кликом.
  *
  * Колонки живут именно внутри группы, а не поверх неё: фича отвечает на вопрос
  * «про что задача», статус — «где она сейчас», и одно не заменяет другое.
  */
-const TASK_COLUMNS = ['wait', 'work', 'review', 'closed'] as const;
+const TASK_COLUMNS = ['wait', 'work', 'review', 'done', 'failed', 'cancelled'] as const;
 type TaskColumn = typeof TASK_COLUMNS[number];
 
 /**
- * В какой колонке стоит живая задача (для остановившихся — всегда «closed»,
- * это решает вызывающий код по тому же `idle`, что уже считает счётчики).
+ * В какой колонке стоит задача. `idle` считает вызывающий код тем же правилом,
+ * что и счётчики: доведённая, но ещё не влитая задача живая и едет в «ревью».
  */
-const columnOf = (status: TaskStatus): TaskColumn => {
+const columnOf = (status: TaskStatus, idle: boolean): TaskColumn => {
+  if (idle) return status === 'failed' || status === 'cancelled' ? status : 'done';
   switch (status) {
     case 'assigned':
     case 'in_progress':
@@ -106,7 +109,7 @@ type TaskGroup = {
  */
 function groupTasks(list: TaskView[], plan: EpicView[], autoPipeline: boolean): TaskGroup[] {
   const empty = (key: string, id: string | null, title: string): TaskGroup => ({
-    key, id, title, cols: { wait: [], work: [], review: [], closed: [] }, done: 0, total: 0, spent: 0,
+    key, id, title, cols: { wait: [], work: [], review: [], done: [], failed: [], cancelled: [] }, done: 0, total: 0, spent: 0,
     counts: { running: 0, review: 0, queued: 0, failed: 0, cancelled: 0 },
   });
   const groups = new Map<string, TaskGroup>();
@@ -118,7 +121,7 @@ function groupTasks(list: TaskView[], plan: EpicView[], autoPipeline: boolean): 
   for (const t of list) {
     const group = (t.epicId && groups.get(t.epicId)) || groups.get(MISC_GROUP)!;
     const idle = taskIdle(t, autoPipeline);
-    group.cols[idle ? 'closed' : columnOf(t.status)].push(t);
+    group.cols[columnOf(t.status, idle)].push(t);
     group.total += 1;
     if (taskClosed(t, autoPipeline)) group.done += 1;
     group.spent += t.usage.costUsd;
@@ -199,24 +202,13 @@ function Card({ t }: { t: TaskView }) {
  * отсеивает группа — колонка-заглушка ничего не рассказывает, а ширину фичи
  * из двух задач растянула бы на весь экран.
  */
-function TaskColumnBlock({ column, list, onCollapse }: {
-  column: TaskColumn;
-  list: TaskView[];
-  /** Есть только у «Закрытых»: заголовок сворачивает колонку обратно. */
-  onCollapse?: () => void;
-}) {
-  const head = (
-    <>
-      {onCollapse && <span className="caret" aria-hidden>▾</span>}
-      <span className="task-col-name">{tr(`board.col.${column}`)}</span>
-      <span className="muted">{list.length}</span>
-    </>
-  );
+function TaskColumnBlock({ column, list }: { column: TaskColumn; list: TaskView[] }) {
   return (
     <div className={`task-col ${column}`}>
-      {onCollapse
-        ? <button className="ghost task-col-head" onClick={onCollapse}>{head}</button>
-        : <div className="task-col-head">{head}</div>}
+      <div className="task-col-head">
+        <span className="task-col-name">{tr(`board.col.${column}`)}</span>
+        <span className="muted">{list.length}</span>
+      </div>
       <div className="task-cards">
         {list.map((t) => <Card key={t.id} t={t} />)}
       </div>
@@ -230,23 +222,19 @@ function TaskColumnBlock({ column, list, onCollapse }: {
  * открыта, а доделанная фича лежит одной строкой. Иначе экран на сотню задач
  * занимает влитая история, а работа сегодняшнего дня теряется в ней.
  *
- * Внутри развёрнутой группы задачи разложены по колонкам статусов, и все они
- * видны сразу. «Закрытые» можно свернуть в полоску со счётчиком, но только по
- * желанию: свёрнутые по умолчанию, они прятали задачи готовой фичи за вторым
- * кликом — раскрыл группу, а внутри одна полоска.
+ * Внутри развёрнутой группы все задачи, и живые, и закрытые, разложены по
+ * колонкам статусов и видны сразу: второго уровня сворачивания нет, фичу
+ * прячет только её собственный заголовок.
  */
 function TaskGroupBlock({ group }: { group: TaskGroup }) {
   const openFlag = useStore((s) => s.taskGroupsOpen[group.key]);
-  const closedFlag = useStore((s) => s.taskGroupClosedOpen[group.key]);
   const setOpen = useStore((s) => s.setTaskGroupOpen);
-  const setClosedOpen = useStore((s) => s.setTaskGroupClosedOpen);
 
   const { running, review, queued, failed, cancelled } = group.counts;
   // «Осталось» — то же, что раньше считалось по массиву живых задач: сумма
   // трёх бакетов ожидания, без закрытых и без провала со снятием.
   const left = running + review + queued;
   const open = openFlag ?? left > 0;
-  const closedOpen = closedFlag ?? true;
   // Фича закрыта, когда ничего живого не осталось, — тем же правилом, каким
   // офис считает закрытой саму фичу. Ещё не начата — когда все задачи до
   // единой стоят в очереди: ни одной взятой, ни одной законченной.
@@ -319,19 +307,7 @@ function TaskGroupBlock({ group }: { group: TaskGroup }) {
             {TASK_COLUMNS.map((column) => {
               const list = group.cols[column];
               if (list.length === 0) return null;
-              if (column === 'closed' && !closedOpen) {
-                return (
-                  <button key={column} className="ghost task-col-closed"
-                    onClick={() => setClosedOpen(group.key, true)}>
-                    <span className="caret" aria-hidden>▸</span>
-                    {tr('board.group.closed', { n: list.length })}
-                  </button>
-                );
-              }
-              return (
-                <TaskColumnBlock key={column} column={column} list={list}
-                  onCollapse={column === 'closed' ? () => setClosedOpen(group.key, false) : undefined} />
-              );
+              return <TaskColumnBlock key={column} column={column} list={list} />;
             })}
           </div>
         </div>
