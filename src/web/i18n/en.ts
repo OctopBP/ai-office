@@ -876,6 +876,8 @@ export const en = {
   'flows.empty': 'No processes.',
   'flows.board.empty': 'No task is going through a process right now.',
   'flows.board.done': 'done',
+  'flows.board.doneCount': 'done through this process: {n}',
+  'flows.board.doneMore': 'and {n} more',
   'flows.source.builtin': 'built-in',
   'flows.source.project': 'own',
   'flows.overrides': 'overrides the built-in one',

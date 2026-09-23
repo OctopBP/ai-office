@@ -875,6 +875,8 @@ export const ru: Record<keyof typeof en, string> = {
   'flows.empty': 'Процессов нет.',
   'flows.board.empty': 'Ни одна задача сейчас не идёт по процессу.',
   'flows.board.done': 'готово',
+  'flows.board.doneCount': 'готово по процессу: {n}',
+  'flows.board.doneMore': 'и ещё {n}',
   'flows.source.builtin': 'встроенный',
   'flows.source.project': 'свой',
   'flows.overrides': 'перекрывает встроенный',
