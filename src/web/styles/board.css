@@ -20,55 +20,64 @@
 /* ---------- группы по фичам ----------
    Задачи собраны в группы по фичам плана, «Разное» последним, а колонки по
    статусам стоят внутри группы. Оформление — по макету Figma «Office», узел
-   188:887 (T-121): свёрнутая фича — одна плашка-строка, развёрнутая — та же
-   строка шапкой над телом с колонками, в общей рамке.
+   188:887 (T-121, T-123; таблица значений — docs/design/T-123/README.md):
+   свёрнутая фича — одна плашка-строка, развёрнутая — та же строка шапкой над
+   телом с колонками, в общей рамке. Цвета — токены --board-*: в тёмной теме
+   это ровно цвета макета, в светлой — их двойники.
 
-   Плашка (шапка и карточка) в макете #18191b поверх #111214 — отдельного
-   токена у этого тона нет, ближайший — --film поверх --surface. Чипы на
-   карточке лежат ещё одним слоем --film: в макете они на тон светлее
-   карточки, и так разница сохраняется в обеих темах. */
+   Высоты в макете сняты с обрезанным интерлиньяжем (Figma «vertical trim»:
+   от высоты прописной до базовой линии), поэтому шаги между строками там —
+   расстояния между буквами, а не между строчными коробками. Тот же приём в
+   CSS — text-box: trim-both cap alphabetic; там, где текст один в строке с
+   более высоким соседом (значком, чипом), обрезка не нужна: у Inter прописная
+   стоит ровно посередине строки, и выравнивание по центру даёт то же место. */
 .task-groups { display: flex; flex-direction: column; gap: var(--space-4); }
 .task-group {
-  border: 1px solid var(--hairline); border-radius: var(--radius-card);
+  border: 1px solid var(--board-line); border-radius: var(--radius-card);
   background: var(--surface); overflow: hidden;
 }
 /* Шапка — кнопка во всю ширину: сворачивает щелчок по любому месту строки.
    Слева номер и название, справа счётчики и деньги; название ужимается
-   многоточием раньше, чем счётчики уедут на вторую строку. */
+   многоточием раньше, чем счётчики уедут на вторую строку. Высота строки —
+   значок счётчика 16 плюс поля 12: 42 с рамкой, как в макете. Шаг 38 между
+   названием и счётчиками — наименьший, в макете они разнесены по краям. */
 .task-group-head {
-  display: flex; align-items: center; justify-content: space-between; gap: var(--space-4);
+  display: flex; align-items: center; justify-content: space-between; gap: 38px;
   width: 100%; min-height: 0; text-align: left; font: inherit;
-  background: var(--film); border: none; border-radius: 0;
+  background: var(--board-plate); border: none; border-radius: 0;
   padding: var(--space-3);
-  font-size: var(--fs-body); font-weight: 500; line-height: 1.15;
+  font-size: var(--fs-row); font-weight: 500; line-height: 14px;
 }
+/* Наведения в макете нет; оставлен прежний отклик плёнкой — без него строка
+   не выглядит нажимаемой, а сворачивание по ней — единственный способ. */
 .task-group-head:hover:not(:disabled) { background: var(--film-2); }
 /* У развёрнутой фичи шапку от тела отделяет только нижняя граница: рамка
    уже общая у всей группы. */
-.task-group.open .task-group-head { border-bottom: 1px solid var(--hairline); }
-.task-group-name { flex: 1 1 80px; min-width: 0; display: flex; align-items: baseline; gap: var(--space-2); }
-.task-group-name b { flex: none; font-weight: 500; color: var(--ink-3); }
+.task-group.open .task-group-head { border-bottom: 1px solid var(--board-line); }
+.task-group-name { flex: 1 1 80px; min-width: 0; display: flex; align-items: center; gap: var(--space-2); }
+.task-group-name b { flex: none; font-weight: 500; line-height: 10px; color: var(--ink-3); }
 .task-group-title {
-  min-width: 0; color: var(--ink);
+  min-width: 0; color: var(--board-title);
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
 .task-group-side { flex: none; display: flex; align-items: center; gap: var(--space-4); }
 
 /* ---------- состояние фичи в строке заголовка ----------
-   Значок и число, полужирным. Цвета из макета: в работе акцентом, провал
-   тревожным, готово живым зелёным, снятое янтарным. Очереди в макете нет —
-   она приглушённая, как чип «в плане» на карточке. */
+   Значок 16 и число полужирным, между ними 2 (вне шкалы — так в макете).
+   Цвета из макета: в работе акцентом, провал красным, готово живым зелёным,
+   снятое янтарным. Очереди в макете нет — она приглушённая, как чип «план»
+   на карточке. */
 .task-group-counts { display: flex; align-items: center; gap: var(--space-2); }
 .group-count {
-  display: inline-flex; align-items: center; gap: calc(var(--space-1) / 2);
+  display: inline-flex; align-items: center; gap: 2px;
   font-weight: 600; white-space: nowrap;
 }
 .group-count.run { color: var(--accent); }
 .group-count.wait { color: var(--ink-3); }
-.group-count.fail { color: var(--danger); }
-.group-count.done { color: var(--ok-live); }
-.group-count.drop { color: var(--warn); }
-.task-group-cost { font-weight: 600; color: var(--ink-4); white-space: nowrap; }
+.group-count.fail { color: var(--board-fail); }
+.group-count.done { color: var(--board-done); }
+.group-count.drop { color: var(--board-drop); }
+.task-group-cost { font-weight: 600; color: var(--board-money); white-space: nowrap; }
 
 .task-group-body { padding: var(--space-4) var(--space-3); }
 /* ---------- колонки статусов внутри фичи ----------
@@ -77,36 +86,46 @@
    вовсе, поэтому фича из двух задач занимает два столбца, а не четыре, три из
    которых пустые. Переносятся, а не растягиваются: ширина колонки в макете
    постоянная, на узком окне колонка уходит на строку ниже, и горизонтальной
-   прокрутки у страницы не появляется. */
-.task-cols { display: flex; flex-wrap: wrap; gap: var(--space-4); align-items: flex-start; }
+   прокрутки у страницы не появляется. По высоте колонки ряда равны — в макете
+   подложки стоят ровным рядом, а не лесенкой по числу карточек. */
+.task-cols { display: flex; flex-wrap: wrap; gap: var(--space-4); align-items: stretch; }
 /* 200 px — ширина колонки в макете; сжиматься ей можно (min-width: 0), чтобы
-   на узком окне не выдавливать соседей за край. */
+   на узком окне не выдавливать соседей за край. Колонка — своя подложка на
+   тон светлее тела фичи. */
 .task-col {
   flex: 0 1 200px; min-width: 0;
-  display: flex; flex-direction: column; gap: var(--space-2);
+  display: flex; flex-direction: column; gap: var(--space-3);
+  padding: var(--space-3) var(--space-2);
+  background: var(--board-col); border-radius: var(--radius-card);
 }
 .task-col-head {
   display: flex; align-items: center; justify-content: space-between; gap: var(--space-2);
   padding: 0 var(--space-1);
-  font-size: var(--fs-caption); font-weight: 500; color: var(--ink);
+  font-size: var(--fs-caption); font-weight: 500; line-height: 14px;
 }
-.task-col-name { min-width: 0; }
+.task-col-head > span { text-box: trim-both cap alphabetic; }
+.task-col-name { min-width: 0; color: var(--board-col-name); text-transform: uppercase; }
 .task-col-head .muted { color: var(--ink-3); }
 /* Карточки в колонке — стопкой: ширину задаёт колонка. */
-.task-cards { display: flex; flex-direction: column; gap: var(--space-2); }
+.task-cards { display: flex; flex-direction: column; gap: var(--space-3); }
 
 /* Карточка на доске короче, чем в дровере: только то, по чему её узнают.
-   Номер, название и строка меток — столбиком через одинаковый шаг. */
+   Номер, название и строка меток — столбиком через 12. Фон — тело фичи:
+   карточка лежит на подложке колонки темнее её, как в макете. */
 .task-cards .task {
-  margin: 0; display: flex; flex-direction: column; gap: var(--space-2);
-  padding: var(--space-2); background: var(--film);
+  margin: 0; display: flex; flex-direction: column; gap: var(--space-3);
+  padding: var(--space-2); background: var(--surface);
+  border-color: var(--board-line); border-radius: var(--radius-tile);
   font-size: var(--fs-caption); font-weight: 500;
 }
 .task-cards .task:hover:not(:disabled),
-.task-cards .task:active:not(:disabled) { background: var(--film); }
-.task-cards .task-head { display: flex; flex-direction: column; align-items: stretch; gap: var(--space-2); }
-.task-cards .task-head b { font-weight: 500; line-height: 1; color: var(--ink-3); }
-.task-cards .task-title { line-height: 14px; color: var(--ink); }
+.task-cards .task:active:not(:disabled) { background: var(--surface); }
+.task-cards .task-head { display: flex; flex-direction: column; align-items: stretch; gap: var(--space-3); }
+.task-cards .task-head b {
+  font-weight: 500; line-height: 10px; color: var(--ink-3);
+  text-box: trim-both cap alphabetic;
+}
+.task-cards .task-title { line-height: 16px; color: var(--board-title); text-box: trim-both cap alphabetic; }
 /* Мета переносится по строкам: чипов на карточке бывает много (статус,
    стадия конвейера, важность), и без переноса они выдавливают друг друга. */
 .task-meta {
@@ -114,10 +133,28 @@
   font-size: var(--fs-small);
 }
 .task-cards .task-meta { margin-top: 0; font-size: var(--fs-caption); line-height: 14px; }
-.task-cards .task-meta .chip { padding: 0 var(--space-2); font-size: var(--fs-caption); line-height: 14px; }
+/* Чип — блок, а не inline-flex из кита: обрезка интерлиньяжа действует
+   только на блочный текст. С ней поля 4 дают высоту 15, как в макете. */
+.task-cards .task-meta .chip {
+  display: block; padding: var(--space-1) var(--space-2);
+  border-radius: var(--radius-tile); background: var(--board-chip);
+  font-size: var(--fs-caption); line-height: 14px;
+  text-box: trim-both cap alphabetic;
+}
 .task-cards .task-meta .muted { color: var(--ink-3); }
-/* Готово в макете — тем же живым зелёным, что и счётчик в шапке фичи. */
-.task-cards .chip.done { color: var(--ok-live); }
+.task-cards .task-meta > .muted:not(.agent-tag) { text-box: trim-both cap alphabetic; }
+/* Исполнитель: портрет 12 со скруглением 2 и имя через 4. Имя обрезается
+   многоточием, поэтому его не подрезаем, а ставим строку в рост портрета —
+   прописная всё равно встаёт по центру. */
+.task-cards .agent-tag { gap: var(--space-1); }
+.task-cards .agent-tag > span:last-child { line-height: 12px; }
+.task-cards .agent-tag .avatar-pic,
+.task-cards .agent-tag .avatar-ph { width: 12px; height: 12px; border-radius: 2px; }
+/* Цвет слова в чипе — из макета. Прочие статусы берут общие цвета чипа. */
+.task-cards .chip.planned { color: var(--ink-3); }
+.task-cards .chip.in_progress { color: var(--board-work); }
+.task-cards .chip.done { color: var(--board-done); }
+.task-cards .chip.failed { color: var(--board-fail); }
 /* ---------- план: фичи отдельной подвкладкой ----------
    План объясняет, почему часть задач стоит, и читается раньше самих задач,
    а не вместо них. */

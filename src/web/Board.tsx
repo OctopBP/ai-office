@@ -13,6 +13,13 @@ import { PriorityChip } from './TaskPriority';
 const statusLabel = (status: TaskStatus): string => tr(`task.status.${status}`);
 
 /**
+ * Слово в чипе карточки. Макет доски пишет «план» и «провалено» — в той же
+ * форме, что имена колонок; в дровере и ленте остаётся общее слово статуса.
+ */
+const cardStatusLabel = (status: TaskStatus): string =>
+  status === 'planned' || status === 'failed' ? tr(`board.chip.${status}`) : statusLabel(status);
+
+/**
  * Ключ группы «Разное» — задачи, заведённые мимо плана, и задачи фичи,
  * которой в плане уже нет. Не пересекается с номерами фич: в них решётки нет.
  */
@@ -173,7 +180,7 @@ function Card({ t }: { t: TaskView }) {
             чип «обычная» на каждой карточке ничего бы не отличал, а группы
             запестрили бы. Поднять среднюю можно из раскрытой карточки. */}
         {t.priority !== 'normal' && <PriorityChip task={t} />}
-        <span className={`chip ${t.status}`}>{statusLabel(t.status)}</span>
+        <span className={`chip ${t.status}`}>{cardStatusLabel(t.status)}</span>
         {pr && pr.stage !== 'merged' && (
           <span className={`chip merge-chip ${prStageClass(pr.stage)}`} title={pr.note}>
             {prStageLabel(pr.stage)}
@@ -184,7 +191,8 @@ function Card({ t }: { t: TaskView }) {
         {t.criteria.length > 0 && (
           <span className="muted">{done}/{t.criteria.length}</span>
         )}
-        {t.usage.costUsd > 0 && <span className="muted">{`$${t.usage.costUsd.toFixed(2)}`}</span>}
+        {/* Денег на карточке нет, как и в макете: сумма стоит в строке фичи,
+            а по задаче её показывает раскрытая карточка. */}
         {/* Замок — единственная подробность, оставленная на карточке:
             без него «почему эта задача стоит» пришлось бы открывать. */}
         {t.status === 'planned' && t.dependsOn.length > 0 && (
