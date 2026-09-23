@@ -475,6 +475,8 @@ export const en = {
   "settings.icon.badType": "The office does not take files of this kind ({type}). PNG, JPEG, WebP or SVG will do.",
   "settings.layout.title": "Office layout",
   "settings.layout.hint": "The layout sets the plan of the room — the floor, the walls and where the furniture stands. After saving, the staff move to the desks of the new layout.",
+  // материалы пола комнаты: ключ — `floor.<имя файла из design/textures/floor>`
+  "floor.green_marble": "Green marble",
   "settings.pipeline.title": "Review and merging",
   "settings.pipeline.auto": "By pipeline",
   "settings.pipeline.auto.hint": "Handed in → pull the main branch → checks → pull request → review → merge",
