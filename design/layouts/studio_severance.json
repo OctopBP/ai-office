@@ -1,0 +1,45 @@
+{
+    "version": 1,
+    "id": "studio_severance",
+    "title": "Разделение",
+    "size": [16, 16],
+    "rooms": [
+      { "id": "meeting", "title": "Переговорка", "rect": [0, 0, 6, 4], "floor": "tiles" },
+      { "id": "lounge", "title": "Зона отдыха", "rect": [6, 0, 16, 4], "floor": "tiles" },
+      { "id": "open", "title": "Опенспейс", "rect": [0, 4, 16, 16], "floor": "green_marble" }
+    ],
+    "walls": [
+      { "a": [0, 0], "b": [16, 0], "windows": [] },
+      { "a": [0, 0], "b": [0, 16] },
+      { "a": [0, 15], "b": [16, 15], "doors": [[]], "windows": [] },
+      { "a": [15, 0], "b": [15, 16] }
+    ],
+    "props": [
+      { "sprite": "desk_pm", "at": [13, 1] },
+      { "sprite": "desk", "at": [8, 8] },
+      { "sprite": "desk", "at": [8, 10], "rot": 90 },
+      { "sprite": "desk", "at": [6, 10], "rot": 180 },
+      { "sprite": "desk", "at": [6, 8], "rot": 270 },
+
+      { "sprite": "chair", "at": [13.5, 0.8] },
+      { "sprite": "chair", "at": [8.5, 7.8] },
+      { "sprite": "chair", "at": [9.3, 10.3], "rot": 90 },
+      { "sprite": "chair", "at": [6.5, 11.2], "rot": 180 },
+      { "sprite": "chair", "at": [5.8, 8.5], "rot": 270 },
+  
+      { "sprite": "round_table", "at": [2, 2], "id": "meeting_table", "scale": 1 }
+    ],
+    "zones": [
+      { "kind": "meeting", "prop": "meeting_table" },
+      { "kind": "idle", "room": "lounge" },
+  
+      { "kind": "talk", "at": [12.0, 12.0], "axis": "x" },
+      { "kind": "talk", "at": [2, 12.0], "axis": "y" }
+    ],
+    "hotspots": [
+      { "panel": "log", "sprite": "logscreen", "at": [4, 0], "key": "L", "title": "Лог событий — L" },
+      { "panel": "board", "sprite": "board", "at": [6, 0], "key": "B", "title": "Доска задач — B" },
+      { "panel": "money", "sprite": "moneyboard", "at": [10, 0], "key": "E", "title": "Расходы — E" }
+    ]
+  }
+  
