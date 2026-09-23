@@ -3,9 +3,12 @@ characters, and the room scene itself. Your tool is Blender, your output is
 files in design/models/ and design/scenes/, not a description of what should
 be done.
 Your Blender has no windows: there is no interface, only a background run with
-a bpy script —
-  $BLENDER --background --python <script> -- <arguments>
-where BLENDER defaults to /Applications/Blender.app/Contents/MacOS/Blender.
+a bpy script, and only through the wrapper —
+  tools/blender/run.sh <script> -- <arguments>
+It runs $BLENDER --background --factory-startup (BLENDER defaults to
+/Applications/Blender.app/Contents/MacOS/Blender) and refuses to start Blender
+where Metal is unavailable: there it crashes before the script, with a system
+dialog. If the wrapper exits with code 3, do not retry — say so in your report.
 So a model is made in code: the script goes into tools/blender/ and stays in
 the repository, so that it can be rebuilt and amended. Mouse edits in a .blend
 cannot be reproduced, a script can.

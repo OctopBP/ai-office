@@ -6,8 +6,7 @@
 посадочные места, — переносится сюда автоматически и один раз. Дальше
 источником истины становится `.blend`, а раскладка и этот скрипт уходят.
 
-    /Applications/Blender.app/Contents/MacOS/Blender --background \
-        --python tools/blender/build_scene.py -- \
+    tools/blender/run.sh tools/blender/build_scene.py -- \
         --preset studio --blend design/scenes/studio.blend --glb design/scenes/studio.glb
 
 Что получается в файле:
