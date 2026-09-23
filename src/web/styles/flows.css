@@ -108,8 +108,25 @@
   flex-direction: row; align-items: center; flex-wrap: wrap; gap: 5px; align-self: center;
   color: var(--ok-ink); border-radius: var(--radius-pill); padding: 7px 12px;
   width: max-content; max-width: var(--flow-node-w); font-weight: 600;
+  flex-wrap: nowrap; white-space: nowrap;
 }
 .flow-node.end svg { color: var(--ok-ink); }
+.flow-node.end[tabindex] { cursor: default; }
+.flow-node.end:focus-visible { outline: none; box-shadow: 0 0 0 3px rgba(var(--node-rgb), .25); }
+/* Счётчик законченных — чип кита в тон узла. */
+.flow-end-count {
+  padding: 0 7px; border-radius: var(--radius-pill);
+  background: rgba(var(--node-rgb), .14); color: var(--ok-ink);
+  font-size: var(--fs-caption); font-variant-numeric: tabular-nums; line-height: 1.6;
+}
+/* Список законченных в подсказке узла «Готово»: столбиком, не пилюлей. */
+.flow-done-list { display: flex; flex-direction: column; gap: 4px; max-width: 320px; white-space: normal; }
+.flow-done-head { color: var(--ink-3); font-size: var(--fs-caption); }
+.flow-done-list ul { margin: 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: 2px; }
+.flow-done-list li { display: flex; gap: 8px; min-width: 0; }
+.flow-done-id { flex: none; font-family: var(--font-mono); font-size: var(--fs-caption); color: var(--ink-3); line-height: 1.9; }
+.flow-done-title { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.flow-done-more { color: var(--ink-3); font-size: var(--fs-caption); }
 
 /* Прогоны на узле: чипы с id задачи. */
 .flow-runs { display: flex; flex-wrap: wrap; gap: 3px; margin-top: 2px; }

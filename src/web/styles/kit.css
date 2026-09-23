@@ -98,6 +98,8 @@ kbd {
   background: var(--surface); border: 1px solid var(--hairline); border-radius: var(--radius-pill);
   box-shadow: var(--shadow-float);
 }
+/* Многострочная подсказка (список): карточкой, у пилюли высокий блок скругляется странно. */
+.tip.tip-block { align-items: stretch; padding: 8px 10px; border-radius: var(--radius-card); line-height: 1.5; }
 .tip-item { display: inline-flex; align-items: center; gap: 6px; }
 .tip-item + .tip-item::before { content: '·'; color: var(--ink-3); margin-right: 2px; }
 

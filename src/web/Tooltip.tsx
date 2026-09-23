@@ -20,8 +20,10 @@ const DELAY = 250;  // по наведению — с задержкой, как
  * рисуется порталом в `body` над всеми слоями и сама выбирает, встать под
  * элементом или над ним. Пустой `tip` — элемент отдаётся как есть.
  */
-export function Tooltip({ tip, focus = true, children }: {
+export function Tooltip({ tip, focus = true, className, children }: {
   tip: ReactNode;
+  /** Модификатор плашки: например, многострочная подсказка вместо пилюли. */
+  className?: string;
   /** Показывать и по фокусу. У полей ввода — нет: там фокус значит «печатаю». */
   focus?: boolean;
   children: ReactElement<{ ref?: Ref<HTMLElement> }>;
@@ -83,7 +85,7 @@ export function Tooltip({ tip, focus = true, children }: {
     <>
       {cloneElement(children, { ref: setAnchor })}
       {open && createPortal(
-        <div ref={box} role="tooltip" className={`tip${pos?.above ? ' above' : ''}`}
+        <div ref={box} role="tooltip" className={`tip${className ? ` ${className}` : ''}${pos?.above ? ' above' : ''}`}
           style={{ left: pos?.x ?? 0, top: pos?.y ?? 0, visibility: pos ? 'visible' : 'hidden' }}>
           {tip}
         </div>,

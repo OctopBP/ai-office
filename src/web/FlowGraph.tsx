@@ -2,6 +2,7 @@ import { useId, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { AUTHOR, END, STUCK, type Run, type Workflow, type WorkflowNode } from '../shared/workflow';
 import { Icon, type IconName } from './icons';
 import { t } from './i18n';
+import { Tooltip } from './Tooltip';
 
 /**
  * Граф процесса (docs/design/workflows/spec.md §3, §8.5): узлы — карточки,
@@ -373,12 +374,17 @@ export function FlowGraph({ workflow, runs = [], taskTitle, selected = null, onS
           const live = runsAt.get(n.id) ?? [];
           const style = { gridColumn: n.col + 1, gridRow: n.row + 1 };
           if (!n.node) {
+            // Список законченных растягивал узел — в узле только число, список в подсказке.
             return (
-              <div key={n.id} data-node={n.id} className={`flow-node end${live.length ? ' live' : ''}`} style={style}>
-                <Icon name="circle-check" size={14} />
-                <span>{t('flows.board.done')}</span>
-                <RunChips runs={live} taskTitle={taskTitle} />
-              </div>
+              <Tooltip key={n.id} className="tip-block" tip={live.length ? <DoneList runs={live} taskTitle={taskTitle} /> : null}>
+                <div data-node={n.id} className={`flow-node end${live.length ? ' live' : ''}`} style={style}
+                  tabIndex={live.length ? 0 : undefined}
+                  aria-label={t('flows.board.doneCount', { n: live.length })}>
+                  <Icon name="circle-check" size={14} />
+                  <span>{t('flows.board.done')}</span>
+                  <span className="flow-end-count">{live.length}</span>
+                </div>
+              </Tooltip>
             );
           }
           const node = n.node;
@@ -437,6 +443,32 @@ function RunChips({ runs, taskTitle }: { runs: Run[]; taskTitle?: (id: string) =
           </span>
         );
       })}
+    </div>
+  );
+}
+
+/** Сколько законченных показать в подсказке: она не ловит мышь, прокрутить её нельзя. */
+const DONE_SHOWN = 10;
+
+/** Законченные по процессу, свежие сверху; не влезшие — одной строкой «ещё M». */
+function DoneList({ runs, taskTitle }: { runs: Run[]; taskTitle?: (id: string) => string }) {
+  const sorted = [...runs].sort((a, b) => b.updatedAt - a.updatedAt);
+  const rest = sorted.length - DONE_SHOWN;
+  return (
+    <div className="flow-done-list">
+      <div className="flow-done-head">{t('flows.board.doneCount', { n: runs.length })}</div>
+      <ul>
+        {sorted.slice(0, DONE_SHOWN).map((r) => {
+          const id = r.subject.taskId ?? r.subject.epicId ?? r.subject.flow ?? r.id;
+          return (
+            <li key={r.id}>
+              <span className="flow-done-id">{id}</span>
+              <span className="flow-done-title">{r.subject.taskId ? taskTitle?.(r.subject.taskId) ?? '' : ''}</span>
+            </li>
+          );
+        })}
+      </ul>
+      {rest > 0 && <div className="flow-done-more">{t('flows.board.doneMore', { n: rest })}</div>}
     </div>
   );
 }
