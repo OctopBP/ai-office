@@ -25,9 +25,10 @@
  * за собой Agent SDK, а тесты гоняют весь порядок на настоящем репозитории
  * с подставными агентами.
  */
-import type { PullRequestView, ReviewVerdict } from '../shared/types';
+import type { OwnerQuestion, PullRequestView, ReviewVerdict } from '../shared/types';
 import { OFFICE_SENDER } from '../shared/types';
 import type { Lang } from '../shared/i18n';
+import type { ServerKey } from './i18n';
 import {
   AUTHOR, REPORT_ARTIFACT, loopMax, nodeOf,
   type Run, type TaskType, type Workflow, type WorkflowNode,
@@ -38,7 +39,7 @@ import {
 } from './state';
 import { dispatch } from './plan';
 import {
-  abortMerge, commitAll, deleteRemoteBranch, diffBranch, ensureWorktree, fastForward,
+  abortMerge, branchHasChanges, commitAll, deleteRemoteBranch, diffBranch, ensureWorktree, fastForward,
   fetchRemote, isDirty, isRepo, mergeBaseInto, mergeInProgress, pushBranch, type Signature,
   removeWorktree, revision,
 } from './git';
@@ -211,6 +212,12 @@ export async function pipelineProblem(state: OfficeState, task: Task): Promise<s
   if (!state.settings.autoPipeline) return state.say('pipe.off');
   if (!task.branch || !task.baseBranch) return state.say('pipe.noBranch');
   if (task.merged) return state.say('pipe.alreadyMerged');
+  // finish_task ставит «на ревью» ещё внутри сессии, а коммит работы делается
+  // после её конца. Надзор подбирал такую задачу сиротой и вёл по процессу
+  // раньше, чем в ветке появлялся результат, — отсюда согласование макета,
+  // которого ещё нет (T-125). Конвейер для сданной задачи заведёт сама сессия.
+  const author = [...state.instances.values()].find((i) => i.currentTaskId === task.id);
+  if (author) return state.say('pipe.authorBusy', { who: author.label ?? author.id });
   if (!(await isRepo(taskRepo(task, state)))) return state.say('pipe.notRepo');
   return null;
 }
@@ -890,23 +897,104 @@ const step: Executor<Ctx> = {
   },
 };
 
-const YES_RE = /^\s*(да|ага|угу|yes|yep|ok|окей|поехали|approve|approved|go|\+|✅|👍)/i;
+/**
+ * «Да» владельца: кнопка «Согласовано»/«Approved» на любом языке офиса и
+ * прежние ответы словами. Слово целиком: «давай переделаем» — не «да».
+ */
+const YES_RE = new RegExp(
+  '^\\s*(да|ага|угу|ок|окей|поехали|согласовано|согласовываю|согласен|согласна|одобр\\p{L}*|принят\\p{L}*'
+  + '|yes|yep|ok|okay|go|lgtm|approve|approved|accept|accepted|\\+|✅|👍)(?![\\p{L}\\p{N}])',
+  'iu',
+);
+
+/** Ответ владельца на согласование — «да»? Всё остальное, включая «Нужны правки», — «нет». */
+export const gateAnswerYes = (answer: string): boolean => YES_RE.test(answer);
+
+/**
+ * Что спрашиваем у встроенных процессов — фразой из словаря, а не строкой из
+ * файла процесса: та написана на одном языке, а вопрос должен целиком быть на
+ * языке общения офиса. Свои процессы проекта говорят своим `done`.
+ */
+const GATE_WHAT: Record<string, ServerKey> = {
+  'design.approve': 'wf.gateWhat.design',
+  'research.accept': 'wf.gateWhat.research',
+  'content.publish': 'wf.gateWhat.content',
+};
+
+/** Метка решения «владельца не звали: согласовывать нечего». */
+const NO_ARTIFACT = 'no-artifact';
+
+/** Ссылка на макет в Figma — артефакт, которого в ветке нет по природе. */
+const FIGMA_RE = /https?:\/\/(?:www\.)?figma\.com\/\S+/i;
+
+/**
+ * Когда работа менялась последний раз: сдача исполнителем или конец шага
+ * доработки в этом прогоне. Ответ владельца, данный позже, — ответ на эту
+ * самую работу, и переспрашивать его незачем.
+ */
+function workChangedAt(ctx: Ctx): number {
+  const { task, run, workflow } = ctx;
+  const steps = (run.steps ?? [])
+    .filter((s) => nodeOf(workflow, s.node)?.kind === 'step')
+    .map((s) => s.startedAt + s.ms);
+  return Math.max(task.finishedAt ?? 0, ...steps);
+}
+
+/**
+ * Есть ли что согласовывать (T-125): изменения в ветке задачи или ссылка на
+ * макет в Figma в отчёте. null — есть; иначе причина, почему владельца не зовём.
+ */
+async function missingArtifact(ctx: Ctx): Promise<string | null> {
+  const { state, task, run, repo, base, branch } = ctx;
+  const changed = await branchHasChanges(repo, base, branch);
+  if (changed) return null;
+  const reports = [
+    task.result ?? '', task.handoff?.did ?? '', ...(task.files ?? []),
+    ...Object.values(run.artifacts).map((a) => a.text),
+  ];
+  if (reports.some((text) => FIGMA_RE.test(text))) return null;
+  return state.say('wf.gateNoArtifact', { branch, base });
+}
 
 /**
  * Согласование (spec §3, `gate`): вопрос владельцу и ожидание. Прогон стоит
  * и ничего не тратит; ответ приходит из чата («Q-1: да») или из панели.
  * Снятый вопрос — отказ: офис не вправе счесть молчание согласием.
+ *
+ * Владельца зовём только к готовой работе и только один раз на её версию:
+ * без артефакта задача уходит обратно автору, а уже заданный вопрос —
+ * открытый или отвеченный после последней правки — не задаётся вторично
+ * (перезапуск сервера, новый прогон, повтор надзора).
  */
 const gate: Executor<Ctx> = {
   async run(ctx) {
-    const { state, task, node, run } = ctx;
-    const what = node.done?.[0] ?? node.id;
-    let question = run.waitingOn ? state.questions.get(run.waitingOn) ?? null : null;
+    const { state, task, node, run, workflow } = ctx;
+    const key = GATE_WHAT[`${workflow.id}.${node.id}`];
+    const what = key ? state.say(key) : node.done?.[0] ?? node.id;
+    const mine = (q: OwnerQuestion) => q.kind === 'gate' && q.taskId === task.id;
+    const asked = [...state.questions.values()].filter(mine).sort((a, b) => b.askedAt - a.askedAt);
+    const since = workChangedAt(ctx);
+    let question = (run.waitingOn ? state.questions.get(run.waitingOn) : undefined)
+      ?? asked.find((q) => !q.answeredAt && !q.dismissedAt)
+      ?? asked.find((q) => q.answeredAt && q.askedAt > since)
+      ?? null;
     if (!question) {
+      const missing = await missingArtifact(ctx);
+      if (missing) {
+        state.addChat(OFFICE_SENDER, state.say('wf.gateNoArtifactChat', { task: task.id, problem: missing }));
+        state.addLog(null, 'system', `${task.id}: ${missing}`);
+        return {
+          outcome: 'no', note: missing,
+          artifact: { kind: 'decision', text: missing, ref: NO_ARTIFACT },
+        };
+      }
+      const yes = state.say('wf.gateOptYes');
+      const no = state.say('wf.gateOptNo');
       question = state.addQuestion({
         from: OFFICE_SENDER, taskId: task.id, kind: 'gate',
-        text: state.say('wf.gateAsk', { task: task.id, title: task.title, what }),
+        text: state.say('wf.gateAsk', { task: task.id, title: task.title, what, yes, no: no.replace(/…$/, '') }),
         assumption: state.say('wf.gateAssumption'),
+        options: [yes, no],
       });
       state.addChat(OFFICE_SENDER, state.say('wf.gateChat', { task: task.id, what, id: question.id }));
       state.addLog(null, 'system', state.say('questions.askedLog', { id: question.id, text: what }));
@@ -923,15 +1011,17 @@ const gate: Executor<Ctx> = {
       return { outcome: 'no', note: state.say('wf.gateDismissed', { id: question.id }), artifact: { kind: 'decision', text: '', ref: 'no' } };
     }
     const answer = closed.answer ?? '';
-    const yes = YES_RE.test(answer);
+    const yes = gateAnswerYes(answer);
     state.addChat(OFFICE_SENDER, yes
       ? state.say('wf.gateYes', { task: task.id, id: question.id })
       : state.say('wf.gateNo', { task: task.id, id: question.id, answer }));
     return { outcome: yes ? 'yes' : 'no', note: answer, artifact: { kind: 'decision', text: answer, ref: yes ? 'yes' : 'no' } };
   },
   exhausted(ctx, last, count): Halt {
+    // Владелец тут ни при чём, если работу так и не сдали с результатом.
+    const key = last.artifact?.ref === NO_ARTIFACT ? 'wf.gateNoArtifactExhausted' : 'wf.gateExhausted';
     return {
-      note: ctx.state.say('wf.gateExhausted', { n: count, text: last.note ?? '' }),
+      note: ctx.state.say(key, { n: count, text: last.note ?? '' }),
       needsDecision: true,
     };
   },

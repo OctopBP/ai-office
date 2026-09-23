@@ -130,6 +130,13 @@ function QuestionRow({ q }: { q: OwnerQuestion }) {
     answerQuestion(q.id, value);
     setAnswer('');
   };
+  // Вариант с «…» на конце («Нужны правки…») сам по себе не ответ: к нему
+  // нужно уточнение, поэтому он открывает поле с заготовкой, а не уходит сразу.
+  const pick = (opt: string) => {
+    if (!opt.endsWith('…')) return send(opt);
+    setOwn(true);
+    setAnswer(`${opt.slice(0, -1).trim()}: `);
+  };
   return (
     <div className={`life-row question ${q.kind}${closed ? ' closed' : ''}`}>
       <div className="life-row-head">
@@ -146,7 +153,7 @@ function QuestionRow({ q }: { q: OwnerQuestion }) {
       {!closed && options.length > 0 && (
         <div className="life-options">
           {options.map((opt, i) => (
-            <button key={`${i}:${opt}`} className="mini" disabled={sending} onClick={() => send(opt)}>{opt}</button>
+            <button key={`${i}:${opt}`} className="mini" disabled={sending} onClick={() => pick(opt)}>{opt}</button>
           ))}
         </div>
       )}
