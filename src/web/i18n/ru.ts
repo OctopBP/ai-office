@@ -147,15 +147,14 @@ export const ru: Record<keyof typeof en, string> = {
   "board.group.cancelled": "снято {n}",
   "board.group.spent": "Потрачено на задачи фичи",
   // Колонки статусов внутри фичи: путь задачи слева направо.
-  "board.col.wait": "План",
+  "board.col.wait": "Ждут",
   "board.col.work": "В работе",
   "board.col.review": "На ревью",
   "board.col.done": "Готово",
   "board.col.failed": "Провалено",
   "board.col.cancelled": "Снято",
   // Слово статуса на карточке доски там, где макет 188:887 пишет иначе, чем
-  // остальной интерфейс: короче и в той же форме, что имя колонки.
-  "board.chip.planned": "план",
+  // остальной интерфейс: в той же форме, что имя колонки.
   "board.chip.failed": "провалено",
   "board.tab.directions": "Направления",
   "board.tab.plan": "План",

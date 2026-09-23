@@ -13,11 +13,12 @@ import { PriorityChip } from './TaskPriority';
 const statusLabel = (status: TaskStatus): string => tr(`task.status.${status}`);
 
 /**
- * Слово в чипе карточки. Макет доски пишет «план» и «провалено» — в той же
- * форме, что имена колонок; в дровере и ленте остаётся общее слово статуса.
+ * Слово в чипе карточки. Макет доски пишет «провалено» — в той же форме, что
+ * имя колонки; в дровере и ленте остаётся общее слово статуса. «План» из макета
+ * владелец не принял: в первой колонке лежат и бэклог, и заблокированные.
  */
 const cardStatusLabel = (status: TaskStatus): string =>
-  status === 'planned' || status === 'failed' ? tr(`board.chip.${status}`) : statusLabel(status);
+  status === 'failed' ? tr('board.chip.failed') : statusLabel(status);
 
 /**
  * Ключ группы «Разное» — задачи, заведённые мимо плана, и задачи фичи,

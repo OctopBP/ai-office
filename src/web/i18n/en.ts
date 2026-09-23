@@ -148,15 +148,14 @@ export const en = {
   "board.group.cancelled": "{n} cancelled",
   "board.group.spent": "Spent on this feature’s tasks",
   // Колонки статусов внутри фичи: путь задачи слева направо.
-  "board.col.wait": "Planned",
+  "board.col.wait": "Waiting",
   "board.col.work": "In progress",
   "board.col.review": "In review",
   "board.col.done": "Done",
   "board.col.failed": "Failed",
   "board.col.cancelled": "Cancelled",
   // Слово статуса на карточке доски там, где макет 188:887 пишет иначе, чем
-  // остальной интерфейс: короче и в той же форме, что имя колонки.
-  "board.chip.planned": "planned",
+  // остальной интерфейс: в той же форме, что имя колонки.
   "board.chip.failed": "failed",
   "board.tab.directions": "Directions",
   "board.tab.plan": "Plan",
