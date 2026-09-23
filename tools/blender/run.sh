@@ -16,6 +16,11 @@
 # SIGSEGV, а macOS на каждое падение открывает окно «Blender неожиданно
 # завершился». Флаги это не лечат: --gpu-backend metal проверку не пропускает.
 # Поэтому если устройства нет, Blender не запускаем вовсе и честно говорим почему.
+#
+# У 3D-ролей офис выпускает эту обёртку из песочницы (sandbox.excludedCommands,
+# T-117, sandboxFor в src/server/agents.ts), так что Metal у неё есть. Проверка
+# ниже осталась предохранителем на случай, когда её всё же запустили в
+# песочнице: вызов по абсолютному пути, роль без design.3d, старый сервер.
 set -euo pipefail
 
 BLENDER="${BLENDER:-/Applications/Blender.app/Contents/MacOS/Blender}"
@@ -43,7 +48,8 @@ sys.exit(0 if m.MTLCreateSystemDefaultDevice() else 1)
 ' 2>/dev/null; then
   echo "Blender не запущен: Metal недоступен в этом окружении (нет GPU-устройства)." >&2
   echo "Blender 4.3 в такой среде падает ещё до скрипта, даже с --background." >&2
-  echo "Обычно это песочница агента: запускай вне её (см. tools/blender/README.md)." >&2
+  echo "Обычно это песочница агента: вызывай ровно как tools/blender/run.sh из корня" >&2
+  echo "рабочей копии — у 3D-ролей эта команда исключена из песочницы (см. tools/blender/README.md)." >&2
   exit 3
 fi
 
