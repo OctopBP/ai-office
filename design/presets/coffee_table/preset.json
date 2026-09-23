@@ -10,7 +10,7 @@
   "fallback": "table",
   "parts": [
     {
-      "file": "tableCoffee.glb",
+      "file": "coffee-table.glb",
       "probe": {
         "surface": [0, 0]
       }
