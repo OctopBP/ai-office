@@ -6,7 +6,7 @@ import {
 import type { EpicView, TaskStatus, TaskView } from '../shared/types';
 import { taskClosed, taskOver } from '../shared/types';
 import { t as tr } from './i18n';
-import { Icon } from './icons';
+import { Icon, type IconName } from './icons';
 import { AgentTag } from './Avatar';
 import { PriorityChip } from './TaskPriority';
 
@@ -217,6 +217,23 @@ function TaskColumnBlock({ column, list }: { column: TaskColumn; list: TaskView[
 }
 
 /**
+ * Счётчик в заголовке фичи: значок и число без слов. Слово уходит в подсказку
+ * и в имя для экранного диктора — иначе строка «1 3 5» ничего бы не сказала.
+ */
+function GroupCount({ kind, icon, n, hint }: {
+  kind: 'run' | 'wait' | 'fail' | 'done' | 'drop';
+  icon: IconName;
+  n: number;
+  hint: string;
+}) {
+  return (
+    <span className={`group-count ${kind}`} title={hint} role="img" aria-label={hint}>
+      <Icon name={icon} size={16} />{n}
+    </span>
+  );
+}
+
+/**
  * Группа фичи на доске. Свёрнута или развёрнута — решает человек, а пока он не
  * решал, умолчание считается по задачам: там, где ещё что-то идёт, группа
  * открыта, а доделанная фича лежит одной строкой. Иначе экран на сотню задач
@@ -231,74 +248,51 @@ function TaskGroupBlock({ group }: { group: TaskGroup }) {
   const setOpen = useStore((s) => s.setTaskGroupOpen);
 
   const { running, review, queued, failed, cancelled } = group.counts;
-  // «Осталось» — то же, что раньше считалось по массиву живых задач: сумма
-  // трёх бакетов ожидания, без закрытых и без провала со снятием.
-  const left = running + review + queued;
-  const open = openFlag ?? left > 0;
-  // Фича закрыта, когда ничего живого не осталось, — тем же правилом, каким
-  // офис считает закрытой саму фичу. Ещё не начата — когда все задачи до
-  // единой стоят в очереди: ни одной взятой, ни одной законченной.
-  const allClosed = left === 0;
-  const fresh = !allClosed && queued === group.total;
-  // «Осталось» имеет смысл, только когда оно больше любого отдельного
-  // счётчика: у фичи, где всё стоит в очереди, это то же самое число третий
-  // раз подряд — рядом с «в очереди 2» и «готово 0 из 2».
-  const showLeft = [running, review, queued].filter((n) => n > 0).length > 1;
-  const percent = group.total > 0 ? Math.round((group.done / group.total) * 100) : 0;
+  // Живое — всё, что ещё ждёт чьего-то действия: без закрытых и без провала
+  // со снятием. Пока оно есть, группа по умолчанию открыта.
+  const open = openFlag ?? running + review + queued > 0;
+  // «В работе» в заголовке — всё, что офис сейчас везёт: делается у
+  // исполнителя или едет через ревью и слияние. В макете у заголовка один
+  // такой значок, а разбивку по двум колонкам несёт подсказка.
+  const busy = running + review;
+  const busyHint = [
+    running > 0 && tr('board.group.running', { n: running }),
+    review > 0 && tr('board.group.review', { n: review }),
+  ].filter(Boolean).join(', ');
 
   return (
-    <div className={`task-group${open ? ' open' : ''}${allClosed ? ' all-closed' : ''}`}>
+    <div className={`task-group${open ? ' open' : ''}`}>
       <button className="task-group-head" onClick={() => setOpen(group.key, !open)}
-        title={tr('board.group.toggle')}>
-        <span className="caret" aria-hidden>{open ? '▾' : '▸'}</span>
-        {group.id && <b>{group.id}</b>}
-        <span className="task-group-title" title={group.title}>{group.title}</span>
-        {/* Счётчики — только ненулевые: строка заголовка узкая, и чип «на ревью
-            0» в ней занимает место ровно ничем. У закрытой фичи счётчиков нет
-            вовсе, остаётся итог: считать в ней уже нечего. */}
-        <span className="task-group-counts">
-          {allClosed ? (
-            <span className="chip group-count closed">
-              <Icon name="circle-check" size={12} />{tr('board.group.allClosed')}
-            </span>
-          ) : (
-            <>
-              {fresh && (
-                <span className="chip group-count fresh">
-                  <Icon name="hourglass" size={11} />{tr('board.group.fresh')}
-                </span>
-              )}
-              {showLeft && (
-                <span className="chip group-count left">{tr('board.group.left', { n: left })}</span>
-              )}
-              {running > 0 && (
-                <span className="chip group-count run">{tr('board.group.running', { n: running })}</span>
-              )}
-              {review > 0 && (
-                <span className="chip group-count rev">{tr('board.group.review', { n: review })}</span>
-              )}
-              {queued > 0 && (
-                <span className="chip group-count wait">{tr('board.group.queued', { n: queued })}</span>
-              )}
-            </>
-          )}
-          {failed > 0 && (
-            <span className="chip group-count fail" title={tr('board.group.failedHint')}>
-              {tr('board.group.failed', { n: failed })}
-            </span>
-          )}
-          {cancelled > 0 && (
-            <span className="chip group-count drop" title={tr('board.group.cancelledHint')}>
-              {tr('board.group.cancelled', { n: cancelled })}
-            </span>
-          )}
+        title={tr('board.group.toggle')} aria-expanded={open}>
+        <span className="task-group-name">
+          {group.id && <b>{group.id}</b>}
+          <span className="task-group-title" title={group.title}>{group.title}</span>
         </span>
-        <span className="muted">{tr('board.group.progress', { done: group.done, total: group.total })}</span>
-        {group.spent > 0 && <span className="muted">{`$${group.spent.toFixed(2)}`}</span>}
-        {/* Полоса прогресса лежит на нижней границе заголовка отдельным слоем:
-            в потоке она добавила бы строке высоты, а её здесь и так впритык. */}
-        <span className="group-bar" aria-hidden>
-          <span className="group-bar-fill" style={{ width: `${percent}%` }} />
+        <span className="task-group-side">
+          {/* Счётчики — значок и число, только ненулевые: у закрытой фичи
+              остаются «готово» и исходы, у свежей — одна очередь. Отдельные
+              пометки «все закрыты» и «не начата» поэтому не нужны — это видно
+              по тому, какие значки стоят. Порядок и цвета — из макета. */}
+          <span className="task-group-counts">
+            {busy > 0 && <GroupCount kind="run" icon="percentage-40" n={busy} hint={busyHint} />}
+            {queued > 0 && (
+              <GroupCount kind="wait" icon="hourglass" n={queued} hint={tr('board.group.queued', { n: queued })} />
+            )}
+            {failed > 0 && (
+              <GroupCount kind="fail" icon="circle-x" n={failed} hint={tr('board.group.failed', { n: failed })} />
+            )}
+            {group.done > 0 && (
+              <GroupCount kind="done" icon="circle-check" n={group.done}
+                hint={tr('board.group.progress', { done: group.done, total: group.total })} />
+            )}
+            {cancelled > 0 && (
+              <GroupCount kind="drop" icon="forbid-2" n={cancelled}
+                hint={tr('board.group.cancelled', { n: cancelled })} />
+            )}
+          </span>
+          {group.spent > 0 && (
+            <span className="task-group-cost" title={tr('board.group.spent')}>{`$${group.spent.toFixed(2)}`}</span>
+          )}
         </span>
       </button>
       {open && (

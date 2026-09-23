@@ -58,7 +58,10 @@ export type IconName =
   | 'cloud'
   | 'grid-dots'
   | 'archive'
-  | 'circle';
+  | 'circle'
+  | 'circle-x'
+  | 'forbid-2'
+  | 'percentage-40';
 
 const ICON_PATHS: Record<IconName, string[]> = {
   'arrow-up': ['M12 5l0 14', 'M18 11l-6 -6', 'M6 11l6 -6'],
@@ -311,6 +314,26 @@ const ICON_PATHS: Record<IconName, string[]> = {
   circle: [
     'M12 12m-9 0a9 9 0 1 0 18 0a9 9 0 1 0 -18 0',
   ],
+  'circle-x': [
+    'M3 12a9 9 0 1 0 18 0a9 9 0 1 0 -18 0',
+    'M10 10l4 4m0 -4l-4 4',
+  ],
+  'forbid-2': [
+    'M3 12a9 9 0 1 0 18 0a9 9 0 1 0 -18 0',
+    'M9 15l6 -6',
+  ],
+  'percentage-40': [
+    'M3 12a9 9 0 1 0 18 0a9 9 0 1 0 -18 0',
+  ],
+};
+
+/**
+ * Залитые части иконок. У Tabler так нарисованы «проценты»: контур круга и
+ * закрашенный сектор; штрихом сектор не передать — он читался бы как ещё
+ * один контур. Сектор 40% идёт от полудня по часовой стрелке.
+ */
+const ICON_FILLS: Partial<Record<IconName, string[]>> = {
+  'percentage-40': ['M12 12v-9a9 9 0 0 1 5.29 16.28z'],
 };
 
 export function Icon({ name, size = 20, className }: { name: IconName; size?: number; className?: string }) {
@@ -329,6 +352,7 @@ export function Icon({ name, size = 20, className }: { name: IconName; size?: nu
       focusable="false"
     >
       {ICON_PATHS[name].map((d, i) => <path key={i} d={d} />)}
+      {ICON_FILLS[name]?.map((d, i) => <path key={`f${i}`} d={d} fill="currentColor" stroke="none" />)}
     </svg>
   );
 }
