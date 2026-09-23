@@ -97,6 +97,7 @@ design/presets/sofa/
 | `tone` | enum? | `PROPS.tone` | материал: ключ в `palette.prop` |
 | `fallback` | Shape | `PROPS.shape` | какой примитив рисовать, пока модели нет |
 | `parts` | `Part[]` | `PROPS.models` + `models.ts` | из чего собрана модель |
+| `variants` | `true`? | — | `parts` — варианты вида, рисуется один: хэш id офиса и ключа предмета (`pickVariant`, T-118) |
 | `components` | `Component[]` | см. §5 | что предмет умеет |
 
 ```ts

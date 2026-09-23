@@ -7,10 +7,12 @@
   "tone": "fabric",
   "fallback": "slab",
   "modelOnly": true,
+  "variants": true,
   "parts": [
-    {
-      "file": "rugRectangle.glb"
-    }
+    { "file": "carpet1.glb" },
+    { "file": "carpet2.glb" },
+    { "file": "carpet3.glb" },
+    { "file": "carpet4.glb" }
   ],
   "components": []
 }

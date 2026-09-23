@@ -22,7 +22,7 @@ import type { Palette } from './palette';
 import { deskKey, PropLamp, useLitDesks } from './Lights3D';
 import { componentOf, type Part as PresetPart, type Tone } from '../../shared/preset';
 import { MODEL_KEYS, MODEL_LIST, keyOf, presetOf } from './presets';
-import { MODEL_SCALE, fitScale } from './props';
+import { MODEL_SCALE, fitScale, pickVariant } from './props';
 import { useFit } from './fit';
 import type { Placed3 } from './props';
 
@@ -374,10 +374,22 @@ export function PropShape({ item, materials, lit }: {
   /** Предмет «включён» — у стола это значит, что за ним работают. */
   lit?: boolean;
 }) {
+  const officeId = useStore((s) => s.offices.find((o) => o.current)?.id ?? '');
+  const all = item.def.parts;
+  const variant = item.def.variants && all?.length
+    ? pickVariant(officeId, item.key, all.length)
+    : -1;
+  // Массив — мемо, а не срез на месте: `parts` лежит в зависимостях
+  // `PropModels`, и новый массив на каждую перерисовку клонировал бы модель.
+  const parts = useMemo(
+    () => (all && variant >= 0 ? [all[variant]] : all),
+    [all, variant],
+  );
+
   // Есть модель — примитивы не рисуем вовсе. Пока она грузится, место
   // остаётся пустым: показывать коробку, которую через миг заменят, значит
   // моргать мебелью на каждом открытии комнаты.
-  if (item.def.parts?.length) {
+  if (parts?.length) {
     // Светящийся материал называет компонент `glow` — стекло монитора.
     // Компонентов может быть несколько, но подменяем пока один: у набора
     // Kenney у предмета один именованный материал экрана.
@@ -385,7 +397,7 @@ export function PropShape({ item, materials, lit }: {
     return (
       <PropModels
         preset={item.def.id}
-        parts={item.def.parts}
+        parts={parts}
         screen={lit ? glow?.material : undefined}
         lit={materials.screenOn}
       />
