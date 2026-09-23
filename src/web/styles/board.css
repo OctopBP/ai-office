@@ -98,30 +98,17 @@
   display: flex; flex-direction: column; gap: var(--space-1);
 }
 .task-col-head {
-  display: flex; align-items: center; gap: var(--space-2); width: 100%;
-  justify-content: flex-start; text-align: left; font: inherit;
-  padding: 0 var(--space-1); min-height: 0; background: none; border: none; border-radius: 0;
+  display: flex; align-items: center; gap: var(--space-2); padding: 0 var(--space-1);
   font-size: var(--fs-caption); font-weight: 500; letter-spacing: .04em; text-transform: uppercase;
   color: var(--ink-3);
 }
-.task-col-head:hover:not(:disabled) { background: none; color: var(--ink-2); }
-.task-col-head .caret { width: 10px; }
 .task-col-name { min-width: 0; }
 .task-col-head .muted { margin-left: auto; letter-spacing: 0; }
-/* Свёрнутые «Закрытые» — узкая полоса со счётчиком, а не колонка: история
-   фичи не должна стоять в ряд с идущей работой. */
-.task-col-closed {
-  flex: 0 0 auto; display: flex; align-items: center; gap: var(--space-2);
-  color: var(--ink-3); font-size: var(--fs-small);
-}
-.task-col-closed .caret { width: 10px; }
 /* Карточки в колонке — стопкой: ширину задаёт колонка. */
 .task-cards { display: flex; flex-direction: column; gap: var(--space-2); }
-/* Закрытое — история, а не работа: приглушаем, чтобы не спорило за внимание с
-   идущим. Провал и снятая из приглушения выведены: иначе неудача растворяется
-   среди влитого, а её как раз и ищут глазами. */
-.task-col.closed .task { opacity: .72; }
-.task-col.closed .task.failed, .task-col.closed .task.cancelled { opacity: 1; }
+/* Готовое — история, а не работа: приглушаем, чтобы не спорило за внимание с
+   идущим. Провал и снятие не приглушаем: неудачу как раз ищут глазами. */
+.task-col.done .task { opacity: .72; }
 /* Исход — полоской у левого края карточки: чип со словом стоит в ряду других
    чипов и на беглом взгляде теряется. */
 .task.failed { border-left: 3px solid var(--danger); }

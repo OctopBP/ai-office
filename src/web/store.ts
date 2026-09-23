@@ -399,9 +399,6 @@ interface State {
    */
   taskGroupsOpen: Record<string, boolean>;
   setTaskGroupOpen: (key: string, open: boolean) => void;
-  /** То же для строки «Закрытые» внутри группы; умолчание — свёрнута. */
-  taskGroupClosedOpen: Record<string, boolean>;
-  setTaskGroupClosedOpen: (key: string, open: boolean) => void;
   /** Активная ветка чата: 'pm#1' или id агента. */
   thread: string;
   setThread: (t: string) => void;
@@ -605,13 +602,9 @@ export const useStore = create<State>((set, get) => ({
   selected: null,
   openTask: null,
   taskGroupsOpen: {},
-  taskGroupClosedOpen: {},
   thread: 'pm#1',
 
   setTaskGroupOpen: (key, open) => set((s) => ({ taskGroupsOpen: { ...s.taskGroupsOpen, [key]: open } })),
-  setTaskGroupClosedOpen: (key, open) => set((s) => ({
-    taskGroupClosedOpen: { ...s.taskGroupClosedOpen, [key]: open },
-  })),
 
   // Вернулись в ветку менеджера прямо в чате — значит новое уже видно.
   setThread: (t) => set((s) => (t === 'pm#1' && s.view === 'chat'
@@ -668,7 +661,7 @@ export const useStore = create<State>((set, get) => ({
       selected: null, openTask: null, thread: 'pm#1', diff: null, view: 'office',
       // Номера фич в офисах повторяются: не сбросить — и E-1 чужого офиса
       // открыл бы или свернул одноимённую группу в этом.
-      taskGroupsOpen: {}, taskGroupClosedOpen: {},
+      taskGroupsOpen: {},
     });
     switchOffice(officeId);
   },
@@ -682,7 +675,6 @@ export const useStore = create<State>((set, get) => ({
       selected: null,
       openTask: null,
       taskGroupsOpen: {},
-      taskGroupClosedOpen: {},
       thread: 'pm#1',
       diff: null,
       view: 'office',
