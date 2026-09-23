@@ -474,6 +474,8 @@ export const ru: Record<keyof typeof en, string> = {
   "settings.icon.badType": "Такие файлы офис не принимает ({type}). Подойдут PNG, JPEG, WebP или SVG.",
   "settings.layout.title": "Раскладка офиса",
   "settings.layout.hint": "Раскладка задаёт планировку комнаты — пол, стены и расстановку мебели. После сохранения сотрудники пересядут за столы новой раскладки.",
+  // материалы пола комнаты: ключ — `floor.<имя файла из design/textures/floor>`
+  "floor.green_marble": "Зелёный мрамор",
   "settings.pipeline.title": "Ревью и слияние",
   "settings.pipeline.auto": "Конвейером",
   "settings.pipeline.auto.hint": "Сдал → подтянуть основную ветку → проверки → пулл-реквест → ревью → слияние",
