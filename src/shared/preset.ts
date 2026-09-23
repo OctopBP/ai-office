@@ -302,6 +302,12 @@ export const presetSchema = z.strictObject({
    */
   modelOnly: z.literal(true).optional(),
   parts: z.array(partSchema).optional(),
+  /**
+   * Части — не детали одного предмета, а **варианты** его вида: рисуется одна,
+   * выбранная по офису и месту предмета (`pickVariant` в office3d/props.ts).
+   * Так у ковров лаунжа четыре узора, и у разных офисов они разные.
+   */
+  variants: z.literal(true).optional(),
   components: z.array(componentSchema),
 });
 

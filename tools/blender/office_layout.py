@@ -293,7 +293,10 @@ def place(layout: dict, catalog: dict, extra: list[dict] | None = None) -> list[
             h=d['h'],
             base=(wall if wall is not None else 0),
             rot=math.radians(prop['rot']) if 'rot' in prop else 0.0,
-            models=d.get('parts', []),
+            # Части-варианты (`variants`, ковры лаунжа) — это разные виды
+            # одного предмета, рисуется один. Клиент выбирает его по id офиса,
+            # а у сцены пресета офиса нет — берём первый.
+            models=d.get('parts', [])[:1] if d.get('variants') else d.get('parts', []),
             wall=wall,
             shape=d['fallback'],
             tone=d.get('tone', 'metal'),

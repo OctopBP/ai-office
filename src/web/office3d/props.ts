@@ -57,6 +57,34 @@ export function fitScale(def: Preset, raw: { x: number; z: number }): number {
   return Math.min(fw / raw.x, fd / raw.z);
 }
 
+/**
+ * Какой из `count` вариантов вида нарисовать (`Preset.variants`).
+ *
+ * Выбор — хэш, а не `Math.random`: случайное число менялось бы на каждой
+ * перерисовке, смене вида и HMR, и ковёр мигал бы узорами. Семя — id офиса и
+ * ключ предмета в раскладке: у разных офисов ковры разные, у двух ковров
+ * одной комнаты — независимые. Ключ (`lounge_rug#2`), а не координаты: он
+ * переживает перенос в редакторе, и ковёр в руках не меняет узор на каждой
+ * клетке.
+ */
+export function pickVariant(officeId: string, key: string, count: number): number {
+  if (count <= 1) return 0;
+  // FNV-1a, 32 бита, и добивка из MurmurHash3. Без добивки младшие биты FNV
+  // зависят только от младших битов символов: `o-1` и `o-5` получали один и
+  // тот же ковёр, а берём мы как раз остаток от деления — младшие биты.
+  let h = 0x811c9dc5;
+  for (const ch of `${officeId}\u0000${key}`) {
+    h ^= ch.codePointAt(0)!;
+    h = Math.imul(h, 0x01000193);
+  }
+  h ^= h >>> 16;
+  h = Math.imul(h, 0x85ebca6b);
+  h ^= h >>> 13;
+  h = Math.imul(h, 0xc2b2ae35);
+  h ^= h >>> 16;
+  return (h >>> 0) % count;
+}
+
 /** Прямоугольник на полу в тайлах: левый верхний угол и габарит. */
 export interface FloorRect {
   x: number;
