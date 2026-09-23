@@ -2,7 +2,7 @@
 """Собирает детализированную модель персонажа «jonDetailed» поверх скелета блондина.
 
 Почему без Blender. Роль по умолчанию собирает модели через
-`$BLENDER --background --python ...` (см. `build_scene.py`, `office_layout.py`).
+`tools/blender/run.sh <скрипт> -- ...` (см. `build_scene.py`, `office_layout.py`).
 В этом окружении headless-запуск Blender 4.3.2 падает по SIGSEGV ещё до
 разбора аргументов — крах внутри детектора GPU-бэкенда (Metal) при
 `WM_init`, воспроизводится на любом скрипте и любых флагах. Это не связано

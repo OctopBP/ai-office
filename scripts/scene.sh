@@ -17,11 +17,21 @@ if [ ! -x "$BLENDER" ]; then
   exit 1
 fi
 
-"$BLENDER" --background --python "$ROOT/tools/blender/build_scene.py" -- \
+# Запуск — только через обёртку: фон, заводские настройки и проверка Metal,
+# без которой Blender 4.3 в песочнице падает с системным окном (T-116).
+# Код выхода Blender не глотаем: раньше `|| true` выдавал падение за успех.
+set +e
+BLENDER="$BLENDER" "$ROOT/tools/blender/run.sh" "$ROOT/tools/blender/build_scene.py" -- \
   --preset "$PRESET" \
   --blend "design/scenes/$PRESET.blend" \
   --glb "design/scenes/$PRESET.glb" \
   --png "design/scenes/$PRESET.png" \
-  | grep -E '^\[build_scene\]|Error|Traceback' || true
+  | grep -E '^\[build_scene\]|Error|Traceback'
+CODE=${PIPESTATUS[0]}
+set -e
+if [ "$CODE" -ne 0 ]; then
+  echo "Blender завершился с кодом $CODE — сцена не собрана" >&2
+  exit "$CODE"
+fi
 
 python3 "$ROOT/tools/blender/inspect_glb.py" "$ROOT/design/scenes/$PRESET.glb"
