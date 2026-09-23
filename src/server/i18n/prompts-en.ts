@@ -842,6 +842,7 @@ Keep your replies to the user short. Which language to write them in is said in 
   'pipe.off': 'The review pipeline is switched off in the office settings.',
   'pipe.noBranch': 'The task has no branch of its own — there is nothing to review or merge.',
   'pipe.alreadyMerged': 'The task is already merged.',
+  'pipe.authorBusy': '{who} is still in a session on this task — the pipeline starts once it ends and the work is committed.',
   'pipe.notRepo': 'The work did not happen in a git repository.',
   'pipe.checkUnknown': 'check "{name}" is not configured: add its command in the office settings (Processes → Checks)',
   'pipe.checkRunning': 'Running check "{name}".',

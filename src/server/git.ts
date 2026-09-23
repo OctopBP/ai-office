@@ -999,6 +999,16 @@ export interface Diff {
   truncated: boolean;
 }
 
+/**
+ * Изменила ли ветка хоть один файл относительно точки расхождения с базой.
+ * null — спросить не удалось (ветки нет, база пропала): это не «пусто».
+ */
+export async function branchHasChanges(repoDir: string, base: string, branch: string): Promise<boolean | null> {
+  const r = await git(repoDir, ['diff', '--name-only', `${base}...${branch}`]);
+  if (!r.ok) return null;
+  return r.stdout.trim().length > 0;
+}
+
 /** Что задача изменила относительно базовой ветки. */
 export async function diffBranch(
   repoDir: string, base: string, branch: string, lang: Lang,

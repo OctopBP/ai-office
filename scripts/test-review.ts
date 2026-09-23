@@ -16,10 +16,11 @@ import { resolve } from 'node:path';
 import { getOffice, worktreesRoot, type OfficeState, type Task } from '../src/server/state';
 import { mergeableTasks } from '../src/server/merge';
 import {
-  runPipeline, setPipelineAgents, whenPipelinesIdle,
+  gateAnswerYes, pipelineProblem, runPipeline, setPipelineAgents, whenPipelinesIdle,
   type ReviewOutcome, type ReworkOutcome, type StepOutcome, type StepRequest,
 } from '../src/server/review';
 import { answerQuestion } from '../src/server/questions';
+import { t } from '../src/server/i18n';
 import { resetProjectWorkflow, saveProjectWorkflow, workflowCatalog } from '../src/server/workflows';
 import type { TaskType } from '../src/shared/workflow';
 import { superviseOffice } from '../src/server/supervisor';
@@ -703,6 +704,119 @@ async function main(): Promise<void> {
     check('менеджеру объяснили', s.pm.some((m) => m.includes('вернул работу')));
     check('доработок было две', s.calls.steps.length === 2);
     check('прогон стоит на согласовании', office.runOf(task.id)?.nodeId === 'approve');
+
+    // Повтор вставшего прогона (кнопка, менеджер, надзор) не задаёт владельцу
+    // тот же вопрос второй раз: последний ответ дан уже после последней правки.
+    const gatesBefore = [...office.questions.values()].filter((q) => q.kind === 'gate' && q.taskId === task.id).length;
+    const again = runPipeline(office, task.id);
+    let duplicate = false;
+    for (let i = 0; i < 20 && !duplicate; i += 1) {
+      await new Promise((r) => setTimeout(r, 25));
+      const open = [...office.questions.values()].find(
+        (q) => q.kind === 'gate' && q.taskId === task.id && !q.answeredAt && !q.dismissedAt);
+      if (open) {
+        duplicate = true;
+        answerQuestion(office, open.id, 'нет');
+      }
+    }
+    await again;
+    say('▶ Повтор прогона не дублирует вопрос о согласовании');
+    check('нового вопроса нет', !duplicate
+      && [...office.questions.values()].filter((q) => q.kind === 'gate' && q.taskId === task.id).length === gatesBefore);
+    check('прогон снова стоит на согласовании', office.runOf(task.id)?.nodeId === 'approve');
+  }
+
+  // 19½. Вопрос согласования (T-125): кнопки, язык офиса, только к готовой работе.
+  {
+    say('▶ Ответ на согласование: кнопки, слова и старые «да/нет»');
+    for (const yes of ['Согласовано', 'Approved', 'да', 'Да, всё ок', 'yes', 'ok', '👍']) {
+      check(`«${yes}» — согласие`, gateAnswerYes(yes));
+    }
+    for (const no of ['Нужны правки: крупнее шрифт', 'Needs changes: bigger font', 'нет', 'no', 'давай переделаем', 'не согласовано']) {
+      check(`«${no}» — отказ`, !gateAnswerYes(no));
+    }
+    check('шаблон на английском без кириллицы',
+      !/[а-яё]/i.test(t('en', 'wf.gateAsk', {
+        task: 'T-1', title: 'Mockups', what: t('en', 'wf.gateWhat.design'),
+        yes: t('en', 'wf.gateOptYes'), no: t('en', 'wf.gateOptNo'),
+      })));
+
+    const task = taskBranch(dir, 'G1', { 'g1.md': 'Макет\n' }, { roleId: 'design', assigneeId: 'design#1' });
+    stub();
+    const done = runPipeline(office, task.id);
+    const qid = await decide(task.id, 'Согласовано');
+    await done;
+    const q = office.questions.get(qid);
+    say('▶ Макет с результатом — вопрос с кнопками на языке офиса');
+    check('варианты «Согласовано» / «Нужны правки…»',
+      q?.options?.join('|') === 'Согласовано|Нужны правки…');
+    check('текст вопроса по-русски', Boolean(q?.text.includes('макет готов')) && !/Answer|yes|no\b/.test(q?.text ?? ''));
+    check('ответ кнопкой согласовал и влил', office.prOf(task.id)?.stage === 'merged');
+  }
+
+  {
+    // Ветка задачи без единой правки и отчёт без ссылки — макета нет.
+    const task = taskBranch(dir, 'G2', {}, { roleId: 'design', assigneeId: 'design#1' });
+    const s = stub({ step: (_s, _t, req) => ({ ok: true, outcome: 'done', summary: 'снова ничего', actor: req.prefer ?? '' }) });
+    await runPipeline(office, task.id);
+    say('▶ Без артефакта владельца не спрашивают, работа уходит автору');
+    check('вопросов о согласовании нет',
+      ![...office.questions.values()].some((q) => q.kind === 'gate' && q.taskId === task.id));
+    check('автору вернули с причиной', s.calls.steps[0]?.node === 'rework'
+      && Boolean(s.calls.steps[0]?.prompt.includes('согласовывать нечего')));
+    check('после предела — стоп с понятной причиной', office.prOf(task.id)?.stage === 'stuck'
+      && (office.prOf(task.id)?.note ?? '').includes('без результата'));
+  }
+
+  {
+    // Макет в Figma: в ветке пусто, но в отчёте есть ссылка — это и есть результат.
+    const task = taskBranch(dir, 'G3', {}, { roleId: 'design', assigneeId: 'design#1' });
+    office.updateTask(task.id, { result: 'Нарисовал: https://www.figma.com/design/abc/Dashboard?node-id=1-2' });
+    stub({ step: (_s, _t, req) => ({ ok: true, outcome: 'done', summary: 'поправил', actor: req.prefer ?? '' }) });
+    const done = runPipeline(office, task.id);
+    const qid = await decide(task.id, 'Нужны правки: крупнее заголовки');
+    await decide(task.id, 'Согласовано');
+    await done;
+    say('▶ Ссылка на Figma — артефакт; «Нужны правки» возвращает автору');
+    check('владельца спросили', office.questions.get(qid)?.kind === 'gate');
+    check('ответ «Нужны правки: …» — доработка',
+      office.runOf(task.id)?.steps.some((st) => st.node === 'approve' && st.outcome === 'no') === true);
+  }
+
+  {
+    // Открытый вопрос по задаче уже есть (задан до перезапуска) — второй не заводим.
+    const task = taskBranch(dir, 'G4', { 'g4.md': 'Макет\n' }, { roleId: 'design', assigneeId: 'design#1' });
+    const open = office.addQuestion({
+      from: 'office', taskId: task.id, kind: 'gate', text: 'старый вопрос', assumption: 'ждём',
+    });
+    stub();
+    const done = runPipeline(office, task.id);
+    const qid = await decide(task.id, 'да');
+    await done;
+    say('▶ Уже открытый вопрос переиспользуется');
+    check('ответили на тот же вопрос', qid === open.id);
+    check('вопрос по задаче один',
+      [...office.questions.values()].filter((q) => q.kind === 'gate' && q.taskId === task.id).length === 1);
+  }
+
+  {
+    // Исполнитель сдал (finish_task), но сессия ещё идёт и работа не закоммичена.
+    const task = taskBranch(dir, 'G5', { 'g5.md': 'Макет\n' }, { roleId: 'design', assigneeId: 'design#1' });
+    const inst = [...office.instances.values()][0];
+    inst.currentTaskId = task.id;
+    stub();
+    const busy = await pipelineProblem(office, task);
+    await runPipeline(office, task.id);
+    say('▶ Пока сессия автора идёт, конвейер не заводится');
+    check('причина — идущая сессия', Boolean(busy?.includes('ещё идёт сессия')));
+    check('пулл-реквеста нет', office.prOf(task.id) === null);
+    check('владельца не спрашивали',
+      ![...office.questions.values()].some((q) => q.kind === 'gate' && q.taskId === task.id));
+    inst.currentTaskId = null;
+    const done = runPipeline(office, task.id);
+    await decide(task.id, 'Согласовано');
+    await done;
+    check('после конца сессии — согласовано и влито', office.prOf(task.id)?.stage === 'merged');
   }
 
   // 20. Своя проверка проекта: узел project:lint в файле процесса самого репозитория.
