@@ -1163,7 +1163,14 @@ async function main(): Promise<void> {
       && modelRoles.role('reviewer')?.package?.overrides.model === 'claude-opus-5-5'}`,
     `модель роли без пакета переведена: ${modelRoles.role('analyst')?.model === 'claude-opus-5-5'}`,
     `повторный перевод ничего не меняет: ${currentModel('claude-opus-5-5') === 'claude-opus-5-5'
-      && currentModel('claude-sonnet-5') === 'claude-sonnet-5'}`,
+      && currentModel('claude-sonnet-5') === 'claude-sonnet-5'
+      && currentModel(currentModel('claude-sonnet-4-5')) === 'claude-sonnet-5'}`,
+    // Прошлая версия переводится на последнюю в СВОЁМ семействе, а не в чужом.
+    `старые версии переведены внутри семейства: ${currentModel('claude-sonnet-4-6') === 'claude-sonnet-5'
+      && currentModel('claude-opus-4-8') === 'claude-opus-5-5'
+      && currentModel('claude-fable-5') === 'claude-fable-5-1'
+      && currentModel('claude-haiku-4-5') === 'claude-haiku-4-5'}`,
+    `незнакомая модель осталась как есть: ${currentModel('my-custom-model') === 'my-custom-model'}`,
   );
   unloadOfficeState('o-roles-model');
   wipe(modelFile);

@@ -17,15 +17,22 @@ import type { PermissionMode, RoleDraft, RoleEditable, RoleView } from '../share
 import { MAX_TASK_MAX_TURNS, MIN_TASK_MAX_TURNS } from '../shared/types';
 
 /**
- * Модели Claude для подсказки в поле — одним списком с сервером
+ * Модели Claude для выпадающего списка — одним списком с сервером
  * (`shared/models.ts`), чтобы новая модель появлялась в форме сама. Подпись
  * ищется по ключу `role.model.<id>`; нет подписи — показывается сам id, это
  * лучше пустой строки в выпадающем списке.
+ *
+ * Список один для всех ролей. Незнакомый id (вписанный когда-то руками)
+ * добавляется отдельной строкой в конец, чтобы форма показала его как есть и не
+ * подменила молча на первую модель списка.
  */
-const models = (): Array<[string, string]> => MODEL_IDS.map((id) => {
-  const key = `role.model.${id}`;
-  return [id, has(key) ? t(key) : id];
-});
+const models = (current: string): Array<[string, string]> => {
+  const list = MODEL_IDS.map((id): [string, string] => {
+    const key = `role.model.${id}`;
+    return [id, has(key) ? t(key) : id];
+  });
+  return current && !MODEL_IDS.includes(current) ? [...list, [current, current]] : list;
+};
 
 const modes = (): Array<[PermissionMode, string]> => [
   ['readonly', accessLabel('readonly')],
@@ -209,11 +216,22 @@ export function RoleEditor({ role, onSaved, onDeleted }: {
       </label>
 
       <label>{t('role.model')}
-        <input list="role-models" value={value.model} onChange={(e) => set('model', e.target.value)} />
-        <datalist id="role-models">
-          {(providerOf(value) === 'codex' ? [['default', t('role.model.codexDefault')], ...codexModels] : models())
-            .map(([id, label]) => <option key={id} value={id}>{label}</option>)}
-        </datalist>
+        {/* У Claude — выпадающий список, а не поле с подсказками: datalist браузер
+            фильтрует по введённому значению, и роль видела только версии своего
+            семейства. У Codex модели приходят с машины, там поле остаётся свободным. */}
+        {providerOf(value) === 'codex' ? (
+          <>
+            <input list="role-models" value={value.model} onChange={(e) => set('model', e.target.value)} />
+            <datalist id="role-models">
+              {[['default', t('role.model.codexDefault')], ...codexModels]
+                .map(([id, label]) => <option key={id} value={id}>{label}</option>)}
+            </datalist>
+          </>
+        ) : (
+          <select value={value.model} onChange={(e) => set('model', e.target.value)}>
+            {models(value.model).map(([id, label]) => <option key={id} value={id}>{label}</option>)}
+          </select>
+        )}
         {providerOf(value) === 'codex' && <span className="hint">{t('role.codexHint')}</span>}
         {errFor('model') && <span className="hint error">{errFor('model')}</span>}
       </label>
