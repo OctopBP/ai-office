@@ -55,16 +55,52 @@ jobs:
             echo "секрета APPLE_API_KEY_P8 нет — нотаризации не будет"
           fi
 
+      # Сертификат Developer ID кладём во временную связку ключей сами и
+      # отдаём сборщику только имя (CSC_NAME), а не сам файл (CSC_LINK).
+      # electron-builder 26.15 со своей связкой не справляется: в
+      # set-key-partition-list он подставляет пароль .p12 вместо пароля
+      # связки и падает с «passphrase is not correct» при верном пароле.
+      # Заодно сертификат Apple не попадает в Windows-сборку: там
+      # electron-builder принял бы CSC_LINK за свой и подписывал бы им .exe.
+      - name: сертификат подписи
+        if: matrix.target == 'mac'
+        env:
+          CERT: ${{ secrets.CSC_LINK }}
+          CERT_PASSWORD: ${{ secrets.CSC_KEY_PASSWORD }}
+        run: |
+          if [ -z "$CERT" ]; then
+            echo "секрета CSC_LINK нет — сборка будет подписана «для себя»"
+            exit 0
+          fi
+          keychain="$RUNNER_TEMP/signing.keychain-db"
+          password="$(openssl rand -base64 24)"
+          security create-keychain -p "$password" "$keychain"
+          security set-keychain-settings -lut 21600 "$keychain"
+          security unlock-keychain -p "$password" "$keychain"
+          printf '%s' "$CERT" | base64 --decode > "$RUNNER_TEMP/cert.p12"
+          security import "$RUNNER_TEMP/cert.p12" -k "$keychain" -P "$CERT_PASSWORD" \
+            -T /usr/bin/codesign -T /usr/bin/productbuild
+          rm "$RUNNER_TEMP/cert.p12"
+          security set-key-partition-list -S apple-tool:,apple: -s -k "$password" "$keychain" > /dev/null
+          security list-keychains -d user -s "$keychain" $(security list-keychains -d user | tr -d '"')
+          name="$(security find-identity -v -p codesigning "$keychain" \
+            | sed -n 's/.*"Developer ID Application: \(.*\)"$/\1/p' | head -1)"
+          if [ -z "$name" ]; then
+            echo "в .p12 нет сертификата Developer ID Application"
+            security find-identity -v -p codesigning "$keychain"
+            exit 1
+          fi
+          echo "CSC_NAME=$name" >> "$GITHUB_ENV"
+          echo "сертификат положен: $name"
+
       - name: установщик
         run: npm run dist:${{ matrix.target }} -- --publish never
         working-directory: desktop
-        # Подпись и нотаризация включаются наличием секретов: конфиг сборки
-        # смотрит ровно на эти переменные (desktop/electron-builder.js).
-        # Секретов нет — переменные приезжают пустыми, и сборка выходит
+        # Подпись и нотаризация включаются наличием переменных: конфиг сборки
+        # смотрит ровно на них (desktop/electron-builder.js). CSC_NAME кладёт
+        # шаг выше; секретов нет — переменные пустые, и сборка выходит
         # подписанной «для себя», как и первые версии.
         env:
-          CSC_LINK: ${{ secrets.CSC_LINK }}
-          CSC_KEY_PASSWORD: ${{ secrets.CSC_KEY_PASSWORD }}
           APPLE_API_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
           APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
           APPLE_ID: ${{ secrets.APPLE_ID }}
