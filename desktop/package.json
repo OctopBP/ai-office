@@ -1,7 +1,7 @@
 {
   "name": "ai-office-desktop",
   "productName": "AI Office",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "private": true,
   "description": "Офис с видом сверху, где команда AI-агентов выполняет ваши задачи",
   "license": "Apache-2.0",
