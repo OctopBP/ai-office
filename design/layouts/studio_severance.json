@@ -15,13 +15,13 @@
       { "a": [15, 0], "b": [15, 16] }
     ],
     "props": [
-      { "sprite": "desk_pm", "at": [13, 1] },
+      { "sprite": "desk_pm", "at": [13, 2] },
       { "sprite": "desk", "at": [8, 8] },
       { "sprite": "desk", "at": [8, 10], "rot": 90 },
       { "sprite": "desk", "at": [6, 10], "rot": 180 },
       { "sprite": "desk", "at": [6, 8], "rot": 270 },
 
-      { "sprite": "chair", "at": [13.5, 0.8] },
+      { "sprite": "chair", "at": [13.5, 1.8] },
       { "sprite": "chair", "at": [8.5, 7.8] },
       { "sprite": "chair", "at": [9.3, 10.3], "rot": 90 },
       { "sprite": "chair", "at": [6.5, 11.2], "rot": 180 },
