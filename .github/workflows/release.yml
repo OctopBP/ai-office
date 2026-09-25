@@ -97,7 +97,7 @@ jobs:
         run: npm run dist:${{ matrix.target }} -- --publish never
         working-directory: desktop
         # Подпись и нотаризация включаются наличием переменных: конфиг сборки
-        # смотрит ровно на них (desktop/electron-builder.js). CSC_NAME кладёт
+        # смотрит ровно на них (desktop/builder.config.js). CSC_NAME кладёт
         # шаг выше; секретов нет — переменные пустые, и сборка выходит
         # подписанной «для себя», как и первые версии.
         env:

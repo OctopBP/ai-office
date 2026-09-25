@@ -9,9 +9,9 @@
   "main": "main.js",
   "scripts": {
     "start": "electron .",
-    "dist": "electron-builder",
-    "dist:mac": "electron-builder --mac",
-    "dist:win": "electron-builder --win"
+    "dist": "electron-builder --config builder.config.js",
+    "dist:mac": "electron-builder --config builder.config.js --mac",
+    "dist:win": "electron-builder --config builder.config.js --win"
   },
   "devDependencies": {
     "electron": "^44.4.3",
