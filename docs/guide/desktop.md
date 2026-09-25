@@ -98,11 +98,21 @@ developer.apple.com → Certificates, Identifiers & Profiles → Certificates �
 щелчок по «Developer ID Application: …» → Export → формат `.p12`, задать
 пароль.
 
-**3. Завести данные для нотаризации.** Проще ключом App Store Connect:
-appstoreconnect.apple.com → Users and Access → Integrations → Team Keys →
-+ → роль Developer. Скачивается файл `AuthKey_XXXX.p8` (один раз), рядом
-видны Key ID и Issuer ID. Альтернатива — Apple ID и пароль приложения
-(appleid.apple.com → App-Specific Passwords) вместе с Team ID.
+**3. Завести данные для нотаризации.** Apple принимает два способа, сборка —
+тоже; выбирайте любой.
+
+*Ключ App Store Connect.* appstoreconnect.apple.com → Users and Access →
+**Integrations** → в списке слева под «Keys» нажать **App Store Connect
+API** — вкладки Team Keys и Individual Keys живут внутри этого раздела, а не
+в боковом меню. Team Keys → «+» → имя любое, Access: **Developer** →
+Generate. Файл `AuthKey_XXXXXXXX.p8` даётся **один раз**; Key ID виден в
+строке таблицы, Issuer ID — над ней. Создавать ключи команды может только
+Account Holder, и в переключателе команд наверху должна стоять та команда,
+чьим сертификатом подписываем.
+
+*Apple ID и пароль приложения.* appleid.apple.com → «Вход и безопасность» →
+«Пароли для приложений» → «+». Нужна двухфакторная аутентификация. Вместе с
+паролем понадобится Team ID — он же в скобках в имени сертификата.
 
 **4. Положить в секреты репозитория** (Settings → Secrets and variables →
 Actions). Значения вводите сами — они нигде больше не появляются:
@@ -111,13 +121,13 @@ Actions). Значения вводите сами — они нигде бол�
 |---|---|
 | `CSC_LINK` | `.p12` в base64: `base64 -i cert.p12 \| pbcopy` |
 | `CSC_KEY_PASSWORD` | пароль, заданный при выгрузке `.p12` |
-| `APPLE_API_KEY_P8` | содержимое файла `AuthKey_XXXX.p8` целиком |
+| `APPLE_API_KEY_P8` | содержимое файла `AuthKey_XXXXXXXX.p8` целиком |
 | `APPLE_API_KEY_ID` | Key ID ключа |
 | `APPLE_API_ISSUER` | Issuer ID |
 
-Вместо трёх последних можно положить `APPLE_ID`,
+Вместо трёх последних можно положить `APPLE_ID` (почта аккаунта),
 `APPLE_APP_SPECIFIC_PASSWORD` и `APPLE_TEAM_ID` — сборка принимает оба
-способа.
+способа и включает нотаризацию, как только видит любую из троек.
 
 После этого достаточно поставить новый тег: сборка сама увидит секреты,
 подпишет приложение, отправит его на нотаризацию и прикрепит результат к
@@ -127,9 +137,15 @@ Actions). Значения вводите сами — они нигде бол�
 **Собрать подписанное у себя** (сертификат к этому моменту в связке ключей):
 
 ```bash
-export CSC_NAME="Developer ID Application: Имя (TEAMID)"
-npm run desktop:dist
+CSC_NAME="Имя (TEAMID)" npm run desktop:dist
 ```
+
+Имя берётся из вывода `security find-identity -v -p codesigning`, но **без
+префикса** «Developer ID Application:» — с ним electron-builder отвечает
+«Please remove prefix» и не собирает. Что подпись встала, видно по
+`codesign -dv`: `Authority=Developer ID Application: …` и `flags=0x10000
+(runtime)`, а `spctl` меняет ответ с простого `rejected` на
+`source=Unnotarized Developer ID`.
 
 Нотаризация при этом включится, если рядом есть `APPLE_API_KEY` (путь к
 `.p8`), `APPLE_API_KEY_ID` и `APPLE_API_ISSUER` — или тройка с Apple ID.
