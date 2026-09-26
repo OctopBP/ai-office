@@ -263,6 +263,12 @@ interface State {
    * прочтения сбрасывает поле (тот же приём, что и у settingsSection).
    */
   teamRequest: { roleId: string } | null;
+  /**
+   * Запрос открыть панель поверх офиса — например, кликом по системному
+   * уведомлению (`notify.ts`). Панели держит App: он открывает её по запросу
+   * и сразу сбрасывает поле.
+   */
+  panelRequest: 'life' | 'money' | null;
   /** Пресеты раскладки для выбора в настройках — приходят в снапшоте, читаются сервером с диска. */
   layouts: LayoutOption[];
   /**
@@ -537,6 +543,7 @@ export const useStore = create<State>((set, get) => ({
   market: null,
   exportResult: null,
   teamRequest: null,
+  panelRequest: null,
   settings: {
     globalBudgetUsd: null, taskBudgetUsd: null, engine: 'local', cloudRepoUrl: null,
     officePermissionMode: 'ask-risky', layoutId: DEFAULT_LAYOUT_ID, autoPipeline: true,
@@ -1345,6 +1352,19 @@ export function dismissToast(id: string): void {
   useStore.setState((s) => ({ toasts: s.toasts.filter((t) => t.id !== id) }));
 }
 
+const serverListeners = new Set<(e: ServerEvent) => void>();
+
+/**
+ * Слушать события сервера уже после того, как стор их применил. Нужно тем,
+ * кому мало итогового состояния: подписчик стора не отличит снимок при
+ * переподключении от очередного изменения, а уведомлениям (`notify.ts`) это
+ * различие и важно — по снимку показывать нечего.
+ */
+export function onServerEvent(listener: (e: ServerEvent) => void): () => void {
+  serverListeners.add(listener);
+  return () => { serverListeners.delete(listener); };
+}
+
 export function connect(): void {
   // StrictMode монтирует эффекты дважды, а reconnect может наложиться на живое
   // соединение. Без этой защиты образуется второй сокет, и каждое событие
@@ -1363,7 +1383,11 @@ export function connect(): void {
     useStore.getState().setConnected(false);
     setTimeout(connect, 1500);
   };
-  socket.onmessage = (ev) => useStore.getState().apply(JSON.parse(ev.data) as ServerEvent);
+  socket.onmessage = (ev) => {
+    const e = JSON.parse(ev.data) as ServerEvent;
+    useStore.getState().apply(e);
+    for (const listener of serverListeners) listener(e);
+  };
   // Сокет может открыться, а snapshot — не прийти (сервер завис на старте).
   // Без этого таймаута экран меню молча висел бы на «Открываем офис…» вечно.
   setTimeout(() => {

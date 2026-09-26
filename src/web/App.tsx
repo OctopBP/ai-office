@@ -5,6 +5,7 @@ import { Shell } from './shell/Shell';
 import { focusComposer } from './shell/Composer';
 import { closeDiff, connect, setPaused, useStore } from './store';
 import { startRouting } from './routeSync';
+import { startNotify } from './notify';
 
 export function App() {
   const theme = useStore((s) => s.theme);
@@ -20,6 +21,7 @@ export function App() {
   const pending = useStore((s) => s.pending);
   const settingsSection = useStore((s) => s.settingsSection);
   const teamRequest = useStore((s) => s.teamRequest);
+  const panelRequest = useStore((s) => s.panelRequest);
   const view = useStore((s) => s.view);
   const setView = useStore((s) => s.setView);
   const graphics = useStore((s) => s.graphics);
@@ -30,6 +32,8 @@ export function App() {
   useEffect(() => { connect(); }, []);
   // Адрес ↔ открытый офис: /office/<id> и вкладки главного экрана (router.ts).
   useEffect(() => startRouting(), []);
+  // Системные уведомления: слушают события сервера, а не рендер (notify.ts).
+  useEffect(() => startNotify(), []);
 
   // Ссылка «настройки раскладки» из карточки безместного сотрудника: стор
   // получает запрос на раздел «Проект», а открывает модалку уже здесь.
@@ -42,6 +46,14 @@ export function App() {
   useEffect(() => {
     if (teamRequest) setModal('team');
   }, [teamRequest]);
+
+  // Клик по системному уведомлению (notify.ts) — тот же приём: стор получает
+  // запрос на панель, открывает её App и сразу сбрасывает запрос.
+  useEffect(() => {
+    if (!panelRequest) return;
+    setPanel(panelRequest);
+    useStore.setState({ panelRequest: null });
+  }, [panelRequest]);
 
   // Переключаемся на другой офис: закрываем всё, что открыто поверх сцены,
   // иначе доска, лог или дифф прежнего офиса повисли бы в новом.

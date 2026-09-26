@@ -16,6 +16,7 @@ import { t, type UiKey } from './i18n';
 import { McpCatalog, type McpRequest } from './McpCatalog';
 import { OfficeIconSetting } from './OfficeIcon';
 import { Icon } from './icons';
+import { notifyPermission, notifyWanted, setNotifyWanted, type NotifyPermission } from './notify';
 
 const parse = (v: string): number | null => {
   const n = Number(v.replace(',', '.'));
@@ -105,6 +106,14 @@ export function SettingsModal({ onClose }: { onClose: () => void }) {
     clearSettingsSection();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [settingsSection]);
+  const [notify, setNotify] = useState<{ wanted: boolean; permission: NotifyPermission }>(
+    () => ({ wanted: notifyWanted(), permission: notifyPermission() }),
+  );
+  const toggleNotify = (on: boolean) => {
+    setNotify((n) => ({ ...n, wanted: on }));
+    // Ответ браузера приходит не сразу: человек ещё смотрит на его запрос.
+    void setNotifyWanted(on).then((permission) => setNotify({ wanted: on, permission }));
+  };
   const [global, setGlobal] = useState(settings.globalBudgetUsd?.toString() ?? '');
   const [perTask, setPerTask] = useState(settings.taskBudgetUsd?.toString() ?? '');
   const [maxTurns, setMaxTurns] = useState(settings.taskMaxTurns?.toString() ?? '');
@@ -257,6 +266,23 @@ export function SettingsModal({ onClose }: { onClose: () => void }) {
                   ))}
                 </div>
                 <p className="hint muted">{t('settings.theme.hint')}</p>
+
+                {/* Как и тема — живёт на этом компьютере и применяется сразу. */}
+                <h4 className="section-title">{t('settings.notify.title')}</h4>
+                <label className="checkbox">
+                  <input
+                    type="checkbox" checked={notify.wanted} disabled={notify.permission === 'unsupported'}
+                    onChange={(e) => toggleNotify(e.target.checked)}
+                  />
+                  {t('settings.notify')}
+                </label>
+                <p className="hint muted">{t('settings.notify.hint')}</p>
+                {notify.permission === 'denied' && notify.wanted && (
+                  <p className="hint error">{t('settings.notify.denied')}</p>
+                )}
+                {notify.permission === 'unsupported' && (
+                  <p className="hint muted">{t('settings.notify.unsupported')}</p>
+                )}
               </>
             )}
 
