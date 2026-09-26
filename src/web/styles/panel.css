@@ -39,7 +39,7 @@
   display: flex; flex-direction: column; overflow: hidden;
   padding: var(--space-4); min-height: 0;
 }
-.panel-body > .log, .panel-body > .board, .panel-body > .money-board { overflow-y: auto; }
+.panel-body > .board, .panel-body > .money-board { overflow-y: auto; }
 .panel-body > .merge-queue { overflow-y: auto; flex: 1; }
 
 .help p { margin: 0 0 var(--space-3); }

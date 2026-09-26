@@ -13,6 +13,15 @@
  */
 import type { Theme } from './sprites';
 import { Kbd } from './Kbd';
+import { EventTable, eventTypeOf } from './EventLog';
+import type { LogEntry } from '../shared/types';
+
+/** Строки лога для образца окна: по одной на каждый тон, время — сегодняшнее. */
+const KIT_LOG: LogEntry[] = [
+  { id: 'k1', at: Date.now() - 180_000, agentId: 'frontend#1', kind: 'tool', text: 'Read: читает Panel.tsx' },
+  { id: 'k2', at: Date.now() - 120_000, agentId: 'backend#2', kind: 'error', text: 'Bash: typecheck упал' },
+  { id: 'k3', at: Date.now() - 60_000, agentId: null, kind: 'system', text: 'T-125: проверки прошли' },
+];
 
 const SWATCHES: Array<[string, string]> = [
   ['canvas', 'холст'], ['surface', 'поверхность'], ['film', 'плёнка'], ['film-2', 'активная строка'],
@@ -141,10 +150,8 @@ function Half({ theme }: { theme: Theme }) {
               <button className="sq ghost">✕</button>
             </header>
             <div className="panel-body">
-              <div className="log">
-                <div className="log-row text"><span className="log-agent">frontend#1</span><span className="log-text">Read: читает Panel.tsx</span></div>
-                <div className="log-row error"><span className="log-agent">backend#2</span><span className="log-text">Bash: typecheck упал</span></div>
-                <div className="log-row system"><span className="log-agent">офис</span><span className="log-text">T-125 влита</span></div>
+              <div className="ev-log">
+                <EventTable empty="" rows={KIT_LOG.map((entry) => ({ entry, type: eventTypeOf(entry) }))} />
               </div>
             </div>
           </div>

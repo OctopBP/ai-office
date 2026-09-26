@@ -5,7 +5,7 @@
 
 /* ---------- правая колонка ---------- */
 
-.chat, .log { overflow-y: auto; padding: var(--space-1); min-height: 0; flex: 1; }
+.chat { overflow-y: auto; padding: var(--space-1); min-height: 0; flex: 1; }
 .msg { margin-bottom: var(--space-3); }
 .msg-from { font-size: var(--fs-small); color: var(--ink-3); margin-bottom: var(--space-1); }
 /* Время реплики отжимает подпись автора влево, а само садится в правый край строки. */
@@ -24,13 +24,106 @@
 .chat-date-sep { display: flex; align-items: center; gap: var(--space-2); margin: var(--space-3) 0; color: var(--ink-3); font-size: var(--fs-small); }
 .chat-date-sep::before, .chat-date-sep::after { content: ''; flex: 1; height: 1px; background: var(--hairline); }
 
-.log-row { display: flex; gap: var(--space-2); padding: var(--space-1) 0; font-size: var(--fs-body); border-bottom: 1px solid var(--hairline); }
-.log-time { color: var(--ink-3); font-family: var(--font-mono); font-size: var(--fs-small); font-variant-numeric: tabular-nums; white-space: nowrap; }
-.log-agent { color: var(--ink-3); min-width: 82px; font-family: var(--font-mono); font-size: var(--fs-small); }
-.log-text { flex: 1; word-break: break-word; }
-.log-row.error .log-text { color: var(--danger); }
-.log-row.text .log-text { color: var(--ink-2); }
-.log-row.system .log-text { color: var(--ink-3); }
+/* Лог событий — таблица «время | кто | тип | текст» (EventLog.tsx). Колонки
+   на сетке, а не на флексе: у каждой строки своя ширина имени и метки, и
+   флекс разводил текст лесенкой. Все колонки, кроме текста, фиксированы;
+   текст режется в две строки и раскрывается по клику. По горизонтали лог не
+   прокручивается никогда — на узком окне колонки «кто» и «тип» сжимаются до
+   значков (container query ниже). */
+.ev-log {
+  display: flex; flex-direction: column; gap: var(--space-2);
+  min-height: 0; flex: 1; container-type: inline-size;
+  /* Под «11:35 PM»: в английском часы двенадцатичасовые и шире «23:35». */
+  --ev-time-w: calc(var(--fs-small) * 5);
+}
+.ev-filters { display: flex; align-items: center; gap: var(--space-2); flex-wrap: wrap; }
+.ev-filters select { min-width: 0; max-width: 220px; }
+.ev-count { margin-left: auto; white-space: nowrap; }
+
+.ev-table { overflow-y: auto; overflow-x: hidden; min-height: 0; flex: 1; font-size: var(--fs-row); }
+.ev-row {
+  display: grid; grid-template-columns: var(--ev-time-w) minmax(0, 160px) 92px minmax(0, 1fr);
+  column-gap: var(--space-3); align-items: start;
+  padding: 4px var(--space-2); border-radius: var(--radius-icon);
+}
+.ev-row.odd { background: var(--film); }
+.ev-row.can-open { cursor: pointer; }
+.ev-row.can-open:hover { background: var(--film-2); }
+.ev-head {
+  position: sticky; top: 0; z-index: 1; border-radius: 0;
+  background: var(--surface); border-bottom: 1px solid var(--hairline);
+  color: var(--ink-3); font-size: var(--fs-caption); font-weight: 600;
+  text-transform: uppercase; letter-spacing: .04em;
+}
+.ev-head span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ev-day { margin: var(--space-2) 0 var(--space-1); }
+.ev-empty { margin: 0; padding: var(--space-3) var(--space-2); }
+
+.ev-time {
+  color: var(--ink-3); font-family: var(--font-mono); font-size: var(--fs-small);
+  font-variant-numeric: tabular-nums; white-space: nowrap; line-height: 18px; cursor: default;
+}
+
+/* Кто: подпись в цвете роли, подмешанном к цвету текста, — чистый янтарь
+   или лайм на белом не читаются. */
+.ev-who { display: flex; align-items: center; gap: 6px; min-width: 0; height: 18px; }
+.ev-name {
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 500;
+  color: color-mix(in srgb, var(--ev-role) 65%, var(--ink));
+}
+.ev-who.office .ev-name { color: var(--ink-3); font-weight: 400; }
+.ev-sys {
+  flex: none; width: 16px; height: 16px; border-radius: 4px;
+  display: inline-grid; place-items: center;
+  background: var(--film-3); color: var(--ink-3);
+}
+
+/* Тип: маленькая пилюля с точкой; тон задаёт тип, а не роль. */
+.ev-type {
+  --ev-tone: var(--ink-4);
+  display: inline-flex; align-items: center; gap: 5px; justify-self: start;
+  min-width: 0; max-width: 100%; height: 18px; padding: 0 7px;
+  border-radius: var(--radius-pill);
+  background: color-mix(in srgb, var(--ev-tone) 14%, transparent);
+  color: color-mix(in srgb, var(--ev-tone) 75%, var(--ink));
+  font-size: var(--fs-caption); font-weight: 600;
+}
+.ev-type span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ev-type i { flex: none; width: 6px; height: 6px; border-radius: 50%; background: var(--ev-tone); }
+.ev-type[data-type='task'] { --ev-tone: var(--accent); }
+.ev-type[data-type='review'] { --ev-tone: var(--ok-ink); }
+.ev-type[data-type='question'] { --ev-tone: var(--warn); }
+.ev-type[data-type='error'] { --ev-tone: var(--danger); }
+.ev-type[data-type='chat'] { --ev-tone: var(--accent-3); }
+.ev-type[data-type='tool'] { --ev-tone: var(--ink-3); }
+.ev-type[data-type='ritual'] { --ev-tone: var(--accent-8); }
+.ev-type[data-type='system'] { --ev-tone: var(--ink-4); }
+
+.ev-text {
+  color: var(--ink-2); line-height: 18px; word-break: break-word; overflow: hidden;
+  display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; line-clamp: 2;
+}
+.ev-row.open .ev-text { display: block; white-space: pre-wrap; }
+.ev-text .auto-tag { margin-right: 4px; }
+
+.ev-row.is-error { background: rgba(var(--danger-rgb), .08); }
+.ev-row.is-error.can-open:hover { background: rgba(var(--danger-rgb), .14); }
+.ev-row.is-error .ev-text { color: var(--danger); }
+
+/* Упоминание задачи — ссылка, а не кнопка кита: стоит внутри строки текста. */
+.ev-task {
+  display: inline; min-height: 0; height: auto; padding: 0 2px; margin: 0;
+  border: 0; border-radius: 3px; background: none; vertical-align: baseline;
+  color: var(--accent); font: inherit; font-weight: 600; line-height: inherit; cursor: pointer;
+}
+.ev-task:hover:not(:disabled) { background: var(--film-2); text-decoration: underline; }
+
+@container (max-width: 560px) {
+  .ev-row { grid-template-columns: var(--ev-time-w) 16px 12px minmax(0, 1fr); column-gap: var(--space-2); }
+  .ev-name, .ev-type span { display: none; }
+  .ev-type { padding: 0; background: none; width: 12px; justify-content: center; }
+  .ev-head span:nth-child(2), .ev-head span:nth-child(3) { visibility: hidden; }
+}
 
 /* Поле кита уже даёт фон, рамку, радиус и фокус — тут только раскладка. */
 
