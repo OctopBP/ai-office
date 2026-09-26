@@ -2456,18 +2456,21 @@ function startWorker(
       // физически не могли затереть друг другу файлы.
       if (!kept && role.isolate && await repoReady(taskOffice, repoDir)) {
         const wt = await createWorktree(repoDir, worktreesRoot(taskOffice), task.id);
-        if (wt) {
-          workdir = wt.path;
-          workRoot = wt.path;
-          taskOffice.updateTask(task.id, {
-            branch: wt.branch, baseBranch: wt.base, worktreePath: wt.path,
-          });
-          taskOffice.addLog(inst.id, 'system',
-            taskOffice.say('agent.log.worktree', { branch: wt.branch }));
-        } else {
-          taskOffice.addLog(inst.id, 'error',
-            taskOffice.say('agent.log.worktreeFailed', { task: task.id }));
+        // Без своей копии задача не стартует: работа в общей директории
+        // шла бы прямо в основной ветке, мимо ревью и слияния (T-106).
+        // Ошибка уходит в общий catch — задача падает с причиной на доске.
+        if (!wt.ok) {
+          throw new Error(wt.reason === 'no-base'
+            ? taskOffice.say('agent.log.worktreeNoBase', { task: task.id })
+            : taskOffice.say('agent.log.worktreeFailed', { task: task.id, error: wt.detail }));
         }
+        workdir = wt.path;
+        workRoot = wt.path;
+        taskOffice.updateTask(task.id, {
+          branch: wt.branch, baseBranch: wt.base, worktreePath: wt.path,
+        });
+        taskOffice.addLog(inst.id, 'system',
+          taskOffice.say('agent.log.worktree', { branch: wt.branch }));
       }
 
       // Документные роли пишут в свою папку задачи ВНУТРИ рабочей копии.

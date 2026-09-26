@@ -11,7 +11,7 @@
 const { fork } = require('node:child_process');
 const { createServer, connect } = require('node:net');
 const { execFileSync } = require('node:child_process');
-const { createWriteStream, mkdirSync } = require('node:fs');
+const { createWriteStream, existsSync, mkdirSync, readFileSync } = require('node:fs');
 const { dirname, join } = require('node:path');
 
 const paths = require('./paths');
@@ -56,16 +56,26 @@ function waitPort(port, timeoutMs = 30000) {
  */
 function loginPath() {
   if (process.platform === 'win32') return process.env.PATH ?? '';
+  let found = '';
   try {
     const shell = process.env.SHELL || '/bin/zsh';
     const out = execFileSync(shell, ['-ilc', 'printf "%s" "$PATH"'], {
       encoding: 'utf8', timeout: 4000, stdio: ['ignore', 'pipe', 'ignore'],
     });
-    const found = out.split(/\r?\n/).map((s) => s.trim()).filter(Boolean).pop();
-    return found || (process.env.PATH ?? '');
-  } catch {
-    return process.env.PATH ?? '';
+    found = out.split(/\r?\n/).map((s) => s.trim()).filter(Boolean).pop() ?? '';
+  } catch { /* медленный или сломанный .zshrc — ниже добавим системные каталоги */ }
+  // Шелл не ответил — остаётся голый PATH из Finder, где нет ни node, ни
+  // git-lfs: с ним `git worktree add` падал на LFS-файлах, и задачи шли без
+  // своих копий (T-106). Системные каталоги дописываем в любом случае.
+  const dirs = (found || process.env.PATH || '').split(':').filter(Boolean);
+  let system = [];
+  try {
+    system = readFileSync('/etc/paths', 'utf8').split('\n').map((s) => s.trim());
+  } catch { /* не macOS */ }
+  for (const dir of ['/opt/homebrew/bin', '/usr/local/bin', ...system]) {
+    if (dir && !dirs.includes(dir) && existsSync(dir)) dirs.push(dir);
   }
+  return dirs.join(':');
 }
 
 /**
