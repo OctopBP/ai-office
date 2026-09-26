@@ -21,6 +21,32 @@ import { onServerEvent, useStore } from './store';
 
 const STORAGE_KEY = 'office-notify';
 
+/**
+ * Мост приложения для macOS и Windows (desktop/office-preload.js). В браузере
+ * его нет — тогда всё идёт через обычные API страницы.
+ */
+interface OfficeDesktop {
+  /** Восстановить окно из свёрнутого и вывести на передний план. */
+  focus(): void;
+  /** Число того, что ждёт владельца: значок в доке, подсветка на панели задач. Ноль снимает. */
+  setBadge(count: number): void;
+}
+
+declare global {
+  interface Window {
+    officeDesktop?: OfficeDesktop;
+  }
+}
+
+/**
+ * window.focus() из страницы поднять свёрнутое окно не может: система отдаёт
+ * фокус только процессу, который попросил сам. В приложении просит main.
+ */
+function focusWindow(): void {
+  if (window.officeDesktop) window.officeDesktop.focus();
+  else window.focus();
+}
+
 /** Куда вести по клику: вопрос — в «Жизнь офиса», задачу — на доску. */
 type Target =
   | { kind: 'life' }
@@ -154,7 +180,7 @@ function jump(target: Target): void {
 }
 
 function open(officeId: string, target: Target): void {
-  window.focus();
+  focusWindow();
   const s = useStore.getState();
   const office = currentOffice();
   if (office?.id === officeId && s.screen === 'office' && !s.pending) {
@@ -180,7 +206,33 @@ function show(officeId: string, title: string, reason: Reason): void {
   }
 }
 
+/**
+ * Сколько ждёт владельца: открытые вопросы (согласования задач среди них) и
+ * фичи, которые ждут его «поехали». Не зависит от переключателя уведомлений:
+ * значок никого не отвлекает, он просто виден, когда есть на что ответить.
+ */
+function waitingCount(): number {
+  const s = useStore.getState();
+  if (!currentOffice()) return 0;
+  const questions = s.questions.filter((q) => !q.answeredAt && !q.dismissedAt).length;
+  const epics = Object.values(s.epics).filter((e) => e.status === 'planned' && !e.approved).length;
+  return questions + epics;
+}
+
+/** Последнее отправленное в мост число: одно и то же не шлём на каждом событии. */
+let badge = -1;
+
+function updateBadge(): void {
+  const bridge = window.officeDesktop;
+  if (!bridge) return;
+  const n = waitingCount();
+  if (n === badge) return;
+  badge = n;
+  bridge.setBadge(n);
+}
+
 function handle(e: ServerEvent): void {
+  if (e.t === 'snapshot' || RELEVANT.has(e.t)) updateBadge();
   const office = currentOffice();
   if (e.t === 'snapshot') {
     known = office ? { officeId: office.id, keys: new Set(reasons().map((r) => r.key)) } : null;

@@ -8,12 +8,25 @@
  * меньше, чем строка «Запускаю офис…».
  */
 
-const { app, BrowserWindow, Menu, dialog, ipcMain, shell } = require('electron');
+const { app, BrowserWindow, Menu, dialog, ipcMain, nativeImage, shell } = require('electron');
 const { join } = require('node:path');
 
 const paths = require('./paths');
 const engine = require('./engine');
 const server = require('./server');
+
+/**
+ * Имя и идентификатор, под которыми система показывает уведомления. Из
+ * исходников Electron назвался бы «Electron»; собранное приложение берёт имя
+ * из productName, но задать явно дешевле, чем выяснять, кто победил.
+ * AppUserModelId на Windows обязателен: без него уведомления не показываются
+ * вовсе. Совпадает с appId сборки (builder.config.js) — под ним установщик
+ * регистрирует ярлык. Из исходников ярлыка нет, и Windows узнаёт процесс
+ * только по пути к исполняемому файлу.
+ */
+const APP_ID = 'dev.aioffice.app';
+app.setName('AI Office');
+if (process.platform === 'win32') app.setAppUserModelId(app.isPackaged ? APP_ID : process.execPath);
 
 /** Одно приложение — один офис: второй запуск поднимает уже открытое окно. */
 if (!app.requestSingleInstanceLock()) app.quit();
@@ -57,7 +70,7 @@ function createMainWindow() {
   mainWindow = new BrowserWindow({
     width: 1360, height: 900, minWidth: 960, minHeight: 640,
     title: 'AI Office', icon, show: false, backgroundColor: '#0d0e11',
-    webPreferences: { spellcheck: false },
+    webPreferences: { spellcheck: false, preload: join(__dirname, 'office-preload.js') },
   });
   mainWindow.loadURL(`http://127.0.0.1:${port}/`);
   mainWindow.once('ready-to-show', () => {
@@ -76,6 +89,8 @@ function createMainWindow() {
       shell.openExternal(url);
     }
   });
+  // Мигание кнопки на панели задач (setBadge) — призыв вернуться; вернулись — хватит.
+  mainWindow.on('focus', () => mainWindow?.flashFrame(false));
   mainWindow.on('closed', () => { mainWindow = null; });
 }
 
@@ -214,11 +229,107 @@ function buildMenu() {
   ]));
 }
 
-app.on('second-instance', () => {
-  const window = mainWindow ?? bootWindow;
+/**
+ * Поднять окно: из свёрнутого, из-за других окон и, на macOS, из другого
+ * приложения. window.focus() из страницы этого не умеет — система отдаёт
+ * фокус только процессу, который сам попросил.
+ */
+function raise(window) {
   if (!window) return;
   if (window.isMinimized()) window.restore();
+  if (!window.isVisible()) window.show();
+  if (process.platform === 'darwin') app.focus({ steal: true });
   window.focus();
+}
+
+app.on('second-instance', () => raise(mainWindow ?? bootWindow));
+
+/** Команды моста принимаем только от окна офиса и только со своего сервера. */
+const fromOffice = (event) =>
+  mainWindow !== null
+  && event.sender === mainWindow.webContents
+  && event.senderFrame?.url.startsWith(`http://127.0.0.1:${port}/`);
+
+/** Последнее показанное число — чтобы мигать на Windows только при росте. */
+let badge = 0;
+
+/**
+ * Значок ожидающего владельца. На macOS — число на иконке в доке. На Windows
+ * числа на кнопке панели задач нет, есть наложение-картинка: рисуем кружок с
+ * цифрой сами и вдобавок мигаем кнопкой, если ожидающего стало больше, а окно
+ * не в фокусе. Ноль снимает и то и другое.
+ */
+function setBadge(count) {
+  const n = Math.max(0, Math.min(999, Math.floor(count)));
+  const grew = n > badge;
+  badge = n;
+  if (process.platform === 'darwin') {
+    app.dock?.setBadge(n ? String(n) : '');
+    return;
+  }
+  if (process.platform !== 'win32') {
+    app.setBadgeCount(n);
+    return;
+  }
+  if (!mainWindow) return;
+  mainWindow.setOverlayIcon(n ? badgeIcon(n) : null, n ? `Ждут ответа: ${n}` : '');
+  if (!n) mainWindow.flashFrame(false);
+  else if (grew && !mainWindow.isFocused()) mainWindow.flashFrame(true);
+}
+
+/** Цифры 3×5 для наложения: шрифтов в main нет, а картинка нужна растровая. */
+const GLYPHS = {
+  0: ['111', '101', '101', '101', '111'],
+  1: ['010', '110', '010', '010', '111'],
+  2: ['111', '001', '111', '100', '111'],
+  3: ['111', '001', '111', '001', '111'],
+  4: ['101', '101', '111', '001', '001'],
+  5: ['111', '100', '111', '001', '111'],
+  6: ['111', '100', '111', '101', '111'],
+  7: ['111', '001', '010', '010', '010'],
+  8: ['111', '101', '111', '101', '111'],
+  9: ['111', '101', '111', '001', '111'],
+  '+': ['000', '010', '111', '010', '000'],
+};
+
+/** Красный кружок с числом, 32×32 при масштабе 2 — 16×16 точек на панели задач. */
+function badgeIcon(n) {
+  const size = 32;
+  const text = n > 9 ? '9+' : String(n);
+  const scale = text.length === 1 ? 4 : 3;
+  const buf = Buffer.alloc(size * size * 4);
+  const put = (x, y, r, g, b) => {
+    const i = (y * size + x) * 4;
+    // createFromBitmap ждёт BGRA.
+    buf[i] = b; buf[i + 1] = g; buf[i + 2] = r; buf[i + 3] = 255;
+  };
+  const c = (size - 1) / 2;
+  for (let y = 0; y < size; y++) {
+    for (let x = 0; x < size; x++) {
+      if ((x - c) ** 2 + (y - c) ** 2 <= (size / 2) ** 2) put(x, y, 0xd9, 0x30, 0x25);
+    }
+  }
+  const w = (text.length * 4 - 1) * scale;
+  const left = Math.round((size - w) / 2);
+  const top = Math.round((size - 5 * scale) / 2);
+  [...text].forEach((ch, k) => {
+    GLYPHS[ch].forEach((row, gy) => {
+      [...row].forEach((bit, gx) => {
+        if (bit !== '1') return;
+        for (let dy = 0; dy < scale; dy++) {
+          for (let dx = 0; dx < scale; dx++) {
+            put(left + (k * 4 + gx) * scale + dx, top + gy * scale + dy, 255, 255, 255);
+          }
+        }
+      });
+    });
+  });
+  return nativeImage.createFromBitmap(buf, { width: size, height: size, scaleFactor: 2 });
+}
+
+ipcMain.on('office:focus', (event) => { if (fromOffice(event)) raise(mainWindow); });
+ipcMain.on('office:badge', (event, count) => {
+  if (fromOffice(event) && Number.isFinite(count)) setBadge(count);
 });
 
 app.whenReady().then(async () => {
