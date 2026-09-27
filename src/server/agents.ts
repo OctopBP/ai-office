@@ -2980,7 +2980,7 @@ export async function retryTask(
     // Отметки прошлой попытки к новой не относятся: работа начинается с нуля.
     criteria: task.criteria.map((c) => ({ ...c, done: false })),
     // Исход прошлой попытки — тоже: судить новую по нему нельзя.
-    outcome: null, mergeCommit: null,
+    outcome: null, mergeCommit: null, delivery: null,
   });
   const fresh = state.tasks.get(taskId);
   if (!fresh) return no('restart.noTask', { task: taskId });

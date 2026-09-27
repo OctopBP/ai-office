@@ -38,6 +38,7 @@ import {
   type OfficeEntry,
 } from './offices';
 import { handleOfficeIcon } from './officeicon';
+import { handleTaskFiles } from './taskfiles';
 // hasCommits и repoProblem здесь больше не нужны: проверку репозитория и
 // выставление gitReady целиком делает envcheck — одно место на все проверки.
 import { initRepo, isRepo } from './git';
@@ -276,6 +277,8 @@ const httpServer = createServer((req, res) => {
   }
   // Аватарка офиса: отдача картинки, загрузка и снятие — см. officeicon.ts.
   if (handleOfficeIcon(req, res, url, query)) return;
+  // Файлы результата влитой задачи: список и содержимое — см. taskfiles.ts.
+  if (handleTaskFiles(req, res, url, query)) return;
   // Журнал офиса — постранично: `?limit=50&cursor=J-120&office=<id>`.
   // Снапшот по сокету отдаёт журнал целиком, и это правильно для интерфейса,
   // который держит его весь; всем остальным (скрипты, проверки, сторонний
