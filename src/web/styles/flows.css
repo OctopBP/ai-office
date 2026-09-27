@@ -158,3 +158,19 @@
 .flow-inspect dd { margin: 0; color: var(--ink-2); }
 .flow-inspect ul { margin: 0; padding-left: 16px; }
 .flow-inspect .stuck { color: var(--danger); }
+
+/* ---------- панель «Выпуски» ----------
+   Карточка цели — та же плёнка, что строки процессов; внутри — факты,
+   ссылки, идущий выпуск и история таблицей узлов. */
+.release-facts { display: flex; flex-wrap: wrap; gap: var(--space-2) var(--space-4); font-size: var(--fs-small); }
+.release-links { display: flex; flex-wrap: wrap; gap: var(--space-2); font-size: var(--fs-small); }
+.release-live { font-size: var(--fs-small); display: flex; align-items: center; gap: var(--space-2); flex-wrap: wrap; }
+.release-live.stuck { color: var(--danger); }
+.release-epics { display: flex; flex-direction: column; gap: 2px; font-size: var(--fs-small); max-height: 200px; overflow-y: auto; }
+.release-check { display: inline-flex; align-items: center; gap: var(--space-1); font-size: var(--fs-small); white-space: nowrap; }
+.release-check input[type='number'] { width: 56px; }
+.release-epic { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.release-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: var(--space-2) var(--space-3); }
+.release-field { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.release-field input, .release-field select { width: 100%; box-sizing: border-box; }
+.release-when { display: flex; flex-wrap: wrap; gap: var(--space-1) var(--space-3); }

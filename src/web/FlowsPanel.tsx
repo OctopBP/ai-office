@@ -43,7 +43,7 @@ function BoardTab() {
   const workflows = useStore((s) => s.workflows);
   const runs = useStore((s) => s.runs);
   const tasks = useStore((s) => s.tasks);
-  const live = Object.values(runs).filter((r) => r.subject.taskId);
+  const live = Object.values(runs).filter((r) => r.subject.taskId || r.subject.releaseId);
   if (!live.length) return <p className="empty">{t('flows.board.empty')}</p>;
   const byFlow = new Map<string, Run[]>();
   for (const r of live) byFlow.set(r.workflowId, [...(byFlow.get(r.workflowId) ?? []), r]);

@@ -168,7 +168,7 @@ function useOfficeDrag(offices: OfficeView[]) {
   };
 }
 
-type WindowKind = 'board' | 'merge' | 'log' | 'money' | 'meetings' | 'life' | 'flows' | 'team' | 'settings';
+type WindowKind = 'board' | 'merge' | 'log' | 'money' | 'meetings' | 'life' | 'flows' | 'releases' | 'team' | 'settings';
 const WINDOWS: Array<{ kind: WindowKind; icon: IconName }> = [
   { kind: 'board', icon: 'list-check' },
   { kind: 'merge', icon: 'git-merge' },
@@ -177,6 +177,7 @@ const WINDOWS: Array<{ kind: WindowKind; icon: IconName }> = [
   { kind: 'meetings', icon: 'message' },
   { kind: 'life', icon: 'book' },
   { kind: 'flows', icon: 'grid-dots' },
+  { kind: 'releases', icon: 'package' },
   { kind: 'team', icon: 'users' },
   { kind: 'settings', icon: 'settings' },
 ];
@@ -218,8 +219,10 @@ export function Rail({ onPanel, onModal }: {
   const readyToMerge = all.filter((x) => x.status === 'done' && x.branch && !x.merged).length;
   // У совещаний счётчик — единица, пока одно идёт: это «сейчас говорят», а не число прошлых.
   const meetingLive = useStore((s) => s.meeting?.status === 'running');
+  // Выпуски — сколько сейчас идёт: готовится, ждёт согласия или собирается.
+  const releasesLive = useStore((s) => s.releases.filter((r) => ['preparing', 'waiting', 'building'].includes(r.status)).length);
   const counts: Partial<Record<WindowKind, number>> = {
-    board: active, merge: readyToMerge, meetings: meetingLive ? 1 : 0,
+    board: active, merge: readyToMerge, meetings: meetingLive ? 1 : 0, releases: releasesLive,
   };
   // Бейдж «Жизни офиса» — число вопросов владельцу, ждущих решения. Считает
   // сервер (openQuestions в сторе), здесь только форматирование: 0 — бейджа

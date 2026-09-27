@@ -34,6 +34,9 @@ import {
   type Capability, type FlowMemory, type Handoff, type Run, type TaskType,
 } from '../shared/workflow';
 import { workflowCatalog } from './workflows';
+import {
+  parseReleaseConfig, type EpicRelease, type Release, type ReleasePlan, type ReleaseTarget,
+} from '../shared/release';
 import { foldSpend, spendSeq, SPEND_MAX } from './spend';
 import { capabilitiesOf } from './roles';
 import { t, c, type ServerKey } from './i18n';
@@ -644,6 +647,8 @@ export interface Epic {
   rationale: string;
   /** Направление владельца, по которому заведена. null — вне направлений. */
   directionId: string | null;
+  /** Вклад в выпуск (docs/design/releases/spec.md §6.2). В старых сохранениях поля нет. */
+  release?: EpicRelease | null;
   createdAt: number;
   startedAt: number | null;
   finishedAt: number | null;
@@ -675,6 +680,12 @@ export interface Task {
   files: string[];
   branch: string | null;
   baseBranch: string | null;
+  /**
+   * От какой ветки заводить рабочую копию, если не от основной. Так
+   * починка сборки ответвляется от ветки выпуска и в неё же сливается
+   * (docs/design/releases/spec.md §7.3). Нет поля — от основной.
+   */
+  forkFrom?: string | null;
   worktreePath: string | null;
   /** Репозиторий, в котором выполнялась задача: у ролей они могут отличаться. */
   repoDir: string | null;
@@ -916,6 +927,13 @@ export class OfficeState {
   prs = new Map<string, PullRequestView>();
   /** Прогоны процессов по задачам, ключ — id прогона (docs/design/workflows/spec.md §8). */
   runs = new Map<string, Run>();
+  /** Выпуски, ключ — id (docs/design/releases/spec.md §9). Хранятся все. */
+  releases = new Map<string, Release>();
+  releasePlans = new Map<string, ReleasePlan>();
+  private releaseSeq = 0;
+  private releasePlanSeq = 0;
+  /** С какого момента офис знает цель выпуска: раньше автоматических поводов нет. */
+  releaseSince: Record<string, number> = {};
   /**
    * Пауза офиса: новая работа не запускается, а живые сессии замирают
    * на следующем вызове инструмента. Сохраняется — в реестре офисов
@@ -1254,6 +1272,11 @@ export class OfficeState {
       epicSeq: this.epicSeq,
       prs: [...this.prs.values()],
       runs: [...this.runs.values()],
+      releases: [...this.releases.values()],
+      releaseSeq: this.releaseSeq,
+      releasePlans: [...this.releasePlans.values()],
+      releasePlanSeq: this.releasePlanSeq,
+      releaseSince: this.releaseSince,
       chat: this.chat,
       log: this.log.slice(-500),
       meetings: this.meetings,
@@ -1594,6 +1617,74 @@ export class OfficeState {
     this.emit({ t: 'workflows', workflows: workflowCatalog(this) });
   }
 
+  // ---------- выпуски (docs/design/releases/spec.md) ----------
+
+  /** Цели выпуска из настроек. Нет настройки — целей нет. */
+  releaseTargets(): ReleaseTarget[] {
+    return this.settings.release?.targets ?? [];
+  }
+
+  releaseTarget(id: string): ReleaseTarget | null {
+    return this.releaseTargets().find((t) => t.id === id) ?? null;
+  }
+
+  /** Выпуски, свежие последними. */
+  releaseList(): Release[] {
+    return [...this.releases.values()].sort((a, b) => a.startedAt - b.startedAt);
+  }
+
+  /** Выпуски цели, свежие первыми. */
+  releasesOf(targetId: string): Release[] {
+    return this.releaseList().filter((r) => r.targetId === targetId).reverse();
+  }
+
+  newReleaseId(targetId: string): string {
+    this.releaseSeq += 1;
+    return `${targetId}-${this.releaseSeq}`;
+  }
+
+  saveRelease(release: Release): void {
+    this.releases.set(release.id, release);
+    this.emit({ t: 'release', release });
+    this.markDirty();
+  }
+
+  patchRelease(id: string, patch: Partial<Release>): Release | null {
+    const release = this.releases.get(id);
+    if (!release) return null;
+    Object.assign(release, patch);
+    this.saveRelease(release);
+    return release;
+  }
+
+  newReleasePlanId(): string {
+    this.releasePlanSeq += 1;
+    return `R-${this.releasePlanSeq}`;
+  }
+
+  saveReleasePlan(plan: ReleasePlan): void {
+    this.releasePlans.set(plan.id, plan);
+    this.emit({ t: 'release.plan', plan });
+    this.markDirty();
+  }
+
+  /** Открытый план выпуска цели. У цели он один. */
+  openReleasePlan(targetId: string): ReleasePlan | null {
+    for (const plan of this.releasePlans.values()) {
+      if (plan.targetId === targetId && plan.status === 'open') return plan;
+    }
+    return null;
+  }
+
+  /** Отметить, с какого момента офис знает цель. Уже знает — ничего. */
+  noteReleaseTarget(targetId: string, now = Date.now()): number {
+    const known = this.releaseSince[targetId];
+    if (known) return known;
+    this.releaseSince = { ...this.releaseSince, [targetId]: now };
+    this.markDirty();
+    return now;
+  }
+
   /** Последний прогон процесса самого офиса (не по задаче). */
   flowRun(workflowId: string): Run | null {
     let found: Run | null = null;
@@ -1790,6 +1881,17 @@ export class OfficeState {
         ...known, status: 'stuck', note: this.say('state.pr.interrupted'), updatedAt: Date.now(),
       });
     }
+    // Выпуск, шедший в момент перезапуска, — вставший: сборку убили вместе с
+    // сервером. Надзор пустит его снова с того же узла (releases.ts).
+    for (const release of data.releases ?? []) {
+      this.releases.set(release.id, release.status === 'preparing' || release.status === 'building'
+        ? { ...release, status: 'failed', stage: this.say('state.pr.interrupted'), needsDecision: false }
+        : release);
+    }
+    this.releaseSeq = data.releaseSeq ?? this.releases.size;
+    for (const plan of data.releasePlans ?? []) this.releasePlans.set(plan.id, plan);
+    this.releasePlanSeq = data.releasePlanSeq ?? this.releasePlans.size;
+    this.releaseSince = { ...(data.releaseSince ?? {}) };
 
     // Состав команды берём из сохранения целиком, а не дополняем им seed():
     // seed() сажает по одному сотруднику на роль и ничего не знает ни про
@@ -1937,6 +2039,11 @@ export class OfficeState {
     this.epics.clear();
     this.prs.clear();
     this.runs.clear();
+    this.releases.clear();
+    this.releasePlans.clear();
+    this.releaseSeq = 0;
+    this.releasePlanSeq = 0;
+    this.releaseSince = {};
     this.chat = [];
     this.log = [];
     this.meetings = [];
@@ -3587,6 +3694,26 @@ export class OfficeState {
       if (!clean) delete next.checks;
       else next.checks = clean;
     }
+    // Цели выпуска, как и каталог серверов, молча не чиним: отказ говорит,
+    // какая цель и что с ней не так. Проверка команды сборки — по проверкам
+    // проекта, которые пришли в этом же патче или уже лежат в настройках.
+    let dropRelease = false;
+    if ('release' in next) {
+      if (next.release === undefined || next.release === null) {
+        delete next.release;
+        dropRelease = true;
+      } else {
+        try {
+          next.release = parseReleaseConfig(next.release, next.checks ?? this.settings.checks ?? {});
+        } catch (err) {
+          const detail = err instanceof Error && 'issues' in err
+            ? (err as { issues: Array<{ path: Array<string | number>; message: string }> }).issues
+              .map((i) => `${i.path.join('.')}: ${i.message}`).join('; ')
+            : (err as Error).message;
+          return this.say('state.settings.release', { detail });
+        }
+      }
+    }
     if ('workflows' in next) {
       const clean = sanitizeWorkflowMap(next.workflows);
       if (!clean) delete next.workflows;
@@ -3615,6 +3742,7 @@ export class OfficeState {
     }
 
     this.settings = { ...this.settings, ...next };
+    if (dropRelease) delete this.settings.release;
     // Старое поле — зеркало языка общения, и поправить его надо ДО рассылки:
     // клиент прежней сборки читает язык офиса именно отсюда.
     this.settings.language = this.lang();
@@ -4115,6 +4243,8 @@ export class OfficeState {
       life: this.lifeView(),
       directions: this.directionList(),
       proposals: this.proposalList().map(toProposalView),
+      releases: this.releaseList(),
+      releasePlans: [...this.releasePlans.values()],
     };
   }
 }
@@ -4210,6 +4340,7 @@ export const toEpicView = (e: Epic): EpicView => ({
   id: e.id, title: e.title, goal: e.goal, order: e.order,
   status: e.status, approved: e.approved,
   origin: e.origin ?? 'owner', rationale: e.rationale ?? '', directionId: e.directionId ?? null,
+  release: e.release ?? null,
   createdAt: e.createdAt, startedAt: e.startedAt, finishedAt: e.finishedAt,
 });
 

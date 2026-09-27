@@ -435,7 +435,7 @@ function RunChips({ runs, taskTitle }: { runs: Run[]; taskTitle?: (id: string) =
   return (
     <div className="flow-runs">
       {runs.map((r) => {
-        const id = r.subject.taskId ?? r.subject.epicId ?? r.subject.flow ?? r.id;
+        const id = r.subject.taskId ?? r.subject.releaseId ?? r.subject.epicId ?? r.subject.flow ?? r.id;
         return (
           <span key={r.id} className={`chip ${r.status}`}
             title={`${r.subject.taskId ? taskTitle?.(r.subject.taskId) ?? '' : ''}${r.note ? `\n${r.note}` : ''}`.trim()}>
@@ -459,7 +459,7 @@ function DoneList({ runs, taskTitle }: { runs: Run[]; taskTitle?: (id: string) =
       <div className="flow-done-head">{t('flows.board.doneCount', { n: runs.length })}</div>
       <ul>
         {sorted.slice(0, DONE_SHOWN).map((r) => {
-          const id = r.subject.taskId ?? r.subject.epicId ?? r.subject.flow ?? r.id;
+          const id = r.subject.taskId ?? r.subject.releaseId ?? r.subject.epicId ?? r.subject.flow ?? r.id;
           return (
             <li key={r.id}>
               <span className="flow-done-id">{id}</span>

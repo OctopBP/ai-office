@@ -19,6 +19,7 @@ import { deleteTask, dropTask, editTask } from './tasks';
 import { approveEpic, cancelEpic, reorderEpics } from './plan';
 import { mergeQueue, refreshMergeChecks } from './merge';
 import { retryPipeline } from './review';
+import { closeReleasePlan, resumeRelease, saveReleasePlan, startRelease } from './releases';
 import { resetProjectWorkflow, saveProjectWorkflow } from './workflows';
 import { startSupervisor } from './supervisor';
 import { answerQuestion, dismissQuestion } from './questions';
@@ -486,6 +487,21 @@ wss.on('connection', (ws) => {
       if (problem) state.addChat(OFFICE_SENDER, state.say('wf.saveFailed', { problem }));
       else state.addChat(OFFICE_SENDER, state.say('wf.reset', { id: cmd.id }));
       state.emitWorkflows();
+    } else if (cmd.c === 'release_start') {
+      const out = startRelease(state, cmd.targetId, 'manual');
+      if (!out.ok) state.addChat(OFFICE_SENDER, out.message);
+    } else if (cmd.c === 'release_resume') {
+      const out = resumeRelease(state, cmd.releaseId);
+      state.addChat(OFFICE_SENDER, out.message);
+    } else if (cmd.c === 'release_plan_save') {
+      const out = saveReleasePlan(state, cmd);
+      state.addChat(OFFICE_SENDER, out.message);
+    } else if (cmd.c === 'release_plan_close') {
+      const out = closeReleasePlan(state, cmd.id);
+      if (!out.ok) state.addChat(OFFICE_SENDER, out.message);
+    } else if (cmd.c === 'epic_release') {
+      const epic = state.epics.get(cmd.epicId);
+      if (epic) state.updateEpic(epic.id, { release: cmd.release && (cmd.release.target || cmd.release.level) ? cmd.release : null });
     } else if (cmd.c === 'pr_retry') {
       // Вставший конвейер толкают кнопкой: чинить руками в терминале —
       // ровно то, от чего офис и должен избавлять.

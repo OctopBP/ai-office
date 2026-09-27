@@ -58,6 +58,7 @@ export type IconName =
   | 'cloud'
   | 'grid-dots'
   | 'archive'
+  | 'package'
   | 'circle'
   | 'circle-x'
   | 'forbid-2'
@@ -306,6 +307,13 @@ const ICON_PATHS: Record<IconName, string[]> = {
   ],
   // Коробка с крышкой: у Tabler крышка нарисована <rect>, здесь тот же
   // прямоугольник со скруглением записан путём — Icon рисует только <path>.
+  package: [
+    'M12 3l8 4.5l0 9l-8 4.5l-8 -4.5l0 -9l8 -4.5',
+    'M12 12l8 -4.5',
+    'M12 12l0 9',
+    'M12 12l-8 -4.5',
+    'M16 5.25l-8 4.5',
+  ],
   archive: [
     'M5 4h14a2 2 0 0 1 2 2v0a2 2 0 0 1 -2 2h-14a2 2 0 0 1 -2 -2v0a2 2 0 0 1 2 -2z',
     'M5 8v10a2 2 0 0 0 2 2h10a2 2 0 0 0 2 -2v-10',

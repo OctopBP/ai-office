@@ -59,7 +59,7 @@ export interface RunHooks<Ctx> {
 /** Новый прогон процесса — по задаче или по самому офису, на первом узле. */
 export function newRun(workflow: Workflow, subject: Run['subject'], now = Date.now()): Run {
   // У задачи прогон один; у процесса офиса их много, и каждый — свой.
-  const who = subject.taskId ?? subject.epicId ?? `${subject.flow ?? 'office'}@${now.toString(36)}`;
+  const who = subject.taskId ?? subject.releaseId ?? subject.epicId ?? `${subject.flow ?? 'office'}@${now.toString(36)}`;
   return {
     id: `${who}/${workflow.id}`,
     workflowId: workflow.id,

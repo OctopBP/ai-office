@@ -16,6 +16,7 @@ import {
 } from '../shared/types';
 import { asLang, type Lang } from '../shared/i18n';
 import type { Run, WorkflowEntry } from '../shared/workflow';
+import type { EpicRelease, Release, ReleasePlan, VersionLevel } from '../shared/release';
 import { lang as currentLang, locale, setLang, t as tr } from './i18n';
 import type { Theme } from './sprites';
 import { type Graphics, loadGraphics, saveGraphics } from './office3d/graphics';
@@ -327,6 +328,9 @@ interface State {
   runs: Record<string, Run>;
   /** Процессы офиса: встроенные и свои у проекта. */
   workflows: WorkflowEntry[];
+  /** Выпуски и планы выпусков (docs/design/releases/spec.md §11). */
+  releases: Release[];
+  releasePlans: ReleasePlan[];
   /** Живой офис: журнал, вопросы владельцу, ритуалы (docs/design/living-office). */
   facts: FactView[];
   questions: OwnerQuestion[];
@@ -568,6 +572,8 @@ export const useStore = create<State>((set, get) => ({
   prs: {},
   runs: {},
   workflows: [],
+  releases: [],
+  releasePlans: [],
   facts: [],
   questions: [],
   openQuestions: 0,
@@ -768,6 +774,7 @@ export const useStore = create<State>((set, get) => ({
           prs: Object.fromEntries(e.prs.map((pr) => [pr.taskId, pr])),
           runs: Object.fromEntries(e.runs.map((r) => [r.subject.taskId ?? r.id, r])),
           workflows: e.workflows,
+          releases: e.releases ?? [], releasePlans: e.releasePlans ?? [],
           facts: e.facts, questions: e.questions, openQuestions: e.openQuestions, life: e.life,
           directions: e.directions, proposals: e.proposals,
           booted: true, connectFailed: false,
@@ -1082,6 +1089,20 @@ export const useStore = create<State>((set, get) => ({
         break;
       case 'workflows':
         set({ workflows: e.workflows });
+        break;
+      case 'release':
+        set((s) => ({
+          releases: s.releases.some((r) => r.id === e.release.id)
+            ? s.releases.map((r) => (r.id === e.release.id ? e.release : r))
+            : [...s.releases, e.release],
+        }));
+        break;
+      case 'release.plan':
+        set((s) => ({
+          releasePlans: s.releasePlans.some((p) => p.id === e.plan.id)
+            ? s.releasePlans.map((p) => (p.id === e.plan.id ? e.plan : p))
+            : [...s.releasePlans, e.plan],
+        }));
         break;
       case 'fact':
         set((s) => ({
@@ -2055,6 +2076,29 @@ export function saveWorkflow(id: string, text: string): void {
 
 export function resetWorkflow(id: string): void {
   socket?.send(JSON.stringify({ c: 'workflow_reset', id }));
+}
+
+/** Выпустить цель сейчас (docs/design/releases/spec.md §5). */
+export function startRelease(targetId: string): void {
+  socket?.send(JSON.stringify({ c: 'release_start', targetId }));
+}
+
+export function resumeRelease(releaseId: string): void {
+  socket?.send(JSON.stringify({ c: 'release_resume', releaseId }));
+}
+
+export function saveReleasePlan(plan: {
+  id?: string; targetId: string; title: string; version: string | null; level: VersionLevel | null; epicIds: string[];
+}): void {
+  socket?.send(JSON.stringify({ c: 'release_plan_save', ...plan }));
+}
+
+export function closeReleasePlan(id: string): void {
+  socket?.send(JSON.stringify({ c: 'release_plan_close', id }));
+}
+
+export function setEpicRelease(epicId: string, release: EpicRelease | null): void {
+  socket?.send(JSON.stringify({ c: 'epic_release', epicId, release }));
 }
 
 export function runRitual(ritual: RitualId): void {

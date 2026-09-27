@@ -27,7 +27,10 @@ import { cloudProblem, runCloudTask, stopCloudTask } from './cloud';
 import { capabilitiesOf, type Role } from './roles';
 import { externalMcp, mcpBrief } from './mcp';
 import { employeePlugins, employeeSkills, sessionTools } from './skills';
-import { autoApprovedText, classify, decide, effectiveMode } from './permissions';
+import { autoApprovedText, classify, decide, effectiveMode, releaseCommandBlocked } from './permissions';
+import {
+  closeReleasePlan, releaseStatusText, resumeRelease, saveReleasePlan, setReleaseAgents, startRelease,
+} from './releases';
 import { commitAll, createWorktree, diffBranch, hasCommits, hasWork, isRepo, preserveBranch, removeWorktree } from './git';
 import {
   approveEpic, byPriority, cancelEpic, createPlan, dispatch, planSummary, priorityRank,
@@ -592,6 +595,17 @@ function permissionHandler(
         return { behavior: 'deny', message: state.say('agent.deny.paused') };
       }
       state.setState(instanceId, wasState, wasNote);
+    }
+
+    // Выпуск идёт только процессом выпуска (docs/design/releases/spec.md §8):
+    // пуш тегов, пуш в ветку CI и команду сборки агент не запускает сам —
+    // ни в каком режиме доступа. Отказ объясняет, как выпустить правильно.
+    if (toolName === 'Bash' && !role?.isManager) {
+      const hit = releaseCommandBlocked(String(input.command ?? ''), state.settings);
+      if (hit) {
+        state.addLog(instanceId, 'system', state.say('agent.log.releaseBlocked', { what: hit }));
+        return { behavior: 'deny', message: state.say('agent.deny.release', { what: hit }) };
+      }
     }
 
     const verdict = classify(toolName, input, workdir, state.lang());
@@ -1343,6 +1357,96 @@ const teamTools = (state: OfficeState) => createSdkMcpServer({
         });
         state.addLog('pm#1', 'system', state.say('journal.noted', { id: fact.id, text: clip(fact.text, 120) }));
         return { content: [{ type: 'text', text: state.say('tool.noteFact.ok', { id: fact.id }) }] };
+      },
+    ),
+
+    tool(
+      'release_status',
+      state.say('tool.releaseStatus.desc'),
+      {},
+      async () => ({ content: [{ type: 'text', text: releaseStatusText(state) }] }),
+      { annotations: { readOnlyHint: true } },
+    ),
+
+    tool(
+      'start_release',
+      state.say('tool.startRelease.desc'),
+      {
+        target: z.string().describe(state.say('tool.startRelease.target', {
+          targets: state.releaseTargets().map((t) => `${t.id} (${t.title})`).join(', ') || '—',
+        })),
+        note: z.string().default('').describe(state.say('tool.startRelease.note')),
+      },
+      async (args) => {
+        const out = startRelease(state, args.target.trim(), 'manual', args.note ?? '');
+        return { content: [{ type: 'text', text: out.message }], isError: !out.ok };
+      },
+    ),
+
+    tool(
+      'resume_release',
+      state.say('tool.resumeRelease.desc'),
+      { releaseId: z.string().describe(state.say('tool.resumeRelease.id')) },
+      async (args) => {
+        const out = resumeRelease(state, args.releaseId.trim());
+        return { content: [{ type: 'text', text: out.message }], isError: !out.ok };
+      },
+    ),
+
+    tool(
+      'plan_release',
+      state.say('tool.planRelease.desc'),
+      {
+        target: z.string().describe(state.say('tool.startRelease.target', {
+          targets: state.releaseTargets().map((t) => `${t.id} (${t.title})`).join(', ') || '—',
+        })),
+        title: z.string().default('').describe(state.say('tool.planRelease.title')),
+        version: z.string().default('').describe(state.say('tool.planRelease.version')),
+        level: z.enum(['', 'patch', 'minor', 'major']).default('').describe(state.say('tool.planRelease.level')),
+        featureIds: z.array(z.string()).describe(state.say('tool.planRelease.features')),
+      },
+      async (args) => {
+        const out = saveReleasePlan(state, {
+          targetId: args.target.trim(), title: args.title ?? '', version: args.version?.trim() || null,
+          level: args.level ? args.level : null, epicIds: args.featureIds.map((f) => f.trim()),
+        });
+        return { content: [{ type: 'text', text: out.message }], isError: !out.ok };
+      },
+    ),
+
+    tool(
+      'close_release_plan',
+      state.say('tool.closeReleasePlan.desc'),
+      { planId: z.string().describe(state.say('tool.closeReleasePlan.id')) },
+      async (args) => {
+        const out = closeReleasePlan(state, args.planId.trim());
+        return { content: [{ type: 'text', text: out.message }], isError: !out.ok };
+      },
+    ),
+
+    tool(
+      'set_feature_release',
+      state.say('tool.setFeatureRelease.desc'),
+      {
+        featureId: z.string().describe(state.say('tool.startFeature.epicId')),
+        target: z.string().default('').describe(state.say('tool.setFeatureRelease.target')),
+        level: z.enum(['', 'patch', 'minor', 'major']).describe(state.say('tool.planRelease.level')),
+      },
+      async (args) => {
+        const epic = state.epics.get(args.featureId.trim());
+        if (!epic) {
+          return { content: [{ type: 'text', text: state.say('plan.err.noEpic', { epic: args.featureId }) }], isError: true };
+        }
+        const target = args.target?.trim() || null;
+        if (target && !state.releaseTarget(target)) {
+          return { content: [{ type: 'text', text: state.say('rel.noTarget', {
+            id: target, known: state.releaseTargets().map((t) => t.id).join(', ') || '—',
+          }) }], isError: true };
+        }
+        state.updateEpic(epic.id, { release: args.level || target ? { target, level: args.level || null } : null });
+        return { content: [{ type: 'text', text: state.say('tool.setFeatureRelease.ok', {
+          epic: epic.id, level: args.level || '—', target: target ?? '—',
+        }) }] };
       },
     ),
 
@@ -2455,7 +2559,7 @@ function startWorker(
       // Изоляция: своя ветка и свой worktree, чтобы параллельные исполнители
       // физически не могли затереть друг другу файлы.
       if (!kept && role.isolate && await repoReady(taskOffice, repoDir)) {
-        const wt = await createWorktree(repoDir, worktreesRoot(taskOffice), task.id);
+        const wt = await createWorktree(repoDir, worktreesRoot(taskOffice), task.id, task.forkFrom);
         // Без своей копии задача не стартует: работа в общей директории
         // шла бы прямо в основной ветке, мимо ревью и слияния (T-106).
         // Ошибка уходит в общий catch — задача падает с причиной на доске.
@@ -4130,6 +4234,55 @@ setRitualAgents({
     }
     out.costUsd = Math.max(0, (state.instances.get('pm#1')?.usage.costUsd ?? 0) - before);
     return out;
+  },
+});
+
+/**
+ * Заметки о выпуске (docs/design/releases/spec.md §3): дешёвая модель по
+ * задачам и запискам при передаче, без инструментов. Расход — на менеджера.
+ */
+setReleaseAgents({
+  async notes(state, input) {
+    if (state.dryRun) return { text: '', costUsd: 0 };
+    const say = state.say.bind(state);
+    const prompt = say('prompt.release.notes', {
+      target: input.target,
+      version: input.version,
+      lang: LANG_NAME_EN[state.lang()],
+      epics: input.epics.map((e) => `- ${e.id} ${e.title}: ${e.goal}`).join('\n') || '—',
+      tasks: input.tasks.map((t) => `- ${t.id} ${t.title}${t.epic ? ` [${t.epic}]` : ''}${t.did ? `: ${t.did}` : ''}`).join('\n'),
+    });
+    const before = state.instances.get('pm#1')?.usage.costUsd ?? 0;
+    let text = '';
+    let error: string | undefined;
+    try {
+      const session = query({
+        prompt,
+        options: {
+          model: RITUAL_MODEL,
+          provider: providerOf(state.role('pm')),
+          systemPrompt: say('prompt.release.system'),
+          cwd: state.projectDir,
+          tools: [],
+          mcpServers: {},
+          permissionMode: 'default',
+          canUseTool: permissionHandler(state, 'pm#1'),
+          settingSources: [],
+          settings: OFFICE_SESSION_SETTINGS,
+          maxTurns: 2,
+        },
+      });
+      for await (const msg of session) {
+        consume(state, 'pm#1', msg, false);
+        if (msg.type === 'result') {
+          if (isOk(msg)) text = msg.result?.trim() ?? '';
+          else error = clip(resultReason(msg, state.lang()), 300);
+        }
+      }
+    } catch (err) {
+      error = (err as Error).message;
+    }
+    return { text, error, costUsd: Math.max(0, (state.instances.get('pm#1')?.usage.costUsd ?? 0) - before) };
   },
 });
 
