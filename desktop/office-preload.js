@@ -1,10 +1,11 @@
 /**
  * Мост окна офиса. Страница грузится по http с нашего же сервера, поэтому
- * наружу торчат ровно две команды, обе безвредные: поднять окно и показать
- * число ожидающего на значке. Ни файлов, ни процессов отсюда не видно.
+ * наружу торчат только безвредные команды: поднять окно, показать число
+ * ожидающего на значке и управлять обновлением приложения. Ни файлов, ни
+ * процессов отсюда не видно.
  *
  * Веб проверяет наличие `window.officeDesktop` и без него ведёт себя как в
- * браузере — мост не обязателен.
+ * браузере — мост не обязателен. Контракт — src/shared/desktop.ts.
  */
 
 const { contextBridge, ipcRenderer } = require('electron');
@@ -12,6 +13,17 @@ const { contextBridge, ipcRenderer } = require('electron');
 contextBridge.exposeInMainWorld('officeDesktop', {
   focus: () => ipcRenderer.send('office:focus'),
   setBadge: (count) => ipcRenderer.send('office:badge', Number(count) || 0),
+  updates: {
+    getState: () => ipcRenderer.invoke('office:update-state'),
+    onState: (cb) => {
+      // Колбэк получает только состояние: объект события Electron в страницу не отдаём.
+      const listener = (_event, state) => cb(state);
+      ipcRenderer.on('office:update', listener);
+      return () => ipcRenderer.removeListener('office:update', listener);
+    },
+    check: () => ipcRenderer.invoke('office:update-check'),
+    installNow: () => ipcRenderer.invoke('office:update-install'),
+  },
 });
 
 /**

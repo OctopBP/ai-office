@@ -36,6 +36,8 @@ const dataDir = () => app.getPath('userData');
 const stateFile = () => join(dataDir(), 'office', 'state.json');
 const engineDir = () => join(dataDir(), 'engine');
 const logFile = () => join(dataDir(), 'server.log');
+/** Журнал автообновления (updater.js): у main своего терминала в собранном приложении нет. */
+const updateLogFile = () => join(dataDir(), 'updates.log');
 /** Порт, на котором офис живёт от запуска к запуску (`pickPort` в server.js). */
 const portFile = () => join(dataDir(), 'port.json');
 /** Копия localStorage окна офиса (`office:storage-*` в main.js). */
@@ -50,5 +52,5 @@ const defaultProjectDir = () => join(app.getPath('home'), 'Office');
 
 module.exports = {
   resourcesDir, serverEntry, webDir, gitBin,
-  dataDir, stateFile, engineDir, logFile, portFile, webStorageFile, defaultProjectDir,
+  dataDir, stateFile, engineDir, logFile, updateLogFile, portFile, webStorageFile, defaultProjectDir,
 };
