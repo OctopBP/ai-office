@@ -11,7 +11,7 @@
 const { fork } = require('node:child_process');
 const { createServer, connect } = require('node:net');
 const { execFileSync } = require('node:child_process');
-const { createWriteStream, existsSync, mkdirSync, readFileSync } = require('node:fs');
+const { createWriteStream, existsSync, mkdirSync, readFileSync, writeFileSync } = require('node:fs');
 const { dirname, join } = require('node:path');
 
 const paths = require('./paths');
@@ -26,6 +26,39 @@ function freePort() {
       probe.close(() => done(port));
     });
   });
+}
+
+/** Свободен ли конкретный порт на петле. */
+function portFree(port) {
+  return new Promise((done) => {
+    const probe = createServer();
+    probe.once('error', () => done(false));
+    probe.listen(port, '127.0.0.1', () => probe.close(() => done(true)));
+  });
+}
+
+/**
+ * Порт офиса — один и тот же от запуска к запуску.
+ *
+ * Окно открывает http://127.0.0.1:<порт>, а localStorage привязан к origin
+ * вместе с портом: на случайном порту каждый запуск получал пустое хранилище,
+ * и настройки графики, тема, уведомления сбрасывались (T-107). Первый запуск
+ * берёт свободный порт и запоминает его; дальше — он же. Занят кем-то
+ * чужим — берём временный, но запомненный не меняем: в следующий раз офис
+ * вернётся на свой origin, где его хранилище и лежит. На время запасного
+ * порта настройки подставляет копия хранилища (office-preload.js).
+ */
+async function pickPort() {
+  let saved = 0;
+  try {
+    saved = Number(JSON.parse(readFileSync(paths.portFile(), 'utf8')).port) || 0;
+  } catch { /* первого запуска ещё не было */ }
+  if (saved > 0 && saved < 65536 && await portFree(saved)) return saved;
+  const port = await freePort();
+  if (!saved) {
+    try { writeFileSync(paths.portFile(), JSON.stringify({ port })); } catch { /* запомним в другой раз */ }
+  }
+  return port;
 }
 
 /** Дождаться, пока порт начнёт отвечать. */
@@ -83,9 +116,9 @@ function loginPath() {
  * у приложения нет терминала, а разбирать поломку по чему-то надо.
  */
 async function start({ claudeBin, gitBin, lang }) {
-  const port = await freePort();
   mkdirSync(dirname(paths.logFile()), { recursive: true });
   mkdirSync(paths.dataDir(), { recursive: true });
+  const port = await pickPort();
   const log = createWriteStream(paths.logFile(), { flags: 'a' });
   log.write(`\n=== ${new Date().toISOString()} запуск офиса, порт ${port} ===\n`);
 
