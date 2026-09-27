@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { t } from '../i18n';
 import type { UpdateState } from '../../shared/desktop';
+import { ReleaseNotes } from './ReleaseNotes';
 
 const DISMISS_KEY = 'office-update-dismissed';
 
@@ -54,6 +55,14 @@ export function UpdateBanner() {
     setNotesOpen(false);
   }, [version]);
 
+  // Esc закрывает окно заметок — как крестик и клик по подложке.
+  useEffect(() => {
+    if (!notesOpen) return;
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') setNotesOpen(false); };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [notesOpen]);
+
   if (!bridge || !state) return null;
 
   if (state.status === 'downloading') {
@@ -79,29 +88,48 @@ export function UpdateBanner() {
       .finally(() => setInstalling(false));
   };
 
+  const actions = busy ? (
+    <span className="update-banner-busy">{t('update.busy')}</span>
+  ) : (
+    <button className="primary mini" onClick={handleRestart} disabled={installing}>
+      {t('update.restart')}
+    </button>
+  );
+
   return (
-    <div className="update-banner" role="status">
-      <div className="update-banner-body">
-        <div className="update-banner-title">{t('update.ready.title', { version: state.version })}</div>
-        {state.notes && (
-          <details className="update-banner-notes" open={notesOpen} onToggle={(e) => setNotesOpen(e.currentTarget.open)}>
-            <summary>{t('update.notes.toggle')}</summary>
-            {/* Заметки к релизу — свой текст с GitHub, не чужая разметка: без
-                dangerouslySetInnerHTML, просто текст в несколько строк. */}
-            <p className="update-banner-notes-text">{state.notes}</p>
-          </details>
-        )}
+    <>
+      <div className="update-banner" role="status">
+        <div className="update-banner-body">
+          <div className="update-banner-title">{t('update.ready.title', { version: state.version })}</div>
+          {state.notes && (
+            <button className="update-banner-notes" onClick={() => setNotesOpen(true)}>
+              {t('update.notes.toggle')}
+            </button>
+          )}
+        </div>
+        <div className="update-banner-actions">
+          {actions}
+          <button className="ghost mini" onClick={handleLater}>{t('update.later')}</button>
+        </div>
       </div>
-      <div className="update-banner-actions">
-        {busy ? (
-          <span className="update-banner-busy">{t('update.busy')}</span>
-        ) : (
-          <button className="primary mini" onClick={handleRestart} disabled={installing}>
-            {t('update.restart')}
-          </button>
-        )}
-        <button className="ghost mini" onClick={handleLater}>{t('update.later')}</button>
-      </div>
-    </div>
+      {notesOpen && state.notes && (
+        <div className="modal-backdrop" onClick={() => setNotesOpen(false)}>
+          <div className="modal update-notes" role="dialog" aria-modal="true" aria-labelledby="update-notes-title"
+            onClick={(e) => e.stopPropagation()}>
+            <div className="modal-head update-notes-head">
+              <h3 id="update-notes-title">{t('update.notes.title', { version: state.version })}</h3>
+              <button className="sq ghost" onClick={() => setNotesOpen(false)} aria-label={t('common.close')} title={t('common.close')}>✕</button>
+            </div>
+            <div className="update-notes-body">
+              <ReleaseNotes source={state.notes} />
+            </div>
+            <div className="modal-actions update-notes-actions">
+              {actions}
+              <button className="ghost mini" onClick={() => setNotesOpen(false)}>{t('common.close')}</button>
+            </div>
+          </div>
+        </div>
+      )}
+    </>
   );
 }

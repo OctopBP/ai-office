@@ -496,6 +496,7 @@ export const en = {
   "update.later": "Later",
   "update.busy": "Will update once tasks finish or the app quits",
   "update.notes.toggle": "What's new",
+  "update.notes.title": "What's new in {version}",
   "update.downloading": "Downloading update — {percent}%",
   "settings.access.title": "Access mode",
   "settings.access.confirm": "Yes, turn full access on",
