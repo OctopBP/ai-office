@@ -271,3 +271,33 @@ body.office-dragging, body.office-dragging * { cursor: grabbing !important; user
 }
 .env-banner-recheck:hover:not(:disabled) { background: rgba(255, 255, 255, .26); }
 .env-banner-recheck:disabled { opacity: .6; }
+
+/* ---------- плашка автообновления приложения ---------- */
+/* Тонкая полоска загрузки поверх всего окна — не мешает работе, просто
+   показывает, что обновление качается само. */
+.update-progress {
+  position: fixed; top: 0; left: 0; right: 0; height: 2px; z-index: var(--z-alert);
+  background: transparent;
+}
+.update-progress-bar { height: 100%; background: var(--accent); transition: width .3s ease; }
+
+/* Карточка «готово к установке» — правый нижний угол, над композером, рядом
+   с тостами, но справа от них: два независимых потока уведомлений не должны
+   слипаться в один блок. */
+.update-banner {
+  position: absolute; z-index: var(--z-toast);
+  right: var(--space-6);
+  bottom: calc(var(--composer-h, 96px) + var(--gap) + var(--space-4));
+  width: min(320px, 90vw);
+  display: flex; flex-direction: column; gap: var(--space-2);
+  padding: var(--space-3);
+  background: var(--surface); color: var(--ink-2);
+  border: 1px solid var(--hairline); border-radius: var(--radius-card);
+  box-shadow: var(--shadow-toast);
+}
+.update-banner-body { display: flex; flex-direction: column; gap: var(--space-1); }
+.update-banner-title { font: 500 var(--fs-body)/1.3 var(--font); }
+.update-banner-notes summary { cursor: pointer; color: var(--accent); font-size: var(--fs-small); }
+.update-banner-notes-text { margin: var(--space-1) 0 0; color: var(--ink-3); font-size: var(--fs-small); white-space: pre-wrap; max-height: 140px; overflow-y: auto; }
+.update-banner-actions { display: flex; align-items: center; gap: var(--space-2); }
+.update-banner-busy { flex: 1; color: var(--ink-3); font-size: var(--fs-small); }
