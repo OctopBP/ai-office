@@ -265,6 +265,16 @@ not the user’s. They said what needs doing — the rest is the office’s busi
   Only for such tasks and only after the limit has reset — the office tells you itself.
 - You cannot merge a branch by hand, and you should not: you have no such tool.
 
+Releases — building and shipping the project — happen on triggers, not per task:
+- "make a build", "deploy to staging", "send to TestFlight" — start_release with a target
+  from release_status. Never release unasked: targets release on their own triggers.
+- The owner describes how to ship ("staging after every feature", "TestFlight only when I
+  ask and approve") — propose_release_target. The owner applies it with their "yes". What
+  they did not say (the CI branch, the build command, whether they approve) — ask in one
+  sentence, do not guess. No Fastfile or CI workflow in the project yet — first a task
+  for an engineer, its id goes into waitForTask.
+- "this is for 2.0", "this is minor" — set_feature_release and plan_release.
+
 The office backs you up and sends system messages of its own when work stalls.
 These are not reports for the user, they are work for you:
 - “there are tasks on the board that nobody is doing” — hand them out (assign_task) or answer
@@ -1094,4 +1104,23 @@ and the office journal are the same — they live outside the session. This is w
   'tool.setFeatureRelease.desc': 'The feature contribution to a release: which bump it causes and which target it goes to. Set it when the owner says "this is for 2.0" or "this is minor". Empty bump and target — clear.',
   'tool.setFeatureRelease.target': 'Target id. Empty — any.',
   'tool.setFeatureRelease.ok': '{epic}: bump {level}, target {target}.',
+  'tool.proposeTarget.desc': 'Propose a release target from the owner description: where and how to ship the project and when to do it on its own ("deploy to staging after every feature", "TestFlight only when I ask"). The target is not applied right away: the owner gets a question and presses "Apply". The same target id replaces an existing one (see release_status). Do not guess what the owner did not say — the CI branch, the build command, whether they want to approve — ask. If the project has no Fastfile or CI workflow yet, first file a task for an engineer and pass its id in waitForTask.',
+  'tool.proposeTarget.id': 'Target id: lowercase latin letters, digits, hyphens — staging, testflight, desktop.',
+  'tool.proposeTarget.title': 'Human title: "Staging", "TestFlight".',
+  'tool.proposeTarget.kind': 'push — push to a branch CI picks up; tag — a version tag CI builds from; command — a build command on this machine (iOS, TestFlight).',
+  'tool.proposeTarget.branch': 'For push: the branch CI picks up.',
+  'tool.proposeTarget.tag': 'For tag: a tag pattern with {version}. Empty — v{version}.',
+  'tool.proposeTarget.buildCommand': 'For command: the shell command that builds and uploads, e.g. "bundle exec fastlane beta". No secrets in it.',
+  'tool.proposeTarget.bump': 'A command that bumps the version in files, with {version} and {build}, e.g. "npm version {version} --no-git-tag-version". Empty — the version lives only in the tag.',
+  'tool.proposeTarget.when': 'Triggers: manual — on request, epic.done — after each finished feature.',
+  'tool.proposeTarget.mergedEvery': 'Release every N merged tasks. 0 — no such trigger.',
+  'tool.proposeTarget.approve': 'Ask the owner before releasing: always, major (only on a major bump) or never.',
+  'tool.proposeTarget.cooldown': 'At most once every N hours for automatic triggers. 0 — no limit.',
+  'tool.proposeTarget.scheme': 'Version scheme: semver (1.4.2), semver+build (1.4.2 (57), iOS), calver (by date), build (number only), none (staging without a version).',
+  'tool.proposeTarget.level': 'Bump: plan — from the plan and feature contributions (usually), auto — from the contents, or always patch/minor/major.',
+  'tool.proposeTarget.source': 'Where the current version comes from: tag, package.json, or empty — release history.',
+  'tool.proposeTarget.ci': 'Wait for CI after pushing: auto — if present, required — must exist, off — do not wait.',
+  'tool.proposeTarget.timeout': 'How long to wait for the build or CI, minutes. 0 — 30.',
+  'tool.proposeTarget.waitForTask': 'Id of a task the target needs (Fastfile, CI workflow): it applies once that task is merged. Empty — right after "yes".',
+  'tool.proposeTarget.note': 'One sentence for the owner: why the target looks like this.',
 } as const;

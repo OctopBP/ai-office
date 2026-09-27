@@ -35,7 +35,7 @@ import {
 } from '../shared/workflow';
 import { workflowCatalog } from './workflows';
 import {
-  parseReleaseConfig, type EpicRelease, type Release, type ReleasePlan, type ReleaseTarget,
+  parseReleaseConfig, type EpicRelease, type Release, type ReleasePlan, type ReleaseSetup, type ReleaseTarget,
 } from '../shared/release';
 import { foldSpend, spendSeq, SPEND_MAX } from './spend';
 import { capabilitiesOf } from './roles';
@@ -934,6 +934,8 @@ export class OfficeState {
   private releasePlanSeq = 0;
   /** С какого момента офис знает цель выпуска: раньше автоматических поводов нет. */
   releaseSince: Record<string, number> = {};
+  /** Предложения целей выпуска от менеджера, ключ — id вопроса владельцу. */
+  releaseSetups = new Map<string, ReleaseSetup>();
   /**
    * Пауза офиса: новая работа не запускается, а живые сессии замирают
    * на следующем вызове инструмента. Сохраняется — в реестре офисов
@@ -1277,6 +1279,7 @@ export class OfficeState {
       releasePlans: [...this.releasePlans.values()],
       releasePlanSeq: this.releasePlanSeq,
       releaseSince: this.releaseSince,
+      releaseSetups: [...this.releaseSetups.values()],
       chat: this.chat,
       log: this.log.slice(-500),
       meetings: this.meetings,
@@ -1676,6 +1679,11 @@ export class OfficeState {
     return null;
   }
 
+  saveReleaseSetup(setup: ReleaseSetup): void {
+    this.releaseSetups.set(setup.id, setup);
+    this.markDirty();
+  }
+
   /** Отметить, с какого момента офис знает цель. Уже знает — ничего. */
   noteReleaseTarget(targetId: string, now = Date.now()): number {
     const known = this.releaseSince[targetId];
@@ -1892,6 +1900,7 @@ export class OfficeState {
     for (const plan of data.releasePlans ?? []) this.releasePlans.set(plan.id, plan);
     this.releasePlanSeq = data.releasePlanSeq ?? this.releasePlans.size;
     this.releaseSince = { ...(data.releaseSince ?? {}) };
+    for (const setup of data.releaseSetups ?? []) this.releaseSetups.set(setup.id, setup);
 
     // Состав команды берём из сохранения целиком, а не дополняем им seed():
     // seed() сажает по одному сотруднику на роль и ничего не знает ни про
@@ -2044,6 +2053,7 @@ export class OfficeState {
     this.releaseSeq = 0;
     this.releasePlanSeq = 0;
     this.releaseSince = {};
+    this.releaseSetups.clear();
     this.chat = [];
     this.log = [];
     this.meetings = [];

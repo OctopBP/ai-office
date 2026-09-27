@@ -29,8 +29,10 @@ import { externalMcp, mcpBrief } from './mcp';
 import { employeePlugins, employeeSkills, sessionTools } from './skills';
 import { autoApprovedText, classify, decide, effectiveMode, releaseCommandBlocked } from './permissions';
 import {
-  closeReleasePlan, releaseStatusText, resumeRelease, saveReleasePlan, setReleaseAgents, startRelease,
+  closeReleasePlan, proposeReleaseTarget, releaseStatusText, resumeRelease, saveReleasePlan, setReleaseAgents,
+  startRelease,
 } from './releases';
+import type { ReleaseTarget } from '../shared/release';
 import { commitAll, createWorktree, diffBranch, hasCommits, hasWork, isRepo, preserveBranch, removeWorktree } from './git';
 import {
   approveEpic, byPriority, cancelEpic, createPlan, dispatch, planSummary, priorityRank,
@@ -1420,6 +1422,60 @@ const teamTools = (state: OfficeState) => createSdkMcpServer({
       { planId: z.string().describe(state.say('tool.closeReleasePlan.id')) },
       async (args) => {
         const out = closeReleasePlan(state, args.planId.trim());
+        return { content: [{ type: 'text', text: out.message }], isError: !out.ok };
+      },
+    ),
+
+    tool(
+      'propose_release_target',
+      state.say('tool.proposeTarget.desc'),
+      {
+        id: z.string().describe(state.say('tool.proposeTarget.id')),
+        title: z.string().describe(state.say('tool.proposeTarget.title')),
+        kind: z.enum(['push', 'tag', 'command']).describe(state.say('tool.proposeTarget.kind')),
+        branch: z.string().default('').describe(state.say('tool.proposeTarget.branch')),
+        tag: z.string().default('').describe(state.say('tool.proposeTarget.tag')),
+        buildCommand: z.string().default('').describe(state.say('tool.proposeTarget.buildCommand')),
+        bump: z.string().default('').describe(state.say('tool.proposeTarget.bump')),
+        when: z.array(z.enum(['manual', 'epic.done'])).default([]).describe(state.say('tool.proposeTarget.when')),
+        mergedEvery: z.number().int().min(0).default(0).describe(state.say('tool.proposeTarget.mergedEvery')),
+        approve: z.enum(['always', 'major', 'never']).describe(state.say('tool.proposeTarget.approve')),
+        cooldownHours: z.number().min(0).default(0).describe(state.say('tool.proposeTarget.cooldown')),
+        scheme: z.enum(['semver', 'semver+build', 'calver', 'build', 'none']).describe(state.say('tool.proposeTarget.scheme')),
+        level: z.enum(['plan', 'auto', 'patch', 'minor', 'major']).default('plan').describe(state.say('tool.proposeTarget.level')),
+        versionSource: z.enum(['', 'tag', 'package.json']).default('').describe(state.say('tool.proposeTarget.source')),
+        ci: z.enum(['auto', 'required', 'off']).default('auto').describe(state.say('tool.proposeTarget.ci')),
+        timeoutMin: z.number().int().min(0).default(0).describe(state.say('tool.proposeTarget.timeout')),
+        waitForTask: z.string().default('').describe(state.say('tool.proposeTarget.waitForTask')),
+        note: z.string().default('').describe(state.say('tool.proposeTarget.note')),
+      },
+      async (args) => {
+        const id = args.id.trim();
+        const when: ReleaseTarget['policy']['when'] = [...new Set(args.when ?? [])];
+        if (args.mergedEvery) when.push({ merged: args.mergedEvery });
+        const target: ReleaseTarget = {
+          id, title: args.title.trim(), kind: args.kind,
+          ...(args.kind === 'push' && args.branch?.trim() ? { branch: args.branch.trim() } : {}),
+          ...(args.kind === 'tag' && args.tag?.trim() ? { tag: args.tag.trim() } : {}),
+          ...(args.bump?.trim() ? { bump: args.bump.trim() } : {}),
+          ...(args.kind !== 'command' && args.ci !== 'auto' ? { ci: args.ci } : {}),
+          ...(args.timeoutMin ? { timeoutMin: args.timeoutMin } : {}),
+          policy: {
+            when, approve: args.approve,
+            ...(args.cooldownHours ? { cooldownHours: args.cooldownHours } : {}),
+          },
+          version: {
+            scheme: args.scheme, level: args.level ?? 'plan',
+            ...(args.versionSource ? { source: args.versionSource } : {}),
+          },
+        };
+        const command = args.buildCommand?.trim() ?? '';
+        const out = proposeReleaseTarget(state, {
+          target,
+          check: args.kind === 'command' && command ? { name: id, command } : null,
+          waitTaskId: args.waitForTask?.trim() || null,
+          note: args.note ?? '',
+        });
         return { content: [{ type: 'text', text: out.message }], isError: !out.ok };
       },
     ),

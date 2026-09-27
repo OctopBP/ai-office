@@ -335,3 +335,22 @@ export interface EpicRelease {
   target: string | null;
   level: VersionLevel | null;
 }
+
+/**
+ * Предложение цели выпуска от менеджера (spec §16): цель и команда сборки,
+ * ждущие «да» владельца. Цель — право офиса выкладывать наружу, поэтому
+ * применяет её не менеджер, а ответ на вопрос. Ключ — id вопроса.
+ */
+export interface ReleaseSetup {
+  id: string;
+  target: ReleaseTarget;
+  /** Команда сборки для `settings.checks`, если цель собирается командой. */
+  check: { name: string; command: string } | null;
+  /** Задача, после слияния которой цель можно применять (Fastfile, workflow CI). */
+  waitTaskId: string | null;
+  note: string;
+  /** asked — ждём ответа; approved — «да», ждём задачу; дальше — итог. */
+  status: 'asked' | 'approved' | 'applied' | 'declined' | 'dropped';
+  createdAt: number;
+  decidedAt: number | null;
+}

@@ -5,7 +5,7 @@ import type {
   SpendEntryView, Usage,
 } from '../shared/types';
 import type { Run } from '../shared/workflow';
-import type { Release, ReleasePlan } from '../shared/release';
+import type { Release, ReleasePlan, ReleaseSetup } from '../shared/release';
 import type { Direction, Epic, Fact, LifeState, Proposal, Task } from './state';
 import type { MeetingView, OwnerQuestion } from '../shared/types';
 import type { Role } from './roles';
@@ -66,6 +66,8 @@ export interface Persisted {
   releasePlanSeq?: number;
   /** С какого момента офис знает цель: раньше него автоматических поводов нет. */
   releaseSince?: Record<string, number>;
+  /** Предложения целей выпуска от менеджера, ждущие владельца. */
+  releaseSetups?: ReleaseSetup[];
   chat: ChatEntry[];
   log: LogEntry[];
   /** История совещаний. В сохранениях до неё поля нет: старые реплики остаются в ветке `meeting` без привязки. */
