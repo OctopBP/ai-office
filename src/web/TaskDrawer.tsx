@@ -11,6 +11,7 @@ import { HOTKEY } from './hotkeys';
 import { AgentTag } from './Avatar';
 import { PrioritySeg } from './TaskPriority';
 import { usageMoney } from './money';
+import { TaskResultSection } from './result/TaskResult';
 
 /**
  * Раскрытая карточка задачи.
@@ -223,6 +224,10 @@ export function TaskDrawer() {
           )}
         </section>
       )}
+
+      {/* Файлы результата — только у сданной задачи: у незаконченной
+          результата ещё нет, а её правки смотрят диффом ветки. */}
+      {task.status === 'done' && <TaskResultSection task={task} />}
 
       {pr?.gate && (
         <section>
