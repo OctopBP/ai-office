@@ -36,6 +36,10 @@ const dataDir = () => app.getPath('userData');
 const stateFile = () => join(dataDir(), 'office', 'state.json');
 const engineDir = () => join(dataDir(), 'engine');
 const logFile = () => join(dataDir(), 'server.log');
+/** Порт, на котором офис живёт от запуска к запуску (`pickPort` в server.js). */
+const portFile = () => join(dataDir(), 'port.json');
+/** Копия localStorage окна офиса (`office:storage-*` в main.js). */
+const webStorageFile = () => join(dataDir(), 'web-storage.json');
 
 /**
  * Куда команда работает по умолчанию. Та же папка, что и у офиса из
@@ -46,5 +50,5 @@ const defaultProjectDir = () => join(app.getPath('home'), 'Office');
 
 module.exports = {
   resourcesDir, serverEntry, webDir, gitBin,
-  dataDir, stateFile, engineDir, logFile, defaultProjectDir,
+  dataDir, stateFile, engineDir, logFile, portFile, webStorageFile, defaultProjectDir,
 };
