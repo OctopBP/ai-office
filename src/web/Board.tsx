@@ -207,20 +207,24 @@ function Card({ t }: { t: TaskView }) {
 }
 
 /**
- * Колонка одного статуса внутри фичи. Пустых колонок здесь не бывает: их
- * отсеивает группа — колонка-заглушка ничего не рассказывает, а ширину фичи
- * из двух задач растянула бы на весь экран.
+ * Колонка одного статуса внутри фичи. Рисуется всегда, даже пустая: набор и
+ * порядок колонок у всех фич один, и глаз находит «Ревью» на одном и том же
+ * месте, а не ищет, какие столбцы у этой фичи уцелели.
  */
 function TaskColumnBlock({ column, list }: { column: TaskColumn; list: TaskView[] }) {
   return (
-    <div className={`task-col ${column}`}>
+    <div className={`task-col ${column}${list.length === 0 ? ' empty' : ''}`}>
       <div className="task-col-head">
         <span className="task-col-name">{tr(`board.col.${column}`)}</span>
         <span className="muted">{list.length}</span>
       </div>
-      <div className="task-cards">
-        {list.map((t) => <Card key={t.id} t={t} />)}
-      </div>
+      {list.length === 0 ? (
+        <div className="task-col-empty">{tr('board.col.empty')}</div>
+      ) : (
+        <div className="task-cards">
+          {list.map((t) => <Card key={t.id} t={t} />)}
+        </div>
+      )}
     </div>
   );
 }
@@ -307,11 +311,9 @@ function TaskGroupBlock({ group }: { group: TaskGroup }) {
       {open && (
         <div className="task-group-body">
           <div className="task-cols">
-            {TASK_COLUMNS.map((column) => {
-              const list = group.cols[column];
-              if (list.length === 0) return null;
-              return <TaskColumnBlock key={column} column={column} list={list} />;
-            })}
+            {TASK_COLUMNS.map((column) => (
+              <TaskColumnBlock key={column} column={column} list={group.cols[column]} />
+            ))}
           </div>
         </div>
       )}

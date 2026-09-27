@@ -154,6 +154,7 @@ export const en = {
   "board.col.done": "Done",
   "board.col.failed": "Failed",
   "board.col.cancelled": "Cancelled",
+  "board.col.empty": "Empty",
   // Слово статуса на карточке доски там, где макет 188:887 пишет иначе, чем
   // остальной интерфейс: в той же форме, что имя колонки.
   "board.chip.failed": "failed",
