@@ -495,6 +495,7 @@ export const ru: Record<keyof typeof en, string> = {
   "update.later": "Позже",
   "update.busy": "Обновится, когда задачи закончатся или при выходе",
   "update.notes.toggle": "Что нового",
+  "update.notes.title": "Что нового в {version}",
   "update.downloading": "Загружается обновление — {percent}%",
   "settings.access.title": "Режим доступа",
   "settings.access.confirm": "Да, включить полный доступ",
