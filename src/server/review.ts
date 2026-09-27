@@ -47,6 +47,7 @@ import { integrationDir, runProjectCheck, runTypecheck, taskBase } from './merge
 import { formatOverlaps, type DuplicateEdit } from './overlap';
 import { mergeChecks, preMergeGate, toGateView, type PreMergeReport } from './premerge';
 import { mergedKind, recordOutcome } from './outcomes';
+import { deliveryAt } from './taskfiles';
 import { githubToken } from './cloud';
 import { commentOnPr, createPullRequest, githubFor, mergePullRequest } from './github';
 import { builtinWorkflow, workflowFor } from './workflows';
@@ -698,6 +699,12 @@ const merge: Executor<Ctx> = {
       // не восстановить). Здесь мы только забираем список: слияние он не
       // останавливает, но в отчёт задачи и менеджеру уходит (overlap.ts, T-138).
       let overlaps: DuplicateEdit[] = [];
+      // Куда легла работа задачи. На GitHub сливает он, и правду о слиянии
+      // знает origin: локальную базу fastForward мог и не сдвинуть. Пустое
+      // слияние (в ветке нет коммитов) результата не приносит — искать его
+      // потом по истории нельзя, там найдётся чужая задача с тем же номером.
+      let landedRef = base;
+      let empty = false;
 
       const gh = await githubFor(repo);
       const fresh = state.prOf(task.id);
@@ -732,6 +739,7 @@ const merge: Executor<Ctx> = {
           return { outcome: 'moved' };
         }
         await fetchRemote(repo, gh.token);
+        landedRef = `origin/${base}`;
         const moved = await fastForward(repo, base, `origin/${base}`);
         if (!moved) {
           state.addLog(null, 'system', state.say('pipe.mergedNoPull', { task: task.id, base }));
@@ -760,6 +768,7 @@ const merge: Executor<Ctx> = {
         if (!gate.ok) return stopOnBrokenGate(ctx, gate);
         overlaps = gate.overlaps;
         if (gate.stage === 'nothing') {
+          empty = true;
           state.addLog(null, 'system', state.say('pipe.noCommits', { task: task.id, base }));
         }
         // Отставшую копию человека гейт возвращает предупреждением: слияние она
@@ -777,11 +786,17 @@ const merge: Executor<Ctx> = {
       // Ревизию базы запоминаем до того, как её сдвинет следующее слияние: по
       // ней надзор потом заметит, что работу откатили.
       const mergeCommit = await revision(repo, base);
+      // Файлы результата — сейчас, пока коммит слияния на вершине и его первый
+      // родитель ещё и есть «база до слияния» (taskfiles.ts).
+      const landed = landedRef === base ? mergeCommit : await revision(repo, landedRef) ?? mergeCommit;
+      const delivery = !landed ? null
+        : empty ? { commit: landed, base: landed, files: [] }
+          : await deliveryAt(repo, landed);
       // Предупреждение о дубле правки кладём в отчёт задачи: карточку читают
       // и через неделю, а лента к тому времени уедет далеко.
       const before = state.tasks.get(task.id)?.result ?? null;
       state.updateTask(task.id, {
-        status: 'done', merged: true, worktreePath: null, finishedAt: Date.now(), mergeCommit,
+        status: 'done', merged: true, worktreePath: null, finishedAt: Date.now(), mergeCommit, delivery,
         ...(duplicate ? { result: [before, `⚠️ ${duplicate}`].filter(Boolean).join('\n\n') } : {}),
       });
       recordOutcome(state, task.id, mergedKind(state, task));

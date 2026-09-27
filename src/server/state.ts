@@ -9,7 +9,7 @@ import type {
   EpicStatus, EpicView,
   CloudStatus, EnvCheck, EnvReport, OfficeView, MergeCheck, MergeRun, LayoutOption,
   Layout, LayoutOverride, LayoutPropEdit,
-  PullRequestView, PrStage, ReviewNote, TaskOutcome, BranchMark,
+  PullRequestView, PrStage, ReviewNote, TaskOutcome, TaskDelivery, BranchMark,
   FactView, LifeView, OwnerQuestion, RitualId, RitualPolicy, RitualRun,
   DirectionView, ProposalView, InitiativeMode,
   SpendEntryView,
@@ -739,6 +739,11 @@ export interface Task {
    * пропала из истории базы — работу выбросили руками. null — не сливали.
    */
   mergeCommit: string | null;
+  /**
+   * Что задача принесла в основную ветку: коммит слияния, база и изменённые
+   * файлы (taskfiles.ts). null — не сливали или слили до появления поля.
+   */
+  delivery: TaskDelivery | null;
   /**
    * Тип работы — по нему после сдачи выбирается процесс
    * (docs/design/workflows/spec.md §7.2). Ставит менеджер; нет — по роли.
@@ -2568,6 +2573,7 @@ export class OfficeState {
       daily: {},
       outcome: null,
       mergeCommit: null,
+      delivery: null,
       type: input.type === undefined ? this.typeForRole(input.roleId) : input.type,
       handoff: null,
       compactions: 0,
@@ -4359,6 +4365,7 @@ export const toTaskView = (t: Task): TaskView => ({
   usage: t.usage,
   today: t.daily?.[dayKey()] ?? emptyUsage(),
   outcome: t.outcome ?? null,
+  delivery: t.delivery ?? null,
   type: t.type ?? null,
   handoff: t.handoff ?? null,
   branchMark: t.branchMark ?? null,
@@ -4435,6 +4442,8 @@ function migrateTask(raw: Task & {
     // нельзя: «средний» — это ровно то, чем такая задача и была.
     priority: asTaskPriority(raw.priority),
     outcome: raw.outcome ?? null, mergeCommit: raw.mergeCommit ?? null,
+    // Результата в сохранениях до него нет: его найдут по истории git по запросу.
+    delivery: raw.delivery ?? null,
     // Сжатий в старых сохранениях нет: «не знаем» считаем нулём, а не
     // выдумываем — сводка здоровья скорее промолчит, чем соврёт.
     compactions: raw.compactions ?? 0, compactedAt: raw.compactedAt ?? null,

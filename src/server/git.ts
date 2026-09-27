@@ -53,6 +53,34 @@ export function git(cwd: string, args: string[], env?: NodeJS.ProcessEnv): Promi
   });
 }
 
+/**
+ * Вызов git, у которого вывод — байты, а не текст: содержимое файлов из
+ * коммита (картинки, модели, pdf). `git()` тут не годится — он декодирует
+ * вывод как строку и обрезает пробелы, а это портит любой двоичный файл.
+ * `input` уходит на stdin: так `cat-file --batch` и `lfs smudge` получают
+ * свои запросы. Потолок вывода задаёт вызывающий: он знает, сколько ждёт.
+ */
+export function gitBytes(
+  cwd: string, args: string[], opts: { input?: Buffer | string; maxBytes?: number; timeoutMs?: number } = {},
+): Promise<{ ok: boolean; stdout: Buffer; stderr: string }> {
+  return new Promise((done) => {
+    const child = execFile(GIT_BIN, args, {
+      cwd, encoding: 'buffer', maxBuffer: opts.maxBytes ?? 32 * 1024 * 1024,
+      timeout: opts.timeoutMs ?? 0, env: projectEnv(),
+    }, (err, stdout, stderr) => {
+      done({
+        ok: !err,
+        stdout: stdout ?? Buffer.alloc(0),
+        stderr: ((stderr?.toString('utf8') || err?.message) ?? '').trim(),
+      });
+    });
+    // Процесс мог умереть раньше, чем дочитал вход: ошибка записи тогда не
+    // новость — исход всё равно придёт в колбэк.
+    child.stdin?.on('error', () => {});
+    child.stdin?.end(opts.input ?? '');
+  });
+}
+
 /** Кто подписывает коммит: имя и почта, как их видит git. */
 export interface GitPerson {
   name: string;

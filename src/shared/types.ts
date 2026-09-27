@@ -1279,11 +1279,63 @@ export interface TaskView {
    */
   outcome: TaskOutcome | null;
   /**
+   * Что задача принесла в основную ветку: коммит слияния, его база и список
+   * изменённых файлов. Пишется при слиянии; у задач, влитых до появления поля,
+   * null — список для них ищется по истории git при запросе (taskfiles.ts).
+   */
+  delivery: TaskDelivery | null;
+  /**
    * Что разбор завалов решил про повисшую ветку закрытой задачи. Только
    * метка: автоматического слияния и удаления веток в проекте нет — решает
    * владелец, офис лишь говорит, что с веткой делать. null — не помечена.
    */
   branchMark: BranchMark | null;
+}
+
+/** Как файл изменила задача. Переименование считается удалением и добавлением. */
+export type ResultFileStatus = 'added' | 'modified' | 'deleted';
+
+export interface ResultFile {
+  /** Путь от корня репозитория задачи, через `/`. */
+  path: string;
+  status: ResultFileStatus;
+}
+
+/**
+ * Результат влитой задачи. `commit` — ревизия основной ветки сразу после
+ * слияния, `base` — её первый родитель, то есть основная ветка до слияния:
+ * разница между ними и есть работа задачи. Содержимое файлов читается из
+ * `commit`, а не из рабочего дерева — после слияния его могли поправить.
+ */
+export interface TaskDelivery {
+  commit: string;
+  base: string;
+  files: ResultFile[];
+}
+
+/** Как показывать файл — по расширению. */
+export type ResultFileKind = 'text' | 'markdown' | 'image' | 'pdf' | 'model3d' | 'other';
+
+/** Строка списка файлов результата: GET /api/task/files. */
+export interface ResultFileView extends ResultFile {
+  /** Размер настоящего содержимого в байтах (у файла в LFS — не указателя). null — удалён. */
+  size: number | null;
+  kind: ResultFileKind;
+  /** Файл лежит в Git LFS: в коммите указатель, содержимое отдаётся из хранилища LFS. */
+  lfs: boolean;
+}
+
+/**
+ * Ответ GET /api/task/files. `source` — откуда взят коммит: сохранён при
+ * слиянии, найден по истории git (задачи до появления поля) или не найден —
+ * тогда `commit` null и список пуст.
+ */
+export interface TaskFilesView {
+  task: string;
+  commit: string | null;
+  base: string | null;
+  source: 'saved' | 'log' | 'none';
+  files: ResultFileView[];
 }
 
 /**
