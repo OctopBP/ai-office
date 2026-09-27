@@ -21,10 +21,10 @@ import { resolve } from 'node:path';
 import { OFFICE_SENDER } from '../shared/types';
 import {
   DEFAULT_TAG, DEFAULT_TIMEOUT_MIN, allowsManual, autoLevel, autoReasons, fillVersion, maxLevel,
-  nextVersion, parseBuildResult, parseSemver, releaseActive, versionInAnswer, versionLabel,
-  type Release, type ReleaseReason, type ReleaseTarget, type VersionLevel, type VersionPoint,
+  nextVersion, parseBuildResult, parseReleaseConfig, parseSemver, releaseActive, versionInAnswer, versionLabel,
+  type Release, type ReleaseReason, type ReleaseSetup, type ReleaseTarget, type VersionLevel, type VersionPoint,
 } from '../shared/release';
-import type { Run, Workflow, WorkflowNode } from '../shared/workflow';
+import { CHECK_NAME_RE, type Run, type Workflow, type WorkflowNode } from '../shared/workflow';
 import { taskClosed } from '../shared/types';
 import { worktreesRoot, type OfficeState, type Task } from './state';
 import type { ServerKey } from './i18n';
@@ -1005,6 +1005,7 @@ export function dueRelease(state: OfficeState, now = Date.now()): { target: Rele
  * нового выпуска по поводу за проход.
  */
 export function tickReleases(state: OfficeState, now = Date.now()): void {
+  settleReleaseSetups(state);
   if (!state.releaseTargets().length && !state.releases.size) return;
   for (const release of state.releaseList()) {
     if (isReleaseRunning(state, release.id)) continue;
@@ -1106,8 +1107,174 @@ export function releaseStatusText(state: OfficeState): string {
         last: last ? `${label(last)} (${new Date(last.startedAt).toISOString().slice(0, 10)})` : '—',
         merged,
       }),
+      describeTarget(state, target, null).split('\n').slice(1).map((l) => `    ${l}`).join('\n'),
       active ? `    ${state.say('rel.statusActive', { id: active.id, stage: active.stage })}` : '',
       plan ? `    ${state.say('rel.statusPlan', { id: plan.id, title: plan.title, epics: plan.epicIds.join(', ') })}` : '',
     ].filter(Boolean).join('\n');
   }).join('\n');
+}
+
+// ------------------------------------------------- цели по описанию менеджера
+
+export interface SetupInput {
+  target: ReleaseTarget;
+  /** Команда сборки: ложится в проверки проекта под этим именем. */
+  check?: { name: string; command: string } | null;
+  /** Задача, после слияния которой цель можно применять. */
+  waitTaskId?: string | null;
+  note?: string;
+}
+
+/** «Применить» с кнопки и «apply» словами — тоже «да», как «согласовано». */
+const setupYes = (answer: string): boolean => gateAnswerYes(answer) || /^\s*(примен|apply)/iu.test(answer);
+
+/** Цель словами — для вопроса владельцу: что, куда, когда, с чьего согласия. */
+export function describeTarget(state: OfficeState, target: ReleaseTarget, command: string | null): string {
+  const say = state.say.bind(state);
+  const how = target.kind === 'push'
+    ? say('rel.setup.kind.push', { branch: target.branch ?? '' })
+    : target.kind === 'tag'
+      ? say('rel.setup.kind.tag', { tag: target.tag ?? DEFAULT_TAG })
+      : say('rel.setup.kind.command', { command: command ?? state.settings.checks?.[target.run ?? ''] ?? target.run ?? '' });
+  const when = target.policy.when.map((w) => (typeof w === 'string'
+    ? say(w === 'manual' ? 'rel.setup.when.manual' : 'rel.setup.when.epic')
+    : say('rel.setup.when.merged', { n: w.merged }))).join(', ');
+  return [
+    `«${target.title}» (${target.id}): ${how}`,
+    say('rel.setup.whenLine', { when, approve: say(`rel.setup.approve.${target.policy.approve}` as ServerKey) }),
+    target.version.scheme === 'none'
+      ? say('rel.setup.versionNone')
+      : say('rel.setup.versionLine', {
+        scheme: say(`rel.setup.scheme.${target.version.scheme === 'semver+build' ? 'semverBuild' : target.version.scheme}` as ServerKey),
+        level: say(`rel.setup.level.${target.version.level}` as ServerKey),
+      }),
+    target.bump ? say('rel.setup.bumpLine', { bump: target.bump }) : '',
+    target.policy.cooldownHours ? say('rel.setup.cooldownLine', { n: target.policy.cooldownHours }) : '',
+  ].filter(Boolean).join('\n');
+}
+
+/** Настройка выпусков с этой целью и командой — или причина, почему так нельзя. */
+function withTarget(
+  state: OfficeState, setup: Pick<ReleaseSetup, 'target' | 'check'>,
+): { targets: ReleaseTarget[]; checks: Record<string, string> } | { error: string } {
+  const checks = { ...(state.settings.checks ?? {}) };
+  if (setup.check) checks[setup.check.name] = setup.check.command;
+  const targets = [...state.releaseTargets().filter((t) => t.id !== setup.target.id), setup.target];
+  try {
+    return { targets: parseReleaseConfig({ targets }, checks).targets, checks };
+  } catch (err) {
+    const e = err as { issues?: Array<{ path: Array<string | number>; message: string }>; message: string };
+    return { error: e.issues ? e.issues.map((i) => `${i.path.slice(2).join('.') || 'target'}: ${i.message}`).join('; ') : e.message };
+  }
+}
+
+/**
+ * Менеджер предлагает цель выпуска по описанию владельца (spec §16). Цель
+ * проверяется тем же разбором, что форма в панели; прошла — владельцу уходит
+ * вопрос с целью словами. Применяется она только после «да» и, если цель
+ * ждёт задачу (Fastfile, workflow CI), после её слияния.
+ */
+export function proposeReleaseTarget(state: OfficeState, input: SetupInput): { ok: boolean; message: string } {
+  const target = structuredClone(input.target);
+  let check = input.check ?? null;
+  if (check) {
+    const name = check.name.trim();
+    const command = check.command.trim();
+    if (!CHECK_NAME_RE.test(name)) return { ok: false, message: state.say('rel.setup.badCheck', { name }) };
+    if (!command || command.length > 500) return { ok: false, message: state.say('rel.setup.badCommand') };
+    check = { name, command };
+    if (target.kind === 'command' && !target.run) target.run = name;
+  }
+  const waitTaskId = input.waitTaskId?.trim() || null;
+  if (waitTaskId && !state.tasks.has(waitTaskId)) return { ok: false, message: state.say('rel.setup.noTask', { task: waitTaskId }) };
+  const checked = withTarget(state, { target, check });
+  if ('error' in checked) return { ok: false, message: state.say('rel.setup.invalid', { error: checked.error }) };
+  const fixed = checked.targets.find((t) => t.id === target.id) as ReleaseTarget;
+
+  // Второе предложение той же цели заменяет первое: владелец отвечает на последнее.
+  for (const old of state.releaseSetups.values()) {
+    if (old.target.id === fixed.id && (old.status === 'asked' || old.status === 'approved')) {
+      state.saveReleaseSetup({ ...old, status: 'dropped', decidedAt: Date.now() });
+      const q = state.questions.get(old.id);
+      if (q && !q.answeredAt && !q.dismissedAt) state.updateQuestion(q.id, { dismissedAt: Date.now() });
+    }
+  }
+  const replaces = Boolean(state.releaseTarget(fixed.id));
+  const yes = state.say('rel.setup.optYes');
+  const no = state.say('rel.setup.optNo');
+  const question = state.addQuestion({
+    from: state.managerId() ?? OFFICE_SENDER, taskId: null, kind: 'gate',
+    text: state.say('rel.setup.ask', {
+      head: state.say(replaces ? 'rel.setup.headReplace' : 'rel.setup.headNew'),
+      target: describeTarget(state, fixed, check?.command ?? null),
+      check: check ? state.say('rel.setup.checkLine', { name: check.name, command: check.command }) : '',
+      wait: waitTaskId ? state.say('rel.setup.waitLine', { task: waitTaskId }) : '',
+      note: input.note?.trim() ? `\n${input.note.trim()}` : '',
+      yes, no,
+    }).replace(/\n{3,}/g, '\n\n'),
+    assumption: state.say('rel.setup.assumption'),
+    options: [yes, no],
+  });
+  state.saveReleaseSetup({
+    id: question.id, target: fixed, check, waitTaskId, note: input.note?.trim() ?? '',
+    status: 'asked', createdAt: Date.now(), decidedAt: null,
+  });
+  void state.whenQuestionClosed(question.id).then(() => settleReleaseSetups(state));
+  return { ok: true, message: state.say('rel.setup.asked', { id: question.id, target: fixed.title }) };
+}
+
+/**
+ * Довести предложения целей до итога: ответ «да» — применить (или ждать
+ * задачу), «нет» и снятый вопрос — отказ. Зовётся по ответу и из надзора:
+ * ответ мог прийти, пока сервер лежал, а задача — слиться позже.
+ */
+export function settleReleaseSetups(state: OfficeState): void {
+  for (const setup of [...state.releaseSetups.values()]) {
+    if (setup.status === 'asked') {
+      const q = state.questions.get(setup.id);
+      if (!q) {
+        state.saveReleaseSetup({ ...setup, status: 'dropped', decidedAt: Date.now() });
+        continue;
+      }
+      if (!q.answeredAt && !q.dismissedAt) continue;
+      if (!q.answeredAt || !setupYes(q.answer ?? '')) {
+        state.saveReleaseSetup({ ...setup, status: 'declined', decidedAt: Date.now() });
+        state.addChat(OFFICE_SENDER, state.say('rel.setup.declined', { target: setup.target.title }));
+        continue;
+      }
+      setup.status = 'approved';
+      setup.decidedAt = Date.now();
+      state.saveReleaseSetup(setup);
+      if (setup.waitTaskId && !state.tasks.get(setup.waitTaskId)?.merged) {
+        state.addChat(OFFICE_SENDER, state.say('rel.setup.waiting', { target: setup.target.title, task: setup.waitTaskId }));
+      }
+    }
+    if (setup.status !== 'approved') continue;
+    if (setup.waitTaskId) {
+      const task = state.tasks.get(setup.waitTaskId);
+      if (!task || task.status === 'failed' || task.status === 'cancelled') {
+        state.saveReleaseSetup({ ...setup, status: 'dropped' });
+        const text = state.say('rel.setup.taskGone', { target: setup.target.title, task: setup.waitTaskId });
+        state.addChat(OFFICE_SENDER, text);
+        tellPm(state, text);
+        continue;
+      }
+      if (!task.merged) continue;
+    }
+    // Настройка могла поменяться, пока ждали ответа или задачу: проверяем заново.
+    const checked = withTarget(state, setup);
+    const problem = 'error' in checked
+      ? checked.error
+      : state.updateSettings({ checks: checked.checks, release: { targets: checked.targets } });
+    if (problem) {
+      state.saveReleaseSetup({ ...setup, status: 'dropped' });
+      const text = state.say('rel.setup.applyFailed', { target: setup.target.title, error: problem });
+      state.addChat(OFFICE_SENDER, text);
+      tellPm(state, text);
+      continue;
+    }
+    state.saveReleaseSetup({ ...setup, status: 'applied' });
+    state.noteReleaseTarget(setup.target.id);
+    state.addChat(OFFICE_SENDER, state.say('rel.setup.applied', { target: setup.target.title }));
+  }
 }

@@ -17,8 +17,8 @@ import { tmpdir } from 'node:os';
 import { resolve } from 'node:path';
 import { getOffice, type Task } from '../src/server/state';
 import {
-  dueRelease, releaseTiming, resumeRelease, saveReleasePlan, scrubSecrets, setReleaseAgents,
-  setReleaseCi, startRelease, whenReleasesIdle, type CiRun,
+  dueRelease, proposeReleaseTarget, releaseStatusText, releaseTiming, resumeRelease, saveReleasePlan,
+  scrubSecrets, setReleaseAgents, setReleaseCi, settleReleaseSetups, startRelease, whenReleasesIdle, type CiRun,
 } from '../src/server/releases';
 import { releaseCommandBlocked } from '../src/server/permissions';
 import { builtinWorkflow } from '../src/server/workflows';
@@ -403,6 +403,54 @@ async function main(): Promise<void> {
     check('без целей — ничего не запрещено', releaseCommandBlocked('git push --tags', {}) === null);
     const scrubbed = scrubSecrets('TOKEN=abc123456 password: "hunter22" ghp_abcdefghijklmnopqrstuvwxyz0123 ok');
     check('секреты скрыты', !scrubbed.includes('abc123456') && !scrubbed.includes('hunter22') && !scrubbed.includes('ghp_') && scrubbed.includes('ok'));
+  }
+
+  // 10. Цель по описанию менеджера: вопрос, «да», ожидание задачи, отказ, замена.
+  {
+    say('▶ Цель выпуска по описанию менеджера');
+    const questionOf = (id: string) => office.questions.get(id.match(/Q-\d+/)?.[0] ?? '');
+    const bad = proposeReleaseTarget(office, { target: { ...staging, id: 'beta', branch: undefined } });
+    check('цель с ошибкой — отказ менеджеру, без вопроса', !bad.ok && bad.message.includes('ветка'));
+    const before = office.releaseTargets().length;
+    const tf = proposeReleaseTarget(office, {
+      target: { ...testflight, id: 'ios', title: 'iOS', run: undefined },
+      check: { name: 'ios', command: 'bundle exec fastlane beta' },
+      note: 'как просил: только по просьбе',
+    });
+    const q = questionOf(tf.message);
+    check('предложение ушло вопросом владельцу', tf.ok && Boolean(q) && q!.text.includes('fastlane beta') && q!.text.includes('iOS'));
+    check('до ответа ничего не применено', office.releaseTargets().length === before && !office.settings.checks?.ios);
+    office.updateQuestion(q!.id, { answer: 'Применить', answeredAt: Date.now() });
+    settleReleaseSetups(office);
+    check('«Применить» — цель и команда в настройках', office.releaseTarget('ios')?.run === 'ios' && office.settings.checks?.ios === 'bundle exec fastlane beta');
+    check('менеджер видит цель в release_status', releaseStatusText(office).includes('ios'));
+
+    const task = office.createTask({ title: 'Workflow деплоя', description: '', criteria: ['x'], roleId: 'backend' });
+    const st = proposeReleaseTarget(office, { target: { ...staging, id: 'stage2', title: 'Стенд 2', ci: 'off' }, waitTaskId: task.id });
+    const q2 = questionOf(st.message)!;
+    check('в вопросе — ждём задачу', q2.text.includes(task.id));
+    office.updateQuestion(q2.id, { answer: 'да', answeredAt: Date.now() });
+    settleReleaseSetups(office);
+    check('«да», но задача не влита — ещё не применено', !office.releaseTarget('stage2'));
+    office.updateTask(task.id, { merged: true, status: 'done' });
+    settleReleaseSetups(office);
+    check('задача влита — применено', office.releaseTarget('stage2')?.branch === 'deploy');
+
+    const no = proposeReleaseTarget(office, { target: { ...staging, id: 'nope', title: 'Нет' } });
+    const q3 = questionOf(no.message)!;
+    office.updateQuestion(q3.id, { answer: 'Нет', answeredAt: Date.now() });
+    settleReleaseSetups(office);
+    check('«Нет» — цель не появилась', !office.releaseTarget('nope'));
+
+    const first = proposeReleaseTarget(office, { target: { ...staging, id: 'stage2', title: 'Стенд два', branch: 'staging' } });
+    const second = proposeReleaseTarget(office, { target: { ...staging, id: 'stage2', title: 'Стенд два', branch: 'preview' } });
+    check('повторное предложение снимает первый вопрос', Boolean(questionOf(first.message)?.dismissedAt));
+    check('замена названа заменой', Boolean(questionOf(second.message)?.text.includes('изменить')));
+    office.updateQuestion(questionOf(second.message)!.id, { answer: 'Применить', answeredAt: Date.now() });
+    settleReleaseSetups(office);
+    check('замена применилась', office.releaseTarget('stage2')?.branch === 'preview');
+    check('снятое предложение не применилось поверх', office.releaseTarget('stage2')?.branch === 'preview');
+    check('предложения сохраняются', (office.toPersisted().releaseSetups ?? []).length >= 4);
   }
 
   // 9. Перезапуск: шедший выпуск поднимается вставшим, ждавший согласия — ждёт.
