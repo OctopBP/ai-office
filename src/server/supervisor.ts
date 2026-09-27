@@ -53,6 +53,7 @@ import { detectReverts } from './outcomes';
 import { askAboutReverts, tickRituals } from './rituals';
 import { refreshHealth } from './health';
 import { tickFlows } from './flows';
+import { tickReleases } from './releases';
 
 /** Как часто офис оглядывается на свои ветки. */
 const TICK_MS = 60_000;
@@ -245,6 +246,10 @@ export async function superviseOffice(state: OfficeState): Promise<void> {
   // Процессы по состоянию — «что дальше» на пустой доске. Не ждём: совещание
   // длится минутами, а надзору пора смотреть на ветки.
   tickFlows(state, now);
+  // Выпуски: поводы по политике целей, повтор вставших, возврат к согласию
+  // после перезапуска (docs/design/releases/spec.md §5, §9.2). Тоже не ждём:
+  // сборка идёт десятки минут.
+  if (!limited) tickReleases(state, now);
 
   // 4. План. Проход плана дублирует то, что и так делается по событиям
   // (завершилась задача, влилась ветка, согласовали фичу), — и он здесь

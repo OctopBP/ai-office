@@ -107,6 +107,8 @@ export function App() {
       else if (k === 'j' || k === 'о') setPanel('life');
       // P — процессы: доска прогонов, файлы процессов, проверки, расход.
       else if (k === 'p' || k === 'з') setPanel('flows');
+      // R — выпуски: цели, история, планы (docs/design/releases/spec.md §11).
+      else if (k === 'r' || k === 'к') setPanel('releases');
       else if (k === 'm' || k === 'ь') setModal('meeting');
       else if (k === 'q' || k === 'й') setPanel('merge');
       // G — режим разработчика трёхмерного офиса: сетка, занятые клетки и

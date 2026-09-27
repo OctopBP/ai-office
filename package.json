@@ -53,6 +53,7 @@
     "test:review": "tsx scripts/test-review.ts",
     "test:workflow": "tsx scripts/test-workflow.ts",
     "test:flows": "tsx scripts/test-flows.ts",
+    "test:releases": "tsx scripts/test-releases.ts",
     "test:offices": "tsx scripts/test-offices.ts",
     "test:setup": "tsx scripts/test-setup.ts",
     "test:presets": "tsx scripts/test-presets.ts",

@@ -2,6 +2,7 @@ import { resolve, isAbsolute } from 'node:path';
 import type { PermissionMode, RiskLevel } from '../shared/types';
 import type { Lang } from '../shared/i18n';
 import { t, type ServerKey } from './i18n';
+import type { Settings } from '../shared/types';
 
 export interface Verdict {
   risk: RiskLevel;
@@ -257,4 +258,36 @@ export function autoApprovedText(
     : `${toolName}: ${verdict.summary || '—'}`;
   const why = verdict.reason ? ` (${verdict.reason})` : '';
   return t(lang, 'perm.autoApproved', { mode: modeLabel(mode, lang), what: `${what}${why}` });
+}
+
+// ------------------------------------------------------------- выпуски
+
+/**
+ * Команда агента, которая выпускает в обход процесса выпуска
+ * (docs/design/releases/spec.md §8): пуш тегов, пуш в ветку, которую забирает
+ * CI, команда сборки цели и очевидные формы загрузки в стор. Правило есть,
+ * только когда у офиса есть цели выпуска: без них выпуска нет и обходить нечего.
+ *
+ * Это защита от случайного «сейчас сам и выложу», а не изоляция: у агента
+ * оболочка, и настоящая граница — то, что ключи лежат не в проекте.
+ * Возвращает то, на что сработало правило, или null.
+ */
+export function releaseCommandBlocked(command: string, settings: Pick<Settings, 'release' | 'checks'>): string | null {
+  const targets = settings.release?.targets ?? [];
+  if (!targets.length) return null;
+  const cmd = command.replace(/\s+/g, ' ');
+  const pushes = /\bgit( -C \S+)? push\b/.test(cmd);
+  if (pushes && /(--tags\b|--follow-tags\b|refs\/tags\/)/.test(cmd)) return 'git push --tags';
+  for (const target of targets) {
+    if (target.kind === 'push' && target.branch && pushes) {
+      const esc = target.branch.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      if (new RegExp(`(^|[\\s:+]|refs/heads/)${esc}(\\s|$)`).test(cmd)) return `git push → ${target.branch}`;
+    }
+    const run = target.run ? settings.checks?.[target.run]?.trim() : '';
+    if (run && cmd.includes(run.replace(/\s+/g, ' '))) return run;
+  }
+  if (/\bfastlane\b/.test(cmd) && /\b(beta|release|deliver|pilot|upload_to_testflight|upload_to_app_store|supply)\b/.test(cmd)) return 'fastlane';
+  if (/\bxcrun (altool|notarytool)\b/.test(cmd) && /--upload|\bsubmit\b|upload-app/.test(cmd)) return 'xcrun upload';
+  if (/\bgh release (create|upload|edit)\b/.test(cmd)) return 'gh release';
+  return null;
 }

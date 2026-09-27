@@ -127,6 +127,12 @@ const triggerSchema = z.discriminatedUnion('on', [
   z.object({ on: z.literal('week') }).strict(),
   z.object({ on: z.literal('owner.answered') }).strict(),
   z.object({ on: z.literal('manual') }).strict(),
+  /**
+   * У цели выпуска наступил повод — закрытая фича, накопились слияния или
+   * просьба владельца (docs/design/releases/spec.md §10.1). Поводы задаёт
+   * политика цели, а не файл: процесс один, целей много.
+   */
+  z.object({ on: z.literal('release.due') }).strict(),
 ]);
 
 const workflowSchema = z.object({
@@ -299,8 +305,8 @@ export interface Run {
   id: string;
   workflowId: string;
   version: number;
-  /** По чему идёт прогон: задача, фича или процесс самого офиса (`flow`). */
-  subject: { taskId?: string; epicId?: string; flow?: string };
+  /** По чему идёт прогон: задача, фича, выпуск или процесс самого офиса (`flow`). */
+  subject: { taskId?: string; epicId?: string; flow?: string; releaseId?: string };
   nodeId: string;
   /** Откуда пришли в текущий узел. null — с начала (первый заход или перезапуск). */
   from: string | null;

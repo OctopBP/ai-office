@@ -10,6 +10,7 @@ export const HOTKEY = {
   merge: 'Q',
   life: 'J',
   flows: 'P',
+  releases: 'R',
   meeting: 'M',
   task: 'ENTER',
   pause: 'SPACE',

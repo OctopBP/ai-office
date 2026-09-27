@@ -23,8 +23,8 @@ export const CHECK_TIMEOUT_MS = 5 * 60 * 1000;
 /** Хвост вывода: в интерфейс уходит конец лога, где и лежат ошибки. */
 const OUTPUT_LIMIT = 4000;
 
-export const tail = (s: string, lang: Lang): string => (s.length > OUTPUT_LIMIT
-  ? `${t(lang, 'merge.outputClipped')}\n${s.slice(-OUTPUT_LIMIT)}`
+export const tail = (s: string, lang: Lang, limit = OUTPUT_LIMIT): string => (s.length > limit
+  ? `${t(lang, 'merge.outputClipped')}\n${s.slice(-limit)}`
   : s);
 
 /**
@@ -33,7 +33,12 @@ export const tail = (s: string, lang: Lang): string => (s.length > OUTPUT_LIMIT
  */
 export async function runProjectCheck(
   cwd: string, command: string, lang: Lang,
-): Promise<{ ok: boolean; output: string; message: string; durationMs: number }> {
+  /**
+   * Сборке выпуска нужно больше пяти минут и своё окружение: версия, номер,
+   * заметки (docs/design/releases/spec.md §7.2). Остальным — как было.
+   */
+  opts: { timeoutMs?: number; env?: NodeJS.ProcessEnv; outputLimit?: number } = {},
+): Promise<{ ok: boolean; output: string; message: string; durationMs: number; timedOut?: boolean }> {
   const started = Date.now();
   try {
     // Оболочка своя на каждой системе: на Windows `/bin/sh` нет, и проверка
@@ -42,15 +47,18 @@ export async function runProjectCheck(
       ? ['cmd.exe', ['/d', '/s', '/c', command]]
       : ['/bin/sh', ['-lc', command]];
     const { stdout, stderr } = await run(shell as string, shellArgs as string[], {
-      cwd, timeout: CHECK_TIMEOUT_MS, maxBuffer: 10 * 1024 * 1024,
-      env: projectEnv({ FORCE_COLOR: '0' }),
+      cwd, timeout: opts.timeoutMs ?? CHECK_TIMEOUT_MS, maxBuffer: 32 * 1024 * 1024,
+      env: projectEnv({ FORCE_COLOR: '0', ...opts.env }),
     });
-    const output = tail(`${stdout}${stderr}`.trim(), lang);
+    const output = tail(`${stdout}${stderr}`.trim(), lang, opts.outputLimit);
     return { ok: true, output, message: output, durationMs: Date.now() - started };
   } catch (err) {
-    const e = err as { stdout?: string; stderr?: string; message?: string };
-    const output = tail(`${e.stdout ?? ''}${e.stderr ?? ''}`.trim() || (e.message ?? ''), lang);
-    return { ok: false, output, message: output, durationMs: Date.now() - started };
+    const e = err as { stdout?: string; stderr?: string; message?: string; killed?: boolean; signal?: string };
+    const output = tail(`${e.stdout ?? ''}${e.stderr ?? ''}`.trim() || (e.message ?? ''), lang, opts.outputLimit);
+    return {
+      ok: false, output, message: output, durationMs: Date.now() - started,
+      timedOut: Boolean(e.killed && e.signal === 'SIGTERM'),
+    };
   }
 }
 

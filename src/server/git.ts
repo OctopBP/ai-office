@@ -198,9 +198,13 @@ export type WorktreeResult =
   | { ok: false; reason: 'no-base' | 'add-failed'; detail: string };
 
 export async function createWorktree(
-  repoDir: string, worktreesRoot: string, taskId: string,
+  repoDir: string, worktreesRoot: string, taskId: string, forkFrom?: string | null,
 ): Promise<WorktreeResult> {
-  const base = await baseBranch(repoDir);
+  // Своя ветка-основа (починка сборки от ветки выпуска) — пока она жива; её
+  // не стало — основная: работа не должна встать из-за убранной ветки.
+  const base = forkFrom && await revision(repoDir, `refs/heads/${forkFrom}`)
+    ? forkFrom
+    : await baseBranch(repoDir);
   if (!base) return { ok: false, reason: 'no-base', detail: '' };
 
   const branch = `task/${taskId}`;
@@ -1236,6 +1240,47 @@ export async function pushBranch(
     // Токен мог попасть в текст ошибки вместе с URL — вырезаем.
     message: hideToken(r.ok ? r.stdout : (r.stderr || r.stdout), token),
   };
+}
+
+/**
+ * Отправить в origin ссылку на коммит: ветку выпуска в ветку, которую
+ * забирает CI, или тег. force — переписать ссылку, даже если это не
+ * перемотка вперёд (тег провалившегося выпуска ставится заново).
+ */
+export async function pushRef(
+  repoDir: string, source: string, target: string, token: string | null, lang: Lang, force = false,
+): Promise<{ ok: boolean; message: string }> {
+  const url = await remoteUrl(repoDir);
+  if (!url) return { ok: false, message: t(lang, 'git.noOrigin') };
+  const r = await git(repoDir, ['push', authUrl(url, token), `${force ? '+' : ''}${source}:${target}`]);
+  return { ok: r.ok, message: hideToken(r.ok ? (r.stdout || r.stderr) : (r.stderr || r.stdout), token) };
+}
+
+/**
+ * Отцепленная рабочая копия на данной ссылке — для выпуска (docs/design/
+ * releases/spec.md §7.2). Копия переиспользуется: DerivedData, поды и прочее
+ * игнорируемое остаётся, а отслеживаемое сбрасывается ровно в снимок.
+ * Отцепленная — потому что ветку выпуска тем временем может взять слияние
+ * починки, а одна ветка в двух копиях git не даёт.
+ */
+export async function detachedWorktree(
+  repoDir: string, path: string, ref: string,
+): Promise<{ ok: boolean; message: string }> {
+  if (existsSync(resolve(path, '.git'))) {
+    const co = await git(path, ['checkout', '--detach', '--force', ref]);
+    if (co.ok) {
+      await git(path, ['reset', '--hard', ref]);
+      await git(path, ['clean', '-fd']);
+      return { ok: true, message: '' };
+    }
+  }
+  await rm(path, { recursive: true, force: true });
+  await git(repoDir, ['worktree', 'prune']);
+  mkdirSync(dirname(path), { recursive: true });
+  const added = await git(repoDir, ['worktree', 'add', '--detach', path, ref]);
+  if (!added.ok) return { ok: false, message: added.stderr.split('\n').slice(-3).join(' ') };
+  await linkNodeModules(repoDir, path);
+  return { ok: true, message: '' };
 }
 
 /** Убрать ветку задачи из origin — после того как её слили. */

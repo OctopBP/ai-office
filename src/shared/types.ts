@@ -6,6 +6,7 @@ import type { ProviderId } from './providers';
 // снапшот, и команды клиента, а разбирать контракт по двум файлам неудобно.
 export type { Layout, LayoutOverride, LayoutPropEdit } from './layout';
 import type { FlowMemory, Handoff, Run, TaskType, WorkflowEntry } from './workflow';
+import type { EpicRelease, Release, ReleaseConfig, ReleasePlan } from './release';
 import type { Layout, LayoutOverride, LayoutPropEdit } from './layout';
 
 // Язык офиса живёт в настройках, а его тип — рядом с движком словарей.
@@ -115,6 +116,11 @@ export interface EpicView {
   rationale: string;
   /** Направление владельца, по которому заведена. */
   directionId: string | null;
+  /**
+   * Вклад фичи в выпуск (docs/design/releases/spec.md §6.2): в какую цель и
+   * на какой разряд версии. null — не планировали: разряд выберет состав.
+   */
+  release: EpicRelease | null;
   createdAt: number;
   startedAt: number | null;
   finishedAt: number | null;
@@ -789,6 +795,11 @@ export interface Settings {
    * §8.2): имя → команда оболочки, идёт в рабочей копии задачи.
    */
   checks?: Record<string, string>;
+  /**
+   * Цели выпуска (docs/design/releases/spec.md §4): куда и как офис выпускает
+   * проект и когда делает это сам. Нет поля — выпусков нет вовсе.
+   */
+  release?: ReleaseConfig;
   /**
    * Что пред-merge гейт гоняет на РЕЗУЛЬТАТЕ слияния перед тем, как двинуть
    * основную ветку: готовые команды оболочки, по порядку, до первой красной.
@@ -2061,9 +2072,13 @@ export type ServerEvent =
        */
       openQuestions: number;
       /** Направления владельца и предложения офиса, которые ждут решения. */
-      directions: DirectionView[]; proposals: ProposalView[] }
+      directions: DirectionView[]; proposals: ProposalView[];
+      /** Выпуски и планы выпусков (docs/design/releases/spec.md §9). */
+      releases: Release[]; releasePlans: ReleasePlan[] }
   | { t: 'mcp.status'; servers: McpServerState[] }
   | { t: 'run'; run: Run }
+  | { t: 'release'; release: Release }
+  | { t: 'release.plan'; plan: ReleasePlan }
   | { t: 'workflows'; workflows: WorkflowEntry[] }
   | { t: 'direction'; direction: DirectionView }
   | { t: 'direction.remove'; id: string }
@@ -2273,6 +2288,16 @@ export type ClientCommand =
   | { c: 'pr_retry'; taskId: string }
   | { c: 'workflow_save'; id: string; text: string }
   | { c: 'workflow_reset'; id: string }
+  /** Выпустить цель сейчас — кнопка «Выпустить» (docs/design/releases/spec.md §5). */
+  | { c: 'release_start'; targetId: string }
+  /** Снова пустить вставший выпуск: с начала, если он ждал решения, иначе — с узла. */
+  | { c: 'release_resume'; releaseId: string }
+  /** Завести или поправить план выпуска. Без id — новый. */
+  | { c: 'release_plan_save'; id?: string; targetId: string; title: string; version: string | null;
+      level: 'patch' | 'minor' | 'major' | null; epicIds: string[] }
+  | { c: 'release_plan_close'; id: string }
+  /** Вклад фичи в выпуск. null — снять. */
+  | { c: 'epic_release'; epicId: string; release: EpicRelease | null }
   /**
    * «Поехали» по фиче: человек согласился, офис начинает её задачи. Кнопка
    * есть и в интерфейсе, и у менеджера (start_feature) — согласие можно дать
