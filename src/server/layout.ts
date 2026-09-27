@@ -1,12 +1,13 @@
 import { readdirSync, readFileSync, statSync } from 'node:fs';
 import { resolve } from 'node:path';
 import {
-  applyOverride, desks as deskList, isEmptyOverride, normalizeRot, pmDeskIndex, propKeys,
+  applyOverride, desks as deskList, isEmptyOverride, isRightAngle, normalizeRot, pmDeskIndex,
+  propKeys,
 } from '../shared/layout';
 import type { Catalog, Layout, LayoutOverride, LayoutPropEdit } from '../shared/layout';
 import type { Desk, LayoutOption } from '../shared/types';
 import type { Lang } from '../shared/i18n';
-import { c, hasKey, t } from './i18n';
+import { c, consoleLang, hasKey, t } from './i18n';
 import { ROOT } from './root';
 
 /**
@@ -112,8 +113,34 @@ export function loadLayout(id: string): Layout {
   } catch (err) {
     throw new Error(c('layout.unreadable', { id, error: (err as Error).message }));
   }
+  const problem = layoutProblem(data, consoleLang());
+  if (problem) throw new Error(c('layout.presetRotation', { id, error: problem }));
   parsed.set(id, { mtimeMs, layout: data, variants: new Map([['', { layout: data }]]) });
   return data;
+}
+
+/**
+ * Что не так с поворотами предметов раскладки — текст ошибки или `null`.
+ *
+ * Пресет с углом, которого сетка не различает, лучше не читать вовсе, чем
+ * читать с молча прижатым углом: `loadLayout` бросает, офис уходит на
+ * запасную раскладку и пишет в консоль, какой предмет и какой угол виноваты.
+ */
+export function layoutProblem(layout: Layout, lang: Lang): string | null {
+  const keys = propKeys(layout);
+  for (let i = 0; i < layout.props.length; i++) {
+    const problem = rotationProblem(keys[i], layout.props[i].rot, lang);
+    if (problem) return problem;
+  }
+  return null;
+}
+
+/** Поворот предмета годится (или его нет) — `null`, иначе причина отказа. */
+function rotationProblem(key: string, rot: unknown, lang: Lang): string | null {
+  if (rot === undefined) return null;
+  if (typeof rot !== 'number' || !Number.isFinite(rot)) return t(lang, 'layout.badRotation', { key });
+  if (!isRightAngle(rot)) return t(lang, 'layout.rotationStep', { key, rot });
+  return null;
 }
 
 /**
@@ -326,12 +353,13 @@ export function checkPropEdit(
   }
   if (edit.flip !== undefined) clean.flip = Boolean(edit.flip);
   if (edit.rot !== undefined) {
-    if (!Number.isFinite(edit.rot)) return { error: t(lang, 'layout.badRotation', { key }) };
-    // Приводим к 0/90/180/270 тем же правилом, что и чтение раскладки
-    // (`propRot`): поворот на 450° и на 90° — один и тот же предмет, но в
-    // файле состояния это были бы две разные записи. Промежуточные углы
-    // офис не хранит — занятые клетки считаются прямоугольником, и держать
-    // в данных угол, которого сетка не различает, значило бы врать.
+    // Промежуточные углы офис не принимает — занятые клетки считаются
+    // прямоугольником, и держать в данных угол, которого сетка не различает,
+    // значило бы врать. Кратный прямому приводим к 0/90/180/270 тем же
+    // правилом, что и чтение раскладки (`propRot`): поворот на 450° и на 90°
+    // — один и тот же предмет, но в файле состояния это были бы две записи.
+    const problem = rotationProblem(key, edit.rot, lang);
+    if (problem) return { error: problem };
     clean.rot = normalizeRot(edit.rot);
   }
   if (edit.scale !== undefined) {

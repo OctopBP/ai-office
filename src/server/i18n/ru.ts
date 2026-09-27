@@ -515,6 +515,8 @@ export const ru: Record<keyof typeof en, string> = {
   'layout.badPosition': 'Позиция предмета — не число.',
   'layout.outOfRoom': 'Позиция [{x}, {y}] выходит за пределы комнаты {cols}×{rows}.',
   'layout.badRotation': 'Поворот предмета «{key}» — не число.',
+  'layout.rotationStep': 'Поворот предмета «{key}» — {rot}°, а сетка офиса понимает только углы, кратные 90°: 0, 90, 180 или 270.',
+  'layout.presetRotation': 'в раскладке «{id}»: {error}',
   'layout.badScale': 'Масштаб предмета «{key}» должен быть числом от {min} до {max}.',
   'layout.badSize': 'Размер предмета «{key}» — не число.',
   'layout.sizeRange': 'Размер предмета «{key}» должен быть от {min} до размеров комнаты {cols}×{rows}.',

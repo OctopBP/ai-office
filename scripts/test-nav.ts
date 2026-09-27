@@ -13,12 +13,14 @@
 import './_isolate'; // первым: до чтения окружения в root.ts и store.ts
 import {
   adjacentFree, deskFacing, deskPoint, desks, findPath, FOOT_DX, FOOT_DY, isBlocked,
-  kitchenSeats, meetingSeat, nearestFree, oppositeSide, passability, propBox,
-  propFootprint, propPivot, restSeats, rotateSide, SIDE_BIT, slotPoint, spriteOf,
+  isRightAngle, kitchenSeats, meetingSeat, nearestFree, oppositeSide, passability, propBox,
+  propFootprint, propKeys, propPivot, propRot, restSeats, rotateSide, SIDE_BIT, slotPoint, spriteOf,
   standingAt, talkSeats, walkerCell, yawOfSide,
 } from '../src/shared/layout';
 import type { Layout, LayoutProp, Passability, Pos, Rotation, Side } from '../src/shared/layout';
-import { catalog, layoutIds, loadLayout } from '../src/server/layout';
+import {
+  catalog, checkPropEdit, DEFAULT_LAYOUT_ID, layoutIds, layoutProblem, loadLayout,
+} from '../src/server/layout';
 
 // Раскладки и каталог спрайтов читаем тем же модулем, что и сервер: корень
 // считает src/server/root.ts, а список пресетов — сама директория. Свой
@@ -391,6 +393,97 @@ if (sofaSprite && deskSprite) {
         check(sameProp || (!!side && (entry.sides & SIDE_BIT[side]) !== 0),
           `поворот ${rot}° (${prop.sprite}): на место ${i} зашли не с объявленной стороны`);
       });
+    }
+  }
+}
+
+// 9. Угол, которого сетка не различает, в офис не попадает: пресет с ним не
+//    читается, правку с ним сервер отвергает с объяснением. Кратные прямому
+//    — в том числе −90 и 450 — годятся, а поля нет — значит, и спорить не о
+//    чем: старые раскладки читаются как раньше.
+for (const rot of [0, 90, 180, 270, -90, 450]) {
+  check(isRightAngle(rot), `поворот: ${rot}° отвергнут, хотя кратен прямому`);
+}
+for (const rot of [45, 37.5, 1, Number.NaN, Number.POSITIVE_INFINITY]) {
+  check(!isRightAngle(rot), `поворот: ${rot}° принят, хотя сетка его не различает`);
+}
+{
+  check(layoutProblem(alone({ sprite: 'sofa', at: [5, 5] }), 'ru') === null, 'поворот: предмет без rot назван ошибкой');
+  check(layoutProblem(alone({ sprite: 'sofa', at: [5, 5], rot: 270 }), 'ru') === null,
+    'поворот: rot 270 назван ошибкой');
+  const bad = layoutProblem(alone({ sprite: 'sofa', at: [5, 5], id: 'диван', rot: 45 }), 'ru');
+  check(!!bad && bad.includes('диван') && bad.includes('45') && bad.includes('90'),
+    `поворот: пресет с rot 45 не отвергнут или ошибка не называет предмет и угол — ${bad}`);
+  const nan = layoutProblem(alone({ sprite: 'sofa', at: [5, 5], rot: 'сорок' as unknown as number }), 'ru');
+  check(!!nan, 'поворот: пресет с rot-строкой не отвергнут');
+}
+for (const id of LAYOUT_IDS) {
+  const problem = layoutProblem(loadLayout(id), 'ru');
+  check(problem === null, `${id}: ${problem}`);
+}
+{
+  const key = propKeys(loadLayout(DEFAULT_LAYOUT_ID))[0];
+  const rejected = checkPropEdit(DEFAULT_LAYOUT_ID, null, { key, rot: 45 }, 'ru');
+  check('error' in rejected && rejected.error.includes('90'),
+    'поворот: правка расстановки с rot 45 не отвергнута');
+  const turned = checkPropEdit(DEFAULT_LAYOUT_ID, null, { key, rot: -90 }, 'ru');
+  check(!('error' in turned) && turned.rot === 270,
+    'поворот: правка с rot −90 не приведена к 270');
+}
+
+// 10. Повёрнутые стол и диван в стандартной раскладке — те, по которым
+//     владелец смотрит поворот глазами. Место и взгляд уехали вместе с
+//     предметом, а клетка, с которой садятся, — свободный пол рядом с местом.
+{
+  const layout = loadLayout(DEFAULT_LAYOUT_ID);
+  const grid = passability(layout, catalog);
+  const turnedDesk = layout.props.find((p) => p.sprite === 'desk' && propRot(p) !== 0);
+  const turnedSofa = layout.props.find((p) => p.sprite === 'sofa' && propRot(p) !== 0);
+  check(!!turnedDesk, `${DEFAULT_LAYOUT_ID}: нет повёрнутого стола`);
+  check(!!turnedSofa, `${DEFAULT_LAYOUT_ID}: нет повёрнутого дивана`);
+  const approachOk = (label: string, to: Pos): void => {
+    const path = findPath(grid, standingAt(1, 1), to, { bestEffort: true });
+    const end = path?.[path.length - 1];
+    check(!!end && near(end.x, to.x) && near(end.y, to.y), `${label}: до места не дойти`);
+    if (!path || path.length < 2) return;
+    const seat = walkerCell(to);
+    const entry = grid.entries.get(seat.y * grid.cols + seat.x);
+    // Клетка подхода — последняя до места, не принадлежащая тому же предмету.
+    for (let i = path.length - 2; i >= 0; i--) {
+      const cell = walkerCell(path[i]);
+      if (cell.x === seat.x && cell.y === seat.y) continue;
+      if (entry && grid.entries.get(cell.y * grid.cols + cell.x)?.prop === entry.prop) continue;
+      check(!isBlocked(grid, cell.x, cell.y),
+        `${label}: садятся с занятой клетки (${cell.x},${cell.y})`);
+      break;
+    }
+  };
+  if (turnedDesk) {
+    // Номер стола — по порядку предметов с рабочим местом (`desks`).
+    const index = layout.props
+      .filter((p) => spriteOf(catalog, p.sprite)?.slots?.some((s) => s.kind === 'work'))
+      .indexOf(turnedDesk);
+    const rot = propRot(turnedDesk);
+    check(deskFacing(layout, catalog, index) === rotateSide('s', rot),
+      `${DEFAULT_LAYOUT_ID}: за повёрнутым столом смотрят не в стол`);
+    const at = deskPoint(layout, catalog, index, 'work');
+    check(!!adjacentFree(grid, at), `${DEFAULT_LAYOUT_ID}: у повёрнутого стола некуда встать рядом`);
+    approachOk(`${DEFAULT_LAYOUT_ID}: повёрнутый стол`, at);
+  }
+  if (turnedSofa) {
+    const seats = restSeats(layout, catalog).filter((s) => s.sprite === 'sofa');
+    const rot = propRot(turnedSofa);
+    const own = seats.filter((s) => {
+      const cell = walkerCell(s.at);
+      const r = propFootprint(turnedSofa, spriteOf(catalog, 'sofa'));
+      return cell.x >= Math.round(r.x) && cell.x < Math.round(r.x + r.w)
+        && cell.y >= Math.round(r.y) && cell.y < Math.round(r.y + r.h);
+    });
+    check(own.length > 0, `${DEFAULT_LAYOUT_ID}: места повёрнутого дивана не на нём`);
+    for (const seat of own) {
+      check(seat.facing === rotateSide('s', rot),
+        `${DEFAULT_LAYOUT_ID}: на повёрнутом диване смотрят ${seat.facing}, а не от спинки`);
+      approachOk(`${DEFAULT_LAYOUT_ID}: повёрнутый диван`, seat.at);
     }
   }
 }

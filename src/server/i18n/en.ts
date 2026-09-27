@@ -515,6 +515,8 @@ export const en = {
   'layout.badPosition': 'The item position is not a number.',
   'layout.outOfRoom': 'Position [{x}, {y}] is outside the {cols}×{rows} room.',
   'layout.badRotation': 'The rotation of item “{key}” is not a number.',
+  'layout.rotationStep': 'The rotation of item “{key}” is {rot}°, but the office grid only understands multiples of 90°: 0, 90, 180 or 270.',
+  'layout.presetRotation': 'in layout “{id}”: {error}',
   'layout.badScale': 'The scale of item “{key}” has to be a number from {min} to {max}.',
   'layout.badSize': 'The size of item “{key}” is not a number.',
   'layout.sizeRange': 'The size of item “{key}” has to be from {min} up to the room size {cols}×{rows}.',
