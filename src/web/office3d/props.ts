@@ -12,7 +12,7 @@
  */
 import type { Preset } from '../../shared/preset';
 import type { Catalog, Layout, LayoutProp } from '../../shared/layout';
-import { propFootprint, propRot } from '../../shared/layout';
+import { propFootprint, propPivot, propRot } from '../../shared/layout';
 import { WALL_THICK } from './geometry';
 import { isFlat, presetOf, wallMount } from './presets';
 
@@ -137,10 +137,35 @@ export interface Placed3 {
  * (footprint, размер арта) у пресета и у каталога один и тот же набор чисел,
  * поэтому сюда идёт флэт-каталог: только у него есть тип `CatalogSprite`,
  * который эта функция принимает.
+ *
+ * Возвращает след **в комнате**, то есть уже повёрнутый: у предмета с
+ * непрямоугольным (не квадратным) следом при 90°/270° `w` и `d` меняются
+ * местами. Для формы предмета (`place3`) эти числа не годятся — она строится
+ * в его собственных, неповёрнутых осях (`localRect`), а этот прямоугольник
+ * нужен ровно для того, для чего был задуман: центр (`propPivot`) и то, что
+ * реально занято в комнате (проверка «что на чём стоит» ниже).
  */
 export function floorRect(cat: Catalog, prop: LayoutProp): FloorRect {
   const sprite = cat.sprites[prop.sprite];
   const r = propFootprint(prop, sprite);
+  return { x: r.x, y: r.y, w: r.w, d: r.h };
+}
+
+/**
+ * Тот же след, но без поворота — в собственных осях предмета, «лицом на юг»
+ * (см. `partsOf` в `Props3D.tsx`). Именно в этих габаритах строится форма и
+ * ставится модель: разворот делает группа сцены (`item.rot`), а не эта
+ * функция, — довернуть уже повёрнутый след было бы двойным поворотом,
+ * который у квадратного предмета (стол) незаметен, а у вытянутого (диван,
+ * стул) разворачивает его не в ту сторону.
+ *
+ * Считается той же `propFootprint`, только с обнулённым `rot`: при нуле
+ * функция возвращает необёрнутый след как есть, поэтому дублировать её
+ * математику здесь не нужно.
+ */
+function localRect(cat: Catalog, prop: LayoutProp): FloorRect {
+  const sprite = cat.sprites[prop.sprite];
+  const r = propFootprint({ ...prop, rot: 0 }, sprite);
   return { x: r.x, y: r.y, w: r.w, d: r.h };
 }
 
@@ -163,22 +188,28 @@ export function place3(
   layout: Layout, cat: Catalog, props: (LayoutProp & { key: string })[],
 ): Placed3[] {
   const [cols, rows] = layout.size;
+  // Комнатный (повёрнутый) след предметов — параллельно `items`, по индексу.
+  // Нужен только проверке «что на чём стоит» ниже: там важен именно размер
+  // после поворота, а не собственные оси предмета.
+  const roomRects = props.map((prop) => floorRect(cat, prop));
   const items: Placed3[] = props.map((prop) => {
     const def = presetOf(prop.sprite);
     const wall = wallMount(def);
-    const r = floorRect(cat, prop);
+    const sprite = cat.sprites[prop.sprite];
+    const pivot = propPivot(prop, sprite);
+    const local = localRect(cat, prop);
     return {
       key: prop.key,
       sprite: prop.sprite,
       def,
       ax: prop.at[0],
       ay: prop.at[1],
-      cx: r.x + r.w / 2,
-      cy: r.y + r.d / 2,
-      w: r.w,
+      cx: pivot.x,
+      cy: pivot.y,
+      w: local.w,
       // У настенного глубина — это толщина панели, а не след: висящая доска
       // пола не занимает вовсе.
-      d: wall ? (wall.thickness ?? 0.12) : r.d,
+      d: wall ? (wall.thickness ?? 0.12) : local.d,
       h: def.h,
       base: wall ? wall.at : 0,
       rot: (propRot(prop) * Math.PI) / 180,
@@ -187,16 +218,24 @@ export function place3(
 
   // Что на чём стоит. Настенное не поднимаем: оно уже висит, а его тонкая
   // панель легко оказывается «внутри» следа стоящего рядом шкафа.
-  for (const item of items) {
+  //
+  // Сравниваются комнатные прямоугольники (`roomRects`), а не `item.w/d`: те
+  // теперь в собственных, неповёрнутых осях предмета (`localRect`) — поворот
+  // им придаёт группа сцены, а не эта проверка.
+  for (let i = 0; i < items.length; i++) {
+    const item = items[i];
     if (wallMount(item.def) || isFlat(item.def)) continue;
+    const rect = roomRects[i];
     let lift = 0;
-    for (const host of items) {
+    for (let j = 0; j < items.length; j++) {
+      const host = items[j];
       if (host === item || wallMount(host.def) || isFlat(host.def)) continue;
+      const hostRect = roomRects[j];
       const inside =
-        item.cx - item.w / 2 >= host.cx - host.w / 2 - 1e-6 &&
-        item.cx + item.w / 2 <= host.cx + host.w / 2 + 1e-6 &&
-        item.cy - item.d / 2 >= host.cy - host.d / 2 - 1e-6 &&
-        item.cy + item.d / 2 <= host.cy + host.d / 2 + 1e-6;
+        rect.x >= hostRect.x - 1e-6 &&
+        rect.x + rect.w <= hostRect.x + hostRect.w + 1e-6 &&
+        rect.y >= hostRect.y - 1e-6 &&
+        rect.y + rect.d <= hostRect.y + hostRect.d + 1e-6;
       if (inside) lift = Math.max(lift, host.base + host.h);
     }
     item.base = lift;
