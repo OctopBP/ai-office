@@ -85,6 +85,15 @@
 /* PDF — встроенный просмотрщик браузера на всю область. */
 .result-pdf { display: block; width: 100%; height: 100%; border: 0; background: var(--surface); }
 
+/* ---------- 3D-модель ---------- */
+.result-3d { display: flex; flex-direction: column; height: 100%; }
+.result-3d-canvas { flex: 1; min-height: 0; }
+.result-3d-info {
+  display: flex; gap: var(--space-4); flex: none;
+  padding: var(--space-2) var(--space-3); border-top: 1px solid var(--hairline);
+  font-size: var(--fs-small); color: var(--ink-3); background: var(--surface);
+}
+
 /* ---------- markdown ---------- */
 .result-md { position: relative; }
 .result-md-seg { position: sticky; top: var(--space-2); float: right; margin: var(--space-2); z-index: 1; background: var(--surface); }

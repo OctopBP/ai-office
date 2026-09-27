@@ -2,14 +2,21 @@
  * Просмотрщики файлов результата — по одному на вид файла (`ResultFileKind`).
  *
  * Выбор идёт по таблице `VIEWERS`, а не по цепочке условий: вид файла
- * определяет сервер (taskfiles.ts → fileKind), и новый просмотрщик —
- * например трёхмерный для `model3d` — подключается заменой одной строки.
+ * определяет сервер (taskfiles.ts → fileKind), и новый просмотрщик
+ * подключается заменой одной строки в таблице.
  */
-import { useEffect, useState, type ComponentType } from 'react';
+import { lazy, useEffect, useState, type ComponentType } from 'react';
 import type { ResultFileKind, ResultFileView } from '../../shared/types';
 import { t } from '../i18n';
 import { baseName, fetchFileText, formatSize } from './api';
 import { Markdown } from './markdown';
+
+/**
+ * Просмотр 3D-моделей — единственный тяжёлый просмотрщик (тянет three.js),
+ * поэтому единственный ленивый: подключается кодом только когда открыт файл
+ * вида `model3d`, а не всякий раз, когда открывают карточку задачи.
+ */
+const Model3dViewer = lazy(() => import('./Model3dViewer'));
 
 export interface ViewerProps {
   taskId: string;
@@ -153,12 +160,12 @@ export function OtherViewer(props: ViewerProps) {
   return <DownloadViewer {...props} />;
 }
 
-/** Какой просмотрщик у какого вида. Трёхмерный просмотр встанет в строку `model3d`. */
+/** Какой просмотрщик у какого вида. */
 export const VIEWERS: Record<ResultFileKind, ComponentType<ViewerProps>> = {
   text: TextViewer,
   markdown: MarkdownViewer,
   image: ImageViewer,
   pdf: PdfViewer,
-  model3d: OtherViewer,
+  model3d: Model3dViewer,
   other: OtherViewer,
 };

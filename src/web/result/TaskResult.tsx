@@ -6,7 +6,7 @@
  * открывается окном поверх: дровер узкий, а документу и картинке нужна
  * ширина. В окне слева список, справа выбранный файл.
  */
-import { useEffect, useState } from 'react';
+import { Suspense, useEffect, useState } from 'react';
 import type { ResultFileView, TaskView } from '../../shared/types';
 import { t } from '../i18n';
 import { Hint, Tooltip } from '../Tooltip';
@@ -61,7 +61,13 @@ function Viewer({ taskId, file }: { taskId: string; file: ResultFileView }) {
     return <DownloadViewer taskId={taskId} file={file} url={url} note={t('result.tooBigServer')} noLink />;
   }
   const View = VIEWERS[file.kind] ?? VIEWERS.other;
-  return <View taskId={taskId} file={file} url={url} />;
+  // Граница нужна только ленивому просмотрщику (model3d): пока его код не
+  // подъехал, остальные просмотрщики рендерятся синхронно и её не касаются.
+  return (
+    <Suspense fallback={<p className="muted result-note">{t('result.loading')}</p>}>
+      <View taskId={taskId} file={file} url={url} />
+    </Suspense>
+  );
 }
 
 /** Окно результата: слева список, справа выбранный файл. */
