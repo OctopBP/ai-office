@@ -5,6 +5,7 @@
  *
  * Запуск: npm run test:state
  */
+import './_isolate'; // первым: до чтения окружения в root.ts и store.ts
 import { execFileSync } from 'node:child_process';
 import { mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';

@@ -12,6 +12,7 @@
  * FAIL, а конвейеру это ни о чём не говорило. Теперь код выхода 1 при первой
  * же недостижимой точке, и проверка годится в пред-merge гейт.
  */
+import './_isolate'; // первым: до чтения окружения в root.ts и store.ts
 import {
   desks, deskPoint, findPath, isBlocked, kitchenSeats, meetingSeat, passability,
 } from '../src/shared/layout';

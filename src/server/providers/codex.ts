@@ -7,6 +7,7 @@ import { CodexRpc, type RpcMessage } from './rpc';
 import { codexTools } from './codex-tools';
 import { DEFAULT_STATE_FILE } from '../store';
 import { codexPrice, tokenCost, type TokenPrice } from './pricing';
+import { projectEnv } from '../childenv';
 
 export function codexBinary(): string {
   if (process.env.OFFICE_CODEX_PATH) return process.env.OFFICE_CODEX_PATH;
@@ -26,7 +27,7 @@ export function runtimeEnv(): NodeJS.ProcessEnv {
     try { symlinkSync(auth, target); }
     catch (e) { if ((e as NodeJS.ErrnoException).code !== 'EEXIST') throw e; }
   }
-  return { ...process.env, CODEX_HOME: home };
+  return projectEnv({ CODEX_HOME: home });
 }
 
 class Events implements AsyncIterable<SDKMessage> {

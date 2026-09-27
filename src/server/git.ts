@@ -6,6 +6,7 @@ import { existsSync, mkdirSync, readFileSync, realpathSync, statSync, symlinkSyn
 import { mkdtemp, rm } from 'node:fs/promises';
 import type { Lang } from '../shared/i18n';
 import { t } from './i18n';
+import { projectEnv } from './childenv';
 
 
 export interface GitResult {
@@ -32,36 +33,12 @@ export interface GitResult {
  */
 const GIT_BIN = process.env.OFFICE_GIT_BIN || 'git';
 
-/**
- * PATH для git с системными каталогами macOS в хвосте.
- *
- * git сам зовёт внешние программы — прежде всего `git-lfs` из фильтра в
- * ~/.gitconfig (`filter.lfs.required = true`). Приложение, запущенное из
- * Finder, получает голый PATH `/usr/bin:/bin:/usr/sbin:/sbin`, а git-lfs лежит
- * в /usr/local/bin или /opt/homebrew/bin. Тогда `worktree add` успевает
- * создать ветку и падает на выгрузке первого LFS-файла — так с T-100 все
- * задачи офиса o-2 и остались без своих копий (T-106). Каталоги только
- * дописываем в конец: порядок, выбранный человеком, важнее наших догадок.
- */
-const GIT_PATH = ((): string => {
-  const current = process.env.PATH ?? '';
-  if (process.platform === 'win32') return current;
-  const dirs = current.split(':').filter(Boolean);
-  const extra = ['/opt/homebrew/bin', '/usr/local/bin'];
-  try {
-    extra.push(...readFileSync('/etc/paths', 'utf8').split('\n').map((s) => s.trim()));
-  } catch { /* не macOS — хватит известных каталогов */ }
-  for (const dir of extra) {
-    if (dir && !dirs.includes(dir) && existsSync(dir)) dirs.push(dir);
-  }
-  return dirs.join(':');
-})();
-
 export function git(cwd: string, args: string[], env?: NodeJS.ProcessEnv): Promise<GitResult> {
   return new Promise((done) => {
     const options = {
       cwd, maxBuffer: 10 * 1024 * 1024,
-      env: { ...process.env, PATH: GIT_PATH, ...env },
+      // PATH с каталогами git-lfs (T-106) и без переменных приложения — childenv.ts.
+      env: projectEnv(env),
     };
     execFile(GIT_BIN, args, options, (err, stdout, stderr) => {
       const e = err as (Error & { code?: number }) | null;
