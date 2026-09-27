@@ -188,6 +188,14 @@ function Card({ t }: { t: TaskView }) {
           </span>
         )}
         {badge && <span className={`chip merge-chip ${badge.cls}`}>{badge.label}</span>}
+        {/* Значок результата — по списку, запомненному при слиянии: ради
+            доски сервер не спрашиваем. Задачи, влитые до появления списка,
+            значка не получат, но в раскрытой карточке результат найдётся. */}
+        {t.status === 'done' && (t.delivery?.files.length ?? 0) > 0 && (
+          <span className="chip result-chip" title={tr('result.badgeHint', { n: t.delivery!.files.length })}>
+            {tr('result.badge', { n: t.delivery!.files.length })}
+          </span>
+        )}
         {t.assigneeId && <AgentTag id={t.assigneeId} className="muted" />}
         {t.criteria.length > 0 && (
           <span className="muted">{done}/{t.criteria.length}</span>

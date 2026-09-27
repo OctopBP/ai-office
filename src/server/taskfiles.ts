@@ -416,7 +416,13 @@ async function serveFile(res: ServerResponse, params: URLSearchParams): Promise<
     // Файл пришёл из работы агента: браузеру не угадывать тип и ничего из
     // него не исполнять — SVG и html открывают и вкладкой.
     'X-Content-Type-Options': 'nosniff',
-    'Content-Security-Policy': "default-src 'none'; style-src 'unsafe-inline'; img-src data:; sandbox",
+    // PDF — исключение: встроенный просмотрщик Chromium (и окна приложения)
+    // не открывается ни в песочнице, ни под object-src 'none', который
+    // включает default-src. Тип при этом зафиксирован nosniff, а PDF рисует
+    // сам браузер, не страница офиса.
+    ...(read.type === 'application/pdf' ? {} : {
+      'Content-Security-Policy': "default-src 'none'; style-src 'unsafe-inline'; img-src data:; sandbox",
+    }),
   });
   res.end(read.bytes);
 }
