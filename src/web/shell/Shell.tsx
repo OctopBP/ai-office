@@ -7,6 +7,7 @@ import { Rail } from './Rail';
 import { TopBar } from './TopBar';
 import { Composer } from './Composer';
 import { EnvBanner } from './EnvBanner';
+import { UpdateBanner } from './UpdateBanner';
 import { useStore } from '../store';
 import type { SpotTarget } from '../office3d/Hotspots3D';
 
@@ -58,6 +59,7 @@ export function Shell(props: OverlayProps) {
           сама доска (.shell-board). */}
       {view !== 'board' && <Composer onSettings={() => setModal('settings')} />}
       <EnvBanner />
+      <UpdateBanner />
       <Overlays {...props} />
     </div>
   );
