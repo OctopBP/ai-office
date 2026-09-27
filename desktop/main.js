@@ -2,13 +2,14 @@
  * Приложение: окно, движок, сервер офиса.
  *
  * Порядок запуска один и тот же и на macOS, и на Windows: окно ожидания →
- * поиск движка (и, если надо, его загрузка) → сервер на свободном порту
- * локальной петли → окно офиса на этом порту. Пока сервер не ответил, окна
+ * поиск движка (и, если надо, его загрузка) → сервер на постоянном порту
+ * локальной петли (pickPort в server.js) → окно офиса на этом порту. Пока сервер не ответил, окна
  * офиса не существует: белый экран с неработающим сокетом объясняет человеку
  * меньше, чем строка «Запускаю офис…».
  */
 
 const { app, BrowserWindow, Menu, dialog, ipcMain, nativeImage, shell } = require('electron');
+const { readFileSync, renameSync, writeFileSync } = require('node:fs');
 const { join } = require('node:path');
 
 const paths = require('./paths');
@@ -159,7 +160,7 @@ async function startOffice() {
   createMainWindow();
 }
 
-/** Перезапуск сервера: порт новый, окно перезагружается на него. */
+/** Перезапуск сервера: порт обычно тот же, окно всё равно перезагружается на него. */
 async function restartOffice() {
   if (!mainWindow) return;
   stopping = true;
@@ -326,6 +327,44 @@ function badgeIcon(n) {
   });
   return nativeImage.createFromBitmap(buf, { width: size, height: size, scaleFactor: 2 });
 }
+
+/**
+ * Копия localStorage окна офиса в папке данных. Порт постоянный (pickPort в
+ * server.js), но если он занят, офис встаёт на запасной — а там другой origin
+ * и пустое хранилище. Копия подставляет настройки на любом порту, так что
+ * тема, графика и уведомления не зависят от того, какой порт достался.
+ */
+const STORAGE_LIMIT = 2 * 1024 * 1024;
+
+function readWebStorage() {
+  try {
+    const data = JSON.parse(readFileSync(paths.webStorageFile(), 'utf8'));
+    return data && typeof data === 'object' && !Array.isArray(data) ? data : {};
+  } catch {
+    return {};
+  }
+}
+
+ipcMain.on('office:storage-load', (event) => {
+  event.returnValue = fromOffice(event) ? readWebStorage() : {};
+});
+ipcMain.on('office:storage-save', (event, data) => {
+  if (!fromOffice(event) || !data || typeof data !== 'object') return;
+  const clean = {};
+  for (const [key, value] of Object.entries(data)) {
+    if (typeof value === 'string') clean[key] = value;
+  }
+  const text = JSON.stringify(clean);
+  if (text.length > STORAGE_LIMIT) return;
+  // Через временный файл: оборванная запись не должна стоить всех настроек.
+  const file = paths.webStorageFile();
+  try {
+    writeFileSync(`${file}.tmp`, text);
+    renameSync(`${file}.tmp`, file);
+  } catch (err) {
+    console.error('[office] копия настроек окна не записалась:', err);
+  }
+});
 
 ipcMain.on('office:focus', (event) => { if (fromOffice(event)) raise(mainWindow); });
 ipcMain.on('office:badge', (event, count) => {
