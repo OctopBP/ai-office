@@ -221,6 +221,28 @@ async function main(): Promise<void> {
     check('тег v1.0.0', Boolean(sh(origin, 'rev-parse', '--verify', 'refs/tags/v1.0.0')));
   }
 
+  // 3½. Задача, влитая дважды: записано старое слияние, новое — в диапазоне.
+  {
+    say('▶ Задача узнаётся по коммиту слияния');
+    const old = sh(dir, 'rev-list', '--max-parents=0', 'HEAD');
+    const task = office.createTask({ title: 'Повторно влитая', description: '', criteria: ['x'], roleId: 'backend', status: 'done' });
+    office.updateTask(task.id, { merged: true, mergeCommit: old, outcome: { kind: 'clean', at: Date.now() } as unknown as Task['outcome'] });
+    sh(dir, 'checkout', '-q', '-b', `task/${task.id}`);
+    writeFileSync(resolve(dir, 'again.txt'), 'снова\n');
+    sh(dir, 'add', '-A');
+    sh(dir, 'commit', '-qm', `${task.id}: снова`);
+    sh(dir, 'checkout', '-q', 'main');
+    sh(dir, 'merge', '-q', '--no-ff', `task/${task.id}`, '-m', `Merge branch 'task/${task.id}' into HEAD`);
+    sh(dir, 'branch', '-D', `task/${task.id}`);
+    const started = startRelease(office, 'desktop', 'manual');
+    await until(() => Boolean(openGate()));
+    const r = office.releases.get(started.release!.id)!;
+    check('задача найдена по «Merge branch task/…»', r.taskIds.includes(task.id));
+    check('в заметках — её название', r.notes.includes('Повторно влитая'));
+    answer('Не сейчас');
+    await whenReleasesIdle(office);
+  }
+
   // 4. Пуш по закрытой фиче: CI упал, починка задачей от ветки выпуска, повтор.
   {
     say('▶ Пуш на стенд по закрытой фиче, с починкой');
