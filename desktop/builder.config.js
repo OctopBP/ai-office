@@ -57,7 +57,16 @@ module.exports = {
   mac: {
     category: 'public.app-category.developer-tools',
     icon: 'build/icon.icns',
-    target: [{ target: 'dmg', arch: ['arm64', 'x64'] }],
+    // dmg — для первой установки руками, zip — для автообновления:
+    // electron-updater на macOS ставит новую версию только из zip.
+    target: [
+      { target: 'dmg', arch: ['arm64', 'x64'] },
+      { target: 'zip', arch: ['arm64', 'x64'] },
+    ],
+    // Имя без пробелов и всегда с архитектурой. GitHub меняет пробелы в
+    // именах файлов релиза на точки, а latest-mac.yml ссылается на имя с
+    // диска — с пробелом обновлятор искал бы файл, которого в релизе нет.
+    artifactName: 'AI-Office-${version}-${arch}.${ext}',
     entitlements: 'build/entitlements.mac.plist',
     entitlementsInherit: 'build/entitlements.mac.plist',
 
@@ -87,7 +96,17 @@ module.exports = {
     // Офис держит состояние в папке данных пользователя — её удаление при
     // деинсталляции стёрло бы доски и журналы, а они не часть программы.
     deleteAppDataOnUninstall: false,
+    // Без пробелов по той же причине, что и у macOS: latest.yml должен
+    // ссылаться ровно на то имя, под которым файл лежит в релизе.
+    // differentialPackage не задаём: по умолчанию он включён и кладёт рядом
+    // .blockmap, по которому обновлятор качает только изменившиеся блоки.
+    artifactName: 'AI-Office-Setup-${version}.${ext}',
   },
 
-  publish: { provider: 'github', owner: 'OctopBP', repo: 'ai-office' },
+  // Откуда обновлятор берёт latest.yml / latest-mac.yml. Это поле попадает в
+  // app-update.yml внутри приложения, поэтому нужно при любой сборке, а не
+  // только при публикации. Публикует electron-builder только по явной
+  // команде (`node scripts/pack-desktop.mjs --publish`), и всегда в черновик:
+  // выпуск проверяют руками, прежде чем его увидят обновляторы.
+  publish: { provider: 'github', owner: 'OctopBP', repo: 'ai-office', releaseType: 'draft' },
 };

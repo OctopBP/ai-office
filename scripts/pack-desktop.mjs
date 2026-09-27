@@ -9,17 +9,43 @@
  * если сервер начнёт читать что-то ещё, добавлять надо сюда, иначе оно
  * найдётся только на машине разработчика.
  *
- *   node scripts/pack-desktop.mjs
+ *   node scripts/pack-desktop.mjs             — только ресурсы, как всегда
+ *   node scripts/pack-desktop.mjs --publish   — ресурсы, установщики и черновик релиза
+ *
+ * Режим публикации собирает установщики под текущую систему и выкладывает их
+ * вместе с latest*.yml и .blockmap в черновик GitHub Release (куда именно —
+ * поле publish в desktop/builder.config.js). Токен берётся только из
+ * окружения, GH_TOKEN: в репозиторий и в аргументы команды он не попадает.
+ * Без флага не публикуется ничего.
  */
 
 import { build } from 'esbuild';
-import { cpSync, mkdirSync, rmSync, existsSync } from 'node:fs';
+import { cpSync, mkdirSync, rmSync, existsSync, readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 
 import { buildServer } from './build-server.mjs';
 
 const root = resolve(import.meta.dirname, '..');
 const out = resolve(root, 'desktop/resources');
+const publish = process.argv.includes('--publish');
+
+// Всё, что может сорвать публикацию, проверяем до сборки: иначе ошибка
+// всплыла бы через несколько минут, уже после очистки resources/.
+if (publish) {
+  if (!process.env.GH_TOKEN) {
+    throw new Error('для --publish нужен GH_TOKEN в окружении (токен GitHub с правом contents: write)');
+  }
+  if (!existsSync(resolve(root, 'desktop/node_modules/electron-builder'))) {
+    throw new Error('нет зависимостей оболочки: npm ci --prefix desktop');
+  }
+  // Версию релиза electron-builder берёт из desktop/package.json, а офис
+  // показывает версию из корневого. Разойдутся — обновлятор будет сравнивать
+  // не то, что видит пользователь.
+  const version = (file) => JSON.parse(readFileSync(resolve(root, file), 'utf8')).version;
+  if (version('package.json') !== version('desktop/package.json')) {
+    throw new Error(`версии расходятся: package.json ${version('package.json')}, desktop/package.json ${version('desktop/package.json')}`);
+  }
+}
 
 const copy = (from, to) => {
   const src = resolve(root, from);
@@ -73,3 +99,18 @@ if (process.platform === 'win32' || process.argv.includes('--mingit')) {
 }
 
 console.log(`ресурсы приложения собраны: ${out}`);
+
+if (publish) {
+  // Цель — текущая система: dmg и zip подписываются только на macOS, а
+  // Windows-сборка тянет свой git (см. выше). Вторую систему выпускают
+  // тем же флагом на ней, в тот же черновик — по версии он один.
+  const target = process.platform === 'darwin' ? 'dist:mac' : process.platform === 'win32' ? 'dist:win' : null;
+  if (!target) throw new Error(`публикация с ${process.platform} не поддерживается: только macOS и Windows`);
+  const { execFileSync } = await import('node:child_process');
+  execFileSync('npm', ['run', target, '--', '--publish', 'always'], {
+    cwd: resolve(root, 'desktop'),
+    stdio: 'inherit',
+    shell: process.platform === 'win32',
+  });
+  console.log('установщики выложены в черновик релиза на GitHub');
+}
