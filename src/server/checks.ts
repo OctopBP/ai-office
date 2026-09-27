@@ -14,6 +14,7 @@ import { resolve } from 'node:path';
 import type { TypecheckResult } from '../shared/types';
 import type { Lang } from '../shared/i18n';
 import { t } from './i18n';
+import { projectEnv } from './childenv';
 
 const run = promisify(execFile);
 
@@ -42,7 +43,7 @@ export async function runProjectCheck(
       : ['/bin/sh', ['-lc', command]];
     const { stdout, stderr } = await run(shell as string, shellArgs as string[], {
       cwd, timeout: CHECK_TIMEOUT_MS, maxBuffer: 10 * 1024 * 1024,
-      env: { ...process.env, FORCE_COLOR: '0' },
+      env: projectEnv({ FORCE_COLOR: '0' }),
     });
     const output = tail(`${stdout}${stderr}`.trim(), lang);
     return { ok: true, output, message: output, durationMs: Date.now() - started };
@@ -83,7 +84,7 @@ export async function runTypecheck(repoDir: string, lang: Lang): Promise<Typeche
       cwd: repoDir,
       timeout: CHECK_TIMEOUT_MS,
       maxBuffer: 10 * 1024 * 1024,
-      env: { ...process.env, FORCE_COLOR: '0' },
+      env: projectEnv({ FORCE_COLOR: '0' }),
     });
     return {
       ok: true, skipped: false, output: tail(`${stdout}${stderr}`.trim(), lang),

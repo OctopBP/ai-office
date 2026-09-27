@@ -5,6 +5,7 @@
  *
  * Запуск: npm run test:merge
  */
+import './_isolate'; // первым: до чтения окружения в root.ts и store.ts
 import { execFileSync } from 'node:child_process';
 import {
   appendFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync,

@@ -10,6 +10,7 @@
  *
  * Запуск: npm run test:nav
  */
+import './_isolate'; // первым: до чтения окружения в root.ts и store.ts
 import {
   adjacentFree, deskFacing, deskPoint, desks, findPath, FOOT_DX, FOOT_DY, isBlocked,
   kitchenSeats, meetingSeat, nearestFree, oppositeSide, passability, propBox,

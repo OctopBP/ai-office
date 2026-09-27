@@ -7,6 +7,7 @@ import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/
 import { SSEClientTransport } from '@modelcontextprotocol/sdk/client/sse.js';
 import { localTools, type SessionOptions } from './index';
 import type { CodexRpc } from './rpc';
+import { projectEnv } from '../childenv';
 
 export interface OfficeTool {
   name: string;
@@ -136,7 +137,7 @@ export async function codexTools(options: SessionOptions, rpc: CodexRpc) {
       const c = config as any;
       if (!c.type || c.type === 'stdio') {
         await client.connect(new StdioClientTransport({ command: c.command, args: c.args, cwd,
-          env: { ...Object.fromEntries(Object.entries(process.env).filter((x): x is [string,string] => typeof x[1] === 'string')), ...c.env } }));
+          env: { ...Object.fromEntries(Object.entries(projectEnv()).filter((x): x is [string,string] => typeof x[1] === 'string')), ...c.env } }));
       } else if (c.type === 'http') {
         await client.connect(new StreamableHTTPClientTransport(new URL(c.url), { requestInit: { headers: c.headers } }));
       } else if (c.type === 'sse') {

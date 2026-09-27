@@ -11,6 +11,7 @@
  *
  * Запуск: npm run test:offices
  */
+import './_isolate'; // первым: до чтения окружения в root.ts и store.ts
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { resolve } from 'node:path';

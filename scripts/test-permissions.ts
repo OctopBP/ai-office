@@ -1,4 +1,5 @@
 // Проверка классификатора рисков и режимов доступа. npm run test:perm
+import './_isolate'; // первым: до чтения окружения в root.ts и store.ts
 import { autoApprovedText, classify, decide, effectiveMode } from '../src/server/permissions';
 import type { PermissionMode, RiskLevel } from '../src/shared/types';
 import type { Lang } from '../src/shared/i18n';
