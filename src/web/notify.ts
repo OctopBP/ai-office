@@ -14,6 +14,7 @@
  * показывает, а только запоминает: иначе каждый возврат связи давал бы залп
  * по давно известным вопросам.
  */
+import type { OfficeDesktop } from '../shared/desktop';
 import { OFFICE_SENDER, type ServerEvent } from '../shared/types';
 import { t } from './i18n';
 import { displayInstance } from './instanceName';
@@ -22,16 +23,10 @@ import { onServerEvent, useStore } from './store';
 const STORAGE_KEY = 'office-notify';
 
 /**
- * Мост приложения для macOS и Windows (desktop/office-preload.js). В браузере
- * его нет — тогда всё идёт через обычные API страницы.
+ * Мост приложения для macOS и Windows (desktop/office-preload.js, контракт —
+ * src/shared/desktop.ts). В браузере его нет — тогда всё идёт через обычные
+ * API страницы.
  */
-interface OfficeDesktop {
-  /** Восстановить окно из свёрнутого и вывести на передний план. */
-  focus(): void;
-  /** Число того, что ждёт владельца: значок в доке, подсветка на панели задач. Ноль снимает. */
-  setBadge(count: number): void;
-}
-
 declare global {
   interface Window {
     officeDesktop?: OfficeDesktop;

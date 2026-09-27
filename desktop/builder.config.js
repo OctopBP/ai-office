@@ -42,7 +42,7 @@ module.exports = {
   // В app.asar едет только оболочка. Ресурсы — отдельно: сервер читает их с
   // диска обычным fs, а внутри асара их пришлось бы распаковывать.
   files: [
-    'main.js', 'paths.js', 'server.js', 'engine.js', 'preload.js', 'office-preload.js', 'boot.html',
+    'main.js', 'paths.js', 'server.js', 'engine.js', 'updater.js', 'preload.js', 'office-preload.js', 'boot.html',
     'build/icon.png', 'package.json',
   ],
 

@@ -15,6 +15,7 @@ const { join } = require('node:path');
 const paths = require('./paths');
 const engine = require('./engine');
 const server = require('./server');
+const updater = require('./updater');
 
 /**
  * Имя и идентификатор, под которыми система показывает уведомления. Из
@@ -158,6 +159,16 @@ async function startOffice() {
     return;
   }
   createMainWindow();
+  updater.init({
+    port: () => port,
+    // Перед установкой обновления сервер гасим сами: так он успевает
+    // дописать состояние, а before-quit потом не ждёт его второй раз.
+    stopOffice: async () => {
+      stopping = true;
+      await server.stop(child);
+      child = null;
+    },
+  });
 }
 
 /** Перезапуск сервера: порт обычно тот же, окно всё равно перезагружается на него. */
@@ -195,11 +206,44 @@ async function engineFromMenu() {
   }
 }
 
+/**
+ * «Проверить обновления…» из меню. Веб показывает состояние сам, но меню
+ * работает и без него, поэтому итог проверки говорим здесь же. Ошибку — нет:
+ * она уже в журнале обновлений и в состоянии окна, а модальное окно из-за
+ * пропавшей сети хуже, чем тишина.
+ */
+async function updatesFromMenu() {
+  const state = await updater.check();
+  const version = app.getVersion();
+  if (state.status === 'none') {
+    await dialog.showMessageBox({
+      type: 'info', title: 'Обновления', message: 'Установлена последняя версия.', detail: `AI Office ${version}`,
+    });
+  } else if (state.status === 'available' || state.status === 'downloading') {
+    await dialog.showMessageBox({
+      type: 'info', title: 'Обновления', message: `Нашлась версия ${state.version}.`,
+      detail: 'Она скачивается и поставится при выходе из приложения.',
+    });
+  } else if (state.status === 'ready') {
+    const { response } = await dialog.showMessageBox({
+      type: 'question', title: 'Обновления', message: `Версия ${state.version} скачана.`,
+      detail: 'Перезапустить приложение сейчас? Иначе обновление поставится при выходе.',
+      buttons: ['Перезапустить', 'Позже'], defaultId: 0, cancelId: 1,
+    });
+    if (response !== 0) return;
+    const result = await updater.installNow();
+    if (!result.ok) {
+      await dialog.showMessageBox({ type: 'info', title: 'Обновления', message: result.message });
+    }
+  }
+}
+
 function buildMenu() {
   const isMac = process.platform === 'darwin';
   const office = {
     label: 'Офис',
     submenu: [
+      { label: 'Проверить обновления…', click: () => void updatesFromMenu() },
       { label: 'Движок агентов…', click: () => void engineFromMenu() },
       { label: 'Перезапустить офис', click: () => void restartOffice() },
       { type: 'separator' },
@@ -370,6 +414,14 @@ ipcMain.on('office:focus', (event) => { if (fromOffice(event)) raise(mainWindow)
 ipcMain.on('office:badge', (event, count) => {
   if (fromOffice(event) && Number.isFinite(count)) setBadge(count);
 });
+
+// Обновление приложения: состояние — в окно офиса, команды — только от него.
+updater.onState((state) => mainWindow?.webContents.send('office:update', state));
+ipcMain.handle('office:update-state', (event) => (fromOffice(event) ? updater.getState() : null));
+ipcMain.handle('office:update-check', (event) => (fromOffice(event) ? updater.check() : null));
+ipcMain.handle('office:update-install', (event) => (fromOffice(event)
+  ? updater.installNow()
+  : { ok: false, reason: 'not-ready', message: 'Команда не из окна офиса' }));
 
 app.whenReady().then(async () => {
   buildMenu();
