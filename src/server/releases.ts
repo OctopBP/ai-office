@@ -233,10 +233,20 @@ const snapshot: Executor<Ctx> = {
       state.addChat(OFFICE_SENDER, note);
       return { outcome: 'empty', note };
     }
-    const range = await git(repo, ['rev-list', '--max-count=5000', fromSha ? `${fromSha}..${sha}` : sha]);
-    const commits = new Set(range.stdout.split('\n').filter(Boolean));
+    const range = await git(repo, ['log', '--max-count=5000', '--format=%H%x00%s', fromSha ? `${fromSha}..${sha}` : sha]);
+    const commits = new Set<string>();
+    const named = new Set<string>();
+    for (const line of range.stdout.split('\n').filter(Boolean)) {
+      const [hash, subject = ''] = line.split('\0');
+      commits.add(hash);
+      // Задача узнаётся и по своему слиянию в диапазоне: у задачи, влитой
+      // дважды (повтор, перенос между копиями), записано первое слияние, и
+      // оно может лежать до прошлого выпуска. Годится и «Merge branch
+      // 'task/T-5'», и «Merge pull request #12 from owner/task/T-5».
+      for (const m of subject.matchAll(/\btask\/(T-\d+)\b/g)) named.add(m[1]);
+    }
     const tasks = [...state.tasks.values()]
-      .filter((t) => t.merged && t.mergeCommit && commits.has(t.mergeCommit))
+      .filter((t) => t.merged && ((t.mergeCommit && commits.has(t.mergeCommit)) || named.has(t.id)))
       .sort((a, b) => (a.outcome?.at ?? 0) - (b.outcome?.at ?? 0));
     const epicIds = [...new Set(tasks.map((t) => t.epicId).filter((e): e is string => Boolean(e)))];
     const branch = `release/${ctx.releaseId}`;
