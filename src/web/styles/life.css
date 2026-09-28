@@ -58,3 +58,12 @@
 .rule-row .life-text { flex: 1; min-width: 0; }
 .rule-row input { flex: 1; min-width: 0; }
 .rule-row-actions { display: flex; gap: var(--space-1); flex-shrink: 0; }
+
+/* Управление вопросом: правка, объединение, удаление — тише ответа. */
+.life-manage { display: flex; gap: var(--space-2); flex-wrap: wrap; }
+.life-manage button { color: var(--ink-3); }
+.life-edit { display: flex; flex-direction: column; gap: var(--space-2); }
+.life-edit textarea { width: 100%; resize: vertical; font: inherit; }
+.life-edit label { display: flex; flex-direction: column; gap: 2px; }
+.life-actions select { flex: 1; min-width: 0; }
+.life-hint { display: flex; align-items: center; gap: var(--space-2); flex-wrap: wrap; color: var(--warn); }

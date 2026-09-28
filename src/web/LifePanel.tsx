@@ -1,8 +1,9 @@
 import { useEffect, useState } from 'react';
 import {
-  addRule, answerQuestion, archiveFact, confirmFact, decideProposal, dismissQuestion, dropRule,
-  editRule, listRules, requestTeamRole, runRitual, useStore,
+  addRule, answerQuestion, archiveFact, confirmFact, decideProposal, deleteQuestion, dismissQuestion, dropRule,
+  editQuestion, editRule, listRules, mergeQuestion, requestTeamRole, runRitual, useStore,
 } from './store';
+import { findDuplicate, isOpenQuestion } from '../shared/questions';
 import type {
   FactStatus, HealthEntry, OwnerQuestion, ProposalView, RitualId, RuleScopeView, RuleView,
 } from '../shared/types';
@@ -49,7 +50,7 @@ const ageLabel = (ageMs: number): string => {
  */
 export function LifePanel() {
   const [tab, setTab] = useState<Tab>('questions');
-  const open = useStore((s) => s.questions.filter((q) => !q.answeredAt && !q.dismissedAt).length);
+  const open = useStore((s) => s.questions.filter(isOpenQuestion).length);
   return (
     <div className="life">
       <div className="threads">
@@ -110,7 +111,13 @@ function Proposals() {
   );
 }
 
-function QuestionRow({ q }: { q: OwnerQuestion }) {
+/** Кто из пары остаётся главным: согласование (его ждёт процесс), иначе старший. */
+const keeperOf = (a: OwnerQuestion, b: OwnerQuestion): OwnerQuestion => {
+  if ((a.kind === 'gate') !== (b.kind === 'gate')) return a.kind === 'gate' ? a : b;
+  return a.askedAt <= b.askedAt ? a : b;
+};
+
+function QuestionRow({ q, all }: { q: OwnerQuestion; all: OwnerQuestion[] }) {
   const [answer, setAnswer] = useState('');
   // Поле ввода раскрывается ссылкой только у вопроса с вариантами: без них
   // строка должна выглядеть ровно как раньше.
@@ -119,10 +126,22 @@ function QuestionRow({ q }: { q: OwnerQuestion }) {
   // сервера — до этого момента держим кнопки заблокированными, иначе клик по
   // второму варианту отправит второй ответ.
   const [sending, setSending] = useState(false);
-  const closed = Boolean(q.answeredAt || q.dismissedAt);
+  // Правка, объединение и удаление — по одному режиму за раз, прямо в строке:
+  // нативный confirm() в офисе не используется.
+  const [mode, setMode] = useState<'edit' | 'merge' | 'delete' | null>(null);
+  const [draft, setDraft] = useState({ text: q.text, assumption: q.assumption });
+  const open = isOpenQuestion(q);
+  const waiting = !q.answeredAt && !q.dismissedAt;
   const asked = useInstanceName(q.from);
   const who = isOfficeSender(q.from) ? t('common.office') : asked;
   const options = q.options ?? [];
+  const others = all.filter((o) => o.id !== q.id && isOpenQuestion(o));
+  const along = all.filter((o) => o.mergedInto === q.id);
+  // Подсказка — только у того из пары, кого стоит влить: у второго её нет,
+  // иначе одна и та же пара предлагалась бы дважды в обе стороны.
+  const twin = open ? findDuplicate(q, all) : null;
+  const hint = twin && keeperOf(q, twin).id === twin.id ? twin : null;
+  const [target, setTarget] = useState('');
   const send = (text: string) => {
     const value = text.trim();
     if (!value || sending) return;
@@ -137,27 +156,80 @@ function QuestionRow({ q }: { q: OwnerQuestion }) {
     setOwn(true);
     setAnswer(`${opt.slice(0, -1).trim()}: `);
   };
+  const startEdit = () => { setDraft({ text: q.text, assumption: q.assumption }); setMode('edit'); };
+  const saveEdit = () => {
+    if (!draft.text.trim()) return;
+    editQuestion(q.id, draft.text, draft.assumption);
+    setMode(null);
+  };
+  const merge = (into: string) => {
+    if (!into) return;
+    mergeQuestion(q.id, into);
+    setMode(null);
+  };
+  // Открытое согласование удалить нельзя — его ждёт процесс; влитое тоже ждёт.
+  const deletable = !(q.kind === 'gate' && waiting);
+  const busy = sending || mode !== null;
   return (
-    <div className={`life-row question ${q.kind}${closed ? ' closed' : ''}`}>
+    <div className={`life-row question ${q.kind}${open ? '' : ' closed'}`}>
       <div className="life-row-head">
         <span className="mono dim">{q.id}</span>
         <span className={`chip ${q.kind}`}>{t(`life.questions.kind.${q.kind}`)}</span>
         <span className="muted small">{t('life.questions.from', { who })}</span>
         {q.taskId && <span className="muted small">{t('life.questions.task', { task: q.taskId })}</span>}
         <span className="muted small">{when(q.askedAt)}</span>
+        {q.editedAt && <span className="muted small">{t('life.questions.edited')}</span>}
       </div>
-      <div className="life-text">{q.text}</div>
-      <div className="muted small">{t('life.questions.assumed')}: {q.assumption}</div>
+      {mode === 'edit' ? (
+        <div className="life-edit">
+          <textarea value={draft.text} rows={3} autoFocus
+            onChange={(e) => setDraft({ ...draft, text: e.target.value })} />
+          <label className="muted small">{t('life.questions.assumed')}
+            <input value={draft.assumption} onChange={(e) => setDraft({ ...draft, assumption: e.target.value })} />
+          </label>
+          <div className="life-actions">
+            <button className="allow" disabled={!draft.text.trim()} onClick={saveEdit}>{t('life.questions.save')}</button>
+            <button className="mini" onClick={() => setMode(null)}>{t('common.cancel')}</button>
+          </div>
+        </div>
+      ) : (
+        <>
+          <div className="life-text">{q.text}</div>
+          <div className="muted small">{t('life.questions.assumed')}: {q.assumption}</div>
+        </>
+      )}
+      {along.length > 0 && (
+        <div className="muted small">
+          {t('life.questions.along', { ids: along.map((o) => (o.taskId ? `${o.id} (${o.taskId})` : o.id)).join(', ') })}
+        </div>
+      )}
+      {q.mergedInto && (
+        <div className="muted small">
+          {t(waiting ? 'life.questions.mergedWaiting' : 'life.questions.mergedInto', { id: q.mergedInto })}
+        </div>
+      )}
       {q.answeredAt && <div className="life-answer">{t('life.questions.answered')}: {q.answer}</div>}
-      {q.dismissedAt && <div className="muted small">{t('life.questions.dismissed')} · {when(q.dismissedAt)}</div>}
-      {!closed && options.length > 0 && (
+      {q.dismissedAt && (
+        <div className="muted small">
+          {t('life.questions.dismissed')}{q.closedWhy ? ` — ${q.closedWhy}` : ''} · {when(q.dismissedAt)}
+        </div>
+      )}
+      {hint && mode === null && (
+        <div className="life-hint small">
+          <span>{t('life.questions.similar', { id: hint.id })}</span>
+          <button className="mini" disabled={sending} onClick={() => merge(hint.id)}>
+            {t('life.questions.mergeInto', { id: hint.id })}
+          </button>
+        </div>
+      )}
+      {open && mode === null && options.length > 0 && (
         <div className="life-options">
           {options.map((opt, i) => (
             <button key={`${i}:${opt}`} className="mini" disabled={sending} onClick={() => pick(opt)}>{opt}</button>
           ))}
         </div>
       )}
-      {!closed && (
+      {open && mode === null && (
         <div className="life-actions">
           {options.length > 0 && !own ? (
             <button className="mini ghost" disabled={sending} onClick={() => setOwn(true)}>
@@ -179,21 +251,62 @@ function QuestionRow({ q }: { q: OwnerQuestion }) {
           </button>
         </div>
       )}
+      {mode === 'merge' && (
+        <div className="life-actions">
+          <select value={target} onChange={(e) => setTarget(e.target.value)}>
+            <option value="">{t('life.questions.mergePick')}</option>
+            {others.map((o) => (
+              <option key={o.id} value={o.id}>{o.id}{o.taskId ? ` · ${o.taskId}` : ''} — {clipText(o.text, 70)}</option>
+            ))}
+          </select>
+          <button className="allow" disabled={!target} onClick={() => merge(target)}>{t('life.questions.merge')}</button>
+          <button className="mini" onClick={() => setMode(null)}>{t('common.cancel')}</button>
+        </div>
+      )}
+      {mode === 'delete' && (
+        <div className="life-actions">
+          <span className="small">{t('life.questions.deleteConfirm', { id: q.id })}</span>
+          <button className="mini" onClick={() => setMode(null)}>{t('common.cancel')}</button>
+          <button className="danger" onClick={() => { deleteQuestion(q.id); setMode(null); }}>
+            {t('life.questions.delete')}
+          </button>
+        </div>
+      )}
+      {mode === null && (open || deletable) && (
+        <div className="life-manage">
+          {open && <button className="mini ghost" disabled={busy} onClick={startEdit}>{t('life.questions.edit')}</button>}
+          {open && others.length > 0 && (
+            <button className="mini ghost" disabled={busy} onClick={() => { setTarget(''); setMode('merge'); }}>
+              {t('life.questions.mergeWith')}
+            </button>
+          )}
+          {deletable && (
+            <button className="mini ghost" disabled={busy} onClick={() => setMode('delete')}>
+              {t('life.questions.delete')}
+            </button>
+          )}
+        </div>
+      )}
     </div>
   );
 }
 
+const clipText = (s: string, n: number): string => {
+  const line = s.replace(/\s+/g, ' ').trim();
+  return line.length > n ? `${line.slice(0, n - 1)}…` : line;
+};
+
 function Questions() {
   const questions = useStore((s) => s.questions);
-  const open = questions.filter((q) => !q.answeredAt && !q.dismissedAt).sort((a, b) => b.askedAt - a.askedAt);
-  const closed = questions.filter((q) => q.answeredAt || q.dismissedAt).sort((a, b) => b.askedAt - a.askedAt);
+  const open = questions.filter(isOpenQuestion).sort((a, b) => b.askedAt - a.askedAt);
+  const closed = questions.filter((q) => !isOpenQuestion(q)).sort((a, b) => b.askedAt - a.askedAt);
   if (!questions.length) return <p className="empty">{t('life.questions.empty')}</p>;
   return (
     <div className="life-list">
       {open.length > 0 && <div className="section-title">{t('life.questions.open')}</div>}
-      {open.map((q) => <QuestionRow key={q.id} q={q} />)}
+      {open.map((q) => <QuestionRow key={q.id} q={q} all={questions} />)}
       {closed.length > 0 && <div className="section-title">{t('life.questions.closed')}</div>}
-      {closed.slice(0, 30).map((q) => <QuestionRow key={q.id} q={q} />)}
+      {closed.slice(0, 30).map((q) => <QuestionRow key={q.id} q={q} all={questions} />)}
     </div>
   );
 }

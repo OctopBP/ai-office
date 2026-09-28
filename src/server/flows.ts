@@ -17,6 +17,7 @@
 import { HEALTH_DIRECTION, OFFICE_SENDER, dayKey } from '../shared/types';
 import type { Run, Workflow, WorkflowNode } from '../shared/workflow';
 import type { OfficeState } from './state';
+import { isOpenQuestion } from '../shared/questions';
 import { workflowCatalog } from './workflows';
 import { drive, newRun, type Executor, type Resolve, type RunHooks, type StepResult } from './runs';
 import { quiet } from './rituals';
@@ -129,7 +130,7 @@ function ownerBacklog(state: OfficeState): string[] {
   if (epics) items.push(say('flow.backlog.epics', { n: epics }));
   const proposals = state.proposalList().filter((p) => p.status === 'pending').length;
   if (proposals) items.push(say('flow.backlog.proposals', { n: proposals }));
-  const open = state.questionList().filter((q) => !q.answeredAt && !q.dismissedAt);
+  const open = state.questionList().filter(isOpenQuestion);
   const gates = open.filter((q) => q.kind === 'gate').length;
   if (gates) items.push(say('flow.backlog.gates', { n: gates }));
   if (open.length > OPEN_QUESTIONS_LIMIT) items.push(say('flow.backlog.questions', { n: open.length }));
