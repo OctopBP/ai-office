@@ -15,6 +15,7 @@ import type {
   SpendEntryView,
 } from '../shared/types';
 import { OFFICE_SENDER } from '../shared/types';
+import { isOpenQuestion } from '../shared/questions';
 import {
   asTaskPriority, DEFAULT_TASK_PRIORITY, accumulate,
   dayKey, emptyUsage, DEFAULT_RITUAL_LIMIT, DEFAULT_RITUAL_POLICY,
@@ -1382,6 +1383,16 @@ export class OfficeState {
       this.questionWaiters.delete(id);
     }
     return question;
+  }
+
+  /** Убрать вопрос совсем. Ждущий его процесс просыпается и видит, что вопроса нет. */
+  removeQuestion(id: string): boolean {
+    if (!this.questions.delete(id)) return false;
+    for (const wake of this.questionWaiters.get(id) ?? []) wake();
+    this.questionWaiters.delete(id);
+    this.emit({ t: 'question.remove', id, openQuestions: this.openQuestionCount() });
+    this.markDirty();
+    return true;
   }
 
   /**
@@ -4124,7 +4135,7 @@ export class OfficeState {
  * в questions.ts, чтобы счётчик в снапшоте и отбор в планёрку не разъехались:
  * `openQuestions` из questions.ts фильтрует этим же.
  */
-export const isOpenQuestion = (q: OwnerQuestion): boolean => !q.answeredAt && !q.dismissedAt;
+export { isOpenQuestion };
 
 /** Запись журнала для клиента: без служебной отметки «уже спрашивали». */
 export const toFactView = (f: Fact): FactView => ({

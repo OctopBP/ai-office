@@ -15,6 +15,7 @@
  * по давно известным вопросам.
  */
 import { OFFICE_SENDER, type ServerEvent } from '../shared/types';
+import { isOpenQuestion } from '../shared/questions';
 import { t } from './i18n';
 import { displayInstance } from './instanceName';
 import { onServerEvent, useStore } from './store';
@@ -97,7 +98,7 @@ function reasons(): Reason[] {
   const out: Reason[] = [];
 
   for (const q of s.questions) {
-    if (q.answeredAt || q.dismissedAt) continue;
+    if (!isOpenQuestion(q)) continue;
     // Вопрос-согласование ведёт к задаче: владельцу важнее, что стоит, а
     // ответить он может и в карточке, и в «Жизни офиса».
     if (q.kind === 'gate' && q.taskId) {
@@ -214,7 +215,7 @@ function show(officeId: string, title: string, reason: Reason): void {
 function waitingCount(): number {
   const s = useStore.getState();
   if (!currentOffice()) return 0;
-  const questions = s.questions.filter((q) => !q.answeredAt && !q.dismissedAt).length;
+  const questions = s.questions.filter(isOpenQuestion).length;
   const epics = Object.values(s.epics).filter((e) => e.status === 'planned' && !e.approved).length;
   return questions + epics;
 }
