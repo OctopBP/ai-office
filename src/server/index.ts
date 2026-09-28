@@ -22,7 +22,7 @@ import { retryPipeline } from './review';
 import { closeReleasePlan, resumeRelease, saveReleasePlan, startRelease } from './releases';
 import { resetProjectWorkflow, saveProjectWorkflow } from './workflows';
 import { startSupervisor } from './supervisor';
-import { answerQuestion, dismissQuestion } from './questions';
+import { answerQuestion, deleteQuestion, dismissQuestion, editQuestion, mergeQuestion } from './questions';
 import { archiveFact, confirmFact, pageFacts } from './journal';
 import { pageSpend } from './spend';
 import { addRule, dropRule, editRule, ruleScopes } from './rules';
@@ -634,6 +634,15 @@ wss.on('connection', (ws) => {
       }
     } else if (cmd.c === 'dismiss_question') {
       dismissQuestion(state, cmd.id);
+    } else if (cmd.c === 'edit_question') {
+      const outcome = editQuestion(state, cmd.id, { text: cmd.text, assumption: cmd.assumption });
+      if (!outcome.ok) state.addChat(OFFICE_SENDER, outcome.text);
+    } else if (cmd.c === 'delete_question') {
+      const outcome = deleteQuestion(state, cmd.id);
+      if (!outcome.ok) state.addChat(OFFICE_SENDER, outcome.text);
+    } else if (cmd.c === 'merge_question') {
+      const outcome = mergeQuestion(state, cmd.id, cmd.into);
+      if (!outcome.ok) state.addChat(OFFICE_SENDER, outcome.text);
     } else if (cmd.c === 'fact_confirm') {
       confirmFact(state, cmd.id);
     } else if (cmd.c === 'fact_archive') {

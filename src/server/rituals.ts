@@ -31,7 +31,7 @@ import { LANG_LOCALE } from '../shared/i18n';
 import { roleReports, WEEK_MS as REPORT_WEEK_MS, type RoleReport } from '../shared/report';
 import { toTaskView, type Fact, type OfficeState, type Task } from './state';
 import { forget, STALE_AFTER_MS } from './journal';
-import { officeAsks, openQuestions, pickForStandup } from './questions';
+import { askOwner, officeAsks, openQuestions, pickForStandup } from './questions';
 import { limitsView } from './limits';
 import { providerOf } from '../shared/providers';
 import { tellPm } from './review';
@@ -71,7 +71,7 @@ export interface ConsolidationInput {
 export interface RitualOutput {
   facts: Array<{ kind: 'fact' | 'decision' | 'lesson'; text: string; scope: string; taskId?: string }>;
   contradictions: Array<{ a: string; b: string; text: string }>;
-  questions: Array<{ text: string; assumption: string; options?: string[] }>;
+  questions: Array<{ text: string; assumption: string; options?: string[]; replaces?: string[] }>;
   costUsd: number;
   error?: string;
 }
@@ -514,7 +514,9 @@ function applyOutput(state: OfficeState, ritual: RitualId, out: RitualOutput): R
   let questions = 0;
   for (const q of out.questions) {
     if (!q.text.trim()) continue;
-    officeAsks(state, 'assumption', q.text, q.assumption, null, q.options);
+    // Замена — как у менеджера: новый вопрос забирает старые себе.
+    if (q.replaces?.length) askOwner(state, OFFICE_SENDER, null, q.text, q.assumption, q.options, q.replaces);
+    else officeAsks(state, 'assumption', q.text, q.assumption, null, q.options);
     questions += 1;
   }
   return { facts, contradictions, questions };

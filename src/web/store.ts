@@ -1122,6 +1122,9 @@ export const useStore = create<State>((set, get) => ({
           openQuestions: e.openQuestions,
         }));
         break;
+      case 'question.remove':
+        set((s) => ({ questions: s.questions.filter((q) => q.id !== e.id), openQuestions: e.openQuestions }));
+        break;
       case 'life':
         set({ life: e.life });
         break;
@@ -2059,6 +2062,21 @@ export function answerQuestion(id: string, answer: string): void {
 /** Снять вопрос без ответа: офис остаётся при своём допущении. */
 export function dismissQuestion(id: string): void {
   socket?.send(JSON.stringify({ c: 'dismiss_question', id }));
+}
+
+/** Поправить формулировку открытого вопроса. */
+export function editQuestion(id: string, text: string, assumption: string): void {
+  socket?.send(JSON.stringify({ c: 'edit_question', id, text, assumption }));
+}
+
+/** Удалить вопрос совсем. Открытое согласование сервер удалить не даст. */
+export function deleteQuestion(id: string): void {
+  socket?.send(JSON.stringify({ c: 'delete_question', id }));
+}
+
+/** Влить вопрос в другой: у владельца остаётся `into`, ответ получат оба. */
+export function mergeQuestion(id: string, into: string): void {
+  socket?.send(JSON.stringify({ c: 'merge_question', id, into }));
 }
 
 export function confirmFact(id: string): void {

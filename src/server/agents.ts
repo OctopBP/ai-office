@@ -49,7 +49,10 @@ import { limitBlock, resetClock } from './limits';
 import { journalBrief } from './journal';
 import { addRule, dropRule, editRule, ruleScopes, rulesBrief, rulesText } from './rules';
 import { noteCompaction } from './health';
-import { answerFromChat, askOwner } from './questions';
+import {
+  answerFromChat, askOwner, deleteQuestion, editQuestion, mergeQuestion, openQuestionsText,
+} from './questions';
+import { isOpenQuestion } from '../shared/questions';
 import {
   setRitualAgents, type ConsolidationInput, type ReflectionOutput, type RitualOutput,
 } from './rituals';
@@ -706,7 +709,10 @@ function boardSummary(state: OfficeState): string {
     directions ? `${state.say('prompt.board.directions')}\n${directions}` : '',
     planSummary(state),
   ].filter(Boolean).join('\n\n');
-  if (!tasks.length) return plan || state.say('prompt.board.empty');
+  const questions = state.questionList().some(isOpenQuestion)
+    ? `\n\n${state.say('prompt.board.questions')}\n${openQuestionsText(state)}`
+    : '';
+  if (!tasks.length) return (plan || state.say('prompt.board.empty')) + questions;
   const lang = state.lang();
   // План идёт первым: он объясняет, почему часть задач стоит, — без него
   // доска выглядит как список, где половина работ непонятно чего ждёт.
@@ -724,7 +730,7 @@ function boardSummary(state: OfficeState): string {
       (pr ? `\n    ${state.say('prompt.board.review')}: ${stageText(pr.stage, lang)} — ${clip(pr.note, 160)}` : '') +
       (total ? `\n    ${state.say('prompt.board.criteria')} ${done}/${total}: ${clip(marks, 200)}` : '') +
       (task.result ? `\n    ${state.say('prompt.board.result')}: ${clip(task.result, 160)}` : '');
-  }).join('\n');
+  }).join('\n') + questions;
 }
 
 /**
@@ -1267,10 +1273,63 @@ const teamTools = (state: OfficeState) => createSdkMcpServer({
         question: z.string().describe(state.say('tool.askOwner.question')),
         assumption: z.string().describe(state.say('tool.askOwner.assumption')),
         options: z.array(z.string()).default([]).describe(state.say('tool.askOwner.options')),
+        replaces: z.array(z.string()).default([]).describe(state.say('tool.askOwner.replaces')),
       },
       async (args) => {
-        const asked = askOwner(state, 'pm#1', null, args.question, args.assumption, args.options);
+        const asked = askOwner(state, 'pm#1', null, args.question, args.assumption, args.options, args.replaces);
         return { content: [{ type: 'text', text: asked.text }], isError: !asked.ok };
+      },
+    ),
+
+    // Очередь вопросов владельцу ведёт менеджер: видит её целиком, сводит
+    // повторы, правит формулировки и отзывает то, что перестало быть вопросом.
+    tool(
+      'list_owner_questions',
+      state.say('tool.listQuestions.desc'),
+      {},
+      async () => ({ content: [{ type: 'text', text: openQuestionsText(state) }] }),
+      { annotations: { readOnlyHint: true } },
+    ),
+
+    tool(
+      'merge_owner_questions',
+      state.say('tool.mergeQuestions.desc'),
+      {
+        id: z.string().describe(state.say('tool.mergeQuestions.id')),
+        into: z.string().describe(state.say('tool.mergeQuestions.into')),
+      },
+      async (args) => {
+        const outcome = mergeQuestion(state, args.id.trim(), args.into.trim(), 'pm#1');
+        return { content: [{ type: 'text', text: outcome.text }], isError: !outcome.ok };
+      },
+    ),
+
+    tool(
+      'edit_owner_question',
+      state.say('tool.editQuestion.desc'),
+      {
+        id: z.string(),
+        question: z.string().default('').describe(state.say('tool.editQuestion.question')),
+        assumption: z.string().default('').describe(state.say('tool.editQuestion.assumption')),
+      },
+      async (args) => {
+        const outcome = editQuestion(state, args.id.trim(), {
+          text: args.question.trim() || undefined, assumption: args.assumption.trim() || undefined,
+        }, 'pm#1');
+        return { content: [{ type: 'text', text: outcome.text }], isError: !outcome.ok };
+      },
+    ),
+
+    tool(
+      'withdraw_owner_question',
+      state.say('tool.withdrawQuestion.desc'),
+      {
+        id: z.string(),
+        reason: z.string().describe(state.say('tool.withdrawQuestion.reason')),
+      },
+      async (args) => {
+        const outcome = deleteQuestion(state, args.id.trim(), args.reason, 'pm#1');
+        return { content: [{ type: 'text', text: outcome.text }], isError: !outcome.ok };
       },
     ),
 
@@ -3947,9 +4006,12 @@ function ritualTools(state: OfficeState, out: RitualOutput) {
           question: z.string().describe(state.say('tool.ritualAsk.question')),
           assumption: z.string().describe(state.say('tool.ritualAsk.assumption')),
           options: z.array(z.string()).default([]).describe(state.say('tool.askOwner.options')),
+          replaces: z.array(z.string()).default([]).describe(state.say('tool.askOwner.replaces')),
         },
         async (args) => {
-          out.questions.push({ text: args.question, assumption: args.assumption, options: args.options });
+          out.questions.push({
+            text: args.question, assumption: args.assumption, options: args.options, replaces: args.replaces,
+          });
           return { content: [{ type: 'text', text: state.say('tool.ok') }] };
         },
       ),
@@ -4171,6 +4233,9 @@ setRitualAgents({
       '',
       state.say('prompt.ritual.journalHead'),
       journalText(state, input.facts),
+      '',
+      state.say('prompt.ritual.questionsHead'),
+      openQuestionsText(state),
     ].filter(Boolean).join('\n');
     return ritualSession(state, state.say('prompt.consolidate.system', { lang }), prompt);
   },
@@ -4238,7 +4303,7 @@ setRitualAgents({
         task: r.taskId, title: r.title, role: r.roleId, text: r.text,
       })).join('\n')
       : say('prompt.reflect.nothing');
-    const open = input.questions.filter((q) => !q.answeredAt && !q.dismissedAt).length;
+    const open = input.questions.filter(isOpenQuestion).length;
     const questions = input.questions.length
       ? input.questions.map((q) => say('prompt.reflect.questionRow', {
         id: q.id, status: say(q.answeredAt ? 'prompt.reflect.answeredStatus' : 'prompt.reflect.open'),

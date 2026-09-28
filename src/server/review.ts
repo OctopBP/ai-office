@@ -997,6 +997,8 @@ const gate: Executor<Ctx> = {
     const mine = (q: OwnerQuestion) => q.kind === 'gate' && q.taskId === task.id;
     const asked = [...state.questions.values()].filter(mine).sort((a, b) => b.askedAt - a.askedAt);
     const since = workChangedAt(ctx);
+    // Не `isOpenQuestion`: влитое в другой согласование всё ещё ждёт ответа —
+    // он придёт через главный вопрос, и спрашивать заново незачем.
     let question = (run.waitingOn ? state.questions.get(run.waitingOn) : undefined)
       ?? asked.find((q) => !q.answeredAt && !q.dismissedAt)
       ?? asked.find((q) => q.answeredAt && q.askedAt > since)
@@ -1030,7 +1032,8 @@ const gate: Executor<Ctx> = {
     const closed = await state.whenQuestionClosed(question.id);
     if (!closed) return { outcome: 'no', note: state.say('wf.gateGone', { id: question.id }) };
     if (!closed.answeredAt) {
-      state.addChat(OFFICE_SENDER, state.say('wf.gateDismissed', { id: question.id }));
+      // Закрыт вместе с задачей — владельцу об этом отказе сказать нечего.
+      if (!closed.closedWhy) state.addChat(OFFICE_SENDER, state.say('wf.gateDismissed', { id: question.id }));
       return { outcome: 'no', note: state.say('wf.gateDismissed', { id: question.id }), artifact: { kind: 'decision', text: '', ref: 'no' } };
     }
     const answer = closed.answer ?? '';

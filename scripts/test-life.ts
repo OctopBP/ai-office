@@ -11,7 +11,7 @@ import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { resolve } from 'node:path';
 import { getOffice, unloadOfficeState } from '../src/server/state';
-import { closeIfDone, detectReverts, mergedKind, recordOutcome } from '../src/server/outcomes';
+import { cancelTask, closeIfDone, detectReverts, mergedKind, recordOutcome } from '../src/server/outcomes';
 import { cancelEpic, createPlan, setPlanAgents } from '../src/server/plan';
 import {
   adjustPortfolio, dueRitual, QUIET_MS, runRitual, runStandup, setRitualAgents, standupDue, standupText,
@@ -20,8 +20,10 @@ import {
 import { officeHealth } from '../src/server/health';
 import { confirmFactsFor, factsFor, forget, journalBrief, STALE_AFTER_MS } from '../src/server/journal';
 import {
-  answerFromChat, answerQuestion, askOwner, dismissQuestion, openQuestions, pickForStandup,
+  answerFromChat, answerQuestion, askOwner, deleteQuestion, dismissQuestion, editQuestion, mergeQuestion,
+  officeAsks, openQuestions, pickForStandup,
 } from '../src/server/questions';
+import { questionSimilarity } from '../src/shared/questions';
 import { setPipelineAgents } from '../src/server/review';
 import { decideProposal, initiativeBudget, proposeFeature } from '../src/server/initiatives';
 import { applyProposal } from '../src/server/selfchange';
@@ -289,6 +291,72 @@ async function main(): Promise<void> {
   check('менеджер узнаёт и об ответе вариантом', pmMessages.some((m) => m.includes(withOpts.id)));
   for (const q of openQuestions(j)) dismissQuestion(j, q.id);
   check('вопросы про варианты разобраны', openQuestions(j).length === 0);
+
+  // Повторы, объединение, правка, удаление.
+  console.log('очередь вопросов');
+  const mockA = j.createTask({ title: 'Макеты: экран ввода очков', description: '', criteria: ['x'], roleId: 'backend' });
+  const mockB = j.createTask({ title: 'Макеты: экран ввода очков (повтор)', description: '', criteria: ['x'], roleId: 'backend' });
+  const gateText = (task: string, title: string) =>
+    `Задача ${task} «${title}»: макет готов и ждёт вашего согласования. Нажмите «Согласовано» — или «Нужны правки» и напишите, что поправить.`;
+  const gA = j.addQuestion({ from: OFFICE_SENDER, taskId: mockA.id, kind: 'gate', text: gateText(mockA.id, mockA.title),
+    assumption: 'стоим', options: ['Согласовано', 'Нужны правки…'] });
+  const gB = j.addQuestion({ from: OFFICE_SENDER, taskId: mockB.id, kind: 'gate', text: gateText(mockB.id, mockB.title),
+    assumption: 'стоим', options: ['Согласовано', 'Нужны правки…'] });
+  check('согласования разных задач не считаются повтором', questionSimilarity(gA, gB) === 0);
+  const reask = officeAsks(j, 'assumption',
+    `${mockB.id} (макеты ввода очков в Figma) готова: согласованы ли макеты и готовы к разработке, или нужны какие-то правки?`,
+    'статус утверждения неясен');
+  check('ритуал не переспрашивает открытое согласование', reask.id === gB.id && openQuestions(j).length === 2);
+  const dupAsk = askOwner(j, inst.id, mockB.id,
+    `Макеты ${mockB.id} готовы — согласованы ли макеты ввода очков, или нужны правки?`, 'считаю согласованными');
+  check('агенту отвечают, что уже спрошено, и лимит не тратят',
+    dupAsk.ok && dupAsk.question?.id === gB.id && dupAsk.text.includes(gB.id) && !j.questionsByTask.has(mockB.id));
+
+  let gAWoke = false;
+  void j.whenQuestionClosed(gA.id).then(() => { gAWoke = true; });
+  check('объединение принимается', mergeQuestion(j, gA.id, gB.id).ok);
+  check('влитый не открыт', openQuestions(j).every((q) => q.id !== gA.id) && openQuestions(j).length === 1);
+  check('в себя не вливается', !mergeQuestion(j, gB.id, gB.id).ok);
+  check('влитое согласование удалить нельзя', !deleteQuestion(j, gA.id).ok);
+  check('открытое согласование удалить нельзя', !deleteQuestion(j, gB.id).ok);
+  await Promise.resolve();
+  check('процесс по влитому не будят раньше ответа', !gAWoke);
+  pmMessages.length = 0;
+  check('ответ на влитый уходит главному', answerFromChat(j, `${gA.id}: Согласовано`) === gA.id);
+  await Promise.resolve();
+  check('ответ достаётся обоим',
+    j.questions.get(gA.id)?.answer === 'Согласовано' && j.questions.get(gB.id)?.answer === 'Согласовано');
+  check('процесс по влитому проснулся с ответом', gAWoke);
+  check('менеджер знает, кто получил ответ', pmMessages.some((m) => m.includes(gA.id) && m.includes(gB.id)));
+  check('в журнал одна запись — от главного',
+    j.factList().filter((f) => f.source.questionId === gA.id).length === 0
+    && j.factList().filter((f) => f.source.questionId === gB.id).length === 1);
+
+  const oldAsk = askOwner(j, OFFICE_SENDER, null, 'Цвет кнопки оплаты: синий или зелёный?', 'синий').question!;
+  const newer = askOwner(j, 'pm#1', null, 'Кнопка «Оплатить» в корзине: фирменный синий или зелёный как у банка?',
+    'фирменный синий', [], [oldAsk.id]);
+  check('замена вливает старый в новый',
+    newer.ok && j.questions.get(oldAsk.id)?.mergedInto === newer.question!.id && openQuestions(j).length === 1);
+  check('правка принимается', editQuestion(j, newer.question!.id, { text: 'Кнопка оплаты: синяя или зелёная?' }).ok);
+  const edited = j.questions.get(newer.question!.id)!;
+  check('правка меняет текст и варианты',
+    edited.text.startsWith('Кнопка оплаты') && !!edited.editedAt && JSON.stringify(edited.options) === '["синяя","зелёная"]');
+  check('удаление принимается', deleteQuestion(j, newer.question!.id, 'решили на созвоне').ok);
+  check('удалённого нет, влитый снова открыт',
+    !j.questions.has(newer.question!.id) && openQuestions(j).some((q) => q.id === oldAsk.id));
+  deleteQuestion(j, oldAsk.id);
+
+  const doomed = j.createTask({ title: 'Снимем', description: '', criteria: ['x'], roleId: 'backend' });
+  const other = j.createTask({ title: 'Живая', description: '', criteria: ['x'], roleId: 'backend' });
+  const gD = j.addQuestion({ from: OFFICE_SENDER, taskId: doomed.id, kind: 'gate', text: `Задача ${doomed.id}: согласуйте`, assumption: 'стоим' });
+  const gO = j.addQuestion({ from: OFFICE_SENDER, taskId: other.id, kind: 'gate', text: `Задача ${other.id}: согласуйте`, assumption: 'стоим' });
+  mergeQuestion(j, gO.id, gD.id);
+  cancelTask(j, doomed);
+  check('снятая задача закрывает своё согласование',
+    !!j.questions.get(gD.id)?.dismissedAt && !!j.questions.get(gD.id)?.closedWhy);
+  check('влитое по живой задаче снова открыто, а не отказано',
+    !j.questions.get(gO.id)?.dismissedAt && openQuestions(j).some((q) => q.id === gO.id));
+  dismissQuestion(j, gO.id);
 
   // Порция для планёрки: важные вперёд, показанные — один раз.
   const a1 = askOwner(j, inst.id, null, 'допущение', 'x').question!;

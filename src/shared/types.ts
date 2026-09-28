@@ -1494,6 +1494,16 @@ export interface OwnerQuestion {
   answeredAt: number | null;
   /** Снят без ответа. */
   dismissedAt: number | null;
+  /**
+   * Объединён с другим вопросом (повтор или заменён новым): сам больше не
+   * открыт, а ответ получит вместе с тем, в который влит. Процесс, ждущий
+   * такого согласования, так и ждёт — ответ придёт через главный вопрос.
+   */
+  mergedInto?: string;
+  /** Почему закрыт без владельца: задача снята, менеджер отозвал. */
+  closedWhy?: string;
+  /** Когда текст правили — владелец или менеджер. */
+  editedAt?: number;
 }
 
 export type RitualId =
@@ -2144,6 +2154,7 @@ export type ServerEvent =
    * меняется, поэтому опрашивать сервер отдельно не нужно.
    */
   | { t: 'question'; question: OwnerQuestion; openQuestions: number }
+  | { t: 'question.remove'; id: string; openQuestions: number }
   /** Ритуалы: прогон, портфель, момент планёрки. Едет целиком — он мал. */
   | { t: 'life'; life: LifeView }
   /**
@@ -2447,6 +2458,9 @@ export type ClientCommand =
   | { c: 'answer_question'; id: string; answer: string }
   /** Снять вопрос без ответа: офис остаётся при своём допущении. */
   | { c: 'dismiss_question'; id: string }
+  | { c: 'edit_question'; id: string; text: string; assumption: string }
+  | { c: 'delete_question'; id: string }
+  | { c: 'merge_question'; id: string; into: string }
   /** Запись журнала: подтвердить (она ещё верна) или убрать в архив. */
   | { c: 'fact_confirm'; id: string }
   | { c: 'fact_archive'; id: string }
