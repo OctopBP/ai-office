@@ -225,9 +225,10 @@ interface State {
   epics: Record<string, EpicView>;
   chat: ChatEntry[];
   /**
-   * Реплики, которые агенты пишут прямо сейчас, по ветке разговора. Живут
-   * только пока идёт ход: конец хода их снимает, а готовая реплика приезжает
-   * обычным событием `chat`. В ветке пишущий один, поэтому ключ — ветка.
+   * Реплики, которые агенты пишут прямо сейчас. Живут только пока идёт ход:
+   * конец хода их снимает, а готовая реплика приезжает обычным событием
+   * `chat`. Ключ — `draftKey`: у менеджера сессия на каждый чат, и пишут они
+   * одновременно, поэтому ветки 'pm#1' мало — нужна ещё пара с чатом.
    */
   drafts: Record<string, ChatDraft>;
   /**
@@ -865,7 +866,7 @@ export const useStore = create<State>((set, get) => ({
           chat: e.chat, log: e.log, permissions: e.permissions, settings: e.settings,
           // Вкладку могли открыть посреди хода менеджера: черновики из снимка
           // и есть то, что он уже успел наговорить.
-          drafts: Object.fromEntries(e.drafts.map((d) => [d.thread, d])),
+          drafts: Object.fromEntries(e.drafts.map((d) => [draftKey(d.thread, d.chatId), d])),
           layouts: e.layouts, layout: e.layout, layoutOverride: e.layoutOverride,
           projectDir: e.projectDir, authSource: e.authSource, meeting: e.meeting, meetings: e.meetings,
           busy: e.busy,
@@ -989,9 +990,10 @@ export const useStore = create<State>((set, get) => ({
           // Готовая реплика пришла — черновик того же автора отслужил. Сервер
           // снимает его и сам (`chat.draft.end` шлётся раньше), но держать
           // «без дубля» на порядке событий не стоит: событие могло и потеряться.
-          const live = s.drafts[e.entry.thread];
+          const key = draftKey(e.entry.thread, e.entry.chatId);
+          const live = s.drafts[key];
           const drafts = live && live.from === e.entry.from ? { ...s.drafts } : s.drafts;
-          if (drafts !== s.drafts) delete drafts[e.entry.thread];
+          if (drafts !== s.drafts) delete drafts[key];
           // Ответили не нам в открытый чат — зажигаем точку на сегменте.
           const chatUnread = s.chatUnread
             || (e.entry.thread === 'pm#1' && e.entry.from !== 'user'
@@ -1028,7 +1030,7 @@ export const useStore = create<State>((set, get) => ({
       // Черновик завели заново (или начали новое сообщение): текст берём
       // из события целиком — прежний недописанный к ответу уже не относится.
       case 'chat.draft':
-        set((s) => ({ drafts: { ...s.drafts, [e.draft.thread]: e.draft } }));
+        set((s) => ({ drafts: { ...s.drafts, [draftKey(e.draft.thread, e.draft.chatId)]: e.draft } }));
         break;
       case 'pm.chat':
         set((s) => {
@@ -1054,17 +1056,17 @@ export const useStore = create<State>((set, get) => ({
         set((s) => {
           const entry = Object.entries(s.drafts).find(([, d]) => d.id === e.id);
           if (!entry) return {};
-          const [thread, draft] = entry;
-          return { drafts: { ...s.drafts, [thread]: { ...draft, text: draft.text + e.text } } };
+          const [key, draft] = entry;
+          return { drafts: { ...s.drafts, [key]: { ...draft, text: draft.text + e.text } } };
         });
         break;
       // Конец хода — в том числе по ошибке и обрыву: индикатор снимаем всегда.
       case 'chat.draft.end':
         set((s) => {
-          const thread = Object.keys(s.drafts).find((k) => s.drafts[k].id === e.id);
-          if (!thread) return {};
+          const key = Object.keys(s.drafts).find((k) => s.drafts[k].id === e.id);
+          if (!key) return {};
           const drafts = { ...s.drafts };
-          delete drafts[thread];
+          delete drafts[key];
           return { drafts };
         });
         break;
@@ -1696,16 +1698,11 @@ export function pmChatSections(chats: Record<string, PmChat>): { live: PmChat[];
 }
 
 /**
- * Чат, куда сейчас пишет менеджер. Черновик ответа своего чата не знает, а
- * сервер кладёт ответ туда, где владелец писал последним, — берём оттуда же.
+ * Ключ черновика в `drafts` — тот же, что у сервера (`draftKey` в state.ts):
+ * ветка, а у менеджера ещё и чат, в который пишется ответ.
  */
-export function pmDraftChatId(chat: ChatEntry[], chats: Record<string, PmChat>): string | null {
-  for (let i = chat.length - 1; i >= 0; i--) {
-    const e = chat[i];
-    if (e.thread === 'pm#1' && e.from === 'user' && e.chatId) return e.chatId;
-  }
-  return Object.values(chats).find((c) => c.main)?.id ?? null;
-}
+export const draftKey = (thread: string, chatId?: string | null): string =>
+  (chatId ? `${thread}@${chatId}` : thread);
 
 /** Реплика ветки менеджера относится к этому чату. */
 export const inPmChat = (e: ChatEntry, chatId: string | null): boolean =>

@@ -1,6 +1,6 @@
 import { useLayoutEffect, useRef } from 'react';
 import { isOfficeSender } from '../shared/types';
-import { inPmChat, pmDraftChatId, useStore } from './store';
+import { draftKey, inPmChat, useStore } from './store';
 import { t } from './i18n';
 import { AgentTag } from './Avatar';
 import { ChatPeer } from './ChatPeer';
@@ -20,11 +20,10 @@ export function ChatThread() {
   const setThread = useStore((s) => s.setThread);
   // Реплика, которую собеседник пишет прямо сейчас. Рисуется на месте будущего
   // ответа и исчезает, когда готовая реплика ложится в ленту.
-  // У менеджера черновик один на все чаты: показываем его только в том чате,
-  // куда ляжет ответ.
+  // У менеджера сессия на каждый чат, и черновик у каждой свой: берём тот,
+  // что пишется в открытый чат.
   const pmChatId = useStore((s) => s.pmChatId);
-  const draft = useStore((s) => (s.thread === 'pm#1' && s.pmChatId
-    && pmDraftChatId(s.chat, s.pmChats) !== s.pmChatId ? undefined : s.drafts[s.thread]));
+  const draft = useStore((s) => s.drafts[draftKey(s.thread, s.thread === 'pm#1' ? s.pmChatId : null)]);
   const noChats = useStore((s) => Object.keys(s.pmChats).length === 0);
   const createPmChat = useStore((s) => s.createPmChat);
   const box = useRef<HTMLDivElement>(null);
