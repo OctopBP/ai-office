@@ -916,12 +916,6 @@ export class OfficeState {
   pmChats = new Map<string, PmChat>();
   pmChatSeq = 0;
   /**
-   * Чат, в который владелец писал последним. Туда ложатся реплики менеджера,
-   * пришедшие без чата; ответы сессий чатов свой чат называют сами. Только в
-   * памяти — после перезапуска такая реплика пойдёт в основной.
-   */
-  pmReplyChatId: string | null = null;
-  /**
    * Сессии менеджера по id чата. Заводятся лениво — при первом сообщении в
    * чат; живыми одновременно держатся не все (см. усыпление в agents.ts).
    */
@@ -2225,7 +2219,6 @@ export class OfficeState {
     this.chat = [];
     this.pmChats.clear();
     this.pmChatSeq = 0;
-    this.pmReplyChatId = null;
     // Сессии принадлежали чатам, которых больше нет. Живые гасим здесь же:
     // их очередь адресовалась разговору, которого не стало.
     for (const s of this.pmSessions.values()) {
@@ -2935,7 +2928,7 @@ export class OfficeState {
     const entry: ChatEntry = { id: randomUUID(), thread, from, text, at: Date.now() };
     if (meetingId) entry.meetingId = meetingId;
     if (ref) entry.ref = ref;
-    const pmChat = thread === 'pm#1' ? this.routePmChat(from, chatId) : null;
+    const pmChat = thread === 'pm#1' ? this.routePmChat(chatId) : null;
     if (pmChat) {
       entry.chatId = pmChat.id;
       // Автоназвание — до того, как реплика ляжет в чат: оно по первой
@@ -2991,20 +2984,13 @@ export class OfficeState {
   // ---------- чаты с менеджером ----------
 
   /**
-   * В какой чат ложится реплика ветки менеджера. Названный чат — если он
-   * есть. Иначе реплики офиса идут в основной (события без привязки, §4
-   * спеки), а ответы менеджера — туда, где владелец писал последним: сессия
-   * пока одна на все чаты, и ответ относится к последнему вопросу.
+   * В какой чат ложится реплика ветки менеджера: в названный, если он есть,
+   * иначе в основной (события без привязки, §4 спеки). Угадывать чат по
+   * тому, куда владелец писал последним, нельзя: у каждого чата своя сессия,
+   * и её ответы свой чат называют сами — догадка увела бы реплику в чужой.
    */
-  private routePmChat(from: string, chatId?: string): PmChat {
-    const named = chatId ? this.pmChats.get(chatId) : undefined;
-    let chat: PmChat;
-    if (named) chat = named;
-    else if (from !== OFFICE_SENDER && from !== 'user' && this.pmReplyChatId && this.pmChats.has(this.pmReplyChatId)) {
-      chat = this.pmChats.get(this.pmReplyChatId)!;
-    } else chat = this.ensureMainChat();
-    if (from === 'user') this.pmReplyChatId = chat.id;
-    return chat;
+  private routePmChat(chatId?: string): PmChat {
+    return (chatId ? this.pmChats.get(chatId) : undefined) ?? this.ensureMainChat();
   }
 
   /** Основной чат; нет ни одного — заводит его. */
@@ -3069,7 +3055,6 @@ export class OfficeState {
    */
   private loadPmChats(saved: PmChat[] | undefined, seq: number | undefined): void {
     this.pmChats.clear();
-    this.pmReplyChatId = null;
     for (const raw of saved ?? []) {
       if (!raw || typeof raw.id !== 'string') continue;
       const createdAt = typeof raw.createdAt === 'number' ? raw.createdAt : Date.now();

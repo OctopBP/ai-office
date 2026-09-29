@@ -420,6 +420,14 @@ interface State {
   openTask: string | null;
   openTaskCard: (taskId: string | null) => void;
   /**
+   * Фича, по которой доске надо встать фильтром при следующем показе. Сам
+   * фильтр живёт в доске; это только просьба снаружи (из карточки фичи в
+   * чате), и доска гасит её, как только применила.
+   */
+  boardEpic: string | null;
+  /** Открыть доску с задачами одной фичи — тот же переход, что `epic-pick`. */
+  showEpicOnBoard: (epicId: string | null) => void;
+  /**
    * Свёрнутые и развёрнутые группы фич на доске, по ключу группы. Живёт в
    * сторе, а не в самой доске: с доски уходят в офис и в чат, и держи это
    * состояние в компоненте — каждый возврат разворачивал бы всё заново.
@@ -755,6 +763,8 @@ export const useStore = create<State>((set, get) => ({
   // и наоборот. Иначе две панели легли бы одна поверх другой у правого края.
   select: (id) => set((s) => ({ selected: id, openTask: id ? null : s.openTask })),
   openTaskCard: (taskId) => set((s) => ({ openTask: taskId, selected: taskId ? null : s.selected })),
+  boardEpic: null,
+  showEpicOnBoard: (epicId) => set(epicId ? { boardEpic: epicId, view: 'board' } : { boardEpic: null }),
   // Связь оборвалась — конца хода мы уже не услышим, и «печатает…» осталось бы
   // висеть вечно. Черновики снимаем; после переподключения их вернёт снимок.
   setConnected: (v) => set(v ? { connected: v } : { connected: v, drafts: {} }),
@@ -990,10 +1000,13 @@ export const useStore = create<State>((set, get) => ({
           // Готовая реплика пришла — черновик того же автора отслужил. Сервер
           // снимает его и сам (`chat.draft.end` шлётся раньше), но держать
           // «без дубля» на порядке событий не стоит: событие могло и потеряться.
-          const key = draftKey(e.entry.thread, e.entry.chatId);
-          const live = s.drafts[key];
-          const drafts = live && live.from === e.entry.from ? { ...s.drafts } : s.drafts;
-          if (drafts !== s.drafts) delete drafts[key];
+          // Черновик без чата пишется в основной чат, а реплика туда приходит
+          // уже с его id — поэтому у основного смотрим и ключ без чата.
+          const keys = [draftKey(e.entry.thread, e.entry.chatId)];
+          if (e.entry.chatId && s.pmChats[e.entry.chatId]?.main) keys.push(draftKey(e.entry.thread));
+          const done = keys.filter((k) => s.drafts[k]?.from === e.entry.from);
+          const drafts = done.length ? { ...s.drafts } : s.drafts;
+          for (const k of done) delete drafts[k];
           // Ответили не нам в открытый чат — зажигаем точку на сегменте.
           const chatUnread = s.chatUnread
             || (e.entry.thread === 'pm#1' && e.entry.from !== 'user'
@@ -1703,6 +1716,21 @@ export function pmChatSections(chats: Record<string, PmChat>): { live: PmChat[];
  */
 export const draftKey = (thread: string, chatId?: string | null): string =>
   (chatId ? `${thread}@${chatId}` : thread);
+
+/**
+ * Черновик «печатает…» для открытой ленты. У менеджера — строго по
+ * `draft.chatId`: у каждого чата своя сессия, и угадывать чат по тому, куда
+ * владелец писал последним, нельзя — ответ одного чата всплыл бы в другом.
+ * Черновик без чата принадлежит основному чату.
+ */
+export function shownDraft(
+  s: Pick<State, 'drafts' | 'thread' | 'pmChatId' | 'pmChats'>,
+): ChatDraft | undefined {
+  if (s.thread !== 'pm#1') return s.drafts[draftKey(s.thread)];
+  const plain = s.drafts[draftKey('pm#1')];
+  if (!s.pmChatId) return plain;
+  return s.drafts[draftKey('pm#1', s.pmChatId)] ?? (s.pmChats[s.pmChatId]?.main ? plain : undefined);
+}
 
 /** Реплика ветки менеджера относится к этому чату. */
 export const inPmChat = (e: ChatEntry, chatId: string | null): boolean =>

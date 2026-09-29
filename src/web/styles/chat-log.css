@@ -247,3 +247,94 @@
 .pm-chats-empty h3 { margin: 0; color: var(--ink); }
 .pm-chats-empty p { margin: 0 0 var(--space-2); color: var(--ink-3); }
 .pm-chats-empty-icon { font-size: 28px; }
+
+/* ---------- живые карточки в ленте чата (docs/design/T-126/cards.md) ----------
+   Белая поверхность с волосяной рамкой, без тени: глаз сразу отличает
+   структурный блок от реплики на плёнке. Чипы — те же `.chip`, что на доске. */
+.chat-card {
+  display: flex; flex-direction: column; gap: var(--space-2);
+  background: var(--surface); border: 1px solid var(--hairline); border-radius: var(--radius-card);
+  padding: var(--space-2) var(--space-3); color: var(--ink-2); font-size: var(--fs-body);
+}
+.chat-card[role='button'] { cursor: pointer; }
+.chat-card[role='button']:hover { border-color: var(--ink-4); }
+.chat-card[role='button']:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+/* Внутри обёртки у карточки нет своей рамки — только линия снизу. */
+.chat-card.bare { border: 0; border-radius: 0; padding: var(--space-2) 0; border-bottom: 1px solid var(--hairline); }
+.chat-card.bare:last-child { border-bottom: 0; padding-bottom: 0; }
+.chat-card.bare[role='button']:hover { background: var(--film); }
+
+.cc-head { display: flex; align-items: center; gap: var(--space-2); min-width: 0; }
+.cc-id { flex: none; font-family: var(--font-mono); font-size: var(--fs-small); color: var(--ink-3); }
+.cc-title { flex: 1; min-width: 0; color: var(--ink); font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.chat-card.open .cc-title { white-space: normal; }
+.cc-chevron {
+  flex: none; min-height: 0; height: 20px; width: 20px; padding: 0; margin-left: auto;
+  border: 0; background: none; color: var(--ink-3); line-height: 1; transition: transform .15s;
+}
+.cc-chevron:hover:not(:disabled) { background: var(--film); }
+.cc-chevron.open { transform: rotate(180deg); }
+
+.cc-meta { display: flex; align-items: center; flex-wrap: wrap; gap: var(--space-2); font-size: var(--fs-small); }
+.cc-meta .muted { color: var(--ink-3); }
+.cc-more { display: flex; align-items: center; flex-wrap: wrap; gap: var(--space-2); font-size: var(--fs-small); }
+.chip.cc-status.muted { color: var(--ink-3); }
+.chip.cc-status.accent { color: var(--board-work); }
+.chip.cc-status.ok { color: var(--ok-ink); }
+.chip.cc-status.danger { color: var(--danger); }
+.cc-task.tone-muted .cc-title { color: var(--ink-2); }
+/* Обычная важность: чипа не видно, пока не наведёшь на карточку. */
+.cc-prio-normal { display: none; }
+.chat-card:hover .cc-prio-normal { display: contents; }
+
+/* Фича: заголовок — ссылка на доску, а не отдельная кнопка кита. */
+.cc-pick {
+  display: flex; align-items: center; gap: var(--space-2); flex: 1; min-width: 0;
+  min-height: 0; height: auto; padding: 0; border: 0; background: none; text-align: left; font: inherit;
+}
+.cc-pick:hover:not(:disabled) { background: none; }
+.cc-pick:hover .cc-title { text-decoration: underline; }
+.cc-goal {
+  color: var(--ink-3); cursor: pointer; overflow: hidden;
+  display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; line-clamp: 2;
+}
+.chat-card.open .cc-goal { display: block; }
+.cc-epic.cancelled .cc-title { color: var(--ink-3); }
+.cc-rows { display: flex; flex-direction: column; gap: 2px; }
+.cc-row {
+  display: flex; align-items: center; gap: var(--space-2); min-height: 0; height: auto;
+  padding: 2px var(--space-1); border: 0; border-radius: var(--radius-icon); background: none;
+  text-align: left; font: inherit; font-size: var(--fs-small); color: var(--ink-2);
+}
+.cc-row:hover:not(:disabled) { background: var(--film); }
+.cc-row-title { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.cc-dot { flex: none; width: 6px; height: 6px; border-radius: 50%; background: var(--ink-4); }
+.cc-dot.run { background: var(--accent); }
+.cc-dot.wait { background: var(--ink-4); }
+.cc-dot.fail { background: var(--board-fail); }
+.cc-dot.done { background: var(--board-done); }
+.cc-dot.drop { background: var(--board-drop); }
+.cc-actions { display: flex; align-items: center; gap: var(--space-2); }
+.cc-actions input { flex: 1; min-width: 0; }
+
+/* Вопрос: бейдж состояния, текст, ответ или кнопки-варианты. */
+.chip.cc-badge.waiting { color: var(--warn); background: rgba(var(--warn-rgb), .14); }
+.chip.cc-badge.answered { color: var(--ok-ink); }
+.cc-text { white-space: pre-wrap; word-break: break-word; color: var(--ink); }
+.cc-question.dismissed .cc-text,
+.cc-question.merged .cc-text { color: var(--ink-3); }
+.cc-answer { white-space: pre-wrap; word-break: break-word; color: var(--ok-ink); font-weight: 500; }
+.cc-options { display: flex; flex-wrap: wrap; gap: var(--space-2); }
+.cc-own {
+  align-self: flex-start; min-height: 0; height: auto; padding: 0; border: 0; background: none;
+  color: var(--accent); font: inherit; font-size: var(--fs-small); cursor: pointer;
+}
+.cc-own:hover:not(:disabled) { background: none; text-decoration: underline; }
+
+/* Обёртка карточек одного ответа менеджера. */
+.cc-group { gap: 0; }
+.cc-group-head {
+  display: flex; align-items: center; justify-content: space-between; gap: var(--space-2);
+  padding-bottom: var(--space-1); font-size: var(--fs-small); color: var(--ink-3);
+}
+.cc-missing { color: var(--ink-3); }

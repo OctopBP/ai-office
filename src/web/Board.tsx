@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import {
   approveEpic, cancelEpic, createDirection, mergeBadge, mergeStepFor, prStageLabel, prStageClass,
   removeDirection, reorderEpics, updateDirection, useStore,
@@ -492,6 +492,16 @@ export function Board() {
   // Выбранная подвкладка — тоже локальная и по той же причине. Умолчание —
   // задачи: доска и есть то, за чем на этот экран приходят.
   const [tab, setTab] = useState<BoardTab>('tasks');
+  // Просьба встать на фичу пришла снаружи (карточка фичи в чате): ставим
+  // фильтр и гасим просьбу, дальше фильтр снова только доски.
+  const asked = useStore((s) => s.boardEpic);
+  const showEpicOnBoard = useStore((s) => s.showEpicOnBoard);
+  useEffect(() => {
+    if (!asked) return;
+    setOnly(asked);
+    setTab('tasks');
+    showEpicOnBoard(null);
+  }, [asked, showEpicOnBoard]);
 
   const plan = Object.values(epics).sort((a, b) => a.order - b.order);
   const all = Object.values(tasks).sort((a, b) => a.createdAt - b.createdAt);
