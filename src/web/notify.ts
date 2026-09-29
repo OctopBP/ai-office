@@ -170,6 +170,8 @@ function jump(target: Target): void {
     s.openTaskCard(target.taskId);
   } else if (target.kind === 'board') {
     s.setView('board');
+  } else if (target.kind === 'life') {
+    s.setView('life');
   } else {
     useStore.setState({ panelRequest: target.kind });
   }

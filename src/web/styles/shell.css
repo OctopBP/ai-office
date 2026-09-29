@@ -48,6 +48,9 @@
 .shell-board { bottom: var(--space-4); overflow: hidden; }
 .shell-chat { display: flex; gap: var(--space-4); max-width: 1180px; margin: 0 auto; right: var(--space-6); overflow: hidden; }
 /* Лента со вкладками тредов — правая колонка; слева список чатов (.pm-chats). */
+.shell-life { display: flex; flex-direction: column; max-width: 1180px; margin: 0 auto; overflow: hidden; }
+.shell-life-title { flex: none; margin: 0 0 var(--space-3); font-size: var(--fs-title); font-weight: 500; color: var(--ink); }
+.shell-life .life { flex: 1; }
 .shell-chat-col { display: flex; flex-direction: column; flex: 1; min-width: 0; min-height: 0; overflow: hidden; }
 .shell-chat .chat { flex: 1; }
 /* Узкое окно: два столбца не помещаются — список встаёт над лентой и
@@ -165,14 +168,6 @@ body.office-dragging, body.office-dragging * { cursor: grabbing !important; user
 }
 .rail-win-label { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .rail-win-count { font-size: var(--fs-small); font-weight: 500; color: var(--ink-3); }
-/* Бейдж непрочитанных вопросов владельцу («Жизнь офиса»). Тот же язык, что у
-   счётчика над столом в 3D-сцене (`.spot3d-badge`, scene.css): заметный, но
-   не отвлекающий цвет из токенов, ширина не гуляет между «1» и «9+». */
-.rail-win-badge {
-  font: 700 var(--fs-small)/1 var(--font); color: var(--danger-ink); background: var(--danger);
-  border-radius: var(--radius-pill);
-  min-width: 18px; padding: 0 var(--space-1); text-align: center; flex: none;
-}
 .rail-win-key kbd { color: var(--ink-3); }
 
 .rail-foot { margin-top: auto; padding: 0 var(--space-2); }

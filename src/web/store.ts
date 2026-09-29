@@ -290,7 +290,7 @@ interface State {
    * уведомлению (`notify.ts`). Панели держит App: он открывает её по запросу
    * и сразу сбрасывает поле.
    */
-  panelRequest: 'life' | 'money' | null;
+  panelRequest: 'money' | null;
   /** Пресеты раскладки для выбора в настройках — приходят в снапшоте, читаются сервером с диска. */
   layouts: LayoutOption[];
   /**
@@ -355,7 +355,7 @@ interface State {
   /** Живой офис: журнал, вопросы владельцу, ритуалы (docs/design/living-office). */
   facts: FactView[];
   questions: OwnerQuestion[];
-  /** Сколько вопросов владельцу ждут решения — для бейджа на вкладке «Жизнь офиса». */
+  /** Сколько вопросов владельцу ждут решения — для бейджа на сегменте «Жизнь офиса» в шапке. */
   openQuestions: number;
   life: LifeView;
   /** Сводка здоровья офиса: провалы без разбора, протухшие ветки, вставшие задачи. */
@@ -481,7 +481,7 @@ interface State {
   setSpendStep: (s: SpendStep) => void;
 }
 
-export type View = 'office' | 'board' | 'chat';
+export type View = 'office' | 'board' | 'chat' | 'life';
 export type ThemeMode = Theme | 'system';
 
 /** Системная тема — через media query; слушаем её ниже, после создания стора. */
