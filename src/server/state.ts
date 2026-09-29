@@ -527,11 +527,42 @@ function sanitizeRoles(raw: unknown, lang: Lang): Role[] {
  * базового набора: накладываем их на умолчания, иначе выставленные человеком
  * модель, лимит и репозиторий пропали бы при первом же запуске.
  */
-function rolesFromSave(data: Persisted, lang: Lang): Role[] {
-  const stored = Array.isArray(data.roles)
+function rolesFromSave(data: Persisted, lang: Lang, pending: readonly string[]): Role[] {
+  let stored: unknown[] = Array.isArray(data.roles)
     ? data.roles
     : rolesFromOverrides(data.roleOverrides, lang);
+  if (pending.includes(SONNET_5_5_MIGRATION)) stored = stored.map(toSonnet55);
   return withManagerRole(sanitizeRoles(stored, lang), lang);
+}
+
+/**
+ * Разовая миграция: все роли на Sonnet 5 — на Sonnet 5.5. В `LEGACY_MODELS`
+ * (roles.ts) её нет намеренно: таблица работает на каждой загрузке и отменяла
+ * бы Sonnet 5, выбранный владельцем уже после перевода. Поэтому перевод один
+ * раз, а факт его проведения лежит в `roleMigrations` сохранения.
+ */
+const SONNET_5_5_MIGRATION = 'sonnet-5-to-5-5';
+
+/** Все разовые миграции ролей. Новый офис заводится с ними проведёнными. */
+const ROLE_MIGRATIONS: readonly string[] = [SONNET_5_5_MIGRATION];
+
+/**
+ * Перевести одну роль из сохранения с Sonnet 5 на Sonnet 5.5 — и модель самой
+ * роли (роль без пакета хранит её сама), и выбор в разнице с пакетом. Совпал
+ * перевод с моделью манифеста — оверрайд снимет `roleFromPackage`.
+ */
+function toSonnet55(item: unknown): unknown {
+  if (!item || typeof item !== 'object') return item;
+  const role = { ...(item as Partial<Role>) };
+  if (typeof role.model === 'string' && role.model.trim() === 'claude-sonnet-5') {
+    role.model = 'claude-sonnet-5-5';
+  }
+  const link = role.package;
+  if (link && typeof link === 'object' && link.overrides && typeof link.overrides === 'object'
+    && typeof link.overrides.model === 'string' && link.overrides.model.trim() === 'claude-sonnet-5') {
+    role.package = { ...link, overrides: { ...link.overrides, model: 'claude-sonnet-5-5' } };
+  }
+  return role;
 }
 
 /**
@@ -963,6 +994,8 @@ export class OfficeState {
   // русский бриф в английском офисе означал бы агента, который отвечает
   // не на том языке, на котором с ним говорят.
   private roleList: Role[] = defaultRoles(newOfficeLang());
+  /** Проведённые разовые миграции ролей. У нового офиса переводить нечего — все проведены. */
+  private roleMigrations: string[] = [...ROLE_MIGRATIONS];
   /**
    * Расстановка мебели этого офиса поверх пресетов, ключ — id пресета (§8).
    * Своя у каждого офиса: пресет — общий эталон в репозитории, а подвинутый
@@ -1352,6 +1385,7 @@ export class OfficeState {
       meetings: this.meetings,
       settings: this.settings,
       roles: this.roleList,
+      roleMigrations: this.roleMigrations,
       layoutOverrides: this.layoutOverrides,
       instances: [...this.instances.values()].map<PersistedInstance>((i) => ({
         id: i.id, roleId: i.roleId, deskIndex: i.desk.index,
@@ -1798,7 +1832,14 @@ export class OfficeState {
     const settingsOnDisk = (data.settings ?? {}) as Partial<Settings>;
     const lang = asLang(settingsOnDisk.chatLanguage ?? settingsOnDisk.language ?? 'ru');
     // Роли восстанавливаем ДО seed: от них зависят названия и лимиты инстансов.
-    this.roleList = rolesFromSave(data, lang);
+    // Разовые миграции ролей: проводим те, которых в сохранении ещё нет, и
+    // отмечаем проведёнными все — отметка уедет на диск со следующим сохранением.
+    const doneMigrations = Array.isArray(data.roleMigrations)
+      ? data.roleMigrations.filter((m): m is string => typeof m === 'string')
+      : [];
+    const pendingMigrations = ROLE_MIGRATIONS.filter((m) => !doneMigrations.includes(m));
+    this.roleList = rolesFromSave(data, lang, pendingMigrations);
+    this.roleMigrations = [...new Set([...doneMigrations, ...ROLE_MIGRATIONS])];
     // Сохранения старше настройки движка не знают про облако — дополняем.
     // Язык в них тоже не записан, и подставлять базовый английский нельзя:
     // такой офис заводили до появления настройки, когда офис был русским, —
