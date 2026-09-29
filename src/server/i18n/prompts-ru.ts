@@ -892,7 +892,6 @@ review_status, list_team), по журналу офиса и по тому, чт
   'pipe.mergedChat': '{task}: влито. {message}',
   'pipe.mergedViaPr': 'Влито через пулл-реквест #{number}.',
   'pipe.mergedPlain': 'Влито в {base}.',
-  'pipe.mergedFinal': '{task}: влито в {base}, ветка и рабочая копия убраны.',
   'pipe.pmMerged': '[СИСТЕМА] {task} «{title}» прошла ревью и влита в {base}. Ветка и рабочая копия убраны, сливать вручную ничего не нужно.',
   'pipe.stuckChat': '{task}: конвейер встал. {why}',
   'pipe.stuckLog': '{task}: конвейер встал — {why}',

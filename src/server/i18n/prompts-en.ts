@@ -913,7 +913,6 @@ Keep your replies to the user short. Which language to write them in is said in 
   'pipe.mergedChat': '{task}: merged. {message}',
   'pipe.mergedViaPr': 'Merged through pull request #{number}.',
   'pipe.mergedPlain': 'Merged into {base}.',
-  'pipe.mergedFinal': '{task}: merged into {base}, the branch and the working copy are gone.',
   'pipe.pmMerged': '[SYSTEM] {task} “{title}” passed the review and was merged into {base}. The branch and the working copy are gone, nothing has to be merged by hand.',
   'pipe.stuckChat': '{task}: the pipeline is stuck. {why}',
   'pipe.stuckLog': '{task}: the pipeline is stuck — {why}',
