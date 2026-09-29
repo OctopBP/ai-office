@@ -286,8 +286,8 @@ async function main(): Promise<void> {
   //     Заводим заранее всё, что обязано погаснуть.
   const removedState = getOffice(madeId);
   const goneQueue = new MessageQueue();
-  removedState.pmQueue = goneQueue;
-  removedState.pmLoop = Promise.resolve();
+  removedState.pmSession().queue = goneQueue;
+  removedState.pmSession().loop = Promise.resolve();
   const goneAbort = new AbortController();
   [...removedState.instances.values()][0].abort = goneAbort;
   startSupervisor(removedState);
@@ -315,7 +315,7 @@ async function main(): Promise<void> {
   ]);
   check('очередь менеджера скрытого офиса закрыта', drained?.done === true);
   check('сессии скрытого офиса погашены',
-    removedState.pmQueue === null && removedState.pmLoop === null && goneAbort.signal.aborted);
+    [...removedState.pmSessions.values()].every((x) => x.queue === null && x.loop === null) && goneAbort.signal.aborted);
   // Состояние выгружено из памяти — ради этого всё и затевалось.
   check('состояние скрытого офиса выгружено из памяти',
     !isOpened(madeId) && !openedOffices().includes(removedState));
@@ -365,8 +365,8 @@ async function main(): Promise<void> {
   // Живая сессия менеджера и прерыватель исполнителя: по ним и видно,
   // сбросили сессии при переключении или оставили работать.
   const pmQueue = new MessageQueue();
-  leaving.pmQueue = pmQueue;
-  leaving.pmLoop = Promise.resolve();
+  leaving.pmSession().queue = pmQueue;
+  leaving.pmSession().loop = Promise.resolve();
   const abort = new AbortController();
   const worker = [...leaving.instances.values()][0];
   worker.abort = abort;
@@ -382,7 +382,7 @@ async function main(): Promise<void> {
     watching(b) === 'o-1' && stateFor(b) === stateA);
   check('открытым в реестре записан запрошенный офис', currentOffice()?.id === 'o-1');
   check('сессии покинутого офиса не сброшены',
-    leaving.pmQueue === pmQueue && !abort.signal.aborted);
+    leaving.pmSession().queue === pmQueue && !abort.signal.aborted);
   check('задача покинутого офиса осталась в работе',
     leaving.tasks.get(busy.id)?.status === 'in_progress');
   check('состояние покинутого офиса живёт в памяти', getOffice(madeId) === leaving);
@@ -443,7 +443,7 @@ async function main(): Promise<void> {
   stateA.addChat('офис', 'это первому');
   leaving.addChat('офис', 'это второму');
   await sleep(20);
-  check('планёрка при входе не подняла настоящую сессию менеджера', stateA.pmLoop === null);
+  check('планёрка при входе не подняла настоящую сессию менеджера', [...stateA.pmSessions.values()].every((x) => x.loop === null));
   check('каждый клиент получил только своё',
     a.count('chat', aSplit) === 1 && b.count('chat', bSplit) === 1);
   check('первому пришла именно его реплика',
@@ -503,8 +503,8 @@ async function main(): Promise<void> {
 
   leaving.updateTask(busy.id, { status: 'done' });
   worker.abort = null;
-  leaving.pmQueue = null;
-  leaving.pmLoop = null;
+  leaving.pmSession().queue = null;
+  leaving.pmSession().loop = null;
 
   // 22. Порядок списка офисов зафиксирован раз и навсегда: по времени
   //     создания, самый старый сверху. Его не двигают ни выбор офиса, ни

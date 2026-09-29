@@ -66,6 +66,7 @@ export const promptsEn = {
   'agent.log.userDenied': 'You denied: {what}',
   'agent.log.userAllowed': 'You allowed: {what}',
   'agent.log.resumingSession': 'Resuming session {id}…',
+  'agent.log.pmSlept': 'The manager session of chat “{chat}” went to sleep: the chat is quiet. The next message resumes it where it left off.',
   'agent.log.pmCrashed': 'The PM session crashed: {error}',
   'agent.log.question': 'Question for {who}: {question}',
   'agent.log.answerFailed': 'Could not answer: {error}',

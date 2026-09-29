@@ -25,7 +25,7 @@
  */
 import { asTaskPriority, dayKey, HEALTH_DIRECTION, OFFICE_SENDER, taskClosed, taskOver } from '../shared/types';
 import type { TaskPriority } from '../shared/types';
-import { toTaskView, type Epic, type OfficeState, type Task } from './state';
+import { toTaskView, type Epic, type OfficeState, type PmAbout, type Task } from './state';
 import type { TaskType } from '../shared/workflow';
 import { cancelTask } from './outcomes';
 
@@ -76,7 +76,8 @@ export function initiativeBudget(state: OfficeState, now = Date.now()): Initiati
  */
 export interface PlanAgents {
   assign(state: OfficeState, taskId: string): { ok: boolean; message: string };
-  notifyPm(state: OfficeState, text: string): void;
+  /** `about` — задача или фича: по ней выбирается чат, в сессию которого уйдёт сообщение. */
+  notifyPm(state: OfficeState, text: string, about?: PmAbout): void;
 }
 
 let agents: PlanAgents = {
@@ -160,7 +161,7 @@ function closeFinishedEpics(state: OfficeState): void {
       state.addChat(OFFICE_SENDER, state.say('plan.chat.epicEmpty', {
         epic: epic.id, title: epic.title,
       }));
-      agents.notifyPm(state, state.say('plan.pm.epicEmpty', { epic: epic.id, title: epic.title }));
+      agents.notifyPm(state, state.say('plan.pm.epicEmpty', { epic: epic.id, title: epic.title }), { epicId: epic.id });
       continue;
     }
 
@@ -181,7 +182,7 @@ function closeFinishedEpics(state: OfficeState): void {
           epic: next.id, title: next.title,
         })
         : state.say('plan.pm.nextNone'),
-    }));
+    }), { epicId: epic.id });
   }
 }
 
@@ -302,7 +303,7 @@ function reportStalls(state: OfficeState, now: number): void {
     agents.notifyPm(state, state.say('plan.pm.waiting', {
       epic: next.id, title: next.title, goal: next.goal,
       tasks: String(state.tasksOfEpic(next.id).length),
-    }));
+    }), { epicId: next.id });
   }
 
   // 2. Зависимость провалилась — сама она не починится.
@@ -316,7 +317,7 @@ function reportStalls(state: OfficeState, now: number): void {
     agents.notifyPm(state, state.say('plan.pm.blocked', {
       task: task.id, title: task.title,
       deps: dead.map((d) => `${d.id} «${d.title}»`).join(', '),
-    }));
+    }), { taskId: task.id });
   }
 }
 
@@ -382,7 +383,13 @@ export interface PlanOrigin {
   approved?: boolean;
 }
 
-export function createPlan(state: OfficeState, epics: PlannedEpic[], from?: PlanOrigin): PlanResult {
+/**
+ * `chatId` — чат с менеджером, в разговоре которого план заведён: фичи и их
+ * задачи привязываются к нему (спека T-125 §2, автопривязка).
+ */
+export function createPlan(
+  state: OfficeState, epics: PlannedEpic[], from?: PlanOrigin, chatId?: string | null,
+): PlanResult {
   if (!epics.length) return { ok: false, message: state.say('plan.err.empty') };
 
   const roles = state.workerRoles().map((r) => r.id);
@@ -441,6 +448,7 @@ export function createPlan(state: OfficeState, epics: PlannedEpic[], from?: Plan
       title: planned.title.trim(), goal: planned.goal.trim(), order, approved,
       origin: from?.origin ?? 'owner', rationale: from?.rationale ?? '',
       directionId: from?.directionId ?? null,
+      chatId: chatId ?? null,
     });
     made.push(epic);
     planned.tasks.forEach((task, i) => {
@@ -454,6 +462,7 @@ export function createPlan(state: OfficeState, epics: PlannedEpic[], from?: Plan
         dependsOn: [],
         status: 'planned',
         ...(task.type ? { type: task.type } : {}),
+        chatId: chatId ?? null,
       });
       keys.set(task.key.trim(), created.id);
     });

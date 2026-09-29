@@ -14,7 +14,7 @@ import { MessageQueue } from './queue';
 import {
   criteriaProgress, loadedOffices, onEnvReady, onRoleSetChanged, onWorkerLimitChanged, taskRepo,
   totalRunningWorkers, worktreesRoot,
-  type Instance, type OfficeState, type Task,
+  type Instance, type OfficeState, type PmAbout, type PmSession, type Task,
 } from './state';
 import { clearEnvWait, envBlock, markEnvWait } from './envcheck';
 import {
@@ -738,7 +738,7 @@ function boardSummary(state: OfficeState): string {
  * константа: язык у каждого офиса свой, и один и тот же процесс держит
  * русский офис и английский одновременно.
  */
-export const pmPrompt = (state: OfficeState, fresh: boolean): string =>
+export const pmPrompt = (state: OfficeState, fresh: boolean, handoff: string | null = null): string =>
   state.say('prompt.pm.system')
   // Языки — сразу за основным промптом: на них написано всё остальное, что
   // менеджер сочиняет, и ниже они бы утонули между направлениями и передачей дел.
@@ -748,7 +748,7 @@ export const pmPrompt = (state: OfficeState, fresh: boolean): string =>
   // Передача дел — только новой сессии, и в промпт, а не первым сообщением:
   // она нужна на каждом ходу, а не один раз, и не должна выглядеть репликой.
   // Продолжаемая сессия несёт то же в своей стенограмме — пересказом сжатия.
-  + (fresh && state.pmHandoff ? state.say('prompt.pm.handoff', { text: state.pmHandoff }) : '');
+  + (fresh && handoff ? state.say('prompt.pm.handoff', { text: handoff }) : '');
 
 /** Направления словами — в бриф менеджера и на доску. */
 function directionsText(state: OfficeState): string {
@@ -800,9 +800,10 @@ export function teamSummary(state: OfficeState): string {
 /**
  * Инструменты менеджера. Собираются на каждый офис свои: менеджер покинутого
  * офиса продолжает разбирать отчёты, и его create_task/assign_task обязаны
- * ложиться на его доску, а не на ту, что человек открыл сейчас.
+ * ложиться на его доску, а не на ту, что человек открыл сейчас. И на каждый
+ * чат свои: задача и фича, заведённые в разговоре, привязываются к его чату.
  */
-const teamTools = (state: OfficeState) => createSdkMcpServer({
+const teamTools = (state: OfficeState, chatId: string) => createSdkMcpServer({
   name: 'team',
   version: '1.0.0',
   instructions: state.say('tool.team.instructions'),
@@ -890,6 +891,7 @@ const teamTools = (state: OfficeState) => createSdkMcpServer({
           ...(args.type ? { type: args.type } : {}),
           // Пусто — средний: умолчание одно на весь офис (DEFAULT_TASK_PRIORITY).
           ...(args.priority ? { priority: args.priority } : {}),
+          chatId,
         });
         // Предупреждаем сразу: иначе менеджер узнает о пустой роли только из
         // отказа assign_task и успеет пообещать пользователю работу.
@@ -1220,7 +1222,7 @@ const teamTools = (state: OfficeState) => createSdkMcpServer({
         })).describe(state.say('tool.planFeatures.features')),
       },
       async (args) => {
-        const outcome = createPlan(state, args.features as PlannedEpic[]);
+        const outcome = createPlan(state, args.features as PlannedEpic[], undefined, chatId);
         return { content: [{ type: 'text', text: outcome.message }], isError: !outcome.ok };
       },
     ),
@@ -1577,15 +1579,33 @@ const teamTools = (state: OfficeState) => createSdkMcpServer({
   ],
 });
 
-/** Поднять сессию менеджера конкретного офиса. У каждого офиса она своя. */
-function startPm(state: OfficeState): void {
-  if (state.pmLoop) return;
-  const queue = new MessageQueue();
-  state.pmQueue = queue;
+/**
+ * Сколько живая сессия чата простаивает, прежде чем её усыпить. Дольше
+ * кеша подсказки: разбуженная раньше сессия переписала бы тёплый кеш, а
+ * позже него живая и уснувшая стоят одинаково — держать её незачем.
+ */
+const PM_SLEEP_MS = 15 * 60 * 1000;
+/**
+ * Сколько сессий чатов живёт одновременно. Каждая — отдельный процесс SDK;
+ * владелец держит открытыми два-три разговора, остальные спят и поднимаются
+ * по сохранённому id сессии (направление D-1: не плодить расход).
+ */
+const PM_LIVE_MAX = 3;
 
-  // Продолжаем прошлую сессию, если она известна: так PM помнит, о чём шла речь
-  // до перезапуска, и не платит за пересборку контекста.
-  const resumeId = state.instances.get('pm#1')?.sessionId ?? undefined;
+/**
+ * Поднять сессию менеджера чата. У каждого чата она своя (решение Q-20):
+ * переключение чата переключает и то, с чем разговаривает менеджер.
+ */
+function startPm(state: OfficeState, pm: PmSession): void {
+  if (pm.loop) return;
+  makeRoomForPm(state, pm);
+  const queue = new MessageQueue();
+  pm.queue = queue;
+  const chatId = pm.chatId;
+
+  // Продолжаем прошлую сессию чата, если она известна: так PM помнит, о чём
+  // шла речь до сна или перезапуска, и не платит за пересборку контекста.
+  const resumeId = pm.sessionId ?? undefined;
   if (resumeId) {
     state.addLog('pm#1', 'system', state.say('agent.log.resumingSession', { id: resumeId.slice(0, 8) }));
   }
@@ -1600,10 +1620,10 @@ function startPm(state: OfficeState): void {
       // передачи дел, а они меняются. Чтобы маркер дал что-то и здесь, их
       // надо унести в хвост — то есть переставить промпт местами, а это уже
       // правка поведения менеджера, и делать её надо отдельно, с test:pm.
-      systemPrompt: pmPrompt(state, !resumeId) + projectBrief(state),
+      systemPrompt: pmPrompt(state, !resumeId, pm.handoff) + projectBrief(state),
       cwd: state.projectDir,
       tools: [],                         // у PM нет доступа к файлам — только командные инструменты
-      mcpServers: { team: teamTools(state) },
+      mcpServers: { team: teamTools(state, chatId) },
       permissionMode: 'default',
       canUseTool: permissionHandler(state, 'pm#1'),
       settingSources: [],                // не наследовать настройки Claude Code пользователя
@@ -1618,7 +1638,7 @@ function startPm(state: OfficeState): void {
       hooks: {
         PostCompact: [{
           hooks: [async (input) => {
-            if (input.hook_event_name === 'PostCompact') state.setPmHandoff(input.compact_summary);
+            if (input.hook_event_name === 'PostCompact') state.setPmHandoff(pm, input.compact_summary);
             return {};
           }],
         }],
@@ -1631,100 +1651,103 @@ function startPm(state: OfficeState): void {
   // них можно не увидеть ни разу. Ответа никто не ждёт — см. state.pollLimits.
   state.pollLimits(session);
 
-  state.pmLoop = (async () => {
+  pm.loop = (async () => {
     try {
       for await (const msg of session) {
-        consume(state, 'pm#1', msg);
+        // Id сессии и контекст — сессии чата, а не сотруднику: чатов много,
+        // и каждый продолжается своим разговором.
+        consume(state, 'pm#1', msg, false);
+        notePmSession(state, pm, msg);
         // Любое сообщение сессии — признак жизни: черновик отодвигает своего
         // сторожа, иначе долгий ход с одними вызовами инструментов сняли бы
         // как зависший.
-        state.touchDraft('pm#1');
+        state.touchDraft('pm#1', chatId);
         if (msg.type === 'stream_event') {
-          streamPmChunk(state, msg);
+          streamPmChunk(state, pm, msg);
           continue;
         }
         if (msg.type === 'system' && msg.subtype === 'compact_boundary'
-          && state.pmRotating && state.pmQueue === queue) {
-          state.pmCompactedTo = msg.compact_metadata.post_tokens
-            ?? state.instances.get('pm#1')?.contextTokens ?? 0;
+          && pm.rotating && pm.queue === queue) {
+          pm.compactedTo = msg.compact_metadata.post_tokens ?? pm.contextTokens;
         }
         if (msg.type === 'result') {
           // Результат команды /compact — не реплика пользователю: сжатие
           // закрывается здесь же, накопленные сообщения идут дальше.
-          if (state.pmRotating && state.pmQueue === queue && state.pmRotationKind === 'compact') {
+          if (pm.rotating && pm.queue === queue && pm.rotationKind === 'compact') {
             const error = isOk(msg) ? null : resultReason(msg, state.lang());
-            for (const m of completePmCompaction(state, error)) pushToPm(state, m.text, m.fromUser);
+            for (const m of completePmCompaction(state, pm, error)) pushToPm(state, pm, m.text, m.fromUser);
             continue;
           }
           // Ответ на просьбу о передаче дел — тоже не реплика: он уходит в
           // промпт следующей сессии, а эта закрывается здесь же.
-          if (state.pmRotating && state.pmQueue === queue) {
+          if (pm.rotating && pm.queue === queue) {
             const handoff = isOk(msg) && msg.result?.trim() ? msg.result.trim() : null;
             if (!handoff) {
               state.addLog('pm#1', 'error', state.say('agent.log.handoffFailed', {
                 reason: clip(resultReason(msg, state.lang()), 200),
               }));
             }
-            for (const m of completePmRotation(state, handoff)) pushToPm(state, m.text, m.fromUser);
+            for (const m of completePmRotation(state, pm, handoff)) pushToPm(state, pm, m.text, m.fromUser);
             continue;
           }
           // Ход закончился — «печатает…» снимаем до того, как реплика ляжет в
           // чат: иначе веб на миг покажет и готовый ответ, и черновик.
-          endPmTurn(state);
+          endPmTurn(state, pm);
           if (isOk(msg) && msg.result?.trim()) {
-            state.addChat('pm#1', msg.result.trim());
+            state.addChat('pm#1', msg.result.trim(), 'pm#1', undefined, chatId);
           } else if (!isOk(msg)) {
             const reason = resultReason(msg, state.lang());
-            state.addChat(OFFICE_SENDER, state.say('agent.pm.noAnswer', { reason: clip(reason, 300) }));
+            state.addChat(OFFICE_SENDER, state.say('agent.pm.noAnswer', { reason: clip(reason, 300) }), 'pm#1', undefined, chatId);
             state.setState('pm#1', 'failed', state.say('agent.state.error'));
           }
-          if (state.instances.get('pm#1')?.state !== 'failed') {
-            state.setState('pm#1', 'idle', null);
-          }
-          state.setBusy(state.running > 0);
+          settlePm(state);
+          pm.lastUsedAt = Date.now();
           // Набор ролей меняли, пока менеджер отвечал: ход закончен, обрывать
           // больше нечего — перезапускаем сессию с новым перечнем.
-          if (pmRestartPending.has(state.officeId)) restartPm(state);
+          if (pm.restartPending) restartPmSession(state, pm);
           // Порог контекста перейдён — ужимаем сразу, пока кеш этого хода
           // тёплый: тот же пересказ через час стоил бы в разы дороже.
-          else if (state.pmQueue === queue && pmNeedsRotation(state)) compactPm(state);
+          else if (pm.queue === queue && pmNeedsRotation(state, pm)) compactPm(state, pm);
+          else schedulePmSleep(state, pm);
         }
       }
     } catch (err) {
       const message = (err as Error).message;
       // Первым делом снимаем «печатает…»: дописывать реплику некому, а висеть
       // до перезапуска сервера она не должна.
-      endPmTurn(state, 'error');
+      endPmTurn(state, pm, 'error');
       state.addLog('pm#1', 'error', state.say('agent.log.pmCrashed', { error: message }));
       if (resumeId) {
         // Скорее всего прошлой сессии уже нет на диске — забываем её,
         // чтобы следующее сообщение начало разговор заново.
-        state.setSessionId('pm#1', '');
-        state.addChat(OFFICE_SENDER, state.say('agent.pm.lostSession'));
+        state.setPmSessionId(pm, null);
+        state.addChat(OFFICE_SENDER, state.say('agent.pm.lostSession'), 'pm#1', undefined, chatId);
       } else {
-        state.addChat(OFFICE_SENDER, state.say('agent.pm.crashed', { error: clip(message, 200) }));
+        state.addChat(OFFICE_SENDER, state.say('agent.pm.crashed', { error: clip(message, 200) }), 'pm#1', undefined, chatId);
       }
       state.setState('pm#1', 'failed', state.say('agent.state.sessionFailed'));
     } finally {
-      // Сессию могли уже заменить (например сбросом офиса) — тогда очередь
-      // принадлежит новой сессии, и обнулять ссылки нельзя: её сообщения
-      // ушли бы в никуда.
-      if (state.pmQueue === queue) {
-        state.pmLoop = null;
-        state.pmQueue = null;
+      // Сессию могли уже заменить (сбросом офиса, сном, перезапуском) —
+      // тогда очередь принадлежит новой, и обнулять ссылки нельзя: её
+      // сообщения ушли бы в никуда.
+      if (pm.queue === queue) {
+        pm.loop = null;
+        pm.queue = null;
+        if (pm.sleepTimer) clearTimeout(pm.sleepTimer);
+        pm.sleepTimer = null;
         // Поток кончился, а ход остался незакрытым — сессию оборвали (закрыли
         // очередь, убили процесс SDK). Ответа уже не будет: снимаем индикатор
         // здесь, чтобы ни один путь выхода из цикла не оставил его висеть.
-        endPmTurn(state, 'error');
+        endPmTurn(state, pm, 'error');
         // Сессия оборвалась посреди сжатия или передачи дел: накопленное
         // адресовалось ей, но ждать её больше нечего — отдаём следующей.
         // Потерянную сессию catch выше уже забыл, так что по кругу это не
         // пойдёт: без id сессии сжимать нечего, и сообщения уйдут сразу.
-        if (state.pmRotating) {
-          state.pmRotating = false;
-          state.pmCompactedTo = null;
-          state.pmRotatingFrom = 0;
-          for (const m of state.pmPending.splice(0)) pushToPm(state, m.text, m.fromUser);
+        if (pm.rotating) {
+          pm.rotating = false;
+          pm.compactedTo = null;
+          pm.rotatingFrom = 0;
+          for (const m of pm.pending.splice(0)) pushToPm(state, pm, m.text, m.fromUser);
         }
       }
     }
@@ -1732,90 +1755,162 @@ function startPm(state: OfficeState): void {
 }
 
 /**
- * Кусок ответа менеджера из потока SDK — в черновик реплики, который веб
- * показывает по мере набора.
+ * Id сессии и размер контекста — в сессию чата. Как в `consume`, только
+ * адресат другой: сотрудник 'pm#1' один на все чаты.
+ */
+function notePmSession(state: OfficeState, pm: PmSession, msg: SDKMessage): void {
+  if (msg.type === 'system' && msg.subtype === 'init') {
+    state.setPmSessionId(pm, msg.session_id);
+  } else if (msg.type === 'assistant' && msg.message.usage) {
+    const u = msg.message.usage;
+    state.notePmContext(pm,
+      (u.input_tokens ?? 0) + (u.cache_read_input_tokens ?? 0) + (u.cache_creation_input_tokens ?? 0));
+  } else if (msg.type === 'system' && msg.subtype === 'compact_boundary'
+    && msg.compact_metadata.post_tokens !== undefined) {
+    state.notePmContext(pm, msg.compact_metadata.post_tokens);
+  }
+}
+
+/**
+ * Менеджер закончил, что делал в одном чате. Свободным его показываем, только
+ * если не заняты и остальные: человечек один, а разговоров несколько.
+ */
+function settlePm(state: OfficeState): void {
+  const busy = [...state.pmSessions.values()].some((s) => s.busy);
+  if (!busy && state.instances.get('pm#1')?.state !== 'failed') state.setState('pm#1', 'idle', null);
+  state.setBusy(state.running > 0 || busy);
+}
+
+/**
+ * Усыпить сессию чата: закрыть очередь, id сессии оставить. Следующее
+ * сообщение в этот чат поднимет её по нему с того же места. Ссылки обнуляем
+ * сразу, а не в finally цикла: иначе сообщение легло бы в уже закрытую очередь.
+ */
+function sleepPm(state: OfficeState, pm: PmSession): void {
+  if (!pm.loop) return;
+  if (pm.sleepTimer) clearTimeout(pm.sleepTimer);
+  pm.sleepTimer = null;
+  pm.queue?.close();
+  pm.queue = null;
+  pm.loop = null;
+  state.addLog('pm#1', 'system', state.say('agent.log.pmSlept', {
+    chat: state.pmChats.get(pm.chatId)?.title ?? pm.chatId,
+  }));
+}
+
+/** Завести сторож простоя: чат молчит `PM_SLEEP_MS` — его сессия засыпает. */
+function schedulePmSleep(state: OfficeState, pm: PmSession): void {
+  if (pm.sleepTimer) clearTimeout(pm.sleepTimer);
+  pm.sleepTimer = null;
+  if (!pm.loop || pm.busy) return;
+  const timer = setTimeout(() => {
+    pm.sleepTimer = null;
+    if (!pm.busy && !pm.pending.length) sleepPm(state, pm);
+  }, PM_SLEEP_MS);
+  timer.unref?.();
+  pm.sleepTimer = timer;
+}
+
+/**
+ * Освободить место под ещё одну живую сессию: сверх `PM_LIVE_MAX` усыпляем
+ * те, что молчат дольше всех. Занятые не трогаем — лучше ненадолго выйти за
+ * предел, чем оборвать ответ на полуслове.
+ */
+export function makeRoomForPm(state: OfficeState, pm: PmSession): void {
+  const live = [...state.pmSessions.values()].filter((s) => s !== pm && s.loop);
+  const idle = live.filter((s) => !s.busy).sort((a, b) => a.lastUsedAt - b.lastUsedAt);
+  let extra = live.length - (PM_LIVE_MAX - 1);
+  for (const s of idle) {
+    if (extra <= 0) break;
+    sleepPm(state, s);
+    extra -= 1;
+  }
+}
+
+/**
+ * Кусок ответа менеджера из потока SDK — в черновик реплики его чата,
+ * который веб показывает по мере набора.
  *
  * Берём только текст верхнего уровня: `thinking_delta` — это размышление, его
  * место в ленте, а не в чате, а непустой `parent_tool_use_id` — речь подагента.
  * `message_start` начинает текст заново: подводку перед вызовом инструмента в
  * готовую реплику SDK не включит, и показывать её как ответ нельзя.
  *
- * Пока менеджер ужимает память или пишет передачу дел (`pmRotating`), ход
+ * Пока менеджер ужимает память или пишет передачу дел (`rotating`), ход
  * вообще не про разговор с пользователем — такие куски пропускаем.
  */
-function streamPmChunk(state: OfficeState, msg: SDKPartialAssistantMessage): void {
-  if (msg.parent_tool_use_id || state.pmRotating || state.pmTurns === 0) return;
+function streamPmChunk(state: OfficeState, pm: PmSession, msg: SDKPartialAssistantMessage): void {
+  if (msg.parent_tool_use_id || pm.rotating || pm.turns === 0) return;
   const event = msg.event;
   if (event.type === 'message_start') {
-    state.clearDraftText('pm#1');
+    state.clearDraftText('pm#1', pm.chatId);
     return;
   }
   if (event.type === 'content_block_delta' && event.delta.type === 'text_delta') {
-    state.appendDraft('pm#1', 'pm#1', event.delta.text);
+    state.appendDraft('pm#1', 'pm#1', event.delta.text, pm.chatId);
   }
 }
 
 /**
- * Ход менеджера начался: вебу пора показать «печатает…». Считаем ходы, потому
- * что их может идти несколько подряд — реплика пользователя и следом
- * уведомление о закрытой задаче.
+ * Ход менеджера начался: вебу пора показать «печатает…» в его чате. Считаем
+ * ходы, потому что их может идти несколько подряд — реплика пользователя и
+ * следом уведомление о закрытой задаче.
  */
-function startPmTurn(state: OfficeState): void {
-  state.pmTurns += 1;
-  state.startDraft('pm#1');
+function startPmTurn(state: OfficeState, pm: PmSession): void {
+  pm.turns += 1;
+  state.startDraft('pm#1', 'pm#1', pm.chatId);
 }
 
 /**
  * Ход менеджера закончился. Черновик закрывает только последний ход; 'error' —
  * сессия оборвалась, и тогда закрываем сразу: ждать её больше нечего.
  */
-function endPmTurn(state: OfficeState, reason: 'done' | 'error' = 'done'): void {
+function endPmTurn(state: OfficeState, pm: PmSession, reason: 'done' | 'error' = 'done'): void {
   if (reason === 'error') {
-    state.pmTurns = 0;
-    state.endDraft('pm#1', 'error');
+    pm.turns = 0;
+    state.endDraft('pm#1', 'error', pm.chatId);
     return;
   }
-  state.pmTurns = Math.max(0, state.pmTurns - 1);
-  if (state.pmTurns === 0) state.endDraft('pm#1', 'done');
+  pm.turns = Math.max(0, pm.turns - 1);
+  if (pm.turns === 0) state.endDraft('pm#1', 'done', pm.chatId);
 }
 
 /**
- * Офисы, у которых набор ролей изменился, пока менеджер был занят ходом.
- * Ключ — id офиса: перезапуск ждёт конца хода, а офисов в памяти несколько.
- */
-const pmRestartPending = new Set<string>();
-
-/**
- * Перезапустить сессию менеджера этого офиса. Нужно после каждой правки
+ * Перезапустить сессии менеджера этого офиса. Нужно после каждой правки
  * перечня ролей: и описание create_task, и бриф собираются один раз при
  * старте сессии, поэтому менеджер с прежней сессией продолжал бы назначать
  * задачи на заархивированную роль и не видел бы только что заведённую.
  *
  * Переписка при этом не теряется. Во-первых, сессия не обрывается посреди
- * хода: пока менеджер думает или ждёт инструмент, перезапуск откладывается до
- * конца хода. Во-вторых, следующий запуск продолжает ту же сессию SDK по
- * сохранённому sessionId — разговор для менеджера идёт с того же места, меняются
- * только инструменты и системный промпт.
+ * хода: пока менеджер в этом чате думает или ждёт инструмент, перезапуск
+ * откладывается до конца хода. Во-вторых, следующий запуск продолжает ту же
+ * сессию SDK по сохранённому id — разговор идёт с того же места, меняются
+ * только инструменты и системный промпт. Спящие сессии трогать не нужно:
+ * они и так поднимутся уже с новым набором ролей.
  */
 function restartPm(state: OfficeState): void {
-  if (!state.pmLoop) {
-    // Живой сессии нет — следующая поднимется уже с новым набором ролей.
-    pmRestartPending.delete(state.officeId);
-    return;
+  for (const pm of state.pmSessions.values()) {
+    if (!pm.loop) {
+      pm.restartPending = false;
+      continue;
+    }
+    if (pm.busy) {
+      pm.restartPending = true;
+      continue;
+    }
+    restartPmSession(state, pm);
   }
-  const pm = state.instances.get('pm#1');
-  if (pm && pm.state !== 'idle' && pm.state !== 'failed') {
-    pmRestartPending.add(state.officeId);
-    return;
-  }
-  pmRestartPending.delete(state.officeId);
-  // Ссылки обнуляем сразу, а не в finally цикла: иначе следующее сообщение
-  // легло бы в уже закрытую очередь и пропало. Так же гасит сессию сброс офиса.
-  state.pmQueue?.close();
-  state.pmQueue = null;
-  state.pmLoop = null;
-  state.addLog('pm#1', 'system',
-    state.say('agent.pm.restarted'));
+}
+
+/** Перезапуск одной свободной сессии чата — см. restartPm. */
+function restartPmSession(state: OfficeState, pm: PmSession): void {
+  pm.restartPending = false;
+  if (pm.sleepTimer) clearTimeout(pm.sleepTimer);
+  pm.sleepTimer = null;
+  pm.queue?.close();
+  pm.queue = null;
+  pm.loop = null;
+  state.addLog('pm#1', 'system', state.say('agent.pm.restarted'));
 }
 
 // Набор ролей правят из окна управления агентами, а перечень исполнителей
@@ -1824,23 +1919,26 @@ onRoleSetChanged(restartPm);
 
 /**
  * Сообщение пользователя PM'у того офиса, в котором он его написал. `chatId` —
- * чат, в котором оно написано; сессия менеджера пока одна на все чаты.
+ * чат, в котором оно написано: реплика уходит в сессию этого чата, ответ
+ * ляжет туда же. Чат неизвестен — основной, как до нескольких чатов.
  */
 export function sendUserMessage(state: OfficeState, text: string, chatId?: string): void {
   state.addChat('user', text, 'pm#1', undefined, chatId);
   // «Q-3: да, оставляем» — ответ на вопрос офиса, а не реплика менеджеру:
   // ответ ложится в журнал, а менеджер узнаёт о нём системным сообщением.
   if (answerFromChat(state, text)) return;
-  pushToPm(state, text, true);
+  pushToPm(state, state.pmSession(chatId), text, true);
 }
 
 /**
- * Системное уведомление PM'у (например, о завершении задачи).
+ * Системное уведомление PM'у (например, о завершении задачи). Уходит в
+ * сессию чата, к которому привязана задача или фича (`about`); без
+ * привязки — в основной чат (спека T-125 §4).
  * Офис передаётся явно: уведомление приходит из работы, которая могла начаться
  * задолго до того, как пользователь ушёл в другой офис.
  */
-function notifyPm(state: OfficeState, text: string): void {
-  pushToPm(state, text, false);
+function notifyPm(state: OfficeState, text: string, about?: PmAbout): void {
+  pushToPm(state, state.pmSession(state.pmChatFor(about)), text, false);
 }
 
 /** Сколько символов одной реплики совещания доезжает до менеджера. */
@@ -1862,29 +1960,32 @@ function pmReport(state: OfficeState, report: string): string {
 // ---------------------------------------------------------------- сжатие памяти менеджера
 
 /**
- * Пора ли ужимать память менеджера: контекст последнего хода дорос до
+ * Пора ли ужимать память сессии чата: контекст последнего хода дорос до
  * порога (`Settings.pmContextLimit`). Без id сессии ужимать нечего:
- * следующее сообщение и так начнёт разговор заново.
+ * следующее сообщение и так начнёт разговор заново. Порог у каждого чата
+ * свой счёт — разросшийся разговор не ужимает соседний.
  */
-export function pmNeedsRotation(state: OfficeState): boolean {
-  const pm = state.instances.get('pm#1');
-  if (!pm || !pm.sessionId || pm.state === 'failed') return false;
+export function pmNeedsRotation(state: OfficeState, pm: PmSession = state.pmSession()): boolean {
+  if (!pm.sessionId || state.instances.get('pm#1')?.state === 'failed') return false;
   return pm.contextTokens >= state.pmContextLimit();
 }
 
 /**
- * Единственный вход в очередь менеджера. Пока сессия ужимает память,
- * сообщение ждёт; если сессии нет, а её сохранённый контекст уже за
+ * Единственный вход в очередь сессии чата. Пока сессия ужимает память,
+ * сообщение ждёт; если сессия спит, а её сохранённый контекст уже за
  * порогом, сначала ужимаем — иначе первый же ход снова перечитал бы всё
  * накопленное, и ответил бы пользователю разросшийся разговор.
  */
-function pushToPm(state: OfficeState, text: string, fromUser: boolean): void {
-  if (!state.pmRotating && !state.pmLoop && pmNeedsRotation(state)) compactPm(state);
-  if (state.pmRotating) {
-    state.pmPending.push({ text, fromUser });
+function pushToPm(state: OfficeState, pm: PmSession, text: string, fromUser: boolean): void {
+  if (!pm.rotating && !pm.loop && pmNeedsRotation(state, pm)) compactPm(state, pm);
+  if (pm.rotating) {
+    pm.pending.push({ text, fromUser });
     return;
   }
-  startPm(state);
+  startPm(state, pm);
+  pm.lastUsedAt = Date.now();
+  if (pm.sleepTimer) clearTimeout(pm.sleepTimer);
+  pm.sleepTimer = null;
   if (fromUser) {
     state.setState('pm#1', 'thinking', state.say('agent.state.readingTask'));
     state.setBusy(true);
@@ -1892,9 +1993,9 @@ function pushToPm(state: OfficeState, text: string, fromUser: boolean): void {
   // «Печатает…» нужно вебу сейчас, а не через полминуты, когда реплика готова.
   // Только если сессия правда поднялась: индикатор без хода за ним никто бы
   // не снял.
-  const queue = state.pmQueue;
+  const queue = pm.queue;
   if (!queue) return;
-  startPmTurn(state);
+  startPmTurn(state, pm);
   queue.push(text);
 }
 
@@ -1903,22 +2004,24 @@ function pushToPm(state: OfficeState, text: string, fromUser: boolean): void {
  * наказом, что сохранить. SDK перепишет разговор пересказом, оставив
  * последние реплики, и пришлёт границу сжатия; результат команды перехватит
  * цикл сессии и закроет сжатие через completePmCompaction. Пока оно идёт,
- * новые сообщения копятся в pmPending. Проверено на SDK 0.3.234: команда
+ * новые сообщения копятся в `pending`. Проверено на SDK 0.3.234: команда
  * принимается из потока, приходит `compact_boundary` и свой `result`.
  */
-export function compactPm(state: OfficeState): void {
-  if (state.pmRotating) return;
-  startPm(state);
-  if (!state.pmQueue) return;
-  state.pmRotating = true;
-  state.pmRotationKind = 'compact';
-  state.pmCompactedTo = null;
-  state.pmRotatingFrom = state.instances.get('pm#1')?.contextTokens ?? 0;
-  const tokens = Math.round(state.pmRotatingFrom / 1000);
+export function compactPm(state: OfficeState, pm: PmSession = state.pmSession()): void {
+  if (pm.rotating) return;
+  startPm(state, pm);
+  if (!pm.queue) return;
+  if (pm.sleepTimer) clearTimeout(pm.sleepTimer);
+  pm.sleepTimer = null;
+  pm.rotating = true;
+  pm.rotationKind = 'compact';
+  pm.compactedTo = null;
+  pm.rotatingFrom = pm.contextTokens;
+  const tokens = Math.round(pm.rotatingFrom / 1000);
   state.setState('pm#1', 'thinking', state.say('agent.state.compacting'));
   state.setBusy(true);
   state.addLog('pm#1', 'system', state.say('agent.log.compacting', { tokens, limit: Math.round(state.pmContextLimit() / 1000) }));
-  state.pmQueue.push(`/compact ${state.say('agent.pm.compactAsk')}`);
+  pm.queue.push(`/compact ${state.say('agent.pm.compactAsk')}`);
 }
 
 /**
@@ -1927,44 +2030,47 @@ export function compactPm(state: OfficeState): void {
  * вызывающему. Не пришла — сжатие не удалось, и остаётся запасной путь:
  * передача дел и закрытие сессии; накопленное ждёт и его.
  */
-export function completePmCompaction(state: OfficeState, error: string | null): { text: string; fromUser: boolean }[] {
-  const tokens = Math.round(state.pmRotatingFrom / 1000);
+export function completePmCompaction(
+  state: OfficeState, pm: PmSession, error: string | null,
+): { text: string; fromUser: boolean }[] {
+  const tokens = Math.round(pm.rotatingFrom / 1000);
   const limit = Math.round(state.pmContextLimit() / 1000);
-  state.pmRotating = false;
-  if (state.pmCompactedTo === null) {
+  pm.rotating = false;
+  if (pm.compactedTo === null) {
     const reason = error ?? state.say('agent.log.compactNoBoundary');
     state.addLog('pm#1', 'error', state.say('agent.log.compactFailed', { reason: clip(reason, 200) }));
-    rotatePm(state);
+    rotatePm(state, pm);
     return [];
   }
-  const to = Math.round(state.pmCompactedTo / 1000);
-  state.pmRotatingFrom = 0;
-  state.pmCompactedTo = null;
-  state.setState('pm#1', 'idle', null);
-  state.setBusy(state.running > 0);
-  state.addChat(OFFICE_SENDER, state.say('agent.pm.compacted', { tokens, to, limit }));
-  return state.pmPending.splice(0);
+  const to = Math.round(pm.compactedTo / 1000);
+  pm.rotatingFrom = 0;
+  pm.compactedTo = null;
+  settlePm(state);
+  state.addChat(OFFICE_SENDER, state.say('agent.pm.compacted', { tokens, to, limit }), 'pm#1', undefined, pm.chatId);
+  const pending = pm.pending.splice(0);
+  if (!pending.length) schedulePmSleep(state, pm);
+  return pending;
 }
 
 /**
  * Запасной путь, когда сжатие не удалось: попросить живую сессию написать
  * передачу дел. Ответ перехватит цикл сессии и закроет её через
  * completePmRotation. Пока менеджер пишет, новые сообщения копятся в
- * pmPending.
+ * `pending`.
  */
-export function rotatePm(state: OfficeState): void {
-  if (state.pmRotating) return;
-  startPm(state);
-  if (!state.pmQueue) return;
-  state.pmRotating = true;
-  state.pmRotationKind = 'handoff';
-  state.pmCompactedTo = null;
-  state.pmRotatingFrom = state.instances.get('pm#1')?.contextTokens ?? 0;
-  const tokens = Math.round(state.pmRotatingFrom / 1000);
+export function rotatePm(state: OfficeState, pm: PmSession = state.pmSession()): void {
+  if (pm.rotating) return;
+  startPm(state, pm);
+  if (!pm.queue) return;
+  pm.rotating = true;
+  pm.rotationKind = 'handoff';
+  pm.compactedTo = null;
+  pm.rotatingFrom = pm.contextTokens;
+  const tokens = Math.round(pm.rotatingFrom / 1000);
   state.setState('pm#1', 'thinking', state.say('agent.state.handoff'));
   state.setBusy(true);
   state.addLog('pm#1', 'system', state.say('agent.log.rotating', { tokens, limit: Math.round(state.pmContextLimit() / 1000) }));
-  state.pmQueue.push(state.say('agent.pm.handoffAsk', { tokens }));
+  pm.queue.push(state.say('agent.pm.handoffAsk', { tokens }));
 }
 
 /**
@@ -1973,23 +2079,24 @@ export function rotatePm(state: OfficeState): void {
  * сессию должен он сам: так проверки состояния могут пройти ротацию, не
  * поднимая настоящей сессии SDK.
  */
-export function completePmRotation(state: OfficeState, handoff: string | null): { text: string; fromUser: boolean }[] {
-  const tokens = Math.round(state.pmRotatingFrom / 1000);
+export function completePmRotation(
+  state: OfficeState, pm: PmSession, handoff: string | null,
+): { text: string; fromUser: boolean }[] {
+  const tokens = Math.round(pm.rotatingFrom / 1000);
   const limit = Math.round(state.pmContextLimit() / 1000);
-  state.pmRotating = false;
-  state.pmRotatingFrom = 0;
-  state.setPmHandoff(handoff);
-  state.setSessionId('pm#1', '');
-  state.noteContext('pm#1', 0);
-  state.pmQueue?.close();
-  state.pmQueue = null;
-  state.pmLoop = null;
-  state.setState('pm#1', 'idle', null);
-  state.setBusy(state.running > 0);
+  pm.rotating = false;
+  pm.rotatingFrom = 0;
+  state.setPmHandoff(pm, handoff);
+  state.setPmSessionId(pm, null);
+  state.notePmContext(pm, 0);
+  pm.queue?.close();
+  pm.queue = null;
+  pm.loop = null;
+  settlePm(state);
   const notice = state.say(handoff ? 'agent.pm.rotated' : 'agent.pm.rotatedNoHandoff', { tokens, limit });
   state.addLog('pm#1', 'system', notice);
-  state.addChat(OFFICE_SENDER, notice);
-  return state.pmPending.splice(0);
+  state.addChat(OFFICE_SENDER, notice, 'pm#1', undefined, pm.chatId);
+  return pm.pending.splice(0);
 }
 
 // ---------------------------------------------------------------- совещание
@@ -2595,7 +2702,7 @@ function startWorker(
         taskOffice.updateTask(task.id, { result: taskOffice.say('agent.task.cancelled') });
         const cancelled = taskOffice.tasks.get(task.id);
         if (cancelled) cancelTask(taskOffice, cancelled);
-        notifyPm(taskOffice, taskOffice.say('agent.pmMsg.cancelled', { task: task.id }));
+        notifyPm(taskOffice, taskOffice.say('agent.pmMsg.cancelled', { task: task.id }), { taskId: task.id });
         return;
       }
       if (stopped) {
@@ -2605,7 +2712,7 @@ function startWorker(
           result: taskOffice.say('agent.task.stopped'),
           finishedAt: Date.now(),
         });
-        notifyPm(taskOffice, taskOffice.say('agent.pmMsg.stopped', { task: task.id }));
+        notifyPm(taskOffice, taskOffice.say('agent.pmMsg.stopped', { task: task.id }), { taskId: task.id });
         return;
       }
       taskOffice.updateTask(task.id, {
@@ -2617,7 +2724,7 @@ function startWorker(
       closeIfDone(taskOffice, task.id);
       notifyPm(taskOffice, taskOffice.say('agent.pmMsg.stubDone', {
         task: task.id, title: task.title, who: inst.id,
-      }));
+      }), { taskId: task.id });
     };
 
     const timer = setTimeout(() => finish(false), delay);
@@ -2810,7 +2917,7 @@ function startWorker(
           ? taskOffice.say('agent.pmMsg.criteria', { done: progress.done, total: progress.total })
           : '',
         taskOffice.say(toPipeline ? 'agent.pmMsg.pipelineNext' : 'agent.pmMsg.judge'),
-      ].filter(Boolean).join('\n'));
+      ].filter(Boolean).join('\n'), { taskId: task.id });
       // Исполнитель освобождается в finally — конвейер запускаем после него,
       // иначе доработку по ревью будет некому взять: автор всё ещё «занят».
       if (toPipeline) setTimeout(() => runPipeline(taskOffice, task.id), 0);
@@ -2837,7 +2944,7 @@ function startWorker(
         if (cancelled) cancelTask(taskOffice, cancelled);
         taskOffice.addLog(inst.id, 'system', taskOffice.say('agent.log.taskCancelled', { task: task.id }));
         taskOffice.setState(inst.id, 'idle', null);
-        notifyPm(taskOffice, taskOffice.say('agent.pmMsg.cancelled', { task: task.id }));
+        notifyPm(taskOffice, taskOffice.say('agent.pmMsg.cancelled', { task: task.id }), { taskId: task.id });
       } else if (taskOffice.stoppedByUser.delete(task.id)) {
         // Наработки не выбрасываем: то, что успели сделать, коммитим в ветку задачи.
         const fresh = taskOffice.tasks.get(task.id);
@@ -2853,7 +2960,7 @@ function startWorker(
         taskOffice.updateTask(task.id, { status: 'blocked', result: note, finishedAt: Date.now() });
         taskOffice.addLog(inst.id, 'system', taskOffice.say('agent.log.taskStopped', { task: task.id }));
         taskOffice.setState(inst.id, 'idle', null);
-        notifyPm(taskOffice, taskOffice.say('agent.pmMsg.stopped', { task: task.id }));
+        notifyPm(taskOffice, taskOffice.say('agent.pmMsg.stopped', { task: task.id }), { taskId: task.id });
       } else if (hitLimit(taskOffice, inst.id, message)) {
         // Лимит плана — не провал исполнителя и не решение человека: окно
         // закрылось, и откроется само. Сделанное коммитим, рабочую копию и
@@ -2890,7 +2997,7 @@ function startWorker(
         recordOutcome(taskOffice, task.id, 'failed');
         taskOffice.setState(inst.id, 'failed', taskOffice.say('agent.state.error'));
         notifyPm(taskOffice,
-          taskOffice.say('agent.pmMsg.failed', { task: task.id, who: inst.id, error: message }));
+          taskOffice.say('agent.pmMsg.failed', { task: task.id, who: inst.id, error: message }), { taskId: task.id });
       }
     } finally {
       inst.currentTaskId = null;
@@ -2933,7 +3040,7 @@ function startCloudWorker(
         const cancelled = taskOffice.tasks.get(task.id);
         if (cancelled) cancelTask(taskOffice, cancelled);
         taskOffice.setState(inst.id, 'idle', null);
-        notifyPm(taskOffice, taskOffice.say('agent.pmMsg.cancelled', { task: task.id }));
+        notifyPm(taskOffice, taskOffice.say('agent.pmMsg.cancelled', { task: task.id }), { taskId: task.id });
         return;
       }
 
@@ -2949,7 +3056,7 @@ function startCloudWorker(
           branch: outcome.branch, baseBranch: outcome.baseBranch,
         });
         taskOffice.setState(inst.id, 'idle', null);
-        notifyPm(taskOffice, taskOffice.say('agent.pmMsg.stopped', { task: task.id }));
+        notifyPm(taskOffice, taskOffice.say('agent.pmMsg.stopped', { task: task.id }), { taskId: task.id });
         return;
       }
 
@@ -2973,7 +3080,7 @@ function startCloudWorker(
           : '',
         outcome.branch ? taskOffice.say('agent.pmMsg.cloudBranch', { branch: outcome.branch }) : '',
         taskOffice.say('agent.pmMsg.judge'),
-      ].filter(Boolean).join('\n'));
+      ].filter(Boolean).join('\n'), { taskId: task.id });
     } catch (err) {
       const message = clip((err as Error).message, 300);
       taskOffice.addLog(inst.id, 'error',
@@ -2986,7 +3093,7 @@ function startCloudWorker(
       recordOutcome(taskOffice, task.id, 'failed');
       taskOffice.setState(inst.id, 'failed', taskOffice.say('agent.state.error'));
       notifyPm(taskOffice,
-        taskOffice.say('agent.pmMsg.cloudFailed', { task: task.id, who: inst.id, error: message }));
+        taskOffice.say('agent.pmMsg.cloudFailed', { task: task.id, who: inst.id, error: message }), { taskId: task.id });
     } finally {
       inst.currentTaskId = null;
       inst.abort = null;
@@ -3178,7 +3285,7 @@ export function assignDirect(state: OfficeState, taskId: string, instanceId: str
   if (!fresh) return;
   startWorker(state, fresh, inst);
   notifyPm(state,
-    state.say('agent.pmMsg.directAssign', { task: taskId, title: task.title, who: inst.id }));
+    state.say('agent.pmMsg.directAssign', { task: taskId, title: task.title, who: inst.id }), { taskId });
 }
 
 /**

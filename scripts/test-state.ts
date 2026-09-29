@@ -28,11 +28,12 @@ import {
 } from '../src/shared/types';
 import { cloudProblem, setGithubToken } from '../src/server/cloud';
 import {
-  compactPm, completePmCompaction, completePmRotation, driveWorker, noStaffReason, officeAssign, pmNeedsRotation,
+  compactPm, completePmCompaction, completePmRotation, driveWorker, makeRoomForPm, noStaffReason, officeAssign, pmNeedsRotation,
   releaseSlot, resetSessions, rotatePm, sendUserMessage, slotProblem, teamSummary, type WorkerOpen,
 } from '../src/server/agents';
 import { MessageQueue } from '../src/server/queue';
 import { currentModel, defaultRole, defaultRoles } from '../src/server/roles';
+import { createPlan } from '../src/server/plan';
 import { tellPm } from '../src/server/review';
 
 /**
@@ -1037,31 +1038,32 @@ async function main(): Promise<void> {
   // менеджер назначает на роль, которой уже нет. Настоящей сессии здесь нет:
   // очередь с циклом подставлены, проверяется решение о перезапуске.
   rc.spawn('pm');
+  const rcPm = rc.pmSession();
   const idleQueue = new MessageQueue();
-  rc.pmQueue = idleQueue;
-  rc.pmLoop = Promise.resolve();
-  rc.setState('pm#1', 'idle', null);
+  rcPm.queue = idleQueue;
+  rcPm.loop = Promise.resolve();
   await rc.createRole({ title: 'Тестировщик' });
-  const restartedIdle = rc.pmQueue === null && rc.pmLoop === null;
+  const restartedIdle = rcPm.queue === null && rcPm.loop === null;
 
+  // Занята сессия, а не человечек: идёт ход — перезапуск откладывается.
   const busyQueue = new MessageQueue();
-  rc.pmQueue = busyQueue;
-  rc.pmLoop = Promise.resolve();
-  rc.setState('pm#1', 'thinking', 'думает');
+  rcPm.queue = busyQueue;
+  rcPm.loop = Promise.resolve();
+  rcPm.turns = 1;
   const busyRole = await rc.createRole({ title: 'Аудитор' });
   const busyId = 'role' in busyRole ? busyRole.role.id : '';
-  const keptWhileBusy = rc.pmQueue === busyQueue && rc.pmLoop !== null;
-  rc.setState('pm#1', 'idle', null);
+  const keptWhileBusy = rcPm.queue === busyQueue && rcPm.loop !== null && rcPm.restartPending;
+  rcPm.turns = 0;
 
   // Правка, не меняющая перечень (цвет), сессию трогать не должна: перезапуск
   // не бесплатный, и дёргать его на каждую мелочь незачем.
   await rc.editRole(busyId, { color: '#111111' });
-  const keptOnCosmetics = rc.pmQueue === busyQueue;
+  const keptOnCosmetics = rcPm.queue === busyQueue;
   // А переименование — меняет: название роли стоит в описании assign.
   await rc.editRole(busyId, { title: 'Внутренний аудитор' });
-  const restartedOnRename = rc.pmQueue === null;
-  rc.pmQueue = null;
-  rc.pmLoop = null;
+  const restartedOnRename = rcPm.queue === null;
+  rcPm.queue = null;
+  rcPm.loop = null;
   results.push(
     `свободный менеджер перезапущен сразу: ${restartedIdle}`,
     `занятого менеджера не оборвали на полуслове: ${keptWhileBusy}`,
@@ -1784,10 +1786,10 @@ async function main(): Promise<void> {
   pb.seed();
   const qa = new MessageQueue();
   const qb = new MessageQueue();
-  pa.pmQueue = qa;
-  pa.pmLoop = Promise.resolve();
-  pb.pmQueue = qb;
-  pb.pmLoop = Promise.resolve();
+  pa.pmSession().queue = qa;
+  pa.pmSession().loop = Promise.resolve();
+  pb.pmSession().queue = qb;
+  pb.pmSession().loop = Promise.resolve();
   const ia = qa[Symbol.asyncIterator]();
   const ib = qb[Symbol.asyncIterator]();
   /** Прочитать сообщение очереди, не подвесив прогон, если его нет. */
@@ -1821,9 +1823,9 @@ async function main(): Promise<void> {
   // (г) Сброс сессий гасит очередь своего офиса и не трогает соседнюю:
   // иначе сброс доски в одном офисе рвал бы разговор в другом.
   resetSessions(pa);
-  const closedOwn = pa.pmQueue === null && pa.pmLoop === null
+  const closedOwn = pa.pmSession().queue === null && pa.pmSession().loop === null
     && (await ia.next()).done === true && pa.stoppedByUser.size === 0;
-  const neighbourAlive = pb.pmQueue === qb && pb.pmLoop !== null;
+  const neighbourAlive = pb.pmSession().queue === qb && pb.pmSession().loop !== null;
   sendUserMessage(pb, 'офис B всё ещё говорит');
   const neighbourStillTakes = await took(ib) === 'офис B всё ещё говорит';
 
@@ -1842,6 +1844,102 @@ async function main(): Promise<void> {
   wipe(pmFileA);
   wipe(pmFileB);
 
+  // 14а. Своя сессия менеджера на каждый чат. Сообщение владельца уходит в
+  // сессию того чата, где написано; задачи и фичи, заведённые в разговоре,
+  // помнят чат; системное сообщение о задаче идёт в сессию её чата, без
+  // привязки — в основной. Молчащие сессии засыпают, id сессии остаётся.
+  const chatFile = resolve(tmpdir(), `office-test-pm-chats-${process.pid}.json`);
+  const pc = openOfficeState({ id: 'o-pm-chats', projectDir: resolve(tmpdir(), 'pm-chats'), stateFile: chatFile }).state;
+  pc.seed();
+  const pmMainChat = pc.ensureMainChat();
+  const sideChat = pc.createPmChat('Заметки');
+  const mainPm = pc.pmSession();
+  const sidePm = pc.pmSession(sideChat.id);
+  const mq = new MessageQueue();
+  const sq = new MessageQueue();
+  mainPm.queue = mq;
+  mainPm.loop = Promise.resolve();
+  sidePm.queue = sq;
+  sidePm.loop = Promise.resolve();
+  const im = mq[Symbol.asyncIterator]();
+  const is = sq[Symbol.asyncIterator]();
+  const sessionPerChat = mainPm.chatId === pmMainChat.id && sidePm.chatId === sideChat.id
+    && pc.pmSession(sideChat.id) === sidePm && pc.pmSession('нет-такого') === mainPm;
+
+  // Отрицательных проверок «в другой очереди пусто» тут нет: недождавшийся
+  // took оставляет висящий next(), и тот съел бы следующее сообщение. Утечку
+  // выдаст следующая же проверка: в очереди окажется не тот текст.
+  sendUserMessage(pc, 'про заметки', sideChat.id);
+  const toSide = await took(is) === 'про заметки';
+  const lineInSide = pc.chat.some((c) => c.text === 'про заметки' && c.chatId === sideChat.id);
+  sendUserMessage(pc, 'без чата');
+  const toMainByDefault = await took(im) === 'без чата';
+
+  const sideTask = pc.createTask({ title: 'Постранично', description: '', criteria: ['a'], roleId: 'backend', chatId: sideChat.id });
+  const plainTask = pc.createTask({ title: 'Без чата', description: '', criteria: ['a'], roleId: 'backend' });
+  const planned = createPlan(pc, [{
+    title: 'Заметки по страницам', goal: 'листать',
+    tasks: [{ key: 'a', title: 'сервер', description: '', acceptanceCriteria: ['a'], roleId: 'backend' }],
+  }], undefined, sideChat.id);
+  const sideEpic = pc.epicList().find((e) => e.title === 'Заметки по страницам');
+  const planTask = sideEpic ? pc.tasksOfEpic(sideEpic.id)[0] : undefined;
+  const chatStamped = sideTask.chatId === sideChat.id && plainTask.chatId === null && planned.ok
+    && sideEpic?.chatId === sideChat.id && planTask?.chatId === sideChat.id;
+
+  tellPm(pc, '[СИСТЕМА] задача из заметок', { taskId: sideTask.id });
+  const systemToTaskChat = await took(is) === '[СИСТЕМА] задача из заметок';
+  tellPm(pc, '[СИСТЕМА] задача без чата', { taskId: plainTask.id });
+  const systemToMain = await took(im) === '[СИСТЕМА] задача без чата';
+  tellPm(pc, '[СИСТЕМА] про фичу', { epicId: sideEpic?.id });
+  const epicToItsChat = await took(is) === '[СИСТЕМА] про фичу';
+
+  // Живых сессий не больше трёх: четвёртая усыпляет самую давно молчавшую
+  // свободную, занятую не трогает. Усыплённая помнит id и поднимется по нему.
+  pc.setPmSessionId(mainPm, 'sess-main');
+  pc.setPmSessionId(sidePm, 'sess-side');
+  const third = pc.pmSession(pc.createPmChat('Третий').id);
+  third.queue = new MessageQueue();
+  third.loop = Promise.resolve();
+  // Ходы по сообщениям выше так и не закончились — ответов тут нет. Занятость
+  // задаём явно: основная думает, остальные молчат.
+  sidePm.turns = 0;
+  third.turns = 0;
+  mainPm.lastUsedAt = 1;
+  sidePm.lastUsedAt = 2;
+  third.lastUsedAt = 3;
+  mainPm.turns = 1;
+  const fourth = pc.pmSession(pc.createPmChat('Четвёртый').id);
+  makeRoomForPm(pc, fourth);
+  const busyKept = mainPm.loop !== null && mainPm.queue === mq;
+  const oldestIdleSlept = sidePm.loop === null && sidePm.queue === null && sidePm.sessionId === 'sess-side'
+    && (await is.next()).done === true && third.loop !== null;
+  mainPm.turns = 0;
+  const persisted = pc.toPersisted().pmSessions ?? [];
+  const sleptPersisted = persisted.some((x) => x.chatId === sideChat.id && x.sessionId === 'sess-side')
+    && persisted.some((x) => x.chatId === pmMainChat.id && x.sessionId === 'sess-main');
+  flushAll();
+  unloadOfficeState('o-pm-chats');
+  const pcAgain = openOfficeState({ id: 'o-pm-chats', projectDir: resolve(tmpdir(), 'pm-chats'), stateFile: chatFile }).state;
+  const resumeIdKept = pcAgain.pmSession(sideChat.id).sessionId === 'sess-side'
+    && pcAgain.pmSession().sessionId === 'sess-main' && pcAgain.pmSession(sideChat.id).loop === null;
+  resetSessions(pc);
+  results.push(
+    `у каждого чата своя сессия, неизвестный — в основную: ${sessionPerChat}`,
+    `сообщение уходит в сессию своего чата: ${toSide}`,
+    `и ложится в ленту того же чата: ${lineInSide}`,
+    `без чата — в основной: ${toMainByDefault}`,
+    `задачи и фичи менеджера помнят чат разговора: ${chatStamped}`,
+    `системное о задаче — в чат задачи: ${systemToTaskChat}`,
+    `системное о задаче без чата — в основной: ${systemToMain}`,
+    `системное о фиче — в чат фичи: ${epicToItsChat}`,
+    `занятую сессию сверх предела не усыпляют: ${busyKept}`,
+    `сверх предела засыпает самая давно молчавшая: ${oldestIdleSlept}`,
+    `id уснувшей сессии сохраняется на диск: ${sleptPersisted}`,
+    `после перезапуска сессия поднимется по сохранённому id: ${resumeIdKept}`,
+  );
+  unloadOfficeState('o-pm-chats');
+  wipe(chatFile);
+
   // 15. Сжатие памяти менеджера по порогу контекста. Настоящей сессии нет:
   // очередь с циклом подставлены, проверяется решение о сжатии, команда
   // /compact, буфер сообщений на это время, что остаётся после, а также
@@ -1850,13 +1948,14 @@ async function main(): Promise<void> {
   const pr = openOfficeState({ id: 'o-pm-rot', projectDir: resolve(tmpdir(), 'pm-rot'), stateFile: rotFile }).state;
   pr.seed();
   const rq = new MessageQueue();
-  pr.pmQueue = rq;
-  pr.pmLoop = Promise.resolve();
+  const rs = pr.pmSession();
+  rs.queue = rq;
+  rs.loop = Promise.resolve();
   const ir = rq[Symbol.asyncIterator]();
-  pr.setSessionId('pm#1', 'sess-old');
-  pr.noteContext('pm#1', 50_000);
+  pr.setPmSessionId(rs, 'sess-old');
+  pr.notePmContext(rs, 50_000);
   const underLimit = !pmNeedsRotation(pr);
-  pr.noteContext('pm#1', 120_000);
+  pr.notePmContext(rs, 120_000);
   const overLimit = pmNeedsRotation(pr);
   // Порог из правленого файла или с клиента: мусор не принимается, а
   // поднятый порог откладывает ротацию.
@@ -1940,48 +2039,49 @@ async function main(): Promise<void> {
 
   compactPm(pr);
   const askedCompact = await took(ir);
-  const askedCompaction = pr.pmRotating && pr.pmRotationKind === 'compact' && askedCompact !== null
+  const askedCompaction = rs.rotating && rs.rotationKind === 'compact' && askedCompact !== null
     && askedCompact.startsWith('/compact ') && askedCompact.includes('журнале офиса');
   // Пока сессия ужимает память, сообщения копятся, а не уходят в очередь.
   sendUserMessage(pr, 'а это подождёт');
   tellPm(pr, '[СИСТЕМА] отчёт во время сжатия');
   // В очередь не заглядываем: незакрытый took съел бы следующее сообщение.
-  const bufferedCompact = pr.pmPending.length === 2;
+  const bufferedCompact = rs.pending.length === 2;
   // Граница сжатия пришла: сессия живёт дальше, контекст — по границе,
   // накопленное возвращается в ту же очередь.
-  pr.pmCompactedTo = 30_000;
-  pr.noteContext('pm#1', 30_000);
-  const afterCompact = completePmCompaction(pr, null);
+  rs.compactedTo = 30_000;
+  pr.notePmContext(rs, 30_000);
+  const afterCompact = completePmCompaction(pr, rs, null);
   const pmC = pr.instances.get('pm#1');
-  const compacted = !pr.pmRotating && pr.pmQueue === rq && pmC?.sessionId === 'sess-old'
-    && pmC?.contextTokens === 30_000 && afterCompact.length === 2
-    && afterCompact[0].text === 'а это подождёт' && pr.pmPending.length === 0 && !pmNeedsRotation(pr);
+  const compacted = !rs.rotating && rs.queue === rq && rs.sessionId === 'sess-old'
+    && rs.contextTokens === 30_000 && pmC?.contextTokens === 30_000 && afterCompact.length === 2
+    && afterCompact[0].text === 'а это подождёт' && rs.pending.length === 0 && !pmNeedsRotation(pr);
   const noticedCompact = pr.chat.some((c) => isOfficeSender(c.from) && c.text.includes('Память менеджера ужата'));
 
   // Границы не было — сжатие не удалось, и офис идёт запасным путём:
   // просит передачу дел; накопленное продолжает ждать.
-  pr.noteContext('pm#1', 120_000);
+  pr.notePmContext(rs, 120_000);
   compactPm(pr);
   await took(ir);
   sendUserMessage(pr, 'и это тоже');
-  const fallbackPending = completePmCompaction(pr, 'сессия сломалась');
+  const fallbackPending = completePmCompaction(pr, rs, 'сессия сломалась');
   const asked = await took(ir);
-  const askedHandoff = fallbackPending.length === 0 && pr.pmRotating && pr.pmRotationKind === 'handoff'
+  const askedHandoff = fallbackPending.length === 0 && rs.rotating && rs.rotationKind === 'handoff'
     && asked !== null && asked.startsWith('[СИСТЕМА]') && asked.includes('передачу дел')
     && pr.log.some((e) => e.agentId === 'pm#1' && e.kind === 'error' && e.text.includes('сессия сломалась'));
   // Пока менеджер пишет передачу, сообщения копятся, а не уходят в очередь.
   tellPm(pr, '[СИСТЕМА] отчёт во время ротации');
-  const buffered = pr.pmPending.length === 2 && pr.pmPending[0].fromUser === true
-    && pr.pmPending[1].fromUser === false && (await took(ir)) === null;
-  const pending = completePmRotation(pr, 'Обсуждаем заметки; жду «поехали» по фиче E-1.');
+  const buffered = rs.pending.length === 2 && rs.pending[0].fromUser === true
+    && rs.pending[1].fromUser === false && (await took(ir)) === null;
+  const pending = completePmRotation(pr, rs, 'Обсуждаем заметки; жду «поехали» по фиче E-1.');
   const pm = pr.instances.get('pm#1');
-  const rotated = !pr.pmRotating && pr.pmQueue === null && pr.pmLoop === null
-    && pm?.sessionId === '' && pm?.contextTokens === 0 && (await ir.next()).done === true;
-  const handoffKept = pr.pmHandoff?.includes('E-1') === true && pr.toPersisted().pmHandoff?.includes('E-1') === true;
-  const pendingReturned = pending.length === 2 && pending[0].text === 'и это тоже' && pr.pmPending.length === 0;
+  const rotated = !rs.rotating && rs.queue === null && rs.loop === null
+    && rs.sessionId === null && rs.contextTokens === 0 && pm?.contextTokens === 0 && (await ir.next()).done === true;
+  const handoffKept = rs.handoff?.includes('E-1') === true
+    && pr.toPersisted().pmSessions?.some((x) => x.handoff?.includes('E-1')) === true;
+  const pendingReturned = pending.length === 2 && pending[0].text === 'и это тоже' && rs.pending.length === 0;
   const noticed = pr.chat.some((c) => isOfficeSender(c.from) && c.text.includes('Сессия менеджера обновлена'));
   pr.hardReset();
-  const resetForgets = pr.pmHandoff === null && pr.instances.get('pm#1')?.contextTokens === 0;
+  const resetForgets = pr.pmSession().handoff === null && pr.instances.get('pm#1')?.contextTokens === 0;
   results.push(
     `до порога ротация не нужна: ${underLimit}`,
     `за порогом — нужна: ${overLimit}`,
