@@ -1,6 +1,7 @@
 import { Office3D } from '../office3d/Office3D';
 import { Board } from '../Board';
 import { ChatThread } from '../ChatThread';
+import { PmChatList } from './PmChatList';
 import { Toasts } from '../Toasts';
 import { Overlays, type OverlayProps } from '../Overlays';
 import { Rail } from './Rail';
@@ -49,7 +50,12 @@ export function Shell(props: OverlayProps) {
             (`AgentAvatar.tsx`). */}
         <Office3D onOpen={open} onDoor={door} active={view === 'office'} />
         {view === 'board' && <div className="shell-view shell-board"><Board /></div>}
-        {view === 'chat' && <div className="shell-view shell-chat"><ChatThread /></div>}
+        {view === 'chat' && (
+          <div className="shell-view shell-chat">
+            <PmChatList />
+            <div className="shell-chat-col"><ChatThread /></div>
+          </div>
+        )}
         <Toasts onOpenTask={(id) => { setView('board'); openTaskCard(id); }} />
       </div>
       <Rail onPanel={setPanel} onModal={setModal} />
