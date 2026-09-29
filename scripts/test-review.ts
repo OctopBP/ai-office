@@ -242,6 +242,10 @@ async function main(): Promise<void> {
     check('у карточки есть время и запасной текст',
       merged[0]?.ref?.kind === 'event' && merged[0].ref.at > 0 && merged[0].text.includes(task.id));
     check('карточки «встал» нет', eventRefs(task.id, 'stuck').length === 0);
+    // Прежняя строка «T-N: влито в main…» заменена карточкой (T-138) и рядом
+    // с ней писаться не должна — ни в какой чат.
+    check('прежней строки «влито» рядом с карточкой нет',
+      !office.chat.some((m) => !m.ref && m.text.startsWith(`${task.id}: влито в`)));
   }
 
   // 2. База уехала: конфликт разбирает автор в своей копии, main не трогаем.
@@ -537,6 +541,13 @@ async function main(): Promise<void> {
       stuck[0]?.chatId === office.ensureMainChat().id);
     check('у карточки есть причина',
       stuck[0]?.ref?.kind === 'event' && Boolean(stuck[0].ref.why));
+    // Строку «встал» в ленту пишет каждая проходящая остановка (markStuck), а
+    // окончательную объявляет надзор (giveUp) только карточкой: строк ровно
+    // столько, сколько остановок, — лишней рядом с карточкой нет.
+    const stuckLines = office.chat.filter((m) => !m.ref
+      && m.text.startsWith(`${task.id}: конвейер встал.`)).length;
+    check('окончательная остановка не пишет строку рядом с карточкой',
+      stuckLines === pr?.stuckTimes);
 
     // Следующий проход уже ничего не трогает: решение за менеджером.
     const before = s.calls.reworks;
