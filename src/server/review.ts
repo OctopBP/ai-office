@@ -822,7 +822,9 @@ const merge: Executor<Ctx> = {
           ? state.say('pipe.mergedViaPr', { number: fresh.number })
           : state.say('pipe.mergedPlain', { base }),
       });
-      state.addChat(OFFICE_SENDER, state.say('pipe.mergedFinal', { task: task.id, base }));
+      // Одна карточка «влито» в чат задачи вместо строки в основном: запасной
+      // текст ссылки говорит то же для старых клиентов.
+      state.addTaskEvent(task.id, 'merged');
       if (duplicate) {
         state.addLog(null, 'system', `${task.id}: ${duplicate}`);
         state.addChat(OFFICE_SENDER, `⚠️ ${duplicate}`);
@@ -1144,9 +1146,15 @@ function markStuck(
   // перезапускал», а вставала ли она вообще.
   const stuckTimes = (state.prOf(task.id)?.stuckTimes ?? 0) + 1;
   state.patchPr(task.id, { stage: 'stuck', note: why, needsDecision, stuckTimes });
-  state.addChat(OFFICE_SENDER, state.say('pipe.stuckChat', { task: task.id, why }));
   state.addLog(null, 'error', state.say('pipe.stuckLog', { task: task.id, why }));
-  if (!needsDecision) return;
+  // Проходящая остановка — строкой в основной чат: её разберёт надзор, и
+  // карточка на каждую из трёх попыток была бы шумом. Карточку «встал» в чат
+  // задачи получает только окончательная остановка, та, что зовёт менеджера.
+  if (!needsDecision) {
+    state.addChat(OFFICE_SENDER, state.say('pipe.stuckChat', { task: task.id, why }));
+    return;
+  }
+  state.addTaskEvent(task.id, 'stuck', why);
   agents.notifyPm(state,
     state.say('pipe.pmStuck', { task: task.id, title: task.title, why }), { taskId: task.id });
 }

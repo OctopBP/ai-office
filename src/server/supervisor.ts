@@ -490,8 +490,10 @@ async function giveUp(state: OfficeState, task: Task, pr: PullRequestView): Prom
     situation: await situationOf(state, task),
     note: state.say('sup.giveUpNote', { note: pr.note, n: pr.retries }),
   });
-  state.addChat(OFFICE_SENDER,
-    state.say('sup.giveUpChat', { task: task.id, n: pr.retries }));
+  // Попытки кончились — это и есть окончательная остановка: карточка «встал»
+  // в чат задачи. Причина — последняя остановка, счёт попыток в логе.
+  state.addLog(null, 'system', state.say('sup.giveUpChat', { task: task.id, n: pr.retries }));
+  state.addTaskEvent(task.id, 'stuck', pr.note);
   tellPm(state, state.say('sup.giveUpPm', {
     task: task.id, title: task.title, base: pr.base, n: pr.retries, note: pr.note,
   }), { taskId: task.id });
