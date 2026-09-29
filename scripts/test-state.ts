@@ -1153,7 +1153,10 @@ async function main(): Promise<void> {
       // Нанятый на умолчании Sonnet 5: разницы с пакетом нет, в сохранении
       // лежит разрешённый прежним алиасом id.
       { ...frontend, model: 'claude-sonnet-5', package: { ...frontend.package!, overrides: {} } },
-      // Пакет на Opus, а Sonnet 5 выбрали руками — выбор трогать нельзя.
+      // Роль без пакета на Sonnet 5 — переезжает разовой миграцией.
+      { ...legacyBackend, id: 'writer', title: 'Писатель', model: 'claude-sonnet-5' },
+      // Пакет на Opus, а Sonnet 5 выбран в разнице ещё до выхода 5.5 —
+      // владелец решил перевести и такие (разовая миграция T-136).
       {
         ...backend,
         id: 'backend-2',
@@ -1179,8 +1182,11 @@ async function main(): Promise<void> {
     `нанятый на умолчании Sonnet 5 перешёл на Sonnet 5.5: ${
       modelRoles.role('frontend')?.model === 'claude-sonnet-5-5'
       && modelRoles.role('frontend')?.package?.overrides.model === undefined}`,
-    `выбранный руками Sonnet 5 остался: ${modelRoles.role('backend-2')?.model === 'claude-sonnet-5'
-      && modelRoles.role('backend-2')?.package?.overrides.model === 'claude-sonnet-5'}`,
+    `Sonnet 5 в разнице с пакетом переведён разовой миграцией: ${
+      modelRoles.role('backend-2')?.model === 'claude-sonnet-5-5'
+      && modelRoles.role('backend-2')?.package?.overrides.model === 'claude-sonnet-5-5'}`,
+    `роль без пакета на Sonnet 5 переведена разовой миграцией: ${
+      modelRoles.role('writer')?.model === 'claude-sonnet-5-5'}`,
     `модель роли без пакета переведена: ${modelRoles.role('analyst')?.model === 'claude-opus-5-5'}`,
     `повторный перевод ничего не меняет: ${currentModel('claude-opus-5-5') === 'claude-opus-5-5'
       && currentModel('claude-sonnet-5') === 'claude-sonnet-5'
@@ -1191,6 +1197,35 @@ async function main(): Promise<void> {
       && currentModel('claude-fable-5') === 'claude-fable-5-1'
       && currentModel('claude-haiku-4-5') === 'claude-haiku-4-5'}`,
     `незнакомая модель осталась как есть: ${currentModel('my-custom-model') === 'my-custom-model'}`,
+  );
+  unloadOfficeState('o-roles-model');
+  flushAll();
+  // Миграция разовая: отметка легла в сохранение, повторная загрузка ничего
+  // не меняет, а Sonnet 5, выбранный владельцем уже после неё, остаётся.
+  const migratedSave = load(modelFile);
+  const reloaded = openOfficeState({
+    id: 'o-roles-model', projectDir: modelDir, stateFile: modelFile,
+  }).state;
+  results.push(
+    `отметка разовой миграции моделей в сохранении: ${
+      migratedSave?.roleMigrations?.includes('sonnet-5-to-5-5') === true}`,
+    `повторная загрузка моделей ничего не меняет: ${
+      reloaded.role('writer')?.model === 'claude-sonnet-5-5'
+      && reloaded.role('backend-2')?.model === 'claude-sonnet-5-5'
+      && reloaded.role('frontend')?.model === 'claude-sonnet-5-5'
+      && reloaded.role('backend')?.model === 'claude-opus-5-5'}`,
+  );
+  reloaded.updateRole('writer', { model: 'claude-sonnet-5' });
+  reloaded.updateRole('backend-2', { model: 'claude-sonnet-5' });
+  unloadOfficeState('o-roles-model');
+  flushAll();
+  const chosen = openOfficeState({
+    id: 'o-roles-model', projectDir: modelDir, stateFile: modelFile,
+  }).state;
+  results.push(
+    `выбранный после миграции Sonnet 5 остался: ${chosen.role('writer')?.model === 'claude-sonnet-5'
+      && chosen.role('backend-2')?.model === 'claude-sonnet-5'
+      && chosen.role('backend-2')?.package?.overrides.model === 'claude-sonnet-5'}`,
   );
   unloadOfficeState('o-roles-model');
   wipe(modelFile);
