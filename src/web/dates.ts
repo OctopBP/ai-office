@@ -32,3 +32,15 @@ export const formatClock = (at: number): string =>
 
 export const formatFullDateTime = (at: number): string =>
   new Date(at).toLocaleString(locale(), { day: 'numeric', month: 'long', year: 'numeric', hour: '2-digit', minute: '2-digit' });
+
+/**
+ * Короткая метка времени для строки списка: сегодня — часы, вчера — «Вчера»,
+ * на этой неделе — день недели, раньше — число и месяц.
+ */
+export const formatListTime = (at: number): string => {
+  const daysAgo = Math.round((startOfDay(Date.now()) - startOfDay(at)) / 86400000);
+  if (daysAgo <= 0) return formatClock(at);
+  if (daysAgo === 1) return t('chat.date.yesterday');
+  if (daysAgo < 7) return new Date(at).toLocaleDateString(locale(), { weekday: 'short' });
+  return new Date(at).toLocaleDateString(locale(), { day: 'numeric', month: 'short' });
+};

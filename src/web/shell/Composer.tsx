@@ -34,6 +34,9 @@ export function Composer({ onSettings }: { onSettings: () => void }) {
   const settings = useStore((s) => s.settings);
   const connected = useStore((s) => s.connected);
   const view = useStore((s) => s.view);
+  // Свежий пустой чат с менеджером зовёт начать разговор, а не ставить задачу.
+  const freshChat = useStore((s) => s.thread === 'pm#1' && s.pmChatId !== null
+    && !s.chat.some((e) => e.chatId === s.pmChatId));
   // Черновик — в сторе: на виде «Доска» композера на экране нет, и локальное
   // состояние теряло бы недописанное при каждой смене вида.
   const draft = useInputDraft();
@@ -98,7 +101,7 @@ export function Composer({ onSettings }: { onSettings: () => void }) {
   };
 
   const placeholder = meeting ? t('shell.composer.meeting')
-    : thread === 'pm#1' ? t('shell.composer.placeholder')
+    : thread === 'pm#1' ? t(freshChat && view === 'chat' ? 'shell.composer.newChat' : 'shell.composer.placeholder')
     : t('shell.composer.agent', { who: displayInstance(thread, instances, roles) });
   const model = roles.find((r) => r.id === 'pm')?.model;
   const cap = settings.globalBudgetUsd;

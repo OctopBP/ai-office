@@ -167,3 +167,83 @@
 @media (prefers-reduced-motion: reduce) {
   .msg-draft .caret { animation: none; }
 }
+
+/* ---------- чаты с менеджером (PmChatList.tsx, docs/design/T-125) ---------- */
+
+.pm-chats {
+  flex: none; width: 280px; min-height: 0;
+  display: flex; flex-direction: column; gap: var(--space-3);
+  padding: var(--space-4) var(--space-3); border-radius: var(--radius-panel);
+}
+.pm-chats-head { display: flex; align-items: center; justify-content: space-between; padding: 0 var(--space-1); }
+.pm-chats-head h3 { margin: 0; font-size: var(--fs-md); font-weight: 600; color: var(--ink); }
+.pm-chats-add { border-radius: var(--radius-pill); font-size: var(--fs-md); }
+.pm-chats-search {
+  width: 100%; border: none; border-radius: var(--radius-row);
+  background: var(--film); color: var(--ink); padding: var(--space-2) var(--space-3);
+}
+.pm-chats-list { display: flex; flex-direction: column; gap: 2px; overflow-y: auto; min-height: 0; }
+.pm-chats > .pm-chats-list { flex: 1; }
+.pm-chats-none { margin: 0; padding: var(--space-2); color: var(--ink-3); }
+
+.pm-chat-row {
+  position: relative; display: flex; align-items: flex-start; gap: var(--space-2);
+  padding: var(--space-2); border-radius: var(--radius-row); cursor: pointer;
+}
+.pm-chat-row:hover { background: var(--film); }
+.pm-chat-row.on { background: var(--film-2); }
+.pm-chat-row.archived .pm-chat-title { color: var(--ink-3); }
+.pm-chat-body { flex: 1; min-width: 0; }
+.pm-chat-line { display: flex; align-items: baseline; gap: var(--space-2); }
+.pm-chat-title {
+  flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  font-size: var(--fs-row); font-weight: 500; color: var(--ink);
+}
+.pm-chat-rename { flex: 1; min-width: 0; font-size: var(--fs-row); padding: 0 var(--space-1); }
+.pm-chat-time { flex: none; font-size: var(--fs-caption); color: var(--ink-3); font-variant-numeric: tabular-nums; }
+.pm-chat-meta {
+  display: flex; align-items: center; gap: var(--space-1); margin-top: 2px;
+  font-size: var(--fs-small); color: var(--ink-3); min-width: 0;
+}
+.pm-chat-linked { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pm-chat-waiting {
+  flex: none; padding: 0 6px; border-radius: var(--radius-pill);
+  background: rgba(var(--warn-rgb), .16); color: color-mix(in srgb, var(--warn) 60%, var(--ink));
+  font-size: var(--fs-caption); font-weight: 500;
+}
+.pm-chat-dot {
+  position: absolute; right: var(--space-2); bottom: var(--space-3);
+  width: 8px; height: 8px; border-radius: 50%; background: var(--accent);
+}
+/* Три точки видны на наведении и пока меню открыто — строка не шумит. */
+.pm-chat-actions { position: absolute; right: var(--space-1); top: var(--space-1); }
+.pm-chat-more {
+  visibility: hidden; min-height: 0; height: 22px; padding: 0 6px;
+  background: var(--surface); border-radius: var(--radius-icon); color: var(--ink-3);
+}
+.pm-chat-row:hover .pm-chat-more, .pm-chat-actions:has(.pm-chat-menu) .pm-chat-more { visibility: visible; }
+.pm-chat-menu {
+  position: absolute; right: 0; top: calc(100% + 4px); z-index: var(--z-popover);
+  display: flex; flex-direction: column; min-width: 180px; padding: var(--space-1);
+}
+.pm-chat-menu button { justify-content: flex-start; text-align: left; background: none; border-radius: var(--radius-icon); }
+.pm-chat-menu button:hover { background: var(--film); }
+
+.pm-chats-archive { flex: none; display: flex; flex-direction: column; min-height: 0; max-height: 40%; }
+.pm-chats-archive-toggle {
+  align-self: flex-start; background: none; min-height: 0; padding: var(--space-1);
+  color: var(--ink-3); font-size: var(--fs-small);
+}
+.pm-chats-caret { display: inline-block; margin-right: var(--space-1); transition: transform .15s; }
+.pm-chats-archive.open .pm-chats-caret { transform: rotate(90deg); }
+
+/* Пустое состояние: ни одного чата с менеджером (экран 04 макета). */
+.pm-chats-empty {
+  margin: var(--space-8) auto; max-width: 420px; text-align: center;
+  display: flex; flex-direction: column; align-items: center; gap: var(--space-2);
+  padding: var(--space-6); border: 1px solid var(--hairline); border-radius: var(--radius-card);
+  background: var(--surface);
+}
+.pm-chats-empty h3 { margin: 0; color: var(--ink); }
+.pm-chats-empty p { margin: 0 0 var(--space-2); color: var(--ink-3); }
+.pm-chats-empty-icon { font-size: 28px; }
