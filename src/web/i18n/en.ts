@@ -164,6 +164,8 @@ export const en = {
   "chatCard.q.title": "question",
   "chatCard.q.about": "question about",
   "chatCard.q.own": "Answer in my own words →",
+  "chatCard.q.assumed": "The office assumes: {text}",
+  "chatCard.q.assumedWas": "The office assumed: {text}",
   "pmChats.title": "PM chats",
   "pmChats.new": "New chat",
   "pmChats.search": "Search chats…",
