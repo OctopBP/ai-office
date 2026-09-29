@@ -325,7 +325,7 @@ function sanitizeWorkflowMap(value: unknown): Partial<Record<TaskType, string>> 
 const MODEL_RE = /^[a-z0-9][a-z0-9._-]*$/;
 
 /** Модель новой роли, если форма её не назвала. */
-const DEFAULT_ROLE_MODEL = 'claude-sonnet-5';
+const DEFAULT_ROLE_MODEL = 'claude-sonnet-5-5';
 
 /** Непустая строка из файла состояния либо undefined: пустое поле — не значение. */
 const text = (value: unknown): string | undefined =>

@@ -82,7 +82,7 @@ check('плохое имя — отказ текстом', (exportRole(office.ro
 
 // Роль, заведённая руками, со своим набором скилов в employees/<id>/ —
 // имя папки равно id роли, а id офис собирает сам из названия.
-const created = await office.createRole({ title: 'Писатель', brief: 'Пишешь тексты.', model: 'claude-sonnet-5' });
+const created = await office.createRole({ title: 'Писатель', brief: 'Пишешь тексты.', model: 'claude-sonnet-5-5' });
 const writerId = 'role' in created ? created.role.id : '';
 const legacy = resolve(root, 'employees', writerId);
 mkdirSync(resolve(legacy, 'skills/prose'), { recursive: true });

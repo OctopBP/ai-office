@@ -16,7 +16,7 @@
 export const MODEL_ALIASES = {
   fable: 'claude-fable-5-1',
   opus: 'claude-opus-5-5',
-  sonnet: 'claude-sonnet-5',
+  sonnet: 'claude-sonnet-5-5',
   haiku: 'claude-haiku-4-5',
 } as const;
 
@@ -30,6 +30,9 @@ export type ModelAlias = keyof typeof MODEL_ALIASES;
  * Прошлых поколений здесь нет: застрявший в сохранении id офис при загрузке
  * переводит на последнюю версию того же семейства (`currentModel` в
  * `server/roles.ts`), так что читать старые состояния они не мешают.
+ * Исключение — `claude-sonnet-5`: с выходом Sonnet 5.5 владелец оставил его в
+ * списке, поэтому в таблицу смены поколения он не попал, и выбранный руками
+ * Sonnet 5 так и остаётся на Sonnet 5.
  *
  * Чего здесь тоже намеренно нет: моделей по приглашению (`claude-mythos-5`,
  * `claude-mythos-preview` — их не выдать обычным ключом) и id с датой
@@ -37,13 +40,14 @@ export type ModelAlias = keyof typeof MODEL_ALIASES;
  * снимком. Незнакомый id в роли форму не ломает: она показывает его отдельной
  * строкой списка как есть.
  *
- * `claude-opus-5-5` и `claude-fable-5-1` в типе установленного SDK ещё не
+ * `claude-opus-5-5`, `claude-fable-5-1` и `claude-sonnet-5-5` в типе установленного SDK ещё не
  * значатся — модели вышли позже пакета, а тип у него открытый
  * (`(string & {})`), так что id проходят.
  */
 export const MODEL_IDS: readonly string[] = [
   'claude-opus-5-5',
   'claude-fable-5-1',
+  'claude-sonnet-5-5',
   'claude-sonnet-5',
   'claude-haiku-4-5',
 ];

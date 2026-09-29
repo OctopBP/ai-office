@@ -43,7 +43,7 @@ const modes = (): Array<[PermissionMode, string]> => [
 
 /** Черновик новой роли — умолчания, с которых стартует форма создания. */
 const BLANK: RoleEditable = {
-  title: '', emoji: '🙂', color: '#94a3b8', model: 'claude-sonnet-5',
+  title: '', emoji: '🙂', color: '#94a3b8', model: 'claude-sonnet-5-5',
   permissionMode: null, isolate: true, maxTurns: null,
   repoDir: '', sprite: LOOKS[0].id, brief: '', briefExtra: '', mcp: [], capabilities: [],
 };
