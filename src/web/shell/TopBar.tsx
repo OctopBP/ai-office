@@ -7,6 +7,10 @@ import { HOTKEY } from '../hotkeys';
 
 const VIEWS: View[] = ['office', 'board', 'chat', 'life'];
 
+// Подпись клавиши у сегмента: те же буквы, что ловит `App.tsx`. У офиса и чата
+// своей буквы нет — чат открывает Enter, но он подписан на «Поставить задачу».
+const VIEW_KEY: Partial<Record<View, string>> = { board: HOTKEY.board, life: HOTKEY.life };
+
 /**
  * Верхний ряд поверх сцены: сегменты видов по центру, справа пауза и главная
  * кнопка. «Поставить задачу» не открывает ничего нового — она ставит курсор
@@ -31,11 +35,13 @@ export function TopBar() {
       <span />
       <div className="seg">
         {VIEWS.map((v) => (
-          <button key={v} className={view === v ? 'on' : ''} onClick={() => setView(v)}>
-            {t(`shell.view.${v}`)}
-            {v === 'chat' && chatUnread && <i className="seg-dot" />}
-            {v === 'life' && lifeBadge && <span className="seg-badge">{lifeBadge}</span>}
-          </button>
+          <Tooltip key={v} tip={VIEW_KEY[v] && <Hint label={t(`shell.view.${v}`)} keys={VIEW_KEY[v]} />}>
+            <button className={view === v ? 'on' : ''} onClick={() => setView(v)}>
+              {t(`shell.view.${v}`)}
+              {v === 'chat' && chatUnread && <i className="seg-dot" />}
+              {v === 'life' && lifeBadge && <span className="seg-badge">{lifeBadge}</span>}
+            </button>
+          </Tooltip>
         ))}
       </div>
       <div className="shell-top-right">

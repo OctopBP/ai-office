@@ -168,9 +168,8 @@ function useOfficeDrag(offices: OfficeView[]) {
   };
 }
 
-type WindowKind = 'board' | 'merge' | 'log' | 'money' | 'meetings' | 'flows' | 'releases' | 'team' | 'settings';
+type WindowKind = 'merge' | 'log' | 'money' | 'meetings' | 'flows' | 'releases' | 'team' | 'settings';
 const WINDOWS: Array<{ kind: WindowKind; icon: IconName }> = [
-  { kind: 'board', icon: 'list-check' },
   { kind: 'merge', icon: 'git-merge' },
   { kind: 'log', icon: 'file-text' },
   { kind: 'money', icon: 'coin' },
@@ -186,9 +185,9 @@ const WINDOWS: Array<{ kind: WindowKind; icon: IconName }> = [
  * (264) и свёрнутый до иконок (70) — переключается кнопкой у логотипа и
  * переживает перезагрузку.
  *
- * Список окон — то, что раньше жило только в хоткеях и в HUD: доска, очередь
- * слияния, лог, расходы, команда с маркетом, настройки. Доска здесь ведёт в вид, а не в
- * панель: сегменты сверху — виды (см. `Shell.tsx`).
+ * Список окон — то, что раньше жило только в хоткеях и в HUD: очередь
+ * слияния, лог, расходы, команда с маркетом, настройки. Доска и жизнь офиса
+ * — виды, они переключаются сегментами сверху (см. `TopBar.tsx`).
  */
 export function Rail({ onPanel, onModal }: {
   onPanel: (p: PanelKind) => void;
@@ -202,8 +201,6 @@ export function Rail({ onPanel, onModal }: {
   const enterOffice = useStore((s) => s.enterOffice);
   const collapsed = useStore((s) => s.railCollapsed);
   const setCollapsed = useStore((s) => s.setRailCollapsed);
-  const view = useStore((s) => s.view);
-  const setView = useStore((s) => s.setView);
   const leaveOffice = useStore((s) => s.leaveOffice);
 
   // Архивные офисы в рейле не показываем: работы по ним нет, а вернуть их
@@ -214,14 +211,13 @@ export function Rail({ onPanel, onModal }: {
   // Счётчики те же, что были в HUD: в работе — по задачам, а не по позам агентов.
   const all = Object.values(tasks);
   const working = all.filter((x) => x.status === 'in_progress').length;
-  const active = all.filter((x) => !['done', 'failed', 'planned'].includes(x.status)).length;
   const readyToMerge = all.filter((x) => x.status === 'done' && x.branch && !x.merged).length;
   // У совещаний счётчик — единица, пока одно идёт: это «сейчас говорят», а не число прошлых.
   const meetingLive = useStore((s) => s.meeting?.status === 'running');
   // Выпуски — сколько сейчас идёт: готовится, ждёт согласия или собирается.
   const releasesLive = useStore((s) => s.releases.filter((r) => ['preparing', 'waiting', 'building'].includes(r.status)).length);
   const counts: Partial<Record<WindowKind, number>> = {
-    board: active, merge: readyToMerge, meetings: meetingLive ? 1 : 0, releases: releasesLive,
+    merge: readyToMerge, meetings: meetingLive ? 1 : 0, releases: releasesLive,
   };
 
   // «Сегодня» — по агентам, как в HUD: общая сумма врала после перезапуска.
@@ -230,8 +226,7 @@ export function Rail({ onPanel, onModal }: {
   const share = cap ? Math.min(1, today / cap) : 0;
 
   const openWindow = (kind: WindowKind) => {
-    if (kind === 'board') setView(view === 'board' ? 'office' : 'board');
-    else if (kind === 'team' || kind === 'settings') onModal(kind);
+    if (kind === 'team' || kind === 'settings') onModal(kind);
     else onPanel(kind);
   };
 
@@ -329,7 +324,7 @@ export function Rail({ onPanel, onModal }: {
           return (
             // Подсказка — только свёрнутому рейлу: развёрнутый и так подписан.
             <Tooltip key={kind} tip={collapsed && <Hint label={t(`shell.win.${kind}`)} keys={key} />}>
-              <button className={`rail-win${kind === 'board' && view === 'board' ? ' on' : ''}`}
+              <button className="rail-win"
                 onClick={() => openWindow(kind)}>
                 <span className="rail-win-icon">
                   {collapsed && n ? n : <Icon name={icon} size={12} />}

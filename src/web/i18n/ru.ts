@@ -814,7 +814,6 @@ export const ru: Record<keyof typeof en, string> = {
   "shell.windows": "Окна офиса",
   "shell.newOffice": "+  Новый офис",
   "shell.officeStatus": "{n} агент · {working} в работе|{n} агента · {working} в работе|{n} агентов · {working} в работе",
-  "shell.win.board": "Доска задач",
   "shell.win.merge": "Очередь слияния",
   "shell.win.log": "Лог событий",
   "shell.win.money": "Расходы",
