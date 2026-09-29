@@ -1996,7 +1996,23 @@ export type ChatRef =
   | { kind: 'task'; id: string }
   | { kind: 'epic'; id: string }
   | { kind: 'plan'; epicIds: string[] }
-  | { kind: 'question'; id: string };
+  | { kind: 'question'; id: string }
+  | ChatTaskEventRef;
+
+/**
+ * Событие конвейера по задаче (§4 каталога): «влито» или «конвейер встал».
+ * В отличие от остальных ссылок это снимок момента, а не живая карточка:
+ * задача после остановки может и влиться, а карточка «встал» должна остаться
+ * про тот раз. Поэтому время и причина хранятся в самой ссылке.
+ */
+export interface ChatTaskEventRef {
+  kind: 'event';
+  taskId: string;
+  event: 'merged' | 'stuck';
+  at: number;
+  /** Короткая причина остановки; только у 'stuck'. */
+  why?: string;
+}
 
 /**
  * Один из чатов владельца с менеджером (docs/design/T-125/spec.md). Реплики

@@ -1,5 +1,5 @@
 import { useState, type KeyboardEvent, type MouseEvent, type ReactNode } from 'react';
-import type { ChatEntry, ChatRef, EpicView, PullRequestView, TaskView } from '../shared/types';
+import type { ChatEntry, ChatRef, ChatTaskEventRef, EpicView, PullRequestView, TaskView } from '../shared/types';
 import { isOfficeSender, taskClosed } from '../shared/types';
 import { isOpenQuestion } from '../shared/questions';
 import { answerQuestion, approveEpic, prStageClass, prStageLabel, useStore } from './store';
@@ -331,12 +331,52 @@ export function QuestionCard({ id, entry }: { id: string; entry: ChatEntry }) {
   );
 }
 
+/**
+ * Карточка события конвейера (§4): почти строка — точка, ссылка на задачу,
+ * текст. Действий нет намеренно: «встал» решается в дровере, где есть дифф
+ * и настоящие кнопки. Событие — снимок момента, поэтому база и причина
+ * берутся из ссылки и PR, а не из текущего статуса задачи.
+ */
+export function EventCard({ refTo, entry }: { refTo: ChatTaskEventRef; entry: ChatEntry }) {
+  const task = useStore((s) => s.tasks[refTo.taskId]) as TaskView | undefined;
+  const pr = useStore((s) => s.prs[refTo.taskId]);
+  const openTask = useStore((s) => s.openTaskCard);
+  if (!task) return <Missing id={refTo.taskId} entry={entry} />;
+
+  const merged = refTo.event === 'merged';
+  const link = (
+    <span className="ev-task">
+      {task.id}{merged && <> {t('chatCard.event.title', { title: task.title })}</>}
+    </span>
+  );
+  return (
+    <div
+      className={`chat-card cc-event ${refTo.event}`}
+      title={t('chatCard.openTask')}
+      {...asButton(() => openTask(task.id))}
+    >
+      <div className="cc-head">
+        <i className={`cc-dot ${merged ? 'done' : 'fail'}`} />
+        <span className="cc-event-text">
+          {merged ? (
+            <>{link} {t('chatCard.event.merged', { base: pr?.base || task.baseBranch || 'main' })}</>
+          ) : (
+            <>{link}: {t('chatCard.event.stuck')}</>
+          )}
+        </span>
+      </div>
+      {!merged && refTo.why && <div className="cc-event-why">{refTo.why}</div>}
+    </div>
+  );
+}
+
 /** Карточка по ссылке сообщения. План из нескольких фич — обёрткой (§5). */
 export function RefCard({ refTo, entry }: { refTo: ChatRef; entry: ChatEntry }) {
   switch (refTo.kind) {
     case 'task': return <TaskCard id={refTo.id} entry={entry} />;
     case 'epic': return <EpicCard id={refTo.id} entry={entry} />;
     case 'question': return <QuestionCard id={refTo.id} entry={entry} />;
+    case 'event': return <EventCard refTo={refTo} entry={entry} />;
     case 'plan':
       return (
         <CardGroup title={t('chatCard.group.plan', { n: refTo.epicIds.length })}>

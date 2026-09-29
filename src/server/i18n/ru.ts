@@ -734,6 +734,8 @@ export const ru: Record<keyof typeof en, string> = {
   'chat.ref.epic': 'Фича {id} «{title}» заведена.',
   'chat.ref.plan': 'Заведён план: {epics}, {n} задача|Заведён план: {epics}, {n} задачи|Заведён план: {epics}, {n} задач',
   'chat.ref.question': 'Вопрос владельцу {id}: {text}',
+  'chat.ref.merged': 'Задача {id} «{title}» влита в {base}.',
+  'chat.ref.stuck': '{id}: конвейер встал и ждёт решения. {why}',
 
   'questions.noSuch': 'Открытого вопроса {id} нет.',
   'questions.empty': 'Вопрос пустой — спрашивать нечего.',
