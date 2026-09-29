@@ -14,7 +14,6 @@
  * исход стирает: начинается новая попытка, и судить её по прошлой нельзя.
  */
 import type { OutcomeKind, TaskOutcome } from '../shared/types';
-import { OFFICE_SENDER } from '../shared/types';
 import { criteriaProgress, taskRepo, type OfficeState, type Task } from './state';
 import { findRevert, isAncestor, isRepo } from './git';
 import { confirmFactsFor } from './journal';
@@ -152,9 +151,9 @@ export async function detectReverts(state: OfficeState, now = Date.now()): Promi
     if (kept && !(await findRevert(repo, task.mergeCommit, task.baseBranch, task.id))) continue;
     recordOutcome(state, task.id, 'reverted', now);
     state.addLog(null, 'system', state.say('life.reverted.log', { task: task.id, base: task.baseBranch }));
-    state.addChat(OFFICE_SENDER, state.say('life.reverted.chat', {
+    state.addOfficeNote(state.say('life.reverted.chat', {
       task: task.id, title: task.title, base: task.baseBranch,
-    }));
+    }), { taskId: task.id });
     found.push(task);
   }
   return found;

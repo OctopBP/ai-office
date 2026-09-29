@@ -19,7 +19,7 @@
  *   только там, где стирать нечего: ни сессии, ни ветки, ни потраченных
  *   денег. Всё остальное — снятие, ровно как у ролей (архив против «стереть»).
  */
-import { OFFICE_SENDER, type TaskEdit, type TaskStatus } from '../shared/types';
+import { type TaskEdit, type TaskStatus } from '../shared/types';
 import { TASK_TYPES, type TaskType } from '../shared/workflow';
 import type { OfficeState, Task } from './state';
 import { cancelTask } from './outcomes';
@@ -128,9 +128,9 @@ export function editTask(state: OfficeState, taskId: string, patch: TaskEdit): T
 
   state.updateTask(task.id, next);
   const fresh = state.tasks.get(task.id) as Task;
-  state.addChat(OFFICE_SENDER, state.say('task.edit.chat', {
+  state.addOfficeNote(state.say('task.edit.chat', {
     task: task.id, title: fresh.title, changed: changes.join(', '),
-  }));
+  }), { taskId: task.id });
   state.addLog(null, 'system', state.say('task.edit.log', {
     task: task.id, changed: changes.join(', '),
   }));
@@ -191,10 +191,10 @@ export function dropTask(state: OfficeState, taskId: string, reason = ''): TaskR
       // наработки в ветку задачи и закроет её снятой.
       state.cancelledByUser.add(task.id);
       inst.abort.abort();
-      state.addChat(OFFICE_SENDER, state.say('task.drop.stopping', {
+      state.addOfficeNote(state.say('task.drop.stopping', {
         task: task.id, title: task.title, who: inst.id,
         reason: why || state.say('task.drop.noReason'),
-      }));
+      }), { taskId: task.id });
     }
   } else {
     cancelOne(state, task, why);
@@ -217,9 +217,9 @@ function cancelOne(state: OfficeState, task: Task, reason: string): void {
   cancelTask(state, task);
   // Причину не выдумываем: строка «снята: без объяснения» читается как
   // отговорка офиса, хотя офис тут вообще ни при чём.
-  state.addChat(OFFICE_SENDER, reason
+  state.addOfficeNote(reason
     ? state.say('task.drop.chat', { task: task.id, title: task.title, reason })
-    : state.say('task.drop.chatPlain', { task: task.id, title: task.title }));
+    : state.say('task.drop.chatPlain', { task: task.id, title: task.title }), { taskId: task.id });
   state.addLog(null, 'system', state.say('task.drop.log', {
     task: task.id, title: clip(task.title),
   }));
@@ -273,8 +273,10 @@ export function deleteTask(state: OfficeState, taskId: string): TaskResult {
     freed.push(other.id);
   }
 
+  // Чат берём до удаления: после него задачи нет и привязку спросить не у кого.
+  const chatId = state.pmChatFor({ taskId: task.id });
   state.removeTask(task.id);
-  state.addChat(OFFICE_SENDER, state.say('task.delete.chat', { task: task.id, title: task.title }));
+  state.addOfficeNote(state.say('task.delete.chat', { task: task.id, title: task.title }), { chatId });
   state.addLog(null, 'system', state.say('task.delete.log', {
     task: task.id, title: clip(task.title),
   }));

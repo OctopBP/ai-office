@@ -169,8 +169,8 @@ export function answerQuestion(state: OfficeState, askedId: string, answer: stri
   // Откуда бы ни пришёл ответ — кнопкой в карточке, строкой «Q-3: да» в
   // любом чате или из «Жизни офиса», — подтверждение и весть менеджеру идут
   // в чат вопроса: там его задали и там его ждёт сессия менеджера.
-  state.addChat(OFFICE_SENDER, state.say('questions.answeredChat', { id, fact: fact.id }),
-    'pm#1', undefined, question.chatId);
+  state.addOfficeNote(state.say('questions.answeredChat', { id, fact: fact.id }),
+    { chatId: question.chatId, taskId: question.taskId });
   tellPm(state, state.say('questions.pmAnswered', {
     id, question: question.text, assumption: question.assumption, answer: text,
     task: [question.taskId, ...along.map((q) => q.taskId)].filter(Boolean).join(', ') || '—',

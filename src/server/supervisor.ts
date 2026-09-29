@@ -328,7 +328,7 @@ async function watchProviderLimits(state: OfficeState, now: number, provider: Pr
       continue;
     }
     started += 1;
-    state.addChat(OFFICE_SENDER, state.say('sup.limitResumed', { task: task.id, who: outcome.message }));
+    state.addOfficeNote(state.say('sup.limitResumed', { task: task.id, who: outcome.message }), { taskId: task.id });
     tellPm(state, state.say('sup.limitResumedPm', {
       task: task.id, title: task.title, who: outcome.message,
     }), { taskId: task.id });
@@ -362,7 +362,7 @@ async function watchBoard(state: OfficeState, now: number): Promise<void> {
     // раз в минуту — это шум, а не сообщение.
     if (slotProblem(state)) continue;
     started += 1;
-    state.addChat(OFFICE_SENDER, state.say('sup.resumed', { task: task.id }));
+    state.addOfficeNote(state.say('sup.resumed', { task: task.id }), { taskId: task.id });
     await retryTask(state, task.id);
   }
 
@@ -395,8 +395,8 @@ async function watchBoard(state: OfficeState, now: number): Promise<void> {
       continue;
     }
     started += 1;
-    state.addChat(OFFICE_SENDER,
-      state.say('sup.assignedChat', { task: task.id, who: outcome.message }));
+    state.addOfficeNote(
+      state.say('sup.assignedChat', { task: task.id, who: outcome.message }), { taskId: task.id });
     tellPm(state, state.say('sup.assignedPm', {
       task: task.id, title: task.title, who: outcome.message,
     }), { taskId: task.id });

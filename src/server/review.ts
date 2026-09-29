@@ -290,7 +290,7 @@ async function pipeline(state: OfficeState, taskId: string): Promise<void> {
     taskId, title: task.title, branch, base, repoDir: repo,
   });
   state.updateTask(taskId, { status: 'review' });
-  state.addChat(OFFICE_SENDER, state.say('pipe.started', { task: taskId, base }));
+  state.addOfficeNote(state.say('pipe.started', { task: taskId, base }), { taskId });
 
   // Повторный заход (перезапуск) не заводит второй прогон, а продолжает тот
   // же с узла, где он встал. Круги ревью при этом не обнуляются — они
@@ -322,7 +322,7 @@ async function pipeline(state: OfficeState, taskId: string): Promise<void> {
         state.patchPr(ctx.task.id, { rounds, note: state.say('pipe.reviewReturned', { n: rounds }) });
       }
       if (from.run === 'office:merge' && outcome === 'moved') {
-        state.addChat(OFFICE_SENDER, state.say('pipe.secondRound', { task: ctx.task.id, base }));
+        state.addOfficeNote(state.say('pipe.secondRound', { task: ctx.task.id, base }), { taskId: ctx.task.id });
       }
     },
     stuck: (ctx, why) => markStuck(state, ctx.task, why.note, why.needsDecision),
@@ -419,7 +419,7 @@ const syncBase: Executor<Ctx> = {
       // Сошлось после того, как автор разбирал конфликт, — скажем об этом.
       const before = ctx.run.from ? nodeOf(ctx.workflow, ctx.run.from) : null;
       if (before?.run === 'office:fix-conflict') {
-        state.addChat(OFFICE_SENDER, state.say('pipe.conflictsDone', { task: task.id, base }));
+        state.addOfficeNote(state.say('pipe.conflictsDone', { task: task.id, base }), { taskId: task.id });
       }
       return { outcome: 'pass' };
     }
@@ -429,9 +429,9 @@ const syncBase: Executor<Ctx> = {
     state.patchPr(task.id, {
       note: state.say('pipe.conflictNote', { base, files: result.conflicts.join(', ') }),
     });
-    state.addChat(OFFICE_SENDER, state.say('pipe.conflictChat', {
+    state.addOfficeNote(state.say('pipe.conflictChat', {
       task: task.id, base, files: result.conflicts.join(', '),
-    }));
+    }), { taskId: task.id });
     return {
       outcome: 'conflict',
       note: result.message,
@@ -510,7 +510,7 @@ const fixChecks: Executor<Ctx> = {
   async run(ctx) {
     const { state, task } = ctx;
     state.patchPr(task.id, { note: state.say('pipe.checksFailedNote') });
-    state.addChat(OFFICE_SENDER, state.say('pipe.checksFailedChat', { task: task.id }));
+    state.addOfficeNote(state.say('pipe.checksFailedChat', { task: task.id }), { taskId: task.id });
     const output = ctx.run.artifacts.checks?.text ?? '';
     const fix = await agents.rework(state, task, checksPrompt(state, task, output));
     const worktree = state.tasks.get(task.id)?.worktreePath ?? null;
@@ -545,8 +545,8 @@ const openPr: Executor<Ctx> = {
       number: created.data.number, url: created.data.url,
       note: state.say('pipe.prOpened', { number: created.data.number }),
     });
-    state.addChat(OFFICE_SENDER,
-      state.say('pipe.prOpenedChat', { task: task.id, url: created.data.url }));
+    state.addOfficeNote(
+      state.say('pipe.prOpenedChat', { task: task.id, url: created.data.url }), { taskId: task.id });
     return { outcome: 'pass' };
   },
 };
@@ -566,12 +566,12 @@ const review: Executor<Ctx> = {
         at: Date.now(), verdict: outcome.verdict,
         reviewerId: outcome.reviewerId, text: outcome.text,
       });
-      state.addChat(OFFICE_SENDER, state.say('pipe.reviewVerdictChat', {
+      state.addOfficeNote(state.say('pipe.reviewVerdictChat', {
         task: task.id,
         verdict: state.say(outcome.verdict === 'approve'
           ? 'pipe.verdict.approved'
           : 'pipe.verdict.returned'),
-      }));
+      }), { taskId: task.id });
 
       // Отзыв уходит и в сам пулл-реквест: на GitHub он должен быть виден
       // и без нашего интерфейса.
@@ -643,7 +643,7 @@ function gateReason(state: OfficeState, base: string, report: PreMergeReport): s
 function stopOnRedGate(ctx: Ctx, report: PreMergeReport): StepResult {
   const { state, task, base } = ctx;
   const why = gateReason(state, base, report);
-  state.addChat(OFFICE_SENDER, state.say('pipe.mergeOutcome', { task: task.id, message: why }));
+  state.addOfficeNote(state.say('pipe.mergeOutcome', { task: task.id, message: why }), { taskId: task.id });
   return fail(why, true);
 }
 
@@ -654,8 +654,8 @@ function stopOnRedGate(ctx: Ctx, report: PreMergeReport): StepResult {
  */
 function retryAfterGate(ctx: Ctx, report: PreMergeReport): StepResult {
   const { state, task } = ctx;
-  state.addChat(OFFICE_SENDER,
-    state.say('pipe.mergeOutcome', { task: task.id, message: report.message }));
+  state.addOfficeNote(
+    state.say('pipe.mergeOutcome', { task: task.id, message: report.message }), { taskId: task.id });
   // Записку несём дальше: если кругов не хватит, в причине остановки будет
   // видно, на чём именно не сошлись, а не одно «база уезжает быстрее».
   return { outcome: 'moved', note: report.message };
@@ -686,7 +686,7 @@ function stopOnBrokenGate(ctx: Ctx, report: PreMergeReport): StepResult {
     base,
     message: [report.message, ...report.warnings].filter(Boolean).join(' '),
   });
-  state.addChat(OFFICE_SENDER, state.say('pipe.mergeOutcome', { task: task.id, message: why }));
+  state.addOfficeNote(state.say('pipe.mergeOutcome', { task: task.id, message: why }), { taskId: task.id });
   return fail(why, true);
 }
 
@@ -795,8 +795,8 @@ const merge: Executor<Ctx> = {
         // Отставшую копию человека гейт возвращает предупреждением: слияние она
         // не останавливает, но сказать о ней вслух нужно.
         for (const warning of gate.warnings) {
-          state.addChat(OFFICE_SENDER,
-            state.say('pipe.mergedChat', { task: task.id, message: warning }));
+          state.addOfficeNote(
+            state.say('pipe.mergedChat', { task: task.id, message: warning }), { taskId: task.id });
         }
       }
 
@@ -832,7 +832,7 @@ const merge: Executor<Ctx> = {
       state.addTaskEvent(task.id, 'merged');
       if (duplicate) {
         state.addLog(null, 'system', `${task.id}: ${duplicate}`);
-        state.addChat(OFFICE_SENDER, `⚠️ ${duplicate}`);
+        state.addOfficeNote(`⚠️ ${duplicate}`, { taskId: task.id });
       }
       // Менеджеру предупреждение уходит вместе с известием о слиянии, а не
       // отдельным сообщением: лишний заход сессии стоит денег и внимания.
@@ -887,7 +887,7 @@ const step: Executor<Ctx> = {
       const note = state.say('wf.stepNoRole', {
         node: node.id, needs: needs.join(', '), outcome: node.noRole,
       });
-      state.addChat(OFFICE_SENDER, state.say('wf.stepNoRoleChat', { task: task.id, problem: note }));
+      state.addOfficeNote(state.say('wf.stepNoRoleChat', { task: task.id, problem: note }), { taskId: task.id });
       state.addLog(null, 'system', `${task.id}: ${note}`);
       return {
         outcome: node.noRole, note,
@@ -920,7 +920,7 @@ const step: Executor<Ctx> = {
     if (out.actor) {
       // Владельцу в чат — подпись исполнителя: код экземпляра ему ни о чём.
       const who = state.instances.get(out.actor)?.label ?? out.actor;
-      state.addChat(OFFICE_SENDER, state.say('wf.stepStart', { task: task.id, node: node.id, who }));
+      state.addOfficeNote(state.say('wf.stepStart', { task: task.id, node: node.id, who }), { taskId: task.id });
     }
     await settle(state, worktree, task, node.id, out.actor);
     if (!out.ok || !out.outcome) {
@@ -929,7 +929,7 @@ const step: Executor<Ctx> = {
         note: state.say('wf.stepFailed', { node: node.id, problem: out.error ?? state.say('review.noStepVerdict') }),
       };
     }
-    state.addChat(OFFICE_SENDER, state.say('wf.stepDone', { task: task.id, node: node.id, outcome: out.outcome }));
+    state.addOfficeNote(state.say('wf.stepDone', { task: task.id, node: node.id, outcome: out.outcome }), { taskId: task.id });
     return {
       outcome: out.outcome, note: out.summary, actor: out.actor,
       artifact: { kind: 'report', text: out.summary, ref: out.outcome },
@@ -1029,7 +1029,7 @@ const gate: Executor<Ctx> = {
     if (!question) {
       const missing = await missingArtifact(ctx);
       if (missing) {
-        state.addChat(OFFICE_SENDER, state.say('wf.gateNoArtifactChat', { task: task.id, problem: missing }));
+        state.addOfficeNote(state.say('wf.gateNoArtifactChat', { task: task.id, problem: missing }), { taskId: task.id });
         state.addLog(null, 'system', `${task.id}: ${missing}`);
         return {
           outcome: 'no', note: missing,
@@ -1044,7 +1044,7 @@ const gate: Executor<Ctx> = {
         assumption: state.say('wf.gateAssumption'),
         options: [yes, no],
       });
-      state.addChat(OFFICE_SENDER, state.say('wf.gateChat', { task: task.id, what, id: question.id }));
+      state.addOfficeNote(state.say('wf.gateChat', { task: task.id, what, id: question.id }), { taskId: task.id });
       state.addLog(null, 'system', state.say('questions.askedLog', { id: question.id, text: what }));
     }
     run.waitingOn = question.id;
@@ -1056,14 +1056,14 @@ const gate: Executor<Ctx> = {
     if (!closed) return { outcome: 'no', note: state.say('wf.gateGone', { id: question.id }) };
     if (!closed.answeredAt) {
       // Закрыт вместе с задачей — владельцу об этом отказе сказать нечего.
-      if (!closed.closedWhy) state.addChat(OFFICE_SENDER, state.say('wf.gateDismissed', { id: question.id }));
+      if (!closed.closedWhy) state.addOfficeNote(state.say('wf.gateDismissed', { id: question.id }), { taskId: task.id });
       return { outcome: 'no', note: state.say('wf.gateDismissed', { id: question.id }), artifact: { kind: 'decision', text: '', ref: 'no' } };
     }
     const answer = closed.answer ?? '';
     const yes = gateAnswerYes(answer);
-    state.addChat(OFFICE_SENDER, yes
+    state.addOfficeNote(yes
       ? state.say('wf.gateYes', { task: task.id, id: question.id })
-      : state.say('wf.gateNo', { task: task.id, id: question.id, answer }));
+      : state.say('wf.gateNo', { task: task.id, id: question.id, answer }), { taskId: task.id });
     return { outcome: yes ? 'yes' : 'no', note: answer, artifact: { kind: 'decision', text: answer, ref: yes ? 'yes' : 'no' } };
   },
   exhausted(ctx, last, count): Halt {
@@ -1160,7 +1160,7 @@ function markStuck(
   // карточка на каждую из трёх попыток была бы шумом. Карточку «встал» в чат
   // задачи получает только окончательная остановка, та, что зовёт менеджера.
   if (!needsDecision) {
-    state.addChat(OFFICE_SENDER, state.say('pipe.stuckChat', { task: task.id, why }));
+    state.addOfficeNote(state.say('pipe.stuckChat', { task: task.id, why }), { taskId: task.id });
     return;
   }
   state.addTaskEvent(task.id, 'stuck', why);

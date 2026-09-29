@@ -39,7 +39,7 @@ import {
   reorderEpics, setPlanAgents, type PlannedEpic,
 } from './plan';
 import {
-  prDiff, retryPipeline, runPipeline, setPipelineAgents, maxRounds,
+  prDiff, retryPipeline, runPipeline, setPipelineAgents, maxRounds, tellPmByChat,
   type StepOutcome, type StepRequest,
   type ReviewOutcome, type ReworkOutcome,
 } from './review';
@@ -110,8 +110,8 @@ export function slotProblem(state: OfficeState): string | null {
 function queueForSlot(state: OfficeState, task: Task, problem: string): void {
   if (state.waitingForSlot.has(task.id)) return;
   state.waitingForSlot.add(task.id);
-  state.addChat(OFFICE_SENDER,
-    state.say('agent.queue.chat', { task: task.id, title: task.title, problem }));
+  state.addOfficeNote(
+    state.say('agent.queue.chat', { task: task.id, title: task.title, problem }), { taskId: task.id });
   state.addLog(null, 'system', state.say('agent.queue.log', { task: task.id }));
 }
 
@@ -167,9 +167,9 @@ function startWaiting(): void {
       if (slotProblem(state)) return;      // мест снова нет — ждём следующего освобождения
       const outcome = officeAssign(state, taskId);
       if (!outcome.ok) return;             // пауза, бюджет, некому взять — попробуем позже
-      state.addChat(OFFICE_SENDER, state.say('agent.queue.started', {
+      state.addOfficeNote(state.say('agent.queue.started', {
         task: taskId, title: task.title, message: outcome.message,
-      }));
+      }), { taskId });
     }
   }
 }
@@ -198,9 +198,9 @@ onEnvReady((state) => {
       if (!fresh || fresh.status !== 'backlog' || fresh.assigneeId) continue;
       const outcome = officeAssign(state, fresh.id);
       if (outcome.ok) {
-        state.addChat(OFFICE_SENDER, state.say('agent.queue.started', {
+        state.addOfficeNote(state.say('agent.queue.started', {
           task: fresh.id, title: fresh.title, message: outcome.message,
-        }));
+        }), { taskId: fresh.id });
       }
       // Отказ не разбираем: слотов нет — officeAssign сам поставил задачу в
       // очередь за слотом, остальные причины (пауза, бюджет, некому взять)
@@ -2988,7 +2988,7 @@ function startWorker(
         });
         taskOffice.addLog(inst.id, 'system', taskOffice.say('agent.log.taskLimited', { task: task.id }));
         taskOffice.setState(inst.id, 'idle', null);
-        taskOffice.addChat(OFFICE_SENDER, taskOffice.say('agent.chat.limited', { task: task.id, when }));
+        taskOffice.addOfficeNote(taskOffice.say('agent.chat.limited', { task: task.id, when }), { taskId: task.id });
       } else {
         taskOffice.addLog(inst.id, 'error',
           taskOffice.say('agent.log.taskFailed', { task: task.id, error: message }));
@@ -3126,7 +3126,7 @@ export function stopTask(state: OfficeState, taskId: string): void {
   if (!task) return;
   const inst = [...state.instances.values()].find((i) => i.currentTaskId === taskId);
   if (!inst?.abort) {
-    state.addChat(OFFICE_SENDER, state.say('restart.notRunning', { task: taskId }));
+    state.addOfficeNote(state.say('restart.notRunning', { task: taskId }), { taskId });
     return;
   }
   state.stoppedByUser.add(taskId);
@@ -3150,7 +3150,7 @@ export async function retryTask(
   // забыть одно из них.
   const no = (key: ServerKey, vars?: Vars): { ok: false; message: string } => {
     const text = state.say(key, vars);
-    if (!opts.quiet) state.addChat(OFFICE_SENDER, text);
+    if (!opts.quiet) state.addOfficeNote(text, { taskId });
     return { ok: false, message: text };
   };
   const task = state.tasks.get(taskId);
@@ -3195,7 +3195,7 @@ export async function retryTask(
     if (worthKeeping) {
       const kept = await preserveBranch(repo, task.branch);
       if (kept) {
-        state.addChat(OFFICE_SENDER, state.say('restart.branchKept', { task: taskId, branch: kept }));
+        state.addOfficeNote(state.say('restart.branchKept', { task: taskId, branch: kept }), { taskId });
       }
     }
   }
@@ -3228,23 +3228,23 @@ export function assignDirect(state: OfficeState, taskId: string, instanceId: str
   if (task.assigneeId && task.status === 'in_progress') {
     // В чат владельцу — подпись исполнителя, а не код экземпляра.
     const busy = state.instances.get(task.assigneeId);
-    state.addChat(OFFICE_SENDER, state.say('start.alreadyRunning', {
+    state.addOfficeNote(state.say('start.alreadyRunning', {
       task: taskId, who: busy?.label ?? task.assigneeId,
-    }));
+    }), { taskId });
     return;
   }
   // Кнопка «отдать этому» есть и у снятой задачи — на доске она видна так же,
   // как остальные. Запускать её нельзя: от задачи отказались.
   if (task.status === 'cancelled') {
-    state.addChat(OFFICE_SENDER, state.say('start.cancelled', { task: taskId }));
+    state.addOfficeNote(state.say('start.cancelled', { task: taskId }), { taskId });
     return;
   }
   if (inst.currentTaskId) {
-    state.addChat(OFFICE_SENDER, state.say('start.workerBusy', { who: inst.label, task: inst.currentTaskId }));
+    state.addOfficeNote(state.say('start.workerBusy', { who: inst.label, task: inst.currentTaskId }), { taskId });
     return;
   }
   if (state.paused) {
-    state.addChat(OFFICE_SENDER, state.say('start.paused', { task: taskId }));
+    state.addOfficeNote(state.say('start.paused', { task: taskId }), { taskId });
     return;
   }
   if (state.archived) {
@@ -3433,8 +3433,9 @@ export function setPaused(state: OfficeState, paused: boolean): void {
   // отказ на assign_task и ждёт. Без этого напоминания доска молча стоит.
   const waiting = [...state.tasks.values()].filter((t) => t.status === 'backlog' && !t.assigneeId);
   if (!paused && waiting.length > 0) {
-    notifyPm(state,
-      state.say('agent.pmMsg.resumed', { tasks: waiting.map((t) => t.id).join(', ') }));
+    // Каждому чату — про свои задачи: ждут-то их менеджеры разных разговоров.
+    tellPmByChat(state, waiting,
+      (group) => state.say('agent.pmMsg.resumed', { tasks: group.map((t) => t.id).join(', ') }));
   }
 }
 
