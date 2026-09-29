@@ -2232,8 +2232,12 @@ async function main(): Promise<void> {
   // Реплика владельца — ровно как её кладёт sendUserMessage, но без сессии менеджера.
   pmc.addChat('user', 'Тексты писем для рассылки\nи ещё детали', 'pm#1', undefined, created.id);
   const autoTitled = pmc.pmChats.get(created.id)!.title === 'Тексты писем для рассылки';
-  pmc.addChat('pm#1', 'принял');
+  pmc.addChat('pm#1', 'принял', 'pm#1', undefined, created.id);
   const replyFollows = pmc.chat.at(-1)?.chatId === created.id;
+  // Без чата ответ не ищет «где владелец писал последним»: у каждого чата
+  // своя сессия, и такая догадка увела бы реплику в чужой разговор.
+  pmc.addChat('pm#1', 'без чата');
+  const replyNoGuess = pmc.chat.at(-1)?.chatId === mainChat?.id;
   pmc.addChat(OFFICE_SENDER, 'задача влита');
   const officeToMain = pmc.chat.at(-1)?.chatId === mainChat?.id;
   const renamed = pmc.renamePmChat(created.id, '  Письма  ');
@@ -2253,7 +2257,8 @@ async function main(): Promise<void> {
     `создание чата эхом возвращает nonce: ${createdEcho}`,
     `новый чат не основной и назван по умолчанию: ${createdPlain}`,
     `чат назван по первой реплике: ${autoTitled}`,
-    `ответ менеджера лёг в чат, где спросили: ${replyFollows}`,
+    `ответ менеджера лёг в свой чат: ${replyFollows}`,
+    `ответ менеджера без чата — в основной, без догадок: ${replyNoGuess}`,
     `реплика офиса без привязки — в основной чат: ${officeToMain}`,
     `переименование принято, пустое и чужое — нет: ${renamed && !emptyRename && !unknownRename}`,
     `ручное название не затирается следующей репликой: ${manualKept}`,

@@ -1,9 +1,11 @@
 import { useLayoutEffect, useRef } from 'react';
+import type { ChatEntry } from '../shared/types';
 import { isOfficeSender } from '../shared/types';
-import { draftKey, inPmChat, useStore } from './store';
+import { inPmChat, shownDraft, useStore } from './store';
 import { t } from './i18n';
 import { AgentTag } from './Avatar';
 import { ChatPeer } from './ChatPeer';
+import { CardGroup, RefCard, TaskCard } from './ChatCards';
 import { hasTime, dayKey, formatDayLabel, formatClock, formatFullDateTime } from './dates';
 
 /**
@@ -21,9 +23,9 @@ export function ChatThread() {
   // Реплика, которую собеседник пишет прямо сейчас. Рисуется на месте будущего
   // ответа и исчезает, когда готовая реплика ложится в ленту.
   // У менеджера сессия на каждый чат, и черновик у каждой свой: берём тот,
-  // что пишется в открытый чат.
+  // что пишется в открытый чат, строго по его chatId (см. `shownDraft`).
   const pmChatId = useStore((s) => s.pmChatId);
-  const draft = useStore((s) => s.drafts[draftKey(s.thread, s.thread === 'pm#1' ? s.pmChatId : null)]);
+  const draft = useStore(shownDraft);
   const noChats = useStore((s) => Object.keys(s.pmChats).length === 0);
   const createPmChat = useStore((s) => s.createPmChat);
   const box = useRef<HTMLDivElement>(null);
@@ -35,6 +37,7 @@ export function ChatThread() {
     ? chat.filter((m) => inPmChat(m, pmChatId))
     : chat.filter((m) => m.thread === thread);
   const last = shown[shown.length - 1];
+  const items = groupRefs(shown);
 
   const toBottom = (el: HTMLDivElement) => { el.scrollTop = el.scrollHeight; };
 
@@ -108,18 +111,18 @@ export function ChatThread() {
             {t(thread === 'pm#1' ? 'chat.empty.pm' : 'chat.empty')}
           </p>
         )}
-        {shown.map((m, i) => {
+        {items.map(({ m, group }, i) => {
           // Разделитель дня перед первым сообщением новых суток. Реплики без
           // времени (старые, до появления поля) день не считают и разделителя
           // не ставят — они просто идут подряд без даты.
-          const prev = shown[i - 1];
+          const prev = i > 0 ? items[i - 1].m : undefined;
           const showDaySep = hasTime(m.at) && (!prev || !hasTime(prev.at) || dayKey(prev.at) !== dayKey(m.at));
           return (
             <div key={m.id}>
               {showDaySep && (
                 <div className="chat-date-sep"><span>{formatDayLabel(m.at)}</span></div>
               )}
-              <div className={`msg ${m.from === 'user' ? 'from-user' : 'from-agent'}`}>
+              <div className={`msg ${m.from === 'user' ? 'from-user' : 'from-agent'}${m.ref ? ' msg-card' : ''}`}>
                 <div className="msg-from">
                   <span className="msg-from-name">
                     {m.from === 'user'
@@ -130,7 +133,11 @@ export function ChatThread() {
                     <span className="msg-time" title={formatFullDateTime(m.at)}>{formatClock(m.at)}</span>
                   )}
                 </div>
-                <div className="msg-text">{m.text}</div>
+                {group ? (
+                  <CardGroup title={t('chatCard.group.tasks', { n: group.length })}>
+                    {group.map((g) => g.ref?.kind === 'task' && <TaskCard key={g.id} id={g.ref.id} entry={g} bare />)}
+                  </CardGroup>
+                ) : m.ref ? <RefCard refTo={m.ref} entry={m} /> : <div className="msg-text">{m.text}</div>}
               </div>
             </div>
           );
@@ -152,4 +159,23 @@ export function ChatThread() {
       </div>
     </>
   );
+}
+
+/**
+ * Задачи, заведённые менеджером одним шагом, идут подряд отдельными
+ * ссылками — в ленте они собираются под одну обёртку (§5 каталога карточек),
+ * а не рассыпаются блоками. Одна задача обёртки не получает.
+ */
+function groupRefs(list: ChatEntry[]): { m: ChatEntry; group?: ChatEntry[] }[] {
+  const out: { m: ChatEntry; group?: ChatEntry[] }[] = [];
+  for (let i = 0; i < list.length; i++) {
+    const m = list[i];
+    let j = i;
+    while (j + 1 < list.length && list[j + 1].ref?.kind === 'task' && list[j + 1].from === m.from) j++;
+    if (m.ref?.kind === 'task' && j > i) {
+      out.push({ m, group: list.slice(i, j + 1) });
+      i = j;
+    } else out.push({ m });
+  }
+  return out;
 }
