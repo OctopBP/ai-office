@@ -5,7 +5,7 @@ import { Icon } from '../icons';
 import { Hint, Tooltip } from '../Tooltip';
 import { HOTKEY } from '../hotkeys';
 
-const VIEWS: View[] = ['office', 'board', 'chat'];
+const VIEWS: View[] = ['office', 'board', 'chat', 'life'];
 
 /**
  * Верхний ряд поверх сцены: сегменты видов по центру, справа пауза и главная
@@ -20,6 +20,11 @@ export function TopBar() {
   // Менеджер ответил, пока смотрели не чат: сегмент зажигает точку. Сколько
   // именно реплик пришло — неважно, важен сам факт «там появилось новое».
   const chatUnread = useStore((s) => s.chatUnread);
+  // Бейдж «Жизни офиса» — число вопросов владельцу, ждущих решения. Считает
+  // сервер (openQuestions в сторе), здесь только форматирование: 0 — бейджа
+  // нет вовсе, больше 9 — «9+», чтобы сегмент не гулял по ширине.
+  const openQuestions = useStore((s) => s.openQuestions);
+  const lifeBadge = openQuestions > 0 ? (openQuestions > 9 ? '9+' : String(openQuestions)) : null;
 
   return (
     <div className="shell-top">
@@ -29,6 +34,7 @@ export function TopBar() {
           <button key={v} className={view === v ? 'on' : ''} onClick={() => setView(v)}>
             {t(`shell.view.${v}`)}
             {v === 'chat' && chatUnread && <i className="seg-dot" />}
+            {v === 'life' && lifeBadge && <span className="seg-badge">{lifeBadge}</span>}
           </button>
         ))}
       </div>

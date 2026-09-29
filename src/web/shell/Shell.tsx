@@ -1,6 +1,7 @@
 import { Office3D } from '../office3d/Office3D';
 import { Board } from '../Board';
 import { ChatThread } from '../ChatThread';
+import { LifePanel } from '../LifePanel';
 import { PmChatList } from './PmChatList';
 import { Toasts } from '../Toasts';
 import { Overlays, type OverlayProps } from '../Overlays';
@@ -10,11 +11,12 @@ import { Composer } from './Composer';
 import { EnvBanner } from './EnvBanner';
 import { UpdateBanner } from './UpdateBanner';
 import { useStore } from '../store';
+import { t } from '../i18n';
 import type { SpotTarget } from '../office3d/Hotspots3D';
 
 /**
  * Новая оболочка по макету «11 · оболочка в новом стиле»: сцена во всё окно,
- * поверх неё слева рейл офисов и окон, сверху сегменты «Офис · Доска · Чат»
+ * поверх неё слева рейл офисов и окон, сверху сегменты «Офис · Доска · Чат · Жизнь офиса»
  * с паузой и главной кнопкой, снизу композер. Всё, что открывается поверх
  * (панели, дроверы, модалки), — общий `Overlays`, тот же, что у прежнего HUD.
  *
@@ -54,6 +56,12 @@ export function Shell(props: OverlayProps) {
           <div className="shell-view shell-chat">
             <PmChatList />
             <div className="shell-chat-col"><ChatThread /></div>
+          </div>
+        )}
+        {view === 'life' && (
+          <div className="shell-view shell-life">
+            <h2 className="shell-life-title">{t('life.title')}</h2>
+            <LifePanel />
           </div>
         )}
         <Toasts onOpenTask={(id) => { setView('board'); openTaskCard(id); }} />

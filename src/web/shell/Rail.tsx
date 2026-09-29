@@ -168,14 +168,13 @@ function useOfficeDrag(offices: OfficeView[]) {
   };
 }
 
-type WindowKind = 'board' | 'merge' | 'log' | 'money' | 'meetings' | 'life' | 'flows' | 'releases' | 'team' | 'settings';
+type WindowKind = 'board' | 'merge' | 'log' | 'money' | 'meetings' | 'flows' | 'releases' | 'team' | 'settings';
 const WINDOWS: Array<{ kind: WindowKind; icon: IconName }> = [
   { kind: 'board', icon: 'list-check' },
   { kind: 'merge', icon: 'git-merge' },
   { kind: 'log', icon: 'file-text' },
   { kind: 'money', icon: 'coin' },
   { kind: 'meetings', icon: 'message' },
-  { kind: 'life', icon: 'book' },
   { kind: 'flows', icon: 'grid-dots' },
   { kind: 'releases', icon: 'package' },
   { kind: 'team', icon: 'users' },
@@ -224,11 +223,6 @@ export function Rail({ onPanel, onModal }: {
   const counts: Partial<Record<WindowKind, number>> = {
     board: active, merge: readyToMerge, meetings: meetingLive ? 1 : 0, releases: releasesLive,
   };
-  // Бейдж «Жизни офиса» — число вопросов владельцу, ждущих решения. Считает
-  // сервер (openQuestions в сторе), здесь только форматирование: 0 — бейджа
-  // нет вовсе, больше 9 — «9+», чтобы вкладка не гуляла по ширине.
-  const openQuestions = useStore((s) => s.openQuestions);
-  const lifeBadge = openQuestions > 0 ? (openQuestions > 9 ? '9+' : String(openQuestions)) : null;
 
   // «Сегодня» — по агентам, как в HUD: общая сумма врала после перезапуска.
   const today = Object.values(instances).reduce((sum, i) => sum + i.today.costUsd, 0);
@@ -331,7 +325,6 @@ export function Rail({ onPanel, onModal }: {
       <div className="rail-windows">
         {WINDOWS.map(({ kind, icon }) => {
           const n = counts[kind];
-          const badge = kind === 'life' ? lifeBadge : null;
           const key = (HOTKEY as Partial<Record<WindowKind, string>>)[kind];
           return (
             // Подсказка — только свёрнутому рейлу: развёрнутый и так подписан.
@@ -343,7 +336,6 @@ export function Rail({ onPanel, onModal }: {
                 </span>
                 <span className="rail-win-label">{t(`shell.win.${kind}`)}</span>
                 {n ? <span className="rail-win-count">{n}</span> : null}
-                {badge && <span className="rail-win-badge">{badge}</span>}
                 {key && <Kbd keys={key} className="rail-win-key" />}
               </button>
             </Tooltip>

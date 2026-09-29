@@ -13,14 +13,13 @@ import { SettingsModal } from './SettingsModal';
 import { MeetingModal } from './MeetingModal';
 import { MoneyBoard } from './MoneyBoard';
 import { OfficesModal } from './OfficesModal';
-import { LifePanel } from './LifePanel';
 import { FlowsPanel } from './FlowsPanel';
 import { ReleasesPanel } from './ReleasesPanel';
 import { MeetingsPanel } from './MeetingsPanel';
 import { t } from './i18n';
 import { EventLog } from './EventLog';
 
-export type PanelKind = 'board' | 'money' | 'log' | 'help' | 'merge' | 'life' | 'flows' | 'releases' | 'meetings' | null;
+export type PanelKind = 'board' | 'money' | 'log' | 'help' | 'merge' | 'flows' | 'releases' | 'meetings' | null;
 export type ModalKind = 'settings' | 'meeting' | 'offices' | 'team' | null;
 
 export interface OverlayProps {
@@ -52,11 +51,6 @@ export function Overlays({ panel, setPanel, modal, setModal }: OverlayProps) {
         <Panel title={t('panel.review')} wide hotkey={HOTKEY.merge} onClose={() => setPanel(null)}>
           <PrPipeline />
           <MergeQueue />
-        </Panel>
-      )}
-      {panel === 'life' && (
-        <Panel title={t('life.title')} wide hotkey={HOTKEY.life} onClose={() => setPanel(null)}>
-          <LifePanel />
         </Panel>
       )}
       {panel === 'flows' && (
