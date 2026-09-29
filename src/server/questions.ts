@@ -103,13 +103,11 @@ export function askOwner(
   }
   const question = state.addQuestion({
     from, taskId, kind: 'assumption', text, assumption: assumption || state.say('questions.noAssumption'),
-    options: questionOptions(options, text),
+    options: questionOptions(options, text), chatId: questionChat(state, taskId, chatId),
   });
   state.addLog(from === OFFICE_SENDER ? null : from, 'system',
     state.say('questions.askedLog', { id: question.id, text: clip(text, 120) }));
-  // Вопрос по задаче виден в её чате: там владелец о ней и разговаривал.
-  state.addChatRef({ kind: 'question', id: question.id },
-    chatId ?? (taskId ? state.tasks.get(taskId)?.chatId : null));
+  state.addChatRef({ kind: 'question', id: question.id }, question.chatId);
   const merged = replaces.filter((id) => mergeQuestion(state, id, question.id).ok);
   const note = merged.length ? ` ${state.say('questions.replacedOk', { ids: merged.join(', ') })}` : '';
   return { ok: true, text: state.say('questions.askedOk', { id: question.id }) + note, question };
@@ -125,10 +123,21 @@ export function officeAsks(
   if (same) return same;
   const question = state.addQuestion({
     from: OFFICE_SENDER, taskId, kind, text, assumption, options: questionOptions(options, text),
+    chatId: questionChat(state, taskId),
   });
   state.addLog(null, 'system', state.say('questions.askedLog', { id: question.id, text: clip(text, 120) }));
-  if (taskId) state.addChatRef({ kind: 'question', id: question.id }, state.tasks.get(taskId)?.chatId);
+  state.addChatRef({ kind: 'question', id: question.id }, question.chatId);
   return question;
+}
+
+/**
+ * Чат, в котором живёт вопрос (спека T-125 §4): названный явно (менеджер
+ * спросил из своего чата), иначе чат задачи или её фичи, а без привязки —
+ * основной. Вопрос без чата владелец увидел бы только в «Жизни офиса», а
+ * индикатор «ждёт вас» в списке чатов его бы не заметил.
+ */
+function questionChat(state: OfficeState, taskId: string | null, chatId?: string | null): string {
+  return state.pmChatFor({ chatId, taskId }) ?? state.ensureMainChat().id;
 }
 
 /**
@@ -157,13 +166,16 @@ export function answerQuestion(state: OfficeState, askedId: string, answer: stri
     scope: question.kind === 'assumption' && roleId ? `role:${roleId}` : 'project',
     source: { questionId: id, ...(question.taskId ? { taskId: question.taskId } : {}) },
   });
-  state.addChat(OFFICE_SENDER, state.say('questions.answeredChat', { id, fact: fact.id }));
-  // Ответ — в сессию чата задачи вопроса: там его и ждут.
+  // Откуда бы ни пришёл ответ — кнопкой в карточке, строкой «Q-3: да» в
+  // любом чате или из «Жизни офиса», — подтверждение и весть менеджеру идут
+  // в чат вопроса: там его задали и там его ждёт сессия менеджера.
+  state.addChat(OFFICE_SENDER, state.say('questions.answeredChat', { id, fact: fact.id }),
+    'pm#1', undefined, question.chatId);
   tellPm(state, state.say('questions.pmAnswered', {
     id, question: question.text, assumption: question.assumption, answer: text,
     task: [question.taskId, ...along.map((q) => q.taskId)].filter(Boolean).join(', ') || '—',
   }) + (along.length ? `\n${state.say('questions.pmAlong', { ids: along.map((q) => q.id).join(', ') })}` : ''),
-  { taskId: question.taskId });
+  { chatId: question.chatId, taskId: question.taskId });
   return true;
 }
 

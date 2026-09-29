@@ -1438,7 +1438,7 @@ export class OfficeState {
 
   addQuestion(input: {
     from: string; taskId: string | null; kind: OwnerQuestion['kind']; text: string; assumption: string;
-    options?: string[];
+    options?: string[]; chatId?: string | null;
   }): OwnerQuestion {
     this.questionSeq += 1;
     // Вариантов либо нет вовсе, либо их больше одного: один вариант — не выбор.
@@ -1447,6 +1447,7 @@ export class OfficeState {
       id: `Q-${this.questionSeq}`,
       from: input.from,
       taskId: input.taskId,
+      ...(input.chatId ? { chatId: input.chatId } : {}),
       kind: input.kind,
       text: input.text.trim(),
       assumption: input.assumption.trim(),
