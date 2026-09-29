@@ -160,7 +160,6 @@ body.office-dragging, body.office-dragging * { cursor: grabbing !important; user
   font-weight: 400; color: var(--ink-2);
 }
 .rail-win:hover:not(:disabled) { background: var(--film); }
-.rail-win.on { background: var(--film-2); color: var(--ink); }
 .rail-win-icon {
   width: 16px; height: 16px; border-radius: var(--radius-icon); background: var(--film-3);
   display: flex; align-items: center; justify-content: center; flex: none;

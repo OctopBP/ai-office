@@ -815,7 +815,6 @@ export const en = {
   "shell.windows": "Office windows",
   "shell.newOffice": "+  New office",
   "shell.officeStatus": "{n} agent · {working} working|{n} agents · {working} working",
-  "shell.win.board": "Task board",
   "shell.win.merge": "Merge queue",
   "shell.win.log": "Event log",
   "shell.win.money": "Spending",
