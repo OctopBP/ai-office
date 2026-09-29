@@ -733,6 +733,8 @@ export const en = {
   'chat.ref.epic': 'Feature {id} «{title}» created.',
   'chat.ref.plan': 'Plan created: {epics}, {n} task|Plan created: {epics}, {n} tasks',
   'chat.ref.question': 'Question to the owner {id}: {text}',
+  'chat.ref.merged': 'Task {id} «{title}» merged into {base}.',
+  'chat.ref.stuck': '{id}: the pipeline is stuck and waiting for a decision. {why}',
 
   'questions.noSuch': 'There is no open question {id}.',
   'questions.empty': 'The question is empty — there is nothing to ask.',

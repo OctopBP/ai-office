@@ -337,6 +337,8 @@ export function RefCard({ refTo, entry }: { refTo: ChatRef; entry: ChatEntry }) 
     case 'task': return <TaskCard id={refTo.id} entry={entry} />;
     case 'epic': return <EpicCard id={refTo.id} entry={entry} />;
     case 'question': return <QuestionCard id={refTo.id} entry={entry} />;
+    // Своей карточки у события пока нет — запасная строка, чтобы оно не пропало.
+    case 'event': return <div className="msg-text">{entry.text}</div>;
     case 'plan':
       return (
         <CardGroup title={t('chatCard.group.plan', { n: refTo.epicIds.length })}>

@@ -3001,8 +3001,25 @@ export class OfficeState {
     if (!chatId || !this.pmChats.has(chatId)) return;
     // Автор вопроса — тот, кто спросил (исполнитель, офис), а не менеджер:
     // шапка карточки называет источник вопроса.
-    const from = ref.kind === 'question' ? this.questions.get(ref.id)?.from ?? 'pm#1' : 'pm#1';
+    // Событие конвейера говорит сам офис: менеджер его не произносил.
+    const from = ref.kind === 'question' ? this.questions.get(ref.id)?.from ?? 'pm#1'
+      : ref.kind === 'event' ? OFFICE_SENDER : 'pm#1';
     this.addChat(from, this.chatRefText(ref), 'pm#1', undefined, chatId, ref);
+  }
+
+  /**
+   * Событие конвейера по задаче — «влито» или «встал» (§4 каталога T-126) —
+   * в её чат: чат задачи, иначе её фичи, иначе основной. В отличие от
+   * заведения сущности, без привязки событие не теряется: влитую задачу
+   * владелец должен увидеть, даже если её завёл ритуал.
+   */
+  addTaskEvent(taskId: string, event: 'merged' | 'stuck', why?: string): void {
+    const chatId = this.pmChatFor({ taskId }) ?? this.ensureMainChat().id;
+    const clean = why?.trim();
+    this.addChatRef({
+      kind: 'event', taskId, event, at: Date.now(),
+      ...(event === 'stuck' && clean ? { why: clipText(clean, 200) } : {}),
+    }, chatId);
   }
 
   /**
@@ -3019,6 +3036,14 @@ export class OfficeState {
     if (ref.kind === 'plan') {
       const tasks = [...this.tasks.values()].filter((t) => t.epicId && ref.epicIds.includes(t.epicId)).length;
       return this.say('chat.ref.plan', { epics: ref.epicIds.join(', '), n: tasks });
+    }
+    if (ref.kind === 'event') {
+      const title = this.tasks.get(ref.taskId)?.title ?? '';
+      if (ref.event === 'merged') {
+        const base = this.prOf(ref.taskId)?.base ?? this.tasks.get(ref.taskId)?.baseBranch ?? 'main';
+        return this.say('chat.ref.merged', { id: ref.taskId, title, base });
+      }
+      return this.say('chat.ref.stuck', { id: ref.taskId, why: ref.why ?? '' }).trim();
     }
     return this.say('chat.ref.question', { id: ref.id, text: clipText(this.questions.get(ref.id)?.text ?? '', 200) });
   }

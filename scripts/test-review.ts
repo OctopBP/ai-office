@@ -26,6 +26,7 @@ import { resetProjectWorkflow, saveProjectWorkflow, workflowCatalog } from '../s
 import type { TaskType } from '../src/shared/workflow';
 import { superviseOffice } from '../src/server/supervisor';
 import { MessageQueue } from '../src/server/queue';
+import { OFFICE_SENDER } from '../src/shared/types';
 
 // Проверки сверяют тексты офиса дословно и написаны по-русски — значит,
 // и офисы здесь должны быть русскими. Язык нового офиса берётся из
@@ -185,6 +186,10 @@ function stub(input: Partial<Stub> = {}): Stub {
   return s;
 }
 
+/** Карточки-события конвейера (§4 каталога T-126) по задаче в ленте чатов. */
+const eventRefs = (taskId: string, event: 'merged' | 'stuck') =>
+  office.chat.filter((m) => m.ref?.kind === 'event' && m.ref.taskId === taskId && m.ref.event === event);
+
 async function main(): Promise<void> {
   office.setStateFile(resolve(tmpdir(), `office-review-state-${process.pid}.json`));
   const dir = fixture();
@@ -198,6 +203,8 @@ async function main(): Promise<void> {
   // 1. Чистая ветка + одобрение ревьюера: влито и убрано за собой.
   {
     const task = taskBranch(dir, 'A', { 'a.txt': 'A\n' });
+    const own = office.createPmChat('Чат задачи A');
+    office.updateTask(task.id, { chatId: own.id });
     const s = stub();
     await runPipeline(office, task.id);
 
@@ -213,6 +220,12 @@ async function main(): Promise<void> {
     check('ревьюера спросили один раз', s.calls.reviews === 1);
     check('автора не дёргали', s.calls.reworks === 0);
     check('менеджеру сообщили о слиянии', s.pm.some((m) => m.includes('влита')));
+    const merged = eventRefs(task.id, 'merged');
+    check('в чат задачи — ровно одна карточка «влито»',
+      merged.length === 1 && merged[0].chatId === own.id && merged[0].from === OFFICE_SENDER);
+    check('у карточки есть время и запасной текст',
+      merged[0]?.ref?.kind === 'event' && merged[0].ref.at > 0 && merged[0].text.includes(task.id));
+    check('карточки «встал» нет', eventRefs(task.id, 'stuck').length === 0);
   }
 
   // 2. База уехала: конфликт разбирает автор в своей копии, main не трогаем.
@@ -474,6 +487,8 @@ async function main(): Promise<void> {
     check('надзор перезапустил и задача доехала', office.tasks.get(task.id)?.merged === true);
     check('попытка посчитана', (office.prOf(task.id)?.retries ?? 0) >= 1);
     check('менеджера так и не дёрнули', s.pm.every((m) => !m.includes('не доехала')));
+    check('автоперезапуск карточек «встал» не плодит', eventRefs(task.id, 'stuck').length === 0);
+    check('слияние после перезапуска — одна карточка «влито»', eventRefs(task.id, 'merged').length === 1);
   }
 
   // 12. Попытки кончились — офис зовёт менеджера, а не пользователя, и один раз.
@@ -482,6 +497,7 @@ async function main(): Promise<void> {
     moveBase(dir, 'shared.txt', 'main поменялся до M\n');
     const s = stub({ rework: () => ({ ok: false, message: 'не смог' }) });
     await runPipeline(office, task.id);
+    const firstStop = eventRefs(task.id, 'stuck').length;
     // Три прохода надзора с уже наступившим сроком — это и есть три попытки.
     for (let i = 0; i < 4; i += 1) {
       office.patchPr(task.id, { nextTryAt: null });
@@ -498,12 +514,20 @@ async function main(): Promise<void> {
     check('менеджера позвали один раз',
       s.pm.filter((m) => m.includes('не доехала')).length === 1);
     check('задача не влита', !office.tasks.get(task.id)?.merged);
+    const stuck = eventRefs(task.id, 'stuck');
+    check('проходящая остановка карточки не дала', firstStop === 0);
+    check('окончательная остановка — ровно одна карточка «встал»', stuck.length === 1);
+    check('без привязки карточка легла в основной чат',
+      stuck[0]?.chatId === office.ensureMainChat().id);
+    check('у карточки есть причина',
+      stuck[0]?.ref?.kind === 'event' && Boolean(stuck[0].ref.why));
 
     // Следующий проход уже ничего не трогает: решение за менеджером.
     const before = s.calls.reworks;
     await superviseOffice(office);
     await whenPipelinesIdle(office);
     check('ждущий решения PR надзор больше не дёргает', s.calls.reworks === before);
+    check('и новой карточки «встал» не появилось', eventRefs(task.id, 'stuck').length === 1);
   }
 
   // 12½. Офис отступился — но обстановка изменилась, и он вернулся сам.
@@ -604,6 +628,7 @@ async function main(): Promise<void> {
     check('помечено как «нужно решение»', office.prOf(task.id)?.needsDecision === true);
     check('менеджера позвали сразу', s.pm.some((m) => m.includes('сам он дальше не поедет')));
     check('надзор повторов не устраивал', s.calls.reviews === before);
+    check('остановка, зовущая менеджера, — одна карточка «встал»', eventRefs(task.id, 'stuck').length === 1);
   }
 
   /** Дождаться вопроса-согласования по задаче и ответить на него. */

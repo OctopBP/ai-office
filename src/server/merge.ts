@@ -280,6 +280,9 @@ export async function mergeQueue(taskIds: string[], state: OfficeState): Promise
           ? { result: [task.result, `⚠️ ${duplicate}`].filter(Boolean).join('\n\n') }
           : {}),
       });
+      // Руками влитая задача получает ту же карточку «влито», что и влитая
+      // конвейером: владельцу в чате задачи неважно, кто нажал кнопку.
+      if (outcome.kind === 'merged') state.addTaskEvent(task.id, 'merged');
       // Ветка в основной — значит, зависимые задачи плана могли созреть,
       // а фича закрыться. Слияние руками должно двигать план так же, как
       // это делает конвейер: иначе план стоял бы ровно у тех, кто сливает сам.
