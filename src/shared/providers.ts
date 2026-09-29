@@ -1,6 +1,6 @@
 /** Persisted provider ids. Execution location (local/cloud) is a separate setting. */
 export const PROVIDERS = {
-  'claude-code': { label: 'Claude Code', defaultModel: 'claude-sonnet-5', cloud: true },
+  'claude-code': { label: 'Claude Code', defaultModel: 'claude-sonnet-5-5', cloud: true },
   codex: { label: 'Codex', defaultModel: 'default', cloud: false },
 } as const;
 

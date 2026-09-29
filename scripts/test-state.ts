@@ -1133,6 +1133,8 @@ async function main(): Promise<void> {
   const modelDir = resolve(tmpdir(), 'roles-model-office');
   const { package: _backendLink, ...legacyBackend } = defaultRole('backend', 'ru')!;
   const reviewer = defaultRole('reviewer', 'ru')!;
+  const frontend = defaultRole('frontend', 'ru')!;
+  const backend = defaultRole('backend', 'ru')!;
   save(modelFile, () => ({
     version: 1, projectDir: modelDir, taskSeq: 0, tasks: [], chat: [], log: [],
     instances: [], savedAt: Date.now(),
@@ -1148,6 +1150,16 @@ async function main(): Promise<void> {
       },
       // Роль, заведённая руками: пакета нет, модель хранит она сама.
       { ...legacyBackend, id: 'analyst', title: 'Аналитик', model: 'claude-opus-5' },
+      // Нанятый на умолчании Sonnet 5: разницы с пакетом нет, в сохранении
+      // лежит разрешённый прежним алиасом id.
+      { ...frontend, model: 'claude-sonnet-5', package: { ...frontend.package!, overrides: {} } },
+      // Пакет на Opus, а Sonnet 5 выбрали руками — выбор трогать нельзя.
+      {
+        ...backend,
+        id: 'backend-2',
+        model: 'claude-sonnet-5',
+        package: { ...backend.package!, overrides: { model: 'claude-sonnet-5' } },
+      },
     ],
   }));
   flushAll();
@@ -1164,12 +1176,17 @@ async function main(): Promise<void> {
     `выбранная руками модель переведена и осталась разницей: ${
       modelRoles.role('reviewer')?.model === 'claude-opus-5-5'
       && modelRoles.role('reviewer')?.package?.overrides.model === 'claude-opus-5-5'}`,
+    `нанятый на умолчании Sonnet 5 перешёл на Sonnet 5.5: ${
+      modelRoles.role('frontend')?.model === 'claude-sonnet-5-5'
+      && modelRoles.role('frontend')?.package?.overrides.model === undefined}`,
+    `выбранный руками Sonnet 5 остался: ${modelRoles.role('backend-2')?.model === 'claude-sonnet-5'
+      && modelRoles.role('backend-2')?.package?.overrides.model === 'claude-sonnet-5'}`,
     `модель роли без пакета переведена: ${modelRoles.role('analyst')?.model === 'claude-opus-5-5'}`,
     `повторный перевод ничего не меняет: ${currentModel('claude-opus-5-5') === 'claude-opus-5-5'
       && currentModel('claude-sonnet-5') === 'claude-sonnet-5'
-      && currentModel(currentModel('claude-sonnet-4-5')) === 'claude-sonnet-5'}`,
+      && currentModel(currentModel('claude-sonnet-4-5')) === 'claude-sonnet-5-5'}`,
     // Прошлая версия переводится на последнюю в СВОЁМ семействе, а не в чужом.
-    `старые версии переведены внутри семейства: ${currentModel('claude-sonnet-4-6') === 'claude-sonnet-5'
+    `старые версии переведены внутри семейства: ${currentModel('claude-sonnet-4-6') === 'claude-sonnet-5-5'
       && currentModel('claude-opus-4-8') === 'claude-opus-5-5'
       && currentModel('claude-fable-5') === 'claude-fable-5-1'
       && currentModel('claude-haiku-4-5') === 'claude-haiku-4-5'}`,

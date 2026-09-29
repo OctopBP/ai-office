@@ -361,7 +361,7 @@ export const blankRole = (id: string): Role => ({
   title: id,
   color: '#94a3b8',
   emoji: '🙂',
-  model: 'claude-sonnet-5',
+  model: 'claude-sonnet-5-5',
   isManager: false,
   permissionMode: null,
   isolate: true,
@@ -420,6 +420,13 @@ export function paletteColor(color: string, packageName?: string): string {
  *
  * Таблица только для смены поколения: модель, которую человек вписал руками и
  * которой в таблице нет, остаётся как есть.
+ *
+ * `claude-sonnet-5` здесь нет намеренно: Sonnet 5 остался в списке выбора, и
+ * запись в таблице отменяла бы выбор при каждой загрузке. Нанятые на умолчании
+ * пакета переходят на Sonnet 5.5 и без неё — модели в разнице с пакетом у них
+ * нет, а алиас `sonnet` уже показывает на 5.5. Остаётся на Sonnet 5 только тот,
+ * у кого модель — разница с пакетом, то есть выбор человека, и роль без
+ * пакета: у неё выбор от умолчания формы не отличить.
  */
 const LEGACY_MODELS: Readonly<Record<string, string>> = {
   'claude-fable-5': 'claude-fable-5-1',
@@ -430,10 +437,10 @@ const LEGACY_MODELS: Readonly<Record<string, string>> = {
   'claude-opus-4-5': 'claude-opus-5-5',
   'claude-opus-4-1': 'claude-opus-5-5',
   'claude-opus-4-0': 'claude-opus-5-5',
-  'claude-sonnet-4-6': 'claude-sonnet-5',
-  'claude-sonnet-4-5': 'claude-sonnet-5',
-  'claude-sonnet-4-0': 'claude-sonnet-5',
-  'claude-3-7-sonnet-latest': 'claude-sonnet-5',
+  'claude-sonnet-4-6': 'claude-sonnet-5-5',
+  'claude-sonnet-4-5': 'claude-sonnet-5-5',
+  'claude-sonnet-4-0': 'claude-sonnet-5-5',
+  'claude-3-7-sonnet-latest': 'claude-sonnet-5-5',
   'claude-3-5-haiku-latest': 'claude-haiku-4-5',
 };
 
