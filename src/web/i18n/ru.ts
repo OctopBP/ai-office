@@ -161,6 +161,8 @@ export const ru: Record<keyof typeof en, string> = {
   "chatCard.q.title": "вопрос",
   "chatCard.q.about": "вопрос по",
   "chatCard.q.own": "Ответить своими словами →",
+  "chatCard.q.assumed": "Офис исходит из: {text}",
+  "chatCard.q.assumedWas": "Офис исходил из: {text}",
   "chat.date.today": "Сегодня",
   "chat.date.yesterday": "Вчера",
   "pmChats.title": "Чаты с PM",

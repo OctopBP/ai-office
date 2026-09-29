@@ -1,11 +1,21 @@
 import { useState, type KeyboardEvent, type MouseEvent, type ReactNode } from 'react';
 import type { ChatEntry, ChatRef, EpicView, PullRequestView, TaskView } from '../shared/types';
-import { taskClosed } from '../shared/types';
+import { isOfficeSender, taskClosed } from '../shared/types';
 import { isOpenQuestion } from '../shared/questions';
 import { answerQuestion, approveEpic, prStageClass, prStageLabel, useStore } from './store';
-import { t } from './i18n';
+import { locale, t } from './i18n';
 import { AgentTag } from './Avatar';
 import { PriorityChip } from './TaskPriority';
+import { useInstanceName } from './instanceName';
+
+/** Время в шапке карточки вопроса: день нужен, только если спросили не сегодня. */
+const clock = (at: number): string => {
+  const d = new Date(at);
+  const today = d.toDateString() === new Date().toDateString();
+  return d.toLocaleString(locale(), today
+    ? { hour: '2-digit', minute: '2-digit' }
+    : { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' });
+};
 
 /**
  * Живые карточки в ленте чата с менеджером (docs/design/T-126/cards.md).
@@ -231,16 +241,22 @@ export function EpicCard({ id, entry, bare }: { id: string; entry: ChatEntry; ba
 export function QuestionCard({ id, entry }: { id: string; entry: ChatEntry }) {
   const q = useStore((s) => s.questions.find((x) => x.id === id));
   const openTask = useStore((s) => s.openTaskCard);
+  const asked = useInstanceName(q?.from ?? '');
   const [own, setOwn] = useState(false);
   const [answer, setAnswer] = useState('');
   // Вопрос закрывается следующим состоянием от сервера; до него кнопки
   // держим погашенными, иначе второй клик отправил бы второй ответ.
   const [sending, setSending] = useState(false);
+  // Закрытый вопрос лежит в ленте свёрнутым: ответ важнее формулировки,
+  // а длинный текст отвеченного вопроса только растягивал бы переписку.
+  const [open, setOpen] = useState(false);
   if (!q) return <Missing id={id} entry={entry} />;
 
   const taskId = q.taskId;
   const waiting = isOpenQuestion(q);
   const state = q.answeredAt ? 'answered' : q.dismissedAt ? 'dismissed' : waiting ? 'waiting' : 'merged';
+  const folded = !waiting && !open;
+  const who = isOfficeSender(q.from) ? t('common.office') : asked;
   const options = q.options ?? [];
   const send = (text: string) => {
     const value = text.trim();
@@ -288,21 +304,27 @@ export function QuestionCard({ id, entry }: { id: string; entry: ChatEntry }) {
   }
 
   return (
-    <div className={`chat-card cc-question ${state}`}>
+    <div className={`chat-card cc-question ${state}${folded ? ' folded' : ''}`}>
       <div className="cc-head">
         <span className={`chip cc-badge ${state}`}>{badge[state]}</span>
-        <span className="muted small">
-          {taskId ? (
+        <span className="cc-q-src muted small">
+          {who} · {taskId ? (
             <>
               {t('chatCard.q.about')}{' '}
               <button className="ev-task" onClick={() => openTask(taskId)} title={t('chatCard.openTask')}>
                 {taskId}
               </button>
             </>
-          ) : t('chatCard.q.title')}
+          ) : t('chatCard.q.title')} · {clock(q.askedAt)}
         </span>
+        {!waiting && <Chevron open={open} onToggle={() => setOpen(!open)} />}
       </div>
-      <div className="cc-text">{q.text}</div>
+      <div className="cc-text" title={folded ? q.text : undefined}>{q.text}</div>
+      {!folded && q.assumption && (
+        <div className="cc-assumed muted small">
+          {t(q.answeredAt ? 'chatCard.q.assumedWas' : 'chatCard.q.assumed', { text: q.assumption })}
+        </div>
+      )}
       {q.answeredAt && <div className="cc-answer">{q.answer}</div>}
       {reply}
     </div>
