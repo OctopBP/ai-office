@@ -674,7 +674,7 @@ export const en = {
   "role.provider": "Provider",
   "role.model.codexDefault": "Codex default model",
   "role.codexHint": "Local Codex. Use default or an exact model ID. Cloud execution is available only for Claude.",
-  "role.model.claude-opus-5-5": "Opus 5.5 — $5/$25, hard tasks",
+  "role.model.claude-opus-5-5": "Opus 5.5 — $4/$20, hard tasks",
   "role.model.claude-fable-5-1": "Fable 5.1 — $10/$50, the most capable",
   "role.model.claude-sonnet-5-5": "Sonnet 5.5 — $2/$10, the workhorse",
   "role.model.claude-sonnet-5": "Sonnet 5 — $2/$10, the previous workhorse",
