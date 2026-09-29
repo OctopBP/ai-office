@@ -46,8 +46,16 @@
 /* На доске композера нет — вид доходит до нижнего края окна. Прокрутка здесь
    только внутренняя: едет выбранная подвкладка, а ряд переключателя стоит. */
 .shell-board { bottom: var(--space-4); overflow: hidden; }
-.shell-chat { display: flex; flex-direction: column; max-width: 900px; margin: 0 auto; right: var(--space-6); }
+.shell-chat { display: flex; gap: var(--space-4); max-width: 1180px; margin: 0 auto; right: var(--space-6); overflow: hidden; }
+/* Лента со вкладками тредов — правая колонка; слева список чатов (.pm-chats). */
+.shell-chat-col { display: flex; flex-direction: column; flex: 1; min-width: 0; min-height: 0; overflow: hidden; }
 .shell-chat .chat { flex: 1; }
+/* Узкое окно: два столбца не помещаются — список встаёт над лентой и
+   ограничивается по высоте, лента забирает остальное. */
+@media (max-width: 900px) {
+  .shell-chat { flex-direction: column; }
+  .shell-chat .pm-chats { width: auto; max-height: 38%; }
+}
 
 /* ---------- рейл ---------- */
 .shell-rail {

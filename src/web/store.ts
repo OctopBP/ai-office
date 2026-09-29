@@ -8,7 +8,7 @@ import type {
   ServerEvent, Settings, SpendStep, TaskEdit, TaskPriority, TaskView, Usage, CloudStatus, OfficeView, OfficeIcon,
   PullRequestView, PrStage,
   EpicView, LimitsView, FactView, OwnerQuestion, LifeView, RitualId, DirectionView, ProposalView,
-  OfficeSetupPlan, SetupCatalog, SetupStep, OfficeHealth, EnvReport, RuleScopeView,
+  OfficeSetupPlan, SetupCatalog, SetupStep, OfficeHealth, EnvReport, RuleScopeView, PmChat,
 } from '../shared/types';
 import {
   compareOffices, emptyLimits, emptyUsage, isOfficeSender,
@@ -245,6 +245,26 @@ interface State {
    * сам факт «там появилось новое».
    */
   chatUnread: boolean;
+  /** Чаты с менеджером по id, включая архивные (docs/design/T-125/spec.md). */
+  pmChats: Record<string, PmChat>;
+  /**
+   * Открытый чат с менеджером — в него смотрит лента ветки 'pm#1' и в него
+   * уходят реплики. null — чатов в офисе ещё нет. Помнится по офису в
+   * localStorage, чтобы перезагрузка возвращала туда же.
+   */
+  pmChatId: string | null;
+  /**
+   * До какого `lastActivityAt` чат уже видели — по нему строка списка
+   * зажигает точку непрочитанного. Только в памяти: после перезагрузки всё
+   * считается прочитанным, иначе точки горели бы на каждом старом чате.
+   */
+  pmChatSeen: Record<string, number>;
+  /** Открыть чат с менеджером: переключает ветку на 'pm#1' и запоминает выбор. */
+  openPmChat: (id: string) => void;
+  /** Завести чат; вкладка откроет его, когда сервер пришлёт его с нашим nonce. */
+  createPmChat: () => void;
+  renamePmChat: (id: string, title: string) => void;
+  archivePmChat: (id: string, archived: boolean) => void;
   log: LogEntry[];
   permissions: PermissionRequest[];
   settings: Settings;
@@ -470,8 +490,65 @@ const INPUT_DRAFTS_KEY = 'office-input-drafts';
  * есть в каждом офисе, и без него недописанное в одном офисе всплыло бы в
  * другом. Перевод строки как разделитель: в id офиса и ветки его не бывает.
  */
-function inputDraftKey(s: Pick<State, 'offices' | 'thread'>): string {
-  return `${s.offices.find((o) => o.current)?.id ?? ''}\n${s.thread}`;
+function inputDraftKey(s: Pick<State, 'offices' | 'thread' | 'pmChatId'>): string {
+  // У каждого чата с менеджером свой черновик: недописанное в одном чате не
+  // должно уехать в соседний при переключении.
+  const thread = s.thread === 'pm#1' && s.pmChatId ? `pm#1:${s.pmChatId}` : s.thread;
+  return `${s.offices.find((o) => o.current)?.id ?? ''}\n${thread}`;
+}
+
+const PM_CHAT_KEY = 'office-pm-chat';
+
+/** Выбранный чат с менеджером по офисам: officeId → id чата. */
+function loadPmChatChoice(): Record<string, string> {
+  try {
+    const saved: unknown = JSON.parse(localStorage.getItem(PM_CHAT_KEY) ?? '{}');
+    if (!saved || typeof saved !== 'object') return {};
+    return Object.fromEntries(Object.entries(saved as Record<string, unknown>)
+      .filter((kv): kv is [string, string] => typeof kv[1] === 'string'));
+  } catch {
+    return {};
+  }
+}
+
+function savePmChatChoice(officeId: string | undefined, chatId: string): void {
+  if (!officeId) return;
+  try {
+    localStorage.setItem(PM_CHAT_KEY, JSON.stringify({ ...loadPmChatChoice(), [officeId]: chatId }));
+  } catch {
+    // Приватный режим браузера — выбор просто не переживёт перезагрузку.
+  }
+}
+
+/**
+ * Какой чат открыть, когда своего выбора нет или он пропал: основной, если
+ * он не в архиве, иначе самый свежий из неархивных, иначе основной как есть.
+ */
+function fallbackPmChat(chats: PmChat[]): string | null {
+  const live = chats.filter((c) => !c.archived);
+  return live.find((c) => c.main)?.id
+    ?? [...live].sort((a, b) => b.lastActivityAt - a.lastActivityAt)[0]?.id
+    ?? chats.find((c) => c.main)?.id
+    ?? null;
+}
+
+/** Выбор при приходе снимка: запомненный для этого офиса, если чат ещё есть. */
+function restorePmChat(officeId: string | undefined, chats: PmChat[]): string | null {
+  const saved = officeId ? loadPmChatChoice()[officeId] : undefined;
+  return saved && chats.some((c) => c.id === saved) ? saved : fallbackPmChat(chats);
+}
+
+/** nonce последнего `pm_chat_create` этой вкладки: по эху открываем свой чат. */
+let pendingPmChatNonce: string | null = null;
+
+/** Смотрит ли пользователь прямо сейчас в этот чат с менеджером. */
+const viewingPmChat = (s: Pick<State, 'view' | 'thread' | 'pmChatId'>, id: string | undefined): boolean =>
+  s.view === 'chat' && s.thread === 'pm#1' && Boolean(id) && s.pmChatId === id;
+
+/** Отметить открытый чат прочитанным — до его текущего `lastActivityAt`. */
+function seenNow(s: Pick<State, 'pmChats' | 'pmChatSeen'>, id: string | null): Record<string, number> {
+  const chat = id ? s.pmChats[id] : undefined;
+  return chat ? { ...s.pmChatSeen, [chat.id]: chat.lastActivityAt } : s.pmChatSeen;
 }
 
 function loadInputDrafts(): Record<string, string> {
@@ -541,6 +618,9 @@ export const useStore = create<State>((set, get) => ({
   drafts: {},
   inputDrafts: loadInputDrafts(),
   chatUnread: false,
+  pmChats: {},
+  pmChatId: null,
+  pmChatSeen: {},
   log: [],
   permissions: [],
   roleFeedback: null,
@@ -621,8 +701,27 @@ export const useStore = create<State>((set, get) => ({
 
   // Вернулись в ветку менеджера прямо в чате — значит новое уже видно.
   setThread: (t) => set((s) => (t === 'pm#1' && s.view === 'chat'
-    ? { thread: t, chatUnread: false }
+    ? { thread: t, chatUnread: false, pmChatSeen: seenNow(s, s.pmChatId) }
     : { thread: t })),
+  openPmChat: (id) => set((s) => {
+    if (!s.pmChats[id]) return {};
+    savePmChatChoice(s.offices.find((o) => o.current)?.id, id);
+    return {
+      thread: 'pm#1', pmChatId: id, pmChatSeen: seenNow(s, id),
+      ...(s.view === 'chat' ? { chatUnread: false } : {}),
+    };
+  }),
+  createPmChat: () => {
+    pendingPmChatNonce = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+    socket?.send(JSON.stringify({ c: 'pm_chat_create', nonce: pendingPmChatNonce }));
+  },
+  renamePmChat: (id, title) => {
+    const clean = title.trim();
+    if (clean) socket?.send(JSON.stringify({ c: 'pm_chat_rename', chatId: id, title: clean }));
+  },
+  archivePmChat: (id, archived) => {
+    socket?.send(JSON.stringify({ c: 'pm_chat_archive', chatId: id, archived }));
+  },
   // Пишем в localStorage на каждое нажатие: строка короткая, а всё, что сложнее
   // (таймер, сброс на unload), стоило бы дороже самой пользы.
   setInputDraft: (text) => set((s) => {
@@ -637,7 +736,9 @@ export const useStore = create<State>((set, get) => ({
   setThemeMode: (m) => { localStorage.setItem('office-theme', m); set({ themeMode: m, theme: resolveTheme(m) }); },
   view: 'office',
   // Открыли чат — точка непрочитанного своё отслужила.
-  setView: (v) => set(v === 'chat' ? { view: v, chatUnread: false } : { view: v }),
+  setView: (v) => set((s) => (v === 'chat'
+    ? { view: v, chatUnread: false, ...(s.thread === 'pm#1' ? { pmChatSeen: seenNow(s, s.pmChatId) } : {}) }
+    : { view: v })),
   railCollapsed: localStorage.getItem('office-rail') === 'collapsed',
   setRailCollapsed: (v) => { localStorage.setItem('office-rail', v ? 'collapsed' : 'open'); set({ railCollapsed: v }); },
   spendPeriod: 'today',
@@ -754,6 +855,8 @@ export const useStore = create<State>((set, get) => ({
             seq, atDesk: home.atDesk, arrived: true,
           }];
         }));
+        const pmChats = e.pmChats ?? [];
+        const officeId = e.offices.find((o) => o.current)?.id;
         set((s) => ({
           lang: asLang(e.uiLanguage),
           roles: e.roles, instances, pos,
@@ -791,6 +894,11 @@ export const useStore = create<State>((set, get) => ({
           openTask: null,
           thread: 'pm#1',
           chatUnread: false,
+          // Снимок приходит и после перезагрузки: выбранный чат берём из
+          // запомненного для этого офиса, а прочитанным считаем всё, что есть.
+          pmChats: Object.fromEntries(pmChats.map((c) => [c.id, c])),
+          pmChatId: restorePmChat(officeId, pmChats),
+          pmChatSeen: Object.fromEntries(pmChats.map((c) => [c.id, c.lastActivityAt])),
           diff: null,
           roleFeedback: null,
           teamRequest: null,
@@ -887,7 +995,7 @@ export const useStore = create<State>((set, get) => ({
           // Ответили не нам в открытый чат — зажигаем точку на сегменте.
           const chatUnread = s.chatUnread
             || (e.entry.thread === 'pm#1' && e.entry.from !== 'user'
-              && !(s.view === 'chat' && s.thread === 'pm#1'));
+              && !viewingPmChat(s, e.entry.chatId ?? s.pmChatId ?? undefined));
           const seen = { drafts, chatUnread };
           // Отказ входа/создания офиса приходит событием `office.error` (ниже).
           // Реплику «офис» за отказ здесь больше не принимаем: пока ждём
@@ -921,6 +1029,26 @@ export const useStore = create<State>((set, get) => ({
       // из события целиком — прежний недописанный к ответу уже не относится.
       case 'chat.draft':
         set((s) => ({ drafts: { ...s.drafts, [e.draft.thread]: e.draft } }));
+        break;
+      case 'pm.chat':
+        set((s) => {
+          const pmChats = { ...s.pmChats, [e.chat.id]: e.chat };
+          // Свой только что заведённый чат открываем сразу. Чата не было вовсе
+          // (первая реплика завела основной) — тоже: иначе лента осталась бы
+          // без выбора и реплика ушла бы в никуда на экране.
+          const mine = e.nonce !== undefined && e.nonce === pendingPmChatNonce;
+          if (mine) pendingPmChatNonce = null;
+          let pmChatId = s.pmChatId;
+          if (mine || (!pmChatId && !e.chat.archived)) {
+            pmChatId = e.chat.id;
+            savePmChatChoice(s.offices.find((o) => o.current)?.id, pmChatId);
+          }
+          const next = { pmChats, pmChatId, thread: mine ? 'pm#1' : s.thread, view: s.view };
+          const pmChatSeen = viewingPmChat(next, e.chat.id) || !s.pmChats[e.chat.id]
+            ? { ...s.pmChatSeen, [e.chat.id]: e.chat.lastActivityAt }
+            : s.pmChatSeen;
+          return { pmChats, pmChatId, pmChatSeen, thread: next.thread };
+        });
         break;
       case 'chat.draft.delta':
         set((s) => {
@@ -1553,12 +1681,51 @@ export function permissionSource(
   return 'office';
 }
 
-/** Отправляет в активную ветку: менеджеру или напрямую агенту. */
+/** Отправляет в активную ветку: менеджеру в открытый чат или напрямую агенту. */
 export function send(text: string): void {
-  const thread = useStore.getState().thread;
+  const { thread, pmChatId } = useStore.getState();
   socket?.send(thread === 'pm#1'
-    ? JSON.stringify({ c: 'user_message', text })
+    ? JSON.stringify(pmChatId ? { c: 'user_message', text, chatId: pmChatId } : { c: 'user_message', text })
     : JSON.stringify({ c: 'talk', instanceId: thread, text }));
+}
+
+/** Список чатов с менеджером: живые по свежести и архив отдельно. */
+export function pmChatSections(chats: Record<string, PmChat>): { live: PmChat[]; archived: PmChat[] } {
+  const all = Object.values(chats).sort((a, b) => b.lastActivityAt - a.lastActivityAt);
+  return { live: all.filter((c) => !c.archived), archived: all.filter((c) => c.archived) };
+}
+
+/**
+ * Чат, куда сейчас пишет менеджер. Черновик ответа своего чата не знает, а
+ * сервер кладёт ответ туда, где владелец писал последним, — берём оттуда же.
+ */
+export function pmDraftChatId(chat: ChatEntry[], chats: Record<string, PmChat>): string | null {
+  for (let i = chat.length - 1; i >= 0; i--) {
+    const e = chat[i];
+    if (e.thread === 'pm#1' && e.from === 'user' && e.chatId) return e.chatId;
+  }
+  return Object.values(chats).find((c) => c.main)?.id ?? null;
+}
+
+/** Реплика ветки менеджера относится к этому чату. */
+export const inPmChat = (e: ChatEntry, chatId: string | null): boolean =>
+  e.thread === 'pm#1' && (!chatId || e.chatId === chatId);
+
+/** Что показать второй строкой у чата: привязанные задачи и открытый вопрос по ним. */
+export interface PmChatMeta {
+  tasks: TaskView[];
+  waiting: boolean;
+}
+
+export function pmChatMeta(
+  chatId: string, tasks: Record<string, TaskView>, questions: OwnerQuestion[],
+): PmChatMeta {
+  const linked = Object.values(tasks).filter((tk) => tk.chatId === chatId)
+    .sort((a, b) => b.createdAt - a.createdAt);
+  const ids = new Set(linked.map((tk) => tk.id));
+  const waiting = questions.some((q) => q.taskId !== null && ids.has(q.taskId)
+    && q.answer === null && q.dismissedAt === null && !q.mergedInto);
+  return { tasks: linked, waiting };
 }
 
 export function decide(id: string, decision: PermissionDecision): void {

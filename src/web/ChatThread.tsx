@@ -1,6 +1,6 @@
 import { useLayoutEffect, useRef } from 'react';
 import { isOfficeSender } from '../shared/types';
-import { useStore } from './store';
+import { inPmChat, pmDraftChatId, useStore } from './store';
 import { t } from './i18n';
 import { AgentTag } from './Avatar';
 import { ChatPeer } from './ChatPeer';
@@ -20,13 +20,21 @@ export function ChatThread() {
   const setThread = useStore((s) => s.setThread);
   // Реплика, которую собеседник пишет прямо сейчас. Рисуется на месте будущего
   // ответа и исчезает, когда готовая реплика ложится в ленту.
-  const draft = useStore((s) => s.drafts[thread]);
+  // У менеджера черновик один на все чаты: показываем его только в том чате,
+  // куда ляжет ответ.
+  const pmChatId = useStore((s) => s.pmChatId);
+  const draft = useStore((s) => (s.thread === 'pm#1' && s.pmChatId
+    && pmDraftChatId(s.chat, s.pmChats) !== s.pmChatId ? undefined : s.drafts[s.thread]));
+  const noChats = useStore((s) => Object.keys(s.pmChats).length === 0);
+  const createPmChat = useStore((s) => s.createPmChat);
   const box = useRef<HTMLDivElement>(null);
   // Держится ли пользователь у низа ленты. Пока держится — лента едет за
   // новыми сообщениями; отпустил и читает старое — не трогаем.
   const atBottom = useRef(true);
 
-  const shown = chat.filter((m) => m.thread === thread);
+  const shown = thread === 'pm#1'
+    ? chat.filter((m) => inPmChat(m, pmChatId))
+    : chat.filter((m) => m.thread === thread);
   const last = shown[shown.length - 1];
 
   const toBottom = (el: HTMLDivElement) => { el.scrollTop = el.scrollHeight; };
@@ -37,7 +45,7 @@ export function ChatThread() {
   useLayoutEffect(() => {
     atBottom.current = true;
     if (box.current) toBottom(box.current);
-  }, [thread]);
+  }, [thread, pmChatId]);
 
   // Новое сообщение (и дописывание текста в последнее, пока менеджер отвечает
   // потоком) утаскивает ленту вниз, только если пользователь и так у низа.
@@ -88,7 +96,15 @@ export function ChatThread() {
       )}
 
       <div className="chat" ref={box} onScroll={onScroll}>
-        {shown.length === 0 && !draft && (
+        {thread === 'pm#1' && noChats && shown.length === 0 && !draft && (
+          <div className="pm-chats-empty">
+            <div className="pm-chats-empty-icon">💬</div>
+            <h3>{t('pmChats.empty.title')}</h3>
+            <p className="small">{t('pmChats.empty.text')}</p>
+            <button className="primary" onClick={createPmChat}>{t('pmChats.empty.start')}</button>
+          </div>
+        )}
+        {shown.length === 0 && !draft && !(thread === 'pm#1' && noChats) && (
           <p className="empty">
             {t(thread === 'pm#1' ? 'chat.empty.pm' : 'chat.empty')}
           </p>
