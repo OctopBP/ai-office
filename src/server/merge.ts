@@ -230,15 +230,15 @@ export async function mergeQueue(taskIds: string[], state: OfficeState): Promise
         // Одним коммитом «T-N: заголовок», как и в конвейере (T-140).
         taskCommitMessage(task.id, task.title, task.result));
       if (checks.result) step.typecheck = checks.result;
-      state.addChat(OFFICE_SENDER,
-        state.say('merge.stepOutcome', { task: task.id, message: outcome.message }));
+      state.addOfficeNote(
+        state.say('merge.stepOutcome', { task: task.id, message: outcome.message }), { taskId: task.id });
       state.addLog(null, outcome.ok ? 'system' : 'error',
         `merge ${branch}: ${outcome.kind}, copy ${outcome.worktree ?? integrationDir(state, repo)}`);
       // Обходы по дороге (занятый каталог интеграции, снятые хвосты worktree)
       // слияние не отменяют, но в ленте им место: иначе следа не остаётся вовсе.
       for (const warning of outcome.warnings) {
         state.addLog(null, 'system', warning);
-        state.addChat(OFFICE_SENDER, `⚠️ ${warning}`);
+        state.addOfficeNote(`⚠️ ${warning}`, { taskId: task.id });
       }
       // Рабочая копия человека могла отстать: его незакоммиченные правки — не
       // повод останавливать очередь, но сказать об этом нужно.
@@ -272,7 +272,7 @@ export async function mergeQueue(taskIds: string[], state: OfficeState): Promise
       // Слияние прошло (или сливать было нечего) — worktree задаче больше не нужен.
       if (task.worktreePath) await removeWorktree(repo, task.worktreePath, branch);
       if (duplicate && outcome.kind === 'merged') {
-        state.addChat(OFFICE_SENDER, `⚠️ ${duplicate}`);
+        state.addOfficeNote(`⚠️ ${duplicate}`, { taskId: task.id });
         state.addLog(null, 'system', `${task.id}: ${duplicate}`);
       }
       // Коммит задачи в базе — по нему надзор заметит откат (outcomes.ts).

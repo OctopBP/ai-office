@@ -204,6 +204,34 @@ async function main(): Promise<void> {
   check('задачу, на которую потратились, стереть нельзя', !deleteTask(office, spent.id).ok);
   check('несуществующую задачу стереть нельзя', !deleteTask(office, 'T-404').ok);
 
+  // ---------------------------------------------------------------- чат задачи
+  // Сообщения офиса о задаче ложатся в чат, где её завели (T-144), а не в
+  // основной: иначе владелец видит ответ менеджера в одном чате, а «переписана»
+  // и «снята» — в другом.
+  const main = office.ensureMainChat();
+  const side = office.createPmChat('Сторонний');
+  const lastIn = (chatId: string): string =>
+    [...office.chat].reverse().find((e) => e.thread === 'pm#1' && e.chatId === chatId)?.text ?? '';
+  const inSide = add({ title: 'Заведена в стороннем' });
+  office.updateTask(inSide.id, { chatId: side.id });
+  editTask(office, inSide.id, { title: 'Переписана в стороннем' });
+  check('правка — в чат задачи', lastIn(side.id).includes(inSide.id));
+  check('правка — не в основной', !lastIn(main.id).includes(inSide.id));
+  office.archivePmChat(side.id, true);
+  dropTask(office, inSide.id, 'не нужна');
+  check('снятие — в архивный чат задачи', lastIn(side.id).includes('не нужна'));
+  const sideDeleted = add({ title: 'Стирается' });
+  office.updateTask(sideDeleted.id, { chatId: side.id });
+  deleteTask(office, sideDeleted.id);
+  check('удаление — в чат задачи', lastIn(side.id).includes(sideDeleted.id));
+  const loose = add({ title: 'Без чата' });
+  editTask(office, loose.id, { title: 'Без чата, переписана' });
+  check('без привязки — в основной', lastIn(main.id).includes(loose.id));
+  const orphan = add({ title: 'Чат пропал' });
+  office.updateTask(orphan.id, { chatId: 'C-404' });
+  editTask(office, orphan.id, { title: 'Чат пропал, переписана' });
+  check('с пропавшим чатом — в основной', lastIn(main.id).includes(orphan.id));
+
   unloadOfficeState('o-tasks');
 
   // Прошедшей считается только строка, кончающаяся на true: строка, где вместо

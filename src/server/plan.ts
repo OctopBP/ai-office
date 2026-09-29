@@ -23,7 +23,7 @@
  * Спринтов-таймбоксов здесь нет намеренно: инкремент закрывается по факту
  * («все задачи фичи в основной ветке»), а не по календарю.
  */
-import { asTaskPriority, dayKey, HEALTH_DIRECTION, OFFICE_SENDER, taskClosed, taskOver } from '../shared/types';
+import { asTaskPriority, dayKey, HEALTH_DIRECTION, taskClosed, taskOver } from '../shared/types';
 import type { TaskPriority } from '../shared/types';
 import { toTaskView, type Epic, type OfficeState, type PmAbout, type Task } from './state';
 import type { TaskType } from '../shared/workflow';
@@ -158,18 +158,18 @@ function closeFinishedEpics(state: OfficeState): void {
     // нечего. Говорить про такую «готово» — врать в ленте и в табеле.
     if (!tasks.some((t) => closed(state, t))) {
       state.updateEpic(epic.id, { status: 'cancelled', finishedAt: Date.now(), attention: null });
-      state.addChat(OFFICE_SENDER, state.say('plan.chat.epicEmpty', {
+      state.addOfficeNote(state.say('plan.chat.epicEmpty', {
         epic: epic.id, title: epic.title,
-      }));
+      }), { epicId: epic.id });
       agents.notifyPm(state, state.say('plan.pm.epicEmpty', { epic: epic.id, title: epic.title }), { epicId: epic.id });
       continue;
     }
 
     state.updateEpic(epic.id, { status: 'done', finishedAt: Date.now(), attention: null });
     const spent = epicCost(state, epic.id).toFixed(2);
-    state.addChat(OFFICE_SENDER, state.say('plan.chat.epicDone', {
+    state.addOfficeNote(state.say('plan.chat.epicDone', {
       epic: epic.id, title: epic.title, spent,
-    }));
+    }), { epicId: epic.id });
 
     // Менеджеру — не поздравление, а работа: сказать человеку, что можно
     // проверить, и (если офис ждёт согласия) спросить про следующую фичу.
@@ -227,8 +227,8 @@ function activateEpics(state: OfficeState): void {
     }
     state.updateEpic(epic.id, { status: 'active', startedAt: Date.now(), attention: null });
     active += 1;
-    state.addChat(OFFICE_SENDER,
-      state.say('plan.chat.epicActive', { epic: epic.id, title: epic.title }));
+    state.addOfficeNote(
+      state.say('plan.chat.epicActive', { epic: epic.id, title: epic.title }), { epicId: epic.id });
     state.addLog(null, 'system',
       state.say('plan.log.epicActive', { epic: epic.id, title: epic.title }));
   }
@@ -298,8 +298,8 @@ function reportStalls(state: OfficeState, now: number): void {
   const next = nextUnstarted(state);
   if (next && !next.approved && !working && !next.attention) {
     state.updateEpic(next.id, { attention: now });
-    state.addChat(OFFICE_SENDER,
-      state.say('plan.chat.waiting', { epic: next.id, title: next.title }));
+    state.addOfficeNote(
+      state.say('plan.chat.waiting', { epic: next.id, title: next.title }), { epicId: next.id });
     agents.notifyPm(state, state.say('plan.pm.waiting', {
       epic: next.id, title: next.title, goal: next.goal,
       tasks: String(state.tasksOfEpic(next.id).length),
@@ -544,8 +544,8 @@ export function approveEpic(state: OfficeState, epicId: string): PlanResult {
     return { ok: false, message: state.say('plan.err.already', { epic: epicId }) };
   }
   state.updateEpic(epicId, { approved: true, attention: null });
-  state.addChat(OFFICE_SENDER,
-    state.say('plan.chat.approved', { epic: epic.id, title: epic.title }));
+  state.addOfficeNote(
+    state.say('plan.chat.approved', { epic: epic.id, title: epic.title }), { epicId: epic.id });
   dispatch(state);
   const fresh = state.epics.get(epicId);
   return {
@@ -573,9 +573,9 @@ export function cancelEpic(state: OfficeState, epicId: string, reason: string): 
   for (const task of state.tasksOfEpic(epicId)) {
     if (task.status === 'planned' || task.status === 'backlog') cancelTask(state, task);
   }
-  state.addChat(OFFICE_SENDER, state.say('plan.chat.cancelled', {
+  state.addOfficeNote(state.say('plan.chat.cancelled', {
     epic: epic.id, title: epic.title, reason: reason.trim() || state.say('plan.noReason'),
-  }));
+  }), { epicId: epic.id });
   dispatch(state);
   return { ok: true, message: state.say('plan.ok.cancelled', { epic: epic.id, title: epic.title }) };
 }
