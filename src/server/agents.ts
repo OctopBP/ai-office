@@ -893,6 +893,9 @@ const teamTools = (state: OfficeState, chatId: string) => createSdkMcpServer({
           ...(args.priority ? { priority: args.priority } : {}),
           chatId,
         });
+        // В чат ложится ссылка, а не строка: карточка сама покажет статус и
+        // исполнителя с доски, и следующие перемены новых сообщений не дадут.
+        state.addChatRef({ kind: 'task', id: task.id }, chatId);
         // Предупреждаем сразу: иначе менеджер узнает о пустой роли только из
         // отказа assign_task и успеет пообещать пользователю работу.
         const empty = state.staffOf(args.roleId).length === 0
@@ -1278,7 +1281,7 @@ const teamTools = (state: OfficeState, chatId: string) => createSdkMcpServer({
         replaces: z.array(z.string()).default([]).describe(state.say('tool.askOwner.replaces')),
       },
       async (args) => {
-        const asked = askOwner(state, 'pm#1', null, args.question, args.assumption, args.options, args.replaces);
+        const asked = askOwner(state, 'pm#1', null, args.question, args.assumption, args.options, args.replaces, chatId);
         return { content: [{ type: 'text', text: asked.text }], isError: !asked.ok };
       },
     ),

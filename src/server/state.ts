@@ -2,7 +2,7 @@ import { isProviderId, providerOf, PROVIDERS, type ProviderId } from '../shared/
 import { randomUUID } from 'node:crypto';
 import { isAbsolute, resolve } from 'node:path';
 import type {
-  AgentState, ChatDraft, ChatEntry, Criterion, DayUsage, Desk, FieldError, InstanceView, LogEntry,
+  AgentState, ChatDraft, ChatEntry, ChatRef, Criterion, DayUsage, Desk, FieldError, InstanceView, LogEntry,
   PermissionDecision, AuthSource, MeetingView, PermissionMode, PermissionRequest, RoleDraft,
   McpServerDef, McpServerState, RoleEditable, RoleView, ServerEvent, Settings, TaskStatus,
   TaskPriority, TaskView, Usage,
@@ -2929,9 +2929,12 @@ export class OfficeState {
    * Реплика в ветку. `chatId` значим только для ветки менеджера 'pm#1': без
    * него реплика ложится туда, куда её отнёс бы `routePmChat`.
    */
-  addChat(from: string, text: string, thread = 'pm#1', meetingId?: string, chatId?: string): void {
+  addChat(
+    from: string, text: string, thread = 'pm#1', meetingId?: string, chatId?: string, ref?: ChatRef,
+  ): void {
     const entry: ChatEntry = { id: randomUUID(), thread, from, text, at: Date.now() };
     if (meetingId) entry.meetingId = meetingId;
+    if (ref) entry.ref = ref;
     const pmChat = thread === 'pm#1' ? this.routePmChat(from, chatId) : null;
     if (pmChat) {
       entry.chatId = pmChat.id;
@@ -2950,6 +2953,39 @@ export class OfficeState {
     // Реплики самого офиса тишину не сбивают: планёрка и ритуалы пишут в
     // чат, и считать это работой значило бы никогда не дождаться тишины.
     if (from !== OFFICE_SENDER) this.noteWork();
+  }
+
+  /**
+   * Сообщение-ссылка на задачу, фичу, план или вопрос в чат менеджера. Пишется
+   * один раз, при заведении сущности: дальше карточка на вебе живёт данными
+   * доски, и смена статуса ленту не трогает. Без чата не пишется ничего —
+   * сущность, заведённая вне разговора (ритуалом, инициативой), в чужой чат
+   * не подбрасывается.
+   */
+  addChatRef(ref: ChatRef, chatId: string | null | undefined): void {
+    if (!chatId || !this.pmChats.has(chatId)) return;
+    // Автор вопроса — тот, кто спросил (исполнитель, офис), а не менеджер:
+    // шапка карточки называет источник вопроса.
+    const from = ref.kind === 'question' ? this.questions.get(ref.id)?.from ?? 'pm#1' : 'pm#1';
+    this.addChat(from, this.chatRefText(ref), 'pm#1', undefined, chatId, ref);
+  }
+
+  /**
+   * Запасная строка ссылки: её читают старые клиенты и всё, что берёт из чата
+   * только текст. Название — на момент заведения, живое берётся с доски.
+   */
+  private chatRefText(ref: ChatRef): string {
+    if (ref.kind === 'task') {
+      return this.say('chat.ref.task', { id: ref.id, title: this.tasks.get(ref.id)?.title ?? '' });
+    }
+    if (ref.kind === 'epic') {
+      return this.say('chat.ref.epic', { id: ref.id, title: this.epics.get(ref.id)?.title ?? '' });
+    }
+    if (ref.kind === 'plan') {
+      const tasks = [...this.tasks.values()].filter((t) => t.epicId && ref.epicIds.includes(t.epicId)).length;
+      return this.say('chat.ref.plan', { epics: ref.epicIds.join(', '), n: tasks });
+    }
+    return this.say('chat.ref.question', { id: ref.id, text: clipText(this.questions.get(ref.id)?.text ?? '', 200) });
   }
 
   // ---------- чаты с менеджером ----------
