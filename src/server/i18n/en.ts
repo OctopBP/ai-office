@@ -62,6 +62,9 @@ export const en = {
   'state.desk.backPlain': ' or go back to the previous layout',
   'state.desk.homeless': '⚠️ The “{preset}” layout has {desks} desks for {staff} people. Without a desk: {who}. They have not stopped working, they just have no desk of their own. To fix it, let someone go{back}.',
 
+  'pmChat.mainTitle': 'Main chat',
+  'pmChat.newTitle': 'New chat',
+
   'state.criteria.noTask': 'There is no task {task} on the board.',
   'state.criteria.noItem': 'Task {task} has no criterion #{index}. It has {total} in total.',
   'state.criteria.marked': 'Criterion #{index} “{text}” — {verdict}. {ready} of {total} done.',

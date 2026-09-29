@@ -467,7 +467,13 @@ wss.on('connection', (ws) => {
     }
 
     if (cmd.c === 'user_message' && cmd.text.trim()) {
-      sendUserMessage(state, cmd.text.trim());
+      sendUserMessage(state, cmd.text.trim(), cmd.chatId);
+    } else if (cmd.c === 'pm_chat_create') {
+      state.createPmChat(cmd.title, cmd.nonce);
+    } else if (cmd.c === 'pm_chat_rename') {
+      state.renamePmChat(cmd.chatId, cmd.title ?? '');
+    } else if (cmd.c === 'pm_chat_archive') {
+      state.archivePmChat(cmd.chatId, cmd.archived === true);
     } else if (cmd.c === 'permission') {
       state.resolvePermission(cmd.id, cmd.decision);
     } else if (cmd.c === 'merge_task') {

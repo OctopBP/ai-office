@@ -1,7 +1,7 @@
 import { mkdirSync, readFileSync, renameSync, writeFileSync, existsSync, rmSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import type {
-  ChatEntry, LayoutOverride, LogEntry, PermissionMode, PullRequestView, Settings,
+  ChatEntry, LayoutOverride, LogEntry, PermissionMode, PmChat, PullRequestView, Settings,
   SpendEntryView, Usage,
 } from '../shared/types';
 import type { Run } from '../shared/workflow';
@@ -69,6 +69,13 @@ export interface Persisted {
   /** Предложения целей выпуска от менеджера, ждущие владельца. */
   releaseSetups?: ReleaseSetup[];
   chat: ChatEntry[];
+  /**
+   * Чаты с менеджером. Поля нет в сохранениях до нескольких чатов — тогда
+   * прежняя переписка поднимается первым, основным чатом.
+   */
+  pmChats?: PmChat[];
+  /** Номер последнего чата. Не длина списка: так id не повторится и после чистки. */
+  pmChatSeq?: number;
   log: LogEntry[];
   /** История совещаний. В сохранениях до неё поля нет: старые реплики остаются в ветке `meeting` без привязки. */
   meetings?: MeetingView[];
