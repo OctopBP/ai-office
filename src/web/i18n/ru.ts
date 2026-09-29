@@ -673,7 +673,7 @@ export const ru: Record<keyof typeof en, string> = {
   "role.provider": "Провайдер",
   "role.model.codexDefault": "Модель по умолчанию в Codex",
   "role.codexHint": "Локальный Codex. default — модель по умолчанию; можно указать точный ID модели. Облачный режим доступен только Claude.",
-  "role.model.claude-opus-5-5": "Opus 5.5 — $5/$25, сложные задачи",
+  "role.model.claude-opus-5-5": "Opus 5.5 — $4/$20, сложные задачи",
   "role.model.claude-fable-5-1": "Fable 5.1 — $10/$50, самая сильная",
   "role.model.claude-sonnet-5-5": "Sonnet 5.5 — $2/$10, рабочая лошадка",
   "role.model.claude-sonnet-5": "Sonnet 5 — $2/$10, прошлая рабочая лошадка",
