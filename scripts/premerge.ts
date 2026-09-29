@@ -5,6 +5,10 @@
  *   npm run premerge -- --branch task/T-142
  *   npm run premerge -- --branch task/T-142 --stash --check "npm run test:merge"
  *   npm run premerge -- --branch task/T-142 --check-only
+ *   npm run premerge -- --branch task/T-142 --message "T-142: Заголовок"
+ *
+ * С --message ветка ложится одним squash-коммитом, как её вливает конвейер
+ * офиса; без него — merge-коммитом.
  *
  * Код выхода: 0 — зелено (влито или проверено), 1 — гейт остановил слияние,
  * 2 — сам гейт сорвался. Ровно то, что нужно для шага в CI.
@@ -23,12 +27,13 @@ interface Args {
   checkOnly: boolean;
   checks: string[];
   json: boolean;
+  message: string | null;
 }
 
 function parseArgs(argv: string[]): Args {
   const args: Args = {
     branch: null, base: null, repo: process.cwd(),
-    stash: false, checkOnly: false, checks: [], json: false,
+    stash: false, checkOnly: false, checks: [], json: false, message: null,
   };
   for (let i = 0; i < argv.length; i += 1) {
     const arg = argv[i];
@@ -40,6 +45,7 @@ function parseArgs(argv: string[]): Args {
     else if (arg === '--check-only' || arg === '--dry-run') args.checkOnly = true;
     else if (arg === '--check') args.checks.push(next());
     else if (arg === '--json') args.json = true;
+    else if (arg === '--message' || arg === '-m') args.message = next();
     else if (!arg.startsWith('-') && !args.branch) args.branch = arg;
   }
   return args;
@@ -73,6 +79,7 @@ async function main(): Promise<void> {
     stash: args.stash,
     merge: !args.checkOnly,
     checks: args.checks.length ? args.checks : undefined,
+    message: args.message ?? undefined,
   });
 
   console.log(args.json ? JSON.stringify(report, null, 2) : formatReport(report, lang));

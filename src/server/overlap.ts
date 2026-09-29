@@ -19,7 +19,7 @@
  */
 import type { Lang } from '../shared/i18n';
 import { t } from './i18n';
-import { git } from './git';
+import { git, taskCommitRe } from './git';
 
 /** Один файл, который правили обе стороны. */
 export interface DuplicateEdit {
@@ -56,7 +56,11 @@ export async function duplicateEdits(
   // После подтягивания базы общий предок уезжает на её вершину, и «что успела
   // сделать основная ветка» по нему уже не увидеть: ровно этот случай и был
   // в T-138.
-  const baseFrom = (await forkPoint(repoDir, base, branch)) ?? branchFrom;
+  const forked = (await forkPoint(repoDir, base, branch)) ?? branchFrom;
+  // Задачу могли уже влить и вернуть в работу. Squash-коммит «T-N:» в базе не
+  // связан с веткой родством, и без этой поправки «своё базы» включило бы
+  // работу самой задачи — дублем оказался бы каждый её файл. Считаем от него.
+  const baseFrom = (await lastTaskCommit(repoDir, forked, base, branch)) ?? forked;
 
   const baseFiles = await changedFiles(repoDir, baseFrom, base);
   if (!baseFiles.length) return [];
@@ -90,6 +94,26 @@ async function forkPoint(repoDir: string, base: string, branch: string): Promise
   if (!parent.ok || !parent.stdout) return null;
   const inBase = await git(repoDir, ['merge-base', '--is-ancestor', parent.stdout, base]);
   return inBase.ok ? parent.stdout : null;
+}
+
+/**
+ * Последний коммит, которым эта же задача уже легла в базу после `from`:
+ * squash «T-N: …» или старое слияние ветки. Задачу узнаём по имени ветки
+ * `task/T-N`; ветка с другим именем — искать нечего.
+ */
+async function lastTaskCommit(
+  repoDir: string, from: string, base: string, branch: string,
+): Promise<string | null> {
+  const id = /(?:^|\/)task\/([^/]+)$/.exec(branch)?.[1];
+  if (!id) return null;
+  const log = await git(repoDir, ['log', '--first-parent', '--format=%H%x1f%s', `${from}..${base}`]);
+  if (!log.ok || !log.stdout) return null;
+  const re = taskCommitRe(id);
+  for (const line of log.stdout.split('\n')) {
+    const [hash, subject = ''] = line.split('\x1f');
+    if (hash && re.test(subject)) return hash;
+  }
+  return null;
 }
 
 /** Что изменилось между двумя ревизиями. Удалённые файлы тоже считаются правкой. */

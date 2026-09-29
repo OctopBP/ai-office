@@ -39,9 +39,9 @@ import {
 } from './state';
 import { dispatch } from './plan';
 import {
-  abortMerge, branchHasChanges, commitAll, deleteRemoteBranch, diffBranch, ensureWorktree, fastForward,
-  fetchRemote, isDirty, isRepo, mergeBaseInto, mergeInProgress, pushBranch, type Signature,
-  removeWorktree, revision,
+  abortMerge, branchHasChanges, commitAll, deleteBranch, deleteRemoteBranch, diffBranch,
+  ensureWorktree, fastForward, fetchRemote, isDirty, isRepo, mergeBaseInto, mergeInProgress,
+  pushBranch, removeWorktree, revision, taskCommitMessage, type Signature,
 } from './git';
 import { integrationDir, runProjectCheck, runTypecheck, taskBase } from './merge';
 import { formatOverlaps, type DuplicateEdit } from './overlap';
@@ -721,6 +721,10 @@ const merge: Executor<Ctx> = {
       // потом по истории нельзя, там найдётся чужая задача с тем же номером.
       let landedRef = base;
       let empty = false;
+      // В основную ветка задачи ложится одним коммитом «T-N: заголовок»
+      // (squash, T-140): по этому префиксу её потом находят в истории.
+      const message = taskCommitMessage(
+        task.id, task.title, (state.tasks.get(task.id) ?? task).result);
 
       const gh = await githubFor(repo);
       const fresh = state.prOf(task.id);
@@ -731,7 +735,7 @@ const merge: Executor<Ctx> = {
         const gate = await preMergeGate({
           repoDir: repo, branch, base, integrationDir: integrationDir(state, repo),
           lang: state.lang(), checks, allowDirty: true, merge: false,
-          sign: mergeSignature(state, task),
+          sign: mergeSignature(state, task), message,
         });
         // Виден в карточке задачи независимо от исхода — гейт мог остановить
         // конвейер следующей строкой, а его вывод должен остаться на виду.
@@ -746,7 +750,7 @@ const merge: Executor<Ctx> = {
 
         const push = await pushBranch(repo, branch, gh.token, state.lang());
         if (!push.ok) return fail(state.say('pipe.pushBeforeMerge', { problem: push.message }));
-        const merged = await mergePullRequest(gh, fresh.number, `${task.id}: ${task.title}`);
+        const merged = await mergePullRequest(gh, fresh.number, message);
         if (!merged.ok) {
           // Чаще всего это «база уехала» — GitHub отказывает в слиянии несвежего
           // пулл-реквеста. Заходим на второй круг, а не зовём человека.
@@ -766,6 +770,7 @@ const merge: Executor<Ctx> = {
         const gate = await preMergeGate({
           repoDir: repo, branch, base, integrationDir: integrationDir(state, repo),
           lang: state.lang(), checks, allowDirty: true, sign: mergeSignature(state, task),
+          message,
         });
         // Строка технического лога — как и соседняя `merge …`, не переводится:
         // её читают в логе сервера, а не в интерфейсе.
@@ -1125,6 +1130,10 @@ async function cleanup(
   state: OfficeState, task: Task, repo: string, branch: string,
 ): Promise<void> {
   if (task.worktreePath) await removeWorktree(repo, task.worktreePath, branch);
+  // Без копии ветка оставалась жить. Пока слияние было merge-коммитом, она
+  // лежала в истории базы и не мешала; после squash её коммиты в базу не
+  // попадают, и забытая ветка читалась бы как несданная работа.
+  else await deleteBranch(repo, branch);
   const gh = await githubFor(repo);
   if (gh) await deleteRemoteBranch(repo, branch, gh.token);
 }

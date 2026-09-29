@@ -105,14 +105,16 @@ export async function commentOnPr(
 }
 
 /**
- * Влить пулл-реквест. Слияние merge-коммитом, а не squash: история офиса
- * и так устроена merge-коммитами на задачу, и терять её незачем.
+ * Влить пулл-реквест squash-ом: на задачу в основной ветке ровно один коммит
+ * (T-140), как и при слиянии у себя. message — `taskCommitMessage`: первая
+ * строка уходит заголовком коммита, остальное — телом.
  */
 export async function mergePullRequest(
-  gh: GithubRepo, number: number, title: string,
+  gh: GithubRepo, number: number, message: string,
 ): Promise<ApiResult<{ sha: string }>> {
+  const [title = '', ...rest] = message.split('\n');
   return api<{ sha: string }>(gh, 'PUT', `/pulls/${number}/merge`, {
-    merge_method: 'merge', commit_title: title,
+    merge_method: 'squash', commit_title: title, commit_message: rest.join('\n').trim(),
   });
 }
 

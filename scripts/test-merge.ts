@@ -191,20 +191,27 @@ async function main(): Promise<void> {
   const nestedRun = await mergeQueue([inBack.id, inFront.id], office);
   const at = (repo: string, ref: string) =>
     execFileSync('git', ['rev-parse', ref], { cwd: repo, encoding: 'utf8' }).trim();
-  /** Влита ли ветка в основную этого репозитория. Слияние идёт --no-ff. */
-  const merged = (repo: string, branch: string) => {
+  /**
+   * Влита ли ветка в основную этого репозитория. Слияние идёт squash-ом
+   * (T-140): на вершине main — один коммит «T-N: …» без второго родителя, и
+   * его дерево совпадает с деревом ветки (база за это время не двигалась).
+   */
+  const merged = (repo: string, branch: string, taskId: string) => {
+    const [parents = '', subject = ''] = execFileSync('git', ['log', '-1', '--format=%P%x1f%s', 'main'], {
+      cwd: repo, encoding: 'utf8',
+    }).trim().split('\x1f');
     try {
-      execFileSync('git', ['merge-base', '--is-ancestor', branch, 'main'], { cwd: repo });
-      return true;
+      execFileSync('git', ['diff', '--quiet', branch, 'main'], { cwd: repo });
     } catch {
       return false;
     }
+    return parents.split(' ').length === 1 && subject.startsWith(`${taskId}: `);
   };
   results.push(
     `задача вложенного репозитория влита: ${nestedRun?.steps[0]?.status === 'merged'}`,
     `задача второго вложенного влита: ${nestedRun?.steps[1]?.status === 'merged'}`,
-    `ветка доехала до main вложенного back: ${merged(back, 'task/T-5')}`,
-    `ветка доехала до main вложенного front: ${merged(front, 'task/T-6')}`,
+    `ветка доехала до main вложенного back: ${merged(back, 'task/T-5', inBack.id)}`,
+    `ветка доехала до main вложенного front: ${merged(front, 'task/T-6', inFront.id)}`,
     `main родительского репозитория не тронут: ${git('rev-parse', 'main') === parentMain}`,
     `у каждого репозитория своя копия офиса: ${new Set([
       integrationDir(office, dir), integrationDir(office, back), integrationDir(office, front),

@@ -136,8 +136,9 @@ const escapeRe = (s: string): string => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
  * Найти коммит слияния задачи, влитой до того, как офис стал его запоминать.
  * Ищем по первой линии базовой ветки — на ней лежат ровно слияния в неё, а
  * «Merge branch 'main' into task/T-N» из самой ветки задачи туда не попадают.
- * Подходят слияния ветки `task/T-N` (у себя и пулл-реквестом) и squash с
- * заголовком «T-N: … (#12)», как его пишет GitHub.
+ * Подходят старые слияния ветки `task/T-N` (у себя и пулл-реквестом) и
+ * squash-коммиты «T-N: …» — так задачу вливает офис с T-140, а GitHub
+ * дописывает в конец « (#12)».
  *
  * Номера задач в истории повторяются: в репозитории бывают старые ветки с тем
  * же номером от других задач (или других офисов). Поэтому берём коммит в
@@ -151,7 +152,7 @@ export async function findMergeCommit(repo: string, task: Task): Promise<{ commi
   if (!log.ok || !log.stdout) return null;
   const id = escapeRe(task.id);
   const branchRe = new RegExp(`task/${id}(?![\\d])`);
-  const squashRe = new RegExp(`^${id}: .*\\(#\\d+\\)$`);
+  const squashRe = new RegExp(`^${id}: `);
   const target = task.finishedAt ?? task.startedAt ?? task.createdAt;
   // Окно: слить раньше, чем задачу завели, нельзя; позже завершения — только
   // на сдвиг часов и медленный конвейер.

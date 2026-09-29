@@ -151,6 +151,22 @@ async function main(): Promise<void> {
   check('у обычной ветки отчёт молчит про дубли', quiet.overlaps.length === 0
     && !formatReport(quiet, 'ru').includes('дубль'));
 
+  // 4. Задачу влили squash-ом (T-140) и вернули в работу. Squash-коммит в
+  //    main не родня ветке: без поправки «своё main» включило бы работу самой
+  //    задачи, и её файл вышел бы дублем сам с собой.
+  const squashed = await preMergeGate({
+    repoDir: dir, branch: 'task/T-clean', base: 'main', message: 'T-clean: своя панель',
+  });
+  check('ветка влита squash-ом', squashed.merged
+    && git('log', '-1', '--format=%P', 'main').split(' ').length === 1
+    && git('log', '-1', '--format=%s', 'main') === 'T-clean: своя панель');
+  git('checkout', '-q', 'task/T-clean');
+  writeFileSync(resolve(dir, 'web/panel.ts'), 'export const panel = 2;\n');
+  git('commit', '-qam', 'T-clean: доработка после слияния');
+  git('checkout', '-q', 'main');
+  const again = await duplicateEdits(dir, 'main', 'task/T-clean');
+  check('своя же влитая работа дублем не считается', again.length === 0);
+
   rmSync(defaultIntegrationDir(dir), { recursive: true, force: true });
   rmSync(dir, { recursive: true, force: true });
 

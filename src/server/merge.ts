@@ -6,7 +6,9 @@ import type { Lang } from '../shared/i18n';
 import { t } from './i18n';
 import { taskRepo, worktreesRoot, type OfficeState, type Task } from './state';
 import { dispatch } from './plan';
-import { checkMergeable, liveBase, mergeBranch, OFFICE_PERSON, removeWorktree } from './git';
+import {
+  checkMergeable, liveBase, mergeBranch, OFFICE_PERSON, removeWorktree, revision, taskCommitMessage,
+} from './git';
 import { runTypecheck } from './checks';
 import { duplicateEdits, formatOverlaps } from './overlap';
 import { repoSlug } from './premerge';
@@ -224,7 +226,9 @@ export async function mergeQueue(taskIds: string[], state: OfficeState): Promise
           };
         },
         // Ручная очередь: работа исполнителя, а влил её по команде человека сам офис.
-        { author: state.gitPerson(task.assigneeId), committer: OFFICE_PERSON });
+        { author: state.gitPerson(task.assigneeId), committer: OFFICE_PERSON },
+        // Одним коммитом «T-N: заголовок», как и в конвейере (T-140).
+        taskCommitMessage(task.id, task.title, task.result));
       if (checks.result) step.typecheck = checks.result;
       state.addChat(OFFICE_SENDER,
         state.say('merge.stepOutcome', { task: task.id, message: outcome.message }));
@@ -271,9 +275,12 @@ export async function mergeQueue(taskIds: string[], state: OfficeState): Promise
         state.addChat(OFFICE_SENDER, `⚠️ ${duplicate}`);
         state.addLog(null, 'system', `${task.id}: ${duplicate}`);
       }
+      // Коммит задачи в базе — по нему надзор заметит откат (outcomes.ts).
+      const mergeCommit = outcome.kind === 'merged' ? await revision(repo, base) : null;
       state.updateTask(task.id, {
         merged: true,
         worktreePath: null,
+        ...(mergeCommit ? { mergeCommit } : {}),
         // Предупреждение живёт в отчёте задачи: лента уедет, а карточку читают
         // и через неделю.
         ...(duplicate && outcome.kind === 'merged'

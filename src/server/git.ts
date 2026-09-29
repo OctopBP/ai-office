@@ -777,10 +777,16 @@ export interface AssembledMerge {
  * Базовая ветка не двигается: результат живёт только в копии офиса, и по нему
  * можно гонять проверки. Это «пробное слияние» пред-merge гейта и первая
  * половина настоящего слияния (`mergeBranch`).
+ *
+ * squash — сообщение коммита задачи (`taskCommitMessage`). Задано — ветка
+ * ложится на базу одним обычным коммитом с одним родителем, как «squash and
+ * merge» пулл-реквеста: в истории основной ветки на задачу ровно один коммит,
+ * без промежуточных «доработок». Не задано — merge-коммитом, как раньше: так
+ * вливается ветка выпуска, у которой своя история.
  */
 export async function assembleMerge(
   repoDir: string, branch: string, base: string, integrationDir: string, lang: Lang,
-  sign?: Signature,
+  sign?: Signature, squash?: string,
 ): Promise<AssembledMerge> {
   const warnings: string[] = [];
   const stop = (message: string, kind: AssembledMerge['kind']): AssembledMerge => ({
@@ -825,11 +831,18 @@ export async function assembleMerge(
     });
   }
 
-  const merge = await git(worktree, ['merge', '--no-ff', '--no-edit', branch], signed(sign));
+  // Squash не оставляет MERGE_HEAD, и `merge --abort` ему не откат: копию
+  // возвращаем к базе сбросом — она у нас и так стояла ровно на базе.
+  const merge = squash
+    ? await git(worktree, ['merge', '--squash', branch], signed(sign))
+    : await git(worktree, ['merge', '--no-ff', '--no-edit', branch], signed(sign));
+  const undo = (): Promise<unknown> => (squash
+    ? git(worktree, ['reset', '--hard', '-q', 'HEAD'])
+    : git(worktree, ['merge', '--abort']));
   if (!merge.ok) {
     const conflicted = await git(worktree, ['diff', '--name-only', '--diff-filter=U']);
     const files = splitLines(conflicted.stdout);
-    await git(worktree, ['merge', '--abort']);
+    await undo();
     if (!files.length) {
       return assembled({
         kind: 'failed',
@@ -840,6 +853,29 @@ export async function assembleMerge(
       kind: 'conflict', conflicts: files,
       message: t(lang, 'git.mergeConflict', { files: files.join(', ') }),
     });
+  }
+
+  if (squash) {
+    // Коммиты в ветке есть, а изменений нет: всё это уже лежит в базе (ветку
+    // влили раньше и не удалили). Пустой коммит задачи в истории ни к чему.
+    const staged = await git(worktree, ['diff', '--cached', '--quiet']);
+    if (staged.ok) {
+      await undo();
+      return assembled({ kind: 'nothing', message: t(lang, 'git.nothingToMerge') });
+    }
+    // --no-verify: проверка слитого дерева — дело гейта, а не хуков копии офиса.
+    // --cleanup=whitespace: строка тела из отчёта может начинаться с «#», и
+    // обычная уборка молча выбросила бы её как комментарий.
+    const commit = await git(worktree, [
+      'commit', '--no-verify', '--cleanup=whitespace', '-m', squash,
+    ], signed(sign));
+    if (!commit.ok) {
+      await undo();
+      return assembled({
+        kind: 'failed',
+        message: t(lang, 'git.mergeFailed', { error: commit.stderr || commit.stdout, repo: repoDir }),
+      });
+    }
   }
 
   const sha = await revision(worktree, 'HEAD');
@@ -866,7 +902,7 @@ export async function dropAssembled(worktree: string, base: string): Promise<voi
 export async function mergeBranch(
   repoDir: string, branch: string, base: string, integrationDir: string, lang: Lang,
   verify?: (worktree: string) => Promise<{ ok: boolean; message: string }>,
-  sign?: Signature,
+  sign?: Signature, squash?: string,
 ): Promise<MergeOutcome> {
   const warnings: string[] = [];
   const nothingToDo = (message: string, kind: MergeOutcome['kind'] = 'nothing'): MergeOutcome => ({
@@ -874,7 +910,7 @@ export async function mergeBranch(
     checkout: { state: 'not-here', files: [], message: '' },
   });
 
-  const built = await assembleMerge(repoDir, branch, base, integrationDir, lang, sign);
+  const built = await assembleMerge(repoDir, branch, base, integrationDir, lang, sign, squash);
   warnings.push(...built.warnings);
   // Запасную копию отпускаем на любом исходе: она нужна ровно на время сборки,
   // а остаться должна только постоянная копия офиса.
@@ -1089,6 +1125,11 @@ export async function removeWorktree(
   if (!options.keepBranch) await git(repoDir, ['branch', '-D', branch]);
 }
 
+/** Удалить локальную ветку. Нет её — и ладно: удалять было нечего. */
+export async function deleteBranch(repoDir: string, branch: string): Promise<void> {
+  await git(repoDir, ['branch', '-D', branch]);
+}
+
 /** Есть ли в ветке коммиты сверх базовой. */
 export async function hasWork(repoDir: string, branch: string, base: string): Promise<boolean> {
   const r = await git(repoDir, ['rev-list', '--count', `${base}..${branch}`]);
@@ -1180,6 +1221,88 @@ export async function isAncestor(dir: string, commit: string, ref: string): Prom
   if (r.ok) return true;
   // Единица — честное «нет», всё остальное — поломка вызова.
   return r.code === 1 ? false : null;
+}
+
+// ------------------------------------------------------------ коммиты задач
+
+/** Сколько тела из отчёта уезжает в сообщение коммита: пара строк, не отчёт целиком. */
+const BODY_MAX = 280;
+const BODY_WIDTH = 72;
+
+/**
+ * Сообщение коммита задачи в основной ветке: «T-N: заголовок», пустая строка и
+ * первый абзац отчёта, если он есть. По префиксу «T-N:» задачу потом находят
+ * в истории (`taskCommitRe`), поэтому формат заголовка менять нельзя.
+ *
+ * Из отчёта берём только первый абзац и режем по слову: хвосты вроде
+ * «⚠️ дубль правки» и списки файлов — это мусор для истории git.
+ */
+export function taskCommitMessage(taskId: string, title: string, report?: string | null): string {
+  const subject = `${taskId}: ${title.replace(/\s+/g, ' ').trim()}`;
+  const para = (report ?? '').trim().split(/\n\s*\n/)[0] ?? '';
+  let body = para.replace(/\s+/g, ' ').trim();
+  if (!body || body.startsWith('⚠️')) return subject;
+  if (body.length > BODY_MAX) {
+    const cut = body.slice(0, BODY_MAX);
+    body = `${cut.slice(0, Math.max(cut.lastIndexOf(' '), BODY_MAX / 2)).trimEnd()}…`;
+  }
+  const lines: string[] = [];
+  let line = '';
+  for (const word of body.split(' ')) {
+    if (line && line.length + 1 + word.length > BODY_WIDTH) {
+      lines.push(line);
+      line = word;
+    } else {
+      line = line ? `${line} ${word}` : word;
+    }
+  }
+  if (line) lines.push(line);
+  return `${subject}\n\n${lines.join('\n')}`;
+}
+
+const escapeRe = (s: string): string => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
+/**
+ * Заголовок коммита, которым задача легла в основную ветку. Понимает оба
+ * поколения истории: новые squash-коммиты «T-N: …» (свои и с GitHub, у того
+ * в конце « (#12)») и старые merge-коммиты «Merge branch 'task/T-N' …» /
+ * «Merge pull request #12 from owner/task/T-N». Старую историю не переписывали,
+ * поэтому искать приходится и так, и так.
+ */
+export const taskCommitRe = (taskId: string): RegExp => {
+  const id = escapeRe(taskId);
+  return new RegExp(`^(?:${id}:|Merge (?:branch|pull request) .*\\btask/${id}(?![\\d]))`);
+};
+
+/**
+ * Откатили ли коммит задачи коммитом отката поверх (`git revert`). Сброс
+ * ветки назад ловит `isAncestor`, а `revert` историю не трогает: коммит задачи
+ * остаётся предком базы, и без этой проверки такой откат не виден вовсе.
+ *
+ * Узнаём откат по строке «This reverts commit <хеш>», которую пишет git (и
+ * для merge-коммита с `-m 1`), либо по заголовку «Revert "T-N: …"» — так его
+ * пишет GitHub, когда откатывает пулл-реквест. Откат отката возвращает работу:
+ * считаем по порядку, кто сказал последним.
+ * Возвращает хеш действующего отката, null — отката нет или спросить не удалось.
+ */
+export async function findRevert(
+  dir: string, commit: string, ref: string, taskId: string,
+): Promise<string | null> {
+  const log = await git(dir, [
+    'log', '--reverse', '--format=%H%x1f%s%x1f%b%x1e', `${commit}..${ref}`,
+  ]);
+  if (!log.ok || !log.stdout) return null;
+  const subjectRe = new RegExp(`^Revert "${taskCommitRe(taskId).source.slice(1)}`);
+  const reverts = (body: string, sha: string): boolean =>
+    new RegExp(`This reverts commit ${escapeRe(sha)}\\b`).test(body);
+  let active: string | null = null;
+  for (const record of log.stdout.split('\x1e')) {
+    const [hash = '', subject = '', body = ''] = record.trim().split('\x1f');
+    if (!hash) continue;
+    if (active && reverts(body, active)) { active = null; continue; }
+    if (!active && (reverts(body, commit) || subjectRe.test(subject))) active = hash;
+  }
+  return active;
 }
 
 /** Хеш ветки или ревизии. null — такой ревизии нет. */
