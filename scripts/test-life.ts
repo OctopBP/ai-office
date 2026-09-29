@@ -269,6 +269,33 @@ async function main(): Promise<void> {
   check('снять вопрос можно', dismissQuestion(j, qOffice.id) && !dismissQuestion(j, qOffice.id));
   check('открытых не осталось', openQuestions(j).length === 0);
 
+  // Вопрос живёт в чате своей задачи (спека T-125 §4).
+  const mainChat = j.ensureMainChat();
+  const talk = j.createPmChat('Про оплату');
+  const refIn = (chatId: string, qid: string) => j.chat.some((e) => e.chatId === chatId
+    && e.ref?.kind === 'question' && e.ref.id === qid);
+  const inChat = j.createTask({ title: 'Из чата', description: '', criteria: ['x'], roleId: 'backend', chatId: talk.id });
+  const byTask = askOwner(j, inst.id, inChat.id, 'Сколько на страницу?', 'по 20').question!;
+  check('вопрос исполнителя — в чат задачи', byTask.chatId === talk.id && refIn(talk.id, byTask.id));
+  const talkEpic = j.createEpic({ title: 'Фича из чата', goal: '', approved: true, chatId: talk.id });
+  const ofEpic = j.createTask({ title: 'Часть фичи', description: '', criteria: ['x'], roleId: 'backend', epicId: talkEpic.id });
+  const byEpic = officeAsks(j, 'revert', 'Откатили часть фичи — вернуть?', 'не возвращаем', ofEpic.id);
+  check('вопрос офиса по задаче фичи — в чат фичи', byEpic.chatId === talk.id && refIn(talk.id, byEpic.id));
+  const byPm = askOwner(j, 'pm#1', null, 'Делаем тёмную тему?', 'нет', [], [], talk.id).question!;
+  check('вопрос менеджера — в его чат', byPm.chatId === talk.id && refIn(talk.id, byPm.id));
+  const loose = officeAsks(j, 'assumption', 'Чистим старые ветки?', 'чистим');
+  check('вопрос без привязки — в основной чат', loose.chatId === mainChat.id && refIn(mainChat.id, loose.id));
+  pmMessages.length = 0;
+  const answerMark = j.chat.length;
+  check('ответ «Q-N:» из основного чата принят', answerFromChat(j, `${byTask.id}: по 50`) === byTask.id);
+  check('подтверждение ответа — в чат вопроса',
+    j.chat.slice(answerMark).some((e) => e.chatId === talk.id && e.text.includes(byTask.id)));
+  check('ответ из чата — в журнал', j.factList().some((f) => f.source.questionId === byTask.id && f.text.includes('по 50')));
+  check('ответ «Жизни офиса» — тем же путём в журнал',
+    answerQuestion(j, loose.id, 'чистим') && j.factList().some((f) => f.source.questionId === loose.id));
+  check('менеджер узнал об обоих ответах', pmMessages.some((m) => m.includes(byTask.id)) && pmMessages.some((m) => m.includes(loose.id)));
+  for (const q of [byEpic, byPm]) dismissQuestion(j, q.id);
+
   // Варианты ответа: от агента, разобранные из текста и отброшенные.
   const withOpts = askOwner(j, OFFICE_SENDER, null, 'Какой стек берём?', 'Node',
     ['Node', 'Node', '  Go  ', '', 'x'.repeat(41)]).question!;
