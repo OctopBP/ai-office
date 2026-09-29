@@ -14,7 +14,9 @@
  *  3. проверки (typecheck и тесты) на собранном слиянии: красные — стоп,
  *     в отчёте видно, какая команда упала, на каких файлах и с каким текстом.
  *
- * Зелёный гейт — слияние идёт как раньше, через `mergeBranch`.
+ * Зелёный гейт — слияние идёт как раньше, через `mergeBranch`. Задано
+ * `message` — ветка ложится в основную одним squash-коммитом с этим сообщением
+ * (T-140), и гейт следит, чтобы в основную уехало ровно проверенное дерево.
  */
 import { createHash } from 'node:crypto';
 import { tmpdir } from 'node:os';
@@ -23,7 +25,7 @@ import type { GateReportView } from '../shared/types';
 import { asLang, type Lang } from '../shared/i18n';
 import { t } from './i18n';
 import {
-  assembleMerge, currentBranch, dirtyFiles, dropAssembled, mergeBranch,
+  assembleMerge, currentBranch, dirtyFiles, dropAssembled, git, mergeBranch,
   releaseIntegration, stashPop, stashPush, type Signature,
 } from './git';
 import { errorFiles, hasScript, runProjectCheck } from './checks';
@@ -130,6 +132,11 @@ export interface PreMergeOptions {
   allowDirty?: boolean;
   /** Подпись коммита слияния. Не задана — подписывает сам офис. */
   sign?: Signature;
+  /**
+   * Сообщение коммита задачи (`taskCommitMessage`). Задано — ветка вливается
+   * squash-ом: один обычный коммит поверх базы. Не задано — merge-коммитом.
+   */
+  message?: string;
 }
 
 /**
@@ -240,7 +247,8 @@ export async function preMergeGate(options: PreMergeOptions): Promise<PreMergeRe
 
   try {
     // 2. Пробное слияние: собирается в копии офиса, основная ветка не двигается.
-    const built = await assembleMerge(repoDir, branch, base, integrationDir, lang, options.sign);
+    const built = await assembleMerge(
+      repoDir, branch, base, integrationDir, lang, options.sign, options.message);
     // Обходы по дороге (занятый каталог, снятые хвосты worktree) не отменяют
     // исхода, но человек должен их увидеть: слияние собралось не там, где обычно.
     report.warnings.push(...built.warnings);
@@ -274,6 +282,9 @@ export async function preMergeGate(options: PreMergeOptions): Promise<PreMergeRe
       return done('merge', false, t(lang, 'premerge.assembleFailed', { error: built.message }));
     }
     const worktree = built.worktree;
+    // Дерево, которое сейчас будут проверять. Настоящее слияние обязано
+    // положить в базу именно его — сверяем ниже, перед сдвигом базы.
+    const checkedTree = (await git(worktree, ['rev-parse', `${built.sha}^{tree}`])).stdout;
 
     // 2б. Дублирующие правки: что после точки ветвления правили обе стороны.
     //     Git слил это молча — конфликта нет, — но именно так расходятся две
@@ -324,13 +335,22 @@ export async function preMergeGate(options: PreMergeOptions): Promise<PreMergeRe
       }));
     }
 
-    // 4. Гейт зелёный — сливаем как раньше. Слияние пересобирается в той же
-    //    копии офиса из тех же коммитов, поэтому проверенное дерево и влитое —
-    //    одно и то же. Запасную копию перед этим отпускаем: слияние поднимет
+    // 4. Гейт зелёный — сливаем. Слияние пересобирается в той же копии офиса
+    //    из тех же коммитов; коммит выйдет другой (время), а дерево обязано
+    //    совпасть с проверенным. Не совпало — пока мы проверяли, база уехала:
+    //    в неё ничего не уходит, это «слияние не прошло», и конвейер зайдёт на
+    //    второй круг. Запасную копию перед этим отпускаем: слияние поднимет
     //    себе свою, а два одноразовых каталога рядом нам ни к чему.
     await release();
     const outcome = await mergeBranch(
-      repoDir, branch, base, integrationDir, lang, undefined, options.sign);
+      repoDir, branch, base, integrationDir, lang,
+      async (merged) => {
+        const tree = (await git(merged, ['rev-parse', 'HEAD^{tree}'])).stdout;
+        return tree && tree === checkedTree
+          ? { ok: true, message: '' }
+          : { ok: false, message: t(lang, 'premerge.treeMoved', { base }) };
+      },
+      options.sign, options.message);
     report.warnings.push(...outcome.warnings);
     if (outcome.worktree) report.integrationDir = outcome.worktree;
     if (outcome.kind === 'nothing') {

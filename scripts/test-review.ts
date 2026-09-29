@@ -198,6 +198,13 @@ async function main(): Promise<void> {
   // 1. Чистая ветка + одобрение ревьюера: влито и убрано за собой.
   {
     const task = taskBranch(dir, 'A', { 'a.txt': 'A\n' });
+    // Второй коммит ветки — «доработка»: в main он отдельно не должен попасть.
+    git(dir, 'checkout', '-q', `task/${task.id}`);
+    writeFileSync(resolve(dir, 'a2.txt'), 'A2\n');
+    git(dir, 'add', '-A');
+    git(dir, 'commit', '-qm', `${task.id}: доработка`);
+    git(dir, 'checkout', '-q', 'main');
+    const mainBefore = git(dir, 'rev-parse', 'main');
     const s = stub();
     await runPipeline(office, task.id);
 
@@ -207,7 +214,16 @@ async function main(): Promise<void> {
     check('стадия — влито', pr?.stage === 'merged');
     check('задача отмечена слитой', fresh.merged && fresh.status === 'done');
     check('файл появился в main', existsSync(resolve(dir, 'a.txt')));
-    check('слияние merge-коммитом', git(dir, 'log', '-1', '--pretty=%P').split(' ').length === 2);
+    // Squash (T-140): на задачу в main ровно один новый коммит, без второго
+    // родителя, с заголовком «T-N: заголовок» и телом из отчёта.
+    check('в main ровно один новый коммит', git(dir, 'rev-list', '--count', `${mainBefore}..main`) === '1');
+    check('у коммита задачи один родитель', git(dir, 'log', '-1', '--pretty=%P', 'main') === mainBefore);
+    check('заголовок «T-N: заголовок»', git(dir, 'log', '-1', '--pretty=%s', 'main') === `${task.id}: ${task.title}`);
+    check('тело — из отчёта', git(dir, 'log', '-1', '--pretty=%b', 'main') === 'сделано');
+    check('доработка ветки влита вместе с работой', existsSync(resolve(dir, 'a2.txt')));
+    check('промежуточных коммитов ветки в main нет',
+      !git(dir, 'log', '--format=%s', 'main').split('\n').includes(`${task.id}: доработка`));
+    check('коммит задачи запомнен для поиска отката', fresh.mergeCommit === git(dir, 'rev-parse', 'main'));
     check('ветка задачи удалена', !git(dir, 'branch', '--list', `task/${task.id}`));
     check('рабочая копия убрана', !existsSync(resolve(worktreesRoot(office), task.id)));
     check('ревьюера спросили один раз', s.calls.reviews === 1);

@@ -16,7 +16,7 @@
 import type { OutcomeKind, TaskOutcome } from '../shared/types';
 import { OFFICE_SENDER } from '../shared/types';
 import { criteriaProgress, taskRepo, type OfficeState, type Task } from './state';
-import { isAncestor, isRepo } from './git';
+import { findRevert, isAncestor, isRepo } from './git';
 import { confirmFactsFor } from './journal';
 
 /** Сколько дней после слияния надзор ещё проверяет, не откатили ли работу. */
@@ -126,9 +126,14 @@ export function closeIfDone(state: OfficeState, taskId: string): void {
 }
 
 /**
- * Найти откаты: слитые недавно задачи, коммит слияния которых пропал из
- * истории базовой ветки. Это единственный исход, который офис не видит сам в
- * момент события, — человек откатывает руками и офису не докладывает.
+ * Найти откаты: слитые недавно задачи, коммит которых пропал из истории
+ * базовой ветки (сброс) или отменён коммитом отката поверх (`git revert`).
+ * Это единственный исход, который офис не видит сам в момент события, —
+ * человек откатывает руками и офису не докладывает.
+ *
+ * `mergeCommit` бывает двух поколений: squash-коммит «T-N: …» (с T-140) и
+ * merge-коммит старых задач. Обе проверки годятся для обоих: предок есть
+ * предок, а `findRevert` узнаёт откат и того, и другого.
  * Возвращает откаченные задачи: кому нужно, тот спросит владельца, что было
  * не так.
  */
@@ -143,7 +148,8 @@ export async function detectReverts(state: OfficeState, now = Date.now()): Promi
     const kept = await isAncestor(repo, task.mergeCommit, task.baseBranch);
     // null — проверить не удалось (ревизию переписали, репозитория нет): это
     // не откат, а незнание, и объявлять работу выброшенной по нему нельзя.
-    if (kept !== false) continue;
+    if (kept === null) continue;
+    if (kept && !(await findRevert(repo, task.mergeCommit, task.baseBranch, task.id))) continue;
     recordOutcome(state, task.id, 'reverted', now);
     state.addLog(null, 'system', state.say('life.reverted.log', { task: task.id, base: task.baseBranch }));
     state.addChat(OFFICE_SENDER, state.say('life.reverted.chat', {

@@ -241,9 +241,12 @@ const snapshot: Executor<Ctx> = {
       commits.add(hash);
       // Задача узнаётся и по своему слиянию в диапазоне: у задачи, влитой
       // дважды (повтор, перенос между копиями), записано первое слияние, и
-      // оно может лежать до прошлого выпуска. Годится и «Merge branch
-      // 'task/T-5'», и «Merge pull request #12 from owner/task/T-5».
+      // оно может лежать до прошлого выпуска. Годится squash-коммит «T-5: …»
+      // (так вливает офис с T-140) и старые «Merge branch 'task/T-5'» и
+      // «Merge pull request #12 from owner/task/T-5».
       for (const m of subject.matchAll(/\btask\/(T-\d+)\b/g)) named.add(m[1]);
+      const squashed = /^(T-\d+): /.exec(subject);
+      if (squashed) named.add(squashed[1]);
     }
     const tasks = [...state.tasks.values()]
       .filter((t) => t.merged && ((t.mergeCommit && commits.has(t.mergeCommit)) || named.has(t.id)))
