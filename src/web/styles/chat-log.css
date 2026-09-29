@@ -342,3 +342,10 @@
   padding-bottom: var(--space-1); font-size: var(--fs-small); color: var(--ink-3);
 }
 .cc-missing { color: var(--ink-3); }
+
+/* Событие конвейера: почти строка, паддинг меньше, чем у карточки задачи. */
+.chat-card.cc-event { gap: 2px; padding: var(--space-1) var(--space-3); }
+.cc-event .cc-dot { width: 8px; height: 8px; }
+.cc-event.stuck .cc-dot.fail { background: var(--danger); }
+.cc-event-text { flex: 1; min-width: 0; color: var(--ink-2); }
+.cc-event-why { padding-left: calc(8px + var(--space-2)); font-size: var(--fs-small); color: var(--ink-3); word-break: break-word; }
