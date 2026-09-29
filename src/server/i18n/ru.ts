@@ -62,6 +62,9 @@ export const ru: Record<keyof typeof en, string> = {
   'state.desk.backPlain': ' или вернуть прежнюю раскладку',
   'state.desk.homeless': '⚠️ В раскладке «{preset}» {desks} рабочих мест на {staff} сотрудников. Без стола: {who}. Работать они не перестали, но сидят не за столом. Чтобы это исправить, надо уволить кого-нибудь{back}.',
 
+  'pmChat.mainTitle': 'Основной чат',
+  'pmChat.newTitle': 'Новый чат',
+
   'state.criteria.noTask': 'Задачи {task} нет на доске.',
   'state.criteria.noItem': 'У задачи {task} нет критерия №{index}. Всего критериев: {total}.',
   'state.criteria.marked': 'Критерий №{index} «{text}» — {verdict}. Готово {ready} из {total}.',

@@ -1822,9 +1822,12 @@ function restartPm(state: OfficeState): void {
 // вшит в сессию менеджера: без перезапуска он назначал бы задачи вслепую.
 onRoleSetChanged(restartPm);
 
-/** Сообщение пользователя PM'у того офиса, в котором он его написал. */
-export function sendUserMessage(state: OfficeState, text: string): void {
-  state.addChat('user', text);
+/**
+ * Сообщение пользователя PM'у того офиса, в котором он его написал. `chatId` —
+ * чат, в котором оно написано; сессия менеджера пока одна на все чаты.
+ */
+export function sendUserMessage(state: OfficeState, text: string, chatId?: string): void {
+  state.addChat('user', text, 'pm#1', undefined, chatId);
   // «Q-3: да, оставляем» — ответ на вопрос офиса, а не реплика менеджеру:
   // ответ ложится в журнал, а менеджер узнаёт о нём системным сообщением.
   if (answerFromChat(state, text)) return;

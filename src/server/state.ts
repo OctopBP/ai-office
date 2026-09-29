@@ -12,7 +12,7 @@ import type {
   PullRequestView, PrStage, ReviewNote, TaskOutcome, TaskDelivery, BranchMark,
   FactView, LifeView, OwnerQuestion, RitualId, RitualPolicy, RitualRun,
   DirectionView, ProposalView, InitiativeMode,
-  SpendEntryView,
+  SpendEntryView, PmChat,
 } from '../shared/types';
 import { OFFICE_SENDER } from '../shared/types';
 import { isOpenQuestion } from '../shared/questions';
@@ -650,6 +650,8 @@ export interface Epic {
   directionId: string | null;
   /** Вклад в выпуск (docs/design/releases/spec.md §6.2). В старых сохранениях поля нет. */
   release?: EpicRelease | null;
+  /** Чат с менеджером, к которому привязана фича. В сохранениях до чатов поля нет. */
+  chatId?: string | null;
   createdAt: number;
   startedAt: number | null;
   finishedAt: number | null;
@@ -669,6 +671,11 @@ export interface Task {
   assigneeId: string | null;
   status: TaskStatus;
   epicId: string | null;
+  /**
+   * Чат с менеджером, к которому привязана задача. В сохранениях до чатов
+   * поля нет — это «без чата», к основному такую задачу не привязываем.
+   */
+  chatId?: string | null;
   order: number;
   /**
    * Важность задачи. Не путать с `order`: порядок — это место внутри фичи,
@@ -832,6 +839,15 @@ export class OfficeState {
   /** План офиса: фичи по id. Порядок держится полем `order`, а не вставкой. */
   epics = new Map<string, Epic>();
   chat: ChatEntry[] = [];
+  /** Чаты с менеджером по id, включая архивные. Реплики — в `chat` по `chatId`. */
+  pmChats = new Map<string, PmChat>();
+  pmChatSeq = 0;
+  /**
+   * Чат, в который владелец писал последним. Туда же ложатся ответы
+   * менеджера: сессия пока одна на все чаты, и ответ относится к тому, о чём
+   * спросили. Только в памяти — после перезапуска ответ пойдёт в основной.
+   */
+  pmReplyChatId: string | null = null;
   /**
    * Кто сейчас пишет ответ и что успел наговорить. Ключ — ветка разговора,
    * черновик в ней ровно один. На диск не идёт: после перезапуска писать
@@ -1287,6 +1303,8 @@ export class OfficeState {
       releaseSince: this.releaseSince,
       releaseSetups: [...this.releaseSetups.values()],
       chat: this.chat,
+      pmChats: [...this.pmChats.values()],
+      pmChatSeq: this.pmChatSeq,
       log: this.log.slice(-500),
       meetings: this.meetings,
       settings: this.settings,
@@ -1850,6 +1868,7 @@ export class OfficeState {
     this.epicSeq = data.epicSeq ?? this.epics.size;
     // Записи из версий до появления веток чата относим к разговору с менеджером.
     this.chat = (data.chat ?? []).map((c) => ({ ...c, thread: c.thread ?? 'pm#1' }));
+    this.loadPmChats(data.pmChats, data.pmChatSeq);
     this.log = data.log ?? [];
     // Совещание, застигнутое перезапуском, не продолжится: сессии участников
     // умерли вместе с процессом. Оставить его «идущим» значило бы показывать
@@ -2071,6 +2090,9 @@ export class OfficeState {
     this.releaseSince = {};
     this.releaseSetups.clear();
     this.chat = [];
+    this.pmChats.clear();
+    this.pmChatSeq = 0;
+    this.pmReplyChatId = null;
     this.log = [];
     this.meetings = [];
     this.taskSeq = 0;
@@ -2758,15 +2780,150 @@ export class OfficeState {
 
   // ---------- чат и лог ----------
 
-  addChat(from: string, text: string, thread = 'pm#1', meetingId?: string): void {
+  /**
+   * Реплика в ветку. `chatId` значим только для ветки менеджера 'pm#1': без
+   * него реплика ложится туда, куда её отнёс бы `routePmChat`.
+   */
+  addChat(from: string, text: string, thread = 'pm#1', meetingId?: string, chatId?: string): void {
     const entry: ChatEntry = { id: randomUUID(), thread, from, text, at: Date.now() };
     if (meetingId) entry.meetingId = meetingId;
+    const pmChat = thread === 'pm#1' ? this.routePmChat(from, chatId) : null;
+    if (pmChat) {
+      entry.chatId = pmChat.id;
+      // Автоназвание — до того, как реплика ляжет в чат: оно по первой
+      // реплике владельца, а после push её уже не отличить от последующих.
+      if (from === 'user' && !pmChat.renamed && !pmChat.main
+        && !this.chat.some((e) => e.chatId === pmChat.id && e.from === 'user')) {
+        pmChat.title = autoChatTitle(text) || pmChat.title;
+      }
+      pmChat.lastActivityAt = entry.at;
+    }
     this.chat.push(entry);
     this.emit({ t: 'chat', entry });
+    if (pmChat) this.emit({ t: 'pm.chat', chat: { ...pmChat } });
     this.markDirty();
     // Реплики самого офиса тишину не сбивают: планёрка и ритуалы пишут в
     // чат, и считать это работой значило бы никогда не дождаться тишины.
     if (from !== OFFICE_SENDER) this.noteWork();
+  }
+
+  // ---------- чаты с менеджером ----------
+
+  /**
+   * В какой чат ложится реплика ветки менеджера. Названный чат — если он
+   * есть. Иначе реплики офиса идут в основной (события без привязки, §4
+   * спеки), а ответы менеджера — туда, где владелец писал последним: сессия
+   * пока одна на все чаты, и ответ относится к последнему вопросу.
+   */
+  private routePmChat(from: string, chatId?: string): PmChat {
+    const named = chatId ? this.pmChats.get(chatId) : undefined;
+    let chat: PmChat;
+    if (named) chat = named;
+    else if (from !== OFFICE_SENDER && from !== 'user' && this.pmReplyChatId && this.pmChats.has(this.pmReplyChatId)) {
+      chat = this.pmChats.get(this.pmReplyChatId)!;
+    } else chat = this.ensureMainChat();
+    if (from === 'user') this.pmReplyChatId = chat.id;
+    return chat;
+  }
+
+  /** Основной чат; нет ни одного — заводит его. */
+  ensureMainChat(): PmChat {
+    for (const chat of this.pmChats.values()) if (chat.main) return chat;
+    return this.createPmChat(this.say('pmChat.mainTitle'), undefined, false);
+  }
+
+  /**
+   * Завести чат. Первый в офисе становится основным: ему достаются события
+   * без привязки, как единственному чату до этой фичи.
+   */
+  createPmChat(title?: string, nonce?: string, renamed = Boolean(title?.trim())): PmChat {
+    const now = Date.now();
+    const clean = clipText((title ?? '').trim(), PM_CHAT_TITLE_MAX);
+    const chat: PmChat = {
+      id: `C-${++this.pmChatSeq}`,
+      title: clean || this.say('pmChat.newTitle'),
+      renamed: Boolean(clean) && renamed,
+      createdAt: now,
+      lastActivityAt: now,
+      archived: false,
+      main: ![...this.pmChats.values()].some((c) => c.main),
+    };
+    this.pmChats.set(chat.id, chat);
+    this.emit(nonce ? { t: 'pm.chat', chat: { ...chat }, nonce } : { t: 'pm.chat', chat: { ...chat } });
+    this.markDirty();
+    return chat;
+  }
+
+  /** Переименовать руками. Пустое название или чужой id — false, ничего не меняется. */
+  renamePmChat(id: string, title: string): boolean {
+    const chat = this.pmChats.get(id);
+    const clean = clipText(title.trim().replace(/\s+/g, ' '), PM_CHAT_TITLE_MAX);
+    if (!chat || !clean) return false;
+    chat.title = clean;
+    chat.renamed = true;
+    this.emit({ t: 'pm.chat', chat: { ...chat } });
+    this.markDirty();
+    return true;
+  }
+
+  /**
+   * Архив и возврат из него. Основной чат тоже можно убрать с глаз: события
+   * без привязки продолжат ложиться в него, просто в секции архива.
+   */
+  archivePmChat(id: string, archived: boolean): boolean {
+    const chat = this.pmChats.get(id);
+    if (!chat) return false;
+    if (chat.archived === archived) return true;
+    chat.archived = archived;
+    this.emit({ t: 'pm.chat', chat: { ...chat } });
+    this.markDirty();
+    return true;
+  }
+
+  /**
+   * Чаты с диска. Сохранения до нескольких чатов списка не знают: прежняя
+   * переписка с менеджером становится основным чатом целиком, с первой
+   * реплики. Офис без единой реплики чатов не получает — веб покажет пустое
+   * состояние, а основной чат заведётся с первой репликой.
+   */
+  private loadPmChats(saved: PmChat[] | undefined, seq: number | undefined): void {
+    this.pmChats.clear();
+    this.pmReplyChatId = null;
+    for (const raw of saved ?? []) {
+      if (!raw || typeof raw.id !== 'string') continue;
+      const createdAt = typeof raw.createdAt === 'number' ? raw.createdAt : Date.now();
+      this.pmChats.set(raw.id, {
+        id: raw.id,
+        title: typeof raw.title === 'string' && raw.title.trim() ? raw.title : this.say('pmChat.newTitle'),
+        renamed: raw.renamed === true,
+        createdAt,
+        lastActivityAt: typeof raw.lastActivityAt === 'number' ? raw.lastActivityAt : createdAt,
+        archived: raw.archived === true,
+        main: raw.main === true,
+      });
+    }
+    this.pmChatSeq = Math.max(seq ?? 0, ...[...this.pmChats.keys()].map((id) => Number(id.replace(/^C-/, '')) || 0));
+    const pmEntries = this.chat.filter((e) => e.thread === 'pm#1');
+    const orphans = pmEntries.filter((e) => !e.chatId || !this.pmChats.has(e.chatId));
+    // Основной ровно один: правленый руками файл мог оставить ни одного или два.
+    const chats = [...this.pmChats.values()].sort((a, b) => a.createdAt - b.createdAt);
+    const mains = chats.filter((c) => c.main);
+    for (const extra of mains.slice(1)) extra.main = false;
+    if (!mains.length && chats.length) chats[0].main = true;
+    if (!orphans.length) return;
+    let main = [...this.pmChats.values()].find((c) => c.main);
+    if (!main) {
+      const first = orphans[0].at;
+      main = {
+        id: `C-${++this.pmChatSeq}`, title: this.say('pmChat.mainTitle'), renamed: false,
+        createdAt: first, lastActivityAt: first, archived: false, main: true,
+      };
+      this.pmChats.set(main.id, main);
+    }
+    for (const e of orphans) {
+      e.chatId = main.id;
+      if (e.at > main.lastActivityAt) main.lastActivityAt = e.at;
+    }
   }
 
   /**
@@ -4238,6 +4395,7 @@ export class OfficeState {
       epics: this.epicList().map(toEpicView),
       mcpStatus: this.mcpStatuses(),
       chat: this.chat,
+      pmChats: [...this.pmChats.values()],
       drafts: [...this.drafts.values()],
       log: this.log.slice(-200),
       permissions: this.pendingRequests(),
@@ -4367,7 +4525,7 @@ export const toEpicView = (e: Epic): EpicView => ({
   id: e.id, title: e.title, goal: e.goal, order: e.order,
   status: e.status, approved: e.approved,
   origin: e.origin ?? 'owner', rationale: e.rationale ?? '', directionId: e.directionId ?? null,
-  release: e.release ?? null,
+  release: e.release ?? null, chatId: e.chatId ?? null,
   createdAt: e.createdAt, startedAt: e.startedAt, finishedAt: e.finishedAt,
 });
 
@@ -4375,7 +4533,8 @@ export const toTaskView = (t: Task): TaskView => ({
   id: t.id, title: t.title, description: t.description,
   criteria: t.criteria, roleId: t.roleId,
   assigneeId: t.assigneeId, status: t.status, result: t.result,
-  epicId: t.epicId ?? null, order: t.order ?? 0, dependsOn: t.dependsOn ?? [],
+  epicId: t.epicId ?? null, chatId: t.chatId ?? null,
+  order: t.order ?? 0, dependsOn: t.dependsOn ?? [],
   // Веб про старые форматы не знает: в снимке приоритет есть всегда.
   priority: asTaskPriority(t.priority),
   files: t.files, branch: t.branch, baseBranch: t.baseBranch,
@@ -4421,6 +4580,17 @@ export const criteriaProgress = (t: Task | TaskView): { done: number; total: num
 });
 
 const clipText = (s: string, n: number): string => (s.length > n ? `${s.slice(0, n - 1)}…` : s);
+
+/** Предел названия чата с менеджером: строка списка всё равно обрежет длиннее. */
+const PM_CHAT_TITLE_MAX = 80;
+
+/**
+ * Временное название чата по первой реплике владельца — первая строка,
+ * обрезанная. Смысловое название по разговору даст менеджер, когда у чата
+ * появится своя сессия; до тех пор это лучше, чем десяток «Новых чатов».
+ */
+const autoChatTitle = (text: string): string =>
+  clipText((text.split('\n').find((l) => l.trim()) ?? '').trim().replace(/\s+/g, ' '), 60);
 
 /**
  * Сохранения до структурированных критериев держали один текст, а расход —

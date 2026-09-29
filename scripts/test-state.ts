@@ -2070,6 +2070,88 @@ async function main(): Promise<void> {
   else process.env.OFFICE_DRY_RUN_DELAY = prevEnvDelay;
   wipe(envFile);
 
+  // Чаты с менеджером (docs/design/T-125/spec.md): миграция старой переписки,
+  // команды клиента и переживание перезапуска.
+  const pmcFile = resolve(tmpdir(), `office-test-pmchats-${process.pid}.json`);
+  const pmc = openOfficeState({
+    id: 'o-pmc', projectDir: resolve(tmpdir(), 'pmc-office'), stateFile: pmcFile,
+  }).state;
+  pmc.seed();
+  const freshNoChats = pmc.pmChats.size === 0;
+  pmc.createTask({ title: 'старая', description: '', criteria: [], roleId: null, status: 'planned' });
+  pmc.flush();
+  // Сохранение «до чатов»: списка нет, у реплик менеджера нет chatId.
+  const oldSave = JSON.parse(readFileSync(pmcFile, 'utf8')) as Persisted;
+  delete oldSave.pmChats;
+  delete oldSave.pmChatSeq;
+  oldSave.chat = [
+    { id: 'm1', thread: 'pm#1', from: 'user', text: 'сделай лендинг', at: 1000 },
+    { id: 'm2', thread: 'pm#1', from: 'pm#1', text: 'завёл задачу', at: 2000 },
+    { id: 'm3', thread: 'meeting', from: 'user', text: 'совещание', at: 2500, meetingId: 'M-1' },
+    { id: 'm4', thread: 'pm#1', from: OFFICE_SENDER, text: 'влито', at: 3000 },
+  ];
+  writeFileSync(pmcFile, JSON.stringify(oldSave), 'utf8');
+  pmc.restore();
+  const pmcChats = [...pmc.pmChats.values()];
+  const mainChat = pmcChats[0];
+  const pmLines = pmc.chat.filter((e) => e.thread === 'pm#1');
+  results.push(
+    `новый офис без реплик — без чатов: ${freshNoChats}`,
+    `старая переписка стала одним основным чатом: ${pmcChats.length === 1 && mainChat?.main === true
+      && mainChat.title === 'Основной чат' && !mainChat.archived}`,
+    `все реплики менеджера на месте и в основном чате: ${pmLines.length === 3
+      && pmLines.every((e) => e.chatId === mainChat?.id)}`,
+    `реплики совещаний к чату не привязаны: ${pmc.chat.find((e) => e.id === 'm3')?.chatId === undefined}`,
+    `активность чата — по последней реплике: ${mainChat?.lastActivityAt === 3000}`,
+    `старые задачи к основному чату насильно не привязаны: ${pmc.tasks.size === 1 && [...pmc.tasks.values()]
+      .every((t) => toTaskView(t).chatId === null)}`,
+  );
+
+  const pmcEvents: { chat: string; nonce?: string }[] = [];
+  const pmcOff = pmc.subscribe((e) => { if (e.t === 'pm.chat') pmcEvents.push({ chat: e.chat.id, nonce: e.nonce }); });
+  const created = pmc.createPmChat(undefined, 'n-1');
+  const createdPlain = created.main === false && created.title === 'Новый чат' && !created.renamed;
+  const createdEcho = pmcEvents.some((e) => e.chat === created.id && e.nonce === 'n-1');
+  // Реплика владельца — ровно как её кладёт sendUserMessage, но без сессии менеджера.
+  pmc.addChat('user', 'Тексты писем для рассылки\nи ещё детали', 'pm#1', undefined, created.id);
+  const autoTitled = pmc.pmChats.get(created.id)!.title === 'Тексты писем для рассылки';
+  pmc.addChat('pm#1', 'принял');
+  const replyFollows = pmc.chat.at(-1)?.chatId === created.id;
+  pmc.addChat(OFFICE_SENDER, 'задача влита');
+  const officeToMain = pmc.chat.at(-1)?.chatId === mainChat?.id;
+  const renamed = pmc.renamePmChat(created.id, '  Письма  ');
+  const emptyRename = pmc.renamePmChat(created.id, '   ');
+  const unknownRename = pmc.renamePmChat('C-999', 'x');
+  pmc.addChat('user', 'второе сообщение', 'pm#1', undefined, created.id);
+  const manualKept = pmc.pmChats.get(created.id)!.title === 'Письма';
+  const pmcArchived = pmc.archivePmChat(created.id, true);
+  pmc.addChat('user', 'в неизвестный чат', 'pm#1', undefined, 'C-999');
+  const unknownToMain = pmc.chat.at(-1)?.chatId === mainChat?.id;
+  pmcOff();
+  pmc.flush();
+  pmc.restore();
+  const back = pmc.pmChats.get(created.id);
+  const snap = pmc.snapshot();
+  results.push(
+    `создание чата эхом возвращает nonce: ${createdEcho}`,
+    `новый чат не основной и назван по умолчанию: ${createdPlain}`,
+    `чат назван по первой реплике: ${autoTitled}`,
+    `ответ менеджера лёг в чат, где спросили: ${replyFollows}`,
+    `реплика офиса без привязки — в основной чат: ${officeToMain}`,
+    `переименование принято, пустое и чужое — нет: ${renamed && !emptyRename && !unknownRename}`,
+    `ручное название не затирается следующей репликой: ${manualKept}`,
+    `архивирование принято: ${pmcArchived}`,
+    `реплика в неизвестный чат — в основной: ${unknownToMain}`,
+    `чаты пережили перезапуск: ${pmc.pmChats.size === 2 && back?.title === 'Письма'
+      && back.archived && back.renamed && !back.main}`,
+    `реплики чатов пережили перезапуск: ${pmc.chat.filter((e) => e.chatId === created.id).length === 3}`,
+    `новый id после перезапуска не повторяется: ${pmc.createPmChat('ещё').id === 'C-3'}`,
+    `чаты едут в снапшоте: ${snap.t === 'snapshot' && snap.pmChats.length === 2}`,
+    `события про чаты были: ${pmcEvents.length >= 5}`,
+  );
+  unloadOfficeState('o-pmc');
+  wipe(pmcFile);
+
   // Прошедшей считается только строка, кончающаяся на true. Раньше проверялось
   // обратное — «не false», — и любая строка, где вместо булева оказалось
   // undefined или текст, молча шла в зачёт.
