@@ -84,6 +84,8 @@ export const openQuestions = (state: OfficeState): OwnerQuestion[] =>
 export function askOwner(
   state: OfficeState, from: string, taskId: string | null, text: string, assumption: string,
   options?: string[], replaces: string[] = [],
+  /** Чат менеджера, из которого спросили. Нет — чат задачи, если он у неё есть. */
+  chatId?: string | null,
 ): { ok: boolean; text: string; question: OwnerQuestion | null } {
   if (!text.trim()) return { ok: false, text: state.say('questions.empty'), question: null };
   // Такой вопрос уже ждёт владельца — второй раз его не заводим и лимит не
@@ -105,6 +107,9 @@ export function askOwner(
   });
   state.addLog(from === OFFICE_SENDER ? null : from, 'system',
     state.say('questions.askedLog', { id: question.id, text: clip(text, 120) }));
+  // Вопрос по задаче виден в её чате: там владелец о ней и разговаривал.
+  state.addChatRef({ kind: 'question', id: question.id },
+    chatId ?? (taskId ? state.tasks.get(taskId)?.chatId : null));
   const merged = replaces.filter((id) => mergeQuestion(state, id, question.id).ok);
   const note = merged.length ? ` ${state.say('questions.replacedOk', { ids: merged.join(', ') })}` : '';
   return { ok: true, text: state.say('questions.askedOk', { id: question.id }) + note, question };
@@ -122,6 +127,7 @@ export function officeAsks(
     from: OFFICE_SENDER, taskId, kind, text, assumption, options: questionOptions(options, text),
   });
   state.addLog(null, 'system', state.say('questions.askedLog', { id: question.id, text: clip(text, 120) }));
+  if (taskId) state.addChatRef({ kind: 'question', id: question.id }, state.tasks.get(taskId)?.chatId);
   return question;
 }
 

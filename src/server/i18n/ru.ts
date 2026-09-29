@@ -729,6 +729,11 @@ export const ru: Record<keyof typeof en, string> = {
   'journal.staleQuestion': 'Это ещё в силе? «{text}» (журнал {id}, последнее подтверждение {days} дней назад)',
   'journal.staleAssumption': 'Пока вы не ответили, офис продолжает это соблюдать.',
 
+  'chat.ref.task': 'Задача {id} «{title}» заведена.',
+  'chat.ref.epic': 'Фича {id} «{title}» заведена.',
+  'chat.ref.plan': 'Заведён план: {epics}, {n} задача|Заведён план: {epics}, {n} задачи|Заведён план: {epics}, {n} задач',
+  'chat.ref.question': 'Вопрос владельцу {id}: {text}',
+
   'questions.noSuch': 'Открытого вопроса {id} нет.',
   'questions.empty': 'Вопрос пустой — спрашивать нечего.',
   'questions.limit': 'Лимит вопросов владельцу по этой задаче исчерпан ({max}). Реши сам и опиши допущение в отчёте.',

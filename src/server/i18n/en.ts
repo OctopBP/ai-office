@@ -729,6 +729,11 @@ export const en = {
   'journal.staleQuestion': 'Is this still in force? “{text}” (journal {id}, last confirmed {days} days ago)',
   'journal.staleAssumption': 'The office keeps following it until you say otherwise.',
 
+  'chat.ref.task': 'Task {id} «{title}» created.',
+  'chat.ref.epic': 'Feature {id} «{title}» created.',
+  'chat.ref.plan': 'Plan created: {epics}, {n} task|Plan created: {epics}, {n} tasks',
+  'chat.ref.question': 'Question to the owner {id}: {text}',
+
   'questions.noSuch': 'There is no open question {id}.',
   'questions.empty': 'The question is empty — there is nothing to ask.',
   'questions.limit': 'The question limit for this task is used up ({max}). Decide yourself and describe the assumption in the report.',

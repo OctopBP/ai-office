@@ -481,6 +481,13 @@ export function createPlan(
     }
   }
 
+  // Одна ссылка на весь план, а не по сообщению на фичу и задачу: план
+  // заводится одним шагом менеджера и в ленте читается одним блоком (§5
+  // docs/design/T-126/cards.md). Задачи фич карточка берёт с доски.
+  state.addChatRef(made.length === 1
+    ? { kind: 'epic', id: made[0].id }
+    : { kind: 'plan', epicIds: made.map((e) => e.id) }, chatId);
+
   dispatch(state);
   return { ok: true, message: planSummary(state) };
 }
