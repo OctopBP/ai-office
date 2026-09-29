@@ -35,7 +35,7 @@ import {
 } from '../shared/workflow';
 import { t } from './i18n';
 import {
-  taskRepo, criteriaProgress, worktreesRoot, type OfficeState, type Task,
+  taskRepo, criteriaProgress, worktreesRoot, type OfficeState, type PmAbout, type Task,
 } from './state';
 import { dispatch } from './plan';
 import {
@@ -128,7 +128,8 @@ export interface PipelineAgents {
   rework(state: OfficeState, task: Task, instruction: string): Promise<ReworkOutcome>;
   /** Шаг процесса сессией сотрудника по способностям. Нет — шаги встают. */
   step?(state: OfficeState, task: Task, req: StepRequest): Promise<StepOutcome>;
-  notifyPm(state: OfficeState, text: string): void;
+  /** `about` — задача или фича: по ней выбирается чат, в сессию которого уйдёт сообщение. */
+  notifyPm(state: OfficeState, text: string, about?: PmAbout): void;
 }
 
 let agents: PipelineAgents = {
@@ -151,7 +152,22 @@ export function setPipelineAgents(next: PipelineAgents): void {
  * Сказать менеджеру офиса — снаружи конвейера. Нужно надзору: он тоже часть
  * офиса, а не отдельный сервис, и говорить с PM должен так же.
  */
-export const tellPm = (state: OfficeState, text: string): void => agents.notifyPm(state, text);
+export const tellPm = (state: OfficeState, text: string, about?: PmAbout): void =>
+  agents.notifyPm(state, text, about);
+
+/**
+ * Сказать менеджеру о пачке задач: одним сообщением на чат. Задачи из разных
+ * чатов — разные разговоры, и сводка о чужих задачах сбила бы менеджера
+ * чата с темы. Без привязки — всё в основной.
+ */
+export function tellPmByChat(state: OfficeState, tasks: Task[], text: (group: Task[]) => string): void {
+  const groups = new Map<string | null, Task[]>();
+  for (const t of tasks) {
+    const chatId = state.pmChatFor({ taskId: t.id });
+    groups.set(chatId, [...(groups.get(chatId) ?? []), t]);
+  }
+  for (const [chatId, group] of groups) tellPm(state, text(group), { chatId });
+}
 
 /** Конвейеры, идущие прямо сейчас: ключ «офис:задача». */
 const running = new Map<string, Promise<void>>();
@@ -815,7 +831,7 @@ const merge: Executor<Ctx> = {
       // отдельным сообщением: лишний заход сессии стоит денег и внимания.
       agents.notifyPm(state,
         state.say('pipe.pmMerged', { task: task.id, title: task.title, base })
-        + (duplicate ? `\n⚠️ ${duplicate}` : ''));
+        + (duplicate ? `\n⚠️ ${duplicate}` : ''), { taskId: task.id });
       // Влитая ветка — единственное событие, после которого зависимая задача
       // становится готовой, а фича — закрытой. Ждать прохода надзора здесь нельзя:
       // минута простоя на каждом звене складывается в час на большом плане.
@@ -1132,7 +1148,7 @@ function markStuck(
   state.addLog(null, 'error', state.say('pipe.stuckLog', { task: task.id, why }));
   if (!needsDecision) return;
   agents.notifyPm(state,
-    state.say('pipe.pmStuck', { task: task.id, title: task.title, why }));
+    state.say('pipe.pmStuck', { task: task.id, title: task.title, why }), { taskId: task.id });
 }
 
 /**

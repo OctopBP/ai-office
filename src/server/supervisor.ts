@@ -45,7 +45,7 @@ import { OFFICE_SENDER } from '../shared/types';
 import { criticalEnvFail, taskRepo, type OfficeState, type Task } from './state';
 import { liveBase, revision } from './git';
 import { refreshEnvChecks } from './envcheck';
-import { isPipelineRunning, pipelineProblem, runPipeline, tellPm } from './review';
+import { isPipelineRunning, pipelineProblem, runPipeline, tellPm, tellPmByChat } from './review';
 import { officeAssign, resumeTask, retryTask, slotProblem } from './agents';
 import { limitBlock, resetClock } from './limits';
 import { byPriority, dispatch } from './plan';
@@ -310,8 +310,8 @@ async function watchProviderLimits(state: OfficeState, now: number, provider: Pr
         tasks: ids, minutes: Math.round(PM_GRACE_MS / 60000),
       }));
     }
-    tellPm(state, state.say('sup.pmLimitReset', {
-      tasks: unseen.map((t) => `${t.id} «${t.title}» (${t.assigneeId ?? t.roleId ?? '—'})`).join('\n'),
+    tellPmByChat(state, unseen, (group) => state.say('sup.pmLimitReset', {
+      tasks: group.map((t) => `${t.id} «${t.title}» (${t.assigneeId ?? t.roleId ?? '—'})`).join('\n'),
       minutes: Math.round(PM_GRACE_MS / 60000),
     }));
   }
@@ -331,7 +331,7 @@ async function watchProviderLimits(state: OfficeState, now: number, provider: Pr
     state.addChat(OFFICE_SENDER, state.say('sup.limitResumed', { task: task.id, who: outcome.message }));
     tellPm(state, state.say('sup.limitResumedPm', {
       task: task.id, title: task.title, who: outcome.message,
-    }));
+    }), { taskId: task.id });
   }
   return false;
 }
@@ -373,8 +373,8 @@ async function watchBoard(state: OfficeState, now: number): Promise<void> {
   const unseen = queued.filter((t) => !t.attention && now - t.createdAt > IDLE_BACKLOG_MS);
   if (unseen.length) {
     for (const t of unseen) state.updateTask(t.id, { attention: now });
-    tellPm(state, state.say('sup.pmUnassigned', {
-      tasks: unseen.map((t) => `${t.id} «${t.title}» (${t.roleId ?? '—'})`).join('\n'),
+    tellPmByChat(state, unseen, (group) => state.say('sup.pmUnassigned', {
+      tasks: group.map((t) => `${t.id} «${t.title}» (${t.roleId ?? '—'})`).join('\n'),
       minutes: Math.round(PM_GRACE_MS / 60000),
     }));
   }
@@ -399,20 +399,22 @@ async function watchBoard(state: OfficeState, now: number): Promise<void> {
       state.say('sup.assignedChat', { task: task.id, who: outcome.message }));
     tellPm(state, state.say('sup.assignedPm', {
       task: task.id, title: task.title, who: outcome.message,
-    }));
+    }), { taskId: task.id });
   }
 
   // 3. Провалившиеся: один раз показываем менеджеру и больше не вспоминаем.
   const failed = tasks.filter((t) => t.status === 'failed' && !t.attention);
   if (failed.length) {
     for (const t of failed) state.updateTask(t.id, { attention: now });
-    const shown = failed.slice(0, FAILED_BATCH);
-    tellPm(state, state.say('sup.pmFailed', {
-      tasks: shown.map((t) => `${t.id} «${t.title}» — ${clip(t.result ?? '—')}`).join('\n'),
-      more: failed.length > shown.length
-        ? state.say('sup.pmFailedMore', { n: failed.length - shown.length })
-        : '',
-    }));
+    tellPmByChat(state, failed, (group) => {
+      const shown = group.slice(0, FAILED_BATCH);
+      return state.say('sup.pmFailed', {
+        tasks: shown.map((t) => `${t.id} «${t.title}» — ${clip(t.result ?? '—')}`).join('\n'),
+        more: group.length > shown.length
+          ? state.say('sup.pmFailedMore', { n: group.length - shown.length })
+          : '',
+      });
+    });
   }
 }
 
@@ -492,7 +494,7 @@ async function giveUp(state: OfficeState, task: Task, pr: PullRequestView): Prom
     state.say('sup.giveUpChat', { task: task.id, n: pr.retries }));
   tellPm(state, state.say('sup.giveUpPm', {
     task: task.id, title: task.title, base: pr.base, n: pr.retries, note: pr.note,
-  }));
+  }), { taskId: task.id });
 }
 
 /**

@@ -6,7 +6,7 @@ import type {
 } from '../shared/types';
 import type { Run } from '../shared/workflow';
 import type { Release, ReleasePlan, ReleaseSetup } from '../shared/release';
-import type { Direction, Epic, Fact, LifeState, Proposal, Task } from './state';
+import type { Direction, Epic, Fact, LifeState, PersistedPmSession, Proposal, Task } from './state';
 import type { MeetingView, OwnerQuestion } from '../shared/types';
 import type { Role } from './roles';
 import { c } from './i18n';
@@ -76,13 +76,19 @@ export interface Persisted {
   pmChats?: PmChat[];
   /** Номер последнего чата. Не длина списка: так id не повторится и после чистки. */
   pmChatSeq?: number;
+  /**
+   * Сессии менеджера по чатам: id сессии SDK, контекст, передача дел. Поля
+   * нет в сохранениях до сессий на чат — тогда единственная сессия берётся с
+   * сотрудника 'pm#1' и `pmHandoff` и отходит основному чату.
+   */
+  pmSessions?: PersistedPmSession[];
   log: LogEntry[];
   /** История совещаний. В сохранениях до неё поля нет: старые реплики остаются в ветке `meeting` без привязки. */
   meetings?: MeetingView[];
   instances: PersistedInstance[];
   /**
-   * Передача дел от закрытой по порогу контекста сессии менеджера: она
-   * входит в системный промпт следующей. null — сессию ещё не ротировали.
+   * Передача дел единственной сессии менеджера — из сохранений до сессий на
+   * чат. Читается только при переезде, теперь она у сессии чата.
    */
   pmHandoff?: string | null;
   /** Расход офиса за всё время и по дням. В старых сохранениях их нет. */

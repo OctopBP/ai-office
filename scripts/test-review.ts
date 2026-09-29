@@ -958,8 +958,8 @@ async function main(): Promise<void> {
     office.dryRun = true;
     process.env.OFFICE_DRY_RUN_DELAY = '30';
     // Настоящую сессию менеджера не поднимаем: подсовываем готовую очередь.
-    office.pmQueue = new MessageQueue();
-    office.pmLoop = Promise.resolve();
+    office.pmSession().queue = new MessageQueue();
+    office.pmSession().loop = Promise.resolve();
     const s = stub();
     const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
     const said = (part: string) => s.pm.filter((m) => m.includes(part)).length;

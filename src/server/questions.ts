@@ -152,10 +152,12 @@ export function answerQuestion(state: OfficeState, askedId: string, answer: stri
     source: { questionId: id, ...(question.taskId ? { taskId: question.taskId } : {}) },
   });
   state.addChat(OFFICE_SENDER, state.say('questions.answeredChat', { id, fact: fact.id }));
+  // Ответ — в сессию чата задачи вопроса: там его и ждут.
   tellPm(state, state.say('questions.pmAnswered', {
     id, question: question.text, assumption: question.assumption, answer: text,
     task: [question.taskId, ...along.map((q) => q.taskId)].filter(Boolean).join(', ') || '—',
-  }) + (along.length ? `\n${state.say('questions.pmAlong', { ids: along.map((q) => q.id).join(', ') })}` : ''));
+  }) + (along.length ? `\n${state.say('questions.pmAlong', { ids: along.map((q) => q.id).join(', ') })}` : ''),
+  { taskId: question.taskId });
   return true;
 }
 

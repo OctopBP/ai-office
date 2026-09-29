@@ -833,6 +833,79 @@ const PERMISSION_TIMEOUT_MS = 10 * 60 * 1000;
  */
 const DRAFT_IDLE_MS = 10 * 60 * 1000;
 
+/**
+ * О чём системное сообщение менеджеру: по этому выбирается чат, в сессию
+ * которого оно уйдёт (docs/design/T-125/spec.md §4). Явный `chatId` сильнее
+ * задачи, задача — сильнее фичи; ничего не привязано — основной чат.
+ */
+export interface PmAbout {
+  chatId?: string | null;
+  taskId?: string | null;
+  epicId?: string | null;
+}
+
+/**
+ * Сессия менеджера одного чата (решение Q-20: своя сессия на чат). Сотрудник
+ * 'pm#1' в офисе один — это человечек, расход и состояние; разговоров у него
+ * столько, сколько чатов, и каждый помнит только своё.
+ *
+ * Живая часть (очередь, цикл, ходы, сжатие) — только в памяти. На диск идут
+ * id сессии SDK, размер контекста и передача дел: по ним уснувший или
+ * переживший перезапуск чат поднимается с того же места.
+ */
+export class PmSession {
+  /** Очередь сообщений живой сессии и цикл её чтения; null — сессия спит. */
+  queue: MessageQueue | null = null;
+  loop: Promise<void> | null = null;
+  /**
+   * Сколько ходов сейчас в работе. Считаем ходы, а не смотрим на состояние
+   * сотрудника: в очередь могло лечь несколько сообщений (реплика владельца
+   * и следом уведомление о задаче), и «печатает…» снимает только последний.
+   */
+  turns = 0;
+  /**
+   * Сессия ужимает память по порогу контекста (`Settings.pmContextLimit`):
+   * обычно командой /compact, а если не удалось — передачей дел и закрытием
+   * (`rotationKind`). Пока это идёт, новые сообщения копятся в `pending`:
+   * команда из очереди обрабатывается только между ходами, и реплика,
+   * вставшая перед ней, снова разогнала бы контекст.
+   */
+  rotating = false;
+  rotationKind: 'compact' | 'handoff' = 'compact';
+  pending: { text: string; fromUser: boolean }[] = [];
+  /** Контекст на момент запроса сжатия — пользователю говорят, до чего сессия доросла. */
+  rotatingFrom = 0;
+  /** Сколько осталось после сжатия; null — граница сжатия ещё не пришла. */
+  compactedTo: number | null = null;
+  /** Id сессии SDK для продолжения. null — следующий ход начнёт разговор заново. */
+  sessionId: string | null = null;
+  /** Контекст последнего вызова модели в этой сессии. */
+  contextTokens = 0;
+  /** Что сессия помнила на момент сжатия или передачи дел — для промпта новой. */
+  handoff: string | null = null;
+  /** Набор ролей поменялся посреди хода: перезапустить, когда ход кончится. */
+  restartPending = false;
+  /** Когда сессии последний раз что-то отдали или она ответила — для усыпления. */
+  lastUsedAt = 0;
+  /** Сторож простоя: сработал — сессию усыпляют. */
+  sleepTimer: ReturnType<typeof setTimeout> | null = null;
+
+  constructor(readonly chatId: string) {}
+
+  /** Занята ли сессия: идёт ход или сжатие — усыплять и перезапускать нельзя. */
+  get busy(): boolean {
+    return this.turns > 0 || this.rotating;
+  }
+}
+
+/** Что от сессии менеджера чата уходит на диск. */
+export interface PersistedPmSession {
+  chatId: string;
+  sessionId: string | null;
+  contextTokens: number;
+  handoff: string | null;
+}
+
 export class OfficeState {
   instances = new Map<string, Instance>();
   tasks = new Map<string, Task>();
@@ -843,11 +916,16 @@ export class OfficeState {
   pmChats = new Map<string, PmChat>();
   pmChatSeq = 0;
   /**
-   * Чат, в который владелец писал последним. Туда же ложатся ответы
-   * менеджера: сессия пока одна на все чаты, и ответ относится к тому, о чём
-   * спросили. Только в памяти — после перезапуска ответ пойдёт в основной.
+   * Чат, в который владелец писал последним. Туда ложатся реплики менеджера,
+   * пришедшие без чата; ответы сессий чатов свой чат называют сами. Только в
+   * памяти — после перезапуска такая реплика пойдёт в основной.
    */
   pmReplyChatId: string | null = null;
+  /**
+   * Сессии менеджера по id чата. Заводятся лениво — при первом сообщении в
+   * чат; живыми одновременно держатся не все (см. усыпление в agents.ts).
+   */
+  pmSessions = new Map<string, PmSession>();
   /**
    * Кто сейчас пишет ответ и что успел наговорить. Ключ — ветка разговора,
    * черновик в ней ровно один. На диск не идёт: после перезапуска писать
@@ -981,45 +1059,6 @@ export class OfficeState {
    * «снимается с паузы» и не ставится на неё.
    */
   archived = false;
-  /**
-   * Живая сессия менеджера этого офиса: очередь сообщений и цикл её чтения.
-   * Принадлежат офису, а не процессу: иначе второй открытый офис не поднял бы
-   * своего PM (цикл уже не пуст), а сообщения ушли бы в чужую очередь.
-   */
-  pmQueue: MessageQueue | null = null;
-  pmLoop: Promise<void> | null = null;
-  /**
-   * Сколько ходов менеджера сейчас в работе. Считаем их, а не смотрим на
-   * состояние сотрудника: сообщений в очередь могло лечь несколько (реплика
-   * пользователя и следом уведомление о закрытой задаче), результат придёт на
-   * каждое, и «печатает…» снимает только последний.
-   */
-  pmTurns = 0;
-  /**
-   * Сессия менеджера ужимает память по порогу контекста (см.
-   * `Settings.pmContextLimit`): обычно командой /compact в той же сессии, а
-   * если сжатие не удалось — передачей дел и закрытием (`pmRotationKind`).
-   * Пока это идёт, новые сообщения ей не отдают, а копят в `pmPending`:
-   * команда из очереди обрабатывается только между ходами, и реплика,
-   * вставшая перед ней, снова разогнала бы контекст.
-   */
-  pmRotating = false;
-  pmRotationKind: 'compact' | 'handoff' = 'compact';
-  pmPending: { text: string; fromUser: boolean }[] = [];
-  /**
-   * Контекст на момент запроса сжатия: сам ход с ним перепишет цифру, а
-   * пользователю сообщают, до чего сессия доросла, а не сколько стоил её
-   * последний ход.
-   */
-  pmRotatingFrom = 0;
-  /** Сколько осталось после сжатия; null — граница сжатия ещё не пришла. */
-  pmCompactedTo: number | null = null;
-  /**
-   * Что менеджер помнил на момент последнего сжатия (или передача дел
-   * закрытой сессии). Нужна только новой сессии: продолжаемая несёт то же
-   * в своей стенограмме.
-   */
-  pmHandoff: string | null = null;
   /**
    * Задачи, которые пользователь остановил вручную — чтобы отличить это от
    * падения. Ключ — id задачи, а он уникален только внутри офиса.
@@ -1261,16 +1300,21 @@ export class OfficeState {
    * Задачи и доску не трогает: это про живые разговоры, а не про работу.
    */
   closeSessions(): void {
-    this.pmQueue?.close();
-    this.pmQueue = null;
-    this.pmLoop = null;
-    // Сессии нет — некому и дописывать передачу дел, а накопленное за это
-    // время адресовалось разговору, которого больше нет.
-    this.pmRotating = false;
-    this.pmCompactedTo = null;
-    this.pmPending = [];
-    // Живых сессий больше нет — значит и «печатает…» ни за кем не стоит.
-    this.pmTurns = 0;
+    for (const pm of this.pmSessions.values()) {
+      pm.queue?.close();
+      pm.queue = null;
+      pm.loop = null;
+      // Сессии нет — некому и дописывать передачу дел, а накопленное за это
+      // время адресовалось разговору, которого больше нет.
+      pm.rotating = false;
+      pm.compactedTo = null;
+      pm.pending = [];
+      pm.restartPending = false;
+      // Живых сессий больше нет — значит и «печатает…» ни за кем не стоит.
+      pm.turns = 0;
+      if (pm.sleepTimer) clearTimeout(pm.sleepTimer);
+      pm.sleepTimer = null;
+    }
     for (const thread of [...this.drafts.keys()]) this.endDraft(thread, 'error');
     for (const [id, talk] of this.talks) {
       talk.queue.close();
@@ -1305,6 +1349,11 @@ export class OfficeState {
       chat: this.chat,
       pmChats: [...this.pmChats.values()],
       pmChatSeq: this.pmChatSeq,
+      pmSessions: [...this.pmSessions.values()]
+        .filter((s) => s.sessionId || s.contextTokens || s.handoff)
+        .map<PersistedPmSession>((s) => ({
+          chatId: s.chatId, sessionId: s.sessionId, contextTokens: s.contextTokens, handoff: s.handoff,
+        })),
       log: this.log.slice(-500),
       meetings: this.meetings,
       settings: this.settings,
@@ -1317,7 +1366,6 @@ export class OfficeState {
         name: i.name,
         contextTokens: i.contextTokens,
       })),
-      pmHandoff: this.pmHandoff,
       usage: this.usage,
       daily: this.daily,
       life: this.life,
@@ -1879,7 +1927,7 @@ export class OfficeState {
 
     this.usage = { ...emptyUsage(), ...(data.usage ?? {}) };
     this.daily = data.daily ?? {};
-    this.pmHandoff = typeof data.pmHandoff === 'string' && data.pmHandoff.trim() ? data.pmHandoff : null;
+    this.loadPmSessions(data);
 
     for (const raw of data.tasks ?? []) {
       const t = migrateTask(raw);
@@ -2059,12 +2107,97 @@ export class OfficeState {
     return workerWindowFor(Math.max(this.workerContextLimit(), atLeast), this.workerPrefixTokens);
   }
 
-  /** Передача дел закрытой сессии менеджера: пустая строка стирает прошлую. */
-  setPmHandoff(text: string | null): void {
-    const clean = text?.trim() || null;
-    if (this.pmHandoff === clean) return;
-    this.pmHandoff = clean;
+  // ---------- сессии менеджера по чатам ----------
+
+  /**
+   * Сессия менеджера чата. Чат неизвестен или не назван — основной: туда
+   * идёт всё без привязки, как в единственный чат до этой фичи. Заводится
+   * лениво — у чата, где ещё не писали, сессии нет.
+   */
+  pmSession(chatId?: string | null): PmSession {
+    const id = chatId && this.pmChats.has(chatId) ? chatId : this.ensureMainChat().id;
+    let session = this.pmSessions.get(id);
+    if (!session) {
+      session = new PmSession(id);
+      this.pmSessions.set(id, session);
+    }
+    return session;
+  }
+
+  /**
+   * Чат, в сессию которого идёт системное сообщение (спека T-125 §4): явный,
+   * иначе чат задачи, иначе чат её фичи. null — привязки нет, значит основной.
+   * Архивный чат остаётся адресатом: архив задачу от чата не отвязывает.
+   */
+  pmChatFor(about?: PmAbout): string | null {
+    const known = (id: string | null | undefined): string | null =>
+      (id && this.pmChats.has(id) ? id : null);
+    if (!about) return null;
+    const task = about.taskId ? this.tasks.get(about.taskId) : undefined;
+    const epicId = about.epicId ?? task?.epicId ?? null;
+    return known(about.chatId) ?? known(task?.chatId)
+      ?? known(epicId ? this.epics.get(epicId)?.chatId : null);
+  }
+
+  /** Запомнить id сессии SDK чата: по нему уснувшая сессия поднимается с того же места. */
+  setPmSessionId(session: PmSession, sessionId: string | null): void {
+    const clean = sessionId || null;
+    if (session.sessionId === clean) return;
+    session.sessionId = clean;
     this.markDirty();
+  }
+
+  /**
+   * Контекст сессии чата. Цифра у сотрудника 'pm#1' — та же, последнего
+   * говорившего чата: человечек в офисе один, а шкалу контекста веб берёт с него.
+   */
+  notePmContext(session: PmSession, tokens: number): void {
+    const clean = Number.isFinite(tokens) && tokens > 0 ? Math.round(tokens) : 0;
+    if (session.contextTokens !== clean) {
+      session.contextTokens = clean;
+      this.markDirty();
+    }
+    this.noteContext('pm#1', clean);
+  }
+
+  /** Передача дел сессии чата: пустая строка стирает прошлую. */
+  setPmHandoff(session: PmSession, text: string | null): void {
+    const clean = text?.trim() || null;
+    if (session.handoff === clean) return;
+    session.handoff = clean;
+    this.markDirty();
+  }
+
+  /**
+   * Сессии чатов с диска. Сохранения до сессий на чат знали одну: её id и
+   * контекст лежали на сотруднике 'pm#1', передача дел — в `pmHandoff`. Такая
+   * сессия становится сессией основного чата — именно туда переехала её
+   * переписка, и разговор продолжается с того же места.
+   */
+  private loadPmSessions(data: Persisted): void {
+    for (const s of this.pmSessions.values()) if (s.sleepTimer) clearTimeout(s.sleepTimer);
+    this.pmSessions.clear();
+    const restore = (chatId: string, raw: Partial<PersistedPmSession>): void => {
+      const session = new PmSession(chatId);
+      session.sessionId = typeof raw.sessionId === 'string' && raw.sessionId ? raw.sessionId : null;
+      session.contextTokens = typeof raw.contextTokens === 'number' && raw.contextTokens > 0 ? raw.contextTokens : 0;
+      session.handoff = typeof raw.handoff === 'string' && raw.handoff.trim() ? raw.handoff : null;
+      this.pmSessions.set(chatId, session);
+    };
+    if (Array.isArray(data.pmSessions)) {
+      for (const raw of data.pmSessions) {
+        if (raw && typeof raw.chatId === 'string' && this.pmChats.has(raw.chatId)) restore(raw.chatId, raw);
+      }
+      return;
+    }
+    const pm = (data.instances ?? []).find((i) => i.id === 'pm#1');
+    const legacy = {
+      sessionId: pm?.sessionId ?? null,
+      contextTokens: pm?.contextTokens ?? 0,
+      handoff: data.pmHandoff ?? null,
+    };
+    if (!legacy.sessionId && !legacy.handoff) return;
+    restore(this.ensureMainChat().id, legacy);
   }
 
   // ---------- инстансы ----------
@@ -2093,6 +2226,13 @@ export class OfficeState {
     this.pmChats.clear();
     this.pmChatSeq = 0;
     this.pmReplyChatId = null;
+    // Сессии принадлежали чатам, которых больше нет. Живые гасим здесь же:
+    // их очередь адресовалась разговору, которого не стало.
+    for (const s of this.pmSessions.values()) {
+      s.queue?.close();
+      if (s.sleepTimer) clearTimeout(s.sleepTimer);
+    }
+    this.pmSessions.clear();
     this.log = [];
     this.meetings = [];
     this.taskSeq = 0;
@@ -2136,7 +2276,6 @@ export class OfficeState {
       inst.sessionId = null;
       inst.contextTokens = 0;
     }
-    this.pmHandoff = null;
     this.markDirty();
   }
 
@@ -2582,6 +2721,8 @@ export class OfficeState {
     type?: TaskType | null;
     /** Важность. Не передана — средняя: важность — это отличие от остального. */
     priority?: TaskPriority;
+    /** Чат с менеджером, в котором задачу завели. Нет — задача без чата. */
+    chatId?: string | null;
   }): Task {
     this.taskSeq += 1;
     const task: Task = {
@@ -2593,6 +2734,7 @@ export class OfficeState {
       assigneeId: null,
       status: input.status ?? 'backlog',
       epicId: input.epicId ?? null,
+      chatId: input.chatId ?? null,
       order: input.order ?? this.taskSeq,
       priority: asTaskPriority(input.priority),
       dependsOn: input.dependsOn ?? [],
@@ -2640,6 +2782,8 @@ export class OfficeState {
   createEpic(input: {
     title: string; goal: string; order?: number; approved: boolean;
     origin?: 'owner' | 'office'; rationale?: string; directionId?: string | null;
+    /** Чат с менеджером, в котором фичу завели. Нет — фича без чата. */
+    chatId?: string | null;
   }): Epic {
     this.epicSeq += 1;
     const epic: Epic = {
@@ -2652,6 +2796,7 @@ export class OfficeState {
       origin: input.origin ?? 'owner',
       rationale: input.rationale ?? '',
       directionId: input.directionId ?? null,
+      chatId: input.chatId ?? null,
       createdAt: Date.now(),
       startedAt: null,
       finishedAt: null,
@@ -2931,11 +3076,13 @@ export class OfficeState {
    * Повторный вызов на живом черновике ничего не начинает заново — ход мог
    * прийти вторым, а индикатор уже висит.
    */
-  startDraft(from: string, thread = 'pm#1'): void {
-    const live = this.drafts.get(thread);
+  startDraft(from: string, thread = 'pm#1', chatId?: string): void {
+    const key = draftKey(thread, chatId);
+    const live = this.drafts.get(key);
     if (live) { this.armDraft(live); return; }
     const draft: ChatDraft = { id: randomUUID(), thread, from, text: '', at: Date.now() };
-    this.drafts.set(thread, draft);
+    if (chatId) draft.chatId = chatId;
+    this.drafts.set(key, draft);
     this.armDraft(draft);
     // Копией: черновик потом дописывается на месте, и подписчик, отложивший
     // событие, увидел бы не то состояние, о котором ему сообщили.
@@ -2947,12 +3094,13 @@ export class OfficeState {
    * быть (сторож снял его на долгом вызове инструмента) — тогда заводим
    * заново: текст пошёл, значит агент точно пишет.
    */
-  appendDraft(thread: string, from: string, chunk: string): void {
+  appendDraft(thread: string, from: string, chunk: string, chatId?: string): void {
     if (!chunk) return;
-    let draft = this.drafts.get(thread);
+    const key = draftKey(thread, chatId);
+    let draft = this.drafts.get(key);
     if (!draft) {
-      this.startDraft(from, thread);
-      draft = this.drafts.get(thread)!;
+      this.startDraft(from, thread, chatId);
+      draft = this.drafts.get(key)!;
     }
     draft.text += chunk;
     this.armDraft(draft);
@@ -2965,8 +3113,8 @@ export class OfficeState {
    * чат уедет только последнее сказанное. Черновик тот же, чтобы индикатор не
    * мигал, но текст начинается с нуля.
    */
-  clearDraftText(thread = 'pm#1'): void {
-    const draft = this.drafts.get(thread);
+  clearDraftText(thread = 'pm#1', chatId?: string): void {
+    const draft = this.drafts.get(draftKey(thread, chatId));
     if (!draft || !draft.text) return;
     draft.text = '';
     this.armDraft(draft);
@@ -2974,21 +3122,23 @@ export class OfficeState {
   }
 
   /** Признак жизни от сессии: черновик ещё пишется, сторожа отодвинуть. */
-  touchDraft(thread = 'pm#1'): void {
-    const draft = this.drafts.get(thread);
+  touchDraft(thread = 'pm#1', chatId?: string): void {
+    const draft = this.drafts.get(draftKey(thread, chatId));
     if (draft) this.armDraft(draft);
   }
 
   /**
    * Ход закончился. Звать обязательно и на обрыве тоже, иначе «печатает…»
    * висело бы до перезапуска сервера. Идемпотентно: черновика нет — тихо.
+   * `thread` здесь — ключ черновика: ветка, а для чата менеджера ещё и чат.
    */
-  endDraft(thread = 'pm#1', reason: 'done' | 'error' = 'done'): void {
-    const draft = this.drafts.get(thread);
-    clearTimeout(this.draftTimers.get(thread));
-    this.draftTimers.delete(thread);
+  endDraft(thread = 'pm#1', reason: 'done' | 'error' = 'done', chatId?: string): void {
+    const key = draftKey(thread, chatId);
+    const draft = this.drafts.get(key);
+    clearTimeout(this.draftTimers.get(key));
+    this.draftTimers.delete(key);
     if (!draft) return;
-    this.drafts.delete(thread);
+    this.drafts.delete(key);
     this.emit({ t: 'chat.draft.end', id: draft.id, reason });
   }
 
@@ -2999,10 +3149,11 @@ export class OfficeState {
    * жизни за `DRAFT_IDLE_MS` — снимаем сами, как при обрыве.
    */
   private armDraft(draft: ChatDraft): void {
-    clearTimeout(this.draftTimers.get(draft.thread));
-    const timer = setTimeout(() => this.endDraft(draft.thread, 'error'), DRAFT_IDLE_MS);
+    const key = draftKey(draft.thread, draft.chatId);
+    clearTimeout(this.draftTimers.get(key));
+    const timer = setTimeout(() => this.endDraft(draft.thread, 'error', draft.chatId), DRAFT_IDLE_MS);
     timer.unref?.();
-    this.draftTimers.set(draft.thread, timer);
+    this.draftTimers.set(key, timer);
   }
 
   addLog(agentId: string | null, kind: LogEntry['kind'], text: string, autoApproved?: boolean): void {
@@ -4519,7 +4670,7 @@ export const officeViews = (): OfficeView[] => {
 
 /** Идут ли в офисе живые сессии: исполнители, менеджер или прямые разговоры. */
 const hasLiveSessions = (state: OfficeState): boolean =>
-  state.running > 0 || Boolean(state.pmLoop) || state.talks.size > 0 || state.meetingRunning;
+  state.running > 0 || [...state.pmSessions.values()].some((s) => s.loop) || state.talks.size > 0 || state.meetingRunning;
 
 export const toEpicView = (e: Epic): EpicView => ({
   id: e.id, title: e.title, goal: e.goal, order: e.order,
@@ -4580,6 +4731,12 @@ export const criteriaProgress = (t: Task | TaskView): { done: number; total: num
 });
 
 const clipText = (s: string, n: number): string => (s.length > n ? `${s.slice(0, n - 1)}…` : s);
+
+/**
+ * Ключ черновика: ветка, а у чатов с менеджером ещё и чат — сессии чатов
+ * пишут одновременно, и общий черновик склеил бы два ответа в один.
+ */
+const draftKey = (thread: string, chatId?: string): string => (chatId ? `${thread}@${chatId}` : thread);
 
 /** Предел названия чата с менеджером: строка списка всё равно обрежет длиннее. */
 const PM_CHAT_TITLE_MAX = 80;

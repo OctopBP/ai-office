@@ -61,6 +61,7 @@ export const promptsRu: Record<keyof typeof promptsEn, string> = {
   'agent.log.userDenied': 'Пользователь запретил: {what}',
   'agent.log.userAllowed': 'Пользователь разрешил: {what}',
   'agent.log.resumingSession': 'Продолжаю сессию {id}…',
+  'agent.log.pmSlept': 'Сессия менеджера чата «{chat}» уснула: чат молчит. Следующее сообщение поднимет её с того же места.',
   'agent.log.pmCrashed': 'Сессия PM упала: {error}',
   'agent.log.question': 'Вопрос к {who}: {question}',
   'agent.log.answerFailed': 'Не удалось ответить: {error}',
