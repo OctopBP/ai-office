@@ -67,6 +67,23 @@
 .shell-life { display: flex; flex-direction: column; max-width: 1180px; margin: 0 auto; overflow: hidden; }
 .shell-life-title { flex: none; margin: 0 0 var(--space-3); font-size: var(--fs-title); font-weight: 500; color: var(--ink); }
 .shell-life .life { flex: 1; }
+/* Страница окна из рейла (ShellPage.tsx): композера на ней нет, поэтому вид
+   доходит до низа окна, как доска. Заголовок с действиями стоит, едет тело —
+   плоская карточка кита (.card), без подложки и затемнения. */
+.shell-page {
+  bottom: var(--space-4); overflow: hidden;
+  display: flex; flex-direction: column;
+  max-width: 1180px; margin: 0 auto;
+}
+.shell-page-head {
+  flex: none; display: flex; align-items: center; gap: var(--space-3);
+  margin: 0 0 var(--space-3);
+}
+.shell-page-title { flex: 1; min-width: 0; margin: 0; font-size: var(--fs-title); font-weight: 500; color: var(--ink); }
+.shell-page-actions { display: flex; gap: var(--space-2); flex: none; }
+.shell-page-body { flex: 1; min-height: 0; overflow-y: auto; }
+/* Тело со своей прокруткой внутри (настройки: меню стоит, едет контент). */
+.shell-page-body.fixed { overflow: hidden; display: flex; flex-direction: column; }
 /* Без overflow: hidden — он срезал тень встроенного композера слева, справа
    и снизу. Прокручивается сама лента (.chat), колонке достаточно min-height: 0,
    а место под тень даёт запас --shadow-room у .shell-chat. */
@@ -178,6 +195,9 @@ body.office-dragging, body.office-dragging * { cursor: grabbing !important; user
   font-weight: 400; color: var(--ink-2);
 }
 .rail-win:hover:not(:disabled) { background: var(--film); }
+/* Пункт рейла, чья страница сейчас в главной области, — та же плёнка
+   активной строки, что у разделов настроек и списка офисов. */
+.rail-win.on, .rail-win.on:hover:not(:disabled) { background: var(--film-2); color: var(--ink); }
 .rail-win-icon {
   width: 16px; height: 16px; border-radius: var(--radius-icon); background: var(--film-3);
   display: flex; align-items: center; justify-content: center; flex: none;

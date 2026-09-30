@@ -10,7 +10,8 @@ import { TopBar } from './TopBar';
 import { Composer } from './Composer';
 import { EnvBanner } from './EnvBanner';
 import { UpdateBanner } from './UpdateBanner';
-import { useStore } from '../store';
+import { SettingsPage } from '../SettingsPage';
+import { isRailView, useStore } from '../store';
 import { t } from '../i18n';
 import type { SpotTarget } from '../office3d/Hotspots3D';
 
@@ -61,10 +62,13 @@ export function Shell(props: OverlayProps) {
                 перемонтирование при смене вида ничего не теряет. */}
             <div className="shell-chat-col">
               <ChatThread />
-              <Composer inline onSettings={() => setModal('settings')} />
+              <Composer inline onSettings={() => setView('settings')} />
             </div>
           </div>
         )}
+        {/* Окна из рейла — страницы на месте сцены (ShellPage). Закрыть —
+            вернуться в комнату, как Esc с любого вида. */}
+        {view === 'settings' && <SettingsPage onClose={() => setView('office')} />}
         {view === 'life' && (
           <div className="shell-view shell-life">
             <h2 className="shell-life-title">{t('life.title')}</h2>
@@ -77,8 +81,9 @@ export function Shell(props: OverlayProps) {
       <TopBar />
       {/* На доске композера нет: экран целиком про задачи, а разговор с
           менеджером живёт в виде «Чат». Освободившуюся полосу внизу забирает
-          сама доска (.shell-board). В «Чате» он встроен в колонку переписки. */}
-      {view !== 'board' && view !== 'chat' && <Composer onSettings={() => setModal('settings')} />}
+          сама доска (.shell-board). В «Чате» он встроен в колонку переписки.
+          Страницам из рейла он тоже не нужен: там свои поля и кнопки. */}
+      {view !== 'board' && view !== 'chat' && !isRailView(view) && <Composer onSettings={() => setView('settings')} />}
       <EnvBanner />
       <UpdateBanner />
       <Overlays {...props} />

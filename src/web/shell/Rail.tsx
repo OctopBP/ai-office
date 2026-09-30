@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from 'react';
 import {
-  activeOffices, reorderOffice, reset, setEditingLayout, sortedOffices, summarizeOfficeActivity,
+  activeOffices, isRailView, reorderOffice, reset, setEditingLayout, sortedOffices, summarizeOfficeActivity,
   useStore,
 } from '../store';
 import type { ModalKind, PanelKind } from '../Overlays';
@@ -195,7 +195,9 @@ const WINDOWS: Array<{ kind: WindowKind; icon: IconName }> = [
  *
  * Список окон — то, что раньше жило только в хоткеях и в HUD: очередь
  * слияния, лог, расходы, команда с маркетом, настройки. Доска и жизнь офиса
- * — виды, они переключаются сегментами сверху (см. `TopBar.tsx`).
+ * — виды, они переключаются сегментами сверху (см. `TopBar.tsx`). Окна,
+ * переведённые в страницы (`RailView`), — тот же вид главной области: пункт
+ * рейла горит, пока его страница открыта, а сегмент сверху гасит его.
  */
 export function Rail({ onPanel, onModal }: {
   onPanel: (p: PanelKind) => void;
@@ -210,6 +212,8 @@ export function Rail({ onPanel, onModal }: {
   const collapsed = useStore((s) => s.railCollapsed);
   const setCollapsed = useStore((s) => s.setRailCollapsed);
   const leaveOffice = useStore((s) => s.leaveOffice);
+  const view = useStore((s) => s.view);
+  const setView = useStore((s) => s.setView);
 
   // Архивные офисы в рейле не показываем: работы по ним нет, а вернуть их
   // можно из модалки офисов (раздел «Архив»). Перетаскивание идёт по тому же
@@ -234,7 +238,8 @@ export function Rail({ onPanel, onModal }: {
   const share = cap ? Math.min(1, today / cap) : 0;
 
   const openWindow = (kind: WindowKind) => {
-    if (kind === 'team' || kind === 'settings') onModal(kind);
+    if (isRailView(kind)) setView(kind);
+    else if (kind === 'team') onModal(kind);
     else onPanel(kind);
   };
 
@@ -331,7 +336,7 @@ export function Rail({ onPanel, onModal }: {
           return (
             // Подсказка — только свёрнутому рейлу: развёрнутый и так подписан.
             <Tooltip key={kind} tip={collapsed && <Hint label={t(`shell.win.${kind}`)} keys={key} />}>
-              <button className="rail-win"
+              <button className={`rail-win${view === kind ? ' on' : ''}`}
                 onClick={() => openWindow(kind)}>
                 <span className="rail-win-icon">
                   {collapsed && n ? n : <Icon name={icon} size={12} />}

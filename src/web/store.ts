@@ -312,8 +312,8 @@ interface State {
   editingLayout: boolean;
   /**
    * Запрос открыть настройки на разделе «Проект» — например, ссылкой из
-   * карточки безместного сотрудника. App открывает по нему модалку настроек,
-   * а SettingsModal сразу после прочтения сбрасывает поле, чтобы обычное
+   * карточки безместного сотрудника. App открывает по нему страницу настроек,
+   * а SettingsPage сразу после прочтения сбрасывает поле, чтобы обычное
    * открытие настроек по-прежнему помнило раздел, где пользователь был в
    * прошлый раз.
    */
@@ -324,7 +324,7 @@ interface State {
    * Идёт ли сейчас сохранение настроек: пока true, ближайшая реплика «офис»
    * в чате — это отказ по этому сохранению (например, раскладки уже нет на
    * диске), а не случайное системное сообщение. Показываем его тостом, а не
-   * теряем в общей ленте, которую пользователь мог не открыть (§ SettingsModal).
+   * теряем в общей ленте, которую пользователь мог не открыть (§ SettingsPage).
    */
   settingsPending: boolean;
   meeting: MeetingView | null;
@@ -394,7 +394,8 @@ interface State {
   themeMode: ThemeMode;
   setThemeMode: (m: ThemeMode) => void;
   /**
-   * Что стоит в главной области новой оболочки: сцена, доска или чат.
+   * Что стоит в главной области новой оболочки: сцена, доска, чат или
+   * страница окна из рейла (`RailView`).
    * Сегменты сверху — это виды, а не оверлеи: рейл и композер остаются, а
    * в виде «Чат» композер и есть поле ввода треда.
    */
@@ -481,7 +482,18 @@ interface State {
   setSpendStep: (s: SpendStep) => void;
 }
 
-export type View = 'office' | 'board' | 'chat' | 'life';
+/** Виды, которые выбирают сегменты сверху (TopBar.tsx). */
+export type TopView = 'office' | 'board' | 'chat' | 'life';
+/**
+ * Виды, которые выбирают пункты рейла (Rail.tsx): окно офиса открывается
+ * страницей в главной области, а не модалкой. Список растёт по мере перевода
+ * окон; остальные пункты рейла пока открывают панели и модалки.
+ */
+export type RailView = 'settings';
+/** Один вид на главную область: сверху и слева — просто две группы кнопок. */
+export type View = TopView | RailView;
+export const RAIL_VIEWS: readonly RailView[] = ['settings'];
+export const isRailView = (v: string): v is RailView => (RAIL_VIEWS as readonly string[]).includes(v);
 export type ThemeMode = Theme | 'system';
 
 /** Системная тема — через media query; слушаем её ниже, после создания стора. */
@@ -2254,7 +2266,7 @@ export function openLayoutSettings(): void {
   useStore.setState({ settingsSection: 'project' });
 }
 
-/** SettingsModal прочитал запрос на раздел — сбрасываем, чтобы не залипал. */
+/** SettingsPage прочитал запрос на раздел — сбрасываем, чтобы не залипал. */
 export function clearSettingsSection(): void {
   useStore.setState({ settingsSection: null });
 }

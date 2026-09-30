@@ -1,19 +1,7 @@
-/* Настройки офиса: меню разделов слева, контент справа. Рамку окна
-   (.modal.wide.settings-modal — фон, граница, тень) даёт modal.css, здесь
-   раскладка: окно фиксированной высоты, чтобы при смене раздела не прыгало,
-   шапка и ряд кнопок отделены волосяными линиями, прокручивается только
-   контент. */
+/* Настройки офиса: меню разделов слева, контент справа. Рамку, шапку и
+   кнопки даёт страница оболочки (ShellPage, .shell-page в shell.css), здесь
+   раскладка внутри неё: прокручивается только контент, меню стоит. */
 
-.modal.wide.settings-modal {
-  display: flex; flex-direction: column;
-  width: 920px; max-width: calc(100vw - var(--space-8));
-  height: 640px; max-height: calc(100vh - var(--space-8));
-  padding: 0; overflow: hidden;
-}
-.settings-modal > h3 {
-  margin: 0; padding: var(--space-4) var(--space-6);
-  border-bottom: 1px solid var(--hairline); flex: none;
-}
 .settings-layout { display: flex; flex: 1; min-height: 0; }
 .settings-nav {
   display: flex; flex-direction: column; gap: var(--space-1); width: 200px; flex: none;
@@ -31,10 +19,6 @@
 .settings-content > .section-title:first-child { margin-top: 0; }
 .settings-content .hint { margin-bottom: var(--space-4); }
 .settings-content label:last-child, .settings-content > .hint:last-child { margin-bottom: 0; }
-.settings-modal > .modal-actions {
-  flex: none; padding: var(--space-3) var(--space-6);
-  border-top: 1px solid var(--hairline);
-}
 
 /* На типичном 1024px-окне ноутбука колонка меню не должна съедать место
    двух столбцов полей — сужаем её вместо переноса меню наверх. */

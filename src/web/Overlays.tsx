@@ -9,7 +9,6 @@ import { AgentDrawer } from './AgentDrawer';
 import { TaskDrawer } from './TaskDrawer';
 import { PermissionModal } from './PermissionModal';
 import { DiffPanel } from './DiffPanel';
-import { SettingsModal } from './SettingsModal';
 import { MeetingModal } from './MeetingModal';
 import { MoneyBoard } from './MoneyBoard';
 import { OfficesModal } from './OfficesModal';
@@ -20,7 +19,7 @@ import { t } from './i18n';
 import { EventLog } from './EventLog';
 
 export type PanelKind = 'board' | 'money' | 'log' | 'help' | 'merge' | 'flows' | 'releases' | 'meetings' | null;
-export type ModalKind = 'settings' | 'meeting' | 'offices' | 'team' | null;
+export type ModalKind = 'meeting' | 'offices' | 'team' | null;
 
 export interface OverlayProps {
   panel: PanelKind;
@@ -103,7 +102,6 @@ export function Overlays({ panel, setPanel, modal, setModal }: OverlayProps) {
       <AgentDrawer />
       <TaskDrawer />
       <PermissionModal />
-      {modal === 'settings' && <SettingsModal onClose={() => setModal(null)} />}
       {modal === 'meeting' && <MeetingModal onClose={() => setModal(null)} />}
       {modal === 'offices' && <OfficesModal onClose={() => setModal(null)} />}
       {modal === 'team' && <TeamWindow onClose={() => setModal(null)} />}

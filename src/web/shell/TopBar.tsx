@@ -1,10 +1,12 @@
-import { setPaused, useStore, type View } from '../store';
+import { setPaused, useStore, type TopView, type View } from '../store';
 import { t } from '../i18n';
 import { Icon } from '../icons';
 import { Hint, Tooltip } from '../Tooltip';
 import { HOTKEY } from '../hotkeys';
 
-const VIEWS: View[] = ['office', 'board', 'chat', 'life'];
+// Страницы из рейла (`RailView`) — тот же `view`: пока открыта одна из них,
+// ни один сегмент не горит, и наоборот.
+const VIEWS: TopView[] = ['office', 'board', 'chat', 'life'];
 
 // Подпись клавиши у сегмента: те же буквы, что ловит `App.tsx`. У офиса и чата
 // своей буквы нет — чат открывает Enter.
