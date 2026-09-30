@@ -55,6 +55,14 @@
         "ru": "Блондин",
         "en": "Blond"
       }
+    },
+    {
+      "id": "suitMan",
+      "sprite": "agent_p3",
+      "title": {
+        "ru": "В костюме",
+        "en": "Suit"
+      }
     }
   ]
 }
