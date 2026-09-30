@@ -12,7 +12,7 @@
  * рендером, что и документы в результате задачи.
  */
 import { createElement, Fragment, type ReactNode } from 'react';
-import { Markdown } from '../result/markdown';
+import { Markdown } from '../Markdown';
 
 /** Теги, которые переносятся как есть (без атрибутов). */
 const ALLOWED = new Set([

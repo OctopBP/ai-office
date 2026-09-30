@@ -9,7 +9,7 @@ import { lazy, useEffect, useState, type ComponentType } from 'react';
 import type { ResultFileKind, ResultFileView } from '../../shared/types';
 import { t } from '../i18n';
 import { baseName, fetchFileText, formatSize } from './api';
-import { Markdown } from './markdown';
+import { Markdown } from '../Markdown';
 
 /**
  * Просмотр 3D-моделей — единственный тяжёлый просмотрщик (тянет three.js),

@@ -1,7 +1,8 @@
 /**
- * Markdown → элементы React.
+ * Markdown → элементы React. Общий для просмотра документов, заметок к
+ * выпуску и ленты чата.
  *
- * Свой разбор, а не библиотека и не `dangerouslySetInnerHTML`: файл написал
+ * Свой разбор, а не библиотека и не `dangerouslySetInnerHTML`: текст написал
  * агент, и любой сырой HTML из него — это чужой код в окне офиса. Здесь
  * текст всегда остаётся текстом: React сам экранирует строки, а теги из
  * документа показываются буквами. Покрыт обычный для docs/ набор —
@@ -61,11 +62,15 @@ export function inline(text: string, key = 'i'): ReactNode[] {
   return out;
 }
 
-/** Абзац: одиночный перевод строки — пробел, два пробела или `\` в конце — разрыв. */
-function paragraphInline(lines: string[], key: string): ReactNode[] {
+/**
+ * Абзац: одиночный перевод строки — пробел, два пробела или `\` в конце — разрыв.
+ * С `breaks` разрыв — любой перевод строки: в чате Enter значит «с новой
+ * строки», а не «продолжение абзаца».
+ */
+function paragraphInline(lines: string[], key: string, breaks: boolean): ReactNode[] {
   const out: ReactNode[] = [];
   lines.forEach((line, i) => {
-    const hard = / {2,}$|\\$/.test(line);
+    const hard = breaks || / {2,}$|\\$/.test(line);
     const clean = line.replace(/ {2,}$|\\$/, '').trim();
     out.push(...inline(clean, `${key}.${i}`));
     if (i < lines.length - 1) out.push(hard ? <br key={`${key}.br${i}`} /> : ' ');
@@ -95,7 +100,7 @@ function startsBlock(line: string, next: string | undefined): boolean {
     || (line.includes('|') && next !== undefined && TABLE_SEP.test(next) && next.includes('-'));
 }
 
-function list(lines: string[], start: number, key: string): { node: ReactNode; end: number } {
+function list(lines: string[], start: number, key: string, breaks: boolean): { node: ReactNode; end: number } {
   const first = ITEM.exec(lines[start])!;
   const base = indentOf(first[1]);
   const ordered = /\d/.test(first[2]);
@@ -130,7 +135,7 @@ function list(lines: string[], start: number, key: string): { node: ReactNode; e
   const children = items.map((body, j) => {
     const task = /^\[([ xX])\]\s+/.exec(body[0]);
     if (task) body[0] = body[0].slice(task[0].length);
-    const inner = blocks(body, `${key}.${j}`, true);
+    const inner = blocks(body, `${key}.${j}`, breaks, true);
     return (
       <li key={j} className={task ? 'md-task' : undefined}>
         {task && <input type="checkbox" checked={task[1] !== ' '} readOnly disabled />}
@@ -148,7 +153,7 @@ function list(lines: string[], start: number, key: string): { node: ReactNode; e
  * Разобрать строки в блоки. `tight` — содержимое пункта списка: одиночный
  * абзац там идёт без `<p>`, чтобы между пунктами не было лишних отступов.
  */
-function blocks(lines: string[], key: string, tight = false): ReactNode[] {
+function blocks(lines: string[], key: string, breaks: boolean, tight = false): ReactNode[] {
   const out: ReactNode[] = [];
   let paragraphs = 0;
   let i = 0;
@@ -183,12 +188,12 @@ function blocks(lines: string[], key: string, tight = false): ReactNode[] {
       while (i < lines.length && lines[i].trim() && (QUOTE.test(lines[i]) || !startsBlock(lines[i], lines[i + 1]))) {
         body.push(lines[i++].replace(QUOTE, ''));
       }
-      out.push(<blockquote key={k}>{blocks(body, k)}</blockquote>);
+      out.push(<blockquote key={k}>{blocks(body, k, breaks)}</blockquote>);
       continue;
     }
 
     if (ITEM.test(line)) {
-      const { node, end } = list(lines, i, k);
+      const { node, end } = list(lines, i, k, breaks);
       out.push(node);
       i = end;
       continue;
@@ -227,7 +232,7 @@ function blocks(lines: string[], key: string, tight = false): ReactNode[] {
       body.push(lines[i++]);
     }
     paragraphs++;
-    out.push(<p key={k}>{paragraphInline(body, k)}</p>);
+    out.push(<p key={k}>{paragraphInline(body, k, breaks)}</p>);
   }
   // Пункт списка из одного абзаца — просто строка.
   if (tight && paragraphs === 1 && out.length >= 1) {
@@ -237,10 +242,17 @@ function blocks(lines: string[], key: string, tight = false): ReactNode[] {
   return out;
 }
 
-/** Отрисованный документ. Шапку YAML (`---` … `---` в начале) не показываем — это служебное. */
-export function Markdown({ source }: { source: string }) {
+/**
+ * Отрисованный Markdown. Шапку YAML (`---` … `---` в начале) документа не
+ * показываем — это служебное. `compact` — реплика чата: мелкие заголовки, плотные отступы
+ * и перевод строки как разрыв. Фон, рамку и отступы даёт обёртка места показа, а не
+ * корень: у `.md.md-compact` специфичность выше, и он перебил бы их классы.
+ */
+export function Markdown({ source, compact = false }: { source: string; compact?: boolean }) {
   let text = source.replace(/\r\n?/g, '\n');
-  const front = /^---\n[\s\S]*?\n---\n/.exec(text);
+  // В реплике чата `---` в начале — черта или разделитель, а не шапка файла.
+  const front = compact ? null : /^---\n[\s\S]*?\n---\n/.exec(text);
   if (front) text = text.slice(front[0].length);
-  return <div className="md">{blocks(text.split('\n'), 'md')}</div>;
+  const cls = compact ? 'md md-compact' : 'md';
+  return <div className={cls}>{blocks(text.split('\n'), 'md', compact)}</div>;
 }

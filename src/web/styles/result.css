@@ -97,31 +97,3 @@
 /* ---------- markdown ---------- */
 .result-md { position: relative; }
 .result-md-seg { position: sticky; top: var(--space-2); float: right; margin: var(--space-2); z-index: 1; background: var(--surface); }
-.md {
-  padding: var(--space-4) var(--space-6); max-width: 860px;
-  font: var(--fs-md)/1.6 var(--font); color: var(--ink-2);
-}
-.md h1, .md h2, .md h3, .md h4, .md h5, .md h6 { color: var(--ink); margin: 1.2em 0 .5em; line-height: 1.3; }
-.md h1 { font-size: 22px; }
-.md h2 { font-size: 18px; }
-.md h3 { font-size: var(--fs-title); }
-.md h4, .md h5, .md h6 { font-size: var(--fs-md); }
-.md > :first-child { margin-top: 0; }
-.md p, .md ul, .md ol, .md blockquote, .md .md-table, .md .md-code { margin: 0 0 .8em; }
-.md ul, .md ol { padding-left: 1.5em; }
-.md li > ul, .md li > ol { margin: .2em 0; }
-.md li.md-task { list-style: none; margin-left: -1.3em; }
-.md li.md-task input { margin: 0 6px 0 0; vertical-align: middle; }
-.md code { font: .92em var(--font-mono); background: var(--film-2); padding: 1px 4px; border-radius: var(--radius-icon); }
-.md .md-code {
-  padding: var(--space-3); overflow-x: auto; background: var(--surface);
-  border-radius: var(--radius-row); font: var(--fs-body)/1.5 var(--font-mono);
-}
-.md .md-code code { background: none; padding: 0; }
-.md blockquote { padding-left: var(--space-3); border-left: 3px solid var(--hairline); color: var(--ink-3); }
-.md hr { border: 0; border-top: 1px solid var(--hairline); margin: 1.2em 0; }
-.md a { color: var(--accent); }
-.md .md-table { overflow-x: auto; }
-.md table { border-collapse: collapse; font-size: var(--fs-body); }
-.md th, .md td { border: 1px solid var(--hairline); padding: 4px 8px; vertical-align: top; }
-.md th { background: var(--film); color: var(--ink); }

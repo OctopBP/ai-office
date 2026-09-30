@@ -5,6 +5,7 @@ import { inPmChat, shownDraft, useStore } from './store';
 import { t } from './i18n';
 import { AgentTag } from './Avatar';
 import { ChatPeer } from './ChatPeer';
+import { Markdown } from './Markdown';
 import { CardGroup, RefCard, TaskCard } from './ChatCards';
 import { hasTime, dayKey, formatDayLabel, formatClock, formatFullDateTime } from './dates';
 
@@ -137,7 +138,7 @@ export function ChatThread() {
                   <CardGroup title={t('chatCard.group.tasks', { n: group.length })}>
                     {group.map((g) => g.ref?.kind === 'task' && <TaskCard key={g.id} id={g.ref.id} entry={g} bare />)}
                   </CardGroup>
-                ) : m.ref ? <RefCard refTo={m.ref} entry={m} /> : <div className="msg-text">{m.text}</div>}
+                ) : m.ref ? <RefCard refTo={m.ref} entry={m} /> : <div className="msg-text"><Markdown source={m.text} compact /></div>}
               </div>
             </div>
           );
@@ -147,13 +148,12 @@ export function ChatThread() {
             <div className="msg-from">
               {isOfficeSender(draft.from) ? t('common.office') : <AgentTag id={draft.from} size="sm" />}
             </div>
-            {/* Пусто — собеседник ещё думает; есть текст — показываем как есть
+            {/* Пусто — собеседник ещё думает; есть текст — рисуем разметкой, как
+                будет в готовой реплике (иначе на последнем слове она прыгнет),
                 и ставим мерцающий курсор, чтобы было видно: реплика не дописана. */}
-            <div className="msg-text">
-              {draft.text
-                ? <>{draft.text}<i className="caret" /></>
-                : <span className="typing">{t('chat.typing')}</span>}
-            </div>
+            {draft.text
+              ? <div className="msg-text"><Markdown source={draft.text} compact /><i className="caret" /></div>
+              : <div className="msg-text"><span className="typing">{t('chat.typing')}</span></div>}
           </div>
         )}
       </div>
