@@ -31,7 +31,7 @@
    CSS — text-box: trim-both cap alphabetic; там, где текст один в строке с
    более высоким соседом (значком, чипом), обрезка не нужна: у Inter прописная
    стоит ровно посередине строки, и выравнивание по центру даёт то же место. */
-.task-groups { display: flex; flex-direction: column; gap: var(--space-4); }
+.task-groups { display: flex; flex-direction: column; gap: var(--space-2); }
 .task-group {
   border: 1px solid var(--board-line); border-radius: var(--radius-card);
   background: var(--surface); overflow: hidden;
@@ -45,7 +45,7 @@
   display: flex; align-items: center; justify-content: space-between; gap: 38px;
   width: 100%; min-height: 0; text-align: left; font: inherit;
   background: var(--board-plate); border: none; border-radius: 0;
-  padding: var(--space-3);
+  padding: var(--space-2) var(--space-3);
   font-size: var(--fs-row); font-weight: 500; line-height: 14px;
 }
 /* Наведения в макете нет; оставлен прежний отклик плёнкой — без него строка
@@ -79,7 +79,22 @@
 .group-count.drop { color: var(--board-drop); }
 .task-group-cost { font-weight: 600; color: var(--board-money); white-space: nowrap; }
 
-.task-group-body { padding: var(--space-4) var(--space-3); }
+/* Номер фичи — бейдж статуса, как в плане (.epic-head b): закончена — зелёный,
+   в работе — акцент, остальное (план, ждёт согласия, очередь, снята) — серый. */
+.task-group-name b {
+  padding: 0 var(--space-1); border-radius: var(--radius-icon); line-height: 14px;
+  background: var(--film); color: var(--ink-3);
+}
+.task-group.st-active .task-group-name b { background: rgba(var(--accent-rgb), .14); color: var(--accent); }
+.task-group.st-done .task-group-name b { background: rgba(var(--ok-rgb), .14); color: var(--ok-ink); }
+/* Законченная фича бледная: название, счётчики и задачи приглушены, бейдж
+   остаётся ярким. Приглушаем прозрачностью, а не pointer-events — карточки
+   открываются и подсвечиваются как обычно. */
+.task-group.st-done .task-group-title { color: var(--ink-3); }
+.task-group.st-done .task-group-title, .task-group.st-done .task-group-side,
+.task-group.st-done .task-group-body { opacity: .55; }
+
+.task-group-body { padding: var(--space-2) var(--space-3); }
 /* ---------- колонки статусов внутри фичи ----------
    Колонки стоят ВНУТРИ группы, а не поверх неё: фича отвечает на вопрос «про
    что задача», статус — «где она сейчас». Колонки рисуются все, и пустые

@@ -3,7 +3,7 @@ import {
   approveEpic, cancelEpic, createDirection, mergeBadge, mergeStepFor, prStageLabel, prStageClass,
   removeDirection, reorderEpics, updateDirection, useStore,
 } from './store';
-import type { EpicView, TaskStatus, TaskView } from '../shared/types';
+import type { EpicStatus, EpicView, TaskStatus, TaskView } from '../shared/types';
 import { taskClosed, taskOver } from '../shared/types';
 import { t as tr } from './i18n';
 import { Icon, type IconName } from './icons';
@@ -99,6 +99,8 @@ type TaskGroup = {
   /** Номер фичи для заголовка; у «Разного» его нет. */
   id: string | null;
   title: string;
+  /** Статус фичи из плана — красит бейдж номера; у «Разного» его нет. */
+  status: EpicStatus | null;
   /** Задачи по колонкам статусов; внутри колонки — по дате заведения. */
   cols: Record<TaskColumn, TaskView[]>;
   done: number;
@@ -117,15 +119,15 @@ type TaskGroup = {
  * на соседней подвкладке «План».
  */
 function groupTasks(list: TaskView[], plan: EpicView[], autoPipeline: boolean): TaskGroup[] {
-  const empty = (key: string, id: string | null, title: string): TaskGroup => ({
-    key, id, title, cols: { wait: [], work: [], review: [], done: [], failed: [], cancelled: [] }, done: 0, total: 0, spent: 0,
+  const empty = (key: string, id: string | null, title: string, status: EpicStatus | null): TaskGroup => ({
+    key, id, title, status, cols: { wait: [], work: [], review: [], done: [], failed: [], cancelled: [] }, done: 0, total: 0, spent: 0,
     counts: { running: 0, review: 0, queued: 0, failed: 0, cancelled: 0 },
   });
   const groups = new Map<string, TaskGroup>();
-  for (const epic of plan) groups.set(epic.id, empty(epic.id, epic.id, epic.title));
+  for (const epic of plan) groups.set(epic.id, empty(epic.id, epic.id, epic.title, epic.status));
   // «Разное» заводим последним — Map держит порядок вставки, и отдельная
   // сортировка групп не нужна.
-  groups.set(MISC_GROUP, empty(MISC_GROUP, null, tr('board.group.misc')));
+  groups.set(MISC_GROUP, empty(MISC_GROUP, null, tr('board.group.misc'), null));
 
   for (const t of list) {
     const group = (t.epicId && groups.get(t.epicId)) || groups.get(MISC_GROUP)!;
@@ -288,7 +290,7 @@ function TaskGroupBlock({ group }: { group: TaskGroup }) {
   ].filter(Boolean).join(', ');
 
   return (
-    <div className={`task-group${open ? ' open' : ''}`}>
+    <div className={`task-group${open ? ' open' : ''}${group.status ? ` st-${group.status}` : ''}`}>
       <button className="task-group-head" onClick={() => setOpen(group.key, !open)}
         title={tr('board.group.toggle')} aria-expanded={open}>
         <span className="task-group-name">
