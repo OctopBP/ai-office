@@ -1696,9 +1696,19 @@ export function permissionSource(
   return 'office';
 }
 
-/** Отправляет в активную ветку: менеджеру в открытый чат или напрямую агенту. */
-export function send(text: string): void {
+/**
+ * Отправляет в активную ветку: менеджеру в открытый чат или напрямую агенту.
+ * `newChat` — реплика менеджеру с главного экрана, а не из открытого чата:
+ * сервер заводит под неё новый чат, и по эху `pm.chat` с нашим nonce вкладка
+ * выделит его, не меняя вида.
+ */
+export function send(text: string, { newChat = false }: { newChat?: boolean } = {}): void {
   const { thread, pmChatId } = useStore.getState();
+  if (thread === 'pm#1' && newChat) {
+    pendingPmChatNonce = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+    socket?.send(JSON.stringify({ c: 'user_message', text, newChat: true, nonce: pendingPmChatNonce }));
+    return;
+  }
   socket?.send(thread === 'pm#1'
     ? JSON.stringify(pmChatId ? { c: 'user_message', text, chatId: pmChatId } : { c: 'user_message', text })
     : JSON.stringify({ c: 'talk', instanceId: thread, text }));

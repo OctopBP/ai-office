@@ -90,7 +90,9 @@ export function Composer({ onSettings, inline = false }: {
   const submit = () => {
     const text = draft.trim();
     if (!text || meeting || !connected) return;
-    send(text);
+    // Вне вида «Чат» открытого чата на экране нет — реплика менеджеру
+    // заводит новый, а не уходит в тот, что выделяли когда-то раньше.
+    send(text, { newChat: view !== 'chat' });
     setDraft('');
     // Из «Офиса» и «Доски» вид не меняем: человек смотрел на офис — пусть и
     // дальше смотрит. Вместо перескока — короткое подтверждение, а о том, что

@@ -2361,9 +2361,11 @@ export type ServerEvent =
 export type ClientCommand =
   /**
    * Реплика менеджеру. `chatId` — в какой чат; нет или чат неизвестен — в
-   * основной, как было до нескольких чатов.
+   * основной, как было до нескольких чатов. `newChat` — реплика с главного
+   * экрана офиса: сервер заводит под неё новый чат (`chatId` тогда не
+   * смотрится), а `nonce` вернётся в его `pm.chat`, чтобы вкладка его выделила.
    */
-  | { c: 'user_message'; text: string; chatId?: string }
+  | { c: 'user_message'; text: string; chatId?: string; newChat?: boolean; nonce?: string }
   /** Завести чат с менеджером. Нет названия — «Новый чат» до первой реплики. */
   | { c: 'pm_chat_create'; title?: string; nonce?: string }
   /** Переименовать чат руками. Пустое название игнорируется. */

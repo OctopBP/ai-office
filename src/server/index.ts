@@ -467,7 +467,13 @@ wss.on('connection', (ws) => {
     }
 
     if (cmd.c === 'user_message' && cmd.text.trim()) {
-      sendUserMessage(state, cmd.text.trim(), cmd.chatId);
+      // С главного экрана — всегда в свой новый чат: выделенный последним чат
+      // мог быть о чём угодно, и задачи из просьбы привязались бы к нему.
+      // Чатов нет вовсе — первая реплика и так заведёт основной, со своим названием.
+      const chatId = cmd.newChat && state.pmChats.size > 0
+        ? state.createPmChat(undefined, cmd.nonce).id
+        : cmd.chatId;
+      sendUserMessage(state, cmd.text.trim(), chatId);
     } else if (cmd.c === 'pm_chat_create') {
       state.createPmChat(cmd.title, cmd.nonce);
     } else if (cmd.c === 'pm_chat_rename') {
