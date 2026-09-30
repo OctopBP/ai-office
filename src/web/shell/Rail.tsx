@@ -392,13 +392,16 @@ function User() {
   return (
     <div className="rail-user" ref={ref}>
       <button className="ghost rail-user-btn" onClick={() => setOpen((v) => !v)}>
-        <span className="rail-user-avatar" />
+        {/* Знак провайдера стоит на месте аватара — в свёрнутом рейле видно только его.
+            Без знака (не авторизован) — первая буква подписи, а не пустая плашка. */}
+        <span className="rail-user-avatar">
+          {AUTH_PROVIDER[authSource]
+            ? <ProviderIcon provider={AUTH_PROVIDER[authSource]} size={30} />
+            : <span className="rail-user-letter">{t('shell.user').charAt(0).toUpperCase()}</span>}
+        </span>
         <span className="rail-user-text">
           <span className="rail-user-name">{t('shell.user')}</span>
-          <span className="rail-user-auth">
-            <ProviderIcon provider={AUTH_PROVIDER[authSource]} />
-            {t(`shell.auth.${authSource}`)}
-          </span>
+          <span className="rail-user-auth">{t(`shell.auth.${authSource}`)}</span>
         </span>
       </button>
       {open && (
