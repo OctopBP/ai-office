@@ -11,6 +11,7 @@ import { RITUAL_IDS, isOfficeSender } from '../shared/types';
 import { locale, t } from './i18n';
 import { useInstanceName } from './instanceName';
 import { Icon } from './icons';
+import { Markdown } from './Markdown';
 
 type Tab = 'questions' | 'proposals' | 'rules' | 'journal' | 'rituals' | 'health';
 
@@ -91,7 +92,7 @@ function Proposals() {
         {p.status !== 'pending' && <span className="muted small">{t(`life.proposals.status.${p.status}`)}</span>}
       </div>
       <div className="life-text"><b>{p.title}</b></div>
-      {p.text && p.text !== p.title && <div className="life-text">{p.text}</div>}
+      {p.text && p.text !== p.title && <div className="life-text"><Markdown source={p.text} compact /></div>}
       <div className="muted small">{p.rationale}</div>
       {p.status === 'pending' && (
         <div className="life-actions">
@@ -194,8 +195,16 @@ function QuestionRow({ q, all }: { q: OwnerQuestion; all: OwnerQuestion[] }) {
         </div>
       ) : (
         <>
-          <div className="life-text">{q.text}</div>
-          <div className="muted small">{t('life.questions.assumed')}: {q.assumption}</div>
+          {/* Вопрос и допущение пишет агент, и пишет Markdown-ом: списки
+              вариантов, код, выделение. Подпись «Допущение» остаётся простым
+              текстом слева от него. */}
+          <div className="life-text"><Markdown source={q.text} compact /></div>
+          {q.assumption && (
+            <div className="muted small life-assumed">
+              <span>{t('life.questions.assumed')}:</span>
+              <Markdown source={q.assumption} compact />
+            </div>
+          )}
         </>
       )}
       {along.length > 0 && (
@@ -462,7 +471,7 @@ function Journal() {
             {f.source.questionId && <span className="muted small">{f.source.questionId}</span>}
             <span className="muted small">{t('life.journal.confirmed', { when: when(f.confirmedAt) })}</span>
           </div>
-          <div className="life-text">{f.text}</div>
+          <div className="life-text"><Markdown source={f.text} compact /></div>
           {f.status !== 'archived' && (
             <div className="life-actions">
               <button className="mini" onClick={() => confirmFact(f.id)}>{t('life.journal.confirm')}</button>
@@ -513,7 +522,10 @@ function Rituals() {
         <div key={r.id} className="life-run muted small">
           <span className="mono dim">{when(r.at)}</span>
           <span>{t(`life.rituals.name.${r.ritual}`)}</span>
-          <span>{r.note || Object.entries(r.produced).map(([k, v]) => `${k} ${v}`).join(', ')}</span>
+          {/* Итог рефлексии и противоречий пишет агент — Markdown-ом. */}
+          {r.note
+            ? <div className="life-run-note"><Markdown source={r.note} compact /></div>
+            : <span>{Object.entries(r.produced).map(([k, v]) => `${k} ${v}`).join(', ')}</span>}
           {r.costUsd > 0 && <span>${r.costUsd.toFixed(3)}</span>}
         </div>
       ))}

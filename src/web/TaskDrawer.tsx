@@ -12,6 +12,7 @@ import { AgentTag } from './Avatar';
 import { PrioritySeg } from './TaskPriority';
 import { usageMoney } from './money';
 import { TaskResultSection } from './result/TaskResult';
+import { Markdown } from './Markdown';
 
 /**
  * Раскрытая карточка задачи.
@@ -171,8 +172,9 @@ export function TaskDrawer() {
         <section>
           <h3 className="section-title">{t('taskCard.brief')}</h3>
           {/* ТЗ показываем как есть: исполнитель видел ровно этот текст, и
-              подрезанный он перестал бы отвечать на «почему сделано так». */}
-          <div className="task-brief">{task.description}</div>
+              подрезанный он перестал бы отвечать на «почему сделано так».
+              Пишет его менеджер Markdown-ом — так и рендерим. */}
+          <div className="task-brief"><Markdown source={task.description} compact /></div>
         </section>
       )}
 
@@ -210,7 +212,7 @@ export function TaskDrawer() {
       {(task.result || pr) && (
         <section>
           <h3 className="section-title">{t('taskCard.outcome')}</h3>
-          {task.result && <div className="task-result">{task.result}</div>}
+          {task.result && <div className="task-result"><Markdown source={task.result} compact /></div>}
           {pr && (
             <p className="muted small">
               {prStageLabel(pr.stage)}{pr.note ? ` — ${pr.note}` : ''}
@@ -222,6 +224,18 @@ export function TaskDrawer() {
               {t(task.limitedAt ? 'board.limited' : task.interrupted ? 'board.interrupted' : 'board.toldManager')}
             </p>
           )}
+        </section>
+      )}
+
+      {pr && pr.reviews.length > 0 && (
+        <section>
+          <h3 className="section-title">{t('taskCard.reviews')}</h3>
+          {pr.reviews.map((r, i) => (
+            <div key={`${r.at}-${i}`} className={`pr-review ${r.verdict === 'approve' ? 'ok' : 'bad'}`}>
+              <b>{t(r.verdict === 'approve' ? 'pr.approved' : 'pr.changes')}</b>
+              <Markdown source={r.text} compact />
+            </div>
+          ))}
         </section>
       )}
 
@@ -279,8 +293,10 @@ export function TaskDrawer() {
         <section>
           <h3 className="section-title">{t('taskCard.handoff')}</h3>
           <div className="task-handoff">
-            <div><b>{t('taskCard.assumed')}:</b> {task.handoff.assumed}</div>
-            <div><b>{t('taskCard.left')}:</b> {task.handoff.left}</div>
+            {/* Подпись отдельной строкой: ответ исполнителя бывает списком,
+                и после «Решил сам:» в той же строке список бы разорвался. */}
+            <div><b>{t('taskCard.assumed')}</b><Markdown source={task.handoff.assumed} compact /></div>
+            <div><b>{t('taskCard.left')}</b><Markdown source={task.handoff.left} compact /></div>
           </div>
         </section>
       )}

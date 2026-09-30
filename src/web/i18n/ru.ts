@@ -80,6 +80,7 @@ export const ru: Record<keyof typeof en, string> = {
   'taskCard.handoff': 'Записка при передаче',
   'taskCard.assumed': 'Решил сам',
   'taskCard.left': 'Не сделано',
+  'taskCard.reviews': 'Отзывы ревьюера',
 
   // ------------------------------------------------------ результат задачи
   'result.title': 'Результат',

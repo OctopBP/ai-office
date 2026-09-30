@@ -4,6 +4,7 @@ import { useStore } from './store';
 import { Avatar } from './Avatar';
 import { displayInstance, roleOfInstance } from './instanceName';
 import { locale, t } from './i18n';
+import { Markdown } from './Markdown';
 
 /** Когда совещание началось: день и время — совещаний в день бывает несколько. */
 const when = (at: number): string =>
@@ -100,7 +101,7 @@ export function MeetingsPanel({ onCall }: { onCall: () => void }) {
                     )}
                     {who(m.from)}
                   </div>
-                  <div className="msg-text">{m.text}</div>
+                  <div className="msg-text"><Markdown source={m.text} compact /></div>
                 </div>
               ))}
               {current.status === 'running' && current.speaking && (

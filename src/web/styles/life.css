@@ -30,6 +30,10 @@
 }
 .life-policy { display: flex; flex-direction: column; gap: 2px; }
 .life-run { display: flex; gap: var(--space-3); flex-wrap: wrap; }
+.life-run-note { flex: 1; min-width: 0; }
+/* Подпись «Допущение» слева, текст агента — Markdown-блок справа. */
+.life-assumed { display: flex; gap: var(--space-1); }
+.life-assumed .md { flex: 1; min-width: 0; }
 .chip.contradiction, .chip.revert { color: var(--danger); }
 .chip.stale { color: var(--warn); }
 .chip.decision, .chip.lesson { color: var(--accent); }

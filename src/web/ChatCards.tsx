@@ -6,6 +6,7 @@ import { answerQuestion, approveEpic, prStageClass, prStageLabel, useStore } fro
 import { locale, t } from './i18n';
 import { AgentTag } from './Avatar';
 import { PriorityChip } from './TaskPriority';
+import { Markdown } from './Markdown';
 import { useInstanceName } from './instanceName';
 
 /** Время в шапке карточки вопроса: день нужен, только если спросили не сегодня. */
@@ -319,7 +320,11 @@ export function QuestionCard({ id, entry }: { id: string; entry: ChatEntry }) {
         </span>
         {!waiting && <Chevron open={open} onToggle={() => setOpen(!open)} />}
       </div>
-      <div className="cc-text" title={folded ? q.text : undefined}>{q.text}</div>
+      {/* Свёрнутый вопрос — одна строка с многоточием, там разметке не место;
+          развёрнутый пишет агент Markdown-ом — так и показываем. */}
+      <div className="cc-text" title={folded ? q.text : undefined}>
+        {folded ? q.text : <Markdown source={q.text} compact />}
+      </div>
       {!folded && q.assumption && (
         <div className="cc-assumed muted small">
           {t(q.answeredAt ? 'chatCard.q.assumedWas' : 'chatCard.q.assumed', { text: q.assumption })}

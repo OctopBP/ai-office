@@ -68,7 +68,7 @@
 .pr-review { margin-top: var(--space-2); font-size: var(--fs-body); border-left: 2px solid var(--ink-4); padding-left: var(--space-2); }
 .pr-review.ok { border-color: var(--ok-ink); }
 .pr-review.bad { border-color: var(--danger); }
-.pr-review p { margin: var(--space-1) 0 0; white-space: pre-wrap; color: var(--ink-3); }
+.pr-review .md { margin-top: var(--space-1); color: var(--ink-3); }
 .pr-actions { display: flex; align-items: center; gap: var(--space-2); margin-top: var(--space-2); }
 .pr-actions a.mini { text-decoration: none; }
 .pr-hint { margin: 0 0 var(--space-2); line-height: 1.4; }

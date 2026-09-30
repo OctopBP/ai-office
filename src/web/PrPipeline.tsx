@@ -1,6 +1,7 @@
 import { prStageLabel, prStageClass, retryPipeline, showDiff, useStore } from './store';
 import type { PullRequestView } from '../shared/types';
 import { locale, t } from './i18n';
+import { Markdown } from './Markdown';
 
 /**
  * Конвейер ревью: что офис делает со сданными задачами прямо сейчас.
@@ -73,7 +74,7 @@ export function PrPipeline() {
             {last && (
               <div className={`pr-review ${last.verdict === 'approve' ? 'ok' : 'bad'}`}>
                 <b>{t(last.verdict === 'approve' ? 'pr.approved' : 'pr.changes')}</b>
-                <p>{last.text}</p>
+                <Markdown source={last.text} compact />
               </div>
             )}
 

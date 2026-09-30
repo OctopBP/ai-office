@@ -81,6 +81,7 @@ export const en = {
   'taskCard.handoff': 'Handoff note',
   'taskCard.assumed': 'Decided alone',
   'taskCard.left': 'Left undone',
+  'taskCard.reviews': 'Reviewer notes',
 
   // ------------------------------------------------------ результат задачи
   'result.title': 'Result',
