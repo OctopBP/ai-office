@@ -48,7 +48,21 @@
 .shell-board { bottom: var(--space-4); overflow: hidden; }
 /* В чате композер встроен в колонку переписки (Shell.tsx), поэтому вид сам
    доходит до низа окна — на тот же отступ, что у плавающего композера. */
-.shell-chat { display: flex; gap: var(--space-4); max-width: 1180px; margin: 0 auto; right: var(--space-6); bottom: var(--gap); overflow: hidden; }
+/* overflow: hidden обрезал бы тень панели списка (`.float`, --shadow-float),
+   поэтому у области есть запас `--shadow-room` со всех сторон, а её границы
+   раздвинуты на тот же запас наружу — видимая раскладка не меняется. */
+.shell-chat {
+  --shadow-room: var(--space-6);
+  display: flex; gap: var(--space-4); overflow: hidden;
+  box-sizing: border-box; padding: var(--shadow-room);
+  max-width: calc(1180px + 2 * var(--shadow-room)); margin: 0 auto;
+  top: calc(62px - var(--shadow-room));
+  left: calc(var(--edge) + var(--space-4) - var(--shadow-room));
+  right: calc(var(--space-6) - var(--shadow-room));
+  /* Снизу до края окна 20px (4 смещения + 16 размытия --shadow-float): при
+     8px тень упиралась бы в границу окна. */
+  bottom: calc(var(--space-5) - var(--shadow-room));
+}
 /* Лента со вкладками тредов — правая колонка; слева список чатов (.pm-chats). */
 .shell-life { display: flex; flex-direction: column; max-width: 1180px; margin: 0 auto; overflow: hidden; }
 .shell-life-title { flex: none; margin: 0 0 var(--space-3); font-size: var(--fs-title); font-weight: 500; color: var(--ink); }
