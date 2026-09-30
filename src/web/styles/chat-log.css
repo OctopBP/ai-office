@@ -292,7 +292,7 @@
 
 /* Фича: заголовок — ссылка на доску, а не отдельная кнопка кита. */
 .cc-pick {
-  display: flex; align-items: center; gap: var(--space-2); flex: 1; min-width: 0;
+  display: flex; align-items: center; justify-content: flex-start; gap: var(--space-2); flex: 1; min-width: 0;
   min-height: 0; height: auto; padding: 0; border: 0; background: none; text-align: left; font: inherit;
 }
 .cc-pick:hover:not(:disabled) { background: none; }
