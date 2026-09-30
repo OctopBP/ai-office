@@ -485,6 +485,45 @@ function Directions() {
  * Показываем один блок за раз, каждый во всю высоту.
  */
 type BoardTab = 'directions' | 'plan' | 'tasks';
+/**
+ * Сводка активных задач над доской: что сейчас в руках у исполнителей и у
+ * ревьюера, по всем фичам и вне плана сразу. Фильтр по фиче её не сужает —
+ * она отвечает на вопрос «кто чем занят», а не «что в этой фиче». Ожидающие,
+ * снятые и закрытые сюда не попадают: их и так видно в колонках.
+ */
+const ACTIVE_STATUSES: ReadonlySet<TaskStatus> = new Set<TaskStatus>(['in_progress', 'review']);
+
+function ActiveTasks({ tasks }: { tasks: TaskView[] }) {
+  const open = useStore((s) => s.openTaskCard);
+  const current = useStore((s) => s.openTask);
+  const list = tasks.filter((t) => ACTIVE_STATUSES.has(t.status));
+  // Пустую рамку не рисуем: «нет активных» видно и по колонкам.
+  if (list.length === 0) return null;
+  return (
+    <section className="board-active" aria-label={tr('board.active.title')}>
+      <div className="board-active-head" title={tr('board.active.hint')}>
+        {tr('board.active.title')}
+        <span className="muted">{list.length}</span>
+      </div>
+      <div className="board-active-rows">
+        {list.map((t) => (
+          <button
+            key={t.id}
+            className={`board-active-row${current === t.id ? ' open' : ''}`}
+            onClick={() => open(t.id)}
+            title={t.title}
+          >
+            <span className={`board-active-dot ${t.status}`} aria-label={statusLabel(t.status)} />
+            <b>{t.id}</b>
+            <span className="board-active-title">{t.title}</span>
+            {t.assigneeId && <AgentTag id={t.assigneeId} className="muted" />}
+          </button>
+        ))}
+      </div>
+    </section>
+  );
+}
+
 const BOARD_TABS: BoardTab[] = ['directions', 'plan', 'tasks'];
 
 export function Board() {
@@ -520,6 +559,7 @@ export function Board() {
 
   return (
     <div className="board">
+      <ActiveTasks tasks={all} />
       {/* Шапка экрана: переключатель блоков и снятие фильтра по фиче. Не
           прокручивается — фильтр ставят в «Плане», а видят его в «Задачах»,
           и кнопка снятия нужна на обеих подвкладках. */}

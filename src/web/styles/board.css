@@ -256,3 +256,38 @@
 /* Инициатива офиса в плане: чип и обоснование под целью. */
 .epic.initiative { border-left: 3px solid var(--accent); }
 .epic-rationale { font-size: var(--fs-small); margin-top: var(--space-1); color: var(--ink-3); }
+
+/* ---------- сводка активных задач над доской ----------
+   Строка на задачу: точка статуса, номер, название, исполнитель. Ужимается
+   только название — номер и исполнитель видны всегда, полное название в
+   подсказке. Высота списка ограничена: при десятке активных задач сводка не
+   должна выталкивать саму доску за край. */
+.board-active {
+  flex: none; display: flex; flex-direction: column; gap: var(--space-2);
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid var(--board-line); border-radius: var(--radius-card);
+  background: var(--surface);
+}
+.board-active-head {
+  display: flex; align-items: center; gap: var(--space-2);
+  font-size: var(--fs-caption); font-weight: 500; color: var(--board-col-name);
+}
+.board-active-rows { display: flex; flex-direction: column; max-height: 168px; overflow-y: auto; }
+.board-active-row {
+  display: flex; align-items: center; gap: var(--space-2);
+  width: 100%; min-height: 0; margin: 0; text-align: left; font: inherit;
+  padding: var(--space-1) var(--space-1);
+  background: none; border: none; border-radius: var(--radius-tile);
+  font-size: var(--fs-caption); line-height: 16px;
+}
+.board-active-row:hover:not(:disabled) { background: var(--film-2); }
+.board-active-row.open { background: var(--film); }
+.board-active-row b { flex: none; font-weight: 500; color: var(--ink-3); }
+.board-active-title {
+  flex: 1 1 auto; min-width: 0; color: var(--board-title);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.board-active-row .agent-tag { flex: none; gap: var(--space-1); white-space: nowrap; }
+.board-active-dot { flex: none; width: 6px; height: 6px; border-radius: 50%; }
+.board-active-dot.in_progress { background: var(--board-work); }
+.board-active-dot.review { background: var(--warn); }

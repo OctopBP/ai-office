@@ -256,6 +256,8 @@ export const en = {
   "settings.plan.auto.hint": "The office picks features up right away, you read about it in the feed.",
   "settings.plan.note": "The office hands out a feature's tasks itself, as they become ready: nothing starts until what it builds on is merged. A worker who frees up picks the next ready task — including one from the next feature, if the current one has nothing left for their role.",
   "board.openCard": "Open the card",
+  "board.active.title": "Active tasks",
+  "board.active.hint": "In progress and in review across every feature and outside the plan",
   "plan.filterHint": "Show only this feature's tasks",
   "plan.showAll": "Show all tasks (now {epic})",
   "plan.moveUp": "Earlier in the plan",
