@@ -10,9 +10,50 @@
  * таблицы, черта, ссылки и выделение. Чего нет — остаётся как написано,
  * исходник всегда под переключателем.
  */
-import type { ReactNode } from 'react';
+import type { KeyboardEvent, MouseEvent, ReactNode } from 'react';
+import { t } from './i18n';
+import { Icon } from './icons';
+import { useStore } from './store';
 
 // ------------------------------------------------------------ строчная разметка
+
+/** Ссылка на другой чат с менеджером: `[Название](chat:<id>)`. */
+const CHAT_HREF = /^chat:(\S+)$/i;
+
+/**
+ * Чип ссылки на чат. Не `<a href>`: схема `chat:` — адрес внутри офиса, и
+ * браузер переходить по ней не должен. Название берём из стора, а не из
+ * текста ссылки: чат могли переименовать после того, как реплику написали.
+ * Удалённый чат остаётся на месте приглушённым — текст реплики не должен
+ * «проседать» оттого, что цели больше нет.
+ */
+function ChatLink({ id, label }: { id: string; label: ReactNode }) {
+  const title = useStore((s) => s.pmChats[id]?.title);
+  const found = title !== undefined;
+  const go = (e: MouseEvent | KeyboardEvent) => {
+    // Реплика и карточка вокруг могут сами ловить клик — переход только наш.
+    e.preventDefault();
+    e.stopPropagation();
+    if (!found) return;
+    const s = useStore.getState();
+    s.openPmChat(id);
+    s.setView('chat');
+  };
+  return (
+    <span
+      className={found ? 'md-chat' : 'md-chat md-chat-missing'}
+      role="button"
+      tabIndex={found ? 0 : -1}
+      aria-disabled={!found}
+      title={found ? t('md.chat.open') : t('md.chat.missing')}
+      onClick={go}
+      onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') go(e); }}
+    >
+      <Icon name="message" size={14} className="md-chat-icon" />
+      <span className="md-chat-title">{found ? (title || label) : label}</span>
+    </span>
+  );
+}
 
 /** Ссылку делаем ссылкой только на внешний адрес: `javascript:` и относительные пути в окне офиса ни к чему. */
 const safeHref = (url: string): string | null => (/^(https?:|mailto:)/i.test(url.trim()) ? url.trim() : null);
@@ -51,6 +92,7 @@ export function inline(text: string, key = 'i'): ReactNode[] {
     // Картинку из документа не грузим: внешний адрес — утечка того, что
     // владелец открыл файл, а относительный путь из окна офиса не сработает.
     else if (m[4] !== undefined) out.push(link(safeHref(m[4]), `🖼 ${m[3] || m[4]}`, k));
+    else if (m[6] !== undefined && CHAT_HREF.test(m[6])) out.push(<ChatLink key={k} id={CHAT_HREF.exec(m[6])![1]} label={inline(m[5], k)} />);
     else if (m[6] !== undefined) out.push(link(safeHref(m[6]), inline(m[5], k), k));
     else if (m[7] !== undefined) out.push(link(safeHref(m[7]), m[7], k));
     else if (m[8] !== undefined || m[9] !== undefined) out.push(<strong key={k}>{inline(m[8] ?? m[9], k)}</strong>);
