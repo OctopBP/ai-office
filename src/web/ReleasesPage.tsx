@@ -8,20 +8,20 @@ import {
   type Release, type ReleaseTarget, type VersionLevel,
 } from '../shared/release';
 import type { Settings } from '../shared/types';
-import { Panel } from './Panel';
+import { ShellPage } from './shell/ShellPage';
 import { t } from './i18n';
-import { HOTKEY } from './hotkeys';
 import { money } from './money';
 import { formatFullDateTime } from './dates';
 
 type Tab = 'targets' | 'plans' | 'setup';
 
 /**
- * Панель «Выпуски» (docs/design/releases/spec.md §11): цели карточками —
+ * Страница «Выпуски» (docs/design/releases/spec.md §11): цели карточками —
  * последний выпуск, что накопилось, кнопка «Выпустить», история; планы
  * выпусков и вклад фич; настройка целей полями с проверкой до сохранения.
+ * Открывается из рейла в главной области (`RailView`), вкладки — в шапке.
  */
-export function ReleasesPanel({ onClose }: { onClose: () => void }) {
+export function ReleasesPage() {
   const [tab, setTab] = useState<Tab>('targets');
   const tabs = (
     <div className="seg panel-tabs">
@@ -31,13 +31,13 @@ export function ReleasesPanel({ onClose }: { onClose: () => void }) {
     </div>
   );
   return (
-    <Panel title={t('releases.title')} tabs={tabs} wide size="board" fixed hotkey={HOTKEY.releases} onClose={onClose}>
+    <ShellPage title={t('releases.title')} actions={tabs} bodyClass="fixed">
       <div className="life releases">
         {tab === 'targets' && <TargetsTab onSetup={() => setTab('setup')} />}
         {tab === 'plans' && <PlansTab />}
         {tab === 'setup' && <SetupTab />}
       </div>
-    </Panel>
+    </ShellPage>
   );
 }
 

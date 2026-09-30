@@ -489,10 +489,10 @@ export type TopView = 'office' | 'board' | 'chat' | 'life';
  * страницей в главной области, а не модалкой. Список растёт по мере перевода
  * окон; остальные пункты рейла пока открывают панели и модалки.
  */
-export type RailView = 'settings';
+export type RailView = 'settings' | 'flows' | 'releases';
 /** Один вид на главную область: сверху и слева — просто две группы кнопок. */
 export type View = TopView | RailView;
-export const RAIL_VIEWS: readonly RailView[] = ['settings'];
+export const RAIL_VIEWS: readonly RailView[] = ['settings', 'flows', 'releases'];
 export const isRailView = (v: string): v is RailView => (RAIL_VIEWS as readonly string[]).includes(v);
 export type ThemeMode = Theme | 'system';
 

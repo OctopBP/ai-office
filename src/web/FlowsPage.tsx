@@ -5,19 +5,19 @@ import {
   type Run, type Workflow, type WorkflowEntry,
 } from '../shared/workflow';
 import { FlowGraph, FlowLegend } from './FlowGraph';
-import { Panel } from './Panel';
+import { ShellPage } from './shell/ShellPage';
 import { t } from './i18n';
-import { HOTKEY } from './hotkeys';
 
 type Tab = 'board' | 'processes' | 'checks' | 'stats';
 
 /**
- * Панель «Процессы» (docs/design/workflows/spec.md §8.5, §10): доска прогонов
+ * Страница «Процессы» (docs/design/workflows/spec.md §8.5, §10): доска прогонов
  * по узлам, сами процессы с правкой пределов и текста, свои проверки
  * проекта и расход по узлам. Правка ложится файлом в `workflows/` проекта —
- * текст первичен, панель лишь показывает и проверяет его.
+ * текст первичен, страница лишь показывает и проверяет его. Открывается из
+ * рейла в главной области (`RailView`), вкладки — в шапке страницы.
  */
-export function FlowsPanel({ onClose }: { onClose: () => void }) {
+export function FlowsPage() {
   const [tab, setTab] = useState<Tab>('board');
   const tabs = (
     <div className="seg panel-tabs">
@@ -27,14 +27,14 @@ export function FlowsPanel({ onClose }: { onClose: () => void }) {
     </div>
   );
   return (
-    <Panel title={t('flows.title')} tabs={tabs} wide size="board" fixed hotkey={HOTKEY.flows} onClose={onClose}>
+    <ShellPage title={t('flows.title')} actions={tabs} bodyClass="fixed">
       <div className="life flows">
         {tab === 'board' && <BoardTab />}
         {tab === 'processes' && <ProcessesTab />}
         {tab === 'checks' && <ChecksTab />}
         {tab === 'stats' && <StatsTab />}
       </div>
-    </Panel>
+    </ShellPage>
   );
 }
 

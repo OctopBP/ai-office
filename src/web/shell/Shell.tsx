@@ -11,6 +11,8 @@ import { Composer } from './Composer';
 import { EnvBanner } from './EnvBanner';
 import { UpdateBanner } from './UpdateBanner';
 import { SettingsPage } from '../SettingsPage';
+import { FlowsPage } from '../FlowsPage';
+import { ReleasesPage } from '../ReleasesPage';
 import { isRailView, useStore } from '../store';
 import { t } from '../i18n';
 import type { SpotTarget } from '../office3d/Hotspots3D';
@@ -69,6 +71,8 @@ export function Shell(props: OverlayProps) {
         {/* Окна из рейла — страницы на месте сцены (ShellPage). Закрыть —
             вернуться в комнату, как Esc с любого вида. */}
         {view === 'settings' && <SettingsPage onClose={() => setView('office')} />}
+        {view === 'flows' && <FlowsPage />}
+        {view === 'releases' && <ReleasesPage />}
         {view === 'life' && (
           <div className="shell-view shell-life">
             <h2 className="shell-life-title">{t('life.title')}</h2>

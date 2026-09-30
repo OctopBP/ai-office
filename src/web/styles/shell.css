@@ -84,6 +84,10 @@
 .shell-page-body { flex: 1; min-height: 0; overflow-y: auto; }
 /* Тело со своей прокруткой внутри (настройки: меню стоит, едет контент). */
 .shell-page-body.fixed { overflow: hidden; display: flex; flex-direction: column; }
+.shell-page-body.fixed > .life { flex: 1; }
+/* Вкладки страницы (процессы, выпуски) — сегмент в шапке, как было у панели. */
+.shell-page-actions .panel-tabs { background: var(--film); }
+.shell-page-actions .panel-tabs button { padding: 0 14px; }
 /* Без overflow: hidden — он срезал тень встроенного композера слева, справа
    и снизу. Прокручивается сама лента (.chat), колонке достаточно min-height: 0,
    а место под тень даёт запас --shadow-room у .shell-chat. */
