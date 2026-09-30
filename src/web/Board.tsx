@@ -109,25 +109,42 @@ type TaskGroup = {
   counts: GroupCounts;
 };
 
+/** Фича больше не поедет: доведена или снята. */
+const epicOver = (status: EpicStatus): boolean => status === 'done' || status === 'cancelled';
+
+/** Число из номера F-N: запасной ключ, если времени заведения нет (старые записи). */
+const epicNumber = (id: string): number => Number(/\d+/.exec(id)?.[0] ?? 0);
+
+/** Новые фичи первыми: по времени заведения, на равных — по номеру F-N. */
+function newestEpicFirst(a: EpicView, b: EpicView): number {
+  return (b.createdAt || 0) - (a.createdAt || 0) || epicNumber(b.id) - epicNumber(a.id);
+}
+
 /**
  * Задачи по фичам плана. Связь берём из `task.epicId` — того самого поля, по
  * которому офис и считает фичу закрытой; угадывать фичу по названию задачи
  * нельзя, названия совпадают у половины доски.
  *
- * Порядок групп — как фичи стоят в плане, «Разное» последним. Фичи без задач
- * не показываем: на подвкладке «Задачи» им нечего показать, а сама фича видна
- * на соседней подвкладке «План».
+ * Порядок групп — не как в плане, а по тому, куда смотрят: сверху живые фичи
+ * (в работе, в очереди, ждут согласия), под ними «Разное», в самом низу
+ * завершённые и снятые — это уже история. Внутри обоих блоков новые сверху:
+ * порядок плана решает, что офис возьмёт следующим, и его видно на «Плане».
+ * Фичи без задач не показываем: на подвкладке «Задачи» им нечего показать, а
+ * сама фича видна на соседней подвкладке «План».
  */
 function groupTasks(list: TaskView[], plan: EpicView[], autoPipeline: boolean): TaskGroup[] {
   const empty = (key: string, id: string | null, title: string, status: EpicStatus | null): TaskGroup => ({
     key, id, title, status, cols: { wait: [], work: [], review: [], done: [], failed: [], cancelled: [] }, done: 0, total: 0, spent: 0,
     counts: { running: 0, review: 0, queued: 0, failed: 0, cancelled: 0 },
   });
+  const live = plan.filter((e) => !epicOver(e.status)).sort(newestEpicFirst);
+  const over = plan.filter((e) => epicOver(e.status)).sort(newestEpicFirst);
   const groups = new Map<string, TaskGroup>();
-  for (const epic of plan) groups.set(epic.id, empty(epic.id, epic.id, epic.title, epic.status));
-  // «Разное» заводим последним — Map держит порядок вставки, и отдельная
-  // сортировка групп не нужна.
+  // Map держит порядок вставки: заводим группы сразу в порядке показа, и
+  // отдельная сортировка групп после раскладки задач не нужна.
+  for (const epic of live) groups.set(epic.id, empty(epic.id, epic.id, epic.title, epic.status));
   groups.set(MISC_GROUP, empty(MISC_GROUP, null, tr('board.group.misc'), null));
+  for (const epic of over) groups.set(epic.id, empty(epic.id, epic.id, epic.title, epic.status));
 
   for (const t of list) {
     const group = (t.epicId && groups.get(t.epicId)) || groups.get(MISC_GROUP)!;
