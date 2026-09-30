@@ -52,7 +52,10 @@ export function Avatar({ roleId, instanceId, size = 'md', className }: {
   // наведением спрашивают «кто это», и решётка с номером тут не ответ.
   const name = useInstanceName(instanceId ?? '');
   const tip = instanceId ? name : undefined;
-  const cls = `${size}${className ? ` ${className}` : ''}`;
+  // Размер — с префиксом, а не голым `md`/`sm`: голый `.md` — это документ
+  // Markdown (markdown.css) с полями 16/24, и в коробке 30px от картинки
+  // оставался ноль (T-164).
+  const cls = `avatar-${size}${className ? ` ${className}` : ''}`;
   if (portrait) {
     return (
       <span className={`avatar-pic ${cls}`} title={tip ?? code}>
