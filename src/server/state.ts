@@ -3113,6 +3113,21 @@ export class OfficeState {
   }
 
   /**
+   * Смысловое название от модели (chattitle.ts). Ручное имя и основной чат не
+   * трогает: пока шла генерация, владелец мог успеть переименовать чат сам.
+   * Совпадение с текущим названием — не изменение, клиентам ничего не шлём.
+   */
+  autoTitlePmChat(id: string, title: string): boolean {
+    const chat = this.pmChats.get(id);
+    const clean = clipText(title.trim().replace(/\s+/g, ' '), PM_CHAT_TITLE_MAX);
+    if (!chat || !clean || chat.renamed || chat.main || chat.title === clean) return false;
+    chat.title = clean;
+    this.emit({ t: 'pm.chat', chat: { ...chat } });
+    this.markDirty();
+    return true;
+  }
+
+  /**
    * Архив и возврат из него. Основной чат тоже можно убрать с глаз: события
    * без привязки продолжат ложиться в него, просто в секции архива.
    */
@@ -4843,8 +4858,8 @@ const PM_CHAT_TITLE_MAX = 80;
 
 /**
  * Временное название чата по первой реплике владельца — первая строка,
- * обрезанная. Смысловое название по разговору даст менеджер, когда у чата
- * появится своя сессия; до тех пор это лучше, чем десяток «Новых чатов».
+ * обрезанная. Смысловое название по разговору дешёвая модель даст после
+ * ответа менеджера (chattitle.ts); до тех пор это лучше, чем «Новый чат».
  */
 const autoChatTitle = (text: string): string =>
   clipText((text.split('\n').find((l) => l.trim()) ?? '').trim().replace(/\s+/g, ' '), 60);

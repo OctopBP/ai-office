@@ -49,6 +49,7 @@ import { limitBlock, resetClock } from './limits';
 import { journalBrief } from './journal';
 import { addRule, dropRule, editRule, ruleScopes, rulesBrief, rulesText } from './rules';
 import { noteCompaction } from './health';
+import { maybeAutoTitle, setChatTitler } from './chattitle';
 import {
   answerFromChat, askOwner, deleteQuestion, editQuestion, mergeQuestion, openQuestionsText,
 } from './questions';
@@ -1698,6 +1699,7 @@ function startPm(state: OfficeState, pm: PmSession): void {
           endPmTurn(state, pm);
           if (isOk(msg) && msg.result?.trim()) {
             state.addChat('pm#1', msg.result.trim(), 'pm#1', undefined, chatId);
+            void maybeAutoTitle(state, chatId);
           } else if (!isOk(msg)) {
             const reason = resultReason(msg, state.lang());
             state.addChat(OFFICE_SENDER, state.say('agent.pm.noAnswer', { reason: clip(reason, 300) }), 'pm#1', undefined, chatId);
@@ -4327,6 +4329,39 @@ setFlowAgents({
     const r = await holdMeeting(state, topic, participants, { report: false });
     return { ok: r.ok, said: r.said, error: r.ok ? undefined : state.say('flow.meetingFailed') };
   },
+});
+
+/**
+ * Название чата с менеджером по теме (chattitle.ts): один ход дешёвой модели
+ * без инструментов и без промпта менеджера — только несколько последних
+ * реплик. Состояние менеджера над головой не трогаем: это не его работа, из
+ * сообщений берём лишь расход и лимит.
+ */
+setChatTitler(async (state, input) => {
+  if (state.dryRun) return null;
+  const lines = input.messages.map((m) => state.say(
+    m.from === 'owner' ? 'prompt.chatTitle.owner' : 'prompt.chatTitle.manager', { text: m.text }));
+  const session = query({
+    prompt: state.say('prompt.chatTitle.user', { title: input.current, messages: lines.join('\n') }),
+    options: {
+      model: providerOf(state.role('pm')) === 'codex' ? state.role('pm')!.model : RITUAL_MODEL,
+      provider: providerOf(state.role('pm')),
+      systemPrompt: state.say('prompt.chatTitle.system', { lang: LANG_NAME_EN[state.lang()] }),
+      cwd: state.projectDir,
+      tools: [],
+      permissionMode: 'default',
+      canUseTool: permissionHandler(state, 'pm#1'),
+      settingSources: [],
+      settings: OFFICE_SESSION_SETTINGS,
+      maxTurns: 1,
+    },
+  });
+  let title: string | null = null;
+  for await (const msg of session) {
+    if (msg.type === 'result' || msg.type === 'rate_limit_event') consume(state, 'pm#1', msg, false);
+    if (msg.type === 'result' && isOk(msg)) title = msg.result?.trim() || null;
+  }
+  return title;
 });
 
 setRitualAgents({

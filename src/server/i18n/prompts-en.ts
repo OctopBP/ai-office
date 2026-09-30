@@ -1136,4 +1136,9 @@ and the office journal are the same — they live outside the session. This is w
   'tool.proposeTarget.timeout': 'How long to wait for the build or CI, minutes. 0 — 30.',
   'tool.proposeTarget.waitForTask': 'Id of a task the target needs (Fastfile, CI workflow): it applies once that task is merged. Empty — right after "yes".',
   'tool.proposeTarget.note': 'One sentence for the owner: why the target looks like this.',
+  // ------------------------------------------------ автоназвание чата с PM
+  'prompt.chatTitle.system': 'You name chat conversations. Reply with the title only: 2 to 5 words in {lang} that name the topic of the conversation. No quotes, no trailing period, no explanations. If the current title still fits the recent messages, reply with it unchanged.',
+  'prompt.chatTitle.user': 'Current title: {title}\n\nRecent messages:\n{messages}',
+  'prompt.chatTitle.owner': 'Owner: {text}',
+  'prompt.chatTitle.manager': 'Manager: {text}',
 } as const;
