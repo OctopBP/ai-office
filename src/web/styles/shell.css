@@ -88,7 +88,6 @@
 /* Сжимается только список офисов (ниже), остальное держит свою высоту. */
 .shell-rail > * { flex: none; }
 .rail-brand { display: flex; align-items: center; gap: var(--space-2); height: 28px; margin-bottom: var(--space-5); }
-.rail-logo { width: 28px; height: 28px; border-radius: var(--radius-avatar); background: var(--accent); flex: none; }
 .rail-name { font: 600 var(--fs-title)/1.2 var(--font-brand); color: var(--ink); flex: 1; }
 .rail-toggle { width: 24px; min-height: 24px; padding: 0; color: var(--ink-3); font-size: 16px; }
 .shell-rail .section-title { margin-bottom: var(--space-3); }
@@ -199,7 +198,10 @@ body.office-dragging, body.office-dragging * { cursor: grabbing !important; user
 .rail-user-avatar { width: 30px; height: 30px; border-radius: var(--radius-row); background: var(--dash); flex: none; }
 .rail-user-text { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
 .rail-user-name { font-size: var(--fs-body); font-weight: 500; color: var(--ink); }
-.rail-user-auth { font-size: var(--fs-small); font-weight: 400; color: var(--ink-3); }
+.rail-user-auth { font-size: var(--fs-small); font-weight: 400; color: var(--ink-3); display: flex; align-items: center; gap: var(--space-1); }
+.provider-icon { flex: none; }
+.provider-icon-claude-code { color: var(--provider-claude); }
+.provider-icon-codex { color: var(--ink); }
 .rail-menu {
   position: absolute; left: 0; right: 0; bottom: calc(100% + 6px);
   display: flex; flex-direction: column; padding: var(--space-1); z-index: var(--z-popover);

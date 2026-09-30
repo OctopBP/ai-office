@@ -13,6 +13,14 @@ import { Hint, Tooltip } from '../Tooltip';
 import { HOTKEY } from '../hotkeys';
 import { officeAvatarColor, officeAvatarInk } from '../officeColor';
 import { OfficeAvatarIcon } from '../OfficeIcon';
+import { ProviderIcon } from './ProviderIcon';
+import type { ProviderId } from '../../shared/providers';
+import type { AuthSource } from '../../shared/types';
+
+// Строка внизу рейла — это авторизация движка Claude Code; «не авторизован» — без знака.
+const AUTH_PROVIDER: Record<AuthSource, ProviderId | undefined> = {
+  subscription: 'claude-code', 'api-key': 'claude-code', unknown: undefined,
+};
 
 /** Сколько пикселей нужно сдвинуть указатель, прежде чем короткий клик по
  * строке офиса считается началом перетаскивания. Меньше — щелчок мышью с
@@ -233,7 +241,6 @@ export function Rail({ onPanel, onModal }: {
   return (
     <aside className="shell-rail float">
       <div className="rail-brand">
-        <span className="rail-logo" />
         <span className="rail-name">AI Office</span>
         <button className="ghost rail-toggle" onClick={() => setCollapsed(!collapsed)}
           title={t(collapsed ? 'shell.rail.expand' : 'shell.rail.collapse')}>
@@ -384,7 +391,10 @@ function User() {
         <span className="rail-user-avatar" />
         <span className="rail-user-text">
           <span className="rail-user-name">{t('shell.user')}</span>
-          <span className="rail-user-auth">{t(`shell.auth.${authSource}`)}</span>
+          <span className="rail-user-auth">
+            <ProviderIcon provider={AUTH_PROVIDER[authSource]} />
+            {t(`shell.auth.${authSource}`)}
+          </span>
         </span>
       </button>
       {open && (
