@@ -967,8 +967,6 @@ export const en = {
   "shell.view.board": "Board",
   "shell.view.chat": "Chat",
   "shell.view.life": "Office life",
-  "shell.newTask": "New task",
-  "shell.newTask.hint": "Write to the PM",
   "shell.composer.placeholder": "Give the PM a task — they will split it across the team…",
   "shell.composer.newChat": "Ask the manager about a task or start a conversation…",
   "env.banner.recheck": "Recheck",

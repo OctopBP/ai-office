@@ -966,8 +966,6 @@ export const ru: Record<keyof typeof en, string> = {
   "shell.view.board": "Доска",
   "shell.view.chat": "Чат",
   "shell.view.life": "Жизнь офиса",
-  "shell.newTask": "Поставить задачу",
-  "shell.newTask.hint": "Написать менеджеру",
   "shell.composer.placeholder": "Поставьте задачу PM — он разложит её на команду…",
   "shell.composer.newChat": "Спросите менеджера о задаче или начните разговор…",
   "env.banner.recheck": "Перепроверить",
