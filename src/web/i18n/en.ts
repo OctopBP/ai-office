@@ -138,6 +138,8 @@ export const en = {
   "diff.truncated": "The diff is truncated — too big to show in full. You can see all of it in the task working copy.",
   "chat.tab.pm": "Manager",
   "chat.tab.meeting": "Meeting room",
+  "chat.peer.pick": "Choose who to talk to",
+  "chat.peer.list": "People to talk to",
   "chat.note.meeting": "The participants speak in turn, each sees what was said before them. The manager writes the outcome in their own chat.",
   "chat.note.direct": "A direct conversation, past the manager. The agent can look at the project, but not change it.",
   "chat.empty": "Nothing here yet.",

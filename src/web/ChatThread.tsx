@@ -5,22 +5,20 @@ import { inPmChat, shownDraft, useStore } from './store';
 import { t } from './i18n';
 import { AgentTag } from './Avatar';
 import { ChatPeer } from './ChatPeer';
+import { PeerPicker } from './PeerPicker';
 import { Markdown } from './Markdown';
 import { CardGroup, RefCard, TaskCard } from './ChatCards';
 import { hasTime, dayKey, formatDayLabel, formatClock, formatFullDateTime } from './dates';
 
 /**
- * Лента чата: вкладки тредов, пояснение к треду и сообщения. Без рамки и
+ * Лента чата: выбор собеседника, пояснение к треду и сообщения. Без рамки и
  * без поля ввода — их даёт тот, кто ленту показывает: панель поверх офиса
  * со своим композером или вид «Чат» новой оболочки, где поле ввода — общий
  * композер внизу экрана.
  */
 export function ChatThread() {
   const chat = useStore((s) => s.chat);
-  const instances = useStore((s) => s.instances);
-  const meeting = useStore((s) => s.meeting);
   const thread = useStore((s) => s.thread);
-  const setThread = useStore((s) => s.setThread);
   // Реплика, которую собеседник пишет прямо сейчас. Рисуется на месте будущего
   // ответа и исчезает, когда готовая реплика ложится в ленту.
   // У менеджера сессия на каждый чат, и черновик у каждой свой: берём тот,
@@ -75,19 +73,7 @@ export function ChatThread() {
 
   return (
     <>
-      <div className="threads">
-        <button className={`mini${thread === 'pm#1' ? ' on' : ''}`} onClick={() => setThread('pm#1')}>
-          {t('chat.tab.pm')}
-        </button>
-        <button className={`mini${thread === 'meeting' ? ' on' : ''}`} onClick={() => setThread('meeting')}>
-          {t('chat.tab.meeting')}{meeting?.status === 'running' ? ' •' : ''}
-        </button>
-        {Object.values(instances).filter((i) => i.roleId !== 'pm').map((i) => (
-          <button key={i.id} className={`mini${thread === i.id ? ' on' : ''}`} onClick={() => setThread(i.id)}>
-            <AgentTag id={i.id} />
-          </button>
-        ))}
-      </div>
+      <PeerPicker />
 
       <ChatPeer />
 

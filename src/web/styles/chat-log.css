@@ -138,6 +138,33 @@
 .thread-bar button { margin-left: auto; }
 
 .threads { display: flex; flex-wrap: wrap; gap: var(--space-2); margin-bottom: var(--space-3); }
+/* Выбор собеседника: одна кнопка с текущим и меню под ней вместо ряда чипов. */
+.peer-picker { position: relative; align-self: flex-start; margin-bottom: var(--space-3); }
+.peer-picker-btn {
+  gap: var(--space-2); min-height: var(--control-h); padding: 0 var(--space-2);
+  background: var(--film); border-radius: var(--radius-row); font-weight: 500; color: var(--ink-2);
+}
+.peer-picker-btn:hover, .peer-picker-btn.on { background: var(--film-3); color: var(--ink); }
+.peer-picker-caret { color: var(--ink-3); font-size: var(--fs-small); }
+.peer-picker-icon {
+  width: 20px; height: 20px; flex: none; display: inline-flex; align-items: center; justify-content: center;
+  color: var(--ink-3);
+}
+.peer-picker-menu {
+  position: absolute; left: 0; top: calc(100% + 4px); z-index: var(--z-popover);
+  display: flex; flex-direction: column; min-width: 240px; max-height: 360px; overflow-y: auto;
+  padding: var(--space-1);
+}
+.peer-picker-item {
+  justify-content: flex-start; gap: var(--space-2); min-height: var(--control-h); padding: var(--space-1) var(--space-2);
+  background: none; border-radius: var(--radius-icon); font-weight: 400; color: var(--ink-2); text-align: left;
+}
+.peer-picker-item:hover, .peer-picker-item:focus-visible { background: var(--film); }
+.peer-picker-item.on { background: var(--film-2); color: var(--ink); font-weight: 500; }
+.peer-picker-text { display: flex; flex-direction: column; min-width: 0; flex: 1; }
+.peer-picker-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.peer-picker-role { font-size: var(--fs-small); font-weight: 400; color: var(--ink-3); }
+.peer-picker-check { flex: none; width: 1em; color: var(--accent); }
 /* Собеседник над лентой: лицо, имя и должность. */
 .chat-peer { display: flex; align-items: center; gap: var(--space-3); margin-bottom: var(--space-3); }
 .chat-peer-text { display: flex; flex-direction: column; min-width: 0; }
