@@ -10,7 +10,8 @@
  * таблицы, черта, ссылки и выделение. Чего нет — остаётся как написано,
  * исходник всегда под переключателем.
  */
-import type { KeyboardEvent, MouseEvent, ReactNode } from 'react';
+import { useEffect, useMemo, useRef, useState, type KeyboardEvent, type MouseEvent, type ReactNode } from 'react';
+import { highlight } from './codeHighlight';
 import { t } from './i18n';
 import { Icon } from './icons';
 import { useStore } from './store';
@@ -120,6 +121,72 @@ function paragraphInline(lines: string[], key: string, breaks: boolean): ReactNo
   return out;
 }
 
+// ------------------------------------------------------------ блок кода
+
+/** Сколько держится «Скопировано» на кнопке. */
+const COPIED_MS = 1500;
+
+/**
+ * Копирование в буфер. `navigator.clipboard` есть только в защищённом
+ * контексте: офис, открытый по адресу в локальной сети, его не получит —
+ * тогда старый путь через выделение в скрытом поле.
+ */
+async function copyText(text: string): Promise<void> {
+  if (navigator.clipboard?.writeText) {
+    try { await navigator.clipboard.writeText(text); return; } catch { /* ниже старый путь */ }
+  }
+  const area = document.createElement('textarea');
+  area.value = text;
+  area.setAttribute('readonly', '');
+  area.style.position = 'fixed';
+  area.style.opacity = '0';
+  document.body.appendChild(area);
+  area.select();
+  const ok = document.execCommand('copy');
+  area.remove();
+  if (!ok) throw new Error('copy failed');
+}
+
+/**
+ * Огороженный блок кода: шапка с языком и кнопкой «Копировать», под ней код.
+ * Прокручивается только `<pre>`, а шапка лежит над ним, поэтому кнопка
+ * остаётся на месте при горизонтальной прокрутке длинных строк. Куски
+ * подсветки — обычные `<span>` с текстом: `<script>` из блока так и останется
+ * буквами.
+ */
+function CodeBlock({ code, lang }: { code: string; lang: string }) {
+  const [state, setState] = useState<'idle' | 'copied' | 'failed'>('idle');
+  const timer = useRef<number | undefined>(undefined);
+  useEffect(() => () => window.clearTimeout(timer.current), []);
+  const tokens = useMemo(() => highlight(code, lang), [code, lang]);
+  const copy = (e: MouseEvent) => {
+    // Карточка или реплика вокруг могут сами ловить клик.
+    e.stopPropagation();
+    const done = (next: 'copied' | 'failed') => {
+      setState(next);
+      window.clearTimeout(timer.current);
+      timer.current = window.setTimeout(() => setState('idle'), COPIED_MS);
+    };
+    copyText(code).then(() => done('copied'), () => done('failed'));
+  };
+  const label = state === 'copied' ? t('md.code.copied') : state === 'failed' ? t('md.code.copyFailed') : t('md.code.copy');
+  return (
+    <div className="md-code">
+      <div className="md-code-head">
+        {lang && <span className="md-code-lang">{lang.toLowerCase()}</span>}
+        <button type="button" className={`md-code-copy${state === 'copied' ? ' is-done' : ''}`} onClick={copy}>
+          {label}
+        </button>
+      </div>
+      <pre>
+        <code>
+          {tokens.map((tok, j) => (tok.kind ? <span key={j} className={`hl-${tok.kind}`}>{tok.text}</span> : tok.text))}
+        </code>
+      </pre>
+    </div>
+  );
+}
+
 // ------------------------------------------------------------ блоки
 
 const FENCE = /^ {0,3}(`{3,}|~{3,})\s*([\w+-]*)/;
@@ -211,7 +278,7 @@ function blocks(lines: string[], key: string, breaks: boolean, tight = false): R
       i++;
       while (i < lines.length && !close.test(lines[i])) body.push(lines[i++]);
       i++;
-      out.push(<pre key={k} className="md-code"><code>{body.join('\n')}</code></pre>);
+      out.push(<CodeBlock key={k} code={body.join('\n')} lang={fence[2]} />);
       continue;
     }
 

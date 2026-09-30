@@ -19,10 +19,68 @@
 .md li.md-task input { margin: 0 6px 0 0; vertical-align: middle; }
 .md code { font: .92em var(--font-mono); background: var(--film-2); padding: 1px 4px; border-radius: var(--radius-icon); }
 .md .md-code {
-  padding: var(--space-3); overflow-x: auto; background: var(--surface);
-  border-radius: var(--radius-row); font: var(--fs-body)/1.5 var(--font-mono);
+  background: var(--surface); border-radius: var(--radius-row);
+  font: var(--fs-body)/1.5 var(--font-mono); min-width: 0; max-width: 100%;
 }
-.md .md-code code { background: none; padding: 0; }
+/* Шапка над прокручиваемым <pre>: при горизонтальной прокрутке длинной
+   строки кнопка «Копировать» не уезжает вместе с кодом. */
+.md .md-code-head {
+  display: flex; align-items: center; gap: var(--space-2);
+  padding: 4px var(--space-2) 0 var(--space-3); min-height: 24px;
+}
+.md .md-code-lang { color: var(--ink-3); font-size: var(--fs-small); }
+.md .md-code-copy {
+  margin-left: auto; padding: 2px 8px; border: 0; border-radius: var(--radius-icon);
+  background: var(--film); color: var(--ink-3); font: var(--fs-small) var(--font); cursor: pointer;
+}
+.md .md-code-copy:hover { background: var(--film-3); color: var(--ink); }
+.md .md-code-copy:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.md .md-code-copy.is-done { color: var(--ok-ink); }
+.md .md-code pre { margin: 0; padding: var(--space-2) var(--space-3) var(--space-3); overflow-x: auto; font: inherit; }
+.md .md-code code { background: none; padding: 0; font: inherit; white-space: pre; }
+
+/* Подсветка синтаксиса (codeHighlight.ts). Цвета — из общей палитры
+   акцентов и смысловых токенов, по паре на тему: часть акцентов (янтарный,
+   лаймовый) на белом не читается, а индиго теряется на тёмном. */
+.md {
+  --hl-comment: var(--ink-3);
+  --hl-keyword: var(--accent-3);
+  --hl-string: var(--ok-ink);
+  --hl-number: var(--accent-5);
+  --hl-literal: var(--accent-5);
+  --hl-type: var(--accent-8);
+  --hl-title: var(--accent-1);
+  --hl-attr: var(--accent-2);
+  --hl-tag: var(--accent-4);
+  --hl-meta: var(--ink-3);
+  --hl-variable: var(--accent-4);
+  --hl-added: var(--ok-ink);
+  --hl-deleted: var(--danger);
+  --hl-section: var(--accent-1);
+}
+[data-theme='night'] .md {
+  --hl-number: var(--accent-6);
+  --hl-literal: var(--accent-6);
+  --hl-type: #2dd4bf;
+  --hl-title: #60a5fa;
+  --hl-attr: var(--accent-7);
+  --hl-keyword: #c084fc;
+}
+.md .hl-comment { color: var(--hl-comment); font-style: italic; }
+.md .hl-keyword { color: var(--hl-keyword); }
+.md .hl-string { color: var(--hl-string); }
+.md .hl-number { color: var(--hl-number); }
+.md .hl-literal { color: var(--hl-literal); }
+.md .hl-type { color: var(--hl-type); }
+.md .hl-title { color: var(--hl-title); }
+.md .hl-attr { color: var(--hl-attr); }
+.md .hl-tag { color: var(--hl-tag); }
+.md .hl-meta { color: var(--hl-meta); }
+.md .hl-variable { color: var(--hl-variable); }
+.md .hl-added { color: var(--hl-added); }
+.md .hl-deleted { color: var(--hl-deleted); }
+.md .hl-section { color: var(--hl-section); font-weight: 600; }
+.md .hl-strong { font-weight: 600; }
 .md blockquote { padding-left: var(--space-3); border-left: 3px solid var(--hairline); color: var(--ink-3); }
 .md hr { border: 0; border-top: 1px solid var(--hairline); margin: 1.2em 0; }
 .md a { color: var(--accent); }
@@ -58,8 +116,9 @@
 .md.md-compact p, .md.md-compact ul, .md.md-compact ol, .md.md-compact blockquote,
 .md.md-compact .md-table, .md.md-compact .md-code { margin: 0 0 .5em; }
 .md.md-compact ul, .md.md-compact ol { padding-left: 1.3em; }
-.md.md-compact .md-code { padding: var(--space-2); max-width: 100%; font-size: var(--fs-small); }
-.md.md-compact .md-code code { white-space: pre; }
+.md.md-compact .md-code { max-width: 100%; font-size: var(--fs-small); }
+.md.md-compact .md-code pre { padding: var(--space-1) var(--space-2) var(--space-2); }
+.md.md-compact .md-code-head { padding: 2px var(--space-1) 0 var(--space-2); min-height: 20px; }
 .md.md-compact .md-table { max-width: 100%; }
 .md.md-compact table { font-size: var(--fs-small); }
 .md.md-compact th, .md.md-compact td { padding: 2px 6px; word-break: normal; overflow-wrap: normal; }
@@ -71,6 +130,10 @@
 .msg.from-user .md code { background: rgba(0, 0, 0, .18); }
 .msg.from-user .md .md-code { background: rgba(0, 0, 0, .18); }
 .msg.from-user .md .md-code code { background: none; }
+/* Цвета подсветки на заливке акцентом не читаются — код одним цветом текста. */
+.msg.from-user .md .md-code [class^='hl-'] { color: inherit; }
+.msg.from-user .md .md-code-lang, .msg.from-user .md .md-code-copy { color: inherit; }
+.msg.from-user .md .md-code-copy { background: rgba(0, 0, 0, .18); }
 .msg.from-user .md th { background: rgba(0, 0, 0, .12); color: inherit; }
 .msg.from-user .md th, .msg.from-user .md td { border-color: rgba(255, 255, 255, .35); }
 .msg.from-user .md blockquote { border-left-color: rgba(255, 255, 255, .5); }
