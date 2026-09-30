@@ -32,9 +32,9 @@ const LAYOUTS: Record<string, Layout> = Object.fromEntries(
 /** Раскладка нового офиса — та же, что у сервера (src/server/layout.ts). */
 export const DEFAULT_LAYOUT_ID = 'studio_4';
 /** Запасная раскладка для неизвестного id — та же, на которую откатывается сервер. */
-export const FALLBACK_LAYOUT_ID = 'classic';
+export const FALLBACK_LAYOUT_ID = DEFAULT_LAYOUT_ID;
 
-/** Раскладка по id; неизвестный (старое сохранение, рассинхрон со списком сервера) — запасной classic. */
+/** Раскладка по id; неизвестный (старое сохранение, рассинхрон со списком сервера) — запасная. */
 export function layoutFor(layoutId: string): Layout {
   return LAYOUTS[layoutId] ?? LAYOUTS[FALLBACK_LAYOUT_ID];
 }

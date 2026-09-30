@@ -60,7 +60,7 @@ export function roomTitle(room: { id: string; title?: string }): string {
   return key ? t(key) : (room.title ?? room.id);
 }
 
-/** Комнаты, на которые можно навестись. Раскладка без комнат (`classic`)
+/** Комнаты, на которые можно навестись. Раскладка без комнат
  *  даёт пустой список — фокусироваться там не на чем, и чипов не будет. */
 export function focusRooms(layout: Layout) {
   return layout.rooms ?? [];

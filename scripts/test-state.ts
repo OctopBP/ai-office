@@ -12,7 +12,7 @@ import { tmpdir } from 'node:os';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import {
-  DEFAULT_LAYOUT_ID, catalog, deskPlan, effectiveLayout, layoutIds,
+  DEFAULT_LAYOUT_ID, FALLBACK_LAYOUT_ID, catalog, deskPlan, effectiveLayout, layoutIds,
 } from '../src/server/layout';
 import { deskPoint } from '../src/shared/layout';
 import { isLookId, LOOKS } from '../src/shared/looks';
@@ -51,26 +51,32 @@ process.env.OFFICE_LANG = 'ru';
 const office = getOffice('o-1');
 
 /**
+ * Основная раскладка проверок — запасная: на ней же поднимаются старые
+ * сохранения. До T-165 это был `classic`, его убрали вместе со `studio_3`.
+ */
+const BASE_LAYOUT = FALLBACK_LAYOUT_ID;
+
+/**
  * Вторая раскладка для проверок «офис считает столы по СВОЕЙ раскладке»:
- * любая существующая, кроме classic и умолчания, с тем же числом столов и
- * другой расстановкой — тогда набранный штат переезжает в неё целиком, а
- * несовпадение столов говорит, что пересадка правда была.
+ * любая существующая, кроме основной, где столов не меньше и расстановка
+ * другая — тогда набранный штат переезжает в неё целиком, а несовпадение
+ * столов говорит, что пересадка правда была.
  *
  * Имя нарочно не зашито. Раскладки в этом проекте заводят и удаляют прямо в
  * main: зашитая `studio` пережила своё удаление в коде проверок и увела весь
  * пред-merge гейт в ENOENT — ровно об этом задача T-107.
  */
 function pickOtherLayout(): string {
-  const classicDesks = deskPlan('classic').desks;
+  const baseDesks = deskPlan(BASE_LAYOUT).desks;
   const fits = (id: string): boolean => {
     const other = deskPlan(id).desks;
-    return other.length === classicDesks.length
-      && other.some((d, i) => d.x !== classicDesks[i].x || d.y !== classicDesks[i].y);
+    return other.length >= baseDesks.length
+      && baseDesks.some((d, i) => d.x !== other[i].x || d.y !== other[i].y);
   };
-  const found = layoutIds().filter((id) => id !== 'classic' && id !== DEFAULT_LAYOUT_ID).find(fits);
+  const found = layoutIds().filter((id) => id !== BASE_LAYOUT).find(fits);
   if (!found) {
     throw new Error('test-state: в design/layouts нет второй раскладки'
-      + ` с ${classicDesks.length} столами — проверкам пересадки не на чем работать`);
+      + ` с ${baseDesks.length} и больше столами — проверкам пересадки не на чем работать`);
   }
   return found;
 }
@@ -264,14 +270,15 @@ async function main(): Promise<void> {
   const choiceInSnapshot = layoutSnap.t === 'snapshot'
     && layoutSnap.settings.layoutId === OTHER_LAYOUT
     && layoutSnap.layouts.some((l) => l.id === OTHER_LAYOUT && l.title.length > 0)
-    && layoutSnap.layouts.some((l) => l.id === 'classic');
+    && layoutSnap.layouts.some((l) => l.id === BASE_LAYOUT);
   results.push(
     `новый офис заводится со studio_4: ${layoutByDefault}`,
     `неизвестная раскладка отклонена по-русски: ${/нет в design\/layouts/.test(badLayout ?? '')}`,
     `после отказа раскладка прежняя: ${layoutKept}`,
     `известная раскладка принята: ${okLayout === null && office.settings.layoutId === OTHER_LAYOUT}`,
     `смена раскладки записана в ленту: ${office.log.some((e) => /Раскладка офиса/.test(e.text))}`,
-    `список раскладок несёт classic и ${OTHER_LAYOUT}: ${['classic', OTHER_LAYOUT].every((id) => layoutList.some((l) => l.id === id))}`,
+    `список раскладок несёт ${BASE_LAYOUT} и ${OTHER_LAYOUT}: ${[BASE_LAYOUT, OTHER_LAYOUT].every((id) => layoutList.some((l) => l.id === id))}`,
+    `удалённых classic и studio_3 в списке раскладок нет: ${!layoutList.some((l) => l.id === 'classic' || l.id === 'studio_3')}`,
     `у каждой раскладки есть подпись: ${layoutList.length > 0 && layoutList.every((l) => l.title.length > 0)}`,
     `выбранная раскладка и список выбора едут в снапшоте: ${choiceInSnapshot}`,
   );
@@ -418,8 +425,7 @@ async function main(): Promise<void> {
   wipe(junkFile);
 
   // 7h′. Сохранение, заведённое до настройки раскладки: поля нет вовсе. Такой
-  // офис обязан подняться по classic — так он выглядел всегда, — а не по
-  // раскладке, с которой заводятся новые офисы.
+  // офис поднимается по запасной раскладке, а не падает и не остаётся без мебели.
   const oldLayoutFile = resolve(tmpdir(), `office-test-oldlayout-${process.pid}.json`);
   const oldLayoutDir = resolve(tmpdir(), 'oldlayout-office');
   const { layoutId: _dropped, ...settingsWithoutLayout } = DEFAULT_SETTINGS;
@@ -432,11 +438,32 @@ async function main(): Promise<void> {
     id: 'o-oldlayout', projectDir: oldLayoutDir, stateFile: oldLayoutFile,
   }).state;
   results.push(
-    `новый офис заводится не по classic: ${DEFAULT_SETTINGS.layoutId !== 'classic'}`,
-    `сохранение без раскладки поднимается по classic: ${oldLayoutOffice.settings.layoutId === 'classic'}`,
+    `сохранение без раскладки поднимается по ${FALLBACK_LAYOUT_ID}: ${oldLayoutOffice.settings.layoutId === FALLBACK_LAYOUT_ID}`,
   );
   unloadOfficeState('o-oldlayout');
   wipe(oldLayoutFile);
+
+  // 7h″. Офис, сохранённый на удалённой раскладке (T-165: classic и studio_3),
+  // молча переезжает на запасную и сажает штат за её столы.
+  for (const removed of ['classic', 'studio_3']) {
+    const goneFile = resolve(tmpdir(), `office-test-gone-${removed}-${process.pid}.json`);
+    const goneDir = resolve(tmpdir(), `gone-${removed}-office`);
+    save(goneFile, () => ({
+      version: 1, projectDir: goneDir, taskSeq: 0, tasks: [], chat: [], log: [],
+      instances: [], settings: { ...DEFAULT_SETTINGS, layoutId: removed }, savedAt: Date.now(),
+    }));
+    flushAll();
+    const gone = openOfficeState({ id: `o-gone-${removed}`, projectDir: goneDir, stateFile: goneFile }).state;
+    gone.seed();
+    const fallbackPlan = deskPlan(FALLBACK_LAYOUT_ID);
+    results.push(
+      `офис на удалённой ${removed} открыт по ${FALLBACK_LAYOUT_ID}: ${gone.settings.layoutId === FALLBACK_LAYOUT_ID}`,
+      `и его штат сидит за столами ${FALLBACK_LAYOUT_ID}: ${gone.instances.size > 0 && [...gone.instances.values()]
+        .every((i) => fallbackPlan.desks.some((d) => d.index === i.desk.index && d.x === i.desk.x && d.y === i.desk.y))}`,
+    );
+    unloadOfficeState(`o-gone-${removed}`);
+    wipe(goneFile);
+  }
 
   // 7h‴. Три языка. У офиса их два (общения и реализации), третий —
   // интерфейсный — глобальный и живёт в реестре, его проверяет test-offices.
@@ -1321,45 +1348,45 @@ async function main(): Promise<void> {
   // 10. Столы считаются по раскладке ТОГО офиса, который спрашивает. Два офиса
   // с разными раскладками живут в памяти одновременно, и общей на процесс
   // «текущей раскладки» быть не должно: иначе второй офис переставлял бы мебель
-  // первому. Заодно проверяем, что classic остался прежним.
+  // первому. Заодно проверяем, что основная раскладка осталась прежней.
   const layA = resolve(tmpdir(), `office-test-lay-a-${process.pid}.json`);
   const layB = resolve(tmpdir(), `office-test-lay-b-${process.pid}.json`);
-  const classicPlan = deskPlan('classic');
+  const basePlan = deskPlan(BASE_LAYOUT);
   const otherPlan = deskPlan(OTHER_LAYOUT);
-  const oc = openOfficeState({ id: 'o-lay-classic', projectDir: resolve(tmpdir(), 'lay-a'), stateFile: layA }).state;
+  const oc = openOfficeState({ id: 'o-lay-base', projectDir: resolve(tmpdir(), 'lay-a'), stateFile: layA }).state;
   const os_ = openOfficeState({ id: 'o-lay-other', projectDir: resolve(tmpdir(), 'lay-b'), stateFile: layB }).state;
-  // Новый офис заводится не по classic — выбираем его явно: этот раздел
-  // проверяет именно старую раскладку.
-  oc.updateSettings({ layoutId: 'classic' });
+  // Выбираем основную раскладку явно: умолчание для новых офисов может
+  // смениться, а раздел проверяет именно её.
+  oc.updateSettings({ layoutId: BASE_LAYOUT });
   os_.updateSettings({ layoutId: OTHER_LAYOUT });
   // Набираем штат заново уже на второй раскладке: пересадка тех, кто сидел за
   // столами прежней раскладки, — следующая задача, здесь проверяется расчёт.
   os_.seed();
   // Нанятый после смены раскладки садится за стол новой раскладки: место
-  // выбирает уже вторая раскладка, а не зашитый classic.
+  // выбирает уже вторая раскладка, а не основная.
   os_.fire(os_.staffOf('backend')[0]!.id);
   const hiredInOther = os_.spawn('backend');
-  const classicPm = oc.staffOf('pm')[0]!.desk;
+  const basePm = oc.staffOf('pm')[0]!.desk;
   const otherPm = os_.staffOf('pm')[0]!.desk;
   // Сравниваем со столом того же индекса в обеих раскладках: совпасть со второй
-  // и разойтись с classic — это ровно «место взято из раскладки офиса».
+  // и разойтись с основной — это ровно «место взято из раскладки офиса».
   const sameIdxOther = hiredInOther ? otherPlan.desks[hiredInOther.desk.index] : undefined;
-  const sameIdxClassic = hiredInOther ? classicPlan.desks[hiredInOther.desk.index] : undefined;
-  const atOtherDesk = !!hiredInOther && !!sameIdxOther && !!sameIdxClassic
+  const sameIdxBase = hiredInOther ? basePlan.desks[hiredInOther.desk.index] : undefined;
+  const atOtherDesk = !!hiredInOther && !!sameIdxOther && !!sameIdxBase
     && hiredInOther.desk.x === sameIdxOther.x && hiredInOther.desk.y === sameIdxOther.y
-    && (sameIdxClassic.x !== sameIdxOther.x || sameIdxClassic.y !== sameIdxOther.y);
-  const classicUntouched = oc.staffOf('backend').every((i) => classicPlan.desks
+    && (sameIdxBase.x !== sameIdxOther.x || sameIdxBase.y !== sameIdxOther.y);
+  const baseUntouched = oc.staffOf('backend').every((i) => basePlan.desks
     .some((d) => d.index === i.desk.index && d.x === i.desk.x && d.y === i.desk.y));
   results.push(
-    `classic сажает PM за свой стол, как раньше: ${classicPm.index === classicPlan.pmIndex
-      && classicPm.x === classicPlan.desks[classicPlan.pmIndex].x
-      && classicPm.y === classicPlan.desks[classicPlan.pmIndex].y}`,
+    `основная раскладка сажает PM за свой стол, как раньше: ${basePm.index === basePlan.pmIndex
+      && basePm.x === basePlan.desks[basePlan.pmIndex].x
+      && basePm.y === basePlan.desks[basePlan.pmIndex].y}`,
     `вторая раскладка сажает PM за свой стол: ${otherPm.x === otherPlan.desks[otherPlan.pmIndex].x
       && otherPm.y === otherPlan.desks[otherPlan.pmIndex].y}`,
-    `раскладки правда разные, проверка не вырождена: ${classicPlan.desks
+    `раскладки правда разные, проверка не вырождена: ${basePlan.desks
       .some((d, i) => d.x !== otherPlan.desks[i]?.x || d.y !== otherPlan.desks[i]?.y)}`,
     `новичок садится за стол раскладки своего офиса: ${atOtherDesk}`,
-    `соседний офис не переставил мебель первому: ${classicUntouched}`,
+    `соседний офис не переставил мебель первому: ${baseUntouched}`,
   );
 
   // Лимит штата — число столов в раскладке офиса, а не константа. Проверяем на
@@ -1412,8 +1439,8 @@ async function main(): Promise<void> {
   wipe(layA);
   wipe(layB);
 
-  // 10б. Смена раскладки на лету на уже набранном штате: офис жил на classic и
-  // переезжает во вторую, где мест столько же. Ломается тут первым делом одно из
+  // 10б. Смена раскладки на лету на уже набранном штате: офис жил на основной и
+  // переезжает во вторую, где мест не меньше. Ломается тут первым делом одно из
   // двух — либо столы остаются от прежней раскладки (человечки сидят в воздухе),
   // либо кто-то пропадает из штата. Дальше по разделу — стол PM в новой
   // раскладке и раскладки, в которые штат уже не влезает.
@@ -1445,12 +1472,12 @@ async function main(): Promise<void> {
     return !!inst && !inst.deskless && inst.desk.index === index
       && inst.desk.x === desk.x && inst.desk.y === desk.y;
   });
-  // Проверка не должна пройти «сама собой»: столы classic и второй обязаны
+  // Проверка не должна пройти «сама собой»: столы основной и второй обязаны
   // стоять по-разному, иначе пересадку не отличить от бездействия.
   const reallyMoved = beforeMove.every(([id, index]) => {
     const inst = om.instances.get(id);
-    return !!inst && (classicPlan.desks[index].x !== inst.desk.x
-      || classicPlan.desks[index].y !== inst.desk.y);
+    return !!inst && (basePlan.desks[index].x !== inst.desk.x
+      || basePlan.desks[index].y !== inst.desk.y);
   });
   results.push(
     `смена раскладки принята: ${moveAccepted}`,
@@ -1561,10 +1588,10 @@ async function main(): Promise<void> {
     );
 
     // Просторная раскладка возвращает всех за столы, и «без стола» снимается.
-    om.updateSettings({ layoutId: 'classic' });
+    om.updateSettings({ layoutId: BASE_LAYOUT });
     results.push(
       `просторная раскладка вернула всех за столы: ${[...om.instances.values()]
-        .every((i) => !i.deskless && classicPlan.desks
+        .every((i) => !i.deskless && basePlan.desks
           .some((d) => d.index === i.desk.index && d.x === i.desk.x && d.y === i.desk.y))}`,
       `и снова никто не делит стол с соседом: ${new Set([...om.instances.values()]
         .map((i) => i.desk.index)).size === om.instances.size}`,
@@ -1583,23 +1610,23 @@ async function main(): Promise<void> {
   // столом (иначе человечек сидел бы в воздухе), а сама правка — пережить
   // перезапуск, как и остальное состояние офиса.
   const ovFile = resolve(tmpdir(), `office-test-ov-${process.pid}.json`);
-  const classicFile = resolve(layoutsDir, 'classic.json');
-  const presetBefore = readFileSync(classicFile, 'utf8');
+  const baseFile = resolve(layoutsDir, `${BASE_LAYOUT}.json`);
+  const presetBefore = readFileSync(baseFile, 'utf8');
   const ovDir = resolve(tmpdir(), 'ov-office');
   const oo = openOfficeState({ id: 'o-ov', projectDir: ovDir, stateFile: ovFile }).state;
-  // Правки ниже написаны по столам classic — переводим офис на него явно.
-  oo.updateSettings({ layoutId: 'classic' });
-  // desk#1 — первый обычный стол classic (автоимя `<sprite>#<n>`, §3.2).
+  // Правки ниже написаны по столам основной раскладки — переводим офис на неё явно.
+  oo.updateSettings({ layoutId: BASE_LAYOUT });
+  // desk#1 — первый обычный стол studio_4 (автоимя `<sprite>#<n>`, §3.2).
   const MOVED_KEY = 'desk#1';
-  const presetPlan = deskPlan('classic');
-  const movedIndex = presetPlan.desks.findIndex((d) => d.x === 6 && d.y === 4);
-  const seatBefore = deskPoint(effectiveLayout('classic', null), catalog, movedIndex, 'work');
-  const moveProblem = oo.editLayout([{ key: MOVED_KEY, at: [7, 5] }]);
+  const presetPlan = deskPlan(BASE_LAYOUT);
+  const movedIndex = presetPlan.desks.findIndex((d) => d.x === 11 && d.y === 2);
+  const seatBefore = deskPoint(effectiveLayout(BASE_LAYOUT, null), catalog, movedIndex, 'work');
+  const moveProblem = oo.editLayout([{ key: MOVED_KEY, at: [12, 3] }]);
   const seatAfter = deskPoint(oo.layout(), catalog, movedIndex, 'work');
   results.push(
     `сдвиг стола двигает и место за ним: ${moveProblem === null
       && seatAfter.x === seatBefore.x + 1 && seatAfter.y === seatBefore.y + 1}`,
-    `файл пресета не переписан: ${readFileSync(classicFile, 'utf8') === presetBefore}`,
+    `файл пресета не переписан: ${readFileSync(baseFile, 'utf8') === presetBefore}`,
   );
 
   // Перезапуск: состояние поднимается с диска заново, и подвинутый стол
@@ -1608,11 +1635,11 @@ async function main(): Promise<void> {
   const ovRestored = oo.restore();
   results.push(
     `оверрайд пережил перезапуск: ${ovRestored
-      && deskPlan('classic', oo.override()).desks[movedIndex].x === 7
-      && deskPlan('classic', oo.override()).desks[movedIndex].y === 5}`,
+      && deskPlan(BASE_LAYOUT, oo.override()).desks[movedIndex].x === 12
+      && deskPlan(BASE_LAYOUT, oo.override()).desks[movedIndex].y === 3}`,
   );
 
-  // Оверрайд принадлежит офису, а не пресету: сосед на том же classic обязан
+  // Оверрайд принадлежит офису, а не пресету: сосед на том же пресете обязан
   // видеть голый пресет и хранить свою пустую расстановку. Ломается тут кэш
   // раскладок — он один на процесс, и вариант с чужой правкой не должен
   // доставаться офису, который ничего не двигал.
@@ -1620,7 +1647,7 @@ async function main(): Promise<void> {
   const onext = openOfficeState({
     id: 'o-ov2', projectDir: resolve(tmpdir(), 'ov-office-2'), stateFile: ovNextFile,
   }).state;
-  onext.updateSettings({ layoutId: 'classic' });
+  onext.updateSettings({ layoutId: BASE_LAYOUT });
   const nextDesk = deskPlan(onext.settings.layoutId, onext.override()).desks[movedIndex];
   onext.flush();
   const nextSaved = JSON.parse(readFileSync(ovNextFile, 'utf8')) as {
@@ -1633,7 +1660,7 @@ async function main(): Promise<void> {
     `в сохранении соседа чужого оверрайда нет: ${
       Object.keys(nextSaved.layoutOverrides ?? {}).length === 0}`,
     `правка первого офиса от этого не пропала: ${
-      deskPlan('classic', oo.override()).desks[movedIndex].x === 7}`,
+      deskPlan(BASE_LAYOUT, oo.override()).desks[movedIndex].x === 12}`,
   );
   unloadOfficeState('o-ov2');
   wipe(ovNextFile);
@@ -1648,8 +1675,8 @@ async function main(): Promise<void> {
   const olc = openOfficeState({
     id: 'o-cmd', projectDir: resolve(tmpdir(), 'cmd-office'), stateFile: cmdFile,
   }).state;
-  // Ключи и координаты ниже — из classic: выбираем его явно.
-  olc.updateSettings({ layoutId: 'classic' });
+  // Ключи и координаты ниже — из основной раскладки: выбираем её явно.
+  olc.updateSettings({ layoutId: BASE_LAYOUT });
   olc.seed();
   const layoutEvents: { props: number; override: number | null }[] = [];
   const unsubscribe = olc.subscribe((e) => {
@@ -1664,7 +1691,7 @@ async function main(): Promise<void> {
   const outOfRoom = olc.editLayout([{ key: MOVED_KEY, at: [999, 4] }]);
   const notANumber = olc.editLayout([{ key: MOVED_KEY, at: [Number.NaN, 4] }]);
   const emptyEdits = olc.editLayout([]);
-  const partialBatch = olc.editLayout([{ key: MOVED_KEY, at: [7, 5] }, { key: 'мусор', at: [1, 1] }]);
+  const partialBatch = olc.editLayout([{ key: MOVED_KEY, at: [12, 3] }, { key: 'мусор', at: [1, 1] }]);
   results.push(
     `неизвестный предмет отклонён по-русски: ${/нет в раскладке/.test(noSuchProp ?? '')}`,
     `позиция за пределами комнаты отклонена: ${/за пределы комнаты/.test(outOfRoom ?? '')}`,
@@ -1675,19 +1702,19 @@ async function main(): Promise<void> {
   );
 
   // Принятая правка: и событие с итоговой раскладкой, и снапшот новому клиенту.
-  const applied = olc.editLayout([{ key: MOVED_KEY, at: [7, 5] }]);
+  const applied = olc.editLayout([{ key: MOVED_KEY, at: [12, 3] }]);
   const cmdSnap = olc.snapshot();
   const inSnapshot = cmdSnap.t === 'snapshot'
-    && cmdSnap.layout.props.some((p) => p.at[0] === 7 && p.at[1] === 5)
+    && cmdSnap.layout.props.some((p) => p.at[0] === 12 && p.at[1] === 3)
     && cmdSnap.layoutOverride?.props.length === 1;
-  const presetProps = effectiveLayout('classic', null).props.length;
+  const presetProps = effectiveLayout(BASE_LAYOUT, null).props.length;
   results.push(
     `правка расстановки принята: ${applied === null}`,
     `правка прислала событие с итоговой раскладкой: ${layoutEvents.length === 1
       && layoutEvents[0].props === presetProps && layoutEvents[0].override === 1}`,
     `итоговая раскладка и оверрайд едут в снапшоте: ${inSnapshot}`,
     `в снапшоте именно итоговая, а не пресет: ${cmdSnap.t === 'snapshot'
-      && !cmdSnap.layout.props.some((p) => p.at[0] === 6 && p.at[1] === 4)}`,
+      && !cmdSnap.layout.props.some((p) => p.at[0] === 11 && p.at[1] === 2)}`,
   );
 
   // Перезапуск: правленая раскладка поднимается с диска и снова едет клиенту.
@@ -1696,11 +1723,11 @@ async function main(): Promise<void> {
   const afterLayoutRestart = olc.snapshot();
   results.push(
     `правка пережила перезапуск: ${cmdRestored && afterLayoutRestart.t === 'snapshot'
-      && afterLayoutRestart.layout.props.some((p) => p.at[0] === 7 && p.at[1] === 5)}`,
+      && afterLayoutRestart.layout.props.some((p) => p.at[0] === 12 && p.at[1] === 3)}`,
   );
 
   // Сброс: сначала один предмет, потом — весь оверрайд. Оба возвращают пресет.
-  olc.editLayout([{ key: 'plant_small#1', flip: true }]);
+  olc.editLayout([{ key: 'potted_plant#1', flip: true }]);
   const resetUnknown = olc.resetLayout('дивана-тут-нет');
   const resetOne = olc.resetLayout(MOVED_KEY);
   const afterResetOne = olc.snapshot();
@@ -1711,7 +1738,7 @@ async function main(): Promise<void> {
     `сброс несуществующего предмета отклонён: ${/и так стоит там/.test(resetUnknown ?? '')}`,
     `сброс одного предмета принят: ${resetOne === null}`,
     `сброшенный предмет вернулся на место пресета: ${afterResetOne.t === 'snapshot'
-      && afterResetOne.layout.props.some((p) => p.at[0] === 6 && p.at[1] === 4)
+      && afterResetOne.layout.props.some((p) => p.at[0] === 11 && p.at[1] === 2)
       && afterResetOne.layoutOverride?.props.length === 1}`,
     `сброс целиком вернул пресет: ${resetAll === null && afterResetAll.t === 'snapshot'
       && afterResetAll.layoutOverride === null
@@ -1720,7 +1747,7 @@ async function main(): Promise<void> {
     `сброс тоже прислал событие с раскладкой: ${layoutEvents.length === 4
       && layoutEvents[3].override === null}`,
     `файл пресета не переписан ни правкой, ни сбросом: ${
-      readFileSync(classicFile, 'utf8') === presetBefore}`,
+      readFileSync(baseFile, 'utf8') === presetBefore}`,
   );
   unsubscribe();
   wipe(cmdFile);

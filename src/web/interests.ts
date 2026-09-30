@@ -179,7 +179,7 @@ function spotsOf(layout: Layout, catalog: Catalog): Spot[] {
  * рядами сетки, и никто другой на ней стоять не будет, — но она может быть
  * занята мебелью или выходить за комнату, и тогда на этом месте только стоят.
  *
- * Зоны отдыха в раскладке может и не быть (`classic`): тогда комната — вся
+ * Зоны отдыха в раскладке может и не быть: тогда комната — вся
  * раскладка, а стоят только около мест отдыха (`FLOOR_REACH`).
  */
 function floorSpots(layout: Layout, catalog: Catalog, talks: Spot[], rests: Spot[]): Spot[] {
@@ -190,7 +190,7 @@ function floorSpots(layout: Layout, catalog: Catalog, talks: Spot[], rests: Spot
   const talkCells = talks.flatMap((s) => s.seats.map((seat) => walkerCell(seat.at)));
   const restCells = rests.flatMap((s) => s.seats.map((seat) => walkerCell(seat.at)));
   /**
-   * Раскладке без зоны отдыха (`classic`) пол весь — но стоять посреди
+   * Раскладке без зоны отдыха пол весь — но стоять посреди
    * опенспейса между чужими столами нелепо. Там стоячие клетки берутся
    * только рядом с местами отдыха: у дивана, у кухонного стола. Есть зона —
    * она и есть «рядом», ограничивать нечего.
@@ -198,8 +198,8 @@ function floorSpots(layout: Layout, catalog: Catalog, talks: Spot[], rests: Spot
   const nearRest = (x: number, y: number): boolean => !!room
     || restCells.some((c) => Math.abs(c.x - x) <= FLOOR_REACH && Math.abs(c.y - y) <= FLOOR_REACH);
   // Рабочие точки столов: стоять вплотную к ним — значит танцевать у
-  // работающего за спиной. В раскладке с зоной отдыха столов в ней нет, а в
-  // `classic` места отдыха стоят через клетку от столов.
+  // работающего за спиной. В раскладке с зоной отдыха столов в ней нет, а без
+  // неё места отдыха могут стоять через клетку от столов.
   const deskCells = desks(layout, catalog).map((_, i) => walkerCell(deskPoint(layout, catalog, i, 'work')));
   const near = (cells: Pos[], x: number, y: number): boolean => cells
     .some((c) => Math.abs(c.x - x) <= 1 && Math.abs(c.y - y) <= 1);

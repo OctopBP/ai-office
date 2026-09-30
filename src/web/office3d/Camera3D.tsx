@@ -467,7 +467,7 @@ export function CameraChips({ layout }: { layout: Layout }) {
   const rooms = focusRooms(layout);
   const agent = selected ? instances[selected] : null;
 
-  // Раскладке без комнат (`classic`) наводиться не на что: остаётся обзор,
+  // Раскладке без комнат наводиться не на что: остаётся обзор,
   // а ради одной кнопки «весь офис» строку рисовать незачем.
   if (!rooms.length && !agent) return null;
 

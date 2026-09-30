@@ -502,7 +502,6 @@ export const ru: Record<keyof typeof en, string> = {
   'cloud.task.tail': 'Работай самостоятельно и до конца. Перед каждым шагом вызывай say({text}).',
 
   // ---------------------------------------------------------------- раскладки
-  'layout.classic': 'Классический офис',
   'layout.studio': 'Студия',
   'layout.studio_2': 'Студия 2',
   'layout.badId': 'недопустимый id раскладки «{id}»',

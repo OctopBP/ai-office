@@ -502,7 +502,6 @@ export const en = {
   'cloud.task.tail': 'Work on your own and to the end. Before every step call say({text}).',
 
   // ---------------------------------------------------------------- раскладки
-  'layout.classic': 'Classic office',
   'layout.studio': 'Studio',
   'layout.studio_2': 'Studio 2',
   'layout.badId': 'invalid layout id “{id}”',

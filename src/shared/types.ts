@@ -690,8 +690,8 @@ export interface Settings {
   officePermissionMode: PermissionMode;
   /**
    * Расстановка мебели: id пресета `design/layouts/<id>.json`. Новый офис
-   * заводится со `studio_4`. В старых сохранениях поля нет — там подставляется
-   * `classic`, и заведённые раньше офисы выглядят ровно так же, как выглядели.
+   * заводится со `studio_4`. Сохранение без поля или с удалённой раскладкой
+   * (`classic`, `studio_3` — T-165) при загрузке получает `studio_4`.
    */
   layoutId: string;
   /**
