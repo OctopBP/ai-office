@@ -730,6 +730,9 @@ export const ru: Record<keyof typeof en, string> = {
   'journal.staleQuestion': 'Это ещё в силе? «{text}» (журнал {id}, последнее подтверждение {days} дней назад)',
   'journal.staleAssumption': 'Пока вы не ответили, офис продолжает это соблюдать.',
 
+  'chat.open.brief': 'Перенёс сюда из чата {from}:\n\n{brief}',
+  'chat.open.link': 'Под это открыл отдельный чат {link}: {reason}',
+  'chat.open.linkBare': 'Под это открыл отдельный чат {link}.',
   'chat.ref.task': 'Задача {id} «{title}» заведена.',
   'chat.ref.epic': 'Фича {id} «{title}» заведена.',
   'chat.ref.plan': 'Заведён план: {epics}, {n} задача|Заведён план: {epics}, {n} задачи|Заведён план: {epics}, {n} задач',

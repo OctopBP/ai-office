@@ -22,7 +22,7 @@ import {
 } from '../shared/types';
 import { LANG_NAME_EN, type Lang, type Vars } from '../shared/i18n';
 import { t, type ServerKey } from './i18n';
-import type { MeetingView, PrStage, PullRequestView, ReviewVerdict, TaskEdit } from '../shared/types';
+import type { MeetingView, PmChat, PrStage, PullRequestView, ReviewVerdict, TaskEdit } from '../shared/types';
 import { cloudProblem, runCloudTask, stopCloudTask } from './cloud';
 import { capabilitiesOf, type Role } from './roles';
 import { externalMcp, mcpBrief } from './mcp';
@@ -695,6 +695,43 @@ function permissionHandler(
 // ---------------------------------------------------------------- PM
 
 /**
+ * Ссылка на чат в тексте реплики: `[Название](chat:<id>)`. Формат согласован с
+ * вебом, который делает её кликабельной, — не менять. Квадратные скобки в
+ * названии порвали бы разметку ссылки, поэтому они становятся круглыми.
+ */
+const chatLink = (chat: PmChat): string =>
+  `[${chat.title.replace(/\[/g, '(').replace(/\]/g, ')')}](chat:${chat.id})`;
+
+/** Сколько привязанных задач называть по одной строке чата: дальше — только число. */
+const CHAT_TASKS_SHOWN = 5;
+
+/**
+ * Чаты офиса текстом для list_chats: ссылка, пометки и что к чату привязано.
+ * Менеджеру нужен id и тема, чтобы сослаться на уже открытый чат вместо нового.
+ */
+function chatsSummary(state: OfficeState, current: string): string {
+  const chats = [...state.pmChats.values()].sort((a, b) => b.lastActivityAt - a.lastActivityAt);
+  if (chats.length === 0) return state.say('tool.listChats.empty');
+  return chats.map((chat) => {
+    const marks = [
+      chat.id === current ? state.say('tool.listChats.current') : '',
+      chat.main ? state.say('tool.listChats.main') : '',
+      chat.archived ? state.say('tool.listChats.archived') : '',
+    ].filter(Boolean).join(', ');
+    const epics = [...state.epics.values()].filter((e) => e.chatId === chat.id).map((e) => e.id);
+    const tasks = [...state.tasks.values()].filter((t) => t.chatId === chat.id).map((t) => t.id);
+    const shown = tasks.length > CHAT_TASKS_SHOWN
+      ? `${tasks.slice(-CHAT_TASKS_SHOWN).join(', ')} +${tasks.length - CHAT_TASKS_SHOWN}`
+      : tasks.join(', ');
+    const bound = [
+      epics.length ? state.say('tool.listChats.epics', { ids: epics.join(', ') }) : '',
+      tasks.length ? state.say('tool.listChats.tasks', { ids: shown }) : '',
+    ].filter(Boolean).join('; ');
+    return `- ${chat.id} ${chatLink(chat)}${marks ? ` (${marks})` : ''}: ${bound || state.say('tool.listChats.nothing')}`;
+  }).join('\n');
+}
+
+/**
  * Доска задач текстом — по строке на задачу. Нужна в двух местах: инструменту
  * get_board и реплике менеджера на совещании. Файлов менеджер не видит, и доска
  * для него — единственный способ говорить о делах предметно, а не общими словами.
@@ -1284,6 +1321,50 @@ const teamTools = (state: OfficeState, chatId: string) => createSdkMcpServer({
       async (args) => {
         const asked = askOwner(state, 'pm#1', null, args.question, args.assumption, args.options, args.replaces, chatId);
         return { content: [{ type: 'text', text: asked.text }], isError: !asked.ok };
+      },
+    ),
+
+    tool(
+      'list_chats',
+      state.say('tool.listChats.desc'),
+      {},
+      async () => ({ content: [{ type: 'text', text: chatsSummary(state, chatId) }] }),
+      { annotations: { readOnlyHint: true } },
+    ),
+
+    // Новая тема — новый чат: разговор и задачи по ней живут отдельно, а в
+    // исходном чате остаётся ссылка. Просьба уходит ходом менеджера в новом
+    // чате, поэтому всё, что он заведёт, привяжется к новому чату, а не к этому.
+    tool(
+      'open_chat',
+      state.say('tool.openChat.desc'),
+      {
+        title: z.string().describe(state.say('tool.openChat.title')),
+        reason: z.string().describe(state.say('tool.openChat.reason')),
+        brief: z.string().describe(state.say('tool.openChat.brief')),
+      },
+      async (args) => {
+        const title = args.title.trim();
+        const brief = args.brief.trim();
+        if (!title || !brief) {
+          return { content: [{ type: 'text', text: state.say('tool.openChat.empty') }], isError: true };
+        }
+        const from = state.pmChats.get(chatId);
+        // Название задано руками (renamed): автоназвание его не перепишет.
+        const chat = state.createPmChat(title);
+        const link = chatLink(chat);
+        const reason = args.reason.trim();
+        state.addChat('pm#1', state.say('chat.open.brief', {
+          from: from ? chatLink(from) : '', brief,
+        }).trim(), 'pm#1', undefined, chat.id);
+        state.addChat('pm#1', state.say(reason ? 'chat.open.link' : 'chat.open.linkBare', { link, reason }),
+          'pm#1', undefined, chatId);
+        // Ход менеджера в новом чате — у его сессии свои инструменты с новым
+        // chatId. Как реплика владельца: это его просьба, просто пересказанная.
+        pushToPm(state, state.pmSession(chat.id), state.say('agent.pm.openedChat', {
+          title: chat.title, from: from ? chatLink(from) : '', brief,
+        }), true);
+        return { content: [{ type: 'text', text: state.say('tool.openChat.ok', { id: chat.id, link }) }] };
       },
     ),
 

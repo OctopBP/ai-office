@@ -730,6 +730,9 @@ export const en = {
   'journal.staleQuestion': 'Is this still in force? “{text}” (journal {id}, last confirmed {days} days ago)',
   'journal.staleAssumption': 'The office keeps following it until you say otherwise.',
 
+  'chat.open.brief': 'Moved here from chat {from}:\n\n{brief}',
+  'chat.open.link': 'I opened a separate chat for this: {link}. {reason}',
+  'chat.open.linkBare': 'I opened a separate chat for this: {link}.',
   'chat.ref.task': 'Task {id} «{title}» created.',
   'chat.ref.epic': 'Feature {id} «{title}» created.',
   'chat.ref.plan': 'Plan created: {epics}, {n} task|Plan created: {epics}, {n} tasks',
