@@ -260,7 +260,7 @@
 .chat-card[role='button']:hover { border-color: var(--ink-4); }
 .chat-card[role='button']:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
 /* Внутри обёртки у карточки нет своей рамки — только линия снизу. */
-.chat-card.bare { border: 0; border-radius: 0; padding: var(--space-2) 0; border-bottom: 1px solid var(--hairline); }
+.chat-card.bare { border: 0; border-radius: 0; padding: var(--space-1) 0; border-bottom: 1px solid var(--hairline); }
 .chat-card.bare:last-child { border-bottom: 0; padding-bottom: 0; }
 .chat-card.bare[role='button']:hover { background: var(--film); }
 
@@ -299,6 +299,16 @@
   display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; line-clamp: 2;
 }
 .cc-epic.cancelled .cc-title { color: var(--ink-3); }
+/* Номер фичи — бейдж статуса: закончена — зелёный, в работе — акцент, остальное — серый.
+   Законченная фича приглушена (текст и чип), а бейдж остаётся зелёным и читаемым. */
+.cc-epic .cc-head .cc-id {
+  padding: 0 var(--space-1); border-radius: var(--radius-icon);
+  background: var(--film); color: var(--ink-3);
+}
+.cc-epic.active .cc-head .cc-id { background: rgba(var(--accent-rgb), .14); color: var(--accent); }
+.cc-epic.done .cc-head .cc-id { background: rgba(var(--ok-rgb), .14); color: var(--ok-ink); }
+.cc-epic.done .cc-title { color: var(--ink-3); }
+.cc-epic.done .cc-title, .cc-epic.done .cc-status, .cc-epic.done .cc-meta { opacity: .55; }
 .cc-rows { display: flex; flex-direction: column; align-items: stretch; gap: 2px; }
 /* Кнопка кита центрирует содержимое — строке списка нужен левый край. */
 .cc-row {
