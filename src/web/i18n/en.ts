@@ -180,6 +180,7 @@ export const en = {
   "pmChats.noMessages": "no messages yet",
   "pmChats.waiting": "needs you",
   "pmChats.unread": "New messages",
+  "pmChats.pinned": "Main chat — pinned to the top",
   "md.chat.open": "Open chat",
   "md.chat.missing": "Chat not found",
   "md.code.copy": "Copy",

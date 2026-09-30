@@ -145,6 +145,13 @@ function PmChatRow({ chat, active, unread, tasks, questions }: {
               {chat.title}
             </span>
           )}
+          {chat.main && (
+            <span className="pm-chat-pin" title={t('pmChats.pinned')} aria-label={t('pmChats.pinned')}>
+              <svg viewBox="0 0 16 16" fill="currentColor" aria-hidden="true">
+                <path d="M9.8 1.5a.75.75 0 0 1 1.06 0l3.64 3.64a.75.75 0 0 1 0 1.06l-.9.9a.75.75 0 0 1-.8.17l-1.52 1.52.3 2.4a.75.75 0 0 1-.21.62l-.8.8a.75.75 0 0 1-1.06 0L7.4 10.5l-3.62 3.62a.6.6 0 0 1-.85-.85L6.55 9.65 4.44 7.54a.75.75 0 0 1 0-1.06l.8-.8a.75.75 0 0 1 .62-.21l2.4.3 1.52-1.52a.75.75 0 0 1 .17-.8l.9-.9z" />
+              </svg>
+            </span>
+          )}
           <span className="pm-chat-time" title={formatFullDateTime(chat.lastActivityAt)}>
             {formatListTime(chat.lastActivityAt)}
           </span>

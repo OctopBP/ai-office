@@ -1725,9 +1725,14 @@ export function send(text: string, { newChat = false }: { newChat?: boolean } = 
     : JSON.stringify({ c: 'talk', instanceId: thread, text }));
 }
 
-/** Список чатов с менеджером: живые по свежести и архив отдельно. */
+/**
+ * Список чатов с менеджером: живые по свежести и архив отдельно. Основной
+ * закреплён первым — туда падает всё без привязки к чату, и искать его в
+ * середине списка владелец не должен.
+ */
 export function pmChatSections(chats: Record<string, PmChat>): { live: PmChat[]; archived: PmChat[] } {
-  const all = Object.values(chats).sort((a, b) => b.lastActivityAt - a.lastActivityAt);
+  const all = Object.values(chats)
+    .sort((a, b) => Number(b.main) - Number(a.main) || b.lastActivityAt - a.lastActivityAt);
   return { live: all.filter((c) => !c.archived), archived: all.filter((c) => c.archived) };
 }
 

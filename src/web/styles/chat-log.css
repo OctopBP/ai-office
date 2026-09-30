@@ -200,6 +200,9 @@
   font-size: var(--fs-row); font-weight: 500; color: var(--ink);
 }
 .pm-chat-rename { flex: 1; min-width: 0; font-size: var(--fs-row); padding: 0 var(--space-1); }
+/* Закреп основного чата: мелкий и приглушённый, чтобы не спорить с названием. */
+.pm-chat-pin { flex: none; display: inline-flex; align-self: center; color: var(--ink-3); }
+.pm-chat-pin svg { width: 12px; height: 12px; }
 .pm-chat-time { flex: none; font-size: var(--fs-caption); color: var(--ink-3); font-variant-numeric: tabular-nums; }
 .pm-chat-meta {
   display: flex; align-items: center; gap: var(--space-1); margin-top: 2px;
