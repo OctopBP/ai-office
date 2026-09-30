@@ -2,18 +2,10 @@
    Формы в правой панели (`.team-detail`) — общие с модалками, стили полей и
    раскладка меток идут из modal.css. */
 
-/* ---------- окно «Команда»: список слева, настройки справа ---------- */
-.team-window {
-  width: min(1120px, 96vw); height: min(760px, 90vh); display: flex; flex-direction: column;
-  background: var(--surface); color: var(--ink-2);
-  border: 1px solid var(--hairline); border-radius: var(--radius-panel);
-  box-shadow: var(--shadow-toast); overflow: hidden; position: relative;
-}
-.team-window-head {
-  display: flex; align-items: center; justify-content: space-between;
-  padding: var(--space-3) var(--space-4); border-bottom: 1px solid var(--hairline); flex: none;
-}
-.team-window-head h2 { margin: 0; font: 600 var(--fs-title)/1.2 var(--font); color: var(--ink); }
+/* ---------- страница «Команда»: список слева, настройки справа ----------
+   Рамку и шапку даёт страница оболочки (ShellPage, .shell-page в shell.css):
+   вкладки стоят в заголовке, тело держит высоту, прокручиваются колонки. */
+.team-page { position: relative; }
 .team-window-body { display: flex; flex: 1; min-height: 0; }
 .team-list-pane {
   width: 380px; flex: none; border-right: 1px solid var(--hairline);
@@ -29,8 +21,10 @@
 .team-role-row.selected { background: var(--film-2); border-color: var(--hairline); }
 .team-role-row.archived { opacity: .55; }
 /* Вкладки «В офисе» и «Маркет» — сегмент рядом с заголовком окна, со счётчиком
-   в каждой; у неактивной счётчик приглушён, у активной наследует цвет пилюли. */
+   в каждой; у неактивной счётчик приглушён, у активной наследует цвет пилюли.
+   Сегмент живёт внутри h2 страницы — шрифт кнопок возвращаем обычный. */
 .team-head-left { display: flex; align-items: center; gap: var(--space-4); }
+.team-head-left .team-tabs { font-size: var(--fs-body); }
 .team-tabs { background: var(--film); }
 .team-tabs button { padding: 0 14px; }
 .team-tab-count { opacity: .6; font-weight: 400; }
@@ -75,9 +69,9 @@
 .danger-zone .section-title { color: var(--danger); }
 .danger-action { margin-bottom: var(--space-3); }
 .danger-action .access-confirm { margin: 0; }
-/* Вопрос при закрытии окна с несохранённым — поверх панели, у крестика. */
+/* Вопрос при закрытии с несохранённым — поверх тела страницы, под крестиком. */
 .team-close-ask {
-  position: absolute; top: 56px; right: var(--space-4); z-index: 5; max-width: 380px;
+  position: absolute; top: var(--space-3); right: var(--space-4); z-index: 5; max-width: 380px;
   background: var(--surface); border: 1px solid var(--hairline); box-shadow: var(--shadow-float);
 }
 

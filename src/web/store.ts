@@ -286,9 +286,9 @@ interface State {
    */
   teamRequest: { roleId: string } | null;
   /**
-   * Запрос открыть панель поверх офиса — например, кликом по системному
-   * уведомлению (`notify.ts`). Панели держит App: он открывает её по запросу
-   * и сразу сбрасывает поле.
+   * Запрос открыть окно офиса — например, кликом по системному уведомлению
+   * (`notify.ts`). App переводит главную область на его страницу и сразу
+   * сбрасывает поле.
    */
   panelRequest: 'money' | null;
   /** Пресеты раскладки для выбора в настройках — приходят в снапшоте, читаются сервером с диска. */
@@ -486,13 +486,12 @@ interface State {
 export type TopView = 'office' | 'board' | 'chat' | 'life';
 /**
  * Виды, которые выбирают пункты рейла (Rail.tsx): окно офиса открывается
- * страницей в главной области, а не модалкой. Список растёт по мере перевода
- * окон; остальные пункты рейла пока открывают панели и модалки.
+ * страницей в главной области, а не модалкой.
  */
-export type RailView = 'settings' | 'flows' | 'releases';
+export type RailView = 'merge' | 'log' | 'money' | 'meetings' | 'team' | 'settings' | 'flows' | 'releases';
 /** Один вид на главную область: сверху и слева — просто две группы кнопок. */
 export type View = TopView | RailView;
-export const RAIL_VIEWS: readonly RailView[] = ['settings', 'flows', 'releases'];
+export const RAIL_VIEWS: readonly RailView[] = ['merge', 'log', 'money', 'meetings', 'team', 'settings', 'flows', 'releases'];
 export const isRailView = (v: string): v is RailView => (RAIL_VIEWS as readonly string[]).includes(v);
 export type ThemeMode = Theme | 'system';
 

@@ -2,22 +2,18 @@ import { Panel } from './Panel';
 import { Kbd } from './Kbd';
 import { HOTKEY } from './hotkeys';
 import { Board } from './Board';
-import { MergeQueue } from './MergeQueue';
-import { PrPipeline } from './PrPipeline';
-import { TeamWindow } from './TeamWindow';
 import { AgentDrawer } from './AgentDrawer';
 import { TaskDrawer } from './TaskDrawer';
 import { PermissionModal } from './PermissionModal';
 import { DiffPanel } from './DiffPanel';
 import { MeetingModal } from './MeetingModal';
-import { MoneyBoard } from './MoneyBoard';
 import { OfficesModal } from './OfficesModal';
-import { MeetingsPanel } from './MeetingsPanel';
 import { t } from './i18n';
-import { EventLog } from './EventLog';
 
-export type PanelKind = 'board' | 'money' | 'log' | 'help' | 'merge' | 'meetings' | null;
-export type ModalKind = 'meeting' | 'offices' | 'team' | null;
+// Лог, расходы, слияние, совещания, команда, процессы, выпуски и настройки —
+// страницы главной области (`RailView` в сторе), а не оверлеи.
+export type PanelKind = 'board' | 'help' | null;
+export type ModalKind = 'meeting' | 'offices' | null;
 
 export interface OverlayProps {
   panel: PanelKind;
@@ -37,27 +33,6 @@ export function Overlays({ panel, setPanel, modal, setModal }: OverlayProps) {
       {panel === 'board' && (
         <Panel title={t('panel.board')} wide size="board" hotkey={HOTKEY.board} onClose={() => setPanel(null)}>
           <Board />
-        </Panel>
-      )}
-      {panel === 'money' && (
-        <Panel title={t('panel.money')} wide hotkey={HOTKEY.money} onClose={() => setPanel(null)}>
-          <MoneyBoard />
-        </Panel>
-      )}
-      {panel === 'merge' && (
-        <Panel title={t('panel.review')} wide hotkey={HOTKEY.merge} onClose={() => setPanel(null)}>
-          <PrPipeline />
-          <MergeQueue />
-        </Panel>
-      )}
-      {panel === 'meetings' && (
-        <Panel title={t('meetings.title')} wide hint={t('meetings.hint')} onClose={() => setPanel(null)}>
-          <MeetingsPanel onCall={() => { setPanel(null); setModal('meeting'); }} />
-        </Panel>
-      )}
-      {panel === 'log' && (
-        <Panel title={t('panel.log')} wide hotkey={HOTKEY.log} onClose={() => setPanel(null)}>
-          <EventLog />
         </Panel>
       )}
       {panel === 'help' && (
@@ -96,7 +71,6 @@ export function Overlays({ panel, setPanel, modal, setModal }: OverlayProps) {
       <PermissionModal />
       {modal === 'meeting' && <MeetingModal onClose={() => setModal(null)} />}
       {modal === 'offices' && <OfficesModal onClose={() => setModal(null)} />}
-      {modal === 'team' && <TeamWindow onClose={() => setModal(null)} />}
     </>
   );
 }

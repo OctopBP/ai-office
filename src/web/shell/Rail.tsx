@@ -239,7 +239,6 @@ export function Rail({ onPanel, onModal }: {
 
   const openWindow = (kind: WindowKind) => {
     if (isRailView(kind)) setView(kind);
-    else if (kind === 'team') onModal(kind);
     else onPanel(kind);
   };
 

@@ -11,6 +11,8 @@ import { Composer } from './Composer';
 import { EnvBanner } from './EnvBanner';
 import { UpdateBanner } from './UpdateBanner';
 import { SettingsPage } from '../SettingsPage';
+import { TeamWindow } from '../TeamWindow';
+import { RailPage } from './RailPages';
 import { FlowsPage } from '../FlowsPage';
 import { ReleasesPage } from '../ReleasesPage';
 import { isRailView, useStore } from '../store';
@@ -38,8 +40,8 @@ export function Shell(props: OverlayProps) {
   // Стол переговорки ведёт в окно совещаний: стенограмма идущего и история прошлых.
   const open = (kind: SpotTarget) => {
     if (kind === 'board') setView('board');
-    else if (kind === 'meeting') setPanel('meetings');
-    else setPanel(kind);
+    else if (kind === 'meeting') setView('meetings');
+    else setView(kind);
   };
   const door = () => setModal('offices');
 
@@ -71,6 +73,10 @@ export function Shell(props: OverlayProps) {
         {/* Окна из рейла — страницы на месте сцены (ShellPage). Закрыть —
             вернуться в комнату, как Esc с любого вида. */}
         {view === 'settings' && <SettingsPage onClose={() => setView('office')} />}
+        {view === 'team' && <TeamWindow onClose={() => setView('office')} />}
+        {(view === 'merge' || view === 'log' || view === 'money' || view === 'meetings') && (
+          <RailPage view={view} onClose={() => setView('office')} onCall={() => setModal('meeting')} />
+        )}
         {view === 'flows' && <FlowsPage />}
         {view === 'releases' && <ReleasesPage />}
         {view === 'life' && (
