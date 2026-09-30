@@ -109,6 +109,16 @@ function Half({ theme }: { theme: Theme }) {
           <button>Бюджет $5.00 ▾</button>
         </div>
         <div className="kit-row">
+          <div className="tabs" role="tablist">
+            <button className="on">Профиль</button>
+            <button>Модель и работа <span className="tabs-dot" /></button>
+            <button>Инструкция <span className="tabs-badge">Есть обновление</span></button>
+          </div>
+          <span className="save-status saved">Все изменения сохранены</span>
+          <span className="save-status saving"><span className="spinner" /> Сохраняется…</span>
+          <span className="save-status error">Ошибка сохранения <button className="mini">Повторить</button></span>
+        </div>
+        <div className="kit-row">
           <span className="chip">план</span>
           <span className="chip in_progress" style={{ color: 'var(--accent)' }}>в работе</span>
           <span className="chip" style={{ color: 'var(--ok-ink)' }}>готово</span>

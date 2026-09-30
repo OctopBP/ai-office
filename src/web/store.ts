@@ -1847,6 +1847,15 @@ export function fire(instanceId: string): void {
   socket?.send(JSON.stringify({ c: 'fire', instanceId }));
 }
 
+/**
+ * Уйдёт ли команда на сервер прямо сейчас. Команды при закрытом сокете молча
+ * теряются (`socket?.send`), а автосохранению нужно знать это заранее: иначе
+ * оно показало бы «Сохраняется…» и ждало ответа, которого не будет.
+ */
+export function socketOpen(): boolean {
+  return socket?.readyState === WebSocket.OPEN;
+}
+
 export function updateRole(roleId: string, patch: Partial<RoleEditable>): void {
   socket?.send(JSON.stringify({ c: 'update_role', roleId, patch }));
 }

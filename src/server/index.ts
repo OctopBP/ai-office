@@ -573,14 +573,28 @@ wss.on('connection', (ws) => {
     } else if (cmd.c === 'agent_permission') {
       // null — снять личное правило и вернуть сотрудника к режиму роли;
       // мусорное значение молча игнорируем, а не выдаём за режим.
-      if (cmd.mode === null || isPermissionMode(cmd.mode)) {
+      // Ответ просившему — как у правки роли: страница агента ведёт по нему
+      // индикатор сохранения, молчание она не отличила бы от потерянной команды.
+      const inst = state.instances.get(cmd.instanceId);
+      if (!inst) {
+        send(ws, { t: 'role.error', op: 'permission', roleId: null, errors: [{ field: 'permissionMode', message: state.say('state.fire.missing') }] });
+      } else if (cmd.mode === null || isPermissionMode(cmd.mode)) {
         state.setAgentPermissionMode(cmd.instanceId, cmd.mode);
+        replyRole(ws, 'permission', inst.roleId, []);
+      } else {
+        replyRole(ws, 'permission', inst.roleId, [{ field: 'permissionMode', message: String(cmd.mode) }]);
       }
     } else if (cmd.c === 'agent_name') {
-      // Отказ (занято, длинное) — готовым текстом в чат, как по найму.
+      // Отказ (занято, длинное) — полем формы тому, кто правил, и готовым
+      // текстом в чат, как по найму: имя правят и из дровера агента, где
+      // своего места под ошибку нет.
       if (typeof cmd.name === 'string') {
+        const inst = state.instances.get(cmd.instanceId);
         const problem = state.setAgentName(cmd.instanceId, cmd.name);
         if (problem) state.addChat(OFFICE_SENDER, problem);
+        const errors = problem ? [{ field: 'name', message: problem }] : [];
+        if (inst) replyRole(ws, 'name', inst.roleId, errors);
+        else send(ws, { t: 'role.error', op: 'name', roleId: null, errors });
       }
     } else if (cmd.c === 'settings') {
       // Отказ по настройкам говорим тем же способом, что и по найму: текст

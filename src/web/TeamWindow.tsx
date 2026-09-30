@@ -1,10 +1,8 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import {
-  clearTeamRequest, hireCopy, marketAddLink, marketCheck, marketOpen, marketUpdate, updateSettings, useStore,
+  clearTeamRequest, hireCopy, marketAddLink, marketCheck, marketOpen, updateSettings, useStore,
 } from './store';
-import { RoleEditor } from './RoleEditor';
-import { EmployeeCard } from './EmployeeCard';
-import { RoleReport } from './RoleReport';
+import { AgentSettings, type AgentTab } from './AgentSettings';
 import { PackageCard } from './PackageCard';
 import { useActionNotice } from './useActionNotice';
 import { Avatar } from './Avatar';
@@ -54,6 +52,17 @@ export function TeamWindow({ onClose }: { onClose: () => void }) {
   const [query, setQuery] = useState('');
   const [link, setLink] = useState('');
   const { notice, markPending, clear } = useActionNotice();
+  // Вкладка страницы агента живёт, пока открыто окно: при переходе к другому
+  // сотруднику остаётся та же — так удобно сравнивать, например, модели.
+  const [agentTab, setAgentTab] = useState<AgentTab>('profile');
+  // Страница агента досылает правки и отвечает, что так и не сохранилось.
+  const agentGuard = useRef<(() => string[]) | null>(null);
+  const [closeAsk, setCloseAsk] = useState<string[] | null>(null);
+  const requestClose = () => {
+    const unsaved = agentGuard.current?.() ?? [];
+    if (unsaved.length) setCloseAsk(unsaved);
+    else onClose();
+  };
 
   // Запрос на конкретную роль прочитан в начальном состоянии (см. useState
   // выше) — сбрасываем его один раз после монтирования, чтобы повторное
@@ -143,7 +152,7 @@ export function TeamWindow({ onClose }: { onClose: () => void }) {
   const selectedPackage = tab === 'market' && pkgSel ? packages.find((p) => p.name === pkgSel) ?? null : null;
 
   return (
-    <div className="modal-backdrop" onClick={onClose}>
+    <div className="modal-backdrop" onClick={requestClose}>
       <div className="team-window" onClick={(e) => e.stopPropagation()}>
         <header className="team-window-head">
           <div className="team-head-left">
@@ -167,7 +176,7 @@ export function TeamWindow({ onClose }: { onClose: () => void }) {
               </>
             )}
             <Tooltip tip={<Hint label={t('panel.close')} keys={HOTKEY.close} />}>
-              <button className="sq ghost" onClick={onClose}>✕</button>
+              <button className="sq ghost" onClick={requestClose}>✕</button>
             </Tooltip>
           </div>
         </header>
@@ -294,33 +303,25 @@ export function TeamWindow({ onClose }: { onClose: () => void }) {
 
           <div className="team-detail">
             {selectedInst && (
-              <>
-                <EmployeeCard
-                  instanceId={selectedInst.id}
-                  actions={selectedRole && !selectedRole.isManager && !selectedRole.archived ? (
-                    <button
-                      className="mini" disabled={busy} title={t('team.hireOne')}
-                      onClick={() => hire(() => hireCopy(selectedInst.roleId))}
-                    >
-                      {t('team.hire')}
-                    </button>
-                  ) : null}
-                />
-                {selectedRole?.package && (
-                  <PackageLine role={selectedRole} packages={packages} busy={busy} act={act} />
-                )}
-                {/* Табель — над формой: «как роль работает» читают раньше, чем
-                    «как она настроена», и правят второе, глядя на первое. */}
-                {selectedRole && !selectedRole.isManager && <RoleReport roleId={selectedRole.id} />}
-                {selectedRole && (
-                  <RoleEditor
-                    key={selectedRole.id}
-                    role={selectedRole}
-                    onSaved={() => undefined}
-                    onDeleted={() => setStaffSel(null)}
-                  />
-                )}
-              </>
+              <AgentSettings
+                key={selectedInst.id}
+                instanceId={selectedInst.id}
+                tab={agentTab}
+                onTab={setAgentTab}
+                guard={agentGuard}
+                onRemoved={() => setStaffSel(null)}
+                packages={packages}
+                marketBusy={busy}
+                act={act}
+                actions={selectedRole && !selectedRole.isManager && !selectedRole.archived ? (
+                  <button
+                    className="mini" disabled={busy} title={t('team.hireOne')}
+                    onClick={() => hire(() => hireCopy(selectedInst.roleId))}
+                  >
+                    {t('team.hire')}
+                  </button>
+                ) : null}
+              />
             )}
             {selectedPackage && <PackageCard p={selectedPackage} busy={busy} act={act} hire={hire} />}
             {!selectedInst && !selectedPackage && (
@@ -328,42 +329,16 @@ export function TeamWindow({ onClose }: { onClose: () => void }) {
             )}
           </div>
         </div>
+        {closeAsk && (
+          <div className="team-close-ask access-confirm" role="alertdialog">
+            <p>{t('agent.save.closeAsk', { fields: closeAsk.join(', ') })}</p>
+            <div className="modal-actions">
+              <button onClick={() => setCloseAsk(null)}>{t('agent.save.stay')}</button>
+              <button className="danger" onClick={onClose}>{t('agent.save.closeAnyway')}</button>
+            </div>
+          </div>
+        )}
       </div>
-    </div>
-  );
-}
-
-/**
- * Строка пакета в карточке сотрудника: из чего он собран и не вышла ли новая
- * версия. Обновление делается здесь же — там, где роль и настраивают, — а не
- * в карточке пакета, куда за этим пришлось бы идти отдельно.
- *
- * Имя и версия — из самой роли: витрина после «ещё одного такого же» не
- * перечитывается, и только что нанятого в её списке ролей ещё нет. Из витрины
- * берутся значок пакета и найденное обновление — когда они там есть.
- */
-function PackageLine({ role, packages, busy, act }: {
-  role: RoleView;
-  packages: MarketPackageView[];
-  busy: boolean;
-  act: (fn: () => void) => void;
-}) {
-  const link = role.package;
-  if (!link) return null;
-  const pkg = packages.find((p) => p.name === link.name);
-  const updateTo = pkg?.roles.find((r) => r.id === role.id)?.updateTo ?? null;
-  return (
-    <div className="team-package-line">
-      <span className="market-emoji" style={{ background: pkg?.color || 'var(--film-2)' }}>{pkg?.emoji || '📦'}</span>
-      <span className="team-package-text">
-        <b>{pkg?.title || link.name}</b>
-        <span className="muted small"> {link.name} · {t('market.version', { version: link.version })}</span>
-      </span>
-      {updateTo && (
-        <button className="mini go" disabled={busy} onClick={() => act(() => marketUpdate(role.id))}>
-          {t('market.update', { version: updateTo })}
-        </button>
-      )}
     </div>
   );
 }

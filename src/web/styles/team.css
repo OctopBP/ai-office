@@ -7,7 +7,7 @@
   width: min(1120px, 96vw); height: min(760px, 90vh); display: flex; flex-direction: column;
   background: var(--surface); color: var(--ink-2);
   border: 1px solid var(--hairline); border-radius: var(--radius-panel);
-  box-shadow: var(--shadow-toast); overflow: hidden;
+  box-shadow: var(--shadow-toast); overflow: hidden; position: relative;
 }
 .team-window-head {
   display: flex; align-items: center; justify-content: space-between;
@@ -42,6 +42,44 @@
 .team-notice button { margin-left: auto; }
 .team-detail { flex: 1; min-width: 0; overflow-y: auto; padding: var(--space-5) var(--space-6); }
 .team-detail > .muted { display: block; margin-top: var(--space-8); text-align: center; }
+
+/* ---------- страница агента: шапка и вкладки закреплены ----------
+   Панель `.team-detail` прокручивается целиком, а шапка с вкладками липнет к
+   её верху. Отрицательный отступ закрывает верхний padding панели, иначе
+   прокрученный текст просвечивал бы над шапкой. */
+.agent-top {
+  position: sticky; top: calc(-1 * var(--space-5)); z-index: 2;
+  margin-top: calc(-1 * var(--space-5)); padding-top: var(--space-5);
+  background: var(--surface);
+}
+.agent-head { margin-bottom: var(--space-3); }
+.agent-head-text { flex: 1; min-width: 0; }
+.agent-head .agent-name { margin: 0 0 var(--space-1); font: 600 var(--fs-title)/1.2 var(--font); color: var(--ink); }
+.agent-head .muted { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.agent-head .save-status { margin-left: var(--space-2); }
+.agent-panel { padding-top: var(--space-4); }
+.agent-panel .form-banner:not(.error) {
+  padding: var(--space-2) var(--space-3); margin-bottom: var(--space-4);
+  font-size: var(--fs-md); line-height: 1.45; color: var(--ink-2);
+  border-radius: var(--radius-row); background: var(--film);
+}
+.agent-section { margin-bottom: var(--space-5); }
+.agent-field { margin-bottom: var(--space-3); font-size: var(--fs-md); color: var(--ink-3); }
+.agent-field textarea { display: block; width: 100%; margin-top: var(--space-1); }
+.field-label { display: inline-flex; align-items: center; flex-wrap: wrap; gap: var(--space-2); }
+.field-chip { margin-left: var(--space-2); }
+.field-saved { font-size: var(--fs-small); color: var(--ok-ink); }
+.team-detail input.invalid, .team-detail textarea.invalid { border-color: var(--danger); }
+.team-detail .perm-badge + .hint { margin-top: var(--space-2); }
+.danger-zone { padding-top: var(--space-3); border-top: 1px solid var(--hairline); }
+.danger-zone .section-title { color: var(--danger); }
+.danger-action { margin-bottom: var(--space-3); }
+.danger-action .access-confirm { margin: 0; }
+/* Вопрос при закрытии окна с несохранённым — поверх панели, у крестика. */
+.team-close-ask {
+  position: absolute; top: 56px; right: var(--space-4); z-index: 5; max-width: 380px;
+  background: var(--surface); border: 1px solid var(--hairline); box-shadow: var(--shadow-float);
+}
 
 /* ---------- форма роли и карточка сотрудника в правой панели ---------- */
 .role-form h3, .employee-card h3 { margin: 0 0 var(--space-1); font: 600 var(--fs-title)/1.2 var(--font); color: var(--ink); }
