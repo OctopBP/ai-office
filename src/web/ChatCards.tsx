@@ -122,6 +122,8 @@ export function TaskCard({ id, entry, bare }: { id: string; entry: ChatEntry; ba
   // можно поднять: чип проступает при наведении, в конце строки, чтобы не
   // сдвигать остальное под курсором.
   const prio = <PriorityChip task={task} />;
+  // Шеврон только там, где ему есть что раскрыть: иначе щелчок по нему ничего не меняет.
+  const more = !!epic || waits.length > 0;
 
   return (
     <div
@@ -132,7 +134,7 @@ export function TaskCard({ id, entry, bare }: { id: string; entry: ChatEntry; ba
       <div className="cc-head">
         <span className="cc-id">{task.id}</span>
         <span className="cc-title">{task.title}</span>
-        <Chevron open={open} onToggle={() => setOpen(!open)} />
+        {more && <Chevron open={open} onToggle={() => setOpen(!open)} />}
       </div>
       <div className="cc-meta">
         {task.priority !== 'normal' && prio}
@@ -146,7 +148,7 @@ export function TaskCard({ id, entry, bare }: { id: string; entry: ChatEntry; ba
         )}
         {task.priority === 'normal' && <span className="cc-prio-normal">{prio}</span>}
       </div>
-      {open && (epic || waits.length > 0) && (
+      {open && more && (
         <div className="cc-more">
           {epic && <span className="chip">{epic.id} · {epic.title}</span>}
           {waits.length > 0 && <span className="muted">{t('plan.waits', { deps: waits.join(', ') })}</span>}
@@ -174,7 +176,6 @@ export function EpicCard({ id, entry, bare }: { id: string; entry: ChatEntry; ba
   const autoPipeline = useStore((s) => s.settings.autoPipeline);
   const openTask = useStore((s) => s.openTaskCard);
   const showOnBoard = useStore((s) => s.showEpicOnBoard);
-  const [open, setOpen] = useState(false);
   if (!epic) return <Missing id={id} entry={bare ? undefined : entry} />;
 
   const mine = Object.values(tasks).filter((x) => x.epicId === epic.id).sort((a, b) => a.createdAt - b.createdAt);
@@ -185,14 +186,13 @@ export function EpicCard({ id, entry, bare }: { id: string; entry: ChatEntry; ba
   const goBoard = () => showOnBoard(epic.id);
 
   return (
-    <div className={`chat-card cc-epic ${epic.status}${awaiting ? ' awaiting' : ''}${bare ? ' bare' : ''}${open ? ' open' : ''}`}>
+    <div className={`chat-card cc-epic ${epic.status}${awaiting ? ' awaiting' : ''}${bare ? ' bare' : ''}`}>
       <div className="cc-head">
         <button className="cc-pick" onClick={goBoard} title={t('chatCard.openEpic')}>
           <span className="cc-id">{epic.id}</span>
           <span className="cc-title">{epic.title}</span>
         </button>
         <span className={`chip cc-status ${epicTone(epic)}`}>{t(`plan.status.${epic.status}`)}</span>
-        <Chevron open={open} onToggle={() => setOpen(!open)} />
       </div>
       {epic.status === 'done' ? (
         <div className="cc-meta">

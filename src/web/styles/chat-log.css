@@ -298,11 +298,11 @@
   color: var(--ink-3); cursor: pointer; overflow: hidden;
   display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; line-clamp: 2;
 }
-.chat-card.open .cc-goal { display: block; }
 .cc-epic.cancelled .cc-title { color: var(--ink-3); }
-.cc-rows { display: flex; flex-direction: column; gap: 2px; }
+.cc-rows { display: flex; flex-direction: column; align-items: stretch; gap: 2px; }
+/* Кнопка кита центрирует содержимое — строке списка нужен левый край. */
 .cc-row {
-  display: flex; align-items: center; gap: var(--space-2); min-height: 0; height: auto;
+  display: flex; align-items: center; justify-content: flex-start; gap: var(--space-2); min-height: 0; height: auto;
   padding: 2px var(--space-1); border: 0; border-radius: var(--radius-icon); background: none;
   text-align: left; font: inherit; font-size: var(--fs-small); color: var(--ink-2);
 }
