@@ -46,13 +46,15 @@
 /* На доске композера нет — вид доходит до нижнего края окна. Прокрутка здесь
    только внутренняя: едет выбранная подвкладка, а ряд переключателя стоит. */
 .shell-board { bottom: var(--space-4); overflow: hidden; }
-.shell-chat { display: flex; gap: var(--space-4); max-width: 1180px; margin: 0 auto; right: var(--space-6); overflow: hidden; }
+/* В чате композер встроен в колонку переписки (Shell.tsx), поэтому вид сам
+   доходит до низа окна — на тот же отступ, что у плавающего композера. */
+.shell-chat { display: flex; gap: var(--space-4); max-width: 1180px; margin: 0 auto; right: var(--space-6); bottom: var(--gap); overflow: hidden; }
 /* Лента со вкладками тредов — правая колонка; слева список чатов (.pm-chats). */
 .shell-life { display: flex; flex-direction: column; max-width: 1180px; margin: 0 auto; overflow: hidden; }
 .shell-life-title { flex: none; margin: 0 0 var(--space-3); font-size: var(--fs-title); font-weight: 500; color: var(--ink); }
 .shell-life .life { flex: 1; }
 .shell-chat-col { display: flex; flex-direction: column; flex: 1; min-width: 0; min-height: 0; overflow: hidden; }
-.shell-chat .chat { flex: 1; }
+.shell-chat .chat { flex: 1; min-height: 0; }
 /* Узкое окно: два столбца не помещаются — список встаёт над лентой и
    ограничивается по высоте, лента забирает остальное. */
 @media (max-width: 900px) {
@@ -236,6 +238,11 @@ body.office-dragging, body.office-dragging * { cursor: grabbing !important; user
   display: flex; flex-direction: column; gap: var(--space-3);
   min-height: 96px; padding: var(--space-4) var(--space-4) var(--space-3) var(--space-5); z-index: var(--z-hud);
   border-radius: 14px;
+}
+/* Встроенный в колонку чата: в потоке под лентой, ширина — ширина колонки. */
+.shell-composer.inline {
+  position: relative; left: auto; right: auto; bottom: auto;
+  flex: none; margin-top: var(--space-4);
 }
 .shell-composer textarea {
   background: none; border: none; padding: 0; resize: none;

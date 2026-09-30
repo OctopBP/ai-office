@@ -55,7 +55,14 @@ export function Shell(props: OverlayProps) {
         {view === 'chat' && (
           <div className="shell-view shell-chat">
             <PmChatList />
-            <div className="shell-chat-col"><ChatThread /></div>
+            {/* В чате композер — низ колонки переписки, а не полоса во всё
+                окно: так список чатов доходит до нижнего края, а поле ввода
+                совпадает по ширине с лентой. Черновик живёт в сторе, поэтому
+                перемонтирование при смене вида ничего не теряет. */}
+            <div className="shell-chat-col">
+              <ChatThread />
+              <Composer inline onSettings={() => setModal('settings')} />
+            </div>
           </div>
         )}
         {view === 'life' && (
@@ -70,8 +77,8 @@ export function Shell(props: OverlayProps) {
       <TopBar />
       {/* На доске композера нет: экран целиком про задачи, а разговор с
           менеджером живёт в виде «Чат». Освободившуюся полосу внизу забирает
-          сама доска (.shell-board). */}
-      {view !== 'board' && <Composer onSettings={() => setModal('settings')} />}
+          сама доска (.shell-board). В «Чате» он встроен в колонку переписки. */}
+      {view !== 'board' && view !== 'chat' && <Composer onSettings={() => setModal('settings')} />}
       <EnvBanner />
       <UpdateBanner />
       <Overlays {...props} />

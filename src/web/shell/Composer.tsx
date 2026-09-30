@@ -15,19 +15,24 @@ import { displayInstance } from '../instanceName';
  */
 let focus: (() => void) | null = null;
 export const focusComposer = (): void => {
-  // На виде «Доска» композера на экране нет. Просьба о курсоре приходит вместе
-  // со сменой вида, и в этот момент он ещё не смонтирован — ждём кадр.
-  if (focus) focus();
-  else requestAnimationFrame(() => focus?.());
+  // Просьба о курсоре приходит вместе со сменой вида, а композер в «Чате» —
+  // другой экземпляр, чем плавающий (на «Доске» его нет вовсе). Сейчас `focus`
+  // ещё смотрит на старый, который вот-вот размонтируется, — поэтому всегда
+  // ждём кадр, к нему React уже поставит нужный.
+  requestAnimationFrame(() => focus?.());
 };
 
 /**
- * Композер внизу экрана — постоянный, а не внутри чата: задача ставится
- * словами из любого вида. В виде «Чат» он же поле ввода треда. Чипы под
+ * Композер — задача ставится словами из любого вида. Обычно он плавает внизу
+ * экрана, а в виде «Чат» встроен в колонку переписки и служит полем ввода треда. Чипы под
  * полем показывают, с чем задача уйдёт, — модель менеджера, режим правок,
  * бюджет; меняются они в настройках, чип туда и ведёт.
  */
-export function Composer({ onSettings }: { onSettings: () => void }) {
+export function Composer({ onSettings, inline = false }: {
+  onSettings: () => void;
+  /** Встроен в колонку переписки («Чат»), а не плавает внизу окна. */
+  inline?: boolean;
+}) {
   const thread = useStore((s) => s.thread);
   const instances = useStore((s) => s.instances);
   const roles = useStore((s) => s.roles);
@@ -107,7 +112,7 @@ export function Composer({ onSettings }: { onSettings: () => void }) {
   const cap = settings.globalBudgetUsd;
 
   return (
-    <div className="shell-composer float" ref={box}>
+    <div className={`shell-composer float${inline ? ' inline' : ''}`} ref={box}>
       {/* В виде «Чат» собеседник уже стоит над лентой — второй раз не показываем. */}
       {view !== 'chat' && <ChatPeer compact />}
       <textarea
