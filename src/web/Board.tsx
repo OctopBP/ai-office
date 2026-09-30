@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { Fragment, useEffect, useState } from 'react';
 import {
   approveEpic, cancelEpic, createDirection, mergeBadge, mergeStepFor, prStageLabel, prStageClass,
   removeDirection, reorderEpics, updateDirection, useStore,
@@ -9,6 +9,7 @@ import { t as tr } from './i18n';
 import { Icon, type IconName } from './icons';
 import { AgentTag } from './Avatar';
 import { PriorityChip } from './TaskPriority';
+import { splitTasksByDay } from './taskDays';
 
 const statusLabel = (status: TaskStatus): string => tr(`task.status.${status}`);
 
@@ -230,7 +231,12 @@ function TaskColumnBlock({ column, list }: { column: TaskColumn; list: TaskView[
         <div className="task-col-empty">{tr('board.col.empty')}</div>
       ) : (
         <div className="task-cards">
-          {list.map((t) => <Card key={t.id} t={t} />)}
+          {splitTasksByDay(list).map((day) => (
+            <Fragment key={day.key}>
+              <div className="task-day-sep" role="separator">{day.label}</div>
+              {day.tasks.map((t) => <Card key={t.id} t={t} />)}
+            </Fragment>
+          ))}
         </div>
       )}
     </div>

@@ -117,6 +117,14 @@
 }
 /* Карточки в колонке — стопкой: ширину задаёт колонка. */
 .task-cards { display: flex; flex-direction: column; gap: var(--space-3); }
+/* Разделитель дня между карточками — как у дат в чате: тихая подпись между
+   волосяными линиями, только мельче, в размер имени колонки. */
+.task-day-sep {
+  display: flex; align-items: center; gap: var(--space-2);
+  padding: 0 var(--space-1);
+  font-size: var(--fs-caption); line-height: 14px; color: var(--ink-3); white-space: nowrap;
+}
+.task-day-sep::before, .task-day-sep::after { content: ''; flex: 1; height: 1px; background: var(--board-line); }
 
 /* Карточка на доске короче, чем в дровере: только то, по чему её узнают.
    Номер, название и строка меток — столбиком через 12. Фон — тело фичи:

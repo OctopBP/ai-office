@@ -226,6 +226,9 @@ export const en = {
   "board.col.failed": "Failed",
   "board.col.cancelled": "Cancelled",
   "board.col.empty": "Empty",
+  "board.day.today": "Today",
+  "board.day.yesterday": "Yesterday",
+  "board.day.daysAgo": "{n} day ago|{n} days ago",
   // Слово статуса на карточке доски там, где макет 188:887 пишет иначе, чем
   // остальной интерфейс: в той же форме, что имя колонки.
   "board.chip.failed": "failed",

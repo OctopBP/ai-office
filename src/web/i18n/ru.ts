@@ -225,6 +225,9 @@ export const ru: Record<keyof typeof en, string> = {
   "board.col.failed": "Провалено",
   "board.col.cancelled": "Снято",
   "board.col.empty": "Пусто",
+  "board.day.today": "Сегодня",
+  "board.day.yesterday": "Вчера",
+  "board.day.daysAgo": "{n} день назад|{n} дня назад|{n} дней назад",
   // Слово статуса на карточке доски там, где макет 188:887 пишет иначе, чем
   // остальной интерфейс: в той же форме, что имя колонки.
   "board.chip.failed": "провалено",
