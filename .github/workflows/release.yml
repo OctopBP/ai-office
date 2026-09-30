@@ -2,6 +2,8 @@
 # для Windows вместе с файлами автообновления (latest*.yml, .blockmap) и
 # складываются в черновик релиза. Черновик, а не готовый релиз, —
 # сборку надо проверить руками на обеих системах, прежде чем её кто-то скачает.
+# Описание релиза открывается разделом «Что нового» — заметками выпуска из
+# аннотации тега, которую ставит офис (scripts/release-notes.mjs).
 #
 # Движок Claude Code внутрь установщиков не кладётся: он проприетарный, и
 # приложение ставит его само при первом запуске (docs/design/desktop-app/spec.md §3).
@@ -127,6 +129,49 @@ jobs:
     permissions:
       contents: write
     steps:
+      # Полная история нужна запасному списку «Что нового» — коммиты с
+      # прошлого тега.
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      # checkout кладёт тег без его объекта-аннотации, а заметки выпуска
+      # офис пишет именно в аннотацию, — поэтому тег забираем ещё раз явно.
+      - name: аннотация тега
+        run: git fetch --force origin "refs/tags/${GITHUB_REF_NAME}:refs/tags/${GITHUB_REF_NAME}"
+      # «Что нового» — из заметок выпуска в аннотации тега; тег поставлен
+      # руками — из коммитов с прошлого тега (scripts/release-notes.mjs).
+      # Ниже — постоянные разделы. Автоматические заметки GitHub не
+      # включаем: они дублировали бы «Что нового» списком пулл-реквестов.
+      - name: описание релиза
+        run: |
+          node scripts/release-notes.mjs "$GITHUB_REF_NAME" > "$RUNNER_TEMP/body.md"
+          cat >> "$RUNNER_TEMP/body.md" <<'EOF'
+          ## Что скачивать
+
+          | Система | Файл |
+          |---|---|
+          | macOS, Apple Silicon (M1 и новее) | `AI-Office-<версия>-arm64.dmg` |
+          | macOS, Intel | `AI-Office-<версия>-x64.dmg` |
+          | Windows 10/11, x64 | `AI-Office-Setup-<версия>.exe` |
+
+          Файлы `.zip`, `.blockmap` и `latest*.yml` — для автообновления,
+          скачивать их руками не нужно.
+
+          ## Первый запуск
+
+          macOS: приложение подписано и заверено Apple — открывается
+          двойным щелчком, как любое другое.
+          Windows: сертификата для Windows нет, поэтому SmartScreen
+          спросит — «Подробнее» → «Выполнить в любом случае».
+
+          Движок Claude Code (~310 МБ) в установщик не вшит — приложение
+          найдёт уже поставленный или скачает сам при первом запуске.
+          Нужен доступ к модели: подписка Claude (`claude` → `/login`) или
+          `ANTHROPIC_API_KEY`.
+
+          Подробности — [docs/guide/desktop.md](https://github.com/OctopBP/ai-office/blob/main/docs/guide/desktop.md).
+          EOF
+          cat "$RUNNER_TEMP/body.md"
       - uses: actions/download-artifact@v8
         with:
           path: out
@@ -134,30 +179,5 @@ jobs:
       - uses: softprops/action-gh-release@v3
         with:
           draft: true
-          generate_release_notes: true
           files: out/*
-          body: |
-            ## Что скачивать
-
-            | Система | Файл |
-            |---|---|
-            | macOS, Apple Silicon (M1 и новее) | `AI-Office-<версия>-arm64.dmg` |
-            | macOS, Intel | `AI-Office-<версия>-x64.dmg` |
-            | Windows 10/11, x64 | `AI-Office-Setup-<версия>.exe` |
-
-            Файлы `.zip`, `.blockmap` и `latest*.yml` — для автообновления,
-            скачивать их руками не нужно.
-
-            ## Первый запуск
-
-            macOS: приложение подписано и заверено Apple — открывается
-            двойным щелчком, как любое другое.
-            Windows: сертификата для Windows нет, поэтому SmartScreen
-            спросит — «Подробнее» → «Выполнить в любом случае».
-
-            Движок Claude Code (~310 МБ) в установщик не вшит — приложение
-            найдёт уже поставленный или скачает сам при первом запуске.
-            Нужен доступ к модели: подписка Claude (`claude` → `/login`) или
-            `ANTHROPIC_API_KEY`.
-
-            Подробности — [docs/guide/desktop.md](https://github.com/OctopBP/ai-office/blob/main/docs/guide/desktop.md).
+          body_path: ${{ runner.temp }}/body.md
