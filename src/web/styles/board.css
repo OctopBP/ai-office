@@ -155,7 +155,7 @@
    прописная всё равно встаёт по центру. */
 .task-cards .agent-tag { gap: var(--space-1); }
 .task-cards .agent-tag > span:last-child { line-height: 12px; }
-.task-cards .agent-tag .avatar-pic,
+.task-cards .agent-tag .avatar-pic { width: 12px; height: 12px; }
 .task-cards .agent-tag .avatar-ph { width: 12px; height: 12px; border-radius: 2px; }
 /* Цвет слова в чипе — из макета. Прочие статусы берут общие цвета чипа. */
 .task-cards .chip.planned { color: var(--ink-3); }

@@ -1,4 +1,3 @@
-import type { CSSProperties } from 'react';
 import { useStore } from './store';
 import { portraitOf, useLookOf } from './portraits';
 import { roleOfInstance, useInstanceName } from './instanceName';
@@ -31,9 +30,9 @@ export type AvatarSize = 'xs' | 'sm' | 'md' | 'lg';
 /**
  * Аватарка агента.
  *
- * Есть портрет у его внешности (`portraits.ts`) — портрет на подложке цвета
- * роли: цвет остаётся тем, по чему роль узнают в бейдже над головой и в
- * рейле. Нет портрета — квадрат цвета роли с её кодом. Портреты трёхмерной
+ * Есть портрет у его внешности (`portraits.ts`) — PNG целиком, без подложки
+ * и обрезки (так хочет владелец, T-145). Нет портрета — квадрат цвета роли с
+ * её кодом: там фон и есть значок. Портреты трёхмерной
  * моделью (`office3d/AgentAvatar.tsx`) отложены: общий холст ломался при
  * монтировании превью.
  *
@@ -56,7 +55,7 @@ export function Avatar({ roleId, instanceId, size = 'md', className }: {
   const cls = `${size}${className ? ` ${className}` : ''}`;
   if (portrait) {
     return (
-      <span className={`avatar-pic ${cls}`} style={{ '--avatar-role': color } as CSSProperties} title={tip ?? code}>
+      <span className={`avatar-pic ${cls}`} title={tip ?? code}>
         <img src={portrait} alt={code} draggable={false} />
       </span>
     );

@@ -87,7 +87,8 @@
   display: flex; align-items: center; justify-content: center;
   font: 600 19px/1 var(--font); color: var(--ink-3);
 }
-.look-pic { object-fit: contain; object-position: bottom; }
+/* Портрет — без подложки и скругления, целиком, как аватарка (T-145). */
+.look-pic { background: none; border-radius: 0; object-fit: contain; object-position: bottom; }
 /* Подпись обязана уместиться в ширину карточки: без явной ширины строка
    flex-колонки принимает размер текста и text-overflow не срабатывает. */
 .look-swatch .look-name {
