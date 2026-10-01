@@ -1,11 +1,12 @@
 import { useEffect, useId, useRef, useState, type ReactNode } from 'react';
 import type { EngineCapabilities, ProviderStatus } from '../shared/providers';
-import type { LimitKind, ProviderView } from '../shared/types';
+import type { LimitKind, ProviderLoginFlow, ProviderView } from '../shared/types';
 import { Gauge, LIMIT_TICK_MS } from './LimitBars';
 import { limitTone, resetLine } from './money';
 import { Icon } from './icons';
 import {
-  cancelProviderInstall, installProvider, loginProvider, logoutProvider, refreshProviders, useStore,
+  cancelProviderInstall, cancelProviderLogin, installProvider, loginProvider, loginProviderBySubscription,
+  logoutProvider, refreshProviders, sendProviderLoginCode, useStore,
 } from './store';
 import { t, type UiKey } from './i18n';
 
@@ -25,9 +26,6 @@ const STATUS_KEY: Record<ProviderStatus['state'], UiKey> = {
   limited: 'providers.status.limited',
   error: 'providers.status.error',
 };
-
-/** Как войти по подписке, раз офис сам пока не открывает вход: команда движка в терминале. */
-const LOGIN_COMMAND: Record<string, string> = { 'claude-code': 'claude login', codex: 'codex login' };
 
 const SUBSCRIPTION_NOTE: Record<string, UiKey> = {
   'claude-code': 'providers.login.noteClaude',
@@ -133,6 +131,48 @@ function KeyForm({ p, onClose }: { p: ProviderView; onClose: () => void }) {
   );
 }
 
+/**
+ * Вход по подписке идёт (§2.2 В): сервер запустил штатный вход движка, движок
+ * сам открывает браузер на этой машине, а здесь — та же страница ссылкой и,
+ * если движок принимает, поле для кода со страницы.
+ */
+function SubscriptionWait({ p, flow }: { p: ProviderView; flow: ProviderLoginFlow }) {
+  const id = useId();
+  const [code, setCode] = useState('');
+  const page = flow.interaction;
+  const send = () => {
+    if (!code.trim()) return;
+    sendProviderLoginCode(p.id, code);
+    setCode('');
+  };
+  return (
+    <div className="provider-howto" aria-live="polite">
+      <p className="provider-text">
+        <span className="spinner" />{' '}
+        {page ? t('providers.login.waiting') : t('providers.login.starting', { engine: p.engineLabel })}
+      </p>
+      {page && (
+        <>
+          <p className="provider-text muted">{t('providers.login.browserHint')}</p>
+          <a href={page.url} target="_blank" rel="noopener noreferrer">{t('providers.login.open')}</a>
+        </>
+      )}
+      {page?.code && (
+        <>
+          <label htmlFor={id} className="provider-key-label">{t('providers.login.code')}</label>
+          <div className="provider-key-row">
+            <input id={id} className="mono" type="text" autoComplete="off" spellCheck={false} value={code}
+              onChange={(e) => setCode(e.target.value)}
+              onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); send(); } }} />
+            <button type="button" disabled={!code.trim()} onClick={send}>{t('providers.login.codeSend')}</button>
+          </div>
+          <span className="form-hint">{t('providers.login.codeHint')}</span>
+        </>
+      )}
+    </div>
+  );
+}
+
 /** Меню ⋯ готовой карточки: перепроверка, смена и удаление ключа. */
 function CardMenu({ p, onChangeKey }: { p: ProviderView; onChangeKey: () => void }) {
   const [open, setOpen] = useState(false);
@@ -177,7 +217,8 @@ export function ProviderCard({ p, onUse }: {
   const status = p.status;
   const limits = useStore((s) => s.limits);
   const [keyOpen, setKeyOpen] = useState(false);
-  const [howLogin, setHowLogin] = useState(false);
+  const flow = useStore((s) => s.providerFlow[p.id]);
+  const flowActive = flow?.phase === 'starting' || flow?.phase === 'waiting';
   const [details, setDetails] = useState(false);
   const [now, setNow] = useState(() => Date.now());
   useEffect(() => {
@@ -195,8 +236,7 @@ export function ProviderCard({ p, onUse }: {
     else if (status.state === 'ready') setAnnounce(t('providers.key.accepted'));
     else setAnnounce(t(STATUS_KEY[status.state]));
     prev.current = status.state;
-    // Вход закончился где-то ещё (в терминале) — подсказка больше не нужна.
-    if (status.state === 'ready' || status.state === 'limited') { setHowLogin(false); setKeyOpen(false); }
+    if (status.state === 'ready' || status.state === 'limited') setKeyOpen(false);
   }, [status.state]);
 
   const caps = capsOf(p.capabilities);
@@ -208,7 +248,7 @@ export function ProviderCard({ p, onUse }: {
     : [];
 
   const keyButton = (label: UiKey, primary: boolean) => (
-    <button type="button" className={primary ? 'primary' : ''} onClick={() => { setKeyOpen(true); setHowLogin(false); }}>
+    <button type="button" className={primary ? 'primary' : ''} onClick={() => setKeyOpen(true)}>
       {t(label)}
     </button>
   );
@@ -262,27 +302,31 @@ export function ProviderCard({ p, onUse }: {
         <>
           <p className="provider-text">{t('providers.login.prompt', { name: p.label })}</p>
           {status.detail && <p className="provider-text muted">{status.detail}</p>}
-          {howLogin && (
-            <div className="provider-howto">
-              <p className="provider-text">{t('providers.login.terminal')}</p>
-              <code className="mono">{LOGIN_COMMAND[p.engine] ?? `${p.engine} login`}</code>
-              <p className="provider-text">{t('providers.login.terminalThen')}</p>
-            </div>
+          {flowActive && flow && <SubscriptionWait p={p} flow={flow} />}
+          {flow?.phase === 'expired' && <p className="provider-text error" role="alert">{t('providers.login.expired')}</p>}
+          {flow?.phase === 'failed' && (
+            <p className="provider-text error" role="alert">
+              {t(flow.flowId ? 'providers.login.failed' : 'providers.login.failedStart', { detail: flow.error ?? '' })}
+            </p>
           )}
         </>
       );
-      actions = !keyOpen && (
-        <>
-          {byKey && keyButton('providers.login.key', true)}
-          {subscription && (
-            <span className="provider-sub">
-              <button type="button" onClick={() => setHowLogin((v) => !v)} aria-expanded={howLogin}>{t('providers.login.subscription')}</button>
-              {SUBSCRIPTION_NOTE[p.engine] && <span className="form-hint">{t(SUBSCRIPTION_NOTE[p.engine]!)}</span>}
-            </span>
-          )}
-          {howLogin && <button type="button" onClick={() => refreshProviders(true)}>{t('providers.recheck')}</button>}
-        </>
-      );
+      const retry = flow?.phase === 'failed' || flow?.phase === 'expired';
+      actions = !keyOpen && (flowActive
+        ? <button type="button" onClick={() => cancelProviderLogin(p.id)}>{t('common.cancel')}</button>
+        : (
+          <>
+            {byKey && keyButton('providers.login.key', true)}
+            {subscription && (
+              <span className="provider-sub">
+                <button type="button" onClick={() => loginProviderBySubscription(p.id)}>
+                  {t(retry ? 'providers.login.retry' : 'providers.login.subscription')}
+                </button>
+                {SUBSCRIPTION_NOTE[p.engine] && <span className="form-hint">{t(SUBSCRIPTION_NOTE[p.engine]!)}</span>}
+              </span>
+            )}
+          </>
+        ));
       break;
     }
     case 'unreachable':

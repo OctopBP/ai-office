@@ -191,6 +191,97 @@ assert.deepEqual(await engineFor('codex').models('codex'), [{ id: 'test-model', 
   if (tokenBefore !== undefined) process.env.ANTHROPIC_AUTH_TOKEN = tokenBefore;
 }
 
+// Вход по подписке: штатная команда движка, адрес страницы — в веб, итог — в статус.
+if (process.platform !== 'win32') {
+  const { onLoginFlow, loginUrl } = await import('../src/server/engines/login');
+  const { loginBySubscription } = await import('../src/server/providers-api');
+  const { forgetClaudeBin } = await import('../src/server/engines/claude-code');
+  const engine = engineFor('claude-code');
+  const credentials = resolve(process.env.CLAUDE_CONFIG_DIR!, '.credentials.json');
+  rmSync(credentials);
+  assert.equal((await engine.status('claude-code', { force: true })).state, 'needs-login');
+
+  // Поддельный `claude auth login`: адрес гиперссылкой терминала, как печатает
+  // настоящий, потом ждёт код со страницы и «входит» — пишет учётные данные.
+  const fakeLogin = resolve(root, 'claude-login.sh');
+  const argsFile = resolve(root, 'claude-login.args');
+  writeFileSync(fakeLogin, `#!/bin/bash
+echo "$@" > '${argsFile}'
+printf 'Opening browser to sign in…\\n'
+printf "If the browser didn't open, visit: \\033]8;;https://claude.ai/oauth/authorize?code=true&state=s1\\007https://claude.ai/oauth/authorize?code=true&state=s1\\033]8;;\\007\\n"
+printf 'Paste code here if prompted > '
+read code
+[ "$code" = "abc#s1" ] || { echo "Invalid code" >&2; exit 1; }
+echo '{}' > '${credentials}'
+echo 'Login successful.'
+`, { mode: 0o755 });
+  const savedBin = process.env.OFFICE_CLAUDE_BIN;
+  process.env.OFFICE_CLAUDE_BIN = fakeLogin;
+  forgetClaudeBin();
+
+  const phases: string[] = [];
+  const waitPhase = (provider: string, phase: string) => new Promise<import('../src/shared/types').ProviderLoginFlow>((done) => {
+    const off = onLoginFlow((p, flow) => { if (p === provider) phases.push(flow.phase); if (p === provider && flow.phase === phase) { off(); done(flow); } });
+  });
+  const waiting = waitPhase('claude-code', 'waiting');
+  const started = await loginBySubscription('claude-code');
+  assert(started.ok);
+  // Повтор во время входа второй процесс не запускает.
+  const again = await loginBySubscription('claude-code');
+  assert(again.ok && again.flow.flowId === started.flow.flowId);
+  const page = await waiting;
+  assert.deepEqual(page.interaction, { kind: 'browser', url: 'https://claude.ai/oauth/authorize?code=true&state=s1', code: true });
+  assert.equal(readFileSync(argsFile, 'utf8').trim(), 'auth login --claudeai');
+  const { sendLoginCode } = await import('../src/server/engines/login');
+  const succeeded = waitPhase('claude-code', 'succeeded');
+  assert.equal(sendLoginCode('claude-code', 'abc#s1'), true);
+  await succeeded;
+  assert.deepEqual(phases, ['starting', 'waiting', 'succeeded']);
+  assert.deepEqual(await engine.status('claude-code'), { state: 'ready', auth: 'subscription' });
+
+  // Отмена: команда останавливается, фаза cancelled, статус остаётся «нужен вход».
+  rmSync(credentials);
+  await engine.status('claude-code', { force: true });
+  process.env.OFFICE_CLAUDE_BIN = savedBin ?? '';
+  if (savedBin === undefined) delete process.env.OFFICE_CLAUDE_BIN;
+  forgetClaudeBin();
+  const fakeCodex = resolve(root, 'codex-login.sh');
+  writeFileSync(fakeCodex, `#!/bin/bash
+echo "Starting local login server on http://localhost:1455."
+echo "If your browser did not open, navigate to this URL to authenticate:"
+echo
+echo "https://auth.openai.com/oauth/authorize?response_type=code&state=x"
+sleep 30
+`, { mode: 0o755 });
+  const savedCodex = process.env.OFFICE_CODEX_PATH;
+  process.env.OFFICE_CODEX_PATH = fakeCodex;
+  const codexWaiting = waitPhase('codex', 'waiting');
+  const codexStarted = await loginBySubscription('codex');
+  assert(codexStarted.ok);
+  assert.deepEqual((await codexWaiting).interaction,
+    { kind: 'browser', url: 'https://auth.openai.com/oauth/authorize?response_type=code&state=x', code: false });
+  assert.equal(sendLoginCode('codex', 'abc'), false);
+  const cancelled = waitPhase('codex', 'cancelled');
+  const { cancelCliLogin } = await import('../src/server/engines/login');
+  assert.equal(cancelCliLogin('codex'), true);
+  await cancelled;
+  process.env.OFFICE_CODEX_PATH = savedCodex;
+
+  // Провал: последние строки вывода — причиной.
+  const fakeFail = resolve(root, 'claude-fail.sh');
+  writeFileSync(fakeFail, '#!/bin/bash\necho "Login failed: org not allowed" >&2\nexit 1\n', { mode: 0o755 });
+  process.env.OFFICE_CLAUDE_BIN = fakeFail; forgetClaudeBin();
+  const failed = waitPhase('claude-code', 'failed');
+  await loginBySubscription('claude-code');
+  assert.equal((await failed).error, 'Login failed: org not allowed');
+  if (savedBin === undefined) delete process.env.OFFICE_CLAUDE_BIN; else process.env.OFFICE_CLAUDE_BIN = savedBin;
+  forgetClaudeBin();
+  assert.equal(loginUrl('see http://localhost:1455 then https://x.example/a?b=c.'), 'https://x.example/a?b=c');
+
+  writeFileSync(credentials, '{}');
+  await engine.status('claude-code', { force: true });
+}
+
 mkdirSync(resolve(root, 'workspace')); mkdirSync(resolve(root, 'outside'));
 symlinkSync(resolve(root, 'outside'), resolve(root, 'workspace/escape'));
 await assert.rejects(writablePath(resolve(root,'workspace'), 'escape/file.txt'), /outside/);

@@ -2220,6 +2220,29 @@ export type ProviderLoginResult =
   | { ok: true }
   | { ok: false; code: 'rejected' | 'network' | 'keychain' | 'unsupported'; message: string };
 
+/**
+ * Вход по подписке — сценарий штатного входа движка (`claude auth login`,
+ * `codex login`), а не один ответ: сервер запускает команду, вынимает из её
+ * вывода адрес страницы входа и ждёт, пока команда закончится
+ * (docs/design/providers/spec.md §5.2, `LoginFlow`).
+ *
+ * Фазы: `starting` — команда запущена, адреса ещё нет; `waiting` — адрес
+ * есть, ждём вход в браузере; дальше одна из конечных. `expired` — не
+ * дождались входа за отведённое время.
+ */
+export interface ProviderLoginFlow {
+  flowId: string;
+  phase: 'starting' | 'waiting' | 'succeeded' | 'failed' | 'cancelled' | 'expired';
+  /**
+   * Что показать: страницу входа. `code` — движок принимает код, который
+   * страница показывает, когда сама вернуться в движок не смогла
+   * (`provider_login_code`).
+   */
+  interaction?: { kind: 'browser'; url: string; code: boolean };
+  /** Почему не вышло (`failed`): последние строки вывода движка. */
+  error?: string;
+}
+
 /** Всё, что сервер шлёт в UI. Единственный интерфейс между логикой и картинкой. */
 export type ServerEvent =
   | { t: 'snapshot'; roles: RoleView[]; instances: InstanceView[]; tasks: TaskView[];
@@ -2380,8 +2403,12 @@ export type ServerEvent =
    * Уходит при подключении, по запросу и при каждом шаге установки и входа.
    */
   | { t: 'providers'; providers: ProvidersView }
-  /** Ответ на `provider_login`/`provider_logout` — тому, кто просил. */
-  | { t: 'provider.login'; provider: ProviderId; result: ProviderLoginResult }
+  /**
+   * Ответ на `provider_login`/`provider_logout` — тому, кто просил (`result`).
+   * Вход по подписке вместо итога шлёт сценарий (`flow`) — всем клиентам, при
+   * каждой смене фазы, и подключившемуся, пока сценарий идёт.
+   */
+  | { t: 'provider.login'; provider: ProviderId; result?: ProviderLoginResult; flow?: ProviderLoginFlow }
   /**
    * Отказ по операции с офисом. Уходит только тому клиенту, который её
    * просил: меню показывает текст в форме, а не ищет его в чате чужого
@@ -2619,6 +2646,16 @@ export type ClientCommand =
    * системную связку ключей — в состояние офиса, журнал и логи не попадает.
    */
   | { c: 'provider_login'; provider: ProviderId; apiKey: string }
+  /**
+   * Войти по подписке: сервер запускает штатный вход движка, ход входа
+   * приезжает событиями `provider.login` с `flow`. Повтор во время входа
+   * нового не запускает.
+   */
+  | { c: 'provider_login'; provider: ProviderId; kind: 'subscription' }
+  /** Прервать вход по подписке: команда движка останавливается, фаза `cancelled`. */
+  | { c: 'provider_login_cancel'; provider: ProviderId }
+  /** Код со страницы входа, если она не вернулась в движок сама. Уходит движку и нигде не хранится. */
+  | { c: 'provider_login_code'; provider: ProviderId; code: string }
   /** Удалить ключ провайдера из связки ключей. */
   | { c: 'provider_logout'; provider: ProviderId }
   /** Убрать офис из списка. Файлы проекта и его сохранение остаются на диске. */

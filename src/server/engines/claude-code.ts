@@ -8,11 +8,12 @@ import { homedir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { query as claudeQuery, createSdkMcpServer as claudeServer } from '@anthropic-ai/claude-agent-sdk';
-import { commandScrubFile, engineEnv } from '../childenv';
+import { commandScrubFile, engineEnv, projectEnv } from '../childenv';
 import { limitBlock } from '../limits';
 import { MODEL_ALIASES, MODEL_IDS } from '../../shared/models';
 import { engineDir, installedBin, installFromNpm, runnable } from './install';
 import { deleteKey, providerKey, saveKey, verifyKey } from './keys';
+import { startCliLogin } from './login';
 import { LoginError, type EngineAdapter, type EngineCapabilities, type ModelInfo, type ModelTier, type ProviderStatus } from './types';
 
 export { tool, SYSTEM_PROMPT_DYNAMIC_BOUNDARY } from '@anthropic-ai/claude-agent-sdk';
@@ -115,6 +116,21 @@ function binVersion(bin: string): Promise<string> {
       done(err ? '' : (String(stdout).match(/\d+\.\d+\.\d+/)?.[0] ?? String(stdout).trim()));
     });
   });
+}
+
+/**
+ * Бинарь для штатного входа. Из исходников `claudeBin()` пуст — SDK находит
+ * движок сам, а входу нужен путь явно: тот же пакет платформы рядом с SDK.
+ */
+function loginBin(): string {
+  const bin = claudeBin();
+  if (bin) return bin;
+  try {
+    const sdk = dirname(fileURLToPath(import.meta.resolve('@anthropic-ai/claude-agent-sdk')));
+    const bundled = resolve(sdk, '..', `claude-agent-sdk-${process.platform}-${process.arch}`, exe());
+    if (runnable(bundled)) return bundled;
+  } catch { /* SDK не найден — движка нет */ }
+  return '';
 }
 
 let loginCache: { at: number; value: Promise<boolean> } | undefined;
@@ -220,11 +236,18 @@ export const claudeCodeEngine: EngineAdapter = {
   },
 
   async login(req) {
-    if (req.kind !== 'api-key' || !req.apiKey) {
-      // Вход по подписке — через сам Claude Code (`claude` → /login): офис его
-      // пока не ведёт, только видит результат.
-      throw new LoginError('unsupported', 'subscription login is not supported yet');
+    if (req.kind === 'subscription') {
+      // Вход в собственный Claude Code человека (решение Q-47): штатный
+      // `claude auth login`, токен остаётся в хранилище движка. Ключи
+      // окружению команды не достаются — иначе вход ушёл бы не в подписку.
+      const bin = loginBin();
+      if (!bin) throw new LoginError('unsupported', 'Claude Code is not installed');
+      return { done: false, flow: startCliLogin({
+        provider: 'claude-code', bin, args: ['auth', 'login', '--claudeai'], env: projectEnv(),
+        acceptsCode: true, after: () => { loginCache = undefined; },
+      }) };
     }
+    if (req.kind !== 'api-key' || !req.apiKey) throw new LoginError('unsupported', `login kind ${req.kind} is not supported`);
     await verifyKey('https://api.anthropic.com/v1/models', {
       'x-api-key': req.apiKey, 'anthropic-version': '2023-06-01',
     });

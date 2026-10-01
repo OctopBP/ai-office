@@ -3,12 +3,14 @@
  * офиса — dynamic-tools (`providers/codex-tools.ts`).
  */
 import { execFile } from 'node:child_process';
+import { projectEnv } from '../childenv';
 import { CODEX_BIN, codexBinary, codexQuery, runtimeEnv } from '../providers/codex';
 import { codexStatus } from '../providers/diagnostics';
 import { codexPrice } from '../providers/pricing';
 import { limitBlock } from '../limits';
 import { installFromNpm } from './install';
 import { deleteKey, providerKey, saveKey, verifyKey } from './keys';
+import { startCliLogin } from './login';
 import { LoginError, type EngineAdapter, type EngineCapabilities, type ModelInfo, type ProviderStatus } from './types';
 
 export const codexEngine: EngineAdapter = {
@@ -71,10 +73,16 @@ export const codexEngine: EngineAdapter = {
   },
 
   async login(req) {
-    if (req.kind !== 'api-key' || !req.apiKey) {
-      // Вход через аккаунт ChatGPT делает сам Codex (`codex login`): офис его пока не ведёт.
-      throw new LoginError('unsupported', 'subscription login is not supported yet');
+    if (req.kind === 'subscription') {
+      // Вход через аккаунт ChatGPT — штатный `codex login`. Без CODEX_HOME
+      // офиса: вход пишется туда же, где его ждёт Codex человека, а рабочая
+      // папка движка офиса берёт `auth.json` оттуда ссылкой (`runtimeEnv`).
+      return { done: false, flow: startCliLogin({
+        provider: 'codex', bin: codexBinary(), args: ['login'], env: projectEnv(),
+        acceptsCode: false, after: () => codexStatus(true).catch(() => {}),
+      }) };
     }
+    if (req.kind !== 'api-key' || !req.apiKey) throw new LoginError('unsupported', `login kind ${req.kind} is not supported`);
     await verifyKey('https://api.openai.com/v1/models', { Authorization: `Bearer ${req.apiKey}` });
     try { await saveKey('codex', req.apiKey); } catch (err) { throw new LoginError('keychain', (err as Error).message); }
     return { done: true, status: await codexEngine.status('codex', { force: true }) };

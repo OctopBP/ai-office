@@ -9,7 +9,7 @@ import type {
   PullRequestView, PrStage,
   EpicView, LimitsView, FactView, OwnerQuestion, LifeView, RitualId, DirectionView, ProposalView,
   OfficeSetupPlan, SetupCatalog, SetupStep, OfficeHealth, EnvReport, RuleScopeView, PmChat,
-  ProviderLoginResult, ProvidersView, ProviderView,
+  ProviderLoginFlow, ProviderLoginResult, ProvidersView, ProviderView,
 } from '../shared/types';
 import { isConnected, type ModelChoice, type ProviderId } from '../shared/providers';
 import {
@@ -431,6 +431,8 @@ interface State {
   providers: ProvidersView | null;
   /** Итог последнего входа или выхода по провайдеру — форма ключа показывает его под полем. */
   providerLogin: Partial<Record<ProviderId, ProviderLoginResult>>;
+  /** Последний сценарий входа по подписке: идёт — карточка ждёт браузер, кончился — показывает итог. */
+  providerFlow: Partial<Record<ProviderId, ProviderLoginFlow>>;
   /** Где владелец уже закрыл экран первого запуска («Пока осмотреться»): id офиса или `menu`. */
   firstLaunchSkipped: string[];
   /** Показанный сейчас дифф задачи. */
@@ -753,6 +755,7 @@ export const useStore = create<State>((set, get) => ({
   toasts: [],
   providers: null,
   providerLogin: {},
+  providerFlow: {},
   firstLaunchSkipped: loadFirstLaunchSkipped(),
   diff: null,
   pos: {},
@@ -1245,7 +1248,12 @@ export const useStore = create<State>((set, get) => ({
         set({ providers: e.providers });
         break;
       case 'provider.login':
-        set((s) => ({ providerLogin: { ...s.providerLogin, [e.provider]: e.result } }));
+        if (e.flow) set((s) => ({ providerFlow: { ...s.providerFlow, [e.provider]: e.flow } }));
+        else if (e.result && !e.result.ok && get().providerFlow[e.provider]?.flowId === '') {
+          // Вход по подписке не начался: отказ — карточке входа, а не форме ключа.
+          const error = e.result.message;
+          set((s) => ({ providerFlow: { ...s.providerFlow, [e.provider]: { flowId: '', phase: 'failed', error } } }));
+        } else if (e.result) set((s) => ({ providerLogin: { ...s.providerLogin, [e.provider]: e.result } }));
         break;
       case 'mcp.status':
         set({ mcpStatus: Object.fromEntries(e.servers.map((m) => [m.id, m])) });
@@ -2394,6 +2402,28 @@ export function loginProvider(provider: ProviderId, apiKey: string): void {
     return { providerLogin: rest };
   });
   socket?.send(JSON.stringify({ c: 'provider_login', provider, apiKey }));
+}
+
+/**
+ * Войти по подписке: сервер запускает штатный вход движка, адрес страницы
+ * входа приезжает сценарием в `providerFlow`. Отказ на старте — в `providerLogin`.
+ */
+export function loginProviderBySubscription(provider: ProviderId): void {
+  useStore.setState((s) => {
+    const login = { ...s.providerLogin };
+    delete login[provider];
+    return { providerLogin: login, providerFlow: { ...s.providerFlow, [provider]: { flowId: '', phase: 'starting' } } };
+  });
+  socket?.send(JSON.stringify({ c: 'provider_login', provider, kind: 'subscription' }));
+}
+
+export function cancelProviderLogin(provider: ProviderId): void {
+  socket?.send(JSON.stringify({ c: 'provider_login_cancel', provider }));
+}
+
+/** Код со страницы входа — движку. В стор не кладётся. */
+export function sendProviderLoginCode(provider: ProviderId, code: string): void {
+  socket?.send(JSON.stringify({ c: 'provider_login_code', provider, code }));
 }
 
 /** Удалить ключ провайдера из связки ключей. */

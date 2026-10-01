@@ -1,7 +1,7 @@
 /**
  * Экран «Провайдеры» на стороне сервера (docs/design/providers/spec.md, этап 4;
  * docs/design/T-189/ui.md): список провайдеров со статусом и возможностями,
- * установка движка с прогрессом, вход по ключу API и выход.
+ * установка движка с прогрессом, вход по ключу API, по подписке и выход.
  *
  * Провайдеры одни на процесс, а не на офис: движок стоит на машине, ключ
  * лежит в связке ключей пользователя. Поэтому события уходят всем клиентам,
@@ -14,9 +14,10 @@
  */
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import { PROVIDER_IDS, PROVIDERS, isConnected, isProviderId, type ProviderId } from '../shared/providers';
-import type { ClientCommand, ProviderLoginResult, ProviderView, ProvidersView, ServerEvent } from '../shared/types';
+import type { ClientCommand, ProviderLoginFlow, ProviderLoginResult, ProviderView, ProvidersView, ServerEvent } from '../shared/types';
 import { engineFor, LoginError, type EngineId, type ModelInfo, type ProviderStatus } from './engines';
 import { keychainAvailable, providerKey } from './engines/keys';
+import { activeLogins, cancelCliLogin, onLoginFlow, sendLoginCode } from './engines/login';
 import { broadcastAll, send } from './office-api';
 import { openedOffices } from './state';
 import { refreshEnvChecks } from './envcheck';
@@ -151,6 +152,36 @@ export async function loginProvider(provider: ProviderId, apiKey: string): Promi
   return { ok: true };
 }
 
+/**
+ * Войти по подписке: запустить штатный вход движка. Ход входа уходит всем
+ * клиентам (`onLoginFlow` ниже) — провайдеры общие, и вторая вкладка тоже
+ * должна видеть, что вход идёт. Отказ на старте — итогом тому, кто просил.
+ */
+export async function loginBySubscription(provider: ProviderId): Promise<
+  { ok: true; flow: ProviderLoginFlow } | Extract<ProviderLoginResult, { ok: false }>
+> {
+  try {
+    const start = await engineFor(provider).login({ provider, kind: 'subscription' });
+    if (!start.done) return { ok: true, flow: start.flow };
+    void broadcastProviders(true);
+    refreshOffices();
+    return { ok: true, flow: { flowId: '', phase: 'succeeded' } };
+  } catch (err) {
+    const code = err instanceof LoginError ? err.code : 'unsupported';
+    return { ok: false, code, message: (err as Error).message };
+  }
+}
+
+// Вход закончился — чем бы ни кончился, статус провайдера мог смениться:
+// успех даёт `ready`, а отмена возвращает карточку в «нужен вход».
+onLoginFlow((provider, flow) => {
+  broadcastAll({ t: 'provider.login', provider, flow } satisfies ServerEvent);
+  if (flow.phase === 'starting' || flow.phase === 'waiting') return;
+  if (flow.phase === 'succeeded') console.log(`[providers] вход по подписке в ${provider} выполнен`);
+  void broadcastProviders(true);
+  refreshOffices();
+});
+
 export async function logoutProvider(provider: ProviderId): Promise<ProviderLoginResult> {
   try {
     await engineFor(provider).logout(provider);
@@ -175,9 +206,26 @@ export function handleProviderCommand(cmd: ClientCommand, ws: Sink): boolean {
     case 'provider_install_cancel':
       if (isProviderId(cmd.provider)) cancelInstall(cmd.provider);
       return true;
-    case 'provider_login':
-      if (!isProviderId(cmd.provider) || typeof cmd.apiKey !== 'string') return true;
-      void loginProvider(cmd.provider, cmd.apiKey).then((result) => send(ws, { t: 'provider.login', provider: cmd.provider, result }));
+    case 'provider_login': {
+      if (!isProviderId(cmd.provider)) return true;
+      const provider = cmd.provider;
+      if ('kind' in cmd && cmd.kind === 'subscription') {
+        // Новый сценарий уже ушёл всем, но повтор во время входа отдаёт идущий
+        // молча — просившему шлём его текущее состояние.
+        void loginBySubscription(provider).then((r) => send(ws, r.ok
+          ? { t: 'provider.login', provider, flow: activeLogins().find((a) => a.provider === provider)?.flow ?? r.flow }
+          : { t: 'provider.login', provider, result: r }));
+        return true;
+      }
+      if (!('apiKey' in cmd) || typeof cmd.apiKey !== 'string') return true;
+      void loginProvider(provider, cmd.apiKey).then((result) => send(ws, { t: 'provider.login', provider, result }));
+      return true;
+    }
+    case 'provider_login_cancel':
+      if (isProviderId(cmd.provider)) cancelCliLogin(cmd.provider);
+      return true;
+    case 'provider_login_code':
+      if (isProviderId(cmd.provider) && typeof cmd.code === 'string') sendLoginCode(cmd.provider, cmd.code);
       return true;
     case 'provider_logout':
       if (!isProviderId(cmd.provider)) return true;
@@ -190,7 +238,11 @@ export function handleProviderCommand(cmd: ClientCommand, ws: Sink): boolean {
 
 /** Первое, что узнаёт подключившийся клиент о провайдерах, — до снапшота офиса. */
 export function greetProviders(ws: Sink): void {
-  void providersView().then((view) => send(ws, { t: 'providers', providers: view }));
+  void providersView().then((view) => {
+    send(ws, { t: 'providers', providers: view });
+    // Вход идёт с другой вкладки — эта должна увидеть ссылку и «Отмена».
+    for (const { provider, flow } of activeLogins()) send(ws, { t: 'provider.login', provider, flow });
+  });
 }
 
 function readJson(req: IncomingMessage): Promise<Record<string, unknown>> {
@@ -214,7 +266,7 @@ function readJson(req: IncomingMessage): Promise<Record<string, unknown>> {
  *   GET    /api/providers/:id           статус и модели (форма роли)
  *   POST   /api/providers/:id/install   начать установку движка
  *   DELETE /api/providers/:id/install   отменить установку
- *   POST   /api/providers/:id/login     { apiKey } — вход по ключу
+ *   POST   /api/providers/:id/login     { apiKey } — вход по ключу; { kind: 'subscription' } — штатный вход движка
  *   DELETE /api/providers/:id/login     удалить ключ
  * Возвращает false, если адрес не про провайдеров.
  */
@@ -264,6 +316,11 @@ export function handleProvidersHttp(req: IncomingMessage, res: ServerResponse, u
   }
   if (method === 'POST') {
     void readJson(req).then(async (body) => {
+      if (body.kind === 'subscription') {
+        const started = await loginBySubscription(provider);
+        json(started.ok ? 202 : 501, started);
+        return;
+      }
       const result = await loginProvider(provider, typeof body.apiKey === 'string' ? body.apiKey : '');
       json(result.ok ? 200 : result.code === 'rejected' ? 401 : 502, result);
     });

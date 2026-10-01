@@ -93,6 +93,23 @@ await check('Bash движка Codex не видит ключей', async () => 
   assert.deepEqual(leaked(out), []);
 });
 
+await check('вход по подписке не видит ключей провайдеров', async () => {
+  const loginDump = resolve(dir, 'login.env');
+  const fakeLogin = resolve(dir, 'claude-login');
+  writeFileSync(fakeLogin, `#!/bin/bash\n/usr/bin/env > '${loginDump}'\n`, { mode: 0o755 });
+  process.env.OFFICE_CLAUDE_BIN = fakeLogin;
+  const { forgetClaudeBin } = await import('../src/server/engines/claude-code');
+  const { onLoginFlow } = await import('../src/server/engines/login');
+  forgetClaudeBin();
+  const { engineFor } = await import('../src/server/engines');
+  const done = new Promise<void>((ok) => {
+    const off = onLoginFlow((_, flow) => { if (flow.phase !== 'starting' && flow.phase !== 'waiting') { off(); ok(); } });
+  });
+  await engineFor('claude-code').login({ provider: 'claude-code', kind: 'subscription' });
+  await done;
+  assert.deepEqual(leaked(readFileSync(loginDump, 'utf8')), []);
+});
+
 if (failed) {
   console.log(`\n${failed} провал(ов)`);
   process.exit(1);

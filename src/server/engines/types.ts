@@ -17,6 +17,7 @@ import type {
   Options, SDKMessage, SDKUserMessage, McpServerConfig, SdkPluginConfig,
 } from '@anthropic-ai/claude-agent-sdk';
 import type { AuthKind, EngineCapabilities, EngineId, ProviderId, ProviderStatus } from '../../shared/providers';
+import type { ProviderLoginFlow } from '../../shared/types';
 import type { LimitSource } from '../limits';
 import type { McpStatusSource } from '../mcp';
 
@@ -54,7 +55,11 @@ export interface LoginRequest {
   /** Для api-key: ключ сразу уходит в связку ключей, в состояние офиса не пишется. */
   apiKey?: string;
 }
-export type LoginStart = { done: true; status: ProviderStatus };
+/**
+ * Ключ — сразу итог; подписка — запущенный сценарий штатного входа движка
+ * (`engines/login.ts`): дальше его фазы приходят через `onLoginFlow`.
+ */
+export type LoginStart = { done: true; status: ProviderStatus } | { done: false; flow: ProviderLoginFlow };
 
 /**
  * Отказ во входе с причиной для формы: ключ не принят, сети нет, связка
@@ -88,7 +93,10 @@ export interface EngineAdapter {
   /** Сколько примерно качать, МБ — для «Нужен движок (~310 МБ)». */
   readonly sizeMb?: number;
 
-  /** Вход. Ключ проверяется запросом метаданных и уходит в связку ключей (`engines/keys.ts`). */
+  /**
+   * Вход. Ключ проверяется запросом метаданных и уходит в связку ключей
+   * (`engines/keys.ts`); подписка — штатный вход движка (`engines/login.ts`).
+   */
   login(req: LoginRequest): Promise<LoginStart>;
   /** Выйти: удалить ключ из связки. Вход самого движка по подписке не трогается. */
   logout(provider: ProviderId): Promise<void>;
