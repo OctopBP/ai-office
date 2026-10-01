@@ -26,7 +26,27 @@ export function engineFor(provider: ProviderId): EngineAdapter {
  */
 export function startSession(request: SessionRequest): EngineSession {
   const provider = providerOf(request.options);
-  return engineFor(provider).start({ ...request, options: {
-    ...request.options, resume: sessionForProvider(request.options.resume, provider),
-  } });
+  try {
+    return engineFor(provider).start({ ...request, options: {
+      ...request.options, resume: sessionForProvider(request.options.resume, provider),
+    } });
+  } catch (err) {
+    return failedSession(err);
+  }
+}
+
+/**
+ * Сессия, которая не смогла начаться. Движок отказывает синхронно — например,
+ * SDK не находит свой бинарь, — а вызов стоит в обработчике события сервера,
+ * и исключение роняло весь процесс (Windows без движка, T-237). Здесь отказ
+ * откладывается до первого чтения: каждый, кто запускает сессию, уже читает её
+ * в try и сам решает, куда сказать об ошибке — в чат, в задачу, в журнал.
+ */
+function failedSession(err: unknown): EngineSession {
+  const fail = () => Promise.reject(err);
+  return {
+    [Symbol.asyncIterator]: () => ({ next: fail }),
+    usage_EXPERIMENTAL_MAY_CHANGE_DO_NOT_RELY_ON_THIS_API_YET: fail,
+    mcpServerStatus: fail,
+  };
 }

@@ -9,6 +9,7 @@ import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { query as claudeQuery, createSdkMcpServer as claudeServer } from '@anthropic-ai/claude-agent-sdk';
 import { commandScrubFile, engineEnv, projectEnv } from '../childenv';
+import { c } from '../i18n';
 import { limitBlock } from '../limits';
 import { MODEL_ALIASES, MODEL_IDS } from '../../shared/models';
 import { engineDir, installedBin, installFromNpm, runnable } from './install';
@@ -50,7 +51,11 @@ const platformPackage = (): string => `@anthropic-ai/claude-agent-sdk-${process.
 /** Движок из PATH — так его находит человек, поставивший Claude Code раньше. */
 function fromPath(): string {
   try {
-    const out = execFileSync(process.platform === 'win32' ? 'where' : 'which', [exe()], { encoding: 'utf8', timeout: 5000 });
+    // stderr глушим: «не найдено» — штатный ответ, а `where` на Windows пишет
+    // его в консоль в OEM-кодировке, и в логе сервера он становится кракозябрами.
+    const out = execFileSync(process.platform === 'win32' ? 'where' : 'which', [exe()], {
+      encoding: 'utf8', timeout: 5000, stdio: ['ignore', 'pipe', 'ignore'],
+    });
     return out.split(/\r?\n/).map((line) => line.trim()).filter(Boolean)[0] ?? '';
   } catch {
     return '';
@@ -266,6 +271,12 @@ export const claudeCodeEngine: EngineAdapter = {
   start({ prompt, options }) {
     const { provider: _, ...sdk } = options;
     const bin = claudeBin();
+    // В приложении SDK без явного пути ищет бинарь рядом с собой, а пакета
+    // платформы там нет — и отказывает невнятным «Native CLI binary not
+    // found». Говорим человеку, что делать.
+    if (!bin && process.env.OFFICE_APP === '1') {
+      throw new Error(`${c('env.engine.none')} ${c('env.engine.noneFix')}`);
+    }
     // Сессия работает в рабочей копии проекта, и всё, что она запустит, — тесты,
     // сборка, свой сервер — должно видеть проект, а не приложение офиса.
     // Ключ провайдера движку нужен, его Bash-командам — нет: снимает их файл
