@@ -8,6 +8,7 @@ import { accumulate, dayKey, emptyUsage } from '../shared/types';
 import { t } from './i18n';
 import { Avatar, AgentTag } from './Avatar';
 import { displayInstance, useInstanceName } from './instanceName';
+import { SpendReportModal } from './SpendReportModal';
 
 /**
  * Доска расходов: во что офису обошёлся день и каждая задача, и сколько
@@ -267,6 +268,7 @@ export function MoneyBoard() {
   // это про то, куда человек смотрит сейчас, и переживать закрытие доски ему
   // незачем — ровно как фильтру по фиче на доске задач.
   const [span, setSpan] = useState<'today' | 'all'>('today');
+  const [reportOpen, setReportOpen] = useState(false);
 
   const week = days.slice(-7);
   const peak = Math.max(0.0001, ...week.map((d) => d.usage.costUsd));
@@ -333,6 +335,10 @@ export function MoneyBoard() {
 
       <h4 className="section-title">{t('money.budget.title')}</h4>
       <Budget />
+      <button className="spend-report-open" onClick={() => setReportOpen(true)}>
+        {t('spendReport.open')}
+      </button>
+      {reportOpen && <SpendReportModal onClose={() => setReportOpen(false)} />}
 
       <h4 className="section-title">{t('usage.byDay')}</h4>
       {week.length === 0 && <p className="muted small">{t('usage.nothingSpent')}</p>}

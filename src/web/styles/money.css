@@ -78,3 +78,18 @@
 .spend-breakdown { display: flex; flex-direction: column; gap: 2px; min-width: 220px; }
 .spend-break-item { display: flex; align-items: center; gap: var(--space-2); }
 .spend-break-item .row-title { flex: 1; min-width: 0; }
+
+/* ---------- окно «Расход токенов» ---------- */
+.spend-report { max-height: 86vh; overflow-y: auto; }
+.spend-report .spend-table tfoot td {
+  border-top: 1px solid var(--hairline); border-bottom: none; font-weight: 600;
+}
+.spend-report .spend-table tr.hl td { background: var(--accent-soft, var(--hairline)); }
+.spend-report-empty { display: flex; flex-direction: column; gap: var(--space-1); padding: var(--space-4); align-items: flex-start; }
+.spend-signal { align-items: flex-start; text-align: left; }
+.spend-signal-main { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.spend-signal-dot { width: 8px; height: 8px; border-radius: 50%; margin-top: 6px; flex: none; background: var(--accent-3, #d9a400); }
+.spend-signal-dot.alert { background: var(--danger, #d64545); }
+.link-btn { background: none; border: none; padding: 0; color: inherit; font: inherit; cursor: pointer; text-align: left; }
+.link-btn:hover { text-decoration: underline; }
+.spend-report-open { align-self: flex-start; margin-top: var(--space-2); }
