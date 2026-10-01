@@ -294,13 +294,18 @@ function limitBlock(now = Date.now()): Rejection | null {
   return rejection;
 }
 
-/** Что показывать в интерфейсе. Порядок окон — от самого короткого. */
+/**
+ * Что показывать в интерфейсе. Порядок окон — от самого короткого. Окно
+ * всегда несёт провайдера: окно без метки читалось бы как окно Claude Code, а
+ * провайдеров несколько, и веб по метке прячет шкалы неподключённых.
+ */
 function limitsView(): LimitsView {
   if (!loaded) load();
   if (updatedAt === null) return emptyLimits();
   return {
     available: true,
-    windows: LIMIT_ORDER.map((k) => windows.get(k)).filter((w): w is LimitWindow => Boolean(w)),
+    windows: LIMIT_ORDER.map((k) => windows.get(k)).filter((w): w is LimitWindow => Boolean(w))
+      .map((w) => ({ ...w, provider })),
     status,
     plan,
     updatedAt,
@@ -344,8 +349,8 @@ export function limitsView(provider?: ProviderId): LimitsView {
   const views = PROVIDER_IDS.map(id => ({ id, view: trackers[id].limitsView() }));
   const known = views.filter(v => v.view.available);
   if (!known.length) return emptyLimits();
-  if (known.length === 1 && known[0].id === 'claude-code') return known[0].view;
-  return { available: true, windows: known.flatMap(({id,view}) => view.windows.map(w => ({ ...w, provider: id }))),
+  if (known.length === 1) return known[0].view;
+  return { available: true, windows: known.flatMap(({ view }) => view.windows),
     status: known.some(v => v.view.status === 'rejected') ? 'rejected' : null,
     plan: null, updatedAt: Math.max(...known.map(v => v.view.updatedAt ?? 0)) };
 }

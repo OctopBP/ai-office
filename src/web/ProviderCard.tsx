@@ -297,7 +297,7 @@ export function ProviderCard({ p, onUse }: {
   const moreCaps = caps.slice(3);
   const connected = status.state === 'ready' || status.state === 'limited';
   const windows = connected
-    ? limits.windows.filter((w) => (w.provider ?? 'claude-code') === p.id)
+    ? limits.windows.filter((w) => w.provider === p.id)
     : [];
 
   const keyButton = (label: UiKey, primary: boolean) => (

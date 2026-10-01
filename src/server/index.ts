@@ -127,7 +127,10 @@ async function openOffice(entry: OfficeEntry): Promise<void> {
   }
   if (restored) console.log(state.say('boot.restored', { name: entry.name, board }));
   state.dryRun = DRY_RUN;
-  state.authSource = usingKey() ? 'api-key' : 'subscription';
+  // Без ключа это ещё не подписка: Claude Code может быть вовсе не подключён, а
+  // офис — работать на другом провайдере. Как кто вошёл, знает статус
+  // провайдера (экран «Провайдеры», шкалы лимитов), а не этот флаг.
+  state.authSource = usingKey() ? 'api-key' : 'unknown';
   state.setCloud({ hasKey: usingKey(), hasToken: Boolean(githubToken()) });
   await setupGit(state, entry.projectDir, ours);
   // Проверки окружения — последним шагом открытия: к этому моменту известны и

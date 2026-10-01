@@ -1,4 +1,4 @@
-import { PROVIDERS } from '../shared/providers';
+import { isConnected, PROVIDERS } from '../shared/providers';
 import { useEffect, useState } from 'react';
 import type { LimitKind } from '../shared/types';
 import { freshness, limitTone, resetLine } from './money';
@@ -51,7 +51,7 @@ export function Gauge({ label, percent, note, tone }: {
  */
 export function LimitBars() {
   const limits = useStore((s) => s.limits);
-  const authSource = useStore((s) => s.authSource);
+  const providers = useStore((s) => s.providers);
   // Часы обратного отсчёта живут здесь, а не у того, кто рисует шкалы: тикать
   // они должны одинаково везде, и второй такой таймер в меню разошёлся бы
   // с этим на полминуты.
@@ -61,20 +61,30 @@ export function LimitBars() {
     return () => clearInterval(id);
   }, []);
 
-  if (!limits.available || limits.windows.length === 0) {
-    return (
-      <p className="muted small">
-        {t(authSource === 'api-key' ? 'limits.none.apiKey' : 'limits.none.yet')}
-      </p>
-    );
+  // Шкалы — только у подключённых провайдеров: лимиты лежат на диске с
+  // прошлых запусков, и шкала отключённого провайдера (той же подписки Claude)
+  // выглядела бы так, будто офис на нём работает. Список провайдеров ещё не
+  // пришёл — не прячем ничего, чтобы не мигать пустотой на старте.
+  const connected = providers?.providers.filter((p) => isConnected(p.status)) ?? null;
+  const windows = connected
+    ? limits.windows.filter((w) => connected.some((p) => p.id === w.provider))
+    : limits.windows;
+
+  if (!limits.available || windows.length === 0) {
+    const none: UiKey = connected?.length === 0 ? 'limits.none.noProvider'
+      // Все подключённые пускают по ключу API — планов с окнами у них нет.
+      : connected?.length && connected.every((p) => p.status.state === 'ready' && p.status.auth === 'api-key')
+        ? 'limits.none.apiKey'
+        : 'limits.none.yet';
+    return <p className="muted small">{t(none)}</p>;
   }
 
   return (
     <>
       <div className="limit-rows">
-        {limits.windows.map((w) => (
+        {windows.map((w) => (
           <Gauge
-            key={`${w.provider ?? 'claude-code'}:${w.kind}`}
+            key={`${w.provider ?? ''}:${w.kind}`}
             label={`${w.provider ? PROVIDERS[w.provider].label + ' · ' : ''}${t(KIND_KEY[w.kind])}`}
             percent={w.utilization}
             note={resetLine(w, now)}
