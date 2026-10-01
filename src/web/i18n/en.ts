@@ -186,6 +186,8 @@ export const en = {
   "pmChats.waiting": "needs you",
   "pmChats.unread": "New messages",
   "pmChats.pinned": "Main chat — pinned to the top",
+  "pmChats.task.asking": "awaits your decision",
+  "pmChats.task.merged": "merged",
   "md.chat.open": "Open chat",
   "md.chat.missing": "Chat not found",
   "md.code.copy": "Copy",

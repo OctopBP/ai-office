@@ -236,6 +236,24 @@
   font-size: var(--fs-small); color: var(--ink-3); min-width: 0;
 }
 .pm-chat-linked { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* Номера привязанных задач: статус только цветом самого номера, без плашек. */
+.pm-chat-tasks {
+  position: relative; flex: 1; min-width: 0;
+  display: flex; align-items: baseline; gap: 6px; overflow: hidden; white-space: nowrap;
+}
+.pm-chat-tasks-measure {
+  position: absolute; left: 0; top: 0; visibility: hidden; pointer-events: none;
+  display: flex; gap: 6px; white-space: nowrap;
+}
+.pm-chat-task, .pm-chat-task-more { flex: none; font-variant-numeric: tabular-nums; }
+.pm-chat-task.active { color: var(--accent); animation: pm-task-pulse 2.4s ease-in-out infinite; }
+.pm-chat-task.problem { color: var(--danger); }
+.pm-chat-task.done { opacity: .55; }
+.pm-chat-task.cancelled { opacity: .55; text-decoration: line-through; }
+@keyframes pm-task-pulse { 50% { opacity: .6; } }
+@media (prefers-reduced-motion: reduce) {
+  .pm-chat-task.active { animation: none; }
+}
 .pm-chat-waiting {
   flex: none; padding: 0 6px; border-radius: var(--radius-pill);
   background: rgba(var(--warn-rgb), .16); color: color-mix(in srgb, var(--warn) 60%, var(--ink));

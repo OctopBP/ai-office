@@ -185,6 +185,8 @@ export const ru: Record<keyof typeof en, string> = {
   "pmChats.waiting": "ждёт вас",
   "pmChats.unread": "Новые сообщения",
   "pmChats.pinned": "Основной чат — закреплён наверху",
+  "pmChats.task.asking": "ждёт вашего решения",
+  "pmChats.task.merged": "влита",
   "md.chat.open": "Открыть чат",
   "md.chat.missing": "Чат не найден",
   "md.code.copy": "Копировать",

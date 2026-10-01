@@ -1,5 +1,5 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
-import type { PmChat } from '../../shared/types';
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import type { PmChat, TaskView } from '../../shared/types';
 import { pmChatMeta, pmChatSections, useStore } from '../store';
 import { t } from '../i18n';
 import { Avatar } from '../Avatar';
@@ -114,11 +114,9 @@ function PmChatRow({ chat, active, unread, tasks, questions }: {
     if (title.trim() && title.trim() !== chat.title) rename(chat.id, title);
   };
 
-  const linked = meta.tasks.length === 1
-    ? `${meta.tasks[0].id} · ${meta.tasks[0].title}`
-    : meta.tasks.length > 1
-      ? meta.tasks.slice(0, 3).map((tk) => tk.id).join(', ') + (meta.tasks.length > 3 ? '…' : '')
-      : empty ? t('pmChats.noMessages') : t('pmChats.noTasks');
+  const asking = useMemo(() => new Set(questions
+    .filter((q) => q.taskId !== null && q.answer === null && q.dismissedAt === null && !q.mergedInto)
+    .map((q) => q.taskId as string)), [questions]);
 
   return (
     <div
@@ -158,7 +156,9 @@ function PmChatRow({ chat, active, unread, tasks, questions }: {
         </div>
         <div className="pm-chat-meta">
           {meta.waiting && <span className="pm-chat-waiting">{t('pmChats.waiting')}</span>}
-          <span className="pm-chat-linked">{linked}</span>
+          {meta.tasks.length > 0
+            ? <TaskNumbers tasks={meta.tasks} asking={asking} />
+            : <span className="pm-chat-linked">{empty ? t('pmChats.noMessages') : t('pmChats.noTasks')}</span>}
         </div>
       </div>
       {unread && <i className="pm-chat-dot" aria-label={t('pmChats.unread')} />}
@@ -177,5 +177,95 @@ function PmChatRow({ chat, active, unread, tasks, questions }: {
         )}
       </div>
     </div>
+  );
+}
+
+/**
+ * Как номер задачи выглядит в строке чата. Порядок вида — он же порядок
+ * показа: при нехватке места в строке остаются проблемные и идущие, а
+ * закрытые первыми уходят в «+N».
+ */
+const TASK_LOOKS = ['problem', 'active', 'idle', 'done', 'cancelled'] as const;
+type TaskLook = typeof TASK_LOOKS[number];
+
+function taskLook(tk: TaskView, asking: Set<string>): TaskLook {
+  // Открытый вопрос владельцу — та же беда, что и провал: без человека задача не сдвинется.
+  if (tk.status === 'failed' || tk.status === 'blocked' || asking.has(tk.id)) return 'problem';
+  if (tk.status === 'in_progress' || tk.status === 'review') return 'active';
+  if (tk.status === 'done') return 'done';
+  if (tk.status === 'cancelled') return 'cancelled';
+  return 'idle';
+}
+
+function taskHint(tk: TaskView, asking: Set<string>): string {
+  const status = asking.has(tk.id) && tk.status !== 'failed' && tk.status !== 'blocked'
+    ? t('pmChats.task.asking')
+    : tk.status === 'done' && tk.merged ? t('pmChats.task.merged') : t(`task.status.${tk.status}`);
+  return `${tk.id} · ${tk.title} · ${status}`;
+}
+
+/**
+ * Номера привязанных задач, окрашенные по статусу. Сколько влезает в строку,
+ * меряем по невидимой копии всех номеров: у скрытых номеров ширины уже не
+ * узнать, а подбирать число вслепую — значит то резать лишнее, то вылезать.
+ */
+function TaskNumbers({ tasks, asking }: { tasks: TaskView[]; asking: Set<string> }) {
+  const boxRef = useRef<HTMLSpanElement>(null);
+  const measureRef = useRef<HTMLSpanElement>(null);
+  const sorted = useMemo(() => tasks
+    .map((tk) => ({ tk, look: taskLook(tk, asking) }))
+    // sort устойчив: внутри вида остаётся порядок стора — свежие первыми.
+    .sort((a, b) => TASK_LOOKS.indexOf(a.look) - TASK_LOOKS.indexOf(b.look)), [tasks, asking]);
+  const [fit, setFit] = useState(sorted.length);
+
+  useLayoutEffect(() => {
+    const box = boxRef.current;
+    const measure = measureRef.current;
+    if (!box || !measure) return;
+    const recount = () => {
+      const chips = Array.from(measure.children) as HTMLElement[];
+      const more = chips.pop();
+      const gap = parseFloat(getComputedStyle(measure).columnGap) || 0;
+      const room = box.clientWidth;
+      const n = chips.length;
+      let used = 0;
+      let k = 0;
+      while (k < n) {
+        const next = used + (k > 0 ? gap : 0) + chips[k].offsetWidth;
+        // Последний номер места под «+N» не требует.
+        const tail = k + 1 < n ? gap + (more?.offsetWidth ?? 0) : 0;
+        if (next + tail > room) break;
+        used = next;
+        k++;
+      }
+      // Хотя бы один номер показываем всегда — пусть и обрезанным.
+      setFit(Math.max(1, k));
+    };
+    recount();
+    const ro = new ResizeObserver(recount);
+    ro.observe(box);
+    return () => ro.disconnect();
+  }, [sorted]);
+
+  const chip = ({ tk, look }: { tk: TaskView; look: TaskLook }) => (
+    <span key={tk.id} className={`pm-chat-task ${look}`} title={taskHint(tk, asking)}>{tk.id}</span>
+  );
+  const shown = sorted.slice(0, fit);
+  const hidden = sorted.slice(fit);
+
+  return (
+    <span className="pm-chat-tasks" ref={boxRef}>
+      {shown.map(chip)}
+      {sorted.length === 1 && <span className="pm-chat-linked">{sorted[0].tk.title}</span>}
+      {hidden.length > 0 && (
+        <span className="pm-chat-task-more" title={hidden.map(({ tk }) => taskHint(tk, asking)).join('\n')}>
+          +{hidden.length}
+        </span>
+      )}
+      <span className="pm-chat-tasks-measure" ref={measureRef} aria-hidden="true">
+        {sorted.map(chip)}
+        <span className="pm-chat-task-more">+{sorted.length}</span>
+      </span>
+    </span>
   );
 }
