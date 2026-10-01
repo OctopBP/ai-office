@@ -23,7 +23,7 @@ export const CAPABILITIES = [
   'code.write', 'code.review',
   'docs.write', 'docs.legal', 'docs.marketing',
   'design.ui', 'design.sprite', 'design.3d', 'image.generate',
-  'research.web', 'plan', 'summarize',
+  'research.web', 'plan', 'summarize', 'qa.play',
 ] as const;
 export type Capability = typeof CAPABILITIES[number];
 export const isCapability = (s: string): s is Capability =>
@@ -42,6 +42,9 @@ export function typeForCapabilities(caps: readonly string[]): TaskType | null {
   if (caps.some((c) => c.startsWith('design.') || c === 'image.generate')) return 'design';
   if (caps.some((c) => c.startsWith('docs.'))) return 'content';
   if (caps.includes('research.web')) return 'research';
+  // Самостоятельная проверка QA даёт документы в docs/qa/ — по процессу это
+  // то же исследование: приёмка владельцем и слияние папки (spec QA §2).
+  if (caps.includes('qa.play')) return 'research';
   return null;
 }
 

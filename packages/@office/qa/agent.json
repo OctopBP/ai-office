@@ -1,0 +1,58 @@
+{
+  "schema": 1,
+  "name": "@office/qa",
+  "kind": "agent",
+  "title": {
+    "ru": "Тестировщик (QA)",
+    "en": "QA"
+  },
+  "summary": {
+    "ru": "Проверяет веб-приложение руками в настоящем браузере: устройства, поворот, офлайн, жесты, консоль, кадры.",
+    "en": "QA: hands-on checks of a web app in a real browser — devices, rotation, offline, touch, console, frames."
+  },
+  "tags": [
+    "qa",
+    "testing",
+    "browser",
+    "mobile"
+  ],
+  "emoji": "🧪",
+  "license": "MIT",
+  "capabilities": [
+    "qa.play"
+  ],
+  "runtime": {
+    "engine": "claude-code",
+    "model": "sonnet",
+    "tools": [
+      "Read",
+      "Write",
+      "Edit",
+      "Glob",
+      "Grep",
+      "Bash",
+      "TodoWrite"
+    ],
+    "permissionMode": "ask-risky",
+    "isolate": true,
+    "maxTurns": null,
+    "mcp": [
+      "browser"
+    ]
+  },
+  "servers": [
+    {
+      "id": "browser",
+      "title": "Browser (QA)",
+      "transport": "stdio",
+      "command": "node",
+      "args": [
+        "tools/browser/server.mjs"
+      ],
+      "env": {
+        "QA_ALLOWED_ORIGIN": "${QA_ALLOWED_ORIGIN}"
+      },
+      "alwaysLoad": true
+    }
+  ]
+}

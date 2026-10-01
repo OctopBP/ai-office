@@ -1,0 +1,5 @@
+{
+  "name": "qa",
+  "version": "0.1.0",
+  "description": "Skills for hands-on QA of a web app in a real browser: criteria and report templates with PASS/FAIL verdicts and BLOCKER/MAJOR/MINOR findings."
+}
