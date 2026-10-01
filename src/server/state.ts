@@ -1954,7 +1954,13 @@ export class OfficeState {
     this.epicSeq = data.epicSeq ?? this.epics.size;
     // Записи из версий до появления веток чата относим к разговору с менеджером.
     this.chat = (data.chat ?? []).map((c) => ({ ...c, thread: c.thread ?? 'pm#1' }));
-    this.loadPmChats(data.pmChats, data.pmChatSeq);
+    // Задачи ложатся в память ниже, а привязку к чату надо знать уже сейчас:
+    // по ней пустой чат отличается от чата, где переписки нет, но есть работа.
+    const linkedChats = new Set<string>();
+    for (const x of [...(data.tasks ?? []), ...(data.epics ?? []), ...(data.questions ?? [])]) {
+      if (x?.chatId) linkedChats.add(x.chatId);
+    }
+    this.loadPmChats(data.pmChats, data.pmChatSeq, linkedChats);
     this.log = data.log ?? [];
     // Совещание, застигнутое перезапуском, не продолжится: сессии участников
     // умерли вместе с процессом. Оставить его «идущим» значило бы показывать
@@ -3149,7 +3155,7 @@ export class OfficeState {
    * реплики. Офис без единой реплики чатов не получает — веб покажет пустое
    * состояние, а основной чат заведётся с первой репликой.
    */
-  private loadPmChats(saved: PmChat[] | undefined, seq: number | undefined): void {
+  private loadPmChats(saved: PmChat[] | undefined, seq: number | undefined, linked: Set<string>): void {
     this.pmChats.clear();
     for (const raw of saved ?? []) {
       if (!raw || typeof raw.id !== 'string') continue;
@@ -3172,7 +3178,25 @@ export class OfficeState {
     const mains = chats.filter((c) => c.main);
     for (const extra of mains.slice(1)) extra.main = false;
     if (!mains.length && chats.length) chats[0].main = true;
-    if (!orphans.length) return;
+    if (orphans.length) this.adoptOrphanPmEntries(orphans);
+    this.dropEmptyPmChats(linked);
+  }
+
+  /**
+   * Пустые чаты из версий, где «Новый чат» заводил чат сразу, ещё до первой
+   * реплики: ни переписки, ни задач, фич и вопросов — в списке им не место.
+   * Основной не трогаем никогда, чат из open_chat не пуст — в нём бриф.
+   * Счётчик id не откатываем: номер ушедшего чата не должен достаться новому.
+   */
+  private dropEmptyPmChats(linked: Set<string>): void {
+    const spoken = new Set(this.chat.map((e) => e.chatId).filter((id): id is string => Boolean(id)));
+    for (const chat of [...this.pmChats.values()]) {
+      if (!chat.main && !spoken.has(chat.id) && !linked.has(chat.id)) this.pmChats.delete(chat.id);
+    }
+  }
+
+  /** Реплики без чата (или с исчезнувшим чатом) — в основной; нет его — заводим. */
+  private adoptOrphanPmEntries(orphans: ChatEntry[]): void {
     let main = [...this.pmChats.values()].find((c) => c.main);
     if (!main) {
       const first = orphans[0].at;

@@ -264,7 +264,16 @@ interface State {
   pmChatSeen: Record<string, number>;
   /** Открыть чат с менеджером: переключает ветку на 'pm#1' и запоминает выбор. */
   openPmChat: (id: string) => void;
-  /** Завести чат; вкладка откроет его, когда сервер пришлёт его с нашим nonce. */
+  /**
+   * Открыт черновик нового чата: ни в списке, ни на сервере его нет, пока
+   * владелец не напишет первую реплику — она и заведёт чат (`send`). Ушёл,
+   * ничего не написав, — черновик исчезает без следа.
+   */
+  pmChatDraft: boolean;
+  /**
+   * «Новый чат»: открывает черновик. Черновик или пустой чат уже открыт —
+   * второго не заводит, а возвращает к нему.
+   */
   createPmChat: () => void;
   renamePmChat: (id: string, title: string) => void;
   archivePmChat: (id: string, archived: boolean) => void;
@@ -512,10 +521,13 @@ const INPUT_DRAFTS_KEY = 'office-input-drafts';
  * есть в каждом офисе, и без него недописанное в одном офисе всплыло бы в
  * другом. Перевод строки как разделитель: в id офиса и ветки его не бывает.
  */
-function inputDraftKey(s: Pick<State, 'offices' | 'thread' | 'pmChatId'>): string {
+function inputDraftKey(s: Pick<State, 'offices' | 'thread' | 'pmChatId' | 'pmChatDraft'>): string {
   // У каждого чата с менеджером свой черновик: недописанное в одном чате не
-  // должно уехать в соседний при переключении.
-  const thread = s.thread === 'pm#1' && s.pmChatId ? `pm#1:${s.pmChatId}` : s.thread;
+  // должно уехать в соседний при переключении. У черновика нового чата id
+  // ещё нет — свой ключ, чтобы не писать поверх выделенного раньше чата.
+  const thread = s.thread !== 'pm#1' ? s.thread
+    : s.pmChatDraft ? 'pm#1:new'
+    : s.pmChatId ? `pm#1:${s.pmChatId}` : s.thread;
   return `${s.offices.find((o) => o.current)?.id ?? ''}\n${thread}`;
 }
 
@@ -564,8 +576,9 @@ function restorePmChat(officeId: string | undefined, chats: PmChat[]): string | 
 let pendingPmChatNonce: string | null = null;
 
 /** Смотрит ли пользователь прямо сейчас в этот чат с менеджером. */
-const viewingPmChat = (s: Pick<State, 'view' | 'thread' | 'pmChatId'>, id: string | undefined): boolean =>
-  s.view === 'chat' && s.thread === 'pm#1' && Boolean(id) && s.pmChatId === id;
+const viewingPmChat = (
+  s: Pick<State, 'view' | 'thread' | 'pmChatId'> & { pmChatDraft?: boolean }, id: string | undefined,
+): boolean => s.view === 'chat' && s.thread === 'pm#1' && !s.pmChatDraft && Boolean(id) && s.pmChatId === id;
 
 /** Отметить открытый чат прочитанным — до его текущего `lastActivityAt`. */
 function seenNow(s: Pick<State, 'pmChats' | 'pmChatSeen'>, id: string | null): Record<string, number> {
@@ -643,6 +656,7 @@ export const useStore = create<State>((set, get) => ({
   pmChats: {},
   pmChatId: null,
   pmChatSeen: {},
+  pmChatDraft: false,
   log: [],
   permissions: [],
   roleFeedback: null,
@@ -722,21 +736,27 @@ export const useStore = create<State>((set, get) => ({
   setTaskGroupOpen: (key, open) => set((s) => ({ taskGroupsOpen: { ...s.taskGroupsOpen, [key]: open } })),
 
   // Вернулись в ветку менеджера прямо в чате — значит новое уже видно.
+  // Ушли из ветки менеджера — черновик нового чата уходит вместе с ней.
   setThread: (t) => set((s) => (t === 'pm#1' && s.view === 'chat'
     ? { thread: t, chatUnread: false, pmChatSeen: seenNow(s, s.pmChatId) }
-    : { thread: t })),
+    : { thread: t, ...(t !== 'pm#1' ? { pmChatDraft: false } : {}) })),
   openPmChat: (id) => set((s) => {
     if (!s.pmChats[id]) return {};
     savePmChatChoice(s.offices.find((o) => o.current)?.id, id);
     return {
-      thread: 'pm#1', pmChatId: id, pmChatSeen: seenNow(s, id),
+      thread: 'pm#1', pmChatId: id, pmChatSeen: seenNow(s, id), pmChatDraft: false,
       ...(s.view === 'chat' ? { chatUnread: false } : {}),
     };
   }),
-  createPmChat: () => {
-    pendingPmChatNonce = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
-    socket?.send(JSON.stringify({ c: 'pm_chat_create', nonce: pendingPmChatNonce }));
-  },
+  createPmChat: () => set((s) => {
+    // Открытый чат и так пуст — он и есть «новый», второй рядом не нужен.
+    const open = s.pmChatId ? s.pmChats[s.pmChatId] : undefined;
+    const emptyOpen = s.thread === 'pm#1' && !s.pmChatDraft && open !== undefined && !open.main
+      && !s.chat.some((e) => e.chatId === open.id)
+      && !Object.values(s.tasks).some((tk) => tk.chatId === open.id)
+      && !s.questions.some((q) => q.chatId === open.id);
+    return { thread: 'pm#1', pmChatDraft: !emptyOpen, ...(s.view === 'chat' ? { chatUnread: false } : {}) };
+  }),
   renamePmChat: (id, title) => {
     const clean = title.trim();
     if (clean) socket?.send(JSON.stringify({ c: 'pm_chat_rename', chatId: id, title: clean }));
@@ -758,9 +778,10 @@ export const useStore = create<State>((set, get) => ({
   setThemeMode: (m) => { localStorage.setItem('office-theme', m); set({ themeMode: m, theme: resolveTheme(m) }); },
   view: 'office',
   // Открыли чат — точка непрочитанного своё отслужила.
+  // Ушли из вида «Чат» — черновик нового чата не переживает и этого.
   setView: (v) => set((s) => (v === 'chat'
     ? { view: v, chatUnread: false, ...(s.thread === 'pm#1' ? { pmChatSeen: seenNow(s, s.pmChatId) } : {}) }
-    : { view: v })),
+    : { view: v, pmChatDraft: false })),
   railCollapsed: localStorage.getItem('office-rail') === 'collapsed',
   setRailCollapsed: (v) => { localStorage.setItem('office-rail', v ? 'collapsed' : 'open'); set({ railCollapsed: v }); },
   spendPeriod: 'today',
@@ -922,6 +943,7 @@ export const useStore = create<State>((set, get) => ({
           // запомненного для этого офиса, а прочитанным считаем всё, что есть.
           pmChats: Object.fromEntries(pmChats.map((c) => [c.id, c])),
           pmChatId: restorePmChat(officeId, pmChats),
+          pmChatDraft: false,
           pmChatSeen: Object.fromEntries(pmChats.map((c) => [c.id, c.lastActivityAt])),
           diff: null,
           roleFeedback: null,
@@ -1075,7 +1097,9 @@ export const useStore = create<State>((set, get) => ({
           const pmChatSeen = viewingPmChat(next, e.chat.id) || !s.pmChats[e.chat.id]
             ? { ...s.pmChatSeen, [e.chat.id]: e.chat.lastActivityAt }
             : s.pmChatSeen;
-          return { pmChats, pmChatId, pmChatSeen, thread: next.thread };
+          // Первая реплика из черновика завела чат — черновик стал им.
+          const pmChatDraft = s.pmChatDraft && !mine && pmChatId === s.pmChatId;
+          return { pmChats, pmChatId, pmChatSeen, pmChatDraft, thread: next.thread };
         });
         break;
       case 'chat.draft.delta':
@@ -1718,8 +1742,9 @@ export function permissionSource(
  * выделит его, не меняя вида.
  */
 export function send(text: string, { newChat = false }: { newChat?: boolean } = {}): void {
-  const { thread, pmChatId } = useStore.getState();
-  if (thread === 'pm#1' && newChat) {
+  const { thread, pmChatId, pmChatDraft } = useStore.getState();
+  // Черновик нового чата: чат заводит сервер вместе с первой репликой.
+  if (thread === 'pm#1' && (newChat || pmChatDraft)) {
     pendingPmChatNonce = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
     socket?.send(JSON.stringify({ c: 'user_message', text, newChat: true, nonce: pendingPmChatNonce }));
     return;
@@ -1754,9 +1779,10 @@ export const draftKey = (thread: string, chatId?: string | null): string =>
  * Черновик без чата принадлежит основному чату.
  */
 export function shownDraft(
-  s: Pick<State, 'drafts' | 'thread' | 'pmChatId' | 'pmChats'>,
+  s: Pick<State, 'drafts' | 'thread' | 'pmChatId' | 'pmChats' | 'pmChatDraft'>,
 ): ChatDraft | undefined {
   if (s.thread !== 'pm#1') return s.drafts[draftKey(s.thread)];
+  if (s.pmChatDraft) return undefined;
   const plain = s.drafts[draftKey('pm#1')];
   if (!s.pmChatId) return plain;
   return s.drafts[draftKey('pm#1', s.pmChatId)] ?? (s.pmChats[s.pmChatId]?.main ? plain : undefined);

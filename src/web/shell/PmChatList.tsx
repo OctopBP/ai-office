@@ -15,6 +15,8 @@ import { focusComposer } from './Composer';
 export function PmChatList() {
   const chats = useStore((s) => s.pmChats);
   const current = useStore((s) => s.pmChatId);
+  // Открыт черновик нового чата — в списке его нет, и выделять нечего.
+  const drafting = useStore((s) => s.pmChatDraft);
   const thread = useStore((s) => s.thread);
   const seen = useStore((s) => s.pmChatSeen);
   const tasks = useStore((s) => s.tasks);
@@ -32,13 +34,13 @@ export function PmChatList() {
   }, [chats, query]);
 
   // Открытый чат лежит в архиве — секцию раскрываем, иначе выделения не видно.
-  const currentArchived = current !== null && chats[current]?.archived === true;
+  const currentArchived = !drafting && current !== null && chats[current]?.archived === true;
   const showArchive = archiveOpen || currentArchived || (query.trim() !== '' && archived.length > 0);
 
   const row = (c: PmChat) => (
     <PmChatRow
       key={c.id} chat={c}
-      active={thread === 'pm#1' && c.id === current}
+      active={thread === 'pm#1' && !drafting && c.id === current}
       unread={!c.archived && c.id !== current && c.lastActivityAt > (seen[c.id] ?? c.lastActivityAt)}
       tasks={tasks} questions={questions}
     />

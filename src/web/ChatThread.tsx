@@ -24,6 +24,8 @@ export function ChatThread() {
   // У менеджера сессия на каждый чат, и черновик у каждой свой: берём тот,
   // что пишется в открытый чат, строго по его chatId (см. `shownDraft`).
   const pmChatId = useStore((s) => s.pmChatId);
+  // Черновик нового чата: переписки у него ещё нет, лента пуста.
+  const pmChatDraft = useStore((s) => s.pmChatDraft);
   const draft = useStore(shownDraft);
   const noChats = useStore((s) => Object.keys(s.pmChats).length === 0);
   const createPmChat = useStore((s) => s.createPmChat);
@@ -33,7 +35,7 @@ export function ChatThread() {
   const atBottom = useRef(true);
 
   const shown = thread === 'pm#1'
-    ? chat.filter((m) => inPmChat(m, pmChatId))
+    ? (pmChatDraft ? [] : chat.filter((m) => inPmChat(m, pmChatId)))
     : chat.filter((m) => m.thread === thread);
   const last = shown[shown.length - 1];
   const items = groupRefs(shown);
@@ -46,7 +48,7 @@ export function ChatThread() {
   useLayoutEffect(() => {
     atBottom.current = true;
     if (box.current) toBottom(box.current);
-  }, [thread, pmChatId]);
+  }, [thread, pmChatId, pmChatDraft]);
 
   // Новое сообщение (и дописывание текста в последнее, пока менеджер отвечает
   // потоком) утаскивает ленту вниз, только если пользователь и так у низа.
@@ -85,7 +87,7 @@ export function ChatThread() {
       )}
 
       <div className="chat" ref={box} onScroll={onScroll}>
-        {thread === 'pm#1' && noChats && shown.length === 0 && !draft && (
+        {thread === 'pm#1' && noChats && !pmChatDraft && shown.length === 0 && !draft && (
           <div className="pm-chats-empty">
             <div className="pm-chats-empty-icon">💬</div>
             <h3>{t('pmChats.empty.title')}</h3>
@@ -93,7 +95,7 @@ export function ChatThread() {
             <button className="primary" onClick={createPmChat}>{t('pmChats.empty.start')}</button>
           </div>
         )}
-        {shown.length === 0 && !draft && !(thread === 'pm#1' && noChats) && (
+        {shown.length === 0 && !draft && !(thread === 'pm#1' && noChats && !pmChatDraft) && (
           <p className="empty">
             {t(thread === 'pm#1' ? 'chat.empty.pm' : 'chat.empty')}
           </p>

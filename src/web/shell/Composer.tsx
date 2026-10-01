@@ -40,8 +40,8 @@ export function Composer({ onSettings, inline = false }: {
   const connected = useStore((s) => s.connected);
   const view = useStore((s) => s.view);
   // Свежий пустой чат с менеджером зовёт начать разговор, а не ставить задачу.
-  const freshChat = useStore((s) => s.thread === 'pm#1' && s.pmChatId !== null
-    && !s.chat.some((e) => e.chatId === s.pmChatId));
+  const freshChat = useStore((s) => s.thread === 'pm#1' && (s.pmChatDraft || (s.pmChatId !== null
+    && !s.chat.some((e) => e.chatId === s.pmChatId))));
   // Черновик — в сторе: на виде «Доска» композера на экране нет, и локальное
   // состояние теряло бы недописанное при каждой смене вида.
   const draft = useInputDraft();
