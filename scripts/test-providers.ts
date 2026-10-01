@@ -60,7 +60,8 @@ const { createLimitTracker, pollLimits, limitsView, noteRateLimit, forgetLimits 
 const { readablePath, writablePath } = await import('../src/server/providers/codex-tools');
 const { scaffoldPackage } = await import('../src/server/export');
 const { readPackage } = await import('../src/server/packages');
-const { roleFromPackage } = await import('../src/server/roles');
+const { roleFromPackage, roleRuntime } = await import('../src/server/roles');
+type Role = import('../src/server/roles').Role;
 
 assert.equal(providerOf(), 'claude-code');
 assert.equal(sessionForProvider('claude-session', 'codex'), undefined);
@@ -125,10 +126,28 @@ assert.deepEqual(await engineFor('codex').models('codex'), [{ id: 'test-model', 
 // Проверка окружения provider:<id> строится только из статуса адаптера (spec §5.3).
 {
   const { providerCheck } = await import('../src/server/envcheck');
-  const fakeState = (engine: 'local' | 'cloud') =>
-    ({ settings: { engine }, say: (key: string) => key }) as unknown as Parameters<typeof providerCheck>[0];
+  // Офис на Claude, менеджер на провайдере офиса (или на `pm`), исполнитель на
+  // Codex. Критичность провайдера envcheck считает по менеджеру через
+  // activeRoles/runtimeOf — заглушка отвечает так же, как OfficeState.
+  const fakeState = (engine: 'local' | 'cloud', pm?: 'claude-code' | 'codex') => {
+    const roles = [
+      { id: 'pm', title: 'PM', isManager: true, provider: pm },
+      { id: 'dev', title: 'Dev', isManager: false, provider: 'codex' },
+    ] as unknown as Role[];
+    const model = { provider: 'claude-code' as const, model: 'default' };
+    return {
+      settings: { engine, model },
+      activeRoles: () => roles,
+      workerRoles: () => roles.filter((r) => !r.isManager),
+      runtimeOf: (role: Role) => roleRuntime(role, model),
+      say: (key: string) => key,
+    } as unknown as Parameters<typeof providerCheck>[0];
+  };
   const codexOk = await providerCheck(fakeState('local'), 'codex');
-  assert.deepEqual([codexOk.id, codexOk.status, codexOk.critical], ['provider:codex', 'ok', true]);
+  assert.deepEqual([codexOk.id, codexOk.status, codexOk.critical], ['provider:codex', 'ok', false]);
+  assert.equal((await providerCheck(fakeState('local', 'codex'), 'codex')).critical, true);
+  assert.equal((await providerCheck(fakeState('local'), 'claude-code')).critical, true);
+  assert.equal((await providerCheck(fakeState('local', 'codex'), 'claude-code')).critical, false);
   noteRateLimit({ status: 'rejected', resetsAt: 2000000000 });
   const limited = await providerCheck(fakeState('local'), 'claude-code');
   assert.deepEqual([limited.id, limited.status, limited.detail], ['provider:claude-code', 'ok', 'env.provider.limited']);
