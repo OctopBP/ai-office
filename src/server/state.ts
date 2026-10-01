@@ -1472,7 +1472,7 @@ export class OfficeState {
 
   addQuestion(input: {
     from: string; taskId: string | null; kind: OwnerQuestion['kind']; text: string; assumption: string;
-    options?: string[]; chatId?: string | null;
+    options?: string[]; chatId?: string | null; files?: string[];
   }): OwnerQuestion {
     this.questionSeq += 1;
     // Вариантов либо нет вовсе, либо их больше одного: один вариант — не выбор.
@@ -1486,6 +1486,7 @@ export class OfficeState {
       text: input.text.trim(),
       assumption: input.assumption.trim(),
       ...(options.length > 1 ? { options } : {}),
+      ...(input.files?.length ? { files: input.files } : {}),
       askedAt: Date.now(),
       shownAt: null,
       answer: null,

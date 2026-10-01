@@ -48,6 +48,7 @@ import { formatOverlaps, type DuplicateEdit } from './overlap';
 import { mergeChecks, preMergeGate, toGateView, type PreMergeReport } from './premerge';
 import { mergedKind, recordOutcome } from './outcomes';
 import { deliveryAt } from './taskfiles';
+import { taskResultFiles } from './questions';
 import { githubToken } from './cloud';
 import { commentOnPr, createPullRequest, githubFor, mergePullRequest } from './github';
 import { builtinWorkflow, workflowFor } from './workflows';
@@ -1038,11 +1039,14 @@ const gate: Executor<Ctx> = {
       }
       const yes = state.say('wf.gateOptYes');
       const no = state.say('wf.gateOptNo');
+      // Что открывать: без списка владелец не знает, где лежит результат.
+      const files = await taskResultFiles(task, ctx.repo, ctx.base, ctx.branch);
       question = state.addQuestion({
         from: OFFICE_SENDER, taskId: task.id, kind: 'gate',
         text: state.say('wf.gateAsk', { task: task.id, title: task.title, what, yes, no: no.replace(/…$/, '') }),
         assumption: state.say('wf.gateAssumption'),
         options: [yes, no],
+        files,
       });
       state.addOfficeNote(state.say('wf.gateChat', { task: task.id, what, id: question.id }), { taskId: task.id });
       state.addLog(null, 'system', state.say('questions.askedLog', { id: question.id, text: what }));

@@ -10,10 +10,13 @@
  * сессия, которая простаивает, и ветка, которая стоит. Единственное, что
  * по-прежнему блокирует, — запрос доступа: там цена ошибки не в переделке.
  */
+import { basename } from 'node:path';
 import type { OwnerQuestion, QuestionKind } from '../shared/types';
 import { OFFICE_SENDER } from '../shared/types';
 import { findDuplicate } from '../shared/questions';
-import { isOpenQuestion, type OfficeState } from './state';
+import { git } from './git';
+import { fileKind } from './taskfiles';
+import { isOpenQuestion, type OfficeState, type Task } from './state';
 import { tellPm } from './review';
 import { onOutcome } from './outcomes';
 
@@ -218,6 +221,8 @@ export function mergeQuestion(state: OfficeState, id: string, intoId: string, by
   if (into.id === q.id) return { ok: false, text: state.say('questions.mergeSelf', { id }) };
   // Согласованию нужны его кнопки: влитое в вопрос без вариантов даёт их главному.
   if (!into.options?.length && q.options?.length) state.updateQuestion(into.id, { options: q.options });
+  // И список файлов результата — иначе после слияния вопросов он пропал бы.
+  if (!into.files?.length && q.files?.length) state.updateQuestion(into.id, { files: q.files });
   for (const child of absorbed(state, q.id)) state.updateQuestion(child.id, { mergedInto: into.id });
   state.updateQuestion(q.id, { mergedInto: into.id });
   state.addLog(by && by !== OFFICE_SENDER ? by : null, 'system',
@@ -334,3 +339,64 @@ const clip = (s: string, n: number): string => {
   const line = s.replace(/\s+/g, ' ').trim();
   return line.length > n ? `${line.slice(0, n - 1)}…` : line;
 };
+
+// ------------------------------------------------------------ файлы результата
+
+/** Сколько файлов результата держит согласование: дальше владелец всё равно пойдёт в ветку. */
+export const MAX_RESULT_FILES = 20;
+
+/** Сгенерированное и служебное: открывать это владельцу незачем. */
+const SERVICE_NAMES = new Set([
+  'package-lock.json', 'yarn.lock', 'pnpm-lock.yaml', 'bun.lockb', 'npm-shrinkwrap.json', '.DS_Store', 'Thumbs.db',
+]);
+
+const isServiceFile = (path: string): boolean =>
+  SERVICE_NAMES.has(basename(path))
+  // Скрытые папки и файлы (.office, .claude, .github, .gitignore) — настройка, а не результат.
+  || path.split('/').some((part) => part.startsWith('.'))
+  || path.split('/').includes('node_modules');
+
+/** Главный документ первым, за ним картинки, pdf и модели, остальное — в конце. */
+function resultRank(path: string): number {
+  const kind = fileKind(path);
+  if (kind === 'markdown') return 0;
+  if (kind === 'image' || kind === 'pdf' || kind === 'model3d') return 1;
+  return 2;
+}
+
+/**
+ * Отобрать и упорядочить файлы результата. Внутри разряда порядок git
+ * (по пути) сохраняется, только документы поменьше глубиной идут раньше:
+ * `docs/design/x/spec.md` важнее, чем `docs/design/x/notes/a.md`.
+ */
+export function pickResultFiles(paths: string[]): string[] {
+  const depth = (p: string): number => p.split('/').length;
+  return [...new Set(paths)]
+    .filter((p) => p && !isServiceFile(p))
+    .map((p, i) => ({ p, i }))
+    .sort((a, b) => resultRank(a.p) - resultRank(b.p)
+      || (resultRank(a.p) === 0 ? depth(a.p) - depth(b.p) : 0)
+      || a.i - b.i)
+    .slice(0, MAX_RESULT_FILES)
+    .map(({ p }) => p);
+}
+
+/**
+ * Файлы результата задачи для вопроса-согласования. Влитая задача — из
+ * `delivery` (что легло в основную ветку), иначе — разница ветки задачи с
+ * точкой ветвления от базы в её репозитории. Удалённые не берём: открыть
+ * их нечем. Пустой список — git не ответил или показывать нечего; вопрос
+ * тогда задаётся без файлов, как раньше.
+ */
+export async function taskResultFiles(
+  task: Pick<Task, 'delivery'>, repo: string | null, base: string | null, branch: string | null,
+): Promise<string[]> {
+  if (task.delivery) {
+    return pickResultFiles(task.delivery.files.filter((f) => f.status !== 'deleted').map((f) => f.path));
+  }
+  if (!repo || !base || !branch) return [];
+  // -z: пути с пробелами и кириллицей без кавычек git; d — без удалённых.
+  const r = await git(repo, ['diff', '--name-only', '--no-renames', '--diff-filter=d', '-z', `${base}...${branch}`]);
+  if (!r.ok) return [];
+  return pickResultFiles(r.stdout.split('\0'));
+}
