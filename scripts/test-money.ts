@@ -333,11 +333,12 @@ results.push(
 );
 
 // SDK модель не назвал — колонку заполняет роль: это хуже точного ответа, но
-// лучше пустого места.
+// лучше пустого места. Роль без своей модели поле `model` не хранит — берём
+// итоговую модель, которую она получает от офиса.
 spOffice.addUsage('backend#1', {
   costUsd: 0.2, tokensIn: 50, tokensOut: 10, cacheRead: 0, cacheWrite: 0,
 });
-const spRoleModel = spOffice.role('backend')?.model ?? null;
+const spRoleModel = spOffice.runtimeModel('backend');
 results.push(`без модели от SDK берётся модель роли: ${
   spOffice.spendList()[1]?.model === spRoleModel && spRoleModel !== null}`);
 
