@@ -11,4 +11,6 @@ contextBridge.exposeInMainWorld('officeBoot', {
   onNeedEngine: (fn) => ipcRenderer.on('boot:need-engine', (_event, data) => fn(data)),
   choose: (value) => ipcRenderer.send('boot:engine-choice', value),
   openLog: () => ipcRenderer.invoke('boot:open-log'),
+  onFailure: (fn) => ipcRenderer.on('boot:failure', (_event, data) => fn(data)),
+  failureAction: (action) => ipcRenderer.send('boot:failure-action', action),
 });

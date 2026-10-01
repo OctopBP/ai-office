@@ -1,4 +1,4 @@
-import { resolve, isAbsolute } from 'node:path';
+import { resolve, isAbsolute, sep } from 'node:path';
 import type { PermissionMode, RiskLevel } from '../shared/types';
 import type { Lang } from '../shared/i18n';
 import { t, type ServerKey } from './i18n';
@@ -92,7 +92,8 @@ function insideProject(path: unknown, projectDir: string): boolean {
   if (!raw) return true;
   const abs = isAbsolute(raw) ? resolve(raw) : resolve(projectDir, raw);
   const root = resolve(projectDir);
-  return abs === root || abs.startsWith(`${root}/`);
+  // Разделитель системный: на Windows resolve() отдаёт обратные слеши.
+  return abs === root || abs.startsWith(root.endsWith(sep) ? root : `${root}${sep}`);
 }
 
 /**

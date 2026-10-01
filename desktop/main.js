@@ -9,13 +9,15 @@
  */
 
 const { app, BrowserWindow, Menu, dialog, ipcMain, nativeImage, shell } = require('electron');
-const { readFileSync, renameSync, writeFileSync } = require('node:fs');
+const { existsSync, readFileSync, renameSync, writeFileSync } = require('node:fs');
 const { join } = require('node:path');
 
 const paths = require('./paths');
 const engine = require('./engine');
 const server = require('./server');
 const updater = require('./updater');
+const log = require('./log');
+const { t } = require('./i18n');
 
 /**
  * Имя и идентификатор, под которыми система показывает уведомления. Из
@@ -29,6 +31,24 @@ const updater = require('./updater');
 const APP_ID = 'dev.aioffice.app';
 app.setName('AI Office');
 if (process.platform === 'win32') app.setAppUserModelId(app.isPackaged ? APP_ID : process.execPath);
+
+// Журнал — до всего остального: поломку запуска на чужой машине иначе не по
+// чему разбирать (T-187).
+log.init();
+console.log(`[office] запуск ${app.getVersion()}, ${process.platform} ${process.arch}, ${require('node:os').release()}, Electron ${process.versions.electron}`);
+
+/**
+ * Видеокарта. Если в прошлый раз её процесс падал (отметка gpuOffFile) или
+ * ускорение выключено руками (OFFICE_DISABLE_GPU=1), запускаемся без него:
+ * упавший GPU-процесс на Windows — это чёрное окно, а без ускорения окно
+ * рисуется программно. 3D-офис без WebGL веб заменяет пояснением, остальное
+ * работает. Решается только до готовности приложения.
+ */
+const gpuOff = process.env.OFFICE_DISABLE_GPU === '1' || existsSync(paths.gpuOffFile());
+if (gpuOff) {
+  console.log(`[office] аппаратное ускорение выключено${process.env.OFFICE_DISABLE_GPU === '1' ? ' (OFFICE_DISABLE_GPU)' : ` (видеокарта падала, отметка ${paths.gpuOffFile()})`}`);
+  app.disableHardwareAcceleration();
+}
 
 /** Одно приложение — один офис: второй запуск поднимает уже открытое окно. */
 if (!app.requestSingleInstanceLock()) app.quit();
@@ -55,6 +75,61 @@ function say(text, extra = {}) {
 
 // Ошибку в main видно только так: окна к этому моменту может не быть вовсе.
 process.on('unhandledRejection', (err) => console.error('[office] сбой запуска:', err));
+process.on('uncaughtException', (err) => {
+  console.error('[office] исключение в главном процессе:', err);
+  void showFailure(String(err?.stack ?? err));
+});
+
+/** Экран ошибки уже показан: вторая причина обычно следствие первой. */
+let failed = false;
+
+/**
+ * Запуск сорвался — показать это словами, а не чёрным окном. Окно ожидания
+ * становится экраном ошибки: причина, папка журналов, «перезапустить» и
+ * «выход». Окно офиса, если было, закрывается — пустое оно только сбивает.
+ */
+async function showFailure(reason) {
+  console.error(`[office] экран ошибки: ${reason}`);
+  if (failed || !app.isReady()) return;
+  failed = true;
+  if (!bootWindow) {
+    createBootWindow();
+    await new Promise((done) => bootWindow.webContents.once('did-finish-load', done));
+  }
+  bootWindow.setResizable(true);
+  bootWindow.setSize(620, 420);
+  bootWindow.center();
+  bootWindow.webContents.send('boot:failure', {
+    title: t('fail.title'),
+    reason,
+    hint: t('fail.hint'),
+    logs: paths.logsDir(),
+    open: t('fail.openLogs'),
+    retry: t('fail.retry'),
+    quit: t('fail.quit'),
+  });
+  raise(bootWindow);
+  if (mainWindow) {
+    const broken = mainWindow;
+    mainWindow = null;
+    broken.destroy();
+  }
+}
+
+ipcMain.on('boot:failure-action', (_event, action) => {
+  if (action === 'logs') void shell.openPath(paths.logsDir());
+  else if (action === 'retry') { app.relaunch(); app.quit(); }
+  else if (action === 'quit') app.quit();
+});
+
+/**
+ * Сколько ждать, что веб нарисовал хоть что-то. Пустой #root через столько
+ * секунд — значит, скрипты не загрузились или упали: раньше это и было
+ * «чёрное окно» без единого слова (T-187).
+ */
+const BLANK_SEC = 20;
+/** Сколько ждать, что страница офиса вообще загрузилась. */
+const LOAD_SEC = 45;
 
 function createBootWindow() {
   bootWindow = new BrowserWindow({
@@ -74,6 +149,7 @@ function createMainWindow() {
     title: 'AI Office', icon, show: false, backgroundColor: '#0d0e11',
     webPreferences: { spellcheck: false, preload: join(__dirname, 'office-preload.js') },
   });
+  watchMainWindow(mainWindow);
   mainWindow.loadURL(`http://127.0.0.1:${port}/`);
   mainWindow.once('ready-to-show', () => {
     mainWindow?.show();
@@ -94,6 +170,66 @@ function createMainWindow() {
   // Мигание кнопки на панели задач (setBadge) — призыв вернуться; вернулись — хватит.
   mainWindow.on('focus', () => mainWindow?.flashFrame(false));
   mainWindow.on('closed', () => { mainWindow = null; });
+}
+
+/**
+ * Сторож окна офиса: всё, из-за чего оно осталось бы пустым, превращается в
+ * экран ошибки, а ошибки страницы — в строки журнала main.
+ */
+function watchMainWindow(win) {
+  const contents = win.webContents;
+  let loadTimer = setTimeout(() => {
+    void showFailure(t('fail.timeout', { sec: LOAD_SEC }));
+  }, LOAD_SEC * 1000);
+  let blankTimer = null;
+  const clear = () => { clearTimeout(loadTimer); clearTimeout(blankTimer); };
+  win.once('closed', clear);
+
+  contents.on('did-start-loading', () => clearTimeout(blankTimer));
+  contents.on('did-fail-load', (_event, code, description, url, isMainFrame) => {
+    // -3 — переход прерван новым (перезагрузка, смена адреса), это не сбой.
+    if (!isMainFrame || code === -3) return;
+    clear();
+    console.error(`[office] страница не загрузилась: ${description} (${code}) ${url}`);
+    void showFailure(t('fail.load', { error: description, code }));
+  });
+  contents.on('did-finish-load', () => {
+    clearTimeout(loadTimer);
+    clearTimeout(blankTimer);
+    blankTimer = setTimeout(async () => {
+      if (win.isDestroyed()) return;
+      let filled = 0;
+      try {
+        filled = await contents.executeJavaScript("document.getElementById('root')?.childElementCount ?? 0");
+      } catch (err) {
+        console.error('[office] не удалось проверить страницу:', err);
+        return;
+      }
+      if (!filled) void showFailure(t('fail.blank', { sec: BLANK_SEC }));
+    }, BLANK_SEC * 1000);
+  });
+  contents.on('render-process-gone', (_event, details) => {
+    console.error(`[office] процесс окна завершился: ${details.reason} (код ${details.exitCode})`);
+    if (details.reason === 'clean-exit') return;
+    clear();
+    void showFailure(t('fail.renderer', { reason: `${details.reason} (${details.exitCode})` }));
+  });
+  // Ошибки и предупреждения страницы — в журнал: без них пустое окно не
+  // объяснить. Сигнатура события — объектом (Electron 35+).
+  contents.on('console-message', (event) => {
+    const { level, message, sourceId, lineNumber } = event;
+    if (level !== 'error' && level !== 'warning') return;
+    console.log(`[web ${level}] ${message}${sourceId ? ` (${sourceId}:${lineNumber})` : ''}`);
+  });
+}
+
+/** Сервер упал сам, не по нашей команде: окно офиса без него мертво. */
+function watchChild(started) {
+  started.once('exit', (code, signal) => {
+    if (stopping || started !== child) return;
+    console.error(`[office] сервер завершился: ${signal ?? `код ${code}`}`);
+    void showFailure(t('fail.serverExit', { code: signal ?? code }));
+  });
 }
 
 /** Чем запускать сервер: движок, свой git и язык терминального журнала. */
@@ -137,25 +273,9 @@ async function startOffice() {
     const started = await server.start(serverOptions());
     port = started.port;
     child = started.child;
-    child.once('exit', (code) => {
-      // Сервер упал сам, не по нашей команде: окно офиса без него мертво.
-      if (!stopping && mainWindow) {
-        dialog.showMessageBox(mainWindow, {
-          type: 'error', title: 'Офис остановился',
-          message: `Сервер офиса завершился (код ${code}).`,
-          detail: 'Что случилось — в журнале сервера.',
-          buttons: ['Открыть журнал', 'Закрыть'], defaultId: 0,
-        }).then(({ response }) => { if (response === 0) shell.openPath(paths.logFile()); });
-      }
-    });
+    watchChild(child);
   } catch (err) {
-    const { response } = await dialog.showMessageBox({
-      type: 'error', title: 'Офис не запустился', message: err.message,
-      detail: `Журнал: ${paths.logFile()}`,
-      buttons: ['Открыть журнал', 'Выход'], defaultId: 0,
-    });
-    if (response === 0) await shell.openPath(paths.logFile());
-    app.quit();
+    await showFailure(`${t('fail.serverStart')}\n${err.message}`);
     return;
   }
   createMainWindow();
@@ -177,10 +297,16 @@ async function restartOffice() {
   stopping = true;
   await server.stop(child);
   stopping = false;
-  const started = await server.start(serverOptions());
-  port = started.port;
-  child = started.child;
-  mainWindow.loadURL(`http://127.0.0.1:${port}/`);
+  try {
+    const started = await server.start(serverOptions());
+    port = started.port;
+    child = started.child;
+    watchChild(child);
+  } catch (err) {
+    await showFailure(`${t('fail.serverStart')}\n${err.message}`);
+    return;
+  }
+  mainWindow?.loadURL(`http://127.0.0.1:${port}/`);
 }
 
 /** Движок по требованию из меню — и когда его нет, и когда хочется свежий. */
@@ -249,6 +375,7 @@ function buildMenu() {
       { type: 'separator' },
       { label: 'Папка данных', click: () => shell.openPath(paths.dataDir()) },
       { label: 'Журнал сервера', click: () => shell.openPath(paths.logFile()) },
+      { label: 'Папка журналов', click: () => shell.openPath(paths.logsDir()) },
       { type: 'separator' },
       isMac ? { role: 'quit', label: 'Выход из AI Office' } : { role: 'quit', label: 'Выход' },
     ],
@@ -423,7 +550,19 @@ ipcMain.handle('office:update-install', (event) => (fromOffice(event)
   ? updater.installNow()
   : { ok: false, reason: 'not-ready', message: 'Команда не из окна офиса' }));
 
+/**
+ * Упавшая видеокарта — частая причина чёрного окна на Windows (старый или
+ * виртуальный драйвер). Ставим отметку: следующий запуск пойдёт без
+ * аппаратного ускорения, а причина останется в журнале.
+ */
+app.on('child-process-gone', (_event, details) => {
+  console.error(`[office] процесс ${details.type} завершился: ${details.reason} (код ${details.exitCode})`);
+  if (details.type !== 'GPU' || details.reason === 'clean-exit' || gpuOff) return;
+  try { writeFileSync(paths.gpuOffFile(), `${new Date().toISOString()} ${details.reason} ${details.exitCode}\n`); } catch { /* отметим в другой раз */ }
+});
+
 app.whenReady().then(async () => {
+  console.log('[office] видеокарта:', JSON.stringify(app.getGPUFeatureStatus()));
   buildMenu();
   createBootWindow();
   // Дожидаемся загрузки страницы ожидания: строки состояния, отправленные

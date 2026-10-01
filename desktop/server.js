@@ -61,16 +61,21 @@ async function pickPort() {
   return port;
 }
 
-/** Дождаться, пока порт начнёт отвечать. */
-function waitPort(port, timeoutMs = 30000) {
+/**
+ * Дождаться, пока порт начнёт отвечать. `alive()` — жив ли ещё процесс
+ * сервера: упавшего незачем ждать все тридцать секунд, причина известна сразу.
+ */
+function waitPort(port, timeoutMs = 30000, alive = () => null) {
   const until = Date.now() + timeoutMs;
   return new Promise((done, fail) => {
     const tick = () => {
+      const dead = alive();
+      if (dead) { fail(dead); return; }
       const socket = connect(port, '127.0.0.1');
       socket.once('connect', () => { socket.destroy(); done(); });
       socket.once('error', () => {
         socket.destroy();
-        if (Date.now() > until) fail(new Error('сервер офиса не ответил за 30 секунд'));
+        if (Date.now() > until) fail(new Error(`сервер офиса не ответил за ${Math.round(timeoutMs / 1000)} секунд`));
         else setTimeout(tick, 200);
       });
     };
@@ -146,6 +151,12 @@ async function start({ claudeBin, gitBin, lang }) {
   if (gitBin) env.OFFICE_GIT_BIN = gitBin;
   if (lang) env.OFFICE_LANG = lang;
 
+  // Сервер, которого нет на диске, fork запустил бы и тут же потерял: ошибка
+  // ушла бы в журнал, а окно ждало бы порт полминуты. Говорим сразу.
+  if (!existsSync(paths.serverEntry())) {
+    throw new Error(`нет файла сервера: ${paths.serverEntry()} — установка повреждена`);
+  }
+
   const child = fork(paths.serverEntry(), [], {
     env,
     // Текущая папка у приложения случайна: ставим папку данных, чтобы
@@ -156,7 +167,28 @@ async function start({ claudeBin, gitBin, lang }) {
   child.stdout.pipe(log, { end: false });
   child.stderr.pipe(log, { end: false });
 
-  await waitPort(port);
+  // Хвост stderr — в текст ошибки: «сервер завершился с кодом 1» без причины
+  // ничего не объясняет, а последние строки обычно и есть причина.
+  let tail = '';
+  child.stderr.on('data', (chunk) => { tail = (tail + chunk.toString()).slice(-1500); });
+  let dead = null;
+  child.once('error', (err) => {
+    dead = new Error(`сервер офиса не запустился: ${err.message}`);
+    log.write(`[office] ${dead.message}\n`);
+  });
+  child.once('exit', (code, signal) => {
+    if (dead) return;
+    const why = tail.trim().split(/\r?\n/).slice(-6).join('\n');
+    dead = new Error(`сервер офиса завершился при запуске (${signal ?? `код ${code}`})${why ? `:\n${why}` : ''}`);
+  });
+
+  try {
+    await waitPort(port, 30000, () => dead);
+  } catch (err) {
+    // Не ответил, но жив — гасим: иначе он висел бы без окна и держал порт.
+    if (!dead) child.kill();
+    throw err;
+  }
   return { port, child };
 }
 

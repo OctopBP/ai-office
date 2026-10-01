@@ -2,7 +2,7 @@ import { codexStatus } from './providers/diagnostics';
 import { WebSocketServer, type WebSocket } from 'ws';
 import { createServer, type ServerResponse } from 'node:http';
 import { mkdirSync, existsSync, writeFileSync, readFileSync, statSync } from 'node:fs';
-import { extname, resolve } from 'node:path';
+import { basename, extname, resolve, sep } from 'node:path';
 import type { ClientCommand, FieldError, RoleOp, ServerEvent } from '../shared/types';
 import { asTaskPriority, OFFICE_SENDER } from '../shared/types';
 import { c, setProcessLang } from './i18n';
@@ -146,7 +146,7 @@ setProcessLang(uiLanguage());
 // на неё опираются тесты и запуск «в другой папке» одной командой.
 if (process.env.OFFICE_PROJECT_DIR) {
   const wanted = ensureOffice({
-    name: DEFAULT_DIR.split('/').pop() ?? c('offices.defaultName'), projectDir: DEFAULT_DIR,
+    name: basename(DEFAULT_DIR) || c('offices.defaultName'), projectDir: DEFAULT_DIR,
   });
   setCurrent(wanted.id);
 }
@@ -382,9 +382,12 @@ const httpServer = createServer((req, res) => {
   }
 
   // Путь считаем от dist и проверяем, что не выбрались наружу: запрос
-  // приходит из сети, и «../» в нём — обычное дело.
+  // приходит из сети, и «../» в нём — обычное дело. Разделитель — системный:
+  // с «/» на Windows ни один файл не считался внутренним, на запрос скрипта
+  // уходил index.html, браузер отвергал его по MIME, и окно оставалось
+  // чёрным (T-187).
   const wanted = resolve(DIST, `.${decodeURIComponent(url)}`);
-  const inside = wanted === DIST || wanted.startsWith(`${DIST}/`);
+  const inside = wanted === DIST || wanted.startsWith(DIST.endsWith(sep) ? DIST : `${DIST}${sep}`);
   let file = inside ? wanted : DIST;
   try {
     if (statSync(file).isDirectory()) file = resolve(file, 'index.html');

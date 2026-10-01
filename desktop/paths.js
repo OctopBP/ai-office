@@ -31,17 +31,30 @@ const gitBin = () => {
   return existsSync(bin) ? bin : '';
 };
 
-/** Папка данных: состояние офисов, реестр, движок, журнал. */
+/** Папка данных: состояние офисов, реестр, движок. */
 const dataDir = () => app.getPath('userData');
 const stateFile = () => join(dataDir(), 'office', 'state.json');
 const engineDir = () => join(dataDir(), 'engine');
-const logFile = () => join(dataDir(), 'server.log');
+/**
+ * Журналы — в системной папке журналов (app.getPath('logs')): на Windows это
+ * %APPDATA%\AI Office\logs, на macOS ~/Library/Logs/AI Office. Путь к ним
+ * показывает экран ошибки — его человек и пришлёт, если окно не открылось.
+ */
+const logsDir = () => app.getPath('logs');
+const logFile = () => join(logsDir(), 'server.log');
+/** Журнал главного процесса (log.js): запуск, движок, окно, видеокарта. */
+const mainLogFile = () => join(logsDir(), 'main.log');
 /** Журнал автообновления (updater.js): у main своего терминала в собранном приложении нет. */
 const updateLogFile = () => join(dataDir(), 'updates.log');
 /** Порт, на котором офис живёт от запуска к запуску (`pickPort` в server.js). */
 const portFile = () => join(dataDir(), 'port.json');
 /** Копия localStorage окна офиса (`office:storage-*` в main.js). */
 const webStorageFile = () => join(dataDir(), 'web-storage.json');
+/**
+ * Отметка «видеокарта падала»: при следующем запуске аппаратное ускорение
+ * выключается (main.js). Удалить файл — вернуть ускорение.
+ */
+const gpuOffFile = () => join(dataDir(), 'gpu-off');
 
 /**
  * Куда команда работает по умолчанию. Та же папка, что и у офиса из
@@ -52,5 +65,6 @@ const defaultProjectDir = () => join(app.getPath('home'), 'Office');
 
 module.exports = {
   resourcesDir, serverEntry, webDir, gitBin,
-  dataDir, stateFile, engineDir, logFile, updateLogFile, portFile, webStorageFile, defaultProjectDir,
+  dataDir, stateFile, engineDir, logsDir, logFile, mainLogFile, updateLogFile, portFile, webStorageFile, gpuOffFile,
+  defaultProjectDir,
 };

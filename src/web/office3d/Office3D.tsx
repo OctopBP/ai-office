@@ -13,7 +13,7 @@
  * отдельный модуль (`Camera3D.tsx`): фокус на комнате и на агенте, свободное
  * перемещение по офису.
  */
-import { Suspense, useEffect, useMemo, useRef } from 'react';
+import { Component, Suspense, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { Canvas, useFrame, useLoader } from '@react-three/fiber';
 import * as THREE from 'three';
 import { propKeys, spriteOf } from '../../shared/layout';
@@ -33,6 +33,7 @@ import { Camera3D, CameraChips, FOV, startPose } from './Camera3D';
 import { DevBadge, DevOverlay } from './Dev3D';
 import { MAX_DT, setSceneOnScreen, tickScene } from './clock';
 import { t } from '../i18n';
+import { webglSupported } from '../webgl';
 
 /** Насколько прозрачной становится погашенная стена. Не ноль: контур комнаты
  *  должен читаться, иначе теряется, где она кончается. */
@@ -474,7 +475,47 @@ function SceneClock() {
   return null;
 }
 
-export function Office3D({ onOpen, onDoor, active }: {
+/** Офис без 3D: на месте комнаты — пояснение, остальной интерфейс живёт. */
+function NoScene({ active }: { active: boolean }) {
+  return (
+    <div className={`office-box office3d office3d-off${active ? '' : ' office3d-hidden'}`}>
+      <strong>{t('office.no3d.title')}</strong>
+      <p>{t('office.no3d.hint')}</p>
+    </div>
+  );
+}
+
+/**
+ * Падение холста — контекст WebGL не создался, потерялся драйвер, не собрался
+ * шейдер — ловится здесь. Без этой границы исключение из R3F снимало всё
+ * дерево React, и окно оставалось пустым целиком, а не без одной комнаты.
+ */
+class SceneBoundary extends Component<{ onError: () => void; children: ReactNode }, { crashed: boolean }> {
+  state = { crashed: false };
+  static getDerivedStateFromError() { return { crashed: true }; }
+  componentDidCatch(error: unknown) {
+    // eslint-disable-next-line no-console
+    console.error('3D-офис не отрисовался, показываю офис без комнаты', error);
+    this.props.onError();
+  }
+  render() { return this.state.crashed ? null : this.props.children; }
+}
+
+export function Office3D(props: {
+  onOpen: (target: SpotTarget) => void;
+  onDoor: () => void;
+  active: boolean;
+}) {
+  const [crashed, setCrashed] = useState(false);
+  if (crashed || !webglSupported()) return <NoScene active={props.active} />;
+  return (
+    <SceneBoundary onError={() => setCrashed(true)}>
+      <Scene {...props} />
+    </SceneBoundary>
+  );
+}
+
+function Scene({ onOpen, onDoor, active }: {
   onOpen: (target: SpotTarget) => void;
   onDoor: () => void;
   /** Вид «Офис» сейчас показан. Пока он не активен, сцена остаётся

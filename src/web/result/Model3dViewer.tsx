@@ -15,6 +15,7 @@
  */
 import { useEffect, useMemo, useState } from 'react';
 import { Canvas } from '@react-three/fiber';
+import { webglSupported } from '../webgl';
 import { OrbitControls } from '@react-three/drei';
 import * as THREE from 'three';
 import { GLTFLoader, type GLTF } from 'three/examples/jsm/loaders/GLTFLoader.js';
@@ -194,6 +195,9 @@ export default function Model3dViewer({ taskId, file, url }: ViewerProps) {
 
   if (!supported) {
     return <DownloadViewer taskId={taskId} file={file} url={url} />;
+  }
+  if (!webglSupported()) {
+    return <DownloadViewer taskId={taskId} file={file} url={url} note={t('result.model3d.noWebgl')} />;
   }
   if (error) {
     return <DownloadViewer taskId={taskId} file={file} url={url} note={t('result.model3d.error')} />;

@@ -66,6 +66,7 @@ import { paletteOf } from './palette';
 import { useStore } from '../store';
 import { agentSpriteName, spriteOf } from '../sprites';
 import { useAvatarStage } from './avatarStage';
+import { webglSupported } from '../webgl';
 
 /** Рост фигуры в сцене-портрете. Произвольная единица: от неё же считается
  *  кадрирование, поэтому пересчитывать его при смене роста не нужно. */
@@ -80,20 +81,6 @@ const TALL = 1;
 const FOV = 28;
 const FRAME_H = 0.34;
 const DIST = FRAME_H / (2 * Math.tan(THREE.MathUtils.degToRad(FOV) / 2));
-
-/** Есть ли в браузере WebGL. Проверяется один раз и кэшируется: создавать
- *  пробный канвas на каждую аватарку незачем. */
-let webglOk: boolean | null = null;
-function webglSupported(): boolean {
-  if (webglOk !== null) return webglOk;
-  try {
-    const probe = document.createElement('canvas');
-    webglOk = !!(probe.getContext('webgl2') || probe.getContext('webgl'));
-  } catch {
-    webglOk = false;
-  }
-  return webglOk;
-}
 
 /**
  * Доля роста, на которой у фигуры кость `Head`, — мерится по T-позе модели,

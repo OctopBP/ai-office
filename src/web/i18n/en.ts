@@ -38,6 +38,8 @@ export const en = {
   'office.idle': 'idle',
   'office.paused': 'paused',
   'office.paused.hint': 'Office is paused: no new tasks start and workers are frozen until ▶',
+  'office.no3d.title': 'The 3D office is unavailable',
+  'office.no3d.hint': 'WebGL is not available on this computer (graphics driver, virtual machine or remote desktop). Everything else works: board, chat, team and settings.',
   'office.working.hint': 'Sessions are running in this office right now',
   'office.idle.hint': 'Nobody is working in this office right now',
 
@@ -106,6 +108,7 @@ export const en = {
   'result.badge': '{n} file|{n} files',
   'result.badgeHint': 'The task has a result: {n} file. Open the card to view|The task has a result: {n} files. Open the card to view',
   'result.model3d.error': 'The 3D model could not be opened.',
+  'result.model3d.noWebgl': 'WebGL is not available on this computer — the model can only be downloaded.',
   'result.model3d.dimsLabel': 'Size',
   'result.model3d.unit': 'm',
   'result.model3d.triangles': '{n} triangle|{n} triangles',

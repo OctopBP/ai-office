@@ -31,6 +31,15 @@
    `display: none` здесь только про разметку и курсор. */
 .office3d-hidden { display: none; }
 
+/* Офис без 3D: WebGL нет или холст упал. Вместо комнаты — пояснение на
+   месте сцены; остальной интерфейс оболочки работает поверх как обычно. */
+.office3d-off {
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+  gap: 8px; padding: 32px; text-align: center; background: var(--canvas); color: var(--ink-3);
+}
+.office3d-off strong { color: var(--ink); font-size: 15px; }
+.office3d-off p { margin: 0; max-width: 420px; }
+
 /* Чипы фокуса камеры — «весь офис», комнаты, выбранный агент. Лежат в углу
    сцены поверх канваса и подписей: они управляют видом, а не живут в нём.
    Контейнер прозрачен для мыши — иначе полоса поверх комнаты съедала бы

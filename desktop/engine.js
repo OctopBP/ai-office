@@ -15,7 +15,7 @@
 const { execFile, execFileSync } = require('node:child_process');
 const { createHash } = require('node:crypto');
 const { createWriteStream, existsSync, mkdirSync, readFileSync, renameSync, rmSync, chmodSync, constants, accessSync } = require('node:fs');
-const { join } = require('node:path');
+const { basename, join } = require('node:path');
 const { tmpdir } = require('node:os');
 const { Readable } = require('node:stream');
 const { pipeline } = require('node:stream/promises');
@@ -87,10 +87,20 @@ function find() {
   return candidates.find((p) => runnable(p)) ?? '';
 }
 
-/** Распаковка .tgz системным tar: он есть и в macOS, и в Windows 10+. */
+/**
+ * Распаковка .tgz системным tar: он есть и в macOS, и в Windows 10+.
+ *
+ * На Windows — по полному пути из System32: первым в PATH бывает tar из Git
+ * или MSYS, а он читает «C:\…» как адрес удалённой машины «C:» и падает.
+ * Архив передаётся именем относительно рабочей папки, а не полным путём:
+ * так tar не видит ни пробелов, ни кириллицы из имени пользователя
+ * (C:\Users\Имя Фамилия\…), с которыми у него на Windows бывают сбои.
+ */
 function untar(archive, dir) {
+  const system = join(process.env.SystemRoot || 'C:\\Windows', 'System32', 'tar.exe');
+  const tar = process.platform === 'win32' && existsSync(system) ? system : 'tar';
   return new Promise((done, fail) => {
-    execFile('tar', ['-xzf', archive, '-C', dir], (err) => (err ? fail(err) : done()));
+    execFile(tar, ['-xzf', basename(archive)], { cwd: dir }, (err) => (err ? fail(err) : done()));
   });
 }
 
