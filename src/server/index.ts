@@ -24,6 +24,7 @@ import { startSupervisor } from './supervisor';
 import { answerQuestion, deleteQuestion, dismissQuestion, editQuestion, mergeQuestion } from './questions';
 import { archiveFact, confirmFact, pageFacts } from './journal';
 import { pageSpend } from './spend';
+import { officeSpendReport } from './spendReport';
 import { addRule, dropRule, editRule, ruleScopes } from './rules';
 import { officeHealth, watchHealth } from './health';
 import { runRitual } from './rituals';
@@ -346,6 +347,35 @@ const httpServer = createServer((req, res) => {
     });
     res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' });
     res.end(JSON.stringify(page));
+    return;
+  }
+  // Разбор расхода: `?office=<id>&period=day|week&to=<мс>`. Срезы запусков по
+  // задаче, роли, процессу и узлу, модели, суткам; главные потребители и
+  // сигналы перерасхода. Без параметров — неделя по сей момент.
+  if (url === '/api/spend/report') {
+    if (req.method !== 'GET') {
+      res.writeHead(405, { 'Content-Type': 'application/json; charset=utf-8', Allow: 'GET' });
+      res.end(JSON.stringify({ error: c('boot.spendReportGetOnly') }));
+      return;
+    }
+    const params = new URL(req.url ?? '/', 'http://office').searchParams;
+    const wantedId = params.get('office');
+    const office = wantedId ? officeById(wantedId) : currentOffice();
+    if (!office) {
+      res.writeHead(404, { 'Content-Type': 'application/json; charset=utf-8' });
+      res.end(JSON.stringify({ error: c('offices.notFound', { id: wantedId ?? '' }) }));
+      return;
+    }
+    if (!isOpened(office.id)) {
+      res.writeHead(503, { 'Content-Type': 'application/json; charset=utf-8' });
+      res.end(JSON.stringify({ error: c('boot.spendReportClosed', { office: office.name }) }));
+      return;
+    }
+    const report = officeSpendReport(getOffice(office.id), {
+      period: params.get('period'), to: params.get('to'),
+    });
+    res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' });
+    res.end(JSON.stringify(report));
     return;
   }
   // Сводка здоровья офиса: `?office=<id>`. Три списка — провалы без разбора,

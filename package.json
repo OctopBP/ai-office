@@ -51,6 +51,7 @@
     "test:squash": "tsx scripts/test-squash.ts",
     "test:taskfiles": "tsx scripts/test-taskfiles.ts",
     "test:money": "tsx scripts/test-money.ts",
+    "test:spendreport": "tsx scripts/test-spend-report.ts",
     "test:rules": "tsx scripts/test-rules.ts",
     "test:life": "tsx scripts/test-life.ts",
     "test:review": "tsx scripts/test-review.ts",
