@@ -99,4 +99,6 @@ export const TIER_MODELS: Record<string, Partial<Record<ModelTier, string>>> = {
   },
   xai: { top: 'grok-4.7', fast: 'grok-4.3' },
   deepseek: { top: 'deepseek-v4-pro', fast: 'deepseek-flash' },
+  google: { top: 'gemini-2.5-pro', fast: 'gemini-2.5-flash' },
+  alibaba: { top: 'qwen-max', balanced: 'qwen-plus', fast: 'qwen-flash' },
 };

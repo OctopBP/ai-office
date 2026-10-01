@@ -323,7 +323,7 @@ assert.equal(role.provider, 'codex'); assert.equal(role.model, 'default');
   const { modelPrice } = await import('../src/server/providers/model-prices');
   const { sessionForProvider, engineOf, PROVIDERS: ALL } = await import('../src/shared/providers');
 
-  for (const id of ['xai', 'deepseek', 'openrouter', 'ollama', 'custom'] as const) {
+  for (const id of ['xai', 'deepseek', 'openrouter', 'google', 'alibaba', 'ollama', 'custom'] as const) {
     assert.equal(engineOf(id), 'opencode'); assert.equal(engineFor(id).id, 'opencode');
   }
   assert.equal(baseUrlOf('xai'), ALL.xai.baseUrl); assert.equal(baseUrlOf('custom'), '');
@@ -399,4 +399,82 @@ assert.equal(role.provider, 'codex'); assert.equal(role.model, 'default');
   delete process.env.OFFICE_OPENCODE_PATH;
 }
 
-console.log('Provider tests passed: routing, events, tools, denials, resume, queue, compaction, cancellation, failures, cost, quotas, engine adapters, sandbox paths, packages, opencode.');
+// Пресеты Gemini и Qwen (T-228): только ключ API, свои переменные, свои адреса.
+{
+  const { baseUrlOf } = await import('../src/server/engines/endpoints');
+  const { KEY_VAR, providerKey } = await import('../src/server/engines/keys');
+  const { buildConfig, fetchModels } = await import('../src/server/providers/opencode');
+  const { PROVIDER_SECRET_VARS } = await import('../src/server/childenv');
+  const { PROVIDERS: ALL, providerSpec } = await import('../src/shared/providers');
+  const { TIER_MODELS } = await import('../src/shared/models');
+
+  assert.equal(baseUrlOf('google'), 'https://generativelanguage.googleapis.com/v1beta/openai');
+  assert.equal(baseUrlOf('alibaba'), 'https://dashscope-intl.aliyuncs.com/compatible-mode/v1');
+  assert.deepEqual(providerSpec('google').sdk,
+    { npm: '@ai-sdk/google', baseUrl: 'https://generativelanguage.googleapis.com/v1beta' });
+  for (const id of ['google', 'alibaba'] as const) {
+    const spec = providerSpec(id);
+    assert(!spec.editableUrl && !spec.keyOptional, `${id}: адрес пресета и ключ обязателен`);
+    assert.match(spec.keyUrl ?? '', /^https:\/\//, `${id}: ссылка «где взять ключ»`);
+    assert(TIER_MODELS[id]?.top && TIER_MODELS[id]?.fast, `${id}: модели по уровням`);
+    // Своя переменная ключа: ни у кого больше её нет, и из команд агента она вычищается.
+    const shared = Object.entries(KEY_VAR).filter(([other, v]) => other !== id && v === KEY_VAR[id]);
+    assert.deepEqual(shared, [], `${id}: переменная ключа ни с кем не делится`);
+    assert(PROVIDER_SECRET_VARS.includes(KEY_VAR[id]), `${id}: ключ не попадает в команды агента`);
+  }
+  assert.equal(KEY_VAR.google, 'GEMINI_API_KEY'); assert.equal(KEY_VAR.alibaba, 'DASHSCOPE_API_KEY');
+  assert.equal(ALL.alibaba.defaultModel, 'qwen-plus');
+
+  // Gemini в сессии — родной пакет OpenCode; Qwen — OpenAI-совместимый.
+  const bridge = { url: 'u', authorization: 'a' };
+  const gemini = buildConfig({ provider: 'google', baseUrl: providerSpec('google').sdk!.baseUrl, npm: '@ai-sdk/google',
+    model: 'gemini-2.5-pro', keyVar: KEY_VAR.google, system: '', bridge }) as any;
+  assert.equal(gemini.provider.office.npm, '@ai-sdk/google');
+  assert.equal(gemini.provider.office.options.baseURL, 'https://generativelanguage.googleapis.com/v1beta');
+  assert.equal(gemini.provider.office.options.apiKey, '{env:GEMINI_API_KEY}');
+  assert.equal(gemini.model, 'office/gemini-2.5-pro');
+  const qwen = buildConfig({ provider: 'alibaba', baseUrl: baseUrlOf('alibaba'), model: 'qwen-max',
+    keyVar: KEY_VAR.alibaba, system: '', bridge }) as any;
+  assert.equal(qwen.provider.office.npm, '@ai-sdk/openai-compatible');
+  assert.equal(qwen.provider.office.options.apiKey, '{env:DASHSCOPE_API_KEY}');
+  assert(!JSON.stringify(qwen).includes('GEMINI'), 'ключ Gemini не уходит в сессию Qwen');
+
+  // Вход по ключу: проверка — список моделей своего провайдера, ключ — в связку.
+  const ocMock = resolve(root, 'opencode-mock.sh');
+  process.env.OFFICE_OPENCODE_PATH = ocMock;
+  const realFetch = globalThis.fetch;
+  const asked: Array<{ url: string; auth?: string }> = [];
+  globalThis.fetch = (async (input: string | URL | Request, init?: RequestInit) => {
+    const url = String(input);
+    const auth = (init?.headers as Record<string, string> | undefined)?.Authorization;
+    asked.push({ url, auth });
+    if (auth !== 'Bearer good-key') return new Response('{}', { status: 401 });
+    const ids = url.includes('googleapis') ? ['models/gemini-2.5-pro', 'models/gemini-2.5-flash'] : ['qwen-max', 'qwen-plus'];
+    return new Response(JSON.stringify({ object: 'list', data: ids.map((id) => ({ id, object: 'model' })) }), { status: 200 });
+  }) as typeof fetch;
+  try {
+    for (const id of ['google', 'alibaba'] as const) {
+      assert.equal((await engineFor(id).status(id, { force: true })).state, 'needs-login');
+      await assert.rejects(engineFor(id).login({ provider: id, kind: 'api-key', apiKey: 'bad-key' }),
+        (err: unknown) => err instanceof LoginError && err.code === 'rejected');
+      assert.equal(providerKey(id), null, `${id}: отвергнутый ключ не сохранён`);
+      const done = await engineFor(id).login({ provider: id, kind: 'api-key', apiKey: 'good-key' });
+      assert(done.done && done.status.state === 'ready', `${id}: после входа готов`);
+      assert.deepEqual(providerKey(id), { key: 'good-key', source: 'keychain' });
+      assert(asked.every((a) => a.url.startsWith(baseUrlOf(a.url.includes('googleapis') ? 'google' : 'alibaba'))));
+      await engineFor(id).logout(id);
+      assert.equal(providerKey(id), null);
+    }
+    assert.equal(asked.at(-1)!.url, 'https://dashscope-intl.aliyuncs.com/compatible-mode/v1/models');
+    // Префикс `models/` у Gemini срезается: в запросах и каталоге цен модель без него.
+    const { saveKey, deleteKey } = await import('../src/server/engines/keys');
+    await saveKey('google', 'good-key');
+    assert.deepEqual(await fetchModels('google'), ['gemini-2.5-pro', 'gemini-2.5-flash']);
+    await deleteKey('google');
+  } finally {
+    globalThis.fetch = realFetch;
+    delete process.env.OFFICE_OPENCODE_PATH;
+  }
+}
+
+console.log('Provider tests passed: routing, events, tools, denials, resume, queue, compaction, cancellation, failures, cost, quotas, engine adapters, sandbox paths, packages, opencode, gemini and qwen presets.');

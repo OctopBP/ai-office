@@ -1,6 +1,7 @@
 /**
  * Адаптер универсального движка OpenCode (spec провайдеров §3.5): провайдеры
- * с API в формате OpenAI — xAI, DeepSeek, OpenRouter, Ollama и свой адрес.
+ * с API в формате OpenAI — xAI, DeepSeek, OpenRouter, Google (Gemini),
+ * Alibaba (Qwen), Ollama и свой адрес.
  * Сессия — `providers/opencode.ts`, инструменты офиса — через мост MCP.
  *
  * Провайдер здесь — пресет: адрес, ключ и модель. Ключ лежит в связке ключей
@@ -21,7 +22,7 @@ import { installFromNpm } from './install';
 import { deleteKey, providerKey, saveKey, verifyKey } from './keys';
 import { LoginError, type EngineAdapter, type EngineCapabilities, type ModelInfo, type ProviderStatus } from './types';
 
-const OPENCODE_PROVIDERS: ProviderId[] = ['xai', 'deepseek', 'openrouter', 'ollama', 'custom'];
+const OPENCODE_PROVIDERS: ProviderId[] = ['xai', 'deepseek', 'openrouter', 'google', 'alibaba', 'ollama', 'custom'];
 
 /** Найденный движок: запуск `--version` — сотни миллисекунд, а статус спрашивают часто. */
 let located: { at: number; value: { path: string; version: string } | null } | null = null;

@@ -1,6 +1,6 @@
 /**
  * Сессия на универсальном движке OpenCode (spec провайдеров §3.5): любой API
- * в формате OpenAI — xAI, DeepSeek, OpenRouter, Ollama, свой адрес.
+ * в формате OpenAI — xAI, DeepSeek, OpenRouter, Gemini, Qwen, Ollama, свой адрес.
  *
  * Цикл агента ведёт сам OpenCode (`opencode serve`), офис его не пишет. На
  * сессию — свой процесс сервера со своим конфигом: провайдер, модель, промпт и
@@ -22,7 +22,7 @@ import { mkdirSync, realpathSync } from 'node:fs';
 import { homedir, tmpdir } from 'node:os';
 import { dirname, resolve } from 'node:path';
 import type { EngineSession, SDKMessage, SessionOptions, SessionRequest } from '../engines/types';
-import type { ProviderId } from '../../shared/providers';
+import { providerSpec, type ProviderId } from '../../shared/providers';
 import { DEFAULT_STATE_FILE } from '../store';
 import { engineEnv, projectEnv } from '../childenv';
 import { installedBin, runnable } from '../engines/install';
@@ -172,7 +172,9 @@ export async function fetchModels(provider: ProviderId, timeoutMs = 10_000): Pro
   const res = await fetch(`${base}/models`, { headers: providerHeaders(provider), signal: AbortSignal.timeout(timeoutMs) });
   if (!res.ok) throw new Error(`HTTP ${res.status} from ${base}/models`);
   const body = await res.json() as { data?: Array<{ id?: unknown }> };
-  return (body.data ?? []).map((m) => m.id).filter((id): id is string => typeof id === 'string' && id.length > 0);
+  // Gemini отдаёт id с префиксом `models/`, а в запросах и каталоге цен модель — без него.
+  return (body.data ?? []).map((m) => m.id).filter((id): id is string => typeof id === 'string' && id.length > 0)
+    .map((id) => id.replace(/^models\//, ''));
 }
 
 /** `default` — первая модель, которую отдаёт сервер: у Ollama и своего адреса другой не угадать. */
@@ -198,6 +200,8 @@ const NATIVE_TOOLS = ['bash', 'edit', 'write', 'read', 'glob', 'grep', 'list', '
 export interface ConfigInput {
   provider: ProviderId;
   baseUrl: string;
+  /** Пакет AI SDK провайдера; нет — OpenAI-совместимый. */
+  npm?: string;
   model: string;
   /** Переменная окружения с ключом; нет — провайдер без ключа (локальный). */
   keyVar?: string;
@@ -218,7 +222,7 @@ export function buildConfig(c: ConfigInput): Record<string, unknown> {
     enabled_providers: [OC_PROVIDER],
     provider: {
       [OC_PROVIDER]: {
-        npm: '@ai-sdk/openai-compatible',
+        npm: c.npm ?? '@ai-sdk/openai-compatible',
         name: c.provider,
         options: {
           baseURL: c.baseUrl,
@@ -589,8 +593,9 @@ export function opencodeQuery({ prompt, options }: SessionRequest): EngineSessio
         : 'Run a shell command in the workspace.');
     bridge = await startBridge(catalog.tools, call);
     const known = await catalogModel(provider, model);
+    const sdk = providerSpec(provider).sdk;
     const config = buildConfig({
-      provider, baseUrl: base, model, system: systemText(options),
+      provider, baseUrl: sdk?.baseUrl ?? base, npm: sdk?.npm, model, system: systemText(options),
       keyVar: providerKey(provider) ? KEY_VAR[provider] : undefined,
       contextWindow: known?.contextWindow,
       bridge: { url: bridge.url, authorization: bridge.authorization },

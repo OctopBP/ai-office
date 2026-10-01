@@ -19,20 +19,56 @@ interface ProviderSpec {
   editableUrl?: boolean;
   /** Ключ API необязателен (локальные серверы): карточка пускает без него. */
   keyOptional?: boolean;
+  /** Где владелец берёт ключ — ссылка на карточке рядом с полем ключа. */
+  keyUrl?: string;
+  /**
+   * Свой пакет AI SDK для сессии OpenCode вместо `@ai-sdk/openai-compatible`
+   * и его адрес. Нужен, когда совместимый слой провайдера теряет то, без чего
+   * агент не работает: у Gemini это подписи рассуждений между вызовами
+   * инструментов и чистка схем инструментов, которые OpenCode делает только
+   * для родного пакета. Проверка ключа и список моделей идут по `baseUrl`.
+   */
+  sdk?: { npm: string; baseUrl: string };
 }
 
 /**
  * Persisted provider ids. Execution location (local/cloud) is a separate setting.
  *
  * Провайдеры движка `opencode` — пресеты API в формате OpenAI (spec провайдеров
- * §3.5): xAI, DeepSeek, OpenRouter, Ollama на этой машине и свой адрес.
+ * §3.5): xAI, DeepSeek, OpenRouter, Google (Gemini), Alibaba (Qwen), Ollama на
+ * этой машине и свой адрес. Gemini и Qwen — только по ключу API: вход аккаунтом
+ * Google условия Google запрещают (docs/legal/T-210/antigravity.md).
  */
 export const PROVIDERS = {
   'claude-code': { label: 'Claude Code', engine: 'claude-code', defaultModel: 'claude-sonnet-5-5', cloud: true },
   codex: { label: 'Codex', engine: 'codex', defaultModel: 'default', cloud: false },
-  xai: { label: 'xAI (Grok)', engine: 'opencode', defaultModel: 'grok-4.7', cloud: false, baseUrl: 'https://api.x.ai/v1' },
-  deepseek: { label: 'DeepSeek', engine: 'opencode', defaultModel: 'deepseek-flash', cloud: false, baseUrl: 'https://api.deepseek.com/v1' },
-  openrouter: { label: 'OpenRouter', engine: 'opencode', defaultModel: 'openrouter/auto', cloud: false, baseUrl: 'https://openrouter.ai/api/v1' },
+  xai: {
+    label: 'xAI (Grok)', engine: 'opencode', defaultModel: 'grok-4.7', cloud: false,
+    baseUrl: 'https://api.x.ai/v1', keyUrl: 'https://console.x.ai/',
+  },
+  deepseek: {
+    label: 'DeepSeek', engine: 'opencode', defaultModel: 'deepseek-flash', cloud: false,
+    baseUrl: 'https://api.deepseek.com/v1', keyUrl: 'https://platform.deepseek.com/api_keys',
+  },
+  openrouter: {
+    label: 'OpenRouter', engine: 'opencode', defaultModel: 'openrouter/auto', cloud: false,
+    baseUrl: 'https://openrouter.ai/api/v1', keyUrl: 'https://openrouter.ai/keys',
+  },
+  // Ключ из Google AI Studio. Список моделей — через OpenAI-совместимый слой
+  // Gemini API, сессия — через родной пакет (см. `sdk`).
+  google: {
+    label: 'Google (Gemini)', engine: 'opencode', defaultModel: 'gemini-2.5-pro', cloud: false,
+    baseUrl: 'https://generativelanguage.googleapis.com/v1beta/openai',
+    sdk: { npm: '@ai-sdk/google', baseUrl: 'https://generativelanguage.googleapis.com/v1beta' },
+    keyUrl: 'https://aistudio.google.com/apikey',
+  },
+  // Alibaba Cloud Model Studio (DashScope), международный регион: ключ
+  // китайского региона здесь не подойдёт, и наоборот.
+  alibaba: {
+    label: 'Alibaba (Qwen)', engine: 'opencode', defaultModel: 'qwen-plus', cloud: false,
+    baseUrl: 'https://dashscope-intl.aliyuncs.com/compatible-mode/v1',
+    keyUrl: 'https://www.alibabacloud.com/help/en/model-studio/get-api-key',
+  },
   ollama: {
     label: 'Ollama', engine: 'opencode', defaultModel: 'default', cloud: false,
     baseUrl: 'http://127.0.0.1:11434/v1', editableUrl: true, keyOptional: true,

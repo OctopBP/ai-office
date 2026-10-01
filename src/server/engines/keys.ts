@@ -26,6 +26,10 @@ export const KEY_VAR: Record<ProviderId, string> = {
   xai: 'XAI_API_KEY',
   deepseek: 'DEEPSEEK_API_KEY',
   openrouter: 'OPENROUTER_API_KEY',
+  // У Gemini и Qwen свои имена: ключ уходит только на сервер своего провайдера,
+  // а не на чужой, который прочёл бы общую переменную.
+  google: 'GEMINI_API_KEY',
+  alibaba: 'DASHSCOPE_API_KEY',
   ollama: 'OLLAMA_API_KEY',
   // Своему адресу общеизвестной переменной нет — своё имя, чтобы ключ
   // владельца от OpenAI не уехал на чужой сервер.

@@ -1,5 +1,5 @@
 import { useEffect, useId, useRef, useState, type ReactNode } from 'react';
-import type { EngineCapabilities, ProviderStatus } from '../shared/providers';
+import { providerSpec, type EngineCapabilities, type ProviderStatus } from '../shared/providers';
 import type { LimitKind, ProviderLoginFlow, ProviderView } from '../shared/types';
 import { Gauge, LIMIT_TICK_MS } from './LimitBars';
 import { limitTone, resetLine } from './money';
@@ -31,6 +31,12 @@ const STATUS_KEY: Record<ProviderStatus['state'], UiKey> = {
 const SUBSCRIPTION_NOTE: Record<string, UiKey> = {
   'claude-code': 'providers.login.noteClaude',
   codex: 'providers.login.noteOpenai',
+};
+
+/** Откуда ключ, если это не очевидно по названию провайдера. */
+const KEY_NOTE: Partial<Record<ProviderView['id'], UiKey>> = {
+  google: 'providers.login.noteGoogle',
+  alibaba: 'providers.login.noteAlibaba',
 };
 
 const LIMIT_KIND_KEY: Record<LimitKind, UiKey> = {
@@ -90,6 +96,7 @@ function KeyForm({ p, onClose }: { p: ProviderView; onClose: () => void }) {
   const [shown, setShown] = useState(false);
   const [checking, setChecking] = useState(false);
   const input = useRef<HTMLInputElement>(null);
+  const keyUrl = providerSpec(p.id).keyUrl;
   const urlInput = useRef<HTMLInputElement>(null);
   useEffect(() => { (p.editableUrl ? urlInput : input).current?.focus(); }, [p.editableUrl]);
   // Итог приходит событием `provider.login`: пока его нет — «Проверяю…».
@@ -145,6 +152,11 @@ function KeyForm({ p, onClose }: { p: ProviderView; onClose: () => void }) {
         </button>
       </div>
       <span className="form-hint">{t(keychain ? 'providers.key.hint' : 'providers.key.noKeychain')}</span>
+      {keyUrl && (
+        <a className="form-hint" href={keyUrl} target="_blank" rel="noopener noreferrer">
+          {t('providers.key.where', { name: p.label })}
+        </a>
+      )}
       {errorKey && <span className="form-hint error" role="alert">{t(errorKey)}</span>}
       <div className="provider-actions">
         <button type="button" className="primary" disabled={!ready || checking} onClick={save}>
@@ -342,6 +354,7 @@ export function ProviderCard({ p, onUse }: {
       body = (
         <>
           <p className="provider-text">{t('providers.login.prompt', { name: p.label })}</p>
+          {KEY_NOTE[p.id] && <p className="provider-text muted">{t(KEY_NOTE[p.id]!)}</p>}
           {status.detail && <p className="provider-text muted">{status.detail}</p>}
           {flowActive && flow && <SubscriptionWait p={p} flow={flow} />}
           {flow?.phase === 'expired' && <p className="provider-text error" role="alert">{t('providers.login.expired')}</p>}

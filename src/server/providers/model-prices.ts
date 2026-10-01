@@ -49,7 +49,8 @@ const num = (v: unknown): v is number => typeof v === 'number' && Number.isFinit
 /** Из полного каталога (5 МБ) оставить только наших провайдеров и нужные поля. */
 function shrink(raw: Record<string, { models?: Record<string, RawModel> }>): Catalog {
   const out: Catalog = {};
-  for (const provider of ['xai', 'deepseek', 'openrouter'] as const) {
+  // Id провайдеров офиса совпадают с id каталога models.dev.
+  for (const provider of ['xai', 'deepseek', 'openrouter', 'google', 'alibaba'] as const) {
     const models = raw[provider]?.models;
     if (!models) continue;
     const list: Record<string, CatalogModel> = {};
