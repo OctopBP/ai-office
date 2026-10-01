@@ -32,6 +32,12 @@
 .provider-status.ready { color: var(--ok-ink); }
 .provider-status.error i { background: var(--danger); }
 .provider-status.error { color: var(--danger); }
+.chip.provider-office { color: var(--accent); }
+/* Мини-чип провайдера в строке «Команды»: серый, тёплый — если провайдер не подключён. */
+.chip.provider-mini { font-size: var(--fs-caption); flex: none; }
+.chip.provider-mini.muted { color: var(--ink-3); }
+.chip.provider-mini.warn { color: var(--warn); }
+.hire-provider-warn { margin: var(--space-2) 0 0; }
 @keyframes provider-pulse { 50% { opacity: .35; } }
 @media (prefers-reduced-motion: reduce) {
   .provider-status.installing i { animation: none; }

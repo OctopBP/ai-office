@@ -130,7 +130,8 @@ export function packageRuntime(pkg: AgentPackage): Pick<Role, 'provider' | 'mode
  */
 function pairRuntime(role: Role, engine: ProviderId): void {
   if (role.model && !role.provider) role.provider = engine;
-  if (role.provider && !role.model) role.model = PROVIDERS[role.provider].defaultModel;
+  // Провайдер с уровнем вместо модели — законный выбор: модель найдётся при старте.
+  if (role.provider && !role.model && !role.tier) role.model = PROVIDERS[role.provider].defaultModel;
 }
 
 /**
@@ -140,9 +141,13 @@ function pairRuntime(role: Role, engine: ProviderId): void {
  */
 export function roleRuntime(role: Pick<Role, 'provider' | 'model' | 'tier'>, office: ModelChoice): ModelChoice {
   if (role.provider) {
+    // Свой провайдер с уровнем: уровень разрешается у него, и balanced тоже —
+    // модель офиса чужому провайдеру ничего не говорит.
+    const tiered = role.tier ? TIER_MODELS[role.provider]?.[role.tier] : undefined;
     return {
       provider: role.provider,
-      model: role.model ?? (role.provider === office.provider ? office.model : PROVIDERS[role.provider].defaultModel),
+      model: role.model ?? tiered
+        ?? (role.provider === office.provider ? office.model : PROVIDERS[role.provider].defaultModel),
     };
   }
   const tiered = role.tier && role.tier !== 'balanced' ? TIER_MODELS[office.provider]?.[role.tier] : undefined;
@@ -196,7 +201,7 @@ export const copyTitle = (title: string, copy: number | undefined): string =>
 
 /** Поля, по которым считается разница роли с пакетом. */
 export const OVERRIDABLE_KEYS: readonly (keyof LinkOverrides)[] = [
-  'title', 'emoji', 'color', 'model', 'provider', 'permissionMode', 'isolate',
+  'title', 'emoji', 'color', 'model', 'provider', 'tier', 'permissionMode', 'isolate',
   'maxTurns', 'repoDir', 'sprite', 'mcp', 'capabilities',
 ];
 
@@ -258,6 +263,11 @@ export function roleFromPackage(pkg: AgentPackage, lang: Lang, id: string, link?
     if (sameValue(value, base[key as keyof Role])) { delete ref.overrides[key]; continue; }
     (base as unknown as Record<string, unknown>)[key] = Array.isArray(value) ? [...value] : value;
   }
+  // Оверрайд `tier: null` — человек снял уровень пакета: роль идёт за моделью офиса.
+  if (!base.tier) delete base.tier;
+  // Выбранный человеком уровень сильнее конкретной модели пакета: иначе
+  // пакет, прибитый к модели, уровень бы молча игнорировал.
+  else if (ref.overrides.tier && ref.overrides.model === undefined) delete base.model;
   pairRuntime(base, m.runtime.engine);
   // Менеджера не переименовать: на этой роли держится раздача задач.
   if (base.isManager) { base.title = packageTitle(pkg, lang); delete ref.overrides.title; }

@@ -1,5 +1,8 @@
 import { useState } from 'react';
-import { marketHire, marketHireTeam, marketInstall, marketLicense, marketUpdate } from './store';
+import {
+  hireProviderWarning, marketHire, marketHireTeam, marketInstall, marketLicense, marketUpdate,
+  openProviderSettings, useStore,
+} from './store';
 import { t } from './i18n';
 import type { MarketPackageView } from '../shared/types';
 
@@ -32,6 +35,9 @@ export function PackageCard({ p, busy, act, hire }: {
   const canInstall = !p.installed && p.origin === 'registry' && !p.yanked && !needsKey;
   const canHire = p.installed && !p.manager && p.kind === 'agent';
   const canHireTeam = p.installed && p.kind === 'team' && p.members.every((m) => m.available);
+  const officeChoice = useStore((s) => s.settings.model);
+  const providers = useStore((s) => s.providers);
+  const providerWarn = hireProviderWarning(p, officeChoice, providers);
   return (
     <div className="role-form market-card">
       <h3>
@@ -55,6 +61,14 @@ export function PackageCard({ p, busy, act, hire }: {
       )}
       {p.tags.length > 0 && <p className="muted small">{p.tags.map((tag) => `#${tag}`).join(' ')}</p>}
       {p.yanked && <div className="form-banner error">{t('market.yanked')}</div>}
+      {canHire && providerWarn && (
+        // Найм не блокируем: роль наймётся и подождёт, пока провайдер подключат.
+        <p className="form-hint warn hire-provider-warn" role="status">
+          {t(p.provider ? 'providers.role.hireWarn' : 'providers.role.hireWarnOffice', { name: providerWarn.label })}
+          {' '}
+          <button type="button" className="link" onClick={openProviderSettings}>{t('providers.role.connect')}</button>
+        </p>
+      )}
 
       <div className="modal-actions market-actions">
         {canInstall && (

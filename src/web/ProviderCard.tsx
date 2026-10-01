@@ -5,7 +5,7 @@ import { Gauge, LIMIT_TICK_MS } from './LimitBars';
 import { limitTone, resetLine } from './money';
 import { Icon } from './icons';
 import {
-  cancelProviderInstall, cancelProviderLogin, installProvider, loginProvider, loginProviderBySubscription,
+  cancelProviderInstall, cancelProviderLogin, installProvider, isOfficeProvider, loginProvider, loginProviderBySubscription,
   logoutProvider, refreshProviders, sendProviderLoginCode, useStore,
 } from './store';
 import { t, type UiKey } from './i18n';
@@ -216,6 +216,7 @@ export function ProviderCard({ p, onUse }: {
   const titleId = useId();
   const status = p.status;
   const limits = useStore((s) => s.limits);
+  const isOffice = useStore((s) => isOfficeProvider(s.settings.model, p.id));
   const [keyOpen, setKeyOpen] = useState(false);
   const flow = useStore((s) => s.providerFlow[p.id]);
   const flowActive = flow?.phase === 'starting' || flow?.phase === 'waiting';
@@ -412,6 +413,7 @@ export function ProviderCard({ p, onUse }: {
         <span className={`chip provider-status ${status.state}`}>
           <i aria-hidden />{t(STATUS_KEY[status.state])}
         </span>
+        {isOffice && <span className="chip provider-office">{t('providers.badge.office')}</span>}
         {hasMenu && <CardMenu p={p} onChangeKey={() => setKeyOpen(true)} />}
       </header>
       <div className="provider-body">{body}</div>

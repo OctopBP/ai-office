@@ -40,7 +40,7 @@ import {
   packageBrief, packageIntegrity, packageModel, packageTitle, pick, readLock, readPackage,
   type AgentPackage, type Localized, type PackageLock,
 } from './packages';
-import type { PackageSource } from './roles';
+import { packageRuntime, type PackageSource } from './roles';
 import type { OfficeState } from './state';
 import { ROOT } from './root';
 
@@ -518,7 +518,7 @@ const warningsOf = (dir: string): string[] =>
 const emptyCard = (name: string): MarketPackageView => ({
   name, version: '', origin: 'registry', trust: 'community', installed: false,
   repo: '', path: '', commit: '', latest: '', yanked: false,
-  title: '', summary: '', tags: [], emoji: '', color: '', manager: false, model: '',
+  title: '', summary: '', tags: [], emoji: '', color: '', manager: false, model: '', provider: null,
   tools: null, mcp: [], servers: [], env: [], network: false, skills: [], brief: '',
   warnings: [], roles: [], kind: 'agent', members: [], settings: {}, access: 'public', price: '', buyUrl: '', licensed: false,
   reputation: null,
@@ -535,6 +535,8 @@ function fillFromPackage(card: MarketPackageView, pkg: AgentPackage, lang: Lang)
   card.color = m.color;
   card.manager = m.manager;
   card.model = packageModel(pkg);
+  // Провайдер для предупреждения при найме: тот же расчёт, что у роли из пакета.
+  card.provider = m.kind === 'agent' ? packageRuntime(pkg).provider ?? null : null;
   card.tools = m.runtime.tools;
   card.mcp = m.runtime.mcp;
   card.servers = m.servers;

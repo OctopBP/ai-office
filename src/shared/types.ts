@@ -12,6 +12,7 @@ import type { Layout, LayoutOverride, LayoutPropEdit } from './layout';
 // Язык офиса живёт в настройках, а его тип — рядом с движком словарей.
 export type { Lang } from './i18n';
 import type { Lang } from './i18n';
+import type { ModelTier } from './models';
 
 export type AgentState =
   | 'idle'
@@ -444,6 +445,12 @@ export interface RoleEditable {
    * снять свой выбор и вернуться к провайдеру и модели офиса.
    */
   ownModel?: boolean;
+  /**
+   * Уровень модели вместо конкретной модели (docs/design/T-189/ui.md §5.2):
+   * разрешается в модель провайдера роли при старте сессии. В правке `null`
+   * снимает уровень, уровень снимает свою модель роли (провайдер остаётся).
+   */
+  tier?: ModelTier | null;
   /** null — наследовать режим офиса (Settings.officePermissionMode). */
   permissionMode: PermissionMode | null;
   isolate: boolean;
@@ -2784,6 +2791,12 @@ export interface MarketPackageView {
   color: string;
   manager: boolean;
   model: string;
+  /**
+   * На каком провайдере пакет будет работать после найма: пакет прибит к
+   * своему движку. null — пакет называет уровень, и роль идёт за провайдером
+   * офиса (или пакет ещё не установлен).
+   */
+  provider: ProviderId | null;
   /** null — все встроенные инструменты. */
   tools: string[] | null;
   /** Подписки на серверы каталога по умолчанию. */

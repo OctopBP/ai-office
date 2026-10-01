@@ -72,6 +72,11 @@ export const resolveModel = (value: string): string =>
  */
 export type ModelTier = 'top' | 'balanced' | 'fast';
 
+export const MODEL_TIERS: readonly ModelTier[] = ['top', 'balanced', 'fast'];
+
+export const isModelTier = (value: unknown): value is ModelTier =>
+  (MODEL_TIERS as readonly unknown[]).includes(value);
+
 /** Алиас пакета, который означает уровень, а не конкретную модель. */
 export const TIER_OF_ALIAS: Partial<Record<ModelAlias, ModelTier>> = {
   opus: 'top',

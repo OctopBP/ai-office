@@ -25,7 +25,7 @@ import {
 
 export type AgentField =
   | 'name' | 'personalMode'
-  | 'title' | 'sprite' | 'provider' | 'model' | 'ownModel' | 'permissionMode' | 'isolate'
+  | 'title' | 'sprite' | 'provider' | 'model' | 'ownModel' | 'tier' | 'permissionMode' | 'isolate'
   | 'maxTurns' | 'repoDir' | 'mcp' | 'capabilities' | 'brief' | 'briefExtra';
 
 type RoleField = Exclude<AgentField, 'name' | 'personalMode'>;
@@ -33,7 +33,7 @@ type InstField = 'name' | 'personalMode';
 
 /** Выбор из списка: ошибка откатывает значение к серверному, а не оставляет его в поле. */
 const INSTANT: ReadonlySet<AgentField> = new Set<AgentField>([
-  'personalMode', 'sprite', 'provider', 'model', 'ownModel', 'permissionMode', 'isolate', 'mcp', 'capabilities',
+  'personalMode', 'sprite', 'provider', 'model', 'ownModel', 'tier', 'permissionMode', 'isolate', 'mcp', 'capabilities',
 ]);
 
 /** Длинные тексты сохраняются сами через эту паузу в наборе. */
@@ -87,6 +87,7 @@ function serverValue(f: AgentField, role: RoleView, inst: InstanceView): unknown
     case 'maxTurns': return role.maxTurns?.toString() ?? '';
     case 'capabilities': return role.capabilities ?? [];
     case 'provider': return providerOf(role);
+    case 'tier': return role.tier ?? null;
     default: return role[f];
   }
 }

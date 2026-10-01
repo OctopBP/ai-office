@@ -1,6 +1,7 @@
 import {
   DEFAULT_MODEL_CHOICE, isProviderId, PROVIDERS, sameChoice, type ModelChoice, type ProviderId,
 } from '../shared/providers';
+import { isModelTier } from '../shared/models';
 import { randomUUID } from 'node:crypto';
 import { isAbsolute, resolve } from 'node:path';
 import type {
@@ -292,7 +293,7 @@ export const criticalEnvFail = (checks: EnvCheck[]): EnvCheck | null =>
  * `archived` и `isManager` — архивация и второй менеджер в обход проверок.
  */
 const ROLE_EDITABLE_KEYS: readonly (keyof RoleEditable)[] = [
-  'title', 'emoji', 'color', 'model', 'provider', 'permissionMode',
+  'title', 'emoji', 'color', 'model', 'provider', 'tier', 'permissionMode',
   'isolate', 'maxTurns', 'repoDir', 'sprite', 'brief', 'briefExtra', 'mcp', 'capabilities',
 ];
 
@@ -3607,6 +3608,7 @@ export class OfficeState {
     const officeMode = this.officeMode();
     return this.roles().map<RoleView>((r) => ({
       id: r.id, title: r.title, emoji: r.emoji, color: r.color, ...this.runtimeOf(r), ownModel: Boolean(r.provider),
+      ...(r.tier ? { tier: r.tier } : {}),
       permissionMode: r.permissionMode,
       isolate: r.isolate, maxTurns: r.maxTurns ?? null,
       repoDir: r.repoDir ?? '', sprite: r.sprite ?? '', brief: r.brief,
@@ -4104,10 +4106,15 @@ export class OfficeState {
     // достраивается из того, на чём роль работает сейчас. Сменили провайдера
     // без модели — модель офиса, если провайдер его, иначе умолчание провайдера.
     const resetModel = patch.ownModel === false;
+    if ('tier' in clean && clean.tier !== null && !isModelTier(clean.tier)) delete clean.tier;
+    // Уровень вместо модели: своя модель роли снимается, свой провайдер (если
+    // прислан или уже был) остаётся — уровень разрешится у него при старте.
+    const byTier = Boolean(clean.tier);
+    if (byTier) delete clean.model;
     if (resetModel) {
       delete clean.provider;
       delete clean.model;
-    } else if (clean.provider || clean.model) {
+    } else if (!byTier && (clean.provider || clean.model)) {
       const now = this.runtimeOf(base);
       const provider = clean.provider ?? now.provider;
       clean.provider = provider;
@@ -4165,6 +4172,7 @@ export class OfficeState {
         delete link.overrides.provider;
         delete link.overrides.model;
       }
+      if (byTier) delete link.overrides.model;
       if ('briefExtra' in clean) link.briefExtra = String(clean.briefExtra ?? '').trim();
       // `brief` у привязанной роли не правится: форма его и не шлёт, а патч
       // из сети с ним молча отбрасывается — отвязка делается явной командой.
@@ -4177,6 +4185,8 @@ export class OfficeState {
         if (r.id !== roleId) return r;
         const next: Role = { ...r, ...(clean as Partial<Role>) };
         if (resetModel) { delete next.provider; delete next.model; }
+        if (byTier) delete next.model;
+        if (!next.tier) delete next.tier;
         return next;
       });
     }

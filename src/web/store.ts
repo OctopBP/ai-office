@@ -9,9 +9,10 @@ import type {
   PullRequestView, PrStage,
   EpicView, LimitsView, FactView, OwnerQuestion, LifeView, RitualId, DirectionView, ProposalView,
   OfficeSetupPlan, SetupCatalog, SetupStep, OfficeHealth, EnvReport, RuleScopeView, PmChat,
-  ProviderLoginFlow, ProviderLoginResult, ProvidersView, ProviderView,
+  ProviderLoginFlow, ProviderLoginResult, ProvidersView, ProviderView, MarketPackageView,
 } from '../shared/types';
-import { isConnected, type ModelChoice, type ProviderId } from '../shared/providers';
+import { isConnected, PROVIDERS, type ModelChoice, type ProviderId } from '../shared/providers';
+import { MODEL_TIERS, TIER_MODELS, type ModelTier } from '../shared/models';
 import {
   compareOffices, emptyLimits, emptyUsage, isOfficeSender,
   MAX_OFFICE_WORKERS, MAX_TASK_MAX_TURNS, MIN_OFFICE_WORKERS, MIN_TASK_MAX_TURNS,
@@ -2375,6 +2376,56 @@ export function officeProvider(providers: ProvidersView | null, choice: ModelCho
 /** Подключённые провайдеры — из них выбирают в мастере нового офиса. */
 export const readyProviders = (providers: ProvidersView | null): ProviderView[] =>
   (providers?.providers ?? []).filter((p) => isConnected(p.status));
+
+/** Этот провайдер сейчас выбран у офиса — чип «Провайдер офиса» на его карточке (ui.md §2.3). */
+export const isOfficeProvider = (choice: ModelChoice, id: ProviderId): boolean => choice.provider === id;
+
+/**
+ * Уровни в списке моделей роли (ui.md §5.2). Блок показываем, если провайдер
+ * умеет разрешать уровни (`TIER_MODELS`) или уровень у роли уже стоит — иначе
+ * выбор ничего не значил бы, а стоящий уровень пропал бы из поля молча.
+ */
+export const roleTiers = (provider: ProviderId, current: ModelTier | null): readonly ModelTier[] =>
+  (Object.keys(TIER_MODELS[provider] ?? {}).length || current ? MODEL_TIERS : []);
+
+/**
+ * Мини-чип провайдера в списке «Команда» — у каждого сотрудника (T-225).
+ * В отличие от макета (ui.md §5.2) чип есть и у роли «как у офиса», но
+ * приглушённый (`own: false`): видно, на чём роль работает, без шума выбора.
+ * `RoleView.provider` сервер уже разрешил с учётом офиса. `null` — чипа нет.
+ */
+export function roleProviderChip(
+  role: Pick<RoleView, 'ownModel' | 'provider' | 'model'>, providers: ProvidersView | null,
+): { provider: ProviderId; label: string; short: string; model: string; own: boolean; ready: boolean } | null {
+  if (!role.provider) return null;
+  const view = providers?.providers.find((p) => p.id === role.provider);
+  const label = view?.label ?? PROVIDERS[role.provider].label;
+  return {
+    provider: role.provider,
+    label,
+    // «Anthropic · Claude» в мини-чипе длинно: хватает имени до точки.
+    short: label.split(' · ')[0],
+    model: role.model,
+    own: role.ownModel,
+    // Пока статусов нет, не пугаем: предупреждение только по известному состоянию.
+    ready: view ? isConnected(view.status) : true,
+  };
+}
+
+/**
+ * На каком провайдере будет работать нанятый пакет и подключён ли он
+ * (ui.md §5.2, предупреждение при найме). Пакет с уровнем идёт за провайдером
+ * офиса; `null` — предупреждать не о чем (подключён или статусов ещё нет).
+ */
+export function hireProviderWarning(
+  pkg: Pick<MarketPackageView, 'kind' | 'provider'>, office: ModelChoice, providers: ProvidersView | null,
+): { provider: ProviderId; label: string } | null {
+  if (!providers || pkg.kind !== 'agent') return null;
+  const id = pkg.provider ?? office.provider;
+  const view = providers.providers.find((p) => p.id === id);
+  if (view && isConnected(view.status)) return null;
+  return { provider: id, label: view?.label ?? PROVIDERS[id].label };
+}
 
 /** Переспросить статусы провайдеров; `force` — мимо кешей движков («Проверить снова»). */
 export function refreshProviders(force = false): void {

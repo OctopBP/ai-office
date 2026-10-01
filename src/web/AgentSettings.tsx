@@ -37,6 +37,7 @@ const FIELD_LABEL: Record<AgentField, UiKey> = {
   provider: 'role.provider',
   model: 'role.model',
   ownModel: 'role.model',
+  tier: 'role.model',
   permissionMode: 'agent.field.roleMode',
   isolate: 'role.isolate',
   maxTurns: 'settings.limits.turns',

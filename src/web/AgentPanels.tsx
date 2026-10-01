@@ -4,7 +4,7 @@ import { PROVIDERS, PROVIDER_IDS, isConnected, type ProviderId } from '../shared
 import { lookById } from '../shared/looks';
 import {
   accessLabel, clearExportResult, exportRole, fire, fullAccessWarning, marketUpdate, openLayoutSettings,
-  openProviderSettings, permissionSource, permissionSourceLabel, useStore,
+  openProviderSettings, permissionSource, permissionSourceLabel, roleTiers, useStore,
 } from './store';
 import { has, t, type UiKey } from './i18n';
 import { Icon } from './icons';
@@ -14,6 +14,7 @@ import { ProviderOptions, freeModel, modelOptions, providerLabel, useProviderMod
 import { usageLine, usageMoney } from './money';
 import type { AgentAutosave, AgentField } from './useAgentAutosave';
 import type { InstanceView, MarketPackageView, PermissionMode, ProviderView, RoleView } from '../shared/types';
+import { isModelTier, type ModelTier } from '../shared/models';
 
 /**
  * Панели вкладок страницы агента (спека docs/design/T-151/spec.md, §3).
@@ -211,6 +212,9 @@ export function ProfilePanel({ save, role, inst, busy }: PanelProps) {
 
 // ------------------------------------------------------------- «Модель и работа»
 
+/** Пункт уровня в списке моделей: свой префикс, чтобы не спутать с id модели. */
+const TIER_PREFIX = 'tier:';
+
 export function ModelPanel({ save, role, busy }: PanelProps) {
   const [modelReset, setModelReset] = useState<string | null>(null);
   const [confirmIsolate, setConfirmIsolate] = useState(false);
@@ -224,6 +228,8 @@ export function ModelPanel({ save, role, busy }: PanelProps) {
   const own = save.value<boolean>('ownModel');
   const provider = save.value<ProviderId>('provider');
   const model = save.value<string>('model');
+  const tier = save.value<ModelTier | null>('tier');
+  const tiers = roleTiers(provider, tier);
   const models = useProviderModels(provider);
   const status = providers.find((p) => p.id === provider)?.status;
   const turns = blurField(save, 'maxTurns');
@@ -242,13 +248,22 @@ export function ModelPanel({ save, role, busy }: PanelProps) {
     // Модель другого провайдера новому ничего не говорит — сбрасываем на его
     // умолчание. Провайдер и модель уходят одним патчем, и форма видит это сразу.
     const reset = next === provider ? model : PROVIDERS[next].defaultModel;
-    save.set({ provider: next, model: reset, ownModel: true });
+    save.set({ provider: next, model: reset, ownModel: true, tier: null });
     setModelReset(next === provider ? null : reset);
   };
   const pickModel = (value: string) => {
     setModelReset(null);
-    if (!value) resetToOffice();
-    else save.set({ provider, model: value, ownModel: true });
+    // Уровень вместо модели: своя модель снимается на сервере, провайдер
+    // роли остаётся как есть — «как у офиса» или свой.
+    const picked = value.startsWith(TIER_PREFIX) ? value.slice(TIER_PREFIX.length) : null;
+    if (picked !== null) {
+      if (!isModelTier(picked)) return;
+      save.cancel('model');
+      save.set({ tier: picked });
+    } else if (!value) {
+      resetToOffice();
+      save.set({ tier: null });
+    } else save.set({ provider, model: value, ownModel: true, tier: null });
   };
 
   return (
@@ -282,12 +297,25 @@ export function ModelPanel({ save, role, busy }: PanelProps) {
               </datalist>
             </>
           ) : (
-            <select id="agent-model" value={own ? model : ''} onChange={(e) => pickModel(e.target.value)}>
+            <select
+              id="agent-model" value={tier ? TIER_PREFIX + tier : own ? model : ''}
+              onChange={(e) => pickModel(e.target.value)}
+            >
+              {tiers.length > 0 && (
+                <optgroup label={t('providers.role.tier')}>
+                  {tiers.map((id) => (
+                    <option key={id} value={TIER_PREFIX + id}>{t(`providers.role.tier.${id}`)}</option>
+                  ))}
+                </optgroup>
+              )}
               {!own && <option value="">{t('providers.role.asOffice', { name: office.model })}</option>}
-              {modelOptions(provider, models, own ? model : '').map(([id, label]) => (
+              {modelOptions(provider, models, own && !tier ? model : '').map(([id, label]) => (
                 <option key={id} value={id}>{label}</option>
               ))}
             </select>
+          )}
+          {tier && !freeModel(provider) && (
+            <span className="form-hint">{t('providers.role.tierResolved', { model })}</span>
           )}
           <span className="form-hint">{t('providers.role.next')}</span>
           {status && !isConnected(status) && (

@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import {
-  clearTeamRequest, hireCopy, marketAddLink, marketCheck, marketOpen, updateSettings, useStore,
+  clearTeamRequest, hireCopy, marketAddLink, marketCheck, marketOpen, roleProviderChip, updateSettings, useStore,
 } from './store';
 import { AgentSettings, type AgentTab } from './AgentSettings';
 import { PackageCard } from './PackageCard';
@@ -17,6 +17,24 @@ import { HOTKEY } from './hotkeys';
 import { ShellPage } from './shell/ShellPage';
 
 const stateLabel = (state: AgentState): string => t(`agent.state.${state}`);
+
+/** Мини-чип провайдера сотрудника (ui.md §5.2): расчёт — `roleProviderChip` в сторе. */
+function RoleProviderChip({ role }: { role: RoleView }) {
+  const providers = useStore((s) => s.providers);
+  const chip = roleProviderChip(role, providers);
+  if (!chip) return null;
+  const title = chip.ready
+    ? t('providers.role.chipTitle', { name: chip.label, model: chip.model })
+    : t('providers.role.chipNotReady', { name: chip.label });
+  return (
+    <span
+      className={`chip provider-mini${chip.ready ? '' : ' warn'}${chip.own ? '' : ' muted'}`}
+      title={title} aria-label={title}
+    >
+      {chip.short}
+    </span>
+  );
+}
 
 type Tab = 'staff' | 'market';
 
@@ -232,6 +250,7 @@ export function TeamWindow({ onClose }: { onClose: () => void }) {
                         {role?.package && ` · ${role.package.name} ${role.package.version}`}
                       </span>
                     </span>
+                    {role && <RoleProviderChip role={role} />}
                     {inst.deskless && (
                       <span className="perm-badge deskless" title={t('office.desklessHint')}>
                         <Icon name="armchair" size={14} />
