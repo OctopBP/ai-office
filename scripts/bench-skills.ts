@@ -5,7 +5,7 @@
  * Сам прогон — в `src/server/bench.ts`; для пакета вне репозитория тот же
  * стенд запускает `office-agent bench <папка>`.
  */
-import { formatOutcome, readBenchCases, runBenchCase } from '../src/server/bench';
+import { benchRuntime, benchRuntimeLabel, formatOutcome, readBenchCases, runBenchCase } from '../src/server/bench';
 import { externalMcp, DEFAULT_MCP_SERVERS } from '../src/server/mcp';
 import { loadPackage } from '../src/server/packages';
 import { basePackageName, defaultRole } from '../src/server/roles';
@@ -37,7 +37,13 @@ if (!skills?.length) {
 
 const settings = { mcpServers: DEFAULT_MCP_SERVERS } as Settings;
 const short = (name: string): string => name.split(':').pop() ?? name;
+const runtime = await benchRuntime(role);
+if (!runtime) {
+  console.error('Не подключён ни один провайдер: подключите его в офисе (Настройки → «Провайдеры»).');
+  process.exit(2);
+}
 console.log(`Стенд роли «${role.title}»`);
+console.log(`  провайдер: ${benchRuntimeLabel(runtime)}`);
 console.log(`  скилы:   ${skills.map(short).join(', ')}`);
 console.log(`  серверы: ${Object.keys(externalMcp(settings, role)).join(', ') || '(нет)'}`);
 console.log('  вызовы, кроме безопасного чтения, отклоняются — чужие данные не трогаем\n');
@@ -51,7 +57,7 @@ if (!picked.length) {
 let failed = 0;
 let spent = 0;
 for (const c of picked) {
-  const outcome = await runBenchCase(role, c, { lang, settings });
+  const outcome = await runBenchCase(role, c, { lang, settings, runtime });
   if (!outcome.ok) failed += 1;
   spent += outcome.costUsd;
   console.log(formatOutcome(outcome));

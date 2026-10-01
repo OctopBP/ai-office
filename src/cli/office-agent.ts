@@ -23,7 +23,7 @@ import { isProviderId } from '../shared/providers';
  */
 import { resolve } from 'node:path';
 import { git } from '../server/git';
-import { formatOutcome, readBenchCases, runBenchCase } from '../server/bench';
+import { benchRuntime, benchRuntimeLabel, formatOutcome, readBenchCases, runBenchCase } from '../server/bench';
 import { scaffoldPackage } from '../server/export';
 import { validatePackage, type PackageProblem } from '../server/packages';
 import {
@@ -116,11 +116,13 @@ async function main(argv: string[]): Promise<number> {
     const picked = only ? cases.filter((_, i) => i + 1 === only) : cases;
     if (!picked.length) { console.error(`no case #${only}: there are ${cases.length}`); return 2; }
     const role = roleFromPackage(pkg, lang, roleIdFor(pkg.name));
-    console.log(`bench for ${pkg.name} ${pkg.version} (${picked.length} case(s); live sessions, costs tokens)\n`);
+    const runtime = await benchRuntime(role);
+    if (!runtime) { console.error('no provider connected: connect one in the office (Settings → Providers) first'); return 2; }
+    console.log(`bench for ${pkg.name} ${pkg.version} on ${benchRuntimeLabel(runtime)} (${picked.length} case(s); live sessions, costs tokens)\n`);
     let failed = 0;
     let spent = 0;
     for (const c of picked) {
-      const outcome = await runBenchCase(role, c, { lang, cwd: dir });
+      const outcome = await runBenchCase(role, c, { lang, cwd: dir, runtime });
       if (!outcome.ok) failed += 1;
       spent += outcome.costUsd;
       console.log(formatOutcome(outcome));

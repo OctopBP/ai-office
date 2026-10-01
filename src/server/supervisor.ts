@@ -269,15 +269,18 @@ export async function superviseOffice(state: OfficeState): Promise<void> {
  * ещё нужно. Молчит — продолжаем сами, как и с нерозданными задачами.
  */
 async function watchLimits(state: OfficeState, now: number): Promise<boolean> {
-  const providers = [...new Set(state.workerRoles().map((role) => state.runtimeOf(role).provider))];
+  // Роли без провайдера лимитов не ждут: их задачи стоят по другой причине.
+  const providers = [...new Set(state.workerRoles()
+    .map((role) => state.runtimeOf(role)?.provider)
+    .filter((p): p is ProviderId => p !== undefined))];
   const blocked = await Promise.all(providers.map(provider => watchProviderLimits(state, now, provider)));
   return blocked.length > 0 && blocked.every(Boolean);
 }
 
-/** Провайдер роли задачи; роли уже нет — провайдер офиса. */
-function taskProvider(state: OfficeState, task: Task): ProviderId {
+/** Провайдер роли задачи; роли уже нет — провайдер офиса; не выбран — null. */
+function taskProvider(state: OfficeState, task: Task): ProviderId | null {
   const role = state.role(task.roleId ?? '');
-  return role ? state.runtimeOf(role).provider : state.settings.model.provider;
+  return (role ? state.runtimeOf(role) : state.settings.model)?.provider ?? null;
 }
 
 async function watchProviderLimits(state: OfficeState, now: number, provider: ProviderId): Promise<boolean> {

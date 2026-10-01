@@ -21,6 +21,7 @@ import {
   totalRunningWorkers, unloadOfficeState,
 } from '../src/server/state';
 import { refreshEnvChecks } from '../src/server/envcheck';
+import { sameChoice } from '../src/shared/providers';
 import { flushAll, load, save, wipe, type Persisted } from '../src/server/store';
 import {
   DEFAULT_OFFICE_WORKERS, DEFAULT_PM_CONTEXT_LIMIT, DEFAULT_WORKER_CONTEXT_LIMIT, isOfficeSender, MAX_AGENT_NAME,
@@ -42,6 +43,9 @@ import { tellPm } from '../src/server/review';
  * и задать его надо ДО первого открытия: ниже офис заводится сразу же.
  */
 process.env.OFFICE_LANG = 'ru';
+
+/** Явный выбор провайдера офиса для проверок про офис на Claude: умолчания больше нет (T-243). */
+const CLAUDE_CHOICE = { provider: 'claude-code' as const, model: 'claude-sonnet-5-5' };
 
 /**
  * Офис проверок держим за явную ссылку по id: состояния живут в реестре по
@@ -140,6 +144,10 @@ async function main(): Promise<void> {
   );
 
   // 6. Облачный режим не запускается, пока не собраны все три условия.
+  // Провайдер офиса выбран явно: без выбора облако отказывает раньше — «не
+  // выбран провайдер» (T-243).
+  const unsetCloud = cloudProblem(office);
+  office.updateSettings({ model: CLAUDE_CHOICE });
   const withoutKey = cloudProblem(office);
   const hadKey = Boolean(process.env.ANTHROPIC_API_KEY);
   process.env.ANTHROPIC_API_KEY = 'test-key';
@@ -151,6 +159,8 @@ async function main(): Promise<void> {
   setGithubToken('');
   if (!hadKey) delete process.env.ANTHROPIC_API_KEY;
   results.push(
+    `без выбранного провайдера облако отказывает: ${unsetCloud === office.say('agent.provider.unset', {
+      role: office.activeRoles().find((r) => !r.provider)?.title ?? '' })}`,
     `без ключа API облако отказывает: ${/ANTHROPIC_API_KEY/.test(withoutKey ?? '')}`,
     `без репозитория отказывает: ${/репозитор/i.test(withoutRepo ?? '')}`,
     `без токена отказывает: ${/токен/i.test(withoutToken ?? '')}`,
@@ -694,6 +704,7 @@ async function main(): Promise<void> {
   const rb = openOfficeState({
     id: 'o-roles-b', projectDir: resolve(tmpdir(), 'roles-b'), stateFile: roleFileB,
   }).state;
+  ra.updateSettings({ model: CLAUDE_CHOICE });
   const baseModel = defaultRole('backend', 'ru')!.model;
   ra.updateRole('backend', { model: 'claude-haiku-4-5', title: 'Бэкенд офиса A' });
   results.push(
@@ -841,6 +852,8 @@ async function main(): Promise<void> {
   const crudDir = resolve(tmpdir(), `roles-crud-office-${process.pid}`);
   mkdirSync(crudDir, { recursive: true });
   const rc = openOfficeState({ id: 'o-roles-crud', projectDir: crudDir, stateFile: crudFile }).state;
+  // Модель без провайдера привязывается к провайдеру офиса — он должен быть выбран.
+  rc.updateSettings({ model: CLAUDE_CHOICE });
 
   // (а) Создание: id выдаёт сервер, форма присылает только поля. Внешность —
   // id из shared/looks.ts, то есть имя скина трёхмерной модели: плоские
@@ -1167,7 +1180,7 @@ async function main(): Promise<void> {
   save(modelFile, () => ({
     version: 1, projectDir: modelDir, taskSeq: 0, tasks: [], chat: [], log: [],
     instances: [], savedAt: Date.now(),
-    settings: { ...DEFAULT_SETTINGS, language: 'ru', chatLanguage: 'ru', codeLanguage: 'ru' },
+    settings: { ...DEFAULT_SETTINGS, language: 'ru', chatLanguage: 'ru', codeLanguage: 'ru', model: CLAUDE_CHOICE },
     roles: [
       // Сохранение старше пакетов: ссылки нет, модель записана полным id.
       { ...legacyBackend, model: 'claude-opus-5' },
@@ -1258,6 +1271,47 @@ async function main(): Promise<void> {
   );
   unloadOfficeState('o-roles-model');
   wipe(modelFile);
+
+  // Провайдер офиса при загрузке (T-243): явно сохранённая пара не меняется,
+  // нет поля или оно битое — null («не выбран»), а не Claude Code. Повторная
+  // загрузка ничего не меняет.
+  const providerFile = resolve(tmpdir(), `office-test-provider-${process.pid}.json`);
+  const providerDir = resolve(tmpdir(), 'provider-office');
+  const providerSave = (model: unknown): void => {
+    const settings: Record<string, unknown> = { ...DEFAULT_SETTINGS, language: 'ru', chatLanguage: 'ru', codeLanguage: 'ru' };
+    if (model === undefined) delete settings.model;
+    else settings.model = model;
+    save(providerFile, () => ({
+      version: 1, projectDir: providerDir, taskSeq: 0, tasks: [], chat: [], log: [],
+      instances: [], savedAt: Date.now(), settings: settings as unknown as Persisted['settings'],
+    }));
+    flushAll();
+  };
+  const openProvider = () => openOfficeState({ id: 'o-provider', projectDir: providerDir, stateFile: providerFile }).state;
+  const reopenProvider = () => { unloadOfficeState('o-provider'); flushAll(); return openProvider(); };
+  const codexChoice = { provider: 'codex' as const, model: 'gpt-5.5' };
+  providerSave(codexChoice);
+  const keptCodex = openProvider();
+  const keptCodexAgain = reopenProvider();
+  providerSave(undefined);
+  const missing = reopenProvider();
+  const missingAgain = reopenProvider();
+  const missingOnDisk = load(providerFile)?.settings.model ?? null;
+  providerSave({ provider: 'no-such', model: '' });
+  const broken = reopenProvider();
+  const pmUnset = broken.activeRoles().find((r) => r.isManager);
+  results.push(
+    `явная пара офиса при загрузке не меняется: ${sameChoice(keptCodex.settings.model, codexChoice)
+      && sameChoice(keptCodexAgain.settings.model, codexChoice)}`,
+    `нет поля провайдера — null, а не Claude Code: ${missing.settings.model === null}`,
+    `повторная загрузка без провайдера — снова null: ${missingAgain.settings.model === null
+      && missingOnDisk === null}`,
+    `битое поле провайдера — null: ${broken.settings.model === null}`,
+    `без провайдера у менеджера нет пары: ${Boolean(pmUnset) && broken.runtimeOf(pmUnset!) === null
+      && broken.officeRuntime() === null}`,
+  );
+  unloadOfficeState('o-provider');
+  wipe(providerFile);
 
   // 8. Хранилище пер-офисное: сохранение одного офиса не отменяет сохранение
   // другого. С общим на процесс таймером второй save() просто заменял первый

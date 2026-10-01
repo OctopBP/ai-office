@@ -52,14 +52,35 @@ const fail = (id: string, title: string, detail: string, fix: string): EnvCheck 
 function providersInUse(state: OfficeState): ProviderId[] {
   return PROVIDER_IDS.filter((id) =>
     (id === 'claude-code' && state.settings.engine === 'cloud')
-    || state.activeRoles().some((role) => state.runtimeOf(role).provider === id));
+    || state.activeRoles().some((role) => state.runtimeOf(role)?.provider === id));
 }
 
 /** Провайдер, без которого офис не работает вовсе: менеджера или облака. */
 function officeWideProvider(state: OfficeState, provider: ProviderId): boolean {
   if (provider === 'claude-code' && state.settings.engine === 'cloud') return true;
-  const pm = state.activeRoles().find((role) => role.isManager);
-  return (pm ? state.runtimeOf(pm).provider : state.settings.model.provider) === provider;
+  return state.officeRuntime()?.provider === provider;
+}
+
+/**
+ * Роли без провайдера: своего выбора нет, а провайдер офиса не выбран.
+ * Claude Code им не подставляется — их задачи встают с причиной.
+ */
+function unsetRoles(state: OfficeState): Role[] {
+  return state.activeRoles().filter((role) => !state.runtimeOf(role));
+}
+
+/**
+ * Провайдер не выбран. Критична, когда без провайдера остался менеджер: тогда
+ * не раздать ни одной задачи. Без провайдера одни исполнители — встают только
+ * их задачи, с причиной на карточке (`roleProviderProblem`).
+ */
+function unsetProviderCheck(state: OfficeState, roles: Role[]): EnvCheck {
+  return {
+    ...fail('provider:unset', state.say('env.provider.unsetTitle'),
+      state.say('env.provider.unsetDetail', { roles: roles.map((r) => r.title).join(', ') }),
+      state.say('env.provider.unsetFix')),
+    critical: state.officeRuntime() === null,
+  };
 }
 
 /**
@@ -72,7 +93,9 @@ function officeWideProvider(state: OfficeState, provider: ProviderId): boolean {
  * провайдер, тратила бы чужой счёт и работала бы не той моделью.
  */
 export async function roleProviderProblem(state: OfficeState, role: Role): Promise<string | null> {
-  const { provider } = state.runtimeOf(role);
+  const runtime = state.runtimeOf(role);
+  if (!runtime) return state.say('agent.provider.unset', { role: role.title });
+  const { provider } = runtime;
   const check = await providerCheck(state, provider);
   if (check.status === 'ok') return null;
   return state.say('agent.task.providerNotReady', {
@@ -237,9 +260,15 @@ function rolesCheck(state: OfficeState): EnvCheck {
  */
 export async function refreshEnvChecks(state: OfficeState): Promise<EnvReport> {
   const checks: EnvCheck[] = [dirCheck(state)];
-  checks.push(...await anyProviderReady()
-    ? await Promise.all(providersInUse(state).map((id) => providerCheck(state, id)))
-    : [noProviderCheck(state)]);
+  if (await anyProviderReady()) {
+    checks.push(...await Promise.all(providersInUse(state).map((id) => providerCheck(state, id))));
+    // Подключённый провайдер есть, но кому-то он не назначен: это отдельная
+    // беда — чинится выбором, а не входом.
+    const unset = unsetRoles(state);
+    if (unset.length) checks.push(unsetProviderCheck(state, unset));
+  } else {
+    checks.push(noProviderCheck(state));
+  }
   try {
     checks.push(await gitCheck(state));
   } catch (err) {

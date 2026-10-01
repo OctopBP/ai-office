@@ -153,6 +153,8 @@ mkdirSync(projectDir, { recursive: true });
 const stateFile = resolve(root, 'office.json');
 const office = openOfficeState({ id: 'o-market', projectDir, stateFile }).state;
 office.seed();
+// Оверрайд модели роли без провайдера офиса не держится: у офиса явно Claude.
+office.updateSettings({ model: { provider: 'claude-code', model: 'claude-sonnet-5-5' } });
 const sent: unknown[] = [];
 const send = (e: unknown) => sent.push(e);
 const chat = () => office.snapshot().t === 'snapshot' ? (office.snapshot() as { chat: Array<{ from: string; text: string }> }).chat : [];

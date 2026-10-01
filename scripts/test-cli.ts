@@ -69,6 +69,8 @@ mkdirSync(projectDir, { recursive: true });
 const stateFile = resolve(root, 'office.json');
 const office = openOfficeState({ id: 'o-cli', projectDir, stateFile }).state;
 office.seed();
+// Модель без провайдера привязывается к провайдеру офиса — он выбран явно (T-243).
+office.updateSettings({ model: { provider: 'claude-code', model: 'claude-sonnet-5-5' } });
 // Роль из встроенного пакета с припиской и оверрайдом: экспорт — форк, бриф целиком.
 office.updateRole('backend', { briefExtra: 'Стек: Fastify.', model: 'claude-haiku-4-5' });
 const exported = exportRole(office.role('backend')!, '@alice/backend', '', projectDir, 'ru');

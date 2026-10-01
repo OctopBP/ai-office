@@ -138,8 +138,10 @@ function pairRuntime(role: Role, engine: ProviderId): void {
  * Провайдер и модель, на которых роль работает на самом деле: свой выбор
  * роли, иначе выбор офиса — с моделью уровня пакета, если провайдер офиса
  * такой уровень знает. Запасного провайдера нет: что вышло, на том и стартуем.
+ * Офис без выбора (`null`) и роль без своего — null: Claude Code тут не
+ * подставляется, вызывающий останавливает задачу с причиной.
  */
-export function roleRuntime(role: Pick<Role, 'provider' | 'model' | 'tier'>, office: ModelChoice): ModelChoice {
+export function roleRuntime(role: Pick<Role, 'provider' | 'model' | 'tier'>, office: ModelChoice | null): ModelChoice | null {
   if (role.provider) {
     // Свой провайдер с уровнем: уровень разрешается у него, и balanced тоже —
     // модель офиса чужому провайдеру ничего не говорит.
@@ -147,9 +149,10 @@ export function roleRuntime(role: Pick<Role, 'provider' | 'model' | 'tier'>, off
     return {
       provider: role.provider,
       model: role.model ?? tiered
-        ?? (role.provider === office.provider ? office.model : PROVIDERS[role.provider].defaultModel),
+        ?? (role.provider === office?.provider ? office.model : PROVIDERS[role.provider].defaultModel),
     };
   }
+  if (!office) return null;
   const tiered = role.tier && role.tier !== 'balanced' ? TIER_MODELS[office.provider]?.[role.tier] : undefined;
   return { provider: office.provider, model: tiered ?? office.model };
 }

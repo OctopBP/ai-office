@@ -16,7 +16,7 @@ import { tmpdir } from 'node:os';
 import { resolve } from 'node:path';
 import type { OfficeSetupPlan, SetupStep } from '../src/shared/types';
 import { slugify } from '../src/shared/slug';
-import { DEFAULT_MODEL_CHOICE, PROVIDERS, sameChoice } from '../src/shared/providers';
+import { PROVIDERS, sameChoice } from '../src/shared/providers';
 import { getOffice, openOfficeState } from '../src/server/state';
 import { loadRegistry, offices } from '../src/server/offices';
 import { buildOffice, planProblem, setupCatalog } from '../src/server/setup';
@@ -168,8 +168,11 @@ async function main(): Promise<void> {
   if ('officeId' in made3) {
     const roles = getOffice(made3.officeId).roles().filter((r) => !r.archived);
     check('без проекта и без команды: только менеджер', roles.length === 1 && roles[0].isManager);
-    check('провайдер не выбран: у офиса пара по умолчанию',
-      sameChoice(getOffice(made3.officeId).settings.model, DEFAULT_MODEL_CHOICE));
+    // Шаг «Провайдер» пропущен — офис без выбора, а не на Claude Code (T-243).
+    check('провайдер не выбран: у офиса model = null',
+      getOffice(made3.officeId).settings.model === null);
+    check('провайдер не выбран: менеджер без пары, Claude Code не подставлен',
+      getOffice(made3.officeId).officeRuntime() === null);
   }
   // Выбор мастера — пара офиса, а не своя пара менеджера: менеджер её наследует.
   if ('officeId' in made4) {
@@ -178,7 +181,7 @@ async function main(): Promise<void> {
     check('провайдер выбран без модели: офису — модель провайдера по умолчанию',
       sameChoice(state.settings.model, { provider: 'codex', model: PROVIDERS.codex.defaultModel }));
     check('провайдер выбран: менеджер без своей пары, наследует офис',
-      !pm.provider && state.runtimeOf(pm).provider === 'codex');
+      !pm.provider && state.runtimeOf(pm)?.provider === 'codex');
   }
 
   // 8. Существующая папка: не трогаем; роль с готовым путём проверяется, а

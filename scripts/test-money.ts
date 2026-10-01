@@ -146,6 +146,8 @@ results.push(`ответ без лимитов плана ничего не ме
 // ---------- расход задачи по дням ----------
 
 const office = openOfficeState({ id: 'o-money', projectDir: dir, stateFile }).state;
+// Офис на Claude выбран явно: умолчания провайдера больше нет (T-243).
+office.settings.model = { provider: 'claude-code', model: 'claude-sonnet-5-5' };
 const task = office.createTask({
   title: 'счёт за день', description: '', criteria: [], roleId: 'backend',
 });
@@ -311,6 +313,7 @@ const DAY_MS = 24 * HOUR_MS;
 const spDir = mkdtempSync(resolve(tmpdir(), 'office-spend-'));
 const spStateFile = resolve(spDir, 'state.json');
 const spOffice = openOfficeState({ id: 'o-spend', projectDir: spDir, stateFile: spStateFile }).state;
+spOffice.settings.model = { provider: 'claude-code', model: 'claude-sonnet-5-5' };
 const spTask = spOffice.createTask({
   title: 'траты по времени', description: '', criteria: [], roleId: 'backend',
 });

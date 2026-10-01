@@ -1,4 +1,3 @@
-import { DEFAULT_MODEL_CHOICE } from '../shared/providers';
 /**
  * Стенд: срабатывают ли скилы роли.
  *
@@ -22,7 +21,8 @@ import { DEFAULT_MODEL_CHOICE } from '../shared/providers';
  */
 import { existsSync, readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
-import { startSession as query } from './engines';
+import { engineFor, startSession as query } from './engines';
+import { isConnected, PROVIDER_IDS, PROVIDERS, type ModelChoice } from '../shared/providers';
 import type { Lang } from '../shared/i18n';
 import type { Settings } from '../shared/types';
 import { t } from './i18n';
@@ -77,14 +77,41 @@ export function readBenchCases(dir: string): BenchCase[] {
 
 const short = (name: string): string => name.split(':').pop() ?? name;
 
+/**
+ * Провайдер прогона: свой выбор роли, выбор офиса — а без них первый
+ * подключённый по порядку каталога. Стенд гоняют и без офиса, из CLI автора
+ * пакета, и требовать от него настройку офиса было бы странно; но и молча
+ * вставать на Claude Code нельзя — поэтому берётся то, что правда подключено,
+ * и вызывающий печатает, что именно. null — не подключён никто.
+ */
+export async function benchRuntime(role: Role, settings?: Settings): Promise<ModelChoice | null> {
+  const chosen = roleRuntime(role, settings?.model ?? null);
+  if (chosen) return chosen;
+  for (const id of PROVIDER_IDS) {
+    const status = await engineFor(id).status(id).catch(() => null);
+    if (status && isConnected(status)) return roleRuntime({ provider: id, tier: role.tier }, null);
+  }
+  return null;
+}
+
+/** Подпись провайдера прогона для терминала. */
+export const benchRuntimeLabel = (r: ModelChoice): string => `${PROVIDERS[r.provider].label} · ${r.model}`;
+
 /** Потолок ходов: скил открывается на первом-втором, дальше платить незачем. */
 const MAX_TURNS = 4;
 
 /** Прогнать один случай живой сессией роли. */
 export async function runBenchCase(
-  role: Role, c: BenchCase, opts: { lang: Lang; settings?: Settings; cwd?: string } ,
+  role: Role, c: BenchCase, opts: { lang: Lang; settings?: Settings; cwd?: string; runtime?: ModelChoice } ,
 ): Promise<BenchOutcome> {
   const settings = opts.settings ?? ({ mcpServers: DEFAULT_MCP_SERVERS } as Settings);
+  const runtime = opts.runtime ?? await benchRuntime(role, opts.settings);
+  if (!runtime) {
+    return {
+      what: c.what, ok: false, opened: [], called: [], denied: [], missing: c.expect, extra: [],
+      stopped: t(opts.lang, 'bench.noProvider'), turns: 0, costUsd: 0,
+    };
+  }
   const cwd = opts.cwd ?? process.cwd();
   const opened = new Set<string>();
   const called: string[] = [];
@@ -95,8 +122,7 @@ export async function runBenchCase(
   const session = query({
     prompt: c.prompt,
     options: {
-      // Стенд гоняют и без офиса — тогда выбор офиса прежний, Claude.
-      ...roleRuntime(role, settings.model ?? DEFAULT_MODEL_CHOICE),
+      ...runtime,
       systemPrompt: {
         type: 'preset',
         preset: 'claude_code',

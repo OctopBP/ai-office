@@ -21,7 +21,7 @@ import { ProviderCard } from './ProviderCard';
 import { CustomApiGroup } from './CustomApiForm';
 import { byLabel } from './FirstLaunch';
 import { ProviderOptions, freeModel, modelHint, modelOptions, useProviderModels } from './ProviderPick';
-import { PROVIDERS, isConnected, type ProviderId } from '../shared/providers';
+import { PROVIDERS, isConnected, type ModelChoice, type ProviderId } from '../shared/providers';
 import { notifyPermission, notifyWanted, setNotifyWanted, type NotifyPermission } from './notify';
 
 const parse = (v: string): number | null => {
@@ -126,7 +126,7 @@ function ProvidersSection() {
   // Выбор офиса уходит сразу, как и всё на этой вкладке: «Сохранить» страницы
   // его не шлёт, и «Отмена» его не откатывает.
   const choose = (provider: ProviderId) => {
-    if (provider === choice.provider) return;
+    if (provider === choice?.provider) return;
     updateSettings({ model: { provider, model: PROVIDERS[provider].defaultModel } });
   };
   return (
@@ -146,7 +146,7 @@ function ProvidersSection() {
           : (
             <div className="provider-list">
               {list.map((p) => (
-                <ProviderCard key={p.id} p={p} onUse={p.id === choice.provider ? undefined : () => choose(p.id)} />
+                <ProviderCard key={p.id} p={p} onUse={p.id === choice?.provider ? undefined : () => choose(p.id)} />
               ))}
             </div>
           )}
@@ -162,8 +162,34 @@ function ProvidersSection() {
  * видны серыми с причиной и ведут к карточкам ниже.
  */
 function OfficeProviderGroup({ choose }: { choose: (provider: ProviderId) => void }) {
-  const view = useStore((s) => s.providers);
   const choice = useStore((s) => s.settings.model);
+  return choice ? <OfficeProviderChosen choose={choose} choice={choice} /> : <OfficeProviderUnset choose={choose} />;
+}
+
+/**
+ * Провайдер офиса не выбран (`Settings.model === null`, T-243): ни одного
+ * провайдера не подставляем, в списке — пустой пункт «не выбран».
+ */
+function OfficeProviderUnset({ choose }: { choose: (provider: ProviderId) => void }) {
+  const view = useStore((s) => s.providers);
+  const fid = useId();
+  const providers = view?.providers ?? [];
+  const noneReady = view !== null && !providers.some((p) => isConnected(p.status));
+  return (
+    <Group title={t('providers.office.title')} desc={t('providers.office.desc')}>
+      <Row label={t('providers.office.provider')} htmlFor={`${fid}-provider`} hint={t('providers.office.switchHint')}>
+        <select id={`${fid}-provider`} value="" disabled={noneReady || view === null}
+          onChange={(e) => { if (e.target.value) choose(e.target.value as ProviderId); }}>
+          <option value="" disabled>{t('shell.provider.none')}</option>
+          {providers.length > 0 && <ProviderOptions providers={providers} />}
+        </select>
+      </Row>
+    </Group>
+  );
+}
+
+function OfficeProviderChosen({ choose, choice }: { choose: (provider: ProviderId) => void; choice: ModelChoice }) {
+  const view = useStore((s) => s.providers);
   const fid = useId();
   const models = useProviderModels(choice.provider);
   const [draftModel, setDraftModel] = useState(choice.model);

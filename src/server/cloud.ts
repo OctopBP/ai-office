@@ -64,7 +64,9 @@ const clip = (s: unknown, n = 70): string => {
 
 /** Почему облачный режим сейчас не запустится. null — всё готово. */
 export function cloudProblem(state: OfficeState): string | null {
-  if (state.activeRoles().some(role => state.runtimeOf(role).provider !== 'claude-code')) {
+  const unset = state.activeRoles().find(role => !state.runtimeOf(role));
+  if (unset) return state.say('agent.provider.unset', { role: unset.title });
+  if (state.activeRoles().some(role => state.runtimeOf(role)?.provider !== 'claude-code')) {
     return state.lang() === 'ru' ? 'Облачный режим поддерживает только Claude. Для сотрудников Codex выберите локальный режим офиса.' : 'Cloud execution supports Claude only. Select local execution for Codex workers.';
   }
   if (!providerKey('claude-code')) {
@@ -277,6 +279,12 @@ export async function runCloudTask(
   task: Task, inst: Instance, role: Role, systemPrompt: string, state: OfficeState,
 ): Promise<CloudOutcome> {
   const repoUrl = state.settings.cloudRepoUrl!;
+  // cloudProblem уже проверил, но выбор могли снять между проверкой и стартом.
+  const runtime = state.runtimeOf(role);
+  if (!runtime) {
+    return { ok: false, summary: state.say('agent.provider.unset', { role: role.title }), branch: null, baseBranch: null };
+  }
+  const { model } = runtime;
   const base = (await currentBranch(state.projectDir)) ?? 'main';
   const branch = `task/${task.id}`;
   const mount = '/workspace/repo';
@@ -288,7 +296,7 @@ export async function runCloudTask(
   const mode = effectiveMode(inst.permissionMode, role.permissionMode, state.officeMode());
   const [environment, agentId] = await Promise.all([
     ensureEnvironment(state),
-    ensureAgent(role, state.runtimeOf(role).model, systemPrompt, mode, state.lang()),
+    ensureAgent(role, model, systemPrompt, mode, state.lang()),
   ]);
 
   const cap = state.settings.taskBudgetUsd;
@@ -368,7 +376,7 @@ export async function runCloudTask(
           + (usage?.cache_creation?.ephemeral_1h_input_tokens ?? 0),
       // Облако отдаёт расход одной суммой за сессию, без разбивки по моделям:
       // модель здесь та, с которой агент и заводился.
-      }, state.runtimeOf(role).model);
+      }, model);
       costRecorded = cents / 100;
     } catch { /* расход уже не узнать — не повод терять результат */ }
 

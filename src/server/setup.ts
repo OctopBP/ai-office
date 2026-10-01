@@ -276,14 +276,16 @@ export async function buildOffice(plan: OfficeSetupPlan, lang: Lang, hooks: Setu
   // --- провайдер офиса: выбор мастера — это Settings.model, а не пара
   // менеджера. Роли без своей пары, менеджер в том числе, наследуют её через
   // runtimeOf; своя пара менеджеру сделала бы его исключением из офиса.
-  // Модель не названа — берём модель провайдера по умолчанию. Не вышло —
-  // офис остаётся на паре по умолчанию, а причина уходит в ленту.
+  // Модель не названа — берём модель провайдера по умолчанию. Не вышло или
+  // шаг пропущен — провайдер остаётся не выбран (null): молча вставать на
+  // Claude Code офис не вправе, задачи встанут с причиной до выбора владельца.
   if (stepProvider && plan.provider) {
     progress.start(stepProvider);
     const model = plan.model?.trim() || PROVIDERS[plan.provider].defaultModel;
     const error = state.updateSettings({ model: { provider: plan.provider, model } });
-    if (error) noteFailure(stepProvider, error);
-    else progress.done(stepProvider, `${state.settings.model.provider} · ${state.settings.model.model}`);
+    const chosen = state.settings.model;
+    if (error || !chosen) noteFailure(stepProvider, error ?? state.say('state.settings.modelUnset'));
+    else progress.done(stepProvider, `${chosen.provider} · ${chosen.model}`);
   }
 
   // --- найм

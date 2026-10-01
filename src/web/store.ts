@@ -25,7 +25,6 @@ import type { Theme } from './sprites';
 import { type Graphics, loadGraphics, saveGraphics } from './office3d/graphics';
 import { fitNow } from './office3d/fit';
 import { catalog, DEFAULT_LAYOUT_ID, layoutFor, passabilityFor } from './layoutData';
-import { DEFAULT_MODEL_CHOICE } from '../shared/providers';
 import { interestsFor, rotateInterests, type Interest } from './interests';
 import { isBusy } from './agentState';
 import { displayInstance } from './instanceName';
@@ -694,7 +693,7 @@ export const useStore = create<State>((set, get) => ({
   settings: {
     globalBudgetUsd: null, taskBudgetUsd: null, engine: 'local', cloudRepoUrl: null,
     officePermissionMode: 'ask-risky', layoutId: DEFAULT_LAYOUT_ID, autoPipeline: true,
-    model: DEFAULT_MODEL_CHOICE,
+    model: null,
   },
   layouts: [],
   // До первого снапшота своей раскладки офиса ещё не знаем — берём ту же,
@@ -2364,9 +2363,10 @@ export interface OfficeProvider {
   tone: 'ok' | 'warn' | 'danger';
 }
 
-export function officeProvider(providers: ProvidersView | null, choice: ModelChoice): OfficeProvider | null {
+export function officeProvider(providers: ProvidersView | null, choice: ModelChoice | null): OfficeProvider | null {
   if (!providers) return null;
-  if (providers.noneReady) return { none: true, provider: null, model: null, tone: 'warn' };
+  // Провайдер офиса не выбран (T-243) — то же «не выбран», что и без подключённых.
+  if (providers.noneReady || !choice) return { none: true, provider: null, model: null, tone: 'warn' };
   const provider = providers.providers.find((p) => p.id === choice.provider) ?? null;
   const state = provider?.status.state;
   const tone = state === 'ready' ? 'ok' : state === 'error' ? 'danger' : 'warn';
@@ -2378,7 +2378,7 @@ export const readyProviders = (providers: ProvidersView | null): ProviderView[] 
   (providers?.providers ?? []).filter((p) => isConnected(p.status));
 
 /** Этот провайдер сейчас выбран у офиса — чип «Провайдер офиса» на его карточке (ui.md §2.3). */
-export const isOfficeProvider = (choice: ModelChoice, id: ProviderId): boolean => choice.provider === id;
+export const isOfficeProvider = (choice: ModelChoice | null, id: ProviderId): boolean => choice?.provider === id;
 
 /**
  * Уровни в списке моделей роли (ui.md §5.2). Блок показываем, если провайдер
@@ -2418,10 +2418,12 @@ export function roleProviderChip(
  * офиса; `null` — предупреждать не о чем (подключён или статусов ещё нет).
  */
 export function hireProviderWarning(
-  pkg: Pick<MarketPackageView, 'kind' | 'provider'>, office: ModelChoice, providers: ProvidersView | null,
+  pkg: Pick<MarketPackageView, 'kind' | 'provider'>, office: ModelChoice | null, providers: ProvidersView | null,
 ): { provider: ProviderId; label: string } | null {
   if (!providers || pkg.kind !== 'agent') return null;
-  const id = pkg.provider ?? office.provider;
+  const id = pkg.provider ?? office?.provider;
+  // Ни у пакета, ни у офиса провайдера нет — предупреждать не о ком.
+  if (!id) return null;
   const view = providers.providers.find((p) => p.id === id);
   if (view && isConnected(view.status)) return null;
   return { provider: id, label: view?.label ?? PROVIDERS[id].label };

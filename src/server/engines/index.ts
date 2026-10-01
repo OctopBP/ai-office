@@ -2,7 +2,8 @@
  * Реестр движков. Сервер запускает сессии и спрашивает о провайдерах только
  * отсюда — по провайдеру роли выбирается адаптер.
  */
-import { providerOf, sessionForProvider, type ProviderId } from '../../shared/providers';
+import { sessionForProvider, type ProviderId } from '../../shared/providers';
+import { c } from '../i18n';
 import { claudeCodeEngine } from './claude-code';
 import { codexEngine } from './codex';
 import { opencodeEngine } from './opencode';
@@ -25,7 +26,11 @@ export function engineFor(provider: ProviderId): EngineAdapter {
  * чужого движка отбрасывается: продолжить Claude-сессию в Codex нельзя.
  */
 export function startSession(request: SessionRequest): EngineSession {
-  const provider = providerOf(request.options);
+  // Провайдера нет — сессия не стартует: подставить Claude Code молча значило
+  // бы работать на счёт, который владелец не выбирал (T-243). Вызывающие
+  // проверяют выбор раньше и с понятной причиной; это последняя граница.
+  const provider = request.options.provider;
+  if (!provider) return failedSession(new Error(c('engine.noProvider')));
   try {
     return engineFor(provider).start({ ...request, options: {
       ...request.options, resume: sessionForProvider(request.options.resume, provider),

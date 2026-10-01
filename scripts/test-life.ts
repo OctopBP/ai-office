@@ -430,6 +430,15 @@ async function main(): Promise<void> {
   r.running = 1;
   check('при живой сессии не тихо', dueRitual(r) === null);
   r.running = 0;
+  // Провайдер офиса не выбран (T-243): ритуал на модели пропускается, а не
+  // уходит молча на Claude Code.
+  const lastBefore = r.life.lastRun.consolidate;
+  r.settings.model = null;
+  const skipped = await runRitual(r, 'consolidate');
+  check('без провайдера ритуал на модели пропущен', skipped === null && consolidations === 0
+    && r.log.some((l) => l.text.includes('провайдер не выбран')));
+  r.life.lastRun.consolidate = lastBefore;
+  r.settings.model = { provider: 'claude-code', model: 'claude-sonnet-5-5' };
   const run = await runRitual(r, 'consolidate');
   check('консолидация прошла через агента', consolidations === 1 && run?.ritual === 'consolidate');
   check('запись легла в журнал с источником', r.factList().some((f) => f.kind === 'lesson' && f.source.ritual === 'consolidate'));
@@ -575,6 +584,7 @@ async function main(): Promise<void> {
   console.log('направления');
   const d = getOffice('o-life-dir');
   d.seed();
+  d.settings.model = { provider: 'claude-code', model: 'claude-sonnet-5-5' };
   d.opened = true;
   d.settings.planApproval = true;
   d.settings.focusEpics = 2;

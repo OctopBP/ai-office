@@ -140,9 +140,27 @@ assert.deepEqual(await engineFor('codex').models('codex'), [{ id: 'test-model', 
       activeRoles: () => roles,
       workerRoles: () => roles.filter((r) => !r.isManager),
       runtimeOf: (role: Role) => roleRuntime(role, model),
+      officeRuntime: () => roleRuntime(roles[0], model),
       say: (key: string) => key,
     } as unknown as Parameters<typeof providerCheck>[0];
   };
+  // Провайдер офиса не выбран (T-243): роли без своего выбора — без пары, Claude
+  // Code не подставляется, задача встаёт с причиной «не выбран провайдер».
+  {
+    const { roleProviderProblem } = await import('../src/server/envcheck');
+    const bare = { id: 'dev', title: 'Dev', isManager: false } as unknown as Role;
+    assert.equal(roleRuntime(bare, null), null);
+    assert.deepEqual(roleRuntime({ provider: 'codex' }, null), { provider: 'codex', model: 'default' });
+    const unset = {
+      settings: { engine: 'local', model: null },
+      activeRoles: () => [bare],
+      runtimeOf: (role: Role) => roleRuntime(role, null),
+      officeRuntime: () => null,
+      say: (key: string) => key,
+    } as unknown as Parameters<typeof roleProviderProblem>[0];
+    assert.equal(await roleProviderProblem(unset, bare), 'agent.provider.unset');
+  }
+
   const codexOk = await providerCheck(fakeState('local'), 'codex');
   assert.deepEqual([codexOk.id, codexOk.status, codexOk.critical], ['provider:codex', 'ok', false]);
   assert.equal((await providerCheck(fakeState('local', 'codex'), 'codex')).critical, true);

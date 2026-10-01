@@ -97,14 +97,18 @@ export interface ModelChoice {
   model: string;
 }
 
-/** Выбор офиса, пока владелец своего не сделал, — то, на чём офис работал всегда. */
+/**
+ * Первая подсказка в выборе провайдера — и только она. Молча офис на неё не
+ * встаёт: офис без выбора хранит `Settings.model = null` и сессий не поднимает.
+ */
 export const DEFAULT_MODEL_CHOICE: ModelChoice = {
   provider: 'claude-code',
   model: PROVIDERS['claude-code'].defaultModel,
 };
 
-export const sameChoice = (a: ModelChoice, b: ModelChoice): boolean =>
-  a.provider === b.provider && a.model === b.model;
+/** Один ли выбор. null — «провайдер не выбран», равен только себе. */
+export const sameChoice = (a: ModelChoice | null, b: ModelChoice | null): boolean =>
+  a === b || (a !== null && b !== null && a.provider === b.provider && a.model === b.model);
 
 /**
  * Id сессии для движка провайдера. Чужие движки помечают свои id префиксом

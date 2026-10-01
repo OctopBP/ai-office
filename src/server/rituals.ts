@@ -224,7 +224,7 @@ export function runStandup(state: OfficeState, now = Date.now()): string {
     produced: { questions: questions.length }, note: '',
   });
   if (state.life.policy.standupPmLine && state.settings.ritualsEnabled !== false
-      && !limitsBusy(state) && !state.dryRun) {
+      && state.officeRuntime() && !limitsBusy(state) && !state.dryRun) {
     tellPm(state, state.say('ritual.standupPm', { text }));
   }
   return text;
@@ -244,8 +244,11 @@ export function noteOfficeViewed(state: OfficeState, now = Date.now()): void {
 /** Окно подписки съедено за порог — ритуалы на модели откладываются. */
 export function limitsBusy(state: OfficeState, now = Date.now()): { percent: number } | null {
   const threshold = state.ritualLimit();
-  const pm = state.role('pm');
-  const limits = limitsView(pm ? state.runtimeOf(pm).provider : state.settings.model.provider);
+  const runtime = state.officeRuntime();
+  // Провайдер не выбран — и лимитов считать не по чему; ритуалы на модели
+  // отсечёт runRitual, планёрка без фразы менеджера проверку делает сама.
+  if (!runtime) return null;
+  const limits = limitsView(runtime.provider);
   if (!limits.available) return null;
   const hot = limits.windows.find((w) => w.utilization >= threshold && !limitReset(w, now));
   return hot ? { percent: Math.round(hot.utilization) } : null;
@@ -428,6 +431,14 @@ export async function runRitual(state: OfficeState, ritual: RitualId, now = Date
     return state.life.runs[state.life.runs.length - 1] ?? null;
   }
   const needsModel = ritual === 'consolidate' || ritual === 'contradictions' || ritual === 'reflect';
+  // Без выбранного провайдера ритуал на модели пропускаем: подставлять
+  // Claude Code молча нельзя. Отметка — как у отложенного, чтобы не
+  // повторять попытку и строку в ленте каждую минуту.
+  if (needsModel && !state.officeRuntime()) {
+    state.addLog(null, 'system', state.say('ritual.noProviderLog', { ritual: state.say(`ritual.name.${ritual}`) }));
+    state.life.lastRun[ritual] = now - WEEK_MS + 60 * 60 * 1000;
+    return null;
+  }
   const hot = needsModel ? limitsBusy(state, now) : null;
   if (hot) {
     state.addLog(null, 'system', state.say('ritual.deferredLog', {

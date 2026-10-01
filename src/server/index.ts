@@ -449,6 +449,8 @@ const httpServer = createServer((req, res) => {
 const ENV_AFFECTING: ReadonlySet<ClientCommand['c']> = new Set([
   'settings', 'cloud_token', 'hire', 'hire_copy', 'spawn', 'fire',
   'archive_role', 'remove_role', 'detach_role', 'reset',
+  // Свой провайдер роли снимает или ставит проверку «провайдер не выбран».
+  'update_role', 'create_role',
 ]);
 
 /**

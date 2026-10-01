@@ -71,7 +71,7 @@ process.env.OFFICE_CLAUDE_BIN = fakeClaude;
 await check('Bash движка Claude Code не видит ключей, сам движок видит', async () => {
   const { startSession: query } = await import('../src/server/engines');
   try {
-    for await (const _ of query({ prompt: 'env', options: { cwd: dir } })) { /* поддельный движок молчит */ }
+    for await (const _ of query({ prompt: 'env', options: { cwd: dir, provider: 'claude-code' } })) { /* поддельный движок молчит */ }
   } catch { /* выход с ошибкой — ожидаем */ }
   const engine = readFileSync(engineDump, 'utf8');
   assert(engine.includes(`ANTHROPIC_API_KEY=${DECOY}-ANTHROPIC_API_KEY`), 'движок остался без ключа');

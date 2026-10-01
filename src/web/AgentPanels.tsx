@@ -271,7 +271,7 @@ export function ModelPanel({ save, role, busy }: PanelProps) {
       <Section title={t('agent.section.model')} desc={t('providers.role.desc')}>
         <Row id="agent-provider" label={<FieldLabel text={t('providers.role.provider')} save={save} f="provider" when="next" busy={busy} />}>
           <select id="agent-provider" value={own ? provider : ''} onChange={(e) => pickProvider(e.target.value)}>
-            <option value="">{t('providers.role.asOffice', { name: providerLabel(providers, office.provider) })}</option>
+            <option value="">{t('providers.role.asOffice', { name: office ? providerLabel(providers, office.provider) : t('shell.provider.none') })}</option>
             {providers.length
               ? <ProviderOptions providers={providers} opts={{ manager: role.isManager, cloud }} />
               : PROVIDER_IDS.map((id) => <option key={id} value={id}>{PROVIDERS[id].label}</option>)}
@@ -308,7 +308,7 @@ export function ModelPanel({ save, role, busy }: PanelProps) {
                   ))}
                 </optgroup>
               )}
-              {!own && <option value="">{t('providers.role.asOffice', { name: office.model })}</option>}
+              {!own && <option value="">{t('providers.role.asOffice', { name: office?.model ?? t('shell.provider.none') })}</option>}
               {modelOptions(provider, models, own && !tier ? model : '').map(([id, label]) => (
                 <option key={id} value={id}>{label}</option>
               ))}

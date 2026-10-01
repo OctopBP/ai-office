@@ -1688,6 +1688,13 @@ const PM_LIVE_MAX = 3;
  */
 function startPm(state: OfficeState, pm: PmSession): void {
   if (pm.loop) return;
+  // Провайдер не выбран — сессию не поднимаем: очереди нет, и все, кто зовёт
+  // startPm, это уже понимают. Причину говорим в чат, чтобы сообщение
+  // владельца не повисло молча.
+  if (!state.officeRuntime()) {
+    state.addChat(OFFICE_SENDER, state.say('agent.provider.unsetPm'), 'pm#1', undefined, pm.chatId);
+    return;
+  }
   makeRoomForPm(state, pm);
   const queue = new MessageQueue();
   pm.queue = queue;
@@ -2073,6 +2080,8 @@ function pushToPm(state: OfficeState, pm: PmSession, text: string, fromUser: boo
     return;
   }
   startPm(state, pm);
+  // Сессия не поднялась (провайдер не выбран): «думает» ставить некому снять.
+  if (!pm.queue) return;
   pm.lastUsedAt = Date.now();
   if (pm.sleepTimer) clearTimeout(pm.sleepTimer);
   pm.sleepTimer = null;
@@ -2330,7 +2339,7 @@ export async function holdMeeting(
       const session = startSession({
         prompt,
         options: {
-          ...meetingOffice.runtimeOf(role),
+          ...sessionRuntime(meetingOffice, role),
           systemPrompt: systemBlocks(
             meetingOffice,
             isManager(meetingOffice, inst) ? null : role.id,
@@ -2429,6 +2438,10 @@ export function talkTo(talkOffice: OfficeState, instanceId: string, text: string
   talkOffice.addChat('user', text, instanceId);
 
   const existing = talkOffice.talks.get(instanceId);
+  if (!existing && !talkOffice.runtimeOf(role)) {
+    talkOffice.addChat(OFFICE_SENDER, talkOffice.say('agent.provider.unset', { role: role.title }), instanceId);
+    return;
+  }
   if (existing) {
     talkOffice.setState(instanceId, 'talking', talkOffice.say('agent.state.talkingToYou'));
     existing.queue.push(text);
@@ -2450,7 +2463,7 @@ export function talkTo(talkOffice: OfficeState, instanceId: string, text: string
   const session = startSession({
     prompt: queue,
     options: {
-      ...talkOffice.runtimeOf(role),
+      ...sessionRuntime(talkOffice, role),
       systemPrompt,
       cwd: talkOffice.repoFor(role),
       tools: ['Read', 'Glob', 'Grep', 'WebSearch', 'WebFetch'],
@@ -2568,7 +2581,7 @@ async function consultRole(
         state.say('prompt.consult.tail'),
       ].join('\n'),
       options: {
-        ...state.runtimeOf(role),
+        ...sessionRuntime(state, role),
         systemPrompt: systemBlocks(state, role.id, [
           state.say('prompt.consult.system', { role: role.title }),
           role.brief,
@@ -2747,7 +2760,8 @@ function hitLimit(state: OfficeState, instanceId: string, message: string): bool
 
 /** «, сброс в 15:00» — или ничего, если SDK времени сброса не назвал. */
 function limitWhen(state: OfficeState, role: Role): string {
-  const block = limitBlock(Date.now(), state.runtimeOf(role).provider);
+  const runtime = state.runtimeOf(role);
+  const block = runtime ? limitBlock(Date.now(), runtime.provider) : null;
   return block?.resetsAt
     ? state.say('agent.task.limitedAt', { at: resetClock(block.resetsAt, state.lang()) })
     : '';
@@ -2931,7 +2945,7 @@ function startWorker(
         prompt: o.prompt,
         options: {
           resume: o.resume,
-          ...taskOffice.runtimeOf(role),
+          ...sessionRuntime(taskOffice, role),
           // Про внешние инструменты рассказываем только здесь: в облаке
           // локального моста до Figma нет, и обещать его там нельзя.
           systemPrompt: {
@@ -3926,7 +3940,7 @@ async function runAgentSession(
       prompt: o.prompt,
       options: {
         resume: o.resume,
-        ...state.runtimeOf(role),
+        ...sessionRuntime(state, role),
         systemPrompt: {
           type: 'preset',
           preset: 'claude_code',
@@ -4317,10 +4331,25 @@ async function reviewPr(
 /** Дешёвая модель для ритуалов памяти: сворачивать дельту — не решать. */
 const RITUAL_MODEL = resolveModel('haiku');
 
+/**
+ * Провайдер не выбран: сессия не стартует, а Claude Code молча не
+ * подставляется (T-243). Бросается до старта — вызывающий уже читает сессию
+ * в try и отдаёт текст причины туда же, куда любую ошибку старта.
+ */
+class ProviderUnset extends Error {}
+
 /** Провайдер и модель менеджера: его выбор или выбор офиса. */
 function pmRuntime(state: OfficeState): ModelChoice {
-  const pm = state.role('pm');
-  return pm ? state.runtimeOf(pm) : state.settings.model;
+  const choice = state.officeRuntime();
+  if (!choice) throw new ProviderUnset(state.say('agent.provider.unsetPm'));
+  return choice;
+}
+
+/** Провайдер и модель роли для старта сессии; не выбран — ProviderUnset. */
+function sessionRuntime(state: OfficeState, role: Role): ModelChoice {
+  const choice = state.runtimeOf(role);
+  if (!choice) throw new ProviderUnset(state.say('agent.provider.unset', { role: role.title }));
+  return choice;
 }
 
 /**
@@ -4593,7 +4622,7 @@ setFlowAgents({
  * сообщений берём лишь расход и лимит.
  */
 setChatTitler(async (state, input) => {
-  if (state.dryRun) return null;
+  if (state.dryRun || !state.officeRuntime()) return null;
   const lines = input.messages.map((m) => state.say(
     m.from === 'owner' ? 'prompt.chatTitle.owner' : 'prompt.chatTitle.manager', { text: m.text }));
   const session = startSession({
