@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useId, useState, type ReactNode } from 'react';
 import {
   accessModes, clearSettingsSection, fullAccessWarning, parseMaxWorkers, parseTaskMaxTurns,
   setCloudToken, updateSettings, useStore, type ThemeMode,
@@ -42,7 +42,42 @@ const SECTIONS: Array<[Section, UiKey]> = [
   ['graphics', 'settings.section.graphics'],
 ];
 
-/** Ползунок настройки картинки: подпись, значение справа и сам range.
+/** Группа полей вкладки: заголовок, описание и строки шаблона `.form-*`.
+ *  Описание обязательно — без него заголовок прилипает к первой строке. */
+function Group({ title, desc, children }: { title: string; desc: ReactNode; children: ReactNode }) {
+  return (
+    <section className="form-section">
+      <header className="form-section-head">
+        <h3 className="form-section-title">{title}</h3>
+        <p className="form-section-desc">{desc}</p>
+      </header>
+      <div className="form-rows">{children}</div>
+    </section>
+  );
+}
+
+/** Строка «подпись — поле». Подсказка стоит под полем, а не под подписью:
+ *  подсказки здесь длинные, и в узкой колонке подписи они вытягивались бы
+ *  в столбик на полэкрана. */
+function Row({ label, htmlFor, hint, off, children }: {
+  label: ReactNode;
+  htmlFor?: string;
+  hint?: ReactNode;
+  off?: boolean;
+  children: ReactNode;
+}) {
+  return (
+    <div className={`form-row${off ? ' off' : ''}`}>
+      <div className="form-row-label"><label htmlFor={htmlFor}>{label}</label></div>
+      <div className="form-row-control">
+        {children}
+        {hint && <span className="form-hint">{hint}</span>}
+      </div>
+    </div>
+  );
+}
+
+/** Ползунок: строка шаблона, range и значение справа от него.
  *  Значение показывается рядом всегда — вслепую двигать нечего, окно
  *  закрывает комнату, и увидеть результат можно только после сохранения. */
 function Slider({ label, hint, value, range, decimals = 0, disabled, onChange }: {
@@ -54,19 +89,18 @@ function Slider({ label, hint, value, range, decimals = 0, disabled, onChange }:
   disabled: boolean;
   onChange: (v: number) => void;
 }) {
+  const id = useId();
   return (
-    <label className={`slider${disabled ? ' off' : ''}`}>
-      <span className="slider-head">
-        {label}
+    <Row label={label} htmlFor={id} hint={hint} off={disabled}>
+      <div className="settings-range">
+        <input
+          id={id} type="range" value={value} disabled={disabled}
+          min={range.min} max={range.max} step={range.step}
+          onChange={(e) => onChange(Number(e.target.value))}
+        />
         <b className="mono">{value.toFixed(decimals)}</b>
-      </span>
-      <input
-        type="range" value={value} disabled={disabled}
-        min={range.min} max={range.max} step={range.step}
-        onChange={(e) => onChange(Number(e.target.value))}
-      />
-      <span className="hint muted">{hint}</span>
-    </label>
+      </div>
+    </Row>
   );
 }
 
@@ -90,6 +124,8 @@ export function SettingsPage({ onClose }: { onClose: () => void }) {
   // карточки безместного сотрудника) перебивает запомненный за сессию раздел.
   const settingsSection = useStore((s) => s.settingsSection);
   const [section, setSection] = useState<Section>(settingsSection ?? lastSection);
+  // Основа для id полей: подпись строки связана с полем через htmlFor.
+  const fid = useId();
   // Каталог серверов правится списком целиком и уезжает одной настройкой:
   // сервер проверяет его весь и отказывает целиком, как и любую форму.
   const [servers, setServers] = useState<McpServerDef[]>(settings.mcpServers ?? []);
@@ -221,363 +257,377 @@ export function SettingsPage({ onClose }: { onClose: () => void }) {
 
         <div className="settings-content">
           {section === 'general' && (
-            <>
+            <div className="form">
               {/* Два языка офиса стоят рядом и переключаются порознь: так
                   видно, что это разные настройки, а не одна с уточнением. */}
-              <h4 className="section-title">{t('settings.lang.chat')}</h4>
-              <div className="engine">
-                {LANGS.map((code) => (
-                  <button key={code} className={chatLanguage === code ? 'on' : ''}
-                    onClick={() => setChatLanguage(code)}>
-                    {LANG_TITLE[code]}
-                  </button>
-                ))}
-              </div>
-              <p className="hint muted">{t('settings.lang.chat.hint')}</p>
+              <Group title={t('settings.general.lang')} desc={t('settings.general.lang.desc')}>
+                <Row label={t('settings.lang.chat')} hint={t('settings.lang.chat.hint')}>
+                  <div className="engine">
+                    {LANGS.map((code) => (
+                      <button key={code} className={chatLanguage === code ? 'on' : ''}
+                        onClick={() => setChatLanguage(code)}>
+                        {LANG_TITLE[code]}
+                      </button>
+                    ))}
+                  </div>
+                </Row>
+                <Row label={t('settings.lang.code')} hint={t('settings.lang.code.hint')}>
+                  <div className="engine">
+                    {LANGS.map((code) => (
+                      <button key={code} className={codeLanguage === code ? 'on' : ''}
+                        onClick={() => setCodeLanguage(code)}>
+                        {LANG_TITLE[code]}
+                      </button>
+                    ))}
+                  </div>
+                </Row>
+                {chatLanguage !== codeLanguage && (
+                  <span className="form-hint">
+                    {t('settings.lang.split', {
+                      chat: LANG_TITLE[chatLanguage], code: LANG_TITLE[codeLanguage],
+                    })}
+                  </span>
+                )}
+                {/* Язык интерфейса здесь не настраивается: он один на всё
+                    приложение, и место у него одно — главный экран. Строка
+                    оставлена, чтобы его не искали в настройках офиса. */}
+                <span className="form-hint settings-elsewhere">
+                  {t('settings.lang.ui.elsewhere', { lang: LANG_TITLE[uiLang] })}
+                </span>
+              </Group>
 
-              <h4 className="section-title">{t('settings.lang.code')}</h4>
-              <div className="engine">
-                {LANGS.map((code) => (
-                  <button key={code} className={codeLanguage === code ? 'on' : ''}
-                    onClick={() => setCodeLanguage(code)}>
-                    {LANG_TITLE[code]}
-                  </button>
-                ))}
-              </div>
-              <p className="hint muted">{t('settings.lang.code.hint')}</p>
-              {chatLanguage !== codeLanguage && (
-                <p className="hint muted">
-                  {t('settings.lang.split', {
-                    chat: LANG_TITLE[chatLanguage], code: LANG_TITLE[codeLanguage],
-                  })}
-                </p>
-              )}
-
-              {/* Язык интерфейса здесь не настраивается: он один на всё
-                  приложение, и место у него одно — главный экран. Строка
-                  оставлена, чтобы его не искали в настройках офиса. */}
-              <p className="hint muted settings-elsewhere">
-                {t('settings.lang.ui.elsewhere', { lang: LANG_TITLE[uiLang] })}
-              </p>
-
-              {/* Тема применяется сразу, без «Сохранить»: она живёт на этом
-                  компьютере, а не в настройках офиса на сервере. */}
-              <h4 className="section-title">{t('settings.theme')}</h4>
-              <div className="seg">
-                {THEME_MODES.map(([mode, label]) => (
-                  <button key={mode} className={themeMode === mode ? 'on' : ''}
-                    onClick={() => setThemeMode(mode)}>
-                    {t(label)}
-                  </button>
-                ))}
-              </div>
-              <p className="hint muted">{t('settings.theme.hint')}</p>
-
-              {/* Как и тема — живёт на этом компьютере и применяется сразу. */}
-              <h4 className="section-title">{t('settings.notify.title')}</h4>
-              <label className="checkbox">
-                <input
-                  type="checkbox" checked={notify.wanted} disabled={notify.permission === 'unsupported'}
-                  onChange={(e) => toggleNotify(e.target.checked)}
-                />
-                {t('settings.notify')}
-              </label>
-              <p className="hint muted">{t('settings.notify.hint')}</p>
-              {notify.permission === 'denied' && notify.wanted && (
-                <p className="hint error">{t('settings.notify.denied')}</p>
-              )}
-              {notify.permission === 'unsupported' && (
-                <p className="hint muted">{t('settings.notify.unsupported')}</p>
-              )}
-            </>
+              {/* Тема и уведомления применяются сразу, без «Сохранить»: они
+                  живут на этом компьютере, а не в настройках офиса на сервере. */}
+              <Group title={t('settings.general.device')} desc={t('settings.general.device.desc')}>
+                <Row label={t('settings.theme')} hint={t('settings.theme.hint')}>
+                  <div className="seg">
+                    {THEME_MODES.map(([mode, label]) => (
+                      <button key={mode} className={themeMode === mode ? 'on' : ''}
+                        onClick={() => setThemeMode(mode)}>
+                        {t(label)}
+                      </button>
+                    ))}
+                  </div>
+                </Row>
+                <Row label={t('settings.notify.title')}>
+                  <label className="form-check">
+                    <input
+                      type="checkbox" checked={notify.wanted} disabled={notify.permission === 'unsupported'}
+                      onChange={(e) => toggleNotify(e.target.checked)}
+                    />
+                    <span className="form-check-text">
+                      {t('settings.notify')}
+                      <span className="form-hint">{t('settings.notify.hint')}</span>
+                      {notify.permission === 'denied' && notify.wanted && (
+                        <span className="form-hint error">{t('settings.notify.denied')}</span>
+                      )}
+                      {notify.permission === 'unsupported' && (
+                        <span className="form-hint">{t('settings.notify.unsupported')}</span>
+                      )}
+                    </span>
+                  </label>
+                </Row>
+              </Group>
+            </div>
           )}
 
           {section === 'access' && (
-            <>
-              <h4 className="section-title">{t('settings.access.title')}</h4>
-              <div className="engine access-modes">
-                {accessModes().map(([id, label, hint]) => (
-                  <button key={id} className={`${access === id ? 'on' : ''} ${id}`.trim()}
-                    onClick={() => chooseAccess(id)}>
-                    {label}
-                    <span className="muted small">{hint}</span>
-                  </button>
-                ))}
-              </div>
-              {confirmAuto && (
-                <div className="access-confirm">
-                  <p>{fullAccessWarning()}</p>
-                  <div className="modal-actions">
-                    <button onClick={() => setConfirmAuto(false)}>{t('common.cancel')}</button>
-                    <button className="danger" onClick={() => { setAccess('auto'); setConfirmAuto(false); }}>
-                      {t('settings.access.confirm')}
+            <div className="form">
+              <Group title={t('settings.access.title')} desc={t('settings.access.hint')}>
+                <div className="engine access-modes">
+                  {accessModes().map(([id, label, hint]) => (
+                    <button key={id} className={`${access === id ? 'on' : ''} ${id}`.trim()}
+                      onClick={() => chooseAccess(id)}>
+                      {label}
+                      <span className="muted small">{hint}</span>
                     </button>
-                  </div>
+                  ))}
                 </div>
-              )}
-              <p className="hint muted">{t('settings.access.hint')}</p>
-            </>
+                {confirmAuto && (
+                  <div className="access-confirm">
+                    <p>{fullAccessWarning()}</p>
+                    <div className="modal-actions">
+                      <button onClick={() => setConfirmAuto(false)}>{t('common.cancel')}</button>
+                      <button className="danger" onClick={() => { setAccess('auto'); setConfirmAuto(false); }}>
+                        {t('settings.access.confirm')}
+                      </button>
+                    </div>
+                  </div>
+                )}
+              </Group>
+            </div>
           )}
 
           {section === 'limits' && (
-            <>
-              <p className="modal-reason">{t('settings.limits.note')}</p>
-
-              <div className="row2">
-                <label>{t('settings.limits.global')}
-                  <input value={global} placeholder={t('settings.limits.unlimited')}
+            <div className="form">
+              {/* Деньги и параллелизм — разные рычаги: первый останавливает
+                  офис, второй только растягивает очередь. Поэтому разные группы. */}
+              <Group title={t('settings.limits.money')} desc={t('settings.limits.note')}>
+                <Row label={t('settings.limits.global')} htmlFor={`${fid}-global`}
+                  hint={t('settings.limits.global.hint')}>
+                  <input id={`${fid}-global`} value={global} placeholder={t('settings.limits.unlimited')}
                     onChange={(e) => setGlobal(e.target.value)} />
-                  <span className="hint muted">{t('settings.limits.global.hint')}</span>
-                </label>
-
-                <label>{t('settings.limits.perTask')}
-                  <input value={perTask} placeholder={t('settings.limits.unlimited')}
+                </Row>
+                <Row label={t('settings.limits.perTask')} htmlFor={`${fid}-task`}
+                  hint={t('settings.limits.perTask.hint')}>
+                  <input id={`${fid}-task`} value={perTask} placeholder={t('settings.limits.unlimited')}
                     onChange={(e) => setPerTask(e.target.value)} />
-                  <span className="hint muted">{t('settings.limits.perTask.hint')}</span>
-                </label>
-              </div>
-              <label>{t('settings.limits.turns')}
-                <input value={maxTurns} placeholder={t('settings.limits.unlimited')}
-                  onChange={(e) => setMaxTurns(e.target.value)} />
-                <span className="hint muted">{t('settings.limits.turns.hint')}</span>
-                {maxTurnsParsed.error && <span className="hint error">{maxTurnsParsed.error}</span>}
-              </label>
+                </Row>
+              </Group>
 
-              <label>{t('settings.limits.workers')}
-                <input value={maxWorkers} placeholder={DEFAULT_OFFICE_WORKERS.toString()}
-                  onChange={(e) => setMaxWorkers(e.target.value)} />
-                <span className="hint muted">
+              <Group title={t('settings.limits.work')} desc={t('settings.limits.work.desc')}>
+                <Row label={t('settings.limits.workers')} htmlFor={`${fid}-workers`} hint={<>
                   {t('settings.limits.workers.hint', { cap: DEFAULT_PROCESS_WORKERS })}
                   {' '}<code className="mono">OFFICE_MAX_WORKERS</code>
                   {t('settings.limits.workers.hintTail')}
-                </span>
-                {maxWorkersParsed.error && <span className="hint error">{maxWorkersParsed.error}</span>}
-              </label>
+                </>}>
+                  <input id={`${fid}-workers`} value={maxWorkers} placeholder={DEFAULT_OFFICE_WORKERS.toString()}
+                    onChange={(e) => setMaxWorkers(e.target.value)} />
+                  {maxWorkersParsed.error && <span className="form-hint error">{maxWorkersParsed.error}</span>}
+                </Row>
+                <Row label={t('settings.limits.turns')} htmlFor={`${fid}-turns`}
+                  hint={t('settings.limits.turns.hint')}>
+                  <input id={`${fid}-turns`} value={maxTurns} placeholder={t('settings.limits.unlimited')}
+                    onChange={(e) => setMaxTurns(e.target.value)} />
+                  {maxTurnsParsed.error && <span className="form-hint error">{maxTurnsParsed.error}</span>}
+                </Row>
+              </Group>
 
-              <Slider
-                label={t('settings.limits.pmContext')}
-                hint={t('settings.limits.pmContext.hint')}
-                value={pmContext}
-                range={{ min: MIN_PM_CONTEXT_LIMIT / 1000, max: MAX_PM_CONTEXT_LIMIT / 1000, step: 10 }}
-                disabled={false}
-                onChange={setPmContext}
-              />
-
-              <Slider
-                label={t('settings.limits.workerContext')}
-                hint={t('settings.limits.workerContext.hint')}
-                value={workerContext}
-                range={{ min: MIN_WORKER_CONTEXT_LIMIT / 1000, max: MAX_WORKER_CONTEXT_LIMIT / 1000, step: 10 }}
-                disabled={false}
-                onChange={setWorkerContext}
-              />
-            </>
+              <Group title={t('settings.limits.context')} desc={t('settings.limits.context.desc')}>
+                <Slider
+                  label={t('settings.limits.pmContext')}
+                  hint={t('settings.limits.pmContext.hint')}
+                  value={pmContext}
+                  range={{ min: MIN_PM_CONTEXT_LIMIT / 1000, max: MAX_PM_CONTEXT_LIMIT / 1000, step: 10 }}
+                  disabled={false}
+                  onChange={setPmContext}
+                />
+                <Slider
+                  label={t('settings.limits.workerContext')}
+                  hint={t('settings.limits.workerContext.hint')}
+                  value={workerContext}
+                  range={{ min: MIN_WORKER_CONTEXT_LIMIT / 1000, max: MAX_WORKER_CONTEXT_LIMIT / 1000, step: 10 }}
+                  disabled={false}
+                  onChange={setWorkerContext}
+                />
+              </Group>
+            </div>
           )}
 
           {section === 'tools' && (
-            <McpCatalog servers={servers} requests={requests} onChange={setServers} />
+            <div className="form">
+              <McpCatalog servers={servers} requests={requests} onChange={setServers} />
+            </div>
           )}
 
           {section === 'project' && (
-            <>
-              {/* Иконка сохраняется сразу, без «Сохранить»: картинка уходит
-                  отдельной ручкой, а не вместе с настройками офиса. */}
-              <OfficeIconSetting />
+            <div className="form">
+              <Group title={t('settings.project.office')} desc={t('settings.project.office.desc')}>
+                {/* Иконка сохраняется сразу, без «Сохранить»: картинка уходит
+                    отдельной ручкой, а не вместе с настройками офиса. */}
+                <OfficeIconSetting />
+                <Row label={t('settings.layout.title')} hint={t('settings.layout.hint')}>
+                  <div className="engine">
+                    {layouts.map((l) => (
+                      <button key={l.id} className={layoutId === l.id ? 'on' : ''} onClick={() => setLayoutId(l.id)}>
+                        {l.title}
+                      </button>
+                    ))}
+                  </div>
+                </Row>
+              </Group>
 
-              <h4 className="section-title">{t('settings.layout.title')}</h4>
-              <div className="engine">
-                {layouts.map((l) => (
-                  <button key={l.id} className={layoutId === l.id ? 'on' : ''} onClick={() => setLayoutId(l.id)}>
-                    {l.title}
+              {/* Токен стоит в этой группе, а не у облака: на него ссылается
+                  settings.cloud.tokenNote («задаётся выше, в «Ревью и слияние»»). */}
+              <Group title={t('settings.pipeline.title')} desc={t('settings.pipeline.note')}>
+                <div className="engine">
+                  <button className={autoPipeline ? 'on' : ''} onClick={() => setAutoPipeline(true)}>
+                    <span><Icon name="repeat" size={18} /> {t('settings.pipeline.auto')}</span>
+                    <span className="muted small">{t('settings.pipeline.auto.hint')}</span>
                   </button>
-                ))}
-              </div>
-              <p className="hint muted">{t('settings.layout.hint')}</p>
-
-              <h4 className="section-title">{t('settings.pipeline.title')}</h4>
-              <div className="engine">
-                <button className={autoPipeline ? 'on' : ''} onClick={() => setAutoPipeline(true)}>
-                  <span><Icon name="repeat" size={18} /> {t('settings.pipeline.auto')}</span>
-                  <span className="muted small">{t('settings.pipeline.auto.hint')}</span>
-                </button>
-                <button className={autoPipeline ? '' : 'on'} onClick={() => setAutoPipeline(false)}>
-                  <span><Icon name="hand-stop" size={18} /> {t('settings.pipeline.manual')}</span>
-                  <span className="muted small">{t('settings.pipeline.manual.hint')}</span>
-                </button>
-              </div>
-              <p className="hint muted">{t('settings.pipeline.note')}</p>
-
-              <h4 className="section-title">{t('settings.plan.title')}</h4>
-              <div className="engine">
-                <button className={planApproval ? 'on' : ''} onClick={() => setPlanApproval(true)}>
-                  <span><Icon name="hand-stop" size={18} /> {t('settings.plan.approval')}</span>
-                  <span className="muted small">{t('settings.plan.approval.hint')}</span>
-                </button>
-                <button className={planApproval ? '' : 'on'} onClick={() => setPlanApproval(false)}>
-                  <span><Icon name="repeat" size={18} /> {t('settings.plan.auto')}</span>
-                  <span className="muted small">{t('settings.plan.auto.hint')}</span>
-                </button>
-              </div>
-              <Slider
-                label={t('settings.plan.focus')}
-                hint={t('settings.plan.focus.hint', {
-                  min: MIN_FOCUS_EPICS, max: MAX_FOCUS_EPICS,
-                })}
-                value={focusEpics}
-                range={{ min: MIN_FOCUS_EPICS, max: MAX_FOCUS_EPICS, step: 1 }}
-                disabled={false}
-                onChange={setFocusEpics}
-              />
-              <p className="hint muted">{t('settings.plan.note')}</p>
-
-              <label>{t('settings.token')} {cloud.hasToken && (
-                <span className="chip done">{t('settings.token.set')}</span>
-              )}
-                <input value={token} type="password"
-                  placeholder={cloud.hasToken ? t('settings.token.placeholder') : 'ghp_…'}
-                  onChange={(e) => setToken(e.target.value)} />
-                <span className="hint muted">
+                  <button className={autoPipeline ? '' : 'on'} onClick={() => setAutoPipeline(false)}>
+                    <span><Icon name="hand-stop" size={18} /> {t('settings.pipeline.manual')}</span>
+                    <span className="muted small">{t('settings.pipeline.manual.hint')}</span>
+                  </button>
+                </div>
+                <Row label={<>{t('settings.token')} {cloud.hasToken && (
+                  <span className="chip done">{t('settings.token.set')}</span>
+                )}</>} htmlFor={`${fid}-token`} hint={<>
                   {t('settings.token.hint')}
                   {' '}<code className="mono">OFFICE_GITHUB_TOKEN</code>
                   {t('settings.token.hintTail')}
-                </span>
-              </label>
+                </>}>
+                  <input id={`${fid}-token`} value={token} type="password"
+                    placeholder={cloud.hasToken ? t('settings.token.placeholder') : 'ghp_…'}
+                    onChange={(e) => setToken(e.target.value)} />
+                </Row>
+              </Group>
 
-              <h4 className="section-title">{t('settings.engine.title')}</h4>
-              <div className="engine">
-                <button className={engine === 'local' ? 'on' : ''} onClick={() => setEngine('local')}>
-                  <span><Icon name="device-desktop" size={18} /> {t('settings.engine.local')}</span>
-                  <span className="muted small">{t('settings.engine.local.hint')}</span>
-                </button>
-                <button className={engine === 'cloud' ? 'on' : ''} onClick={() => setEngine('cloud')}>
-                  <span><Icon name="cloud" size={18} /> {t('settings.engine.cloud')}</span>
-                  <span className="muted small">{t('settings.engine.cloud.hint')}</span>
-                </button>
-              </div>
+              <Group title={t('settings.plan.title')} desc={t('settings.plan.note')}>
+                <div className="engine">
+                  <button className={planApproval ? 'on' : ''} onClick={() => setPlanApproval(true)}>
+                    <span><Icon name="hand-stop" size={18} /> {t('settings.plan.approval')}</span>
+                    <span className="muted small">{t('settings.plan.approval.hint')}</span>
+                  </button>
+                  <button className={planApproval ? '' : 'on'} onClick={() => setPlanApproval(false)}>
+                    <span><Icon name="repeat" size={18} /> {t('settings.plan.auto')}</span>
+                    <span className="muted small">{t('settings.plan.auto.hint')}</span>
+                  </button>
+                </div>
+                <Slider
+                  label={t('settings.plan.focus')}
+                  hint={t('settings.plan.focus.hint', {
+                    min: MIN_FOCUS_EPICS, max: MAX_FOCUS_EPICS,
+                  })}
+                  value={focusEpics}
+                  range={{ min: MIN_FOCUS_EPICS, max: MAX_FOCUS_EPICS, step: 1 }}
+                  disabled={false}
+                  onChange={setFocusEpics}
+                />
+              </Group>
 
-              {engine === 'cloud' && (
-                <>
-                  <p className="hint muted">{t('settings.cloud.note')}</p>
+              <Group title={t('settings.engine.title')} desc={t('settings.project.engine.desc')}>
+                <div className="engine">
+                  <button className={engine === 'local' ? 'on' : ''} onClick={() => setEngine('local')}>
+                    <span><Icon name="device-desktop" size={18} /> {t('settings.engine.local')}</span>
+                    <span className="muted small">{t('settings.engine.local.hint')}</span>
+                  </button>
+                  <button className={engine === 'cloud' ? 'on' : ''} onClick={() => setEngine('cloud')}>
+                    <span><Icon name="cloud" size={18} /> {t('settings.engine.cloud')}</span>
+                    <span className="muted small">{t('settings.engine.cloud.hint')}</span>
+                  </button>
+                </div>
 
-                  <div className={`ready ${cloud.hasKey ? 'ok' : 'bad'}`}>
-                    {t(cloud.hasKey ? 'settings.cloud.keyOk' : 'settings.cloud.keyMissing')}
-                  </div>
-
-                  <label>{t('settings.cloud.repo')}
-                    <input value={repo} placeholder="https://github.com/owner/repo"
-                      onChange={(e) => setRepo(e.target.value)} />
-                    <span className="hint muted">{t('settings.cloud.repo.hint')}</span>
-                  </label>
-
-                  <p className="hint muted">{t('settings.cloud.tokenNote')}</p>
-                </>
-              )}
-            </>
+                {engine === 'cloud' && (
+                  <>
+                    <span className="form-hint">{t('settings.cloud.note')}</span>
+                    <div className={`ready ${cloud.hasKey ? 'ok' : 'bad'}`}>
+                      {t(cloud.hasKey ? 'settings.cloud.keyOk' : 'settings.cloud.keyMissing')}
+                    </div>
+                    <Row label={t('settings.cloud.repo')} htmlFor={`${fid}-repo`}
+                      hint={t('settings.cloud.repo.hint')}>
+                      <input id={`${fid}-repo`} value={repo} placeholder="https://github.com/owner/repo"
+                        onChange={(e) => setRepo(e.target.value)} />
+                    </Row>
+                    <span className="form-hint">{t('settings.cloud.tokenNote')}</span>
+                  </>
+                )}
+              </Group>
+            </div>
           )}
 
           {section === 'life' && (
-            <>
-              <h4 className="section-title">{t('settings.life.rituals')}</h4>
-              <div className="engine">
-                <button className={ritualsEnabled ? 'on' : ''} onClick={() => setRitualsEnabled(true)}>
-                  <span><Icon name="repeat" size={18} /> {t('settings.life.rituals.on')}</span>
-                  <span className="muted small">{t('settings.life.rituals.on.hint')}</span>
-                </button>
-                <button className={ritualsEnabled ? '' : 'on'} onClick={() => setRitualsEnabled(false)}>
-                  <span><Icon name="hand-stop" size={18} /> {t('settings.life.rituals.off')}</span>
-                  <span className="muted small">{t('settings.life.rituals.off.hint')}</span>
-                </button>
-              </div>
-              <Slider
-                label={t('settings.life.limit')}
-                hint={t('settings.life.limit.hint')}
-                value={ritualLimit}
-                range={{ min: 10, max: 100, step: 5 }}
-                disabled={!ritualsEnabled}
-                onChange={setRitualLimit}
-              />
-
-              <h4 className="section-title">{t('settings.life.initiative')}</h4>
-              <div className="engine">
-                {INITIATIVE_MODES.map((mode) => (
-                  <button key={mode} className={initiativeMode === mode ? 'on' : ''}
-                    onClick={() => setInitiativeMode(mode)}>
-                    <span>{t(`settings.life.initiative.${mode}`)}</span>
-                    <span className="muted small">{t(`settings.life.initiative.${mode}.hint`)}</span>
+            <div className="form">
+              <Group title={t('settings.life.rituals')} desc={t('settings.life.rituals.desc')}>
+                <div className="engine">
+                  <button className={ritualsEnabled ? 'on' : ''} onClick={() => setRitualsEnabled(true)}>
+                    <span><Icon name="repeat" size={18} /> {t('settings.life.rituals.on')}</span>
+                    <span className="muted small">{t('settings.life.rituals.on.hint')}</span>
                   </button>
-                ))}
-              </div>
-              <Slider
-                label={t('settings.life.share')}
-                hint={t('settings.life.share.hint')}
-                value={initiativeShare}
-                range={{ min: MIN_INITIATIVE_SHARE * 100, max: MAX_INITIATIVE_SHARE * 100, step: 5 }}
-                disabled={initiativeMode === 'off'}
-                onChange={setInitiativeShare}
-              />
-            </>
+                  <button className={ritualsEnabled ? '' : 'on'} onClick={() => setRitualsEnabled(false)}>
+                    <span><Icon name="hand-stop" size={18} /> {t('settings.life.rituals.off')}</span>
+                    <span className="muted small">{t('settings.life.rituals.off.hint')}</span>
+                  </button>
+                </div>
+                <Slider
+                  label={t('settings.life.limit')}
+                  hint={t('settings.life.limit.hint')}
+                  value={ritualLimit}
+                  range={{ min: 10, max: 100, step: 5 }}
+                  disabled={!ritualsEnabled}
+                  onChange={setRitualLimit}
+                />
+              </Group>
+
+              <Group title={t('settings.life.initiative')} desc={t('settings.life.initiative.desc')}>
+                <div className="engine">
+                  {INITIATIVE_MODES.map((mode) => (
+                    <button key={mode} className={initiativeMode === mode ? 'on' : ''}
+                      onClick={() => setInitiativeMode(mode)}>
+                      <span>{t(`settings.life.initiative.${mode}`)}</span>
+                      <span className="muted small">{t(`settings.life.initiative.${mode}.hint`)}</span>
+                    </button>
+                  ))}
+                </div>
+                <Slider
+                  label={t('settings.life.share')}
+                  hint={t('settings.life.share.hint')}
+                  value={initiativeShare}
+                  range={{ min: MIN_INITIATIVE_SHARE * 100, max: MAX_INITIATIVE_SHARE * 100, step: 5 }}
+                  disabled={initiativeMode === 'off'}
+                  onChange={setInitiativeShare}
+                />
+              </Group>
+            </div>
           )}
 
           {section === 'graphics' && (
-            <>
-              <h4 className="section-title">{t('settings.gfx.title')}</h4>
-              <div className="engine">
-                <button className={gfx.pixelate ? 'on' : ''} onClick={() => patchGfx({ pixelate: true })}>
-                  <span><Icon name="grid-dots" size={18} /> {t('settings.gfx.on')}</span>
-                  <span className="muted small">{t('settings.gfx.on.hint')}</span>
-                </button>
-                <button className={gfx.pixelate ? '' : 'on'} onClick={() => patchGfx({ pixelate: false })}>
-                  <span><Icon name="circle" size={18} /> {t('settings.gfx.off')}</span>
-                  <span className="muted small">{t('settings.gfx.off.hint')}</span>
-                </button>
-              </div>
-              <p className="hint muted">{t('settings.gfx.note')}</p>
-
-              <Slider
-                label={t('settings.gfx.pixelSize')} value={gfx.pixelSize}
-                range={GRAPHICS_RANGE.pixelSize}
-                disabled={!gfx.pixelate} onChange={(v) => patchGfx({ pixelSize: v })}
-                hint={t('settings.gfx.pixelSize.hint')}
-              />
-              <Slider
-                label={t('settings.gfx.normalEdge')} value={gfx.normalEdge}
-                range={GRAPHICS_RANGE.normalEdge}
-                decimals={2} disabled={!gfx.pixelate}
-                onChange={(v) => patchGfx({ normalEdge: v })}
-                hint={t('settings.gfx.normalEdge.hint')}
-              />
-              <Slider
-                label={t('settings.gfx.depthEdge')} value={gfx.depthEdge}
-                range={GRAPHICS_RANGE.depthEdge}
-                decimals={2} disabled={!gfx.pixelate}
-                onChange={(v) => patchGfx({ depthEdge: v })}
-                hint={t('settings.gfx.depthEdge.hint')}
-              />
-
-              <h4 className="section-title">{t('settings.gfx.grid.title')}</h4>
-              <label className="checkbox">
-                <input
-                  type="checkbox" checked={gfx.grid}
-                  onChange={(e) => patchGfx({ grid: e.target.checked })}
+            <div className="form">
+              <Group title={t('settings.gfx.title')} desc={t('settings.gfx.note')}>
+                <div className="engine">
+                  <button className={gfx.pixelate ? 'on' : ''} onClick={() => patchGfx({ pixelate: true })}>
+                    <span><Icon name="grid-dots" size={18} /> {t('settings.gfx.on')}</span>
+                    <span className="muted small">{t('settings.gfx.on.hint')}</span>
+                  </button>
+                  <button className={gfx.pixelate ? '' : 'on'} onClick={() => patchGfx({ pixelate: false })}>
+                    <span><Icon name="circle" size={18} /> {t('settings.gfx.off')}</span>
+                    <span className="muted small">{t('settings.gfx.off.hint')}</span>
+                  </button>
+                </div>
+                <Slider
+                  label={t('settings.gfx.pixelSize')} value={gfx.pixelSize}
+                  range={GRAPHICS_RANGE.pixelSize}
+                  disabled={!gfx.pixelate} onChange={(v) => patchGfx({ pixelSize: v })}
+                  hint={t('settings.gfx.pixelSize.hint')}
                 />
-                {t('settings.gfx.grid')}
-              </label>
-              <p className="hint muted">{t('settings.gfx.grid.hint')}</p>
-
-              <h4 className="section-title">{t('settings.gfx.dev.title')}</h4>
-              <label className="checkbox">
-                <input
-                  type="checkbox" checked={gfx.dev}
-                  onChange={(e) => patchGfx({ dev: e.target.checked })}
+                <Slider
+                  label={t('settings.gfx.normalEdge')} value={gfx.normalEdge}
+                  range={GRAPHICS_RANGE.normalEdge}
+                  decimals={2} disabled={!gfx.pixelate}
+                  onChange={(v) => patchGfx({ normalEdge: v })}
+                  hint={t('settings.gfx.normalEdge.hint')}
                 />
-                {t('settings.gfx.dev')}
-              </label>
-              <p className="hint muted">{t('settings.gfx.dev.hint')}</p>
+                <Slider
+                  label={t('settings.gfx.depthEdge')} value={gfx.depthEdge}
+                  range={GRAPHICS_RANGE.depthEdge}
+                  decimals={2} disabled={!gfx.pixelate}
+                  onChange={(v) => patchGfx({ depthEdge: v })}
+                  hint={t('settings.gfx.depthEdge.hint')}
+                />
+              </Group>
 
-              <div className="settings-row">
-                <button onClick={() => setGfx(DEFAULT_GRAPHICS)}>{t('settings.gfx.reset')}</button>
-              </div>
-            </>
+              {/* Сетка и карта проходимости — линейки для раскладки, а не
+                  украшение картинки: своя группа, чтобы их не искали в качестве. */}
+              <Group title={t('settings.gfx.debug')} desc={t('settings.gfx.debug.desc')}>
+                <Row label={t('settings.gfx.grid.title')}>
+                  <label className="form-check">
+                    <input
+                      type="checkbox" checked={gfx.grid}
+                      onChange={(e) => patchGfx({ grid: e.target.checked })}
+                    />
+                    <span className="form-check-text">
+                      {t('settings.gfx.grid')}
+                      <span className="form-hint">{t('settings.gfx.grid.hint')}</span>
+                    </span>
+                  </label>
+                </Row>
+                <Row label={t('settings.gfx.dev.title')}>
+                  <label className="form-check">
+                    <input
+                      type="checkbox" checked={gfx.dev}
+                      onChange={(e) => patchGfx({ dev: e.target.checked })}
+                    />
+                    <span className="form-check-text">
+                      {t('settings.gfx.dev')}
+                      <span className="form-hint">{t('settings.gfx.dev.hint')}</span>
+                    </span>
+                  </label>
+                </Row>
+                <div className="settings-row">
+                  <button onClick={() => setGfx(DEFAULT_GRAPHICS)}>{t('settings.gfx.reset')}</button>
+                </div>
+              </Group>
+            </div>
           )}
         </div>
       </div>

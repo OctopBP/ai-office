@@ -32,13 +32,30 @@
   .settings-nav { flex-direction: row; width: auto; overflow-x: auto; border-right: none; border-bottom: 1px solid var(--hairline); }
 }
 
-/* Ряд одиночных действий внутри раздела — не карточка выбора. */
-.settings-row { display: flex; gap: var(--space-2); margin-top: var(--space-4); }
+/* Ряд одиночных действий внутри раздела — не карточка выбора. Отступ сверху
+   даёт .form-rows группы. */
+.settings-row { display: flex; gap: var(--space-2); }
 
 /* Заметка «это настраивается не здесь»: отбита линией, чтобы её не приняли за
    подпись к предыдущему переключателю. Сама ничего не переключает. */
 .settings-content .settings-elsewhere {
-  margin-top: var(--space-5);
+  margin-top: 0;
   padding-top: var(--space-4);
   border-top: 1px solid var(--hairline);
 }
+
+/* Ползунок в строке шаблона: range тянется, значение прижато вправо и не
+   прыгает по ширине, когда меняется число цифр. */
+.settings-range { display: flex; align-items: center; gap: var(--space-3); }
+.settings-range input[type="range"] {
+  flex: 1; min-width: 0; margin: 0; accent-color: var(--accent); cursor: pointer;
+}
+.settings-range b { flex: none; min-width: 3.5em; text-align: right; color: var(--ink-2); font-weight: 600; }
+/* Выключенная строка (ползунок без смысла при текущем выборе) гаснет целиком,
+   вместе с подписью, — иначе подпись обещает настройку, которой нет. */
+.settings-content .form-row.off { opacity: .45; }
+.settings-content .form-row.off input[type="range"] { cursor: default; }
+
+/* Предупреждение о полном доступе стоит строкой группы: отрицательный отступ
+   из modal.css (рассчитанный на модалку) здесь прижал бы его к режимам. */
+.settings-content .access-confirm { margin: 0; }

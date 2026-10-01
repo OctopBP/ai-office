@@ -47,7 +47,7 @@
    текста читалась хуже. */
 .engine {
   display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-  gap: var(--space-2); margin-bottom: var(--space-3);
+  gap: var(--space-2);
 }
 .engine button {
   display: flex; flex-direction: column; gap: var(--space-1); min-height: 0;
@@ -62,7 +62,7 @@
 /* Плёнка без цветной рамки — состояние читается по цвету текста. */
 .ready {
   font-size: var(--fs-body); padding: var(--space-2) var(--space-3); border-radius: var(--radius-row);
-  margin-bottom: var(--space-3); background: var(--film);
+  background: var(--film);
 }
 .ready.ok { color: var(--ok-ink); }
 .ready.bad { color: var(--danger); }

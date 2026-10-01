@@ -85,34 +85,36 @@ export function OfficeIconSetting() {
   };
 
   return (
-    <>
-      <h4 className="section-title">{t('settings.icon.title')}</h4>
-      <div className="office-icon-setting">
-        <span className="office-card-avatar"
-          style={{ background: officeAvatarColor(office.id), color: officeAvatarInk(office.id) }}>
-          <OfficeAvatarIcon office={office} imgClass="office-card-icon-img" />
-        </span>
-        <div className="office-icon-setting-actions">
-          <button disabled={busy} onClick={() => file.current?.click()}>
-            {t(busy ? 'settings.icon.uploading' : office.icon?.kind === 'image'
-              ? 'settings.icon.replace' : 'settings.icon.upload')}
-          </button>
-          <button className="mini" disabled={busy || !office.icon}
-            onClick={() => { setError(null); setOfficeIcon(office.id, null); }}>
-            {t('settings.icon.reset')}
-          </button>
+    <div className="form-row">
+      <div className="form-row-label"><label>{t('settings.icon.title')}</label></div>
+      <div className="form-row-control">
+        <div className="office-icon-setting">
+          <span className="office-card-avatar"
+            style={{ background: officeAvatarColor(office.id), color: officeAvatarInk(office.id) }}>
+            <OfficeAvatarIcon office={office} imgClass="office-card-icon-img" />
+          </span>
+          <div className="office-icon-setting-actions">
+            <button disabled={busy} onClick={() => file.current?.click()}>
+              {t(busy ? 'settings.icon.uploading' : office.icon?.kind === 'image'
+                ? 'settings.icon.replace' : 'settings.icon.upload')}
+            </button>
+            <button className="mini" disabled={busy || !office.icon}
+              onClick={() => { setError(null); setOfficeIcon(office.id, null); }}>
+              {t('settings.icon.reset')}
+            </button>
+          </div>
+          <input ref={file} type="file" className="office-icon-file" accept={ICON_TYPES.join(',')}
+            onChange={(e) => {
+              const picked = e.target.files?.[0];
+              // Поле чистим сразу: иначе повторный выбор того же файла (скажем,
+              // после неудачной загрузки) не считается изменением и не сработает.
+              e.target.value = '';
+              void send(picked);
+            }} />
         </div>
-        <input ref={file} type="file" className="office-icon-file" accept={ICON_TYPES.join(',')}
-          onChange={(e) => {
-            const picked = e.target.files?.[0];
-            // Поле чистим сразу: иначе повторный выбор того же файла (скажем,
-            // после неудачной загрузки) не считается изменением и не сработает.
-            e.target.value = '';
-            void send(picked);
-          }} />
+        {error && <span className="form-hint error">{error}</span>}
+        <span className="form-hint">{t('settings.icon.hint')}</span>
       </div>
-      {error && <p className="hint error">{error}</p>}
-      <p className="hint muted">{t('settings.icon.hint')}</p>
-    </>
+    </div>
   );
 }

@@ -11,6 +11,7 @@
  * двух местах — верный способ развести их. Форма только не даёт собрать
  * заведомую бессмыслицу вроде stdio без команды.
  */
+import { useId } from 'react';
 import { t } from './i18n';
 import { useStore } from './store';
 import type { McpServerDef, McpServerState } from '../shared/types';
@@ -72,117 +73,141 @@ export function McpCatalog({ servers, requests, onChange }: {
   // Что о серверах сообщили живые сессии. Пусто — ещё никто не работал.
   const status = useStore((s) => s.mcpStatus);
 
+  // Поля карточки связаны с подписями через id: серверов в списке несколько.
+  const fid = useId();
+
   return (
-    <>
-      <h4 className="section-title">{t('settings.mcp.title')}</h4>
-      <p className="hint muted">{t('settings.mcp.hint')}</p>
+    <section className="form-section">
+      <header className="form-section-head">
+        <h3 className="form-section-title">{t('settings.mcp.title')}</h3>
+        <p className="form-section-desc">{t('settings.mcp.hint')}</p>
+      </header>
 
-      {requests.length > 0 && (
-        <div className="mcp-asks">
-          <span className="group-title">{t('settings.mcp.asked')}</span>
-          {/* Команда показана до нажатия намеренно: добавить сервер из пакета
-              значит согласиться запускать этот процесс на своей машине. */}
-          {requests.map((req) => (
-            <div key={req.server.id} className="mcp-ask">
-              <div>
-                <b>{req.server.title || req.server.id}</b>
-                <span className="muted"> — {req.roles.join(', ')}</span>
-                <div className="mono hint">{howItStarts(req.server)}</div>
+      <div className="form-rows">
+        {requests.length > 0 && (
+          <div className="mcp-asks">
+            <span className="group-title">{t('settings.mcp.asked')}</span>
+            {/* Команда показана до нажатия намеренно: добавить сервер из пакета
+                значит согласиться запускать этот процесс на своей машине. */}
+            {requests.map((req) => (
+              <div key={req.server.id} className="mcp-ask">
+                <div>
+                  <b>{req.server.title || req.server.id}</b>
+                  <span className="muted"> — {req.roles.join(', ')}</span>
+                  <div className="mono form-hint">{howItStarts(req.server)}</div>
+                </div>
+                <button onClick={() => onChange([...servers, req.server])}>
+                  {t('settings.mcp.ask.add')}
+                </button>
               </div>
-              <button onClick={() => onChange([...servers, req.server])}>
-                {t('settings.mcp.ask.add')}
-              </button>
-            </div>
-          ))}
-          <span className="hint">{t('settings.mcp.ask.hint')}</span>
-        </div>
-      )}
-
-      <div className="mcp-list">
-        {servers.map((srv, i) => (
-          <div key={i} className={`mcp-item${srv.disabled ? ' off' : ''}`}>
-            <div className="mcp-head">
-              <input
-                className="mcp-id mono" value={srv.id} placeholder={t('settings.mcp.id')}
-                onChange={(e) => patch(i, { id: e.target.value.trim() })}
-              />
-              <input
-                className="mcp-title" value={srv.title} placeholder={t('settings.mcp.name')}
-                onChange={(e) => patch(i, { title: e.target.value })}
-              />
-              <select
-                value={srv.transport}
-                onChange={(e) => patch(i, { transport: e.target.value as McpServerDef['transport'] })}
-              >
-                <option value="stdio">stdio</option>
-                <option value="http">http</option>
-                <option value="sse">sse</option>
-              </select>
-              <button
-                className="link-danger"
-                onClick={() => onChange(servers.filter((_, k) => k !== i))}
-              >
-                {t('settings.mcp.remove')}
-              </button>
-            </div>
-
-            <Status state={status[srv.id]} />
-
-            {srv.transport === 'stdio' ? (
-              <label>{t('settings.mcp.command')}
-                <input
-                  className="mono" value={[srv.command, ...srv.args].join(' ')}
-                  placeholder="npx -y @scope/server"
-                  onChange={(e) => {
-                    const parts = e.target.value.trim().split(/\s+/).filter(Boolean);
-                    patch(i, { command: parts[0] ?? '', args: parts.slice(1) });
-                  }}
-                />
-              </label>
-            ) : (
-              <label>{t('settings.mcp.url')}
-                <input
-                  className="mono" value={srv.url} placeholder="https://example.com/mcp"
-                  onChange={(e) => patch(i, { url: e.target.value.trim() })}
-                />
-              </label>
-            )}
-
-            <label>
-              {srv.transport === 'stdio' ? t('settings.mcp.env') : t('settings.mcp.headers')}
-              <textarea
-                className="mono" rows={2} value={envToText(srv.env)}
-                placeholder={'TOKEN=${MY_TOKEN}'}
-                onChange={(e) => patch(i, { env: envFromText(e.target.value) })}
-              />
-              <span className="hint">{t('settings.mcp.env.hint')}</span>
-            </label>
-
-            <div className="mcp-flags">
-              <label className="checkbox">
-                <input
-                  type="checkbox" checked={srv.alwaysLoad}
-                  onChange={(e) => patch(i, { alwaysLoad: e.target.checked })}
-                />
-                {t('settings.mcp.alwaysLoad')}
-              </label>
-              <label className="checkbox">
-                <input
-                  type="checkbox" checked={!srv.disabled}
-                  onChange={(e) => patch(i, { disabled: !e.target.checked })}
-                />
-                {t('settings.mcp.enabled')}
-              </label>
-            </div>
+            ))}
+            <span className="form-hint">{t('settings.mcp.ask.hint')}</span>
           </div>
-        ))}
+        )}
+
+        {servers.length > 0 && (
+          <div className="mcp-list">
+            {servers.map((srv, i) => (
+              <div key={i} className={`mcp-item${srv.disabled ? ' off' : ''}`}>
+                <div className="mcp-head">
+                  <input
+                    className="mcp-id mono" value={srv.id} placeholder={t('settings.mcp.id')}
+                    onChange={(e) => patch(i, { id: e.target.value.trim() })}
+                  />
+                  <input
+                    className="mcp-title" value={srv.title} placeholder={t('settings.mcp.name')}
+                    onChange={(e) => patch(i, { title: e.target.value })}
+                  />
+                  <select
+                    value={srv.transport}
+                    onChange={(e) => patch(i, { transport: e.target.value as McpServerDef['transport'] })}
+                  >
+                    <option value="stdio">stdio</option>
+                    <option value="http">http</option>
+                    <option value="sse">sse</option>
+                  </select>
+                  <button
+                    className="link-danger"
+                    onClick={() => onChange(servers.filter((_, k) => k !== i))}
+                  >
+                    {t('settings.mcp.remove')}
+                  </button>
+                </div>
+
+                <Status state={status[srv.id]} />
+
+                <div className="form-row">
+                  <div className="form-row-label">
+                    <label htmlFor={`${fid}-${i}-run`}>
+                      {srv.transport === 'stdio' ? t('settings.mcp.command') : t('settings.mcp.url')}
+                    </label>
+                  </div>
+                  <div className="form-row-control">
+                    {srv.transport === 'stdio' ? (
+                      <input
+                        id={`${fid}-${i}-run`} className="mono" value={[srv.command, ...srv.args].join(' ')}
+                        placeholder="npx -y @scope/server"
+                        onChange={(e) => {
+                          const parts = e.target.value.trim().split(/\s+/).filter(Boolean);
+                          patch(i, { command: parts[0] ?? '', args: parts.slice(1) });
+                        }}
+                      />
+                    ) : (
+                      <input
+                        id={`${fid}-${i}-run`} className="mono" value={srv.url} placeholder="https://example.com/mcp"
+                        onChange={(e) => patch(i, { url: e.target.value.trim() })}
+                      />
+                    )}
+                  </div>
+                </div>
+
+                <div className="form-row">
+                  <div className="form-row-label">
+                    <label htmlFor={`${fid}-${i}-env`}>
+                      {srv.transport === 'stdio' ? t('settings.mcp.env') : t('settings.mcp.headers')}
+                    </label>
+                  </div>
+                  <div className="form-row-control">
+                    <textarea
+                      id={`${fid}-${i}-env`} className="mono" rows={2} value={envToText(srv.env)}
+                      placeholder={'TOKEN=${MY_TOKEN}'}
+                      onChange={(e) => patch(i, { env: envFromText(e.target.value) })}
+                    />
+                    <span className="form-hint">{t('settings.mcp.env.hint')}</span>
+                  </div>
+                </div>
+
+                <div className="mcp-flags">
+                  <label className="form-check">
+                    <input
+                      type="checkbox" checked={srv.alwaysLoad}
+                      onChange={(e) => patch(i, { alwaysLoad: e.target.checked })}
+                    />
+                    <span className="form-check-text">{t('settings.mcp.alwaysLoad')}</span>
+                  </label>
+                  <label className="form-check">
+                    <input
+                      type="checkbox" checked={!srv.disabled}
+                      onChange={(e) => patch(i, { disabled: !e.target.checked })}
+                    />
+                    <span className="form-check-text">{t('settings.mcp.enabled')}</span>
+                  </label>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+
+        {servers.length > 0 && <span className="form-hint">{t('settings.mcp.status.hint')}</span>}
+
+        {/* Обёртка держит кнопку по ширине текста: в колонке .form-rows она
+            иначе растянулась бы на всю строку. */}
+        <div className="mcp-add">
+          <button onClick={() => onChange([...servers, { ...BLANK }])}>
+            {t('settings.mcp.add')}
+          </button>
+        </div>
       </div>
-
-      {servers.length > 0 && <p className="hint muted">{t('settings.mcp.status.hint')}</p>}
-
-      <button onClick={() => onChange([...servers, { ...BLANK }])}>
-        {t('settings.mcp.add')}
-      </button>
-    </>
+    </section>
   );
 }
