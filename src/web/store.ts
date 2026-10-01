@@ -165,7 +165,9 @@ export interface Toast {
   title: string;
   detail?: string;
   taskId?: string;
-  /** Сколько висеть, мс. Без него — общий срок в 20 секунд. */
+  /** Сколько висеть, мс. Без него — общий срок `TOAST_TTL`. Отсчитывает
+   *  его сам тост на экране (`Toasts.tsx`): так таймер живёт и умирает
+   *  вместе с карточкой, а уход успевает доиграть анимацию. */
   ttl?: number;
 }
 
@@ -1495,11 +1497,13 @@ export function markArrived(instanceId: string, seq: number): void {
   });
 }
 
+/** Сколько тост висит по умолчанию, мс. */
+export const TOAST_TTL = 5000;
+
 export function pushToast(toast: Toast): void {
   useStore.setState((s) => (s.toasts.some((t) => t.id === toast.id)
     ? {}
     : { toasts: [...s.toasts, toast] }));
-  setTimeout(() => dismissToast(toast.id), toast.ttl ?? 20000);
 }
 
 // Системная тема поменялась — офис следует за ней, если выбрано «как в системе».

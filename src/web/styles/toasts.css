@@ -2,10 +2,14 @@
    «11 · оболочка в новом стиле», разбор в docs/design/ui-shell/plan.md. */
 
 /* ================= тосты ================= */
+/* Стопка в правом верхнем углу окна: новые встают под старыми, порядок —
+   порядок прихода. Сама стопка клики не ловит — только карточки, чтобы
+   пустое место между ними не глушило сцену под собой. */
 .toasts {
-  position: absolute; bottom: var(--space-4); left: 50%; transform: translateX(-50%);
+  position: fixed; top: var(--space-4); right: var(--space-4);
   z-index: var(--z-toast); display: flex; flex-direction: column; gap: var(--space-2);
-  width: min(430px, 92vw);
+  width: min(430px, calc(100vw - var(--space-4) * 2));
+  pointer-events: none;
 }
 
 .toast {
@@ -14,7 +18,32 @@
   background: var(--surface); color: var(--ink-2);
   border: 1px solid var(--hairline); border-radius: var(--radius-card);
   box-shadow: var(--shadow-toast);
+  pointer-events: auto;
+  animation: toast-in 240ms cubic-bezier(.2, .8, .2, 1) both;
 }
+/* Уход — та же дорога назад. Из DOM карточку убирает `animationend`
+   (Toasts.tsx), поэтому анимация ухода обязана быть всегда, хоть и короткая. */
+.toast.leaving {
+  animation: toast-out 200ms ease-in both;
+  pointer-events: none;
+}
+
+@keyframes toast-in {
+  from { opacity: 0; transform: translate(16px, -8px); }
+  to { opacity: 1; transform: none; }
+}
+@keyframes toast-out {
+  from { opacity: 1; transform: none; }
+  to { opacity: 0; transform: translate(16px, -8px); }
+}
+
+/* Без движения: только лёгкое проявление и угасание. */
+@media (prefers-reduced-motion: reduce) {
+  .toast { animation: toast-fade-in 120ms linear both; }
+  .toast.leaving { animation: toast-fade-out 120ms linear both; }
+}
+@keyframes toast-fade-in { from { opacity: 0; } to { opacity: 1; } }
+@keyframes toast-fade-out { from { opacity: 1; } to { opacity: 0; } }
 
 /* Кружок-маркер вместо иконки: цвет по типу события. */
 .toast-marker {
