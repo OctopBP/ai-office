@@ -2,10 +2,12 @@
 // MCP-сервер браузера для роли QA: stdio, один Chromium на сессию через playwright-core.
 // Контракт — docs/design/qa/spec.md, §3.1 и §5. Здесь только ядро: запуск браузера,
 // open, set_device, set_offline, screenshot и инструменты чтения; жесты tap и swipe через
-// CDP Input.dispatchTouchEvent и раскадровка storyboard (§5.2, §5.3). Фильтр адресов и
-// правило разрешений — отдельные задачи.
+// CDP Input.dispatchTouchEvent и раскадровка storyboard (§5.2, §5.3). Фильтр адресов
+// держит браузер на локальных адресах и опубликованной странице проекта: поэтому
+// правило разрешений офиса пропускает инструменты сервера без вопроса владельцу.
 //
 // Переменные окружения:
+//   QA_ALLOWED_ORIGIN    — единственный внешний origin, куда можно ходить (опубликованная страница)
 //   OFFICE_WORKDIR       — рабочая копия; скриншоты пишутся только внутрь неё (иначе cwd)
 //   OFFICE_TASK_ID       — номер задачи; раскадровка по умолчанию идёт в docs/qa/<задача>/shots/
 //   OFFICE_BROWSER_PATH  — свой исполняемый файл Chromium для обычного режима
@@ -26,6 +28,100 @@ const WORKDIR = path.resolve(process.env.OFFICE_WORKDIR || process.cwd());
 const BUFFER_LIMIT = 1000;
 const STATE_LIMIT = 16 * 1024;
 const NAV_TIMEOUT = 30_000;
+
+// ——— Фильтр адресов ———
+
+// Локальные хосты разрешены на любом порту: там живёт dev-сервер проверяемого приложения.
+const LOCAL_HOSTS = new Set(['localhost', '127.0.0.1']);
+
+// Внешний origin берётся из окружения один раз: агент его не меняет, это решение офиса.
+// Кривое значение не превращаем в «разрешить всё» — просто внешних адресов не будет.
+function readAllowedOrigin() {
+  const raw = (process.env.QA_ALLOWED_ORIGIN || '').trim();
+  if (!raw) return null;
+  try {
+    const url = new URL(raw);
+    if (url.protocol !== 'http:' && url.protocol !== 'https:') throw new Error('нужен http или https');
+    return url.origin;
+  } catch (err) {
+    log(`QA_ALLOWED_ORIGIN не разобран (${firstLine(err)}), внешние адреса закрыты`);
+    return null;
+  }
+}
+
+const ALLOWED_ORIGIN = readAllowedOrigin();
+
+// Схемы без сети: страница собирает их сама, наружу они не ходят.
+const LOCAL_SCHEMES = new Set(['data:', 'blob:', 'about:']);
+
+// Разрешён ли адрес запроса страницы. ws/wss сводятся к http/https, чтобы сокет
+// опубликованной страницы проходил вместе с ней, а HMR dev-сервера — вместе с localhost.
+function urlAllowed(raw) {
+  let url;
+  try {
+    url = new URL(raw);
+  } catch {
+    return false;
+  }
+  if (LOCAL_SCHEMES.has(url.protocol)) return true;
+  const proto = { 'ws:': 'http:', 'wss:': 'https:' }[url.protocol] || url.protocol;
+  if (proto !== 'http:' && proto !== 'https:') return false;
+  if (LOCAL_HOSTS.has(url.hostname)) return true;
+  return ALLOWED_ORIGIN !== null && `${proto}//${url.host}` === ALLOWED_ORIGIN;
+}
+
+function allowedHint() {
+  return `разрешены http(s)://localhost, http(s)://127.0.0.1 на любом порту${
+    ALLOWED_ORIGIN ? ` и ${ALLOWED_ORIGIN}` : '; внешний адрес не задан (QA_ALLOWED_ORIGIN)'
+  }`;
+}
+
+// Проверка для open: только http(s), без data:/about: — открыть QA просит страницу проекта.
+function checkOpenUrl(raw) {
+  let url;
+  try {
+    url = new URL(raw);
+  } catch {
+    throw new Error(`не адрес: ${raw}`);
+  }
+  if ((url.protocol !== 'http:' && url.protocol !== 'https:') || !urlAllowed(url.href)) {
+    throw new Error(`адрес вне разрешённых: ${url.origin === 'null' ? raw : url.origin} — ${allowedHint()}`);
+  }
+  return url.href;
+}
+
+// Перехват на весь контекст: и переходы, и подресурсы, и запросы из воркеров страницы.
+// Чужое обрывается как blockedbyclient и попадает в get_failed_requests через requestfailed.
+async function installFilter(context) {
+  await context.route('**/*', (route) => {
+    const url = route.request().url();
+    if (urlAllowed(url)) return route.fallback();
+    log(`заблокирован запрос: ${url.slice(0, 200)}`);
+    return route.abort('blockedbyclient');
+  });
+  // WebSocket идёт мимо route; routeWebSocket есть не во всех версиях playwright-core.
+  if (typeof context.routeWebSocket === 'function') {
+    await context.routeWebSocket(
+      (url) => !urlAllowed(url.href),
+      (ws) => {
+        log(`заблокирован сокет: ${ws.url().slice(0, 200)}`);
+        push(buffers.failed, { kind: 'blocked', method: 'WS', url: ws.url(), resource: 'websocket', error: 'адрес вне разрешённых' });
+        return ws.close({ code: 1008, reason: 'blocked by QA filter' });
+      },
+    );
+  }
+}
+
+// Route видит только первый запрос цепочки редиректов: если разрешённый сервер
+// перенаправил на чужой адрес, документ уже открыт. Такую страницу сразу уводим на пустую.
+function guardNavigation(page) {
+  page.on('framenavigated', (frame) => {
+    if (frame !== page.mainFrame() || urlAllowed(frame.url())) return;
+    log(`переход на чужой адрес остановлен: ${frame.url().slice(0, 200)}`);
+    push(buffers.failed, { kind: 'blocked', method: 'GET', url: frame.url(), resource: 'document', error: 'переход вне разрешённых адресов' });
+    page.goto('about:blank').catch(() => {});
+  });
+}
 
 // ——— Устройства ———
 
@@ -133,6 +229,7 @@ async function ensurePage() {
           viewport: { width: session.device.width, height: session.device.height },
           deviceScaleFactor: session.device.dpr,
         });
+        await installFilter(session.context);
         await session.context.addInitScript(audioProbe);
         if (session.offline) await session.context.setOffline(true);
       }
@@ -152,6 +249,7 @@ async function ensurePage() {
 }
 
 function attachListeners(page) {
+  guardNavigation(page);
   page.on('console', (msg) => {
     const loc = msg.location();
     push(buffers.console, {
@@ -482,16 +580,26 @@ const server = new McpServer({ name: 'office-browser', version: '0.1.0' });
 server.registerTool(
   'open',
   {
-    description: 'Открыть адрес в браузере и дождаться загрузки (событие load). Буферы консоли, ошибок и сети начинаются заново.',
+    description:
+      'Открыть адрес в браузере и дождаться загрузки (событие load). Буферы консоли, ошибок и сети начинаются заново. ' +
+      'Разрешены localhost и 127.0.0.1 на любом порту и опубликованная страница проекта; запросы страницы ' +
+      'на другие адреса блокируются и видны в get_failed_requests.',
     inputSchema: {
       url: z.string().describe('Полный адрес, например http://127.0.0.1:5173/'),
       waitUntil: z.enum(['load', 'domcontentloaded', 'networkidle']).optional().describe('По умолчанию load'),
     },
   },
   tool(async ({ url, waitUntil }) => {
+    // Адрес проверяется до запуска браузера: на запрещённый адрес незачем поднимать Chromium.
+    const target = checkOpenUrl(url);
     const page = await ensurePage();
     clearBuffers();
-    const res = await page.goto(url, { waitUntil: waitUntil || 'load', timeout: NAV_TIMEOUT });
+    const res = await page.goto(target, { waitUntil: waitUntil || 'load', timeout: NAV_TIMEOUT });
+    // about:blank здесь значит, что guardNavigation уже увёл страницу с чужого редиректа.
+    const landed = page.url();
+    if (!/^https?:/.test(landed) || !urlAllowed(landed)) {
+      throw new Error(`адрес перенаправил за пределы разрешённых (${landed}); подробности в get_failed_requests — ${allowedHint()}`);
+    }
     return {
       url: page.url(),
       status: res ? res.status() : null,

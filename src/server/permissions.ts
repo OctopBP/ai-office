@@ -54,6 +54,16 @@ const READ_MCP_TOOL = /^(get|list|read|search|find|fetch|describe|inspect)_/;
 const DESTRUCTIVE_MCP_TOOL = /^(delete|remove|clear|drop|purge|reset|ungroup|detach|revert)_/;
 
 /**
+ * Браузер QA (`tools/browser/`, id в каталоге — `browser`). Сервер наш, и
+ * периметр у него свой: адреса ограничены localhost, 127.0.0.1 и опубликованной
+ * страницей проекта, а снимки пишутся только в рабочую копию. Спрашивать
+ * владельца про каждое касание и скриншот незачем — это и есть работа QA.
+ * Поэтому `get_*` — чтение, как у всех, а остальные его инструменты тоже
+ * `safe`: границу держит фильтр сервера, а не модалка.
+ */
+const QA_BROWSER_SERVER = 'browser';
+
+/**
  * Bash — основной источник опасных действий. Спрашиваем не про всякую команду
  * (иначе пользователь утонет в подтверждениях на ls и cat), а про те, что
  * необратимы или выходят за пределы проекта.
@@ -115,7 +125,7 @@ export function classify(
     if (OWN_MCP_SERVERS.has(server)) {
       return { risk: 'safe', reason: '', summary: toolName, detail: '', key: toolName };
     }
-    if (READ_MCP_TOOL.test(short)) {
+    if (READ_MCP_TOOL.test(short) || server === QA_BROWSER_SERVER) {
       return { risk: 'safe', reason: '', summary: `${server}: ${short}`, detail: '', key: toolName };
     }
     const destructive = DESTRUCTIVE_MCP_TOOL.test(short);

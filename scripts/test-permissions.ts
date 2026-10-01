@@ -54,6 +54,15 @@ const cases: Case[] = [
   ['mcp__figma-bridge__delete_nodes', { ids: ['1:2'] },          'danger'],
   ['mcp__figma-bridge__remove_animation_style', { id: '1:2' },   'danger'],
   ['mcp__figma-bridge__ungroup_node', { id: '1:2' },             'danger'],
+  // Браузер QA: адреса держит фильтр сервера, поэтому ни чтение, ни действия
+  // владельца не спрашивают. Правило — только для своего id, не для всех.
+  ['mcp__browser__get_console', {},                              'safe'],
+  ['mcp__browser__get_state', { path: 'game.level' },            'safe'],
+  ['mcp__browser__open', { url: 'http://127.0.0.1:5173/' },      'safe'],
+  ['mcp__browser__tap', { x: 10, y: 20 },                        'safe'],
+  ['mcp__browser__screenshot', { path: 'docs/qa/T-1/a.png' },    'safe'],
+  ['mcp__browser__storyboard', { count: 3, intervalMs: 100 },    'safe'],
+  ['mcp__other-browser__open', { url: 'https://example.com' },   'write'],
 ];
 
 // Пустой список кейсов дал бы «все 0 кейсов прошли» — зелёный прогон, в котором
