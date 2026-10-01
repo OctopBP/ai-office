@@ -53,7 +53,7 @@ readline.createInterface({input:process.stdin}).on('line',line=>{
 });
 `, { mode: 0o755 });
 process.env.OFFICE_CODEX_PATH = fake;
-const { startSession: query, tool, createSdkMcpServer, engineFor } = await import('../src/server/engines');
+const { startSession: query, tool, createSdkMcpServer, engineFor, LoginError } = await import('../src/server/engines');
 const { providerOf, sessionForProvider } = await import('../src/shared/providers');
 const { MessageQueue } = await import('../src/server/queue');
 const { createLimitTracker, pollLimits, limitsView, noteRateLimit, forgetLimits } = await import('../src/server/limits');
@@ -392,6 +392,10 @@ assert.equal(role.provider, 'codex'); assert.equal(role.model, 'default');
   assert.equal((await engineFor('custom').status('custom', { force: true })).state, 'needs-login');
   const caps = engineFor('ollama').capabilities('linux');
   assert.deepEqual([caps.officeTools, caps.nativeHands, caps.costUsd, caps.apiKeyLogin], ['mcp-bridge', false, 'computed', true]);
+  // Вход по подписке (T-219) у OpenCode — честный отказ, а не «нужен ключ».
+  assert.equal(caps.subscriptionLogin, false);
+  await assert.rejects(engineFor('xai').login({ provider: 'xai', kind: 'subscription' }),
+    (err: unknown) => err instanceof LoginError && err.code === 'unsupported');
   delete process.env.OFFICE_OPENCODE_PATH;
 }
 

@@ -119,6 +119,9 @@ export const opencodeEngine: EngineAdapter = {
 
   async login(req) {
     const { provider } = req;
+    // Подписки у OpenAI-совместимых провайдеров нет: без отказа запрос входа
+    // по подписке ушёл бы проверкой ключа и вернул «нужен ключ» вместо «не умею».
+    if (req.kind !== 'api-key') throw new LoginError('unsupported', `login kind ${req.kind} is not supported`);
     const spec = providerSpec(provider);
     let url = baseUrlOf(provider);
     if (spec.editableUrl && req.baseUrl !== undefined && req.baseUrl.trim()) {
