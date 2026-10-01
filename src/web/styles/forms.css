@@ -1,0 +1,40 @@
+/* Единый шаблон вкладки настроек (docs/design/settings-layout/spec.md, раздел 4).
+   Не зависит от контейнера: одинаково ложится на страницу оболочки, модалку,
+   правую панель «Команды» и стартовый экран. Только токены, своих цветов нет.
+
+   Файл подключён после modal.css и team.css, а у подписи и чекбокса
+   селекторы с тегом (label.…): так при равной специфичности шаблон перебивает
+   старые заскоупленные `.modal label` и `.team-detail label`, пока их не убрали. */
+
+.form { display: flex; flex-direction: column; max-width: 720px; }
+
+/* Группы отделяет линия с воздухом с обеих сторон: расстояние между группами
+   втрое больше, чем внутри, иначе они снова «слипнутся». */
+.form-section { padding-top: var(--space-6); margin-top: var(--space-6); border-top: 1px solid var(--hairline); }
+.form-section:first-child { padding-top: 0; margin-top: 0; border-top: none; }
+
+.form-section-head { margin: 0; }
+.form-section-title { margin: 0 0 var(--space-1); font: 600 var(--fs-md)/1.3 var(--font); color: var(--ink); }
+.form-section-desc { margin: 0 0 var(--space-4); font-size: var(--fs-body); line-height: 1.45; color: var(--ink-3); }
+
+.form-rows { display: flex; flex-direction: column; gap: var(--space-4); }
+
+/* Строка «подпись — поле»: подпись слева фиксированной ширины, чтобы короткие
+   поля не растягивались на всю страницу. */
+.form-row { display: grid; grid-template-columns: 220px minmax(0, 1fr); gap: var(--space-2) var(--space-6); align-items: start; }
+.form-row-label label { display: block; margin: 0; font-size: var(--fs-md); color: var(--ink-2); }
+.form-hint { display: block; margin-top: var(--space-1); font-size: var(--fs-small); line-height: 1.4; color: var(--ink-3); }
+.form-hint.error { color: var(--danger); }
+.form-row-control > input, .form-row-control > select, .form-row-control > textarea { width: 100%; }
+
+label.form-check {
+  display: grid; grid-template-columns: auto 1fr; gap: var(--space-2); align-items: start;
+  margin: 0; font-size: var(--fs-md); color: var(--ink-2);
+}
+label.form-check input { width: auto; margin: 2px 0 0; }
+
+.form-section-danger .form-section-title { color: var(--danger); }
+
+@media (max-width: 720px) {
+  .form-row { grid-template-columns: minmax(0, 1fr); }
+}

@@ -10,15 +10,17 @@
 /* Пункт меню — не действие, а навигация: кнопка кита без заливки, выровненная
    влево; активный раздел подсвечен плёнкой строки, как в рейле и списке офисов. */
 .settings-nav button { width: 100%; justify-content: flex-start; border-radius: var(--radius-row); }
-.settings-nav button.on { background: var(--film-2); color: var(--ink); }
+/* Второй селектор нужен против `button.on:hover:not(:disabled)` из кита: он
+   специфичнее и при наведении заливал активный пункт акцентом. */
+.settings-nav button.on, .settings-nav button.on:hover:not(:disabled) {
+  background: var(--film-2); color: var(--ink); filter: none;
+}
+/* Отступы как у .team-detail — контент соседних страниц начинается на одной высоте.
+   Поля, подсказки и заголовки групп раскладывает шаблон .form-* (forms.css). */
 .settings-content {
   flex: 1; min-width: 0; overflow-y: auto;
-  padding: var(--space-4) var(--space-6) var(--space-6);
+  padding: var(--space-5) var(--space-6);
 }
-.settings-content > .section-title { margin: var(--space-5) 0 var(--space-2); }
-.settings-content > .section-title:first-child { margin-top: 0; }
-.settings-content .hint { margin-bottom: var(--space-4); }
-.settings-content label:last-child, .settings-content > .hint:last-child { margin-bottom: 0; }
 
 /* На типичном 1024px-окне ноутбука колонка меню не должна съедать место
    двух столбцов полей — сужаем её вместо переноса меню наверх. */

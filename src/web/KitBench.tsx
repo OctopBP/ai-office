@@ -145,6 +145,49 @@ function Half({ theme }: { theme: Theme }) {
           <input placeholder="Поставьте задачу PM — он разложит её на команду…" style={{ flex: 1 }} />
           <select><option>Sonnet 5</option><option>Opus 5</option></select>
         </div>
+        {/* Шаблон вкладки настроек (forms.css): группа, строка с подсказкой,
+            чекбокс и опасная группа — так выглядят настройки офиса, приложения и роли. */}
+        <div className="form">
+          <section className="form-section">
+            <header className="form-section-head">
+              <h3 className="form-section-title">Деньги</h3>
+              <p className="form-section-desc">Сколько офис может потратить, прежде чем остановится.</p>
+            </header>
+            <div className="form-rows">
+              <div className="form-row">
+                <div className="form-row-label">
+                  <label htmlFor={`kit-budget-${theme}`}>Бюджет на день</label>
+                  <span className="form-hint">В долларах; пусто — без ограничения.</span>
+                </div>
+                <div className="form-row-control"><input id={`kit-budget-${theme}`} type="number" defaultValue={20} /></div>
+              </div>
+              <div className="form-row">
+                <div className="form-row-label">
+                  <label htmlFor={`kit-model-${theme}`}>Модель по умолчанию</label>
+                  <span className="form-hint error">Модель недоступна на этом плане.</span>
+                </div>
+                <div className="form-row-control">
+                  <select id={`kit-model-${theme}`}><option>Sonnet 5</option><option>Opus 5</option></select>
+                </div>
+              </div>
+              <label className="form-check">
+                <input type="checkbox" defaultChecked />
+                <span className="form-check-text">Останавливать при превышении
+                  <span className="form-hint">Задачи в работе доделываются, новые не стартуют.</span>
+                </span>
+              </label>
+            </div>
+          </section>
+          <section className="form-section form-section-danger">
+            <header className="form-section-head">
+              <h3 className="form-section-title">Опасная зона</h3>
+              <p className="form-section-desc">Действия, которые нельзя отменить.</p>
+            </header>
+            <div className="form-rows">
+              <div><button>Удалить офис</button></div>
+            </div>
+          </section>
+        </div>
       </section>
 
       <section>

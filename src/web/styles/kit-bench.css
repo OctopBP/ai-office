@@ -9,6 +9,10 @@
 .kit-half section { margin-bottom: 26px; }
 .kit-half section > .section-title { margin-bottom: 10px; }
 .kit-half p { margin: 0 0 6px; }
+/* Общие отступы стенда для section и p специфичнее шаблона формы — внутри
+   .form возвращаем ритм из forms.css, иначе стенд показал бы не то, что в офисе. */
+.kit-half .form section { margin-bottom: 0; }
+.kit-half .form p.form-section-desc { margin: 0 0 var(--space-4); }
 .kit-brand { margin: 0 0 22px; font: 600 var(--fs-title)/1.2 var(--font-brand); color: var(--ink); }
 
 .kit-swatches { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 8px; }
