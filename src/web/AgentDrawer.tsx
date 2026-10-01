@@ -1,10 +1,9 @@
 import { usageMoney } from './money';
-import { PROVIDERS, providerOf } from '../shared/providers';
 import { useState } from 'react';
 import {
   accessLabel, permissionSourceLabel, assignDirect, effectivePermissionMode, fire, hireCopy,
   mergeTask, openLayoutSettings, permissionSource, requestTeamRole, retryTask, setAgentPermission,
-  showDiff, stopTask, useStore, fullAccessWarning,
+  roleRuntimeLine, showDiff, stopTask, useStore, fullAccessWarning,
 } from './store';
 import { locale, t, t as tr } from './i18n';
 import { useActionNotice } from './useActionNotice';
@@ -102,7 +101,7 @@ export function AgentDrawer() {
           <AgentName inst={inst} as="h2" />
           {/* Без имени заголовок и есть название роли — второй раз его не пишем. */}
           <div className="muted">
-            {inst.name && role ? `${role.title} · ` : ''}{role ? `${PROVIDERS[providerOf(role)].label} · ${role.model.replace('claude-', '')} · ` : ''}
+            {inst.name && role ? `${role.title} · ` : ''}{role ? `${roleRuntimeLine(role)} · ` : ''}
             {inst.deskless ? t('drawer.noDesk') : t('employee.deskNo', { index: inst.desk.index })}
           </div>
           <span className={`perm-badge ${inst.effectivePermissionMode}`}

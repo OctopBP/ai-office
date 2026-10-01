@@ -371,6 +371,13 @@ export function SetupWizard({ onClose }: { onClose: () => void }) {
               <dd>{chosenProvider?.label ?? t('shell.provider.none')}</dd>
               {description.trim() && <><dt>{t('setup.summary.direction')}</dt><dd>{description.trim()}</dd></>}
             </dl>
+            {/* Шаг «Провайдер» пропущен: офис соберётся, но Claude Code за него никто не подставит (T-243). */}
+            {!chosenProvider && (
+              <p className="hint warn setup-summary-noprovider">
+                {t('providers.wizard.noneSummary')}{' '}
+                <button type="button" className="link" onClick={() => setStep('provider')}>{t('shell.provider.choose')}</button>
+              </p>
+            )}
             <p className="hint">{t('setup.buildHint')}</p>
           </div>
         )}

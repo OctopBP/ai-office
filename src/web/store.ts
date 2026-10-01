@@ -2373,6 +2373,16 @@ export function officeProvider(providers: ProvidersView | null, choice: ModelCho
   return { none: false, provider, model: choice.model || null, tone };
 }
 
+/**
+ * «Провайдер · модель» роли для шапки сотрудника. Провайдера нет ни у роли,
+ * ни у офиса (T-243) — честное «не выбран», а не подставленный Claude Code.
+ */
+export function roleRuntimeLine(role: Pick<RoleView, 'provider' | 'model'>): string {
+  if (!role.provider) return tr('shell.provider.none');
+  const model = role.model.replace('claude-', '');
+  return model ? `${PROVIDERS[role.provider].label} · ${model}` : PROVIDERS[role.provider].label;
+}
+
 /** Подключённые провайдеры — из них выбирают в мастере нового офиса. */
 export const readyProviders = (providers: ProvidersView | null): ProviderView[] =>
   (providers?.providers ?? []).filter((p) => isConnected(p.status));

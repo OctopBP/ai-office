@@ -4,7 +4,6 @@ import {
   setAgentPermission, socketOpen, updateRole, useStore,
 } from './store';
 import { t } from './i18n';
-import { providerOf } from '../shared/providers';
 import {
   MAX_AGENT_NAME, ROLE_TITLE_LIMIT,
   type FieldError, type InstanceView, type PermissionMode, type RoleEditable, type RoleOp, type RoleView,
@@ -86,7 +85,8 @@ function serverValue(f: AgentField, role: RoleView, inst: InstanceView): unknown
     case 'personalMode': return inst.permissionMode;
     case 'maxTurns': return role.maxTurns?.toString() ?? '';
     case 'capabilities': return role.capabilities ?? [];
-    case 'provider': return providerOf(role);
+    // Без провайдера у роли и у офиса (T-243) — null, а не подставленный Claude Code.
+    case 'provider': return role.provider ?? null;
     case 'tier': return role.tier ?? null;
     default: return role[f];
   }

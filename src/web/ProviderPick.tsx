@@ -36,9 +36,11 @@ export function forgetProviderModels(provider: ProviderId): void {
 }
 
 /** Модели провайдера с сервера; пока не пришли — пустой список. */
-export function useProviderModels(provider: ProviderId): ModelOption[] {
-  const [models, setModels] = useState<{ provider: ProviderId; list: ModelOption[] }>({ provider, list: [] });
+export function useProviderModels(provider: ProviderId | null): ModelOption[] {
+  const [models, setModels] = useState<{ provider: ProviderId | null; list: ModelOption[] }>({ provider, list: [] });
   useEffect(() => {
+    // Провайдер не выбран (T-243) — спрашивать список не у кого.
+    if (!provider) return;
     let alive = true;
     void loadModels(provider).then((list) => { if (alive) setModels({ provider, list }); });
     return () => { alive = false; };

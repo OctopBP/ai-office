@@ -1,6 +1,5 @@
 import { useEffect, useRef, useState, type KeyboardEvent, type MutableRefObject, type ReactNode } from 'react';
-import { PROVIDERS, providerOf } from '../shared/providers';
-import { openLayoutSettings, useStore } from './store';
+import { openLayoutSettings, roleRuntimeLine, useStore } from './store';
 import { t, type UiKey } from './i18n';
 import { Icon } from './icons';
 import { Avatar } from './Avatar';
@@ -189,7 +188,7 @@ function AgentHead({ inst, role, save, actions }: {
           </h3>
         )}
         <p className="muted">
-          {inst.name ? `${role.title} · ` : ''}{PROVIDERS[providerOf(role)].label} · {role.model.replace('claude-', '')}{pkg}
+          {inst.name ? `${role.title} · ` : ''}{roleRuntimeLine(role)}{pkg}
         </p>
       </div>
       <span className="chip">{t(`agent.state.${inst.state}`)}</span>

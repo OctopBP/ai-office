@@ -166,6 +166,9 @@ function OfficeProviderGroup({ choose }: { choose: (provider: ProviderId) => voi
   return choice ? <OfficeProviderChosen choose={choose} choice={choice} /> : <OfficeProviderUnset choose={choose} />;
 }
 
+/** Прокрутка к карточкам подключений ниже на вкладке. */
+const toCards = () => document.getElementById('provider-connections')?.scrollIntoView({ behavior: 'smooth' });
+
 /**
  * Провайдер офиса не выбран (`Settings.model === null`, T-243): ни одного
  * провайдера не подставляем, в списке — пустой пункт «не выбран».
@@ -183,6 +186,10 @@ function OfficeProviderUnset({ choose }: { choose: (provider: ProviderId) => voi
           <option value="" disabled>{t('shell.provider.none')}</option>
           {providers.length > 0 && <ProviderOptions providers={providers} />}
         </select>
+        <span className="form-hint warn">
+          {t(noneReady ? 'providers.office.unsetConnect' : 'providers.office.unset')}
+          {noneReady && <>{' '}<button type="button" className="link" onClick={toCards}>{t('providers.office.connectBelow')}</button></>}
+        </span>
       </Row>
     </Group>
   );
@@ -203,7 +210,6 @@ function OfficeProviderChosen({ choose, choice }: { choose: (provider: ProviderI
     if (!clean || clean === choice.model) { setDraftModel(choice.model); return; }
     updateSettings({ model: { provider: choice.provider, model: clean } });
   };
-  const toCards = () => document.getElementById('provider-connections')?.scrollIntoView({ behavior: 'smooth' });
   const connectBelow = (
     <button type="button" className="link" onClick={toCards}>{t('providers.office.connectBelow')}</button>
   );

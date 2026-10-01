@@ -226,10 +226,12 @@ export function ModelPanel({ save, role, busy }: PanelProps) {
   // `RoleView` уже разрешены в пару офиса, и выбрать их явно — значит
   // закрепить роль на них даже после смены провайдера офиса.
   const own = save.value<boolean>('ownModel');
-  const provider = save.value<ProviderId>('provider');
+  // null — своего выбора нет, а у офиса провайдер не выбран (T-243): роли не
+  // на чем работать, и подставлять ей Claude Code нельзя.
+  const provider = save.value<ProviderId | null>('provider');
   const model = save.value<string>('model');
   const tier = save.value<ModelTier | null>('tier');
-  const tiers = roleTiers(provider, tier);
+  const tiers = provider ? roleTiers(provider, tier) : [];
   const models = useProviderModels(provider);
   const status = providers.find((p) => p.id === provider)?.status;
   const turns = blurField(save, 'maxTurns');
@@ -270,8 +272,10 @@ export function ModelPanel({ save, role, busy }: PanelProps) {
     <>
       <Section title={t('agent.section.model')} desc={t('providers.role.desc')}>
         <Row id="agent-provider" label={<FieldLabel text={t('providers.role.provider')} save={save} f="provider" when="next" busy={busy} />}>
-          <select id="agent-provider" value={own ? provider : ''} onChange={(e) => pickProvider(e.target.value)}>
-            <option value="">{t('providers.role.asOffice', { name: office ? providerLabel(providers, office.provider) : t('shell.provider.none') })}</option>
+          <select id="agent-provider" value={own ? provider ?? '' : ''} onChange={(e) => pickProvider(e.target.value)}>
+            <option value="">{office
+              ? t('providers.role.asOffice', { name: providerLabel(providers, office.provider) })
+              : t('providers.role.asOfficeNone')}</option>
             {providers.length
               ? <ProviderOptions providers={providers} opts={{ manager: role.isManager, cloud }} />
               : PROVIDER_IDS.map((id) => <option key={id} value={id}>{PROVIDERS[id].label}</option>)}
@@ -282,14 +286,25 @@ export function ModelPanel({ save, role, busy }: PanelProps) {
             </span>
           )}
           {modelReset && <span className="form-hint">{t('agent.model.reset', { model: modelReset })}</span>}
+          {!provider && (
+            <span className="form-hint warn">
+              {t('providers.role.noneHint')}{' '}
+              <button type="button" className="link" onClick={openProviderSettings}>{t('providers.role.chooseOffice')}</button>
+            </span>
+          )}
           <FieldError save={save} f="provider" />
         </Row>
 
         <Row
           id="agent-model" label={<FieldLabel text={t('providers.role.model')} save={save} f="model" when="next" busy={busy} />}
-          hint={modelHint(provider) && t(modelHint(provider)!)}
+          hint={provider && modelHint(provider) && t(modelHint(provider)!)}
         >
-          {freeModel(provider) ? (
+          {!provider ? (
+            // Без провайдера моделей нет: поле видно, но выбирать в нём нечего.
+            <select id="agent-model" value="" disabled>
+              <option value="">{t('providers.role.asOfficeNone')}</option>
+            </select>
+          ) : freeModel(provider) ? (
             <>
               <input id="agent-model" list="agent-models" {...blurField(save, 'model')} />
               <datalist id="agent-models">
@@ -314,7 +329,7 @@ export function ModelPanel({ save, role, busy }: PanelProps) {
               ))}
             </select>
           )}
-          {tier && !freeModel(provider) && (
+          {tier && provider && !freeModel(provider) && (
             <span className="form-hint">{t('providers.role.tierResolved', { model })}</span>
           )}
           <span className="form-hint">{t('providers.role.next')}</span>

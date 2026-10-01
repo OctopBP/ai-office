@@ -179,6 +179,7 @@
 .setup-summary dt { color: var(--ink-3); }
 .setup-summary dd { margin: 0; color: var(--ink); display: flex; flex-direction: column; gap: 2px; }
 .setup-summary-member { font-size: var(--fs-md); }
+.setup-summary-noprovider { color: var(--warn); }
 
 .setup-progress { margin: 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: var(--space-2); }
 .setup-progress li { display: flex; gap: var(--space-3); align-items: flex-start; color: var(--ink-3); }
