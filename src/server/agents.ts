@@ -2,13 +2,14 @@ import { providerOf } from '../shared/providers';
 import { setFlowAgents, type DecideOutput } from './flows';
 import type { FeatureProposal } from './initiatives';
 import { TASK_TYPES } from '../shared/workflow';
-import { query, tool, createSdkMcpServer, SYSTEM_PROMPT_DYNAMIC_BOUNDARY } from './providers';
+import { startSession, tool, createSdkMcpServer, SYSTEM_PROMPT_DYNAMIC_BOUNDARY } from './engines';
 import type {
   SDKMessage,
   SDKPartialAssistantMessage,
   PermissionResult,
   SDKResultSuccess,
-} from './providers';
+  EngineSession,
+} from './engines';
 import { z } from 'zod';
 import { MessageQueue } from './queue';
 import {
@@ -1695,7 +1696,7 @@ function startPm(state: OfficeState, pm: PmSession): void {
     state.addLog('pm#1', 'system', state.say('agent.log.resumingSession', { id: resumeId.slice(0, 8) }));
   }
 
-  const session = query({
+  const session = startSession({
     prompt: queue,
     options: {
       resume: resumeId,
@@ -2323,7 +2324,7 @@ export async function holdMeeting(
             meetingOffice.say('prompt.meeting.workerTail'),
           ];
 
-      const session = query({
+      const session = startSession({
         prompt,
         options: {
           model: role.model,
@@ -2444,7 +2445,7 @@ export function talkTo(talkOffice: OfficeState, instanceId: string, text: string
     talkOffice.say('prompt.talk.tail'),
   ].join('\n'));
 
-  const session = query({
+  const session = startSession({
     prompt: queue,
     options: {
       model: role.model,
@@ -2557,7 +2558,7 @@ async function consultRole(
 
   let text = '';
   try {
-    const session = query({
+    const session = startSession({
       prompt: [
         state.say('prompt.consult.intro', { role: askerRole?.title ?? asker.roleId }),
         '',
@@ -2912,7 +2913,7 @@ function startWorker(
         resume: resumeId,
         prompt: resumed?.prompt ?? workerPrompt(taskOffice, task, artifactsDir, repoDir),
         resumed,
-      }, (o) => query({
+      }, (o) => startSession({
         prompt: o.prompt,
         options: {
           resume: o.resume,
@@ -3607,7 +3608,7 @@ interface WorkerRun {
 /** Открыть сессию исполнителя: всё, кроме этих трёх полей, у вызывающего своё. */
 export type WorkerOpen = (o: {
   resume: string | undefined; prompt: string | MessageQueue; window: number;
-}) => ReturnType<typeof query>;
+}) => EngineSession;
 
 /**
  * Дочитать сессию исполнителя до результата. `fresh` — сессия начата с нуля:
@@ -3615,7 +3616,7 @@ export type WorkerOpen = (o: {
  * окно следующим сессиям.
  */
 async function collectWorker(
-  state: OfficeState, inst: Instance, role: Role, session: ReturnType<typeof query>,
+  state: OfficeState, inst: Instance, role: Role, session: EngineSession,
   resumed: ReturnType<typeof resumedPrompt> | null, fresh: boolean,
 ): Promise<WorkerRun> {
   state.pollLimits(session);
@@ -3769,7 +3770,7 @@ async function runAgentSession(
       resume: opts.resume,
       prompt: resumed?.prompt ?? opts.prompt,
       resumed,
-    }, (o) => query({
+    }, (o) => startSession({
       prompt: o.prompt,
       options: {
         resume: o.resume,
@@ -4229,7 +4230,7 @@ async function ritualSession(
   if (state.dryRun) return out;
   const before = state.instances.get('pm#1')?.usage.costUsd ?? 0;
   try {
-    const session = query({
+    const session = startSession({
       prompt,
       options: {
         model: providerOf(state.role('pm')) === 'codex' ? state.role('pm')!.model : RITUAL_MODEL,
@@ -4310,7 +4311,7 @@ async function flowSession(
   let text = '';
   let error: string | undefined;
   try {
-    const session = query({
+    const session = startSession({
       prompt: opts.prompt,
       options: {
         model: state.role('pm')?.model ?? RITUAL_MODEL,
@@ -4422,7 +4423,7 @@ setChatTitler(async (state, input) => {
   if (state.dryRun) return null;
   const lines = input.messages.map((m) => state.say(
     m.from === 'owner' ? 'prompt.chatTitle.owner' : 'prompt.chatTitle.manager', { text: m.text }));
-  const session = query({
+  const session = startSession({
     prompt: state.say('prompt.chatTitle.user', { title: input.current, messages: lines.join('\n') }),
     options: {
       model: providerOf(state.role('pm')) === 'codex' ? state.role('pm')!.model : RITUAL_MODEL,
@@ -4557,7 +4558,7 @@ setRitualAgents({
 
     const before = state.instances.get('pm#1')?.usage.costUsd ?? 0;
     try {
-      const session = query({
+      const session = startSession({
         prompt,
         options: {
           model: state.role('pm')!.model,
@@ -4607,7 +4608,7 @@ setReleaseAgents({
     let text = '';
     let error: string | undefined;
     try {
-      const session = query({
+      const session = startSession({
         prompt,
         options: {
           model: RITUAL_MODEL,

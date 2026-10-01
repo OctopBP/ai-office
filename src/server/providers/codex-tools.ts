@@ -5,7 +5,8 @@ import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js';
 import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
 import { SSEClientTransport } from '@modelcontextprotocol/sdk/client/sse.js';
-import { localTools, type SessionOptions } from './index';
+import { localTools } from '../engines/claude-code';
+import type { SessionOptions } from '../engines/types';
 import type { CodexRpc } from './rpc';
 import { projectEnv, UNSET_PROVIDER_SECRETS } from '../childenv';
 

@@ -22,7 +22,7 @@ import { providerOf } from '../shared/providers';
  */
 import { existsSync, readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
-import { query } from './providers';
+import { startSession as query } from './engines';
 import type { Lang } from '../shared/i18n';
 import type { Settings } from '../shared/types';
 import { t } from './i18n';

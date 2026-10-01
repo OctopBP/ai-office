@@ -22,7 +22,7 @@
  * дважды.
  */
 import { resolve } from 'node:path';
-import type { McpServerConfig } from '@anthropic-ai/claude-agent-sdk';
+import type { McpServerConfig } from './engines/types';
 import type { Lang } from '../shared/i18n';
 import type { McpServerDef, McpServerState, Settings } from '../shared/types';
 import { hasKey, t } from './i18n';

@@ -38,14 +38,16 @@ readline.createInterface({input:process.stdin}).on('line',line=>{
   if(m.id===900) return complete('completed',m.result.success ? 'tool allowed' : 'tool denied');
   if(m.method==='turn/interrupt') {reply(m,{}); return complete('interrupted');}
   if(m.method==='thread/compact/start') {reply(m,{}); return send({method:'item/completed',params:{threadId:thread,item:{type:'contextCompaction'}}});}
+  if(m.method==='account/read') return reply(m,{account:{type:'chatgpt'}});
+  if(m.method==='model/list') return reply(m,{data:[{model:'test-model',displayName:'Test model'}],nextCursor:null});
   if(m.method==='account/rateLimits/read') return reply(m,{rateLimits:{planType:'plus',primary:{usedPercent:0.5,resetsAt:2000000000},secondary:{usedPercent:90,resetsAt:2000000000}}});
 });
 `, { mode: 0o755 });
 process.env.OFFICE_CODEX_PATH = fake;
-const { query, tool, createSdkMcpServer } = await import('../src/server/providers');
+const { startSession: query, tool, createSdkMcpServer, engineFor } = await import('../src/server/engines');
 const { providerOf, sessionForProvider } = await import('../src/shared/providers');
 const { MessageQueue } = await import('../src/server/queue');
-const { createLimitTracker, pollLimits, limitsView } = await import('../src/server/limits');
+const { createLimitTracker, pollLimits, limitsView, noteRateLimit, forgetLimits } = await import('../src/server/limits');
 const { readablePath, writablePath } = await import('../src/server/providers/codex-tools');
 const { scaffoldPackage } = await import('../src/server/export');
 const { readPackage } = await import('../src/server/packages');
@@ -98,6 +100,19 @@ const session = query({ prompt: q, options: options() });
 await pollLimits(session); q.close(); await collect(session);
 assert.equal(limitsView('codex').windows.find(w => w.kind === 'codex_primary')?.utilization, 0.5);
 
+// Адаптеры движков: статус, модели и матрица — без платного хода.
+assert.equal(engineFor('claude-code').id, 'claude-code'); assert.equal(engineFor('codex').id, 'codex');
+assert.equal(engineFor('codex').capabilities('linux').officeTools, 'dynamic-tools');
+assert.equal(engineFor('codex').capabilities('win32').sandbox, false);
+assert.equal(engineFor('claude-code').capabilities('darwin').cloud, true);
+noteRateLimit({ status: 'rejected', resetsAt: 2000000000 });
+assert.deepEqual(await engineFor('claude-code').status('claude-code'), { state: 'limited', kind: 'plan', resetsAt: 2000000000000 });
+forgetLimits();
+assert.equal((await engineFor('claude-code').status('claude-code')).state, 'ready');
+assert((await engineFor('claude-code').models('claude-code')).some(m => m.tier === 'top'));
+assert.equal((await engineFor('codex').status('codex', { force: true })).state, 'ready');
+assert.deepEqual(await engineFor('codex').models('codex'), [{ id: 'test-model', label: 'Test model' }]);
+
 mkdirSync(resolve(root, 'workspace')); mkdirSync(resolve(root, 'outside'));
 symlinkSync(resolve(root, 'outside'), resolve(root, 'workspace/escape'));
 await assert.rejects(writablePath(resolve(root,'workspace'), 'escape/file.txt'), /outside/);
@@ -112,4 +127,4 @@ const pkg = readPackage(pkgDir);
 assert(pkg.pkg);
 const role = roleFromPackage(pkg.pkg!, 'en', 'codex');
 assert.equal(role.provider, 'codex'); assert.equal(role.model, 'default');
-console.log('Provider tests passed: routing, events, tools, denials, resume, queue, compaction, cancellation, failures, cost, quotas, sandbox paths, packages.');
+console.log('Provider tests passed: routing, events, tools, denials, resume, queue, compaction, cancellation, failures, cost, quotas, engine adapters, sandbox paths, packages.');

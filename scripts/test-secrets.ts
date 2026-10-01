@@ -69,7 +69,7 @@ exit 1
 process.env.OFFICE_CLAUDE_BIN = fakeClaude;
 
 await check('Bash движка Claude Code не видит ключей, сам движок видит', async () => {
-  const { query } = await import('../src/server/providers');
+  const { startSession: query } = await import('../src/server/engines');
   try {
     for await (const _ of query({ prompt: 'env', options: { cwd: dir } })) { /* поддельный движок молчит */ }
   } catch { /* выход с ошибкой — ожидаем */ }

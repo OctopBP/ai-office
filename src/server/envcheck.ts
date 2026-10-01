@@ -15,7 +15,7 @@ import { codexStatus } from './providers/diagnostics';
 import { accessSync, constants, statSync } from 'node:fs';
 import { OFFICE_SENDER } from '../shared/types';
 import type { EnvCheck, EnvReport } from '../shared/types';
-import { claudeBin } from './providers';
+import { claudeBin } from './engines';
 import { repoProblem } from './git';
 import type { Role } from './roles';
 import { criticalEnvFail } from './state';

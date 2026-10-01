@@ -40,7 +40,7 @@
 import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { basename, dirname, resolve } from 'node:path';
-import type { SdkPluginConfig } from '@anthropic-ai/claude-agent-sdk';
+import type { SdkPluginConfig } from './engines/types';
 import type { McpServerDef } from '../shared/types';
 import { checkMcpServers } from './mcp';
 import { packageDir, parseManifest } from './packages';

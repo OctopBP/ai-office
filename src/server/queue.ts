@@ -1,4 +1,4 @@
-import type { SDKUserMessage } from './providers';
+import type { SDKUserMessage } from './engines';
 
 /**
  * Очередь сообщений для streaming-input режима Agent SDK.

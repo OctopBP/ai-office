@@ -2,7 +2,7 @@ import { existsSync, mkdirSync, symlinkSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { homedir } from 'node:os';
 import { randomUUID, createHash } from 'node:crypto';
-import type { AgentSession, SessionRequest, SDKMessage } from './index';
+import type { EngineSession as AgentSession, SessionRequest, SDKMessage } from '../engines/types';
 import { CodexRpc, type RpcMessage } from './rpc';
 import { codexTools } from './codex-tools';
 import { DEFAULT_STATE_FILE } from '../store';
