@@ -25,7 +25,7 @@ import {
 
 export type AgentField =
   | 'name' | 'personalMode'
-  | 'title' | 'sprite' | 'provider' | 'model' | 'permissionMode' | 'isolate'
+  | 'title' | 'sprite' | 'provider' | 'model' | 'ownModel' | 'permissionMode' | 'isolate'
   | 'maxTurns' | 'repoDir' | 'mcp' | 'capabilities' | 'brief' | 'briefExtra';
 
 type RoleField = Exclude<AgentField, 'name' | 'personalMode'>;
@@ -33,7 +33,7 @@ type InstField = 'name' | 'personalMode';
 
 /** Выбор из списка: ошибка откатывает значение к серверному, а не оставляет его в поле. */
 const INSTANT: ReadonlySet<AgentField> = new Set<AgentField>([
-  'personalMode', 'sprite', 'provider', 'model', 'permissionMode', 'isolate', 'mcp', 'capabilities',
+  'personalMode', 'sprite', 'provider', 'model', 'ownModel', 'permissionMode', 'isolate', 'mcp', 'capabilities',
 ]);
 
 /** Длинные тексты сохраняются сами через эту паузу в наборе. */
@@ -174,6 +174,10 @@ export function useAgentAutosave(role: RoleView, inst: InstanceView, onRemoved: 
     // Смена провайдера без модели сервер всё равно сбросил бы на умолчание,
     // поэтому модель уходит вместе с провайдером тем же патчем.
     if (fields.includes('provider') && !fields.includes('model') && 'model' in m.drafts) fields.push('model');
+    // Признак своего выбора едет с парой: отдельным патчем `ownModel: true`
+    // сервер не применяет, а форма между двумя ответами мигнула бы «Как у офиса».
+    if ((fields.includes('provider') || fields.includes('model')) && !fields.includes('ownModel')
+      && 'ownModel' in m.drafts) fields.push('ownModel');
     m.queued.clear();
     const sent: Partial<Record<RoleField, unknown>> = {};
     const patch: Record<string, unknown> = {};
@@ -210,6 +214,14 @@ export function useAgentAutosave(role: RoleView, inst: InstanceView, onRemoved: 
     // То же значение уже летит (модель ушла вместе с провайдером) — второй раз не шлём.
     const flying = f === 'name' || f === 'personalMode' ? m.instInflight[f] : m.inflight?.sent[f as RoleField];
     if (inFlight && same(v, flying)) { bump(); return; }
+    // `ownModel: true` без пары сервер не применяет: свой выбор появляется
+    // только вместе с провайдером или моделью. Выбрали ровно то, что уже
+    // стоит, — слать нечего.
+    if (f === 'ownModel' && v === true && !inFlight) {
+      delete m.drafts[f];
+      bump();
+      return;
+    }
     // Вернули то, что уже на сервере, и ничего не летит — отправлять нечего.
     if (!inFlight && same(v, serverValue(f, live.current.role, live.current.inst))) {
       delete m.drafts[f];

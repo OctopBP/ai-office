@@ -1,19 +1,19 @@
 import { useEffect, useState, type KeyboardEvent, type ReactNode } from 'react';
 import { CAPABILITIES } from '../shared/workflow';
-import { PROVIDERS, PROVIDER_IDS, type ProviderId } from '../shared/providers';
-import { MODEL_IDS } from '../shared/models';
+import { PROVIDERS, PROVIDER_IDS, isConnected, type ProviderId } from '../shared/providers';
 import { lookById } from '../shared/looks';
 import {
   accessLabel, clearExportResult, exportRole, fire, fullAccessWarning, marketUpdate, openLayoutSettings,
-  permissionSource, permissionSourceLabel, useStore,
+  openProviderSettings, permissionSource, permissionSourceLabel, useStore,
 } from './store';
 import { has, t, type UiKey } from './i18n';
 import { Icon } from './icons';
 import { LookPicker } from './office3d/LookPicker';
 import { RoleReport } from './RoleReport';
+import { ProviderOptions, freeModel, modelOptions, providerLabel, useProviderModels } from './ProviderPick';
 import { usageLine, usageMoney } from './money';
 import type { AgentAutosave, AgentField } from './useAgentAutosave';
-import type { InstanceView, MarketPackageView, PermissionMode, RoleView } from '../shared/types';
+import type { InstanceView, MarketPackageView, PermissionMode, ProviderView, RoleView } from '../shared/types';
 
 /**
  * Панели вкладок страницы агента (спека docs/design/T-151/spec.md, §3).
@@ -31,14 +31,8 @@ export interface PanelProps {
 
 const PERM_OPTIONS: PermissionMode[] = ['readonly', 'ask-writes', 'ask-risky', 'auto'];
 
-/** Модели Claude одним списком с сервером; незнакомый id — отдельной строкой, чтобы не подменить молча. */
-const claudeModels = (current: string): Array<[string, string]> => {
-  const list = MODEL_IDS.map((id): [string, string] => {
-    const key = `role.model.${id}`;
-    return [id, has(key) ? t(key) : id];
-  });
-  return current && !MODEL_IDS.includes(current) ? [...list, [current, current]] : list;
-};
+/** Пустой список провайдеров одной ссылкой: новый массив на каждый вызов селектора перерисовывал бы форму. */
+const NO_PROVIDERS: ProviderView[] = [];
 
 // ------------------------------------------------------------- общие детали поля
 
@@ -218,58 +212,96 @@ export function ProfilePanel({ save, role, inst, busy }: PanelProps) {
 // ------------------------------------------------------------- «Модель и работа»
 
 export function ModelPanel({ save, role, busy }: PanelProps) {
-  const [codexModels, setCodexModels] = useState<Array<[string, string]>>([]);
   const [modelReset, setModelReset] = useState<string | null>(null);
   const [confirmIsolate, setConfirmIsolate] = useState(false);
-  useEffect(() => {
-    const controller = new AbortController();
-    void fetch('/api/providers/codex', { signal: controller.signal })
-      .then((r) => r.json())
-      .then((data) => setCodexModels((data.models ?? []).map((m: { id: string; label: string }) => [m.id, m.label])))
-      .catch(() => {});
-    return () => controller.abort();
-  }, []);
+  const providers = useStore((s) => s.providers?.providers ?? NO_PROVIDERS);
+  const office = useStore((s) => s.settings.model);
+  const cloud = useStore((s) => s.settings.engine === 'cloud');
 
+  // Без своего выбора роль показывает «Как у офиса»: провайдер и модель в
+  // `RoleView` уже разрешены в пару офиса, и выбрать их явно — значит
+  // закрепить роль на них даже после смены провайдера офиса.
+  const own = save.value<boolean>('ownModel');
   const provider = save.value<ProviderId>('provider');
   const model = save.value<string>('model');
+  const models = useProviderModels(provider);
+  const status = providers.find((p) => p.id === provider)?.status;
   const turns = blurField(save, 'maxTurns');
   const repo = blurField(save, 'repoDir');
   const checkingRepo = save.field('repoDir').saving;
 
+  const resetToOffice = () => {
+    setModelReset(null);
+    save.cancel('provider');
+    save.cancel('model');
+    save.set({ ownModel: false });
+  };
+  const pickProvider = (value: string) => {
+    if (!value) { resetToOffice(); return; }
+    const next = value as ProviderId;
+    // Модель другого провайдера новому ничего не говорит — сбрасываем на его
+    // умолчание. Провайдер и модель уходят одним патчем, и форма видит это сразу.
+    const reset = next === provider ? model : PROVIDERS[next].defaultModel;
+    save.set({ provider: next, model: reset, ownModel: true });
+    setModelReset(next === provider ? null : reset);
+  };
+  const pickModel = (value: string) => {
+    setModelReset(null);
+    if (!value) resetToOffice();
+    else save.set({ provider, model: value, ownModel: true });
+  };
+
   return (
     <>
-      <Section title={t('agent.section.model')}>
-        <Row id="agent-provider" label={<FieldLabel text={t('role.provider')} save={save} f="provider" when="next" busy={busy} />}>
-          <select id="agent-provider" value={provider} onChange={(e) => {
-            const next = e.target.value as ProviderId;
-            const reset = PROVIDERS[next].defaultModel;
-            // Провайдер и модель — одним патчем: сервер без модели всё равно
-            // сбросил бы её на умолчание, а форма показывает это сразу.
-            save.set({ provider: next, model: reset });
-            setModelReset(reset);
-          }}>
-            {PROVIDER_IDS.map((id) => <option key={id} value={id}>{PROVIDERS[id].label}</option>)}
+      <Section title={t('agent.section.model')} desc={t('providers.role.desc')}>
+        <Row id="agent-provider" label={<FieldLabel text={t('providers.role.provider')} save={save} f="provider" when="next" busy={busy} />}>
+          <select id="agent-provider" value={own ? provider : ''} onChange={(e) => pickProvider(e.target.value)}>
+            <option value="">{t('providers.role.asOffice', { name: providerLabel(providers, office.provider) })}</option>
+            {providers.length
+              ? <ProviderOptions providers={providers} opts={{ manager: role.isManager, cloud }} />
+              : PROVIDER_IDS.map((id) => <option key={id} value={id}>{PROVIDERS[id].label}</option>)}
           </select>
+          {own && (
+            <span className="form-hint">
+              <button type="button" className="link" onClick={resetToOffice}>{t('providers.role.reset')}</button>
+            </span>
+          )}
           {modelReset && <span className="form-hint">{t('agent.model.reset', { model: modelReset })}</span>}
           <FieldError save={save} f="provider" />
         </Row>
 
         <Row
-          id="agent-model" label={<FieldLabel text={t('role.model')} save={save} f="model" when="next" busy={busy} />}
-          hint={provider === 'codex' ? t('role.codexHint') : undefined}
+          id="agent-model" label={<FieldLabel text={t('providers.role.model')} save={save} f="model" when="next" busy={busy} />}
+          hint={freeModel(provider) ? t('role.codexHint') : undefined}
         >
-          {provider === 'codex' ? (
+          {freeModel(provider) ? (
             <>
               <input id="agent-model" list="agent-models" {...blurField(save, 'model')} />
               <datalist id="agent-models">
-                {[['default', t('role.model.codexDefault')], ...codexModels]
-                  .map(([id, label]) => <option key={id} value={id}>{label}</option>)}
+                {modelOptions(provider, models, '').map(([id, label]) => <option key={id} value={id}>{label}</option>)}
               </datalist>
             </>
           ) : (
-            <select id="agent-model" value={model} onChange={(e) => { setModelReset(null); save.set({ model: e.target.value }); }}>
-              {claudeModels(model).map(([id, label]) => <option key={id} value={id}>{label}</option>)}
+            <select id="agent-model" value={own ? model : ''} onChange={(e) => pickModel(e.target.value)}>
+              {!own && <option value="">{t('providers.role.asOffice', { name: office.model })}</option>}
+              {modelOptions(provider, models, own ? model : '').map(([id, label]) => (
+                <option key={id} value={id}>{label}</option>
+              ))}
             </select>
+          )}
+          <span className="form-hint">{t('providers.role.next')}</span>
+          {status && !isConnected(status) && (
+            <span className="form-hint warn">
+              {t('providers.role.notReady')}{' '}
+              <button type="button" className="link" onClick={openProviderSettings}>{t('providers.role.connect')}</button>
+            </span>
+          )}
+          {status?.state === 'limited' && status.resetsAt && (
+            <span className="form-hint warn">
+              {t('providers.role.limited', {
+                time: new Date(status.resetsAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+              })}
+            </span>
           )}
           <FieldError save={save} f="model" />
         </Row>

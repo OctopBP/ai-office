@@ -19,6 +19,8 @@ import { Icon } from './icons';
 import { ShellPage } from './shell/ShellPage';
 import { ProviderCard } from './ProviderCard';
 import { byLabel } from './FirstLaunch';
+import { ProviderOptions, freeModel, modelOptions, useProviderModels } from './ProviderPick';
+import { PROVIDERS, isConnected, type ProviderId } from '../shared/providers';
 import { notifyPermission, notifyWanted, setNotifyWanted, type NotifyPermission } from './notify';
 
 const parse = (v: string): number | null => {
@@ -114,12 +116,20 @@ function Slider({ label, hint, value, range, decimals = 0, disabled, onChange }:
  */
 function ProvidersSection() {
   const view = useStore((s) => s.providers);
+  const choice = useStore((s) => s.settings.model);
   // Открыли вкладку — свежий статус; принудительно мимо кешей только по «Проверить снова».
   useEffect(() => { refreshProviders(); }, []);
   const list = [...(view?.providers ?? [])].sort(byLabel);
+  // Выбор офиса уходит сразу, как и всё на этой вкладке: «Сохранить» страницы
+  // его не шлёт, и «Отмена» его не откатывает.
+  const choose = (provider: ProviderId) => {
+    if (provider === choice.provider) return;
+    updateSettings({ model: { provider, model: PROVIDERS[provider].defaultModel } });
+  };
   return (
     <div className="form">
-      <section className="form-section">
+      <OfficeProviderGroup choose={choose} />
+      <section className="form-section" id="provider-connections">
         <header className="form-section-head provider-section-head">
           <div>
             <h3 className="form-section-title">{t('providers.connections.title')}</h3>
@@ -130,9 +140,81 @@ function ProvidersSection() {
         {view?.noneReady && <p className="provider-empty">{t('providers.office.empty')}</p>}
         {view === null
           ? <p className="form-hint"><span className="spinner" /> {t('providers.loading')}</p>
-          : <div className="provider-list">{list.map((p) => <ProviderCard key={p.id} p={p} />)}</div>}
+          : (
+            <div className="provider-list">
+              {list.map((p) => (
+                <ProviderCard key={p.id} p={p} onUse={p.id === choice.provider ? undefined : () => choose(p.id)} />
+              ))}
+            </div>
+          )}
       </section>
     </div>
+  );
+}
+
+/**
+ * Группа «Провайдер офиса» (ui.md §2.1): пара, на которой работает каждая
+ * роль без своего выбора. Выбрать можно только подключённого; остальные
+ * видны серыми с причиной и ведут к карточкам ниже.
+ */
+function OfficeProviderGroup({ choose }: { choose: (provider: ProviderId) => void }) {
+  const view = useStore((s) => s.providers);
+  const choice = useStore((s) => s.settings.model);
+  const fid = useId();
+  const models = useProviderModels(choice.provider);
+  const [draftModel, setDraftModel] = useState(choice.model);
+  useEffect(() => setDraftModel(choice.model), [choice.model]);
+  const providers = view?.providers ?? [];
+  const current = providers.find((p) => p.id === choice.provider);
+  const noneReady = view !== null && !providers.some((p) => isConnected(p.status));
+  const chosenOff = current !== undefined && !isConnected(current.status);
+  const setModel = (model: string) => {
+    const clean = model.trim();
+    if (!clean || clean === choice.model) { setDraftModel(choice.model); return; }
+    updateSettings({ model: { provider: choice.provider, model: clean } });
+  };
+  const toCards = () => document.getElementById('provider-connections')?.scrollIntoView({ behavior: 'smooth' });
+  const connectBelow = (
+    <button type="button" className="link" onClick={toCards}>{t('providers.office.connectBelow')}</button>
+  );
+
+  return (
+    <Group title={t('providers.office.title')} desc={t('providers.office.desc')}>
+      <Row label={t('providers.office.provider')} htmlFor={`${fid}-provider`}
+        hint={noneReady ? connectBelow : t('providers.office.switchHint')}>
+        <select id={`${fid}-provider`} value={choice.provider} disabled={noneReady || view === null}
+          onChange={(e) => choose(e.target.value as ProviderId)}>
+          {providers.length
+            ? <ProviderOptions providers={providers} />
+            : <option value={choice.provider}>{PROVIDERS[choice.provider].label}</option>}
+        </select>
+        {chosenOff && !noneReady && (
+          <span className="form-hint warn">
+            {t('providers.office.notReady', { name: current.label })} {connectBelow}
+          </span>
+        )}
+      </Row>
+      <Row label={t('providers.office.model')} htmlFor={`${fid}-model`}
+        hint={freeModel(choice.provider) ? t('role.codexHint') : undefined}>
+        {freeModel(choice.provider) ? (
+          <>
+            <input id={`${fid}-model`} list={`${fid}-models`} value={draftModel}
+              onChange={(e) => setDraftModel(e.target.value)}
+              onBlur={() => setModel(draftModel)}
+              onKeyDown={(e) => { if (e.key === 'Enter') setModel(draftModel); }} />
+            <datalist id={`${fid}-models`}>
+              {modelOptions(choice.provider, models, '').map(([id, label]) => <option key={id} value={id}>{label}</option>)}
+            </datalist>
+          </>
+        ) : (
+          <select id={`${fid}-model`} value={choice.model} onChange={(e) => setModel(e.target.value)}>
+            {modelOptions(choice.provider, models, choice.model).map(([id, label]) => (
+              <option key={id} value={id}>{label}</option>
+            ))}
+          </select>
+        )}
+      </Row>
+    </Group>
   );
 }
 

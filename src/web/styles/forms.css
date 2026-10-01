@@ -25,6 +25,13 @@
 .form-row-label label { display: block; margin: 0; font-size: var(--fs-md); color: var(--ink-2); }
 .form-hint { display: block; margin-top: var(--space-1); font-size: var(--fs-small); line-height: 1.4; color: var(--ink-3); }
 .form-hint.error { color: var(--danger); }
+.form-hint.warn { color: var(--warn); }
+/* Ссылка-действие внутри подсказки: «Подключить →», «Сбросить на офис». */
+.form-hint .link, .form-link {
+  background: none; border: none; padding: 0; font: inherit; font-weight: 600;
+  color: var(--accent); cursor: pointer;
+}
+.form-hint .link:hover, .form-link:hover { text-decoration: underline; }
 .form-row-control > input, .form-row-control > select, .form-row-control > textarea { width: 100%; }
 
 label.form-check {
