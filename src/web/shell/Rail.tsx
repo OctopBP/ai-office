@@ -371,8 +371,8 @@ export function Rail({ onPanel, onModal }: {
 function User() {
   const authSource = useStore((s) => s.authSource);
   const providers = useStore((s) => s.providers);
-  const roles = useStore((s) => s.roles);
-  const office = officeProvider(providers, roles);
+  const officeModel = useStore((s) => s.settings.model);
+  const office = officeProvider(providers, officeModel);
   const editingLayout = useStore((s) => s.editingLayout);
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);

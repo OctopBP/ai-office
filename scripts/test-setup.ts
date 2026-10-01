@@ -16,6 +16,7 @@ import { tmpdir } from 'node:os';
 import { resolve } from 'node:path';
 import type { OfficeSetupPlan, SetupStep } from '../src/shared/types';
 import { slugify } from '../src/shared/slug';
+import { DEFAULT_MODEL_CHOICE, PROVIDERS, sameChoice } from '../src/shared/providers';
 import { getOffice, openOfficeState } from '../src/server/state';
 import { loadRegistry, offices } from '../src/server/offices';
 import { buildOffice, planProblem, setupCatalog } from '../src/server/setup';
@@ -157,7 +158,7 @@ async function main(): Promise<void> {
 
   // 7. Без проекта: корень под HOME/Office со slug; повтор имени — суффикс.
   const made3 = await buildOffice(plan({ name: 'Витрина' }), 'ru', hooks([]));
-  const made4 = await buildOffice(plan({ name: 'Витрина' }), 'ru', hooks([]));
+  const made4 = await buildOffice(plan({ name: 'Витрина', provider: 'codex' }), 'ru', hooks([]));
   check('без проекта: корень ~/Office/<slug>',
     'officeId' in made3 && offices().find((o) => o.id === made3.officeId)?.projectDir === resolve(ROOT, 'Office', 'vitrina'));
   check('без проекта: помечен noProject',
@@ -167,6 +168,17 @@ async function main(): Promise<void> {
   if ('officeId' in made3) {
     const roles = getOffice(made3.officeId).roles().filter((r) => !r.archived);
     check('без проекта и без команды: только менеджер', roles.length === 1 && roles[0].isManager);
+    check('провайдер не выбран: у офиса пара по умолчанию',
+      sameChoice(getOffice(made3.officeId).settings.model, DEFAULT_MODEL_CHOICE));
+  }
+  // Выбор мастера — пара офиса, а не своя пара менеджера: менеджер её наследует.
+  if ('officeId' in made4) {
+    const state = getOffice(made4.officeId);
+    const pm = state.roles().find((r) => r.isManager)!;
+    check('провайдер выбран без модели: офису — модель провайдера по умолчанию',
+      sameChoice(state.settings.model, { provider: 'codex', model: PROVIDERS.codex.defaultModel }));
+    check('провайдер выбран: менеджер без своей пары, наследует офис',
+      !pm.provider && state.runtimeOf(pm).provider === 'codex');
   }
 
   // 8. Существующая папка: не трогаем; роль с готовым путём проверяется, а

@@ -15,7 +15,7 @@
 import { existsSync, mkdirSync, readdirSync, readFileSync, realpathSync, statSync, writeFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import type { Lang } from '../shared/i18n';
-import { isProviderId } from '../shared/providers';
+import { isProviderId, PROVIDERS } from '../shared/providers';
 import { slugify } from '../shared/slug';
 import {
   MAX_HIRE_COUNT, type OfficeSetupPlan, type SetupCatalog, type SetupStep, type SetupWorkspace,
@@ -273,19 +273,17 @@ export async function buildOffice(plan: OfficeSetupPlan, lang: Lang, hooks: Setu
   const state = hooks.state(entry.id);
   progress.done(stepOpen);
 
-  // --- провайдер менеджера: по роли менеджера веб показывает провайдер офиса.
-  // Через editRole — с теми же проверками, что и правка из формы; не вышло —
-  // офис остаётся на провайдере из шаблона, а причина уходит в ленту.
+  // --- провайдер офиса: выбор мастера — это Settings.model, а не пара
+  // менеджера. Роли без своей пары, менеджер в том числе, наследуют её через
+  // runtimeOf; своя пара менеджеру сделала бы его исключением из офиса.
+  // Модель не названа — берём модель провайдера по умолчанию. Не вышло —
+  // офис остаётся на паре по умолчанию, а причина уходит в ленту.
   if (stepProvider && plan.provider) {
     progress.start(stepProvider);
-    const pm = state.activeRoles().find((r) => r.isManager);
-    const model = plan.model?.trim();
-    if (!pm) noteFailure(stepProvider, t(lang, 'setup.error.plan'));
-    else {
-      const errors = await state.editRole(pm.id, { provider: plan.provider, ...(model ? { model } : {}) });
-      if (errors.length) noteFailure(stepProvider, errors.map((e) => e.message).join('; '));
-      else progress.done(stepProvider, [plan.provider, state.role(pm.id)?.model].filter(Boolean).join(' · '));
-    }
+    const model = plan.model?.trim() || PROVIDERS[plan.provider].defaultModel;
+    const error = state.updateSettings({ model: { provider: plan.provider, model } });
+    if (error) noteFailure(stepProvider, error);
+    else progress.done(stepProvider, `${state.settings.model.provider} · ${state.settings.model.model}`);
   }
 
   // --- найм

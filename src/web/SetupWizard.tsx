@@ -47,7 +47,7 @@ export function SetupWizard({ onClose }: { onClose: () => void }) {
   const picking = useStore((s) => s.picking);
   const picked = useStore((s) => s.picked);
   const providers = useStore((s) => s.providers);
-  const roles = useStore((s) => s.roles);
+  const officeModel = useStore((s) => s.settings.model);
 
   const [step, setStep] = useState<Step>('what');
   const [name, setName] = useState('');
@@ -80,7 +80,7 @@ export function SetupWizard({ onClose }: { onClose: () => void }) {
 
   const ready = useMemo(() => readyProviders(providers).sort(byLabel), [providers]);
   // Выбор прошлого офиса — тот провайдер, которым работает текущий; подставляется, только если он подключён.
-  const previous = officeProvider(providers, roles);
+  const previous = officeProvider(providers, officeModel);
   useEffect(() => {
     if (providerId) return;
     const id = previous?.provider?.id;

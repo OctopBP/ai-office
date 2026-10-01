@@ -11,7 +11,7 @@ import type {
   OfficeSetupPlan, SetupCatalog, SetupStep, OfficeHealth, EnvReport, RuleScopeView, PmChat,
   ProviderLoginResult, ProvidersView, ProviderView,
 } from '../shared/types';
-import { isConnected, type ProviderId } from '../shared/providers';
+import { isConnected, type ModelChoice, type ProviderId } from '../shared/providers';
 import {
   compareOffices, emptyLimits, emptyUsage, isOfficeSender,
   MAX_OFFICE_WORKERS, MAX_TASK_MAX_TURNS, MIN_OFFICE_WORKERS, MIN_TASK_MAX_TURNS,
@@ -2341,8 +2341,9 @@ export function openProviderSettings(): void {
 
 /**
  * Провайдер офиса для рейла и композера (docs/design/T-189/ui.md §3.3, §5.1).
- * Отдельного выбора на офис у сервера пока нет — офис работает тем, чем
- * работает менеджер: его роль без явного провайдера ходит в Claude Code.
+ * Пара берётся из `Settings.model` — выбора офиса, который наследуют роли без
+ * своей пары. Не из роли менеджера: у него может быть своя пара, и тогда рейл
+ * показывал бы не то, чем работает остальной офис.
  * `null` — сервер ещё не прислал `providers`, говорить нечего.
  */
 export interface OfficeProvider {
@@ -2354,15 +2355,13 @@ export interface OfficeProvider {
   tone: 'ok' | 'warn' | 'danger';
 }
 
-export function officeProvider(providers: ProvidersView | null, roles: RoleView[]): OfficeProvider | null {
+export function officeProvider(providers: ProvidersView | null, choice: ModelChoice): OfficeProvider | null {
   if (!providers) return null;
   if (providers.noneReady) return { none: true, provider: null, model: null, tone: 'warn' };
-  const pm = roles.find((r) => r.isManager);
-  const id = pm?.provider ?? 'claude-code';
-  const provider = providers.providers.find((p) => p.id === id) ?? null;
+  const provider = providers.providers.find((p) => p.id === choice.provider) ?? null;
   const state = provider?.status.state;
   const tone = state === 'ready' ? 'ok' : state === 'error' ? 'danger' : 'warn';
-  return { none: false, provider, model: pm?.model || null, tone };
+  return { none: false, provider, model: choice.model || null, tone };
 }
 
 /** Подключённые провайдеры — из них выбирают в мастере нового офиса. */
