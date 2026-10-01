@@ -1138,6 +1138,10 @@ export interface OfficeSetupPlan {
   team: SetupMember[];
   /** Пакет-команда, с которой начали: её настройки офиса применяются после найма. */
   teamPackage: string | null;
+  /** Провайдер менеджера нового офиса. Нет — менеджер остаётся как в шаблоне. */
+  provider?: ProviderId;
+  /** Модель к провайдеру. Нет — модель провайдера по умолчанию. */
+  model?: string;
 }
 
 export type SetupStepStatus = 'pending' | 'running' | 'done' | 'failed';

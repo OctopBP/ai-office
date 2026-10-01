@@ -440,6 +440,7 @@ export const ru: Record<keyof typeof en, string> = {
   'setup.step.office': 'Корень и запись в реестре',
   'setup.step.dirs': 'Папки ролей',
   'setup.step.open': 'Открытие офиса',
+  'setup.step.provider': 'Провайдер менеджера',
   'setup.step.hire': 'Найм: {name}',
   'setup.step.settings': 'Настройки команды',
   'setup.step.direction': 'Направление владельца',

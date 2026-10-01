@@ -164,6 +164,12 @@ export function SetupWizard({ onClose }: { onClose: () => void }) {
           : { kind: 'root' },
     })),
     teamPackage,
+    // Модель прошлого офиса едет только вместе с его же провайдером: у другого
+    // провайдера свои модели, и там берётся модель по умолчанию.
+    ...(chosenProvider ? {
+      provider: chosenProvider.id,
+      ...(previous?.provider?.id === chosenProvider.id && previous.model ? { model: previous.model } : {}),
+    } : {}),
   });
 
   const index = STEPS.indexOf(step);

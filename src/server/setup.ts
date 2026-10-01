@@ -15,6 +15,7 @@
 import { existsSync, mkdirSync, readdirSync, readFileSync, realpathSync, statSync, writeFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import type { Lang } from '../shared/i18n';
+import { isProviderId } from '../shared/providers';
 import { slugify } from '../shared/slug';
 import {
   MAX_HIRE_COUNT, type OfficeSetupPlan, type SetupCatalog, type SetupStep, type SetupWorkspace,
@@ -89,6 +90,8 @@ export function planProblem(plan: OfficeSetupPlan, lang: Lang): string | null {
   if (plan.teamPackage !== null && plan.teamPackage !== undefined && !PACKAGE_NAME_RE.test(String(plan.teamPackage))) {
     return t(lang, 'setup.error.plan');
   }
+  if (plan.provider !== undefined && !isProviderId(plan.provider)) return t(lang, 'setup.error.plan');
+  if (plan.model !== undefined && (plan.provider === undefined || typeof plan.model !== 'string')) return t(lang, 'setup.error.plan');
   return null;
 }
 
@@ -204,6 +207,7 @@ export async function buildOffice(plan: OfficeSetupPlan, lang: Lang, hooks: Setu
   const folders = [...new Set(plan.team.filter((m) => m.workspace.kind === 'folder').map((m) => (m.workspace as { name: string }).name))];
   const stepDirs = folders.length ? progress.add('dirs', t(lang, 'setup.step.dirs')) : null;
   const stepOpen = progress.add('open', t(lang, 'setup.step.open'));
+  const stepProvider = plan.provider ? progress.add('provider', t(lang, 'setup.step.provider')) : null;
   const hires = plan.team.map((member) => ({
     member, step: progress.add(`hire:${member.package}`, t(lang, 'setup.step.hire', { name: memberTitle(member.package, lang) })),
   }));
@@ -268,6 +272,21 @@ export async function buildOffice(plan: OfficeSetupPlan, lang: Lang, hooks: Setu
   }
   const state = hooks.state(entry.id);
   progress.done(stepOpen);
+
+  // --- провайдер менеджера: по роли менеджера веб показывает провайдер офиса.
+  // Через editRole — с теми же проверками, что и правка из формы; не вышло —
+  // офис остаётся на провайдере из шаблона, а причина уходит в ленту.
+  if (stepProvider && plan.provider) {
+    progress.start(stepProvider);
+    const pm = state.activeRoles().find((r) => r.isManager);
+    const model = plan.model?.trim();
+    if (!pm) noteFailure(stepProvider, t(lang, 'setup.error.plan'));
+    else {
+      const errors = await state.editRole(pm.id, { provider: plan.provider, ...(model ? { model } : {}) });
+      if (errors.length) noteFailure(stepProvider, errors.map((e) => e.message).join('; '));
+      else progress.done(stepProvider, [plan.provider, state.role(pm.id)?.model].filter(Boolean).join(' · '));
+    }
+  }
 
   // --- найм
   let hired = 0;

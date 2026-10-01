@@ -440,6 +440,7 @@ export const en = {
   'setup.step.office': 'Root folder and registry entry',
   'setup.step.dirs': 'Role folders',
   'setup.step.open': 'Opening the office',
+  'setup.step.provider': 'Manager provider',
   'setup.step.hire': 'Hiring: {name}',
   'setup.step.settings': 'Team settings',
   'setup.step.direction': 'Owner direction',
