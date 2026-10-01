@@ -485,6 +485,8 @@ export const ru: Record<keyof typeof en, string> = {
   "home.spending.none": "Расходов пока не было",
   "home.settings.app": "Приложение",
   "home.settings.device": "На этом компьютере",
+  "settings.app.app.desc": "Действует на всё приложение сразу: во всех офисах и в каждой открытой вкладке.",
+  "settings.app.device.desc": "Хранится только в этом браузере и на сервер не уезжает: на другом компьютере всё будет по-своему.",
   "home.settings.officeNote": "Доступ, модели, лимиты, инструменты, язык общения и язык реализации у каждого офиса свои — они в настройках внутри офиса.",
   "settings.title": "Настройки офиса",
   "settings.section.general": "Общее",

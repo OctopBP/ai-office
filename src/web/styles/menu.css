@@ -117,10 +117,11 @@
 .home-spend-total { text-align: right; color: var(--ink); font-variant-numeric: tabular-nums; }
 
 /* ---------- настройки ---------- */
-.home-settings h4 { margin: var(--space-4) 0 var(--space-2); font-size: var(--fs-md); font-weight: 500; color: var(--ink-2); }
-.home-settings .section-title + h4 { margin-top: 0; }
-.home-settings .hint { margin: var(--space-2) 0 0; font-size: var(--fs-small); color: var(--ink-3); }
-.home-checkbox { display: flex; align-items: center; gap: var(--space-2); font-size: var(--fs-md); color: var(--ink-2); }
+/* Раскладка полей — общий шаблон .form-* (forms.css). Здесь только то, чего
+   шаблон не знает: у карточек выбора свой нижний отступ, а в строке формы
+   расстояние уже задаёт .form-rows. */
+.home-settings .form { max-width: none; }
+.home-settings .form-row-control.engine { margin-bottom: 0; }
 .home-note { margin: 0; font-size: var(--fs-md); }
 
 /* ---------- форма нового офиса ---------- */

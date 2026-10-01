@@ -268,55 +268,88 @@ function AppSettings() {
 
   return (
     <div className="home-settings">
-      <section className="home-panel card">
-        <div className="section-title">{t('home.settings.app')}</div>
+      {/* Одна карточка с группами через линию — как вкладка настроек офиса:
+          две карточки подряд читались бы как два разных экрана. */}
+      <div className="home-panel card form">
+        <section className="form-section">
+          <header className="form-section-head">
+            <h3 className="form-section-title">{t('home.settings.app')}</h3>
+            <p className="form-section-desc">{t('settings.app.app.desc')}</p>
+          </header>
+          <div className="form-rows">
+            <div className="form-row">
+              <div className="form-row-label">
+                <label>{t('settings.lang.ui')}</label>
+                <span className="form-hint">{t('settings.lang.ui.hint')}</span>
+              </div>
+              {/* Применяется сразу, без «Сохранить»: язык уезжает на сервер и тем
+                  же событием возвращается всем вкладкам. Без связи с сервером
+                  менять нечего — кнопки гаснут, чтобы нажатие не пропало молча. */}
+              <div className="form-row-control engine">
+                {LANGS.map((code) => (
+                  <button key={code} className={lang === code ? 'on' : ''} disabled={!connected}
+                    onClick={() => setUiLanguage(code)}>
+                    {LANG_TITLE[code]}
+                  </button>
+                ))}
+              </div>
+            </div>
+          </div>
+        </section>
 
-        <h4>{t('settings.lang.ui')}</h4>
-        {/* Применяется сразу, без «Сохранить»: язык уезжает на сервер и тем
-            же событием возвращается всем вкладкам. Без связи с сервером
-            менять нечего — кнопки гаснут, чтобы нажатие не пропало молча. */}
-        <div className="engine">
-          {LANGS.map((code) => (
-            <button key={code} className={lang === code ? 'on' : ''} disabled={!connected}
-              onClick={() => setUiLanguage(code)}>
-              {LANG_TITLE[code]}
-            </button>
-          ))}
-        </div>
-        <p className="hint">{t('settings.lang.ui.hint')}</p>
-      </section>
+        <section className="form-section">
+          <header className="form-section-head">
+            <h3 className="form-section-title">{t('home.settings.device')}</h3>
+            <p className="form-section-desc">{t('settings.app.device.desc')}</p>
+          </header>
+          <div className="form-rows">
+            <div className="form-row">
+              <div className="form-row-label">
+                <label>{t('settings.theme')}</label>
+                <span className="form-hint">{t('settings.theme.hint')}</span>
+              </div>
+              <div className="form-row-control">
+                <div className="seg">
+                  {THEME_MODES.map(([mode, label]) => (
+                    <button key={mode} className={themeMode === mode ? 'on' : ''} onClick={() => setThemeMode(mode)}>
+                      {t(label)}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            </div>
 
-      <section className="home-panel card">
-        <div className="section-title">{t('home.settings.device')}</div>
+            <div className="form-row">
+              <div className="form-row-label">
+                <label>{t('settings.gfx.title')}</label>
+              </div>
+              <div className="form-row-control engine">
+                <button className={graphics.pixelate ? 'on' : ''} onClick={() => setGraphics({ pixelate: true })}>
+                  {t('settings.gfx.on')}
+                  <span className="muted small">{t('settings.gfx.on.hint')}</span>
+                </button>
+                <button className={graphics.pixelate ? '' : 'on'} onClick={() => setGraphics({ pixelate: false })}>
+                  {t('settings.gfx.off')}
+                  <span className="muted small">{t('settings.gfx.off.hint')}</span>
+                </button>
+              </div>
+            </div>
 
-        <h4>{t('settings.theme')}</h4>
-        <div className="seg">
-          {THEME_MODES.map(([mode, label]) => (
-            <button key={mode} className={themeMode === mode ? 'on' : ''} onClick={() => setThemeMode(mode)}>
-              {t(label)}
-            </button>
-          ))}
-        </div>
-        <p className="hint">{t('settings.theme.hint')}</p>
-
-        <h4>{t('settings.gfx.title')}</h4>
-        <div className="engine">
-          <button className={graphics.pixelate ? 'on' : ''} onClick={() => setGraphics({ pixelate: true })}>
-            {t('settings.gfx.on')}
-            <span className="muted small">{t('settings.gfx.on.hint')}</span>
-          </button>
-          <button className={graphics.pixelate ? '' : 'on'} onClick={() => setGraphics({ pixelate: false })}>
-            {t('settings.gfx.off')}
-            <span className="muted small">{t('settings.gfx.off.hint')}</span>
-          </button>
-        </div>
-
-        <h4>{t('settings.gfx.grid.title')}</h4>
-        <label className="home-checkbox">
-          <input type="checkbox" checked={graphics.grid} onChange={(e) => setGraphics({ grid: e.target.checked })} />
-          {t('settings.gfx.grid')}
-        </label>
-      </section>
+            <div className="form-row">
+              <div className="form-row-label">
+                <label htmlFor="app-settings-grid">{t('settings.gfx.grid.title')}</label>
+              </div>
+              <div className="form-row-control">
+                <label className="form-check">
+                  <input id="app-settings-grid" type="checkbox" checked={graphics.grid}
+                    onChange={(e) => setGraphics({ grid: e.target.checked })} />
+                  <span className="form-check-text">{t('settings.gfx.grid')}</span>
+                </label>
+              </div>
+            </div>
+          </div>
+        </section>
+      </div>
 
       <p className="muted home-note">{t('home.settings.officeNote')}</p>
     </div>

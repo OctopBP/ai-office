@@ -486,6 +486,8 @@ export const en = {
   "home.spending.none": "Nothing spent yet",
   "home.settings.app": "Application",
   "home.settings.device": "On this computer",
+  "settings.app.app.desc": "Applies to the whole application at once: every office and every open tab.",
+  "settings.app.device.desc": "Kept only in this browser and never sent to the server: another computer keeps its own.",
   "home.settings.officeNote": "Access, models, limits, tools, the working language and the implementation language are set per office — open an office and look in its settings.",
   "settings.title": "Office settings",
   "settings.section.general": "General",
