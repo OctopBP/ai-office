@@ -14,13 +14,6 @@ import { HOTKEY } from '../hotkeys';
 import { officeAvatarColor, officeAvatarInk } from '../officeColor';
 import { OfficeAvatarIcon } from '../OfficeIcon';
 import { ProviderIcon } from './ProviderIcon';
-import type { ProviderId } from '../../shared/providers';
-import type { AuthSource } from '../../shared/types';
-
-// Пока сервер не прислал провайдеров, строка внизу рейла — авторизация движка Claude Code.
-const AUTH_PROVIDER: Record<AuthSource, ProviderId | undefined> = {
-  subscription: 'claude-code', 'api-key': 'claude-code', unknown: undefined,
-};
 
 /** Сколько пикселей нужно сдвинуть указатель, прежде чем короткий клик по
  * строке офиса считается началом перетаскивания. Меньше — щелчок мышью с
@@ -369,7 +362,6 @@ export function Rail({ onPanel, onModal }: {
  * раз в день, а не раз в минуту.
  */
 function User() {
-  const authSource = useStore((s) => s.authSource);
   const providers = useStore((s) => s.providers);
   const officeModel = useStore((s) => s.settings.model);
   const office = officeProvider(providers, officeModel);
@@ -392,37 +384,37 @@ function User() {
     </button>
   );
 
-  // Подпись по §5.1 макета T-189: «{провайдер} · {модель}»; не подключён никто — «Провайдер не выбран».
-  const icon = office ? office.provider?.id : AUTH_PROVIDER[authSource];
-  const caption = !office ? '' : office.none || !office.provider ? t('shell.provider.none')
-    : office.model ? t('shell.provider.caption', { name: office.provider.label, model: office.model })
-      : office.provider.label;
+  // Имя — выбранный провайдер офиса, ниже по §5.1 макета T-189 модель. Не
+  // подключён никто или список ещё не пришёл — честное «Провайдер не выбран»
+  // и первым пунктом меню — переход к выбору: подставлять провайдера по умолчанию значило бы
+  // показывать то, на чём офис не работает.
+  const chosen = office && !office.none ? office.provider : null;
+  const name = chosen ? chosen.label : t('shell.provider.none');
+  const caption = chosen ? office?.model ?? '' : t('shell.provider.choose');
 
   return (
     <div className="rail-user" ref={ref}>
       <button className="ghost rail-user-btn" onClick={() => setOpen((v) => !v)}>
         {/* Знак провайдера стоит на месте аватара — в свёрнутом рейле видно только его.
-            Без знака (не авторизован) — первая буква подписи, а не пустая плашка. */}
+            Без провайдера — вопросительный знак, а не пустая плашка. */}
         <span className="rail-user-avatar">
-          {icon
-            ? <ProviderIcon provider={icon} size={30} />
-            : <span className="rail-user-letter">{t('shell.user').charAt(0).toUpperCase()}</span>}
+          {chosen
+            ? <ProviderIcon provider={chosen.id} size={30} />
+            : <span className="rail-user-letter">?</span>}
         </span>
         <span className="rail-user-text">
-          <span className="rail-user-name">{t('shell.user')}</span>
-          {office
-            ? (
-              <span className="rail-user-auth" title={caption}>
-                <span className={`rail-user-dot ${office.tone}`} aria-hidden />
-                <span className="rail-user-caption">{caption}</span>
-              </span>
-            )
-            : <span className="rail-user-auth">{t(`shell.auth.${authSource}`)}</span>}
+          <span className="rail-user-name">{name}</span>
+          {(chosen || caption) && (
+            <span className="rail-user-auth" title={caption || undefined}>
+              <span className={`rail-user-dot ${chosen ? office?.tone : 'warn'}`} aria-hidden />
+              <span className="rail-user-caption">{caption}</span>
+            </span>
+          )}
         </span>
       </button>
       {open && (
         <div className="rail-menu float">
-          {item(t('providers.title'), 'settings', openProviderSettings)}
+          {item(chosen ? t('providers.title') : t('shell.provider.choose'), 'settings', openProviderSettings)}
           {item(t('shell.menu.layout'), 'armchair', () => setEditingLayout(!editingLayout), editingLayout)}
           {item(t('shell.menu.reset'), 'refresh', reset)}
         </div>

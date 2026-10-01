@@ -49,7 +49,8 @@ import { handleMarketCommand } from './market';
 import { exportRole } from './export';
 import { flushAll } from './store';
 import { loadKeys, providerKey } from './engines/keys';
-import { greetProviders, handleProviderCommand, handleProvidersHttp } from './providers-api';
+import { greetProviders, handleProviderCommand, handleProvidersHttp, providersView } from './providers-api';
+import { isConnected } from '../shared/providers';
 
 const PORT = Number(process.env.OFFICE_PORT ?? 3001);
 // Интерфейс, на котором слушаем. По умолчанию все — так офис открывается с
@@ -781,6 +782,14 @@ const hello = (): void => {
   console.log(c(built ? 'boot.listening' : 'boot.listeningNoWeb', { port: livePort }));
   // Рабочей директории может и не быть: все офисы в архиве — тогда говорим об этом.
   console.log(opened ? c('boot.workingIn', { dir: opened.projectDir }) : c('boot.allArchived'));
-  void keysLoaded.then(() => console.log(c(usingKey() ? 'boot.paidApi' : 'boot.subscription')));
+  // Про подписку Claude Code говорим, только если на ней правда работаем:
+  // провайдеров несколько, и неподключённый Claude Code — не повод для строки.
+  void keysLoaded.then(async () => {
+    const view = await providersView();
+    if (view.noneReady) return console.log(c('boot.noProvider'));
+    if (usingKey()) return console.log(c('boot.paidApi'));
+    const claude = view.providers.find((p) => p.id === 'claude-code');
+    if (claude && isConnected(claude.status)) console.log(c('boot.subscription'));
+  });
 };
 if (HOST) httpServer.listen(PORT, HOST, hello); else httpServer.listen(PORT, hello);

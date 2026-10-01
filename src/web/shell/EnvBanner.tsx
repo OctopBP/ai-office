@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { recheckEnv, useStore } from '../store';
+import { openProviderSettings, recheckEnv, useStore } from '../store';
 import { t } from '../i18n';
 import { Icon } from '../icons';
 
@@ -36,6 +36,11 @@ export function EnvBanner() {
               <b>{check.title}</b>
               <span>{check.detail}</span>
               {check.fix && <span className="env-banner-fix">{check.fix}</span>}
+              {/* Нет ни одного провайдера (`provider:none` из envcheck.ts) — чинится
+                  выбором провайдера, туда и ведём, а не пересказываем путь в настройках. */}
+              {check.id === 'provider:none' && (
+                <button type="button" className="link" onClick={openProviderSettings}>{t('env.banner.chooseProvider')}</button>
+              )}
             </div>
           </div>
         ))}

@@ -13,7 +13,7 @@
 import { accessSync, constants, statSync } from 'node:fs';
 import { OFFICE_SENDER } from '../shared/types';
 import type { EnvCheck, EnvReport } from '../shared/types';
-import { PROVIDER_IDS, PROVIDERS, type ProviderId } from '../shared/providers';
+import { PROVIDER_IDS, PROVIDERS, isConnected, type ProviderId } from '../shared/providers';
 import { engineFor, type ProviderStatus } from './engines';
 import { repoProblem } from './git';
 import type { Role } from './roles';
@@ -134,6 +134,30 @@ async function providerStatusCheck(state: OfficeState, provider: ProviderId): Pr
 }
 
 /**
+ * Подключён ли хоть один провайдер. Провайдер по умолчанию у офиса — лишь
+ * стартовое значение выбора, а не требование: пока не подключён никто, речь о
+ * том, что провайдера нет вовсе, а не о том, что не стоит именно Claude Code.
+ */
+async function anyProviderReady(): Promise<boolean> {
+  const statuses = await Promise.all(PROVIDER_IDS.map((id) =>
+    engineFor(id).status(id).catch((err: Error): ProviderStatus => ({ state: 'error', detail: err.message }))));
+  return statuses.some(isConnected);
+}
+
+/**
+ * Одна проверка вместо провала по каждому провайдеру ролей: человеку чинить
+ * одно — выбрать и подключить провайдера. Критична: без провайдера не
+ * выполнится ни одна задача. Id с префиксом `provider:` — как у остальных
+ * проверок провайдера, баннер по нему же предлагает перейти к выбору.
+ */
+const NO_PROVIDER_CHECK = 'provider:none';
+
+function noProviderCheck(state: OfficeState): EnvCheck {
+  return fail(NO_PROVIDER_CHECK, state.say('env.provider.noneTitle'),
+    state.say('env.provider.noneDetail'), state.say('env.provider.noneFix'));
+}
+
+/**
  * Рабочая директория: есть, это директория и в неё можно писать. Прав на
  * запись хватает проверить один раз здесь: в них упираются и worktree, и
  * коммиты, и файлы, которые пишет исполнитель.
@@ -213,7 +237,9 @@ function rolesCheck(state: OfficeState): EnvCheck {
  */
 export async function refreshEnvChecks(state: OfficeState): Promise<EnvReport> {
   const checks: EnvCheck[] = [dirCheck(state)];
-  checks.push(...await Promise.all(providersInUse(state).map((id) => providerCheck(state, id))));
+  checks.push(...await anyProviderReady()
+    ? await Promise.all(providersInUse(state).map((id) => providerCheck(state, id)))
+    : [noProviderCheck(state)]);
   try {
     checks.push(await gitCheck(state));
   } catch (err) {
