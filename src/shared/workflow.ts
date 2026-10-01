@@ -101,6 +101,13 @@ const nodeSchema = z.object({
   same: id.optional(),
   /** Не тот, кто делал этот узел: запрет самопроверки. */
   notSameAs: id.optional(),
+  /**
+   * Итог шага берётся не со слов исполнителя, а из файла в ветке задачи:
+   * путь от корня рабочей копии, `{task}` — номер задачи. В файле строка
+   * «Вердикт: PASS» или «Verdict: FAIL» — исходы `pass` и `fail`, текст файла
+   * уходит артефактом узла (находки — автору). Нет файла или вердикта — `failed`.
+   */
+  verdict: z.string().optional(),
   /** Какие артефакты предыдущих узлов подать на вход. */
   in: z.array(id).optional(),
   /** Под каким именем узел кладёт свой артефакт в прогон. */
@@ -230,6 +237,16 @@ export function parseWorkflow(data: unknown, where = '<workflow>'): Workflow {
       }
       if (!(node.noRole in node.next)) {
         throw new Error(`${where}: узел «${node.id}» по noRole уходит в исход «${node.noRole}», которого нет среди переходов`);
+      }
+    }
+    if (node.verdict !== undefined) {
+      if (node.kind !== 'step') {
+        throw new Error(`${where}: у узла «${node.id}» есть verdict, но вердикт из файла бывает только у step`);
+      }
+      for (const outcome of ['pass', 'fail']) {
+        if (!(outcome in node.next)) {
+          throw new Error(`${where}: узел «${node.id}» читает вердикт из файла, но перехода по исходу «${outcome}» нет`);
+        }
       }
     }
     for (const ref of [node.same, node.notSameAs]) {

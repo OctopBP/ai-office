@@ -17,7 +17,7 @@ import { resolve } from 'node:path';
 import { getOffice, worktreesRoot, type OfficeState, type Task } from '../src/server/state';
 import { mergeableTasks } from '../src/server/merge';
 import {
-  gateAnswerYes, pipelineProblem, runPipeline, setPipelineAgents, whenPipelinesIdle,
+  gateAnswerYes, pipelineProblem, runPipeline, setPipelineAgents, verdictOf, whenPipelinesIdle,
   type ReviewOutcome, type ReworkOutcome, type StepOutcome, type StepRequest,
 } from '../src/server/review';
 import { answerQuestion } from '../src/server/questions';
@@ -983,6 +983,68 @@ async function main(): Promise<void> {
       office.chat.some((m) => m.text.includes(task.id) && m.text.includes('research.web')));
     check('владельца всё равно спросили', office.runOf(task.id)?.steps.some((st) => st.node === 'accept') === true);
     check('после «да» — влито', office.prOf(task.id)?.stage === 'merged');
+  }
+
+  // 24. Процесс feature-qa: после ревью — QA, итог из docs/qa/<задача>/report.md.
+  {
+    office.settings.workflows = { ...office.settings.workflows, code: 'feature-qa' };
+    check('вердикт из шаблона не читается', verdictOf('**Вердикт: PASS | FAIL** (0 BLOCKER)') === null);
+    check('вердикт с разметкой читается', verdictOf('**Вердикт: FAIL** (1 BLOCKER)') === 'fail'
+      && verdictOf('Verdict: pass') === 'pass');
+
+    // QA пишет отчёт в рабочую копию; что сказал в finish_step — не важно.
+    const qaReport = (verdicts: Array<'PASS' | 'FAIL'>) => {
+      let n = 0;
+      return stub({
+        step: (_state, task, req) => {
+          if (req.node === 'qa') {
+            const verdict = verdicts[Math.min(n++, verdicts.length - 1)];
+            mkdirSync(resolve(req.cwd, 'docs/qa', task.id), { recursive: true });
+            writeFileSync(resolve(req.cwd, 'docs/qa', task.id, 'report.md'),
+              `# QA ${task.id}\n\n**Вердикт: ${verdict}**\n\n- MAJOR: кнопка «Сохранить» не жмётся на телефоне (круг ${n})\n`);
+            return { ok: true, outcome: 'pass', summary: 'проверил', actor: 'qa#1' };
+          }
+          writeFileSync(resolve(req.cwd, `fix-${task.id}.txt`), `${n}\n`);
+          return { ok: true, outcome: 'done', summary: 'поправил', actor: req.prefer ?? '' };
+        },
+      });
+    };
+
+    const ok = taskBranch(dir, 'Y', { 'y.txt': 'Y\n' }, { assigneeId: 'backend#1' });
+    let s = qaReport(['PASS']);
+    await runPipeline(office, ok.id);
+    say('▶ QA после ревью: PASS ведёт к слиянию');
+    check('ревью было раньше QA', s.calls.reviews === 1 && s.calls.steps[0]?.node === 'qa');
+    check('QA — не автор', s.calls.steps[0]?.exclude.includes('backend#1') === true);
+    check('влито', office.prOf(ok.id)?.stage === 'merged');
+
+    const back = taskBranch(dir, 'Z', { 'z.txt': 'Z\n' }, { assigneeId: 'backend#1' });
+    s = qaReport(['FAIL', 'PASS']);
+    await runPipeline(office, back.id);
+    say('▶ QA: FAIL возвращает автору с находками');
+    check('QA, доработка, QA', s.calls.steps.map((r) => r.node).join(',') === 'qa,qa-fix,qa');
+    check('доработку отдали автору', s.calls.steps[1]?.prefer === 'backend#1');
+    check('автору передали находки', s.calls.steps[1]?.prompt.includes('кнопка «Сохранить»') === true);
+    check('после доработки снова было ревью', s.calls.reviews === 2);
+    check('в итоге влито', office.prOf(back.id)?.stage === 'merged');
+
+    const stuck = taskBranch(dir, 'Q', { 'q.txt': 'Q\n' }, { assigneeId: 'backend#1' });
+    s = qaReport(['FAIL']);
+    await runPipeline(office, stuck.id);
+    say('▶ QA: на пределе возвратов процесс встаёт и зовёт менеджера');
+    check('доработок было две', s.calls.steps.filter((r) => r.node === 'qa-fix').length === 2);
+    check('до слияния не дошло', office.prOf(stuck.id)?.stage === 'stuck');
+    check('нужно решение менеджера', office.prOf(stuck.id)?.needsDecision === true);
+    check('прогон стоит на QA', office.runOf(stuck.id)?.nodeId === 'qa');
+
+    const silent = taskBranch(dir, 'R', { 'r.txt': 'R\n' }, { assigneeId: 'backend#1' });
+    stub({ step: () => ({ ok: true, outcome: 'pass', summary: 'всё хорошо', actor: 'qa#1' }) });
+    await runPipeline(office, silent.id);
+    say('▶ QA без отчёта: слово «pass» без report.md не пропускает');
+    check('встал', office.prOf(silent.id)?.stage === 'stuck');
+    check('причина — нет отчёта', (office.prOf(silent.id)?.note ?? '').includes('report.md'));
+
+    office.settings.workflows = { ...office.settings.workflows, code: 'feature' };
   }
 
   // 14. Выключенный конвейер: задача просто остаётся сделанной, как раньше.

@@ -25,6 +25,8 @@
  * за собой Agent SDK, а тесты гоняют весь порядок на настоящем репозитории
  * с подставными агентами.
  */
+import { readFile } from 'node:fs/promises';
+import { resolve } from 'node:path';
 import type { OwnerQuestion, PullRequestView, ReviewVerdict } from '../shared/types';
 import { OFFICE_SENDER } from '../shared/types';
 import type { Lang } from '../shared/i18n';
@@ -857,6 +859,15 @@ const merge: Executor<Ctx> = {
   },
 };
 
+/**
+ * Вердикт отчёта QA: строка «Вердикт: PASS» / «Verdict: FAIL», с разметкой
+ * или без. Незаполненный шаблон «PASS | FAIL» вердиктом не считается.
+ */
+export function verdictOf(text: string): 'pass' | 'fail' | null {
+  const found = /(?:вердикт|verdict)[^\p{L}\n]*(PASS|FAIL)\b(?!\s*\|)/iu.exec(text);
+  return found ? (found[1].toUpperCase() === 'PASS' ? 'pass' : 'fail') : null;
+}
+
 /** Артефакты узла на вход — текстом для промпта. */
 function artifactsText(ctx: Ctx): string {
   const { state, node, run } = ctx;
@@ -928,6 +939,26 @@ const step: Executor<Ctx> = {
       return {
         outcome: 'failed', actor: out.actor, needsDecision: out.needsDecision,
         note: state.say('wf.stepFailed', { node: node.id, problem: out.error ?? state.say('review.noStepVerdict') }),
+      };
+    }
+    if (node.verdict) {
+      // Итог — из отчёта в ветке, а не из finish_step: отчёт остаётся в
+      // истории, а находки из него автор получает целиком.
+      const path = node.verdict.replaceAll('{task}', task.id);
+      const text = await readFile(resolve(worktree, path), 'utf8').catch(() => null);
+      const verdict = text === null ? null : verdictOf(text);
+      if (!verdict) {
+        return {
+          outcome: 'failed', actor: out.actor, needsDecision: true,
+          note: state.say('wf.stepFailed', {
+            node: node.id, problem: state.say(text === null ? 'wf.verdictNoFile' : 'wf.verdictNone', { path }),
+          }),
+        };
+      }
+      state.addOfficeNote(state.say('wf.stepDone', { task: task.id, node: node.id, outcome: verdict }), { taskId: task.id });
+      return {
+        outcome: verdict, note: text!, actor: out.actor,
+        artifact: { kind: 'report', text: text!, ref: verdict },
       };
     }
     state.addOfficeNote(state.say('wf.stepDone', { task: task.id, node: node.id, outcome: out.outcome }), { taskId: task.id });

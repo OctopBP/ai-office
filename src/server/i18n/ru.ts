@@ -324,6 +324,8 @@ export const ru: Record<keyof typeof en, string> = {
   'wf.stepStart': '{task}: шаг «{node}» делает {who}.',
   'wf.stepDone': '{task}: шаг «{node}» закончен — {outcome}.',
   'wf.stepFailed': 'Шаг «{node}» не удался: {problem}',
+  'wf.verdictNoFile': 'нет отчёта {path} — вердикт брать неоткуда',
+  'wf.verdictNone': 'в отчёте {path} нет строки «Вердикт: PASS» или «Вердикт: FAIL»',
   'wf.stepExhausted': 'Шаг «{node}» возвращал работу {n} раз подряд. Последний отзыв:\n{text}',
   'wf.noCapable': 'Некому сделать шаг «{node}»: нужен свободный сотрудник, который умеет {needs}.',
   'wf.noCapableRole': 'В офисе нет роли с умением {needs} — нанять её может только человек.',

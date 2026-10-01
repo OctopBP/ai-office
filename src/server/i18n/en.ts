@@ -324,6 +324,8 @@ export const en = {
   'wf.stepStart': '{task}: step "{node}" is done by {who}.',
   'wf.stepDone': '{task}: step "{node}" finished — {outcome}.',
   'wf.stepFailed': 'Step "{node}" failed: {problem}',
+  'wf.verdictNoFile': 'there is no report {path} to take the verdict from',
+  'wf.verdictNone': 'the report {path} has no line "Verdict: PASS" or "Verdict: FAIL"',
   'wf.stepExhausted': 'Step "{node}" sent the work back {n} times in a row. The last note:\n{text}',
   'wf.noCapable': 'Nobody can do step "{node}": it needs a free employee who can {needs}.',
   'wf.noCapableRole': 'The office has no role with the skill {needs} — only a person can hire one.',
