@@ -1,4 +1,6 @@
-import { isProviderId, providerOf, PROVIDERS, type ProviderId } from '../shared/providers';
+import {
+  DEFAULT_MODEL_CHOICE, isProviderId, PROVIDERS, sameChoice, type ModelChoice, type ProviderId,
+} from '../shared/providers';
 import { randomUUID } from 'node:crypto';
 import { isAbsolute, resolve } from 'node:path';
 import type {
@@ -64,12 +66,12 @@ import { effectiveMode, isPermissionMode, modeLabel } from './permissions';
 import type { MessageQueue } from './queue';
 import {
   basePackageName, blankRole, defaultRole, defaultRoles, newRoleId, newRoleTitle,
-  currentModel, OVERRIDABLE_KEYS, paletteColor, roleFromPackage, roleIdFor, rolesFromOverrides, sameValue,
+  currentModel, OVERRIDABLE_KEYS, paletteColor, roleFromPackage, roleIdFor, rolesFromOverrides, roleRuntime, sameValue,
   withManagerRole,
   type LinkOverrides, type PackageSource, type Role, type RoleLink,
 } from './roles';
 import {
-  loadPackage, packageBrief, packageTitle, PACKAGE_NAME_RE, resolvePackage, type AgentPackage,
+  loadPackage, packageBrief, packageModel, packageTitle, PACKAGE_NAME_RE, resolvePackage, type AgentPackage,
 } from './packages';
 import {
   DEFAULT_STATE_FILE, flush as flushFile, load, save, wipe as wipeFile,
@@ -104,6 +106,7 @@ export const DEFAULT_SETTINGS: Settings = {
   taskMaxTurns: 60,
   maxConcurrentWorkers: DEFAULT_OFFICE_WORKERS,
   engine: 'local',
+  model: DEFAULT_MODEL_CHOICE,
   cloudRepoUrl: null,
   officePermissionMode: 'ask-risky',
   layoutId: DEFAULT_LAYOUT_ID,
@@ -324,6 +327,18 @@ function sanitizeWorkflowMap(value: unknown): Partial<Record<TaskType, string>> 
  */
 const MODEL_RE = /^[a-z0-9][a-z0-9._-]*$/;
 
+/**
+ * Выбор провайдера и модели из сохранения или от клиента. Незнакомый
+ * провайдер или негодная модель — undefined: офис без пары не стартовал бы
+ * ни одной сессии, поэтому вызывающий берёт прежнее значение.
+ */
+export function sanitizeModelChoice(value: unknown): ModelChoice | undefined {
+  if (!value || typeof value !== 'object') return undefined;
+  const { provider, model } = value as Partial<ModelChoice>;
+  if (!isProviderId(provider) || typeof model !== 'string' || !MODEL_RE.test(model.trim())) return undefined;
+  return { provider, model: provider === 'claude-code' ? currentModel(model.trim()) : model.trim() };
+}
+
 /** Модель новой роли, если форма её не назвала. */
 const DEFAULT_ROLE_MODEL = 'claude-sonnet-5-5';
 
@@ -377,6 +392,10 @@ function linkFromSave(raw: Partial<Role>, pkg: AgentPackage, id: string, lang: L
     link.briefExtra = saved.slice(own.length).trim();
   }
   const defaults = roleFromPackage(pkg, lang, id);
+  // Провайдер и модель сверяем с тем, что пакет написал буквально: уровень
+  // (`sonnet` у Claude) своей пары у роли не даёт, но та же модель в старом
+  // сохранении — не выбор человека, а умолчание пакета.
+  const literal: Partial<Role> = { provider: pkg.manifest.runtime.engine, model: packageModel(pkg) };
   // Название сверяем на обоих языках: файл мог быть сохранён офисом на
   // другом языке, и «Backend developer» у русского офиса — это не переименование.
   const titles = Object.values(pkg.manifest.title);
@@ -385,6 +404,7 @@ function linkFromSave(raw: Partial<Role>, pkg: AgentPackage, id: string, lang: L
     if (value === undefined) continue;
     if (key === 'title' && typeof value === 'string' && titles.includes(value)) continue;
     if (key === 'maxTurns' && sanitizeMaxTurns(value) === undefined) continue;
+    if ((key === 'provider' || key === 'model') && sameValue(value, literal[key])) continue;
     if (!sameValue(value, defaults[key as keyof Role])) {
       (link.overrides as Record<string, unknown>)[key] = value;
     }
@@ -402,6 +422,15 @@ function linkFromSave(raw: Partial<Role>, pkg: AgentPackage, id: string, lang: L
  * так обновлённый пакет доезжает до уже заведённого офиса. Сохранённые поля
  * нужны ей только на случай, если пакета на диске нет.
  */
+function plainRuntime(raw: Partial<Role>): Pick<Role, 'provider' | 'model'> {
+  const model = text(raw.model);
+  if (!model || !MODEL_RE.test(model)) {
+    return isProviderId(raw.provider) ? { provider: raw.provider, model: PROVIDERS[raw.provider].defaultModel } : {};
+  }
+  const provider = isProviderId(raw.provider) ? raw.provider : 'claude-code';
+  return { provider, model: provider === 'claude-code' ? currentModel(model) : model };
+}
+
 function sanitizeRole(raw: Partial<Role>, id: string, lang: Lang): Role {
   const savedLink = sanitizeLink(raw.package);
   const archived = raw.archived === true;
@@ -466,8 +495,10 @@ function sanitizeRole(raw: Partial<Role>, id: string, lang: Lang): Role {
     emoji: text(raw.emoji) ?? base.emoji,
     // Роль без пакета модель хранит сама — переводим её на нынешнее поколение
     // здесь же, иначе она осталась бы на прошлом навсегда.
-    model: currentModel(text(raw.model) ?? base.model),
-    provider: isProviderId(raw.provider) ? raw.provider : 'claude-code',
+    // Свой выбор провайдера и модели — только парой и только годный: без
+    // пары роль работает на выборе офиса. Модель без провайдера осталась от
+    // времён, когда провайдер был один, — это Claude.
+    ...plainRuntime(raw),
     isManager: typeof raw.isManager === 'boolean' ? raw.isManager : base.isManager,
     // null у режима законен — «как в офисе», поэтому отличаем его от мусора.
     permissionMode: mode === null || isPermissionMode(mode) ? mode : base.permissionMode,
@@ -527,12 +558,43 @@ function sanitizeRoles(raw: unknown, lang: Lang): Role[] {
  * базового набора: накладываем их на умолчания, иначе выставленные человеком
  * модель, лимит и репозиторий пропали бы при первом же запуске.
  */
-function rolesFromSave(data: Persisted, lang: Lang, pending: readonly string[]): Role[] {
+function rolesFromSave(
+  data: Persisted, lang: Lang, pending: readonly string[], office: ModelChoice,
+): Role[] {
   let stored: unknown[] = Array.isArray(data.roles)
     ? data.roles
     : rolesFromOverrides(data.roleOverrides, lang);
   if (pending.includes(SONNET_5_5_MIGRATION)) stored = stored.map(toSonnet55);
-  return withManagerRole(sanitizeRoles(stored, lang), lang);
+  const roles = withManagerRole(sanitizeRoles(stored, lang), lang);
+  return pending.includes(OFFICE_MODEL_MIGRATION)
+    ? roles.map((role) => inheritOfficeModel(role, office, lang))
+    : roles;
+}
+
+/**
+ * Разовая миграция на провайдера и модель офиса (spec провайдеров §5.6). До
+ * неё у каждой роли была своя пара, и сохранённые пары остаются своим выбором
+ * роли — кроме тех, что ничего не меняют: без них роль работала бы на той же
+ * паре, взятой у офиса. Такие снимаем, чтобы смена выбора офиса доезжала до
+ * ролей, где владелец ничего не выбирал.
+ */
+const OFFICE_MODEL_MIGRATION = 'office-model';
+
+function inheritOfficeModel(role: Role, office: ModelChoice, lang: Lang): Role {
+  if (!role.provider || !role.model) return role;
+  const current: ModelChoice = { provider: role.provider, model: role.model };
+  if (role.package) {
+    const { provider, model, ...rest } = role.package.overrides;
+    // Пара из самого пакета (другой движок, конкретная модель) — не оверрайд,
+    // снимать нечего: пакет поставил бы её обратно.
+    if (provider === undefined && model === undefined) return role;
+    const pkg = resolvePackage(role.package);
+    if (!pkg) return role;
+    const bare = roleFromPackage(pkg, lang, role.id, { ...role.package, overrides: rest });
+    return sameChoice(roleRuntime(bare, office), current) ? { ...bare, archived: role.archived } : role;
+  }
+  const { provider: _provider, model: _model, ...bare } = role;
+  return sameChoice(roleRuntime(bare, office), current) ? bare : role;
 }
 
 /**
@@ -544,7 +606,7 @@ function rolesFromSave(data: Persisted, lang: Lang, pending: readonly string[]):
 const SONNET_5_5_MIGRATION = 'sonnet-5-to-5-5';
 
 /** Все разовые миграции ролей. Новый офис заводится с ними проведёнными. */
-const ROLE_MIGRATIONS: readonly string[] = [SONNET_5_5_MIGRATION];
+const ROLE_MIGRATIONS: readonly string[] = [SONNET_5_5_MIGRATION, OFFICE_MODEL_MIGRATION];
 
 /**
  * Перевести одну роль из сохранения с Sonnet 5 на Sonnet 5.5 — и модель самой
@@ -1249,6 +1311,21 @@ export class OfficeState {
   }
 
   /**
+   * Провайдер и модель, на которых стартует сессия роли: свой выбор роли или
+   * выбор офиса. Одна функция на запуск сессий, показ в UI и подпись трат —
+   * разойдись они, доска считала бы деньги не по той модели, что работала.
+   */
+  runtimeOf(role: Pick<Role, 'provider' | 'model' | 'tier'>): ModelChoice {
+    return roleRuntime(role, this.settings.model);
+  }
+
+  /** Модель роли по id; роли нет — null: подписывать трату чужой моделью нельзя. */
+  runtimeModel(roleId: string): string | null {
+    const role = this.role(roleId);
+    return role ? this.runtimeOf(role).model : null;
+  }
+
+  /**
    * Потолок ходов сессии этой роли: свой лимит роли сильнее офисного,
    * null — без ограничения. Одна функция и на показ в UI, и на запуск сессии,
    * чтобы человек видел ровно то число, которое уедет в SDK.
@@ -1839,7 +1916,10 @@ export class OfficeState {
       ? data.roleMigrations.filter((m): m is string => typeof m === 'string')
       : [];
     const pendingMigrations = ROLE_MIGRATIONS.filter((m) => !doneMigrations.includes(m));
-    this.roleList = rolesFromSave(data, lang, pendingMigrations);
+    // Выбор провайдера и модели офиса нужен ролям уже при подъёме: по нему
+    // миграция решает, какие сохранённые пары ничего не меняют.
+    const officeModel = sanitizeModelChoice(settingsOnDisk.model) ?? DEFAULT_MODEL_CHOICE;
+    this.roleList = rolesFromSave(data, lang, pendingMigrations, officeModel);
     this.roleMigrations = [...new Set([...doneMigrations, ...ROLE_MIGRATIONS])];
     // Сохранения старше настройки движка не знают про облако — дополняем.
     // Язык в них тоже не записан, и подставлять базовый английский нельзя:
@@ -1853,6 +1933,9 @@ export class OfficeState {
     // есть», поэтому для слияния с умолчаниями оно — Partial.
     const saved: Partial<Settings> = settingsOnDisk;
     this.settings = { ...DEFAULT_SETTINGS, language: 'ru', layoutId: FALLBACK_LAYOUT_ID, ...saved };
+    // Сохранение старше выбора офиса или правленое руками: офис без пары не
+    // поднял бы ни одной сессии, поэтому негодное заменяем прежним умолчанием.
+    this.settings.model = officeModel;
     // Язык мог приехать из правленого руками файла: чужое значение оставило бы
     // офис без словаря, и каждая фраза выродилась бы в голый ключ.
     this.settings.language = asLang(this.settings.language);
@@ -2707,7 +2790,7 @@ export class OfficeState {
       taskId: inst.currentTaskId,
       roleId: inst.roleId,
       instanceId: inst.id,
-      model: model ?? this.role(inst.roleId)?.model ?? null,
+      model: model ?? this.runtimeModel(inst.roleId),
       usage: accumulate(emptyUsage(), delta),
     });
     this.trimSpend();
@@ -3523,7 +3606,7 @@ export class OfficeState {
   roleViews(): RoleView[] {
     const officeMode = this.officeMode();
     return this.roles().map<RoleView>((r) => ({
-      id: r.id, title: r.title, emoji: r.emoji, color: r.color, model: r.model, provider: providerOf(r),
+      id: r.id, title: r.title, emoji: r.emoji, color: r.color, ...this.runtimeOf(r), ownModel: Boolean(r.provider),
       permissionMode: r.permissionMode,
       isolate: r.isolate, maxTurns: r.maxTurns ?? null,
       repoDir: r.repoDir ?? '', sprite: r.sprite ?? '', brief: r.brief,
@@ -3601,7 +3684,8 @@ export class OfficeState {
    */
   private roleMenuSignature(): string {
     const pm = this.activeRoles().find((r) => r.isManager);
-    const runtime = pm ? `${providerOf(pm)}\u0000${pm.model}` : '';
+    const choice = pm ? this.runtimeOf(pm) : null;
+    const runtime = choice ? `${choice.provider}\u0000${choice.model}` : '';
     return `${runtime}\u0002${this.workerRoles().map((r) => `${r.id}\u0000${r.title}`).join('\u0001')}`;
   }
 
@@ -3692,12 +3776,20 @@ export class OfficeState {
   async createRole(draft: RoleDraft): Promise<{ role: Role } | { errors: FieldError[] }> {
     // Умолчания добираем ДО проверки: короткая форма (одно название) обязана
     // проходить её так же, как заполненная целиком.
-    const wanted: RoleEditable = {
+    // Провайдер и модель — свой выбор роли, только если их назвали: роль из
+    // одного названия работает на выборе офиса. Назвали одну модель — она
+    // из списка провайдера офиса; один провайдер — его модель по умолчанию.
+    const draftModel = text(draft.model);
+    const own = draft.provider !== undefined || draftModel !== undefined;
+    const ownProvider = draft.provider ?? this.settings.model.provider;
+    const wanted: Omit<RoleEditable, 'model'> & { model?: string } = {
       title: String(draft.title ?? '').trim(),
       emoji: text(draft.emoji) ?? '🙂',
       color: text(draft.color) ?? '#94a3b8',
-      provider: draft.provider ?? 'claude-code',
-      model: text(draft.model) ?? PROVIDERS[isProviderId(draft.provider) ? draft.provider : 'claude-code'].defaultModel,
+      ...(own ? {
+        provider: ownProvider,
+        model: draftModel ?? (isProviderId(ownProvider) ? this.runtimeOf({ provider: ownProvider }).model : ''),
+      } : {}),
       permissionMode: draft.permissionMode ?? null,
       isolate: draft.isolate !== false,
       // Новая роль без подписки — это роль без внешних инструментов: умолчания
@@ -3721,8 +3813,7 @@ export class OfficeState {
       title: wanted.title,
       color: wanted.color,
       emoji: wanted.emoji,
-      model: wanted.model,
-      provider: wanted.provider,
+      ...(wanted.provider && wanted.model ? { provider: wanted.provider, model: wanted.model } : {}),
       isManager: false,          // менеджер в офисе один, и он уже есть
       permissionMode: wanted.permissionMode,
       isolate: wanted.isolate,
@@ -4008,8 +4099,20 @@ export class OfficeState {
       if (key in patch) (clean as Record<string, unknown>)[key] = patch[key];
     }
     if ('provider' in clean && !isProviderId(clean.provider)) delete clean.provider;
-    if (clean.provider && clean.provider !== providerOf(base) && !('model' in clean)) {
-      clean.model = PROVIDERS[clean.provider].defaultModel;
+    if ('model' in clean && !MODEL_RE.test(String(clean.model ?? ''))) delete clean.model;
+    // Свой выбор провайдера и модели ложится только парой: половина пары
+    // достраивается из того, на чём роль работает сейчас. Сменили провайдера
+    // без модели — модель офиса, если провайдер его, иначе умолчание провайдера.
+    const resetModel = patch.ownModel === false;
+    if (resetModel) {
+      delete clean.provider;
+      delete clean.model;
+    } else if (clean.provider || clean.model) {
+      const now = this.runtimeOf(base);
+      const provider = clean.provider ?? now.provider;
+      clean.provider = provider;
+      clean.model = clean.model
+        ?? (provider === now.provider ? now.model : this.runtimeOf({ provider }).model);
     }
     // Пути и внешность приходят из поля ввода — с пробелами по краям.
     if (typeof clean.repoDir === 'string') clean.repoDir = clean.repoDir.trim();
@@ -4058,6 +4161,10 @@ export class OfficeState {
         if (!(key in clean)) continue;
         (link.overrides as Record<string, unknown>)[key] = clean[key];
       }
+      if (resetModel) {
+        delete link.overrides.provider;
+        delete link.overrides.model;
+      }
       if ('briefExtra' in clean) link.briefExtra = String(clean.briefExtra ?? '').trim();
       // `brief` у привязанной роли не правится: форма его и не шлёт, а патч
       // из сети с ним молча отбрасывается — отвязка делается явной командой.
@@ -4066,8 +4173,12 @@ export class OfficeState {
         (r.id === roleId ? { ...roleFromPackage(pkg, this.lang(), roleId, link), archived: r.archived } : r));
     } else {
       delete clean.briefExtra;
-      this.roleList = this.roleList.map((r) =>
-        (r.id === roleId ? { ...r, ...(clean as Partial<Role>) } : r));
+      this.roleList = this.roleList.map((r) => {
+        if (r.id !== roleId) return r;
+        const next: Role = { ...r, ...(clean as Partial<Role>) };
+        if (resetModel) { delete next.provider; delete next.model; }
+        return next;
+      });
     }
     if ('permissionMode' in clean && clean.permissionMode !== base.permissionMode) {
       this.addLog(null, 'system', clean.permissionMode
@@ -4086,7 +4197,9 @@ export class OfficeState {
       this.emit({ t: 'instance', instance: this.instanceView(inst) });
     }
     this.addLog(null, 'system',
-      this.say('state.role.updated', { role: roleId, fields: Object.keys(clean).join(', ') }));
+      this.say('state.role.updated', {
+        role: roleId, fields: [...Object.keys(clean), ...(resetModel ? ['ownModel'] : [])].join(', '),
+      }));
     // Название роли вшито в описание assign у менеджера — переименование
     // меняет перечень так же, как заведение новой роли.
     this.roleSetChanged(beforeMenu);
@@ -4099,6 +4212,8 @@ export class OfficeState {
    */
   updateSettings(patch: Partial<Settings>): string | null {
     const prevMode = this.settings.officePermissionMode;
+    const prevModel = this.settings.model;
+    const prevMenu = this.roleMenuSignature();
     const prevLayout = this.settings.layoutId;
     const prevWorkers = this.workerLimit();
     const prevLang = this.lang();
@@ -4164,6 +4279,13 @@ export class OfficeState {
       const n = Number(next.meetingEveryDays);
       if (!Number.isInteger(n) || n < 1 || n > 90) delete next.meetingEveryDays;
       else next.meetingEveryDays = n;
+    }
+    // Провайдер и модель офиса молча не чиним: на них работают все роли без
+    // своего выбора, и тихо оставленный прежний выглядел бы как «сохранилось».
+    if ('model' in next) {
+      const clean = sanitizeModelChoice(next.model);
+      if (!clean) return this.say('state.settings.badModel');
+      next.model = clean;
     }
     if ('checks' in next) {
       const clean = sanitizeChecks(next.checks);
@@ -4253,6 +4375,16 @@ export class OfficeState {
     if (this.codeLang() !== prevCodeLang) {
       this.addLog(null, 'system',
         this.say('state.settings.codeLanguage', { lang: LANG_TITLE[this.codeLang()] }));
+    }
+    // Смена провайдера или модели офиса переводит роли без своего выбора со
+    // следующей сессии. Начатые сессии чужим движком не продолжаются (это
+    // держит `sessionForProvider`), а менеджер перезапускается, если его
+    // пара поменялась, — через ту же точку, что и правка набора ролей.
+    if (!sameChoice(this.settings.model, prevModel)) {
+      this.addLog(null, 'system', this.say('state.settings.model', {
+        provider: PROVIDERS[this.settings.model.provider].label, model: this.settings.model.model,
+      }));
+      this.roleSetChanged(prevMenu);
     }
     // Смена режима офиса меняет эффективный режим всех, кто его наследует, —
     // без этого UI показывал бы старое до следующего снимка.

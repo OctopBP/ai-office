@@ -1156,6 +1156,8 @@ async function main(): Promise<void> {
   // Смена поколения модели: полный id прошлого поколения, застрявший в
   // сохранении, переводится на нынешний — иначе офис, нанявший агента раньше,
   // остался бы на старой модели навсегда, сколько бы пакет ни обновляли.
+  // Роль, чья пара совпала с выбором офиса, своей пары не хранит (миграция
+  // office-model), поэтому модель смотрим через runtimeModel, а не в поле роли.
   const modelFile = resolve(tmpdir(), `office-test-roles-model-${process.pid}.json`);
   const modelDir = resolve(tmpdir(), 'roles-model-office');
   const { package: _backendLink, ...legacyBackend } = defaultRole('backend', 'ru')!;
@@ -1198,7 +1200,7 @@ async function main(): Promise<void> {
   }).state;
   results.push(
     `модель из сохранения старше пакетов переведена: ${
-      modelRoles.role('backend')?.model === 'claude-opus-5-5'}`,
+      modelRoles.runtimeModel('backend') === 'claude-opus-5-5'}`,
     // Пакет называет модель алиасом, а алиас показывает на нынешнее поколение —
     // значит, после перевода это снова умолчание пакета, а не выбор человека.
     `перевод не остался разницей с пакетом: ${
@@ -1207,13 +1209,13 @@ async function main(): Promise<void> {
       modelRoles.role('reviewer')?.model === 'claude-opus-5-5'
       && modelRoles.role('reviewer')?.package?.overrides.model === 'claude-opus-5-5'}`,
     `нанятый на умолчании Sonnet 5 перешёл на Sonnet 5.5: ${
-      modelRoles.role('frontend')?.model === 'claude-sonnet-5-5'
+      modelRoles.runtimeModel('frontend') === 'claude-sonnet-5-5'
       && modelRoles.role('frontend')?.package?.overrides.model === undefined}`,
     `Sonnet 5 в разнице с пакетом переведён разовой миграцией: ${
       modelRoles.role('backend-2')?.model === 'claude-sonnet-5-5'
       && modelRoles.role('backend-2')?.package?.overrides.model === 'claude-sonnet-5-5'}`,
     `роль без пакета на Sonnet 5 переведена разовой миграцией: ${
-      modelRoles.role('writer')?.model === 'claude-sonnet-5-5'}`,
+      modelRoles.runtimeModel('writer') === 'claude-sonnet-5-5'}`,
     `модель роли без пакета переведена: ${modelRoles.role('analyst')?.model === 'claude-opus-5-5'}`,
     `повторный перевод ничего не меняет: ${currentModel('claude-opus-5-5') === 'claude-opus-5-5'
       && currentModel('claude-sonnet-5') === 'claude-sonnet-5'
@@ -1237,10 +1239,10 @@ async function main(): Promise<void> {
     `отметка разовой миграции моделей в сохранении: ${
       migratedSave?.roleMigrations?.includes('sonnet-5-to-5-5') === true}`,
     `повторная загрузка моделей ничего не меняет: ${
-      reloaded.role('writer')?.model === 'claude-sonnet-5-5'
-      && reloaded.role('backend-2')?.model === 'claude-sonnet-5-5'
-      && reloaded.role('frontend')?.model === 'claude-sonnet-5-5'
-      && reloaded.role('backend')?.model === 'claude-opus-5-5'}`,
+      reloaded.runtimeModel('writer') === 'claude-sonnet-5-5'
+      && reloaded.runtimeModel('backend-2') === 'claude-sonnet-5-5'
+      && reloaded.runtimeModel('frontend') === 'claude-sonnet-5-5'
+      && reloaded.runtimeModel('backend') === 'claude-opus-5-5'}`,
   );
   reloaded.updateRole('writer', { model: 'claude-sonnet-5' });
   reloaded.updateRole('backend-2', { model: 'claude-sonnet-5' });

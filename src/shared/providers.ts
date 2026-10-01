@@ -11,6 +11,24 @@ export const isProviderId = (value: unknown): value is ProviderId =>
 /** Missing provider in legacy saves always means Claude, never model-name inference. */
 export const providerOf = (role?: { provider?: ProviderId }): ProviderId => role?.provider ?? 'claude-code';
 
+/**
+ * Провайдер и модель — пара, а не два независимых поля: модель одного
+ * провайдера другому ничего не говорит (spec провайдеров §5.6).
+ */
+export interface ModelChoice {
+  provider: ProviderId;
+  model: string;
+}
+
+/** Выбор офиса, пока владелец своего не сделал, — то, на чём офис работал всегда. */
+export const DEFAULT_MODEL_CHOICE: ModelChoice = {
+  provider: 'claude-code',
+  model: PROVIDERS['claude-code'].defaultModel,
+};
+
+export const sameChoice = (a: ModelChoice, b: ModelChoice): boolean =>
+  a.provider === b.provider && a.model === b.model;
+
 export function sessionForProvider(id: string | undefined, provider: ProviderId): string | undefined {
   if (!id) return undefined;
   if (provider === 'codex') return id.startsWith('codex:') ? id.slice(6) : undefined;

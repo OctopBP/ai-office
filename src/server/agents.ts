@@ -1,4 +1,4 @@
-import { providerOf } from '../shared/providers';
+import type { ModelChoice } from '../shared/providers';
 import { setFlowAgents, type DecideOutput } from './flows';
 import type { FeatureProposal } from './initiatives';
 import { TASK_TYPES } from '../shared/workflow';
@@ -17,7 +17,7 @@ import {
   totalRunningWorkers, worktreesRoot,
   type Instance, type OfficeState, type PmAbout, type PmSession, type Task,
 } from './state';
-import { clearEnvWait, envBlock, markEnvWait } from './envcheck';
+import { clearEnvWait, envBlock, markEnvWait, roleProviderProblem } from './envcheck';
 import {
   DEFAULT_PROCESS_WORKERS, DEFAULT_TASK_PRIORITY, emptyUsage, OFFICE_SENDER, TASK_PRIORITIES,
 } from '../shared/types';
@@ -1700,8 +1700,7 @@ function startPm(state: OfficeState, pm: PmSession): void {
     prompt: queue,
     options: {
       resume: resumeId,
-      model: state.role('pm')!.model,
-      provider: providerOf(state.role('pm')),
+      ...pmRuntime(state),
       // Менеджера разрез не трогает: его промпт начинается с направлений и
       // передачи дел, а они меняются. Чтобы маркер дал что-то и здесь, их
       // надо унести в хвост — то есть переставить промпт местами, а это уже
@@ -2327,8 +2326,7 @@ export async function holdMeeting(
       const session = startSession({
         prompt,
         options: {
-          model: role.model,
-          provider: providerOf(role),
+          ...meetingOffice.runtimeOf(role),
           systemPrompt: systemBlocks(
             meetingOffice,
             isManager(meetingOffice, inst) ? null : role.id,
@@ -2448,8 +2446,7 @@ export function talkTo(talkOffice: OfficeState, instanceId: string, text: string
   const session = startSession({
     prompt: queue,
     options: {
-      model: role.model,
-      provider: providerOf(role),
+      ...talkOffice.runtimeOf(role),
       systemPrompt,
       cwd: talkOffice.repoFor(role),
       tools: ['Read', 'Glob', 'Grep', 'WebSearch', 'WebFetch'],
@@ -2567,8 +2564,7 @@ async function consultRole(
         state.say('prompt.consult.tail'),
       ].join('\n'),
       options: {
-        model: role.model,
-        provider: providerOf(role),
+        ...state.runtimeOf(role),
         systemPrompt: systemBlocks(state, role.id, [
           state.say('prompt.consult.system', { role: role.title }),
           role.brief,
@@ -2725,6 +2721,9 @@ function workerPrompt(
   ].filter(Boolean).join('\n');
 }
 
+/** Провайдер роли не подключён: задача встаёт с причиной, а не проваливается. */
+class ProviderNotReady extends Error {}
+
 /**
  * Сессию отбил лимит плана? Флаг ставит разбор событий (`consume`); текст
  * ошибки — запасной признак: событие могло не долететь, а сама фраза SDK
@@ -2737,7 +2736,7 @@ function hitLimit(state: OfficeState, instanceId: string, message: string): bool
 
 /** «, сброс в 15:00» — или ничего, если SDK времени сброса не назвал. */
 function limitWhen(state: OfficeState, role: Role): string {
-  const block = limitBlock(Date.now(), providerOf(role));
+  const block = limitBlock(Date.now(), state.runtimeOf(role).provider);
   return block?.resetsAt
     ? state.say('agent.task.limitedAt', { at: resetClock(block.resetsAt, state.lang()) })
     : '';
@@ -2861,6 +2860,10 @@ function startWorker(
     // поэтому объявлен снаружи try.
     let workRoot = repoDir;
     try {
+      // Провайдер роли — до рабочей копии и сессии: не подключён — задача
+      // встаёт с причиной «что подключить», а не падает ошибкой движка.
+      const providerProblem = await roleProviderProblem(taskOffice, role);
+      if (providerProblem) throw new ProviderNotReady(providerProblem);
       // Продолжение после лимита: рабочая копия и ветка остались от прошлой
       // попытки, и заводить новые значило бы потерять сделанное.
       const kept = opts.resume && task.worktreePath && existsSync(task.worktreePath);
@@ -2917,8 +2920,7 @@ function startWorker(
         prompt: o.prompt,
         options: {
           resume: o.resume,
-          model: role.model,
-          provider: providerOf(role),
+          ...taskOffice.runtimeOf(role),
           // Про внешние инструменты рассказываем только здесь: в облаке
           // локального моста до Figma нет, и обещать его там нельзя.
           systemPrompt: {
@@ -3048,6 +3050,17 @@ function startWorker(
         taskOffice.addLog(inst.id, 'system', taskOffice.say('agent.log.taskStopped', { task: task.id }));
         taskOffice.setState(inst.id, 'idle', null);
         notifyPm(taskOffice, taskOffice.say('agent.pmMsg.stopped', { task: task.id }), { taskId: task.id });
+      } else if (err instanceof ProviderNotReady) {
+        // Провайдер не подключён — не провал исполнителя: исход задаче не
+        // ставим, табель роли не портим. Задача стоит, пока владелец не
+        // подключит провайдера, и сама на другой провайдер не уезжает.
+        taskOffice.updateTask(task.id, { status: 'blocked', result: message, finishedAt: Date.now() });
+        taskOffice.addLog(inst.id, 'error', message);
+        taskOffice.setState(inst.id, 'idle', null);
+        taskOffice.addOfficeNote(`${task.id}: ${message}`, { taskId: task.id });
+        notifyPm(taskOffice, taskOffice.say('agent.pmMsg.providerNotReady', {
+          task: task.id, who: inst.id, error: message,
+        }), { taskId: task.id });
       } else if (hitLimit(taskOffice, inst.id, message)) {
         // Лимит плана — не провал исполнителя и не решение человека: окно
         // закрылось, и откроется само. Сделанное коммитим, рабочую копию и
@@ -3756,6 +3769,10 @@ async function runAgentSession(
   if (state.budgetExhausted()) {
     return { ok: false, text: '', error: state.say('review.budget'), needsDecision: true };
   }
+  // Доработка и разбор конфликта идут на провайдере роли так же, как задача:
+  // не подключён — решать человеку, а не крутить сессию, которая не встанет.
+  const providerProblem = await roleProviderProblem(state, role);
+  if (providerProblem) return { ok: false, text: '', error: providerProblem, needsDecision: true };
   const abort = new AbortController();
   inst.abort = abort;
   inst.currentTaskId = opts.taskId;
@@ -3774,8 +3791,7 @@ async function runAgentSession(
       prompt: o.prompt,
       options: {
         resume: o.resume,
-        model: role.model,
-        provider: providerOf(role),
+        ...state.runtimeOf(role),
         systemPrompt: {
           type: 'preset',
           preset: 'claude_code',
@@ -4158,6 +4174,22 @@ async function reviewPr(
 /** Дешёвая модель для ритуалов памяти: сворачивать дельту — не решать. */
 const RITUAL_MODEL = resolveModel('haiku');
 
+/** Провайдер и модель менеджера: его выбор или выбор офиса. */
+function pmRuntime(state: OfficeState): ModelChoice {
+  const pm = state.role('pm');
+  return pm ? state.runtimeOf(pm) : state.settings.model;
+}
+
+/**
+ * Служебная сессия (ритуал, заголовок, заметки выпуска) идёт на провайдере
+ * менеджера. У Claude — на дешёвой модели; у остальных провайдеров дешёвую
+ * модель по имени не угадать, и берётся модель менеджера.
+ */
+function ritualRuntime(state: OfficeState): ModelChoice {
+  const pm = pmRuntime(state);
+  return pm.provider === 'claude-code' ? { provider: pm.provider, model: RITUAL_MODEL } : pm;
+}
+
 /**
  * Инструменты ритуала — единственный способ, которым модель кладёт что-то в
  * журнал: структурированный вызов, а не текст, который потом пришлось бы
@@ -4233,8 +4265,7 @@ async function ritualSession(
     const session = startSession({
       prompt,
       options: {
-        model: providerOf(state.role('pm')) === 'codex' ? state.role('pm')!.model : RITUAL_MODEL,
-        provider: providerOf(state.role('pm')),
+        ...ritualRuntime(state),
         systemPrompt,
         cwd: state.projectDir,
         tools: [],
@@ -4314,8 +4345,7 @@ async function flowSession(
     const session = startSession({
       prompt: opts.prompt,
       options: {
-        model: state.role('pm')?.model ?? RITUAL_MODEL,
-        provider: providerOf(state.role('pm')),
+        ...pmRuntime(state),
         systemPrompt: opts.system,
         cwd: state.projectDir,
         tools: [],
@@ -4426,8 +4456,7 @@ setChatTitler(async (state, input) => {
   const session = startSession({
     prompt: state.say('prompt.chatTitle.user', { title: input.current, messages: lines.join('\n') }),
     options: {
-      model: providerOf(state.role('pm')) === 'codex' ? state.role('pm')!.model : RITUAL_MODEL,
-      provider: providerOf(state.role('pm')),
+      ...ritualRuntime(state),
       systemPrompt: state.say('prompt.chatTitle.system', { lang: LANG_NAME_EN[state.lang()] }),
       cwd: state.projectDir,
       tools: [],
@@ -4561,8 +4590,7 @@ setRitualAgents({
       const session = startSession({
         prompt,
         options: {
-          model: state.role('pm')!.model,
-          provider: providerOf(state.role('pm')),
+          ...pmRuntime(state),
           systemPrompt: say('prompt.reflect.system', { lang }),
           cwd: state.projectDir,
           tools: [],
@@ -4611,8 +4639,7 @@ setReleaseAgents({
       const session = startSession({
         prompt,
         options: {
-          model: RITUAL_MODEL,
-          provider: providerOf(state.role('pm')),
+          ...ritualRuntime(state),
           systemPrompt: say('prompt.release.system'),
           cwd: state.projectDir,
           tools: [],

@@ -1,4 +1,3 @@
-import { providerOf } from '../shared/providers';
 /**
  * Облачный режим: задачу выполняет не локальный Claude Code, а Managed
  * Agents — Anthropic держит и цикл агента, и контейнер, в котором работают
@@ -65,7 +64,7 @@ const clip = (s: unknown, n = 70): string => {
 
 /** Почему облачный режим сейчас не запустится. null — всё готово. */
 export function cloudProblem(state: OfficeState): string | null {
-  if (state.activeRoles().some(role => providerOf(role) !== 'claude-code')) {
+  if (state.activeRoles().some(role => state.runtimeOf(role).provider !== 'claude-code')) {
     return state.lang() === 'ru' ? 'Облачный режим поддерживает только Claude. Для сотрудников Codex выберите локальный режим офиса.' : 'Cloud execution supports Claude only. Select local execution for Codex workers.';
   }
   if (!providerKey('claude-code')) {
@@ -203,7 +202,7 @@ const officeTools = (lang: Lang) => [
  * промпт или модель в редакторе ролей, появится новый агент.
  */
 async function ensureAgent(
-  role: Role, systemPrompt: string, mode: PermissionMode, lang: Lang,
+  role: Role, model: string, systemPrompt: string, mode: PermissionMode, lang: Lang,
 ): Promise<string> {
   // В ключе именно эффективный режим: у двух сотрудников одной роли он может
   // отличаться, и агент с чужими политиками инструментов им не подойдёт.
@@ -213,13 +212,13 @@ async function ensureAgent(
   // реализации правит блок про языки в середине, а длина и первые 64 символа
   // при этом не меняются, и офис молча переиспользовал бы старого агента.
   const digest = createHash('sha1').update(systemPrompt).digest('hex');
-  const key = `${role.id}:${role.model}:${mode}:${lang}:${digest}`;
+  const key = `${role.id}:${model}:${mode}:${lang}:${digest}`;
   const known = agentIds.get(key);
   if (known) return known;
 
   const agent = await api().beta.agents.create({
     name: `AI Office — ${role.title}`,
-    model: role.model,
+    model,
     system: systemPrompt,
     tools: [toolset(role, mode), ...officeTools(lang)],
   });
@@ -289,7 +288,7 @@ export async function runCloudTask(
   const mode = effectiveMode(inst.permissionMode, role.permissionMode, state.officeMode());
   const [environment, agentId] = await Promise.all([
     ensureEnvironment(state),
-    ensureAgent(role, systemPrompt, mode, state.lang()),
+    ensureAgent(role, state.runtimeOf(role).model, systemPrompt, mode, state.lang()),
   ]);
 
   const cap = state.settings.taskBudgetUsd;
@@ -369,7 +368,7 @@ export async function runCloudTask(
           + (usage?.cache_creation?.ephemeral_1h_input_tokens ?? 0),
       // Облако отдаёт расход одной суммой за сессию, без разбивки по моделям:
       // модель здесь та, с которой агент и заводился.
-      }, role.model);
+      }, state.runtimeOf(role).model);
       costRecorded = cents / 100;
     } catch { /* расход уже не узнать — не повод терять результат */ }
 

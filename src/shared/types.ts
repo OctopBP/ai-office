@@ -1,4 +1,4 @@
-import type { AuthKind, EngineCapabilities, EngineId, ProviderId, ProviderStatus } from './providers';
+import type { AuthKind, EngineCapabilities, EngineId, ModelChoice, ProviderId, ProviderStatus } from './providers';
 // Общие типы между сервером и вебом.
 
 // Раскладка и её оверрайд описаны в src/shared/layout.ts — там же, где код,
@@ -428,11 +428,22 @@ export interface McpServerState {
 
 /** Поля роли, которые пользователь может менять из UI. */
 export interface RoleEditable {
+  /**
+   * Провайдер и модель, на которых роль работает. В `RoleView` — уже
+   * разрешённые: свой выбор роли или выбор офиса (`Settings.model`).
+   * В правке — свой выбор роли: прислали поле — роль перестаёт брать
+   * провайдера и модель офиса.
+   */
   provider?: ProviderId;
   title: string;
   emoji: string;
   color: string;
   model: string;
+  /**
+   * Свой ли у роли провайдер и модель. В правке значим только `false`:
+   * снять свой выбор и вернуться к провайдеру и модели офиса.
+   */
+  ownModel?: boolean;
   /** null — наследовать режим офиса (Settings.officePermissionMode). */
   permissionMode: PermissionMode | null;
   isolate: boolean;
@@ -503,6 +514,8 @@ export interface RolePackageView {
 export interface RoleView extends RoleEditable {
   id: string;
   isManager: boolean;
+  /** Свой выбор провайдера и модели; false — роль работает на выборе офиса. */
+  ownModel: boolean;
   /** Что роль умеет — по манифесту пакета или по инструментам (§5 спеки процессов). */
   capabilities: string[];
   /**
@@ -684,6 +697,14 @@ export interface Settings {
   maxConcurrentWorkers?: number;
   /** Движок исполнителей. Облачный работает только на платном API. */
   engine: Engine;
+  /**
+   * Провайдер и модель офиса (spec провайдеров §5.6). На них работает каждая
+   * роль без своего выбора (`RoleView.ownModel === false`): смена здесь
+   * переводит такие роли со следующей сессии, роли со своим выбором не трогает.
+   * Запасного провайдера нет намеренно: не готов провайдер роли — задача
+   * встаёт с причиной, а не уезжает тихо на чужой счёт.
+   */
+  model: ModelChoice;
   /** Репозиторий на GitHub, который монтируется в облачный контейнер. */
   cloudRepoUrl: string | null;
   /** Режим доступа офиса: его наследуют роли без собственного режима. */

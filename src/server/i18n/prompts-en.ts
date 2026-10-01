@@ -743,6 +743,7 @@ Keep your replies to the user short. Which language to write them in is said in 
   'agent.task.limitedAt': ', resets at {at}',
   'agent.task.limitedCommit': '{task}: partial work (plan limit)',
   'agent.chat.limited': '{task}: the worker hit the subscription plan limit{when}. What was done is saved in the branch; I check for the reset hourly and continue from this point.',
+  'agent.task.providerNotReady': '🔌 Did not start: the provider of role “{role}” — {provider} — is not ready. {detail} What to do: {fix} Then restart the task.',
 
   'agent.pmMsg.stopped': '[SYSTEM] Task {task} was stopped by the user by hand. Do not assign it again on your own initiative — wait to be told.',
   'agent.pmMsg.stubDone': '[SYSTEM] Task {task} “{title}” was finished by worker {who}.\nReport: [stub] Task done.\nJudge the result and decide what to do next.',
@@ -756,6 +757,7 @@ Keep your replies to the user short. Which language to write them in is said in 
   'agent.pmMsg.pipelineNext': 'The office takes it from here: review and merge happen on their own, no need to step in. A system message will come when the task is merged or when the pipeline gets stuck.',
   'agent.pmMsg.judge': 'Judge the result and decide what to do next.',
   'agent.pmMsg.failed': '[SYSTEM] Task {task} failed at {who}. Error: {error}',
+  'agent.pmMsg.providerNotReady': '[SYSTEM] Task {task} did not start at {who}: the role provider is not connected. This is not a worker failure and not a reason to hand the task to another role — only the owner can connect the provider. {error}',
   'agent.pmMsg.cloudDone': '[SYSTEM] Task {task} “{title}” was done in the cloud by worker {who}.',
   'agent.pmMsg.cloudBranch': 'The result is in branch {branch}, it needs merging.',
   'agent.pmMsg.cloudFailed': '[SYSTEM] Task {task} failed in the cloud at {who}. Error: {error}',

@@ -1,4 +1,4 @@
-import { providerOf, type ProviderId } from '../shared/providers';
+import type { ProviderId } from '../shared/providers';
 /**
  * Надзор за конвейером: офис сам следит, что сданная работа доезжает до
  * основной ветки, и сам её подталкивает.
@@ -269,15 +269,21 @@ export async function superviseOffice(state: OfficeState): Promise<void> {
  * ещё нужно. Молчит — продолжаем сами, как и с нерозданными задачами.
  */
 async function watchLimits(state: OfficeState, now: number): Promise<boolean> {
-  const providers = [...new Set(state.workerRoles().map(providerOf))];
+  const providers = [...new Set(state.workerRoles().map((role) => state.runtimeOf(role).provider))];
   const blocked = await Promise.all(providers.map(provider => watchProviderLimits(state, now, provider)));
   return blocked.length > 0 && blocked.every(Boolean);
+}
+
+/** Провайдер роли задачи; роли уже нет — провайдер офиса. */
+function taskProvider(state: OfficeState, task: Task): ProviderId {
+  const role = state.role(task.roleId ?? '');
+  return role ? state.runtimeOf(role).provider : state.settings.model.provider;
 }
 
 async function watchProviderLimits(state: OfficeState, now: number, provider: ProviderId): Promise<boolean> {
   const limitKey = `${state.officeId}:${provider}`;
   const halted = [...state.tasks.values()]
-    .filter((t) => t.status === 'blocked' && t.limitedAt && providerOf(state.role(t.roleId ?? '')) === provider)
+    .filter((t) => t.status === 'blocked' && t.limitedAt && taskProvider(state, t) === provider)
     .sort((a, b) => (a.limitedAt ?? 0) - (b.limitedAt ?? 0));
   const block = limitBlock(now, provider);
   if (!halted.length) return Boolean(block);

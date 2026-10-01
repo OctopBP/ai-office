@@ -24,6 +24,7 @@ import type { Theme } from './sprites';
 import { type Graphics, loadGraphics, saveGraphics } from './office3d/graphics';
 import { fitNow } from './office3d/fit';
 import { catalog, DEFAULT_LAYOUT_ID, layoutFor, passabilityFor } from './layoutData';
+import { DEFAULT_MODEL_CHOICE } from '../shared/providers';
 import { interestsFor, rotateInterests, type Interest } from './interests';
 import { isBusy } from './agentState';
 import { displayInstance } from './instanceName';
@@ -690,6 +691,7 @@ export const useStore = create<State>((set, get) => ({
   settings: {
     globalBudgetUsd: null, taskBudgetUsd: null, engine: 'local', cloudRepoUrl: null,
     officePermissionMode: 'ask-risky', layoutId: DEFAULT_LAYOUT_ID, autoPipeline: true,
+    model: DEFAULT_MODEL_CHOICE,
   },
   layouts: [],
   // До первого снапшота своей раскладки офиса ещё не знаем — берём ту же,

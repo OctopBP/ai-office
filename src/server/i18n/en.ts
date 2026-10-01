@@ -143,6 +143,8 @@ export const en = {
   'state.settings.mcp.badEnv': 'Server "{id}", variable "{detail}": the value may only be a ${NAME} reference. Do not put the token itself here — settings live in the state file and travel to the interface.',
   'state.settings.noLayoutsAtAll': 'none',
   'state.settings.workers': 'Workers running at once in this office: {now} (was {before})',
+  'state.settings.model': 'Office provider and model: {provider}, {model}. Roles without their own choice switch from their next session',
+  'state.settings.badModel': 'Office provider and model rejected: a known provider and a model id are required.',
   'state.settings.officeMode': 'Office access mode: “{mode}”',
   'state.settings.language': 'Office chat language: {lang}',
   'state.settings.codeLanguage': 'Implementation language: {lang} — code, comments and docs',

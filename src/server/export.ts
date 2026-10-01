@@ -17,7 +17,7 @@ import { providerOf } from '../shared/providers';
 import { cpSync, existsSync, mkdirSync, readdirSync, writeFileSync } from 'node:fs';
 import { isAbsolute, resolve } from 'node:path';
 import { LANGS, type Lang } from '../shared/i18n';
-import { MODEL_ALIASES } from '../shared/models';
+import { MODEL_ALIASES, type ModelTier } from '../shared/models';
 import type { McpServerDef } from '../shared/types';
 import { t } from './i18n';
 import {
@@ -52,6 +52,9 @@ export interface Scaffold {
 }
 
 /** Полный id модели — в алиас, если он известен; иначе как есть. */
+/** Уровень роли — алиасом, который пакет понимает как уровень (`TIER_OF_ALIAS`). */
+const ALIAS_OF_TIER: Record<ModelTier, string> = { top: 'opus', balanced: 'sonnet', fast: 'haiku' };
+
 export function modelAlias(model: string): string {
   const found = (Object.entries(MODEL_ALIASES) as Array<[string, string]>).find(([, id]) => id === model);
   return found ? found[0] : model;
@@ -179,8 +182,12 @@ export function scaffoldFromRole(role: Role, name: string, lang: Lang, extra: Pa
     docsDir: role.docsDir ?? '',
     license: pkg?.manifest.license ?? '',
     runtime: {
+      // Своего выбора у роли нет — пакет называет её уровень: тот, кто
+      // наймёт роль, разрешит его в модель своего провайдера.
       engine: providerOf(role),
-      model: providerOf(role) === 'claude-code' ? modelAlias(role.model) : role.model,
+      model: !role.provider || !role.model
+        ? ALIAS_OF_TIER[role.tier ?? 'balanced']
+        : role.provider === 'claude-code' ? modelAlias(role.model) : role.model,
       tools: role.tools ?? null,
       permissionMode: role.permissionMode,
       isolate: role.isolate,

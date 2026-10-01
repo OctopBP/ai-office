@@ -13,7 +13,7 @@
 import { accessSync, constants, statSync } from 'node:fs';
 import { OFFICE_SENDER } from '../shared/types';
 import type { EnvCheck, EnvReport } from '../shared/types';
-import { PROVIDER_IDS, PROVIDERS, providerOf, type ProviderId } from '../shared/providers';
+import { PROVIDER_IDS, PROVIDERS, type ProviderId } from '../shared/providers';
 import { engineFor, type ProviderStatus } from './engines';
 import { repoProblem } from './git';
 import type { Role } from './roles';
@@ -29,8 +29,10 @@ import type { OfficeState, Task } from './state';
  * задача выполнима — офис работает прямо в директории. `roles` не входит,
  * потому что пустую роль уже ловит проверка «некому взять» на раздаче, а
  * `repo:<roleId>` — потому что он мешает одной роли, а не офису, и общий стоп
- * из-за него остановил бы всех остальных. Каждый `provider:<id>` критичен:
- * проверяются только провайдеры, на которых есть роли.
+ * из-за него остановил бы всех остальных. По той же причине `provider:<id>`
+ * критичен, только если на нём работает менеджер (или облако): без него не
+ * раздать ни одной задачи. Провайдер одних исполнителей останавливает только
+ * их задачи — с причиной на карточке (`roleProviderProblem`).
  */
 const isCritical = (id: string): boolean => id === 'workdir' || id.startsWith('provider:');
 
@@ -50,7 +52,32 @@ const fail = (id: string, title: string, detail: string, fix: string): EnvCheck 
 function providersInUse(state: OfficeState): ProviderId[] {
   return PROVIDER_IDS.filter((id) =>
     (id === 'claude-code' && state.settings.engine === 'cloud')
-    || state.activeRoles().some((role) => providerOf(role) === id));
+    || state.activeRoles().some((role) => state.runtimeOf(role).provider === id));
+}
+
+/** Провайдер, без которого офис не работает вовсе: менеджера или облака. */
+function officeWideProvider(state: OfficeState, provider: ProviderId): boolean {
+  if (provider === 'claude-code' && state.settings.engine === 'cloud') return true;
+  const pm = state.activeRoles().find((role) => role.isManager);
+  return (pm ? state.runtimeOf(pm).provider : state.settings.model.provider) === provider;
+}
+
+/**
+ * Почему задача этой роли сейчас не стартует на её провайдере, — готовым
+ * текстом «что подключить», или null, если провайдер подключён (при лимите
+ * тоже: окно откроется само, и это уже забота надзора). Проверка только по
+ * метаданным: платный ход модели ради неё не запускается.
+ *
+ * Запасного провайдера нет намеренно: задача, тихо уехавшая на другой
+ * провайдер, тратила бы чужой счёт и работала бы не той моделью.
+ */
+export async function roleProviderProblem(state: OfficeState, role: Role): Promise<string | null> {
+  const { provider } = state.runtimeOf(role);
+  const check = await providerCheck(state, provider);
+  if (check.status === 'ok') return null;
+  return state.say('agent.task.providerNotReady', {
+    role: role.title, provider: check.title, detail: check.detail, fix: check.fix,
+  });
 }
 
 /**
@@ -60,6 +87,11 @@ function providersInUse(state: OfficeState): ProviderId[] {
  * сам ждёт сброса, чинить человеку нечего. Остальное — провал с советом.
  */
 export async function providerCheck(state: OfficeState, provider: ProviderId): Promise<EnvCheck> {
+  const check = await providerStatusCheck(state, provider);
+  return { ...check, critical: officeWideProvider(state, provider) };
+}
+
+async function providerStatusCheck(state: OfficeState, provider: ProviderId): Promise<EnvCheck> {
   const id = `provider:${provider}`;
   const title = PROVIDERS[provider].label;
   let status: ProviderStatus;

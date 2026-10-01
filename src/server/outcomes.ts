@@ -85,7 +85,7 @@ export function recordOutcome(
     durationMs: task.startedAt ? Math.max(0, (task.finishedAt ?? at) - task.startedAt) : 0,
     roleId: task.roleId ?? '',
     package: role?.package?.name ?? null,
-    model: role?.model ?? '',
+    model: role ? state.runtimeOf(role).model : '',
     origin: epic?.origin ?? 'owner',
     at,
   };

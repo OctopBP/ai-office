@@ -1,4 +1,5 @@
-import type { ProviderId } from '../shared/providers';
+import { PROVIDERS, type ModelChoice, type ProviderId } from '../shared/providers';
+import { isModelAlias, TIER_MODELS, TIER_OF_ALIAS, type ModelTier } from '../shared/models';
 // Режим доступа живёт в общем контракте: его правит UI и наследует офис.
 export type { PermissionMode } from '../shared/types';
 import type { PermissionMode, RoleEditable } from '../shared/types';
@@ -15,8 +16,19 @@ export interface Role {
   title: string;
   color: string;
   emoji: string;
-  model: string;
+  /**
+   * Свой выбор провайдера и модели — всегда парой. Нет пары — роль работает
+   * на выборе офиса (`Settings.model`), и узнавать её провайдера и модель
+   * надо через `roleRuntime`, а не из этих полей.
+   */
   provider?: ProviderId;
+  model?: string;
+  /**
+   * Уровень модели из пакета (`opus` → top, `haiku` → fast). Роли без своего
+   * выбора он подбирает модель того же уровня у провайдера офиса; balanced —
+   * это и есть модель офиса.
+   */
+  tier?: ModelTier;
   isManager: boolean;
   /** null — своего режима у роли нет, берётся режим офиса. */
   permissionMode: PermissionMode | null;
@@ -100,12 +112,50 @@ export interface Role {
 }
 
 /**
+ * Провайдер и модель роли из пакета. Алиас уровня у Claude (`opus`, `sonnet`,
+ * `haiku`) своим выбором роли не становится: это уровень, и роль идёт за
+ * провайдером офиса. Конкретная модель (`fable`, полный id) или другой
+ * движок — уже выбор пакета, и тогда пара прибита к его движку.
+ */
+export function packageRuntime(pkg: AgentPackage): Pick<Role, 'provider' | 'model' | 'tier'> {
+  const { engine, model } = pkg.manifest.runtime;
+  const tier = engine === 'claude-code' && isModelAlias(model) ? TIER_OF_ALIAS[model] : undefined;
+  return tier ? { tier } : { provider: engine, model: packageModel(pkg) };
+}
+
+/**
+ * Достроить пару «провайдер и модель», если в сохранении лежит половина.
+ * Оверрайд модели без провайдера — правка времён, когда провайдер был один:
+ * это модель движка пакета. Провайдер без модели — его модель по умолчанию.
+ */
+function pairRuntime(role: Role, engine: ProviderId): void {
+  if (role.model && !role.provider) role.provider = engine;
+  if (role.provider && !role.model) role.model = PROVIDERS[role.provider].defaultModel;
+}
+
+/**
+ * Провайдер и модель, на которых роль работает на самом деле: свой выбор
+ * роли, иначе выбор офиса — с моделью уровня пакета, если провайдер офиса
+ * такой уровень знает. Запасного провайдера нет: что вышло, на том и стартуем.
+ */
+export function roleRuntime(role: Pick<Role, 'provider' | 'model' | 'tier'>, office: ModelChoice): ModelChoice {
+  if (role.provider) {
+    return {
+      provider: role.provider,
+      model: role.model ?? (role.provider === office.provider ? office.model : PROVIDERS[role.provider].defaultModel),
+    };
+  }
+  const tiered = role.tier && role.tier !== 'balanced' ? TIER_MODELS[office.provider]?.[role.tier] : undefined;
+  return { provider: office.provider, model: tiered ?? office.model };
+}
+
+/**
  * Поля роли, которые оверрайд может переопределить. Брифа здесь нет
  * намеренно: бриф пакета неприкосновенен, а своё дописывается в `briefExtra`.
  * Иначе первое же обновление пакета с новым брифом ставило бы человека перед
  * выбором «новый бриф или мои три абзаца» — и он остался бы на старом.
  */
-export type LinkOverrides = Partial<Omit<RoleEditable, 'brief' | 'briefExtra'>>;
+export type LinkOverrides = Partial<Omit<RoleEditable, 'brief' | 'briefExtra' | 'ownModel'>>;
 
 /**
  * Откуда пакет установлен: репозиторий, путь внутри него и коммит. Именно
@@ -183,8 +233,7 @@ export function roleFromPackage(pkg: AgentPackage, lang: Lang, id: string, link?
     title: copyTitle(packageTitle(pkg, lang), ref.copy),
     color: m.color,
     emoji: m.emoji,
-    model: packageModel(pkg),
-    provider: m.runtime.engine,
+    ...packageRuntime(pkg),
     isManager: m.manager,
     permissionMode: m.runtime.permissionMode,
     isolate: m.runtime.isolate,
@@ -209,6 +258,7 @@ export function roleFromPackage(pkg: AgentPackage, lang: Lang, id: string, link?
     if (sameValue(value, base[key as keyof Role])) { delete ref.overrides[key]; continue; }
     (base as unknown as Record<string, unknown>)[key] = Array.isArray(value) ? [...value] : value;
   }
+  pairRuntime(base, m.runtime.engine);
   // Менеджера не переименовать: на этой роли держится раздача задач.
   if (base.isManager) { base.title = packageTitle(pkg, lang); delete ref.overrides.title; }
   const brief = packageBrief(pkg, lang);
@@ -361,7 +411,6 @@ export const blankRole = (id: string): Role => ({
   title: id,
   color: '#94a3b8',
   emoji: '🙂',
-  model: 'claude-sonnet-5-5',
   isManager: false,
   permissionMode: null,
   isolate: true,

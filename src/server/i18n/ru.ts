@@ -143,6 +143,8 @@ export const ru: Record<keyof typeof en, string> = {
   'state.settings.mcp.badEnv': 'Сервер «{id}», переменная «{detail}»: значением может быть только ссылка вида ${NAME}. Сам токен сюда класть нельзя — настройки лежат в файле состояния и уезжают в интерфейс.',
   'state.settings.noLayoutsAtAll': 'ни одной',
   'state.settings.workers': 'Одновременно исполнителей в офисе: {now} (было {before})',
+  'state.settings.model': 'Провайдер и модель офиса: {provider}, {model}. Роли без своего выбора перейдут на них со следующей сессии',
+  'state.settings.badModel': 'Провайдер и модель офиса не приняты: нужен известный провайдер и id модели.',
   'state.settings.officeMode': 'Режим доступа офиса: «{mode}»',
   'state.settings.language': 'Язык общения офиса: {lang}',
   'state.settings.codeLanguage': 'Язык реализации: {lang} — на нём код, комментарии и документация',

@@ -1,4 +1,4 @@
-import { providerOf } from '../shared/providers';
+import { DEFAULT_MODEL_CHOICE } from '../shared/providers';
 /**
  * Стенд: срабатывают ли скилы роли.
  *
@@ -28,7 +28,7 @@ import type { Settings } from '../shared/types';
 import { t } from './i18n';
 import { DEFAULT_MCP_SERVERS, externalMcp, mcpBrief } from './mcp';
 import { classify } from './permissions';
-import type { Role } from './roles';
+import { roleRuntime, type Role } from './roles';
 import { employeePlugins, employeeSkills, sessionTools } from './skills';
 
 /** Случай стенда: запрос роли и чего мы от него ждём. */
@@ -95,8 +95,8 @@ export async function runBenchCase(
   const session = query({
     prompt: c.prompt,
     options: {
-      model: role.model,
-      provider: providerOf(role),
+      // Стенд гоняют и без офиса — тогда выбор офиса прежний, Claude.
+      ...roleRuntime(role, settings.model ?? DEFAULT_MODEL_CHOICE),
       systemPrompt: {
         type: 'preset',
         preset: 'claude_code',

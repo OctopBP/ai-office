@@ -34,7 +34,8 @@ export type {
 export type { EngineId, AuthKind, ProviderStatus, EngineCapabilities } from '../../shared/providers';
 
 /** Нейтральный уровень модели: пакет называет уровень, офис разрешает его в модель провайдера. */
-export type ModelTier = 'top' | 'balanced' | 'fast';
+import type { ModelTier } from '../../shared/models';
+export type { ModelTier } from '../../shared/models';
 
 export interface ModelInfo {
   id: string;

@@ -78,6 +78,9 @@ export function codexQuery({ prompt, options }: SessionRequest): AgentSession {
   let text = '';
   let calls = 0;
   let price: TokenPrice | null = null;
+  // Модель, которой платили: её называет сервер Codex при старте треда. По
+  // ней трата подписывается на доске расходов (`modelUsage`, как у Claude).
+  let paidModel = '';
   let totalCost = 0;
   let budgetSpent = 0;
   let lastTotalTokens = -1;
@@ -115,7 +118,12 @@ export function codexQuery({ prompt, options }: SessionRequest): AgentSession {
   };
   const result = (error?: string) => emit({ type: 'result', subtype: error ? (turnError === 'maxTurns' ? 'error_max_turns' : turnError === 'budget' ? 'error_max_budget_usd' : 'error_during_execution') : 'success',
     is_error: Boolean(error), result: error ?? text, errors: error ? [error] : [],
-    total_cost_usd: totalCost, cost_unavailable: !price, num_turns: calls, usage });
+    total_cost_usd: totalCost, cost_unavailable: !price, num_turns: calls, usage,
+    ...(paidModel ? { modelUsage: { [paidModel]: {
+      inputTokens: usage.input_tokens, outputTokens: usage.output_tokens,
+      cacheReadInputTokens: usage.cache_read_input_tokens, cacheCreationInputTokens: usage.cache_creation_input_tokens,
+      webSearchRequests: 0, costUSD: totalCost, contextWindow: 0, maxOutputTokens: 0,
+    } } } : {}) });
   const fail = (error: Error) => { cancelWait(error); rejectTurn?.(error); events.end(error); };
 
   async function requestTool(msg: RpcMessage) {
@@ -238,7 +246,8 @@ export function codexQuery({ prompt, options }: SessionRequest): AgentSession {
       ? await rpc.request('thread/resume', { ...common, threadId: options.resume })
       : await rpc.request('thread/start', { ...common, dynamicTools });
     thread = response.thread.id;
-    price = codexPrice(response.model ?? options.model ?? 'default');
+    paidModel = response.model ?? options.model ?? 'default';
+    price = codexPrice(paidModel);
     if (options.maxBudgetUsd && !price) throw new Error('Codex does not report USD cost. Configure OFFICE_CODEX_PRICING for this model before using a dollar budget.');
     emit({ type: 'system', subtype: 'init', cwd: options.cwd, model: response.model, apiKeySource: 'codex' });
   })();

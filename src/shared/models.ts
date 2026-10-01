@@ -64,3 +64,31 @@ export const isModelAlias = (value: string): value is ModelAlias => value in MOD
 /** Алиас — в полный id; полный id — как есть. */
 export const resolveModel = (value: string): string =>
   (isModelAlias(value) ? MODEL_ALIASES[value] : value);
+
+/**
+ * Нейтральный уровень модели (spec провайдеров §5.6): пакет называет уровень,
+ * а офис разрешает его в модель того провайдера, на котором роль работает.
+ * Так пакет с `opus` у менеджера не прибивает офис к Claude.
+ */
+export type ModelTier = 'top' | 'balanced' | 'fast';
+
+/** Алиас пакета, который означает уровень, а не конкретную модель. */
+export const TIER_OF_ALIAS: Partial<Record<ModelAlias, ModelTier>> = {
+  opus: 'top',
+  sonnet: 'balanced',
+  haiku: 'fast',
+};
+
+/**
+ * Модели провайдеров по уровням. Провайдера нет или уровня нет — уровень не
+ * разрешается, и роль берёт модель офиса: угадывать модель чужого провайдера
+ * по имени нельзя. У Codex список моделей зависит от аккаунта, поэтому
+ * уровней у него здесь нет.
+ */
+export const TIER_MODELS: Record<string, Partial<Record<ModelTier, string>>> = {
+  'claude-code': {
+    top: MODEL_ALIASES.opus,
+    balanced: MODEL_ALIASES.sonnet,
+    fast: MODEL_ALIASES.haiku,
+  },
+};
