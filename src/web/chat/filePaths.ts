@@ -113,3 +113,42 @@ export function fileHref(href: string, scan: PathScan): FileRef | null {
 export function mentionedTask(text: string): string | null {
   return /(?<![\w-])T-\d+(?![\w-])/.exec(text)?.[0] ?? null;
 }
+
+/** Вид файла результата по расширению — только для значка в списке. */
+export type ResultFileGlyph = 'doc' | 'image' | 'pdf' | 'model' | 'other';
+
+const GLYPHS: Record<string, ResultFileGlyph> = {
+  md: 'doc', markdown: 'doc', txt: 'doc', json: 'doc',
+  png: 'image', jpg: 'image', jpeg: 'image', webp: 'image', gif: 'image', svg: 'image',
+  pdf: 'pdf',
+  glb: 'model', gltf: 'model',
+};
+
+export const fileGlyph = (path: string): ResultFileGlyph =>
+  GLYPHS[/\.([^./]+)$/.exec(path)?.[1].toLowerCase() ?? ''] ?? 'other';
+
+/** Файл из блока «Результат» карточки вопроса. */
+export interface ResultEntry {
+  path: string;
+  name: string;
+  glyph: ResultFileGlyph;
+  /** Главный документ — первый .md: его выделяем как «Открыть документ». */
+  main: boolean;
+}
+
+/**
+ * Список файлов результата для карточки согласования: пустые и повторы
+ * отброшены, главный документ — первый .md — поднят наверх, остальные в
+ * присланном порядке (сервер кладёт важное первым).
+ */
+export function resultEntries(files: readonly string[] | undefined): ResultEntry[] {
+  const paths = [...new Set((files ?? []).map((f) => f.trim()).filter(Boolean))];
+  const mainAt = paths.findIndex((p) => /\.md$/i.test(p));
+  const ordered = mainAt > 0 ? [paths[mainAt], ...paths.filter((_, i) => i !== mainAt)] : paths;
+  return ordered.map((path, i) => ({
+    path,
+    name: path.slice(path.lastIndexOf('/') + 1),
+    glyph: fileGlyph(path),
+    main: mainAt >= 0 && i === 0,
+  }));
+}

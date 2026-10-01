@@ -9,7 +9,13 @@ import type { FileRef } from './filePaths';
 
 const FilePreview = lazy(() => import('./FilePreview'));
 
-export function FileLink({ fileRef, task, children }: { fileRef: FileRef; task: string | null; children: ReactNode }) {
+export function FileLink({ fileRef, task, children, className = 'md-file', title }: {
+  fileRef: FileRef; task: string | null; children: ReactNode;
+  /** Вид ссылки: в тексте — пунктир, в блоке «Результат» — строка списка. */
+  className?: string;
+  /** Подсказка вместо «Открыть файл»: в списке туда идёт полный путь. */
+  title?: string;
+}) {
   const [open, setOpen] = useState(false);
   const close = useCallback(() => setOpen(false), []);
   // «T-N» в тексте бывает и опечаткой, и задачей из другого офиса: сервер на
@@ -24,10 +30,10 @@ export function FileLink({ fileRef, task, children }: { fileRef: FileRef; task: 
   return (
     <>
       <span
-        className="md-file"
+        className={className}
         role="button"
         tabIndex={0}
-        title={t('fileLink.open')}
+        title={title ?? t('fileLink.open')}
         onClick={go}
         onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') go(e); }}
       >

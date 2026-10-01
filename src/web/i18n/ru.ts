@@ -192,6 +192,8 @@ export const ru: Record<keyof typeof en, string> = {
   "md.code.copy": "Копировать",
   "md.code.copied": "Скопировано",
   "md.code.copyFailed": "Не удалось скопировать",
+  "questionFiles.title": "Результат",
+  "questionFiles.openDoc": "Открыть документ",
   "fileLink.open": "Открыть файл в приложении",
   "fileView.notFound": "Файл не найден",
   "fileView.notFoundHint": "Его нет в основной ветке проекта: возможно, файл переименовали или удалили.",

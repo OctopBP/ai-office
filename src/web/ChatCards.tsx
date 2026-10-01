@@ -8,6 +8,7 @@ import { AgentTag } from './Avatar';
 import { PriorityChip } from './TaskPriority';
 import { Markdown } from './Markdown';
 import { mentionedTask } from './chat/filePaths';
+import { ResultFiles } from './chat/ResultFiles';
 import { useInstanceName } from './instanceName';
 
 /** Время в шапке карточки вопроса: день нужен, только если спросили не сегодня. */
@@ -331,6 +332,7 @@ export function QuestionCard({ id, entry }: { id: string; entry: ChatEntry }) {
           {t(q.answeredAt ? 'chatCard.q.assumedWas' : 'chatCard.q.assumed', { text: q.assumption })}
         </div>
       )}
+      {!folded && <ResultFiles files={q.files} task={taskId} />}
       {q.answeredAt && <div className="cc-answer">{q.answer}</div>}
       {reply}
     </div>

@@ -12,6 +12,8 @@ import { locale, t } from './i18n';
 import { useInstanceName } from './instanceName';
 import { Icon } from './icons';
 import { Markdown } from './Markdown';
+import { mentionedTask } from './chat/filePaths';
+import { ResultFiles } from './chat/ResultFiles';
 
 type Tab = 'questions' | 'proposals' | 'rules' | 'journal' | 'rituals' | 'health';
 
@@ -198,7 +200,7 @@ function QuestionRow({ q, all }: { q: OwnerQuestion; all: OwnerQuestion[] }) {
           {/* Вопрос и допущение пишет агент, и пишет Markdown-ом: списки
               вариантов, код, выделение. Подпись «Допущение» остаётся простым
               текстом слева от него. */}
-          <div className="life-text"><Markdown source={q.text} compact /></div>
+          <div className="life-text"><Markdown source={q.text} compact files={{ task: q.taskId ?? mentionedTask(q.text) }} /></div>
           {q.assumption && (
             <div className="muted small life-assumed">
               <span>{t('life.questions.assumed')}:</span>
@@ -223,6 +225,7 @@ function QuestionRow({ q, all }: { q: OwnerQuestion; all: OwnerQuestion[] }) {
           {t('life.questions.dismissed')}{q.closedWhy ? ` — ${q.closedWhy}` : ''} · {when(q.dismissedAt)}
         </div>
       )}
+      {mode !== 'edit' && <ResultFiles files={q.files} task={q.taskId} />}
       {hint && mode === null && (
         <div className="life-hint small">
           <span>{t('life.questions.similar', { id: hint.id })}</span>

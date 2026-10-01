@@ -193,6 +193,8 @@ export const en = {
   "md.code.copy": "Copy",
   "md.code.copied": "Copied",
   "md.code.copyFailed": "Couldn't copy",
+  "questionFiles.title": "Result",
+  "questionFiles.openDoc": "Open document",
   "fileLink.open": "Open file in the app",
   "fileView.notFound": "File not found",
   "fileView.notFoundHint": "It isn't in the project's main branch: the file may have been renamed or deleted.",
