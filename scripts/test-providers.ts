@@ -113,6 +113,32 @@ assert((await engineFor('claude-code').models('claude-code')).some(m => m.tier =
 assert.equal((await engineFor('codex').status('codex', { force: true })).state, 'ready');
 assert.deepEqual(await engineFor('codex').models('codex'), [{ id: 'test-model', label: 'Test model' }]);
 
+// Проверка окружения provider:<id> строится только из статуса адаптера (spec §5.3).
+{
+  const { providerCheck } = await import('../src/server/envcheck');
+  const fakeState = (engine: 'local' | 'cloud') =>
+    ({ settings: { engine }, say: (key: string) => key }) as unknown as Parameters<typeof providerCheck>[0];
+  const codexOk = await providerCheck(fakeState('local'), 'codex');
+  assert.deepEqual([codexOk.id, codexOk.status, codexOk.critical], ['provider:codex', 'ok', true]);
+  noteRateLimit({ status: 'rejected', resetsAt: 2000000000 });
+  const limited = await providerCheck(fakeState('local'), 'claude-code');
+  assert.deepEqual([limited.id, limited.status, limited.detail], ['provider:claude-code', 'ok', 'env.provider.limited']);
+  forgetLimits();
+  const keyBefore = process.env.ANTHROPIC_API_KEY; const tokenBefore = process.env.ANTHROPIC_AUTH_TOKEN;
+  delete process.env.ANTHROPIC_API_KEY; delete process.env.ANTHROPIC_AUTH_TOKEN;
+  assert.equal((await providerCheck(fakeState('local'), 'claude-code')).detail, 'env.key.subscription');
+  const cloud = await providerCheck(fakeState('cloud'), 'claude-code');
+  assert.deepEqual([cloud.status, cloud.critical, cloud.fix], ['fail', true, 'cloud.needApiKey']);
+  if (keyBefore !== undefined) process.env.ANTHROPIC_API_KEY = keyBefore;
+  if (tokenBefore !== undefined) process.env.ANTHROPIC_AUTH_TOKEN = tokenBefore;
+  const appBefore = process.env.OFFICE_APP; const binBefore = process.env.OFFICE_CLAUDE_BIN;
+  process.env.OFFICE_APP = '1'; delete process.env.OFFICE_CLAUDE_BIN;
+  const noEngine = await providerCheck(fakeState('local'), 'claude-code');
+  assert.deepEqual([noEngine.status, noEngine.fix], ['fail', 'env.engine.noneFix']);
+  if (appBefore === undefined) delete process.env.OFFICE_APP; else process.env.OFFICE_APP = appBefore;
+  if (binBefore !== undefined) process.env.OFFICE_CLAUDE_BIN = binBefore;
+}
+
 mkdirSync(resolve(root, 'workspace')); mkdirSync(resolve(root, 'outside'));
 symlinkSync(resolve(root, 'outside'), resolve(root, 'workspace/escape'));
 await assert.rejects(writablePath(resolve(root,'workspace'), 'escape/file.txt'), /outside/);

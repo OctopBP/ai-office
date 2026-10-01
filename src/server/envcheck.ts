@@ -1,5 +1,3 @@
-import { providerOf } from '../shared/providers';
-import { codexStatus } from './providers/diagnostics';
 /**
  * Проверки окружения офиса: всё, без чего он не сможет выполнять задачи.
  *
@@ -15,7 +13,8 @@ import { codexStatus } from './providers/diagnostics';
 import { accessSync, constants, statSync } from 'node:fs';
 import { OFFICE_SENDER } from '../shared/types';
 import type { EnvCheck, EnvReport } from '../shared/types';
-import { claudeBin } from './engines';
+import { PROVIDER_IDS, PROVIDERS, providerOf, type ProviderId } from '../shared/providers';
+import { engineFor, type ProviderStatus } from './engines';
 import { repoProblem } from './git';
 import type { Role } from './roles';
 import { criticalEnvFail } from './state';
@@ -30,55 +29,73 @@ import type { OfficeState, Task } from './state';
  * задача выполнима — офис работает прямо в директории. `roles` не входит,
  * потому что пустую роль уже ловит проверка «некому взять» на раздаче, а
  * `repo:<roleId>` — потому что он мешает одной роли, а не офису, и общий стоп
- * из-за него остановил бы всех остальных.
+ * из-за него остановил бы всех остальных. Каждый `provider:<id>` критичен:
+ * проверяются только провайдеры, на которых есть роли.
  */
-const CRITICAL = new Set(['key', 'workdir', 'provider:codex', 'engine']);
+const isCritical = (id: string): boolean => id === 'workdir' || id.startsWith('provider:');
 
 /** Проверка прошла: вопросов к окружению нет. */
 const ok = (id: string, title: string, detail: string): EnvCheck =>
-  ({ id, status: 'ok', title, detail, fix: '', critical: CRITICAL.has(id) });
+  ({ id, status: 'ok', title, detail, fix: '', critical: isCritical(id) });
 
 /** Проверка провалилась: `fix` — что человеку сделать, чтобы стало ok. */
 const fail = (id: string, title: string, detail: string, fix: string): EnvCheck =>
-  ({ id, status: 'fail', title, detail, fix, critical: CRITICAL.has(id) });
+  ({ id, status: 'fail', title, detail, fix, critical: isCritical(id) });
 
 /**
- * Ключ модели. В облачном режиме он обязателен: Managed Agents работают только
- * на платном API, и без ключа офис не выполнит ни одной задачи. В локальном
- * режиме ключа может не быть — тогда работаем на авторизации Claude Code, и
- * это не провал, а другой источник расхода.
+ * Провайдеры, которым есть кого обслуживать: на каждом хотя бы одна активная
+ * роль. В облачном режиме Claude проверяется всегда — Managed Agents считают
+ * на нём весь офис, какие бы провайдеры ни стояли у ролей.
  */
-function keyCheck(state: OfficeState): EnvCheck {
-  const title = state.say('env.key.title');
-  const hasKey = Boolean(process.env.ANTHROPIC_API_KEY || process.env.ANTHROPIC_AUTH_TOKEN);
-  if (state.settings.engine === 'cloud') {
-    return hasKey
-      ? ok('key', title, state.say('env.key.cloudOk'))
-      // Текст про ключ один на весь офис: тот же, которым облако отказывает
-      // в запуске задачи, — иначе проверка и отказ расходились бы в советах.
-      : fail('key', title, state.say('env.key.cloudNone'), state.say('cloud.needApiKey'));
-  }
-  return ok('key', title, state.say(hasKey ? 'env.key.apiKey' : 'env.key.subscription'));
+function providersInUse(state: OfficeState): ProviderId[] {
+  return PROVIDER_IDS.filter((id) =>
+    (id === 'claude-code' && state.settings.engine === 'cloud')
+    || state.activeRoles().some((role) => providerOf(role) === id));
 }
 
 /**
- * Движок агентов — нативный Claude Code, которым SDK и считает.
- *
- * Проверка живёт только в приложении (`OFFICE_APP=1`): запущенный из
- * исходников офис получает движок пакетом рядом с SDK, и SDK находит его сам —
- * повторять здесь его поиск значило бы завести второй ответ на тот же вопрос.
- * У приложения такого пакета нет: движок ставится отдельно, и его отсутствие
- * надо назвать до первой задачи, а не после её провала.
+ * Провайдер — одна проверка `provider:<id>` по статусу его движка (spec
+ * провайдеров §5.3): ставить ли движок, войти ли, ждать ли лимита — всё это
+ * отвечает адаптер, а не envcheck. `ready` и `limited` — ок: при лимите офис
+ * сам ждёт сброса, чинить человеку нечего. Остальное — провал с советом.
  */
-function engineCheck(state: OfficeState): EnvCheck | null {
-  if (process.env.OFFICE_APP !== '1') return null;
-  // Как и проверка Codex рядом: движок нужен ровно тем, кто им считает.
-  if (!state.activeRoles().some((role) => providerOf(role) === 'claude-code')) return null;
-  const title = state.say('env.engine.title');
-  const bin = claudeBin();
-  return bin
-    ? ok('engine', title, state.say('env.engine.ok', { path: bin }))
-    : fail('engine', title, state.say('env.engine.none'), state.say('env.engine.noneFix'));
+export async function providerCheck(state: OfficeState, provider: ProviderId): Promise<EnvCheck> {
+  const id = `provider:${provider}`;
+  const title = PROVIDERS[provider].label;
+  let status: ProviderStatus;
+  try {
+    status = await engineFor(provider).status(provider);
+  } catch (err) {
+    status = { state: 'error', detail: (err as Error).message };
+  }
+  const cloud = provider === 'claude-code' && state.settings.engine === 'cloud';
+  switch (status.state) {
+    case 'ready':
+      if (cloud) {
+        // Managed Agents работают только на платном API: вход Claude Code по
+        // подписке облаку не годится. Текст совета тот же, которым облако
+        // отказывает в запуске задачи, — иначе проверка и отказ расходились бы.
+        return status.auth === 'api-key'
+          ? ok(id, title, state.say('env.key.cloudOk'))
+          : fail(id, title, state.say('env.key.cloudNone'), state.say('cloud.needApiKey'));
+      }
+      if (provider === 'claude-code') {
+        return ok(id, title, state.say(status.auth === 'api-key' ? 'env.key.apiKey' : 'env.key.subscription'));
+      }
+      return ok(id, title, state.say('env.provider.ready'));
+    case 'limited':
+      return ok(id, title, status.detail ?? state.say('env.provider.limited'));
+    case 'not-installed':
+      return provider === 'claude-code'
+        ? fail(id, title, state.say('env.engine.none'), state.say('env.engine.noneFix'))
+        : fail(id, title, status.detail ?? state.say('env.provider.notInstalled'), state.say('env.provider.codexFix'));
+    case 'needs-login':
+      return fail(id, title, status.detail ?? state.say('env.provider.needsLogin'),
+        state.say(provider === 'codex' ? 'env.provider.codexFix' : 'env.provider.loginFix'));
+    case 'error':
+      return fail(id, title, status.detail,
+        state.say(provider === 'codex' ? 'env.provider.codexFix' : 'env.provider.loginFix'));
+  }
 }
 
 /**
@@ -160,9 +177,8 @@ function rolesCheck(state: OfficeState): EnvCheck {
  * неожиданная ошибка превращается в проваленную проверку.
  */
 export async function refreshEnvChecks(state: OfficeState): Promise<EnvReport> {
-  const checks: EnvCheck[] = [keyCheck(state), dirCheck(state)];
-  const engine = engineCheck(state);
-  if (engine) checks.push(engine);
+  const checks: EnvCheck[] = [dirCheck(state)];
+  checks.push(...await Promise.all(providersInUse(state).map((id) => providerCheck(state, id))));
   try {
     checks.push(await gitCheck(state));
   } catch (err) {
@@ -171,13 +187,6 @@ export async function refreshEnvChecks(state: OfficeState): Promise<EnvReport> {
       state.say('env.git.fix', { dir: state.projectDir })));
   }
   checks.push(rolesCheck(state));
-  if (state.activeRoles().some(role => providerOf(role) === 'codex')) {
-    const codex = await codexStatus();
-    checks.push(codex.available && codex.authenticated
-      ? ok('provider:codex', 'Codex', state.lang() === 'ru' ? 'CLI и авторизация доступны' : 'CLI and authentication available')
-      : fail('provider:codex', 'Codex', codex.error ?? 'Codex is not authenticated',
-        state.lang() === 'ru' ? 'Установите актуальный Codex CLI, выполните codex login; при необходимости задайте OFFICE_CODEX_PATH.' : 'Install a current Codex CLI, run codex login; set OFFICE_CODEX_PATH if needed.'));
-  }
   // Архивные роли пропускаем: работать в них некому, и ходить в git ради
   // строчки про репозиторий уволенной роли незачем.
   for (const role of state.activeRoles()) {

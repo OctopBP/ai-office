@@ -1,4 +1,5 @@
-import { codexStatus } from './providers/diagnostics';
+import { isProviderId } from '../shared/providers';
+import { engineFor, type ModelInfo, type ProviderStatus } from './engines';
 import { WebSocketServer, type WebSocket } from 'ws';
 import { createServer, type ServerResponse } from 'node:http';
 import { mkdirSync, existsSync, writeFileSync, readFileSync, statSync } from 'node:fs';
@@ -244,12 +245,22 @@ const httpServer = createServer((req, res) => {
 
   // Проверки окружения — до общего 404 по /api/: это единственный ответ,
   // который нужен ровно тогда, когда с офисом что-то не так.
-  if (url === '/api/providers/codex') {
+  const providerRoute = /^\/api\/providers\/([^/]+)$/.exec(url);
+  if (providerRoute) {
+    const provider = decodeURIComponent(providerRoute[1]!);
+    if (!isProviderId(provider)) { res.writeHead(404); res.end(); return; }
     if (req.method !== 'GET') { res.writeHead(405); res.end(); return; }
-    void codexStatus().then(status => {
+    // Состояние и модели — только через адаптер движка: форма роли читает
+    // отсюда `models`, а `status` тот же, что у проверки provider:<id>.
+    const engine = engineFor(provider);
+    void (async () => {
+      const [status, models] = await Promise.all([
+        engine.status(provider).catch((err: Error): ProviderStatus => ({ state: 'error', detail: err.message })),
+        engine.models(provider).catch((): ModelInfo[] => []),
+      ]);
       res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' });
-      res.end(JSON.stringify(status));
-    });
+      res.end(JSON.stringify({ status, models }));
+    })();
     return;
   }
   if (url === '/api/env') {
