@@ -29,13 +29,22 @@
   padding: 4px var(--space-2) 0 var(--space-3); min-height: 24px;
 }
 .md .md-code-lang { color: var(--ink-3); font-size: var(--fs-small); }
+/* Кнопка-иконка: квадрат 20×20 влезает в шапку и в компактном виде, так что
+   подпись языка не сдвигается. Фон только при наведении — в покое кнопка не
+   спорит с кодом. */
 .md .md-code-copy {
-  margin-left: auto; padding: 2px 8px; border: 0; border-radius: var(--radius-icon);
-  background: var(--film); color: var(--ink-3); font: var(--fs-small) var(--font); cursor: pointer;
+  margin-left: auto; display: inline-flex; align-items: center; justify-content: center;
+  width: 20px; height: 20px; padding: 0; border: 0; border-radius: var(--radius-icon);
+  background: transparent; color: var(--ink-3); cursor: pointer; flex: none;
 }
 .md .md-code-copy:hover { background: var(--film-3); color: var(--ink); }
 .md .md-code-copy:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
 .md .md-code-copy.is-done { color: var(--ok-ink); }
+.md .md-code-copy.is-failed { color: var(--danger); }
+.md .md-code-status {
+  position: absolute; width: 1px; height: 1px; overflow: hidden;
+  clip-path: inset(50%); white-space: nowrap;
+}
 .md .md-code pre { margin: 0; padding: var(--space-2) var(--space-3) var(--space-3); overflow-x: auto; font: inherit; }
 .md .md-code code { background: none; padding: 0; font: inherit; white-space: pre; }
 
@@ -133,7 +142,10 @@
 /* Цвета подсветки на заливке акцентом не читаются — код одним цветом текста. */
 .msg.from-user .md .md-code [class^='hl-'] { color: inherit; }
 .msg.from-user .md .md-code-lang, .msg.from-user .md .md-code-copy { color: inherit; }
-.msg.from-user .md .md-code-copy { background: rgba(0, 0, 0, .18); }
+/* Зелёный и красный на акценте теряются: состояние читается формой иконки,
+   а приглушение — прозрачностью цвета текста. */
+.msg.from-user .md .md-code-copy, .msg.from-user .md .md-code-copy.is-done, .msg.from-user .md .md-code-copy.is-failed { color: inherit; opacity: .75; }
+.msg.from-user .md .md-code-copy:hover, .msg.from-user .md .md-code-copy.is-done { opacity: 1; background: rgba(0, 0, 0, .18); }
 .msg.from-user .md th { background: rgba(0, 0, 0, .12); color: inherit; }
 .msg.from-user .md th, .msg.from-user .md td { border-color: rgba(255, 255, 255, .35); }
 .msg.from-user .md blockquote { border-left-color: rgba(255, 255, 255, .5); }

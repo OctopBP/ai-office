@@ -170,13 +170,22 @@ function CodeBlock({ code, lang }: { code: string; lang: string }) {
     copyText(code).then(() => done('copied'), () => done('failed'));
   };
   const label = state === 'copied' ? t('md.code.copied') : state === 'failed' ? t('md.code.copyFailed') : t('md.code.copy');
+  const icon = state === 'copied' ? 'check' : state === 'failed' ? 'alert-circle' : 'copy';
   return (
     <div className="md-code">
       <div className="md-code-head">
         {lang && <span className="md-code-lang">{lang.toLowerCase()}</span>}
-        <button type="button" className={`md-code-copy${state === 'copied' ? ' is-done' : ''}`} onClick={copy}>
-          {label}
+        <button
+          type="button"
+          className={`md-code-copy${state === 'copied' ? ' is-done' : state === 'failed' ? ' is-failed' : ''}`}
+          onClick={copy}
+          aria-label={label}
+          title={label}
+        >
+          <Icon name={icon} size={14} />
         </button>
+        {/* Иконка смену состояния голосом не передаёт — объявляем её отдельно. */}
+        <span className="md-code-status" role="status">{state === 'idle' ? '' : label}</span>
       </div>
       <pre>
         <code>

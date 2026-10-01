@@ -46,6 +46,7 @@ export type IconName =
   | 'list-check'
   | 'alert-triangle'
   | 'circle-check'
+  | 'check'
   | 'info-circle'
   | 'hourglass'
   | 'dots'
@@ -242,6 +243,7 @@ const ICON_PATHS: Record<IconName, string[]> = {
     'M12 12m-9 0a9 9 0 1 0 18 0a9 9 0 1 0 -18 0',
     'M9 12l2 2l4 -4',
   ],
+  check: ['M5 12l5 5l10 -10'],
   'info-circle': [
     'M3 12a9 9 0 1 0 18 0a9 9 0 0 0 -18 0',
     'M12 9h.01',
