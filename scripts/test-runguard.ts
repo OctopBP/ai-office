@@ -223,6 +223,19 @@ const calm = await drive([call('k1', 10_000), autoCompact, call('k2', 10_000)]);
 results.push(`цикл: спокойный запуск идёт как раньше: ${calm.run.budget === null && calm.run.failed === null
   && calm.run.text === 'готово' && !calm.fake.state.interrupted}`);
 
+// Остановка попадает в записи о запусках — по ним разбор расхода считает stopped_budget.
+const stoppedRuns = () => office.agentRunList().filter((r) => r.instanceId === worker.id && r.stoppedBudget);
+results.push(`запуски: обе остановки записаны, спокойный запуск — нет: ${stoppedRuns().length === 2
+  && stoppedRuns().every((r) => r.taskId === task.id)}`);
+// Результат пришёл после остановки — пометка ложится на его запись, новой не появляется.
+const stopAt = Date.now();
+office.addUsage(worker.id, { costUsd: 0.1, tokensIn: 10, tokensOut: 1, cacheRead: 0, cacheWrite: 0 }, null, 'sess-x');
+const runsBefore = office.agentRunList().length;
+office.noteBudgetStop(worker.id, stopAt);
+const last = office.agentRunList().at(-1);
+results.push(`запуски: пометка на записи пришедшего результата: ${office.agentRunList().length === runsBefore
+  && last?.stoppedBudget === true && last.costUsd === 0.1}`);
+
 // Исход задачи — stopped_budget с цифрами; дошедшая потом до конца задача его перекрывает.
 const outcome = recordOutcome(office, task.id, 'stopped_budget', Date.now(), byTokens.run.budget!);
 results.push(`исход stopped_budget хранит цифры: ${outcome?.kind === 'stopped_budget'

@@ -10,6 +10,7 @@ import {
   buildSpendReport, reportRange, asPeriod, NO_KEY, SPEND_SIGNALS,
 } from '../src/server/spendReport';
 import type { SpendReport } from '../src/shared/spendReport';
+import { BUDGET_DEFAULT_TOKENS, BUDGET_MIN_HISTORY } from '../src/server/runguard';
 
 const results: string[] = [];
 const S = SPEND_SIGNALS;
@@ -94,7 +95,7 @@ results.push(
 
 // ---------- срезы ----------
 
-const bySum = (r: SpendReport) => [r.byTask, r.byRole, r.byNode, r.byModel, r.byDay]
+const bySum = (r: SpendReport) => [r.byTask, r.byRole, r.byNode, r.byWorkflow, r.byModel, r.byDay]
   .every((slices) => near(sum(slices), r.total.costUsd)
     && slices.reduce((n, s) => n + s.runs, 0) === r.total.runs);
 const t1 = day.byTask.find((s) => s.key === 'T-1');
@@ -159,6 +160,74 @@ results.push(
     || (all[i - 1]!.severity === s.severity && all[i - 1]!.costUsd >= s.costUsd))}`,
   `у каждого сигнала есть пояснение и ссылка: ${day.signals.length > 0
     && day.signals.every((s) => s.text.length > 20 && s.target.id.length > 0)}`,
+);
+
+// ---------- доля кэша, префикс и остановки по роли, процессу и задаче ----------
+
+// Отдельный набор, чтобы не сдвигать суммы выше.
+const g: AgentRunEntry[] = [
+  // T-20: обычная работа, хороший кэш.
+  run({ taskId: 'T-20', workflowId: 'flow-a', nodeId: 'work', costUsd: 1,
+    input_tokens: 10_000, cache_read_input_tokens: 90_000, prefixTokens: 30_000 }),
+  // T-21: запуск больше порога по умолчанию — и его остановил предохранитель.
+  run({ taskId: 'T-21', workflowId: 'flow-a', nodeId: 'work', costUsd: 9,
+    input_tokens: 500_000, cache_read_input_tokens: 2_000_000, prefixTokens: 50_000, stoppedBudget: true }),
+  // T-22: ввод большой, кэш читается на 40% — ниже половины.
+  run({ taskId: 'T-22', workflowId: 'flow-b', nodeId: 'review', roleId: 'reviewer', instanceId: 'reviewer#1',
+    costUsd: 5, input_tokens: 180_000, cache_read_input_tokens: 120_000, prefixTokens: 10_000 }),
+  // T-23: остановлен, но usage потерян — запуск пустой.
+  run({ taskId: 'T-23', workflowId: 'flow-b', nodeId: 'review', roleId: 'reviewer', instanceId: 'reviewer#1',
+    costUsd: 0.5, stoppedBudget: true }),
+  // T-24: кэш плохой, но ввода меньше минимума — не аномалия.
+  run({ taskId: 'T-24', costUsd: 0.1, input_tokens: 10_000 }),
+];
+const gr = buildSpendReport(g, { period: 'day', to: now, lang: 'ru', officeId: 'o-test' });
+const slice = (list: SpendReport['byTask'], key: string) => list.find((s) => s.key === key);
+const top = (key: string) => gr.topTasks.find((s) => s.key === key);
+results.push(
+  `остановки по задаче: ${slice(gr.byTask, 'T-21')?.budgetStops === 1 && slice(gr.byTask, 'T-20')?.budgetStops === 0}`,
+  `остановки по роли: ${slice(gr.byRole, 'backend')?.budgetStops === 1 && slice(gr.byRole, 'reviewer')?.budgetStops === 1}`,
+  `остановки по процессу целиком: ${slice(gr.byWorkflow, 'flow-a')?.budgetStops === 1
+    && slice(gr.byWorkflow, 'flow-b')?.budgetStops === 1 && slice(gr.byWorkflow, NO_KEY)?.budgetStops === 0}`,
+  `остановки в итоге офиса: ${gr.total.budgetStops === 2}`,
+  `доля кэша по процессу: ${near(slice(gr.byWorkflow, 'flow-a')!.cacheReadShare!, 2_090_000 / 2_600_000)}`,
+  `доля кэша по роли: ${near(slice(gr.byRole, 'reviewer')!.cacheReadShare!, 120_000 / 300_000)}`,
+  `средний префикс по процессу: ${slice(gr.byWorkflow, 'flow-a')?.avgPrefixTokens === 40_000}`,
+  `средний префикс без замеров не тянется к нулю: ${slice(gr.byWorkflow, 'flow-b')?.avgPrefixTokens === 10_000}`,
+  `процесс подписан, вне процесса — своей подписью: ${slice(gr.byWorkflow, 'flow-a')?.label === 'flow-a'
+    && slice(gr.byWorkflow, NO_KEY)?.label === 'Вне процесса'}`,
+);
+
+// ---------- аномалии главных потребителей ----------
+
+const t21 = top('T-21');
+const t21Over = t21?.anomalies.find((a) => a.kind === 'overBudget');
+results.push(
+  `обычная задача — без аномалии: ${top('T-20')?.anomaly === false && top('T-20')?.anomalies.length === 0}`,
+  `выше порога предохранителя — аномалия: ${t21?.anomaly === true
+    && near(t21Over!.value, 2_500_000 / BUDGET_DEFAULT_TOKENS) && t21Over!.threshold === 1}`,
+  `в причине — расход, порог и остановка: ${t21Over?.text.includes('2500K') === true
+    && t21Over.text.includes('2000K') && t21Over.text.includes('останавливал')}`,
+  `доля кэша ниже 50% — аномалия: ${top('T-22')?.anomalies.length === 1
+    && top('T-22')?.anomalies[0]?.kind === 'lowCache' && near(top('T-22')!.anomalies[0]!.value, 0.4)
+    && top('T-22')!.anomalies[0]!.text.includes('40%')}`,
+  `остановленный без usage — аномалия по остановке: ${top('T-23')?.anomalies[0]?.kind === 'overBudget'
+    && top('T-23')?.anomalies[0]?.value === 1}`,
+  `малый ввод с плохим кэшем — не аномалия: ${top('T-24')?.anomaly === false}`,
+);
+
+// Порог из истории: десяток обычных запусков роли опускает порог до трёх медиан.
+const hist: AgentRunEntry[] = Array.from({ length: BUDGET_MIN_HISTORY }, (_, i) => run({
+  taskId: `H-${i}`, at: now - 2 * DAY_MS, input_tokens: 100_000,
+}));
+const heavy = run({ taskId: 'T-30', input_tokens: 1_000_000, cache_read_input_tokens: 1_000_000, costUsd: 3 });
+const hr = buildSpendReport([...hist, heavy], { period: 'day', to: now, lang: 'en', officeId: 'o' });
+const heavyOver = hr.topTasks.find((s) => s.key === 'T-30')?.anomalies.find((a) => a.kind === 'overBudget');
+results.push(
+  `порог аномалии — из истории роли, как у предохранителя: ${heavyOver !== undefined
+    && heavyOver.value > 1 && heavyOver.text.includes('limit')}`,
+  `без истории тот же запуск в норме: ${buildSpendReport([heavy], { period: 'day', to: now, lang: 'en', officeId: 'o' })
+    .topTasks[0]?.anomalies.some((a) => a.kind === 'overBudget') === false}`,
 );
 
 // Пустой офис: всё по нулям, сигналов нет, ничего не падает.

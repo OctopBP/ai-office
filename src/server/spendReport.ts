@@ -9,9 +9,10 @@
 import { dayKey } from '../shared/types';
 import type { Lang } from '../shared/i18n';
 import type {
-  SpendReport, SpendReportPeriod, SpendSignal, SpendSignalTarget, SpendSlice,
+  SpendAnomaly, SpendReport, SpendReportPeriod, SpendSignal, SpendSignalTarget, SpendSlice, SpendTopTask,
 } from '../shared/spendReport';
 import { t } from './i18n';
+import { runInputTokens, runKind, runThreshold } from './runguard';
 import { dayStart, type AgentRunEntry } from './spend';
 import type { OfficeState } from './state';
 
@@ -75,7 +76,7 @@ function emptySlice(key: string, label: string): SliceAcc {
   return {
     key, label, runs: 0, costUsd: 0, costUnavailable: false,
     input_tokens: 0, cache_creation_input_tokens: 0, cache_read_input_tokens: 0, output_tokens: 0,
-    cacheReadShare: null, compactions: 0, wideRetries: 0, avgPrefixTokens: null,
+    cacheReadShare: null, compactions: 0, wideRetries: 0, avgPrefixTokens: null, budgetStops: 0,
     prefixSum: 0, prefixN: 0,
   };
 }
@@ -90,6 +91,7 @@ function add(acc: SliceAcc, r: AgentRunEntry): void {
   acc.output_tokens += r.output_tokens;
   acc.compactions += r.compactions;
   acc.wideRetries += r.wideRetries;
+  if (r.stoppedBudget) acc.budgetStops += 1;
   if (r.prefixTokens !== null) {
     acc.prefixSum += r.prefixTokens;
     acc.prefixN += 1;
@@ -202,6 +204,63 @@ export function spendSignals(
   return signals.sort((a, b) => rank(a) - rank(b) || b.costUsd - a.costUsd);
 }
 
+/**
+ * Аномалии задачи из главных потребителей. Порог расхода — тот же, что у
+ * предохранителя (`runThreshold`), но посчитанный по нынешней истории, а не
+ * по той, что была в момент запуска: разбор отвечает «что выбивается сейчас»,
+ * и пересчитывать историю на каждый запуск ради этого незачем.
+ *
+ * `history` — все запуски офиса, не только за период: порог роли строится
+ * по последним запускам, где бы они ни лежали.
+ */
+export function taskAnomalies(
+  slice: SpendSlice, taskRuns: readonly AgentRunEntry[], history: readonly AgentRunEntry[], lang: Lang,
+): SpendAnomaly[] {
+  const S = SPEND_SIGNALS;
+  const anomalies: SpendAnomaly[] = [];
+
+  const limits = new Map<string, number>();
+  let worst: { ratio: number; spent: number; limit: number } | null = null;
+  let stops = 0;
+  for (const r of taskRuns) {
+    if (r.stoppedBudget) stops += 1;
+    const kind = runKind(r.nodeId);
+    const key = `${r.roleId} ${kind}`;
+    let limit = limits.get(key);
+    if (limit === undefined) limits.set(key, limit = runThreshold(history, r.roleId, kind).tokens);
+    const spent = runInputTokens(r);
+    const ratio = spent / limit;
+    if (!worst || ratio > worst.ratio) worst = { ratio, spent, limit };
+  }
+  const over = worst !== null && worst.ratio > 1;
+  if (over || stops > 0) {
+    const parts: string[] = [];
+    if (over) {
+      parts.push(t(lang, 'spend.anomaly.overBudget', {
+        spent: kTokens(worst!.spent), limit: kTokens(worst!.limit), ratio: worst!.ratio.toFixed(1),
+      }));
+    }
+    if (stops > 0) parts.push(t(lang, 'spend.anomaly.stopped', { count: stops }));
+    anomalies.push({
+      kind: 'overBudget',
+      // Остановленный запуск дошёл до порога, даже если его usage потерян.
+      value: Math.max(worst?.ratio ?? 0, stops > 0 ? 1 : 0),
+      threshold: 1,
+      text: parts.join(' '),
+    });
+  }
+
+  // Минимум ввода — как у сигнала: у короткой задачи кэшу не на чем окупиться.
+  const share = slice.cacheReadShare;
+  if (share !== null && inputOf(slice) >= S.lowCacheMinInput && share < S.lowCacheWarn) {
+    anomalies.push({
+      kind: 'lowCache', value: share, threshold: S.lowCacheWarn,
+      text: t(lang, 'spend.anomaly.lowCache', { share: pct(share), threshold: pct(S.lowCacheWarn) }),
+    });
+  }
+  return anomalies;
+}
+
 /** Разбор расхода по запускам за период. Чистая функция: весь ввод — в аргументах. */
 export function buildSpendReport(runs: AgentRunEntry[], opts: SpendReportOptions): SpendReport {
   const { from, to } = reportRange(opts.period, opts.to);
@@ -218,14 +277,20 @@ export function buildSpendReport(runs: AgentRunEntry[], opts: SpendReportOptions
   const byNode = group(inPeriod,
     (r) => (r.workflowId ? `${r.workflowId}/${r.nodeId ?? NO_KEY}` : NO_KEY),
     (key) => (key === NO_KEY ? t(lang, 'spend.report.noFlow') : key));
+  const byWorkflow = group(inPeriod, (r) => r.workflowId ?? NO_KEY,
+    (key) => (key === NO_KEY ? t(lang, 'spend.report.noFlow') : key));
   const byModel = group(inPeriod, (r) => r.model ?? NO_KEY, (key) => key);
   const byDay = group(inPeriod, (r) => dayKey(r.at), (key) => key)
     .sort((a, b) => a.key.localeCompare(b.key));
-  const topTasks = byTask.filter((s) => s.key !== NO_KEY).slice(0, SPEND_SIGNALS.topTasks);
+  const topTasks = byTask.filter((s) => s.key !== NO_KEY).slice(0, SPEND_SIGNALS.topTasks)
+    .map((slice): SpendTopTask => {
+      const anomalies = taskAnomalies(slice, inPeriod.filter((r) => r.taskId === slice.key), runs, lang);
+      return { ...slice, anomaly: anomalies.length > 0, anomalies };
+    });
 
   return {
     period: opts.period, from, to,
-    total, byTask, byRole, byNode, byModel, byDay, topTasks,
+    total, byTask, byRole, byNode, byWorkflow, byModel, byDay, topTasks,
     signals: spendSignals({ total, byTask, byRole }, lang, opts.officeId),
   };
 }

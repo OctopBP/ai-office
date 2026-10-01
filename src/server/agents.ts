@@ -3727,6 +3727,7 @@ async function collectWorker(
   const run: WorkerRun = { text: '', failed: null, thrashed: false, budget: null };
   let measured = !fresh;
   let releaseHalt = () => {};
+  let stoppedAt = 0;
   const onGuard = (signal: GuardSignal | null) => {
     if (!signal) return;
     const task = inst.currentTaskId ?? '—';
@@ -3742,6 +3743,7 @@ async function collectWorker(
       return;
     }
     run.budget = signal.stop;
+    stoppedAt = Date.now();
     state.addLog(inst.id, 'error', state.say('agent.budget.stopping', {
       task, reason: budgetReason(state, signal.stop),
     }));
@@ -3792,6 +3794,8 @@ async function collectWorker(
     resumed?.prompt.close();
   }
   if (run.budget) {
+    // Разбор расхода считает остановки по записям о запусках.
+    state.noteBudgetStop(inst.id, stoppedAt);
     // Что бы ни ответила прерванная сессия, причина одна — предохранитель.
     return { text: '', failed: budgetReason(state, run.budget), thrashed: false, budget: run.budget };
   }

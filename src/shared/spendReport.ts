@@ -36,6 +36,36 @@ export interface SpendSlice {
   wideRetries: number;
   /** Средний стартовый префикс по замеренным запускам; null — замеров нет. */
   avgPrefixTokens: number | null;
+  /** Сколько запусков группы остановил предохранитель расхода (исход stopped_budget). */
+  budgetStops: number;
+}
+
+/** Почему задача из главных потребителей помечена аномалией. */
+export type SpendAnomalyKind =
+  /** Запуск задачи съел больше порога предохранителя или был им остановлен. */
+  | 'overBudget'
+  /** Из кэша читается меньше половины ввода задачи. */
+  | 'lowCache';
+
+export interface SpendAnomaly {
+  kind: SpendAnomalyKind;
+  /**
+   * overBudget — во сколько раз самый тяжёлый запуск превысил свой порог
+   * (у остановленного — не меньше 1); lowCache — доля кэша.
+   */
+  value: number;
+  /** С чем сравнили: 1 (сам порог) или порог доли кэша. */
+  threshold: number;
+  /** Пояснение на языке офиса. */
+  text: string;
+}
+
+/** Задача из списка главных потребителей. */
+export interface SpendTopTask extends SpendSlice {
+  /** Есть ли хоть одна причина для тревоги. */
+  anomaly: boolean;
+  /** Причины аномалии; пусто — расход в норме. */
+  anomalies: SpendAnomaly[];
 }
 
 /** Чем плох расход, который заметил сигнал. */
@@ -81,11 +111,13 @@ export interface SpendReport {
   byRole: SpendSlice[];
   /** Ключ — `процесс/узел`; запуски вне процесса — под ключом `-`. */
   byNode: SpendSlice[];
+  /** По процессу целиком, без деления на узлы; вне процесса — под ключом `-`. */
+  byWorkflow: SpendSlice[];
   byModel: SpendSlice[];
   /** По суткам периода, от старых к свежим. */
   byDay: SpendSlice[];
-  /** Главные потребители: задачи по убыванию стоимости, не больше десяти. */
-  topTasks: SpendSlice[];
+  /** Главные потребители: задачи по убыванию стоимости, не больше десяти, с флагом аномалии. */
+  topTasks: SpendTopTask[];
   /** Сигналы перерасхода, самые тревожные и дорогие — первыми. */
   signals: SpendSignal[];
 }

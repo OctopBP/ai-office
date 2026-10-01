@@ -2931,6 +2931,28 @@ export class OfficeState {
     this.agentRuns = trimAgentRuns(this.agentRuns);
   }
 
+  /**
+   * Запуск исполнителя остановил предохранитель расхода; `since` — момент
+   * остановки. Прерванная сессия обычно ещё присылает результат, и тогда
+   * пометка ложится на его запись. Не прислала — запуск записывается пустым:
+   * его usage потерян, а сама остановка в разборе расхода потеряться не должна.
+   */
+  noteBudgetStop(instanceId: string, since: number): void {
+    const inst = this.instances.get(instanceId);
+    if (!inst) return;
+    for (let i = this.agentRuns.length - 1; i >= 0; i--) {
+      const r = this.agentRuns[i];
+      if (r.at < since) break;
+      if (r.instanceId !== instanceId) continue;
+      r.stoppedBudget = true;
+      this.markDirty();
+      return;
+    }
+    this.addAgentRun(inst, emptyUsage(), null, null);
+    this.agentRuns[this.agentRuns.length - 1].stoppedBudget = true;
+    this.markDirty();
+  }
+
   /** Запуски агентов, от старых к свежим. */
   agentRunList(): AgentRunEntry[] {
     return this.agentRuns;
