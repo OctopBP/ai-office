@@ -41,7 +41,9 @@ import { workflowCatalog } from './workflows';
 import {
   parseReleaseConfig, type EpicRelease, type Release, type ReleasePlan, type ReleaseSetup, type ReleaseTarget,
 } from '../shared/release';
-import { foldSpend, spendSeq, SPEND_MAX } from './spend';
+import {
+  agentRunSeq, foldSpend, spendSeq, trimAgentRuns, RUNS_MAX, SPEND_MAX, type AgentRunEntry,
+} from './spend';
 import { capabilitiesOf } from './roles';
 import { t, c, type ServerKey } from './i18n';
 import { activityFromFile, summarize } from './activity';
@@ -1230,6 +1232,22 @@ export class OfficeState {
   private spendSeqNo = 0;
   /** Сутки последней свёртки: гонять её на каждую трату незачем. */
   private spendFoldedDay = '';
+  /**
+   * Запуски агентов, от старых к свежим (см. `AgentRunEntry` в `spend.ts`):
+   * лежат рядом с тратами и пишутся в той же точке, что и они, — поэтому их
+   * сумма за период сходится с накопителями.
+   */
+  agentRuns: AgentRunEntry[] = [];
+  private agentRunSeqNo = 0;
+  private agentRunsTrimmedDay = '';
+  /**
+   * Что известно о запуске до его результата: первый замер контекста и
+   * число сжатий. Ключ — исполнитель и сессия: под `pm#1` одновременно идут
+   * и разговор с менеджером, и ритуал, и их счётчики смешивать нельзя.
+   */
+  private runTrack = new Map<string, { prefix: number | null; compactions: number }>();
+  /** Исполнители, чей следующий результат — повтор на широком окне. */
+  private wideRetryPending = new Map<string, number>();
   private factSeq = 0;
   private questionSeq = 0;
   /** Кто ждёт закрытия вопроса: узлы согласования процессов. */
@@ -1479,6 +1497,8 @@ export class OfficeState {
       life: this.life,
       spend: this.spend,
       spendSeq: this.spendSeqNo,
+      agentRuns: this.agentRuns,
+      agentRunSeq: this.agentRunSeqNo,
       facts: [...this.facts.values()],
       factSeq: this.factSeq,
       questions: [...this.questions.values()],
@@ -2010,6 +2030,10 @@ export class OfficeState {
     // номера должны продолжаться, иначе новая трата получит чужой id.
     this.spendSeqNo = data.spendSeq
       ?? this.spend.reduce((max, e) => Math.max(max, spendSeq(e.id) ?? 0), 0);
+    this.agentRuns = trimAgentRuns(data.agentRuns ?? []);
+    this.agentRunsTrimmedDay = dayKey();
+    this.agentRunSeqNo = data.agentRunSeq
+      ?? this.agentRuns.reduce((max, r) => Math.max(max, agentRunSeq(r.id) ?? 0), 0);
     for (const fact of data.facts ?? []) {
       this.facts.set(fact.id, { ...fact, askedAt: fact.askedAt ?? null, status: fact.status ?? 'live' });
     }
@@ -2378,6 +2402,11 @@ export class OfficeState {
     this.spend = [];
     this.spendSeqNo = 0;
     this.spendFoldedDay = '';
+    this.agentRuns = [];
+    this.agentRunSeqNo = 0;
+    this.agentRunsTrimmedDay = '';
+    this.runTrack.clear();
+    this.wideRetryPending.clear();
     this.life = emptyLife();
     this.facts.clear();
     this.questions.clear();
@@ -2718,12 +2747,17 @@ export class OfficeState {
    *
    * `model` — модель, которой платили, как её назвал SDK. Не назвал — берём
    * ту, что стоит у роли: это хуже точного ответа, но лучше пустой колонки.
+   *
+   * Восьмое — запись о запуске (`agentRuns`): результат сессии и есть конец
+   * запуска. `sessionId` — чью сессию закрывает результат, по нему находятся
+   * замер префикса и счётчик сжатий этого запуска.
    */
-  addUsage(id: string, delta: Usage, model?: string | null): void {
+  addUsage(id: string, delta: Usage, model?: string | null, sessionId?: string | null): void {
     const inst = this.instances.get(id);
     if (!inst) return;
     const day = dayKey();
     this.addSpend(inst, delta, model ?? null);
+    this.addAgentRun(inst, delta, model ?? null, sessionId ?? null);
 
     if (inst.currentTaskId) {
       const task = this.tasks.get(inst.currentTaskId);
@@ -2814,6 +2848,92 @@ export class OfficeState {
   /** Детализация трат, от старых к свежим. */
   spendList(): SpendEntryView[] {
     return this.spend;
+  }
+
+  private runKey(instanceId: string, sessionId: string | null): string {
+    return `${instanceId} ${sessionId ?? ''}`;
+  }
+
+  private runTrackOf(instanceId: string, sessionId: string | null) {
+    const key = this.runKey(instanceId, sessionId);
+    let track = this.runTrack.get(key);
+    if (!track) {
+      // Сессия, оборванная до результата, оставляет свой счётчик навсегда.
+      // Таких немного, но держать их вечно незачем: старейшие уходят первыми.
+      if (this.runTrack.size >= 200) this.runTrack.delete(this.runTrack.keys().next().value!);
+      track = { prefix: null, compactions: 0 };
+      this.runTrack.set(key, track);
+    }
+    return track;
+  }
+
+  /**
+   * Модель ответила с usage. Запоминается только первый замер запуска: он и
+   * есть стартовый префикс, а дальше контекст растёт от работы, а не от того,
+   * с чем сессия пришла.
+   */
+  noteRunContext(instanceId: string, sessionId: string | null, tokens: number): void {
+    const track = this.runTrackOf(instanceId, sessionId);
+    if (track.prefix === null) track.prefix = Math.round(tokens);
+  }
+
+  /** В запуске сработало сжатие контекста. */
+  noteRunCompaction(instanceId: string, sessionId: string | null): void {
+    this.runTrackOf(instanceId, sessionId).compactions += 1;
+  }
+
+  /**
+   * Следующий результат исполнителя — повтор на широком окне. Держится на
+   * исполнителе, а не на сессии: повтор продолжает ту же сессию, но провайдер
+   * вправе назвать её по-новому, и счётчик тогда потерялся бы.
+   */
+  noteWideRetry(instanceId: string): void {
+    this.wideRetryPending.set(instanceId, (this.wideRetryPending.get(instanceId) ?? 0) + 1);
+  }
+
+  /**
+   * Записать запуск. В отличие от траты, пишется и пустой: запуск был, и
+   * «ничего не стоил» — тоже ответ. Процесс и узел берутся из прогона задачи,
+   * пока он идёт: у законченного прогона узел уже конечный и ни о чём не говорит.
+   */
+  private addAgentRun(inst: Instance, delta: Usage, model: string | null, sessionId: string | null): void {
+    const key = this.runKey(inst.id, sessionId);
+    const track = this.runTrack.get(key);
+    this.runTrack.delete(key);
+    const wideRetries = this.wideRetryPending.get(inst.id) ?? 0;
+    this.wideRetryPending.delete(inst.id);
+    const flow = inst.currentTaskId ? this.runOf(inst.currentTaskId) : null;
+    const live = flow && (flow.status === 'running' || flow.status === 'waiting') ? flow : null;
+    this.agentRunSeqNo += 1;
+    this.agentRuns.push({
+      id: `A-${this.agentRunSeqNo}`,
+      at: Date.now(),
+      office: this.officeId,
+      taskId: inst.currentTaskId,
+      workflowId: live?.workflowId ?? null,
+      nodeId: live?.nodeId ?? null,
+      roleId: inst.roleId,
+      instanceId: inst.id,
+      model: model ?? this.runtimeModel(inst.roleId),
+      input_tokens: delta.tokensIn,
+      cache_creation_input_tokens: delta.cacheWrite,
+      cache_read_input_tokens: delta.cacheRead,
+      output_tokens: delta.tokensOut,
+      prefixTokens: track?.prefix ?? null,
+      compactions: track?.compactions ?? 0,
+      wideRetries,
+      costUsd: delta.costUsd,
+      ...(delta.costUnavailable ? { costUnavailable: true } : {}),
+    });
+    const today = dayKey();
+    if (today === this.agentRunsTrimmedDay && this.agentRuns.length <= RUNS_MAX) return;
+    this.agentRunsTrimmedDay = today;
+    this.agentRuns = trimAgentRuns(this.agentRuns);
+  }
+
+  /** Запуски агентов, от старых к свежим. */
+  agentRunList(): AgentRunEntry[] {
+    return this.agentRuns;
   }
 
   /** История расходов офиса по дням, от старых к новым. */

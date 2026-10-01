@@ -5,6 +5,7 @@ import type {
   SpendEntryView, Usage,
 } from '../shared/types';
 import type { Run } from '../shared/workflow';
+import type { AgentRunEntry } from './spend';
 import type { Release, ReleasePlan, ReleaseSetup } from '../shared/release';
 import type { Direction, Epic, Fact, LifeState, PersistedPmSession, Proposal, Task } from './state';
 import type { MeetingView, OwnerQuestion } from '../shared/types';
@@ -103,6 +104,10 @@ export interface Persisted {
   spend?: SpendEntryView[];
   /** Номер последней траты. Не длина массива: свёртка выкидывает записи. */
   spendSeq?: number;
+  /** Запуски агентов (см. `AgentRunEntry` в `spend.ts`). В старых сохранениях поля нет. */
+  agentRuns?: AgentRunEntry[];
+  /** Номер последнего запуска: подрезка выкидывает записи, номера должны продолжаться. */
+  agentRunSeq?: number;
   settings: Settings;
   /**
    * Набор ролей офиса целиком: у каждого проекта он свой, и роли переживают

@@ -495,6 +495,135 @@ spLegacy.addUsage('backend#1', {
 results.push(`старое сохранение поднимается с пустой детализацией: ${
   spLegacy.spendList().length === 1 && spLegacy.spendList()[0]?.id === 'S-1'}`);
 
+// ---------- запуски агентов ----------
+
+// Запуск — то, из чего видно «почему столько»: префикс, сжатия, повтор на
+// широком окне. Проверяется, что каждое поле доезжает до записи, что счётчики
+// одного запуска не утекают в следующий и что сумма запусков сходится с
+// общим учётом — иначе разбор расхода спорил бы с доской.
+const {
+  summarizeAgentRuns, trimAgentRuns, RUNS_KEEP_DAYS, RUNS_MAX,
+} = await import('../src/server/spend');
+
+const arDir = mkdtempSync(resolve(tmpdir(), 'office-runs-'));
+const arStateFile = resolve(arDir, 'state.json');
+const arOffice = openOfficeState({ id: 'o-runs', projectDir: arDir, stateFile: arStateFile }).state;
+const arTask = arOffice.createTask({
+  title: 'запуски по задаче', description: '', criteria: [], roleId: 'backend',
+});
+const arInst = arOffice.instances.get('backend#1')!;
+arInst.currentTaskId = arTask.id;
+// Задача идёт по процессу: запуск обязан запомнить процесс и узел.
+arOffice.saveRun({
+  id: 'RUN-1', workflowId: 'task-default', version: 1, subject: { taskId: arTask.id },
+  nodeId: 'review', from: 'work', loops: {}, artifacts: {}, actors: {}, steps: [],
+  waitingOn: null, status: 'running', needsDecision: false, note: '',
+  startedAt: Date.now(), updatedAt: Date.now(),
+});
+
+// Первый запуск исполнителя: замер префикса, второй замер (он уже не
+// стартовый), два сжатия, результат.
+arOffice.noteRunContext('backend#1', 'sess-a', 57_000);
+arOffice.noteRunContext('backend#1', 'sess-a', 90_000);
+arOffice.noteRunCompaction('backend#1', 'sess-a');
+arOffice.noteRunCompaction('backend#1', 'sess-a');
+// Параллельная короткая сессия того же исполнителя свои счётчики держит отдельно.
+arOffice.noteRunCompaction('backend#1', 'sess-other');
+arOffice.addUsage('backend#1', {
+  costUsd: 1.25, tokensIn: 300, tokensOut: 2000, cacheRead: 50_000, cacheWrite: 7000,
+}, 'claude-opus-5', 'sess-a');
+const arFirst = arOffice.agentRunList()[0];
+results.push(
+  `запуск записан: ${arOffice.agentRunList().length === 1 && arFirst?.id === 'A-1'}`,
+  `с задачей, ролью и исполнителем: ${arFirst?.taskId === arTask.id
+    && arFirst.roleId === 'backend' && arFirst.instanceId === 'backend#1'}`,
+  `с процессом и узлом: ${arFirst?.workflowId === 'task-default' && arFirst.nodeId === 'review'}`,
+  `с моделью: ${arFirst?.model === 'claude-opus-5'}`,
+  `с usage по полям SDK: ${arFirst?.input_tokens === 300 && arFirst.output_tokens === 2000
+    && arFirst.cache_read_input_tokens === 50_000 && arFirst.cache_creation_input_tokens === 7000}`,
+  `префикс — первый замер, а не последний: ${arFirst?.prefixTokens === 57_000}`,
+  `сжатия только своей сессии: ${arFirst?.compactions === 2}`,
+  `повтора на широком окне не было: ${arFirst?.wideRetries === 0}`,
+  `стоимость: ${arFirst?.costUsd === 1.25}`,
+);
+
+// Зацикленное сжатие: офис повторяет на широком окне, повтор — свой запуск.
+arOffice.noteWideRetry('backend#1');
+arOffice.noteRunContext('backend#1', 'sess-a', 120_000);
+arOffice.addUsage('backend#1', {
+  costUsd: 0.75, tokensIn: 100, tokensOut: 500, cacheRead: 100_000, cacheWrite: 0,
+}, 'claude-opus-5', 'sess-a');
+const arRetry = arOffice.agentRunList()[1];
+results.push(
+  `повтор на широком окне отмечен: ${arRetry?.wideRetries === 1}`,
+  `счётчики прошлого запуска не утекли: ${arRetry?.compactions === 0 && arRetry.prefixTokens === 120_000}`,
+);
+
+// Пустой результат тратой не становится, а запуском — да: запуск был.
+arOffice.addUsage('backend#1', emptyUsage(), null, 'sess-b');
+const arEmpty = arOffice.agentRunList()[2];
+results.push(
+  `пустой запуск записан, а траты не завёл: ${arEmpty?.costUsd === 0
+    && arOffice.spendList().length === 2}`,
+  `запуск без замеров: префикс неизвестен, сжатий ноль, повтор не перенёсся: ${
+    arEmpty?.prefixTokens === null && arEmpty.compactions === 0 && arEmpty.wideRetries === 0}`,
+);
+
+// Менеджер вне задачи и без процесса. Цена не названа — признак едет в запись.
+arOffice.addUsage('pm#1', {
+  costUsd: 0.1, tokensIn: 10, tokensOut: 20, cacheRead: 0, cacheWrite: 0, costUnavailable: true,
+}, 'claude-sonnet-5', 'pm-sess');
+const arPm = arOffice.agentRunList()[3];
+results.push(`запуск менеджера: без задачи и процесса, с пометкой о цене: ${
+  arPm?.roleId === 'pm' && arPm.taskId === null && arPm.workflowId === null
+  && arPm.nodeId === null && arPm.costUnavailable === true}`);
+
+// Сумма запусков за период сходится с общим учётом и с детализацией трат.
+const arSummary = summarizeAgentRuns(arOffice.agentRunList());
+const arSpendTotal = arOffice.spendList().reduce((s, e) => s + e.usage.costUsd, 0);
+const near = (a: number, b: number) => Math.abs(a - b) < 1e-9;
+results.push(
+  `сумма запусков = общий учёт офиса: ${near(arSummary.costUsd, arOffice.usage.costUsd)}`,
+  `= расход за сегодня: ${near(arSummary.costUsd, arOffice.todayUsage().costUsd)}`,
+  `= детализация трат: ${near(arSummary.costUsd, arSpendTotal)}`,
+  `токены сходятся с накопителем: ${arSummary.input_tokens === arOffice.usage.tokensIn
+    && arSummary.output_tokens === arOffice.usage.tokensOut
+    && arSummary.cache_read_input_tokens === arOffice.usage.cacheRead
+    && arSummary.cache_creation_input_tokens === arOffice.usage.cacheWrite}`,
+  `сводка: запусков, сжатий, повторов: ${arSummary.runs === 4 && arSummary.compactions === 2
+    && arSummary.wideRetries === 1}`,
+  `средний и наибольший префикс по замеренным: ${arSummary.avgPrefixTokens === 88_500
+    && arSummary.maxPrefixTokens === 120_000}`,
+  `неизвестная цена видна в сводке: ${arSummary.costUnavailable === true}`,
+);
+const arFuture = summarizeAgentRuns(arOffice.agentRunList(), Date.now() + DAY_MS);
+results.push(`сводка уважает период: ${arFuture.runs === 0 && arFuture.costUsd === 0
+  && arFuture.avgPrefixTokens === null}`);
+
+// Ограничение объёма: старше срока — прочь, сверх предела — прочь самые старые.
+const arNow = Date.now();
+const arRow = (n: number, at: number) => ({ ...arFirst!, id: `A-${n}`, at });
+const arTrimmed = trimAgentRuns([
+  arRow(1, dayStart(arNow) - RUNS_KEEP_DAYS * DAY_MS),
+  arRow(2, dayStart(arNow) - (RUNS_KEEP_DAYS - 1) * DAY_MS),
+  arRow(3, arNow),
+], arNow);
+results.push(`запуски старше ${RUNS_KEEP_DAYS} суток уходят: ${
+  arTrimmed.map((r) => r.id).join(',') === 'A-2,A-3'}`);
+const arFlood = trimAgentRuns(
+  Array.from({ length: RUNS_MAX + 7 }, (_, i) => arRow(i + 1, arNow)), arNow);
+results.push(`запусков не больше предела, уходят старые: ${
+  arFlood.length === RUNS_MAX && arFlood[0]?.id === 'A-8'}`);
+
+// Запуски лежат в том же файле состояния и переживают перезапуск.
+flush(arStateFile);
+const arSaved = JSON.parse(readFileSync(arStateFile, 'utf8')) as { agentRuns?: unknown[]; agentRunSeq?: number };
+results.push(`запуски в файле состояния: ${arSaved.agentRuns?.length === 4 && arSaved.agentRunSeq === 4}`);
+const arBack = openOfficeState({ id: 'o-runs-again', projectDir: arDir, stateFile: arStateFile }).state;
+arBack.addUsage('backend#1', { ...emptyUsage(), costUsd: 0.01 }, null, 's');
+results.push(`после перезапуска номера продолжаются: ${
+  arBack.agentRunList().length === 5 && arBack.agentRunList()[4]?.id === 'A-5'}`);
+
 // Прошедшей считается только строка, кончающаяся на true: «не false» пропускало
 // в зачёт всё, что вообще не булево, — например undefined из-за опечатки.
 const failed = results.filter((r) => !r.endsWith('true'));

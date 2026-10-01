@@ -475,9 +475,11 @@ function consume(
     // и записанный. Только для основной сессии: короткая (ритуал, совещание)
     // подменила бы цифру главного разговора своей маленькой.
     const u = msg.message.usage;
-    if (rememberSession && u) {
-      state.noteContext(instanceId,
-        (u.input_tokens ?? 0) + (u.cache_read_input_tokens ?? 0) + (u.cache_creation_input_tokens ?? 0));
+    if (u) {
+      const context = (u.input_tokens ?? 0) + (u.cache_read_input_tokens ?? 0) + (u.cache_creation_input_tokens ?? 0);
+      if (rememberSession) state.noteContext(instanceId, context);
+      // А стартовый префикс запуска — у любой сессии: запись о запуске своя у каждой.
+      state.noteRunContext(instanceId, msg.session_id ?? null, context);
     }
     for (const block of msg.message.content ?? []) {
       if (block.type === 'thinking') {
@@ -518,6 +520,7 @@ function consume(
     // Сжатие — след на задаче, а не только строка в логе: по нему сводка
     // здоровья видит, что работа буксует, и видит это после перезапуска тоже.
     noteCompaction(state, instanceId);
+    state.noteRunCompaction(instanceId, msg.session_id ?? null);
     state.addLog(instanceId, 'system', state.say('agent.log.compacted', {
       from: Math.round(pre_tokens / 1000),
       to: post_tokens === undefined ? '?' : Math.round(post_tokens / 1000),
@@ -542,7 +545,7 @@ function consume(
       tokensOut: usage?.output_tokens ?? 0,
       cacheRead: usage?.cache_read_input_tokens ?? 0,
       cacheWrite: usage?.cache_creation_input_tokens ?? 0,
-    }, mainModel(msg));
+    }, mainModel(msg), msg.session_id ?? null);
     if (!isOk(msg)) {
       const reason = resultReason(msg, state.lang());
       state.addLog(instanceId, 'error',
@@ -3703,6 +3706,7 @@ export async function driveWorker(
     return { ...run, failed: state.say('agent.result.thrash', { window: k(window) }) };
   }
   state.addLog(inst.id, 'system', state.say('agent.log.thrash', { from: k(window), to: k(wider) }));
+  state.noteWideRetry(inst.id);
   const again = await collectWorker(
     state, inst, role,
     open({ resume: sessionId, prompt: state.say('prompt.worker.afterThrash'), window: wider }),
