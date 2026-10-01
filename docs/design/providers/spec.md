@@ -289,7 +289,7 @@ Agents») в `architecture.md`, `offices.md` и `team.md:151` можно не т
 | Продолжение | сессии хранятся движком, `--session <id>`, `GET /session/:id` | `thread/resume` | `resume` в SDK | `goose session resume` (запрет resume в документации касается Goose как клиента чужих ACP-агентов, не его сервера) | да | история чата |
 | Grok, DeepSeek, OpenRouter, Ollama, LM Studio | **все**, 75+ провайдеров через AI SDK и models.dev, любой OpenAI-совместимый `baseURL` | только **Responses API**: `wire_api = "chat"` убирается — первоисточник, issue #7413, содержит предупреждение от 26.01.2026 о жёсткой ошибке с февраля 2026; само удаление подтверждают только вторичные источники [проверить]. xAI, OpenRouter (бета), Ollama, LM Studio — да; DeepSeek — Responses API есть, но в документации назван только `deepseek-flash`, даты запуска нет [проверить] | любой OpenAI-совместимый (Chat Completions), плюс Anthropic и Gemini | 15+ провайдеров | много | много (litellm) |
 | Gemini, Qwen напрямую | да: провайдеры Google и Alibaba | **нет**: у Google OpenAI-совместимый только Chat Completions | да | Gemini да | да | да |
-| Токены и стоимость | токены и `cost` на сообщение, цены из models.dev (баг: `cache.read` не входит в стоимость, занижение в 2–3 раза, #28494 закрыт автоматически без разбора, исправлен ли — неизвестно, проверить на зафиксированной версии [проверить]; у своих провайдеров цены нет, #17223 закрыт как not planned, поэтому их цены офис считает сам) | только токены; цена — наша таблица `OFFICE_CODEX_PRICING` | токены в `result`, полнота [проверить] | токены | токены и стоимость | стоимость в отчёте |
+| Токены и стоимость | токены и `cost` на сообщение, цены из models.dev (баг: `cache.read` не входит в стоимость, занижение в 2–3 раза, #28494 закрыт автоматически без разбора, исправлен ли — неизвестно, сверить на зафиксированной версии [проверить]; у своих провайдеров цены нет, #17223 закрыт как not planned, поэтому их цены офис считает сам) | только токены; цена — наша таблица `OFFICE_CODEX_PRICING` | токены в `result`, полнота [проверить] | токены | токены и стоимость | стоимость в отчёте |
 | Лицензия | **MIT** | Apache-2.0 | Apache-2.0 | Apache-2.0 (Linux Foundation, AAIF) | FSL-1.1 (через 2 года становится MIT) | Apache-2.0 |
 | Установка | один нативный бинарь: npm `opencode-ai` (платформенные пакеты), brew, scoop, choco, curl; Windows нативно | npm `@openai/codex` (нативный бинарь), brew; Windows — да | npm, **нужен Node 22+**; brew; скрипт PowerShell | бинарь, Windows — да | бинарь | Python |
 
@@ -391,7 +391,7 @@ Grok, DeepSeek, OpenRouter и Ollama через уже готовый адапт
   версию Claude: офис скачивает ровно ту, под которую проверен адаптер, и
   отключает самообновление (`autoupdate: false`, `share: "disabled"`).
 - **Подписку Claude Pro/Max через OpenCode использовать нельзя:** Anthropic
-  это запрещает, с версии 1.3.0 плагины убраны (номер версии [проверить]). Claude остаётся своим
+  это запрещает, с версии 1.3.0 плагины убраны [проверить]. Claude остаётся своим
   адаптером `claude-code`, OpenCode к Anthropic не подключаем.
 
 ---
@@ -409,8 +409,8 @@ Code Assist пока могут пользоваться старым CLI.
 
 | | Gemini CLI (старый) | Antigravity CLI |
 |---|---|---|
-| Без интерфейса | `-p`, `--output-format json/stream-json` (`init`, `message`, `tool_use`, `tool_result`, `result` со `stats`), `--acp` (JSON-RPC: `initialize`, `authenticate`, `newSession`, `loadSession`, `prompt`, `cancel`) | только `-p/--print` одним блоком, без потока и без продолжения. ACP запрошен (issue #31), но ответа нет |
-| MCP | да, MCP-серверы передаются в ACP на `initialize`, а не на `newSession` [проверить] | [проверить] |
+| Без интерфейса | `-p`, `--output-format json/stream-json` (`init`, `message`, `tool_use`, `tool_result`, `result` со `stats`), `--acp` (JSON-RPC: `initialize`, `authenticate`, `session/new`, `loadSession`, `prompt`, `cancel`) | только `-p/--print` одним блоком, без потока и без продолжения. ACP запрошен (issue #31), но ответа нет |
+| MCP | да; на каком шаге ACP передаются MCP-серверы, `initialize` или `session/new`, не установлено [проверить] | [проверить] |
 | Песочница | `--sandbox` (docker или seatbelt) | [проверить] |
 | Продолжение | `-r/--resume`, `loadSession` (в ACP на Windows есть баги, #29288) | нет |
 | Вход | вход Google — **закрыт для частных лиц**; `GEMINI_API_KEY`, Vertex — по объявлению работают и после 18.06 | аккаунт Google, `AV_API_KEY` |
@@ -979,24 +979,23 @@ Codex, и отдаёт тем же мостом: так роль получае�
 
 **Не проверено (нужен прототип этапа 2), в тексте помечено [проверить]:**
 
-- форма события `ask` в SSE OpenCode и ответ на него;
-- транспорт моста MCP у OpenCode (`type: "remote"`: Streamable HTTP или SSE);
+- форма события `ask` в SSE OpenCode и ответ на него: документация OpenCode
+  его для безголового клиента не описывает, это главный риск этапа 2;
+- транспорт моста MCP у OpenCode (`type: "remote"`: Streamable HTTP или SSE,
+  в документации протокол не назван вовсе);
 - точность `cache.read` в стоимости OpenCode на зафиксированной версии;
 - sandbox-runtime как обёртка Bash офиса;
 - пускает ли Qwen Coding Plan сторонний клиент;
 - токены в `result` у Qwen Code;
 - вход Claude и Codex из интерфейса;
 - версия OpenCode 1.3.0, с которой убраны плагины для подписки Claude;
-- передача MCP-серверов в ACP Gemini CLI на `initialize`;
-- само удаление `wire_api = "chat"` в Codex (только вторичные источники);
+- на каком шаге ACP Gemini CLI передаются MCP-серверы: `initialize` или `session/new`;
+- само удаление `wire_api = "chat"` в Codex: подтверждают только вторичные
+  источники, документация Codex показывает только `responses` и об удалении
+  `chat` молчит, поэтому это оговорка, а не опора выбора;
+- дата запрета Anthropic на подписку в сторонних клиентах: 04.04.2026 — только
+  по прессе;
 - Responses API у DeepSeek: модели и дата запуска.
-
-**Уточнения второго прохода проверки:** запрет Anthropic на подписки в
-сторонних клиентах действует с 04.04.2026 (по прессе); у `type: "remote"` в
-документации OpenCode протокол не назван вовсе; документация Codex про
-`wire_api` показывает только `responses` и об удалении `chat` молчит, так что
-это утверждение остаётся оговоркой, а не опорой выбора. Документация OpenCode
-не описывает событие `ask` для безголового клиента — это главный риск этапа 2.
 
 ## Источники
 
