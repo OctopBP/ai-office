@@ -176,7 +176,7 @@ export async function findMergeCommit(repo: string, task: Task): Promise<{ commi
 
 // ------------------------------------------------------------ содержимое и LFS
 
-interface TreeEntry { oid: string; size: number }
+interface TreeEntry { oid: string; size: number; mode: string }
 
 /** Блобы путей в коммите: хеш и размер. `--literal-pathspecs` — путь не маска. */
 async function treeEntries(repo: string, commit: string, paths: string[]): Promise<Map<string, TreeEntry>> {
@@ -188,9 +188,9 @@ async function treeEntries(repo: string, commit: string, paths: string[]): Promi
     // «<режим> <тип> <хеш> <размер>\t<путь>»
     const tab = rec.indexOf('\t');
     if (tab < 0) continue;
-    const [, type, oid, size] = rec.slice(0, tab).trim().split(/\s+/);
+    const [mode = '', type, oid, size] = rec.slice(0, tab).trim().split(/\s+/);
     if (type !== 'blob' || !oid) continue;
-    out.set(rec.slice(tab + 1), { oid, size: Number(size) || 0 });
+    out.set(rec.slice(tab + 1), { oid, size: Number(size) || 0, mode });
   }
   return out;
 }
@@ -339,24 +339,42 @@ export async function readTaskFile(state: OfficeState, task: Task, path: string)
   if (file.status === 'deleted') {
     return { ok: false, code: 410, error: state.say('files.deleted', { path, task: task.id }) };
   }
-  const tooBig = (size: number): FileRead => ({
+  return readCommitFile(state, res.repo, res.delivery.commit, path);
+}
+
+/** Отказ «файл больше потолка» — общий для коммита и рабочего дерева. */
+export function tooBigFile(state: OfficeState, path: string, size: number): FileRead {
+  return {
     ok: false, code: 413,
     error: state.say('files.tooBig', {
       path, size: Math.ceil(size / 1024 / 1024), max: RESULT_FILE_MAX_BYTES / 1024 / 1024,
     }),
-  });
-  const unreadable: FileRead = { ok: false, code: 500, error: state.say('files.unreadable', { path }) };
+  };
+}
 
-  const entry = (await treeEntries(res.repo, res.delivery.commit, [path])).get(path);
-  if (!entry) return unreadable;
-  if (entry.size > RESULT_FILE_MAX_BYTES) return tooBig(entry.size);
-  const blob = await gitBytes(res.repo, ['cat-file', 'blob', entry.oid], { maxBytes: RESULT_FILE_MAX_BYTES + 1 });
+/**
+ * Файл из коммита: блоб по пути, с потолком размера и подменой указателя LFS
+ * настоящим содержимым. Путь вызывающий обязан проверить сам — здесь он идёт
+ * в git дословно (`--literal-pathspecs`), но не сверяется ни с какими списками.
+ * Нет такого блоба — 404 с текстом `missing`; символическая ссылка — тоже 404:
+ * её «содержимое» — путь цели, а не файл, и показывать его незачем.
+ */
+export async function readCommitFile(
+  state: OfficeState, repo: string, commit: string, path: string, missing?: string,
+): Promise<FileRead> {
+  const unreadable: FileRead = { ok: false, code: 500, error: state.say('files.unreadable', { path }) };
+  const entry = (await treeEntries(repo, commit, [path])).get(path);
+  if (!entry || entry.mode === '120000') {
+    return missing !== undefined ? { ok: false, code: 404, error: missing } : unreadable;
+  }
+  if (entry.size > RESULT_FILE_MAX_BYTES) return tooBigFile(state, path, entry.size);
+  const blob = await gitBytes(repo, ['cat-file', 'blob', entry.oid], { maxBytes: RESULT_FILE_MAX_BYTES + 1 });
   if (!blob.ok) return unreadable;
   const type = fileContentType(path);
   const ptr = parsePointer(blob.stdout);
   if (!ptr) return { ok: true, bytes: blob.stdout, type };
-  if (ptr.size > RESULT_FILE_MAX_BYTES) return tooBig(ptr.size);
-  const real = await readLfs(res.repo, path, ptr);
+  if (ptr.size > RESULT_FILE_MAX_BYTES) return tooBigFile(state, path, ptr.size);
+  const real = await readLfs(repo, path, ptr);
   if (!real) return { ok: false, code: 502, error: state.say('files.lfsMissing', { path }) };
   return { ok: true, bytes: real, type };
 }
@@ -407,9 +425,20 @@ async function serveFile(res: ServerResponse, params: URLSearchParams): Promise<
     json(res, read.code, { error: read.error });
     return;
   }
+  sendFileBytes(res, path, read.bytes, read.type);
+}
+
+/**
+ * Отдать содержимое файла из работы агента. Общая отдача для результата задачи
+ * и для просмотра файла проекта (files.ts): заголовки безопасности должны быть
+ * одни и те же, иначе одна из ручек станет обходом другой.
+ */
+export function sendFileBytes(
+  res: ServerResponse, path: string, bytes: Buffer, type: string, headers: Record<string, string> = {},
+): void {
   res.writeHead(200, {
-    'Content-Type': read.type,
-    'Content-Length': String(read.bytes.length),
+    'Content-Type': type,
+    'Content-Length': String(bytes.length),
     'Content-Disposition': `inline; filename*=UTF-8''${encodeURIComponent(basename(path))}`,
     // Содержимое коммита не меняется: коммит — часть адреса ответа по смыслу,
     // но задачу могут перезапустить и слить заново, так что кеш — ненадолго.
@@ -421,11 +450,12 @@ async function serveFile(res: ServerResponse, params: URLSearchParams): Promise<
     // не открывается ни в песочнице, ни под object-src 'none', который
     // включает default-src. Тип при этом зафиксирован nosniff, а PDF рисует
     // сам браузер, не страница офиса.
-    ...(read.type === 'application/pdf' ? {} : {
+    ...(type === 'application/pdf' ? {} : {
       'Content-Security-Policy': "default-src 'none'; style-src 'unsafe-inline'; img-src data:; sandbox",
     }),
+    ...headers,
   });
-  res.end(read.bytes);
+  res.end(bytes);
 }
 
 /** Разобрать запрос, если он про файлы результата. `false` — адрес не наш. */
