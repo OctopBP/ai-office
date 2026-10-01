@@ -18,6 +18,7 @@ import { mkdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import type { ProviderId } from '../../shared/providers';
 import { DEFAULT_STATE_FILE } from '../store';
+import { customApi } from '../engines/endpoints';
 import type { TokenPrice } from './pricing';
 
 const CATALOG_URL = 'https://models.dev/api.json';
@@ -127,7 +128,7 @@ function ownerPrice(provider: ProviderId, model: string): TokenPrice | null {
  * но и «0 $» писать было бы враньём про чужой сервер).
  */
 export async function modelPrice(provider: ProviderId, model: string): Promise<TokenPrice | null> {
-  const own = ownerPrice(provider, model);
+  const own = ownerPrice(provider, model) ?? customPrice(provider, model);
   if (own) return own;
   const catalog = await priceCatalog();
   return catalog[provider]?.[model]?.price ?? null;
@@ -135,5 +136,25 @@ export async function modelPrice(provider: ProviderId, model: string): Promise<T
 
 /** Что каталог знает о модели — для списка моделей на форме роли. */
 export async function catalogModel(provider: ProviderId, model: string): Promise<CatalogModel | null> {
-  return (await priceCatalog())[provider]?.[model] ?? null;
+  return customModel(provider, model) ?? (await priceCatalog())[provider]?.[model] ?? null;
+}
+
+/**
+ * Свой API: цену и окно контекста владелец пишет в форме — для той модели,
+ * которую там же назвал. Другие модели того же сервера остаются без цены.
+ */
+function customModel(provider: ProviderId, model: string): CatalogModel | null {
+  if (provider !== 'custom') return null;
+  const meta = customApi();
+  if (!meta.model || meta.model !== model) return null;
+  return {
+    id: model, name: model,
+    price: meta.price ? { ...meta.price, cachedInput: meta.price.input } : null,
+    ...(meta.contextWindow ? { contextWindow: meta.contextWindow } : {}),
+  };
+}
+
+function customPrice(provider: ProviderId, model: string): TokenPrice | null {
+  const price = customModel(provider, model)?.price;
+  return price ? { input: price.input, output: price.output, cachedInput: price.cachedInput } : null;
 }

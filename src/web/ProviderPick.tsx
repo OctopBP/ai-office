@@ -30,6 +30,11 @@ function loadModels(provider: ProviderId): Promise<ModelOption[]> {
   return pending;
 }
 
+/** Сменился адрес или модель своего API — прежний список больше не про него. */
+export function forgetProviderModels(provider: ProviderId): void {
+  modelCache.delete(provider);
+}
+
 /** Модели провайдера с сервера; пока не пришли — пустой список. */
 export function useProviderModels(provider: ProviderId): ModelOption[] {
   const [models, setModels] = useState<{ provider: ProviderId; list: ModelOption[] }>({ provider, list: [] });

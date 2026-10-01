@@ -1,4 +1,4 @@
-import type { AuthKind, EngineCapabilities, EngineId, ModelChoice, ProviderId, ProviderStatus } from './providers';
+import type { AuthKind, CustomApi, EngineCapabilities, EngineId, ModelChoice, ProviderId, ProviderStatus } from './providers';
 // Общие типы между сервером и вебом.
 
 // Раскладка и её оверрайд описаны в src/shared/layout.ts — там же, где код,
@@ -2217,6 +2217,8 @@ export interface ProviderView {
   baseUrl?: string;
   editableUrl?: boolean;
   keyOptional?: boolean;
+  /** Свой API: название, модель, контекст и цена, как их сохранил владелец — для формы «Изменить». */
+  custom?: CustomApi;
 }
 
 export interface ProvidersView {
@@ -2233,7 +2235,22 @@ export interface ProvidersView {
 /** Итог входа по ключу — тому, кто входил: форма показывает ошибку под полем. */
 export type ProviderLoginResult =
   | { ok: true }
-  | { ok: false; code: 'rejected' | 'network' | 'keychain' | 'unsupported' | 'address'; message: string };
+  | { ok: false; code: ProviderLoginError; message: string };
+
+/**
+ * Почему вход не удался. `not-found` — по адресу нет `/models` (404): это не
+ * API в формате OpenAI; `model` — сервер отдал список, а названной модели в
+ * нём нет.
+ */
+export type ProviderLoginError = 'rejected' | 'network' | 'keychain' | 'unsupported' | 'address' | 'not-found' | 'model';
+
+/**
+ * Итог пробы адреса своего API без сохранения — «Загрузить список» в форме.
+ * `models: null` — сервер отвечает, но списка моделей не отдаёт.
+ */
+export type ProviderProbeResult =
+  | { ok: true; models: string[] | null }
+  | { ok: false; code: ProviderLoginError; message: string };
 
 /**
  * Вход по подписке — сценарий штатного входа движка (`claude auth login`,
@@ -2661,7 +2678,8 @@ export type ClientCommand =
    * системную связку ключей — в состояние офиса, журнал и логи не попадает.
    */
   /** `baseUrl` — адрес API у провайдеров со своим адресом; ключ у них может быть пустым. */
-  | { c: 'provider_login'; provider: ProviderId; apiKey: string; baseUrl?: string }
+  /** `custom` — название, модель, контекст и цена своего API (ui.md §6.2); сохраняются, если вход прошёл. */
+  | { c: 'provider_login'; provider: ProviderId; apiKey: string; baseUrl?: string; custom?: CustomApi }
   /**
    * Войти по подписке: сервер запускает штатный вход движка, ход входа
    * приезжает событиями `provider.login` с `flow`. Повтор во время входа

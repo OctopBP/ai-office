@@ -14,7 +14,9 @@ import {
   providerHeaders, sandboxAvailable,
 } from '../providers/opencode';
 import { catalogModel, modelPrice, priceCatalog } from '../providers/model-prices';
-import { baseUrlOf, forgetBaseUrl, normalizeBaseUrl, saveBaseUrl } from './endpoints';
+import {
+  baseUrlOf, forgetBaseUrl, forgetCustomApi, normalizeBaseUrl, probeModels, saveBaseUrl, saveCustomApi,
+} from './endpoints';
 import { installFromNpm } from './install';
 import { deleteKey, providerKey, saveKey, verifyKey } from './keys';
 import { LoginError, type EngineAdapter, type EngineCapabilities, type ModelInfo, type ProviderStatus } from './types';
@@ -133,10 +135,22 @@ export const opencodeEngine: EngineAdapter = {
     const key = req.apiKey?.trim();
     if (!key && !spec.keyOptional) throw new LoginError('rejected', 'API key is required');
     // Проверка — список моделей: метаданные, ход модели не оплачивается.
-    // Без ключа — тот же запрос, он же проверка, что сервер отвечает.
-    await verifyKey(`${url}/models`, providerHeaders(provider, key || undefined));
+    // Без ключа — тот же запрос, он же проверка, что сервер отвечает. При
+    // правке своего адреса пустое поле ключа значит «не менять»: проверяем
+    // сохранённым, а не голым запросом, который сервер с ключом отвергнет.
+    const checkKey = key || (spec.editableUrl ? providerKey(provider)?.key : undefined);
+    if (provider === 'custom') {
+      const models = await probeModels(url, providerHeaders(provider, checkKey));
+      const model = req.custom?.model;
+      if (model && models?.length && !models.includes(model)) throw new LoginError('model', `model ${model} is not listed`);
+    } else {
+      await verifyKey(`${url}/models`, providerHeaders(provider, checkKey));
+    }
     if (spec.editableUrl) {
       try { saveBaseUrl(provider, url); } catch (err) { throw new LoginError('address', (err as Error).message); }
+    }
+    if (provider === 'custom' && req.custom) {
+      try { saveCustomApi(req.custom); } catch (err) { throw new LoginError('address', (err as Error).message); }
     }
     if (key) {
       try { await saveKey(provider, key); } catch (err) { throw new LoginError('keychain', (err as Error).message); }
@@ -148,6 +162,7 @@ export const opencodeEngine: EngineAdapter = {
   async logout(provider) {
     await deleteKey(provider);
     forgetBaseUrl(provider);
+    if (provider === 'custom') forgetCustomApi();
     reach.delete(provider);
   },
 

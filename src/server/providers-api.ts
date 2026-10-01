@@ -13,11 +13,13 @@
  * первого запуска.
  */
 import type { IncomingMessage, ServerResponse } from 'node:http';
-import { PROVIDER_IDS, PROVIDERS, isConnected, isProviderId, providerSpec, type ProviderId } from '../shared/providers';
-import type { ClientCommand, ProviderLoginFlow, ProviderLoginResult, ProviderView, ProvidersView, ServerEvent } from '../shared/types';
+import { PROVIDER_IDS, PROVIDERS, cleanCustomApi, isConnected, isProviderId, providerSpec, type ProviderId } from '../shared/providers';
+import type {
+  ClientCommand, ProviderLoginFlow, ProviderLoginResult, ProviderProbeResult, ProviderView, ProvidersView, ServerEvent,
+} from '../shared/types';
 import { engineFor, LoginError, type EngineId, type ModelInfo, type ProviderStatus } from './engines';
 import { keychainAvailable, providerKey } from './engines/keys';
-import { baseUrlOf } from './engines/endpoints';
+import { baseUrlOf, customApi, normalizeBaseUrl, probeModels } from './engines/endpoints';
 import { activeLogins, cancelCliLogin, onLoginFlow, sendLoginCode } from './engines/login';
 import { broadcastAll, send } from './office-api';
 import { openedOffices } from './state';
@@ -43,9 +45,10 @@ async function providerView(id: ProviderId, force: boolean): Promise<ProviderVie
   const key = providerKey(id);
   const error = installErrors.get(engine.id);
   const spec = providerSpec(id);
+  const custom = id === 'custom' ? customApi() : undefined;
   return {
     id,
-    label: PROVIDERS[id].label,
+    label: custom?.name || PROVIDERS[id].label,
     engine: engine.id,
     engineLabel: ENGINE_LABEL[engine.id],
     auth: [
@@ -60,6 +63,7 @@ async function providerView(id: ProviderId, force: boolean): Promise<ProviderVie
     ...(spec.baseUrl !== undefined ? { baseUrl: baseUrlOf(id) } : {}),
     ...(spec.editableUrl ? { editableUrl: true } : {}),
     ...(spec.keyOptional ? { keyOptional: true } : {}),
+    ...(custom ? { custom } : {}),
   };
 }
 
@@ -148,13 +152,16 @@ export function cancelInstall(provider: ProviderId): void {
  * У провайдеров со своим адресом вместе с ключом приходит адрес, а ключ
  * может быть пустым (локальный сервер без ключа).
  */
-export async function loginProvider(provider: ProviderId, apiKey: string, baseUrl?: string): Promise<ProviderLoginResult> {
+export async function loginProvider(
+  provider: ProviderId, apiKey: string, baseUrl?: string, custom?: unknown,
+): Promise<ProviderLoginResult> {
   const key = apiKey.trim();
   const spec = providerSpec(provider);
   if (/\s/.test(key) || (!key && !spec.keyOptional)) return { ok: false, code: 'rejected', message: 'empty or malformed key' };
   try {
     await engineFor(provider).login({ provider, kind: 'api-key', apiKey: key || undefined,
-      ...(spec.editableUrl && baseUrl ? { baseUrl } : {}) });
+      ...(spec.editableUrl && baseUrl ? { baseUrl } : {}),
+      ...(provider === 'custom' && custom !== undefined ? { custom: cleanCustomApi(custom) } : {}) });
   } catch (err) {
     const code = err instanceof LoginError ? err.code : 'network';
     return { ok: false, code, message: (err as Error).message };
@@ -162,6 +169,24 @@ export async function loginProvider(provider: ProviderId, apiKey: string, baseUr
   void broadcastProviders(true);
   refreshOffices();
   return { ok: true };
+}
+
+/**
+ * Проба адреса без сохранения — «Загрузить список» в форме своего API.
+ * Пустой ключ при уже сохранённом — проверка сохранённым: при правке поле
+ * ключа пустое, а сервер с ключом без него ответит 401.
+ */
+export async function probeProvider(provider: ProviderId, apiKey: string, baseUrl: string): Promise<ProviderProbeResult> {
+  if (!providerSpec(provider).editableUrl) return { ok: false, code: 'unsupported', message: 'provider address is fixed' };
+  const url = normalizeBaseUrl(baseUrl, provider);
+  if (!url) return { ok: false, code: 'address', message: 'expected an http(s) address without credentials' };
+  const key = apiKey.trim() || providerKey(provider)?.key;
+  try {
+    return { ok: true, models: await probeModels(url, key ? { Authorization: `Bearer ${key}` } : {}) };
+  } catch (err) {
+    const code = err instanceof LoginError ? err.code : 'network';
+    return { ok: false, code, message: (err as Error).message };
+  }
 }
 
 /**
@@ -231,7 +256,8 @@ export function handleProviderCommand(cmd: ClientCommand, ws: Sink): boolean {
       }
       if (!('apiKey' in cmd) || typeof cmd.apiKey !== 'string') return true;
       const baseUrl = 'baseUrl' in cmd && typeof cmd.baseUrl === 'string' ? cmd.baseUrl : undefined;
-      void loginProvider(provider, cmd.apiKey, baseUrl).then((result) => send(ws, { t: 'provider.login', provider, result }));
+      const custom = 'custom' in cmd ? cmd.custom : undefined;
+      void loginProvider(provider, cmd.apiKey, baseUrl, custom).then((result) => send(ws, { t: 'provider.login', provider, result }));
       return true;
     }
     case 'provider_login_cancel':
@@ -279,8 +305,9 @@ function readJson(req: IncomingMessage): Promise<Record<string, unknown>> {
  *   GET    /api/providers/:id           статус и модели (форма роли)
  *   POST   /api/providers/:id/install   начать установку движка
  *   DELETE /api/providers/:id/install   отменить установку
- *   POST   /api/providers/:id/login     { apiKey, baseUrl? } — вход по ключу (и адресу); { kind: 'subscription' } — штатный вход движка
+ *   POST   /api/providers/:id/login     { apiKey, baseUrl?, custom? } — вход по ключу (и адресу); { kind: 'subscription' } — штатный вход движка
  *   DELETE /api/providers/:id/login     удалить ключ
+ *   POST   /api/providers/:id/probe     { baseUrl, apiKey? } — проба адреса без сохранения (свой API, Ollama)
  * Возвращает false, если адрес не про провайдеров.
  */
 export function handleProvidersHttp(req: IncomingMessage, res: ServerResponse, url: string, query: string): boolean {
@@ -298,7 +325,7 @@ export function handleProvidersHttp(req: IncomingMessage, res: ServerResponse, u
     return true;
   }
 
-  const match = /^\/api\/providers\/([^/]+)(?:\/(install|login))?$/.exec(url);
+  const match = /^\/api\/providers\/([^/]+)(?:\/(install|login|probe))?$/.exec(url);
   const provider = match ? decodeURIComponent(match[1]!) : '';
   if (!match || !isProviderId(provider)) { json(404, { error: 'unknown provider' }); return true; }
   const action = match[2];
@@ -315,6 +342,15 @@ export function handleProvidersHttp(req: IncomingMessage, res: ServerResponse, u
       ]);
       json(200, { status: view.status, models });
     })();
+    return true;
+  }
+  if (action === 'probe') {
+    if (method !== 'POST') { json(405, { error: 'POST only' }); return true; }
+    void readJson(req).then(async (body) => {
+      const result = await probeProvider(provider, typeof body.apiKey === 'string' ? body.apiKey : '',
+        typeof body.baseUrl === 'string' ? body.baseUrl : '');
+      json(200, result);
+    });
     return true;
   }
   if (action === 'install') {
@@ -335,8 +371,8 @@ export function handleProvidersHttp(req: IncomingMessage, res: ServerResponse, u
         return;
       }
       const result = await loginProvider(provider, typeof body.apiKey === 'string' ? body.apiKey : '',
-        typeof body.baseUrl === 'string' ? body.baseUrl : undefined);
-      json(result.ok ? 200 : result.code === 'rejected' ? 401 : result.code === 'address' ? 400 : 502, result);
+        typeof body.baseUrl === 'string' ? body.baseUrl : undefined, body.custom);
+      json(result.ok ? 200 : result.code === 'rejected' ? 401 : result.code === 'address' || result.code === 'model' ? 400 : 502, result);
     });
     return true;
   }

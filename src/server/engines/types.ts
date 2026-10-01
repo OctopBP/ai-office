@@ -16,8 +16,8 @@
 import type {
   Options, SDKMessage, SDKUserMessage, McpServerConfig, SdkPluginConfig,
 } from '@anthropic-ai/claude-agent-sdk';
-import type { AuthKind, EngineCapabilities, EngineId, ProviderId, ProviderStatus } from '../../shared/providers';
-import type { ProviderLoginFlow } from '../../shared/types';
+import type { AuthKind, CustomApi, EngineCapabilities, EngineId, ProviderId, ProviderStatus } from '../../shared/providers';
+import type { ProviderLoginError, ProviderLoginFlow } from '../../shared/types';
 import type { LimitSource } from '../limits';
 import type { McpStatusSource } from '../mcp';
 
@@ -56,6 +56,8 @@ export interface LoginRequest {
   apiKey?: string;
   /** Адрес API для провайдеров со своим адресом (Ollama, свой сервер). */
   baseUrl?: string;
+  /** Свой API: название, модель, контекст и цена — сохраняются вместе с адресом. */
+  custom?: CustomApi;
 }
 /**
  * Ключ — сразу итог; подписка — запущенный сценарий штатного входа движка
@@ -69,7 +71,7 @@ export type LoginStart = { done: true; status: ProviderStatus } | { done: false;
  * не годится.
  */
 export class LoginError extends Error {
-  constructor(readonly code: 'rejected' | 'network' | 'keychain' | 'unsupported' | 'address', message: string) {
+  constructor(readonly code: ProviderLoginError, message: string) {
     super(message);
   }
 }

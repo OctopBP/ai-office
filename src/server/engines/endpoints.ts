@@ -6,10 +6,11 @@
  * офисов процесса, как и ключи в связке. Поэтому он лежит отдельным файлом
  * рядом с состоянием, а не в `state.json` офиса.
  */
-import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
-import { PROVIDERS, type ProviderId } from '../../shared/providers';
+import { PROVIDERS, cleanCustomApi, type CustomApi, type ProviderId } from '../../shared/providers';
 import { DEFAULT_STATE_FILE } from '../store';
+import { LoginError } from './types';
 
 const file = (): string => resolve(dirname(DEFAULT_STATE_FILE), 'provider-endpoints.json');
 
@@ -38,6 +39,8 @@ export function normalizeBaseUrl(raw: string, provider?: ProviderId): string | n
   if (url.username || url.password) return null;
   let path = url.pathname.replace(/\/+$/, '');
   if (provider === 'ollama' && !path) path = '/v1';
+  // Адрес часто копируют из примера запроса вместе с хвостом — клиенту он не нужен.
+  path = path.replace(/\/chat\/completions$/, '');
   return `${url.origin}${path}`;
 }
 
@@ -62,4 +65,60 @@ export function forgetBaseUrl(provider: ProviderId): void {
   mkdirSync(dirname(file()), { recursive: true });
   writeFileSync(file(), `${JSON.stringify(next, null, 2)}\n`);
   cache = next;
+}
+
+// ─── Свой API: название, модель, контекст, цена ──────────────────────────
+
+const customFile = (): string => resolve(dirname(DEFAULT_STATE_FILE), 'provider-custom.json');
+
+let customCache: CustomApi | null = null;
+
+/** Что владелец сохранил о своём API; ничего — пустой объект. */
+export function customApi(): CustomApi {
+  if (customCache) return customCache;
+  try {
+    customCache = cleanCustomApi(JSON.parse(readFileSync(customFile(), 'utf8')));
+  } catch {
+    customCache = {};
+  }
+  return customCache;
+}
+
+export function saveCustomApi(meta: CustomApi): void {
+  const next = cleanCustomApi(meta);
+  mkdirSync(dirname(customFile()), { recursive: true });
+  writeFileSync(customFile(), `${JSON.stringify(next, null, 2)}\n`);
+  customCache = next;
+}
+
+export function forgetCustomApi(): void {
+  rmSync(customFile(), { force: true });
+  customCache = {};
+}
+
+/**
+ * Проба адреса в формате OpenAI: `GET {адрес}/models` — метаданные, платный
+ * ход модели не выполняется. Ошибка — `LoginError` с кодом для формы.
+ * Ответ без списка моделей — не ошибка: так бывает у шлюзов, модель тогда
+ * вписывают руками (`null`).
+ */
+export async function probeModels(url: string, headers: Record<string, string>): Promise<string[] | null> {
+  let res: Response;
+  try {
+    res = await fetch(`${url}/models`, { headers, signal: AbortSignal.timeout(15_000) });
+  } catch (err) {
+    throw new LoginError('network', (err as Error).message);
+  }
+  if (res.status === 401 || res.status === 403) throw new LoginError('rejected', `HTTP ${res.status}`);
+  if (res.status === 404) throw new LoginError('not-found', `HTTP 404 from ${url}/models`);
+  if (!res.ok) throw new LoginError('network', `HTTP ${res.status}`);
+  try {
+    const body = await res.json() as { data?: unknown };
+    if (!Array.isArray(body.data)) return null;
+    return body.data
+      .map((m: { id?: unknown }) => m?.id)
+      .filter((id): id is string => typeof id === 'string' && id.length > 0);
+  } catch {
+    return null;
+  }
 }

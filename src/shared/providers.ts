@@ -84,6 +84,41 @@ export function sessionForProvider(id: string | undefined, provider: ProviderId)
   return prefix === engine ? id.slice(engine.length + 1) : undefined;
 }
 
+/**
+ * Что владелец рассказал о своём API (docs/design/T-189/ui.md §6.2) сверх
+ * адреса и ключа: как его называть, какую модель брать по умолчанию и что
+ * офис о ней не узнает сам — окно контекста и цену. Каталога цен у своего
+ * сервера нет, поэтому без цены доллары не считаются.
+ */
+export interface CustomApi {
+  name?: string;
+  model?: string;
+  contextWindow?: number;
+  /** USD за миллион токенов. */
+  price?: { input: number; output: number };
+}
+
+export const CUSTOM_NAME_MAX = 40;
+
+const positive = (v: unknown): v is number => typeof v === 'number' && Number.isFinite(v) && v > 0;
+const nonNegative = (v: unknown): v is number => typeof v === 'number' && Number.isFinite(v) && v >= 0;
+
+/** Привести присланное или прочитанное с диска к `CustomApi`: лишнее и кривое отбрасывается. */
+export function cleanCustomApi(raw: unknown): CustomApi {
+  if (!raw || typeof raw !== 'object') return {};
+  const r = raw as Record<string, unknown>;
+  const name = typeof r.name === 'string' ? r.name.trim().slice(0, CUSTOM_NAME_MAX) : '';
+  const model = typeof r.model === 'string' ? r.model.trim() : '';
+  const price = r.price as Record<string, unknown> | undefined;
+  return {
+    ...(name ? { name } : {}),
+    ...(model ? { model } : {}),
+    ...(positive(r.contextWindow) ? { contextWindow: Math.round(r.contextWindow) } : {}),
+    ...(price && nonNegative(price.input) && nonNegative(price.output)
+      ? { price: { input: price.input, output: price.output } } : {}),
+  };
+}
+
 /** Как провайдер пускает: подписка (вход в браузере), ключ API или без входа. */
 export type AuthKind = 'subscription' | 'api-key' | 'none';
 

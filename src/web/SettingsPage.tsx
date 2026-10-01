@@ -18,6 +18,7 @@ import { OfficeIconSetting } from './OfficeIcon';
 import { Icon } from './icons';
 import { ShellPage } from './shell/ShellPage';
 import { ProviderCard } from './ProviderCard';
+import { CustomApiGroup } from './CustomApiForm';
 import { byLabel } from './FirstLaunch';
 import { ProviderOptions, freeModel, modelHint, modelOptions, useProviderModels } from './ProviderPick';
 import { PROVIDERS, isConnected, type ProviderId } from '../shared/providers';
@@ -119,7 +120,9 @@ function ProvidersSection() {
   const choice = useStore((s) => s.settings.model);
   // Открыли вкладку — свежий статус; принудительно мимо кешей только по «Проверить снова».
   useEffect(() => { refreshProviders(); }, []);
-  const list = [...(view?.providers ?? [])].sort(byLabel);
+  // Свой API без адреса — ещё не подключение: он ждёт в группе «Свой API» ниже.
+  const list = [...(view?.providers ?? [])].filter((p) => p.id !== 'custom' || p.baseUrl).sort(byLabel);
+  const custom = view?.providers.find((p) => p.id === 'custom');
   // Выбор офиса уходит сразу, как и всё на этой вкладке: «Сохранить» страницы
   // его не шлёт, и «Отмена» его не откатывает.
   const choose = (provider: ProviderId) => {
@@ -148,6 +151,7 @@ function ProvidersSection() {
             </div>
           )}
       </section>
+      <CustomApiGroup p={custom} />
     </div>
   );
 }

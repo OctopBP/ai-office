@@ -28,7 +28,10 @@ export function useFirstLaunch(where: string): { open: boolean; close: () => voi
 }
 
 /** Порядок — алфавитный и не зависит от состояния: карточка не прыгает из-под курсора. */
-export const byLabel = (a: ProviderView, b: ProviderView): number => a.label.localeCompare(b.label, 'en');
+// Свой API — последним (ui.md §0): его название пишет владелец, и по алфавиту
+// он прыгал бы между встроенными при каждом переименовании.
+export const byLabel = (a: ProviderView, b: ProviderView): number =>
+  Number(a.id === 'custom') - Number(b.id === 'custom') || a.label.localeCompare(b.label, 'en');
 
 export function FirstLaunch({ where, onClose, standalone }: {
   where: string;

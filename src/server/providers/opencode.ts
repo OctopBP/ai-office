@@ -27,7 +27,7 @@ import { DEFAULT_STATE_FILE } from '../store';
 import { engineEnv, projectEnv } from '../childenv';
 import { installedBin, runnable } from '../engines/install';
 import { KEY_VAR, providerKey } from '../engines/keys';
-import { baseUrlOf } from '../engines/endpoints';
+import { baseUrlOf, customApi } from '../engines/endpoints';
 import { officeCatalog, type CommandExec, type OfficeTool } from './codex-tools';
 import { startBridge, type Bridge } from './mcp-bridge';
 import { catalogModel, modelPrice } from './model-prices';
@@ -178,6 +178,9 @@ export async function fetchModels(provider: ProviderId, timeoutMs = 10_000): Pro
 /** `default` — первая модель, которую отдаёт сервер: у Ollama и своего адреса другой не угадать. */
 export async function resolveModel(provider: ProviderId, model: string | undefined): Promise<string> {
   if (model && model !== 'default') return model;
+  // У своего API умолчание — модель, которую владелец назвал в форме.
+  const own = provider === 'custom' ? customApi().model : undefined;
+  if (own) return own;
   const [first] = await fetchModels(provider);
   if (!first) throw new Error(`${provider}: the server lists no models`);
   return first;

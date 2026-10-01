@@ -9,9 +9,9 @@ import type {
   PullRequestView, PrStage,
   EpicView, LimitsView, FactView, OwnerQuestion, LifeView, RitualId, DirectionView, ProposalView,
   OfficeSetupPlan, SetupCatalog, SetupStep, OfficeHealth, EnvReport, RuleScopeView, PmChat,
-  ProviderLoginFlow, ProviderLoginResult, ProvidersView, ProviderView, MarketPackageView,
+  ProviderLoginFlow, ProviderLoginResult, ProviderProbeResult, ProvidersView, ProviderView, MarketPackageView,
 } from '../shared/types';
-import { isConnected, PROVIDERS, type ModelChoice, type ProviderId } from '../shared/providers';
+import { isConnected, PROVIDERS, type CustomApi, type ModelChoice, type ProviderId } from '../shared/providers';
 import { MODEL_TIERS, TIER_MODELS, type ModelTier } from '../shared/models';
 import {
   compareOffices, emptyLimits, emptyUsage, isOfficeSender,
@@ -2446,13 +2446,32 @@ export function cancelProviderInstall(provider: ProviderId): void {
  * пока не придёт `provider.login`. Ключ уходит только этой командой — в стор
  * он не кладётся. `baseUrl` — адрес API у провайдеров со своим адресом.
  */
-export function loginProvider(provider: ProviderId, apiKey: string, baseUrl?: string): void {
+export function loginProvider(provider: ProviderId, apiKey: string, baseUrl?: string, custom?: CustomApi): void {
   useStore.setState((s) => {
     const rest = { ...s.providerLogin };
     delete rest[provider];
     return { providerLogin: rest };
   });
-  socket?.send(JSON.stringify({ c: 'provider_login', provider, apiKey, ...(baseUrl ? { baseUrl } : {}) }));
+  socket?.send(JSON.stringify({
+    c: 'provider_login', provider, apiKey, ...(baseUrl ? { baseUrl } : {}), ...(custom ? { custom } : {}),
+  }));
+}
+
+/**
+ * Проба адреса без сохранения — «Загрузить список» у своего API. Ответ нужен
+ * ровно тому, кто спросил, поэтому это запрос, а не событие по сокету.
+ */
+export async function probeProvider(provider: ProviderId, baseUrl: string, apiKey: string): Promise<ProviderProbeResult> {
+  try {
+    const res = await fetch(`/api/providers/${encodeURIComponent(provider)}/probe`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ baseUrl, apiKey }),
+    });
+    return await res.json() as ProviderProbeResult;
+  } catch (err) {
+    return { ok: false, code: 'network', message: (err as Error).message };
+  }
 }
 
 /**

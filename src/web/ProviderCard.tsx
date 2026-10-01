@@ -4,6 +4,7 @@ import type { LimitKind, ProviderLoginFlow, ProviderView } from '../shared/types
 import { Gauge, LIMIT_TICK_MS } from './LimitBars';
 import { limitTone, resetLine } from './money';
 import { Icon } from './icons';
+import { CustomApiForm } from './CustomApiForm';
 import {
   cancelProviderInstall, cancelProviderLogin, installProvider, isOfficeProvider, loginProvider, loginProviderBySubscription,
   logoutProvider, refreshProviders, sendProviderLoginCode, useStore,
@@ -110,6 +111,7 @@ function KeyForm({ p, onClose }: { p: ProviderView; onClose: () => void }) {
     : error.code === 'network' ? 'providers.key.errNet'
     : error.code === 'keychain' ? 'providers.key.errKeychain'
     : error.code === 'address' ? 'providers.key.errAddress'
+    : error.code === 'not-found' ? 'providers.custom.err404'
     : 'providers.key.errUnsupported';
 
   return (
@@ -214,6 +216,11 @@ function CardMenu({ p, onChangeKey }: { p: ProviderView; onChangeKey: () => void
   const disconnect = () => {
     if (window.confirm(t('providers.confirm.disconnect'))) logoutProvider(p.id);
   };
+  // Свой API забывается целиком — адрес, ключ, название и модель (ui.md §6.3).
+  const remove = () => {
+    if (window.confirm(t('providers.custom.removeConfirm'))) logoutProvider(p.id);
+  };
+  const custom = p.id === 'custom';
   return (
     <div className="provider-menu" ref={box}>
       <button type="button" className="sq ghost mini" aria-haspopup="menu" aria-expanded={open}
@@ -225,10 +232,12 @@ function CardMenu({ p, onChangeKey }: { p: ProviderView; onChangeKey: () => void
           <button type="button" role="menuitem" className="ghost" onClick={pick(() => refreshProviders(true))}>{t('providers.recheck')}</button>
           {p.auth.includes('api-key') && (
             <button type="button" role="menuitem" className="ghost" onClick={pick(onChangeKey)}>
-              {t(p.editableUrl ? 'providers.menu.changeAddress' : 'providers.menu.changeKey')}
+              {t(custom ? 'providers.custom.edit' : p.editableUrl ? 'providers.menu.changeAddress' : 'providers.menu.changeKey')}
             </button>
           )}
-          {p.editableUrl ? (
+          {custom ? (
+            <button type="button" role="menuitem" className="ghost danger" onClick={pick(remove)}>{t('providers.custom.remove')}</button>
+          ) : p.editableUrl ? (
             <button type="button" role="menuitem" className="ghost danger" onClick={pick(disconnect)}>{t('providers.menu.disconnect')}</button>
           ) : p.key?.source === 'keychain' && (
             <button type="button" role="menuitem" className="ghost danger" onClick={pick(removeKey)}>{t('providers.menu.deleteKey')}</button>
@@ -372,7 +381,7 @@ export function ProviderCard({ p, onUse }: {
       actions = !keyOpen && (
         <>
           <button type="button" onClick={() => refreshProviders(true)}>{t('providers.recheck')}</button>
-          {p.editableUrl && keyButton('providers.menu.changeAddress', false)}
+          {p.editableUrl && keyButton(p.id === 'custom' ? 'providers.custom.edit' : 'providers.menu.changeAddress', false)}
         </>
       );
       break;
@@ -391,6 +400,7 @@ export function ProviderCard({ p, onUse }: {
           {p.editableUrl && p.baseUrl && (
             <p className="provider-text muted">{t('providers.ready.address', { url: p.baseUrl })}</p>
           )}
+          {p.custom?.model && <p className="provider-text muted">{t('providers.custom.modelLine', { model: p.custom.model })}</p>}
           <ProviderLimits windows={windows} planLimits={p.capabilities.planLimits} now={now} />
         </>
       );
@@ -458,7 +468,9 @@ export function ProviderCard({ p, onUse }: {
         {hasMenu && <CardMenu p={p} onChangeKey={() => setKeyOpen(true)} />}
       </header>
       <div className="provider-body">{body}</div>
-      {keyOpen && <KeyForm p={p} onClose={() => setKeyOpen(false)} />}
+      {keyOpen && (p.id === 'custom'
+        ? <CustomApiForm p={p} onClose={() => setKeyOpen(false)} />
+        : <KeyForm p={p} onClose={() => setKeyOpen(false)} />)}
       {caps.length > 0 && (
         <div className="provider-caps">
           {shownCaps.map((c) => (

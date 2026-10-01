@@ -117,3 +117,21 @@
   .provider-body, .provider-caps, .provider-actions, .provider-key { margin-left: 0; padding-left: 0; }
   .provider-actions button { flex: 1 1 100%; }
 }
+
+/* ---------- свой API (ui.md §6) ---------- */
+/* Форма живёт и в группе вкладки, и внутри карточки: подпись уже, чем у
+   страницы, иначе в карточке полю остаётся полоска. */
+.custom-api { display: flex; flex-direction: column; gap: var(--space-3); }
+.custom-api .form-row { grid-template-columns: 160px minmax(0, 1fr); gap: var(--space-1) var(--space-4); }
+.custom-api .form-row-label label { font-size: var(--fs-body); }
+.custom-api .provider-actions { margin-left: 0; }
+.provider-card .custom-api { margin-left: calc(28px + var(--space-3)); }
+.custom-api-more > summary { cursor: pointer; font-size: var(--fs-body); color: var(--ink-2); margin-bottom: var(--space-3); }
+.custom-api-price { display: flex; align-items: center; gap: var(--space-2); }
+.custom-api-price label { font-size: var(--fs-small); color: var(--ink-3); }
+.custom-api-price input { width: 96px; }
+@media (max-width: 720px) {
+  .custom-api .form-row { grid-template-columns: minmax(0, 1fr); }
+  .provider-card .custom-api { margin-left: 0; }
+  .custom-api-price { flex-wrap: wrap; }
+}
