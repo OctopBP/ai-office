@@ -20,6 +20,11 @@
 Даты и версии внешних инструментов указаны на 2026-10-01. Что не проверено
 руками и требует прототипа, помечено **[проверить]**.
 
+В задаче T-209 сюда внесены принятые предложения из разбора t3code
+([`t3code.md`](t3code.md), коммит `148e6de`). Факты, взятые из t3code, даны со
+ссылкой на файл этого коммита. Они прочитаны по коду t3code, но у нас не
+запускались.
+
 ---
 
 ## 1. Как сейчас подключены Claude Code и Codex
@@ -363,7 +368,13 @@ Grok, DeepSeek, OpenRouter и Ollama через уже готовый адапт
    неизвестно [проверить]) обходим: стоимость пересчитываем сами по токенам
    и цене из того же models.dev (`GET /config/providers` [проверить]). Цены
    своих провайдеров OpenCode не знает (#17223 — not planned), их офис
-   считает сам.
+   считает сам. Запасной источник цен для моделей, которых нет в models.dev, —
+   таблица LiteLLM `model_prices_and_context_window.json` (MIT
+   [проверить лицензию самого файла цен]): копия на диске, обновление раз в
+   сутки, сбой загрузки не мешает работе. Поверх неё — цены владельца в
+   настройках. Так же делает t3code ([`usagePricing.ts`][t3-up]). Сканер
+   транскриптов движков, как у t3code, не берём: офис считает только свои
+   сессии.
 3. **Управление.** Сервер с сессиями, SSE, отменой и API подтверждений —
    ближе всего к тому, как офис уже работает с Codex.
 4. **MIT и один бинарь** для macOS и Windows. Его можно скачивать из npm
@@ -383,16 +394,30 @@ Grok, DeepSeek, OpenRouter и Ollama через уже готовый адапт
   него не будем: матрица отдаёт `sandbox: false`, и режим подтверждений
   роли автоматически ужесточается (Bash всегда с подтверждением, кроме
   режима `auto`, о чём форма роли предупреждает).
-- **MCP только из конфига.** Нужен мост офиса: локальный Streamable HTTP
-  MCP с токеном на сессию (§5.4). Документация OpenCode описывает
-  `type: "remote"` с `url`, `headers` и `timeout`, но Streamable HTTP или
-  SSE прямо не называет [проверить]. Запасной вариант — поднять мост с
-  SSE-транспортом или подключить его как `type: "local"` через локальный
-  процесс-прокладку, который ходит на мост. Тот же мост потом можно отдать Codex,
-  Qwen Code и Antigravity, и `localTools`/`dynamicTools` станут не нужны.
+- **Серверов MCP в процессе нет.** Нужен мост офиса: локальный Streamable
+  HTTP MCP, токен сессии в заголовке `Authorization: Bearer` (§5.4).
+  Транспорт подтверждён по коду t3code: он подключает к OpenCode свой
+  Streamable HTTP MCP (протокол `2025-06-18`) как `type: "remote"` с
+  заголовком `Authorization` через `client.mcp.add()` после подключения к
+  серверу ([`OpenCodeAdapter.ts`][t3-oca], стр. 2870–2884;
+  [`McpHttpServer.ts`][t3-mcph]). Тот же мост потом можно отдать Codex и
+  Qwen Code, и `localTools`/`dynamicTools` станут не нужны.
 - **API быстро меняется.** Фиксируем версию движка так же, как фиксируем
   версию Claude: офис скачивает ровно ту, под которую проверен адаптер, и
   отключает самообновление (`autoupdate: false`, `share: "disabled"`).
+  Нижняя граница — **OpenCode `1.14.19`**, версии `>=2.0.0` считаем
+  несовместимыми до проверки. Это отправная точка из t3code: там та же
+  граница зашита константой `MINIMUM_OPENCODE_VERSION`, а при старой версии
+  подключение отказывает с текстом «Upgrade to v1.14.19 or newer»
+  ([`opencodeRuntime.ts`][t3-ocr], стр. 42, 140–175), и `>=2.0.0` помечена
+  `broken` в манифесте ([`model-manifest.json`][t3-mm]). Подходит ли она
+  под наши запросы, проверит прототип [проверить]. Диапазоны версий живут в
+  манифесте движков (§5.8).
+- **Подтверждения.** Форма `ask` снята по коду t3code: события SSE
+  `permission.asked` / `permission.replied`, ответ — `once | always |
+  reject`; вопросы агента идут отдельными событиями `question.asked` /
+  `question.replied` / `question.rejected` ([`OpenCodeAdapter.ts`][t3-oca]).
+  Перевод на шлюз офиса и набор правил по умолчанию — §5.5.
 - **Подписку Claude Pro/Max через OpenCode использовать нельзя:** Anthropic
   это запрещает, с версии 1.3.0 плагины убраны [проверить]. Claude остаётся своим
   адаптером `claude-code`, OpenCode к Anthropic не подключаем.
@@ -412,7 +437,7 @@ Code Assist пока могут пользоваться старым CLI.
 
 | | Gemini CLI (старый) | Antigravity CLI |
 |---|---|---|
-| Без интерфейса | `-p`, `--output-format json/stream-json` (`init`, `message`, `tool_use`, `tool_result`, `result` со `stats`), `--acp` (JSON-RPC: `initialize`, `authenticate`, `session/new`, `loadSession`, `prompt`, `cancel`) | только `-p/--print` одним блоком, без потока и без продолжения. ACP запрошен (issue #31), но ответа нет |
+| Без интерфейса | `-p`, `--output-format json/stream-json` (`init`, `message`, `tool_use`, `tool_result`, `result` со `stats`), `--acp` (JSON-RPC: `initialize`, `authenticate`, `session/new`, `loadSession`, `prompt`, `cancel`) | сам `agy` — только `-p/--print` одним блоком. Официальный ACP-сервер есть отдельно: `agy-acp-server` 1.1.1 с `dl.google.com`, в ACP registry, нужен Node ([`antigravityRelease.ts`][t3-agr]) |
 | MCP | да; на каком шаге ACP передаются MCP-серверы, `initialize` или `session/new`, не установлено [проверить] | [проверить] |
 | Песочница | `--sandbox` (docker или seatbelt) | [проверить] |
 | Продолжение | `-r/--resume`, `loadSession` (в ACP на Windows есть баги, #29288) | нет |
@@ -421,16 +446,15 @@ Code Assist пока могут пользоваться старым CLI.
 | Установка | npm (Node 20+) | `curl … \| bash`, Windows [проверить] |
 
 **Вывод.** Строить адаптер на Gemini CLI сейчас — значит строить на
-выводимом из оборота инструменте. Antigravity CLI пока нельзя управлять
-программно. Поэтому:
+выводимом из оборота инструменте. **Gemini подключаем только через OpenCode
+по API-ключу** (провайдер Google), на этапе 3, без отдельного движка (Q-46).
 
-- **Gemini по API-ключу подключаем через OpenCode** (провайдер Google). Это
-  работает уже на этапе 3, без отдельного движка.
-- **Отдельный адаптер `antigravity`** — поздний необязательный этап (этап 6),
-  как только у `agy` появится ACP или поток JSON с продолжением. Он нужен
-  ради входа по подписке Google AI Pro/Ultra, которой по ключу нет.
-
-Вопрос владельцу задан (Q-46). Спека пока исходит из этого допущения.
+**Antigravity не подключаем** (решение владельца Q-53, отменяет Q-51).
+Официальный ACP-сервер у Antigravity есть, t3code им пользуется, но условия
+Google (раздел 6) запрещают доступ к Antigravity через стороннее ПО и
+допускают приостановку аккаунта — см. юридический разбор
+[`docs/legal/T-210/antigravity.md`](../../legal/T-210/antigravity.md).
+Отдельного этапа под Antigravity в плане нет.
 
 ### 4.2. Qwen Code
 
@@ -461,7 +485,7 @@ OpenAI-совместимые адреса, и OpenCode их обслужива�
 ### 5.1. Понятия
 
 - **Движок** (`EngineId`) — программа, которая ведёт цикл агента:
-  `claude-code`, `codex`, `opencode`, позже `qwen-code`, `antigravity`.
+  `claude-code`, `codex`, `opencode`, позже, возможно, `qwen-code`.
   Ставится, обновляется, проверяется.
 - **Провайдер** (`ProviderId`) — у кого модель и чей счёт: `anthropic`,
   `openai`, `xai`, `deepseek`, `openrouter`, `google`, `alibaba`, `ollama`,
@@ -473,12 +497,20 @@ OpenAI-совместимые адреса, и OpenCode их обслужива�
 загрузке читаются как `anthropic` и `openai` (миграция в `state.ts`, по
 образцу `LEGACY_ROLE_COLORS` в `roles.ts`).
 
+**Незнакомый провайдер не теряется.** Если в сохранении у роли или офиса
+провайдер, которого нет в этой версии (сохранение из более новой версии или
+из ветки), загрузка его не роняет и не подменяет умолчанием: значение
+хранится как есть, а статус провайдера — `unsupported` с текстом «провайдер
+недоступен в этой версии». Задачи такой роли ждут, как при `needs-login`.
+В t3code так устроен id драйвера: открытая строка, а неизвестный драйвер
+показывается `availability: "unavailable"` ([`providerInstance.ts`][t3-pi]).
+
 ### 5.2. Типы
 
 ```ts
 // src/shared/providers.ts — общий контракт с вебом
 
-export type EngineId = 'claude-code' | 'codex' | 'opencode' | 'qwen-code' | 'antigravity';
+export type EngineId = 'claude-code' | 'codex' | 'opencode' | 'qwen-code';
 
 export type ProviderId =
   | 'anthropic' | 'openai'                    // свои движки
@@ -499,15 +531,35 @@ export interface ProviderInfo {
   cloud: boolean;                // есть облачный режим (сейчас только anthropic)
 }
 
-/** Состояние провайдера на экране «Провайдеры» и в проверках окружения. */
-export type ProviderStatus =
-  | { state: 'not-installed'; engine: EngineId; sizeMb?: number }
-  | { state: 'installing'; engine: EngineId; share: number }
+/**
+ * Состояние провайдера на экране «Провайдеры» и в проверках окружения.
+ * message — готовый текст с сервера «что не так и что сделать», веб показывает
+ * его как есть (так у t3code устроен provider.message).
+ */
+export type ProviderStatus = (
+  | { state: 'not-installed'; engine: EngineId; sizeMb?: number;
+      /** Команда официального установщика для движков, которые офис не ставит сам. */
+      installCommand?: string }
+  | { state: 'installing'; engine: EngineId; install: InstallState }
   | { state: 'needs-login'; auth: AuthKind[]; detail?: string }
   | { state: 'unreachable'; detail: string }  // Ollama не запущен, адрес не отвечает
-  | { state: 'ready'; account?: string; auth: AuthKind; plan?: string }
+  | { state: 'ready'; account?: string; auth: AuthKind; plan?: string;
+      /** Откуда движок: поставлен офисом или найден в PATH (такой удалять нельзя). */
+      source?: 'managed' | 'local' }
   | { state: 'limited'; resetsAt?: number; kind: 'plan' | 'rate' | 'balance'; detail?: string }
-  | { state: 'error'; detail: string };
+  | { state: 'unsupported'; provider: string }  // провайдер из сохранения, которого нет в этой версии (§5.1)
+  | { state: 'error'; detail: string }
+) & { message?: string };
+
+/** Ход установки движка: фазы, байты и откуда движок. */
+export interface InstallState {
+  phase: 'downloading' | 'extracting' | 'verifying' | 'succeeded' | 'failed';
+  bytes?: { done: number; total?: number };
+  version: string;
+  source: 'managed' | 'local';
+  /** false — движок найден в PATH, офис его не ставил и удалять не предлагает. */
+  canRemove: boolean;
+}
 
 /** Провайдер и модель: на офисе — обязательно, на роли — переопределение. */
 export interface ModelChoice {
@@ -536,7 +588,7 @@ export interface ModelInfo {
 ```ts
 // src/server/engines/types.ts — серверная граница, вебу не видна
 
-import type { EngineId, ProviderId, ProviderStatus, AuthKind, ModelInfo } from '../../shared/providers';
+import type { EngineId, ProviderId, ProviderStatus, AuthKind, ModelInfo, InstallState } from '../../shared/providers';
 
 /** Что движок умеет. По матрице офис решает, что показать и что разрешить. */
 export interface EngineCapabilities {
@@ -549,6 +601,8 @@ export interface EngineCapabilities {
   nativeHands: boolean;           // свои Read/Edit/Bash, пропущенные через шлюз подтверждений
   sandbox: boolean;               // песочница ОС для команд (на этой платформе)
   compaction: 'auto-window' | 'auto' | 'manual' | 'none';
+  /** Можно ли сменить модель в начатой сессии. Нет — новая модель со следующей сессии. */
+  sessionModelSwitch: boolean;
   costUsd: 'reported' | 'computed' | 'none';
   planLimits: boolean;            // окна подписки с процентами и сбросом
   balance: boolean;               // остаток денег у провайдера (OpenRouter, DeepSeek)
@@ -557,7 +611,7 @@ export interface EngineCapabilities {
   cloud: boolean;
 }
 
-export interface InstallProgress { share: number; bytes?: number; note?: string }
+export type InstallProgress = Omit<InstallState, 'source' | 'canRemove'>;
 
 export interface LoginRequest {
   provider: ProviderId;
@@ -567,9 +621,25 @@ export interface LoginRequest {
   /** Для custom, ollama и lmstudio: адрес. */
   baseUrl?: string;
 }
-export type LoginStart =
-  | { done: true; status: ProviderStatus }
-  | { done: false; authUrl: string; loginId: string };   // открыть в браузере и ждать onLoginCompleted
+
+/**
+ * Вход — сценарий с flowId и фазами, а не один адрес. Что показать
+ * пользователю, говорит interaction. Схема из t3code (providerSetup.ts,
+ * ProviderAuthFlow.ts).
+ */
+export interface LoginFlow {
+  flowId: string;
+  phase: 'starting' | 'waiting' | 'verifying' | 'succeeded' | 'failed' | 'cancelled';
+  interaction?: LoginInteraction;
+  status?: ProviderStatus;        // в конечной фазе
+  error?: string;
+}
+export type LoginInteraction =
+  | { kind: 'browser'; url: string }
+  | { kind: 'deviceCode'; url: string; userCode: string }
+  | { kind: 'credentials'; fields: Array<{ id: string; label: string; secret: boolean }> }
+  /** Запасной вход CLI движка (`claude auth login`) без выхода из приложения: вывод сюда, ввод — sendInput. */
+  | { kind: 'terminal'; output: string };
 
 /** Всё, что нужно сессии, без типов какого-либо SDK. */
 export interface SessionSpec {
@@ -613,11 +683,17 @@ export interface SkillRef { id: string; dir: string; file: string }
 
 export interface PermissionGate {
   (tool: string, input: Record<string, unknown>, ctx: { signal: AbortSignal; callId: string }):
-    Promise<{ behavior: 'allow'; input?: Record<string, unknown> } | { behavior: 'deny'; message: string }>;
+    Promise<
+      /** scope 'session' — не спрашивать такой же вызов до конца сессии (acceptForSession у t3code). */
+      | { behavior: 'allow'; input?: Record<string, unknown>; scope?: 'once' | 'session' }
+      | { behavior: 'deny'; message: string }>;
 }
 
-/** Словарь событий офиса. agents.ts читает только его. */
-export type EngineEvent =
+/** Сырое событие движка рядом с переведённым — для разбора ошибок адаптера. */
+export interface RawEvent { source: string; event: unknown }   // source: 'claude.sdk', 'codex.app-server', 'opencode.sse', …
+
+/** Словарь событий офиса. agents.ts читает только его. У каждого события может быть raw. */
+export type EngineEvent = (
   | { t: 'init'; sessionId: string; model: string; auth: AuthKind }
   | { t: 'text-delta'; text: string }
   | { t: 'text'; text: string }
@@ -629,10 +705,22 @@ export type EngineEvent =
   | { t: 'compact-failed'; reason: 'thrash' | 'error'; detail?: string }
   | { t: 'limit'; status: 'allowed' | 'warning' | 'rejected'; kind: 'plan' | 'rate' | 'balance';
       window?: string; utilization?: number; resetsAt?: number }
+  /** Вопрос агента с вариантами (question.asked у OpenCode, у ACP — свой запрос). Ответ — EngineSession.answer. */
+  | { t: 'ask-user'; requestId: string; question: string; options?: string[] }
   | { t: 'turn-end'; ok: boolean; text: string; reason?: 'max-turns' | 'budget' | 'limit' | 'error' | 'aborted';
-      error?: string; usage: TokenUsage; costUsd: number | null; turns: number };
+      error?: string; usage: TokenUsage; costUsd: number | null; turns: number }
+) & { raw?: RawEvent };
 
-export interface TokenUsage { input: number; output: number; cacheRead: number; cacheWrite: number; reasoning?: number }
+/**
+ * input — БЕЗ кеша: чтение и запись кеша лежат отдельно в cacheRead и cacheWrite
+ * (так считает Anthropic и так уже устроены spend.ts и Usage). Движок, у которого
+ * input включает кеш (так у t3code TurnTokenUsage), вычитает его в адаптере.
+ * status — честный признак, что движок отдал не всё.
+ */
+export interface TokenUsage {
+  input: number; output: number; cacheRead: number; cacheWrite: number; reasoning?: number;
+  status: 'complete' | 'partial' | 'unavailable';
+}
 
 export interface EngineSession extends AsyncIterable<EngineEvent> {
   readonly provider: ProviderId;
@@ -641,6 +729,10 @@ export interface EngineSession extends AsyncIterable<EngineEvent> {
   /** Полная картина лимитов и баланса без платного хода. */
   limits?(): Promise<LimitReport>;
   mcpStatus(): Promise<Array<{ name: string; status: 'connected' | 'failed'; error?: string }>>;
+  /** Ответ на ask-user. */
+  answer?(requestId: string, reply: { text: string } | { rejected: true }): Promise<void>;
+  /** Сменить модель в начатой сессии — только при capabilities.sessionModelSwitch. */
+  setModel?(model: string): Promise<void>;
   stop(): void;
 }
 
@@ -648,6 +740,12 @@ export interface LimitReport {
   plan?: string;
   windows: Array<{ id: string; utilization: number; resetsAt?: number }>;
   balance?: { remainingUsd: number | null; limitUsd?: number | null };
+  /**
+   * Окон нет: 'unsupported' — у такого входа их не бывает (ключ API),
+   * 'probeFailed' — сейчас не смогли прочитать. Во втором случае шкала
+   * показывает последнее известное значение и не пропадает (providerUsageLimits.ts у t3code).
+   */
+  unavailable?: { reason: 'unsupported' | 'probeFailed' };
 }
 
 export interface EngineAdapter {
@@ -663,9 +761,13 @@ export interface EngineAdapter {
   /** Состояние провайдера. Только метаданные: платный ход модели не запускается никогда. */
   status(provider: ProviderId, opts?: { force?: boolean }): Promise<ProviderStatus>;
 
-  /** Вход. Подписка — через браузер (authUrl), ключ — в связку ключей. */
-  login(req: LoginRequest): Promise<LoginStart>;
-  onLoginCompleted?(loginId: string): Promise<ProviderStatus>;
+  /** Вход. Ключ — сразу в связку ключей (фаза succeeded); подписка — сценарий с взаимодействием. */
+  login(req: LoginRequest): Promise<LoginFlow>;
+  /** Следующее состояние сценария: веб опрашивает или получает его по ws. */
+  loginFlow?(flowId: string): Promise<LoginFlow>;
+  /** Ввод в terminal или значения полей credentials. */
+  sendInput?(flowId: string, input: string | Record<string, string>): Promise<void>;
+  cancelLogin?(flowId: string): Promise<void>;
   logout(provider: ProviderId): Promise<void>;
 
   /** Модели провайдера, с ценами, если движок их знает. */
@@ -704,6 +806,20 @@ error — всё прочее с текстом «что сделать»
   проверяет `GET <адрес>/api/tags` → `unreachable`.
 - `needs-login` у Claude — нет ни входа Claude Code, ни ключа. У Codex —
   `account/read` пуст. У провайдеров OpenCode — в связке ключей нет ключа.
+- **Проверка Claude без платного хода** — приём t3code
+  ([`ClaudeProvider.ts`][t3-cp], стр. 320–400): `claude auth status`; если
+  там нет типа подписки — сессия SDK с промптом, который ничего не отдаёт,
+  чтение `account.email`, `subscriptionType`, `tokenSource` из
+  `initializationResult()` и прерывание сессии [проверить на нашей версии SDK].
+- У каждого состояния сервер заполняет `message` — готовый текст «что не
+  так и что сделать» («OpenCode не найден в PATH», «версия старше 1.14.19,
+  обновите»). Веб его не собирает сам.
+- `unsupported` — провайдер из сохранения, которого эта версия не знает
+  (§5.1). Не критичен для офиса, но задачи этой роли не раздаются.
+- `limited` и шкалы лимитов: если окна прочитать не удалось
+  (`LimitReport.unavailable.reason = 'probeFailed'`), шкала показывает
+  последнее значение с пометкой «не обновилось», а не исчезает; `unsupported`
+  — у входа по ключу окон нет, шкалы нет.
 - `limited` строится из того же трекера `limits.ts`, что и сейчас (окна
   подписки), плюс два новых вида: `rate` (ответ 429 с `retry-after` у
   провайдера по ключу) и `balance` (OpenRouter `GET /api/v1/key` →
@@ -723,15 +839,31 @@ error — всё прочее с текстом «что сделать»
 
 - `claude-code` → `createSdkMcpServer` + `tool()` прямо в адаптере;
 - `codex` → `dynamicTools` (как сейчас в `codex-tools.ts`);
-- `opencode`, `qwen-code`, `antigravity` → **мост**. Сервер офиса поднимает
-  на `127.0.0.1` Streamable HTTP MCP (`@modelcontextprotocol/sdk/server`, пакет
-  уже в зависимостях) с адресом `/mcp/<одноразовый токен сессии>`. Адрес
-  уходит в конфиг сессии (`OPENCODE_CONFIG_CONTENT.mcp.office = { type: 'remote', url }`).
-  Какой транспорт OpenCode ждёт от `type: "remote"`, Streamable HTTP или SSE,
-  документация не говорит [проверить]; запасной вариант — SSE или
-  локальный процесс-прокладка (§3.5).
-  Токен живёт, пока жива сессия. Каждый вызов проходит через `PermissionGate`
-  до обработчика.
+- `opencode`, `qwen-code` → **мост**. Сервер офиса поднимает на `127.0.0.1`
+  один Streamable HTTP MCP (`@modelcontextprotocol/sdk/server`, пакет уже в
+  зависимостях) на пути `/mcp`. Сессию различает токен в заголовке
+  `Authorization: Bearer <токен сессии>`, а не в пути: так он не попадает
+  в логи доступа. В памяти офиса лежит только хеш токена; токен живёт, пока
+  жива сессия. Так устроен мост t3code ([`McpHttpServer.ts`][t3-mcph],
+  [`McpSessionRegistry.ts`][t3-mcpr]).
+- К **OpenCode** мост подключается во время работы, после подключения к его
+  серверу: `client.mcp.add({ name: 'office', config: { type: 'remote', url,
+  headers: { Authorization }, oauth: false } })` — ровно так t3code
+  подключает свой мост ([`OpenCodeAdapter.ts`][t3-oca], стр. 2870–2884).
+  Транспорт Streamable HTTP у `type: "remote"` этим подтверждён, запасные
+  варианты (SSE, процесс-прокладка) не нужны. Сервер OpenCode один на офис
+  (этап 2), поэтому мост подключается вызовом, а не через
+  `OPENCODE_CONFIG_CONTENT` процесса. Действует ли `mcp.add` на весь сервер
+  OpenCode или на одну сессию, по разбору не видно [проверить]; если на
+  весь сервер — у каждой сессии офиса свой MCP `office-<сессия>` со своим
+  токеном, и агент сессии видит только его.
+- **Codex** может получить тот же мост вместо `dynamicTools`, если те так и
+  останутся экспериментальными: аргументы `-c mcp_servers.office.url=…` и
+  `mcp_servers.office.bearer_token_env_var="OFFICE_MCP_TOKEN"`, токен — в
+  окружении процесса, в конфиг не пишется ([`CodexAdapter.ts`][t3-cxa],
+  стр. 2305–2340).
+
+Каждый вызов через мост проходит через `PermissionGate` до обработчика.
 
 Тем же мостом отдаются **руки офиса** (Read/Write/Edit/Bash/Glob/Grep —
 вынести из `codex-tools.ts` в `engines/hands.ts`) для движков, у которых свои
@@ -741,24 +873,27 @@ Codex, и отдаёт тем же мостом: так роль получае�
 
 ### 5.5. Матрица возможностей
 
-| | claude-code | codex | opencode | qwen-code (этап 6) | antigravity (этап 6) |
-|---|---|---|---|---|---|
-| Провайдеры | anthropic | openai | xai, deepseek, openrouter, google, alibaba, ollama, lmstudio, custom | alibaba | google |
-| Вход по подписке | да, дополнительный: «вход в ваш собственный Claude Code» (`claude` → `/login`, `setup-token` [проверить]) | да (ChatGPT, `account/login/start` [проверить]) | нет | Coding Plan — ключом | да |
-| Вход по ключу | да, основной | да | да | да | да |
-| Продолжение | да | да | да | да | нет (пока) |
-| Потоковый ввод (менеджер) | да | да (ходы в треде) | да (сообщения в сессию) | да | нет |
-| Текст по кусочкам | да | да | да (SSE `message.part.updated`) | да | нет |
-| Инструменты офиса | в процессе | dynamic-tools | мост | в процессе (SDK) | мост |
-| Свои руки через шлюз | да | нет (руки офиса) | нет (руки офиса) | да | [проверить] |
-| Песочница ОС | macOS, Linux | macOS, Linux; Windows — эксп. | руки офиса + sandbox-runtime: macOS, Linux; **Windows — нет** (у sandbox-runtime только alpha) | [проверить] | [проверить] |
-| Сжатие | окно `autoCompactWindow` | ручное | авто + `summarize` | авто | ? |
-| Стоимость | reported | computed (таблица) | computed (models.dev) | [проверить] | none |
-| Окна подписки | да | да | нет | нет | ? |
-| Баланс | нет | нет | openrouter, deepseek | нет | нет |
-| Скилы роли | plugin | tool (Skill офиса) | tool | tool | tool |
-| Веб-поиск | да | да | webfetch; поиск — у провайдера [проверить] | да | да |
-| Облако | да | нет | нет | нет | нет |
+| | claude-code | codex | opencode | qwen-code (этап 6) |
+|---|---|---|---|---|
+| Провайдеры | anthropic | openai | xai, deepseek, openrouter, google, alibaba, ollama, lmstudio, custom | alibaba |
+| Вход по подписке | да, дополнительный: «вход в ваш собственный Claude Code» (`claude` → `/login`, `setup-token` [проверить]) | да (ChatGPT, `account/login/start` [проверить]) | нет | Coding Plan — ключом |
+| Вход по ключу | да, основной | да | да | да |
+| Продолжение | да | да | да | да |
+| Потоковый ввод (менеджер) | да | да (ходы в треде) | да (сообщения в сессию) | да |
+| Текст по кусочкам | да | да | да (SSE `message.part.updated`) | да |
+| Инструменты офиса | в процессе | dynamic-tools (или мост, §5.4) | мост | в процессе (SDK) |
+| Свои руки через шлюз | да | нет (руки офиса) | нет (руки офиса) | да |
+| Подтверждения | `canUseTool` | не нужны (руки офиса) | `permission.asked` → `once / always / reject` | `canUseTool` |
+| Вопросы агента (`ask-user`) | нет (`ask_owner` офиса) | нет | `question.asked` | [проверить] |
+| Песочница ОС | macOS, Linux | macOS, Linux; Windows — эксп. | руки офиса + sandbox-runtime: macOS, Linux; **Windows — нет** (у sandbox-runtime только alpha) | [проверить] |
+| Сжатие | окно `autoCompactWindow` | ручное | авто + `summarize` | авто |
+| Смена модели в сессии (`sessionModelSwitch`) | [проверить] | [проверить] | [проверить] | [проверить] |
+| Стоимость | reported | computed (таблица) | computed (models.dev, запасной — LiteLLM) | [проверить] |
+| Окна подписки | да | да | нет | нет |
+| Баланс | нет | нет | openrouter, deepseek | нет |
+| Скилы роли | plugin | tool (Skill офиса) | tool | tool |
+| Веб-поиск | да | да | webfetch; поиск — у провайдера [проверить] | да |
+| Облако | да | нет | нет | нет |
 
 Как офис пользуется матрицей:
 
@@ -768,7 +903,38 @@ Codex, и отдаёт тем же мостом: так роль получае�
   сделано для Codex без цен;
 - при `resume: false` продолжение после лимита и на доработке идёт заново
   с пересказом (`resumedPrompt` → новый промпт);
-- при `streamingInput: false` такой провайдер нельзя назначить менеджеру.
+- при `streamingInput: false` такой провайдер нельзя назначить менеджеру;
+- при `sessionModelSwitch: true` смена модели роли на ходу не рвёт сессию
+  (`EngineSession.setModel`); при `false` новая модель действует со
+  следующей сессии — как смена провайдера сейчас. В t3code это
+  `sessionModelSwitch: 'in-session' | 'unsupported'` у адаптера
+  ([`ProviderAdapter.ts`][t3-pa]).
+
+**Подтверждения у OpenCode.** Режим роли разворачивается в набор правил на
+сессию OpenCode. За основу берём набор t3code
+(`buildOpenCodePermissionRules`, [`opencodeRuntime.ts`][t3-ocr],
+стр. 505–545) для режимов ниже `auto`:
+
+```
+* → ask; read → allow, но *.env и *.env.* → ask (*.env.example → allow);
+glob, grep, lsp, skill, todowrite, question → allow;
+bash, webfetch, websearch, codesearch, external_directory, doom_loop → ask;
+edit → allow только в режиме «правки без спроса», иначе ask
+```
+
+Свои руки OpenCode у нас выключены (§3.5), так что правила для `bash` и
+`edit` — страховка на случай, если инструмент включится обратно. Событие
+`permission.asked` уходит в `PermissionGate`, решение отправляется как
+`once` (разово), `always` (`scope: 'session'`) или `reject`
+(`toOpenCodePermissionReply` у t3code). Живёт ли `always` в OpenCode только
+до конца сессии — [проверить]. Режим `full-access` по умолчанию, как у
+t3code, **не берём**: умолчание остаётся за режимом роли.
+
+**Висящие запросы после переподключения.** Если связь с сервером OpenCode
+рвалась, адаптер после переподключения перечитывает висящие подтверждения и
+вопросы (`permission.list`, `question.list`) и заново отдаёт их в шлюз —
+иначе агент навсегда повиснет на `ask`, о котором офис не узнал
+([`OpenCodeAdapter.ts`][t3-oca], стр. 2060–2170).
 
 ### 5.6. Провайдер на офисе и на роли
 
@@ -786,6 +952,11 @@ Codex, и отдаёт тем же мостом: так роль получае�
 - Смена провайдера офиса не трогает роли с переопределением, а роли без
   него переходят на нового провайдера со следующей сессии. Начатые сессии
   не продолжаются чужим движком: это уже обеспечивает `sessionForProvider`.
+- `Settings.utilityModel?: ModelChoice` — необязательная модель офиса для
+  служебных генераций: ритуалы, тексты коммитов и выпусков, заголовки.
+  Пусто — как у офиса. В t3code так отделены `textGenerationModelSelection`
+  и `sourceControlWriterModelSelection` ([`settings.ts`][t3-set],
+  стр. 1051–1061). Выбора модели на отдельный ход нет (§7).
 
 ### 5.7. Хранение ключей
 
@@ -802,8 +973,37 @@ Codex, и отдаёт тем же мостом: так роль получае�
   конфиг OpenCode попадает подстановка `{env:OFFICE_KEY_XAI}`, а не значение.
   Команды агента ключей не видят (`childenv.ts`, проверка `test:secrets` —
   дополнить переменными новых провайдеров).
+- **Управляемому движку** из окружения убираются переменные провайдеров
+  владельца: `OPENAI_API_KEY`, `OPENAI_BASE_URL` и такие же у других
+  провайдеров (`ANTHROPIC_*`, `XAI_API_KEY`, `GEMINI_API_KEY`, …), кроме той,
+  что офис задал сам. Иначе переменная из окружения владельца перенаправит
+  движок на другой счёт или адрес. Так t3code готовит окружение Codex
+  ([`CodexManagedRuntime.ts`][t3-cmr], стр. 90–100).
 - В `state.json`, журнал, логи и сообщения веба ключи не попадают никогда.
-  Веб получает только `KeyStore.list()`.
+  Веб получает только признак «ключ задан» (`KeyStore.list()`), значение —
+  никогда, в том числе в форме настроек: поле ключа приходит пустым с
+  пометкой «задан» (у t3code — `valueRedacted: true`, [`serverSettings.ts`][t3-ss]).
+
+### 5.8. Манифест движков
+
+Вшитый в сборку файл `src/server/engines/manifest.json` — по образцу
+`model-manifest.json` у t3code ([`model-manifest.json`][t3-mm],
+[`ModelManifest.ts`][t3-mmts]), но упрощённый:
+
+- для каждого движка — диапазоны версий со статусами `supported | graceful |
+  broken` и рекомендуемая версия. Для OpenCode отправная точка: `>=1.14.19
+  <2.0.0` — `supported`, `>=2.0.0` — `broken` до проверки (§3.5). Версия вне
+  `supported` даёт `ProviderStatus.message` с командой обновления; `broken`
+  — `error`;
+- для каждого провайдера — модели по уровням `top/balanced/fast` с пометкой
+  устаревших и модель по умолчанию. Это источник для `ModelInfo.tier` (§5.2)
+  и замена `MODEL_IDS` в `src/shared/models.ts`; `models()` движка его
+  дополняет, но уровни берутся из манифеста.
+
+Позже манифест обновляется через наш сервис индекса (`src/registry`) без
+выпуска приложения: порядок — свежий с сервиса, последний удачный с диска,
+вшитый. Сбой загрузки проверку провайдера не роняет. От
+`raw.githubusercontent.com` t3code не зависим: это чужая инфраструктура.
 
 ---
 
@@ -822,7 +1022,15 @@ Codex, и отдаёт тем же мостом: так роль получае�
   `SessionSpec → Options` (preset `claude_code`, граница кеша,
   `settingSources`, `sandbox`, `autoCompactWindow`, плагины);
 - `src/server/engines/codex.ts`, `codex-rpc.ts`, `hands.ts` (руки из
-  `codex-tools.ts`), `pricing.ts`, `diagnostics.ts` → `status()`/`models()`;
+  `codex-tools.ts`), `pricing.ts`, `diagnostics.ts` → `status()`/`models()`.
+  Типы `codex-rpc.ts` по возможности генерировать из схемы протокола
+  (`codex app-server generate-json-schema` [проверить наличие команды в
+  нашей версии]), а не описывать руками — t3code так генерирует свой
+  клиент ([`effect-codex-app-server`][t3-ecas]);
+- сырые события: адаптеры кладут родное событие в `EngineEvent.raw`, офис
+  пишет их NDJSON-файлом рядом с логом задачи (по образцу
+  [`EventNdjsonLogger.ts`][t3-ndjson]) — для разбора, когда адаптер понял
+  событие неправильно;
 - `src/server/agents.ts`: 12 мест `query()` → `engine.start(spec)`. Разбор
   событий (`consume` в `agents.ts:463`, разбор менеджера ~`1750–1860`, `driveWorker`)
   переходит на `EngineEvent`. `THRASH_MARK` уходит в адаптер Claude
@@ -839,13 +1047,25 @@ Codex, и отдаёт тем же мостом: так роль получае�
 ### Этап 2. Прототип OpenCode и мост MCP
 
 - `src/server/engines/mcp-bridge.ts`: Streamable HTTP MCP на маршруте
-  сервера, токен на сессию;
-- `src/server/engines/opencode.ts`: процесс `opencode serve --port 0` на
-  сессию, `XDG_DATA_HOME`/`XDG_CONFIG_HOME` → `<данные>/opencode-runtime`
+  `/mcp` сервера, токен сессии в `Authorization: Bearer`, в памяти — хеш
+  (§5.4);
+- `src/server/engines/opencode.ts`: **один сервер `opencode serve` на
+  офис** (на набор XDG-каталогов), сессии OpenCode внутри него. Сервер
+  поднимается лениво с первой сессией и гаснет после простоя (у t3code —
+  30 с, [`OpenCodeServerOwner.ts`][t3-ocso]); адрес читается из строки
+  `server listening on http://…` в stdout ([`opencodeRuntime.ts`][t3-ocr]).
+  Клиент — официальный `@opencode-ai/sdk/v2`, HTTP руками не пишем.
+  `OPENCODE_SERVER_PASSWORD` задаётся всегда: порт локальный, но открыт
+  всем процессам машины. Проверка версии при подключении: ниже `1.14.19` —
+  отказ с понятным текстом, `>=2.0.0` — несовместима до проверки (§3.5,
+  §5.8). `XDG_DATA_HOME`/`XDG_CONFIG_HOME` → `<данные>/opencode-runtime`
   (продолжение переживает перезапуск, личные настройки владельца не
-  подмешиваются), `OPENCODE_CONFIG_CONTENT` (агент без своих рук, мост,
-  провайдер, `autoupdate: false`, `share: disabled`), SSE → `EngineEvent`,
-  подтверждения → `PermissionGate`, стоимость по models.dev;
+  подмешиваются), `OPENCODE_CONFIG_CONTENT` (агент без своих рук,
+  провайдер, `autoupdate: false`, `share: disabled`), мост — через
+  `client.mcp.add` (§5.4), SSE → `EngineEvent`, `permission.asked` →
+  `PermissionGate` с правилами из §5.5, `question.asked` → `ask-user`,
+  перечитывание висящих запросов после переподключения, стоимость по
+  models.dev с запасной таблицей LiteLLM (§3.5);
 - `src/server/engines/sandbox.ts`: Bash рук офиса через
   `@anthropic-ai/sandbox-runtime` на macOS и Linux (зависимости:
   `bubblewrap`, `socat`, `ripgrep` на Linux, `ripgrep` на macOS);
@@ -861,11 +1081,15 @@ Codex, и отдаёт тем же мостом: так роль получае�
 
 - `src/shared/providers.ts`: `EngineId`, `ProviderId`, `PROVIDERS`
   (§5.2), миграция `claude-code → anthropic`, `codex → openai`;
-- `src/shared/types.ts`: `Settings.model: ModelChoice`, `Role.provider/model`
+- `src/shared/types.ts`: `Settings.model: ModelChoice`,
+  `Settings.utilityModel?: ModelChoice`, `Role.provider/model`
   становятся необязательными, `ProviderStatusView`, сообщения ws
   `providers`/`provider-login`/`provider-install`;
 - `src/shared/models.ts`: `ModelTier`, алиасы-синонимы, `MODEL_IDS` → модели
-  провайдера из `models()`;
+  провайдера из манифеста движков (§5.8) и `models()`;
+- `src/server/engines/manifest.json` (§5.8), вшитый в сборку;
+- загрузка состояния: незнакомый провайдер роли сохраняется как есть и
+  получает статус `unsupported` (§5.1);
 - `src/server/state.ts` (умолчания `470`, `3674`, `3986`, `providerOf`
   → «как у офиса»), `src/server/roles.ts` (`currentModel` только для
   anthropic), `src/server/packages.ts` (`runtime.engine` → `runtime.provider`,
@@ -904,6 +1128,16 @@ Codex, и отдаёт тем же мостом: так роль получае�
   вызывает экран «Провайдеры» через сервер (`OFFICE_ENGINE_DIR` вместо
   `OFFICE_CLAUDE_BIN`); `desktop/boot.html`: без шага движка;
   `desktop/i18n.js` — оставшиеся строки; ключи — `safeStorage` (§5.7);
+- установка в `desktop/engines.js` отдаёт фазы `downloading → extracting →
+  verifying` с байтами (`InstallState`, §5.2) и проверяет sha256 скачанного
+  архива по таблице в коде на каждую платформу, как `CodexInstallation.ts`
+  у t3code ([`CodexInstallation.ts`][t3-ci], стр. 55–100). Движок, найденный
+  в PATH, помечается `source: 'local'`, удалить его экран не предлагает.
+  Для движков, которые офис сам не ставит, экран показывает команду
+  официального установщика (`installCommand`, §5.2);
+- вход на экране: взаимодействия `LoginFlow` (§5.2) — браузер, код
+  устройства, поля формы, встроенный терминал. Терминал — запасной вход
+  `claude auth login` без выхода из приложения;
 - `scripts/pack-desktop.mjs`, `scripts/build-server.mjs`: SDK Claude
   остаётся (адаптер), бинари движков в установщик не кладутся.
 
@@ -920,12 +1154,15 @@ Codex, и отдаёт тем же мостом: так роль получае�
   уровень, `runtime.engine` убрать (провайдер офиса);
 - описание и темы репозитория на GitHub — руками при выпуске.
 
-### Этап 6 (необязательный). Родные адаптеры Qwen Code и Antigravity
+### Этап 6 (необязательный). Родной адаптер Qwen Code
 
 - `src/server/engines/qwen.ts` поверх `@qwen-code/sdk` — если Coding Plan
   не пускает сторонний клиент;
-- `src/server/engines/antigravity.ts` — когда у `agy` появится ACP или поток
-  JSON с продолжением; вход по подписке Google.
+- если понадобятся ещё движки с ACP (у Qwen Code тоже есть `--acp`), делать
+  один общий ACP-адаптер с расширениями под движок, а не отдельный файл на
+  каждого — так t3code водит Cursor и Grok ([`AcpSessionRuntime.ts`][t3-acp]).
+
+Antigravity в этот этап не входит (§4.1).
 
 ---
 
@@ -937,6 +1174,12 @@ Codex, и отдаёт тем же мостом: так роль получае�
 - **OpenCode для Claude.** Подписку Pro/Max через сторонние клиенты
   Anthropic запрещает, у Claude свой адаптер.
 - **Облака для не-Claude.** Managed Agents есть только у Anthropic.
+- **Antigravity.** Условия Google запрещают доступ через стороннее ПО
+  (Q-53, §4.1).
+- **Экземпляров провайдеров** (два аккаунта одного движка, «рабочий и
+  личный») и **выбора модели на отдельный ход.** В t3code это есть
+  (`ProviderInstanceId`, `modelSelection` в `ProviderSendTurnInput`), офису
+  пока не нужно. Вернуться, если владелец попросит несколько аккаунтов.
 
 ## 8. Риски
 
@@ -967,7 +1210,21 @@ Codex, и отдаёт тем же мостом: так роль получае�
 - уход Gemini CLI: объявлен в мае 2026 (блог Google Developers), с
   18.06.2026 не обслуживает Google AI Pro/Ultra и бесплатный личный уровень;
   платные ключи API и корпоративные лицензии работают;
-- Antigravity CLI без ACP (issue #31, открыт);
+- Antigravity: у самого `agy` ACP нет (issue #31), но есть отдельный
+  официальный `agy-acp-server` — по коду t3code
+  ([`antigravityRelease.ts`][t3-agr]); подключать нельзя по условиям Google
+  — юридический разбор `docs/legal/T-210/antigravity.md`, решение Q-53;
+- по коду t3code (коммит `148e6de`, прочитано, не запускалось — разбор
+  [`t3code.md`](t3code.md)), снято с [проверить]:
+  - форма подтверждений OpenCode: события `permission.asked` /
+    `permission.replied`, ответ `once | always | reject`, вопросы агента —
+    `question.asked` / `question.replied` / `question.rejected`, висящие
+    запросы перечитываются через `permission.list` / `question.list`;
+  - транспорт моста MCP у OpenCode: `type: "remote"` работает со Streamable
+    HTTP (протокол `2025-06-18`) и заголовком `Authorization`, подключение —
+    `client.mcp.add()`;
+  - Codex подключает HTTP MCP с `bearer_token_env_var`;
+  - нижняя граница OpenCode в t3code — `1.14.19`, `>=2.0.0` — `broken`;
 - закрытие Qwen OAuth 15.04.2026 и адреса Coding Plan; SDK Qwen
   «minimum experimental», Node 22+, `createSdkMcpServer`, `canUseTool` 60 с,
   `resume`;
@@ -987,10 +1244,14 @@ Codex, и отдаёт тем же мостом: так роль получае�
 
 **Не проверено (нужен прототип этапа 2), в тексте помечено [проверить]:**
 
-- форма события `ask` в SSE OpenCode и ответ на него: документация OpenCode
-  его для безголового клиента не описывает, это главный риск этапа 2;
-- транспорт моста MCP у OpenCode (`type: "remote"`: Streamable HTTP или SSE,
-  в документации протокол не назван вовсе);
+- подходит ли `1.14.19` как нижняя граница OpenCode под наши запросы;
+- действует ли `client.mcp.add` у OpenCode на весь сервер или на сессию;
+- живёт ли ответ `always` у OpenCode только до конца сессии;
+- `sessionModelSwitch` у всех движков матрицы;
+- проверка Claude без платного хода через `initializationResult()` на нашей
+  версии SDK;
+- есть ли у Codex команда `app-server generate-json-schema` в нашей версии;
+- лицензия именно файла цен LiteLLM;
 - точность `cache.read` в стоимости OpenCode на зафиксированной версии;
 - sandbox-runtime как обёртка Bash офиса;
 - пускает ли Qwen Coding Plan сторонний клиент;
@@ -1012,3 +1273,26 @@ Codex, и отдаёт тем же мостом: так роль получае�
 - Gemini: [headless](https://github.com/google-gemini/gemini-cli/blob/main/docs/cli/headless.md), [ACP](https://geminicli.com/docs/cli/acp-mode/), [уход Gemini CLI](https://inventivehq.com/blog/gemini-cli-deprecated-antigravity-cli-migration), [Antigravity CLI](https://byteiota.com/antigravity-cli-gemini-successor/), [ACP в agy — запрос](https://github.com/google-antigravity/antigravity-cli/issues/31), [баг loadSession](https://github.com/google-gemini/gemini-cli/issues/29288)
 - Qwen Code: [репозиторий](https://github.com/qwenLM/qwen-code), [TS SDK](https://qwenlm.github.io/qwen-code-docs/en/developers/sdk-typescript/), [вход](https://qwenlm.github.io/qwen-code-docs/en/users/configuration/auth/), [headless](https://qwenlm.github.io/qwen-code-docs/en/users/features/headless/)
 - Goose: [репозиторий](https://github.com/aaif-goose/goose), [ACP](https://goose-docs.ai/docs/guides/acp-providers/)
+- t3code, коммит `148e6de` (разбор — [`t3code.md`](t3code.md)): ссылки ниже
+- Antigravity, условия Google: [`docs/legal/T-210/antigravity.md`](../../legal/T-210/antigravity.md)
+
+[t3-pi]: https://github.com/pingdotgg/t3code/blob/148e6deea046658639aae9fef5b349781cec39d1/packages/contracts/src/providerInstance.ts
+[t3-pa]: https://github.com/pingdotgg/t3code/blob/148e6deea046658639aae9fef5b349781cec39d1/apps/server/src/provider/Services/ProviderAdapter.ts
+[t3-cp]: https://github.com/pingdotgg/t3code/blob/148e6deea046658639aae9fef5b349781cec39d1/apps/server/src/provider/Layers/ClaudeProvider.ts
+[t3-cxa]: https://github.com/pingdotgg/t3code/blob/148e6deea046658639aae9fef5b349781cec39d1/apps/server/src/provider/Layers/CodexAdapter.ts
+[t3-ecas]: https://github.com/pingdotgg/t3code/tree/148e6deea046658639aae9fef5b349781cec39d1/packages/effect-codex-app-server
+[t3-cmr]: https://github.com/pingdotgg/t3code/blob/148e6deea046658639aae9fef5b349781cec39d1/apps/server/src/provider/CodexManagedRuntime.ts
+[t3-ci]: https://github.com/pingdotgg/t3code/blob/148e6deea046658639aae9fef5b349781cec39d1/apps/server/src/provider/CodexInstallation.ts
+[t3-ocr]: https://github.com/pingdotgg/t3code/blob/148e6deea046658639aae9fef5b349781cec39d1/apps/server/src/provider/opencodeRuntime.ts
+[t3-ocso]: https://github.com/pingdotgg/t3code/blob/148e6deea046658639aae9fef5b349781cec39d1/apps/server/src/provider/OpenCodeServerOwner.ts
+[t3-oca]: https://github.com/pingdotgg/t3code/blob/148e6deea046658639aae9fef5b349781cec39d1/apps/server/src/provider/Layers/OpenCodeAdapter.ts
+[t3-acp]: https://github.com/pingdotgg/t3code/blob/148e6deea046658639aae9fef5b349781cec39d1/apps/server/src/provider/acp/AcpSessionRuntime.ts
+[t3-agr]: https://github.com/pingdotgg/t3code/blob/148e6deea046658639aae9fef5b349781cec39d1/apps/server/src/provider/antigravityRelease.ts
+[t3-ndjson]: https://github.com/pingdotgg/t3code/blob/148e6deea046658639aae9fef5b349781cec39d1/apps/server/src/provider/Layers/EventNdjsonLogger.ts
+[t3-mcph]: https://github.com/pingdotgg/t3code/blob/148e6deea046658639aae9fef5b349781cec39d1/apps/server/src/mcp/McpHttpServer.ts
+[t3-mcpr]: https://github.com/pingdotgg/t3code/blob/148e6deea046658639aae9fef5b349781cec39d1/apps/server/src/mcp/McpSessionRegistry.ts
+[t3-ss]: https://github.com/pingdotgg/t3code/blob/148e6deea046658639aae9fef5b349781cec39d1/apps/server/src/serverSettings.ts
+[t3-set]: https://github.com/pingdotgg/t3code/blob/148e6deea046658639aae9fef5b349781cec39d1/packages/contracts/src/settings.ts
+[t3-mm]: https://github.com/pingdotgg/t3code/blob/148e6deea046658639aae9fef5b349781cec39d1/apps/server/src/provider/model-manifest.json
+[t3-mmts]: https://github.com/pingdotgg/t3code/blob/148e6deea046658639aae9fef5b349781cec39d1/apps/server/src/provider/ModelManifest.ts
+[t3-up]: https://github.com/pingdotgg/t3code/blob/148e6deea046658639aae9fef5b349781cec39d1/apps/server/src/usage/usagePricing.ts
