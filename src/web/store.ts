@@ -9,9 +9,9 @@ import type {
   PullRequestView, PrStage,
   EpicView, LimitsView, FactView, OwnerQuestion, LifeView, RitualId, DirectionView, ProposalView,
   OfficeSetupPlan, SetupCatalog, SetupStep, OfficeHealth, EnvReport, RuleScopeView, PmChat,
-  ProviderLoginResult, ProvidersView,
+  ProviderLoginResult, ProvidersView, ProviderView,
 } from '../shared/types';
-import type { ProviderId } from '../shared/providers';
+import { isConnected, type ProviderId } from '../shared/providers';
 import {
   compareOffices, emptyLimits, emptyUsage, isOfficeSender,
   MAX_OFFICE_WORKERS, MAX_TASK_MAX_TURNS, MIN_OFFICE_WORKERS, MIN_TASK_MAX_TURNS,
@@ -2336,6 +2336,36 @@ export function openLayoutSettings(): void {
 export function openProviderSettings(): void {
   useStore.setState({ settingsSection: 'providers' });
 }
+
+/**
+ * Провайдер офиса для рейла и композера (docs/design/T-189/ui.md §3.3, §5.1).
+ * Отдельного выбора на офис у сервера пока нет — офис работает тем, чем
+ * работает менеджер: его роль без явного провайдера ходит в Claude Code.
+ * `null` — сервер ещё не прислал `providers`, говорить нечего.
+ */
+export interface OfficeProvider {
+  /** Ни один провайдер не подключён: «Провайдер не выбран», композер выключен. */
+  none: boolean;
+  provider: ProviderView | null;
+  model: string | null;
+  /** Цвет точки статуса: готов, требует внимания, сломан. */
+  tone: 'ok' | 'warn' | 'danger';
+}
+
+export function officeProvider(providers: ProvidersView | null, roles: RoleView[]): OfficeProvider | null {
+  if (!providers) return null;
+  if (providers.noneReady) return { none: true, provider: null, model: null, tone: 'warn' };
+  const pm = roles.find((r) => r.isManager);
+  const id = pm?.provider ?? 'claude-code';
+  const provider = providers.providers.find((p) => p.id === id) ?? null;
+  const state = provider?.status.state;
+  const tone = state === 'ready' ? 'ok' : state === 'error' ? 'danger' : 'warn';
+  return { none: false, provider, model: pm?.model || null, tone };
+}
+
+/** Подключённые провайдеры — из них выбирают в мастере нового офиса. */
+export const readyProviders = (providers: ProvidersView | null): ProviderView[] =>
+  (providers?.providers ?? []).filter((p) => isConnected(p.status));
 
 /** Переспросить статусы провайдеров; `force` — мимо кешей движков («Проверить снова»). */
 export function refreshProviders(force = false): void {

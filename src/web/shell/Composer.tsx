@@ -1,5 +1,5 @@
 import { useEffect, useRef } from 'react';
-import { accessLabel, pushToast, send, useInputDraft, useStore } from '../store';
+import { accessLabel, openProviderSettings, pushToast, send, useInputDraft, useStore } from '../store';
 import { money } from '../money';
 import { t } from '../i18n';
 import { Icon } from '../icons';
@@ -39,6 +39,8 @@ export function Composer({ onSettings, inline = false }: {
   const settings = useStore((s) => s.settings);
   const connected = useStore((s) => s.connected);
   const view = useStore((s) => s.view);
+  // Ни один провайдер не подключён (§3.3 T-189): офис смотрят, но задачу не ставят.
+  const noProvider = useStore((s) => s.providers?.noneReady === true);
   // Свежий пустой чат с менеджером зовёт начать разговор, а не ставить задачу.
   const freshChat = useStore((s) => s.thread === 'pm#1' && (s.pmChatDraft || (s.pmChatId !== null
     && !s.chat.some((e) => e.chatId === s.pmChatId))));
@@ -89,7 +91,7 @@ export function Composer({ onSettings, inline = false }: {
   const meeting = thread === 'meeting';
   const submit = () => {
     const text = draft.trim();
-    if (!text || meeting || !connected) return;
+    if (!text || meeting || !connected || noProvider) return;
     // Вне вида «Чат» открытого чата на экране нет — реплика менеджеру
     // заводит новый, а не уходит в тот, что выделяли когда-то раньше.
     send(text, { newChat: view !== 'chat' });
@@ -107,7 +109,8 @@ export function Composer({ onSettings, inline = false }: {
     }
   };
 
-  const placeholder = meeting ? t('shell.composer.meeting')
+  const placeholder = noProvider ? t('providers.composer.disabled')
+    : meeting ? t('shell.composer.meeting')
     : thread === 'pm#1' ? t(freshChat && view === 'chat' ? 'shell.composer.newChat' : 'shell.composer.placeholder')
     : t('shell.composer.agent', { who: displayInstance(thread, instances, roles) });
   const model = roles.find((r) => r.id === 'pm')?.model;
@@ -116,9 +119,16 @@ export function Composer({ onSettings, inline = false }: {
   return (
     <div className={`shell-composer float${inline ? ' inline' : ''}`} ref={box}>
       {/* В виде «Чат» собеседник уже стоит над лентой — второй раз не показываем. */}
+      {noProvider && (
+        <div className="shell-composer-gate" role="status">
+          <span className="shell-composer-gate-dot" aria-hidden />
+          <span>{t('providers.composer.banner')}</span>
+          <button type="button" className="link" onClick={openProviderSettings}>{t('providers.composer.action')}</button>
+        </div>
+      )}
       {view !== 'chat' && <ChatPeer compact />}
       <textarea
-        ref={input} value={draft} rows={1} placeholder={placeholder} disabled={meeting}
+        ref={input} value={draft} rows={1} placeholder={placeholder} disabled={meeting || noProvider}
         onChange={(e) => setDraft(e.target.value)}
         onKeyDown={(e) => {
           if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); submit(); }
@@ -137,7 +147,7 @@ export function Composer({ onSettings, inline = false }: {
           {cap !== null ? t('shell.chip.budget', { cap: money(cap) }) : t('shell.chip.noBudget')}
         </button>
         <Tooltip tip={<><Hint label={t('shell.send')} keys={HOTKEY.task} /><Hint label={t('shell.newline')} keys="SHIFT+ENTER" /></>}>
-          <button className="sq primary shell-send" onClick={submit} disabled={!connected || meeting || !draft.trim()}>
+          <button className="sq primary shell-send" onClick={submit} disabled={!connected || meeting || noProvider || !draft.trim()}>
             <Icon name="arrow-up" size={16} />
           </button>
         </Tooltip>

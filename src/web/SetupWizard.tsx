@@ -1,5 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
-import { useStore } from './store';
+import { officeProvider, readyProviders, useStore } from './store';
+import { ProviderCard } from './ProviderCard';
+import { byLabel } from './FirstLaunch';
 import { t } from './i18n';
 import { slugify } from '../shared/slug';
 import {
@@ -7,8 +9,9 @@ import {
 } from '../shared/types';
 
 /**
- * Мастер нового офиса — четыре шага поверх сетки меню: что строим, где,
- * кто, строим. Спека docs/design/office-setup/spec.md §3.
+ * Мастер нового офиса — пять шагов поверх сетки меню: что строим, где,
+ * кто, чем работает, строим. Спека docs/design/office-setup/spec.md §3,
+ * шаг «Провайдер» — docs/design/T-189/ui.md §3.4.
  *
  * Сеть трогает только последний шаг: витрину мастер спрашивает при открытии,
  * а всё, что человек набрал, живёт здесь до нажатия «Создать». Прогресс
@@ -29,7 +32,7 @@ interface Member {
 /** Имя подпапки: то же правило, что у сервера (`FOLDER_NAME_RE`). */
 const FOLDER_RE = /^(?!\.)[A-Za-z0-9._-]{1,64}$/;
 
-const STEPS = ['what', 'where', 'who', 'build'] as const;
+const STEPS = ['what', 'where', 'who', 'provider', 'build'] as const;
 type Step = (typeof STEPS)[number];
 
 export function SetupWizard({ onClose }: { onClose: () => void }) {
@@ -43,6 +46,8 @@ export function SetupWizard({ onClose }: { onClose: () => void }) {
   const pickFolder = useStore((s) => s.pickFolder);
   const picking = useStore((s) => s.picking);
   const picked = useStore((s) => s.picked);
+  const providers = useStore((s) => s.providers);
+  const roles = useStore((s) => s.roles);
 
   const [step, setStep] = useState<Step>('what');
   const [name, setName] = useState('');
@@ -55,6 +60,8 @@ export function SetupWizard({ onClose }: { onClose: () => void }) {
   const [team, setTeam] = useState<Record<string, Member>>({});
   const [teamPackage, setTeamPackage] = useState<string | null>(null);
   const [pickError, setPickError] = useState<string | null>(null);
+  const [providerId, setProviderId] = useState<string | null>(null);
+  const [providerChanging, setProviderChanging] = useState(false);
 
   const busy = pending === 'create';
   // Сборка началась или закончилась отказом: экран прогресса показывает
@@ -70,6 +77,16 @@ export function SetupWizard({ onClose }: { onClose: () => void }) {
   useEffect(() => {
     if (!folderTouched) setFolder(slugify(name));
   }, [name, folderTouched]);
+
+  const ready = useMemo(() => readyProviders(providers).sort(byLabel), [providers]);
+  // Выбор прошлого офиса — тот провайдер, которым работает текущий; подставляется, только если он подключён.
+  const previous = officeProvider(providers, roles);
+  useEffect(() => {
+    if (providerId) return;
+    const id = previous?.provider?.id;
+    if (id && ready.some((p) => p.id === id)) setProviderId(id);
+  }, [previous?.provider?.id, ready, providerId]);
+  const chosenProvider = ready.find((p) => p.id === providerId) ?? null;
 
   const agents = useMemo(() => (catalog?.packages ?? []).filter((p) => p.kind === 'agent' && !p.manager && p.title), [catalog]);
   const teams = useMemo(() => (catalog?.packages ?? []).filter((p) => p.kind === 'team' && p.title), [catalog]);
@@ -292,6 +309,40 @@ export function SetupWizard({ onClose }: { onClose: () => void }) {
           </div>
         )}
 
+        {step === 'provider' && (
+          <div className="menu-form setup-provider">
+            {chosenProvider && !providerChanging ? (
+              <p className="setup-provider-same">
+                <span>{previous?.provider?.id === chosenProvider.id && previous.model
+                  ? t('providers.wizard.same', { name: chosenProvider.label, model: previous.model })
+                  : t('providers.wizard.chosen', { name: chosenProvider.label })}</span>
+                <button type="button" className="mini" onClick={() => setProviderChanging(true)}>{t('providers.wizard.change')}</button>
+              </p>
+            ) : (
+              <>
+                <p className="hint">{t(ready.length ? 'providers.wizard.pick' : 'providers.wizard.connect')}</p>
+                {ready.length > 0 && (
+                  <div className="seg setup-modes">
+                    {ready.map((p) => (
+                      <button type="button" key={p.id} className={providerId === p.id ? 'on' : ''}
+                        onClick={() => { setProviderId(p.id); setProviderChanging(false); }}>
+                        {p.label}
+                      </button>
+                    ))}
+                  </div>
+                )}
+                {/* Подключение — те же карточки, что во вкладке «Провайдеры»: установка и вход прямо здесь. */}
+                <div className="provider-list">
+                  {[...(providers?.providers ?? [])].sort(byLabel).map((p) => (
+                    <ProviderCard key={p.id} p={p} onUse={() => { setProviderId(p.id); setProviderChanging(false); }} />
+                  ))}
+                </div>
+              </>
+            )}
+            <p className="hint">{t('providers.wizard.skipHint')}</p>
+          </div>
+        )}
+
         {step === 'build' && !building && (
           <div className="menu-form setup-summary">
             <dl>
@@ -310,6 +361,8 @@ export function SetupWizard({ onClose }: { onClose: () => void }) {
                   return <span key={pkg} className="setup-summary-member">{p?.emoji} {p?.title ?? pkg}{m.count > 1 ? ` ×${m.count}` : ''}{where}</span>;
                 })}
               </dd>
+              <dt>{t('providers.wizard.title')}</dt>
+              <dd>{chosenProvider?.label ?? t('shell.provider.none')}</dd>
               {description.trim() && <><dt>{t('setup.summary.direction')}</dt><dd>{description.trim()}</dd></>}
             </dl>
             <p className="hint">{t('setup.buildHint')}</p>

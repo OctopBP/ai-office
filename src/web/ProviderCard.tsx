@@ -115,19 +115,19 @@ function KeyForm({ p, onClose }: { p: ProviderView; onClose: () => void }) {
           autoComplete="off" spellCheck={false} value={key}
           aria-invalid={error ? true : undefined}
           onChange={(e) => setKey(e.target.value)}
-          onKeyDown={(e) => { if (e.key === 'Enter') save(); }}
+          onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); save(); } }}
         />
-        <button className="mini ghost" aria-pressed={shown} onClick={() => setShown((v) => !v)}>
+        <button type="button" className="mini ghost" aria-pressed={shown} onClick={() => setShown((v) => !v)}>
           {t(shown ? 'providers.key.hide' : 'providers.key.show')}
         </button>
       </div>
       <span className="form-hint">{t(keychain ? 'providers.key.hint' : 'providers.key.noKeychain')}</span>
       {errorKey && <span className="form-hint error" role="alert">{t(errorKey)}</span>}
       <div className="provider-actions">
-        <button className="primary" disabled={!key.trim() || checking} onClick={save}>
+        <button type="button" className="primary" disabled={!key.trim() || checking} onClick={save}>
           {checking ? <><span className="spinner" /> {t('providers.key.checking')}</> : t('providers.key.save')}
         </button>
-        <button onClick={onClose}>{t('common.cancel')}</button>
+        <button type="button" onClick={onClose}>{t('common.cancel')}</button>
       </div>
     </div>
   );
@@ -149,18 +149,18 @@ function CardMenu({ p, onChangeKey }: { p: ProviderView; onChangeKey: () => void
   };
   return (
     <div className="provider-menu" ref={box}>
-      <button className="sq ghost mini" aria-haspopup="menu" aria-expanded={open}
+      <button type="button" className="sq ghost mini" aria-haspopup="menu" aria-expanded={open}
         aria-label={t('providers.menu.title')} onClick={() => setOpen((v) => !v)}>
         <Icon name="dots" size={16} />
       </button>
       {open && (
         <div className="provider-menu-list float" role="menu">
-          <button role="menuitem" className="ghost" onClick={pick(() => refreshProviders(true))}>{t('providers.recheck')}</button>
+          <button type="button" role="menuitem" className="ghost" onClick={pick(() => refreshProviders(true))}>{t('providers.recheck')}</button>
           {p.auth.includes('api-key') && (
-            <button role="menuitem" className="ghost" onClick={pick(onChangeKey)}>{t('providers.menu.changeKey')}</button>
+            <button type="button" role="menuitem" className="ghost" onClick={pick(onChangeKey)}>{t('providers.menu.changeKey')}</button>
           )}
           {p.key?.source === 'keychain' && (
-            <button role="menuitem" className="ghost danger" onClick={pick(removeKey)}>{t('providers.menu.deleteKey')}</button>
+            <button type="button" role="menuitem" className="ghost danger" onClick={pick(removeKey)}>{t('providers.menu.deleteKey')}</button>
           )}
         </div>
       )}
@@ -208,7 +208,7 @@ export function ProviderCard({ p, onUse }: {
     : [];
 
   const keyButton = (label: UiKey, primary: boolean) => (
-    <button className={primary ? 'primary' : ''} onClick={() => { setKeyOpen(true); setHowLogin(false); }}>
+    <button type="button" className={primary ? 'primary' : ''} onClick={() => { setKeyOpen(true); setHowLogin(false); }}>
       {t(label)}
     </button>
   );
@@ -231,7 +231,7 @@ export function ProviderCard({ p, onUse }: {
           )}
         </>
       );
-      actions = <button className="primary" onClick={() => installProvider(p.id)}>{t('providers.install.action')}</button>;
+      actions = <button type="button" className="primary" onClick={() => installProvider(p.id)}>{t('providers.install.action')}</button>;
       break;
     case 'installing': {
       const pct = Math.round(status.share * 100);
@@ -252,7 +252,7 @@ export function ProviderCard({ p, onUse }: {
           </div>
         </>
       );
-      actions = <button onClick={() => cancelProviderInstall(p.id)}>{t('providers.install.cancel')}</button>;
+      actions = <button type="button" onClick={() => cancelProviderInstall(p.id)}>{t('providers.install.cancel')}</button>;
       break;
     }
     case 'needs-login': {
@@ -276,11 +276,11 @@ export function ProviderCard({ p, onUse }: {
           {byKey && keyButton('providers.login.key', true)}
           {subscription && (
             <span className="provider-sub">
-              <button onClick={() => setHowLogin((v) => !v)} aria-expanded={howLogin}>{t('providers.login.subscription')}</button>
+              <button type="button" onClick={() => setHowLogin((v) => !v)} aria-expanded={howLogin}>{t('providers.login.subscription')}</button>
               {SUBSCRIPTION_NOTE[p.engine] && <span className="form-hint">{t(SUBSCRIPTION_NOTE[p.engine]!)}</span>}
             </span>
           )}
-          {howLogin && <button onClick={() => refreshProviders(true)}>{t('providers.recheck')}</button>}
+          {howLogin && <button type="button" onClick={() => refreshProviders(true)}>{t('providers.recheck')}</button>}
         </>
       );
       break;
@@ -292,7 +292,7 @@ export function ProviderCard({ p, onUse }: {
           <p className="provider-text muted">{status.detail}</p>
         </>
       );
-      actions = <button onClick={() => refreshProviders(true)}>{t('providers.recheck')}</button>;
+      actions = <button type="button" onClick={() => refreshProviders(true)}>{t('providers.recheck')}</button>;
       break;
     case 'ready':
       body = (
@@ -309,7 +309,7 @@ export function ProviderCard({ p, onUse }: {
           <ProviderLimits windows={windows} planLimits={p.capabilities.planLimits} now={now} />
         </>
       );
-      actions = !keyOpen && onUse && <button className="primary" onClick={onUse}>{t('providers.ready.useThis')}</button>;
+      actions = !keyOpen && onUse && <button type="button" className="primary" onClick={onUse}>{t('providers.ready.useThis')}</button>;
       break;
     case 'limited': {
       const head = status.kind === 'balance'
@@ -329,9 +329,9 @@ export function ProviderCard({ p, onUse }: {
       );
       actions = !keyOpen && (
         <>
-          {onUse && <button className="primary" onClick={onUse}>{t('providers.ready.useThis')}</button>}
+          {onUse && <button type="button" className="primary" onClick={onUse}>{t('providers.ready.useThis')}</button>}
           {(status.kind === 'balance' || !status.resetsAt) && (
-            <button onClick={() => refreshProviders(true)}>{t('providers.recheck')}</button>
+            <button type="button" onClick={() => refreshProviders(true)}>{t('providers.recheck')}</button>
           )}
         </>
       );
@@ -347,8 +347,8 @@ export function ProviderCard({ p, onUse }: {
       actions = !keyOpen && (
         <>
           {p.auth.includes('api-key') && keyButton('providers.key.replace', true)}
-          <button onClick={() => refreshProviders(true)}>{t('providers.recheck')}</button>
-          <button className="ghost" aria-expanded={details} onClick={() => setDetails((v) => !v)}>
+          <button type="button" onClick={() => refreshProviders(true)}>{t('providers.recheck')}</button>
+          <button type="button" className="ghost" aria-expanded={details} onClick={() => setDetails((v) => !v)}>
             {t('providers.error.details')} {details ? '▴' : '▾'}
           </button>
         </>

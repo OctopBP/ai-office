@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from 'react';
 import {
-  activeOffices, isRailView, reorderOffice, reset, setEditingLayout, sortedOffices, summarizeOfficeActivity,
-  useStore,
+  activeOffices, isRailView, officeProvider, openProviderSettings, reorderOffice, reset, setEditingLayout, sortedOffices,
+  summarizeOfficeActivity, useStore,
 } from '../store';
 import type { ModalKind, PanelKind } from '../Overlays';
 import type { OfficeView } from '../../shared/types';
@@ -17,7 +17,7 @@ import { ProviderIcon } from './ProviderIcon';
 import type { ProviderId } from '../../shared/providers';
 import type { AuthSource } from '../../shared/types';
 
-// Строка внизу рейла — это авторизация движка Claude Code; «не авторизован» — без знака.
+// Пока сервер не прислал провайдеров, строка внизу рейла — авторизация движка Claude Code.
 const AUTH_PROVIDER: Record<AuthSource, ProviderId | undefined> = {
   subscription: 'claude-code', 'api-key': 'claude-code', unknown: undefined,
 };
@@ -370,6 +370,9 @@ export function Rail({ onPanel, onModal }: {
  */
 function User() {
   const authSource = useStore((s) => s.authSource);
+  const providers = useStore((s) => s.providers);
+  const roles = useStore((s) => s.roles);
+  const office = officeProvider(providers, roles);
   const editingLayout = useStore((s) => s.editingLayout);
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
@@ -389,23 +392,37 @@ function User() {
     </button>
   );
 
+  // Подпись по §5.1 макета T-189: «{провайдер} · {модель}»; не подключён никто — «Провайдер не выбран».
+  const icon = office ? office.provider?.id : AUTH_PROVIDER[authSource];
+  const caption = !office ? '' : office.none || !office.provider ? t('shell.provider.none')
+    : office.model ? t('shell.provider.caption', { name: office.provider.label, model: office.model })
+      : office.provider.label;
+
   return (
     <div className="rail-user" ref={ref}>
       <button className="ghost rail-user-btn" onClick={() => setOpen((v) => !v)}>
         {/* Знак провайдера стоит на месте аватара — в свёрнутом рейле видно только его.
             Без знака (не авторизован) — первая буква подписи, а не пустая плашка. */}
         <span className="rail-user-avatar">
-          {AUTH_PROVIDER[authSource]
-            ? <ProviderIcon provider={AUTH_PROVIDER[authSource]} size={30} />
+          {icon
+            ? <ProviderIcon provider={icon} size={30} />
             : <span className="rail-user-letter">{t('shell.user').charAt(0).toUpperCase()}</span>}
         </span>
         <span className="rail-user-text">
           <span className="rail-user-name">{t('shell.user')}</span>
-          <span className="rail-user-auth">{t(`shell.auth.${authSource}`)}</span>
+          {office
+            ? (
+              <span className="rail-user-auth" title={caption}>
+                <span className={`rail-user-dot ${office.tone}`} aria-hidden />
+                <span className="rail-user-caption">{caption}</span>
+              </span>
+            )
+            : <span className="rail-user-auth">{t(`shell.auth.${authSource}`)}</span>}
         </span>
       </button>
       {open && (
         <div className="rail-menu float">
+          {item(t('providers.title'), 'settings', openProviderSettings)}
           {item(t('shell.menu.layout'), 'armchair', () => setEditingLayout(!editingLayout), editingLayout)}
           {item(t('shell.menu.reset'), 'refresh', reset)}
         </div>
