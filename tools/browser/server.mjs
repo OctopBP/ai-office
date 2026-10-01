@@ -1,11 +1,13 @@
 #!/usr/bin/env node
 // MCP-сервер браузера для роли QA: stdio, один Chromium на сессию через playwright-core.
 // Контракт — docs/design/qa/spec.md, §3.1 и §5. Здесь только ядро: запуск браузера,
-// open, set_device, set_offline, screenshot и инструменты чтения. Жесты, раскадровка,
-// фильтр адресов и правило разрешений — отдельные задачи.
+// open, set_device, set_offline, screenshot и инструменты чтения; жесты tap и swipe через
+// CDP Input.dispatchTouchEvent и раскадровка storyboard (§5.2, §5.3). Фильтр адресов и
+// правило разрешений — отдельные задачи.
 //
 // Переменные окружения:
 //   OFFICE_WORKDIR       — рабочая копия; скриншоты пишутся только внутрь неё (иначе cwd)
+//   OFFICE_TASK_ID       — номер задачи; раскадровка по умолчанию идёт в docs/qa/<задача>/shots/
 //   OFFICE_BROWSER_PATH  — свой исполняемый файл Chromium для обычного режима
 //   OFFICE_BROWSER_SHELL — chrome-headless-shell для запасного режима
 
@@ -332,6 +334,147 @@ function deviceView() {
   return { ...session.device, offline: session.offline, mode: session.mode };
 }
 
+// Путь внутри рабочей копии; всё, что уходит наружу через `..` или абсолютный путь, — отказ.
+function insideWorkdir(target) {
+  const file = path.resolve(WORKDIR, target);
+  const rel = path.relative(WORKDIR, file);
+  if (!rel || rel.startsWith('..') || path.isAbsolute(rel)) throw new Error(`путь вне рабочей копии: ${target}`);
+  return { file, rel };
+}
+
+// ——— Жесты ———
+
+// Шаг траектории свайпа: 16 мс — один кадр на 60 Гц, как у живого пальца (§5.2).
+const GESTURE_STEP_MS = 16;
+const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+// Ждёт момента `at` по часам от `start`: шаги считаются от начала жеста, а не друг от друга,
+// поэтому задержка одного шага не растягивает весь свайп.
+async function waitUntil(start, at) {
+  const left = start + at - Date.now();
+  if (left > 0) await sleep(left);
+}
+
+function touchPoint(x, y) {
+  return { x, y, id: 0, radiusX: 4, radiusY: 4, force: 1 };
+}
+
+async function touch(type, x, y) {
+  // touchEnd и touchCancel передаются с пустым списком: палец уже отпущен.
+  const touchPoints = type === 'touchEnd' || type === 'touchCancel' ? [] : [touchPoint(x, y)];
+  await session.cdp.send('Input.dispatchTouchEvent', { type, touchPoints });
+}
+
+// Точка на ломаной на доле пути `f` от 0 до 1. Доля берётся по длине, поэтому скорость
+// пальца постоянна по всей траектории, а не скачет на коротких отрезках.
+function pointAt(points, lengths, total, f) {
+  if (total === 0) return points[0];
+  let rest = f * total;
+  for (let i = 0; i < lengths.length; i++) {
+    if (rest <= lengths[i] || i === lengths.length - 1) {
+      const k = lengths[i] === 0 ? 0 : Math.min(1, rest / lengths[i]);
+      const a = points[i];
+      const b = points[i + 1];
+      return { x: a.x + (b.x - a.x) * k, y: a.y + (b.y - a.y) * k };
+    }
+    rest -= lengths[i];
+  }
+  return points[points.length - 1];
+}
+
+// Без touch-эмуляции (десктоп) те же жесты идут мышью — словарь QA не меняется (§5.2).
+const useMouse = () => !session.device.touch;
+
+async function doTap(x, y) {
+  await ensurePage();
+  if (useMouse()) {
+    await session.page.mouse.click(x, y);
+    return { x, y, input: 'mouse' };
+  }
+  await touch('touchStart', x, y);
+  await touch('touchEnd', x, y);
+  return { x, y, input: 'touch' };
+}
+
+async function doSwipe(points, durationMs) {
+  await ensurePage();
+  const lengths = [];
+  for (let i = 0; i + 1 < points.length; i++) {
+    lengths.push(Math.hypot(points[i + 1].x - points[i].x, points[i + 1].y - points[i].y));
+  }
+  const total = lengths.reduce((s, l) => s + l, 0);
+  // Число шагов — не меньше одного; последний шаг ровно в durationMs и в последней точке.
+  const steps = Math.max(1, Math.round(durationMs / GESTURE_STEP_MS));
+  const first = points[0];
+  const mouse = useMouse();
+  const start = Date.now();
+  if (mouse) {
+    await session.page.mouse.move(first.x, first.y);
+    await session.page.mouse.down();
+  } else {
+    await touch('touchStart', first.x, first.y);
+  }
+  let last = first;
+  try {
+    for (let k = 1; k <= steps; k++) {
+      const at = (durationMs * k) / steps;
+      await waitUntil(start, at);
+      last = pointAt(points, lengths, total, k / steps);
+      if (mouse) await session.page.mouse.move(last.x, last.y);
+      else await touch('touchMove', last.x, last.y);
+    }
+  } catch (err) {
+    // Палец не должен «залипнуть» на странице: сорванный жест закрываем отменой.
+    if (mouse) await session.page.mouse.up().catch(() => {});
+    else await touch('touchCancel', last.x, last.y).catch(() => {});
+    throw err;
+  }
+  if (mouse) await session.page.mouse.up();
+  else await touch('touchEnd', last.x, last.y);
+  return {
+    input: mouse ? 'mouse' : 'touch',
+    moves: steps,
+    stepMs: Math.round((durationMs / steps) * 10) / 10,
+    distance: Math.round(total),
+    durationMs,
+    actualMs: Date.now() - start,
+  };
+}
+
+// ——— Раскадровка ———
+
+const STORYBOARD_MAX = 30;
+const STORYBOARD_MIN_INTERVAL = 16;
+
+function defaultStoryboardDir() {
+  const task = (process.env.OFFICE_TASK_ID || 'local').replace(/[^\w.-]/g, '_');
+  const stamp = new Date().toISOString().replace(/[:.]/g, '-');
+  return path.join('docs', 'qa', task, 'shots', `storyboard-${stamp}`);
+}
+
+// Кадры снимаются строго по очереди: два page.screenshot разом на одной странице мешают
+// друг другу. Расписание считается от старта, поэтому медленный кадр не сдвигает остальные;
+// если снимок длиннее интервала, следующий идёт сразу, а реальное время видно в `t`.
+async function doStoryboard(count, intervalMs, dir) {
+  const page = await ensurePage();
+  const { file: folder, rel: relFolder } = insideWorkdir(dir || defaultStoryboardDir());
+  await mkdir(folder, { recursive: true });
+  const width = String(count - 1).length;
+  const frames = [];
+  const start = Date.now();
+  for (let i = 0; i < count; i++) {
+    await waitUntil(start, i * intervalMs);
+    const name = `frame-${String(i).padStart(Math.max(2, width), '0')}.png`;
+    const file = path.join(folder, name);
+    const t = Date.now() - start;
+    await page.screenshot({ path: file, type: 'png' });
+    frames.push({ path: path.join(relFolder, name), t });
+  }
+  return { dir: relFolder, intervalMs, frames };
+}
+
+const pointSchema = z.object({ x: z.number(), y: z.number() });
+
 // ——— Сервер ———
 
 const server = new McpServer({ name: 'office-browser', version: '0.1.0' });
@@ -415,9 +558,7 @@ server.registerTool(
     },
   },
   tool(async ({ path: target, fullPage }) => {
-    const file = path.resolve(WORKDIR, target);
-    const rel = path.relative(WORKDIR, file);
-    if (!rel || rel.startsWith('..') || path.isAbsolute(rel)) throw new Error(`путь вне рабочей копии: ${target}`);
+    const { file, rel } = insideWorkdir(target);
     if (path.extname(file).toLowerCase() !== '.png') throw new Error('снимок пишется только в .png');
     const page = await ensurePage();
     await mkdir(path.dirname(file), { recursive: true });
@@ -487,6 +628,75 @@ server.registerTool(
       result.note = `${result.note ? `${result.note}; ` : ''}обрезано до 16 КБ`;
     }
     return result;
+  }),
+);
+
+server.registerTool(
+  'tap',
+  {
+    description:
+      'Касание пальцем в точке (CSS-пиксели вьюпорта): touchStart и touchEnd через CDP Input.dispatchTouchEvent, ' +
+      'страница видит pointerType touch. На десктопном устройстве без touch — клик мышью.',
+    inputSchema: {
+      x: z.number().min(0),
+      y: z.number().min(0),
+    },
+  },
+  tool(async ({ x, y }) => doTap(x, y)),
+);
+
+const swipeShape = {
+  points: z
+    .array(pointSchema)
+    .min(2)
+    .max(50)
+    .describe('Траектория: от двух точек {x,y}, первая — где палец коснулся, последняя — где отпустил'),
+  durationMs: z
+    .number()
+    .int()
+    .min(16)
+    .max(10_000)
+    .describe('Время жеста: быстрый свайп около 120 мс, медленный около 600 мс'),
+};
+
+server.registerTool(
+  'swipe',
+  {
+    description:
+      'Свайп пальцем по траектории из нескольких точек за durationMs: touchStart, равномерные по времени touchMove ' +
+      'с шагом 16 мс и постоянной скоростью вдоль пути, touchEnd. На десктопном устройстве — мышью с зажатой кнопкой.',
+    inputSchema: swipeShape,
+  },
+  tool(async ({ points, durationMs }) => doSwipe(points, durationMs)),
+);
+
+server.registerTool(
+  'storyboard',
+  {
+    description:
+      `Раскадровка: count PNG-кадров (до ${STORYBOARD_MAX}) с интервалом intervalMs (от ${STORYBOARD_MIN_INTERVAL} мс) в папку dir ` +
+      'внутри рабочей копии; вернуть пути и время каждого кадра от старта. Чтобы снять кадры во время жеста, ' +
+      'передайте swipe {points, durationMs} или tap {x, y}: жест стартует вместе с первым кадром.',
+    inputSchema: {
+      count: z.number().int().min(1).max(STORYBOARD_MAX),
+      intervalMs: z.number().int().min(STORYBOARD_MIN_INTERVAL).max(10_000),
+      dir: z
+        .string()
+        .optional()
+        .describe('Папка относительно рабочей копии; по умолчанию docs/qa/<задача>/shots/storyboard-<время>'),
+      swipe: z.object(swipeShape).optional().describe('Свайп, который идёт параллельно съёмке'),
+      tap: pointSchema.optional().describe('Касание в начале съёмки'),
+    },
+  },
+  tool(async ({ count, intervalMs, dir, swipe, tap }) => {
+    if (swipe && tap) throw new Error('за одну раскадровку — один жест: swipe или tap');
+    await ensurePage();
+    // Жест и съёмка идут одновременно: жест шлёт события по CDP, съёмка ждёт своих моментов.
+    const gesture = swipe ? doSwipe(swipe.points, swipe.durationMs) : tap ? doTap(tap.x, tap.y) : null;
+    const [board, done] = await Promise.allSettled([doStoryboard(count, intervalMs, dir), gesture]);
+    if (board.status === 'rejected') throw board.reason;
+    if (done.status === 'rejected') throw new Error(`кадры сняты в ${board.value.dir}, но жест сорвался: ${firstLine(done.reason)}`);
+    return gesture ? { ...board.value, gesture: done.value } : board.value;
   }),
 );
 
