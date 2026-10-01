@@ -1,5 +1,3 @@
-import { isProviderId } from '../shared/providers';
-import { engineFor, type ModelInfo, type ProviderStatus } from './engines';
 import { WebSocketServer, type WebSocket } from 'ws';
 import { createServer, type ServerResponse } from 'node:http';
 import { mkdirSync, existsSync, writeFileSync, readFileSync, statSync } from 'node:fs';
@@ -49,6 +47,8 @@ import { isPermissionMode } from './permissions';
 import { handleMarketCommand } from './market';
 import { exportRole } from './export';
 import { flushAll } from './store';
+import { loadKeys, providerKey } from './engines/keys';
+import { greetProviders, handleProviderCommand, handleProvidersHttp } from './providers-api';
 
 const PORT = Number(process.env.OFFICE_PORT ?? 3001);
 // Интерфейс, на котором слушаем. По умолчанию все — так офис открывается с
@@ -64,8 +64,9 @@ if (DRY_RUN) console.log(c('boot.dryRun'));
 // Источник доступа важен: с ключом расход идёт в платный API, без него —
 // в лимиты подписки Claude Code. Ключ имеет приоритет и подменяет подписку молча.
 // Это тоже свойство запуска: его получает каждый открываемый офис.
-const USING_KEY = Boolean(process.env.ANTHROPIC_API_KEY || process.env.ANTHROPIC_AUTH_TOKEN);
-const AUTH_SOURCE = USING_KEY ? 'api-key' : 'subscription';
+// Ключ берётся из связки ключей или окружения (engines/keys.ts) и может
+// появиться на ходу — со входом на экране «Провайдеры», поэтому это функция.
+const usingKey = (): boolean => Boolean(providerKey('claude-code'));
 
 /**
  * Изоляция задач через git worktree работает только в репозитории. Директорию,
@@ -124,8 +125,8 @@ async function openOffice(entry: OfficeEntry): Promise<void> {
   }
   if (restored) console.log(state.say('boot.restored', { name: entry.name, board }));
   state.dryRun = DRY_RUN;
-  state.authSource = AUTH_SOURCE;
-  state.setCloud({ hasKey: USING_KEY, hasToken: Boolean(githubToken()) });
+  state.authSource = usingKey() ? 'api-key' : 'subscription';
+  state.setCloud({ hasKey: usingKey(), hasToken: Boolean(githubToken()) });
   await setupGit(state, entry.projectDir, ours);
   // Проверки окружения — последним шагом открытия: к этому моменту известны и
   // режим движка, и git, и состав офиса. Провал ничего не отменяет: офис
@@ -180,8 +181,10 @@ if (opened && opened.id !== wanted.id) setCurrent(opened.id);
  * для которой открытый офис не нужен.
  */
 let startupError: string | null = null;
+// Ключи из связки — до открытия офиса: проверка окружения смотрит на них.
+const keysLoaded = loadKeys().catch((err: Error) => console.warn(`[keys] связка ключей недоступна: ${err.message}`));
 const startup: Promise<string | null> = opened
-  ? openOffice(opened).then(() => null, (err: unknown) => {
+  ? keysLoaded.then(() => openOffice(opened)).then(() => null, (err: unknown) => {
     startupError = c('boot.openFailed', {
       name: opened.name, error: (err as Error).message, dir: opened.projectDir,
     });
@@ -246,24 +249,9 @@ const httpServer = createServer((req, res) => {
 
   // Проверки окружения — до общего 404 по /api/: это единственный ответ,
   // который нужен ровно тогда, когда с офисом что-то не так.
-  const providerRoute = /^\/api\/providers\/([^/]+)$/.exec(url);
-  if (providerRoute) {
-    const provider = decodeURIComponent(providerRoute[1]!);
-    if (!isProviderId(provider)) { res.writeHead(404); res.end(); return; }
-    if (req.method !== 'GET') { res.writeHead(405); res.end(); return; }
-    // Состояние и модели — только через адаптер движка: форма роли читает
-    // отсюда `models`, а `status` тот же, что у проверки provider:<id>.
-    const engine = engineFor(provider);
-    void (async () => {
-      const [status, models] = await Promise.all([
-        engine.status(provider).catch((err: Error): ProviderStatus => ({ state: 'error', detail: err.message })),
-        engine.models(provider).catch((): ModelInfo[] => []),
-      ]);
-      res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' });
-      res.end(JSON.stringify({ status, models }));
-    })();
-    return;
-  }
+  // Провайдеры — тоже до 404: экран первого запуска нужен раньше, чем офису
+  // есть чем работать.
+  if (handleProvidersHttp(req, res, url, query)) return;
   if (url === '/api/env') {
     void serveEnv(req.method ?? 'GET', query, res);
     return;
@@ -456,6 +444,7 @@ wss.on('connection', (ws) => {
   // А если он не открылся — вместо снапшота уходит причина: молчание клиент
   // разобрать не может и остаётся в загрузке.
   void greet(ws, startup);
+  greetProviders(ws);
 
   ws.on('message', (raw) => {
     let cmd: ClientCommand;
@@ -467,6 +456,8 @@ wss.on('connection', (ws) => {
     // Офисы разбираются отдельно: список, создание, переключение и скрытие
     // живут в своём модуле вместе с правилами рассылки.
     if (handleOfficeCommand(cmd, ws)) return;
+    // Провайдеры общие для процесса и нужны до выбора офиса (первый запуск).
+    if (handleProviderCommand(cmd, ws)) return;
 
     // Всё остальное — про один конкретный офис, и это офис ЭТОГО клиента.
     // Клиентов несколько, смотрят они разные проекты: брать «открытый на
@@ -760,6 +751,6 @@ const hello = (): void => {
   console.log(c(built ? 'boot.listening' : 'boot.listeningNoWeb', { port: livePort }));
   // Рабочей директории может и не быть: все офисы в архиве — тогда говорим об этом.
   console.log(opened ? c('boot.workingIn', { dir: opened.projectDir }) : c('boot.allArchived'));
-  console.log(c(USING_KEY ? 'boot.paidApi' : 'boot.subscription'));
+  void keysLoaded.then(() => console.log(c(usingKey() ? 'boot.paidApi' : 'boot.subscription')));
 };
 if (HOST) httpServer.listen(PORT, HOST, hello); else httpServer.listen(PORT, hello);

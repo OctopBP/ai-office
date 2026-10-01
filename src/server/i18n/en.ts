@@ -476,7 +476,7 @@ export const en = {
   'office.archivedOpen': 'Office “{name}” is in the archive — no work runs there. Bring it back from the archive to open it.',
 
   // ------------------------------------------------------------------ облако
-  'cloud.needApiKey': 'Cloud mode works only on the paid API: set ANTHROPIC_API_KEY and restart the server.',
+  'cloud.needApiKey': 'Cloud mode works only on the paid API: paste an Anthropic key under “Providers” or set ANTHROPIC_API_KEY.',
   'cloud.needRepo': 'No GitHub repository is set — the container has nothing to mount. Set it in the settings.',
   'cloud.needToken': 'There is no GitHub token with write access — the worker will not be able to push the task branch. Enter it in the settings (it is not saved to disk) or set OFFICE_GITHUB_TOKEN.',
   'cloud.session': 'Cloud session {id}… ({repo})',
@@ -580,17 +580,18 @@ export const en = {
   'boot.saveFailed': '⚠️  Could not save the office state: {error}',
 
   // ------------------------------------------- проверки окружения (envcheck)
-  'env.key.cloudOk': 'ANTHROPIC_API_KEY is set — cloud mode can run tasks.',
-  'env.key.cloudNone': 'The office is in cloud mode, and no ANTHROPIC_API_KEY is set — every task will be turned down.',
-  'env.key.apiKey': 'ANTHROPIC_API_KEY is set — spending goes to the paid API.',
+  'env.key.cloudOk': 'An Anthropic API key is present — cloud mode can run tasks.',
+  'env.key.cloudNone': 'The office is in cloud mode, and there is no Anthropic API key — every task will be turned down.',
+  'env.key.apiKey': 'Signed in with an API key — spending goes to the paid API.',
   'env.key.subscription': 'No key is set — running on Claude Code authorisation (subscription limits).',
   'env.engine.none': 'The engine is not installed — no task can run without it.',
-  'env.engine.noneFix': 'Menu “Office” → “Agent engine…” — the app downloads it for you.',
+  'env.engine.noneFix': 'Settings → “Providers” → “Install” — the office downloads the engine for you.',
+  'env.provider.installing': 'The engine is being installed — these roles’ tasks start once it’s in place.',
   'env.provider.ready': 'Engine and sign-in are in place.',
   'env.provider.limited': 'Hit a usage limit — the office waits for the reset, tasks resume on their own.',
   'env.provider.notInstalled': 'The engine is not installed — tasks of these roles will not run.',
   'env.provider.needsLogin': 'Not signed in — tasks of these roles will not run.',
-  'env.provider.loginFix': 'Sign in to the provider or set its API key.',
+  'env.provider.loginFix': 'Settings → “Providers”: paste an API key or sign in to the provider.',
   'env.provider.codexFix': 'Install a current Codex CLI, run codex login; set OFFICE_CODEX_PATH if needed.',
   'env.dir.title': 'Working directory',
   'env.dir.missing': 'There is no directory {dir}.',

@@ -2,15 +2,18 @@
  * Адаптер Claude Code: единственное место сервера, которое зовёт
  * `@anthropic-ai/claude-agent-sdk` в рантайме.
  */
-import { execFile } from 'node:child_process';
-import { readFileSync } from 'node:fs';
-import { dirname, resolve } from 'node:path';
+import { execFile, execFileSync } from 'node:child_process';
+import { existsSync, readFileSync } from 'node:fs';
+import { homedir } from 'node:os';
+import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { query as claudeQuery, createSdkMcpServer as claudeServer } from '@anthropic-ai/claude-agent-sdk';
 import { commandScrubFile, engineEnv } from '../childenv';
 import { limitBlock } from '../limits';
 import { MODEL_ALIASES, MODEL_IDS } from '../../shared/models';
-import type { EngineAdapter, EngineCapabilities, ModelInfo, ModelTier, ProviderStatus } from './types';
+import { engineDir, installedBin, installFromNpm, runnable } from './install';
+import { deleteKey, providerKey, saveKey, verifyKey } from './keys';
+import { LoginError, type EngineAdapter, type EngineCapabilities, type ModelInfo, type ModelTier, type ProviderStatus } from './types';
 
 export { tool, SYSTEM_PROMPT_DYNAMIC_BOUNDARY } from '@anthropic-ai/claude-agent-sdk';
 
@@ -23,13 +26,77 @@ export function createSdkMcpServer(options: Parameters<typeof claudeServer>[0]) 
   return server;
 }
 
+const exe = (): string => (process.platform === 'win32' ? 'claude.exe' : 'claude');
+
+/** Версия SDK: движок из npm ставится ровно такой же версии (пакет платформы SDK). */
+export function sdkVersion(): string {
+  const files: string[] = [];
+  try {
+    files.push(resolve(dirname(fileURLToPath(import.meta.resolve('@anthropic-ai/claude-agent-sdk'))), 'package.json'));
+  } catch { /* собранный сервер приложения: SDK лежит в ресурсах */ }
+  if (process.env.OFFICE_ROOT) {
+    files.push(resolve(process.env.OFFICE_ROOT, 'node_modules', '@anthropic-ai', 'claude-agent-sdk', 'package.json'));
+  }
+  for (const file of files) {
+    try { return String(JSON.parse(readFileSync(file, 'utf8')).version ?? ''); } catch { /* следующий */ }
+  }
+  return '';
+}
+
+/** Пакет npm с нативным бинарём под эту машину. */
+const platformPackage = (): string => `@anthropic-ai/claude-agent-sdk-${process.platform}-${process.arch}`;
+
+/** Движок из PATH — так его находит человек, поставивший Claude Code раньше. */
+function fromPath(): string {
+  try {
+    const out = execFileSync(process.platform === 'win32' ? 'where' : 'which', [exe()], { encoding: 'utf8', timeout: 5000 });
+    return out.split(/\r?\n/).map((line) => line.trim()).filter(Boolean)[0] ?? '';
+  } catch {
+    return '';
+  }
+}
+
+/**
+ * Где движок лежит прямо сейчас. Порядок неслучаен: сначала то, что человек
+ * задал руками, потом своё скачанное (его версия заведомо сходится с SDK), и
+ * только потом чужие установки. Из исходников чужие установки не нужны:
+ * пусто — SDK находит свой бинарь рядом с собой сам.
+ */
+function findClaude(): string {
+  if (process.env.OFFICE_CLAUDE_BIN) return process.env.OFFICE_CLAUDE_BIN;
+  const version = sdkVersion();
+  const own = version ? installedBin('claude-code', exe(), version)?.path : undefined;
+  if (own) return own;
+  // Раскладка прежнего «Движка агентов» приложения: `<папка>/<версия>/claude`.
+  const legacy = version ? join(engineDir(), version, exe()) : '';
+  if (runnable(legacy)) return legacy;
+  if (process.env.OFFICE_APP !== '1') return '';
+  const home = homedir();
+  const candidates = [
+    // Куда кладёт официальный установщик Anthropic.
+    join(home, '.local', 'bin', exe()),
+    process.env.OFFICE_ROOT
+      ? join(process.env.OFFICE_ROOT, 'node_modules', '@anthropic-ai', `claude-agent-sdk-${process.platform}-${process.arch}`, exe())
+      : '',
+    fromPath(),
+  ];
+  return candidates.find((path) => runnable(path)) ?? '';
+}
+
+let foundBin: string | null = null;
+
 /**
  * Чем считает claude-code. Пусто — SDK ищет свой нативный бинарь сам, рядом с
  * собой: так устроен офис, поставленный из исходников. У приложения такого
- * пакета нет — движок ставится отдельно, и путь к нему приходит переменной
- * (см. docs/design/desktop-app/spec.md §3).
+ * пакета нет — движок ставится с экрана «Провайдеры» (см.
+ * docs/design/providers/spec.md, этап 4).
  */
-export const claudeBin = (): string => process.env.OFFICE_CLAUDE_BIN ?? '';
+export const claudeBin = (): string => (foundBin ??= findClaude());
+
+/** Забыть найденный путь: после установки или по «Проверить снова». */
+export function forgetClaudeBin(): void {
+  foundBin = null;
+}
 
 /** Версия Claude Code, с которой собран установленный SDK. */
 function bundledVersion(): string {
@@ -48,6 +115,32 @@ function binVersion(bin: string): Promise<string> {
       done(err ? '' : (String(stdout).match(/\d+\.\d+\.\d+/)?.[0] ?? String(stdout).trim()));
     });
   });
+}
+
+let loginCache: { at: number; value: Promise<boolean> } | undefined;
+
+/**
+ * Вошёл ли человек в сам Claude Code по подписке. Только признаки входа —
+ * токен в окружении, файл учётных данных, запись в Keychain, — сам секрет не
+ * читается. Если Keychain не ответил внятно, считаем, что вход есть: так
+ * было до экрана «Провайдеры», и ложное «нужен вход» остановило бы офис.
+ */
+function claudeLoggedIn(): Promise<boolean> {
+  if (loginCache && Date.now() - loginCache.at < 30_000) return loginCache.value;
+  const value = (async () => {
+    if (process.env.CLAUDE_CODE_OAUTH_TOKEN) return true;
+    const config = process.env.CLAUDE_CONFIG_DIR ?? join(homedir(), '.claude');
+    if (existsSync(join(config, '.credentials.json'))) return true;
+    if (process.platform !== 'darwin' || process.env.OFFICE_KEYCHAIN === 'memory') return false;
+    return new Promise<boolean>((done) => {
+      execFile('security', ['find-generic-password', '-s', 'Claude Code-credentials'], { timeout: 5000 }, (err) => {
+        // 44 — записи нет. Остальные отказы — «не знаем», а не «нет».
+        done(!err || (err as { code?: unknown }).code !== 44);
+      });
+    });
+  })();
+  loginCache = { at: Date.now(), value };
+  return value;
 }
 
 /** Нейтральные уровни для алиасов Claude: opus → top, sonnet → balanced, haiku → fast. */
@@ -96,20 +189,51 @@ export const claudeCodeEngine: EngineAdapter = {
       return version ? { path: bin, version } : null;
     }
     // Из исходников движок приезжает пакетом рядом с SDK, и SDK находит его сам.
-    // В приложении такого пакета нет — без переменной движка нет.
+    // В приложении такого пакета нет — пока движок не поставили, его нет.
     if (process.env.OFFICE_APP === '1') return null;
     return { path: '', version: bundledVersion() };
   },
 
-  async status(): Promise<ProviderStatus> {
-    // Как и проверка окружения: в приложении движок обязан быть указан явно.
-    if (process.env.OFFICE_APP === '1' && !claudeBin()) return { state: 'not-installed', engine: 'claude-code' };
+  async status(_provider, opts): Promise<ProviderStatus> {
+    if (opts?.force) { forgetClaudeBin(); loginCache = undefined; }
+    // Как и проверка окружения: в приложении движок обязан быть найден явно.
+    if (process.env.OFFICE_APP === '1' && !claudeBin()) {
+      return { state: 'not-installed', engine: 'claude-code', sizeMb: claudeCodeEngine.sizeMb };
+    }
     const block = limitBlock(Date.now(), 'claude-code');
     if (block) return { state: 'limited', kind: 'plan', resetsAt: block.resetsAt ?? undefined };
-    // Вход Claude Code по подписке без платного хода не проверить: без ключа
-    // офис, как и раньше, работает на авторизации самого Claude Code.
-    const hasKey = Boolean(process.env.ANTHROPIC_API_KEY || process.env.ANTHROPIC_AUTH_TOKEN);
-    return { state: 'ready', auth: hasKey ? 'api-key' : 'subscription' };
+    // Ключ сильнее подписки: с ним расход идёт в платный API.
+    if (providerKey('claude-code')) return { state: 'ready', auth: 'api-key' };
+    if (await claudeLoggedIn()) return { state: 'ready', auth: 'subscription' };
+    return { state: 'needs-login', auth: ['api-key', 'subscription'] };
+  },
+
+  // Столько весит архив пакета платформы — его и качаем.
+  sizeMb: 95,
+
+  async install(onProgress, signal) {
+    const version = sdkVersion();
+    if (!version) throw new Error('не прочитать версию Agent SDK — установка повреждена');
+    const done = await installFromNpm({ engine: 'claude-code', pkg: platformPackage(), version, bin: exe() }, onProgress, signal);
+    forgetClaudeBin();
+    return done;
+  },
+
+  async login(req) {
+    if (req.kind !== 'api-key' || !req.apiKey) {
+      // Вход по подписке — через сам Claude Code (`claude` → /login): офис его
+      // пока не ведёт, только видит результат.
+      throw new LoginError('unsupported', 'subscription login is not supported yet');
+    }
+    await verifyKey('https://api.anthropic.com/v1/models', {
+      'x-api-key': req.apiKey, 'anthropic-version': '2023-06-01',
+    });
+    try { await saveKey('claude-code', req.apiKey); } catch (err) { throw new LoginError('keychain', (err as Error).message); }
+    return { done: true, status: await claudeCodeEngine.status('claude-code') };
+  },
+
+  async logout() {
+    await deleteKey('claude-code');
   },
 
   async models(): Promise<ModelInfo[]> {

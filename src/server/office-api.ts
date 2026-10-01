@@ -178,6 +178,17 @@ export function broadcastOffices(): void {
 }
 
 /**
+ * Событие про весь процесс, а не про офис (провайдеры, движки): всем сокетам,
+ * в том числе тем, кто офис ещё не выбрал.
+ */
+export function broadcastAll(event: ServerEvent): void {
+  const payload = JSON.stringify(event);
+  for (const ws of clients.keys()) {
+    if (ws.readyState === OPEN) ws.send(payload);
+  }
+}
+
+/**
  * Язык интерфейса сменили — сказать об этом всем сокетам, как и про реестр
  * офисов. Фильтровать по подписке нельзя по той же причине: настройка одна на
  * всё приложение, и вкладка, в которой офис ещё не выбран, обязана

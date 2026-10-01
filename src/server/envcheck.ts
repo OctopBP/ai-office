@@ -88,10 +88,13 @@ export async function providerCheck(state: OfficeState, provider: ProviderId): P
     case 'not-installed':
       return provider === 'claude-code'
         ? fail(id, title, state.say('env.engine.none'), state.say('env.engine.noneFix'))
-        : fail(id, title, status.detail ?? state.say('env.provider.notInstalled'), state.say('env.provider.codexFix'));
+        : fail(id, title, status.detail ?? state.say('env.provider.notInstalled'), state.say('env.engine.noneFix'));
     case 'needs-login':
       return fail(id, title, status.detail ?? state.say('env.provider.needsLogin'),
         state.say(provider === 'codex' ? 'env.provider.codexFix' : 'env.provider.loginFix'));
+    case 'installing':
+      return fail(id, title, state.say('env.provider.installing'), state.say('env.engine.noneFix'));
+    case 'unreachable':
     case 'error':
       return fail(id, title, status.detail,
         state.say(provider === 'codex' ? 'env.provider.codexFix' : 'env.provider.loginFix'));

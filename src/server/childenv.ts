@@ -114,7 +114,22 @@ export function engineEnv(extra: NodeJS.ProcessEnv = {}): NodeJS.ProcessEnv {
   // На Windows ключ зовётся `Path`, а копия окружения уже не регистронезависима:
   // второй ключ `PATH` рядом с ним дочерний процесс прочёл бы как попало.
   if (process.platform !== 'win32') env.PATH = PATH;
-  return { ...env, ...extra };
+  return { ...env, ...engineSecrets, ...extra };
+}
+
+/**
+ * Ключи из системной связки (engines/keys.ts). Они живут здесь, а не в
+ * `process.env` сервера: окружение сервера наследует всё, что он запускает, а
+ * это окружение получает только движок. Ключ, введённый на экране
+ * «Провайдеры», сильнее переменной окружения — его задали позже и явно.
+ */
+let engineSecrets: Record<string, string> = {};
+
+export function setEngineSecrets(secrets: Record<string, string>): void {
+  for (const name of Object.keys(secrets)) {
+    if (!PROVIDER_SECRET_VARS.includes(name)) throw new Error(`not a provider secret: ${name}`);
+  }
+  engineSecrets = { ...secrets };
 }
 
 /**

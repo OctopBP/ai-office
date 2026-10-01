@@ -25,6 +25,7 @@ import type { Role } from './roles';
 import { currentBranch, fetchBranch, remoteUrl } from './git';
 import type { Lang } from '../shared/i18n';
 import { t } from './i18n';
+import { providerKey } from './engines/keys';
 
 /**
  * Токен GitHub держим только в памяти процесса. Класть чужой токен с правом
@@ -39,6 +40,7 @@ export const setGithubToken = (value: string): void => {
 };
 
 let client: Anthropic | null = null;
+let clientKey: string | undefined;
 const agentIds = new Map<string, string>();   // ключ конфигурации роли → id агента
 /**
  * Контейнер на офис, ключ — id офиса. Одной переменной хватало, пока офис был
@@ -66,7 +68,7 @@ export function cloudProblem(state: OfficeState): string | null {
   if (state.activeRoles().some(role => providerOf(role) !== 'claude-code')) {
     return state.lang() === 'ru' ? 'Облачный режим поддерживает только Claude. Для сотрудников Codex выберите локальный режим офиса.' : 'Cloud execution supports Claude only. Select local execution for Codex workers.';
   }
-  if (!process.env.ANTHROPIC_API_KEY && !process.env.ANTHROPIC_AUTH_TOKEN) {
+  if (!providerKey('claude-code')) {
     return state.say('cloud.needApiKey');
   }
   if (!state.settings.cloudRepoUrl) {
@@ -79,7 +81,11 @@ export function cloudProblem(state: OfficeState): string | null {
 }
 
 function api(): Anthropic {
-  client ??= new Anthropic();
+  // Ключ из связки ключей сильнее переменной окружения — как и у движка.
+  const key = providerKey('claude-code');
+  if (client && clientKey !== key?.key) client = null;
+  clientKey = key?.key;
+  client ??= key?.source === 'keychain' ? new Anthropic({ apiKey: key.key }) : new Anthropic();
   return client;
 }
 

@@ -74,7 +74,7 @@ copy('design/sprites/out/catalog.json', 'design/sprites/out/catalog.json');
 
 // Agent SDK остаётся отдельной папкой, а не бандлится: он ищет нативный
 // бинарь относительно собственного файла. Пакеты с самим бинарём не копируем
-// — движок приложение ставит отдельно (desktop/engine.js).
+// — движок ставит сервер с экрана «Провайдеры» (src/server/engines/install.ts).
 copy('node_modules/@anthropic-ai/claude-agent-sdk', 'node_modules/@anthropic-ai/claude-agent-sdk');
 
 // Сервер картинок ходит в MCP по stdio и живёт своим процессом. Его тоже

@@ -26,7 +26,8 @@ export function codexStatus(force = false): Promise<CodexStatus> {
       let authenticated = Boolean(env.OPENAI_API_KEY || (env.CODEX_HOME && existsSync(resolve(env.CODEX_HOME, 'auth.json'))));
       try {
         const account = await rpc.request('account/read', { refreshToken: false }, 10_000);
-        authenticated = Boolean(account.account);
+        // Ключ из связки ключей Codex в account/read не видит — он едет окружением.
+        authenticated = Boolean(account.account || env.OPENAI_API_KEY);
       } catch { /* the local auth file is the conservative fallback */ }
       const models: CodexStatus['models'] = [];
       let cursor: string | undefined;

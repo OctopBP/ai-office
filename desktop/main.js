@@ -1,8 +1,8 @@
 /**
- * Приложение: окно, движок, сервер офиса.
+ * Приложение: окно и сервер офиса.
  *
  * Порядок запуска один и тот же и на macOS, и на Windows: окно ожидания →
- * поиск движка (и, если надо, его загрузка) → сервер на постоянном порту
+ * сервер на постоянном порту
  * локальной петли (pickPort в server.js) → окно офиса на этом порту. Пока сервер не ответил, окна
  * офиса не существует: белый экран с неработающим сокетом объясняет человеку
  * меньше, чем строка «Запускаю офис…».
@@ -13,7 +13,6 @@ const { existsSync, readFileSync, renameSync, writeFileSync } = require('node:fs
 const { join } = require('node:path');
 
 const paths = require('./paths');
-const engine = require('./engine');
 const server = require('./server');
 const updater = require('./updater');
 const log = require('./log');
@@ -57,8 +56,6 @@ let bootWindow = null;
 let mainWindow = null;
 let child = null;
 let port = 0;
-/** Чем считаем. Пусто — движка нет; офис об этом скажет проверкой окружения. */
-let claudeBin = '';
 /** Сервер останавливаем мы сами — его выход не поломка. */
 let stopping = false;
 
@@ -232,39 +229,11 @@ function watchChild(started) {
   });
 }
 
-/** Чем запускать сервер: движок, свой git и язык терминального журнала. */
+/** Чем запускать сервер: свой git и язык терминального журнала. */
 const serverOptions = () => ({
-  claudeBin,
   gitBin: paths.gitBin(),
   lang: app.getLocale().startsWith('ru') ? 'ru' : 'en',
 });
-
-/** Поиск движка с показом результата в окне ожидания. */
-async function ensureEngine() {
-  say('Ищу движок агентов…');
-  claudeBin = engine.find();
-  if (claudeBin) { say(`Движок на месте: ${claudeBin}`); return; }
-
-  // Ответ человека ждём событием, а не диалогом: диалог поверх окна ожидания
-  // на Windows иногда уезжает за него, и приложение выглядит зависшим.
-  const choice = await new Promise((done) => {
-    ipcMain.once('boot:engine-choice', (_event, value) => done(value));
-    bootWindow?.webContents.send('boot:need-engine', { pkg: engine.platformPackage() });
-  });
-  if (choice !== 'install') { say('Продолжаю без движка'); return; }
-
-  try {
-    // Размера архива npm не сообщает, поэтому считаем скачанное, а не проценты:
-    // шкала без итога врёт, а мегабайты — нет.
-    claudeBin = await engine.install((share, bytes) => {
-      const mb = Math.round(bytes / 1024 / 1024);
-      say(`Скачиваю движок: ${mb} МБ`, { progress: share });
-    });
-    say('Движок установлен', { progress: 1 });
-  } catch (err) {
-    say(`Движок не поставился: ${err.message}`, { progress: 0, failed: true });
-  }
-}
 
 /** Поднять сервер и показать офис. */
 async function startOffice() {
@@ -309,29 +278,6 @@ async function restartOffice() {
   mainWindow?.loadURL(`http://127.0.0.1:${port}/`);
 }
 
-/** Движок по требованию из меню — и когда его нет, и когда хочется свежий. */
-async function engineFromMenu() {
-  const found = engine.find();
-  const { response } = await dialog.showMessageBox({
-    type: 'question', title: 'Движок агентов',
-    message: found ? `Движок на месте:\n${found}` : 'Движок не установлен.',
-    detail: found
-      ? 'Можно скачать заново — например, если он повреждён.'
-      : `Приложение скачает ${engine.platformPackage()} из npm — около 310 МБ.`,
-    buttons: [found ? 'Скачать заново' : 'Скачать', 'Отмена'], defaultId: found ? 1 : 0, cancelId: 1,
-  });
-  if (response !== 0) return;
-  try {
-    claudeBin = await engine.install();
-    await dialog.showMessageBox({
-      type: 'info', title: 'Движок агентов', message: 'Движок установлен.',
-      detail: 'Чтобы офис начал им считать, перезапустите его: меню «Офис» → «Перезапустить офис».',
-    });
-  } catch (err) {
-    dialog.showErrorBox('Движок не поставился', err.message);
-  }
-}
-
 /**
  * «Проверить обновления…» из меню. Веб показывает состояние сам, но меню
  * работает и без него, поэтому итог проверки говорим здесь же. Ошибку — нет:
@@ -370,7 +316,6 @@ function buildMenu() {
     label: 'Офис',
     submenu: [
       { label: 'Проверить обновления…', click: () => void updatesFromMenu() },
-      { label: 'Движок агентов…', click: () => void engineFromMenu() },
       { label: 'Перезапустить офис', click: () => void restartOffice() },
       { type: 'separator' },
       { label: 'Папка данных', click: () => shell.openPath(paths.dataDir()) },
@@ -568,7 +513,6 @@ app.whenReady().then(async () => {
   // Дожидаемся загрузки страницы ожидания: строки состояния, отправленные
   // раньше, ушли бы в пустоту.
   await new Promise((done) => bootWindow.webContents.once('did-finish-load', done));
-  await ensureEngine();
   await startOffice();
 });
 

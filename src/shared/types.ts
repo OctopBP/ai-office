@@ -1,4 +1,4 @@
-import type { ProviderId } from './providers';
+import type { AuthKind, EngineCapabilities, EngineId, ProviderId, ProviderStatus } from './providers';
 // Общие типы между сервером и вебом.
 
 // Раскладка и её оверрайд описаны в src/shared/layout.ts — там же, где код,
@@ -2148,6 +2148,46 @@ export interface OfficeHealth {
   stalled: HealthEntry[];
 }
 
+/**
+ * Провайдер на экране «Провайдеры» (docs/design/T-189/ui.md). Провайдеры
+ * общие для всех офисов процесса — как и ключи в связке ключей.
+ */
+export interface ProviderView {
+  id: ProviderId;
+  label: string;
+  engine: EngineId;
+  /** «Claude Code», «Codex» — мелкой строкой под названием. */
+  engineLabel: string;
+  /** Какими способами провайдер пускает: кнопки входа рисуются по этому списку. */
+  auth: AuthKind[];
+  status: ProviderStatus;
+  /** Матрица движка на платформе сервера: из неё — пометки «без песочницы» и прочие. */
+  capabilities: EngineCapabilities;
+  /**
+   * Чем провайдер авторизован ключом: последние 4 знака и откуда ключ. Сам
+   * ключ веб не получает никогда. null — ключа нет (вход подпиской или никак).
+   */
+  key: { tail: string; source: 'keychain' | 'env' } | null;
+  /** Последняя установка движка сорвалась — текст причины; пропадает со следующей попыткой. */
+  installError?: string;
+}
+
+export interface ProvidersView {
+  providers: ProviderView[];
+  /**
+   * Ни один провайдер не подключён (`ready`/`limited`): веб показывает экран
+   * первого запуска «Чем будет работать команда?».
+   */
+  noneReady: boolean;
+  /** Системная связка ключей доступна: иначе ключ можно задать только переменной окружения. */
+  keychain: boolean;
+}
+
+/** Итог входа по ключу — тому, кто входил: форма показывает ошибку под полем. */
+export type ProviderLoginResult =
+  | { ok: true }
+  | { ok: false; code: 'rejected' | 'network' | 'keychain' | 'unsupported'; message: string };
+
 /** Всё, что сервер шлёт в UI. Единственный интерфейс между логикой и картинкой. */
 export type ServerEvent =
   | { t: 'snapshot'; roles: RoleView[]; instances: InstanceView[]; tasks: TaskView[];
@@ -2303,6 +2343,13 @@ export type ServerEvent =
    * приедет только когда офис откроется.
    */
   | { t: 'ui.language'; lang: Lang }
+  /**
+   * Провайдеры и их состояние — всем клиентам: они общие для всех офисов.
+   * Уходит при подключении, по запросу и при каждом шаге установки и входа.
+   */
+  | { t: 'providers'; providers: ProvidersView }
+  /** Ответ на `provider_login`/`provider_logout` — тому, кто просил. */
+  | { t: 'provider.login'; provider: ProviderId; result: ProviderLoginResult }
   /**
    * Отказ по операции с офисом. Уходит только тому клиенту, который её
    * просил: меню показывает текст в форме, а не ищет его в чате чужого
@@ -2529,6 +2576,19 @@ export type ClientCommand =
    * переключают и с экрана входа. Неизвестное значение сервер игнорирует.
    */
   | { c: 'ui_language'; lang: Lang }
+  /** Переспросить статусы провайдеров. `force` — мимо кешей движков («Проверить снова»). */
+  | { c: 'providers_refresh'; force?: boolean }
+  /** Поставить движок провайдера. Прогресс приезжает событиями `providers`. */
+  | { c: 'provider_install'; provider: ProviderId }
+  /** Отменить установку: скачанное удаляется, провайдер снова `not-installed`. */
+  | { c: 'provider_install_cancel'; provider: ProviderId }
+  /**
+   * Войти по ключу API. Ключ проверяется запросом метаданных и уходит в
+   * системную связку ключей — в состояние офиса, журнал и логи не попадает.
+   */
+  | { c: 'provider_login'; provider: ProviderId; apiKey: string }
+  /** Удалить ключ провайдера из связки ключей. */
+  | { c: 'provider_logout'; provider: ProviderId }
   /** Убрать офис из списка. Файлы проекта и его сохранение остаются на диске. */
   | { c: 'remove_office'; officeId: string }
   /**

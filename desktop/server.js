@@ -120,7 +120,7 @@ function loginPath() {
  * Запустить сервер. Возвращает порт и сам процесс; журнал пишется в файл —
  * у приложения нет терминала, а разбирать поломку по чему-то надо.
  */
-async function start({ claudeBin, gitBin, lang }) {
+async function start({ gitBin, lang }) {
   mkdirSync(dirname(paths.logFile()), { recursive: true });
   mkdirSync(paths.dataDir(), { recursive: true });
   const port = await pickPort();
@@ -145,9 +145,10 @@ async function start({ claudeBin, gitBin, lang }) {
     // Свои node-серверы офис запускает нами же: отдельного node рядом с
     // приложением нет (см. NODE_BIN в src/server/mcp.ts).
     OFFICE_NODE_BIN: process.execPath,
+    // Движки агентов ставит сам сервер с экрана «Провайдеры» — в папку данных:
+    // внутрь .app писать нельзя, а обновление приложения их бы стёрло.
+    OFFICE_ENGINE_DIR: paths.engineDir(),
   };
-  if (claudeBin) env.OFFICE_CLAUDE_BIN = claudeBin;
-  else delete env.OFFICE_CLAUDE_BIN;
   if (gitBin) env.OFFICE_GIT_BIN = gitBin;
   if (lang) env.OFFICE_LANG = lang;
 

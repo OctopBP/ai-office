@@ -10,12 +10,13 @@
  * форме Claude SDK (`EngineMessage`), их же уже сейчас выдаёт адаптер Codex.
  * Перевод разбора в agents.ts на нейтральный `EngineEvent` из спеки — отдельный
  * шаг: он меняет журналы и разбор расходов, а этот шаг поведение не меняет.
- * Установка и вход (`install`, `login`) появятся вместе с экраном «Провайдеры».
+ * Установка и вход (`install`, `login`) — для экрана «Провайдеры»: сервер зовёт
+ * их из `providers-api.ts`.
  */
 import type {
   Options, SDKMessage, SDKUserMessage, McpServerConfig, SdkPluginConfig,
 } from '@anthropic-ai/claude-agent-sdk';
-import type { ProviderId } from '../../shared/providers';
+import type { AuthKind, EngineCapabilities, EngineId, ProviderId, ProviderStatus } from '../../shared/providers';
 import type { LimitSource } from '../limits';
 import type { McpStatusSource } from '../mcp';
 
@@ -30,19 +31,7 @@ export type {
   SdkPluginConfig,
 } from '@anthropic-ai/claude-agent-sdk';
 
-/** Движок. Пока провайдер обслуживается ровно своим движком, их id совпадают. */
-export type EngineId = ProviderId;
-
-/** Как провайдер пускает: подписка (вход в браузере), ключ API или без входа. */
-export type AuthKind = 'subscription' | 'api-key' | 'none';
-
-/** Состояние провайдера для экрана «Провайдеры» и проверок окружения. */
-export type ProviderStatus =
-  | { state: 'not-installed'; engine: EngineId; detail?: string }
-  | { state: 'needs-login'; auth: AuthKind[]; detail?: string }
-  | { state: 'ready'; auth: AuthKind; account?: string; plan?: string }
-  | { state: 'limited'; kind: 'plan' | 'rate' | 'balance'; resetsAt?: number; detail?: string }
-  | { state: 'error'; detail: string };
+export type { EngineId, AuthKind, ProviderStatus, EngineCapabilities } from '../../shared/providers';
 
 /** Нейтральный уровень модели: пакет называет уровень, офис разрешает его в модель провайдера. */
 export type ModelTier = 'top' | 'balanced' | 'fast';
@@ -56,30 +45,24 @@ export interface ModelInfo {
   price?: { input: number; cachedInput?: number; cacheWrite?: number; output: number };
 }
 
-/** Что движок умеет. По матрице офис решает, что показать и что разрешить (spec §5.5). */
-export interface EngineCapabilities {
-  subscriptionLogin: boolean;
-  apiKeyLogin: boolean;
-  /** Продолжение сессии по id после перезапуска. */
-  resume: boolean;
-  /** Несколько ходов в одной сессии — без этого провайдер нельзя дать менеджеру. */
-  streamingInput: boolean;
-  /** Текст по кусочкам: пузыри и чат. */
-  partialText: boolean;
-  officeTools: 'in-process' | 'mcp-bridge' | 'dynamic-tools';
-  /** Свои Read/Edit/Bash движка, пропущенные через шлюз подтверждений офиса. */
-  nativeHands: boolean;
-  /** Песочница ОС для команд на этой платформе. */
-  sandbox: boolean;
-  compaction: 'auto-window' | 'auto' | 'manual' | 'none';
-  costUsd: 'reported' | 'computed' | 'none';
-  /** Окна подписки с процентами и сбросом. */
-  planLimits: boolean;
-  /** Остаток денег у провайдера. */
-  balance: boolean;
-  skills: 'plugin' | 'tool' | 'none';
-  webSearch: boolean;
-  cloud: boolean;
+export interface InstallProgress { share: number; bytes?: number; totalBytes?: number }
+
+export interface LoginRequest {
+  provider: ProviderId;
+  kind: AuthKind;
+  /** Для api-key: ключ сразу уходит в связку ключей, в состояние офиса не пишется. */
+  apiKey?: string;
+}
+export type LoginStart = { done: true; status: ProviderStatus };
+
+/**
+ * Отказ во входе с причиной для формы: ключ не принят, сети нет, связка
+ * ключей недоступна или такой способ входа движок пока не умеет.
+ */
+export class LoginError extends Error {
+  constructor(readonly code: 'rejected' | 'network' | 'keychain' | 'unsupported', message: string) {
+    super(message);
+  }
 }
 
 /** Параметры сессии. `provider` выбирает адаптер; остальное — общий словарь офиса. */
@@ -95,6 +78,19 @@ export interface EngineAdapter {
 
   /** Где лежит движок и какой версии; null — не установлен. */
   locate(): Promise<{ path: string; version: string } | null>;
+
+  /**
+   * Скачать движок в папку движков офиса (`engines/install.ts`). Прогресс —
+   * доля и байты; отмена — через `signal`, недокачанное удаляется.
+   */
+  install(onProgress: (p: InstallProgress) => void, signal: AbortSignal): Promise<{ path: string }>;
+  /** Сколько примерно качать, МБ — для «Нужен движок (~310 МБ)». */
+  readonly sizeMb?: number;
+
+  /** Вход. Ключ проверяется запросом метаданных и уходит в связку ключей (`engines/keys.ts`). */
+  login(req: LoginRequest): Promise<LoginStart>;
+  /** Выйти: удалить ключ из связки. Вход самого движка по подписке не трогается. */
+  logout(provider: ProviderId): Promise<void>;
 
   /** Состояние провайдера. Только метаданные: платный ход модели не запускается никогда. */
   status(provider: ProviderId, opts?: { force?: boolean }): Promise<ProviderStatus>;

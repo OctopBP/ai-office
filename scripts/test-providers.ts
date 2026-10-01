@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { mkdtempSync, writeFileSync, mkdirSync, symlinkSync, readFileSync } from 'node:fs';
+import { mkdtempSync, writeFileSync, mkdirSync, symlinkSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { resolve } from 'node:path';
 import { z } from 'zod';
@@ -8,6 +8,15 @@ const root = mkdtempSync(resolve(tmpdir(), 'office-providers-'));
 process.env.OFFICE_STATE_FILE = resolve(root, 'state.json');
 process.env.OFFICE_CODEX_HOME = resolve(root, 'codex');
 process.env.CODEX_HOME = resolve(root, 'no-owner-auth');
+// Связка ключей — в памяти, движки — во временной папке: тест не трогает
+// Keychain и установки владельца.
+process.env.OFFICE_KEYCHAIN = 'memory';
+process.env.OFFICE_ENGINE_DIR = resolve(root, 'engines');
+// Вход в Claude Code по подписке — признаком в своей папке настроек.
+process.env.CLAUDE_CONFIG_DIR = resolve(root, 'claude');
+delete process.env.CLAUDE_CODE_OAUTH_TOKEN;
+mkdirSync(process.env.CLAUDE_CONFIG_DIR);
+writeFileSync(resolve(process.env.CLAUDE_CONFIG_DIR, '.credentials.json'), '{}');
 const fake = resolve(root, 'codex-mock.cjs');
 writeFileSync(fake, `#!/usr/bin/env node
 const readline = require('node:readline');
@@ -131,12 +140,55 @@ assert.deepEqual(await engineFor('codex').models('codex'), [{ id: 'test-model', 
   assert.deepEqual([cloud.status, cloud.critical, cloud.fix], ['fail', true, 'cloud.needApiKey']);
   if (keyBefore !== undefined) process.env.ANTHROPIC_API_KEY = keyBefore;
   if (tokenBefore !== undefined) process.env.ANTHROPIC_AUTH_TOKEN = tokenBefore;
-  const appBefore = process.env.OFFICE_APP; const binBefore = process.env.OFFICE_CLAUDE_BIN;
+  // Приложение без движка: чужие установки в домашней папке и PATH не в счёт.
+  const saved = { app: process.env.OFFICE_APP, bin: process.env.OFFICE_CLAUDE_BIN, home: process.env.HOME, path: process.env.PATH };
   process.env.OFFICE_APP = '1'; delete process.env.OFFICE_CLAUDE_BIN;
+  process.env.HOME = resolve(root, 'home'); process.env.PATH = resolve(root, 'no-bin');
+  const engine = engineFor('claude-code');
+  assert.deepEqual(await engine.status('claude-code', { force: true }), { state: 'not-installed', engine: 'claude-code', sizeMb: 95 });
   const noEngine = await providerCheck(fakeState('local'), 'claude-code');
   assert.deepEqual([noEngine.status, noEngine.fix], ['fail', 'env.engine.noneFix']);
-  if (appBefore === undefined) delete process.env.OFFICE_APP; else process.env.OFFICE_APP = appBefore;
-  if (binBefore !== undefined) process.env.OFFICE_CLAUDE_BIN = binBefore;
+  // Своя установка в папке движков находится без перезапуска.
+  if (process.platform !== 'win32') {
+    const { sdkVersion } = await import('../src/server/engines/claude-code');
+    const own = resolve(root, 'engines', 'claude-code', sdkVersion());
+    mkdirSync(own, { recursive: true });
+    writeFileSync(resolve(own, 'claude'), '#!/bin/sh\necho 1.0.0\n', { mode: 0o755 });
+    assert.equal((await engine.status('claude-code', { force: true })).state, 'ready');
+  }
+  if (saved.app === undefined) delete process.env.OFFICE_APP; else process.env.OFFICE_APP = saved.app;
+  if (saved.bin !== undefined) process.env.OFFICE_CLAUDE_BIN = saved.bin;
+  process.env.HOME = saved.home; process.env.PATH = saved.path;
+  await engine.status('claude-code', { force: true });
+}
+
+// Вход по ключу: ключ в связке, а не в окружении; без ключа и подписки — нужен вход.
+{
+  const { saveKey, deleteKey, providerKey } = await import('../src/server/engines/keys');
+  const { providersView, loginProvider } = await import('../src/server/providers-api');
+  const keyBefore = process.env.ANTHROPIC_API_KEY; const tokenBefore = process.env.ANTHROPIC_AUTH_TOKEN;
+  delete process.env.ANTHROPIC_API_KEY; delete process.env.ANTHROPIC_AUTH_TOKEN;
+  const engine = engineFor('claude-code');
+  await saveKey('claude-code', 'sk-ant-test-1234');
+  assert.deepEqual(providerKey('claude-code'), { key: 'sk-ant-test-1234', source: 'keychain' });
+  assert.equal(process.env.ANTHROPIC_API_KEY, undefined);
+  const { engineEnv, projectEnv } = await import('../src/server/childenv');
+  assert.equal(engineEnv().ANTHROPIC_API_KEY, 'sk-ant-test-1234');
+  assert.equal(projectEnv().ANTHROPIC_API_KEY, undefined);
+  assert.deepEqual(await engine.status('claude-code', { force: true }), { state: 'ready', auth: 'api-key' });
+  const view = await providersView();
+  assert.deepEqual(view.providers.find((p) => p.id === 'claude-code')?.key, { tail: '1234', source: 'keychain' });
+  assert.equal(view.noneReady, false);
+  await deleteKey('claude-code');
+  assert.equal(providerKey('claude-code'), null);
+  assert.equal(engineEnv().ANTHROPIC_API_KEY, undefined);
+  assert.deepEqual((await loginProvider('claude-code', 'two words')), { ok: false, code: 'rejected', message: 'empty or malformed key' });
+  rmSync(resolve(process.env.CLAUDE_CONFIG_DIR!, '.credentials.json'));
+  assert.deepEqual(await engine.status('claude-code', { force: true }), { state: 'needs-login', auth: ['api-key', 'subscription'] });
+  writeFileSync(resolve(process.env.CLAUDE_CONFIG_DIR!, '.credentials.json'), '{}');
+  await engine.status('claude-code', { force: true });
+  if (keyBefore !== undefined) process.env.ANTHROPIC_API_KEY = keyBefore;
+  if (tokenBefore !== undefined) process.env.ANTHROPIC_AUTH_TOKEN = tokenBefore;
 }
 
 mkdirSync(resolve(root, 'workspace')); mkdirSync(resolve(root, 'outside'));

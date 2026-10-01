@@ -33,8 +33,6 @@
      «идёт», чем шкала, застрявшая на нуле. */
   #bar.unknown > div { width: 30%; animation: slide 1.4s ease-in-out infinite; }
   @keyframes slide { 0% { margin-left: -30%; } 100% { margin-left: 100%; } }
-  #ask { display: none; flex-direction: column; align-items: center; gap: 12px; padding: 0 32px; text-align: center; }
-  #ask p { margin: 0; color: var(--ink-3); }
   .row { display: flex; gap: 8px; }
   button {
     height: 32px; padding: 0 14px; border-radius: 999px; border: 0; cursor: pointer;
@@ -63,15 +61,6 @@
   <div id="status">Открываю офис…</div>
   <div id="bar"><div></div></div>
 
-  <div id="ask">
-    <p>Чтобы команда могла работать, нужен движок Claude Code — около 310&nbsp;МБ.
-       Он скачивается из npm один раз.</p>
-    <div class="row">
-      <button class="primary" id="install">Скачать движок</button>
-      <button id="skip">Потом</button>
-    </div>
-  </div>
-
   <div id="fail">
     <h2 id="fail-title"></h2>
     <pre id="fail-reason"></pre>
@@ -90,7 +79,6 @@
   const status = document.getElementById('status');
   const bar = document.getElementById('bar');
   const fill = bar.firstElementChild;
-  const ask = document.getElementById('ask');
 
   window.officeBoot.onStatus(({ text, progress, failed }) => {
     status.textContent = text;
@@ -102,21 +90,12 @@
     }
   });
 
-  window.officeBoot.onNeedEngine(() => {
-    status.textContent = 'Движок агентов не найден';
-    ask.style.display = 'flex';
-  });
-
-  const choose = (value) => { ask.style.display = 'none'; window.officeBoot.choose(value); };
-  document.getElementById('install').onclick = () => choose('install');
-  document.getElementById('skip').onclick = () => choose('skip');
   document.getElementById('log').onclick = () => window.officeBoot.openLog();
 
   // Запуск сорвался: окно ожидания становится экраном ошибки. Тексты
   // приходят из main уже на нужном языке (desktop/i18n.js).
   window.officeBoot.onFailure(({ title, reason, hint, logs, open, retry, quit }) => {
     document.body.classList.add('failed');
-    ask.style.display = 'none';
     document.getElementById('fail').style.display = 'flex';
     document.getElementById('fail-title').textContent = title;
     document.getElementById('fail-reason').textContent = reason;

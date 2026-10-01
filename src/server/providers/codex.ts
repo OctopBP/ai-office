@@ -8,9 +8,28 @@ import { codexTools } from './codex-tools';
 import { DEFAULT_STATE_FILE } from '../store';
 import { codexPrice, tokenCost, type TokenPrice } from './pricing';
 import { engineEnv } from '../childenv';
+import { installedBin } from '../engines/install';
+
+/** Целевая тройка Rust-сборки Codex под эту машину — так названа папка бинаря в пакете npm. */
+const CODEX_TRIPLE: Record<string, string> = {
+  'darwin-arm64': 'aarch64-apple-darwin',
+  'darwin-x64': 'x86_64-apple-darwin',
+  'linux-x64': 'x86_64-unknown-linux-musl',
+  'linux-arm64': 'aarch64-unknown-linux-musl',
+  'win32-x64': 'x86_64-pc-windows-msvc',
+  'win32-arm64': 'aarch64-pc-windows-msvc',
+};
+
+/** Путь к бинарю внутри пакета платформы `@openai/codex@<платформа>`; пусто — платформы нет. */
+export const CODEX_BIN = CODEX_TRIPLE[`${process.platform}-${process.arch}`]
+  ? `vendor/${CODEX_TRIPLE[`${process.platform}-${process.arch}`]}/bin/${process.platform === 'win32' ? 'codex.exe' : 'codex'}`
+  : '';
 
 export function codexBinary(): string {
   if (process.env.OFFICE_CODEX_PATH) return process.env.OFFICE_CODEX_PATH;
+  // Поставленный с экрана «Провайдеры» — свежее и наш, поэтому раньше чужих.
+  const own = installedBin('codex', CODEX_BIN);
+  if (own) return own.path;
   for (const path of ['/Applications/Codex.app/Contents/Resources/codex', '/Applications/ChatGPT.app/Contents/Resources/codex']) {
     if (existsSync(path)) return path;
   }
