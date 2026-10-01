@@ -31,9 +31,9 @@ export function RoleReport({ roleId }: { roleId: string }) {
   const k = report.byKind;
 
   return (
-    <section className="role-report">
-      <div className="role-report-head">
-        <h4 className="section-title">{t('report.title')}</h4>
+    <section className="form-section role-report">
+      <div className="form-section-head role-report-head">
+        <h3 className="form-section-title">{t('report.title')}</h3>
         <div className="seg mini-seg">
           {(['week', 'month', 'all'] as Window[]).map((w) => (
             <button key={w} className={window === w ? 'on' : ''} onClick={() => setWindow(w)}>

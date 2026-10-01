@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, type KeyboardEvent, type MutableRefObject, type ReactNode } from 'react';
 import { PROVIDERS, providerOf } from '../shared/providers';
-import { useStore } from './store';
+import { openLayoutSettings, useStore } from './store';
 import { t, type UiKey } from './i18n';
 import { Icon } from './icons';
 import { Avatar } from './Avatar';
@@ -125,11 +125,20 @@ function AgentPage({ inst, role, tab, onTab, guard, onRemoved, packages, marketB
       <div className="agent-panel" role="tabpanel" id="agent-panel" aria-labelledby={`agent-tab-${tab}`}>
         {role.archived && <div className="form-banner">{t('agent.banner.archived')}</div>}
         {busy && <BusyBanner taskId={inst.currentTaskId!} />}
-        {tab === 'profile' && <ProfilePanel {...panelProps} />}
-        {tab === 'model' && <ModelPanel {...panelProps} />}
-        {tab === 'access' && <AccessPanel {...panelProps} />}
-        {tab === 'brief' && <BriefPanel {...panelProps} packages={packages} marketBusy={marketBusy} act={act} />}
-        {tab === 'results' && <ResultsPanel {...panelProps} />}
+        {tab === 'profile' && inst.deskless && (
+          <div className="deskless-notice">
+            <Icon name="armchair" size={16} /> {t('employee.deskless', { index: inst.desk.index })}{' '}
+            <button className="link" onClick={openLayoutSettings}>{t('employee.layoutSettings')}</button>
+          </div>
+        )}
+        {/* Плашки выше — вне шаблона: у первой группы `.form` не должно быть линии сверху. */}
+        <div className="form">
+          {tab === 'profile' && <ProfilePanel {...panelProps} />}
+          {tab === 'model' && <ModelPanel {...panelProps} />}
+          {tab === 'access' && <AccessPanel {...panelProps} />}
+          {tab === 'brief' && <BriefPanel {...panelProps} packages={packages} marketBusy={marketBusy} act={act} />}
+          {tab === 'results' && <ResultsPanel {...panelProps} />}
+        </div>
       </div>
     </div>
   );

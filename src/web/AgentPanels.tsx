@@ -58,7 +58,22 @@ function FieldLabel({ text, save, f, when, busy }: {
 
 function FieldError({ save, f }: { save: AgentAutosave; f: AgentField }) {
   const error = save.field(f).error;
-  return error ? <span className="hint error">{error}</span> : null;
+  return error ? <span className="form-hint error">{error}</span> : null;
+}
+
+/** Строка шаблона `.form-row`: подпись с подсказкой слева, поле справа. `wide` — длинный текст под подписью во всю ширину. */
+function Row({ id, label, hint, wide, children }: {
+  id?: string; label: ReactNode; hint?: ReactNode; wide?: boolean; children: ReactNode;
+}) {
+  return (
+    <div className={`form-row${wide ? ' agent-row-wide' : ''}`}>
+      <div className="form-row-label">
+        <label htmlFor={id}>{label}</label>
+        {hint && <span className="form-hint">{hint}</span>}
+      </div>
+      <div className="form-row-control">{children}</div>
+    </div>
+  );
 }
 
 /** Поле, которое сохраняется по выходу или Enter; Esc возвращает прежнее. */
@@ -91,11 +106,17 @@ function Confirm({ text, yes, onYes, onNo, disabled }: {
   );
 }
 
-function Section({ title, children, danger }: { title: string; children: ReactNode; danger?: boolean }) {
+/** Группа шаблона `.form-section`; опасная — с красным заголовком, как в настройках офиса. */
+function Section({ title, desc, badge, children, danger }: {
+  title: string; desc?: ReactNode; badge?: ReactNode; children: ReactNode; danger?: boolean;
+}) {
   return (
-    <section className={`agent-section${danger ? ' danger-zone' : ''}`}>
-      <h4 className="section-title">{title}</h4>
-      {children}
+    <section className={`form-section${danger ? ' form-section-danger' : ''}`}>
+      <header className="form-section-head">
+        <h3 className="form-section-title">{title}{badge}</h3>
+        {desc && <p className="form-section-desc">{desc}</p>}
+      </header>
+      <div className="form-rows">{children}</div>
     </section>
   );
 }
@@ -113,49 +134,46 @@ export function ProfilePanel({ save, role, inst, busy }: PanelProps) {
 
   return (
     <>
-      {inst.deskless && (
-        <div className="deskless-notice">
-          <Icon name="armchair" size={16} /> {t('employee.deskless', { index: inst.desk.index })}{' '}
-          <button className="link" onClick={openLayoutSettings}>{t('employee.layoutSettings')}</button>
-        </div>
-      )}
-
       <Section title={t('agent.section.identity')}>
-        <label>
-          <FieldLabel text={t('agent.field.name')} save={save} f="name" />
-          <input {...name} placeholder={t('employee.namePlaceholder')} />
-          <span className="hint">{t('employee.nameHint.empty')}. {t('agent.hint.onBlur')}</span>
+        <Row
+          id="agent-name" label={<FieldLabel text={t('agent.field.name')} save={save} f="name" />}
+          hint={`${t('employee.nameHint.empty')}. ${t('agent.hint.onBlur')}`}
+        >
+          <input id="agent-name" {...name} placeholder={t('employee.namePlaceholder')} />
           <FieldError save={save} f="name" />
-        </label>
-        <label>
-          <FieldLabel text={t('role.title')} save={save} f="title" />
-          <input {...title} disabled={role.isManager} />
-          {role.isManager
-            ? <span className="hint">{t('role.title.pmHint')}</span>
-            : <span className="hint">{t('agent.hint.onBlur')}</span>}
+        </Row>
+        <Row
+          id="agent-title" label={<FieldLabel text={t('role.title')} save={save} f="title" />}
+          hint={role.isManager ? t('role.title.pmHint') : t('agent.hint.onBlur')}
+        >
+          <input id="agent-title" {...title} disabled={role.isManager} />
           <FieldError save={save} f="title" />
-        </label>
-        <div className="agent-field">
-          <FieldLabel text={t('role.look')} save={save} f="sprite" />
+        </Row>
+        <Row
+          label={<FieldLabel text={t('role.look')} save={save} f="sprite" />}
+          hint={lookById(save.value<string>('sprite')) ? undefined : t('role.look.hint')}
+          wide
+        >
           <LookPicker value={save.value<string>('sprite')} onPick={(id) => save.set({ sprite: id })} />
-          {!lookById(save.value<string>('sprite')) && <span className="hint">{t('role.look.hint')}</span>}
           <FieldError save={save} f="sprite" />
-        </div>
+        </Row>
       </Section>
 
       <Section title={t('agent.section.desk')}>
-        <p className="muted small">
+        <div className="muted small">
           {inst.deskless ? t('employee.noDesk') : t('employee.deskNo', { index: inst.desk.index })}{' '}
           <button className="link" onClick={openLayoutSettings}>{t('employee.layoutSettings')}</button>
-        </p>
+        </div>
       </Section>
 
       {role.isManager ? (
-        <p className="hint muted">{t('employee.pmCannotFire')}</p>
+        <Section title={t('agent.danger.title')} danger>
+          <span className="form-hint">{t('employee.pmCannotFire')}</span>
+        </Section>
       ) : (
         <Section title={t('agent.danger.title')} danger>
           {actionError && <div className="form-banner error">{actionError}</div>}
-          <div className="danger-action">
+          <div>
             {confirm === 'fire' ? (
               <Confirm
                 text={t('agent.confirm.fire', { name: inst.label })} yes={t('agent.confirm.fire.yes')}
@@ -164,9 +182,9 @@ export function ProfilePanel({ save, role, inst, busy }: PanelProps) {
             ) : (
               <button className="link-danger" disabled={busy} onClick={() => setConfirm('fire')}>{t('employee.fire')}</button>
             )}
-            {busy && <span className="hint">{t('employee.busyHint', { task: inst.currentTaskId ?? '' })}</span>}
+            {busy && <span className="form-hint">{t('employee.busyHint', { task: inst.currentTaskId ?? '' })}</span>}
           </div>
-          <div className="danger-action">
+          <div>
             {role.archived ? (
               <button disabled={pending} onClick={() => save.act('restore')}>{t('role.unarchive')}</button>
             ) : (
@@ -174,11 +192,11 @@ export function ProfilePanel({ save, role, inst, busy }: PanelProps) {
                 {t('role.archive')}
               </button>
             )}
-            <span className="hint">
-              {role.archived ? '' : staff > 0 ? t('agent.archive.blocked') : t('role.archive.hint')}
-            </span>
+            {!role.archived && (
+              <span className="form-hint">{staff > 0 ? t('agent.archive.blocked') : t('role.archive.hint')}</span>
+            )}
           </div>
-          <div className="danger-action">
+          <div>
             {confirm === 'remove' ? (
               <Confirm
                 text={t('agent.confirm.remove', { title: role.title })} yes={t('agent.confirm.remove.yes')}
@@ -189,7 +207,7 @@ export function ProfilePanel({ save, role, inst, busy }: PanelProps) {
                 {t('role.remove')}
               </button>
             )}
-            <span className="hint">{role.removable ? t('role.remove.clean') : t('role.remove.hasHistory')}</span>
+            <span className="form-hint">{role.removable ? t('role.remove.clean') : t('role.remove.hasHistory')}</span>
           </div>
         </Section>
       )}
@@ -221,9 +239,8 @@ export function ModelPanel({ save, role, busy }: PanelProps) {
   return (
     <>
       <Section title={t('agent.section.model')}>
-        <label>
-          <FieldLabel text={t('role.provider')} save={save} f="provider" when="next" busy={busy} />
-          <select value={provider} onChange={(e) => {
+        <Row id="agent-provider" label={<FieldLabel text={t('role.provider')} save={save} f="provider" when="next" busy={busy} />}>
+          <select id="agent-provider" value={provider} onChange={(e) => {
             const next = e.target.value as ProviderId;
             const reset = PROVIDERS[next].defaultModel;
             // Провайдер и модель — одним патчем: сервер без модели всё равно
@@ -233,68 +250,75 @@ export function ModelPanel({ save, role, busy }: PanelProps) {
           }}>
             {PROVIDER_IDS.map((id) => <option key={id} value={id}>{PROVIDERS[id].label}</option>)}
           </select>
-          {modelReset && <span className="hint">{t('agent.model.reset', { model: modelReset })}</span>}
+          {modelReset && <span className="form-hint">{t('agent.model.reset', { model: modelReset })}</span>}
           <FieldError save={save} f="provider" />
-        </label>
+        </Row>
 
-        <label>
-          <FieldLabel text={t('role.model')} save={save} f="model" when="next" busy={busy} />
+        <Row
+          id="agent-model" label={<FieldLabel text={t('role.model')} save={save} f="model" when="next" busy={busy} />}
+          hint={provider === 'codex' ? t('role.codexHint') : undefined}
+        >
           {provider === 'codex' ? (
             <>
-              <input list="agent-models" {...blurField(save, 'model')} />
+              <input id="agent-model" list="agent-models" {...blurField(save, 'model')} />
               <datalist id="agent-models">
                 {[['default', t('role.model.codexDefault')], ...codexModels]
                   .map(([id, label]) => <option key={id} value={id}>{label}</option>)}
               </datalist>
-              <span className="hint">{t('role.codexHint')}</span>
             </>
           ) : (
-            <select value={model} onChange={(e) => { setModelReset(null); save.set({ model: e.target.value }); }}>
+            <select id="agent-model" value={model} onChange={(e) => { setModelReset(null); save.set({ model: e.target.value }); }}>
               {claudeModels(model).map(([id, label]) => <option key={id} value={id}>{label}</option>)}
             </select>
           )}
           <FieldError save={save} f="model" />
-        </label>
+        </Row>
 
-        <label>
-          <FieldLabel text={t('settings.limits.turns')} save={save} f="maxTurns" when="next" busy={busy} />
+        <Row
+          id="agent-turns" label={<FieldLabel text={t('settings.limits.turns')} save={save} f="maxTurns" when="next" busy={busy} />}
+          hint={t('role.turns.hint')}
+        >
           <input
-            {...turns} inputMode="numeric"
+            id="agent-turns" {...turns} inputMode="numeric"
             placeholder={role.effectiveMaxTurns == null
               ? t('role.turns.officeUnlimited')
               : t('role.turns.office', { n: role.effectiveMaxTurns })}
           />
-          <span className="hint">{t('role.turns.hint')}</span>
           <FieldError save={save} f="maxTurns" />
-        </label>
+        </Row>
       </Section>
 
       <Section title={t('agent.section.code')}>
-        <label>
-          <FieldLabel text={t('role.repo')} save={save} f="repoDir" when="next" busy={busy} />
-          <input {...repo} placeholder={t('role.repo.placeholder')} />
+        <Row
+          id="agent-repo" label={<FieldLabel text={t('role.repo')} save={save} f="repoDir" when="next" busy={busy} />}
+          hint={t('role.repo.hint')}
+        >
+          <input id="agent-repo" {...repo} placeholder={t('role.repo.placeholder')} />
           {checkingRepo && (
-            <span className="hint save-status"><span className="spinner" /> {t('agent.save.checking')}</span>
+            <span className="form-hint save-status"><span className="spinner" /> {t('agent.save.checking')}</span>
           )}
-          <span className="hint">{t('role.repo.hint')}</span>
-          {busy && <span className="hint">{t('agent.busy.repoNote')}</span>}
+          {busy && <span className="form-hint">{t('agent.busy.repoNote')}</span>}
           <FieldError save={save} f="repoDir" />
-        </label>
+        </Row>
 
-        <label className="checkbox">
-          <input
-            type="checkbox" checked={save.value<boolean>('isolate')}
-            onChange={(e) => {
-              // Выключение — с подтверждением: без ветки агент правит общую копию.
-              if (!e.target.checked) { setConfirmIsolate(true); return; }
-              setConfirmIsolate(false);
-              save.set({ isolate: true });
-            }}
-          />
-          <FieldLabel text={t('role.isolate')} save={save} f="isolate" when="next" busy={busy} />
-        </label>
-        <span className="hint">{t('agent.isolate.hint')}</span>
-        <FieldError save={save} f="isolate" />
+        <div>
+          <label className="form-check">
+            <input
+              type="checkbox" checked={save.value<boolean>('isolate')}
+              onChange={(e) => {
+                // Выключение — с подтверждением: без ветки агент правит общую копию.
+                if (!e.target.checked) { setConfirmIsolate(true); return; }
+                setConfirmIsolate(false);
+                save.set({ isolate: true });
+              }}
+            />
+            <span className="form-check-text">
+              <FieldLabel text={t('role.isolate')} save={save} f="isolate" when="next" busy={busy} />
+              <span className="form-hint">{t('agent.isolate.hint')}</span>
+            </span>
+          </label>
+          <FieldError save={save} f="isolate" />
+        </div>
         {confirmIsolate && (
           <Confirm
             text={t('agent.confirm.isolate')} yes={t('agent.confirm.isolate.yes')}
@@ -333,10 +357,9 @@ export function AccessPanel({ save, role, inst, busy }: PanelProps) {
 
   return (
     <>
-      <Section title={t('agent.section.access')}>
-        <label>
-          <FieldLabel text={t('role.permissions')} save={save} f="permissionMode" when="now" busy={busy} />
-          <select value={roleMode ?? ''} onChange={(e) => choose('permissionMode', e.target.value)}>
+      <Section title={t('agent.section.access')} desc={t('agent.access.chain')}>
+        <Row id="agent-perm" label={<FieldLabel text={t('role.permissions')} save={save} f="permissionMode" when="now" busy={busy} />}>
+          <select id="agent-perm" value={roleMode ?? ''} onChange={(e) => choose('permissionMode', e.target.value)}>
             <option value="">{t('role.asOffice', { mode: officeLabel })}</option>
             <option value="readonly">{accessLabel('readonly')}</option>
             <option value="ask-writes">{accessLabel('ask-writes')}</option>
@@ -344,7 +367,7 @@ export function AccessPanel({ save, role, inst, busy }: PanelProps) {
             <option value="auto">{accessLabel('auto')}</option>
           </select>
           <FieldError save={save} f="permissionMode" />
-        </label>
+        </Row>
         {confirmAuto === 'permissionMode' && (
           <Confirm
             text={fullAccessWarning()} yes={t('settings.access.confirm')} onNo={() => setConfirmAuto(null)}
@@ -352,14 +375,13 @@ export function AccessPanel({ save, role, inst, busy }: PanelProps) {
           />
         )}
 
-        <label>
-            <FieldLabel text={t('employee.personalMode')} save={save} f="personalMode" when="now" busy={busy} />
-            <select value={personal ?? ''} onChange={(e) => choose('personalMode', e.target.value)}>
-              <option value="">{t('employee.asRole', { mode: roleFallback })}</option>
-              {PERM_OPTIONS.map((m) => <option key={m} value={m}>{accessLabel(m)}</option>)}
-            </select>
-            <FieldError save={save} f="personalMode" />
-          </label>
+        <Row id="agent-personal" label={<FieldLabel text={t('employee.personalMode')} save={save} f="personalMode" when="now" busy={busy} />}>
+          <select id="agent-personal" value={personal ?? ''} onChange={(e) => choose('personalMode', e.target.value)}>
+            <option value="">{t('employee.asRole', { mode: roleFallback })}</option>
+            {PERM_OPTIONS.map((m) => <option key={m} value={m}>{accessLabel(m)}</option>)}
+          </select>
+          <FieldError save={save} f="personalMode" />
+        </Row>
         {confirmAuto === 'personalMode' && (
           <Confirm
             text={fullAccessWarning()} yes={t('settings.access.confirm')} onNo={() => setConfirmAuto(null)}
@@ -367,47 +389,52 @@ export function AccessPanel({ save, role, inst, busy }: PanelProps) {
           />
         )}
 
-        <span className={`perm-badge ${effective}`}>
-          <Icon name={effective === 'auto' ? 'lock-open' : 'shield-lock'} size={14} />{' '}
-          {t('agent.access.effective', { mode: accessLabel(effective), source: permissionSourceLabel(source) })}
-        </span>
-        <span className="hint">{t('agent.access.chain')}</span>
+        <div>
+          <span className={`perm-badge ${effective}`}>
+            <Icon name={effective === 'auto' ? 'lock-open' : 'shield-lock'} size={14} />{' '}
+            {t('agent.access.effective', { mode: accessLabel(effective), source: permissionSourceLabel(source) })}
+          </span>
+        </div>
       </Section>
 
-      <Section title={t('agent.section.tools')}>
-        {busy && <span className="chip field-chip">{t('agent.busy.next')}</span>}
+      <Section
+        title={t('agent.section.tools')}
+        desc={servers.length > 0 ? t('role.mcp.hint') : undefined}
+        badge={busy && <span className="chip field-chip">{t('agent.busy.next')}</span>}
+      >
         {servers.length === 0 ? (
-          <span className="hint muted">{t('role.mcp.empty')}</span>
+          <span className="form-hint">{t('role.mcp.empty')}</span>
         ) : (
-          <>
-            {servers.map((srv) => (
-              <label key={srv.id} className="checkbox">
-                <input
-                  type="checkbox" checked={mcp.includes(srv.id)}
-                  onChange={(e) => save.set({ mcp: e.target.checked ? [...mcp, srv.id] : mcp.filter((id) => id !== srv.id) })}
-                />
+          servers.map((srv) => (
+            <label key={srv.id} className="form-check">
+              <input
+                type="checkbox" checked={mcp.includes(srv.id)}
+                onChange={(e) => save.set({ mcp: e.target.checked ? [...mcp, srv.id] : mcp.filter((id) => id !== srv.id) })}
+              />
+              <span className="form-check-text">
                 {srv.title || srv.id}
                 {srv.disabled && <span className="muted"> — {t('role.mcp.off')}</span>}
-              </label>
-            ))}
-            <span className="hint">{t('role.mcp.hint')}</span>
-          </>
+              </span>
+            </label>
+          ))
         )}
         <FieldError save={save} f="mcp" />
       </Section>
 
-      <Section title={t('agent.section.skills')}>
-        {busy && <span className="chip field-chip">{t('agent.busy.next')}</span>}
+      <Section
+        title={t('agent.section.skills')}
+        desc={t('role.capabilities.hint')}
+        badge={busy && <span className="chip field-chip">{t('agent.busy.next')}</span>}
+      >
         {CAPABILITIES.map((cap) => (
-          <label key={cap} className="checkbox">
+          <label key={cap} className="form-check">
             <input
               type="checkbox" checked={caps.includes(cap)}
               onChange={(e) => save.set({ capabilities: e.target.checked ? [...caps, cap] : caps.filter((c) => c !== cap) })}
             />
-            <span className="mono">{cap}</span>
+            <span className="form-check-text mono">{cap}</span>
           </label>
         ))}
-        <span className="hint">{t('role.capabilities.hint')}</span>
         <FieldError save={save} f="capabilities" />
       </Section>
     </>
@@ -422,21 +449,26 @@ function LongText({ save, f, label, hint, busy }: {
 }) {
   const value = String(save.value(f) ?? '');
   const opened = String(save.opened(f) ?? '');
+  const id = `agent-${f}`;
   return (
-    <label>
-      <FieldLabel text={t(label)} save={save} f={f} when="next" busy={busy} />
+    <Row
+      id={id} wide label={<FieldLabel text={t(label)} save={save} f={f} when="next" busy={busy} />}
+      hint={`${t(hint)} ${t('agent.hint.typing')}`}
+    >
       <textarea
-        rows={f === 'brief' ? 10 : 5} value={value}
+        id={id} rows={f === 'brief' ? 10 : 5} value={value}
         className={save.field(f).error ? 'invalid' : undefined}
         onChange={(e) => save.type(f, e.target.value)}
         onBlur={() => save.commit(f)}
       />
-      <span className="hint">{t(hint)} {t('agent.hint.typing')}</span>
-      {value !== opened && (
-        <button type="button" className="link" onClick={() => save.set({ [f]: opened })}>{t('agent.save.revert')}</button>
-      )}
+      <span className="form-hint">
+        {t('agent.brief.size', { n: value.length })}
+        {value !== opened && (
+          <> · <button type="button" className="link" onClick={() => save.set({ [f]: opened })}>{t('agent.save.revert')}</button></>
+        )}
+      </span>
       <FieldError save={save} f={f} />
-    </label>
+    </Row>
   );
 }
 
@@ -468,14 +500,15 @@ export function BriefPanel({ save, role, busy, packages, marketBusy, act }: Pane
           // Роль из пакета: бриф пакета только для чтения, своё — припиской.
           // Так обновление пакета никогда не спорит с тем, что дописал человек.
           <>
-            <div className="agent-field">
-              <span className="field-label">{t('role.package.brief')}</span>
-              <textarea rows={showAll ? 20 : 6} value={link.brief} readOnly />
-              <button type="button" className="link" onClick={() => setShowAll(!showAll)}>
-                {t(showAll ? 'agent.brief.hideAll' : 'agent.brief.showAll')}
-              </button>
-              <span className="hint">{t('role.package.brief.hint')}</span>
-            </div>
+            <Row id="agent-package-brief" wide label={t('role.package.brief')} hint={t('role.package.brief.hint')}>
+              <textarea id="agent-package-brief" rows={showAll ? 20 : 6} value={link.brief} readOnly />
+              <span className="form-hint">
+                {t('agent.brief.size', { n: link.brief.length })} ·{' '}
+                <button type="button" className="link" onClick={() => setShowAll(!showAll)}>
+                  {t(showAll ? 'agent.brief.hideAll' : 'agent.brief.showAll')}
+                </button>
+              </span>
+            </Row>
             <LongText save={save} f="briefExtra" label="role.briefExtra" hint="role.briefExtra.hint" busy={busy} />
           </>
         ) : (
@@ -499,42 +532,40 @@ export function BriefPanel({ save, role, busy, packages, marketBusy, act }: Pane
           </div>
         )}
 
-        <div className="role-export">
+        <div>
           <button className="link" onClick={() => setExportOpen(!exportOpen)}>{t('role.export')}</button>
-          {exportOpen && (
-            <>
-              <span className="hint">{t('role.export.hint')}</span>
-              <div className="row2">
-                <label>{t('role.export.name')}
-                  <input value={exportName} placeholder={`@me/${role.id}`} onChange={(e) => setExportName(e.target.value)} />
-                </label>
-                <label>{t('role.export.dir')}
-                  <input value={exportDir} placeholder={t('role.export.dir.placeholder', { id: role.id })} onChange={(e) => setExportDir(e.target.value)} />
-                </label>
-              </div>
-              <div className="modal-actions">
-                <button className="allow" disabled={!exportName.trim()} onClick={() => { clearExportResult(); exportRole(role.id, exportName, exportDir); }}>
-                  {t('role.export.go')}
-                </button>
-              </div>
-              {ownExport?.error && <div className="form-banner error">{ownExport.error}</div>}
-              {ownExport && !ownExport.error && (
-                <div className="hint">
-                  {t('role.export.done', { dir: ownExport.dir })}
-                  {ownExport.warnings.length > 0 && (
-                    <ul className="market-list muted small">
-                      <li>{t('role.export.warnings')}:</li>
-                      {ownExport.warnings.map((w) => <li key={w}>{w}</li>)}
-                    </ul>
-                  )}
-                </div>
-              )}
-            </>
-          )}
+          {exportOpen && <span className="form-hint">{t('role.export.hint')}</span>}
         </div>
+        {exportOpen && (
+          <>
+            <Row id="agent-export-name" label={t('role.export.name')}>
+              <input id="agent-export-name" value={exportName} placeholder={`@me/${role.id}`} onChange={(e) => setExportName(e.target.value)} />
+            </Row>
+            <Row id="agent-export-dir" label={t('role.export.dir')}>
+              <input id="agent-export-dir" value={exportDir} placeholder={t('role.export.dir.placeholder', { id: role.id })} onChange={(e) => setExportDir(e.target.value)} />
+            </Row>
+            <div className="modal-actions">
+              <button className="allow" disabled={!exportName.trim()} onClick={() => { clearExportResult(); exportRole(role.id, exportName, exportDir); }}>
+                {t('role.export.go')}
+              </button>
+            </div>
+            {ownExport?.error && <div className="form-banner error">{ownExport.error}</div>}
+            {ownExport && !ownExport.error && (
+              <div className="form-hint">
+                {t('role.export.done', { dir: ownExport.dir })}
+                {ownExport.warnings.length > 0 && (
+                  <ul className="market-list muted small">
+                    <li>{t('role.export.warnings')}:</li>
+                    {ownExport.warnings.map((w) => <li key={w}>{w}</li>)}
+                  </ul>
+                )}
+              </div>
+            )}
+          </>
+        )}
 
         {link && (
-          <div className="role-danger">
+          <div>
             {confirmDetach ? (
               <Confirm
                 text={t('role.detach.hint')} yes={t('role.detach.confirm')} disabled={save.actionPending !== null}
@@ -545,7 +576,7 @@ export function BriefPanel({ save, role, busy, packages, marketBusy, act }: Pane
                 {t('role.detach')}
               </button>
             )}
-            {detachError && <span className="hint error">{detachError}</span>}
+            {detachError && <span className="form-hint error">{detachError}</span>}
           </div>
         )}
       </Section>

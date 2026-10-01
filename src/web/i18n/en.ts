@@ -804,6 +804,7 @@ export const en = {
   "agent.model.reset": "Model reset to {model}: the new provider has its own list.",
   "agent.brief.showAll": "Show all",
   "agent.brief.hideAll": "Collapse",
+  "agent.brief.size": "Length: {n} chars",
   "agent.hint.onBlur": "Saves when you leave the field or press Enter.",
   "agent.hint.typing": "Saves by itself a second after you stop typing.",
   "agent.save.saved": "All changes saved",

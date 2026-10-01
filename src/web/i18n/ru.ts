@@ -803,6 +803,7 @@ export const ru: Record<keyof typeof en, string> = {
   "agent.model.reset": "Модель сброшена на {model}: у нового провайдера свой список.",
   "agent.brief.showAll": "Показать целиком",
   "agent.brief.hideAll": "Свернуть",
+  "agent.brief.size": "Длина: {n} симв.",
   "agent.hint.onBlur": "Сохранится, когда вы выйдете из поля или нажмёте Enter.",
   "agent.hint.typing": "Сохраняется само — через секунду после паузы в наборе.",
   "agent.save.saved": "Все изменения сохранены",
