@@ -1,0 +1,113 @@
+/* Провайдеры: карточка (вкладка настроек и первый запуск) — docs/design/T-189/ui.md.
+   Новых цветов нет: статус красит только точку и текст чипа, фон карточки
+   не окрашивается ни при лимите, ни при ошибке. */
+
+.provider-section-head { display: flex; align-items: flex-start; gap: var(--space-4); }
+.provider-section-head > div { flex: 1; min-width: 0; }
+.provider-shared { flex: none; font-size: var(--fs-small); color: var(--ink-3); padding-top: 2px; }
+.provider-empty {
+  margin: 0 0 var(--space-3); padding: var(--space-2) var(--space-3);
+  border-radius: var(--radius-card); background: var(--film);
+  font-size: var(--fs-body); color: var(--ink-2);
+}
+
+.provider-list { display: flex; flex-direction: column; gap: var(--space-3); }
+
+.provider-card { padding: var(--space-4); display: flex; flex-direction: column; gap: var(--space-2); }
+
+.provider-head { display: flex; align-items: center; gap: var(--space-3); }
+.provider-tile {
+  width: 28px; height: 28px; flex: none; display: grid; place-items: center;
+  border-radius: var(--radius-avatar); background: var(--film);
+  font-size: var(--fs-small); font-weight: 600; color: var(--ink-2);
+}
+.provider-name { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.provider-name h4 { margin: 0; font-size: var(--fs-md); font-weight: 600; color: var(--ink); }
+.provider-engine { font-size: var(--fs-small); color: var(--ink-3); }
+
+.provider-status i { width: 6px; height: 6px; border-radius: 50%; background: var(--ink-4); flex: none; }
+.provider-status.installing i { background: var(--accent); animation: provider-pulse 1.2s ease-in-out infinite; }
+.provider-status.needs-login i, .provider-status.unreachable i, .provider-status.limited i { background: var(--warn); }
+.provider-status.ready i { background: var(--ok-ink); }
+.provider-status.ready { color: var(--ok-ink); }
+.provider-status.error i { background: var(--danger); }
+.provider-status.error { color: var(--danger); }
+@keyframes provider-pulse { 50% { opacity: .35; } }
+@media (prefers-reduced-motion: reduce) {
+  .provider-status.installing i { animation: none; }
+}
+
+.provider-body { padding-left: calc(28px + var(--space-3)); display: flex; flex-direction: column; gap: var(--space-1); }
+.provider-text { margin: 0; font-size: var(--fs-small); line-height: 1.45; color: var(--ink-2); }
+.provider-text.muted { color: var(--ink-3); }
+.provider-text.warn { color: var(--ink); font-weight: 500; }
+.provider-text.error { color: var(--danger); }
+.provider-details {
+  margin: 0; padding: var(--space-2); border-radius: var(--radius-card); background: var(--film);
+  font-size: var(--fs-small); white-space: pre-wrap; word-break: break-word; color: var(--ink-3);
+}
+.provider-howto { display: flex; flex-direction: column; gap: var(--space-1); }
+.provider-howto code {
+  align-self: flex-start; padding: 2px 8px; border-radius: var(--radius-pill);
+  background: var(--film); font-size: var(--fs-small); color: var(--ink);
+}
+.provider-limits { margin-top: var(--space-1); }
+
+.provider-progress { height: 6px; border-radius: var(--radius-pill); background: var(--film-2); overflow: hidden; }
+.provider-progress i { display: block; height: 100%; background: var(--accent); border-radius: var(--radius-pill); transition: width .25s; }
+/* Размер неизвестен — бегущая полоса вместо выдуманных процентов. */
+.provider-progress.unknown i { width: 30%; animation: provider-run 1.4s ease-in-out infinite; }
+@keyframes provider-run { from { transform: translateX(-100%); } to { transform: translateX(340%); } }
+@media (prefers-reduced-motion: reduce) {
+  .provider-progress.unknown i { animation: none; width: 100%; opacity: .4; }
+}
+
+.provider-caps, .provider-actions, .provider-key {
+  margin-left: calc(28px + var(--space-3));
+}
+.provider-caps { display: flex; flex-wrap: wrap; gap: var(--space-1); }
+.provider-caps .chip.warm { color: var(--warn); }
+.provider-actions { display: flex; flex-wrap: wrap; align-items: flex-start; gap: var(--space-2); }
+.provider-sub { display: inline-flex; flex-direction: column; }
+.provider-sub .form-hint { margin-top: 2px; }
+
+.provider-key { display: flex; flex-direction: column; gap: var(--space-1); }
+.provider-key .provider-actions { margin-left: 0; margin-top: var(--space-1); }
+.provider-key-label { font-size: var(--fs-small); font-weight: 500; color: var(--ink-2); }
+.provider-key-row { display: flex; gap: var(--space-2); }
+.provider-key-row input { flex: 1; min-width: 0; }
+.provider-key .form-hint { margin-top: 0; }
+
+.provider-menu { position: relative; flex: none; }
+.provider-menu-list {
+  position: absolute; right: 0; top: calc(100% + 4px); z-index: 5; min-width: 180px;
+  display: flex; flex-direction: column; padding: var(--space-1);
+}
+.provider-menu-list button { justify-content: flex-start; text-align: left; }
+.provider-menu-list button.danger { color: var(--danger); }
+
+/* Только для скринридера: смена состояния карточки. */
+.provider-live {
+  position: absolute; width: 1px; height: 1px; overflow: hidden;
+  clip: rect(0 0 0 0); white-space: nowrap;
+}
+.provider-card { position: relative; }
+
+/* ---------- первый запуск ---------- */
+.first-launch { display: flex; justify-content: center; }
+.first-launch.shell-view { bottom: var(--space-4); background: var(--canvas); border-radius: var(--radius-card); }
+.first-launch.standalone { position: fixed; inset: 0; overflow-y: auto; background: var(--canvas); }
+.first-launch-col {
+  width: 100%; max-width: 720px; padding: var(--space-8) var(--space-4);
+  display: flex; flex-direction: column; gap: var(--space-4);
+}
+.first-launch-title { margin: 0; text-align: center; font-size: var(--fs-title); font-weight: 600; color: var(--ink); }
+.first-launch-desc { margin: 0; text-align: center; font-size: var(--fs-body); line-height: 1.5; color: var(--ink-3); }
+.first-launch-foot { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2); }
+.first-launch-foot .form-hint { margin-top: 0; }
+.first-launch-skip { align-self: flex-start; color: var(--ink-3); }
+
+@media (max-width: 720px) {
+  .provider-body, .provider-caps, .provider-actions, .provider-key { margin-left: 0; padding-left: 0; }
+  .provider-actions button { flex: 1 1 100%; }
+}

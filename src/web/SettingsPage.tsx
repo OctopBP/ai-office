@@ -1,7 +1,7 @@
 import { useEffect, useId, useState, type ReactNode } from 'react';
 import {
   accessModes, clearSettingsSection, fullAccessWarning, parseMaxWorkers, parseTaskMaxTurns,
-  setCloudToken, updateSettings, useStore, type ThemeMode,
+  refreshProviders, setCloudToken, updateSettings, useStore, type ThemeMode,
 } from './store';
 import {
   DEFAULT_FOCUS_EPICS, DEFAULT_INITIATIVE_MODE, DEFAULT_INITIATIVE_SHARE, DEFAULT_OFFICE_WORKERS,
@@ -17,6 +17,8 @@ import { McpCatalog, type McpRequest } from './McpCatalog';
 import { OfficeIconSetting } from './OfficeIcon';
 import { Icon } from './icons';
 import { ShellPage } from './shell/ShellPage';
+import { ProviderCard } from './ProviderCard';
+import { byLabel } from './FirstLaunch';
 import { notifyPermission, notifyWanted, setNotifyWanted, type NotifyPermission } from './notify';
 
 const parse = (v: string): number | null => {
@@ -24,7 +26,7 @@ const parse = (v: string): number | null => {
   return v.trim() === '' || !Number.isFinite(n) || n <= 0 ? null : n;
 };
 
-type Section = 'general' | 'access' | 'limits' | 'tools' | 'project' | 'life' | 'graphics';
+type Section = 'general' | 'providers' | 'access' | 'limits' | 'tools' | 'project' | 'life' | 'graphics';
 
 const THEME_MODES: Array<[ThemeMode, UiKey]> = [
   ['day', 'settings.theme.day'],
@@ -34,6 +36,7 @@ const THEME_MODES: Array<[ThemeMode, UiKey]> = [
 
 const SECTIONS: Array<[Section, UiKey]> = [
   ['general', 'settings.section.general'],
+  ['providers', 'providers.title'],
   ['access', 'settings.section.access'],
   ['limits', 'settings.section.limits'],
   ['tools', 'settings.section.tools'],
@@ -101,6 +104,35 @@ function Slider({ label, hint, value, range, decimals = 0, disabled, onChange }:
         <b className="mono">{value.toFixed(decimals)}</b>
       </div>
     </Row>
+  );
+}
+
+/**
+ * Вкладка «Провайдеры» (docs/design/T-189/ui.md §2): карточки подключений.
+ * Всё здесь применяется сразу — установка, ключ и вход живут на машине и
+ * общие для всех офисов, «Сохранить» страницы их не касается.
+ */
+function ProvidersSection() {
+  const view = useStore((s) => s.providers);
+  // Открыли вкладку — свежий статус; принудительно мимо кешей только по «Проверить снова».
+  useEffect(() => { refreshProviders(); }, []);
+  const list = [...(view?.providers ?? [])].sort(byLabel);
+  return (
+    <div className="form">
+      <section className="form-section">
+        <header className="form-section-head provider-section-head">
+          <div>
+            <h3 className="form-section-title">{t('providers.connections.title')}</h3>
+            <p className="form-section-desc">{t('providers.connections.desc')}</p>
+          </div>
+          <span className="provider-shared">{t('providers.connections.shared')}</span>
+        </header>
+        {view?.noneReady && <p className="provider-empty">{t('providers.office.empty')}</p>}
+        {view === null
+          ? <p className="form-hint"><span className="spinner" /> {t('providers.loading')}</p>
+          : <div className="provider-list">{list.map((p) => <ProviderCard key={p.id} p={p} />)}</div>}
+      </section>
+    </div>
   );
 }
 
@@ -330,6 +362,8 @@ export function SettingsPage({ onClose }: { onClose: () => void }) {
               </Group>
             </div>
           )}
+
+          {section === 'providers' && <ProvidersSection />}
 
           {section === 'access' && (
             <div className="form">

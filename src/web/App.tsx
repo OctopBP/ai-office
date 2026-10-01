@@ -6,6 +6,7 @@ import { focusComposer } from './shell/Composer';
 import { closeDiff, connect, setPaused, useStore } from './store';
 import { startRouting } from './routeSync';
 import { startNotify } from './notify';
+import { FirstLaunch, useFirstLaunch } from './FirstLaunch';
 
 export function App() {
   const theme = useStore((s) => s.theme);
@@ -28,6 +29,8 @@ export function App() {
   const setGraphics = useStore((s) => s.setGraphics);
   const [panel, setPanel] = useState<PanelKind>(null);
   const [modal, setModal] = useState<ModalKind>(null);
+  // Первый запуск приложения: офис ещё не выбран, а работать команде нечем.
+  const first = useFirstLaunch('menu');
 
   useEffect(() => { connect(); }, []);
   // Адрес ↔ открытый офис: /office/<id> и вкладки главного экрана (router.ts).
@@ -136,7 +139,9 @@ export function App() {
 
   // До выбора офиса в меню комната вообще не монтируется — это отдельный
   // экран приложения, а не оверлей поверх неё.
-  if (screen === 'menu') return <MenuScreen />;
+  if (screen === 'menu') {
+    return first.open ? <FirstLaunch where="menu" standalone onClose={first.close} /> : <MenuScreen />;
+  }
 
   return (
     <Shell panel={panel} setPanel={setPanel} modal={modal} setModal={setModal} />

@@ -1,3 +1,4 @@
+import { useEffect, useRef } from 'react';
 import { Office3D } from '../office3d/Office3D';
 import { Board } from '../Board';
 import { ChatThread } from '../ChatThread';
@@ -15,6 +16,7 @@ import { TeamWindow } from '../TeamWindow';
 import { RailPage } from './RailPages';
 import { FlowsPage } from '../FlowsPage';
 import { ReleasesPage } from '../ReleasesPage';
+import { FirstLaunch, useFirstLaunch } from '../FirstLaunch';
 import { isRailView, useStore } from '../store';
 import { t } from '../i18n';
 import type { SpotTarget } from '../office3d/Hotspots3D';
@@ -36,6 +38,19 @@ export function Shell(props: OverlayProps) {
   const collapsed = useStore((s) => s.railCollapsed);
   const paused = useStore((s) => s.paused);
   const openTaskCard = useStore((s) => s.openTaskCard);
+  const officeId = useStore((s) => s.offices.find((o) => o.current)?.id ?? 'office');
+  // Ни один провайдер не подключён — экран «Чем будет работать команда?»
+  // встаёт поверх вида, рейл остаётся под рукой.
+  const first = useFirstLaunch(officeId);
+  // Ушли из рейла на другой вид (скажем, в настройки) — экран уступает место
+  // и до перезагрузки сам больше не встаёт: дальше он живёт во вкладке «Провайдеры».
+  const shownView = useRef(view);
+  useEffect(() => {
+    if (shownView.current === view) return;
+    shownView.current = view;
+    first.close();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [view]);
 
   // Стол переговорки ведёт в окно совещаний: стенограмма идущего и история прошлых.
   const open = (kind: SpotTarget) => {
@@ -85,6 +100,7 @@ export function Shell(props: OverlayProps) {
             <LifePanel />
           </div>
         )}
+        {first.open && <FirstLaunch where={officeId} onClose={first.close} />}
         <Toasts onOpenTask={(id) => { setView('board'); openTaskCard(id); }} />
       </div>
       <Rail onPanel={setPanel} onModal={setModal} />
@@ -93,7 +109,7 @@ export function Shell(props: OverlayProps) {
           менеджером живёт в виде «Чат». Освободившуюся полосу внизу забирает
           сама доска (.shell-board). В «Чате» он встроен в колонку переписки.
           Страницам из рейла он тоже не нужен: там свои поля и кнопки. */}
-      {view !== 'board' && view !== 'chat' && !isRailView(view) && <Composer onSettings={() => setView('settings')} />}
+      {view !== 'board' && view !== 'chat' && !isRailView(view) && !first.open && <Composer onSettings={() => setView('settings')} />}
       <EnvBanner />
       <UpdateBanner />
       <Overlays {...props} />

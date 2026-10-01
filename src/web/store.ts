@@ -9,7 +9,9 @@ import type {
   PullRequestView, PrStage,
   EpicView, LimitsView, FactView, OwnerQuestion, LifeView, RitualId, DirectionView, ProposalView,
   OfficeSetupPlan, SetupCatalog, SetupStep, OfficeHealth, EnvReport, RuleScopeView, PmChat,
+  ProviderLoginResult, ProvidersView,
 } from '../shared/types';
+import type { ProviderId } from '../shared/providers';
 import {
   compareOffices, emptyLimits, emptyUsage, isOfficeSender,
   MAX_OFFICE_WORKERS, MAX_TASK_MAX_TURNS, MIN_OFFICE_WORKERS, MIN_TASK_MAX_TURNS,
@@ -328,7 +330,7 @@ interface State {
    * открытие настроек по-прежнему помнило раздел, где пользователь был в
    * прошлый раз.
    */
-  settingsSection: 'project' | null;
+  settingsSection: 'project' | 'providers' | null;
   /** Предмет, который сейчас тащат мышью, и его позиция в тайлах (уже с привязкой к сетке) — превью до отпускания кнопки. */
   dragItem: { key: string; x: number; y: number; rot: number } | null;
   /**
@@ -420,6 +422,16 @@ interface State {
   graphics: Graphics;
   setGraphics: (patch: Partial<Graphics>) => void;
   toasts: Toast[];
+  /**
+   * Провайдеры и их состояние — общие для всех офисов, приезжают событием
+   * `providers` сразу при подключении, ещё до выбора офиса. null — сервер
+   * пока не ответил: экран первого запуска по нему не открывается.
+   */
+  providers: ProvidersView | null;
+  /** Итог последнего входа или выхода по провайдеру — форма ключа показывает его под полем. */
+  providerLogin: Partial<Record<ProviderId, ProviderLoginResult>>;
+  /** Где владелец уже закрыл экран первого запуска («Пока осмотреться»): id офиса или `menu`. */
+  firstLaunchSkipped: string[];
   /** Показанный сейчас дифф задачи. */
   diff: { taskId: string; stat: string; patch: string; truncated: boolean; error?: string } | null;
   /** Визуальные позиции — отдельно от логики: ходьба это чистая анимация. */
@@ -542,6 +554,17 @@ function loadPmChatChoice(): Record<string, string> {
       .filter((kv): kv is [string, string] => typeof kv[1] === 'string'));
   } catch {
     return {};
+  }
+}
+
+const FIRST_LAUNCH_KEY = 'office.firstLaunch.skipped';
+
+function loadFirstLaunchSkipped(): string[] {
+  try {
+    const saved: unknown = JSON.parse(localStorage.getItem(FIRST_LAUNCH_KEY) ?? '[]');
+    return Array.isArray(saved) ? saved.filter((v): v is string => typeof v === 'string') : [];
+  } catch {
+    return [];
   }
 }
 
@@ -726,6 +749,9 @@ export const useStore = create<State>((set, get) => ({
   // вместе с самим переключателем.
   graphics: loadGraphics(),
   toasts: [],
+  providers: null,
+  providerLogin: {},
+  firstLaunchSkipped: loadFirstLaunchSkipped(),
   diff: null,
   pos: {},
   selected: null,
@@ -1212,6 +1238,12 @@ export const useStore = create<State>((set, get) => ({
         break;
       case 'limits':
         set({ limits: e.limits });
+        break;
+      case 'providers':
+        set({ providers: e.providers });
+        break;
+      case 'provider.login':
+        set((s) => ({ providerLogin: { ...s.providerLogin, [e.provider]: e.result } }));
         break;
       case 'mcp.status':
         set({ mcpStatus: Object.fromEntries(e.servers.map((m) => [m.id, m])) });
@@ -2298,6 +2330,59 @@ export function resetLayout(): void {
 /** Открыть настройки сразу на разделе «Проект» — там выбор раскладки. */
 export function openLayoutSettings(): void {
   useStore.setState({ settingsSection: 'project' });
+}
+
+/** Открыть настройки на вкладке «Провайдеры» — из экрана первого запуска и композера. */
+export function openProviderSettings(): void {
+  useStore.setState({ settingsSection: 'providers' });
+}
+
+/** Переспросить статусы провайдеров; `force` — мимо кешей движков («Проверить снова»). */
+export function refreshProviders(force = false): void {
+  socket?.send(JSON.stringify({ c: 'providers_refresh', force }));
+}
+
+/** Поставить движок провайдера. Прогресс приезжает тем же событием `providers`. */
+export function installProvider(provider: ProviderId): void {
+  socket?.send(JSON.stringify({ c: 'provider_install', provider }));
+}
+
+export function cancelProviderInstall(provider: ProviderId): void {
+  socket?.send(JSON.stringify({ c: 'provider_install_cancel', provider }));
+}
+
+/**
+ * Войти по ключу API. Прежний итог стирается сразу: форма крутит «Проверяю…»,
+ * пока не придёт `provider.login`. Ключ уходит только этой командой — в стор
+ * он не кладётся.
+ */
+export function loginProvider(provider: ProviderId, apiKey: string): void {
+  useStore.setState((s) => {
+    const rest = { ...s.providerLogin };
+    delete rest[provider];
+    return { providerLogin: rest };
+  });
+  socket?.send(JSON.stringify({ c: 'provider_login', provider, apiKey }));
+}
+
+/** Удалить ключ провайдера из связки ключей. */
+export function logoutProvider(provider: ProviderId): void {
+  socket?.send(JSON.stringify({ c: 'provider_logout', provider }));
+}
+
+/**
+ * «Пока осмотреться»: экран первого запуска больше сам не открывается в этом
+ * месте (офисе или главном меню). Помнится в браузере — экран открывается
+ * один раз на офис, а не при каждой перезагрузке.
+ */
+export function skipFirstLaunch(where: string): void {
+  const next = [...new Set([...useStore.getState().firstLaunchSkipped, where])];
+  useStore.setState({ firstLaunchSkipped: next });
+  try {
+    localStorage.setItem(FIRST_LAUNCH_KEY, JSON.stringify(next));
+  } catch {
+    // Приватный режим браузера — экран просто снова откроется после перезагрузки.
+  }
 }
 
 /** SettingsPage прочитал запрос на раздел — сбрасываем, чтобы не залипал. */
