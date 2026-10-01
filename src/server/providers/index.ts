@@ -4,7 +4,7 @@ import { providerOf, sessionForProvider, type ProviderId } from '../../shared/pr
 import type { LimitSource } from '../limits';
 import type { McpStatusSource } from '../mcp';
 import { codexQuery } from './codex';
-import { projectEnv } from '../childenv';
+import { commandScrubFile, engineEnv } from '../childenv';
 
 // The office event vocabulary remains compatible with existing journals and UI.
 // Provider-specific SDK types are confined to this boundary during migration.
@@ -37,7 +37,11 @@ const adapters: Record<ProviderId, Adapter> = {
     const bin = claudeBin();
     // Сессия работает в рабочей копии проекта, и всё, что она запустит, — тесты,
     // сборка, свой сервер — должно видеть проект, а не приложение офиса.
-    const clean = { ...sdk, env: projectEnv(sdk.env) };
+    // Ключ провайдера движку нужен, его Bash-командам — нет: снимает их файл
+    // окружения, который движок подключает перед каждой командой.
+    const env = engineEnv(sdk.env);
+    env.CLAUDE_ENV_FILE = commandScrubFile(env.CLAUDE_ENV_FILE);
+    const clean = { ...sdk, env };
     return claudeQuery({ prompt, options: bin ? { ...clean, pathToClaudeCodeExecutable: bin } : clean });
   },
   codex: codexQuery,

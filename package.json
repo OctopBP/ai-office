@@ -27,6 +27,7 @@
     "units": "python3 scripts/units.py",
     "test:perm": "tsx scripts/test-permissions.ts",
     "test:providers": "node --import tsx scripts/test-providers.ts",
+    "test:secrets": "node --import tsx scripts/test-secrets.ts",
     "test:skills": "tsx scripts/test-skills.ts",
     "test:packages": "tsx scripts/test-packages.ts",
     "test:market": "tsx scripts/test-market.ts",

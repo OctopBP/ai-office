@@ -7,7 +7,7 @@ import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/
 import { SSEClientTransport } from '@modelcontextprotocol/sdk/client/sse.js';
 import { localTools, type SessionOptions } from './index';
 import type { CodexRpc } from './rpc';
-import { projectEnv } from '../childenv';
+import { projectEnv, UNSET_PROVIDER_SECRETS } from '../childenv';
 
 export interface OfficeTool {
   name: string;
@@ -84,9 +84,11 @@ export async function codexTools(options: SessionOptions, rpc: CodexRpc) {
     if (parts.length === 1 || (!i.replace_all && parts.length !== 2)) throw new Error('Text missing or not unique');
     await writeFile(path, parts.join(i.new_string)); return text('Edited');
   });
+  // Команду исполняет app-server движка со своим окружением, где лежит ключ
+  // провайдера, — снимаем ключи в самой оболочке, уже после профиля входа.
   if (enabled('Bash')) add('Bash', 'Run a shell command in the Codex OS sandbox. Writes stay in the workspace.', {
     command: z.string(), timeout: z.number().int().min(1).max(600_000).optional(),
-  }, i => execute(['/bin/bash', '-lc', i.command], i.timeout));
+  }, i => execute(['/bin/bash', '-lc', `${UNSET_PROVIDER_SECRETS}\n${i.command}`], i.timeout));
   if (enabled('Glob')) add('Glob', 'List files matching a glob using ripgrep.', {
     pattern: z.string(), path: z.string().optional(),
   }, async i => execute(['rg', '--files', '--hidden', '-g', i.pattern, '--', await readablePath(readableRoots, cwd, i.path ?? '.') ]));
