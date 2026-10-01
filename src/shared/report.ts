@@ -35,7 +35,7 @@ export interface RoleReport {
 }
 
 const emptyKinds = (): Record<OutcomeKind, number> => ({
-  clean: 0, reworked: 0, stuck: 0, failed: 0, cancelled: 0, reverted: 0,
+  clean: 0, reworked: 0, stuck: 0, failed: 0, cancelled: 0, reverted: 0, stopped_budget: 0,
 });
 
 /**

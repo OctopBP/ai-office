@@ -1418,7 +1418,28 @@ export type OutcomeKind =
   | 'stuck'      // конвейер вставал, разбирался офис, менеджер или человек
   | 'failed'     // исполнитель не сдал: лимит ходов, бюджет, ошибка
   | 'cancelled'  // сняли с доски до сдачи
-  | 'reverted';  // влили, а потом откатили
+  | 'reverted'   // влили, а потом откатили
+  | 'stopped_budget'; // запуск остановил предохранитель расхода: порог токенов или молотилка сжатий
+
+/**
+ * Почему предохранитель остановил запуск — с цифрами, по которым решали.
+ * Порог считается из истории роли (`src/server/runguard.ts`), а не задаётся
+ * настройкой, поэтому вместе с ним хранится, откуда он взялся.
+ */
+export interface BudgetStop {
+  /** 'tokens' — пройден порог входных токенов; 'compactions' — автосжатия подряд. */
+  reason: 'tokens' | 'compactions';
+  /** Входные токены запуска к моменту остановки: ввод, чтение и запись кеша. */
+  spentTokens: number;
+  limitTokens: number;
+  /** 'history' — медиана по прошлым запускам ×3; 'default' — истории мало. */
+  limitSource: 'history' | 'default';
+  /** Медиана истории и по скольким запускам она взята; при 'default' медианы нет. */
+  medianTokens: number | null;
+  samples: number;
+  /** Автосжатий подряд к моменту остановки. */
+  compactions: number;
+}
 
 export interface TaskOutcome {
   kind: OutcomeKind;
@@ -1438,11 +1459,13 @@ export interface TaskOutcome {
   /** Кто поставил задачу: человек через менеджера или офис себе (§7). */
   origin: 'owner' | 'office';
   at: number;
+  /** Только у 'stopped_budget': что сработало и на каких цифрах. */
+  budget?: BudgetStop;
 }
 
 /** Исходы, после которых задача больше не вернётся в работу сама. */
 export const OUTCOME_KINDS: OutcomeKind[] = [
-  'clean', 'reworked', 'stuck', 'failed', 'cancelled', 'reverted',
+  'clean', 'reworked', 'stuck', 'failed', 'cancelled', 'reverted', 'stopped_budget',
 ];
 
 // ------------------------------------------------------------- живой офис

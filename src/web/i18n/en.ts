@@ -1052,6 +1052,7 @@ export const en = {
   'outcome.failed': 'failed',
   'outcome.cancelled': 'cancelled',
   'outcome.reverted': 'reverted',
+  'outcome.stopped_budget': 'stopped by spending guard',
   'outcome.hint': 'How the task ended — recorded once, when it closed',
   'report.title': 'Report card',
   'report.window.week': 'week',

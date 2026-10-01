@@ -722,7 +722,9 @@ async function tellOutcome(state: OfficeState, name: string, outcome: TaskOutcom
   await fetch(`${base}/v1/packages/${name}/outcome`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ kind: outcome.kind, reworks: outcome.reworks, costUsd: outcome.costUsd }),
+    // Сервис индекса знает шесть исходов; остановка по расходу для репутации
+    // пакета — тот же провал: работа не сдана.
+    body: JSON.stringify({ kind: outcome.kind === 'stopped_budget' ? 'failed' : outcome.kind, reworks: outcome.reworks, costUsd: outcome.costUsd }),
     signal: AbortSignal.timeout(5_000),
   }).catch(() => {});
 }

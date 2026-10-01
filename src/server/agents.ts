@@ -23,7 +23,7 @@ import {
 } from '../shared/types';
 import { LANG_NAME_EN, type Lang, type Vars } from '../shared/i18n';
 import { t, type ServerKey } from './i18n';
-import type { MeetingView, PmChat, PrStage, PullRequestView, ReviewVerdict, TaskEdit } from '../shared/types';
+import type { BudgetStop, MeetingView, PmChat, PrStage, PullRequestView, ReviewVerdict, TaskEdit } from '../shared/types';
 import { cloudProblem, runCloudTask, stopCloudTask } from './cloud';
 import { capabilitiesOf, type Role } from './roles';
 import { externalMcp, mcpBrief } from './mcp';
@@ -50,6 +50,7 @@ import { limitBlock, resetClock } from './limits';
 import { journalBrief } from './journal';
 import { addRule, dropRule, editRule, ruleScopes, rulesBrief, rulesText } from './rules';
 import { noteCompaction } from './health';
+import { BUDGET_MIN_HISTORY, RunGuard, runKind, runThreshold, type GuardSignal } from './runguard';
 import { maybeAutoTitle, setChatTitler } from './chattitle';
 import {
   answerFromChat, askOwner, deleteQuestion, editQuestion, mergeQuestion, openQuestionsText,
@@ -2727,6 +2728,13 @@ function workerPrompt(
 /** Провайдер роли не подключён: задача встаёт с причиной, а не проваливается. */
 class ProviderNotReady extends Error {}
 
+/** Запуск остановил предохранитель расхода (`runguard.ts`): не провал, а решение человеку. */
+class BudgetStopped extends Error {
+  constructor(readonly stop: BudgetStop, message: string) {
+    super(message);
+  }
+}
+
 /**
  * Сессию отбил лимит плана? Флаг ставит разбор событий (`consume`); текст
  * ошибки — запасной признак: событие могло не долететь, а сама фраза SDK
@@ -2964,6 +2972,7 @@ function startWorker(
       // автор продолжит этот же разговор вместо пересборки контекста с нуля.
       if (inst.sessionId) taskOffice.updateTask(task.id, { workerSessionId: inst.sessionId });
 
+      if (run.budget) throw new BudgetStopped(run.budget, sessionFailed ?? '');
       if (sessionFailed) throw new Error(sessionFailed);
 
       const fresh = taskOffice.tasks.get(task.id);
@@ -3053,6 +3062,26 @@ function startWorker(
         taskOffice.addLog(inst.id, 'system', taskOffice.say('agent.log.taskStopped', { task: task.id }));
         taskOffice.setState(inst.id, 'idle', null);
         notifyPm(taskOffice, taskOffice.say('agent.pmMsg.stopped', { task: task.id }), { taskId: task.id });
+      } else if (err instanceof BudgetStopped) {
+        // Предохранитель расхода: сделанное коммитим, как при остановке
+        // человеком, а решать, что дальше, — менеджеру. Повтор как есть
+        // упёрся бы в тот же порог, поэтому задача закрывается своим исходом.
+        const fresh = taskOffice.tasks.get(task.id);
+        let note = taskOffice.say('agent.task.budgetStopped', { reason: message });
+        if (fresh?.branch) {
+          const outcome = await commitAll(
+            workRoot, taskOffice.say('agent.task.budgetCommit', { task: task.id }),
+            { author: taskOffice.gitPerson(inst.id) });
+          if (outcome === 'committed') note += taskOffice.say('agent.task.stoppedKept', { branch: fresh.branch });
+        }
+        // attention — менеджеру сказано здесь же, надзору повторять незачем.
+        taskOffice.updateTask(task.id, { status: 'failed', result: note, finishedAt: Date.now(), attention: Date.now() });
+        recordOutcome(taskOffice, task.id, 'stopped_budget', Date.now(), err.stop);
+        taskOffice.setState(inst.id, 'idle', null);
+        taskOffice.addOfficeNote(`${task.id}: ${note}`, { taskId: task.id });
+        notifyPm(taskOffice, taskOffice.say('agent.pmMsg.budget', {
+          task: task.id, who: inst.id, reason: message,
+        }), { taskId: task.id });
       } else if (err instanceof ProviderNotReady) {
         // Провайдер не подключён — не провал исполнителя: исход задаче не
         // ставим, табель роли не портим. Задача стоит, пока владелец не
@@ -3619,6 +3648,61 @@ interface WorkerRun {
   failed: string | null;
   /** Сессию оборвало зацикленное автосжатие — см. THRASH_MARK. */
   thrashed: boolean;
+  /** Запуск остановил предохранитель расхода; `failed` тогда — его причина. */
+  budget: BudgetStop | null;
+}
+
+/**
+ * Предохранитель на запуск: порог — из истории той же роли на той же работе.
+ * Тип работы — узел идущего прогона, как и в записи о запуске (`addAgentRun`):
+ * иначе порог считался бы по одной истории, а запуск ложился бы в другую.
+ */
+function guardFor(state: OfficeState, inst: Instance): RunGuard {
+  const flow = inst.currentTaskId ? state.runOf(inst.currentTaskId) : null;
+  const live = flow && (flow.status === 'running' || flow.status === 'waiting') ? flow : null;
+  return new RunGuard(runThreshold(state.agentRunList(), inst.roleId, runKind(live?.nodeId ?? null)));
+}
+
+const kTokens = (tokens: number) => Math.round(tokens / 1000);
+
+/** Откуда взялся порог — словами, для предупреждения и причины остановки. */
+function budgetSource(state: OfficeState, source: 'history' | 'default', median: number | null, samples: number): string {
+  return source === 'history'
+    ? state.say('agent.budget.sourceHistory', { median: kTokens(median ?? 0), n: samples })
+    : state.say('agent.budget.sourceDefault', { min: BUDGET_MIN_HISTORY });
+}
+
+/** Причина остановки словами — с цифрами и тем, откуда взялся порог. */
+function budgetReason(state: OfficeState, stop: BudgetStop): string {
+  const k = kTokens;
+  const source = budgetSource(state, stop.limitSource, stop.medianTokens, stop.samples);
+  return stop.reason === 'tokens'
+    ? state.say('agent.budget.tokens', { spent: k(stop.spentTokens), limit: k(stop.limitTokens), source })
+    : state.say('agent.budget.compactions', { n: stop.compactions, spent: k(stop.spentTokens), limit: k(stop.limitTokens) });
+}
+
+/**
+ * Сколько ждать результата после просьбы прерваться, прежде чем оборвать
+ * сессию силой: движок, занятый долгой командой, может не ответить вовсе.
+ */
+const BUDGET_HALT_GRACE_MS = 20_000;
+
+/**
+ * Мягко остановить сессию: прервать ход, как кнопкой Esc, и дать движку
+ * закрыть его своим результатом. Не умеет прерываться — или не ответил за
+ * отведённое время — обрываем через AbortController исполнителя.
+ */
+function haltSession(session: EngineSession, inst: Instance): () => void {
+  const hard = () => inst.abort?.abort();
+  const interrupt = (session as { interrupt?: () => Promise<void> }).interrupt;
+  if (typeof interrupt !== 'function') {
+    hard();
+    return () => {};
+  }
+  interrupt.call(session).catch(hard);
+  const timer = setTimeout(hard, BUDGET_HALT_GRACE_MS);
+  timer.unref?.();
+  return () => clearTimeout(timer);
 }
 
 /** Открыть сессию исполнителя: всё, кроме этих трёх полей, у вызывающего своё. */
@@ -3633,25 +3717,56 @@ export type WorkerOpen = (o: {
  */
 async function collectWorker(
   state: OfficeState, inst: Instance, role: Role, session: EngineSession,
-  resumed: ReturnType<typeof resumedPrompt> | null, fresh: boolean,
+  resumed: ReturnType<typeof resumedPrompt> | null, fresh: boolean, guard: RunGuard,
 ): Promise<WorkerRun> {
   state.pollLimits(session);
   // Что с внешними серверами роли — узнаём попутно, пока сессия работает:
   // без этого отказ инструмента неотличим от неоткрытого плагина.
   state.pollMcp(inst.id, role, session);
 
-  const run: WorkerRun = { text: '', failed: null, thrashed: false };
+  const run: WorkerRun = { text: '', failed: null, thrashed: false, budget: null };
   let measured = !fresh;
+  let releaseHalt = () => {};
+  const onGuard = (signal: GuardSignal | null) => {
+    if (!signal) return;
+    const task = inst.currentTaskId ?? '—';
+    if (signal.kind === 'warn') {
+      const { source, median, samples } = guard.threshold;
+      const text = state.say('agent.budget.warn', {
+        task, who: inst.id, pct: Math.floor((signal.spentTokens / signal.limitTokens) * 100),
+        spent: kTokens(signal.spentTokens), limit: kTokens(signal.limitTokens),
+        source: budgetSource(state, source, median, samples),
+      });
+      state.addLog(inst.id, 'system', text);
+      state.addOfficeNote(text, inst.currentTaskId ? { taskId: inst.currentTaskId } : undefined);
+      return;
+    }
+    run.budget = signal.stop;
+    state.addLog(inst.id, 'error', state.say('agent.budget.stopping', {
+      task, reason: budgetReason(state, signal.stop),
+    }));
+    releaseHalt = haltSession(session, inst);
+  };
   try {
     for await (const msg of session) {
       consume(state, inst.id, msg);
-      if (!measured && msg.type === 'assistant' && msg.message.usage) {
-        measured = true;
+      if (msg.type === 'assistant' && msg.message.usage) {
         const u = msg.message.usage;
-        state.noteWorkerPrefix(
-          (u.input_tokens ?? 0) + (u.cache_read_input_tokens ?? 0) + (u.cache_creation_input_tokens ?? 0));
+        const tokens = (u.input_tokens ?? 0) + (u.cache_read_input_tokens ?? 0) + (u.cache_creation_input_tokens ?? 0);
+        if (!measured) {
+          measured = true;
+          state.noteWorkerPrefix(tokens);
+        }
+        onGuard(guard.usage(msg.message.id ?? null, tokens));
+      }
+      if (msg.type === 'system' && msg.subtype === 'compact_boundary') {
+        onGuard(guard.compaction(msg.compact_metadata.trigger));
       }
       if (msg.type === 'result') {
+        // Остановленный запуск закрывается своим результатом и ждать больше
+        // нечего: у потокового промпта сессия иначе ждала бы новых реплик.
+        if (run.budget) break;
+        guard.turnEnded();
         if (resumed?.onResult(msg)) continue;
         if (isOk(msg)) {
           run.text = msg.result ?? '';
@@ -3665,12 +3780,20 @@ async function collectWorker(
   } catch (err) {
     // Вслед за результатом с ошибкой SDK бросает исключение с тем же текстом.
     // Зацикленное сжатие разбирает driveWorker, остальное — как и раньше, наверх.
+    // Сессию, оборванную предохранителем, исключение лишь подтверждает.
     const message = (err as Error).message ?? '';
-    if (!message.includes(THRASH_MARK)) throw err;
-    run.thrashed = true;
-    run.failed ??= clip(message, 300);
+    if (!run.budget) {
+      if (!message.includes(THRASH_MARK)) throw err;
+      run.thrashed = true;
+      run.failed ??= clip(message, 300);
+    }
   } finally {
+    releaseHalt();
     resumed?.prompt.close();
+  }
+  if (run.budget) {
+    // Что бы ни ответила прерванная сессия, причина одна — предохранитель.
+    return { text: '', failed: budgetReason(state, run.budget), thrashed: false, budget: run.budget };
   }
   run.failed ??= resumed?.unanswered() ?? null;
   return run;
@@ -3694,9 +3817,12 @@ export async function driveWorker(
       from: k(state.workerContextLimit()), to: k(window), prefix: k(state.workerPrefixTokens),
     }));
   }
+  // Предохранитель один на весь запуск, вместе с повтором на широком окне:
+  // повтор продолжает ту же работу, и токены у них общие.
+  const guard = guardFor(state, inst);
   const run = await collectWorker(
     state, inst, role, open({ resume: first.resume, prompt: first.prompt, window }),
-    first.resumed, !first.resume);
+    first.resumed, !first.resume, guard);
   if (!run.thrashed) return run;
 
   // Окно для повтора считаем заново: первый ход успел замерить префикс.
@@ -3707,10 +3833,11 @@ export async function driveWorker(
   }
   state.addLog(inst.id, 'system', state.say('agent.log.thrash', { from: k(window), to: k(wider) }));
   state.noteWideRetry(inst.id);
+  guard.turnEnded();
   const again = await collectWorker(
     state, inst, role,
     open({ resume: sessionId, prompt: state.say('prompt.worker.afterThrash'), window: wider }),
-    null, false);
+    null, false, guard);
   if (again.thrashed) again.failed = state.say('agent.result.thrash', { window: k(wider) });
   return again;
 }
@@ -3821,6 +3948,14 @@ async function runAgentSession(
     }));
     const finalText = run.text;
     const failed = run.failed;
+    if (run.budget) {
+      // Узел процесса, доработка, ревью: повтор упёрся бы в тот же порог,
+      // поэтому решать человеку, а исход задачи — тот же, что у исполнителя.
+      recordOutcome(state, opts.taskId, 'stopped_budget', Date.now(), run.budget);
+      state.addOfficeNote(`${opts.taskId}: ${state.say('agent.task.budgetStopped', { reason: failed ?? '' })}`,
+        { taskId: opts.taskId });
+      return { ok: false, text: '', error: failed, needsDecision: true };
+    }
     return { ok: !failed, text: finalText, error: failed };
   } catch (err) {
     return { ok: false, text: '', error: (err as Error).message };

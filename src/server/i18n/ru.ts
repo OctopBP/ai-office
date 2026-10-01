@@ -720,6 +720,7 @@ export const ru: Record<keyof typeof en, string> = {
   'life.outcome.failed': 'провалена',
   'life.outcome.cancelled': 'снята',
   'life.outcome.reverted': 'откачена',
+  'life.outcome.stopped_budget': 'остановлена по расходу',
   'life.reverted.chat': '↩️ {task} «{title}» откачена: её коммит в {base} сброшен или отменён откатом. Для офиса это самый сильный сигнал из всех — не ревьюер вернул, а владелец выбросил.',
   'life.reverted.log': '{task}: коммит задачи сброшен из {base} или отменён откатом — считаем откаченной',
 

@@ -13,7 +13,7 @@
  * прежний исход, потому что важнее его. Перезапуск задачи (retryTask)
  * исход стирает: начинается новая попытка, и судить её по прошлой нельзя.
  */
-import type { OutcomeKind, TaskOutcome } from '../shared/types';
+import type { BudgetStop, OutcomeKind, TaskOutcome } from '../shared/types';
 import { criteriaProgress, taskRepo, type OfficeState, type Task } from './state';
 import { findRevert, isAncestor, isRepo } from './git';
 import { confirmFactsFor } from './journal';
@@ -66,11 +66,15 @@ export function cancelTask(state: OfficeState, task: Task, at = Date.now()): voi
  * исход либо null, если задача уже закрыта или её нет.
  */
 export function recordOutcome(
-  state: OfficeState, taskId: string, kind: OutcomeKind, at = Date.now(),
+  state: OfficeState, taskId: string, kind: OutcomeKind, at = Date.now(), budget?: BudgetStop,
 ): TaskOutcome | null {
   const task = state.tasks.get(taskId);
   if (!task) return null;
-  if (task.outcome && !(kind === 'reverted' && MERGED_KINDS.includes(task.outcome.kind))) return null;
+  // Остановка предохранителем расхода закрывает задачу до решения человека,
+  // но не навсегда: решили продолжить, и задача дошла до конца — верен уже
+  // новый исход, а не «остановлена».
+  if (task.outcome && task.outcome.kind !== 'stopped_budget'
+    && !(kind === 'reverted' && MERGED_KINDS.includes(task.outcome.kind))) return null;
 
   const pr = state.prOf(task.id);
   const role = task.roleId ? state.role(task.roleId) : undefined;
@@ -88,6 +92,7 @@ export function recordOutcome(
     model: role ? state.runtimeOf(role).model : '',
     origin: epic?.origin ?? 'owner',
     at,
+    ...(budget ? { budget } : {}),
   };
   state.updateTask(task.id, { outcome });
   state.addLog(null, 'system', state.say('life.outcome.log', {

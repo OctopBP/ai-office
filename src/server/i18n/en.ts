@@ -720,6 +720,7 @@ export const en = {
   'life.outcome.failed': 'failed',
   'life.outcome.cancelled': 'cancelled',
   'life.outcome.reverted': 'reverted',
+  'life.outcome.stopped_budget': 'stopped by the spending guard',
   'life.reverted.chat': '↩️ {task} “{title}” was reverted: its commit in {base} was reset away or reverted. The office counts this as the strongest signal there is — not a reviewer returned it, the owner threw it out.',
   'life.reverted.log': '{task}: the task commit was reset out of {base} or reverted — counted as reverted',
 

@@ -1051,6 +1051,7 @@ export const ru: Record<keyof typeof en, string> = {
   'outcome.failed': 'провалена',
   'outcome.cancelled': 'снята',
   'outcome.reverted': 'откачена',
+  'outcome.stopped_budget': 'остановлена по расходу',
   'outcome.hint': 'Чем задача кончилась — пишется один раз при закрытии',
   'report.title': 'Табель',
   'report.window.week': 'неделя',
