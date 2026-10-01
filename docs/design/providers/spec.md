@@ -991,6 +991,13 @@ Codex, и отдаёт тем же мостом: так роль получае�
 - само удаление `wire_api = "chat"` в Codex (только вторичные источники);
 - Responses API у DeepSeek: модели и дата запуска.
 
+**Уточнения второго прохода проверки:** запрет Anthropic на подписки в
+сторонних клиентах действует с 04.04.2026 (по прессе); у `type: "remote"` в
+документации OpenCode протокол не назван вовсе; документация Codex про
+`wire_api` показывает только `responses` и об удалении `chat` молчит, так что
+это утверждение остаётся оговоркой, а не опорой выбора. Документация OpenCode
+не описывает событие `ask` для безголового клиента — это главный риск этапа 2.
+
 ## Источники
 
 - OpenCode: [server](https://opencode.ai/docs/server/), [providers](https://opencode.ai/docs/providers/), [cli](https://opencode.ai/docs/cli/), [mcp](https://opencode.ai/docs/mcp-servers/), [permissions](https://opencode.ai/docs/permissions/), [config](https://opencode.ai/docs/config/), [репозиторий](https://github.com/anomalyco/opencode), [баг cache.read](https://github.com/anomalyco/opencode/issues/28494), [цены своих провайдеров](https://github.com/anomalyco/opencode/issues/17223)
