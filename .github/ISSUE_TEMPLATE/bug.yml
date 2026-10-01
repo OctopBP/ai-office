@@ -30,7 +30,7 @@ body:
     id: env
     attributes:
       label: Окружение
-      description: ОС, версия Node, коммит офиса (`git rev-parse --short HEAD`), доступ по подписке или по ключу.
-      placeholder: macOS 15, Node 22.23, 40d6eb0, подписка
+      description: ОС, версия Node, коммит офиса (`git rev-parse --short HEAD`), провайдер роли и доступ к нему — по подписке или по ключу.
+      placeholder: macOS 15, Node 22.23, 40d6eb0, Codex, подписка
     validations:
       required: true

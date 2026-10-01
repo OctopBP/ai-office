@@ -3,8 +3,8 @@
 Офис с видом сверху, где команда AI-агентов выполняет ваши задачи. Вы ставите
 задачу менеджеру, он режет её на задачи и раздаёт исполнителям, а человечки в
 комнате показывают, кто чем занят прямо сейчас. Исполнители работают
-настоящими инструментами Claude Code или Codex, каждый в своей ветке вашего
-репозитория; сданную работу смотрит ревьюер, и конвейер вливает её сам.
+настоящими инструментами подключённого провайдера, каждый в своей ветке
+вашего репозитория; сданную работу смотрит ревьюер, и конвейер вливает её сам.
 
 *AI Office is a top-down office where a team of AI agents works on your
 project: you brief the manager, agents pick up tasks in isolated git
@@ -19,9 +19,14 @@ or Russian; the docs are in Russian for now.*
 
 Офис ставится приложением — `.dmg` для macOS и `.exe` для Windows — со
 страницы [релизов](https://github.com/OctopBP/ai-office/releases). Клон
-репозитория и Node для этого не нужны: движок Claude Code приложение ставит
-себе само при первом запуске, а состояние держит в папке данных пользователя.
-Подробности — [docs/guide/desktop.md](docs/guide/desktop.md).
+репозитория и Node для этого не нужны, а состояние приложение держит в папке
+данных пользователя. Подробности — [docs/guide/desktop.md](docs/guide/desktop.md).
+
+Агентам нужен хотя бы один провайдер — программа-агент, на которой работают
+сотрудники офиса. Его ставят и подключают на экране «Провайдеры» при первом
+запуске: кнопка «Установить» и ключ API или вход. Сейчас поддерживаются
+Claude Code и Codex, новые провайдеры добавятся туда же. Провайдер
+выбирается для каждой роли.
 
 ## Запуск из исходников
 
@@ -30,8 +35,9 @@ or Russian; the docs are in Russian for now.*
 - **Node 22** (версия в `.nvmrc`);
 - **Git и Git LFS** — 3D-модели и текстуры лежат в LFS, без него сцена не
   соберётся;
-- **Claude Code CLI** (`claude` → `/login` либо `ANTHROPIC_API_KEY`) и/или
-  актуальный **Codex CLI** (`codex login`). Провайдер выбирается для каждой роли;
+- **хотя бы один провайдер** — его ставят и подключают на экране
+  «Провайдеры» при первом запуске офиса, ставить руками заранее не нужно
+  (подробнее — [docs/guide/running.md](docs/guide/running.md#провайдеры));
 - Blender и python3 — только если правите 3D-сцену.
 
 ```bash
@@ -39,8 +45,6 @@ git lfs install
 git clone git@github.com:OctopBP/ai-office.git
 cd ai-office
 npm ci
-npm run smoke      # доступ к Claude: должно напечатать RESULT: success
-npm run test:providers # адаптер Codex без расхода токенов
 npm run office     # сборка и сервер, откройте http://localhost:3001
 ```
 
@@ -83,8 +87,8 @@ npm run dev        # http://localhost:5173
 
 | Файл | О чём |
 |---|---|
-| [docs/guide/running.md](docs/guide/running.md) | Запуск, подписка или API, переменные окружения, бриф `OFFICE.md`, все команды |
-| [docs/guide/desktop.md](docs/guide/desktop.md) | Приложение для macOS и Windows: установка, движок, папка данных, сборка установщика |
+| [docs/guide/running.md](docs/guide/running.md) | Запуск, провайдеры и доступ к моделям, переменные окружения, бриф `OFFICE.md`, все команды |
+| [docs/guide/desktop.md](docs/guide/desktop.md) | Приложение для macOS и Windows: установка, провайдеры, папка данных, сборка установщика |
 | [docs/guide/office.md](docs/guide/office.md) | Интерфейс, язык, совещания, карточка агента, критерии готовности, пауза |
 | [docs/guide/team.md](docs/guide/team.md) | Роли и модели, найм, бюджеты, маркет пакетов |
 | [docs/guide/architecture.md](docs/guide/architecture.md) | Как устроено, разрешения, песочница, изоляция задач |
