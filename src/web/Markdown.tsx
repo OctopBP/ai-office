@@ -15,6 +15,8 @@ import { highlight } from './codeHighlight';
 import { t } from './i18n';
 import { Icon } from './icons';
 import { useStore } from './store';
+import { FileLink } from './chat/FileLink';
+import { fileHref, newScan, splitFilePaths, type FileRef, type PathScan } from './chat/filePaths';
 
 // ------------------------------------------------------------ строчная разметка
 
@@ -75,30 +77,53 @@ const INLINE = new RegExp([
   '(https?://[^\\s<>()]+[^\\s<>().,;:!?\'"])', // 13 — голый адрес
 ].join('|'));
 
+/**
+ * Пути к файлам в реплике: к какой задаче она привязана и разбор по порядку
+ * (голое имя ищется у ближайшего предыдущего пути). Есть только у реплик чата —
+ * в документах и заметках к выпуску путь остаётся текстом.
+ */
+interface FileCtx {
+  task: string | null;
+  scan: PathScan;
+}
+
+/** Текст с путями к файлам — ссылками. Без контекста файлов — как есть. */
+function withFiles(text: string, key: string, files: FileCtx | undefined): ReactNode[] {
+  if (!files) return [text];
+  return splitFilePaths(text, files.scan).map((seg, j) => (typeof seg === 'string'
+    ? seg
+    : <FileLink key={`${key}.f${j}`} fileRef={seg.ref} task={files.task}>{seg.text}</FileLink>));
+}
+
 function link(href: string | null, children: ReactNode, key: string): ReactNode {
   if (!href) return <span key={key}>{children}</span>;
   return <a key={key} href={href} target="_blank" rel="noreferrer noopener">{children}</a>;
 }
 
-export function inline(text: string, key = 'i'): ReactNode[] {
+export function inline(text: string, key = 'i', files?: FileCtx): ReactNode[] {
   const out: ReactNode[] = [];
   let rest = text;
   let n = 0;
   while (rest) {
     const m = INLINE.exec(rest);
-    if (!m) { out.push(rest); break; }
-    if (m.index > 0) out.push(rest.slice(0, m.index));
+    if (!m) { out.push(...withFiles(rest, `${key}.${n}`, files)); break; }
+    if (m.index > 0) out.push(...withFiles(rest.slice(0, m.index), `${key}.${n}t`, files));
     const k = `${key}.${n++}`;
-    if (m[2] !== undefined) out.push(<code key={k}>{m[2].replace(/^ (.+) $/, '$1')}</code>);
+    let file: FileRef | null;
+    if (m[2] !== undefined) out.push(<code key={k}>{withFiles(m[2].replace(/^ (.+) $/, '$1'), k, files)}</code>);
     // Картинку из документа не грузим: внешний адрес — утечка того, что
     // владелец открыл файл, а относительный путь из окна офиса не сработает.
     else if (m[4] !== undefined) out.push(link(safeHref(m[4]), `🖼 ${m[3] || m[4]}`, k));
     else if (m[6] !== undefined && CHAT_HREF.test(m[6])) out.push(<ChatLink key={k} id={CHAT_HREF.exec(m[6])![1]} label={inline(m[5], k)} />);
+    // `[подпись](docs/x.md)` в реплике — тоже файл; внутри подписи путей не ищем.
+    else if (m[6] !== undefined && files && (file = fileHref(m[6], files.scan))) {
+      out.push(<FileLink key={k} fileRef={file} task={files.task}>{inline(m[5], k)}</FileLink>);
+    }
     else if (m[6] !== undefined) out.push(link(safeHref(m[6]), inline(m[5], k), k));
     else if (m[7] !== undefined) out.push(link(safeHref(m[7]), m[7], k));
-    else if (m[8] !== undefined || m[9] !== undefined) out.push(<strong key={k}>{inline(m[8] ?? m[9], k)}</strong>);
-    else if (m[10] !== undefined) out.push(<del key={k}>{inline(m[10], k)}</del>);
-    else if (m[11] !== undefined || m[12] !== undefined) out.push(<em key={k}>{inline(m[11] ?? m[12], k)}</em>);
+    else if (m[8] !== undefined || m[9] !== undefined) out.push(<strong key={k}>{inline(m[8] ?? m[9], k, files)}</strong>);
+    else if (m[10] !== undefined) out.push(<del key={k}>{inline(m[10], k, files)}</del>);
+    else if (m[11] !== undefined || m[12] !== undefined) out.push(<em key={k}>{inline(m[11] ?? m[12], k, files)}</em>);
     else if (m[13] !== undefined) out.push(link(safeHref(m[13]), m[13], k));
     rest = rest.slice(m.index + m[0].length);
   }
@@ -110,12 +135,12 @@ export function inline(text: string, key = 'i'): ReactNode[] {
  * С `breaks` разрыв — любой перевод строки: в чате Enter значит «с новой
  * строки», а не «продолжение абзаца».
  */
-function paragraphInline(lines: string[], key: string, breaks: boolean): ReactNode[] {
+function paragraphInline(lines: string[], key: string, breaks: boolean, files?: FileCtx): ReactNode[] {
   const out: ReactNode[] = [];
   lines.forEach((line, i) => {
     const hard = breaks || / {2,}$|\\$/.test(line);
     const clean = line.replace(/ {2,}$|\\$/, '').trim();
-    out.push(...inline(clean, `${key}.${i}`));
+    out.push(...inline(clean, `${key}.${i}`, files));
     if (i < lines.length - 1) out.push(hard ? <br key={`${key}.br${i}`} /> : ' ');
   });
   return out;
@@ -218,7 +243,7 @@ function startsBlock(line: string, next: string | undefined): boolean {
     || (line.includes('|') && next !== undefined && TABLE_SEP.test(next) && next.includes('-'));
 }
 
-function list(lines: string[], start: number, key: string, breaks: boolean): { node: ReactNode; end: number } {
+function list(lines: string[], start: number, key: string, breaks: boolean, files?: FileCtx): { node: ReactNode; end: number } {
   const first = ITEM.exec(lines[start])!;
   const base = indentOf(first[1]);
   const ordered = /\d/.test(first[2]);
@@ -253,7 +278,7 @@ function list(lines: string[], start: number, key: string, breaks: boolean): { n
   const children = items.map((body, j) => {
     const task = /^\[([ xX])\]\s+/.exec(body[0]);
     if (task) body[0] = body[0].slice(task[0].length);
-    const inner = blocks(body, `${key}.${j}`, breaks, true);
+    const inner = blocks(body, `${key}.${j}`, breaks, true, files);
     return (
       <li key={j} className={task ? 'md-task' : undefined}>
         {task && <input type="checkbox" checked={task[1] !== ' '} readOnly disabled />}
@@ -271,7 +296,7 @@ function list(lines: string[], start: number, key: string, breaks: boolean): { n
  * Разобрать строки в блоки. `tight` — содержимое пункта списка: одиночный
  * абзац там идёт без `<p>`, чтобы между пунктами не было лишних отступов.
  */
-function blocks(lines: string[], key: string, breaks: boolean, tight = false): ReactNode[] {
+function blocks(lines: string[], key: string, breaks: boolean, tight = false, files?: FileCtx): ReactNode[] {
   const out: ReactNode[] = [];
   let paragraphs = 0;
   let i = 0;
@@ -294,7 +319,7 @@ function blocks(lines: string[], key: string, breaks: boolean, tight = false): R
     const heading = HEADING.exec(line);
     if (heading) {
       const H = `h${heading[1].length}` as 'h1';
-      out.push(<H key={k}>{inline(heading[2], k)}</H>);
+      out.push(<H key={k}>{inline(heading[2], k, files)}</H>);
       i++;
       continue;
     }
@@ -306,12 +331,12 @@ function blocks(lines: string[], key: string, breaks: boolean, tight = false): R
       while (i < lines.length && lines[i].trim() && (QUOTE.test(lines[i]) || !startsBlock(lines[i], lines[i + 1]))) {
         body.push(lines[i++].replace(QUOTE, ''));
       }
-      out.push(<blockquote key={k}>{blocks(body, k, breaks)}</blockquote>);
+      out.push(<blockquote key={k}>{blocks(body, k, breaks, false, files)}</blockquote>);
       continue;
     }
 
     if (ITEM.test(line)) {
-      const { node, end } = list(lines, i, k, breaks);
+      const { node, end } = list(lines, i, k, breaks, files);
       out.push(node);
       i = end;
       continue;
@@ -328,13 +353,13 @@ function blocks(lines: string[], key: string, breaks: boolean, tight = false): R
         <div key={k} className="md-table">
           <table>
             <thead>
-              <tr>{head.map((c, j) => <th key={j} style={{ textAlign: align[j] }}>{inline(c, `${k}.h${j}`)}</th>)}</tr>
+              <tr>{head.map((c, j) => <th key={j} style={{ textAlign: align[j] }}>{inline(c, `${k}.h${j}`, files)}</th>)}</tr>
             </thead>
             <tbody>
               {rows.map((row, r) => (
                 <tr key={r}>
                   {head.map((_, j) => (
-                    <td key={j} style={{ textAlign: align[j] }}>{inline(row[j] ?? '', `${k}.${r}.${j}`)}</td>
+                    <td key={j} style={{ textAlign: align[j] }}>{inline(row[j] ?? '', `${k}.${r}.${j}`, files)}</td>
                   ))}
                 </tr>
               ))}
@@ -350,7 +375,7 @@ function blocks(lines: string[], key: string, breaks: boolean, tight = false): R
       body.push(lines[i++]);
     }
     paragraphs++;
-    out.push(<p key={k}>{paragraphInline(body, k, breaks)}</p>);
+    out.push(<p key={k}>{paragraphInline(body, k, breaks, files)}</p>);
   }
   // Пункт списка из одного абзаца — просто строка.
   if (tight && paragraphs === 1 && out.length >= 1) {
@@ -365,12 +390,17 @@ function blocks(lines: string[], key: string, breaks: boolean, tight = false): R
  * показываем — это служебное. `compact` — реплика чата: мелкие заголовки, плотные отступы
  * и перевод строки как разрыв. Фон, рамку и отступы даёт обёртка места показа, а не
  * корень: у `.md.md-compact` специфичность выше, и он перебил бы их классы.
+ * `files` — пути к файлам в тексте становятся ссылками на просмотр; `task` —
+ * задача реплики, чтобы открывались и ещё не влитые файлы. Блоки кода не трогаем.
  */
-export function Markdown({ source, compact = false }: { source: string; compact?: boolean }) {
+export function Markdown({ source, compact = false, files }: {
+  source: string; compact?: boolean; files?: { task: string | null };
+}) {
   let text = source.replace(/\r\n?/g, '\n');
   // В реплике чата `---` в начале — черта или разделитель, а не шапка файла.
   const front = compact ? null : /^---\n[\s\S]*?\n---\n/.exec(text);
   if (front) text = text.slice(front[0].length);
   const cls = compact ? 'md md-compact' : 'md';
-  return <div className={cls}>{blocks(text.split('\n'), 'md', compact)}</div>;
+  const ctx = files ? { task: files.task, scan: newScan() } : undefined;
+  return <div className={cls}>{blocks(text.split('\n'), 'md', compact, false, ctx)}</div>;
 }

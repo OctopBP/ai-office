@@ -54,18 +54,18 @@ export function DeletedViewer({ file }: { file: ResultFileView }) {
 }
 
 /** Текст файла с загрузкой и ошибкой. Смена файла сбрасывает прошлое содержимое. */
-function useFileText(taskId: string, path: string, skip: boolean) {
+function useFileText(url: string, skip: boolean) {
   const [state, setState] = useState<{ text: string | null; error: string | null }>({ text: null, error: null });
   useEffect(() => {
     if (skip) return;
     let alive = true;
     setState({ text: null, error: null });
-    fetchFileText(taskId, path).then(
+    fetchFileText(url).then(
       (text) => { if (alive) setState({ text, error: null }); },
       (err: unknown) => { if (alive) setState({ text: null, error: err instanceof Error ? err.message : String(err) }); },
     );
     return () => { alive = false; };
-  }, [taskId, path, skip]);
+  }, [url, skip]);
   return state;
 }
 
@@ -92,7 +92,7 @@ function TextBody({ text }: { text: string }) {
 
 export function TextViewer(props: ViewerProps) {
   const big = tooBig(props.file);
-  const { text, error } = useFileText(props.taskId, props.file.path, big);
+  const { text, error } = useFileText(props.url, big);
   if (big) return <DownloadViewer {...props} note={t('result.tooBig')} />;
   if (text === null) return <Loading error={error} />;
   return <TextBody text={text} />;
@@ -102,7 +102,7 @@ export function TextViewer(props: ViewerProps) {
 export function MarkdownViewer(props: ViewerProps) {
   const [raw, setRaw] = useState(false);
   const big = tooBig(props.file);
-  const { text, error } = useFileText(props.taskId, props.file.path, big);
+  const { text, error } = useFileText(props.url, big);
   if (big) return <DownloadViewer {...props} note={t('result.tooBig')} />;
   if (text === null) return <Loading error={error} />;
   return (

@@ -7,6 +7,7 @@ import { locale, t } from './i18n';
 import { AgentTag } from './Avatar';
 import { PriorityChip } from './TaskPriority';
 import { Markdown } from './Markdown';
+import { mentionedTask } from './chat/filePaths';
 import { useInstanceName } from './instanceName';
 
 /** Время в шапке карточки вопроса: день нужен, только если спросили не сегодня. */
@@ -323,7 +324,7 @@ export function QuestionCard({ id, entry }: { id: string; entry: ChatEntry }) {
       {/* Свёрнутый вопрос — одна строка с многоточием, там разметке не место;
           развёрнутый пишет агент Markdown-ом — так и показываем. */}
       <div className="cc-text" title={folded ? q.text : undefined}>
-        {folded ? q.text : <Markdown source={q.text} compact />}
+        {folded ? q.text : <Markdown source={q.text} compact files={{ task: taskId ?? mentionedTask(q.text) }} />}
       </div>
       {!folded && q.assumption && (
         <div className="cc-assumed muted small">

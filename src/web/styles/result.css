@@ -5,6 +5,10 @@
 .panel-backdrop.result-layer { z-index: calc(var(--z-drawer) + 1); }
 .result-window { height: min(860px, 100%); }
 .panel.result-window.wide { width: min(1320px, 100%); }
+/* Файл по ссылке из реплики: окно без списка, только просмотр. */
+.panel.result-window.file-preview.wide { width: min(1080px, 100%); }
+.file-preview-title { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.file-preview .panel-body { display: flex; flex-direction: column; flex: 1; min-height: 0; }
 .result-body { flex-direction: row; gap: var(--space-4); flex: 1; }
 
 /* ---------- список файлов ---------- */

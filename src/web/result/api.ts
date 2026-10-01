@@ -27,9 +27,23 @@ export function fileUrl(taskId: string, path: string): string {
   return `/api/task/file?${officeQuery()}task=${encodeURIComponent(taskId)}&path=${encodeURIComponent(path)}`;
 }
 
-/** Текст файла. Ошибку сервер присылает JSON-ом с полем error — её и показываем. */
-export async function fetchFileText(taskId: string, path: string): Promise<string> {
-  const res = await fetch(fileUrl(taskId, path));
+/**
+ * Адрес файла проекта по пути из текста (GET /api/file, src/server/files.ts).
+ * С задачей файл ищется сначала в её работе — так открывается и то, что ещё
+ * не влито; `base` — каталог, где сначала искать голое имя.
+ */
+export function projectFileUrl(path: string, opts: { task?: string | null; base?: string | null } = {}): string {
+  return `/api/file?${officeQuery()}path=${encodeURIComponent(path)}`
+    + (opts.task ? `&task=${encodeURIComponent(opts.task)}` : '')
+    + (opts.base ? `&base=${encodeURIComponent(opts.base)}` : '');
+}
+
+/**
+ * Текст файла по его адресу — результата задачи или файла проекта. Ошибку
+ * сервер присылает JSON-ом с полем error — её и показываем.
+ */
+export async function fetchFileText(url: string): Promise<string> {
+  const res = await fetch(url);
   if (!res.ok) {
     const body = await res.json().catch(() => null) as { error?: string } | null;
     throw new Error(body?.error ?? `HTTP ${res.status}`);
