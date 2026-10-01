@@ -6,6 +6,7 @@ import {
 import type { TaskView } from '../shared/types';
 import { taskClosed } from '../shared/types';
 import { locale, t } from './i18n';
+import { BudgetStopBanner } from './BudgetStopBanner';
 import { Hint, Tooltip } from './Tooltip';
 import { HOTKEY } from './hotkeys';
 import { AgentTag } from './Avatar';
@@ -208,6 +209,8 @@ export function TaskDrawer() {
           )}
         </section>
       )}
+
+      <BudgetStopBanner task={task} />
 
       {(task.result || pr) && (
         <section>

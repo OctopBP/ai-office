@@ -3,7 +3,7 @@ import { useStore } from './store';
 import { money, tok } from './money';
 import { t } from './i18n';
 import type {
-  SpendReport, SpendReportPeriod, SpendSignal, SpendSlice,
+  SpendReport, SpendReportPeriod, SpendSignal, SpendSlice, SpendTopTask,
 } from '../shared/spendReport';
 
 /**
@@ -26,6 +26,20 @@ function sliceTitle(kind: Slicing, s: SpendSlice): string {
   return s.label || s.key;
 }
 
+/** Доля кэша в процентах; null — ввода не было. */
+const share = (v: number | null): string => (v === null ? '—' : `${Math.round(v * 100)}%`);
+
+/** Три новых столбца разбора: кэш, префикс, остановки. */
+function ExtraCells({ s }: { s: SpendSlice }) {
+  return (
+    <>
+      <td className={`mono${s.cacheReadShare !== null && s.cacheReadShare < 0.5 ? ' spend-warn' : ''}`}>{share(s.cacheReadShare)}</td>
+      <td className="mono">{s.avgPrefixTokens === null ? '—' : tok(s.avgPrefixTokens)}</td>
+      <td className={`mono${s.budgetStops > 0 ? ' spend-bad' : ''}`}>{s.budgetStops}</td>
+    </>
+  );
+}
+
 function SignalRow({ signal, onTask, onRole }: {
   signal: SpendSignal; onTask: (id: string) => void; onRole: (id: string) => void;
 }) {
@@ -46,6 +60,10 @@ function SignalRow({ signal, onTask, onRole }: {
     ? <button className="usage-row spend-signal" onClick={go} title={t(target.kind === 'task' ? 'board.openCard' : 'spendReport.showRole')}>{body}</button>
     : <div className="usage-row spend-signal">{body}</div>;
 }
+
+/** Причины аномалии задачи; считает сервер, здесь только находим по ключу. */
+const anomalyOf = (report: SpendReport, key: string): SpendTopTask['anomalies'] =>
+  report.topTasks.find((x) => x.key === key && x.anomaly)?.anomalies ?? [];
 
 export function SpendReportModal({ onClose }: { onClose: () => void }) {
   const officeId = useStore((s) => s.offices.find((o) => o.current)?.id);
@@ -136,26 +154,36 @@ export function SpendReportModal({ onClose }: { onClose: () => void }) {
                     <th>{t('spendReport.col.cacheWrite')}</th>
                     <th>{t('spendReport.col.cacheRead')}</th>
                     <th>{t('spendReport.col.output')}</th>
+                    <th title={t('spendReport.col.cacheShareHint')}>{t('spendReport.col.cacheShare')}</th>
+                    <th title={t('spendReport.col.prefixHint')}>{t('spendReport.col.prefix')}</th>
+                    <th title={t('spendReport.col.stopsHint')}>{t('spendReport.col.stops')}</th>
                     <th>$</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {rows.map((s) => (
-                    <tr key={s.key} className={highlight === s.key ? 'hl' : ''}>
+                  {rows.map((s) => {
+                    const anomalies = slicing === 'task' ? anomalyOf(report, s.key) : [];
+                    return (
+                    <tr key={s.key} className={`${highlight === s.key ? 'hl' : ''}${anomalies.length ? ' anomaly' : ''}`}>
                       <td>
                         {slicing === 'task' ? (
                           <button className="link-btn" onClick={() => openTask(s.key)} title={t('board.openCard')}>
                             <span className="mono dim">{s.key}</span> {s.label !== s.key ? s.label : ''}
                           </button>
                         ) : sliceTitle(slicing, s)}
+                        {anomalies.map((a) => (
+                          <span key={a.kind} className="spend-reason">{a.text}</span>
+                        ))}
                       </td>
                       <td className="mono">{tok(s.input_tokens)}</td>
                       <td className="mono">{tok(s.cache_creation_input_tokens)}</td>
                       <td className="mono">{tok(s.cache_read_input_tokens)}</td>
                       <td className="mono">{tok(s.output_tokens)}</td>
+                      <ExtraCells s={s} />
                       <td className="mono"><b>{sliceCost(s)}</b></td>
                     </tr>
-                  ))}
+                    );
+                  })}
                 </tbody>
                 <tfoot>
                   <tr>
@@ -164,6 +192,7 @@ export function SpendReportModal({ onClose }: { onClose: () => void }) {
                     <td className="mono">{tok(report.total.cache_creation_input_tokens)}</td>
                     <td className="mono">{tok(report.total.cache_read_input_tokens)}</td>
                     <td className="mono">{tok(report.total.output_tokens)}</td>
+                    <ExtraCells s={report.total} />
                     <td className="mono"><b>{sliceCost(report.total)}</b></td>
                   </tr>
                 </tfoot>

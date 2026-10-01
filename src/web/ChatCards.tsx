@@ -5,6 +5,7 @@ import { isOpenQuestion } from '../shared/questions';
 import { answerQuestion, approveEpic, prStageClass, prStageLabel, useStore } from './store';
 import { locale, t } from './i18n';
 import { AgentTag } from './Avatar';
+import { BudgetStopBanner } from './BudgetStopBanner';
 import { PriorityChip } from './TaskPriority';
 import { Markdown } from './Markdown';
 import { mentionedTask } from './chat/filePaths';
@@ -150,6 +151,7 @@ export function TaskCard({ id, entry, bare }: { id: string; entry: ChatEntry; ba
         )}
         {task.priority === 'normal' && <span className="cc-prio-normal">{prio}</span>}
       </div>
+      <BudgetStopBanner task={task} compact />
       {open && more && (
         <div className="cc-more">
           {epic && <span className="chip">{epic.id} · {epic.title}</span>}

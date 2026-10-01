@@ -86,6 +86,11 @@
 }
 .spend-report .spend-table tr.hl td { background: var(--accent-soft, var(--hairline)); }
 .spend-report-empty { display: flex; flex-direction: column; gap: var(--space-1); padding: var(--space-4); align-items: flex-start; }
+/* Аномальный потребитель: тёплая подсветка строки и причина под названием. */
+.spend-report .spend-table tr.anomaly td { background: rgba(var(--warn-rgb), 0.12); }
+.spend-reason { display: block; font-size: var(--fs-sm, 12px); color: var(--danger); margin-top: 2px; }
+.spend-warn { color: var(--warn); }
+.spend-bad { color: var(--danger); font-weight: 600; }
 .spend-signal { align-items: flex-start; text-align: left; }
 .spend-signal-main { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
 .spend-signal-dot { width: 8px; height: 8px; border-radius: 50%; margin-top: 6px; flex: none; background: var(--accent-3, #d9a400); }
@@ -93,3 +98,14 @@
 .link-btn { background: none; border: none; padding: 0; color: inherit; font: inherit; cursor: pointer; text-align: left; }
 .link-btn:hover { text-decoration: underline; }
 .spend-report-open { align-self: flex-start; margin-top: var(--space-2); }
+
+/* Плашка «Остановлена: перерасход» в карточке задачи и в ленте чата. */
+.budget-stop {
+  display: flex; align-items: center; justify-content: space-between; gap: var(--space-3);
+  padding: var(--space-3); margin: var(--space-3) 0;
+  border: 1px solid rgba(var(--danger-rgb), 0.35); border-radius: var(--radius-md, 10px);
+  background: rgba(var(--danger-rgb), 0.08);
+}
+.budget-stop-main { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.budget-stop-main b { color: var(--danger); }
+.budget-stop.compact { margin: var(--space-2) 0 0; padding: var(--space-2) var(--space-3); }
