@@ -75,16 +75,22 @@ function span(ms: number): string {
 
 const clock = (at: number): string => new Date(at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
 
-/** Поле ключа API, раскрытое внутри карточки (§2.5). */
+/**
+ * Поле ключа API, раскрытое внутри карточки (§2.5). У провайдеров со своим
+ * адресом (Ollama, свой сервер) над ключом — адрес, а ключ необязателен.
+ */
 function KeyForm({ p, onClose }: { p: ProviderView; onClose: () => void }) {
   const id = useId();
+  const urlId = useId();
   const keychain = useStore((s) => s.providers?.keychain ?? true);
   const result = useStore((s) => s.providerLogin[p.id]);
   const [key, setKey] = useState('');
+  const [url, setUrl] = useState(p.baseUrl ?? '');
   const [shown, setShown] = useState(false);
   const [checking, setChecking] = useState(false);
   const input = useRef<HTMLInputElement>(null);
-  useEffect(() => { input.current?.focus(); }, []);
+  const urlInput = useRef<HTMLInputElement>(null);
+  useEffect(() => { (p.editableUrl ? urlInput : input).current?.focus(); }, [p.editableUrl]);
   // Итог приходит событием `provider.login`: пока его нет — «Проверяю…».
   useEffect(() => {
     if (!checking || !result) return;
@@ -92,21 +98,38 @@ function KeyForm({ p, onClose }: { p: ProviderView; onClose: () => void }) {
     if (result.ok) onClose();
   }, [checking, result, onClose]);
 
+  const ready = (key.trim() !== '' || p.keyOptional === true) && (!p.editableUrl || url.trim() !== '');
   const save = () => {
-    if (!key.trim() || checking) return;
+    if (!ready || checking) return;
     setChecking(true);
-    loginProvider(p.id, key);
+    loginProvider(p.id, key, p.editableUrl ? url.trim() : undefined);
   };
   const error = !checking && result && !result.ok ? result : null;
   const errorKey: UiKey | null = !error ? null
     : error.code === 'rejected' ? 'providers.key.err401'
     : error.code === 'network' ? 'providers.key.errNet'
     : error.code === 'keychain' ? 'providers.key.errKeychain'
+    : error.code === 'address' ? 'providers.key.errAddress'
     : 'providers.key.errUnsupported';
 
   return (
     <div className="provider-key" onKeyDown={(e) => { if (e.key === 'Escape') { e.stopPropagation(); onClose(); } }}>
-      <label htmlFor={id} className="provider-key-label">{t('providers.key.label')}</label>
+      {p.editableUrl && (
+        <>
+          <label htmlFor={urlId} className="provider-key-label">{t('providers.key.address')}</label>
+          <div className="provider-key-row">
+            <input
+              id={urlId} ref={urlInput} className="mono" type="url" inputMode="url"
+              autoComplete="off" spellCheck={false} value={url} placeholder="http://127.0.0.1:11434/v1"
+              aria-invalid={error?.code === 'address' ? true : undefined}
+              onChange={(e) => setUrl(e.target.value)}
+              onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); save(); } }}
+            />
+          </div>
+          <span className="form-hint">{t('providers.key.addressHint')}</span>
+        </>
+      )}
+      <label htmlFor={id} className="provider-key-label">{t(p.keyOptional ? 'providers.key.labelOptional' : 'providers.key.label')}</label>
       <div className="provider-key-row">
         <input
           id={id} ref={input} className="mono" type={shown ? 'text' : 'password'}
@@ -122,7 +145,7 @@ function KeyForm({ p, onClose }: { p: ProviderView; onClose: () => void }) {
       <span className="form-hint">{t(keychain ? 'providers.key.hint' : 'providers.key.noKeychain')}</span>
       {errorKey && <span className="form-hint error" role="alert">{t(errorKey)}</span>}
       <div className="provider-actions">
-        <button type="button" className="primary" disabled={!key.trim() || checking} onClick={save}>
+        <button type="button" className="primary" disabled={!ready || checking} onClick={save}>
           {checking ? <><span className="spinner" /> {t('providers.key.checking')}</> : t('providers.key.save')}
         </button>
         <button type="button" onClick={onClose}>{t('common.cancel')}</button>
@@ -187,6 +210,10 @@ function CardMenu({ p, onChangeKey }: { p: ProviderView; onChangeKey: () => void
   const removeKey = () => {
     if (window.confirm(t('providers.confirm.logout'))) logoutProvider(p.id);
   };
+  // Свой адрес забывается вместе с ключом — это «отключить», а не «удалить ключ».
+  const disconnect = () => {
+    if (window.confirm(t('providers.confirm.disconnect'))) logoutProvider(p.id);
+  };
   return (
     <div className="provider-menu" ref={box}>
       <button type="button" className="sq ghost mini" aria-haspopup="menu" aria-expanded={open}
@@ -197,9 +224,13 @@ function CardMenu({ p, onChangeKey }: { p: ProviderView; onChangeKey: () => void
         <div className="provider-menu-list float" role="menu">
           <button type="button" role="menuitem" className="ghost" onClick={pick(() => refreshProviders(true))}>{t('providers.recheck')}</button>
           {p.auth.includes('api-key') && (
-            <button type="button" role="menuitem" className="ghost" onClick={pick(onChangeKey)}>{t('providers.menu.changeKey')}</button>
+            <button type="button" role="menuitem" className="ghost" onClick={pick(onChangeKey)}>
+              {t(p.editableUrl ? 'providers.menu.changeAddress' : 'providers.menu.changeKey')}
+            </button>
           )}
-          {p.key?.source === 'keychain' && (
+          {p.editableUrl ? (
+            <button type="button" role="menuitem" className="ghost danger" onClick={pick(disconnect)}>{t('providers.menu.disconnect')}</button>
+          ) : p.key?.source === 'keychain' && (
             <button type="button" role="menuitem" className="ghost danger" onClick={pick(removeKey)}>{t('providers.menu.deleteKey')}</button>
           )}
         </div>
@@ -317,7 +348,7 @@ export function ProviderCard({ p, onUse }: {
         ? <button type="button" onClick={() => cancelProviderLogin(p.id)}>{t('common.cancel')}</button>
         : (
           <>
-            {byKey && keyButton('providers.login.key', true)}
+            {byKey && keyButton(p.editableUrl ? 'providers.login.address' : 'providers.login.key', true)}
             {subscription && (
               <span className="provider-sub">
                 <button type="button" onClick={() => loginProviderBySubscription(p.id)}>
@@ -334,10 +365,16 @@ export function ProviderCard({ p, onUse }: {
       body = (
         <>
           <p className="provider-text">{t('providers.unreachable.text')}</p>
+          {p.baseUrl && <p className="provider-text mono">{p.baseUrl}</p>}
           <p className="provider-text muted">{status.detail}</p>
         </>
       );
-      actions = <button type="button" onClick={() => refreshProviders(true)}>{t('providers.recheck')}</button>;
+      actions = !keyOpen && (
+        <>
+          <button type="button" onClick={() => refreshProviders(true)}>{t('providers.recheck')}</button>
+          {p.editableUrl && keyButton('providers.menu.changeAddress', false)}
+        </>
+      );
       break;
     case 'ready':
       body = (
@@ -351,6 +388,9 @@ export function ProviderCard({ p, onUse }: {
                   account: [status.plan, status.account].filter(Boolean).join(', ') || t('providers.ready.account.anon'),
                 })}
           </p>
+          {p.editableUrl && p.baseUrl && (
+            <p className="provider-text muted">{t('providers.ready.address', { url: p.baseUrl })}</p>
+          )}
           <ProviderLimits windows={windows} planLimits={p.capabilities.planLimits} now={now} />
         </>
       );
@@ -401,7 +441,8 @@ export function ProviderCard({ p, onUse }: {
       break;
   }
 
-  const hasMenu = status.state === 'ready' || status.state === 'limited' || status.state === 'error';
+  const hasMenu = status.state === 'ready' || status.state === 'limited' || status.state === 'error'
+    || (status.state === 'unreachable' && p.editableUrl === true);
   return (
     <section className={`provider-card card state-${status.state}`} aria-labelledby={titleId}>
       <header className="provider-head">

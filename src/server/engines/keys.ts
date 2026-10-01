@@ -23,6 +23,13 @@ import { LoginError } from './types';
 export const KEY_VAR: Record<ProviderId, string> = {
   'claude-code': 'ANTHROPIC_API_KEY',
   codex: 'OPENAI_API_KEY',
+  xai: 'XAI_API_KEY',
+  deepseek: 'DEEPSEEK_API_KEY',
+  openrouter: 'OPENROUTER_API_KEY',
+  ollama: 'OLLAMA_API_KEY',
+  // Своему адресу общеизвестной переменной нет — своё имя, чтобы ключ
+  // владельца от OpenAI не уехал на чужой сервер.
+  custom: 'OFFICE_CUSTOM_API_KEY',
 };
 
 const SERVICE = 'AI Office';

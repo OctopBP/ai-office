@@ -50,7 +50,27 @@ export async function readablePath(roots: string[], cwd: string, file: string): 
   throw new Error('Read outside the session workspace is blocked');
 }
 
+/** Исполнитель команд рук офиса: у Codex — его песочница, у OpenCode — своя. */
+export type CommandExec = (command: string[], cwd: string, timeoutMs: number) =>
+  Promise<{ stdout: string; stderr: string; exitCode: number }>;
+
 export async function codexTools(options: SessionOptions, rpc: CodexRpc) {
+  return officeCatalog(options, async (command, cwd, timeoutMs) => {
+    const result = await rpc.request('command/exec', { command, cwd, timeoutMs,
+      outputBytesCap: 100_000,
+      sandboxPolicy: { type: 'workspaceWrite', writableRoots: [cwd], networkAccess: false,
+        excludeTmpdirEnvVar: false, excludeSlashTmp: false },
+    }, timeoutMs + 10_000);
+    return { stdout: String(result.stdout ?? ''), stderr: String(result.stderr ?? ''), exitCode: Number(result.exitCode ?? 0) };
+  }, 'Run a shell command in the Codex OS sandbox. Writes stay in the workspace.');
+}
+
+/**
+ * Каталог инструментов сессии для движков без своих рук: руки офиса
+ * (Read/Write/Edit/Bash/Glob/Grep), скилы роли инструментом Skill,
+ * инструменты офиса и внешние MCP роли — всё в одной нейтральной форме.
+ */
+export async function officeCatalog(options: SessionOptions, exec: CommandExec, bashDescription: string) {
   const cwd = options.cwd ?? process.cwd();
   const readableRoots = [cwd, ...(options.additionalDirectories ?? [])];
   const tools: OfficeTool[] = [];
@@ -62,11 +82,7 @@ export async function codexTools(options: SessionOptions, rpc: CodexRpc) {
   };
   const enabled = (name: string) => !Array.isArray(options.tools) || options.tools.includes(name);
   const execute = async (command: string[], timeoutMs = 120_000) => {
-    const result = await rpc.request('command/exec', { command, cwd, timeoutMs,
-      outputBytesCap: 100_000,
-      sandboxPolicy: { type: 'workspaceWrite', writableRoots: [cwd], networkAccess: false,
-        excludeTmpdirEnvVar: false, excludeSlashTmp: false },
-    }, timeoutMs + 10_000);
+    const result = await exec(command, cwd, timeoutMs);
     return text(`${result.stdout}${result.stderr}${result.exitCode ? `\nExit code: ${result.exitCode}` : ''}`);
   };
   if (enabled('Read')) add('Read', 'Read a UTF-8 file. Offset and limit are in lines.', {
@@ -87,7 +103,7 @@ export async function codexTools(options: SessionOptions, rpc: CodexRpc) {
   });
   // Команду исполняет app-server движка со своим окружением, где лежит ключ
   // провайдера, — снимаем ключи в самой оболочке, уже после профиля входа.
-  if (enabled('Bash')) add('Bash', 'Run a shell command in the Codex OS sandbox. Writes stay in the workspace.', {
+  if (enabled('Bash')) add('Bash', bashDescription, {
     command: z.string(), timeout: z.number().int().min(1).max(600_000).optional(),
   }, i => execute(['/bin/bash', '-lc', `${UNSET_PROVIDER_SECRETS}\n${i.command}`], i.timeout));
   if (enabled('Glob')) add('Glob', 'List files matching a glob using ripgrep.', {

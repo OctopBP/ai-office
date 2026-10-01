@@ -13,10 +13,11 @@
  * первого запуска.
  */
 import type { IncomingMessage, ServerResponse } from 'node:http';
-import { PROVIDER_IDS, PROVIDERS, isConnected, isProviderId, type ProviderId } from '../shared/providers';
+import { PROVIDER_IDS, PROVIDERS, isConnected, isProviderId, providerSpec, type ProviderId } from '../shared/providers';
 import type { ClientCommand, ProviderLoginFlow, ProviderLoginResult, ProviderView, ProvidersView, ServerEvent } from '../shared/types';
 import { engineFor, LoginError, type EngineId, type ModelInfo, type ProviderStatus } from './engines';
 import { keychainAvailable, providerKey } from './engines/keys';
+import { baseUrlOf } from './engines/endpoints';
 import { activeLogins, cancelCliLogin, onLoginFlow, sendLoginCode } from './engines/login';
 import { broadcastAll, send } from './office-api';
 import { openedOffices } from './state';
@@ -25,7 +26,7 @@ import { refreshEnvChecks } from './envcheck';
 type Sink = Parameters<typeof send>[0];
 
 /** Подпись движка — мелкой строкой под названием провайдера. */
-const ENGINE_LABEL: Record<EngineId, string> = { 'claude-code': 'Claude Code', codex: 'Codex' };
+const ENGINE_LABEL: Record<EngineId, string> = { 'claude-code': 'Claude Code', codex: 'Codex', opencode: 'OpenCode' };
 
 /** Идущие установки — по движку: движок общий для всех его провайдеров. */
 const installs = new Map<EngineId, { share: number; bytes?: number; totalBytes?: number; abort: AbortController }>();
@@ -41,6 +42,7 @@ async function providerView(id: ProviderId, force: boolean): Promise<ProviderVie
   const caps = engine.capabilities(process.platform);
   const key = providerKey(id);
   const error = installErrors.get(engine.id);
+  const spec = providerSpec(id);
   return {
     id,
     label: PROVIDERS[id].label,
@@ -54,6 +56,10 @@ async function providerView(id: ProviderId, force: boolean): Promise<ProviderVie
     capabilities: caps,
     key: key ? { tail: key.key.slice(-4), source: key.source } : null,
     ...(error ? { installError: error } : {}),
+    // Адрес — не секрет: веб показывает его на карточке и в форме входа.
+    ...(spec.baseUrl !== undefined ? { baseUrl: baseUrlOf(id) } : {}),
+    ...(spec.editableUrl ? { editableUrl: true } : {}),
+    ...(spec.keyOptional ? { keyOptional: true } : {}),
   };
 }
 
@@ -137,12 +143,18 @@ export function cancelInstall(provider: ProviderId): void {
   installs.get(engineFor(provider).id)?.abort.abort();
 }
 
-/** Войти по ключу API: проверить, положить в связку, разослать новый статус. */
-export async function loginProvider(provider: ProviderId, apiKey: string): Promise<ProviderLoginResult> {
+/**
+ * Войти по ключу API: проверить, положить в связку, разослать новый статус.
+ * У провайдеров со своим адресом вместе с ключом приходит адрес, а ключ
+ * может быть пустым (локальный сервер без ключа).
+ */
+export async function loginProvider(provider: ProviderId, apiKey: string, baseUrl?: string): Promise<ProviderLoginResult> {
   const key = apiKey.trim();
-  if (!key || /\s/.test(key)) return { ok: false, code: 'rejected', message: 'empty or malformed key' };
+  const spec = providerSpec(provider);
+  if (/\s/.test(key) || (!key && !spec.keyOptional)) return { ok: false, code: 'rejected', message: 'empty or malformed key' };
   try {
-    await engineFor(provider).login({ provider, kind: 'api-key', apiKey: key });
+    await engineFor(provider).login({ provider, kind: 'api-key', apiKey: key || undefined,
+      ...(spec.editableUrl && baseUrl ? { baseUrl } : {}) });
   } catch (err) {
     const code = err instanceof LoginError ? err.code : 'network';
     return { ok: false, code, message: (err as Error).message };
@@ -218,7 +230,8 @@ export function handleProviderCommand(cmd: ClientCommand, ws: Sink): boolean {
         return true;
       }
       if (!('apiKey' in cmd) || typeof cmd.apiKey !== 'string') return true;
-      void loginProvider(provider, cmd.apiKey).then((result) => send(ws, { t: 'provider.login', provider, result }));
+      const baseUrl = 'baseUrl' in cmd && typeof cmd.baseUrl === 'string' ? cmd.baseUrl : undefined;
+      void loginProvider(provider, cmd.apiKey, baseUrl).then((result) => send(ws, { t: 'provider.login', provider, result }));
       return true;
     }
     case 'provider_login_cancel':
@@ -266,7 +279,7 @@ function readJson(req: IncomingMessage): Promise<Record<string, unknown>> {
  *   GET    /api/providers/:id           статус и модели (форма роли)
  *   POST   /api/providers/:id/install   начать установку движка
  *   DELETE /api/providers/:id/install   отменить установку
- *   POST   /api/providers/:id/login     { apiKey } — вход по ключу; { kind: 'subscription' } — штатный вход движка
+ *   POST   /api/providers/:id/login     { apiKey, baseUrl? } — вход по ключу (и адресу); { kind: 'subscription' } — штатный вход движка
  *   DELETE /api/providers/:id/login     удалить ключ
  * Возвращает false, если адрес не про провайдеров.
  */
@@ -321,8 +334,9 @@ export function handleProvidersHttp(req: IncomingMessage, res: ServerResponse, u
         json(started.ok ? 202 : 501, started);
         return;
       }
-      const result = await loginProvider(provider, typeof body.apiKey === 'string' ? body.apiKey : '');
-      json(result.ok ? 200 : result.code === 'rejected' ? 401 : 502, result);
+      const result = await loginProvider(provider, typeof body.apiKey === 'string' ? body.apiKey : '',
+        typeof body.baseUrl === 'string' ? body.baseUrl : undefined);
+      json(result.ok ? 200 : result.code === 'rejected' ? 401 : result.code === 'address' ? 400 : 502, result);
     });
     return true;
   }

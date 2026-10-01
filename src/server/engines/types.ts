@@ -54,6 +54,8 @@ export interface LoginRequest {
   kind: AuthKind;
   /** Для api-key: ключ сразу уходит в связку ключей, в состояние офиса не пишется. */
   apiKey?: string;
+  /** Адрес API для провайдеров со своим адресом (Ollama, свой сервер). */
+  baseUrl?: string;
 }
 /**
  * Ключ — сразу итог; подписка — запущенный сценарий штатного входа движка
@@ -63,10 +65,11 @@ export type LoginStart = { done: true; status: ProviderStatus } | { done: false;
 
 /**
  * Отказ во входе с причиной для формы: ключ не принят, сети нет, связка
- * ключей недоступна или такой способ входа движок пока не умеет.
+ * ключей недоступна, такой способ входа движок пока не умеет или адрес API
+ * не годится.
  */
 export class LoginError extends Error {
-  constructor(readonly code: 'rejected' | 'network' | 'keychain' | 'unsupported', message: string) {
+  constructor(readonly code: 'rejected' | 'network' | 'keychain' | 'unsupported' | 'address', message: string) {
     super(message);
   }
 }

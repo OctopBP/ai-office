@@ -19,7 +19,7 @@ import { Icon } from './icons';
 import { ShellPage } from './shell/ShellPage';
 import { ProviderCard } from './ProviderCard';
 import { byLabel } from './FirstLaunch';
-import { ProviderOptions, freeModel, modelOptions, useProviderModels } from './ProviderPick';
+import { ProviderOptions, freeModel, modelHint, modelOptions, useProviderModels } from './ProviderPick';
 import { PROVIDERS, isConnected, type ProviderId } from '../shared/providers';
 import { notifyPermission, notifyWanted, setNotifyWanted, type NotifyPermission } from './notify';
 
@@ -195,7 +195,7 @@ function OfficeProviderGroup({ choose }: { choose: (provider: ProviderId) => voi
         )}
       </Row>
       <Row label={t('providers.office.model')} htmlFor={`${fid}-model`}
-        hint={freeModel(choice.provider) ? t('role.codexHint') : undefined}>
+        hint={modelHint(choice.provider) && t(modelHint(choice.provider)!)}>
         {freeModel(choice.provider) ? (
           <>
             <input id={`${fid}-model`} list={`${fid}-models`} value={draftModel}

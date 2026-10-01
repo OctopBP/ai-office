@@ -63,6 +63,8 @@ export const PROVIDER_SECRET_VARS: readonly string[] = [
   'XAI_API_KEY',
   'DEEPSEEK_API_KEY',
   'OPENROUTER_API_KEY',
+  'OLLAMA_API_KEY',
+  'OFFICE_CUSTOM_API_KEY',
 ];
 
 /**

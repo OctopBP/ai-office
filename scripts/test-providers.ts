@@ -315,4 +315,84 @@ const pkg = readPackage(pkgDir);
 assert(pkg.pkg);
 const role = roleFromPackage(pkg.pkg!, 'en', 'codex');
 assert.equal(role.provider, 'codex'); assert.equal(role.model, 'default');
-console.log('Provider tests passed: routing, events, tools, denials, resume, queue, compaction, cancellation, failures, cost, quotas, engine adapters, sandbox paths, packages.');
+// Универсальный движок OpenCode: пресеты, адрес, конфиг сессии, события, цены — без сети и без сервера.
+{
+  const { normalizeBaseUrl, baseUrlOf } = await import('../src/server/engines/endpoints');
+  const { buildConfig, parseSse, stepUsage } = await import('../src/server/providers/opencode');
+  const { wireName } = await import('../src/server/providers/mcp-bridge');
+  const { modelPrice } = await import('../src/server/providers/model-prices');
+  const { sessionForProvider, engineOf, PROVIDERS: ALL } = await import('../src/shared/providers');
+
+  for (const id of ['xai', 'deepseek', 'openrouter', 'ollama', 'custom'] as const) {
+    assert.equal(engineOf(id), 'opencode'); assert.equal(engineFor(id).id, 'opencode');
+  }
+  assert.equal(baseUrlOf('xai'), ALL.xai.baseUrl); assert.equal(baseUrlOf('custom'), '');
+  assert.equal(normalizeBaseUrl('http://localhost:11434/', 'ollama'), 'http://localhost:11434/v1');
+  assert.equal(normalizeBaseUrl('https://llm.example.com/api/v1/', 'custom'), 'https://llm.example.com/api/v1');
+  assert.equal(normalizeBaseUrl('https://user:pw@llm.example.com/v1', 'custom'), null);
+  assert.equal(normalizeBaseUrl('file:///etc/passwd', 'custom'), null);
+
+  // Сессии движков не путаются, а между провайдерами OpenCode переносятся.
+  assert.equal(sessionForProvider('opencode:ses_1', 'deepseek'), 'ses_1');
+  assert.equal(sessionForProvider('opencode:ses_1', 'claude-code'), undefined);
+  assert.equal(sessionForProvider('codex:t1', 'xai'), undefined);
+  assert.equal(sessionForProvider('plain-claude', 'ollama'), undefined);
+
+  const config = buildConfig({
+    provider: 'xai', baseUrl: 'https://api.x.ai/v1', model: 'grok-4.7', keyVar: 'XAI_API_KEY', contextWindow: 256_000,
+    system: 'ROLE PROMPT', bridge: { url: 'http://127.0.0.1:5/mcp', authorization: 'Bearer t' },
+  }) as any;
+  const text = JSON.stringify(config);
+  assert(text.includes('{env:XAI_API_KEY}'), 'ключ — ссылкой на переменную окружения');
+  assert.equal(config.model, 'office/grok-4.7');
+  assert.equal(config.agent.office.prompt, 'ROLE PROMPT');
+  assert.equal(config.tools.bash, false); assert.equal(config.tools.edit, false); assert.equal(config.tools.write, false);
+  assert.equal(config.permission.bash, 'deny');
+  assert.deepEqual(config.mcp.office, { type: 'remote', url: 'http://127.0.0.1:5/mcp', oauth: false, headers: { Authorization: 'Bearer t' } });
+  assert.equal(config.provider.office.models['grok-4.7'].limit.context, 256_000);
+  const local = buildConfig({ provider: 'ollama', baseUrl: 'http://127.0.0.1:11434/v1', model: 'qwen3:8b', system: '',
+    bridge: { url: 'u', authorization: 'a' } }) as any;
+  assert.equal(local.provider.office.options.apiKey, undefined, 'без ключа — без apiKey');
+
+  // Имена инструментов офиса — в алфавите API OpenAI.
+  assert.equal(wireName('mcp__office__finish_task'), 'office__finish_task');
+  assert.match(wireName('mcp__ext__some.tool/x'), /^[a-zA-Z0-9_-]{1,64}$/);
+
+  const sse = async function* () {
+    const enc = new TextEncoder();
+    yield enc.encode('data: {"type":"session.status","properties":{"sessionID":"s","status":{"type":"busy"}}}\n\n: ping\n\n');
+    yield enc.encode('data: {"payload":{"type":"session.idle","properties":{"sessionID":"s"}}}\n');
+    yield enc.encode('\ndata: not json\n\n');
+  };
+  const got: string[] = [];
+  for await (const e of parseSse(sse())) got.push(e.type);
+  assert.deepEqual(got, ['session.status', 'session.idle']);
+  assert.deepEqual(stepUsage({ input: 10, output: 5, reasoning: 3, cache: { read: 7, write: 2 } }),
+    { input_tokens: 10, output_tokens: 8, cache_read_input_tokens: 7, cache_creation_input_tokens: 2 });
+
+  // Цены: каталог с диска, поверх — цены владельца; у своего сервера цены нет.
+  writeFileSync(resolve(root, 'model-prices.json'), JSON.stringify({
+    deepseek: { 'deepseek-flash': { id: 'deepseek-flash', name: 'DeepSeek Flash', price: { input: 0.3, output: 1.2, cachedInput: 0.03 } } },
+  }));
+  assert.deepEqual(await modelPrice('deepseek', 'deepseek-flash'), { input: 0.3, output: 1.2, cachedInput: 0.03 });
+  assert.equal(await modelPrice('custom', 'my-model'), null);
+  process.env.OFFICE_MODEL_PRICING = JSON.stringify({ 'custom/my-model': { input: 1, output: 2 } });
+  assert.deepEqual(await modelPrice('custom', 'my-model'), { input: 1, output: 2, cachedInput: 1 });
+  delete process.env.OFFICE_MODEL_PRICING;
+
+  // Статус: движок не найден → установка с карточки; найден → нужен ключ или адрес.
+  process.env.OFFICE_OPENCODE_PATH = resolve(root, 'no-opencode');
+  const missing = await engineFor('xai').status('xai', { force: true });
+  assert.equal(missing.state, 'not-installed');
+  const ocMock = resolve(root, 'opencode-mock.sh');
+  writeFileSync(ocMock, '#!/bin/sh\necho 1.18.34\n', { mode: 0o755 });
+  process.env.OFFICE_OPENCODE_PATH = ocMock;
+  assert.equal((await engineFor('xai').status('xai', { force: true })).state, 'needs-login');
+  assert.deepEqual(await engineFor('xai').locate(), { path: ocMock, version: '1.18.34' });
+  assert.equal((await engineFor('custom').status('custom', { force: true })).state, 'needs-login');
+  const caps = engineFor('ollama').capabilities('linux');
+  assert.deepEqual([caps.officeTools, caps.nativeHands, caps.costUsd, caps.apiKeyLogin], ['mcp-bridge', false, 'computed', true]);
+  delete process.env.OFFICE_OPENCODE_PATH;
+}
+
+console.log('Provider tests passed: routing, events, tools, denials, resume, queue, compaction, cancellation, failures, cost, quotas, engine adapters, sandbox paths, packages, opencode.');

@@ -10,7 +10,7 @@ import { has, t, type UiKey } from './i18n';
 import { Icon } from './icons';
 import { LookPicker } from './office3d/LookPicker';
 import { RoleReport } from './RoleReport';
-import { ProviderOptions, freeModel, modelOptions, providerLabel, useProviderModels } from './ProviderPick';
+import { ProviderOptions, freeModel, modelHint, modelOptions, providerLabel, useProviderModels } from './ProviderPick';
 import { usageLine, usageMoney } from './money';
 import type { AgentAutosave, AgentField } from './useAgentAutosave';
 import type { InstanceView, MarketPackageView, PermissionMode, ProviderView, RoleView } from '../shared/types';
@@ -287,7 +287,7 @@ export function ModelPanel({ save, role, busy }: PanelProps) {
 
         <Row
           id="agent-model" label={<FieldLabel text={t('providers.role.model')} save={save} f="model" when="next" busy={busy} />}
-          hint={freeModel(provider) ? t('role.codexHint') : undefined}
+          hint={modelHint(provider) && t(modelHint(provider)!)}
         >
           {freeModel(provider) ? (
             <>

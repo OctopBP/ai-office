@@ -1,10 +1,51 @@
-/** Persisted provider ids. Execution location (local/cloud) is a separate setting. */
+/** Движок — программа, которая ведёт цикл агента. Провайдер обслуживается ровно одним движком. */
+export type EngineId = 'claude-code' | 'codex' | 'opencode';
+
+interface ProviderSpec {
+  label: string;
+  engine: EngineId;
+  /**
+   * Модель по умолчанию. `default` у OpenAI-совместимых — «первая модель,
+   * которую отдаёт сервер провайдера»: у Ollama и своего адреса набор моделей
+   * знает только сам сервер.
+   */
+  defaultModel: string;
+  cloud: boolean;
+  /**
+   * Адрес API в формате OpenAI (у провайдеров универсального движка). Пустой —
+   * адрес задаёт пользователь. `editableUrl` — адрес можно сменить на карточке.
+   */
+  baseUrl?: string;
+  editableUrl?: boolean;
+  /** Ключ API необязателен (локальные серверы): карточка пускает без него. */
+  keyOptional?: boolean;
+}
+
+/**
+ * Persisted provider ids. Execution location (local/cloud) is a separate setting.
+ *
+ * Провайдеры движка `opencode` — пресеты API в формате OpenAI (spec провайдеров
+ * §3.5): xAI, DeepSeek, OpenRouter, Ollama на этой машине и свой адрес.
+ */
 export const PROVIDERS = {
-  'claude-code': { label: 'Claude Code', defaultModel: 'claude-sonnet-5-5', cloud: true },
-  codex: { label: 'Codex', defaultModel: 'default', cloud: false },
-} as const;
+  'claude-code': { label: 'Claude Code', engine: 'claude-code', defaultModel: 'claude-sonnet-5-5', cloud: true },
+  codex: { label: 'Codex', engine: 'codex', defaultModel: 'default', cloud: false },
+  xai: { label: 'xAI (Grok)', engine: 'opencode', defaultModel: 'grok-4.7', cloud: false, baseUrl: 'https://api.x.ai/v1' },
+  deepseek: { label: 'DeepSeek', engine: 'opencode', defaultModel: 'deepseek-flash', cloud: false, baseUrl: 'https://api.deepseek.com/v1' },
+  openrouter: { label: 'OpenRouter', engine: 'opencode', defaultModel: 'openrouter/auto', cloud: false, baseUrl: 'https://openrouter.ai/api/v1' },
+  ollama: {
+    label: 'Ollama', engine: 'opencode', defaultModel: 'default', cloud: false,
+    baseUrl: 'http://127.0.0.1:11434/v1', editableUrl: true, keyOptional: true,
+  },
+  custom: {
+    label: 'OpenAI-compatible API', engine: 'opencode', defaultModel: 'default', cloud: false,
+    baseUrl: '', editableUrl: true, keyOptional: true,
+  },
+} as const satisfies Record<string, ProviderSpec>;
 
 export type ProviderId = keyof typeof PROVIDERS;
+export const providerSpec = (id: ProviderId): ProviderSpec => PROVIDERS[id];
+export const engineOf = (id: ProviderId): EngineId => PROVIDERS[id].engine;
 export const PROVIDER_IDS = Object.keys(PROVIDERS) as ProviderId[];
 export const isProviderId = (value: unknown): value is ProviderId =>
   typeof value === 'string' && Object.hasOwn(PROVIDERS, value);
@@ -29,14 +70,19 @@ export const DEFAULT_MODEL_CHOICE: ModelChoice = {
 export const sameChoice = (a: ModelChoice, b: ModelChoice): boolean =>
   a.provider === b.provider && a.model === b.model;
 
+/**
+ * Id сессии для движка провайдера. Чужие движки помечают свои id префиксом
+ * (`codex:`, `opencode:`); id без префикса — сессия Claude. Сессию одного
+ * движка другим не продолжить, поэтому чужой id отбрасывается. Между
+ * провайдерами одного OpenCode сессия переносится: историю хранит движок.
+ */
 export function sessionForProvider(id: string | undefined, provider: ProviderId): string | undefined {
   if (!id) return undefined;
-  if (provider === 'codex') return id.startsWith('codex:') ? id.slice(6) : undefined;
-  return id.startsWith('codex:') ? undefined : id;
+  const engine = engineOf(provider);
+  const prefix = /^(codex|opencode):/.exec(id)?.[1];
+  if (engine === 'claude-code') return prefix ? undefined : id;
+  return prefix === engine ? id.slice(engine.length + 1) : undefined;
 }
-
-/** Движок. Пока провайдер обслуживается ровно своим движком, их id совпадают. */
-export type EngineId = ProviderId;
 
 /** Как провайдер пускает: подписка (вход в браузере), ключ API или без входа. */
 export type AuthKind = 'subscription' | 'api-key' | 'none';

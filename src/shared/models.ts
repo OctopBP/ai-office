@@ -88,7 +88,8 @@ export const TIER_OF_ALIAS: Partial<Record<ModelAlias, ModelTier>> = {
  * Модели провайдеров по уровням. Провайдера нет или уровня нет — уровень не
  * разрешается, и роль берёт модель офиса: угадывать модель чужого провайдера
  * по имени нельзя. У Codex список моделей зависит от аккаунта, поэтому
- * уровней у него здесь нет.
+ * уровней у него здесь нет; у OpenRouter, Ollama и своего адреса — тоже:
+ * набор моделей там выбирает владелец.
  */
 export const TIER_MODELS: Record<string, Partial<Record<ModelTier, string>>> = {
   'claude-code': {
@@ -96,4 +97,6 @@ export const TIER_MODELS: Record<string, Partial<Record<ModelTier, string>>> = {
     balanced: MODEL_ALIASES.sonnet,
     fast: MODEL_ALIASES.haiku,
   },
+  xai: { top: 'grok-4.7', fast: 'grok-4.3' },
+  deepseek: { top: 'deepseek-v4-pro', fast: 'deepseek-flash' },
 };

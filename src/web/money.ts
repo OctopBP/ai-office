@@ -11,7 +11,13 @@ import { locale, t } from './i18n';
 /** Сумма: мелочь до цента не округляем — на ней и видно цену одной задачи. */
 export const money = (v: number): string => `$${v.toFixed(v < 1 ? 3 : 2)}`;
 
-export const usageMoney = (usage: Usage): string => usage.costUnavailable ? t('usage.costUnavailable') : money(usage.costUsd);
+/**
+ * Сумма расхода. Цена модели неизвестна (свой сервер, модель не из каталога)
+ * — вместо доллара токены: ноль долларов читался бы как «бесплатно». Часть
+ * ходов с ценой — их сумма плюс токены остального.
+ */
+export const usageMoney = (usage: Usage): string => !usage.costUnavailable ? money(usage.costUsd)
+  : t(usage.costUsd > 0 ? 'usage.costPartial' : 'usage.costTokens', { money: money(usage.costUsd), tokens: usageLine(usage) });
 
 /** Токены: точное число здесь никому не нужно, а порядок — нужен. */
 export const tok = (v: number): string => (v >= 1_000_000 ? `${(v / 1_000_000).toFixed(1)}M`

@@ -1,8 +1,8 @@
 import { useEffect, useState } from 'react';
-import { PROVIDERS, isConnected, type ProviderId } from '../shared/providers';
+import { PROVIDERS, engineOf, isConnected, type ProviderId } from '../shared/providers';
 import type { ProviderView } from '../shared/types';
 import { byLabel } from './FirstLaunch';
-import { has, t } from './i18n';
+import { has, t, type UiKey } from './i18n';
 
 /**
  * Выбор провайдера и модели — общие детали для офиса (вкладка «Провайдеры»)
@@ -56,15 +56,27 @@ export function modelOptions(provider: ProviderId, models: ModelOption[], curren
   const fallback = PROVIDERS[provider].defaultModel;
   const known = models.find((m) => m.id === fallback);
   const first: [string, string] = [fallback, t('providers.model.default', {
-    name: known ? modelLabel(known) : provider === 'codex' ? t('role.model.codexDefault') : fallback,
+    name: known ? modelLabel(known)
+      : provider === 'codex' ? t('role.model.codexDefault')
+      : fallback === 'default' ? t('role.model.serverDefault') : fallback,
   })];
   const rest = models.filter((m) => m.id !== fallback).map((m): [string, string] => [m.id, modelLabel(m)]);
   const list = [first, ...rest];
   return current && !list.some(([id]) => id === current) ? [...list, [current, current]] : list;
 }
 
-/** Модель, которую можно вписать руками: у Codex список неполный, точный id знает только владелец. */
-export const freeModel = (provider: ProviderId): boolean => provider === 'codex';
+/**
+ * Модель, которую можно вписать руками: у Codex список неполный, а у
+ * провайдеров OpenCode набор моделей знает только их сервер (Ollama, свой
+ * адрес) — точный id знает владелец.
+ */
+export const freeModel = (provider: ProviderId): boolean => engineOf(provider) !== 'claude-code';
+
+/** Подсказка под полем модели: у каждого движка своя. */
+export function modelHint(provider: ProviderId): UiKey | undefined {
+  const engine = engineOf(provider);
+  return engine === 'codex' ? 'role.codexHint' : engine === 'opencode' ? 'role.openaiHint' : undefined;
+}
 
 /**
  * Почему провайдера нельзя выбрать — короткая причина для серого пункта

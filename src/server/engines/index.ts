@@ -5,12 +5,13 @@
 import { providerOf, sessionForProvider, type ProviderId } from '../../shared/providers';
 import { claudeCodeEngine } from './claude-code';
 import { codexEngine } from './codex';
+import { opencodeEngine } from './opencode';
 import type { EngineAdapter, EngineSession, SessionRequest } from './types';
 
 export * from './types';
 export { tool, createSdkMcpServer, localTools, claudeBin, SYSTEM_PROMPT_DYNAMIC_BOUNDARY, type LocalTool } from './claude-code';
 
-export const ENGINES: readonly EngineAdapter[] = [claudeCodeEngine, codexEngine];
+export const ENGINES: readonly EngineAdapter[] = [claudeCodeEngine, codexEngine, opencodeEngine];
 
 /** Адаптер, который обслуживает провайдера. */
 export function engineFor(provider: ProviderId): EngineAdapter {

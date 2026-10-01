@@ -2209,6 +2209,14 @@ export interface ProviderView {
   key: { tail: string; source: 'keychain' | 'env' } | null;
   /** Последняя установка движка сорвалась — текст причины; пропадает со следующей попыткой. */
   installError?: string;
+  /**
+   * Адрес API провайдера универсального движка (OpenAI-формат). Пусто —
+   * адрес ещё не задан. `editableUrl` — адрес вводит пользователь (Ollama,
+   * свой сервер); `keyOptional` — вход возможен без ключа.
+   */
+  baseUrl?: string;
+  editableUrl?: boolean;
+  keyOptional?: boolean;
 }
 
 export interface ProvidersView {
@@ -2225,7 +2233,7 @@ export interface ProvidersView {
 /** Итог входа по ключу — тому, кто входил: форма показывает ошибку под полем. */
 export type ProviderLoginResult =
   | { ok: true }
-  | { ok: false; code: 'rejected' | 'network' | 'keychain' | 'unsupported'; message: string };
+  | { ok: false; code: 'rejected' | 'network' | 'keychain' | 'unsupported' | 'address'; message: string };
 
 /**
  * Вход по подписке — сценарий штатного входа движка (`claude auth login`,
@@ -2652,7 +2660,8 @@ export type ClientCommand =
    * Войти по ключу API. Ключ проверяется запросом метаданных и уходит в
    * системную связку ключей — в состояние офиса, журнал и логи не попадает.
    */
-  | { c: 'provider_login'; provider: ProviderId; apiKey: string }
+  /** `baseUrl` — адрес API у провайдеров со своим адресом; ключ у них может быть пустым. */
+  | { c: 'provider_login'; provider: ProviderId; apiKey: string; baseUrl?: string }
   /**
    * Войти по подписке: сервер запускает штатный вход движка, ход входа
    * приезжает событиями `provider.login` с `flow`. Повтор во время входа

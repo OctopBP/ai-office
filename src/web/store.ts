@@ -2444,15 +2444,15 @@ export function cancelProviderInstall(provider: ProviderId): void {
 /**
  * Войти по ключу API. Прежний итог стирается сразу: форма крутит «Проверяю…»,
  * пока не придёт `provider.login`. Ключ уходит только этой командой — в стор
- * он не кладётся.
+ * он не кладётся. `baseUrl` — адрес API у провайдеров со своим адресом.
  */
-export function loginProvider(provider: ProviderId, apiKey: string): void {
+export function loginProvider(provider: ProviderId, apiKey: string, baseUrl?: string): void {
   useStore.setState((s) => {
     const rest = { ...s.providerLogin };
     delete rest[provider];
     return { providerLogin: rest };
   });
-  socket?.send(JSON.stringify({ c: 'provider_login', provider, apiKey }));
+  socket?.send(JSON.stringify({ c: 'provider_login', provider, apiKey, ...(baseUrl ? { baseUrl } : {}) }));
 }
 
 /**
