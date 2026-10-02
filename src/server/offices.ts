@@ -568,9 +568,9 @@ function moveCurrentFrom(id: string): void {
 }
 
 /**
- * Убрать офис в архив. Вместе с архивом офис встаёт на паузу: вернувшись
- * оттуда, он не должен сам броситься в работу, — человек снимет паузу, когда
- * решит. Поднятый офис гасится. Файлы целы — архив это не удаление.
+ * Убрать офис в архив. Паузу не трогаем: архив и пауза независимы, работу
+ * архивного офиса останавливает сам архив, и отказы объясняются им, а не
+ * паузой. Поднятый офис гасится. Файлы целы — архив это не удаление.
  */
 export function archiveOffice(id: string): OfficeOpResult {
   if (!registry) return { ok: false, code: 'offices.noRegistry' };
@@ -579,7 +579,6 @@ export function archiveOffice(id: string): OfficeOpResult {
   if (office.archived) return { ok: true };
   if (lastActive(office)) return { ok: false, code: 'office.lastActive', vars: { name: office.name } };
   office.archived = true;
-  office.paused = true;
   moveCurrentFrom(id);
   write();
   unloader?.(id);
@@ -587,8 +586,8 @@ export function archiveOffice(id: string): OfficeOpResult {
 }
 
 /**
- * Вернуть офис из архива. Паузу не снимаем: офис возвращается остановленным,
- * и продолжить работу — отдельное решение человека.
+ * Вернуть офис из архива. Паузу не трогаем: какой она была до архива, такой
+ * и остаётся.
  */
 export function unarchiveOffice(id: string): OfficeOpResult {
   if (!registry) return { ok: false, code: 'offices.noRegistry' };
