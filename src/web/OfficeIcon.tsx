@@ -15,9 +15,9 @@
  * перечитать файл после замены.
  */
 import { useRef, useState } from 'react';
-import type { OfficeView } from '../shared/types';
-import { setOfficeIcon, uploadOfficeIcon, useStore } from './store';
-import { officeAvatarColor, officeAvatarInk } from './officeColor';
+import { OFFICE_COLORS, type OfficeView } from '../shared/types';
+import { setOfficeColor, setOfficeIcon, uploadOfficeIcon, useStore } from './store';
+import { officeAvatarColor, officeAvatarStyle } from './officeColor';
 import { t } from './i18n';
 
 /**
@@ -89,8 +89,7 @@ export function OfficeIconSetting() {
       <div className="form-row-label"><label>{t('settings.icon.title')}</label></div>
       <div className="form-row-control">
         <div className="office-icon-setting">
-          <span className="office-card-avatar"
-            style={{ background: officeAvatarColor(office.id), color: officeAvatarInk(office.id) }}>
+          <span className="office-card-avatar" style={officeAvatarStyle(office)}>
             <OfficeAvatarIcon office={office} imgClass="office-card-icon-img" />
           </span>
           <div className="office-icon-setting-actions">
@@ -114,7 +113,37 @@ export function OfficeIconSetting() {
         </div>
         {error && <span className="form-hint error">{error}</span>}
         <span className="form-hint">{t('settings.icon.hint')}</span>
+        <OfficeColorChoice office={office} />
       </div>
+    </div>
+  );
+}
+
+/**
+ * Выбор цвета офиса: «по умолчанию» и восемь кружков общей палитры. Отмечен
+ * тот, что сейчас в состоянии офиса, — то есть подтверждённый сервером;
+ * своего оптимистичного выбора нет, как и у иконки.
+ *
+ * Кружок «по умолчанию» закрашен цветом, который офис получит без выбора
+ * (из id), но с косой чертой: видно и что будет, и что это не выбор.
+ */
+function OfficeColorChoice({ office }: { office: OfficeView }) {
+  return (
+    <div className="office-color-choice" role="radiogroup" aria-label={t('settings.color.title')}>
+      <span className="office-color-label">{t('settings.color.title')}</span>
+      <button type="button" role="radio" aria-checked={!office.color}
+        className={`office-color-swatch default${office.color ? '' : ' selected'}`}
+        style={{ background: officeAvatarColor(office.id) }}
+        title={t('settings.color.default')} aria-label={t('settings.color.default')}
+        onClick={() => { if (office.color) setOfficeColor(office.id, null); }} />
+      {OFFICE_COLORS.map((c, i) => (
+        <button key={c} type="button" role="radio" aria-checked={office.color === c}
+          className={`office-color-swatch${office.color === c ? ' selected' : ''}`}
+          style={{ background: `var(--${c})` }}
+          title={t('settings.color.option', { n: i + 1 })}
+          aria-label={t('settings.color.option', { n: i + 1 })}
+          onClick={() => { if (office.color !== c) setOfficeColor(office.id, c); }} />
+      ))}
     </div>
   );
 }

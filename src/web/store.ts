@@ -5,7 +5,7 @@ import type {
   McpServerState, MergeCheck, MergeCheckState, MergeRun, MergeStep, MergeStepStatus,
   PermissionDecision,
   MarketView, PermissionMode, PermissionRequest, MeetingView, RoleDraft, RoleEditable, RoleOp, RoleView,
-  ServerEvent, Settings, SpendStep, TaskEdit, TaskPriority, TaskView, Usage, CloudStatus, OfficeView, OfficeIcon,
+  ServerEvent, Settings, SpendStep, TaskEdit, TaskPriority, TaskView, Usage, CloudStatus, OfficeView, OfficeIcon, OfficeColor,
   PullRequestView, PrStage,
   EpicView, LimitsView, FactView, OwnerQuestion, LifeView, RitualId, DirectionView, ProposalView,
   OfficeSetupPlan, SetupCatalog, SetupStep, OfficeHealth, EnvReport, RuleScopeView, PmChat,
@@ -1213,6 +1213,17 @@ export const useStore = create<State>((set, get) => ({
           });
           break;
         }
+        // Цвет — тот же случай, что иконка: отказ приходит только этим
+        // событием, показываем его тостом там, где нажали.
+        if (e.op === 'color') {
+          pushToast({
+            id: `office-color-error-${e.officeId ?? 'x'}`,
+            kind: 'failed',
+            title: tr('toast.colorNotSaved'),
+            detail: e.message,
+          });
+          break;
+        }
         // Архивация — такой же новый op: сервер отказывает по делу (в офисе
         // идут задачи, на него смотрят из другой вкладки), и причину надо
         // показать там, где нажали, а не оставить в чате чужого офиса.
@@ -2215,6 +2226,15 @@ export function reorderOffice(officeId: string, index: number): void {
 /** null сбрасывает иконку офиса к умолчанию (инициал). */
 export function setOfficeIcon(officeId: string, icon: OfficeIcon | null): void {
   socket?.send(JSON.stringify({ c: 'set_office_icon', officeId, icon }));
+}
+
+/**
+ * Цвет офиса — ключ палитры (`accent-1`..`accent-8`); null возвращает цвет
+ * по умолчанию, выведенный из id офиса. Как и с иконкой, показ меняется,
+ * только когда сервер пришлёт обновлённый список офисов.
+ */
+export function setOfficeColor(officeId: string, color: OfficeColor | null): void {
+  socket?.send(JSON.stringify({ c: 'set_office_color', officeId, color }));
 }
 
 /**

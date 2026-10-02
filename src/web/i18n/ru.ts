@@ -22,6 +22,7 @@ export const ru: Record<keyof typeof en, string> = {
   'toast.settingsNotSaved': 'Настройки не сохранены',
   'toast.layoutNotSaved': 'Расстановка не сохранена',
   'toast.iconNotSaved': 'Иконка офиса не сохранена',
+  'toast.colorNotSaved': 'Цвет офиса не сохранён',
   'toast.archiveNotDone': 'Офис не убран в архив',
   'toast.sent': 'Отправлено — ответ придёт в чат',
 
@@ -627,6 +628,9 @@ export const ru: Record<keyof typeof en, string> = {
   "settings.icon.reset": "Сбросить",
   "settings.icon.tooBig": "Файл весит {got} КБ — это больше потолка в {max} КБ. Уменьшите картинку или возьмите другую.",
   "settings.icon.badType": "Такие файлы офис не принимает ({type}). Подойдут PNG, JPEG, WebP или SVG.",
+  "settings.color.title": "Цвет",
+  "settings.color.default": "По умолчанию — цвет, выбранный офису автоматически",
+  "settings.color.option": "Цвет {n}",
   "settings.layout.title": "Раскладка офиса",
   "settings.layout.hint": "Раскладка задаёт планировку комнаты — пол, стены и расстановку мебели. После сохранения сотрудники пересядут за столы новой раскладки.",
   // материалы пола комнаты: ключ — `floor.<имя файла из design/textures/floor>`

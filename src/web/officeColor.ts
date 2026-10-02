@@ -1,3 +1,6 @@
+import type { CSSProperties } from 'react';
+import type { OfficeView } from '../shared/types';
+
 /** Размер общей палитры акцентов — токены --accent-1..8 в tokens.css. */
 const ACCENT_COUNT = 8;
 
@@ -36,4 +39,25 @@ export function officeAvatarColor(officeId: string): string {
  */
 export function officeAvatarInk(officeId: string): string {
   return `var(--accent-${accentIndex(officeId)}-ink)`;
+}
+
+/**
+ * Подложка аватарки офиса целиком: заливка, чернила и — для картинки с
+ * выбранным цветом — рамка.
+ *
+ * Выбранный цвет (`office.color`, ключ палитры) сильнее цвета из хеша id.
+ * Картинка закрывает подложку полностью (object-fit: cover), поэтому для неё
+ * цвет виден только кольцом вокруг; без выбранного цвета кольца нет — всё как
+ * было до появления цвета.
+ */
+export function officeAvatarStyle(office: OfficeView): CSSProperties {
+  if (!office.color) {
+    return { background: officeAvatarColor(office.id), color: officeAvatarInk(office.id) };
+  }
+  const style: CSSProperties = {
+    background: `var(--${office.color})`,
+    color: `var(--${office.color}-ink)`,
+  };
+  if (office.icon?.kind === 'image') style.boxShadow = `0 0 0 2px var(--${office.color})`;
+  return style;
 }

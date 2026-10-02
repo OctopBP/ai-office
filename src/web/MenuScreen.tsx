@@ -10,7 +10,7 @@ import { money } from './money';
 import type { OfficeView } from '../shared/types';
 import type { HomeTab } from './router';
 import { t, type UiKey } from './i18n';
-import { officeAvatarColor, officeAvatarInk } from './officeColor';
+import { officeAvatarStyle } from './officeColor';
 import { OfficeAvatarIcon } from './OfficeIcon';
 
 const TABS: Array<[HomeTab, UiKey]> = [
@@ -33,7 +33,7 @@ const THEME_MODES: Array<[ThemeMode, UiKey]> = [
 function OfficeAvatar({ office: o, small }: { office: OfficeView; small?: boolean }) {
   return (
     <span className={`office-card-avatar${small ? ' sm' : ''}`}
-      style={{ background: officeAvatarColor(o.id), color: officeAvatarInk(o.id) }}>
+      style={officeAvatarStyle(o)}>
       <OfficeAvatarIcon office={o} imgClass="office-card-icon-img" />
     </span>
   );

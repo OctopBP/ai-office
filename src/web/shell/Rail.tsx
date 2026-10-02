@@ -11,7 +11,7 @@ import { Icon, type IconName } from '../icons';
 import { Kbd } from '../Kbd';
 import { Hint, Tooltip } from '../Tooltip';
 import { HOTKEY } from '../hotkeys';
-import { officeAvatarColor, officeAvatarInk } from '../officeColor';
+import { officeAvatarStyle } from '../officeColor';
 import { OfficeAvatarIcon } from '../OfficeIcon';
 import { ProviderIcon } from './ProviderIcon';
 
@@ -294,7 +294,7 @@ export function Rail({ onPanel, onModal }: {
               disabled={pending === 'enter'}
               title={collapsed ? `${o.name} · ${status}` : o.projectDir}>
               <span className="rail-office-avatar"
-                style={{ background: officeAvatarColor(o.id), color: officeAvatarInk(o.id) }}>
+                style={officeAvatarStyle(o)}>
                 <OfficeAvatarIcon office={o} imgClass="rail-office-icon-img" />
               </span>
               <span className="rail-office-text">

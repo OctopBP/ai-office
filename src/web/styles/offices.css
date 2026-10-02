@@ -93,3 +93,18 @@
 .office-icon-setting { display: flex; align-items: center; gap: var(--space-3); }
 .office-icon-setting-actions { display: flex; align-items: center; gap: var(--space-2); }
 .office-icon-file { display: none; }
+
+/* Выбор цвета офиса под блоком иконки: ряд кружков палитры. Выбранный
+   обведён кольцом цвета текста с зазором фона — отличим на любом акценте.
+   «По умолчанию» перечёркнут: цвет показан, но это не выбор. */
+.office-color-choice { display: flex; align-items: center; flex-wrap: wrap; gap: var(--space-2); margin-top: var(--space-2); }
+.office-color-label { font-size: var(--fs-small); color: var(--ink-3); margin-right: var(--space-1); }
+.office-color-swatch {
+  width: 20px; height: 20px; min-height: 0; padding: 0; flex: none;
+  border: none; border-radius: 50%; cursor: pointer; position: relative;
+}
+.office-color-swatch.selected { box-shadow: 0 0 0 2px var(--surface), 0 0 0 4px var(--ink); }
+.office-color-swatch.default::after {
+  content: ''; position: absolute; left: 50%; top: 2px; bottom: 2px; width: 2px;
+  margin-left: -1px; background: rgba(255, 255, 255, 0.9); transform: rotate(45deg);
+}

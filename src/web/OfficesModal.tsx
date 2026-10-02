@@ -6,6 +6,8 @@ import {
 import type { OfficeView } from '../shared/types';
 import { t } from './i18n';
 import { Icon } from './icons';
+import { officeAvatarStyle } from './officeColor';
+import { OfficeAvatarIcon } from './OfficeIcon';
 
 // Палитра выбора без претензии на полноту — 16 эмодзи на разные темы проекта.
 const ICON_PALETTE = [
@@ -57,6 +59,9 @@ export function OfficesModal({ onClose }: { onClose: () => void }) {
             return (
               <Fragment key={o.id}>
                 <div className={`office-row ${o.current ? 'current' : ''}`}>
+                  <span className="office-card-avatar sm" style={officeAvatarStyle(o)}>
+                    <OfficeAvatarIcon office={o} imgClass="office-card-icon-img" />
+                  </span>
                   <div className="office-who">
                     <b>{o.name}</b>
                     <OfficeStatusMark office={o} />

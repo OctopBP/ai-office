@@ -23,6 +23,7 @@ export const en = {
   'toast.settingsNotSaved': 'The settings were not saved',
   'toast.layoutNotSaved': 'The layout was not saved',
   'toast.iconNotSaved': 'The office icon was not saved',
+  'toast.colorNotSaved': 'The office colour was not saved',
   'toast.archiveNotDone': 'The office was not archived',
   'toast.sent': 'Sent — the reply will come to the chat',
 
@@ -628,6 +629,9 @@ export const en = {
   "settings.icon.reset": "Reset",
   "settings.icon.tooBig": "The file is {got} KB, over the {max} KB ceiling. Scale the picture down or pick another one.",
   "settings.icon.badType": "The office does not take files of this kind ({type}). PNG, JPEG, WebP or SVG will do.",
+  "settings.color.title": "Colour",
+  "settings.color.default": "Default — the colour the office got automatically",
+  "settings.color.option": "Colour {n}",
   "settings.layout.title": "Office layout",
   "settings.layout.hint": "The layout sets the plan of the room — the floor, the walls and where the furniture stands. After saving, the staff move to the desks of the new layout.",
   // материалы пола комнаты: ключ — `floor.<имя файла из design/textures/floor>`
