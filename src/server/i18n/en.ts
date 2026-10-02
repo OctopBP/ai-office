@@ -477,6 +477,7 @@ export const en = {
   'office.removed': 'Office “{name}” was removed from the list and unloaded. The project files and its board are still on disk — they come back with the office.',
   'office.archived': 'Office “{name}” was moved to the archive: no work runs there any more — no tasks, no rituals, no supervision. Nothing was deleted: bring it back from the archive and the board, the spending and the conversations are all there.',
   'office.unarchived': 'Office “{name}” is back from the archive and works as usual again.',
+  'office.unarchivedPaused': 'Office “{name}” is back from the archive. It is paused — resume it when you decide to continue the work.',
   'office.archiveBusy': 'Office “{name}” still has work running: {tasks}. Wait for those tasks or stop them, and then move the office to the archive.',
   'office.archiveOpenElsewhere': 'Office “{name}” is open right now — in this tab or in another one. Switch to another office there, and then move this one to the archive.',
   'office.archiveOpening': 'Office “{name}” is still opening. Wait until it opens, and then move it to the archive.',

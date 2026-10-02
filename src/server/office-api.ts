@@ -16,7 +16,7 @@ import {
 } from './state';
 import {
   createOffice, currentOffice, officeById, removeOffice, renameOffice, reorderOffice, setCurrent,
-  setOfficeArchived, setOfficeColor, setOfficeUnloader, setOfficeIcon,setUiLanguage, uiLanguage, type OfficeEntry,
+  archiveOffice, setOfficeColor, setOfficeUnloader, unarchiveOffice, setOfficeIcon,setUiLanguage, uiLanguage, type OfficeEntry,
 } from './offices';
 import { stopSupervisor } from './supervisor';
 import { stopHealth } from './health';
@@ -540,8 +540,16 @@ export function handleOfficeCommand(cmd: ClientCommand, ws: Sink): boolean {
     if (!cmd.archived) {
       // Возврат из архива ничего не поднимает: офис становится обычным, и
       // человек входит в него тем же переключением, что и в любой другой.
-      setOfficeArchived(office.id, false);
-      here?.addLog(null, 'system', c('office.unarchived', { name: office.name }));
+      // Пауза, поставленная архивом, остаётся — снимать её отдельное решение.
+      const result = unarchiveOffice(office.id);
+      if (!result.ok) {
+        refuse('archive', office.id, c(result.code, result.vars), ws);
+      } else {
+        // Офис, убранный в архив до паузы-при-архиве, возвращается рабочим —
+        // текст говорит то, что есть на самом деле.
+        here?.addLog(null, 'system', c(office.paused ? 'office.unarchivedPaused' : 'office.unarchived',
+          { name: office.name }));
+      }
       broadcastOffices();
       return true;
     }
@@ -567,14 +575,22 @@ export function handleOfficeCommand(cmd: ClientCommand, ws: Sink): boolean {
       refuse('archive', office.id, c('office.archiveOpening', { name: office.name }), ws);
       return true;
     }
-    setOfficeArchived(office.id, true);
-    // Признак — на живое состояние до выгрузки: между этими двумя строками
-    // офис ещё может успеть дёрнуть надзор или раздачу задачи.
-    if (isOpened(office.id)) getOffice(office.id).archived = true;
-    // И гасим: надзор, сессии, хвост записи, место в памяти. Файлы целы —
-    // архив это не удаление.
-    unloadOffice(office.id);
-    here?.addLog(null, 'system', c('office.archived', { name: office.name }));
+    // Признак — на живое состояние до выгрузки: пока реестр пишет запись,
+    // офис ещё может успеть дёрнуть надзор или раздачу задачи. Отказ реестра
+    // (последний рабочий офис) признак откатывает.
+    const live = isOpened(office.id) ? getOffice(office.id) : null;
+    const wasArchived = live?.archived ?? false;
+    if (live) live.archived = true;
+    // Реестр сам ставит паузу, уводит «текущий» на другой рабочий офис и
+    // гасит этот через крючок `setOfficeUnloader`: надзор, сессии, хвост
+    // записи, место в памяти. Файлы целы — архив это не удаление.
+    const result = archiveOffice(office.id);
+    if (!result.ok) {
+      if (live) live.archived = wasArchived;
+      refuse('archive', office.id, c(result.code, result.vars), ws);
+    } else {
+      here?.addLog(null, 'system', c('office.archived', { name: office.name }));
+    }
     broadcastOffices();
     return true;
   }
@@ -616,8 +632,10 @@ export function handleOfficeCommand(cmd: ClientCommand, ws: Sink): boolean {
     } else {
       here?.addLog(null, 'system',
         c('office.removed', { name }));
-      broadcastOffices();
     }
+    // Список — и при отказе: у просившего он мог устареть, и отказ вроде
+    // «не найден» лечится как раз свежим списком.
+    broadcastOffices();
     return true;
   }
   return false;
