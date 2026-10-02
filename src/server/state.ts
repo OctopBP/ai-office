@@ -5092,6 +5092,8 @@ export const officeViews = (): OfficeView[] => {
       // Пропавший файл — тоже «нет иконки»: рисовать сломанную картинку хуже,
       // чем инициалы.
       ...(icon ? { icon } : {}),
+      // Цвет так же: нет поля — веб рисует умолчание.
+      ...(o.color ? { color: o.color } : {}),
       activity: live?.opened
         ? {
           ...summarize({

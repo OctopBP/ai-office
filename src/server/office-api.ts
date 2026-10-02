@@ -16,7 +16,7 @@ import {
 } from './state';
 import {
   createOffice, currentOffice, officeById, removeOffice, renameOffice, reorderOffice, setCurrent,
-  setOfficeArchived, setOfficeIcon, setUiLanguage, uiLanguage, type OfficeEntry,
+  setOfficeArchived, setOfficeColor, setOfficeIcon,setUiLanguage, uiLanguage, type OfficeEntry,
 } from './offices';
 import { stopSupervisor } from './supervisor';
 import { stopHealth } from './health';
@@ -505,6 +505,19 @@ export function handleOfficeCommand(cmd: ClientCommand, ws: Sink): boolean {
     // И снапшот тому, кто смотрит этот офис: список офисов лежит внутри
     // снапшота, и без этого открытая доска показывала бы старую иконку до
     // следующего события.
+    const state = isOpened(cmd.officeId) ? getOffice(cmd.officeId) : null;
+    if (state) broadcastSnapshot(state);
+    return true;
+  }
+  if (cmd.c === 'set_office_color') {
+    const problem = setOfficeColor(cmd.officeId, cmd.color);
+    if (problem) {
+      refuse('color', cmd.officeId, problem, ws);
+      return true;
+    }
+    // Рассылка та же, что у иконки: цвет виден в рейле каждой вкладки и в
+    // снапшоте открытого офиса.
+    broadcastOffices();
     const state = isOpened(cmd.officeId) ? getOffice(cmd.officeId) : null;
     if (state) broadcastSnapshot(state);
     return true;

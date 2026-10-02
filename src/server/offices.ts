@@ -8,7 +8,9 @@ import {
 } from 'node:fs';
 import { homedir } from 'node:os';
 import { basename, dirname, extname, relative, resolve, sep } from 'node:path';
-import { compareOffices, type OfficeIcon } from '../shared/types';
+import {
+  compareOffices, isOfficeColor, OFFICE_COLORS, type OfficeColor, type OfficeIcon,
+} from '../shared/types';
 import { asLang, isLang, type Lang } from '../shared/i18n';
 import { c } from './i18n';
 
@@ -42,6 +44,11 @@ export interface OfficeEntry {
    * (см. `StoredIcon`). Поля нет — офис рисуется умолчанием.
    */
   icon?: StoredIcon;
+  /**
+   * Цвет офиса — ключ палитры (`OfficeColor`). Хранится отдельно от иконки:
+   * смена или сброс одного не трогает другое. Поля нет — цвет по умолчанию.
+   */
+  color?: OfficeColor;
   /** Где лежит состояние этого офиса. */
   stateFile: string;
   /**
@@ -186,6 +193,12 @@ function normalize(data: Registry): boolean {
     // офис нерасставленным, и поле в файле врало бы про порядок.
     if ('order' in office && !(typeof office.order === 'number' && Number.isFinite(office.order))) {
       delete office.order;
+      changed = true;
+    }
+    // Цвет из файла тоже правят руками: незнакомый ключ веб нарисовал бы
+    // как `var(--мусор)`, то есть никак. Убираем — офис вернётся к умолчанию.
+    if ('color' in office && !isOfficeColor(office.color)) {
+      delete office.color;
       changed = true;
     }
   }
@@ -880,6 +893,32 @@ export function setOfficeIcon(id: string, icon: OfficeIcon | null): string | nul
   }
 
   return c('offices.iconKind');
+}
+
+/**
+ * Сменить цвет офиса. `null` — вернуть умолчание. Иконку не трогает: цвет и
+ * аватарка независимы. Возвращает причину отказа на языке офиса или null.
+ */
+export function setOfficeColor(id: string, color: unknown): string | null {
+  const office = officeById(id);
+  if (!office) return c('offices.notFound', { id });
+  if (color === null || color === undefined) {
+    if (office.color) {
+      delete office.color;
+      write();
+    }
+    return null;
+  }
+  if (!isOfficeColor(color)) {
+    // Значение пришло из сети и может быть чем угодно — в текст отказа кладём
+    // короткую строку, а не объект целиком.
+    return c('offices.colorBad', { list: OFFICE_COLORS.join(', '), got: String(color).slice(0, 40) });
+  }
+  if (office.color !== color) {
+    office.color = color;
+    write();
+  }
+  return null;
 }
 
 /**

@@ -1003,7 +1003,26 @@ export interface OfficeActivity {
  * не над чем, и клиенту об этом говорят, а не молчат.
  */
 export type OfficeOp =
-  | 'create' | 'switch' | 'rename' | 'remove' | 'open' | 'icon' | 'reorder' | 'archive';
+  | 'create' | 'switch' | 'rename' | 'remove' | 'open' | 'icon' | 'color' | 'reorder' | 'archive';
+
+/**
+ * Ключи единой палитры (`--accent-1..8` в src/web/styles/tokens.css). Список
+ * здесь, а не только в CSS: сервер по нему проверяет команду, а веб строит
+ * выбор цвета, и оба смотрят в один источник.
+ */
+export const OFFICE_COLORS = [
+  'accent-1', 'accent-2', 'accent-3', 'accent-4',
+  'accent-5', 'accent-6', 'accent-7', 'accent-8',
+] as const;
+
+/**
+ * Цвет офиса — ключ палитры, а не hex: значение палитры у каждой темы своё, и
+ * цвет офиса обязан следовать за темой. Рисовать как `var(--<ключ>)`.
+ */
+export type OfficeColor = typeof OFFICE_COLORS[number];
+
+export const isOfficeColor = (v: unknown): v is OfficeColor =>
+  typeof v === 'string' && (OFFICE_COLORS as readonly string[]).includes(v);
 
 /**
  * Иконка офиса — его аватарка. Значение размечено типом, потому что рисуются
@@ -1040,6 +1059,12 @@ export interface OfficeView {
   projectDir: string;
   /** Аватарка офиса. Нет поля — рисуется умолчание. */
   icon?: OfficeIcon;
+  /**
+   * Цвет офиса — подложка аватарки и акцент в рейле. Поле отдельно от `icon`,
+   * а не внутри: цвет живёт и при эмодзи, и при картинке, и при умолчании, и
+   * сброс иконки не должен его стирать. Нет поля — цвет по умолчанию.
+   */
+  color?: OfficeColor;
   /**
    * Офис без проекта: корневую папку офис завёл сам в служебном месте
    * (`~/Office/<slug>`). Меню подписывает такую карточку «без проекта», а не
@@ -2685,6 +2710,12 @@ export type ClientCommand =
    * форме не приходилось различать «стёрли поле» и «нажали сброс».
    */
   | { c: 'set_office_icon'; officeId: string; icon: OfficeIcon | null }
+  /**
+   * Сменить цвет офиса. `color` null — вернуть цвет по умолчанию. Значение
+   * вне `OFFICE_COLORS` сервер отклоняет событием `office.error` с op `color`.
+   * Иконку команда не трогает, как и `set_office_icon` — цвет.
+   */
+  | { c: 'set_office_color'; officeId: string; color: OfficeColor | null }
   /** Запросить список офисов, не дожидаясь снапшота: меню открывается раньше офиса. */
   | { c: 'list_offices' }
   /**
