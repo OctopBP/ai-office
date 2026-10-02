@@ -168,9 +168,21 @@ export const DEFAULT_MCP_SERVERS: McpServerDef[] = [
   }),
 ];
 
-/** Каталог офиса. Поля нет — офис старше каталога, берём набор по умолчанию. */
-export const mcpCatalog = (settings: Settings): McpServerDef[] =>
-  settings.mcpServers ?? DEFAULT_MCP_SERVERS;
+/**
+ * Каталог офиса. Поля нет — офис старше каталога, берём набор по умолчанию.
+ *
+ * Сохранённый каталог дополняем умолчаниями, которых в нём нет по id: офис,
+ * заведённый до появления сервера в умолчаниях (так было с `browser`), иначе
+ * не увидел бы его никогда, и подписка роли из пакета молча пропадала бы.
+ * Сохранённые записи не трогаем — правки и отключения владельца в силе;
+ * убрать сервер насовсем значит выключить его, а не удалить из каталога.
+ */
+export const mcpCatalog = (settings: Settings): McpServerDef[] => {
+  const saved = settings.mcpServers;
+  if (!saved) return DEFAULT_MCP_SERVERS;
+  const missing = DEFAULT_MCP_SERVERS.filter((d) => !saved.some((s) => s.id === d.id));
+  return missing.length ? [...saved, ...missing] : saved;
+};
 
 /**
  * Имена серверов роли. Умолчание роли из пакета лежит в её манифесте и при
@@ -180,14 +192,19 @@ export const mcpCatalog = (settings: Settings): McpServerDef[] =>
 export const mcpNamesFor = (role: Role): string[] => role.mcp ?? [];
 
 /**
- * Серверы роли из каталога офиса. Неизвестные и выключенные имена отбрасываем
- * молча: сервер могли убрать из каталога или выключить на время, а подписка
- * роли лежит в сохранении и переживёт это.
+ * Серверы роли из каталога офиса. Выключенные отбрасываем молча: это решение
+ * владельца, подписка роли лежит в сохранении и переживёт его. Неизвестное
+ * имя тоже отбрасываем, но с предупреждением в лог: молчание здесь однажды
+ * оставило QA без браузера, и искать пришлось по всей цепочке сессии.
  */
-const serversFor = (settings: Settings, role: Role): McpServerDef[] => {
+export const serversFor = (settings: Settings, role: Role): McpServerDef[] => {
   const catalog = mcpCatalog(settings);
   return mcpNamesFor(role)
-    .map((id) => catalog.find((s) => s.id === id))
+    .map((id) => {
+      const found = catalog.find((s) => s.id === id);
+      if (!found) console.warn(`[mcp] роль ${role.id} подписана на сервер ${id}, которого нет в каталоге офиса`);
+      return found;
+    })
     .filter((s): s is McpServerDef => s !== undefined && !s.disabled);
 };
 

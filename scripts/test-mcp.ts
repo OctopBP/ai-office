@@ -5,7 +5,7 @@
 // роль не заметит, а строка не от той роли хуже отсутствия строки — фронтенд,
 // которому сказано «делай макет в Figma», займётся не своим делом.
 import {
-  checkMcpServers, DEFAULT_MCP_SERVERS, externalMcp, mcpBrief, pollMcpStatus,
+  checkMcpServers, DEFAULT_MCP_SERVERS, externalMcp, mcpBrief, mcpCatalog, pollMcpStatus, serversFor,
 } from '../src/server/mcp';
 import { defaultRole } from '../src/server/roles';
 import type { Role } from '../src/server/roles';
@@ -49,13 +49,37 @@ check('неизвестное имя отбрасывается',
   servers({ ...role('design'), mcp: ['figma-bridge', 'нет-такого'] }).join() === 'figma-bridge',
   list({ ...role('design'), mcp: ['figma-bridge', 'нет-такого'] }));
 
-// Каталог офисный: сервер из него убрали — подписка роли переживает это молча.
+// Каталог офисный, но умолчания доливаются по id: убрать сервер насовсем можно
+// только выключив его.
 const empty = catalog([]);
-check('пустой каталог — нечего подключать', servers(role('design'), empty).length === 0,
+check('пустой каталог получает умолчания', servers(role('design'), empty).includes('figma-bridge'),
   list(role('design'), empty));
 const off = catalog(DEFAULT_MCP_SERVERS.map((s) => ({ ...s, disabled: true })));
 check('выключенный сервер не поднимается', servers(role('design'), off).length === 0,
   list(role('design'), off));
+
+// Офис старше `browser` в умолчаниях: в каталоге только мосты до Figma и Blender.
+const legacy = catalog(DEFAULT_MCP_SERVERS
+  .filter((s) => s.id === 'figma-bridge' || s.id === 'blender')
+  .map((s) => (s.id === 'blender' ? { ...s, title: 'Свой Blender', disabled: true } : s)));
+const qa: Role = { ...role('backend'), id: 'qa', mcp: ['browser'] };
+check('старый каталог + подписка на browser', serversFor(legacy, qa).map((s) => s.id).join() === 'browser',
+  serversFor(legacy, qa).map((s) => s.id).join() || '(нет)');
+const legacyBlender = mcpCatalog(legacy).find((s) => s.id === 'blender');
+check('сохранённая запись не тронута', legacyBlender?.title === 'Свой Blender' && legacyBlender.disabled === true,
+  `${legacyBlender?.title}, disabled=${legacyBlender?.disabled}`);
+check('доливка идемпотентна',
+  mcpCatalog({ mcpServers: mcpCatalog(legacy) } as Settings).length === DEFAULT_MCP_SERVERS.length,
+  `${mcpCatalog({ mcpServers: mcpCatalog(legacy) } as Settings).length} из ${DEFAULT_MCP_SERVERS.length}`);
+
+// Подписка на сервер, которого нет и после доливки, — предупреждение в лог.
+const warned: string[] = [];
+const realWarn = console.warn;
+console.warn = (...a: unknown[]) => { warned.push(a.join(' ')); };
+serversFor(legacy, { ...qa, mcp: ['нет-такого'] });
+console.warn = realWarn;
+check('неизвестный сервер — предупреждение', warned.some((w) => w.includes('qa') && w.includes('нет-такого')),
+  warned.join(' | ') || '(тишина)');
 
 // ------------------------------------------------------- строки в промпте
 
