@@ -2,7 +2,8 @@
 // MCP-сервер браузера для роли QA: stdio, один Chromium на сессию через playwright-core.
 // Контракт — docs/design/qa/spec.md, §3.1 и §5. Здесь только ядро: запуск браузера,
 // open, set_device, set_offline, screenshot и инструменты чтения; жесты tap и swipe через
-// CDP Input.dispatchTouchEvent и раскадровка storyboard (§5.2, §5.3). Фильтр адресов
+// CDP Input.dispatchTouchEvent и раскадровка storyboard (§5.2, §5.3); serve отдаёт папку
+// рабочей копии из перехвата запросов, без порта (в песочнице listen запрещён). Фильтр адресов
 // держит браузер на локальных адресах и опубликованной странице проекта: поэтому
 // правило разрешений офиса пропускает инструменты сервера без вопроса владельцу.
 //
@@ -17,7 +18,7 @@ import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import { chromium } from 'playwright-core';
 import { z } from 'zod';
-import { mkdir } from 'node:fs/promises';
+import { mkdir, readFile, stat } from 'node:fs/promises';
 import path from 'node:path';
 
 // stdout занят протоколом MCP, поэтому весь журнал — только в stderr.
@@ -95,6 +96,8 @@ function checkOpenUrl(raw) {
 async function installFilter(context) {
   await context.route('**/*', (route) => {
     const url = route.request().url();
+    const served = servedFolder(url);
+    if (served) return serveFile(route, served);
     if (urlAllowed(url)) return route.fallback();
     log(`заблокирован запрос: ${url.slice(0, 200)}`);
     return route.abort('blockedbyclient');
@@ -121,6 +124,89 @@ function guardNavigation(page) {
     push(buffers.failed, { kind: 'blocked', method: 'GET', url: frame.url(), resource: 'document', error: 'переход вне разрешённых адресов' });
     page.goto('about:blank').catch(() => {});
   });
+}
+
+// ——— Раздача папки без порта ———
+
+// В песочнице исполнителя listen запрещён (EPERM), поэтому страницу проекта отдаём прямо
+// из перехвата запросов: адрес http://127.0.0.1:<фиктивный порт>/ никто не слушает,
+// ответы собирает обработчик route. Порт свой на каждую папку, чтобы origin не смешивались.
+const SERVE_HOST = '127.0.0.1';
+const SERVE_PORT_BASE = 47100;
+const served = new Map(); // origin → абсолютный путь папки
+
+const MIME = {
+  '.html': 'text/html; charset=utf-8',
+  '.htm': 'text/html; charset=utf-8',
+  '.js': 'text/javascript; charset=utf-8',
+  '.mjs': 'text/javascript; charset=utf-8',
+  '.css': 'text/css; charset=utf-8',
+  '.json': 'application/json; charset=utf-8',
+  '.map': 'application/json; charset=utf-8',
+  '.webmanifest': 'application/manifest+json; charset=utf-8',
+  '.txt': 'text/plain; charset=utf-8',
+  '.md': 'text/markdown; charset=utf-8',
+  '.xml': 'application/xml; charset=utf-8',
+  '.svg': 'image/svg+xml',
+  '.png': 'image/png',
+  '.jpg': 'image/jpeg',
+  '.jpeg': 'image/jpeg',
+  '.gif': 'image/gif',
+  '.webp': 'image/webp',
+  '.avif': 'image/avif',
+  '.ico': 'image/x-icon',
+  '.wasm': 'application/wasm',
+  '.mp3': 'audio/mpeg',
+  '.ogg': 'audio/ogg',
+  '.wav': 'audio/wav',
+  '.mp4': 'video/mp4',
+  '.webm': 'video/webm',
+  '.woff': 'font/woff',
+  '.woff2': 'font/woff2',
+  '.ttf': 'font/ttf',
+  '.otf': 'font/otf',
+  '.glb': 'model/gltf-binary',
+  '.gltf': 'model/gltf+json',
+};
+
+function servedFolder(raw) {
+  try {
+    const url = new URL(raw);
+    if (url.protocol !== 'http:') return null;
+    const root = served.get(url.origin);
+    return root ? { root, pathname: url.pathname } : null;
+  } catch {
+    return null;
+  }
+}
+
+function notFound(route, what) {
+  return route.fulfill({ status: 404, contentType: 'text/plain; charset=utf-8', body: `404: ${what}` });
+}
+
+// Playwright не роняет перехваченные запросы в офлайне: fulfill отвечает и при setOffline(true)
+// (проверено на 1.63). QA проверяет приложение без сети, поэтому офлайн обрываем сами.
+async function serveFile(route, { root, pathname }) {
+  if (session.offline) return route.abort('internetdisconnected');
+  let rel;
+  try {
+    rel = decodeURIComponent(pathname);
+  } catch {
+    return notFound(route, pathname);
+  }
+  let file = path.resolve(root, `.${rel}`);
+  const inside = path.relative(root, file);
+  if (inside.startsWith('..') || path.isAbsolute(inside)) return notFound(route, pathname);
+  try {
+    if ((await stat(file)).isDirectory()) file = path.join(file, 'index.html');
+    const body = await readFile(file);
+    const type = MIME[path.extname(file).toLowerCase()] || 'application/octet-stream';
+    return route.fulfill({ status: 200, contentType: type, body, headers: { 'cache-control': 'no-store' } });
+  } catch (err) {
+    if (err?.code === 'ENOENT' || err?.code === 'ENOTDIR' || err?.code === 'EISDIR') return notFound(route, pathname);
+    log(`раздача не прочитала ${file}: ${firstLine(err)}`);
+    return route.fulfill({ status: 500, contentType: 'text/plain; charset=utf-8', body: `500: ${firstLine(err)}` });
+  }
 }
 
 // ——— Устройства ———
@@ -304,7 +390,8 @@ async function applyDevice() {
     screenHeight: d.height,
     screenOrientation: landscape ? { type: 'landscapePrimary', angle: 90 } : { type: 'portraitPrimary', angle: 0 },
   });
-  await cdp.send('Emulation.setTouchEmulationEnabled', { enabled: d.touch, maxTouchPoints: d.touch ? 5 : 0 });
+  // maxTouchPoints принимается только в пределах 1–16, даже при выключенном touch: 0 Chrome отвергает.
+  await cdp.send('Emulation.setTouchEmulationEnabled', d.touch ? { enabled: true, maxTouchPoints: 5 } : { enabled: false });
   await cdp.send('Emulation.setUserAgentOverride', { userAgent: d.mobile ? MOBILE_UA : session.desktopUA });
 }
 
@@ -610,6 +697,31 @@ server.registerTool(
 );
 
 server.registerTool(
+  'serve',
+  {
+    description:
+      'Раздать папку рабочей копии (собранную статику, страницу проекта) без прослушивания порта: запросы ' +
+      'на возвращённый адрес http://127.0.0.1:<порт>/ отдаёт сам браузер из файлов папки. Адрес передайте в open. ' +
+      'Каталог отдаёт свой index.html, нет файла — 404; в офлайне (set_offline) раздача тоже обрывается.',
+    inputSchema: {
+      dir: z.string().describe('Папка относительно рабочей копии, например dist или tools/browser/fixtures/target/fixed'),
+    },
+  },
+  tool(async ({ dir }) => {
+    const { file: root, rel } = insideWorkdir(dir);
+    if (!(await stat(root).catch(() => null))?.isDirectory()) throw new Error(`не папка: ${rel}`);
+    // Та же папка — тот же адрес: повторный serve не плодит origin и не теряет localStorage.
+    let origin = [...served].find(([, folder]) => folder === root)?.[0];
+    if (!origin) {
+      origin = `http://${SERVE_HOST}:${SERVE_PORT_BASE + served.size}`;
+      served.set(origin, root);
+    }
+    log(`раздача ${rel} → ${origin}/`);
+    return { url: `${origin}/`, dir: rel };
+  }),
+);
+
+server.registerTool(
   'set_device',
   {
     description:
@@ -646,7 +758,7 @@ server.registerTool(
 server.registerTool(
   'set_offline',
   {
-    description: 'Включить или выключить офлайн для страницы (navigator.onLine и сетевые запросы).',
+    description: 'Включить или выключить офлайн для страницы (navigator.onLine и сетевые запросы, включая раздачу serve).',
     inputSchema: { on: z.boolean() },
   },
   tool(async ({ on }) => {

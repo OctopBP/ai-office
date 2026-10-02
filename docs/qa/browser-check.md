@@ -1,41 +1,40 @@
 # Проверка MCP-сервера браузера (`tools/browser/server.mjs`)
 
-Дата: 2026-10-02, задача T-267. Скрипт: `node tools/browser/smoke.mjs` (MCP-клиент по stdio,
-кадры во временной папке). Зависимости на месте: `playwright-core` 1.63.0, в
-`~/Library/Caches/ms-playwright` — `chromium-1243`, `chromium_headless_shell-1243`.
+Дата: 2026-10-02, задача T-268. Скрипт: `node tools/browser/smoke.mjs`, MCP-клиент по stdio.
+Страница пишется во временную папку и отдаётся через `serve`. Итог: **все 20 шагов ОК** в песочнице
+исполнителя, код выхода 0 (с правкой ниже прошло со второго запуска).
 
-## Итог: прогон частичный — песочница исполнителя не даёт слушать порт
+## Раздача без порта: `serve(dir)`
 
-Локальный HTTP-сервер страницы не поднялся: `listen EPERM: operation not permitted 127.0.0.1`.
-Поэтому шаги, которым нужна встроенная страница, не проверены по содержимому. Разрешить можно
-настройкой песочницы `sandbox.network.allowLocalBinding: true` или запуском скрипта вне неё.
+- Папка рабочей копии (проверка `insideWorkdir`) отдаётся на `http://127.0.0.1:<47100+n>/`
+  через тот же `context.route`, что и фильтр адресов. Порт никто не слушает. Каталог отдаёт
+  свой `index.html`, MIME выбирается по расширению, на отсутствующий файл — честный 404.
+- **Офлайн:** Playwright 1.63 сам перехваченные запросы не роняет. При `setOffline(true)`
+  `route.fulfill` отвечал 200 и на fetch, и на goto (проверено отдельным опытом). Поэтому в
+  офлайне обработчик делает `route.abort('internetdisconnected')`: `open` падает с
+  `net::ERR_INTERNET_DISCONNECTED`, а после `set_offline(false)` раздача снова отвечает 200.
 
-- **Режим Chromium:** сработал запасной `chrome-headless-shell --single-process`. Обычный headless
-  упал с `browserType.launch: Target page, context or browser has been closed`.
-- **`routeWebSocket`:** в установленном `playwright-core` 1.63.0 есть (`async routeWebSocket` в
-  `lib/coreBundle.js`). Вживую блокировку сокета не проверили: нужна страница.
+## Шаги smoke.mjs (все ОК)
 
-## Шаги
+`serve` → `open` (200, «QA smoke»), css применился (проверка MIME), `set_device` портрет → альбом
+844×390, `get_console` (намеренная ошибка), `get_errors` (исключение), 404 на `missing.json`,
+чужой fetch и `wss://` заблокированы (`routeWebSocket` есть), `__QA_STATE__`. `tap` и `swipe`
+по canvas: start/end 1, move 13. Затем `screenshot` (прочитан: canvas с квадратом на синем фоне),
+`storyboard` (3 кадра, t = 0/200/400 мс), offline роняет раздачу, внешний `open` отклонён,
+`serve ../` отклонён, клиентский редирект на example.com уведён на `about:blank`.
+Статика не умеет 302, поэтому редирект теперь сделан клиентским.
 
-ОК:
-- `set_device`: `phone-portrait`, затем поворот в альбом (844×390);
-- `screenshot`: PNG 2532×1170 = 844×390 при DPR 3, белый `about:blank`. Это не пустой файл,
-  размер и плотность соответствуют устройству;
-- `storyboard`: 3 кадра со свайпом, интервал 200 мс, отметки времени t = 1/200/400 мс;
-- `set_offline`: в офлайне `navigator.onLine=false`, затем снова онлайн;
-- `open https://example.com/` отклонён: `адрес вне разрешённых: https://example.com — …`;
-- на `about:blank` отвечают `get_console`, `get_errors`, `get_failed_requests` (все `[]`),
-  `get_state` (env со вьюпортом, DPR, ориентацией), `tap` (`input: touch`) и `swipe` (13 touchMove за 235 мс).
+## Найдено и исправлено
 
-ОШИБКА из-за `listen EPERM` (страницы нет):
-- `open` локальной страницы;
-- содержимое `get_console`, `get_errors` и `get_failed_requests`: ошибка консоли, исключение, 404;
-- блокировка чужого fetch и WebSocket;
-- `__QA_STATE__` в `get_state`;
-- счётчики touch на canvas после `tap` и `swipe`;
-- редирект `/go` → `https://example.com/`.
+`applyDevice` слал `Emulation.setTouchEmulationEnabled` с `maxTouchPoints: 0` для десктопа.
+Chrome отвечает «Touch points must be between 1 and 16», поэтому первый `open` в десктопном режиме
+падал. Теперь при выключенном touch поле не передаётся.
 
-## Что дальше
+## Мишень
 
-Запустить `node tools/browser/smoke.mjs` вне песочницы. Итог должен быть «всё ОК», код выхода 0.
-Отдельно стоит выяснить, почему обычный headless закрывается при старте: это может быть та же песочница.
+`node tools/browser/smoke.mjs --dir tools/browser/fixtures/target/fixed --shot docs/qa/T-268/target-fixed.png`:
+200 «Каталог уровней». Ошибок консоли, исключений и сбойных запросов нет. Снимок не пустой:
+карточка уровня, подсказки, «Старт» и баннер cookie.
+
+Режим Chromium: обычный headless в песочнице падает при старте, работает запасной
+`chrome-headless-shell --single-process`.

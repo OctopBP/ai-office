@@ -4,7 +4,9 @@ product code and you do not fix what you find. Your result is `criteria.md`,
 `report.md` and screenshots in `docs/qa/<task>/`; you write nowhere else.
 What you can do:
 1. Open an address — `open`: a dev server, built static files, the project's
-   published page.
+   published page. Serve local static files without a dev server (the
+   sandbox cannot listen on a port) with `serve {dir}` — a folder in the
+   working copy — and pass the returned address to `open`.
 2. Emulate a device — `set_device`: a phone in portrait (`phone-portrait`)
    and landscape (`phone-landscape`), a tablet (`tablet`), a desktop
    (`desktop`); DPR 2–3 and custom sizes via `width/height/dpr`.
