@@ -487,6 +487,11 @@ interface State {
    * `archiveOffice(id, false)`.
    */
   requestArchiveOffice: (officeId: string) => void;
+  /**
+   * Убрать офис из списка (файлы проекта не трогаются). Открытый офис —
+   * так же, как с архивом: сначала переход в соседний неархивный, потом команда.
+   */
+  requestRemoveOffice: (officeId: string) => void;
   /** Отправить создание офиса из меню и ждать снапшот или ошибку. */
   requestCreateOffice: (name: string, projectDir: string) => void;
   /** Собрать офис по плану мастера: прогресс приходит событиями, итог — снапшот или ошибка. */
@@ -879,10 +884,21 @@ export const useStore = create<State>((set, get) => ({
     if (!office.current) { archiveOffice(officeId, true); return; }
     // Архивируем тот офис, в котором сидим: уходим в соседний и оставляем
     // метку — архивация уедет, когда придёт его снапшот. Соседа нет —
-    // уходить некуда, и кнопка в интерфейсе для этого случая недоступна.
+    // шлём команду как есть: сервер откажет понятным текстом, и он придёт
+    // тостом (своей проверки «последнего офиса» здесь нет).
     const next = activeOffices(s.offices).find((o) => o.id !== officeId);
-    if (!next) return;
-    archivingAfterSwitch = officeId;
+    if (!next) { archiveOffice(officeId, true); return; }
+    afterSwitch = { id: officeId, op: 'archive' };
+    get().enterOffice(next.id);
+  },
+
+  requestRemoveOffice: (officeId) => {
+    const s = get();
+    const office = s.offices.find((o) => o.id === officeId);
+    if (!office) return;
+    const next = office.current ? activeOffices(s.offices).find((o) => o.id !== officeId) : undefined;
+    if (!next) { removeOffice(officeId); return; }
+    afterSwitch = { id: officeId, op: 'remove' };
     get().enterOffice(next.id);
   },
 
@@ -985,7 +1001,7 @@ export const useStore = create<State>((set, get) => ({
         }));
         // Снапшот соседнего офиса — это и есть ответ «мы больше не смотрим на
         // тот, который убираем в архив»: теперь команду можно слать.
-        flushArchiveAfterSwitch(e.offices);
+        flushAfterSwitch(e.offices);
         break;
       }
       case 'instance': {
@@ -1184,7 +1200,7 @@ export const useStore = create<State>((set, get) => ({
       case 'office.error':
         // Переключение ради архивации не удалось — архивацию отменяем: иначе
         // она уехала бы после следующего, ни к чему не относящегося снапшота.
-        if (e.op === 'switch') archivingAfterSwitch = null;
+        if (e.op === 'switch') afterSwitch = null;
         // Отказ во входе или создании, пока меню ждёт ответа: форма
         // показывает причину и перестаёт крутить спиннер.
         if ((e.op === 'create' || e.op === 'switch') && get().pending) {
@@ -1232,6 +1248,17 @@ export const useStore = create<State>((set, get) => ({
             id: `office-archive-error-${e.officeId ?? 'x'}`,
             kind: 'failed',
             title: tr('toast.archiveNotDone'),
+            detail: e.message,
+          });
+          break;
+        }
+        // Удаление из списка — то же самое: причина отказа (последний офис,
+        // идёт работа) нужна там, где нажали.
+        if (e.op === 'remove') {
+          pushToast({
+            id: `office-remove-error-${e.officeId ?? 'x'}`,
+            kind: 'failed',
+            title: tr('toast.removeNotDone'),
             detail: e.message,
           });
           break;
@@ -2248,26 +2275,37 @@ export function archiveOffice(officeId: string, archived: boolean): void {
 }
 
 /**
+ * Убрать офис из списка. Файлы проекта и данные офиса остаются на диске:
+ * если снова открыть ту же папку, офис вернётся с доской. Ответ — новый
+ * список офисов или отказ 'office.error' с op 'remove'.
+ */
+export function removeOffice(officeId: string): void {
+  socket?.send(JSON.stringify({ c: 'remove_office', officeId }));
+}
+
+/**
  * Офис, который человек убирает в архив, не выходя из него. Сервер гасит
  * архивный офис целиком и поэтому не трогает тот, на который смотрит хоть
  * одна вкладка (`viewers` в office-api.ts): у зрителя просто перестали бы
  * работать команды. Значит, сначала переключаемся в соседний офис, и только
  * когда придёт его снапшот — шлём архивацию. Здесь лежит id того, кого
- * архивируем, пока идёт переключение.
+ * архивируем, пока идёт переключение. Удаление из списка устроено так же:
+ * открытый офис сервер убрать не даст.
  */
-let archivingAfterSwitch: string | null = null;
+let afterSwitch: { id: string; op: 'archive' | 'remove' } | null = null;
 
 /**
- * Переключение прошло — можно архивировать покинутый офис. Признак `current`
+ * Переключение прошло — можно архивировать или убрать покинутый офис. Признак `current`
  * в списке считает сервер, и пока он стоит на архивируемом офисе, вкладка
  * всё ещё смотрит именно его.
  */
-function flushArchiveAfterSwitch(offices: OfficeView[]): void {
-  const id = archivingAfterSwitch;
-  if (!id) return;
-  if (offices.some((o) => o.id === id && o.current)) return;
-  archivingAfterSwitch = null;
-  archiveOffice(id, true);
+function flushAfterSwitch(offices: OfficeView[]): void {
+  const pending = afterSwitch;
+  if (!pending) return;
+  if (offices.some((o) => o.id === pending.id && o.current)) return;
+  afterSwitch = null;
+  if (pending.op === 'archive') archiveOffice(pending.id, true);
+  else removeOffice(pending.id);
 }
 
 /**

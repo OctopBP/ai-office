@@ -540,13 +540,14 @@ export function handleOfficeCommand(cmd: ClientCommand, ws: Sink): boolean {
     if (!cmd.archived) {
       // Возврат из архива ничего не поднимает: офис становится обычным, и
       // человек входит в него тем же переключением, что и в любой другой.
-      // Пауза, поставленная архивом, остаётся — снимать её отдельное решение.
+      // Архив паузу не ставит, поэтому и не снимает: пауза, стоявшая до
+      // архива, остаётся — снимать её отдельное решение.
       const result = unarchiveOffice(office.id);
       if (!result.ok) {
         refuse('archive', office.id, c(result.code, result.vars), ws);
       } else {
-        // Офис, убранный в архив до паузы-при-архиве, возвращается рабочим —
-        // текст говорит то, что есть на самом деле.
+        // Текст про паузу — только если она правда стояла до архива; иначе
+        // офис возвращается рабочим, и сказано будет ровно это.
         here?.addLog(null, 'system', c(office.paused ? 'office.unarchivedPaused' : 'office.unarchived',
           { name: office.name }));
       }

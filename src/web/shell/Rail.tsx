@@ -1,3 +1,4 @@
+import { createPortal } from 'react-dom';
 import { useCallback, useEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from 'react';
 import {
   activeOffices, isRailView, officeProvider, openProviderSettings, reorderOffice, reset, setEditingLayout, sortedOffices,
@@ -14,6 +15,7 @@ import { HOTKEY } from '../hotkeys';
 import { officeAvatarStyle } from '../officeColor';
 import { OfficeAvatarIcon } from '../OfficeIcon';
 import { ProviderIcon } from './ProviderIcon';
+import { OfficeConfirm } from '../OfficesModal';
 
 /** Сколько пикселей нужно сдвинуть указатель, прежде чем короткий клик по
  * строке офиса считается началом перетаскивания. Меньше — щелчок мышью с
@@ -207,6 +209,27 @@ export function Rail({ onPanel, onModal }: {
   const leaveOffice = useStore((s) => s.leaveOffice);
   const view = useStore((s) => s.view);
   const setView = useStore((s) => s.setView);
+  const requestArchiveOffice = useStore((s) => s.requestArchiveOffice);
+  const requestRemoveOffice = useStore((s) => s.requestRemoveOffice);
+  // Контекстное меню офиса (правый клик по строке) и подтверждение действия
+  // из него. Меню стоит там, где кликнули, — строки в свёрнутом рейле узкие.
+  const [menu, setMenu] = useState<{ id: string; x: number; y: number } | null>(null);
+  const [confirm, setConfirm] = useState<{ id: string; op: 'archive' | 'remove' } | null>(null);
+  const menuRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (!menu) return undefined;
+    const onOutside = (e: MouseEvent) => {
+      if (menuRef.current && !menuRef.current.contains(e.target as Node)) setMenu(null);
+    };
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') setMenu(null); };
+    window.addEventListener('mousedown', onOutside);
+    window.addEventListener('keydown', onKey);
+    return () => {
+      window.removeEventListener('mousedown', onOutside);
+      window.removeEventListener('keydown', onKey);
+    };
+  }, [menu]);
+  const confirmOffice = confirm ? offices.find((o) => o.id === confirm.id) : undefined;
 
   // Архивные офисы в рейле не показываем: работы по ним нет, а вернуть их
   // можно из модалки офисов (раздел «Архив»). Перетаскивание идёт по тому же
@@ -291,8 +314,12 @@ export function Rail({ onPanel, onModal }: {
                 if (consumeSuppressedClick()) return;
                 if (!o.current) enterOffice(o.id);
               }}
+              onContextMenu={(e) => {
+                e.preventDefault();
+                setMenu({ id: o.id, x: e.clientX, y: e.clientY });
+              }}
               disabled={pending === 'enter'}
-              title={collapsed ? `${o.name} · ${status}` : o.projectDir}>
+              title={`${collapsed ? `${o.name} · ${status}` : o.projectDir}\n${t('offices.menu')}`}>
               <span className="rail-office-avatar"
                 style={officeAvatarStyle(o)}>
                 <OfficeAvatarIcon office={o} imgClass="rail-office-icon-img" />
@@ -313,6 +340,38 @@ export function Rail({ onPanel, onModal }: {
           );
         })}
         </div>
+        {/* Меню и подтверждение — порталом в body: у рейла свой слой и
+            overflow: hidden, внутри него модалка оказалась бы под сценой. */}
+        {menu && createPortal(
+          <div className="rail-menu rail-office-menu float" ref={menuRef}
+            style={{ left: menu.x, top: menu.y }}>
+            <button className="rail-menu-item"
+              onClick={() => { setConfirm({ id: menu.id, op: 'archive' }); setMenu(null); }}>
+              <Icon name="archive" size={16} />{t('offices.archive')}
+            </button>
+            <button className="rail-menu-item"
+              onClick={() => { setConfirm({ id: menu.id, op: 'remove' }); setMenu(null); }}>
+              <Icon name="circle-x" size={16} />{t('offices.remove')}
+            </button>
+          </div>,
+          document.body,
+        )}
+        {/* Подтверждение — то же, что в окне офисов. Решение «можно ли» за
+            сервером: отказ (последний офис, идёт работа) придёт тостом. */}
+        {confirm && confirmOffice && createPortal(
+          <div className="modal-backdrop" onClick={() => setConfirm(null)}>
+            <div className="modal" onClick={(e) => e.stopPropagation()}>
+              <h3>{t(confirm.op === 'archive' ? 'offices.archiveTitle' : 'offices.removeTitle')}</h3>
+              <OfficeConfirm office={confirmOffice} op={confirm.op} onCancel={() => setConfirm(null)}
+                onConfirm={() => {
+                  setConfirm(null);
+                  if (confirm.op === 'archive') requestArchiveOffice(confirmOffice.id);
+                  else requestRemoveOffice(confirmOffice.id);
+                }} />
+            </div>
+          </div>,
+          document.body,
+        )}
         <button className="dashed rail-new" onClick={() => onModal('offices')} title={t('shell.newOffice')}>
           {collapsed ? '+' : t('shell.newOffice')}
         </button>

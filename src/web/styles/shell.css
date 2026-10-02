@@ -243,6 +243,8 @@ body.office-dragging, body.office-dragging * { cursor: grabbing !important; user
   background: none; border-radius: var(--radius-icon); font-weight: 400; color: var(--ink-2);
 }
 .rail-menu-item:hover:not(:disabled) { background: var(--film); }
+/* Меню офиса встаёт у курсора, а не над строкой пользователя. */
+.rail-office-menu { position: fixed; right: auto; bottom: auto; width: 220px; }
 
 /* Свёрнутый рейл: только квадратики, подписи в title. */
 .rail-collapsed .shell-rail { padding: var(--space-3) var(--space-2); align-items: center; }

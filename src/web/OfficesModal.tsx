@@ -23,6 +23,7 @@ export function OfficesModal({ onClose }: { onClose: () => void }) {
   const offices = useStore((s) => s.offices);
   const enterOffice = useStore((s) => s.enterOffice);
   const requestArchiveOffice = useStore((s) => s.requestArchiveOffice);
+  const requestRemoveOffice = useStore((s) => s.requestRemoveOffice);
   // Порядок тот же, что в рейле и на главном экране: список один, и видеть
   // его в трёх разных порядках человеку не за что. Раньше здесь показывался
   // сырой порядок записей реестра, а рейл сортировал по имени.
@@ -31,10 +32,13 @@ export function OfficesModal({ onClose }: { onClose: () => void }) {
   const [name, setName] = useState('');
   const [dir, setDir] = useState('');
   const [creating, setCreating] = useState(false);
-  // Занесённая рука над архивацией — id офиса, про который спрашиваем. Своё
-  // подтверждение прямо в списке, а не нативный confirm(): он выпадает из
-  // окна и его нечем оформить (так же сделано снятие задачи в TaskDrawer).
-  const [archiving, setArchiving] = useState<string | null>(null);
+  // Занесённая рука над архивацией или удалением из списка — офис и
+  // действие, про которые спрашиваем. Своё подтверждение прямо в списке, а
+  // не нативный confirm(): он выпадает из окна и его нечем оформить (так же
+  // сделано снятие задачи в TaskDrawer).
+  const [asking, setAsking] = useState<{ id: string; op: 'archive' | 'remove' } | null>(null);
+  const ask = (id: string, op: 'archive' | 'remove') =>
+    setAsking(asking?.id === id && asking.op === op ? null : { id, op });
   // Архив свёрнут по умолчанию: это склад, а не рабочий список.
   const [openArchive, setOpenArchive] = useState(false);
 
@@ -52,10 +56,8 @@ export function OfficesModal({ onClose }: { onClose: () => void }) {
 
         <div className="offices">
           {list.map((o) => {
-            // Последний рабочий офис в архив не уходит: архивация открытого
-            // офиса — это переключение в соседний, а соседнего нет. Сервер
-            // отказал бы тем же самым, но уже после нажатия.
-            const lastOne = o.current && list.length < 2;
+            // «Последний офис» здесь не считаем: отказ сервера приходит тостом
+            // с его собственной причиной, и двух разных правил не будет.
             return (
               <Fragment key={o.id}>
                 <div className={`office-row ${o.current ? 'current' : ''}`}>
@@ -83,30 +85,26 @@ export function OfficesModal({ onClose }: { onClose: () => void }) {
                     <Icon name="pencil" size={16} />
                   </button>
                   <OfficeIconPicker office={o} />
-                  <button className="mini" disabled={lastOne}
-                    title={t(lastOne ? 'offices.archiveLastHint' : 'offices.archive')}
-                    onClick={() => setArchiving(archiving === o.id ? null : o.id)}>
+                  <button className="mini" title={t('offices.archive')}
+                    onClick={() => ask(o.id, 'archive')}>
                     <Icon name="archive" size={16} />
                   </button>
+                  <button className="mini" title={t('offices.remove')}
+                    onClick={() => ask(o.id, 'remove')}>
+                    <Icon name="circle-x" size={16} />
+                  </button>
                 </div>
-                {archiving === o.id && (
-                  <div className="office-archive-confirm">
-                    <p>{t('offices.archiveConfirm', { name: o.name })}</p>
-                    {o.current && <p className="muted small">{t('offices.archiveCurrentNote')}</p>}
-                    <div className="modal-actions">
-                      <button onClick={() => setArchiving(null)}>{t('common.cancel')}</button>
-                      <button className="danger" onClick={() => {
-                        setArchiving(null);
-                        requestArchiveOffice(o.id);
-                        // Открытый офис уходит в архив через переключение в
-                        // соседний: список под модалкой меняется целиком, и
-                        // держать её поверх входа в другой проект незачем.
-                        if (o.current) onClose();
-                      }}>
-                        {t('offices.archiveAction')}
-                      </button>
-                    </div>
-                  </div>
+                {asking?.id === o.id && (
+                  <OfficeConfirm office={o} op={asking.op} onCancel={() => setAsking(null)}
+                    onConfirm={() => {
+                      setAsking(null);
+                      if (asking.op === 'archive') requestArchiveOffice(o.id);
+                      else requestRemoveOffice(o.id);
+                      // Открытый офис уходит через переключение в соседний:
+                      // список под модалкой меняется целиком, и держать её
+                      // поверх входа в другой проект незачем.
+                      if (o.current) onClose();
+                    }} />
                 )}
               </Fragment>
             );
@@ -125,17 +123,27 @@ export function OfficesModal({ onClose }: { onClose: () => void }) {
             {openArchive && (
               <div className="offices">
                 {archived.map((o) => (
-                  <div key={o.id} className="office-row archived">
-                    <div className="office-who">
-                      <b>{o.name}</b>
-                      <span className="office-status">{t('offices.archivedMark')}</span>
-                      <div className="muted mono">{o.projectDir}</div>
+                  <Fragment key={o.id}>
+                    <div className="office-row archived">
+                      <div className="office-who">
+                        <b>{o.name}</b>
+                        <span className="office-status">{t('offices.archivedMark')}</span>
+                        <div className="muted mono">{o.projectDir}</div>
+                      </div>
+                      <button className="mini go" title={t('offices.unarchiveHint')}
+                        onClick={() => archiveOffice(o.id, false)}>
+                        {t('offices.unarchive')}
+                      </button>
+                      <button className="mini" title={t('offices.remove')}
+                        onClick={() => ask(o.id, 'remove')}>
+                        <Icon name="circle-x" size={16} />
+                      </button>
                     </div>
-                    <button className="mini go" title={t('offices.unarchiveHint')}
-                      onClick={() => archiveOffice(o.id, false)}>
-                      {t('offices.unarchive')}
-                    </button>
-                  </div>
+                    {asking?.id === o.id && asking.op === 'remove' && (
+                      <OfficeConfirm office={o} op="remove" onCancel={() => setAsking(null)}
+                        onConfirm={() => { setAsking(null); requestRemoveOffice(o.id); }} />
+                    )}
+                  </Fragment>
                 ))}
               </div>
             )}
@@ -164,6 +172,31 @@ export function OfficesModal({ onClose }: { onClose: () => void }) {
             <button className="allow" onClick={() => setCreating(true)}>{t('offices.new')}</button>
           </div>
         )}
+      </div>
+    </div>
+  );
+}
+
+/**
+ * Подтверждение архивации или удаления из списка — под строкой офиса.
+ * Удаление отдельно говорит, что файлы проекта не трогаются и офис
+ * возвращается повторным открытием его папки. Общий с рейлом.
+ */
+export function OfficeConfirm({ office, op, onCancel, onConfirm }: {
+  office: OfficeView;
+  op: 'archive' | 'remove';
+  onCancel: () => void;
+  onConfirm: () => void;
+}) {
+  return (
+    <div className="office-archive-confirm">
+      <p>{t(op === 'archive' ? 'offices.archiveConfirm' : 'offices.removeConfirm', { name: office.name })}</p>
+      {office.current && <p className="muted small">{t('offices.archiveCurrentNote')}</p>}
+      <div className="modal-actions">
+        <button onClick={onCancel}>{t('common.cancel')}</button>
+        <button className="danger" onClick={onConfirm}>
+          {t(op === 'archive' ? 'offices.archiveAction' : 'offices.removeAction')}
+        </button>
       </div>
     </div>
   );
