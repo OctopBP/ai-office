@@ -418,7 +418,7 @@ export const en = {
   'offices.notFound': 'Office {id} was not found — the list looks out of date.',
   'offices.needName': 'An office needs a name.',
   'offices.openNow': 'Office “{name}” is open right now. Switch to another office, and then remove this one from the list.',
-  'offices.lastOne': 'This is the only office — there is nothing to remove from the list.',
+  'office.lastActive': 'Office “{name}” is the last one still in use. It cannot be archived or removed from the list.',
   'offices.orderBadIndex': 'A place in the list is a number, and this one came as “{index}”.',
   'offices.colorBad': 'An office colour is one of the palette keys: {list}. Got “{got}”.',
   'offices.iconKind': 'An icon is either a symbol or a picture — there is no third kind.',

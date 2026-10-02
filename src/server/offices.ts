@@ -521,6 +521,83 @@ export function setOfficeArchived(id: string, archived: boolean): void {
   write();
 }
 
+/**
+ * Итог операции над офисом. Отказ несёт ключ словаря сервера и его
+ * подстановки, а не готовый текст: язык выбирает тот, кто показывает отказ.
+ */
+export type OfficeOpResult =
+  | { ok: true }
+  | { ok: false; code: OfficeOpError; vars?: Record<string, string> };
+
+export type OfficeOpError =
+  | 'offices.noRegistry'
+  | 'offices.notFound'
+  | 'offices.openNow'
+  | 'office.lastActive';
+
+/**
+ * Как погасить поднятый офис: остановить надзор, сессии и выгрузить состояние.
+ * Живёт за крючком, а не за импортом: состояние и надзор сами зависят от
+ * реестра, и прямой импорт отсюда замкнул бы круг модулей. Крючок ставит
+ * сетевой слой при старте; без него (юнит-проверки) выгружать просто нечего.
+ */
+let unloader: ((id: string) => void) | null = null;
+
+export function setOfficeUnloader(fn: ((id: string) => void) | null): void {
+  unloader = fn;
+}
+
+/** Офисы, по которым ещё ведут работу: в списке и не в архиве. */
+const activeOffices = (): OfficeEntry[] => offices().filter((o) => !o.archived);
+
+/**
+ * Нельзя оставить человека без офиса, в котором можно работать: последний
+ * неархивный офис ни в архив, ни из списка не уходит.
+ */
+const lastActive = (office: OfficeEntry): boolean =>
+  !office.archived && activeOffices().every((o) => o.id === office.id);
+
+/**
+ * Если из работы уходит текущий офис, текущим становится первый оставшийся:
+ * иначе сервер на старте поднимал бы офис, которого в работе уже нет.
+ */
+function moveCurrentFrom(id: string): void {
+  if (!registry || registry.currentId !== id) return;
+  const next = activeOffices().find((o) => o.id !== id);
+  if (next) registry.currentId = next.id;
+}
+
+/**
+ * Убрать офис в архив. Вместе с архивом офис встаёт на паузу: вернувшись
+ * оттуда, он не должен сам броситься в работу, — человек снимет паузу, когда
+ * решит. Поднятый офис гасится. Файлы целы — архив это не удаление.
+ */
+export function archiveOffice(id: string): OfficeOpResult {
+  if (!registry) return { ok: false, code: 'offices.noRegistry' };
+  const office = officeById(id);
+  if (!office || office.hidden) return { ok: false, code: 'offices.notFound', vars: { id } };
+  if (office.archived) return { ok: true };
+  if (lastActive(office)) return { ok: false, code: 'office.lastActive', vars: { name: office.name } };
+  office.archived = true;
+  office.paused = true;
+  moveCurrentFrom(id);
+  write();
+  unloader?.(id);
+  return { ok: true };
+}
+
+/**
+ * Вернуть офис из архива. Паузу не снимаем: офис возвращается остановленным,
+ * и продолжить работу — отдельное решение человека.
+ */
+export function unarchiveOffice(id: string): OfficeOpResult {
+  if (!registry) return { ok: false, code: 'offices.noRegistry' };
+  const office = officeById(id);
+  if (!office || office.hidden) return { ok: false, code: 'offices.notFound', vars: { id } };
+  setOfficeArchived(id, false);
+  return { ok: true };
+}
+
 /** Инициализацию гита делают один раз — при первом открытии офиса. */
 export function clearInitFlag(id: string): void {
   const office = officeById(id);
@@ -924,17 +1001,23 @@ export function setOfficeColor(id: string, color: unknown): string | null {
 /**
  * Убрать офис из списка. Файлы не трогаем: ни папку проекта, ни сохранение
  * доски — «убрать из списка» и «стереть работу» это разные действия, и
- * второго в офисе сознательно нет. Возвращает причину отказа или null.
+ * второго в офисе сознательно нет.
+ *
+ * Запись остаётся в реестре скрытой (`hidden`), а не стирается: за ней
+ * закреплён файл состояния, и если тот же проект заведут снова, доска и
+ * расходы вернутся (`createOffice` → `restored`). Для списка, рассылки и
+ * старта сервера скрытая запись не существует. Поднятый офис гасится.
  */
-export function removeOffice(id: string): string | null {
-  if (!registry) return c('offices.noRegistry');
+export function removeOffice(id: string): OfficeOpResult {
+  if (!registry) return { ok: false, code: 'offices.noRegistry' };
   const office = officeById(id);
-  if (!office || office.hidden) return c('offices.notFound', { id });
+  if (!office || office.hidden) return { ok: false, code: 'offices.notFound', vars: { id } };
   if (office.id === registry.currentId) {
-    return c('offices.openNow', { name: office.name });
+    return { ok: false, code: 'offices.openNow', vars: { name: office.name } };
   }
-  if (offices().length <= 1) return c('offices.lastOne');
+  if (lastActive(office)) return { ok: false, code: 'office.lastActive', vars: { name: office.name } };
   office.hidden = true;
   write();
-  return null;
+  unloader?.(id);
+  return { ok: true };
 }

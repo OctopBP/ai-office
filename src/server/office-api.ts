@@ -16,7 +16,7 @@ import {
 } from './state';
 import {
   createOffice, currentOffice, officeById, removeOffice, renameOffice, reorderOffice, setCurrent,
-  setOfficeArchived, setOfficeColor, setOfficeIcon,setUiLanguage, uiLanguage, type OfficeEntry,
+  setOfficeArchived, setOfficeColor, setOfficeUnloader, setOfficeIcon,setUiLanguage, uiLanguage, type OfficeEntry,
 } from './offices';
 import { stopSupervisor } from './supervisor';
 import { stopHealth } from './health';
@@ -55,6 +55,9 @@ let openOffice: (entry: OfficeEntry) => Promise<void> = async () => {};
 
 export function initOfficeApi(hooks: { openOffice: (entry: OfficeEntry) => Promise<void> }): void {
   openOffice = hooks.openOffice;
+  // Архив и уборка из списка в реестре гасят поднятый офис сами — через этот
+  // крючок, потому что реестр не может импортировать надзор и состояние.
+  setOfficeUnloader(unloadOffice);
 }
 
 /**
@@ -606,13 +609,11 @@ export function handleOfficeCommand(cmd: ClientCommand, ws: Sink): boolean {
         c('office.stillOpening', { name }), ws);
       return true;
     }
-    const problem = removeOffice(cmd.officeId);
-    if (problem) {
-      refuse('remove', cmd.officeId, problem, ws);
+    // Гасит офис сам реестр — через крючок `setOfficeUnloader`.
+    const result = removeOffice(cmd.officeId);
+    if (!result.ok) {
+      refuse('remove', cmd.officeId, c(result.code, result.vars), ws);
     } else {
-      // Из списка офис убран — теперь его надо погасить: иначе он остался бы
-      // в памяти со своим надзором и сессиями, невидимый и неостановимый.
-      unloadOffice(cmd.officeId);
       here?.addLog(null, 'system',
         c('office.removed', { name }));
       broadcastOffices();
