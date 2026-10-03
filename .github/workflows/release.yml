@@ -109,6 +109,12 @@ jobs:
           APPLE_ID: ${{ secrets.APPLE_ID }}
           APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+      # spawn-helper терминала (node-pty) должен быть переподписан сборщиком и
+      # исполняем в обеих .app — до выкладки, а не после жалобы нотаризации.
+      # Признак подписи сертификатом — тот же CSC_NAME, что положил шаг выше.
+      - name: подпись нативного модуля
+        if: matrix.target == 'mac'
+        run: node scripts/pack-native.mjs --verify-app desktop/out
       - uses: actions/upload-artifact@v7
         with:
           name: ai-office-${{ matrix.target }}

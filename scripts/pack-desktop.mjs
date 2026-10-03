@@ -23,6 +23,7 @@ import { cpSync, mkdirSync, rmSync, existsSync, readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 
 import { buildServer } from './build-server.mjs';
+import { packServerNative, verifySignedApps } from './pack-native.mjs';
 import { packTools } from './pack-tools.mjs';
 
 const root = resolve(import.meta.dirname, '..');
@@ -77,6 +78,11 @@ copy('design/sprites/out/catalog.json', 'design/sprites/out/catalog.json');
 // — движок ставит сервер с экрана «Провайдеры» (src/server/engines/install.ts).
 copy('node_modules/@anthropic-ai/claude-agent-sdk', 'node_modules/@anthropic-ai/claude-agent-sdk');
 
+// node-pty встроенного терминала — по той же причине папкой, а не в бандле:
+// pty.node и spawn-helper ищутся от файлов пакета. Только prebuilds цели,
+// бит исполнения у spawn-helper и проверка состава — см. pack-native.mjs.
+packServerNative(root, out);
+
 // Свои MCP-серверы (картинки и браузер QA) ходят по stdio и живут своими
 // процессами. Каждый собирается в один файл, а playwright-core браузера
 // кладётся папкой в node_modules — см. pack-tools.mjs. Chromium сюда не входит.
@@ -104,5 +110,8 @@ if (publish) {
     stdio: 'inherit',
     shell: process.platform === 'win32',
   });
+  // spawn-helper подписан сборщиком и исполняем — иначе терминал в
+  // установленном приложении не откроется, а нотаризация его отвергнет.
+  if (process.platform === 'darwin') verifySignedApps(resolve(root, 'desktop/out'));
   console.log('установщики выложены в черновик релиза на GitHub');
 }

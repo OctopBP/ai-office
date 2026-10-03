@@ -200,6 +200,54 @@ macOS и «Подробнее → Выполнить» на Windows. Но
 при этом выключена — без нотаризации она ничего не даёт, а ad-hoc подписи
 мешает.
 
+### Нативный модуль: node-pty
+
+Встроенный терминал (`src/server/terminal.ts`) работает на `node-pty`
+(точная версия `1.2.0-beta.15`) — единственном нативном модуле сервера.
+Модуль N-API и приезжает из npm с готовыми бинарями под каждую систему, так
+что пересобирать его под Electron не нужно: сервер в приложении — тот же
+Node через `ELECTRON_RUN_AS_NODE`, ABI для N-API не важен. Сервер грузит его
+лениво: не загрузился — сервер поднимается как раньше, терминал просто
+недоступен. Разбор выбора — `docs/backend/T-292/terminal-pty.md`.
+
+Как попадает в сборку:
+
+- в бандл сервера модуль не входит (`external` в `scripts/build-server.mjs`):
+  `pty.node` и `spawn-helper` он ищет от своих файлов, в
+  `prebuilds/<система>-<архитектура>`;
+- `scripts/pack-native.mjs` (зовёт `pack-desktop.mjs`) копирует его в
+  `desktop/resources/node_modules/node-pty`: `package.json`, `LICENSE`,
+  `lib/` и prebuilds только цели — на macOS `darwin-arm64` и `darwin-x64`
+  (одна машина собирает обе архитектуры), на Windows `win32-x64` с
+  `conpty.dll` и `OpenConsole.exe`. Без `.pdb`, исходников и `build/`:
+  собранный локально `build/Release/pty.node` модуль проверяет раньше
+  prebuilds, и он перебил бы готовые бинари;
+- у `spawn-helper` бит исполнения ставится явно — без него `pty.spawn`
+  падает с `EACCES` только в установленном приложении;
+- дальше всё как с Agent SDK: `resources/node_modules` переносится строкой
+  `extraResources`, `builder.config.js` и asar не меняются;
+- на macOS electron-builder обходит весь бандл и переподписывает каждый
+  Mach-O, в том числе оба `pty.node` и оба `spawn-helper`; права из
+  `entitlements.mac.plist` (`disable-library-validation`) уже позволяют
+  загрузить `pty.node`.
+
+Как проверить:
+
+- состав ресурсов проверяет сам `packServerNative` сразу после копии: нет
+  бинаря цели, у `spawn-helper` нет бита исполнения, лежит `.pdb` или
+  `build/` — сборка ресурсов падает;
+- подпись — `node scripts/pack-native.mjs --verify-app desktop/out` после
+  `npm run dist:mac` (шаг «подпись нативного модуля» в `release.yml`, его
+  же зовёт `pack-desktop.mjs --publish`). Для каждой `.app`: `spawn-helper`
+  исполняем, проходит `codesign --verify --strict`, подпись не линкерная из
+  npm (`linker-signed` значит, что сборщик её не заменил, и нотаризация
+  откажет); с сертификатом — `Authority=Developer ID Application` и
+  `runtime` во флагах; приложение целиком проходит
+  `codesign --verify --deep --strict`;
+- руками на собранном приложении (вне песочницы исполнителя — в ней pty
+  запрещён): открыть терминал, `vim`, `top`, Ctrl+C, изменить размер окна,
+  кириллица — на macOS arm64, x64 через Rosetta и на Windows x64.
+
 ### Выпуск и автообновление
 
 Обновлятор (electron-updater) берёт новые версии из GitHub Releases
