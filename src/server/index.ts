@@ -48,6 +48,7 @@ import { isPermissionMode } from './permissions';
 import { handleMarketCommand } from './market';
 import { exportRole } from './export';
 import { flushAll } from './store';
+import { attachTerminalClient, closeAllTerminals, detachTerminalClient, handleTerminalCommand } from './terminal-api';
 import { loadKeys, providerKey } from './engines/keys';
 import { greetProviders, handleProviderCommand, handleProvidersHttp, providersView } from './providers-api';
 import { isConnected } from '../shared/providers';
@@ -199,10 +200,11 @@ const startup: Promise<string | null> = opened
   : Promise.resolve(startupError = c('boot.allArchived'));
 
 // Досохранить перед выходом, чтобы не потерять последние события.
+// Терминалы закрываем тут же: оболочки — дочерние процессы и пережили бы сервер.
 for (const sig of ['SIGINT', 'SIGTERM'] as const) {
-  process.on(sig, () => { flushAll(); process.exit(0); });
+  process.on(sig, () => { closeAllTerminals(); flushAll(); process.exit(0); });
 }
-process.on('exit', () => flushAll());
+process.on('exit', () => { closeAllTerminals(); flushAll(); });
 
 /**
  * Собранный веб (`npm run build`) раздаётся тем же сервером, что держит
@@ -474,8 +476,10 @@ initOfficeApi({ openOffice });
 // их по адресатам метка officeId.
 subscribeOffices((event: ServerEvent, officeId: string) => broadcast(event, officeId));
 
-wss.on('connection', (ws) => {
+wss.on('connection', (ws, req) => {
   watch(ws);
+  // Заголовки апгрейда нужны терминалу: право открыть сверяет Origin с Host.
+  attachTerminalClient(ws, { origin: req.headers.origin, host: req.headers.host });
   // Пока офис открывается, снапшота ещё нет: первый уходит после старта.
   // А если он не открылся — вместо снапшота уходит причина: молчание клиент
   // разобрать не может и остаётся в загрузке.
@@ -494,6 +498,8 @@ wss.on('connection', (ws) => {
     if (handleOfficeCommand(cmd, ws)) return;
     // Провайдеры общие для процесса и нужны до выбора офиса (первый запуск).
     if (handleProviderCommand(cmd, ws)) return;
+    // Терминал — свой протокол одному сокету, доску и ленту он не трогает.
+    if (handleTerminalCommand(cmd, ws)) return;
 
     // Всё остальное — про один конкретный офис, и это офис ЭТОГО клиента.
     // Клиентов несколько, смотрят они разные проекты: брать «открытый на
@@ -774,7 +780,10 @@ wss.on('connection', (ws) => {
     if (ENV_AFFECTING.has(cmd.c)) void refreshEnvChecks(state);
   });
 
-  ws.on('close', () => unwatch(ws));
+  ws.on('close', () => {
+    detachTerminalClient(ws);
+    unwatch(ws);
+  });
 });
 
 // Приветствие печатаем из колбэка, а не следом за listen: порт становится
