@@ -2544,7 +2544,8 @@ export type ServerEvent =
    */
   | { t: 'market'; market: MarketView }
   /** Итог экспорта роли в пакет — тому, кто просил. Ошибка — готовым текстом. */
-  | { t: 'role.exported'; roleId: string; dir: string; warnings: string[]; error: string | null };
+  | { t: 'role.exported'; roleId: string; dir: string; warnings: string[]; error: string | null }
+  | TerminalEvent;
 
 /** Всё, что UI шлёт на сервер. */
 export type ClientCommand =
@@ -2817,7 +2818,36 @@ export type ClientCommand =
   | { c: 'task_priority'; taskId: string; priority: TaskPriority }
   /** Решение по предложению офиса: принять или отклонить. */
   | { c: 'proposal_decide'; id: string; accept: boolean }
+  | TerminalCommand
   | { c: 'reset' };
+
+// ------------------------------------------------------------- терминал
+
+/**
+ * Встроенный терминал — канал между одним сокетом и одним процессом: не
+ * часть состояния офиса, в снапшот не попадает и другим клиентам не
+ * рассылается. Контракт — docs/backend/T-292/terminal-pty.md, §6.
+ */
+export type TerminalCommand =
+  /** Открыть терминал в папке офиса этого сокета. Путь клиент не передаёт. */
+  | { c: 'term_open'; nonce: string; cols: number; rows: number }
+  /** Ввод с клавиатуры как есть (включая \x03 для Ctrl+C). До 64 КБ. */
+  | { c: 'term_input'; id: string; data: string }
+  /** Новый размер окна: cols 2..500, rows 1..200. */
+  | { c: 'term_resize'; id: string; cols: number; rows: number }
+  /** Закрыть: оболочке SIGHUP, затем `term.exit`. */
+  | { c: 'term_close'; id: string };
+
+/** Почему терминал не открылся или команда к нему не прошла. */
+export type TerminalErrorReason = 'forbidden' | 'no_dir' | 'limit' | 'unavailable' | 'unknown_id';
+
+/** События терминала уходят только сокету-владельцу, не через рассылку. */
+export type TerminalEvent =
+  | { t: 'term.opened'; nonce: string; id: string; cwd: string; shell: string; officeId: string }
+  /** Вывод в UTF-8, склеенный пакетом. */
+  | { t: 'term.output'; id: string; data: string }
+  | { t: 'term.exit'; id: string; code: number | null; signal: number | null }
+  | { t: 'term.error'; nonce?: string; id?: string; reason: TerminalErrorReason; message: string };
 
 // ------------------------------------------------------------- маркет
 

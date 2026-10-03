@@ -42,6 +42,8 @@ export const buildServer = (out = resolve(root, 'desktop/resources/server/index.
   },
   external: [
     '@anthropic-ai/claude-agent-sdk',
+    // Нативный модуль ищет pty.node и spawn-helper рядом со своими файлами.
+    'node-pty',
     // Необязательные ускорители ws: их может не быть, ws это переживает сам.
     'bufferutil',
     'utf-8-validate',
