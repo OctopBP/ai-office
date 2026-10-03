@@ -10,7 +10,7 @@
  */
 import { execFileSync } from 'node:child_process';
 import {
-  chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync,
+  chmodSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync,
 } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { resolve } from 'node:path';
@@ -426,6 +426,132 @@ async function busyIntegration(check: (name: string, ok: boolean) => void): Prom
   rmSync(dir, { recursive: true, force: true });
 }
 
+/**
+ * Ветка заводит новую зависимость (T-300, урок T-296 с node-pty).
+ *
+ * Копия офиса берёт node_modules симлинком на основную копию, и пакета ветки
+ * там нет: гейт обязан поставить зависимости слитого дерева сам — в свой
+ * каталог, не тронув основной. Сети в песочнице может не быть, поэтому пакет
+ * локальный (`file:`), а кеш npm — во временном каталоге стенда.
+ */
+async function depsGate(check: (name: string, ok: boolean) => void): Promise<void> {
+  const dir = mkdtempSync(resolve(tmpdir(), 'office-premerge-deps-'));
+  const integrationDir = mkdtempSync(resolve(tmpdir(), 'office-premerge-deps-copy-'));
+  rmSync(integrationDir, { recursive: true, force: true });
+  const npmCache = mkdtempSync(resolve(tmpdir(), 'office-premerge-npm-'));
+  const prevCache = process.env.npm_config_cache;
+  process.env.npm_config_cache = npmCache;
+  const git = (...args: string[]) => execFileSync('git', args, { cwd: dir, encoding: 'utf8' }).trim();
+  const write = (name: string, body: string) => {
+    mkdirSync(resolve(dir, name, '..'), { recursive: true });
+    writeFileSync(resolve(dir, name), body);
+  };
+  const lockOnly = () => execFileSync('npm', [
+    'install', '--package-lock-only', '--ignore-scripts', '--no-audit', '--no-fund', '--offline',
+  ], { cwd: dir, encoding: 'utf8', stdio: 'pipe' });
+  const pkg = (deps: Record<string, string>) => JSON.stringify({
+    name: 'deps-fixture', version: '1.0.0', dependencies: deps,
+    // «Сборка» требует пакет, если он объявлен в package.json, — как tsc с импортом.
+    scripts: { typecheck: 'node check.js' },
+  }, null, 2);
+
+  try {
+    git('init', '-q', '-b', 'main');
+    git('config', 'user.email', 'office@local');
+    git('config', 'user.name', 'AI Office');
+    write('.gitignore', 'node_modules\n');
+    write('check.js', `const p=require('./package.json');
+for (const name of Object.keys(p.dependencies||{})) console.log(require(name));
+`);
+    write('vendor/dep-new/package.json', JSON.stringify({ name: 'dep-new', version: '1.0.0', main: 'index.js' }));
+    write('vendor/dep-new/index.js', "module.exports = 'dep-new на месте';\n");
+    write('package.json', pkg({}));
+    lockOnly();
+    git('add', '-A');
+    git('commit', '-qm', 'Начало: без зависимостей');
+    // Основная копия со своими зависимостями — их гейт трогать не должен.
+    write('node_modules/main-only/index.js', "module.exports = 'основная';\n");
+    write('node_modules/sentinel.txt', 'основная копия\n');
+
+    // Ветка добавляет зависимость: package.json и lock меняются вместе.
+    git('checkout', '-q', '-b', 'task/T-dep', 'main');
+    write('package.json', pkg({ 'dep-new': 'file:vendor/dep-new' }));
+    lockOnly();
+    git('add', '-A');
+    git('commit', '-qm', 'T-dep: новая зависимость');
+    git('checkout', '-q', 'main');
+
+    // Ветка с битым lock: объявлен пакет, которого нет.
+    git('checkout', '-q', '-b', 'task/T-baddep', 'main');
+    write('package.json', pkg({ 'dep-missing': 'file:vendor/dep-missing' }));
+    write('package-lock.json', JSON.stringify({
+      name: 'deps-fixture', version: '1.0.0', lockfileVersion: 3, requires: true,
+      packages: {
+        '': { name: 'deps-fixture', version: '1.0.0', dependencies: { 'dep-missing': 'file:vendor/dep-missing' } },
+        'node_modules/dep-missing': { resolved: 'vendor/dep-missing', link: true },
+      },
+    }, null, 2));
+    git('add', '-A');
+    git('commit', '-qm', 'T-baddep: зависимость в никуда');
+    git('checkout', '-q', 'main');
+
+    // Ветка, зависимостей не трогающая.
+    git('checkout', '-q', '-b', 'task/T-nodep', 'main');
+    write('readme.txt', 'просто текст\n');
+    git('add', '-A');
+    git('commit', '-qm', 'T-nodep: файл');
+    git('checkout', '-q', 'main');
+
+    const nm = resolve(integrationDir, 'node_modules');
+    const isLink = () => {
+      try { return lstatSync(nm).isSymbolicLink(); } catch { return false; }
+    };
+    const mainIntact = () => existsSync(resolve(dir, 'node_modules/sentinel.txt'))
+      && existsSync(resolve(dir, 'node_modules/main-only/index.js'))
+      && !existsSync(resolve(dir, 'node_modules/dep-new'));
+
+    const dep = await preMergeGate({ repoDir: dir, branch: 'task/T-dep', base: 'main', integrationDir, merge: false });
+    check('новая зависимость: гейт зелёный', dep.ok === true && dep.stage === 'checked');
+    check('новая зависимость: перед проверками стоит npm ci',
+      dep.checks[0]?.command.startsWith('npm ci') === true && dep.checks[0].ok);
+    check('новая зависимость: проверка на слитом дереве её видит',
+      Boolean(dep.checks.find((c) => c.command.includes('typecheck'))?.output.includes('dep-new на месте')));
+    check('новая зависимость: у копии офиса свой node_modules, не симлинк',
+      !isLink() && existsSync(resolve(nm, 'dep-new')));
+    check('новая зависимость: node_modules основной копии не тронут', mainIntact());
+
+    const again = await preMergeGate({ repoDir: dir, branch: 'task/T-dep', base: 'main', integrationDir, merge: false });
+    check('тот же lock второй раз не ставится',
+      again.ok === true && !again.checks.some((c) => /^npm (ci|install)\b/.test(c.command)));
+
+    const bad = await preMergeGate({ repoDir: dir, branch: 'task/T-baddep', base: 'main', integrationDir, merge: false });
+    check('битый lock: гейт красный на установке, а не на проверке',
+      bad.ok === false && bad.stage === 'checks' && bad.failed?.command.startsWith('npm ci') === true
+      && !bad.checks.some((c) => c.command.includes('typecheck')));
+    check('битый lock: сообщение говорит про зависимости', bad.message.includes('зависимости'));
+    check('битый lock: в отчёте вывод npm', Boolean(bad.failed?.output.trim()));
+    check('битый lock: основная копия цела', mainIntact());
+
+    const same = await preMergeGate({ repoDir: dir, branch: 'task/T-nodep', base: 'main', integrationDir, merge: false });
+    check('lock не менялся: гейт зелёный без установки',
+      same.ok === true && !same.checks.some((c) => /^npm (ci|install)\b/.test(c.command)));
+    check('lock не менялся: копия офиса снова на симлинке основной',
+      isLink() && existsSync(resolve(nm, 'sentinel.txt')));
+    check('lock не менялся: основная копия цела', mainIntact());
+
+    // Со слиянием: зависимость доезжает до main, основная копия по-прежнему цела.
+    const merged = await preMergeGate({ repoDir: dir, branch: 'task/T-dep', base: 'main', integrationDir });
+    check('новая зависимость сливается', merged.ok === true && merged.stage === 'merged');
+    check('после слияния основная копия цела', mainIntact());
+  } finally {
+    if (prevCache === undefined) delete process.env.npm_config_cache;
+    else process.env.npm_config_cache = prevCache;
+    rmSync(integrationDir, { recursive: true, force: true });
+    rmSync(dir, { recursive: true, force: true });
+    rmSync(npmCache, { recursive: true, force: true });
+  }
+}
+
 async function main(): Promise<void> {
   const dir = fixture();
   const git = (...args: string[]) => execFileSync('git', args, { cwd: dir, encoding: 'utf8' }).trim();
@@ -536,6 +662,7 @@ async function main(): Promise<void> {
 
   await busyIntegration(check);
   await pipelineGate(check);
+  await depsGate(check);
 
   const failed = results.filter((r) => !r.endsWith('true'));
   for (const r of results) console.log(`  ${r.endsWith('true') ? '✅' : '❌'} ${r}`);

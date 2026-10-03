@@ -262,6 +262,7 @@ export const ru: Record<keyof typeof en, string> = {
   'premerge.detachedHead': 'HEAD рабочей копии {dir} отцеплен от {base}: слиянию это не мешает, но влитого в ней не видно. Вернуться: git checkout {base}.',
   'premerge.nothing': 'В ветке {branch} нет коммитов сверх {base} — сливать нечего.',
   'premerge.checkFailed': 'На слитом дереве падает проверка «{command}»{files}. Слияние не выполнено, {base} осталась зелёной.',
+  'premerge.depsFailed': 'Ветка меняет зависимости, и на слитом дереве не удалось их поставить: «{command}» упала (вывод npm — в отчёте). Проверки не запускались, слияние не выполнено, {base} не тронута.',
   'premerge.checkFiles': ' (файлы: {files})',
   'premerge.checked': 'Слияние {branch} с {base} зелёное: проверок на слитом дереве — {n}, заняли {time}. Слияние не выполнялось: только проверка.',
   'premerge.merged': 'Ветка {branch} влита в {base}. Гейт занял {gate}.',

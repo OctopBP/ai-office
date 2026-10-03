@@ -268,7 +268,7 @@ export async function createWorktree(
  * Не игнорируется — убираем: остаться без зависимостей лучше, чем насорить
  * в чужом репозитории.
  */
-async function linkNodeModules(repoDir: string, worktreePath: string): Promise<void> {
+export async function linkNodeModules(repoDir: string, worktreePath: string): Promise<void> {
   const src = resolve(repoDir, 'node_modules');
   const dest = resolve(worktreePath, 'node_modules');
   if (!existsSync(src) || existsSync(dest)) return;

@@ -262,6 +262,7 @@ export const en = {
   'premerge.detachedHead': 'HEAD of the working copy {dir} is detached from {base}: the merge still goes through, but merged work is invisible there. To return: git checkout {base}.',
   'premerge.nothing': 'Branch {branch} has no commits beyond {base} — nothing to merge.',
   'premerge.checkFailed': 'On the merged tree the check «{command}» fails{files}. Nothing was merged, {base} stays green.',
+  'premerge.depsFailed': 'The branch changes dependencies, and they could not be installed on the merged tree: «{command}» failed (npm output is in the report). No checks ran, nothing was merged, {base} is untouched.',
   'premerge.checkFiles': ' (files: {files})',
   'premerge.checked': 'The merge of {branch} into {base} is green: {n} check(s) on the merged tree, {time}. Nothing was merged — checks only.',
   'premerge.merged': 'Branch {branch} merged into {base}. The gate took {gate}.',

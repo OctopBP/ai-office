@@ -29,6 +29,7 @@ import {
   releaseIntegration, stashPop, stashPush, type Signature,
 } from './git';
 import { errorFiles, hasScript, runProjectCheck } from './checks';
+import { depsChanged, prepareDeps } from './deps';
 import { duplicateEdits, formatOverlapFiles, type DuplicateEdit } from './overlap';
 
 /** Одна проверка на слитом дереве. */
@@ -298,6 +299,32 @@ export async function preMergeGate(options: PreMergeOptions): Promise<PreMergeRe
     //    берём из слитого дерева, а не из базы: ветка могла завести свои
     //    скрипты, и проверять её надо ими.
     const commands = options.checks ?? defaultChecks(worktree);
+
+    // 2в. Зависимости слитого дерева (T-300). Ветка могла завести пакет, которого
+    //     нет в node_modules основной копии, — тогда ставим зависимости дерева
+    //     в собственный каталог копии офиса. Первый родитель собранного коммита —
+    //     база и при merge-коммите, и при squash. Сбой установки — проверка
+    //     «npm ci» с выводом npm, а не загадочный TS2307 следующим шагом.
+    if (commands.length) {
+      const changed = await depsChanged(worktree, 'HEAD^1', 'HEAD');
+      const deps = await prepareDeps(repoDir, worktree, changed, lang);
+      if (deps.kind === 'installed' || deps.kind === 'failed') {
+        report.checks.push({
+          command: deps.command, ok: deps.kind === 'installed', output: deps.output,
+          files: [], durationMs: deps.durationMs,
+        });
+      }
+      if (deps.kind === 'failed') {
+        report.failed = report.checks[report.checks.length - 1];
+        report.gateMs = Date.now() - started;
+        await dropAssembled(worktree, base);
+        await release();
+        return done('checks', false, t(lang, 'premerge.depsFailed', {
+          command: deps.command, base,
+        }));
+      }
+    }
+
     for (const command of commands) {
       const res = await runProjectCheck(worktree, command, lang);
       const check: PreMergeCheck = {
