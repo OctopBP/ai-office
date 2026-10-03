@@ -222,14 +222,14 @@
 .pm-chats-none { margin: 0; padding: var(--space-2); color: var(--ink-3); }
 
 .pm-chat-row {
-  position: relative; display: flex; align-items: flex-start; gap: var(--space-2);
+  position: relative; display: block;
   padding: var(--space-2); border-radius: var(--radius-row); cursor: pointer;
 }
 .pm-chat-row:hover { background: var(--film); }
 .pm-chat-row.on { background: var(--film-2); }
 .pm-chat-row.archived .pm-chat-title { color: var(--ink-3); }
 .pm-chat-body { flex: 1; min-width: 0; }
-.pm-chat-line { display: flex; align-items: baseline; gap: var(--space-2); }
+.pm-chat-line { display: flex; align-items: center; gap: var(--space-2); }
 .pm-chat-title {
   flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
   font-size: var(--fs-row); font-weight: 500; color: var(--ink);
@@ -244,20 +244,28 @@
   font-size: var(--fs-small); color: var(--ink-3); min-width: 0;
 }
 .pm-chat-linked { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-/* Номера привязанных задач: статус только цветом самого номера, без плашек. */
+/* Задачи чата: чип-пилюля, статус — цветом и значком (макет Figma 238:281). */
 .pm-chat-tasks {
   position: relative; flex: 1; min-width: 0;
-  display: flex; align-items: baseline; gap: 6px; overflow: hidden; white-space: nowrap;
+  display: flex; align-items: center; gap: var(--space-1); overflow: hidden; white-space: nowrap;
 }
 .pm-chat-tasks-measure {
   position: absolute; left: 0; top: 0; visibility: hidden; pointer-events: none;
-  display: flex; gap: 6px; white-space: nowrap;
+  display: flex; gap: var(--space-1); white-space: nowrap;
 }
-.pm-chat-task, .pm-chat-task-more { flex: none; font-variant-numeric: tabular-nums; }
+.pm-chat-task, .pm-chat-task-more {
+  flex: none; display: inline-flex; align-items: center; gap: 2px;
+  padding: 0 5px; border: 1px solid var(--hairline); border-radius: var(--radius-pill);
+  font-size: var(--fs-caption); line-height: 14px; font-variant-numeric: tabular-nums;
+}
+.pm-chat-task-ico { width: 10px; height: 10px; flex: none; }
+.pm-chat-task { color: var(--ink-3); }
 .pm-chat-task.active { color: var(--accent); animation: pm-task-pulse 2.4s ease-in-out infinite; }
 .pm-chat-task.problem { color: var(--danger); }
-.pm-chat-task.done { opacity: .55; }
-.pm-chat-task.cancelled { opacity: .55; text-decoration: line-through; }
+.pm-chat-task.idle { color: var(--warn); }
+.pm-chat-task.done { color: var(--ok-ink); }
+.pm-chat-task.cancelled { opacity: .7; }
+.pm-chat-task.cancelled .pm-chat-task-id { text-decoration: line-through; }
 @keyframes pm-task-pulse { 50% { opacity: .6; } }
 @media (prefers-reduced-motion: reduce) {
   .pm-chat-task.active { animation: none; }

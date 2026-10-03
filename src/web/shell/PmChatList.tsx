@@ -125,9 +125,9 @@ function PmChatRow({ chat, active, unread, tasks, questions }: {
       className={`pm-chat-row${active ? ' on' : ''}${chat.archived ? ' archived' : ''}`}
       onClick={() => { if (!editing) open(chat.id); }}
     >
-      <Avatar roleId="pm" instanceId="pm#1" size="sm" />
       <div className="pm-chat-body">
         <div className="pm-chat-line">
+          <Avatar roleId="pm" instanceId="pm#1" size="sm" />
           {editing ? (
             <input
               className="pm-chat-rename" value={title} autoFocus maxLength={80}
@@ -199,6 +199,19 @@ function taskLook(tk: TaskView, asking: Set<string>): TaskLook {
   return 'idle';
 }
 
+/** Значок статуса в чипе задачи: идёт — полукруг, беда — кружок с точкой, ждёт — перечёркнутый круг, сдана — галочка. */
+function LookIcon({ look }: { look: TaskLook }) {
+  return (
+    <svg className="pm-chat-task-ico" viewBox="0 0 12 12" aria-hidden="true">
+      <circle cx="6" cy="6" r="4.6" fill="none" stroke="currentColor" strokeWidth="1.2" />
+      {look === 'active' && <path d="M6 1.4a4.6 4.6 0 0 0 0 9.2z" fill="currentColor" />}
+      {look === 'problem' && <circle cx="6" cy="6" r="1.5" fill="currentColor" />}
+      {(look === 'idle' || look === 'cancelled') && <path d="M2.8 9.2l6.4-6.4" stroke="currentColor" strokeWidth="1.2" />}
+      {look === 'done' && <path d="M3.9 6.1l1.5 1.5 2.8-3" fill="none" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round" />}
+    </svg>
+  );
+}
+
 function taskHint(tk: TaskView, asking: Set<string>): string {
   const status = asking.has(tk.id) && tk.status !== 'failed' && tk.status !== 'blocked'
     ? t('pmChats.task.asking')
@@ -250,7 +263,10 @@ function TaskNumbers({ tasks, asking }: { tasks: TaskView[]; asking: Set<string>
   }, [sorted]);
 
   const chip = ({ tk, look }: { tk: TaskView; look: TaskLook }) => (
-    <span key={tk.id} className={`pm-chat-task ${look}`} title={taskHint(tk, asking)}>{tk.id}</span>
+    <span key={tk.id} className={`pm-chat-task ${look}`} title={taskHint(tk, asking)}>
+      <LookIcon look={look} />
+      <span className="pm-chat-task-id">{tk.id}</span>
+    </span>
   );
   const shown = sorted.slice(0, fit);
   const hidden = sorted.slice(fit);
