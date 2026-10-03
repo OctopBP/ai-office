@@ -26,7 +26,8 @@ import { t, type ServerKey } from './i18n';
 import type { BudgetStop, MeetingView, PmChat, PrStage, PullRequestView, ReviewVerdict, TaskEdit } from '../shared/types';
 import { cloudProblem, runCloudTask, stopCloudTask } from './cloud';
 import { capabilitiesOf, type Role } from './roles';
-import { externalMcp, mcpBrief } from './mcp';
+import { externalMcp, mcpBrief, serversFor } from './mcp';
+import { ensureChromium } from './chromium';
 import { employeePlugins, employeeSkills, sessionTools } from './skills';
 import { autoApprovedText, classify, decide, effectiveMode, releaseCommandBlocked } from './permissions';
 import {
@@ -2937,6 +2938,12 @@ function startWorker(
       const resumed = resumeId
         ? resumedPrompt(taskOffice, inst.id, taskOffice.say('prompt.task.resumeAfterLimit', { task: task.id, title: task.title }))
         : null;
+      // Браузеру QA нужен Chromium в кеше Playwright. Сессию ждём до конца
+      // установки: начать проверку без браузера — значит потратить задачу
+      // впустую. Не вышло — причина уже в ленте, а работа идёт дальше.
+      if (serversFor(taskOffice.settings, role).some((s) => s.id === 'browser')) {
+        await ensureChromium(taskOffice, inst.label);
+      }
       const run = await driveWorker(taskOffice, inst, role, {
         resume: resumeId,
         prompt: resumed?.prompt ?? workerPrompt(taskOffice, task, artifactsDir, repoDir),

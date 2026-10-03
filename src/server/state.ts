@@ -62,8 +62,9 @@ import {
   uiLanguage,
 } from './offices';
 import {
-  checkMcpServers, DEFAULT_MCP_SERVERS, mcpNamesFor, pollMcpStatus, type McpStatusSource,
+  checkMcpServers, DEFAULT_MCP_SERVERS, mcpNamesFor, pollMcpStatus, serversFor, type McpStatusSource,
 } from './mcp';
+import { ensureChromium } from './chromium';
 import { employeeServers } from './skills';
 import { effectiveMode, isPermissionMode, modeLabel } from './permissions';
 import type { MessageQueue } from './queue';
@@ -4727,6 +4728,11 @@ export class OfficeState {
     }
     this.addLog(null, 'system', this.say('state.hire.done', { label: inst.label, id: inst.id }));
     this.emit({ t: 'roles', roles: this.roleViews() });
+    // Браузер QA живёт на Chromium из кеша Playwright; на чистой машине его
+    // нет. Ставим в фоне сразу при найме, чтобы к первой задаче он уже был.
+    if (serversFor(this.settings, role).some((s) => s.id === 'browser')) {
+      void ensureChromium(this, inst.label);
+    }
     return null;
   }
 
