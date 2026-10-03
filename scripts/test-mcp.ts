@@ -108,6 +108,29 @@ const wd = (cwd?: string): string | undefined => {
 check('рабочая копия доезжает до сервера', wd('/tmp/work') === '/tmp/work', String(wd('/tmp/work')));
 check('без рабочей копии переменной нет', wd() === undefined, String(wd()));
 
+// ------------------------------------------------- нет файла stdio-сервера
+
+// Скрипта на диске нет — сервер упадёт молча, поэтому serversFor пишет в лог,
+// но сервер всё равно отдаёт: сессию из-за этого не роняем.
+{
+  const ghost: McpServerDef = {
+    ...DEFAULT_MCP_SERVERS.find((s) => s.id === 'browser')!,
+    args: ['/нет/такого/tools/browser/server.mjs'],
+  };
+  const warned: string[] = [];
+  const warn = console.warn;
+  console.warn = (...a: unknown[]) => { warned.push(a.join(' ')); };
+  let got: string[];
+  try {
+    got = serversFor(catalog([ghost]), role('qa')).map((s) => s.id);
+  } finally {
+    console.warn = warn;
+  }
+  check('нет файла — предупреждение с id и путём',
+    warned.some((w) => w.includes('browser') && w.includes('/нет/такого/tools/browser/server.mjs')), warned.join(' | ') || '(тишина)');
+  check('нет файла — сервер всё равно в списке', got.includes('browser'), got.join(', ') || '(нет)');
+}
+
 // --------------------------------------------------------- каталог из формы
 
 const one = (def: Partial<McpServerDef>): ReturnType<typeof checkMcpServers> =>

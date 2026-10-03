@@ -21,7 +21,8 @@
  * целиком уезжают на фронт в каждом снимке — записанный здесь токен утёк бы
  * дважды.
  */
-import { resolve } from 'node:path';
+import { existsSync } from 'node:fs';
+import { isAbsolute, resolve } from 'node:path';
 import type { McpServerConfig } from './engines/types';
 import type { Lang } from '../shared/i18n';
 import type { McpServerDef, McpServerState, Settings } from '../shared/types';
@@ -192,6 +193,21 @@ export const mcpCatalog = (settings: Settings): McpServerDef[] => {
 export const mcpNamesFor = (role: Role): string[] => role.mcp ?? [];
 
 /**
+ * У stdio-сервера абсолютный путь в args — это скрипт, который запустит
+ * command. Нет файла — сервер упадёт с «Cannot find module», а SDK проглотит
+ * это, и роль молча останется без инструментов (так было с браузером QA в
+ * собранном приложении). Сессию не роняем: только громко пишем в лог.
+ */
+function warnMissingScript(server: McpServerDef): void {
+  if (server.transport !== 'stdio') return;
+  for (const arg of server.args) {
+    if (isAbsolute(arg) && !existsSync(arg)) {
+      console.warn(`[mcp] у сервера ${server.id} нет файла на диске: ${arg}`);
+    }
+  }
+}
+
+/**
  * Серверы роли из каталога офиса. Выключенные отбрасываем молча: это решение
  * владельца, подписка роли лежит в сохранении и переживёт его. Неизвестное
  * имя тоже отбрасываем, но с предупреждением в лог: молчание здесь однажды
@@ -203,6 +219,7 @@ export const serversFor = (settings: Settings, role: Role): McpServerDef[] => {
     .map((id) => {
       const found = catalog.find((s) => s.id === id);
       if (!found) console.warn(`[mcp] роль ${role.id} подписана на сервер ${id}, которого нет в каталоге офиса`);
+      else if (!found.disabled) warnMissingScript(found);
       return found;
     })
     .filter((s): s is McpServerDef => s !== undefined && !s.disabled);

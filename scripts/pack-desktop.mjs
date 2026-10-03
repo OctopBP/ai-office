@@ -19,11 +19,11 @@
  * Без флага не публикуется ничего.
  */
 
-import { build } from 'esbuild';
 import { cpSync, mkdirSync, rmSync, existsSync, readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 
 import { buildServer } from './build-server.mjs';
+import { packTools } from './pack-tools.mjs';
 
 const root = resolve(import.meta.dirname, '..');
 const out = resolve(root, 'desktop/resources');
@@ -77,18 +77,10 @@ copy('design/sprites/out/catalog.json', 'design/sprites/out/catalog.json');
 // — движок ставит сервер с экрана «Провайдеры» (src/server/engines/install.ts).
 copy('node_modules/@anthropic-ai/claude-agent-sdk', 'node_modules/@anthropic-ai/claude-agent-sdk');
 
-// Сервер картинок ходит в MCP по stdio и живёт своим процессом. Его тоже
-// складываем в один файл: иначе пришлось бы тащить рядом node_modules ради
-// одной зависимости.
-await build({
-  entryPoints: [resolve(root, 'tools/imagegen/server.mjs')],
-  outfile: resolve(out, 'tools/imagegen/server.mjs'),
-  bundle: true,
-  platform: 'node',
-  target: 'node22',
-  format: 'esm',
-  logLevel: 'warning',
-});
+// Свои MCP-серверы (картинки и браузер QA) ходят по stdio и живут своими
+// процессами. Каждый собирается в один файл, а playwright-core браузера
+// кладётся папкой в node_modules — см. pack-tools.mjs. Chromium сюда не входит.
+await packTools(root, out);
 
 // Свой git — только в Windows-сборке: на macOS он системный. Сборка идёт на
 // той системе, под которую собирают (см. .github/workflows/release.yml), так
