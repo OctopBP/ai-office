@@ -195,3 +195,45 @@
 .dock-panel .shell-view.shell-page {
   position: relative; inset: auto; height: 100%; max-width: none; margin: 0; padding: var(--space-2);
 }
+
+/* ---- Перетаскивание вкладки: зоны сброса (спека window-system §2.5) ---- */
+.dock-tab, .dock-strip-tab { touch-action: none; }
+body.tab-dragging, body.tab-dragging * { user-select: none; cursor: grabbing; }
+.drop-layer { position: fixed; inset: 0; z-index: var(--z-popover); pointer-events: none; }
+.drop-zone {
+  position: fixed;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 2px dashed transparent;
+  border-radius: var(--radius-card);
+  transition: background-color 120ms ease-out, border-color 120ms ease-out;
+}
+.drop-zone-label {
+  padding: var(--space-1) var(--space-2);
+  border-radius: var(--radius-tile);
+  background: var(--surface);
+  color: var(--ink);
+  font-size: var(--fs-row);
+  box-shadow: var(--shadow-float);
+  opacity: 0;
+}
+.drop-zone.on { border-color: var(--accent); background: color-mix(in srgb, var(--accent) 18%, transparent); }
+.drop-zone.on .drop-zone-label { opacity: 1; }
+.drop-head { border-style: solid; border-radius: var(--radius-tile); }
+.drop-head .drop-zone-label { position: absolute; top: 100%; margin-top: var(--space-1); }
+.drop-mark { position: fixed; background: var(--accent); border-radius: var(--radius-pill); }
+.drop-ghost {
+  position: fixed;
+  padding: var(--space-1) var(--space-2);
+  border-radius: var(--radius-tile);
+  background: var(--surface);
+  color: var(--ink);
+  font-size: var(--fs-row);
+  box-shadow: var(--shadow-float);
+  max-width: 24ch;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+@media (prefers-reduced-motion: reduce) { .drop-zone { transition: none; } }

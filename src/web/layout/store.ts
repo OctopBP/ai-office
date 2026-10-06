@@ -8,6 +8,7 @@ import {
   moveWindow, openWindow, reorder, resetDockSize, resizeDock, setFocus, syncRuntime, toggleCollapsed,
   toggleDock, type DockId, type Extent, type Layout, type LayoutRuntime, type WindowRef,
 } from './model';
+import { applyDrop, type DropTarget } from './dropzone';
 import { createSaver, loadLayout } from './persist';
 
 const saver = createSaver();
@@ -30,6 +31,8 @@ interface LayoutState extends LayoutRuntime {
   activate(dock: DockId, id: string): void;
   moveWindow(id: string, dock: DockId, index?: number): void;
   reorder(dock: DockId, from: number, to: number): void;
+  /** Сброс перетаскиваемой вкладки в выбранную зону. */
+  dropWindow(win: string, target: DropTarget): void;
   resizeDock(dock: DockId, px: number): void;
   resetDockSize(dock: DockId): void;
   toggleCollapsed(dock: DockId): void;
@@ -70,6 +73,7 @@ export const useLayout = create<LayoutState>((set, get) => {
     activate: (dock, id) => apply((l) => activate(l, dock, id)),
     moveWindow: (id, dock, index) => apply((l) => moveWindow(l, id, dock, index)),
     reorder: (dock, from, to) => apply((l) => reorder(l, dock, from, to)),
+    dropWindow: (win, target) => apply((l) => applyDrop(l, win, target)),
     resizeDock: (dock, px) => apply((l, col) => resizeDock(l, dock, px, col)),
     resetDockSize: (dock) => apply((l, col) => resetDockSize(l, dock, col)),
     toggleCollapsed: (dock) => apply((l) => toggleCollapsed(l, dock)),

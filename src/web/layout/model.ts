@@ -5,6 +5,8 @@
  * Спека: docs/design/window-system/spec.md, §2 и §4.
  */
 
+import type { DropGeometry, DropTarget } from './dropzone';
+
 /** Окно, которое можно положить во вкладку дока. Основные виды сюда не входят. */
 export type WindowKind =
   | 'terminal' | 'docs' | 'log' | 'money' | 'merge' | 'meetings'
@@ -46,7 +48,15 @@ export interface Layout {
 /** Живое, не сохраняемое. */
 export interface LayoutRuntime {
   maximized: DockId | null;
-  drag: { win: string; over: DockId | 'tab' | null } | null;
+  drag: {
+    win: string;
+    label: string;
+    /** Курсор, px окна. */
+    x: number;
+    y: number;
+    over: DropTarget | null;
+    geo: DropGeometry;
+  } | null;
   /** Размер окна — для режима «узко» и зажима размеров. */
   viewport: { w: number; h: number };
 }

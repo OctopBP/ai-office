@@ -11,6 +11,10 @@ import {
   resetDockSize, resizeDock, syncRuntime, toggleCollapsed, toggleDock, DOCK_DEFAULT, DOCK_MIN, MAIN_MIN,
   STRIP_SIZE, type Layout,
 } from '../src/web/layout/model';
+import {
+  applyDrop, edgeRect, highlightOf, pastThreshold, resolveDrop, sameTarget, slotAt, DRAG_START,
+  type DropGeometry, type Rect,
+} from '../src/web/layout/dropzone';
 import { matchHotkey, nextTerminalId, runHotkey, worksInTextTarget, type HotkeyApi, type KeyInfo } from '../src/web/layout/hotkeys';
 import { createSaver, layoutKey, loadLayout, saveLayout, type KeyValueStore } from '../src/web/layout/persist';
 
@@ -275,7 +279,7 @@ check('фокус в основной области: действия дока 
 });
 check('Esc: перенос, затем разворот, иначе — приложению', () => {
   const l = openWindow(defaultLayout(), term);
-  const drag = { win: 'terminal:1', over: null };
+  const drag = { win: 'terminal:1', label: 'Терминал', x: 0, y: 0, over: null, geo: { column: { x: 0, y: 0, w: 1, h: 1 }, docks: {} } };
   const a = fakeApi(l, { drag, maximized: 'bottom' });
   assert.ok(runHotkey({ type: 'escape' }, a.api));
   assert.deepEqual(a.calls, ['drag null']);
@@ -352,6 +356,93 @@ check('flush пишет сразу; смена офиса дописывает �
   assert.ok(store.data.has(layoutKey('a')));
   saver.flush();
   assert.ok(store.data.has(layoutKey('b')));
+});
+
+// ---- зоны сброса вкладки (dropzone.ts)
+const R = (x: number, y: number, w: number, h: number): Rect => ({ x, y, w, h });
+const tabRects = [R(10, 0, 80, 30), R(94, 0, 80, 30), R(178, 0, 80, 30)];
+const GEO: DropGeometry = {
+  column: R(0, 0, 1000, 800),
+  docks: {
+    bottom: { rect: R(0, 520, 1000, 280), head: R(0, 520, 1000, 30), tabs: tabRects.map((r) => ({ ...r, y: 520 })), vertical: false },
+  },
+};
+check('порог отрыва: 5 px — клик, 6 px — перенос', () => {
+  assert.equal(pastThreshold(3, 4), false);
+  assert.equal(pastThreshold(0, DRAG_START), true);
+});
+check('слот по серединам вкладок', () => {
+  assert.equal(slotAt(tabRects, false, 0, 0), 0);
+  assert.equal(slotAt(tabRects, false, 60, 0), 1);
+  assert.equal(slotAt(tabRects, false, 500, 0), 3);
+  assert.equal(slotAt(tabRects, true, 0, 5), 0);
+});
+check('шапка дока: зона «вкладка» со слотом', () => {
+  assert.deepEqual(resolveDrop(130, 530, GEO), { kind: 'tab', dock: 'bottom', slot: 1 });
+});
+check('края колонки: 30 % слева, справа и снизу', () => {
+  assert.deepEqual(resolveDrop(100, 200, GEO), { kind: 'edge', dock: 'left' });
+  assert.deepEqual(resolveDrop(900, 200, GEO), { kind: 'edge', dock: 'right' });
+  assert.deepEqual(resolveDrop(500, 700, GEO), { kind: 'edge', dock: 'bottom' });
+  assert.equal(resolveDrop(500, 200, GEO), null);
+  assert.equal(resolveDrop(299, 200, GEO)?.kind, 'edge');
+  assert.equal(resolveDrop(301, 200, GEO), null);
+});
+check('в углу выигрывает зона, куда зашли глубже', () => {
+  assert.deepEqual(resolveDrop(10, 700, GEO), { kind: 'edge', dock: 'left' });
+  assert.deepEqual(resolveDrop(280, 790, GEO), { kind: 'edge', dock: 'bottom' });
+});
+check('вне колонки зоны нет; шапка важнее края', () => {
+  assert.equal(resolveDrop(-5, 100, GEO), null);
+  assert.equal(resolveDrop(50, 530, GEO)?.kind, 'tab');
+});
+check('тело существующего дока вне краёв — в конец его вкладок', () => {
+  const g: DropGeometry = { column: R(0, 0, 1000, 800), docks: { right: { rect: R(570, 0, 430, 500), head: R(570, 0, 430, 30), tabs: [R(575, 0, 80, 30)], vertical: false } } };
+  assert.deepEqual(resolveDrop(500, 250, { ...g, column: R(0, 0, 1000, 800) }), null);
+  const g2: DropGeometry = { column: R(0, 0, 1000, 800), docks: { right: { rect: R(300, 0, 400, 500), head: R(300, 0, 400, 30), tabs: [R(305, 0, 80, 30)], vertical: false } } };
+  assert.deepEqual(resolveDrop(500, 250, g2), { kind: 'tab', dock: 'right', slot: 1 });
+});
+check('свёрнутый боковой док: вкладки столбиком', () => {
+  const g: DropGeometry = { column: R(0, 0, 1000, 800), docks: { left: { rect: R(0, 0, 26, 800), head: R(0, 0, 26, 800), tabs: [R(0, 0, 26, 100), R(0, 100, 26, 100)], vertical: true } } };
+  assert.deepEqual(resolveDrop(10, 180, g), { kind: 'tab', dock: 'left', slot: 2 });
+  assert.deepEqual(resolveDrop(10, 20, g), { kind: 'tab', dock: 'left', slot: 0 });
+});
+check('подсветка: зона края и риска вставки', () => {
+  assert.deepEqual(edgeRect(GEO.column, 'right'), R(700, 0, 300, 800));
+  assert.deepEqual(highlightOf({ kind: 'edge', dock: 'bottom' }, GEO)?.zone, R(0, 560, 1000, 240));
+  const h = highlightOf({ kind: 'tab', dock: 'bottom', slot: 1 }, GEO)!;
+  assert.deepEqual(h.zone, GEO.docks.bottom!.head);
+  assert.equal(h.mark!.x, 94 - 1);
+});
+check('sameTarget сравнивает по содержимому', () => {
+  assert.ok(sameTarget({ kind: 'tab', dock: 'left', slot: 1 }, { kind: 'tab', dock: 'left', slot: 1 }));
+  assert.ok(!sameTarget({ kind: 'tab', dock: 'left', slot: 1 }, { kind: 'tab', dock: 'left', slot: 2 }));
+  assert.ok(!sameTarget({ kind: 'edge', dock: 'left' }, { kind: 'tab', dock: 'left', slot: 0 }));
+  assert.ok(sameTarget(null, null));
+});
+check('applyDrop: порядок внутри дока (слот считается до изъятия)', () => {
+  let l = openWindow(openWindow(openWindow(defaultLayout(), term, 'bottom'), log, 'bottom'), docs, 'bottom');
+  const ids = (x: Layout) => x.docks.bottom!.tabs.map((w) => w.id);
+  const [a, b, c] = ids(l);
+  assert.deepEqual(ids(applyDrop(l, a!, { kind: 'tab', dock: 'bottom', slot: 3 })), [b, c, a]);
+  assert.deepEqual(ids(applyDrop(l, c!, { kind: 'tab', dock: 'bottom', slot: 0 })), [c, a, b]);
+  assert.equal(applyDrop(l, b!, { kind: 'tab', dock: 'bottom', slot: 1 }), l);
+  assert.equal(applyDrop(l, b!, { kind: 'tab', dock: 'bottom', slot: 2 }), l);
+  assert.equal(applyDrop(l, b!, { kind: 'edge', dock: 'bottom' }), l);
+});
+check('applyDrop: перенос в другой док, в край, в свёрнутый и закрытый док', () => {
+  let l = openWindow(openWindow(defaultLayout(), term, 'bottom'), log, 'bottom');
+  l = openWindow(l, docs, 'right');
+  const m = applyDrop(l, log.id, { kind: 'tab', dock: 'right', slot: 0 });
+  assert.deepEqual(m.docks.right!.tabs.map((w) => w.id), [log.id, docs.id]);
+  assert.equal(m.docks.right!.active, log.id);
+  const edge = applyDrop(l, docs.id, { kind: 'edge', dock: 'left' });
+  assert.deepEqual(edge.docks.left!.tabs.map((w) => w.id), [docs.id]);
+  assert.equal(edge.docks.right, undefined);
+  const col = toggleCollapsed(l, 'right');
+  const into = applyDrop(col, log.id, { kind: 'tab', dock: 'right', slot: 1 });
+  assert.equal(into.docks.right!.collapsed, false);
+  assert.deepEqual(into.docks.right!.tabs.map((w) => w.id), [docs.id, log.id]);
 });
 
 // check с async не ждёт — даём таймерам отработать перед итогом

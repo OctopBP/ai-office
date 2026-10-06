@@ -7,6 +7,8 @@
  */
 import { useEffect, useRef, type ReactNode } from 'react';
 import { Dock } from '../layout/Dock';
+import { DropOverlay, startTabDrag } from '../layout/tabdrag';
+import { windowTitle } from '../layout/titles';
 import { Splitter } from '../layout/Splitter';
 import { useLayout } from '../layout/store';
 import { useLayoutHotkeys } from '../layout/hotkeys';
@@ -117,6 +119,7 @@ export function WorkColumn({ officeId, onCallMeeting, children }: {
           onMove={(win, to) => st().moveWindow(win, to)}
           onCloseOthers={(win) => st().closeOthers(id, win)}
           onReorder={(from, to) => st().reorder(id, from, to)}
+          onTabPointerDown={(e, win) => startTabDrag(e, win.id, windowTitle(win), ref.current)}
         />
       </div>
     );
@@ -131,6 +134,7 @@ export function WorkColumn({ officeId, onCallMeeting, children }: {
         {dock('right')}
       </div>
       {dock('bottom')}
+      <DropOverlay />
     </div>
   );
 }

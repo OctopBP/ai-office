@@ -5,7 +5,7 @@
  * через renderWindow. Тела окон остаются в DOM и при свёрнутом доке, и под
  * неактивной вкладкой (скрыты), чтобы не терять xterm и процессы.
  */
-import { useEffect, useId, useRef, useState, type KeyboardEvent, type ReactNode } from 'react';
+import { useEffect, useId, useRef, useState, type KeyboardEvent, type PointerEvent, type ReactNode } from 'react';
 import { Icon } from '../icons';
 import { t } from '../i18n';
 import { DOCK_IDS, STRIP_SIZE, type DockId, type DockState, type WindowRef } from './model';
@@ -33,6 +33,8 @@ interface DockProps {
   onMove(id: string, dock: DockId): void;
   onCloseOthers(id: string): void;
   onReorder(from: number, to: number): void;
+  /** Нажатие на вкладку — начало возможного перетаскивания. */
+  onTabPointerDown?(e: PointerEvent<HTMLElement>, ref: WindowRef): void;
   /** Плюс в шапке: новая вкладка (у нижнего дока — терминал). */
   onAdd?(): void;
 }
@@ -57,7 +59,6 @@ export function Dock(p: DockProps) {
   const [menu, setMenu] = useState<string | null>(null); // id вкладки, чьё меню открыто
   const menuRef = useRef<HTMLDivElement>(null);
   const tabRefs = useRef(new Map<string, HTMLButtonElement>());
-  const dragFrom = useRef<number | null>(null);
   const side = dock !== 'bottom';
   const label = t(DOCK_LABEL[dock]);
 
@@ -142,6 +143,8 @@ export function Dock(p: DockProps) {
     <section
       className={`dock dock-${dock}${state.collapsed ? ' collapsed' : ''}${p.maximized ? ' maximized' : ''}`}
       role="region"
+      data-dock={dock}
+      data-collapsed={state.collapsed}
       aria-label={label}
       style={{ ['--dock-size' as string]: `${state.collapsed ? STRIP_SIZE : p.size}px` }}
     >
@@ -151,6 +154,8 @@ export function Dock(p: DockProps) {
             {state.tabs.map((ref) => (
               <button
                 key={ref.id}
+                data-tab={ref.id}
+                onPointerDown={(e) => p.onTabPointerDown?.(e, ref)}
                 type="button"
                 role="tab"
                 aria-selected={ref.id === state.active}
@@ -176,21 +181,8 @@ export function Dock(p: DockProps) {
                 <div
                   key={ref.id}
                   className={`dock-tab${active ? ' active' : ''}`}
-                  draggable
-                  onDragStart={(e) => {
-                    dragFrom.current = i;
-                    e.dataTransfer.effectAllowed = 'move';
-                    e.dataTransfer.setData('text/plain', ref.id);
-                  }}
-                  onDragOver={(e) => {
-                    if (dragFrom.current !== null) e.preventDefault();
-                  }}
-                  onDrop={(e) => {
-                    e.preventDefault();
-                    if (dragFrom.current !== null) p.onReorder(dragFrom.current, i);
-                    dragFrom.current = null;
-                  }}
-                  onDragEnd={() => { dragFrom.current = null; }}
+                  data-tab={ref.id}
+                  onPointerDown={(e) => p.onTabPointerDown?.(e, ref)}
                 >
                   <button
                     ref={(el) => {
