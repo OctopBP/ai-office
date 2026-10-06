@@ -128,6 +128,8 @@ jobs:
             desktop/out/*.exe
             desktop/out/*.blockmap
             desktop/out/latest*.yml
+            desktop/out/beta*.yml
+            desktop/out/alpha*.yml
           if-no-files-found: error
 
   release:
@@ -139,6 +141,27 @@ jobs:
     permissions:
       contents: write
     steps:
+      # Канал выпуска — по суффиксу тега (docs/design/release-channels/spec.md
+      # §6): v1.2.3 — стабильный latest, v1.2.3-beta.N / v1.2.3-alpha.N —
+      # пререлиз своего канала. Пререлиз публикуется с флагом prerelease и не
+      # становится latest: иначе страница «последний релиз» и стабильные
+      # обновляторы увидели бы тестовую сборку.
+      - name: канал выпуска
+        id: channel
+        run: |
+          case "$GITHUB_REF_NAME" in
+            *-*)
+              channel="$(sed -n 's/^v[^-]*-\([a-z]*\).*/\1/p' <<< "$GITHUB_REF_NAME")"
+              echo "channel=${channel:-beta}" >> "$GITHUB_OUTPUT"
+              echo "prerelease=true" >> "$GITHUB_OUTPUT"
+              echo "пререлиз, канал ${channel:-beta}"
+              ;;
+            *)
+              echo "channel=latest" >> "$GITHUB_OUTPUT"
+              echo "prerelease=false" >> "$GITHUB_OUTPUT"
+              echo "стабильный выпуск, канал latest"
+              ;;
+          esac
       # Полная история нужна запасному списку «Что нового» — коммиты с
       # прошлого тега.
       - uses: actions/checkout@v7
@@ -189,24 +212,29 @@ jobs:
       - uses: softprops/action-gh-release@v3
         with:
           draft: true
+          prerelease: ${{ steps.channel.outputs.prerelease }}
+          make_latest: ${{ steps.channel.outputs.prerelease == 'true' && 'false' || 'true' }}
           files: out/*
           body_path: ${{ runner.temp }}/body.md
       # Снять черновик — только когда все платформы собрались и все файлы уже
       # в релизе. Список сверяется с самим релизом, а не с папкой out: так
-      # видно и недогруженный файл. Без latest.yml и latest-mac.yml
+      # видно и недогруженный файл. Без файлов автообновления своего канала
+      # (latest*.yml у стабильного, beta*.yml / alpha*.yml у пререлиза)
       # опубликованный релиз сломал бы автообновление, поэтому их нет — релиз
       # остаётся черновиком, а шаг падает с перечнем недостающего.
       - name: публикация релиза
         if: ${{ needs.build.result == 'success' }}
         env:
           GH_TOKEN: ${{ github.token }}
+          CHANNEL: ${{ steps.channel.outputs.channel }}
+          PRERELEASE: ${{ steps.channel.outputs.prerelease }}
         run: |
           version="${GITHUB_REF_NAME#v}"
           assets="$(gh release view "$GITHUB_REF_NAME" --json assets -q '.assets[].name')"
           echo "в релизе:"; echo "$assets"
           missing=""
           for file in \
-            latest.yml latest-mac.yml \
+            "$CHANNEL.yml" "$CHANNEL-mac.yml" \
             "AI-Office-Setup-$version.exe" \
             "AI-Office-$version-arm64.dmg" "AI-Office-$version-x64.dmg" \
             "AI-Office-$version-arm64.zip" "AI-Office-$version-x64.zip"; do
@@ -216,5 +244,10 @@ jobs:
             echo "в релизе нет:$missing — оставляю черновиком"
             exit 1
           fi
-          gh release edit "$GITHUB_REF_NAME" --draft=false --latest
-          echo "релиз $GITHUB_REF_NAME опубликован"
+          if [ "$PRERELEASE" = "true" ]; then
+            gh release edit "$GITHUB_REF_NAME" --draft=false --prerelease --latest=false
+            echo "пререлиз $GITHUB_REF_NAME опубликован (канал $CHANNEL, не latest)"
+          else
+            gh release edit "$GITHUB_REF_NAME" --draft=false --latest
+            echo "релиз $GITHUB_REF_NAME опубликован"
+          fi
