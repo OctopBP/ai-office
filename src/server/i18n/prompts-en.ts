@@ -1187,7 +1187,7 @@ and the office journal are the same — they live outside the session. This is w
   'agent.deny.release': 'Releases are handled by the release process, not by workers ({what}). Do not push tags or release branches or run store uploads yourself — finish and hand in the work; the owner or the manager will start the release.',
   'prompt.release.system': 'You write release notes for the people who will use the release. Short, to the point, no internal implementation details, no task ids. Only the notes text, no preamble.',
   'prompt.release.notes': 'Release "{target}" {version}. Write release notes: 3–10 bullet points "- ", user-visible changes first, then fixes. Language: {lang}.\n\nFeatures:\n{epics}\n\nTasks with what was done:\n{tasks}',
-  'tool.releaseStatus.desc': 'Release targets: last release, what was merged since, what is running, open plans.',
+  'tool.releaseStatus.desc': 'Release targets: last release, what was merged since, what is running, open plans; names (not values) of the office variables the build gets in its environment.',
   'tool.startRelease.desc': 'Release a target now — when the owner asks to "make a build", "deploy to staging", "send to TestFlight". The office takes a snapshot, picks the version, writes notes, asks for approval per the target policy and ships. Do not call it unasked: targets release on their own triggers.',
   'tool.startRelease.target': 'Target id. Available: {targets}.',
   'tool.startRelease.note': 'What the owner said — one sentence.',

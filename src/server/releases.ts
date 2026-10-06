@@ -34,6 +34,7 @@ import {
 } from './git';
 import { integrationDir, runProjectCheck } from './merge';
 import { githubToken } from './cloud';
+import { maskValues, secretsEnv } from './secrets';
 import { githubFor, type GithubRepo } from './github';
 import { workflowFor } from './workflows';
 import { gateAnswerYes, tellPm, withMergeLock } from './review';
@@ -168,6 +169,29 @@ export function scrubSecrets(text: string): string {
     .replace(/\b(gh[pousr]_[A-Za-z0-9]{20,}|github_pat_[A-Za-z0-9_]{20,}|sk-ant-[A-Za-z0-9_-]{10,}|sk-[A-Za-z0-9]{20,}|xox[abpr]-[A-Za-z0-9-]{10,}|AKIA[0-9A-Z]{16})\b/g, '***')
     .replace(/(authorization\s*:\s*(?:bearer|basic|token)?\s*)\S+/gi, '$1***')
     .replace(/\b([A-Za-z0-9_]*(?:api[_-]?key|token|secret|password|passwd|pwd)[A-Za-z0-9_]*\s*[=:]\s*)(["']?)[^\s"']{4,}\2/gi, '$1***');
+}
+
+/**
+ * Переменные офиса (secrets.ts) для команды сборки и команды версии — и
+ * больше ни для чего: сессии агентов, проверки гейта и задачи исполнителей
+ * их не получают. Значения идут в окружение поверх окружения сервера, а
+ * `mask` закрывает их в выводе ещё до обрезки хвоста — вывод потом уходит в
+ * выпуск, ленту, задачу починки и клиенту.
+ *
+ * Связка недоступна — отказ с понятной причиной (в ней только имя
+ * переменной, не значение): собирать без ключей, которые владелец завёл,
+ * значит упасть позже и непонятнее.
+ */
+export async function releaseSecrets(state: OfficeState): Promise<
+  { ok: true; env: Record<string, string>; mask: (text: string) => string } | { ok: false; error: string }
+> {
+  try {
+    const env = await secretsEnv(state.officeId);
+    const values = Object.values(env);
+    return { ok: true, env, mask: (text) => scrubSecrets(maskValues(text, values)) };
+  } catch (err) {
+    return { ok: false, error: (err as Error).message };
+  }
 }
 
 // ------------------------------------------------------------------ узлы
@@ -486,9 +510,13 @@ const bump: Executor<Ctx> = {
     const dir = releaseDir(state, target);
     const copy = await detachedWorktree(repo, dir, r.branch);
     if (!copy.ok) return fail(say(ctx, 'rel.copyFailed', { error: copy.message }));
+    const secrets = await releaseSecrets(state);
+    if (!secrets.ok) return fail(say(ctx, 'rel.secretsFailed', { error: secrets.error }), { needsDecision: true });
     patch(ctx, { stage: say(ctx, 'rel.stage.bump', { version: label(r) }) });
-    const out = await runProjectCheck(dir, fillVersion(target.bump, point(r)), state.lang(), { timeoutMs: 5 * 60_000 });
-    if (!out.ok) return fail(say(ctx, 'rel.bumpFailed', { output: scrubSecrets(out.output) }));
+    const out = await runProjectCheck(dir, fillVersion(target.bump, point(r)), state.lang(), {
+      timeoutMs: 5 * 60_000, env: secrets.env, mask: secrets.mask,
+    });
+    if (!out.ok) return fail(say(ctx, 'rel.bumpFailed', { output: out.output }));
     const log = resolve(dir, 'CHANGELOG.md');
     const has = await git(dir, ['ls-files', '--error-unmatch', 'CHANGELOG.md']);
     if (has.ok && r.notes.trim()) {
@@ -686,12 +714,18 @@ const build: Executor<Ctx> = {
       if (!copy.ok) return fail(say(ctx, 'rel.copyFailed', { error: copy.message }));
       const notesFile = `${dir}.notes.md`;
       writeFileSync(notesFile, r.notes);
+      const secrets = await releaseSecrets(state);
+      if (!secrets.ok) return fail(say(ctx, 'rel.secretsFailed', { error: secrets.error }), { needsDecision: true });
       const min = target.timeoutMin ?? DEFAULT_TIMEOUT_MIN;
       patch(ctx, { stage: say(ctx, 'rel.stage.build', { version: label(r), min }) });
       const out = await runProjectCheck(dir, command, state.lang(), {
         timeoutMs: min * 60_000,
         outputLimit: 8000,
+        // Вывод замаскирован внутри: и лог провала, и строка OFFICE_RESULT
+        // ниже разбираются уже без значений переменных.
+        mask: secrets.mask,
         env: {
+          ...secrets.env,
           OFFICE_RELEASE_VERSION: r.version ?? '',
           OFFICE_RELEASE_BUILD: r.build === null ? '' : String(r.build),
           OFFICE_RELEASE_SHA: sha,
@@ -701,7 +735,7 @@ const build: Executor<Ctx> = {
       });
       const result = parseBuildResult(out.output);
       if (!out.ok) {
-        const log = scrubSecrets(out.output.slice(-LOG_TAIL));
+        const log = out.output.slice(-LOG_TAIL);
         const note = out.timedOut ? say(ctx, 'rel.buildTimeout', { min }) : say(ctx, 'rel.buildFailed', { target: target.title });
         return fail(note, { artifact: { kind: 'result', text: `${note}\n${log}` } });
       }
@@ -1111,7 +1145,23 @@ export function closeReleasePlan(state: OfficeState, id: string): { ok: boolean;
 /** Выпуски текстом для менеджера: цели, что накопилось, что идёт. */
 export function releaseStatusText(state: OfficeState): string {
   const targets = state.releaseTargets();
-  if (!targets.length) return state.say('rel.noTargets');
+  const rows = targets.length ? targetRows(state, targets) : state.say('rel.noTargets');
+  return `${rows}\n${secretNamesLine(state)}`;
+}
+
+/**
+ * Какие переменные офиса придут в окружение сборки — ТОЛЬКО имена: по ним
+ * менеджер говорит инженеру, что читать в Fastfile. Значений тут нет и быть
+ * не может — берутся метаданные состояния, связка ключей не трогается.
+ */
+function secretNamesLine(state: OfficeState): string {
+  const names = state.secretMetas().map((m) => m.name);
+  return names.length
+    ? state.say('rel.statusSecrets', { names: names.join(', '), first: names[0] })
+    : state.say('rel.statusNoSecrets');
+}
+
+function targetRows(state: OfficeState, targets: ReleaseTarget[]): string {
   return targets.map((target) => {
     const last = lastDone(state, target.id);
     const active = activeRelease(state, target.id);

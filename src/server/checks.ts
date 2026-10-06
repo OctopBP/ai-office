@@ -37,9 +37,17 @@ export async function runProjectCheck(
    * Сборке выпуска нужно больше пяти минут и своё окружение: версия, номер,
    * заметки (docs/design/releases/spec.md §7.2). Остальным — как было.
    */
-  opts: { timeoutMs?: number; env?: NodeJS.ProcessEnv; outputLimit?: number } = {},
+  opts: {
+    timeoutMs?: number; env?: NodeJS.ProcessEnv; outputLimit?: number;
+    /**
+     * Чем закрыть секреты в выводе. Применяется к полному выводу ДО обрезки
+     * хвоста: иначе обрезка могла бы разрезать значение и оставить его кусок.
+     */
+    mask?: (text: string) => string;
+  } = {},
 ): Promise<{ ok: boolean; output: string; message: string; durationMs: number; timedOut?: boolean }> {
   const started = Date.now();
+  const mask = opts.mask ?? ((text: string) => text);
   try {
     // Оболочка своя на каждой системе: на Windows `/bin/sh` нет, и проверка
     // падала бы не на команде, а на попытке её запустить.
@@ -50,11 +58,11 @@ export async function runProjectCheck(
       cwd, timeout: opts.timeoutMs ?? CHECK_TIMEOUT_MS, maxBuffer: 32 * 1024 * 1024,
       env: projectEnv({ FORCE_COLOR: '0', ...opts.env }),
     });
-    const output = tail(`${stdout}${stderr}`.trim(), lang, opts.outputLimit);
+    const output = tail(mask(`${stdout}${stderr}`.trim()), lang, opts.outputLimit);
     return { ok: true, output, message: output, durationMs: Date.now() - started };
   } catch (err) {
     const e = err as { stdout?: string; stderr?: string; message?: string; killed?: boolean; signal?: string };
-    const output = tail(`${e.stdout ?? ''}${e.stderr ?? ''}`.trim() || (e.message ?? ''), lang, opts.outputLimit);
+    const output = tail(mask(`${e.stdout ?? ''}${e.stderr ?? ''}`.trim() || (e.message ?? '')), lang, opts.outputLimit);
     return {
       ok: false, output, message: output, durationMs: Date.now() - started,
       timedOut: Boolean(e.killed && e.signal === 'SIGTERM'),

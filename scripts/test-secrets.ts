@@ -207,6 +207,68 @@ await check('mask заменяет значения на ***', async () => {
   assert.equal(secrets.maskValues('a abc abcd', ['abc', 'abcd']), 'a abc ***');
 });
 
+// ---------- переменные в сборке выпуска (T-303) ----------
+
+const { releaseSecrets, releaseStatusText } = await import('../src/server/releases');
+const { runProjectCheck } = await import('../src/server/checks');
+const { readdirSync, statSync } = await import('node:fs');
+
+await check('команда сборки получает переменные, а её вывод и ошибка замаскированы', async () => {
+  const got = await releaseSecrets(getOffice(OFFICE));
+  assert.ok(got.ok, 'связка в памяти должна отдать переменные');
+  if (!got.ok) return;
+  // Удачная сборка: значение пришло в окружение и было напечатано — в выводе его нет.
+  const passed = await runProjectCheck(dir, 'test "$DEPLOY_TOKEN" = tok-very-secret-2 && echo "got $DEPLOY_TOKEN"',
+    'ru', { env: got.env, mask: got.mask });
+  assert.ok(passed.ok, `переменной нет в окружении сборки: ${passed.output}`);
+  assert.equal(passed.output, 'got ***');
+  // Упавшая сборка: значение в stderr и в .p8 по строкам — тоже закрыто, хвост короткий.
+  const failed = await runProjectCheck(dir, 'echo "$DEPLOY_TOKEN" >&2; printf "%s\\n" "$ASC_KEY_P8"; exit 3',
+    'ru', { env: got.env, mask: got.mask, outputLimit: 30 });
+  assert.equal(failed.ok, false);
+  for (const leak of ['tok-very-secret', 'MIGTAgEAMBMG', 'very-secret']) assert.ok(!failed.output.includes(leak), leak);
+  assert.ok(!failed.message.includes('tok-very-secret'));
+});
+
+await check('release_status называет переменные, но не значения', async () => {
+  const text = releaseStatusText(getOffice(OFFICE));
+  assert.ok(text.includes('ASC_KEY_P8') && text.includes('DEPLOY_TOKEN'), text);
+  for (const leak of ['tok-very-secret', 'MIGTAgEAMBMG', 'BEGIN PRIVATE KEY']) assert.ok(!text.includes(leak), leak);
+});
+
+await check('окружение сессий агентов и проверок гейта без переменных офиса', async () => {
+  await secrets.secretsEnv(OFFICE);
+  for (const env of [engineEnv(), projectEnv(), process.env]) {
+    assert.equal(env.DEPLOY_TOKEN, undefined);
+    assert.equal(env.ASC_KEY_P8, undefined);
+    assert.ok(!Object.values(env).some((v) => v?.includes('tok-very-secret')));
+  }
+  // Проверка гейта — та же runProjectCheck, но без env выпуска: переменной нет.
+  const gate = await runProjectCheck(dir, 'echo "[$DEPLOY_TOKEN]"', 'ru');
+  assert.equal(gate.output, '[]');
+});
+
+await check('значения переменных достаёт только код выпуска', () => {
+  // Сторож на будущее: secretsEnv зовут лишь secrets.ts и releases.ts. Появится
+  // вызов в agents.ts, engines/, premerge.ts или задачах исполнителей — тест
+  // упадёт, и решение придётся принимать осознанно.
+  const root = resolve(import.meta.dirname, '../src');
+  const files: string[] = [];
+  const walk = (at: string) => {
+    for (const name of readdirSync(at)) {
+      const path = resolve(at, name);
+      if (statSync(path).isDirectory()) walk(path);
+      else if (/\.tsx?$/.test(name)) files.push(path);
+    }
+  };
+  walk(root);
+  const callers = files
+    .filter((f) => /\bsecretsEnv\s*\(|\bmaskSecrets\s*\(|\breleaseSecrets\s*\(/.test(readFileSync(f, 'utf8')))
+    .map((f) => f.slice(root.length + 1).replaceAll('\\', '/'))
+    .sort();
+  assert.deepEqual(callers, ['server/releases.ts', 'server/secrets.ts']);
+});
+
 await check('недоступная связка — понятная ошибка, не падение и не файл', async () => {
   secrets.useSecretStore({
     available: async () => false,
