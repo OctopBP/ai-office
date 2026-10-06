@@ -282,11 +282,14 @@ const channelOf = (target: ReleaseTarget, r: Release): ReleaseChannel | null =>
 const channelSpec = (target: ReleaseTarget, channel: ReleaseChannel): ReleaseChannelSpec =>
   target.channels?.[channel] as ReleaseChannelSpec;
 
-/** Последняя состоявшаяся бета — старшая по версии, а не по времени. */
+/**
+ * Последняя состоявшаяся бета — старшая по версии, а не по времени. Канал
+ * определяется тем же `releaseChannel`, что и в `lastDoneIn`.
+ */
 function lastBeta(state: OfficeState, targetId: string): Release | null {
   let best: Release | null = null;
   for (const r of state.releasesOf(targetId)) {
-    if (r.status !== 'done' || r.channel !== 'beta' || !r.version || !parseVersion(r.version)) continue;
+    if (r.status !== 'done' || releaseChannel(r) !== 'beta' || !r.version || !parseVersion(r.version)) continue;
     if (!best || compareVersions(r.version, best.version as string) > 0) best = r;
   }
   return best;
