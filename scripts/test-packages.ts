@@ -144,7 +144,10 @@ check('валидатор: пакет без agent.json', readPackage(resolve(ro
 // ---------------------------------------------------------- роль из пакета
 
 const backend = defaultRole('backend', 'ru')!;
-check('модель разрешена из алиаса', backend.model, 'claude-opus-5-5');
+// Алиас уровня у Claude (`opus`) — не своя модель роли, а уровень: роль идёт
+// за провайдером офиса и берёт у него модель этого уровня (см. packageRuntime).
+check('алиас уровня стал уровнем, а не своей моделью',
+  [backend.tier, backend.provider ?? null, backend.model ?? null], ['top', null, null]);
 check('название на языке офиса', backend.title, 'Бэкенд');
 check('бриф на языке офиса', backend.brief, 'Ты бэкенд.\nПиши код.');
 check('нет языка — английский', defaultRole('backend', 'en')!.title, 'Backend');
@@ -226,7 +229,9 @@ check('пропавший пакет: роль из сохранения, ссы
   [office.role('gone')?.title, office.role('gone')?.package?.name], ['Пропавший', '@acme/gone']);
 
 // Правка привязанной роли ложится в разницу, бриф пакета не трогается.
-office.updateRole('backend', { model: 'claude-opus-5-5', briefExtra: 'Только Fastify.', brief: 'взлом' });
+// Умолчание пакета по модели — уровень, а не id, поэтому к нему возвращает
+// сброс своей модели (`ownModel: false`), а не явная модель.
+office.updateRole('backend', { ownModel: false, briefExtra: 'Только Fastify.', brief: 'взлом' });
 const b2 = office.role('backend')!;
 check('поле, вернувшееся к умолчанию, ушло из разницы', b2.package?.overrides, {});
 check('приписка обновилась', b2.brief, 'Ты бэкенд.\nПиши код.\n\nТолько Fastify.');
