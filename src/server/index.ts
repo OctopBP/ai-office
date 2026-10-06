@@ -40,6 +40,7 @@ import {
 } from './offices';
 import { handleOfficeIcon } from './officeicon';
 import { handleSecretsHttp } from './secrets-api';
+import { handleDocsHttp } from './docs-api';
 import { handleTaskFiles } from './taskfiles';
 import { handleProjectFile } from './files';
 // hasCommits и repoProblem здесь больше не нужны: проверку репозитория и
@@ -307,6 +308,8 @@ const httpServer = createServer((req, res) => {
   if (handleOfficeIcon(req, res, url, query)) return;
   // Секретные переменные офиса: только метаданные наружу — см. secrets-api.ts.
   if (handleSecretsHttp(req, res, url, query)) return;
+  // Библиотека документов офиса: чтение, правка, история, архив — см. docs-api.ts.
+  if (handleDocsHttp(req, res, url, query)) return;
   // Файлы результата влитой задачи: список и содержимое — см. taskfiles.ts.
   if (handleTaskFiles(req, res, url, query)) return;
   // Файл проекта по пути — для ссылок в чате с PM, см. files.ts.

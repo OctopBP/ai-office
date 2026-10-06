@@ -1606,6 +1606,37 @@ export interface DocVersion {
 }
 
 /**
+ * HTTP библиотеки документов (src/server/docs-api.ts), у всех — `?office=<id>`:
+ *   GET  /api/docs?kind=&query=&archived=1   → DocListResponse;
+ *   GET  /api/docs/<id>?version=N            → DocResponse;
+ *   GET  /api/docs/<id>/history              → DocHistoryResponse;
+ *   POST /api/docs                           ← DocCreateBody → DocResponse;
+ *   PUT  /api/docs/<id>                      ← DocUpdateBody → DocResponse;
+ *   POST /api/docs/<id>/archive              ← DocArchiveBody → DocResponse.
+ * Отказ — `{ error }` с кодом 4xx/5xx. Каждая правка, кроме ответа, уходит
+ * всем, кто смотрит офис, событием `doc.*` по сокету (см. ServerEvent).
+ */
+export interface DocListResponse { docs: DocMeta[] }
+export interface DocResponse { doc: OfficeDoc }
+export interface DocHistoryResponse { versions: DocVersion[] }
+export interface DocCreateBody {
+  title: string;
+  summary?: string;
+  body?: string;
+  /** По умолчанию — рабочий материал. */
+  kind?: DocKind;
+  taskId?: string;
+}
+export interface DocUpdateBody {
+  title?: string;
+  summary?: string;
+  body?: string;
+  kind?: DocKind;
+}
+/** Без поля — в архив; `false` — вернуть из архива. */
+export interface DocArchiveBody { archived?: boolean }
+
+/**
  * Страница журнала: часть записей и чем спросить продолжение (`GET /api/journal`).
  *
  * Снапшот отдаёт журнал целиком — интерфейсу так и надо, он держит его весь.
