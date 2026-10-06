@@ -13,12 +13,23 @@ import { dockRange, effectiveSize, makeRef, type DockId, type Layout, type Windo
 import type { DockStatus } from '../layout/Dock';
 import { TerminalWindow } from '../terminal/TerminalWindow';
 import { useTermViews, type TermStatus } from '../terminal/sessions';
+import { DocsWindow } from '../docs/DocsWindow';
+import { RailPage } from './RailPages';
 import { t } from '../i18n';
 
-/** Содержимое вкладки; остальные окна переезжают в доки отдельными задачами. */
-function WindowBody({ win }: { win: WindowRef }): ReactNode {
-  if (win.kind === 'terminal') return <TerminalWindow winId={win.id} />;
-  return <p className="dock-empty">{t('dock.empty')}</p>;
+/**
+ * Содержимое вкладки. Окна рейла и терминал живут здесь; дифф и дроверы
+ * переезжают в доки отдельными задачами — до тех пор у них заглушка.
+ */
+function WindowBody({ win, onCall }: { win: WindowRef; onCall: () => void }): ReactNode {
+  const close = () => useLayout.getState().closeWindow(win.id);
+  switch (win.kind) {
+    case 'terminal': return <TerminalWindow winId={win.id} />;
+    case 'docs': return <DocsWindow onClose={close} />;
+    case 'log': case 'money': case 'merge': case 'meetings':
+      return <RailPage view={win.kind} onClose={close} onCall={onCall} />;
+    default: return <p className="dock-empty">{t('dock.empty')}</p>;
+  }
 }
 
 const TERM_STATUS: Record<TermStatus, DockStatus> = { live: 'ok', opening: 'warn', exited: 'warn', error: 'danger' };
@@ -31,7 +42,11 @@ function nextTerminalNumber(layout: Layout): string {
   return String(n);
 }
 
-export function WorkColumn({ officeId, children }: { officeId: string | null; children: ReactNode }) {
+export function WorkColumn({ officeId, onCallMeeting, children }: {
+  officeId: string | null;
+  onCallMeeting: () => void;
+  children: ReactNode;
+}) {
   const ref = useRef<HTMLDivElement>(null);
   const layout = useLayout((s) => s.layout);
   const column = useLayout((s) => s.column);
@@ -87,7 +102,7 @@ export function WorkColumn({ officeId, children }: { officeId: string | null; ch
           state={s}
           size={size}
           maximized={maximized === id}
-          renderWindow={(win) => <WindowBody win={win} />}
+          renderWindow={(win) => <WindowBody win={win} onCall={onCallMeeting} />}
           statusOf={(win) => {
             const v = win.kind === 'terminal' ? termViews[win.id] : undefined;
             return v ? TERM_STATUS[v.status] : undefined;
@@ -107,8 +122,9 @@ export function WorkColumn({ officeId, children }: { officeId: string | null; ch
 
   const has = (id: DockId) => (layout.docks[id] ? ` has-${id[0]}` : '');
   return (
-    <div ref={ref} className={`work-col${has('bottom')}${has('right')}${maximized ? ' maxi' : ''}`}>
+    <div ref={ref} className={`work-col${has('bottom')}${has('right')}${has('left')}${maximized ? ' maxi' : ''}`}>
       <div className="work-row">
+        {dock('left')}
         <div className={`work-main${maximized ? ' off' : ''}`}>{children}</div>
         {dock('right')}
       </div>

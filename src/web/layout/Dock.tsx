@@ -271,6 +271,14 @@ export function Dock(p: DockProps) {
                 {t('dock.moveTo', { where: t(WHERE_LABEL[d]) })}
               </button>
             ))}
+            <button
+              type="button"
+              role="menuitem"
+              className="dock-menu-item"
+              onClick={() => { setMenu(null); p.onMaximize(); }}
+            >
+              {t(p.maximized ? 'dock.restore' : 'dock.maximize')}
+            </button>
             {state.tabs.length > 1 && (
               <button
                 type="button"

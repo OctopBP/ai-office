@@ -190,3 +190,8 @@
 .dock-splitter-left::after, .dock-splitter-right::after { top: 0; bottom: 0; left: calc(var(--space-2) * -1); right: calc(var(--space-2) * -1); }
 .dock-splitter:hover::before, .dock-splitter.dragging::before { background: var(--accent); }
 .dock-splitter:focus-visible::before { background: var(--accent); outline: 2px solid var(--accent); outline-offset: 2px; }
+
+/* Окна рейла в доке: страница оболочки без абсолютных отступов основной области. */
+.dock-panel .shell-view.shell-page {
+  position: relative; inset: auto; height: 100%; max-width: none; margin: 0; padding: var(--space-2);
+}

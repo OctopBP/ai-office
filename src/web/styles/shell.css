@@ -401,8 +401,11 @@ body.office-dragging, body.office-dragging * { cursor: grabbing !important; user
 .work-main.off, .work-dock.off { display: none; }
 .work-dock { display: flex; pointer-events: auto; min-width: 0; min-height: 0; }
 .work-dock-right { flex: 0 0 auto; flex-direction: row; margin: 62px var(--space-6) calc(var(--composer-h, 0px) + var(--gap) * 2) var(--space-2); }
+.work-dock-left { flex: 0 0 auto; flex-direction: row-reverse; margin: 62px var(--space-2) calc(var(--composer-h, 0px) + var(--gap) * 2) calc(var(--edge) + var(--space-4)); }
 .work-dock-bottom { flex: 0 0 auto; flex-direction: column; margin: var(--space-2) var(--space-6) calc(var(--composer-h, 0px) + var(--gap) * 2) calc(var(--edge) + var(--space-4)); }
 .work-col.has-b { --view-bottom: var(--space-4); }
 .work-col.has-r { --pad-r: 0px; }
+/* Левый док сам отступает от рейла: виды основной области отмеряют от своего края. */
+.work-col.has-l .work-main { --edge: calc(var(--space-4) * -1); }
 .work-col.maxi .work-dock:not(.off) { flex: 1 1 auto; }
 .dock-empty { margin: 0; padding: var(--space-4); color: var(--ink-3); font-size: var(--fs-body); }

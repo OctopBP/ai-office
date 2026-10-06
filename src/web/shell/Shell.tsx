@@ -15,12 +15,11 @@ import { Composer } from './Composer';
 import { EnvBanner } from './EnvBanner';
 import { SettingsPage } from '../SettingsPage';
 import { TeamWindow } from '../TeamWindow';
-import { RailPage } from './RailPages';
 import { FlowsPage } from '../FlowsPage';
 import { ReleasesPage } from '../ReleasesPage';
-import { DocsWindow } from '../docs/DocsWindow';
 import { FirstLaunch, useFirstLaunch } from '../FirstLaunch';
 import { isRailView, useStore } from '../store';
+import { openDocked } from '../layout/docked';
 import { t } from '../i18n';
 import type { SpotTarget } from '../office3d/Hotspots3D';
 
@@ -58,8 +57,8 @@ export function Shell(props: OverlayProps) {
   // Стол переговорки ведёт в окно совещаний: стенограмма идущего и история прошлых.
   const open = (kind: SpotTarget) => {
     if (kind === 'board') setView('board');
-    else if (kind === 'meeting') setView('meetings');
-    else setView(kind);
+    else if (kind === 'meeting') openDocked('meetings');
+    else openDocked(kind);
   };
   const door = () => setModal('offices');
 
@@ -89,7 +88,7 @@ export function Shell(props: OverlayProps) {
 
   return (
     <div className={`shell${collapsed ? ' rail-collapsed' : ''}${paused ? ' paused' : ''}`}>
-      <WorkColumn officeId={officeId}><div className="shell-main">
+      <WorkColumn officeId={officeId} onCallMeeting={() => setModal('meeting')}><div className="shell-main">
         {/* Сцена не размонтируется при уходе на другой вид: смена камеры и
             позы агентов живут внутри неё (Object3D, OrbitControls), и снос
             дерева сбрасывал бы их к стартовым значениям при каждом
@@ -116,12 +115,8 @@ export function Shell(props: OverlayProps) {
             вернуться в комнату, как Esc с любого вида. */}
         {view === 'settings' && <SettingsPage onClose={() => setView('office')} />}
         {view === 'team' && <TeamWindow onClose={() => setView('office')} />}
-        {(view === 'merge' || view === 'log' || view === 'money' || view === 'meetings') && (
-          <RailPage view={view} onClose={() => setView('office')} onCall={() => setModal('meeting')} />
-        )}
         {view === 'flows' && <FlowsPage />}
         {view === 'releases' && <ReleasesPage />}
-        {view === 'docs' && <DocsWindow onClose={() => setView('office')} />}
         {view === 'life' && (
           <div className="shell-view shell-life">
             <h2 className="shell-life-title">{t('life.title')}</h2>

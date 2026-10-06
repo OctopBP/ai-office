@@ -8,6 +8,8 @@ import type { ModalKind, PanelKind } from '../Overlays';
 import type { OfficeView } from '../../shared/types';
 import { money } from '../money';
 import { t } from '../i18n';
+import { useLayout } from '../layout/store';
+import { isDockedKind, isDockedOn, openDocked } from '../layout/docked';
 import { Icon, type IconName } from '../icons';
 import { Kbd } from '../Kbd';
 import { Hint, Tooltip } from '../Tooltip';
@@ -210,6 +212,7 @@ export function Rail({ onPanel, onModal }: {
   const setCollapsed = useStore((s) => s.setRailCollapsed);
   const leaveOffice = useStore((s) => s.leaveOffice);
   const view = useStore((s) => s.view);
+  const layout = useLayout((s) => s.layout);
   const setView = useStore((s) => s.setView);
   const requestArchiveOffice = useStore((s) => s.requestArchiveOffice);
   const requestRemoveOffice = useStore((s) => s.requestRemoveOffice);
@@ -256,7 +259,8 @@ export function Rail({ onPanel, onModal }: {
   const share = cap ? Math.min(1, today / cap) : 0;
 
   const openWindow = (kind: WindowKind) => {
-    if (isRailView(kind)) setView(kind);
+    if (isDockedKind(kind)) openDocked(kind);
+    else if (isRailView(kind)) setView(kind);
     else onPanel(kind);
   };
 
@@ -389,7 +393,7 @@ export function Rail({ onPanel, onModal }: {
           return (
             // Подсказка — только свёрнутому рейлу: развёрнутый и так подписан.
             <Tooltip key={kind} tip={collapsed && <Hint label={t(`shell.win.${kind}`)} keys={key} />}>
-              <button className={`rail-win${view === kind ? ' on' : ''}`}
+              <button className={`rail-win${(isDockedKind(kind) ? isDockedOn(layout, kind) : view === kind) ? ' on' : ''}`}
                 onClick={() => openWindow(kind)}>
                 <span className="rail-win-icon">
                   {collapsed && n ? n : <Icon name={icon} size={12} />}

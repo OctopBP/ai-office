@@ -6,6 +6,7 @@ import { focusComposer } from './shell/Composer';
 import { closeDiff, connect, setPaused, useStore } from './store';
 import { startRouting } from './routeSync';
 import { startNotify } from './notify';
+import { openDocked, toggleDocked } from './layout/docked';
 import { FirstLaunch, useFirstLaunch } from './FirstLaunch';
 
 export function App() {
@@ -56,7 +57,7 @@ export function App() {
   // запрос на окно, App открывает его страницу и сразу сбрасывает запрос.
   useEffect(() => {
     if (!panelRequest) return;
-    setView(panelRequest);
+    openDocked(panelRequest);
     useStore.setState({ panelRequest: null });
   }, [panelRequest, setView]);
 
@@ -106,10 +107,9 @@ export function App() {
       if (k === 'b' || k === 'и') setView(view === 'board' ? 'office' : 'board');
       // E — доска расходов. Буква занята под «expenses»/«расходы»: свободных
       // мнемоничных клавиш немного, а «$» на русской раскладке не набрать.
-      // Расходы, лог и очередь слияния — страницы рейла: повтор клавиши, как у
-      // доски, возвращает в офис.
-      else if (k === 'e' || k === 'у') setView(view === 'money' ? 'office' : 'money');
-      else if (k === 'l' || k === 'д') setView(view === 'log' ? 'office' : 'log');
+      // Расходы, лог и очередь слияния — окна в доках: повтор клавиши закрывает вкладку.
+      else if (k === 'e' || k === 'у') toggleDocked('money');
+      else if (k === 'l' || k === 'д') toggleDocked('log');
       // J — жизнь офиса: вопросы, журнал, ритуалы. Это вид, как доска: повтор возвращает в офис.
       else if (k === 'j' || k === 'о') setView(view === 'life' ? 'office' : 'life');
       // P — процессы: доска прогонов, файлы процессов, проверки, расход.
@@ -118,7 +118,7 @@ export function App() {
       // R — выпуски: цели, история, планы (docs/design/releases/spec.md §11).
       else if (k === 'r' || k === 'к') setView(view === 'releases' ? 'office' : 'releases');
       else if (k === 'm' || k === 'ь') setModal('meeting');
-      else if (k === 'q' || k === 'й') setView(view === 'merge' ? 'office' : 'merge');
+      else if (k === 'q' || k === 'й') toggleDocked('merge');
       // G — режим разработчика трёхмерного офиса: сетка, занятые клетки и
       // маршруты агентов (`office3d/Dev3D.tsx`). D занята панорамированием
       // камеры (WASD в `Camera3D.tsx`).
