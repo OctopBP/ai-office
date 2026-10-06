@@ -9,12 +9,26 @@ import { useEffect, useRef, type ReactNode } from 'react';
 import { Dock } from '../layout/Dock';
 import { Splitter } from '../layout/Splitter';
 import { useLayout } from '../layout/store';
-import { dockRange, effectiveSize, type DockId, type WindowRef } from '../layout/model';
+import { dockRange, effectiveSize, makeRef, type DockId, type Layout, type WindowRef } from '../layout/model';
+import type { DockStatus } from '../layout/Dock';
+import { TerminalWindow } from '../terminal/TerminalWindow';
+import { useTermViews, type TermStatus } from '../terminal/sessions';
 import { t } from '../i18n';
 
-/** Содержимое вкладки; конкретные окна переезжают в доки отдельными задачами. */
-function WindowBody(_: { win: WindowRef }): ReactNode {
+/** Содержимое вкладки; остальные окна переезжают в доки отдельными задачами. */
+function WindowBody({ win }: { win: WindowRef }): ReactNode {
+  if (win.kind === 'terminal') return <TerminalWindow winId={win.id} />;
   return <p className="dock-empty">{t('dock.empty')}</p>;
+}
+
+const TERM_STATUS: Record<TermStatus, DockStatus> = { live: 'ok', opening: 'warn', exited: 'warn', error: 'danger' };
+
+/** Номер для нового терминала: наименьший свободный. */
+function nextTerminalNumber(layout: Layout): string {
+  const used = new Set(Object.values(layout.docks).flatMap((d) => d?.tabs.map((w) => w.id) ?? []));
+  let n = 1;
+  while (used.has(`terminal:${n}`)) n++;
+  return String(n);
 }
 
 export function WorkColumn({ officeId, children }: { officeId: string | null; children: ReactNode }) {
@@ -22,6 +36,7 @@ export function WorkColumn({ officeId, children }: { officeId: string | null; ch
   const layout = useLayout((s) => s.layout);
   const column = useLayout((s) => s.column);
   const maximized = useLayout((s) => s.maximized);
+  const termViews = useTermViews((s) => s.byId);
   const st = useLayout.getState;
 
   // Раскладка своя у каждого офиса: смена офиса — загрузка его раскладки.
@@ -73,6 +88,11 @@ export function WorkColumn({ officeId, children }: { officeId: string | null; ch
           size={size}
           maximized={maximized === id}
           renderWindow={(win) => <WindowBody win={win} />}
+          statusOf={(win) => {
+            const v = win.kind === 'terminal' ? termViews[win.id] : undefined;
+            return v ? TERM_STATUS[v.status] : undefined;
+          }}
+          onAdd={id === 'bottom' ? () => st().openWindow(makeRef('terminal', nextTerminalNumber(st().layout)), 'bottom') : undefined}
           onActivate={(win) => st().activate(id, win)}
           onClose={(win) => st().closeWindow(win)}
           onToggleCollapsed={() => st().toggleCollapsed(id)}

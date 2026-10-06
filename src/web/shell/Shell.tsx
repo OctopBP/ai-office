@@ -1,3 +1,5 @@
+import { useLayout } from '../layout/store';
+import { makeRef } from '../layout/model';
 import { useEffect, useRef, useState } from 'react';
 import { Office3D } from '../office3d/Office3D';
 import { Board } from '../Board';
@@ -9,7 +11,6 @@ import { Overlays, type OverlayProps } from '../Overlays';
 import { Rail } from './Rail';
 import { WorkColumn } from './WorkColumn';
 import { TopBar } from './TopBar';
-import { TerminalPanel } from '../terminal/TerminalPanel';
 import { Composer } from './Composer';
 import { EnvBanner } from './EnvBanner';
 import { SettingsPage } from '../SettingsPage';
@@ -63,12 +64,24 @@ export function Shell(props: OverlayProps) {
   const door = () => setModal('offices');
 
   // Панель терминала: кнопка в верхнем ряду и Ctrl+` (на macOS Cmd+`).
-  const [terminalOpen, setTerminalOpen] = useState(false);
+  // Терминал — вкладка нижнего дока. Кнопка открывает или фокусирует её,
+  // а если терминал уже на виду — сворачивает док (сессии при этом живут).
+  const terminalOpen = useLayout((s) => {
+    const b = s.layout.docks.bottom;
+    return !!b && !b.collapsed && b.tabs.some((w) => w.id === b.active && w.kind === 'terminal');
+  });
+  const openTerminal = () => {
+    const st = useLayout.getState();
+    if (terminalOpen) { st.toggleCollapsed('bottom'); return; }
+    const tab = st.layout.docks.bottom?.tabs.find((w) => w.kind === 'terminal');
+    st.openWindow(tab ?? makeRef('terminal', '1'), 'bottom');
+  };
+  const toggleTerminal = openTerminal;
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.code !== 'Backquote' || !(e.ctrlKey || e.metaKey) || e.altKey || e.shiftKey) return;
       e.preventDefault();
-      setTerminalOpen((v) => !v);
+      toggleTerminal();
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
@@ -119,8 +132,7 @@ export function Shell(props: OverlayProps) {
         <Toasts onOpenTask={(id) => { setView('board'); openTaskCard(id); }} />
       </div></WorkColumn>
       <Rail onPanel={setPanel} onModal={setModal} />
-      <TopBar terminalOpen={terminalOpen} onTerminal={() => setTerminalOpen((v) => !v)} />
-      <TerminalPanel open={terminalOpen} onClose={() => setTerminalOpen(false)} />
+      <TopBar terminalOpen={terminalOpen} onTerminal={openTerminal} />
       {/* На доске композера нет: экран целиком про задачи, а разговор с
           менеджером живёт в виде «Чат». Освободившуюся полосу внизу забирает
           сама доска (.shell-board). В «Чате» он встроен в колонку переписки.

@@ -391,16 +391,6 @@ body.office-dragging, body.office-dragging * { cursor: grabbing !important; user
 .update-notes-body .md { max-width: none; }
 .update-notes-actions { flex: none; padding: var(--space-3) var(--space-6); border-top: 1px solid var(--hairline); }
 
-/* ---------- терминал ---------- */
-/* Панель терминала (TerminalPanel.tsx) встаёт над композером, а не поверх
-   него: низ отмеряем от его реальной высоты. На видах без композера
-   (доска, страницы рейла) переменной нет — панель садится к низу окна.
-   Верх не заходит под верхний ряд оболочки. */
-.shell .term-panel {
-  bottom: calc(var(--composer-h, 0px) + var(--gap) * 2);
-  max-height: calc(100% - 62px - var(--composer-h, 0px) - var(--gap) * 3);
-}
-
 /* ---------- рабочая колонка: основная область и доки ---------- */
 /* Колонка лежит на всю оболочку; основная область — остаток после доков и
    сама остаётся опорой для абсолютных видов. Доки отступают от рейла,
