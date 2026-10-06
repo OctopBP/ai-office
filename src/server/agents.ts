@@ -58,7 +58,7 @@ import {
 } from './questions';
 import { isOpenQuestion } from '../shared/questions';
 import {
-  setRitualAgents, type ConsolidationInput, type ReflectionOutput, type RitualOutput,
+  setRitualAgents, type ConsolidationInput, type ReflectionOutput, type ResolveOutput, type RitualOutput,
 } from './rituals';
 import { resolveModel } from '../shared/models';
 import { resolve } from 'node:path';
@@ -4467,6 +4467,64 @@ async function ritualSession(
   return out;
 }
 
+/**
+ * Команда оболочки, которую агент разбора может выполнить: только чтение
+ * git и поиск. Цепочки, перенаправления и подстановки не пускаем — по ним
+ * в «чтение» легко пронести запись.
+ */
+const READONLY_SHELL = /^\s*(git\s+(log|show|blame|grep|diff|ls-files|rev-parse|branch)|rg|grep|ls|wc)\b/;
+const SHELL_ESCAPES = /[;&|><`$\n]/;
+
+/**
+ * Агент разбора противоречия: короткая сессия на модели ритуалов, только
+ * чтение проекта — файлы, git, поиск. Ответ — текст с JSON, разбирает его
+ * ритуал (parseVerdict), здесь только сессия и расход.
+ */
+async function resolveContradictionSession(state: OfficeState, prompt: string): Promise<ResolveOutput> {
+  const out: ResolveOutput = { text: '', costUsd: 0 };
+  if (state.dryRun) return out;
+  const before = state.instances.get('pm#1')?.usage.costUsd ?? 0;
+  const guard = permissionHandler(state, 'pm#1');
+  try {
+    const session = startSession({
+      prompt,
+      options: {
+        ...ritualRuntime(state),
+        systemPrompt: state.say('prompt.resolveContradiction.system', { lang: LANG_NAME_EN[state.lang()] }),
+        cwd: state.projectDir,
+        tools: ['Read', 'Glob', 'Grep', 'Bash'],
+        permissionMode: 'default',
+        canUseTool: async (name, input, opts) => {
+          if (name === 'Bash') {
+            const command = String((input as { command?: unknown }).command ?? '');
+            if (!READONLY_SHELL.test(command) || SHELL_ESCAPES.test(command)) {
+              return { behavior: 'deny', message: state.say('agent.deny.readOnly') };
+            }
+          } else if (!['Read', 'Glob', 'Grep'].includes(name)) {
+            return { behavior: 'deny', message: state.say('agent.deny.readOnly') };
+          }
+          return guard(name, input, opts);
+        },
+        settingSources: [],
+        settings: OFFICE_SESSION_SETTINGS,
+        sandbox: SANDBOX,
+        maxTurns: 20,
+      },
+    });
+    for await (const msg of session) {
+      consume(state, 'pm#1', msg, false);
+      if (msg.type === 'result') {
+        if (isOk(msg)) out.text = msg.result?.trim() ?? '';
+        else out.error = clip(resultReason(msg, state.lang()), 300);
+      }
+    }
+  } catch (err) {
+    out.error = (err as Error).message;
+  }
+  out.costUsd = Math.max(0, (state.instances.get('pm#1')?.usage.costUsd ?? 0) - before);
+  return out;
+}
+
 /** Журнал словами — для ритуалов, которые его перечитывают. */
 function journalText(state: OfficeState, facts: ConsolidationInput['facts']): string {
   if (!facts.length) return state.say('prompt.ritual.journalEmpty');
@@ -4688,6 +4746,7 @@ setRitualAgents({
     ].join('\n');
     return ritualSession(state, state.say('prompt.contradictions.system', { lang }), prompt);
   },
+  resolveContradiction: resolveContradictionSession,
 
   /**
    * Рефлексия — на модели менеджера: это и есть менеджер, только с цифрами

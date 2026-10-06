@@ -30,7 +30,11 @@ import type { BranchMark, HealthEntry, OwnerQuestion, RitualId, RitualRun } from
 import { LANG_LOCALE } from '../shared/i18n';
 import { roleReports, WEEK_MS as REPORT_WEEK_MS, type RoleReport } from '../shared/report';
 import { toTaskView, type Fact, type OfficeState, type Task } from './state';
-import { forget, STALE_AFTER_MS } from './journal';
+import { archiveFact, forget, STALE_AFTER_MS } from './journal';
+import {
+  buildResolvePrompt, decideContradiction, isPairResolved, markPairResolved, parseVerdict,
+  type ContradictionVerdict,
+} from './contradictions';
 import { askOwner, officeAsks, openQuestions, pickForStandup } from './questions';
 import { limitsView } from './limits';
 import { tellPm } from './review';
@@ -96,10 +100,22 @@ export interface ReflectionOutput extends RitualOutput {
   summary: string;
 }
 
+/** Ответ агента разбора противоречия: сырой текст, который разбирает parseVerdict. */
+export interface ResolveOutput {
+  text: string;
+  costUsd: number;
+  error?: string;
+}
+
 export interface RitualAgents {
   consolidate(state: OfficeState, input: ConsolidationInput): Promise<RitualOutput>;
   contradictions(state: OfficeState, facts: Fact[]): Promise<RitualOutput>;
   reflect(state: OfficeState, input: ReflectionInput): Promise<ReflectionOutput>;
+  /**
+   * Разбор одной пары записей по коду, git и доске — только чтение. Нет
+   * агента — пара считается неразобранной и уходит владельцу.
+   */
+  resolveContradiction?(state: OfficeState, prompt: string): Promise<ResolveOutput>;
 }
 
 const emptyOutput = (): RitualOutput => ({ facts: [], contradictions: [], questions: [], costUsd: 0 });
@@ -501,8 +517,107 @@ async function runAsFlow(state: OfficeState, ritual: RitualId, now: number): Pro
   return result ?? { ritual, at: now, costUsd: 0, produced: {}, note: '' };
 }
 
+/**
+ * Запись журнала по цитате из flag_contradiction. Модель цитирует строку
+ * журнала вида «J-12 [вид, область] текст» — сначала ищем id, потом сам
+ * текст. Новое наблюдение, которого в журнале нет, не находится: такую пару
+ * разбирать не с чем, она уходит владельцу как раньше.
+ */
+function factByQuote(facts: Fact[], quote: string): Fact | null {
+  for (const m of quote.matchAll(/\b[A-Z]+-\d+\b/g)) {
+    const hit = facts.find((f) => f.id === m[0]);
+    if (hit) return hit;
+  }
+  const norm = (s: string): string => s.toLowerCase().replace(/[«»“”"'`]/g, '').replace(/\s+/g, ' ').trim();
+  const q = norm(quote.replace(/^-?\s*[A-Z]+-\d+\s*(\[[^\]]*\])?/, ''));
+  if (q.length < 12) return null;
+  return facts.find((f) => {
+    const t = norm(f.text);
+    return t.includes(q) || q.includes(t);
+  }) ?? null;
+}
+
+/** Вывод разбора словами — для строки ленты и для вопроса владельцу. */
+function verdictText(state: OfficeState, verdict: ContradictionVerdict): string {
+  if (verdict.kind === 'stale') {
+    return state.say('contradictions.verdict.stale', {
+      keep: verdict.keepId, forget: verdict.forgetId, reason: clip(verdict.reason, 300),
+    });
+  }
+  if (verdict.kind === 'compatible') {
+    return state.say('contradictions.verdict.compatible', { reason: clip(verdict.reason, 300) });
+  }
+  const reason = state.say('contradictions.verdict.unresolved', { reason: clip(verdict.reason, 300) });
+  return verdict.lean ? `${reason} ${state.say('contradictions.verdict.lean', { lean: clip(verdict.lean, 200) })}` : reason;
+}
+
+/** Что стало с одним противоречием: спросили, закрыли сами или пропустили как разобранное. */
+type ContradictionFate = 'asked' | 'resolved' | 'skipped';
+
+/**
+ * Одно противоречие: прежде чем спрашивать владельца, офис разбирает пару
+ * сам (решение журнала: владельца спрашивают, только когда разобраться не
+ * вышло или сталкиваются два его решения). Разобранная пара второй раз не
+ * поднимается — ни агентом, ни вопросом.
+ */
+async function handleContradiction(
+  state: OfficeState, ritual: RitualId, c: { a: string; b: string; text: string }, out: RitualOutput,
+): Promise<ContradictionFate> {
+  const live = state.factList().filter((f) => f.status === 'live' && f.kind !== 'contradiction');
+  const a = factByQuote(live, c.a);
+  const b = factByQuote(live, c.b);
+  const pair = a && b && a.id !== b.id ? { a, b } : null;
+  const question = state.say('questions.contradiction', { a: clip(c.a, 160), b: clip(c.b, 160) });
+
+  if (!pair) {
+    // Сторону не нашли в журнале — разбирать нечего, спрашиваем как раньше.
+    state.addFact({ kind: 'contradiction', text: c.text || `${c.a} ≠ ${c.b}`, scope: 'office', source: { ritual } });
+    officeAsks(state, 'contradiction', question, state.say('questions.contradictionAssumption'));
+    return 'asked';
+  }
+  if (isPairResolved(state.life, pair.a.id, pair.b.id)) return 'skipped';
+
+  let verdict: ContradictionVerdict;
+  if (!agents.resolveContradiction) {
+    verdict = { kind: 'unresolved', reason: state.say('contradictions.noAgent') };
+  } else {
+    const answer = await agents.resolveContradiction(state, buildResolvePrompt(pair.a, pair.b));
+    out.costUsd += answer.costUsd;
+    verdict = answer.error && !answer.text.trim()
+      ? { kind: 'unresolved', reason: state.say('contradictions.agentFailed', { error: clip(answer.error, 200) }) }
+      : parseVerdict(answer.text);
+  }
+  const decision = decideContradiction(pair.a, pair.b, verdict);
+  markPairResolved(state.life, pair.a.id, pair.b.id);
+  state.touchLife();
+
+  if (decision.action === 'close') {
+    if (decision.verdict.kind === 'stale') archiveFact(state, decision.verdict.forgetId);
+    state.addLog(null, 'system', state.say('contradictions.closedLog', {
+      a: pair.a.id, b: pair.b.id, what: clip(c.text || `${pair.a.text} ≠ ${pair.b.text}`, 160),
+      verdict: verdictText(state, decision.verdict),
+    }));
+    return 'resolved';
+  }
+
+  state.addFact({ kind: 'contradiction', text: c.text || `${c.a} ≠ ${c.b}`, scope: 'office', source: { ritual } });
+  const review = decision.why === 'owner-decisions'
+    ? state.say('contradictions.review.ownerDecisions', { verdict: verdictText(state, decision.verdict) })
+    : state.say('contradictions.review.unresolved', { verdict: verdictText(state, decision.verdict) });
+  const options = decision.verdict.kind === 'unresolved' && decision.verdict.options?.length
+    ? decision.verdict.options
+    : [
+      state.say('contradictions.option.first', { id: pair.a.id }),
+      state.say('contradictions.option.second', { id: pair.b.id }),
+      state.say('contradictions.option.both'),
+    ];
+  officeAsks(state, 'contradiction', `${question}\n\n${review}`,
+    state.say('questions.contradictionAssumption'), null, options);
+  return 'asked';
+}
+
 /** Положить то, что ритуал произвёл: записи, противоречия, вопросы. */
-function applyOutput(state: OfficeState, ritual: RitualId, out: RitualOutput): Record<string, number> {
+async function applyOutput(state: OfficeState, ritual: RitualId, out: RitualOutput): Promise<Record<string, number>> {
   let facts = 0;
   for (const f of out.facts) {
     if (!f.text.trim()) continue;
@@ -514,13 +629,12 @@ function applyOutput(state: OfficeState, ritual: RitualId, out: RitualOutput): R
     facts += 1;
   }
   let contradictions = 0;
+  let resolved = 0;
   for (const c of out.contradictions) {
     if (!c.a.trim() || !c.b.trim()) continue;
-    state.addFact({ kind: 'contradiction', text: c.text || `${c.a} ≠ ${c.b}`, scope: 'office', source: { ritual } });
-    officeAsks(state, 'contradiction',
-      state.say('questions.contradiction', { a: clip(c.a, 160), b: clip(c.b, 160) }),
-      state.say('questions.contradictionAssumption'));
-    contradictions += 1;
+    const fate = await handleContradiction(state, ritual, c, out);
+    if (fate === 'asked') contradictions += 1;
+    else if (fate === 'resolved') resolved += 1;
   }
   let questions = 0;
   for (const q of out.questions) {
@@ -530,7 +644,7 @@ function applyOutput(state: OfficeState, ritual: RitualId, out: RitualOutput): R
     else officeAsks(state, 'assumption', q.text, q.assumption, null, q.options);
     questions += 1;
   }
-  return { facts, contradictions, questions };
+  return { facts, contradictions, resolved, questions };
 }
 
 const runners: Record<RitualId, Runner> = {
@@ -543,7 +657,7 @@ const runners: Record<RitualId, Runner> = {
     const input = consolidationInput(state);
     const out = await agents.consolidate(state, input);
     if (out.error) throw new Error(out.error);
-    const produced = applyOutput(state, 'consolidate', out);
+    const produced = await applyOutput(state, 'consolidate', out);
     return {
       ritual: 'consolidate', at: now, costUsd: out.costUsd, produced,
       note: state.say('ritual.consolidate.note', produced),
@@ -554,7 +668,7 @@ const runners: Record<RitualId, Runner> = {
     const facts = state.factList().filter((f) => f.status === 'live' && f.kind !== 'contradiction');
     const out = await agents.contradictions(state, facts);
     if (out.error) throw new Error(out.error);
-    const produced = applyOutput(state, 'contradictions', out);
+    const produced = await applyOutput(state, 'contradictions', out);
     return {
       ritual: 'contradictions', at: now, costUsd: out.costUsd, produced,
       note: state.say('ritual.contradictions.note', produced),
@@ -588,7 +702,7 @@ const runners: Record<RitualId, Runner> = {
   async reflect(state, now) {
     const out = await agents.reflect(state, reflectionInput(state, now));
     if (out.error) throw new Error(out.error);
-    const produced = applyOutput(state, 'reflect', out);
+    const produced = await applyOutput(state, 'reflect', out);
     let features = 0;
     for (const feature of out.features) {
       const made = proposeFeature(state, feature);
