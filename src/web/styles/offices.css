@@ -108,3 +108,16 @@
   content: ''; position: absolute; left: 50%; top: 2px; bottom: 2px; width: 2px;
   margin-left: -1px; background: rgba(255, 255, 255, 0.9); transform: rotate(45deg);
 }
+
+/* Переменные окружения офиса (OfficeSecrets.tsx) */
+.office-secrets { display: flex; flex-direction: column; gap: var(--space-3); }
+.secret-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: var(--space-2); }
+.secret-row { display: flex; align-items: center; flex-wrap: wrap; gap: var(--space-3); }
+.secret-name { font-weight: 600; color: var(--ink-1, inherit); }
+.secret-mask, .secret-date { color: var(--ink-3); font-size: var(--fs-small); }
+.secret-actions { margin-left: auto; display: flex; align-items: center; gap: var(--space-2); }
+.secret-form { display: flex; flex-direction: column; gap: var(--space-2); }
+.secret-form input:not([type='file']), .secret-form textarea { width: 100%; font-family: var(--font-mono, monospace); }
+/* Значение маскируется и в многострочном поле: type=password у textarea нет. */
+.secret-value { -webkit-text-security: disc; resize: vertical; }
+.secret-form-actions { display: flex; align-items: center; gap: var(--space-2); }

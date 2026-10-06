@@ -15,6 +15,7 @@ import { DEFAULT_GRAPHICS, GRAPHICS_RANGE, type Graphics } from './office3d/grap
 import { t, type UiKey } from './i18n';
 import { McpCatalog, type McpRequest } from './McpCatalog';
 import { OfficeIconSetting } from './OfficeIcon';
+import { OfficeSecrets } from './OfficeSecrets';
 import { Icon } from './icons';
 import { ShellPage } from './shell/ShellPage';
 import { ProviderCard } from './ProviderCard';
@@ -587,6 +588,10 @@ export function SettingsPage({ onClose }: { onClose: () => void }) {
                     ))}
                   </div>
                 </Row>
+              </Group>
+
+              <Group title={t('settings.secrets.title')} desc={t('settings.secrets.desc')}>
+                <OfficeSecrets />
               </Group>
 
               {/* Токен стоит в этой группе, а не у облака: на него ссылается
