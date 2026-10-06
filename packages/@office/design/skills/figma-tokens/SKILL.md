@@ -33,16 +33,21 @@ whole-document reads, and calling them per node is wasteful.
 - Name your layers the way the file names things. A frame called `Frame 42`
   next to `Card / Product` is visibly foreign.
 
-## The limitation, stated plainly
+## Bind, do not copy values
 
-The bridge sets **values**, not bindings: there is no tool to attach a variable
-to a node property. A frame filled with the value of `color/surface` will look
-right and will not follow a mode switch.
+The bridge sets **values**, not bindings: a frame filled with the value of
+`color/surface` looks right and does not follow a mode switch. Binding is done
+with `figma-console-mcp`: `figma_execute` (`setBoundVariable`,
+`setBoundVariableForPaint`) or its variable tools. Colours, spacing, radii and
+text sizes on your frames must be bound to variables, not just equal in value.
 
-Do not hide this. In your report, list which tokens you took values from, so a
-person can bind them in one pass. Wording that works: "цвета взяты по значениям
-переменных `color/surface`, `color/text/primary`; привязать их к свойствам
-мостом нельзя — это делается в Figma руками."
+The variables mirror `src/web/styles/tokens.css`, light and dark modes in one
+collection. If a value you need is not there, use the nearest existing one and
+list the missing token in the report.
+
+If binding was impossible (server not connected, no token), say so in the
+report and list the tokens whose values you took, so they can be bound in one
+pass. Do not present values-only work as finished.
 
 ## When the file has no tokens
 
@@ -50,7 +55,8 @@ It happens — an empty file, a scratch page, an early project. Then:
 
 1. Say so in the report. "У файла нет переменных и стилей" is information the
    person needs, not a detail to swallow.
-2. Pick a small palette and a spacing scale, and hold to them for the whole
+2. Create variables from `src/web/styles/tokens.css` (see above). Only if that
+   file is unavailable, pick a small palette and a spacing scale, and hold to them for the whole
    task: four to six colours, spacing in multiples of 4, two or three type
    sizes. Consistency inside your own work is the part you control.
 3. List the palette you used in the report, so it can become the file's tokens
@@ -58,7 +64,10 @@ It happens — an empty file, a scratch page, an early project. Then:
 
 ## Do not redefine the system
 
-Creating new variables or styles is not part of drawing a screen. If the task
+Creating new variables or styles is not part of drawing an ordinary screen.
+The exception is a file with no tokens: then mirror `tokens.css` into variables
+first (`figma_setup_design_tokens` or `figma_batch_create_variables`), light
+and dark, and bind to them. If the task
 needs a token that does not exist, build with the nearest existing one and say
 in the report what was missing. Quietly extending someone's design system is a
 bigger decision than the task you were given.

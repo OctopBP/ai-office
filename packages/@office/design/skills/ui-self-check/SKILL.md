@@ -5,7 +5,8 @@ description: Self-review checklist to run before handing over a mockup or finish
 
 # Self-check before handoff
 
-Go through every section. In the report write one line per section:
+This step is mandatory: run it before `finish_task` on any task that produced
+a screen, component or frame. Go through every section. In the report write one line per section:
 `passed` or `violated: <what, where, why left as is>`. A bare "all ok" is not
 a result. Numbers (contrast, sizes) must be computed, not eyeballed. Reference
 values: `ui-standards` skill.
@@ -34,9 +35,9 @@ System status visible; undo / way out; consistent words and elements; error prev
 Buttons are verbs, not "OK". No error codes shown to a person. Strings exist in both `i18n` dictionaries (code tasks).
 
 ## F. Figma (design tasks)
-- Auto Layout on every frame holding a row, column or list; no manual positions where layout can do it.
+- Auto Layout on every frame holding a row, column or list; children stretch with FILL/HUG; no manual positions where layout can do it.
 - Anything repeated twice or more is a component or an instance; variants instead of copies.
-- Variables for colour/gap/radius; layers named by meaning (`Row/Task`, not `Frame 427`).
+- Variables for colour/gap/radius, bound to properties (`figma-console-mcp`), not just equal in value; layers named by meaning (`Row/Task`, not `Frame 427`).
 - Light and dark versions delivered side by side; states placed next to the screen.
 - Screenshot taken with `get_screenshot` and looked at, not built blind.
 

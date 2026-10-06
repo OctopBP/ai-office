@@ -1,6 +1,6 @@
 ---
 name: figma-screen
-description: Build or update a screen, page, card, modal or any multi-part layout in Figma through the figma-bridge MCP server. Use whenever the task is to draw, lay out, restructure or extend something in a Figma file — "сделай экран", "нарисуй макет", "собери карточку", "поправь layout". Covers the required call order, auto-layout discipline, node-id format and how to verify the result.
+description: Build or update a screen, page, card, modal or any multi-part layout in Figma through the figma-bridge and figma-console-mcp servers. Use whenever the task is to draw, lay out, restructure or extend something in a Figma file — "сделай экран", "нарисуй макет", "собери карточку", "поправь layout". Covers the required call order, auto-layout discipline, node-id format and how to verify the result.
 ---
 
 # Building a screen with figma-bridge
@@ -9,6 +9,33 @@ The `mcp__figma-bridge__*` tools drive a Figma file that is open in the desktop
 app with the Figma MCP Bridge plugin running. Everything below is about that
 bridge specifically — it is not the official Figma MCP and has a different tool
 set.
+
+## Two servers, two jobs
+
+- `figma-bridge` (`mcp__figma-bridge__*`): frames with auto layout, text,
+  shapes, reading the file, screenshots. It cannot set FILL/HUG on a child,
+  create components, variants or instances, or bind variables.
+- `figma-console-mcp` (`figma_*` tools): components and variant sets
+  (`figma_create_component_set`), instances (`figma_instantiate_component`),
+  variables and their binding (`figma_create_variable_collection`,
+  `figma_batch_create_variables`), and anything else of the Plugin API through
+  `figma_execute` — including FILL/HUG on children.
+
+Whatever the bridge cannot do is done through `figma-console-mcp`. Falling back
+to absolute coordinates, copied frames or raw hex fills because the bridge has
+no such tool is a defect, not a workaround.
+
+## Mandatory result
+
+- Every frame is on Auto Layout; direction, padding and gap come from the token
+  scale; children stretch with FILL/HUG, not with coordinates.
+- Everything repeated (button, field, card, list row) is a component with
+  variants per state (default, hover, focus, pressed, disabled); the screen
+  holds instances. Make the component first, then place instances.
+- Colours, spacing and radii are variables bound to the properties
+  (`src/web/styles/tokens.css`, both themes), see `figma-tokens`.
+- Before handing over, run the `ui-self-check` skill, section F included, and
+  put its per-section verdicts into the report. No self-check, no handoff.
 
 ## Order of work
 
@@ -21,7 +48,10 @@ set.
    always the thing they are talking about. Check before asking.
 4. Read before you write: `get_document` or `get_node` for the area you are
    changing. Never restructure a node you have not looked at.
-5. Build, then verify with `get_screenshot` (see below).
+5. Build: skeleton and text with the bridge; components, instances, variables
+   and FILL/HUG with `figma-console-mcp`. Then verify with `get_screenshot`
+   (see below).
+6. Run `ui-self-check` and report its verdicts.
 
 If the tools answer that there is no connection, the plugin is not open in the
 file. Say so plainly in the report and stop — a written description is not a
@@ -56,6 +86,9 @@ human, and build it the way a human would.
   fails.
 - `primaryAxisAlignItems: 'SPACE_BETWEEN'` is how a header row gets its title on
   the left and its actions on the right. Do not fake it with padding.
+- The bridge's `set_auto_layout` has no per-child sizing: FILL/HUG on a child
+  (a field stretching to the row, a card filling the column) is set through
+  `figma_execute` (`layoutSizingHorizontal` / `layoutSizingVertical`).
 - Only reach for `x`/`y` on nodes that genuinely float: the top-level canvas
   frame on the page, and overlays.
 

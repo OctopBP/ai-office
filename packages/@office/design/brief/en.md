@@ -25,3 +25,11 @@ Before handing over a screen, run the `ui-self-check` skill and report per secti
 - A destructive action (delete, roll back, reset) looks distinct and is confirmed or undoable ("Undo" in a toast).
 - Figma mockup: Auto Layout, variables, anything repeated 2+ times is a component with variants, layers named by meaning, light and dark versions together.
 
+## Figma mockup: mandatory requirements
+
+- Every frame is built on Auto Layout: direction, padding and gap come from the token scale, children stretch with FILL/HUG; absolute coordinates only for the top-level frame on the page and for overlays.
+- Anything repeated (buttons, fields, cards, list rows) is a component with variants per state; screens hold instances of it, not copies.
+- Colours, spacing and radii are Figma variables linked to `src/web/styles/tokens.css` (both themes); never enter values by eye.
+- Two servers, each with its own job. `figma-bridge`: frames with auto layout, text, shapes, reading the file and screenshots; it cannot set FILL/HUG on children, make components or instances, or bind variables. `figma-console-mcp`: components and variant sets, instances, creating and binding variables, FILL/HUG via `figma_execute`. A skeleton may be built with the bridge, but whatever the bridge cannot do goes through `figma-console-mcp`, not around it with absolute coordinates.
+- Before handing a mockup over, the `ui-self-check` skill is mandatory, section F included; do not hand the task over without it. Build order: the `figma-screen` and `figma-tokens` skills.
+
