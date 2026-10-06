@@ -1,4 +1,4 @@
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Office3D } from '../office3d/Office3D';
 import { Board } from '../Board';
 import { ChatThread } from '../ChatThread';
@@ -8,6 +8,7 @@ import { Toasts } from '../Toasts';
 import { Overlays, type OverlayProps } from '../Overlays';
 import { Rail } from './Rail';
 import { TopBar } from './TopBar';
+import { TerminalPanel } from '../terminal/TerminalPanel';
 import { Composer } from './Composer';
 import { EnvBanner } from './EnvBanner';
 import { UpdateBanner } from './UpdateBanner';
@@ -60,6 +61,18 @@ export function Shell(props: OverlayProps) {
   };
   const door = () => setModal('offices');
 
+  // Панель терминала: кнопка в верхнем ряду и Ctrl+` (на macOS Cmd+`).
+  const [terminalOpen, setTerminalOpen] = useState(false);
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.code !== 'Backquote' || !(e.ctrlKey || e.metaKey) || e.altKey || e.shiftKey) return;
+      e.preventDefault();
+      setTerminalOpen((v) => !v);
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, []);
+
   return (
     <div className={`shell${collapsed ? ' rail-collapsed' : ''}${paused ? ' paused' : ''}`}>
       <div className="shell-main">
@@ -104,7 +117,8 @@ export function Shell(props: OverlayProps) {
         <Toasts onOpenTask={(id) => { setView('board'); openTaskCard(id); }} />
       </div>
       <Rail onPanel={setPanel} onModal={setModal} />
-      <TopBar />
+      <TopBar terminalOpen={terminalOpen} onTerminal={() => setTerminalOpen((v) => !v)} />
+      <TerminalPanel open={terminalOpen} onClose={() => setTerminalOpen(false)} />
       {/* На доске композера нет: экран целиком про задачи, а разговор с
           менеджером живёт в виде «Чат». Освободившуюся полосу внизу забирает
           сама доска (.shell-board). В «Чате» он встроен в колонку переписки.

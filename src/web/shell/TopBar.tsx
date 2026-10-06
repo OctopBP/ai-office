@@ -13,10 +13,10 @@ const VIEWS: TopView[] = ['office', 'board', 'chat', 'life'];
 const VIEW_KEY: Partial<Record<View, string>> = { board: HOTKEY.board, life: HOTKEY.life };
 
 /**
- * Верхний ряд поверх сцены: сегменты видов по центру, справа пауза. Отдельной
+ * Верхний ряд поверх сцены: сегменты видов по центру, справа терминал и пауза. Отдельной
  * кнопки «поставить задачу» нет — задача ставится словами в композере.
  */
-export function TopBar() {
+export function TopBar({ terminalOpen, onTerminal }: { terminalOpen: boolean; onTerminal: () => void }) {
   const view = useStore((s) => s.view);
   const setView = useStore((s) => s.setView);
   const paused = useStore((s) => s.paused);
@@ -44,6 +44,10 @@ export function TopBar() {
         ))}
       </div>
       <div className="shell-top-right">
+        <button className={`sq float${terminalOpen ? ' on' : ''}`} onClick={onTerminal}
+          title={t('shell.terminal.hint')} aria-label={t('shell.terminal')} aria-pressed={terminalOpen}>
+          <Icon name="terminal-2" size={16} />
+        </button>
         <button className={`sq float${paused ? ' on' : ''}`} onClick={() => setPaused(!paused)}
           title={t(paused ? 'hud.resume.hint' : 'hud.pause.hint')}>
           <Icon name={paused ? 'player-play' : 'player-pause'} size={16} />

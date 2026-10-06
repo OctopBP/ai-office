@@ -1611,6 +1611,8 @@ export const en = {
   "providers.wizard.connect": "No provider is connected. Connect one below — or skip this step and do it later on the Providers tab.",
   "providers.wizard.skipHint": "You can skip this step: the office will be created, but the team won't take tasks until a provider is connected.",
   // ------------------------------------------------------------- терминал
+  'shell.terminal': "Terminal",
+  'shell.terminal.hint': "Terminal in the office folder — Ctrl+` (Cmd+` on macOS)",
   'terminal.title': "Terminal",
   'terminal.tab': "Terminal {n}",
   'terminal.newTab': "New terminal",
