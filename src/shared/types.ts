@@ -2500,6 +2500,8 @@ export type ServerEvent =
   | { t: 'handoff'; from: string; to: string; text: string }
   | { t: 'busy'; busy: boolean }
   | { t: 'paused'; paused: boolean }
+  /** Список переменных офиса изменился (secrets-api.ts). Только метаданные — значений нет никогда. */
+  | { t: 'secrets'; secrets: SecretMeta[] }
   | { t: 'offices'; offices: OfficeView[] }
   /**
    * Язык интерфейса сменили. Уходит ВСЕМ подключённым клиентам, а не только

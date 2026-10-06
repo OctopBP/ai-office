@@ -220,6 +220,135 @@ await check('недоступная связка — понятная ошибк
   secrets.useSecretStore(mem);
 });
 
+// ---------- HTTP-ручка переменных (secrets-api.ts, T-302) ----------
+// Без сокета: запрос — поток с методом и заголовками, ответ — запись кода и тела.
+// Офис и режим подставляются через env ручки: реестра офисов в проверке нет.
+
+const { handleSecretsHttp, SECRETS_BODY_MAX } = await import('../src/server/secrets-api');
+const { Readable } = await import('node:stream');
+type HttpEnv = import('../src/server/secrets-api').SecretsHttpEnv;
+
+const sent: { event: unknown; officeId: string }[] = [];
+let exposed = false;
+let signedIn = false;
+const httpEnv: HttpEnv = {
+  exposed: () => exposed,
+  ownerSignedIn: () => signedIn,
+  office: (wanted) => (wanted === OFFICE ? { id: OFFICE } : { code: 404, error: 'нет офиса' }),
+  broadcast: (event, officeId) => { sent.push({ event, officeId }); },
+};
+
+/** Вызвать ручку и дождаться ответа. Заодно собрать всё, что ушло в консоль. */
+async function http(method: string, path: string, body?: string | Buffer): Promise<{ code: number; text: string; logs: string }> {
+  const [url = '/', query = ''] = path.split('?');
+  const req = Object.assign(Readable.from(body === undefined ? [] : [Buffer.from(body)]), { method, headers: {} });
+  const logs: string[] = [];
+  const keep = { log: console.log, warn: console.warn, error: console.error };
+  console.log = console.warn = console.error = (...args: unknown[]) => { logs.push(args.map(String).join(' ')); };
+  try {
+    return await new Promise((done) => {
+      let code = 0;
+      const res = {
+        writeHead(c: number) { code = c; return res; },
+        end(text: string) { done({ code, text, logs: logs.join('\n') }); },
+      };
+      assert.ok(handleSecretsHttp(req as never, res as never, url, query, httpEnv), `${path} не распознан`);
+    });
+  } finally {
+    Object.assign(console, keep);
+  }
+}
+
+const HTTP_VALUE = 'http-secret-value-77';
+
+await check('PUT заводит переменную и отвечает метаданными без значения', async () => {
+  sent.length = 0;
+  const r = await http('PUT', `/api/secrets?office=${OFFICE}`, JSON.stringify({ name: 'HTTP_TOKEN', value: HTTP_VALUE }));
+  assert.equal(r.code, 200, r.text);
+  assert.ok(!r.text.includes(HTTP_VALUE), 'значение в ответе PUT');
+  assert.ok(!r.logs.includes(HTTP_VALUE), 'значение в логе');
+  const { secret } = JSON.parse(r.text) as { secret: Record<string, unknown> };
+  assert.deepEqual(Object.keys(secret).sort(), ['createdAt', 'name', 'updatedAt']);
+  assert.equal(secret.name, 'HTTP_TOKEN');
+  assert.equal((await secrets.secretsEnv(OFFICE)).HTTP_TOKEN, HTTP_VALUE);
+  // Рассылка — одно событие со списком метаданных, без значения.
+  assert.equal(sent.length, 1);
+  assert.equal((sent[0].event as { t: string }).t, 'secrets');
+  assert.equal(sent[0].officeId, OFFICE);
+  assert.ok(!JSON.stringify(sent).includes(HTTP_VALUE), 'значение в ws-событии');
+});
+
+await check('GET отдаёт список без значений', async () => {
+  const r = await http('GET', `/api/secrets?office=${OFFICE}`);
+  assert.equal(r.code, 200, r.text);
+  for (const leak of [HTTP_VALUE, 'tok-very-secret', 'MIGTAgEAMBMG', 'BEGIN PRIVATE KEY']) assert.ok(!r.text.includes(leak), leak);
+  const { secrets: list } = JSON.parse(r.text) as { secrets: Record<string, unknown>[] };
+  assert.ok(list.some((m) => m.name === 'HTTP_TOKEN'));
+  for (const meta of list) assert.deepEqual(Object.keys(meta).sort(), ['createdAt', 'name', 'updatedAt']);
+});
+
+await check('ошибки валидации — 400 с текстом модуля, значение не эхом', async () => {
+  for (const [body, code] of [
+    [{ name: 'lower', value: HTTP_VALUE }, 'bad-name'],
+    [{ name: 'PATH', value: HTTP_VALUE }, 'reserved'],
+    [{ name: 'EMPTY_ONE', value: '' }, 'bad-value'],
+    [{ name: 'NUM', value: 42 }, 'bad-value'],
+  ] as const) {
+    const r = await http('PUT', `/api/secrets?office=${OFFICE}`, JSON.stringify(body));
+    assert.equal(r.code, 400, r.text);
+    const answer = JSON.parse(r.text) as { error: string; code: string };
+    assert.equal(answer.code, code);
+    assert.ok(answer.error.length > 0);
+    assert.ok(!r.text.includes(HTTP_VALUE) && !r.logs.includes(HTTP_VALUE));
+  }
+  const bad = await http('PUT', `/api/secrets?office=${OFFICE}`, 'не json');
+  assert.equal(bad.code, 400);
+  assert.ok(JSON.parse(bad.text).error);
+});
+
+await check('тело PUT больше 64 КБ — 413, ничего не сохранено', async () => {
+  const huge = JSON.stringify({ name: 'HUGE_ONE', value: 'x'.repeat(SECRETS_BODY_MAX) });
+  const r = await http('PUT', `/api/secrets?office=${OFFICE}`, huge);
+  assert.equal(r.code, 413, r.text);
+  assert.ok(!secrets.listSecrets(OFFICE).some((m) => m.name === 'HUGE_ONE'));
+});
+
+await check('DELETE удаляет и рассылает список', async () => {
+  sent.length = 0;
+  const r = await http('DELETE', `/api/secrets/HTTP_TOKEN?office=${OFFICE}`);
+  assert.equal(r.code, 200, r.text);
+  assert.ok(!secrets.listSecrets(OFFICE).some((m) => m.name === 'HTTP_TOKEN'));
+  assert.equal(await mem.get(`office:${OFFICE}:env:HTTP_TOKEN:0`), null);
+  assert.equal(sent.length, 1);
+  assert.equal((await http('DELETE', `/api/secrets/bad%ZZ?office=${OFFICE}`)).code, 400);
+});
+
+await check('чужие методы и неизвестный офис', async () => {
+  assert.equal((await http('POST', `/api/secrets?office=${OFFICE}`, '{}')).code, 405);
+  assert.equal((await http('GET', `/api/secrets/HTTP_TOKEN?office=${OFFICE}`)).code, 405);
+  assert.equal((await http('GET', '/api/secrets?office=nope')).code, 404);
+});
+
+await check('офис открыт наружу: без входа владельца — 403, со входом — можно', async () => {
+  exposed = true;
+  signedIn = false;
+  try {
+    sent.length = 0;
+    assert.equal((await http('GET', `/api/secrets?office=${OFFICE}`)).code, 403);
+    const put = await http('PUT', `/api/secrets?office=${OFFICE}`, JSON.stringify({ name: 'OUTSIDER', value: HTTP_VALUE }));
+    assert.equal(put.code, 403);
+    assert.equal((await http('DELETE', `/api/secrets/DEPLOY_TOKEN?office=${OFFICE}`)).code, 403);
+    assert.ok(!secrets.listSecrets(OFFICE).some((m) => m.name === 'OUTSIDER'));
+    assert.ok(secrets.listSecrets(OFFICE).some((m) => m.name === 'DEPLOY_TOKEN'));
+    assert.equal(sent.length, 0);
+    signedIn = true;
+    assert.equal((await http('GET', `/api/secrets?office=${OFFICE}`)).code, 200);
+  } finally {
+    exposed = false;
+    signedIn = false;
+  }
+});
+
 if (failed) {
   console.log(`\n${failed} провал(ов)`);
   process.exit(1);

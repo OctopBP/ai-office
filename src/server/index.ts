@@ -39,6 +39,7 @@ import {
   type OfficeEntry,
 } from './offices';
 import { handleOfficeIcon } from './officeicon';
+import { handleSecretsHttp } from './secrets-api';
 import { handleTaskFiles } from './taskfiles';
 import { handleProjectFile } from './files';
 // hasCommits и repoProblem здесь больше не нужны: проверку репозитория и
@@ -304,6 +305,8 @@ const httpServer = createServer((req, res) => {
   }
   // Аватарка офиса: отдача картинки, загрузка и снятие — см. officeicon.ts.
   if (handleOfficeIcon(req, res, url, query)) return;
+  // Секретные переменные офиса: только метаданные наружу — см. secrets-api.ts.
+  if (handleSecretsHttp(req, res, url, query)) return;
   // Файлы результата влитой задачи: список и содержимое — см. taskfiles.ts.
   if (handleTaskFiles(req, res, url, query)) return;
   // Файл проекта по пути — для ссылок в чате с PM, см. files.ts.
