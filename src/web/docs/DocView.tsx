@@ -6,7 +6,7 @@ import { AgentTag } from '../Avatar';
 import { t } from '../i18n';
 import { formatClock, formatDayLabel } from '../dates';
 import type { DocKind, DocMeta, OfficeDoc } from '../../shared/types';
-import { DOC_KINDS, archiveDoc, fetchDoc, updateDoc, useDocs } from './store';
+import { DOC_KINDS, archiveDoc, draftGuard, fetchDoc, updateDoc, useDocs } from './store';
 
 const SUMMARY_MAX = 140;
 const UNDO_TTL = 6000;
@@ -80,22 +80,31 @@ export function DocView({ meta }: { meta: DocMeta }) {
     finishEdit();
   };
 
-  const save = async (over = false) => {
-    if (!doc || saving || !title.trim()) return;
+  const save = async (over = false): Promise<boolean> => {
+    if (!doc || saving || !title.trim()) return false;
     setSaving(true);
     if (!over) {
       // Проверяем версию на сервере прямо перед записью: событие могло не дойти.
       const fresh = await fetchDoc(doc.id);
       if (fresh.ok && fresh.doc.version !== base) {
-        setTheirs(fresh.doc); setSaving(false); return;
+        setTheirs(fresh.doc); setSaving(false); return false;
       }
     }
     const r = await updateDoc(doc.id, { title: title.trim(), summary: summary.trim(), body });
     setSaving(false);
-    if (!r.ok) { toast(t('docs.saveError', { error: r.error }), 'failed'); return; }
+    if (!r.ok) { toast(t('docs.saveError', { error: r.error }), 'failed'); return false; }
     setDoc(r.doc);
     finishEdit();
+    return true;
   };
+
+  // Окну нужно знать о черновике: спросить перед уходом и не пускать «Восстановить».
+  // Эффект без списка зависимостей: замыкания save/finishEdit должны быть свежими.
+  useEffect(() => {
+    draftGuard.current = editing ? { dirty, save: () => save(conflict || theirs !== null), discard: finishEdit } : null;
+  });
+  useEffect(() => { useDocs.setState({ editing }); }, [editing]);
+  useEffect(() => () => { draftGuard.current = null; useDocs.setState({ editing: false }); }, []);
 
   const changeKind = async (kind: DocKind) => {
     if (!doc || kind === doc.kind) return;

@@ -22,6 +22,8 @@ interface DocsState {
   /** Показывать результаты поиска по всем типам, а не по текущей вкладке. */
   allKinds: boolean;
   selectedId: string | null;
+  /** Идёт правка в карточке: история не даёт восстановить версию поверх неё. */
+  editing: boolean;
 
   setOffice: (id: string | null) => void;
   reload: () => Promise<void>;
@@ -54,6 +56,7 @@ export const useDocs = create<DocsState>((set, get) => ({
   showArchived: false,
   allKinds: false,
   selectedId: null,
+  editing: false,
 
   setOffice: (id) => {
     if (get().officeId === id) return;
@@ -121,6 +124,12 @@ onServerEvent((e) => {
   useDocs.setState({ docs: upsert(s.docs, e.doc) });
   if (s.appliedQuery) void s.reload();
 });
+
+/**
+ * Черновик открытой карточки: её регистрирует DocView, а окно спрашивает перед
+ * уходом (другой документ, вкладка, закрытие). Не в zustand: читается в момент клика.
+ */
+export const draftGuard: { current: { dirty: boolean; save: () => Promise<boolean>; discard: () => void } | null } = { current: null };
 
 /** Документы вкладки по текущему поиску и режиму архива, свежие сверху, архив в конце. */
 export function visibleDocs(s: Pick<DocsState, 'docs' | 'tab' | 'matches' | 'showArchived' | 'allKinds'>): DocMeta[] {

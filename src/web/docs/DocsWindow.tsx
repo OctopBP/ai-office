@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useStore } from '../store';
 import { ShellPage } from '../shell/ShellPage';
 import { Icon } from '../icons';
@@ -10,7 +10,7 @@ import { t } from '../i18n';
 import { formatClock, formatDayLabel } from '../dates';
 import type { DocKind, DocMeta } from '../../shared/types';
 import { DocView } from './DocView';
-import { DOC_KINDS, countKind, createDoc, useDocs, visibleDocs } from './store';
+import { DOC_KINDS, countKind, draftGuard, createDoc, useDocs, visibleDocs } from './store';
 import { DocHistory } from './DocHistory';
 
 const TEMPLATES = ['vision', 'characters', 'brand'] as const;
@@ -31,6 +31,22 @@ export function DocsWindow({ onClose }: { onClose: () => void }) {
   const selected = d.docs.find((x) => x.id === d.selectedId) ?? null;
   const [historyOpen, setHistoryOpen] = useState(false);
 
+  // Уход с несохранённой правкой (другой документ, вкладка, закрытие) — через вопрос.
+  const [leaving, setLeaving] = useState(false);
+  const pending = useRef<(() => void) | null>(null);
+  const go = (action: () => void) => {
+    if (draftGuard.current?.dirty) { pending.current = action; setLeaving(true); } else action();
+  };
+  const resolveLeave = (how: 'save' | 'discard' | 'stay') => {
+    const action = pending.current;
+    pending.current = null;
+    setLeaving(false);
+    if (how === 'stay' || !action) return;
+    if (how === 'discard') { draftGuard.current?.discard(); action(); return; }
+    void draftGuard.current?.save().then((ok) => { if (ok) action(); });
+  };
+  useEffect(() => { setLeaving(false); }, [d.selectedId]);
+
   useEffect(() => { d.setOffice(officeId); }, [officeId]); // eslint-disable-line react-hooks/exhaustive-deps
   // Вернулась связь — перечитываем снимок, пока окно открыто.
   useEffect(() => { if (connected && d.officeId) void d.reload(); }, [connected]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -42,7 +58,7 @@ export function DocsWindow({ onClose }: { onClose: () => void }) {
   const row = (doc: DocMeta) => (
     <button key={doc.id}
       className={`team-role-row docs-row${d.selectedId === doc.id ? ' selected' : ''}${doc.archived ? ' archived' : ''}`}
-      onClick={() => d.select(doc.id)}>
+      onClick={() => doc.id !== d.selectedId && go(() => d.select(doc.id))}>
       <span className="docs-row-title">
         <b>{doc.title}</b>
         {searching && d.allKinds && <span className="chip">{kindTitle(doc.kind)}</span>}
@@ -63,7 +79,7 @@ export function DocsWindow({ onClose }: { onClose: () => void }) {
         <div className="docs-empty muted">
           <p>{t('docs.empty.search', { query: d.appliedQuery })}</p>
           {others.map((k) => (
-            <button key={k} className="ghost" onClick={() => { d.setTab(k); }}>
+            <button key={k} className="ghost" onClick={() => go(() => d.setTab(k))}>
               {t('docs.empty.inOther', { kind: kindTitle(k), n: countKind(d, k) })}
             </button>
           ))}
@@ -77,7 +93,7 @@ export function DocsWindow({ onClose }: { onClose: () => void }) {
           <div className="card docs-invite">{t('docs.empty.foundation')}</div>
           {TEMPLATES.map((k) => (
             <button key={k} className="team-role-row dashed" disabled={!connected}
-              onClick={() => void createDoc(t(`docs.tpl.${k}`), 'foundation')}>
+              onClick={() => go(() => void createDoc(t(`docs.tpl.${k}`), 'foundation'))}>
               + {t(`docs.tpl.${k}`)}
             </button>
           ))}
@@ -88,7 +104,7 @@ export function DocsWindow({ onClose }: { onClose: () => void }) {
       return (
         <div className="docs-empty muted">
           <p>{t('docs.empty.documentation')}</p>
-          <button disabled={!connected} onClick={() => void createDoc(t('docs.untitled'), 'documentation')}>{t('docs.new')}</button>
+          <button disabled={!connected} onClick={() => go(() => void createDoc(t('docs.untitled'), 'documentation'))}>{t('docs.new')}</button>
         </div>
       );
     }
@@ -105,7 +121,7 @@ export function DocsWindow({ onClose }: { onClose: () => void }) {
   const tabs = (
     <span className="seg team-tabs">
       {DOC_KINDS.map((k) => (
-        <button key={k} className={d.tab === k ? 'on' : ''} title={kindTitle(k)} onClick={() => d.setTab(k)}>
+        <button key={k} className={d.tab === k ? 'on' : ''} title={kindTitle(k)} onClick={() => d.tab !== k && go(() => d.setTab(k))}>
           {t(`docs.tab.${k}`)} <span className="team-tab-count">{countKind(d, k)}</span>
         </button>
       ))}
@@ -122,11 +138,11 @@ export function DocsWindow({ onClose }: { onClose: () => void }) {
           </button>
         )}
         <button className="primary mini" disabled={!connected}
-          onClick={() => void createDoc(t('docs.untitled'), d.tab)}>
+          onClick={() => go(() => void createDoc(t('docs.untitled'), d.tab))}>
           <Icon name="plus" size={12} /> {t('docs.new')}
         </button>
         <Tooltip tip={t('panel.close')}>
-          <button className="sq ghost" onClick={onClose}>✕</button>
+          <button className="sq ghost" onClick={() => go(onClose)}>✕</button>
         </Tooltip>
         <Kbd keys={HOTKEY.close} />
       </>}>
@@ -163,19 +179,25 @@ export function DocsWindow({ onClose }: { onClose: () => void }) {
           ) : empty())}
         </div>
         <div className="team-detail">
-          {selected && historyOpen ? (
-            <DocHistory docId={selected.id} version={selected.version} onClose={() => setHistoryOpen(false)}>
+          {leaving && (
+            <div className="team-notice team-close-ask docs-ask">
+              {t('docs.leaveAsk')}
+              <button className="mini" onClick={() => resolveLeave('save')}>{t('docs.save')}</button>
+              <button className="mini" onClick={() => resolveLeave('discard')}>{t('docs.discard')}</button>
+              <button className="mini ghost" onClick={() => resolveLeave('stay')}>{t('docs.stay')}</button>
+            </div>
+          )}
+          {selected ? (
+            <DocHistory docId={selected.id} version={selected.version} open={historyOpen} onClose={() => setHistoryOpen(false)}>
               <DocView meta={selected} />
             </DocHistory>
-          ) : selected ? (
-            <DocView meta={selected} />
           ) : d.load === 'ready' && d.tab === 'foundation' && !d.docs.some((x) => x.kind === 'foundation' && !x.archived) && !searching ? (
             <div className="docs-center docs-intro">
               <Icon name="book" size={40} />
               <h3>{t('docs.intro.title')}</h3>
               <p className="muted">{t('docs.intro.text')}</p>
               <button className="primary" disabled={!connected}
-                onClick={() => void createDoc(t('docs.tpl.vision'), 'foundation')}>{t('docs.intro.write')}</button>
+                onClick={() => go(() => void createDoc(t('docs.tpl.vision'), 'foundation'))}>{t('docs.intro.write')}</button>
             </div>
           ) : (
             <div className="muted docs-center">{t('docs.pick')}</div>

@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState, type ReactNode } from 'react';
-import { useStore } from '../store';
+import { pushToast, useStore } from '../store';
 import { AgentTag } from '../Avatar';
 import { Markdown } from '../Markdown';
 import { Tooltip } from '../Tooltip';
@@ -7,6 +7,7 @@ import { t } from '../i18n';
 import { formatClock, formatDayLabel } from '../dates';
 import type { DocHistoryResponse, DocResponse, DocVersion, OfficeDoc } from '../../shared/types';
 import { diffLines, diffStat } from './linediff';
+import { updateDoc, useDocs } from './store';
 
 /** Порция списка версий: «Показать ещё» добавляет столько же (spec §10). */
 const PAGE = 30;
@@ -30,8 +31,10 @@ const getJson = async <T,>(url: string): Promise<T> => {
  * открытая старая версия только для чтения, либо её сравнение с текущей.
  * `version` — номер текущей версии из метаданных: сменился — список перечитывается.
  */
-export function DocHistory({ docId, version, onClose, children }: {
+export function DocHistory({ docId, version, open = true, onClose, children }: {
   docId: string;
+  /** Ящик открыт; закрытый показывает только children, не трогая их место в дереве. */
+  open?: boolean;
   version: number;
   onClose: () => void;
   children?: ReactNode;
@@ -44,6 +47,9 @@ export function DocHistory({ docId, version, onClose, children }: {
   const [opened, setOpened] = useState<Opened>(null);
   const [openedDoc, setOpenedDoc] = useState<OfficeDoc | null>(null);
   const [openLoad, setOpenLoad] = useState<Load>('ready');
+  const [restoring, setRestoring] = useState(false);
+  const connected = useStore((s) => s.connected);
+  const editing = useDocs((s) => s.editing);
 
   const q = officeId ? `office=${encodeURIComponent(officeId)}` : '';
   const base = `/api/docs/${encodeURIComponent(docId)}`;
@@ -52,14 +58,14 @@ export function DocHistory({ docId, version, onClose, children }: {
   useEffect(() => { setOpened(null); setShown(PAGE); }, [docId]);
 
   useEffect(() => {
-    if (!officeId) return;
+    if (!officeId || !open) return;
     let stale = false;
     setLoad((l) => (l === 'ready' && versions.length ? l : 'loading'));
     getJson<DocHistoryResponse>(`${base}/history?${q}`)
       .then((r) => { if (!stale) { setVersions(r.versions); setLoad('ready'); } })
       .catch(() => { if (!stale) setLoad('error'); });
     return () => { stale = true; };
-  }, [officeId, docId, version, attempt]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [officeId, docId, version, attempt, open]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Старая версия на чтение — отдельным запросом конкретной версии.
   useEffect(() => {
@@ -105,8 +111,24 @@ export function DocHistory({ docId, version, onClose, children }: {
     </div>
   );
 
-  const main = () => {
-    if (!opened || !openedVersion) return children;
+  const restore = async () => {
+    if (!openedDoc || restoring) return;
+    setRestoring(true);
+    const r = await updateDoc(docId, { title: openedDoc.title, summary: openedDoc.summary, body: openedDoc.body });
+    setRestoring(false);
+    pushToast({
+      id: `doc-restore-${Date.now()}`, kind: r.ok ? 'info' : 'failed', ttl: 6000,
+      title: r.ok ? t('docs.history.restored', { n: openedDoc.version }) : t('docs.history.restoreError', { error: r.error }),
+    });
+    if (r.ok) setOpened(null);
+  };
+
+  // Открыта версия или дифф: текущий документ только прячем, не размонтируем,
+  // чтобы несохранённая правка в DocView и её защита не пропали.
+  const showsOther = open && opened !== null && openedVersion !== null;
+
+  const other = () => {
+    if (!opened || !openedVersion) return null;
     if (opened.mode === 'diff') {
       const s = diffStat(diff ?? []);
       return (
@@ -137,6 +159,15 @@ export function DocHistory({ docId, version, onClose, children }: {
           <div className="team-notice">
             {t('docs.history.loadError')}
             <button className="mini" onClick={() => setOpened({ ...opened })}>{t('docs.retry')}</button>
+          </div>
+        )}
+        {openLoad === 'ready' && openedDoc && openedVersion.version !== current?.version && (
+          <div className="docs-history-restore">
+            <Tooltip tip={editing ? t('docs.history.restoreBusy') : t('docs.history.restoreHint', { n: openedVersion.version })}>
+              <button className="primary mini" disabled={!connected || editing || restoring} onClick={() => void restore()}>
+                {t('docs.history.restore')}
+              </button>
+            </Tooltip>
           </div>
         )}
         {openLoad === 'ready' && openedDoc && (
@@ -193,8 +224,11 @@ export function DocHistory({ docId, version, onClose, children }: {
 
   return (
     <div className="docs-history">
-      <div className="docs-history-main">{main()}</div>
-      <aside className="docs-history-drawer">
+      <div className="docs-history-main">
+        <div className="docs-history-cur" hidden={showsOther}>{children}</div>
+        {showsOther && other()}
+      </div>
+      {open && <aside className="docs-history-drawer">
         <div className="docs-history-head">
           <b>{t('docs.history.title')}</b>
           <Tooltip tip={t('panel.close')}>
@@ -217,7 +251,7 @@ export function DocHistory({ docId, version, onClose, children }: {
             )}
           </>
         )}
-      </aside>
+      </aside>}
     </div>
   );
 }
