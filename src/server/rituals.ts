@@ -30,7 +30,8 @@ import type { BranchMark, HealthEntry, OwnerQuestion, RitualId, RitualRun } from
 import { LANG_LOCALE } from '../shared/i18n';
 import { roleReports, WEEK_MS as REPORT_WEEK_MS, type RoleReport } from '../shared/report';
 import { toTaskView, type Fact, type OfficeState, type Task } from './state';
-import { archiveFact, forget, STALE_AFTER_MS } from './journal';
+import { archiveFact, forget, STALE_AFTER_MS, supersedeFacts } from './journal';
+import { isPromptable } from './superseded';
 import {
   buildResolvePrompt, decideContradiction, isPairResolved, markPairResolved, parseVerdict,
   type ContradictionVerdict,
@@ -563,7 +564,7 @@ type ContradictionFate = 'asked' | 'resolved' | 'skipped';
 async function handleContradiction(
   state: OfficeState, ritual: RitualId, c: { a: string; b: string; text: string }, out: RitualOutput,
 ): Promise<ContradictionFate> {
-  const live = state.factList().filter((f) => f.status === 'live' && f.kind !== 'contradiction');
+  const live = state.factList().filter((f) => f.status === 'live' && isPromptable(f));
   const a = factByQuote(live, c.a);
   const b = factByQuote(live, c.b);
   const pair = a && b && a.id !== b.id ? { a, b } : null;
@@ -592,7 +593,11 @@ async function handleContradiction(
   state.touchLife();
 
   if (decision.action === 'close') {
-    if (decision.verdict.kind === 'stale') archiveFact(state, decision.verdict.forgetId);
+    if (decision.verdict.kind === 'stale') {
+      // «Верна более новая»: устаревшая сторона помнит, чем её заменили.
+      supersedeFacts(state, [decision.verdict.forgetId], decision.verdict.keepId);
+      archiveFact(state, decision.verdict.forgetId);
+    }
     state.addLog(null, 'system', state.say('contradictions.closedLog', {
       a: pair.a.id, b: pair.b.id, what: clip(c.text || `${pair.a.text} ≠ ${pair.b.text}`, 160),
       verdict: verdictText(state, decision.verdict),
@@ -665,7 +670,7 @@ const runners: Record<RitualId, Runner> = {
   },
 
   async contradictions(state, now) {
-    const facts = state.factList().filter((f) => f.status === 'live' && f.kind !== 'contradiction');
+    const facts = state.factList().filter((f) => f.status === 'live' && isPromptable(f));
     const out = await agents.contradictions(state, facts);
     if (out.error) throw new Error(out.error);
     const produced = await applyOutput(state, 'contradictions', out);

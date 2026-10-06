@@ -19,6 +19,8 @@ import { fileKind } from './taskfiles';
 import { isOpenQuestion, type OfficeState, type Task } from './state';
 import { tellPm } from './review';
 import { onOutcome } from './outcomes';
+import { supersedeFacts } from './journal';
+import { supersededByAnswer } from './superseded';
 
 /** Сколько вопросов можно задать по одной задаче — как у `ask_colleague`. */
 export const MAX_QUESTIONS_PER_TASK = 2;
@@ -169,6 +171,11 @@ export function answerQuestion(state: OfficeState, askedId: string, answer: stri
     scope: question.kind === 'assumption' && roleId ? `role:${roleId}` : 'project',
     source: { questionId: id, ...(question.taskId ? { taskId: question.taskId } : {}) },
   });
+  // Ответ на противоречие однозначно назвал верную сторону — проигравшая
+  // остаётся в журнале историей, но в промпты больше не едет.
+  if (question.kind === 'contradiction') {
+    supersedeFacts(state, supersededByAnswer(question.text, text), fact.id);
+  }
   // Откуда бы ни пришёл ответ — кнопкой в карточке, строкой «Q-3: да» в
   // любом чате или из «Жизни офиса», — подтверждение и весть менеджеру идут
   // в чат вопроса: там его задали и там его ждёт сессия менеджера.

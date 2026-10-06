@@ -1263,6 +1263,8 @@ export const ru: Record<keyof typeof en, string> = {
   'life.journal.archived': 'Архив',
   'life.journal.confirm': 'Ещё верно',
   'life.journal.archive': 'В архив',
+  'life.journal.superseded': 'заменена {id}',
+  'life.journal.supersededHint': 'Эту запись заменила более новая: она осталась в журнале, но в промпты сессий не попадает.',
   'life.journal.confirmed': 'подтверждено {when}',
   'life.journal.scope.project': 'проект',
   'life.journal.scope.office': 'офис',

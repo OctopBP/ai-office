@@ -1264,6 +1264,8 @@ export const en = {
   'life.journal.archived': 'Archive',
   'life.journal.confirm': 'Still true',
   'life.journal.archive': 'Archive',
+  'life.journal.superseded': 'superseded by {id}',
+  'life.journal.supersededHint': 'A newer entry replaced this one: it stays in the journal but no longer goes into session prompts.',
   'life.journal.confirmed': 'confirmed {when}',
   'life.journal.scope.project': 'project',
   'life.journal.scope.office': 'office',

@@ -14,6 +14,7 @@
  */
 import type { FactPage } from '../shared/types';
 import { toFactView, type Fact, type OfficeState, type Task } from './state';
+import { isPromptable } from './superseded';
 
 /** Сколько записей одной области едет в промпт. */
 export const PROMPT_FACTS = 25;
@@ -32,12 +33,13 @@ export const STALE_AFTER_MS = 3 * 7 * 24 * 60 * 60 * 1000;
 
 /**
  * Записи, которые видит роль: общие для проекта и её собственные. Менеджер
- * вместо своих получает офисные — про команду и процесс.
+ * вместо своих получает офисные — про команду и процесс. Заменённые записи
+ * (`supersededBy`) не едут: рядом с правилом модель читала бы и его отмену.
  */
 export function factsFor(state: OfficeState, roleId: string | null): Fact[] {
   const own = roleId ? `role:${roleId}` : 'office';
   return state.factList()
-    .filter((f) => f.status === 'live' && f.kind !== 'contradiction')
+    .filter((f) => f.status === 'live' && isPromptable(f))
     .filter((f) => f.scope === 'project' || f.scope === own)
     .sort((a, b) => b.confirmedAt - a.confirmedAt)
     .slice(0, PROMPT_FACTS);
@@ -130,12 +132,30 @@ export function confirmFactsFor(state: OfficeState, task: Task, now = Date.now()
   return n;
 }
 
-/** Ответ владельца подтверждает запись, а сомнение — снимает. */
+/**
+ * Ответ владельца подтверждает запись, а сомнение — снимает. «Ещё верно» у
+ * заменённой записи снимает и пометку: владелец сказал, что она в силе.
+ */
 export function confirmFact(state: OfficeState, id: string, now = Date.now()): boolean {
   const fact = state.facts.get(id);
   if (!fact) return false;
-  state.updateFact(id, { confirmedAt: now, status: 'live', askedAt: null });
+  state.updateFact(id, { confirmedAt: now, status: 'live', askedAt: null, supersededBy: undefined });
   return true;
+}
+
+/**
+ * Пометить записи заменёнными записью `by`. Свою же запись и уже помеченные
+ * не трогает. Возвращает id помеченных.
+ */
+export function supersedeFacts(state: OfficeState, ids: string[], by: string): string[] {
+  const done: string[] = [];
+  for (const id of ids) {
+    const fact = state.facts.get(id);
+    if (!fact || id === by || fact.supersededBy) continue;
+    state.updateFact(id, { supersededBy: by });
+    done.push(id);
+  }
+  return done;
 }
 
 export function archiveFact(state: OfficeState, id: string): boolean {

@@ -45,6 +45,7 @@ import {
   agentRunSeq, foldSpend, spendSeq, trimAgentRuns, RUNS_MAX, SPEND_MAX, type AgentRunEntry,
 } from './spend';
 import { capabilitiesOf } from './roles';
+import { migrateSuperseded } from './superseded';
 import { t, c, type ServerKey } from './i18n';
 import { activityFromFile, summarize } from './activity';
 import {
@@ -2117,6 +2118,10 @@ export class OfficeState {
       this.facts.set(fact.id, { ...fact, askedAt: fact.askedAt ?? null, status: fact.status ?? 'live' });
     }
     this.factSeq = data.factSeq ?? this.facts.size;
+    // T-331: ответы на противоречия, данные до появления пометки «заменена».
+    // Идемпотентна и дешева, поэтому идёт при каждой загрузке, а на диск
+    // попадёт с первым же сохранением.
+    migrateSuperseded(this.facts);
     for (const q of data.questions ?? []) this.questions.set(q.id, { ...q, dismissedAt: q.dismissedAt ?? null });
     this.questionSeq = data.questionSeq ?? this.questions.size;
     for (const d of data.directions ?? []) this.directions.set(d.id, { ...d });
@@ -5118,6 +5123,7 @@ export { isOpenQuestion };
 export const toFactView = (f: Fact): FactView => ({
   id: f.id, kind: f.kind, text: f.text, scope: f.scope, source: f.source,
   createdAt: f.createdAt, confirmedAt: f.confirmedAt, status: f.status,
+  ...(f.supersededBy ? { supersededBy: f.supersededBy } : {}),
 });
 
 /** Предложение для клиента: без плана фичи — он нужен только серверу. */

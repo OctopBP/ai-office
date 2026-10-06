@@ -472,6 +472,11 @@ function Journal() {
             <span className="muted small">{scopeLabel(f.scope)}</span>
             {f.source.taskId && <span className="muted small">{f.source.taskId}</span>}
             {f.source.questionId && <span className="muted small">{f.source.questionId}</span>}
+            {f.supersededBy && (
+              <span className="chip superseded" title={t('life.journal.supersededHint')}>
+                {t('life.journal.superseded', { id: f.supersededBy })}
+              </span>
+            )}
             <span className="muted small">{t('life.journal.confirmed', { when: when(f.confirmedAt) })}</span>
           </div>
           <div className="life-text"><Markdown source={f.text} compact /></div>
