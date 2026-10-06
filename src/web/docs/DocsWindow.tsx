@@ -9,6 +9,7 @@ import { Kbd } from '../Kbd';
 import { t } from '../i18n';
 import { formatClock, formatDayLabel } from '../dates';
 import type { DocKind, DocMeta } from '../../shared/types';
+import { DocView } from './DocView';
 import { DOC_KINDS, countKind, createDoc, useDocs, visibleDocs } from './store';
 
 const TEMPLATES = ['vision', 'characters', 'brand'] as const;
@@ -17,8 +18,8 @@ const when = (at: number): string => `${formatDayLabel(at)}, ${formatClock(at)}`
 
 /**
  * Окно «Документы» (docs/design/office-docs/spec.md): библиотека документов
- * офиса — вкладки по типам, поиск, режим архива, список. Просмотр, правка и
- * история — следующие части; здесь справа только заглушка под просмотр.
+ * офиса — вкладки по типам, поиск, режим архива, список. Справа — карточка
+ * документа (DocView); история версий — следующая часть.
  */
 export function DocsWindow({ onClose }: { onClose: () => void }) {
   const officeId = useStore((s) => s.offices.find((o) => o.current)?.id ?? null);
@@ -156,7 +157,7 @@ export function DocsWindow({ onClose }: { onClose: () => void }) {
         </div>
         <div className="team-detail">
           {selected ? (
-            <div className="muted docs-center">{selected.title}</div>
+            <DocView meta={selected} />
           ) : d.load === 'ready' && d.tab === 'foundation' && !d.docs.some((x) => x.kind === 'foundation' && !x.archived) && !searching ? (
             <div className="docs-center docs-intro">
               <Icon name="book" size={40} />

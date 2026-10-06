@@ -75,6 +75,11 @@ function ToastCard({ toast: t, onOpenTask }: { toast: Toast; onOpenTask: (id: st
           <button className="ghost mini toast-close" onClick={() => setLeaving(true)}>✕</button>
         </div>
         {t.detail && <div className="toast-detail">{t.detail}</div>}
+        {t.action && (
+          <div className="toast-actions">
+            <button className="primary mini" onClick={() => { t.action!.run(); setLeaving(true); }}>{t.action.label}</button>
+          </div>
+        )}
         {t.taskId && (
           <div className="toast-actions">
             <button className="primary mini" onClick={() => { onOpenTask(t.taskId!); setLeaving(true); }}>

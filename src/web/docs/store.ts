@@ -1,6 +1,6 @@
 import { create } from 'zustand';
 import { onServerEvent } from '../store';
-import type { DocKind, DocListResponse, DocMeta } from '../../shared/types';
+import type { DocKind, DocListResponse, DocMeta, DocResponse, DocUpdateBody, OfficeDoc } from '../../shared/types';
 
 export const DOC_KINDS: readonly DocKind[] = ['foundation', 'documentation', 'working'];
 
@@ -154,4 +154,45 @@ export async function createDoc(title: string, kind: DocKind): Promise<boolean> 
   } catch {
     return false;
   }
+}
+
+const docUrl = (id: string, officeId: string, extra = ''): string =>
+  `/api/docs/${encodeURIComponent(id)}${extra}?office=${encodeURIComponent(officeId)}`;
+
+/** Исход запроса к одному документу: сам документ или текст отказа. */
+export type DocResult = { ok: true; doc: OfficeDoc } | { ok: false; error: string };
+
+async function docRequest(path: string, init?: RequestInit): Promise<DocResult> {
+  try {
+    const res = await fetch(path, init && {
+      ...init, headers: { 'Content-Type': 'application/json' },
+    });
+    const data = (await res.json().catch(() => ({}))) as Partial<DocResponse> & { error?: string };
+    if (!res.ok || !data.doc) return { ok: false, error: data.error ?? String(res.status) };
+    const { body: _body, ...meta } = data.doc;
+    useDocs.setState((s) => ({ docs: upsert(s.docs, meta) }));
+    return { ok: true, doc: data.doc };
+  } catch (e) {
+    return { ok: false, error: e instanceof Error ? e.message : String(e) };
+  }
+}
+
+/** Документ целиком, с текстом. */
+export function fetchDoc(id: string): Promise<DocResult> {
+  const { officeId } = useDocs.getState();
+  return officeId ? docRequest(docUrl(id, officeId)) : Promise.resolve({ ok: false, error: 'no office' });
+}
+
+/** Правка владельцем: название, описание, текст или тип. */
+export function updateDoc(id: string, patch: DocUpdateBody): Promise<DocResult> {
+  const { officeId } = useDocs.getState();
+  if (!officeId) return Promise.resolve({ ok: false, error: 'no office' });
+  return docRequest(docUrl(id, officeId), { method: 'PUT', body: JSON.stringify(patch) });
+}
+
+/** В архив (`archived: true`) или обратно. */
+export function archiveDoc(id: string, archived: boolean): Promise<DocResult> {
+  const { officeId } = useDocs.getState();
+  if (!officeId) return Promise.resolve({ ok: false, error: 'no office' });
+  return docRequest(docUrl(id, officeId, '/archive'), { method: 'POST', body: JSON.stringify({ archived }) });
 }
