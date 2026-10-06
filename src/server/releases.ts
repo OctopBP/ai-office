@@ -20,8 +20,8 @@ import { readFileSync, writeFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { OFFICE_SENDER } from '../shared/types';
 import {
-  DEFAULT_TAG, DEFAULT_TIMEOUT_MIN, allowsManual, autoLevel, autoReasons, fillVersion, maxLevel,
-  nextVersion, parseBuildResult, parseGithubRelease, parseReleaseConfig, parseSemver, releaseActive, versionInAnswer, versionLabel,
+  DEFAULT_TAG, DEFAULT_TIMEOUT_MIN, allowsManual, autoLevel, autoReasons, compareVersions, fillVersion, maxLevel,
+  nextVersion, parseBuildResult, parseGithubRelease, parseReleaseConfig, parseSemver, parseVersion, releaseActive, versionInAnswer, versionLabel,
   type GithubReleaseCheck, type Release, type ReleaseReason, type ReleaseSetup, type ReleaseTarget, type VersionLevel, type VersionPoint,
 } from '../shared/release';
 import { CHECK_NAME_RE, type Run, type Workflow, type WorkflowNode } from '../shared/workflow';
@@ -315,13 +315,33 @@ const snapshot: Executor<Ctx> = {
   },
 };
 
-/** Коммит последнего тега цели — начало диапазона первого выпуска. */
-async function lastTagSha(repo: string, target: ReleaseTarget): Promise<string | null> {
-  if (target.kind !== 'tag' && target.version.source !== 'tag') return null;
+/**
+ * Старший тег цели без пререлиза (docs/design/release-channels/spec.md §4.3):
+ * `git tag --sort=-v:refname` ставит `v1.5.0-beta.1` выше `v1.5.0`, а
+ * `parseSemver` отрезает пререлиз — так стабильная цель насчитала бы
+ * следующую версию от беты. Порядок — полный semver; теги без semver (номер
+ * сборки) остаются в порядке git.
+ */
+async function lastStableTag(repo: string, target: ReleaseTarget): Promise<{ tag: string; point: VersionPoint } | null> {
   const tags = await git(repo, ['tag', '--list', '--sort=-v:refname']);
   const pattern = target.tag ?? DEFAULT_TAG;
-  const found = tags.stdout.split('\n').find((t) => t && versionFromTag(t, pattern));
-  return found ? revision(repo, `${found}^{commit}`) : null;
+  let best: { tag: string; point: VersionPoint } | null = null;
+  for (const tag of tags.stdout.split('\n').filter(Boolean)) {
+    const point = versionFromTag(tag, pattern);
+    if (!point) continue;
+    const parsed = parseVersion(point.version);
+    if (parsed?.pre.length) continue;
+    if (!best) best = { tag, point };
+    else if (parsed && parseVersion(best.point.version) && compareVersions(point.version, best.point.version) > 0) best = { tag, point };
+  }
+  return best;
+}
+
+/** Коммит последнего стабильного тега цели — начало диапазона первого выпуска. */
+async function lastTagSha(repo: string, target: ReleaseTarget): Promise<string | null> {
+  if (target.kind !== 'tag' && target.version.source !== 'tag') return null;
+  const found = await lastStableTag(repo, target);
+  return found ? revision(repo, `${found.tag}^{commit}`) : null;
 }
 
 /** Тег по шаблону цели → версия и номер, если тег с этого шаблона. */
@@ -348,12 +368,7 @@ async function currentVersion(ctx: Ctx): Promise<VersionPoint> {
   const source = target.version.source ?? (target.kind === 'tag' ? 'tag' : undefined);
   let found: VersionPoint | null = null;
   if (source === 'tag') {
-    const tags = await git(repo, ['tag', '--list', '--sort=-v:refname']);
-    const pattern = target.tag ?? DEFAULT_TAG;
-    for (const tag of tags.stdout.split('\n').filter(Boolean)) {
-      found = versionFromTag(tag, pattern);
-      if (found) break;
-    }
+    found = (await lastStableTag(repo, target))?.point ?? null;
   } else if (source === 'package.json') {
     const shown = await git(repo, ['show', `${r.sha}:package.json`]);
     try {
@@ -368,15 +383,9 @@ async function currentVersion(ctx: Ctx): Promise<VersionPoint> {
   const base = found ?? history;
   // Версия из источника могла отстать от истории (тег не запушили) — берём старшую.
   const pick = parseSemver(history.version) && parseSemver(base.version)
-    && compareSemver(history.version as string, base.version as string) > 0 ? history : base;
+    && compareVersions(history.version, base.version) > 0 ? history : base;
   return { version: pick.version, build: Math.max(maxBuild, pick.build ?? 0) };
 }
-
-const compareSemver = (a: string, b: string): number => {
-  const x = parseSemver(a) ?? [0, 0, 0];
-  const y = parseSemver(b) ?? [0, 0, 0];
-  return x[0] - y[0] || x[1] - y[1] || x[2] - y[2];
-};
 
 /**
  * Разряд и версия (§6.2). План важнее всего: версия, названная заранее,

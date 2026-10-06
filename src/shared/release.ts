@@ -28,6 +28,16 @@ export type LevelMode = typeof LEVEL_MODES[number];
 /** Повод выпуска (§5). */
 export type ReleaseReason = 'manual' | 'epic.done' | 'merged';
 
+/**
+ * Каналы выпуска (docs/design/release-channels/spec.md §3.1): стабильный
+ * из ветки `release`, бета и альфа — пререлизы из своих веток.
+ */
+export const RELEASE_CHANNELS = ['stable', 'beta', 'alpha'] as const;
+export type ReleaseChannel = typeof RELEASE_CHANNELS[number];
+/** Пререлизные каналы — в порядке «сначала бета» (§5.3: сработали оба — бета первой). */
+export const PRERELEASE_CHANNELS = ['beta', 'alpha'] as const;
+export type PrereleaseChannel = typeof PRERELEASE_CHANNELS[number];
+
 const ID_RE = /^[a-z][a-z0-9-]*$/;
 /** Имя ветки git без пробелов и управляющих символов; подробности проверит сам git. */
 const BRANCH_RE = /^[A-Za-z0-9._/-]+$/;
@@ -43,6 +53,24 @@ const policySchema = z.object({
   approve: z.enum(['always', 'never', 'major']),
   /** Не чаще, чем раз в N часов, для автоматических поводов. */
   cooldownHours: z.number().min(0).max(24 * 30).optional(),
+}).strict();
+
+/** Канал цели (§5.1): постоянная ветка, откуда она продвигается, своя политика и файлы. */
+const channelSchema = z.object({
+  /** Постоянная ветка канала: 'release', 'beta', 'alpha'. */
+  branch: z.string().regex(BRANCH_RE, 'ветка — латиница, цифры, «.», «_», «/» и «-»').max(200),
+  /** Откуда продвигается: основная ветка или другой канал. Нет — по умолчанию §3.1. */
+  from: z.enum(['main', 'alpha', 'beta']).optional(),
+  /** Своя политика канала; нет — политика цели. */
+  policy: policySchema.optional(),
+  /** Файлы релиза для проверки видимости в этом канале (beta-mac.yml, beta.yml). */
+  assets: z.array(z.string().trim().min(1).max(200)).max(20).optional(),
+}).strict();
+
+const channelsSchema = z.object({
+  stable: channelSchema,
+  beta: channelSchema.optional(),
+  alpha: channelSchema.optional(),
 }).strict();
 
 const versionSchema = z.object({
@@ -80,6 +108,11 @@ const targetSchema = z.object({
   repo: z.string().min(1).max(300).optional(),
   policy: policySchema,
   version: versionSchema,
+  /**
+   * Каналы выпуска (docs/design/release-channels/spec.md §5.1). Нет — цель
+   * работает как раньше: снимок основной ветки, тег, слияние обратно.
+   */
+  channels: channelsSchema.optional(),
 }).strict();
 
 const configSchema = z.object({
@@ -87,6 +120,8 @@ const configSchema = z.object({
 }).strict();
 
 export type ReleasePolicy = z.infer<typeof policySchema>;
+export type ReleaseChannelSpec = z.infer<typeof channelSchema>;
+export type ReleaseChannels = z.infer<typeof channelsSchema>;
 export type VersionSpec = z.infer<typeof versionSchema>;
 export type ReleaseTarget = z.infer<typeof targetSchema>;
 export type ReleaseConfig = z.infer<typeof configSchema>;
@@ -129,8 +164,68 @@ export function parseReleaseConfig(data: unknown, checks: Record<string, string>
     if (target.repo && (target.repo.startsWith('/') || target.repo.split(/[\\/]/).includes('..'))) {
       throw new Error(`${where}: repo — путь внутри проекта`);
     }
+    if (target.channels) checkChannels(target, where);
   }
   return config;
+}
+
+/** Откуда продвигается канал, если цель не сказала (§3.1, §5.1). */
+export function channelFrom(channels: ReleaseChannels, channel: ReleaseChannel): 'main' | 'alpha' | 'beta' {
+  const own = channels[channel]?.from;
+  if (own) return own;
+  if (channel === 'stable') return channels.beta ? 'beta' : 'main';
+  return 'main';
+}
+
+/** Каналы, объявленные у цели, в порядке stable, beta, alpha. */
+export const targetChannels = (target: Pick<ReleaseTarget, 'channels'>): ReleaseChannel[] =>
+  (target.channels ? RELEASE_CHANNELS.filter((c) => Boolean(target.channels?.[c])) : []);
+
+/** Проверки каналов цели (§5.1): вид и схема, ветки, цепочка `from`. */
+function checkChannels(target: ReleaseTarget, where: string): void {
+  const channels = target.channels as ReleaseChannels;
+  if (target.kind !== 'tag') throw new Error(`${where}: каналы выпуска бывают только у тега`);
+  if (target.version.scheme !== 'semver') throw new Error(`${where}: каналы выпуска нужны схеме semver — у пререлиза другой схемы нет смысла`);
+  if (!(target.tag ?? DEFAULT_TAG).includes('{version}')) throw new Error(`${where}: у цели с каналами в шаблоне тега нужен {version}`);
+  if (target.version.source && target.version.source !== 'tag') throw new Error(`${where}: у цели с каналами версия берётся из тегов (source: tag)`);
+  const list = targetChannels(target);
+  const branches = list.map((c) => (channels[c] as ReleaseChannelSpec).branch);
+  for (const [i, branch] of branches.entries()) {
+    const name = `канал ${list[i]}`;
+    if (['main', 'master'].includes(branch)) throw new Error(`${where}, ${name}: ветка канала не может быть основной`);
+    if (branch === 'office' || branch.startsWith('office/')) throw new Error(`${where}, ${name}: ветки office/… — служебные ветки офиса`);
+    if (branch.startsWith('/') || branch.endsWith('/') || branch.includes('..') || branch.includes('//')) {
+      throw new Error(`${where}, ${name}: «${branch}» — не имя ветки`);
+    }
+    for (const [j, other] of branches.entries()) {
+      if (i === j) continue;
+      if (other === branch) throw new Error(`${where}: у каналов ${list[i]} и ${list[j]} одна ветка «${branch}»`);
+      // git хранит ветку файлом, а ветки «под» ней — каталогом: вместе нельзя.
+      if (other.startsWith(`${branch}/`)) throw new Error(`${where}: ветки «${branch}» и «${other}» не уживутся в одном репозитории`);
+    }
+  }
+  if (target.branch && branches.includes(target.branch)) throw new Error(`${where}: ветка «${target.branch}» уже занята каналом`);
+  for (const c of list) {
+    const from = channelFrom(channels, c);
+    if (from === c) throw new Error(`${where}, канал ${c}: продвигается сам из себя`);
+    if (from !== 'main' && !channels[from]) throw new Error(`${where}, канал ${c}: продвигается из канала ${from}, которого у цели нет`);
+    if (c === 'alpha' && from !== 'main') throw new Error(`${where}: альфа продвигается только из основной ветки`);
+    if (c === 'stable' && from !== (channels.beta ? 'beta' : 'main')) {
+      throw new Error(`${where}: стабильный канал продвигается из ${channels.beta ? 'беты' : 'основной ветки'}`);
+    }
+  }
+  // Цепочка до main без циклов: альфа — из main, бета — из main или альфы,
+  // стабильный — из беты или main. Цикл при таких правилах невозможен, но
+  // проверка дешёвая и страхует от будущих каналов.
+  for (const c of list) {
+    const seen = new Set<string>([c]);
+    let at: string = channelFrom(channels, c);
+    while (at !== 'main') {
+      if (seen.has(at)) throw new Error(`${where}: каналы продвигаются по кругу`);
+      seen.add(at);
+      at = channelFrom(channels, at as ReleaseChannel);
+    }
+  }
 }
 
 /** Автоматические поводы цели — всё, кроме просьбы. */
@@ -227,10 +322,146 @@ export const fillVersion = (template: string, point: VersionPoint): string =>
  */
 export const autoLevel = (epicCount: number): VersionLevel => (epicCount > 0 ? 'minor' : 'patch');
 
-/** Версия в ответе владельца: «выпускай 2.0.0» — согласие с этой версией. */
+/**
+ * Версия в ответе владельца: «выпускай 2.0.0» — согласие с этой версией.
+ * Пререлиз берётся целиком: «1.5.0-beta.2», а не «1.5.0».
+ */
 export function versionInAnswer(answer: string): string | null {
-  const m = /(?:^|[^\d.])(\d+\.\d+\.\d+)(?![\d.])/.exec(answer);
+  const m = /(?:^|[^\d.])(\d+\.\d+\.\d+(?:-[0-9A-Za-z]+(?:\.[0-9A-Za-z]+)*)?)(?![\d.])/.exec(answer);
   return m ? m[1] : null;
+}
+
+// --------------------------------------------- полный semver и каналы
+
+/**
+ * Полная версия semver 2.0 (docs/design/release-channels/spec.md §4):
+ * `1.5.0-beta.2` → ядро [1, 5, 0] и пререлиз ['beta', '2']. Метаданные
+ * сборки (`+…`) отбрасываются — в порядке они не участвуют.
+ */
+export interface ParsedVersion {
+  core: Semver;
+  pre: string[];
+}
+
+export function parseVersion(s: string | null | undefined): ParsedVersion | null {
+  const m = /^v?(\d+)\.(\d+)\.(\d+)(?:-([0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*))?(?:\+[0-9A-Za-z.-]+)?$/.exec((s ?? '').trim());
+  if (!m) return null;
+  return { core: [Number(m[1]), Number(m[2]), Number(m[3])], pre: m[4] ? m[4].split('.') : [] };
+}
+
+const NUMERIC = /^\d+$/;
+
+/**
+ * Сравнение по правилам semver, с пререлизами: `1.5.0-alpha.3 < 1.5.0-beta.1
+ * < 1.5.0-beta.2 < 1.5.0`. Не версия — младше любой версии. Сортировка git
+ * (`--sort=-v:refname`) так не умеет: без `versionsort.suffix` она ставит
+ * `v1.5.0-beta.1` выше `v1.5.0`.
+ */
+export function compareVersions(a: string | null | undefined, b: string | null | undefined): number {
+  const x = parseVersion(a);
+  const y = parseVersion(b);
+  if (!x || !y) return (x ? 1 : 0) - (y ? 1 : 0);
+  const core = x.core[0] - y.core[0] || x.core[1] - y.core[1] || x.core[2] - y.core[2];
+  if (core) return core;
+  // Версия без пререлиза старше любого своего пререлиза.
+  if (!x.pre.length || !y.pre.length) return (x.pre.length ? -1 : 0) + (y.pre.length ? 1 : 0);
+  for (let i = 0; i < Math.max(x.pre.length, y.pre.length); i += 1) {
+    const p = x.pre[i];
+    const q = y.pre[i];
+    if (p === undefined) return -1;
+    if (q === undefined) return 1;
+    if (p === q) continue;
+    const pn = NUMERIC.test(p);
+    const qn = NUMERIC.test(q);
+    if (pn && qn) return Number(p) - Number(q);
+    if (pn !== qn) return pn ? -1 : 1;
+    return p < q ? -1 : 1;
+  }
+  return 0;
+}
+
+/** Ядро версии без пререлиза: `1.5.0-beta.3` → `1.5.0`. */
+export const versionBase = (v: string): string | null => {
+  const p = parseVersion(v);
+  return p ? semverText(p.core) : null;
+};
+
+/** Стабильная ли версия — без пререлиза. */
+export const isStableVersion = (v: string): boolean => {
+  const p = parseVersion(v);
+  return Boolean(p && !p.pre.length);
+};
+
+/** Канал пререлиза по версии: `1.5.0-beta.2` → beta. Стабильная или чужой суффикс — null. */
+export const versionChannel = (v: string): PrereleaseChannel | null => {
+  const head = parseVersion(v)?.pre[0];
+  return head === 'beta' || head === 'alpha' ? head : null;
+};
+
+/** Старшая стабильная версия среди данных — `S` из §4.2. */
+export function latestStable(versions: string[]): string | null {
+  let best: string | null = null;
+  for (const v of versions) if (isStableVersion(v) && (!best || compareVersions(v, best) > 0)) best = v;
+  return best ? versionBase(best) : null;
+}
+
+/** Старшая версия канала: последняя бета, последняя альфа. */
+export function latestOfChannel(versions: string[], channel: PrereleaseChannel): string | null {
+  let best: string | null = null;
+  for (const v of versions) if (versionChannel(v) === channel && (!best || compareVersions(v, best) > 0)) best = v;
+  return best;
+}
+
+export interface ChannelVersionInput {
+  /** Все известные версии цели: из тегов по шаблону и из истории выпусков. */
+  versions: string[];
+  channel: ReleaseChannel;
+  /** Разряд выпуска (план → вклад фич → auto/фиксированный). */
+  level: VersionLevel;
+  /** Версия открытого плана выпуска, если её назвали. */
+  planVersion?: string | null;
+  /** Стабильный прямо из ветки release — патч от последнего стабильного (§3.6). */
+  hotfix?: boolean;
+  /** Стабильный из беты: версия этой беты. */
+  fromBeta?: string | null;
+}
+
+/**
+ * Следующая версия канала (§4.2).
+ *
+ * - пререлиз канала c: база — открытый цикл `L`, если он не младше желаемой
+ *   версии `want`, иначе `want`; номер — следующий после старшего `{база}-c.n`;
+ * - стабильный из беты — ядро беты: разряд уже посчитан для цикла;
+ * - хотфикс — патч от последнего стабильного;
+ * - стабильный без беты — `want`, как у цели без каналов.
+ */
+export function nextChannelVersion(input: ChannelVersionInput): string {
+  const stable = latestStable(input.versions);
+  const S = stable ? parseVersion(stable)?.core ?? null : null;
+  if (input.channel === 'stable') {
+    if (input.hotfix) return S ? semverText(bumpSemver(S, 'patch')) : '0.1.0';
+    if (input.fromBeta) return versionBase(input.fromBeta) ?? input.fromBeta;
+  }
+  const plan = input.planVersion ? versionBase(input.planVersion) : null;
+  const want = plan ?? (S ? semverText(bumpSemver(S, input.level)) : '0.1.0');
+  if (input.channel === 'stable') return want;
+  // Открытый цикл: старшая база пререлизов, которая старше S.
+  let open: string | null = null;
+  for (const v of input.versions) {
+    if (isStableVersion(v)) continue;
+    const base = versionBase(v);
+    if (!base || (stable && compareVersions(base, stable) <= 0)) continue;
+    if (!open || compareVersions(base, open) > 0) open = base;
+  }
+  const base = open && compareVersions(open, want) >= 0 ? open : want;
+  let n = 0;
+  for (const v of input.versions) {
+    const p = parseVersion(v);
+    if (!p || semverText(p.core) !== base || p.pre[0] !== input.channel) continue;
+    const k = Number(p.pre[1]);
+    if (p.pre.length === 2 && Number.isInteger(k) && k > n) n = k;
+  }
+  return `${base}-${input.channel}.${n + 1}`;
 }
 
 // ---------------------------------------------------------- результат сборки
