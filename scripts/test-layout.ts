@@ -11,6 +11,7 @@ import {
   resetDockSize, resizeDock, syncRuntime, toggleCollapsed, toggleDock, DOCK_DEFAULT, DOCK_MIN, MAIN_MIN,
   STRIP_SIZE, type Layout,
 } from '../src/web/layout/model';
+import { matchHotkey, nextTerminalId, runHotkey, worksInTextTarget, type HotkeyApi, type KeyInfo } from '../src/web/layout/hotkeys';
 import { createSaver, layoutKey, loadLayout, saveLayout, type KeyValueStore } from '../src/web/layout/persist';
 
 let failed = 0;
@@ -174,6 +175,114 @@ check('узкое окно: боковые вкладки уходят в ниж
   assert.equal(d.docks.right, undefined);
   assert.ok(l.docks.right);
   assert.equal(displayLayout(l, { w: 1200 }), l);
+});
+
+console.log('горячие клавиши');
+const key = (o: Partial<KeyInfo>): KeyInfo => ({ code: '', key: '', metaKey: false, ctrlKey: false, altKey: false, shiftKey: false, ...o });
+const mac = (code: string, o: Partial<KeyInfo> = {}) => key({ code, metaKey: true, ...o });
+check('сопоставление сочетаний §2.7', () => {
+  assert.deepEqual(matchHotkey(mac('Backquote'), false), { type: 'toggle-bottom' });
+  assert.deepEqual(matchHotkey(key({ code: 'Backquote', ctrlKey: true }), false), { type: 'toggle-bottom' });
+  assert.deepEqual(matchHotkey(mac('Backquote', { shiftKey: true }), false), { type: 'new-terminal' });
+  assert.deepEqual(matchHotkey(mac('KeyJ'), false), { type: 'collapse-bottom' });
+  assert.deepEqual(matchHotkey(mac('ArrowLeft', { altKey: true }), false), { type: 'move', dock: 'left' });
+  assert.deepEqual(matchHotkey(mac('ArrowRight', { altKey: true }), false), { type: 'move', dock: 'right' });
+  assert.deepEqual(matchHotkey(mac('ArrowDown', { altKey: true }), false), { type: 'move', dock: 'bottom' });
+  assert.deepEqual(matchHotkey(mac('Digit1', { altKey: true }), false), { type: 'focus', target: 'left' });
+  assert.deepEqual(matchHotkey(mac('Digit2', { altKey: true }), false), { type: 'focus', target: 'main' });
+  assert.deepEqual(matchHotkey(mac('Digit3', { altKey: true }), false), { type: 'focus', target: 'right' });
+  assert.deepEqual(matchHotkey(mac('Digit4', { altKey: true }), false), { type: 'focus', target: 'bottom' });
+  assert.deepEqual(matchHotkey(key({ code: 'Escape', key: 'Escape' }), false), { type: 'escape' });
+});
+check('⌘⇧↵, ⌘W и Ctrl+Tab — только при фокусе в доке', () => {
+  assert.equal(matchHotkey(mac('Enter', { shiftKey: true }), false), null);
+  assert.deepEqual(matchHotkey(mac('Enter', { shiftKey: true }), true), { type: 'maximize' });
+  assert.equal(matchHotkey(mac('KeyW'), false), null);
+  assert.deepEqual(matchHotkey(mac('KeyW'), true), { type: 'close-tab' });
+  assert.equal(matchHotkey(key({ code: 'Tab', ctrlKey: true }), false), null);
+  assert.deepEqual(matchHotkey(key({ code: 'Tab', ctrlKey: true }), true), { type: 'tab', step: 1 });
+  assert.deepEqual(matchHotkey(key({ code: 'Tab', ctrlKey: true, shiftKey: true }), true), { type: 'tab', step: -1 });
+});
+check('обычные клавиши без модификатора не трогаем', () => {
+  assert.equal(matchHotkey(key({ code: 'KeyJ', key: 'j' }), true), null);
+  assert.equal(matchHotkey(key({ code: 'Backquote', key: '`' }), true), null);
+  assert.equal(matchHotkey(key({ code: 'KeyW', key: 'w' }), true), null);
+  assert.equal(matchHotkey(mac('KeyJ', { shiftKey: true }), true), null);
+});
+check('в поле ввода и терминале — только ⌘`, ⌘⇧`, ⌘⌥…', () => {
+  const ok = [mac('Backquote'), mac('Backquote', { shiftKey: true }), mac('ArrowLeft', { altKey: true }), mac('Digit4', { altKey: true })];
+  for (const k of ok) assert.ok(worksInTextTarget(matchHotkey(k, true)!));
+  for (const k of [mac('KeyJ'), mac('KeyW'), mac('Enter', { shiftKey: true }), key({ code: 'Escape', key: 'Escape' }), key({ code: 'Tab', ctrlKey: true })]) {
+    assert.ok(!worksInTextTarget(matchHotkey(k, true)!));
+  }
+});
+check('номер нового терминала — следующий за наибольшим', () => {
+  assert.equal(nextTerminalId(defaultLayout()), '1');
+  let l = openWindow(defaultLayout(), makeRef('terminal', '1'));
+  l = openWindow(l, makeRef('terminal', '3'), 'right');
+  assert.equal(nextTerminalId(l), '4');
+});
+
+/** Запись вызовов вместо стора. */
+function fakeApi(layout: Layout, rt: Partial<HotkeyApi> = {}): { api: HotkeyApi; calls: string[] } {
+  const calls: string[] = [];
+  const api: HotkeyApi = {
+    layout, maximized: null, drag: null, ...rt,
+    openWindow: (ref, dock) => calls.push(`open ${ref.id} ${dock}`),
+    toggleDock: (d) => calls.push(`toggle ${d}`),
+    toggleCollapsed: (d) => calls.push(`collapse ${d}`),
+    moveWindow: (id, d) => calls.push(`move ${id} ${d}`),
+    activate: (d, id) => calls.push(`activate ${d} ${id}`),
+    closeWindow: (id) => calls.push(`close ${id}`),
+    setFocus: (f) => calls.push(`focus ${f}`),
+    maximize: (d) => calls.push(`max ${d}`),
+    setDrag: (d) => calls.push(`drag ${d}`),
+  };
+  return { api, calls };
+}
+check('⌘` зовёт стор по id окна терминала', () => {
+  const a = fakeApi(defaultLayout());
+  assert.ok(runHotkey({ type: 'toggle-bottom' }, a.api));
+  assert.deepEqual(a.calls, ['open terminal:1 bottom']);
+  const b = fakeApi(openWindow(defaultLayout(), term));
+  runHotkey({ type: 'toggle-bottom' }, b.api);
+  assert.deepEqual(b.calls, ['toggle bottom']);
+  const c = fakeApi(openWindow(defaultLayout(), term));
+  runHotkey({ type: 'new-terminal' }, c.api);
+  assert.deepEqual(c.calls, ['open terminal:2 bottom']);
+});
+check('перенос, вкладки, закрытие — по активной вкладке дока в фокусе', () => {
+  let l = openWindow(openWindow(openWindow(defaultLayout(), term), log), docs);
+  l = activate(l, 'bottom', 'log');
+  const a = fakeApi(l);
+  runHotkey({ type: 'move', dock: 'left' }, a.api);
+  runHotkey({ type: 'tab', step: 1 }, a.api);
+  runHotkey({ type: 'tab', step: -1 }, a.api);
+  runHotkey({ type: 'close-tab' }, a.api);
+  runHotkey({ type: 'maximize' }, a.api);
+  assert.deepEqual(a.calls, ['move log left', 'activate bottom terminal:1', 'activate bottom terminal:1', 'close log', 'max bottom']);
+});
+check('фокус в основной области: действия дока не срабатывают', () => {
+  const a = fakeApi(openWindow(defaultLayout(), term));
+  const main = { ...a.api.layout, focus: 'main' as const };
+  const b = fakeApi(main);
+  for (const act of [{ type: 'move', dock: 'right' }, { type: 'close-tab' }, { type: 'maximize' }, { type: 'tab', step: 1 }] as const) {
+    assert.equal(runHotkey(act, b.api), false);
+  }
+  assert.equal(runHotkey({ type: 'focus', target: 'left' }, b.api), false);
+  assert.equal(runHotkey({ type: 'focus', target: 'bottom' }, b.api), true);
+  assert.equal(runHotkey({ type: 'collapse-bottom' }, fakeApi(defaultLayout()).api), false);
+});
+check('Esc: перенос, затем разворот, иначе — приложению', () => {
+  const l = openWindow(defaultLayout(), term);
+  const drag = { win: 'terminal:1', over: null };
+  const a = fakeApi(l, { drag, maximized: 'bottom' });
+  assert.ok(runHotkey({ type: 'escape' }, a.api));
+  assert.deepEqual(a.calls, ['drag null']);
+  const b = fakeApi(l, { maximized: 'bottom' });
+  assert.ok(runHotkey({ type: 'escape' }, b.api));
+  assert.deepEqual(b.calls, ['max null']);
+  assert.equal(runHotkey({ type: 'escape' }, fakeApi(l).api), false);
 });
 
 console.log('сохранение и восстановление');

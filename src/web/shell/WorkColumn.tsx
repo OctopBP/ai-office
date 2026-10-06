@@ -9,6 +9,7 @@ import { useEffect, useRef, type ReactNode } from 'react';
 import { Dock } from '../layout/Dock';
 import { Splitter } from '../layout/Splitter';
 import { useLayout } from '../layout/store';
+import { useLayoutHotkeys } from '../layout/hotkeys';
 import { dockRange, effectiveSize, makeRef, type DockId, type Layout, type WindowRef } from '../layout/model';
 import type { DockStatus } from '../layout/Dock';
 import { TerminalWindow } from '../terminal/TerminalWindow';
@@ -53,6 +54,7 @@ export function WorkColumn({ officeId, onCallMeeting, children }: {
   const maximized = useLayout((s) => s.maximized);
   const termViews = useTermViews((s) => s.byId);
   const st = useLayout.getState;
+  useLayoutHotkeys();
 
   // Раскладка своя у каждого офиса: смена офиса — загрузка его раскладки.
   useEffect(() => {
