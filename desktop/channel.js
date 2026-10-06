@@ -24,6 +24,44 @@ function prereleaseOf(version) {
 /** Пререлиз ли версия: есть суффикс `-beta…`, `-alpha…` или любой другой. */
 const isPrerelease = (version) => prereleaseOf(version) !== '';
 
+/** Насколько канал сырой: 0 — stable, 2 — alpha. Переход вверх требует согласия (§7.7). */
+const channelRank = (channel) => CHANNELS.indexOf(channel);
+
+/**
+ * Сравнение версий по semver: <0, 0, >0. Своё, а не пакет semver: модуль
+ * должен грузиться без node_modules. Сборка (`+…`) не учитывается.
+ * Нечитаемая версия — null: сравнивать её не с чем.
+ */
+function compareVersions(a, b) {
+  const parse = (v) => /^v?(\d+)\.(\d+)\.(\d+)(?:-([0-9A-Za-z.-]+?))?(?:\+[0-9A-Za-z.-]+)?$/.exec(String(v ?? '').trim());
+  const x = parse(a);
+  const y = parse(b);
+  if (!x || !y) return null;
+  for (let i = 1; i <= 3; i++) {
+    const d = Number(x[i]) - Number(y[i]);
+    if (d) return Math.sign(d);
+  }
+  // Без пререлиза версия старше той же с пререлизом: 1.5.0 > 1.5.0-beta.3.
+  if (!x[4] || !y[4]) return x[4] ? -1 : y[4] ? 1 : 0;
+  const xs = x[4].split('.');
+  const ys = y[4].split('.');
+  for (let i = 0; i < Math.max(xs.length, ys.length); i++) {
+    if (xs[i] === undefined) return -1;
+    if (ys[i] === undefined) return 1;
+    const xn = /^\d+$/.test(xs[i]);
+    const yn = /^\d+$/.test(ys[i]);
+    if (xn && yn) {
+      const d = Number(xs[i]) - Number(ys[i]);
+      if (d) return Math.sign(d);
+    } else if (xn !== yn) {
+      return xn ? -1 : 1;
+    } else if (xs[i] !== ys[i]) {
+      return xs[i] < ys[i] ? -1 : 1;
+    }
+  }
+  return 0;
+}
+
 /**
  * Канал по установленной версии — когда настроек ещё нет (§7.1). Для
  * обычной сборки это stable; скачанный руками бета-установщик остаётся на бете.
@@ -70,5 +108,5 @@ function applyChannel(updater, channel) {
 }
 
 module.exports = {
-  CHANNELS, isChannel, prereleaseOf, isPrerelease, channelOfVersion, readPrefs, writePrefs, applyChannel,
+  CHANNELS, isChannel, prereleaseOf, isPrerelease, channelRank, compareVersions, channelOfVersion, readPrefs, writePrefs, applyChannel,
 };

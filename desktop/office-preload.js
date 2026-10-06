@@ -25,9 +25,11 @@ contextBridge.exposeInMainWorld('officeDesktop', {
     download: () => ipcRenderer.invoke('office:update-download'),
     restartNow: () => ipcRenderer.invoke('office:update-restart'),
     // Канал обновлений: 'stable' | 'beta' | 'alpha'. Смену решает главный
-    // процесс (там же появятся диалоги согласия) — отсюда только просьба.
+    // процесс (там же диалог согласия на бету и альфу) — отсюда только просьба.
     getChannel: () => ipcRenderer.invoke('office:update-channel-get'),
     setChannel: (channel) => ipcRenderer.invoke('office:update-channel-set', String(channel)),
+    // Откат с беты на стабильный: предупреждение и копию данных делает главный процесс.
+    downgrade: () => ipcRenderer.invoke('office:update-downgrade'),
     // Установленная версия: { version, prerelease: 'beta.3' | '', isPrerelease }.
     getVersion: () => ipcRenderer.invoke('office:app-version'),
   },

@@ -257,6 +257,10 @@ async function startOffice() {
       await server.stop(child);
       child = null;
     },
+    // Диалоги согласия и отката — модальные к окну офиса.
+    window: () => mainWindow,
+    // Канал сменился (из окна, меню или после отказа в согласии) — радиокнопки меню за ним.
+    onChannel: () => buildMenu(),
   });
 }
 
@@ -312,12 +316,39 @@ async function updatesFromMenu() {
   }
 }
 
+/**
+ * Подменю «Канал обновлений». Радиокнопка сама не переключает: выбор идёт в
+ * applyChannelChange, а там бета и альфа — только через диалог согласия.
+ * После него меню перестраивается по настоящему каналу, иначе отменённый
+ * выбор остался бы отмеченным.
+ */
+function channelMenu() {
+  const current = updater.getChannel();
+  const behind = updater.stableBehind();
+  return {
+    label: t('menu.channel'),
+    submenu: [
+      ...['stable', 'beta', 'alpha'].map((channel) => ({
+        label: t(`menu.channel.${channel}`),
+        type: 'radio',
+        checked: channel === current,
+        click: () => void updater.applyChannelChange(channel).finally(buildMenu),
+      })),
+      ...(behind ? [
+        { type: 'separator' },
+        { label: t('menu.downgrade', { target: behind }), click: () => void updater.downgrade().finally(buildMenu) },
+      ] : []),
+    ],
+  };
+}
+
 function buildMenu() {
   const isMac = process.platform === 'darwin';
   const office = {
     label: 'Офис',
     submenu: [
       { label: 'Проверить обновления…', click: () => void updatesFromMenu() },
+      channelMenu(),
       { label: 'Перезапустить офис', click: () => void restartOffice() },
       { type: 'separator' },
       { label: 'Папка данных', click: () => shell.openPath(paths.dataDir()) },
@@ -496,12 +527,20 @@ ipcMain.handle('office:update-check', (event) => (fromOffice(event) ? updater.ch
 const notOffice = () => ({ ok: false, reason: 'not-ready', message: t('update.err.notOffice') });
 ipcMain.handle('office:update-download', (event) => (fromOffice(event) ? updater.download() : notOffice()));
 ipcMain.handle('office:update-restart', (event) => (fromOffice(event) ? updater.restartNow() : notOffice()));
-// Канал обновлений и версия. Смена — через applyChannelChange: согласие и
-// откат, когда появятся, спросит главный процесс, а не окно.
+// Канал обновлений и версия. Смена — через applyChannelChange, откат — через
+// downgrade: согласие и предупреждение спрашивает главный процесс, а не окно.
 ipcMain.handle('office:update-channel-get', (event) => (fromOffice(event) ? updater.getChannel() : null));
 ipcMain.handle('office:update-channel-set', (event, channel) => (
   fromOffice(event) ? updater.applyChannelChange(String(channel)) : notOffice()
 ));
+ipcMain.handle('office:update-downgrade', (event) => (fromOffice(event) ? updater.downgrade() : notOffice()));
+// Появилась или пропала стабильная для отката — пункт меню за ней.
+let menuBehind;
+updater.onState((state) => {
+  if (state.stableBehind === menuBehind) return;
+  menuBehind = state.stableBehind;
+  buildMenu();
+});
 ipcMain.handle('office:app-version', (event) => (fromOffice(event) ? updater.getVersion() : null));
 
 /**
