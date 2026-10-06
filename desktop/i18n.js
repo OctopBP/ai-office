@@ -37,6 +37,8 @@ const DICT = {
     'update.err.notReady': 'Обновление ещё не скачано',
     'update.err.notPackaged': 'Обновления проверяются только в собранном приложении',
     'update.err.notOffice': 'Команда не из окна офиса',
+    'update.err.badChannel': 'Неизвестный канал обновлений',
+    'update.err.channelWhileDownloading': 'Идёт загрузка обновления — канал можно сменить после неё',
   },
   en: {
     'fail.title': 'The office did not open',
@@ -65,6 +67,8 @@ const DICT = {
     'update.err.notReady': 'The update is not downloaded yet',
     'update.err.notPackaged': 'Updates are checked only in the packaged app',
     'update.err.notOffice': 'The command did not come from the office window',
+    'update.err.badChannel': 'Unknown update channel',
+    'update.err.channelWhileDownloading': 'An update is downloading — change the channel after it finishes',
   },
 };
 

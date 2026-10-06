@@ -496,6 +496,13 @@ ipcMain.handle('office:update-check', (event) => (fromOffice(event) ? updater.ch
 const notOffice = () => ({ ok: false, reason: 'not-ready', message: t('update.err.notOffice') });
 ipcMain.handle('office:update-download', (event) => (fromOffice(event) ? updater.download() : notOffice()));
 ipcMain.handle('office:update-restart', (event) => (fromOffice(event) ? updater.restartNow() : notOffice()));
+// Канал обновлений и версия. Смена — через applyChannelChange: согласие и
+// откат, когда появятся, спросит главный процесс, а не окно.
+ipcMain.handle('office:update-channel-get', (event) => (fromOffice(event) ? updater.getChannel() : null));
+ipcMain.handle('office:update-channel-set', (event, channel) => (
+  fromOffice(event) ? updater.applyChannelChange(String(channel)) : notOffice()
+));
+ipcMain.handle('office:app-version', (event) => (fromOffice(event) ? updater.getVersion() : null));
 
 /**
  * Упавшая видеокарта — частая причина чёрного окна на Windows (старый или

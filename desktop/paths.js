@@ -46,6 +46,11 @@ const logFile = () => join(logsDir(), 'server.log');
 const mainLogFile = () => join(logsDir(), 'main.log');
 /** Журнал автообновления (updater.js): у main своего терминала в собранном приложении нет. */
 const updateLogFile = () => join(dataDir(), 'updates.log');
+/**
+ * Канал обновлений (updater.js, спека каналов §7.1). Отдельным файлом, а не в
+ * web-storage.json: канал нужен главному процессу при старте, до окна.
+ */
+const updatePrefsFile = () => join(dataDir(), 'update-channel.json');
 /** Порт, на котором офис живёт от запуска к запуску (`pickPort` в server.js). */
 const portFile = () => join(dataDir(), 'port.json');
 /** Копия localStorage окна офиса (`office:storage-*` в main.js). */
@@ -65,6 +70,6 @@ const defaultProjectDir = () => join(app.getPath('home'), 'Office');
 
 module.exports = {
   resourcesDir, serverEntry, webDir, gitBin,
-  dataDir, stateFile, engineDir, logsDir, logFile, mainLogFile, updateLogFile, portFile, webStorageFile, gpuOffFile,
+  dataDir, stateFile, engineDir, logsDir, logFile, mainLogFile, updateLogFile, updatePrefsFile, portFile, webStorageFile, gpuOffFile,
   defaultProjectDir,
 };

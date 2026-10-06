@@ -17,12 +17,19 @@
  *
  * Состояние и ответы — ровно по контракту src/shared/types.ts (UpdateState,
  * UpdateCommandResult) и мосту src/shared/desktop.ts: на них опирается веб.
+ *
+ * Канал обновлений (stable/beta/alpha) хранится в paths.updatePrefsFile и
+ * применяется к electron-updater до первой проверки (channel.js, спека
+ * docs/design/release-channels/spec.md §7.1–7.3). Смена канала идёт через одну
+ * точку входа — applyChannelChange; диалоги согласия и откат версии
+ * встраиваются в неё, а не в мост окна.
  */
 
 const { app } = require('electron');
 const { appendFileSync } = require('node:fs');
 
 const paths = require('./paths');
+const channels = require('./channel');
 const { t } = require('./i18n');
 
 /** Проверка раз в четыре часа: релизы выходят не чаще, а лишние запросы к GitHub упираются в лимит. */
@@ -39,6 +46,8 @@ const listeners = new Set();
 let updater = null;
 let timer = null;
 let busyTimer = null;
+/** Настройки канала из файла; читаются при первом обращении — до него app может быть не готов. */
+let prefs = null;
 /** Как спросить сервер офиса и как остановить его перед установкой — даёт main.js. */
 let hooks = { port: () => 0, stopOffice: async () => {} };
 
@@ -135,6 +144,9 @@ function init(options) {
     error: (...a) => log('error', ...a),
     debug: () => {},
   };
+
+  channels.applyChannel(updater, getChannel());
+  log('info', `канал обновлений: ${getChannel()}`);
 
   updater.on('checking-for-update', () => setState({ phase: 'checking' }));
   updater.on('update-not-available', () => setState({ phase: 'idle' }));
@@ -240,10 +252,69 @@ async function restartNow() {
   return { ok: true };
 }
 
+/** Настройки канала: из файла, а без него — по установленной версии (stable для обычной сборки). */
+function loadPrefs() {
+  if (!prefs) prefs = channels.readPrefs(paths.updatePrefsFile(), app.getVersion());
+  return prefs;
+}
+
+/** Текущий канал обновлений: 'stable' | 'beta' | 'alpha'. */
+function getChannel() {
+  return loadPrefs().channel;
+}
+
+/**
+ * Установленная версия с признаком пререлиза: `prerelease` — суффикс без
+ * дефиса (`beta.3`) или '', `isPrerelease` — есть ли он.
+ */
+function getVersion() {
+  const version = app.getVersion();
+  const prerelease = channels.prereleaseOf(version);
+  return { version, prerelease, isPrerelease: prerelease !== '' };
+}
+
+/**
+ * Сменить канал обновлений — единственная точка входа для окна и меню.
+ *
+ * Сейчас канал применяется сразу: запись в файл, настройка electron-updater,
+ * сброс состояния и новая проверка (§7.3). Диалог согласия на более сырой
+ * канал (§7.7) и выбор при возврате на stable (§7.4) встраиваются сюда, до
+ * записи, — вызывающим ничего менять не придётся.
+ *
+ * Пока идёт загрузка, канал не меняется: обновление уже выбрано. Скачанное,
+ * но не поставленное обновление забываем — оно ставится только по restartNow.
+ */
+async function applyChannelChange(next) {
+  if (!channels.isChannel(next)) {
+    return { ok: false, reason: 'not-ready', message: t('update.err.badChannel') };
+  }
+  const prev = getChannel();
+  if (next === prev) return { ok: true };
+  if (state.phase === 'downloading') {
+    return { ok: false, reason: 'not-ready', message: t('update.err.channelWhileDownloading') };
+  }
+  const updated = { ...loadPrefs(), channel: next };
+  try {
+    channels.writePrefs(paths.updatePrefsFile(), updated);
+  } catch (err) {
+    log('error', 'канал не записался:', err);
+    return { ok: false, reason: 'not-ready', message: errorText(err) };
+  }
+  prefs = { ...updated, fromFile: true };
+  log('info', `канал обновлений: ${prev} → ${next}`);
+  if (!updater) return { ok: true };
+  channels.applyChannel(updater, next);
+  setState({ phase: 'idle' });
+  void check();
+  return { ok: true };
+}
+
 /** Подписка на смену состояния; возвращает отписку. */
 function onState(fn) {
   listeners.add(fn);
   return () => listeners.delete(fn);
 }
 
-module.exports = { init, check, getState, download, restartNow, refreshBusy, onState };
+module.exports = {
+  init, check, getState, download, restartNow, refreshBusy, onState, getChannel, getVersion, applyChannelChange,
+};
