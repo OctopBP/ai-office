@@ -1,0 +1,88 @@
+<!doctype html>
+<html lang="ru"><head><meta charset="utf-8">
+<title>T-405 · Оконная система — макеты состояний</title>
+<style>
+/* Значения — ровно из src/web/styles/tokens.css (day/night). */
+.day  { --canvas:#f1f1f1; --surface:#fff; --film:rgba(0,0,0,.06); --film-2:rgba(0,0,0,.07); --film-3:rgba(0,0,0,.11);
+        --hairline:#dadada; --ink:#141414; --ink-2:#323232; --ink-3:#5c5c5c; --accent:#2563eb; --accent-ink:#fff; --ok:#4ade80;
+        --shadow:0 2px 8px rgba(0,0,0,.17); --drop:rgba(37,99,235,.14); }
+.night{ --canvas:#0d0e11; --surface:#111214; --film:rgba(255,255,255,.06); --film-2:rgba(255,255,255,.07); --film-3:rgba(255,255,255,.14);
+        --hairline:#2a2d34; --ink:#f4f4f5; --ink-2:#e4e4e7; --ink-3:#a1a1a1; --accent:#2563eb; --accent-ink:#fff; --ok:#4ade80;
+        --shadow:0 2px 8px rgba(0,0,0,.3); --drop:rgba(37,99,235,.28); }
+*{box-sizing:border-box}
+body{margin:0;padding:24px;background:#888;font:13px/1.4 -apple-system,"Inter",sans-serif;color:#111}
+h1{margin:0 0 4px;font-size:20px;color:#fff} p.lead{margin:0 0 24px;color:#eee;max-width:900px}
+h2{margin:28px 0 8px;font-size:15px;color:#fff}
+.pair{display:grid;grid-template-columns:1fr 1fr;gap:16px}
+/* окно приложения 560×340 */
+.app{position:relative;height:340px;border-radius:10px;overflow:hidden;background:var(--canvas);color:var(--ink-2);display:grid;
+     grid-template-columns:var(--rail,64px) 1fr;gap:8px;padding:8px}
+.cap{font-size:11px;color:#eee;margin:0 0 4px}
+.rail{background:var(--surface);border-radius:12px;box-shadow:var(--shadow);padding:8px;display:flex;flex-direction:column;gap:6px;align-items:center}
+.rail i{width:26px;height:26px;border-radius:8px;background:var(--film-2);display:block}
+.rail i.on{background:var(--accent)}
+/* рабочее пространство: колонка (верх: [левый док][основная][правый док]; низ: нижний док) */
+.ws{display:flex;flex-direction:column;gap:0;min-width:0;min-height:0}
+.row{flex:1;display:flex;min-height:0}
+.main,.dock{background:var(--surface);border-radius:12px;box-shadow:var(--shadow);display:flex;flex-direction:column;min-width:0;min-height:0;overflow:hidden}
+.main{flex:1}
+.main .body{flex:1;margin:8px;border-radius:8px;background:var(--film);display:grid;place-items:center;color:var(--ink-3);font-size:12px}
+.grip-v{width:8px;cursor:col-resize;flex:none;position:relative}
+.grip-h{height:8px;cursor:row-resize;flex:none;position:relative}
+.grip-v:after,.grip-h:after{content:"";position:absolute;inset:3px;border-radius:2px;background:var(--hairline);opacity:.0}
+.grip-v:hover:after,.grip-h:hover:after,.grip-on:after{opacity:1;background:var(--accent)}
+.tabs{height:30px;flex:none;display:flex;align-items:center;gap:2px;padding:0 6px;border-bottom:1px solid var(--hairline)}
+.tab{height:22px;display:flex;align-items:center;gap:6px;padding:0 8px;border-radius:6px;font-size:11px;color:var(--ink-3);white-space:nowrap}
+.tab.on{background:var(--film-2);color:var(--ink)}
+.tab b{width:6px;height:6px;border-radius:9px;background:var(--ok)}
+.tabs .sp{flex:1}.tabs .ic{width:18px;height:18px;border-radius:5px;background:var(--film);font-size:10px;display:grid;place-items:center;color:var(--ink-3)}
+.dock .body{flex:1;min-height:0;padding:8px 10px;font:11px/1.5 ui-monospace,Menlo,monospace;color:var(--ink-2);overflow:hidden}
+.strip{height:26px;flex:none;display:flex;align-items:center;gap:8px;padding:0 10px;background:var(--surface);border-radius:12px;box-shadow:var(--shadow);font-size:11px;color:var(--ink-3);margin-top:8px}
+.strip .tab{height:18px}
+.strip.side{width:26px;height:auto;flex-direction:column;padding:8px 0;margin:0 0 0 8px;writing-mode:vertical-rl}
+.comp{height:34px;flex:none;margin-top:8px;border-radius:12px;background:var(--surface);box-shadow:var(--shadow);display:flex;align-items:center;padding:0 12px;color:var(--ink-3);font-size:11px}
+.ghost{position:absolute;border-radius:12px;background:var(--drop);border:2px dashed var(--accent);display:grid;place-items:center;color:var(--accent);font-weight:600;font-size:11px}
+.floating{position:absolute;padding:6px 10px;border-radius:8px;background:var(--surface);box-shadow:var(--shadow);border:1px solid var(--accent);font-size:11px;color:var(--ink)}
+.ov{position:absolute;inset:0;background:var(--canvas);padding:8px;display:grid}
+.badge{position:absolute;top:8px;right:12px;font-size:10px;color:var(--ink-3)}
+</style></head><body>
+<h1>Оконная система — макеты состояний</h1>
+<p class="lead">Слева светлая тема (day), справа тёмная (night). Цвета — токены из <code>src/web/styles/tokens.css</code>:
+<code>--canvas</code> под окнами, <code>--surface</code> у окон и доков, <code>--film-2</code> у активной вкладки, <code>--hairline</code> у разделителей,
+<code>--accent</code> у подсветки разделителя и зоны сброса. Зазор между окнами — 8px (<code>--space-2</code>), радиус 12px (<code>--radius-card</code>).</p>
+<div id="out"></div>
+<script>
+const rail=(on=0)=>`<div class="rail">${[0,1,2,3,4,5].map(i=>`<i class="${i===on?'on':''}"></i>`).join('')}</div>`;
+const term=(h)=>`<div class="body">$ npm run typecheck<br>&gt; tsc --noEmit<br><span style="color:var(--ok)">✓</span> без ошибок<br>$ <span style="opacity:.6">▌</span></div>`;
+const tabs=(items,extra='')=>`<div class="tabs">${items.map(([n,on,live])=>`<span class="tab${on?' on':''}">${live?'<b></b>':''}${n}</span>`).join('')}<span class="sp"></span>${extra}<span class="ic">⤢</span><span class="ic">▾</span><span class="ic">✕</span></div>`;
+const main=(t='Основная область: сцена офиса')=>`<div class="main"><div class="body">${t}</div></div>`;
+const comp=`<div class="comp">Написать менеджеру…</div>`;
+const S={
+ '1. Терминал снизу открыт — основная область ужалась': `
+   <div class="ws"><div class="row">${main()}</div><div class="grip-h"></div>
+   <div class="dock" style="height:120px">${tabs([['Терминал 1',1,1],['Терминал 2',0,0]])}${term()}</div>${comp}</div>`,
+ '2. Терминал свёрнут в полоску (⌘`) — основная область вернула место': `
+   <div class="ws"><div class="row">${main()}</div>
+   <div class="strip"><span class="tab"><b style="width:6px;height:6px;border-radius:9px;background:var(--ok)"></b>Терминал 1</span><span class="tab">Терминал 2</span><span style="flex:1"></span>▴ развернуть</div>${comp}</div>`,
+ '3. Два окна во вкладках нижнего дока (Терминал + Документы)': `
+   <div class="ws"><div class="row">${main()}</div><div class="grip-h"></div>
+   <div class="dock" style="height:130px">${tabs([['Терминал 1',0,1],['Документы',1,0],['Дифф T-12',0,0]])}
+   <div class="body" style="font-family:inherit">Документы · спека окон · v3<br>— Модель раскладки<br>— Доки и разделители</div></div>${comp}</div>`,
+ '4. Окно справа (дровер агента как док) + терминал снизу': `
+   <div class="ws"><div class="row">${main()}<div class="grip-v grip-on"></div>
+   <div class="dock" style="width:150px">${tabs([['backend',1,1]])}<div class="body" style="font-family:inherit">Агент backend<br>Задача T-12<br>Статус: работает</div></div></div>
+   <div class="grip-h"></div><div class="dock" style="height:80px">${tabs([['Терминал 1',1,1]])}${term()}</div>${comp}</div>`,
+ '5. Перенос: вкладку «Терминал 1» тянут к правому краю — зона сброса': `
+   <div class="ws"><div class="row">${main()}</div><div class="grip-h"></div>
+   <div class="dock" style="height:110px">${tabs([['Терминал 1',1,1],['Терминал 2',0,0]])}${term()}</div>${comp}</div>
+   <div class="ghost" style="top:8px;bottom:50px;right:8px;width:34%">Справа</div>
+   <div class="floating" style="left:46%;top:44%">⠿ Терминал 1</div>`,
+ '6. Окно развёрнуто на весь экран (⌘⇧↵) — остаётся шапка и рейл': `
+   <div class="ws"><div class="dock" style="flex:1">${tabs([['Терминал 1',1,1],['Терминал 2',0,0]])}${term()}</div>${comp}</div>`
+};
+let h='';
+for(const [name,html] of Object.entries(S)){
+  h+=`<h2>${name}</h2><div class="pair">`+['day','night'].map(th=>`<div><div class="cap">${th==='day'?'Светлая':'Тёмная'}</div><div class="app ${th}">${rail(1)}${html}</div></div>`).join('')+`</div>`;
+}
+document.getElementById('out').innerHTML=h;
+</script></body></html>
