@@ -11,7 +11,6 @@ import { TopBar } from './TopBar';
 import { TerminalPanel } from '../terminal/TerminalPanel';
 import { Composer } from './Composer';
 import { EnvBanner } from './EnvBanner';
-import { UpdateBanner } from './UpdateBanner';
 import { SettingsPage } from '../SettingsPage';
 import { TeamWindow } from '../TeamWindow';
 import { RailPage } from './RailPages';
@@ -125,7 +124,6 @@ export function Shell(props: OverlayProps) {
           Страницам из рейла он тоже не нужен: там свои поля и кнопки. */}
       {view !== 'board' && view !== 'chat' && !isRailView(view) && !first.open && <Composer onSettings={() => setView('settings')} />}
       <EnvBanner />
-      <UpdateBanner />
       <Overlays {...props} />
     </div>
   );

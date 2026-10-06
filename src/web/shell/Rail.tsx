@@ -16,6 +16,7 @@ import { officeAvatarStyle } from '../officeColor';
 import { OfficeAvatarIcon } from '../OfficeIcon';
 import { ProviderIcon } from './ProviderIcon';
 import { OfficeConfirm } from '../OfficesModal';
+import { UpdateBlock } from './UpdateBlock';
 
 /** Сколько пикселей нужно сдвинуть указатель, прежде чем короткий клик по
  * строке офиса считается началом перетаскивания. Меньше — щелчок мышью с
@@ -402,6 +403,7 @@ export function Rail({ onPanel, onModal }: {
       </div>
 
       <div className="rail-foot">
+        <UpdateBlock collapsed={collapsed} />
         <div className="rail-spend">
           <span className="muted">{t('shell.spendToday')}</span>
           <b>{cap !== null ? t('shell.spendOf', { today: money(today), cap: money(cap) }) : money(today)}</b>
