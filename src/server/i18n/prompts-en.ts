@@ -33,6 +33,7 @@ export const promptsEn = {
   'bubble.finishTask': 'handing the work in',
   'bubble.listTeam': 'checking who is free',
   'bubble.getBoard': 'checking the board',
+  'bubble.getTask': 'looking at task {what}',
   'bubble.listRules': 'reading the office rules',
   'bubble.addRule': 'adding a rule: {what}',
   'bubble.editRule': 'rewording rule {what}',
@@ -192,7 +193,7 @@ Refuse only if the task is beyond everyone on the team.
 But not every message is a request to do something. A question (“how does X work here?”,
 “what is in progress?”, “why did the task fail?”), a discussion of an approach, a request for
 advice or an opinion — that is a conversation with you, not work for the team. Answer in words:
-from the board (get_board, review_status, list_team), from the office journal and from what you
+from the board (get_board, review_status, get_task, list_team), from the office journal and from what you
 remember of the conversation — and do NOT create tasks. What you do not know, say so; if the
 answer requires looking into the code, offer to create a task, but do not create it yourself.
 A task appears only on an explicit request to do something. Unsure whether it is a question or
@@ -251,6 +252,8 @@ not the user’s. They said what needs doing — the rest is the office’s busi
 - review_status — where each handed-in task stands right now: being reviewed, being reworked,
   the office restarting the pipeline, or waiting for your decision. Look there before telling
   the user “done”: until a task is merged, it is not done.
+- get_task — one task in full: the whole brief, criteria with marks, the worker’s report,
+  the review stage and the last review. The board and review_status show it briefly.
 - The office restarts a stuck pipeline BY ITSELF, up to three times with a growing pause.
   While it is trying — do nothing and do not relay it to the user.
 - A system message arrives only when it will not move any further on its own.
@@ -370,9 +373,39 @@ Keep your replies to the user short. Which language to write them in is said in 
   'tool.assignTask.workerBusy': '{who} is busy with task {task} right now',
   'tool.assignTask.ok': '{task} assigned to {who}, work has started. Do not wait — hand out the rest of the tasks.',
 
-  'tool.reviewStatus.desc': 'What is happening to the tasks that have been handed in: the review and merge stage of each. Look here before telling the user “done”: until a task is merged, it is not done.',
+  'tool.reviewStatus.desc': 'What is happening to the tasks that have been handed in: the review and merge stage of each. By default — only what is not merged yet and what was merged in the last 24 hours; older merged tasks come as one number. all=true — the whole pipeline page by page (limit, offset). Look here before telling the user “done”: until a task is merged, it is not done. Details of one task — get_task.',
   'tool.reviewStatus.empty': 'There are no handed-in tasks in the pipeline.',
   'tool.reviewStatus.rounds': ', rework rounds: {n}',
+  'tool.reviewStatus.all': 'true — the whole pipeline, long-merged tasks included, page by page. Default false: unmerged and merged in the last 24 hours.',
+  'tool.reviewStatus.limit': 'Only with all=true: tasks per page, 30 by default.',
+  'tool.reviewStatus.offset': 'Only with all=true: how many of the first (most recent) to skip, 0 by default.',
+  'tool.reviewStatus.older': '{n} more merged earlier — review_status with all=true shows them all',
+  'tool.reviewStatus.nothingFresh': 'No unmerged tasks, nothing merged in the last 24 hours.',
+  'tool.reviewStatus.page': 'showing {from}–{to} of {total}',
+  'tool.reviewStatus.pageEmpty': 'this page is empty: offset {offset}, total {total}',
+  'tool.reviewStatus.more': 'there is more — next page: offset={next}',
+
+  'tool.getTask.desc': 'Details of one task: title, role and assignee, status, priority, feature, dependencies, the full brief, criteria with marks, the result and the worker’s report, the review stage and the last reviewer note. The board and review_status show tasks briefly — come here when you need one in full.',
+  'tool.getTask.taskId': 'Task id, e.g. T-12',
+  'tool.getTask.notFound': 'There is no task {task} on the board.',
+  'taskView.status': 'Status',
+  'taskView.merged': 'merged',
+  'taskView.priority': 'Priority',
+  'taskView.role': 'Role',
+  'taskView.assignee': 'assignee',
+  'taskView.epic': 'Feature',
+  'taskView.deps': 'Depends on',
+  'taskView.branch': 'Branch',
+  'taskView.description': 'Brief',
+  'taskView.criteria': 'Criteria',
+  'taskView.result': 'Worker’s result',
+  'taskView.assumed': 'Decided alone',
+  'taskView.left': 'Not done',
+  'taskView.review': 'Review',
+  'taskView.noReview': 'never handed in to the pipeline',
+  'taskView.lastReview': 'Last review',
+  'taskView.approve': 'approved',
+  'taskView.changes': 'changes requested',
 
   'tool.retryReview.desc': 'Push a stuck pipeline for a task: it continues from the stage where it stopped. This helps when the cause is already gone — a neighbouring task was fixed, say, and the conflict will not happen again. If the cause is still there, the pipeline stops again: pushing it repeatedly without changes is pointless.',
   'tool.retryReview.taskId': 'Task id, for example T-3',

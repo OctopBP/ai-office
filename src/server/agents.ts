@@ -61,6 +61,7 @@ import {
   setRitualAgents, type ConsolidationInput, type ReflectionOutput, type ResolveOutput, type RitualOutput,
 } from './rituals';
 import { resolveModel } from '../shared/models';
+import { reviewStatusText, taskDetails } from './task-view';
 import { resolve } from 'node:path';
 import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync } from 'node:fs';
 
@@ -396,6 +397,7 @@ function toolBrief(name: string, input: Record<string, unknown>, lang: Lang): st
         if (short === 'finish_task') return t(lang, 'bubble.finishTask');
         if (short === 'list_team') return t(lang, 'bubble.listTeam');
         if (short === 'get_board') return t(lang, 'bubble.getBoard');
+        if (short === 'get_task') return say('bubble.getTask', input.taskId);
         if (short === 'list_rules') return t(lang, 'bubble.listRules');
         if (short === 'add_rule') return say('bubble.addRule', clip(input.text, 40));
         if (short === 'edit_rule') return say('bubble.editRule', input.ruleId);
@@ -1166,18 +1168,40 @@ const teamTools = (state: OfficeState, chatId: string) => createSdkMcpServer({
     tool(
       'review_status',
       state.say('tool.reviewStatus.desc'),
-      {},
-      async () => {
-        const prs = [...state.prs.values()];
-        if (!prs.length) {
-          return { content: [{ type: 'text', text: state.say('tool.reviewStatus.empty') }] };
+      {
+        all: z.boolean().default(false).describe(state.say('tool.reviewStatus.all')),
+        limit: z.number().int().min(1).max(200).optional().describe(state.say('tool.reviewStatus.limit')),
+        offset: z.number().int().min(0).optional().describe(state.say('tool.reviewStatus.offset')),
+      },
+      async (args) => ({
+        content: [{ type: 'text', text: reviewStatusText(state.prs.values(), args, state.lang()) }],
+      }),
+      { annotations: { readOnlyHint: true } },
+    ),
+
+    tool(
+      'get_task',
+      state.say('tool.getTask.desc'),
+      { taskId: z.string().describe(state.say('tool.getTask.taskId')) },
+      async (args) => {
+        const task = state.tasks.get(args.taskId.trim());
+        if (!task) {
+          return {
+            content: [{ type: 'text', text: state.say('tool.getTask.notFound', { task: args.taskId }) }],
+            isError: true,
+          };
         }
-        const text = prs
-          .sort((a, b) => b.updatedAt - a.updatedAt)
-          .map((pr) => `${pr.taskId} «${pr.title}» — ${stageText(pr.stage, state.lang())}` +
-            `${pr.rounds ? state.say('tool.reviewStatus.rounds', { n: pr.rounds }) : ''}` +
-            `${pr.url ? `, ${pr.url}` : ''}\n    ${clip(pr.note, 200)}`)
-          .join('\n');
+        const depStatus: Record<string, string> = {};
+        for (const id of task.dependsOn) {
+          const dep = state.tasks.get(id);
+          if (dep) depStatus[id] = dep.status;
+        }
+        const text = taskDetails(task, {
+          epic: task.epicId ? state.epics.get(task.epicId) ?? null : null,
+          pr: state.prOf(task.id),
+          depStatus,
+          lang: state.lang(),
+        });
         return { content: [{ type: 'text', text }] };
       },
       { annotations: { readOnlyHint: true } },
