@@ -416,6 +416,7 @@ export const ru: Record<keyof typeof en, string> = {
   'plan.chat.cancelled': 'Фича {epic} «{title}» снята с плана: {reason}',
   'plan.noReason': 'без объяснения',
   'plan.noEpic': 'вне плана',
+  'plan.log.autoApproved': 'Режим «начинать самому»: {epic} «{title}» согласована офисом',
   'plan.log.hold': '{epic} «{title}» стоит: {why}',
   'plan.chat.queued': '⏳ Фича {epic} «{title}» согласована, но пока не пошла: {why}.',
   'plan.chat.stuck': '⛔ Фича {epic} «{title}» стоит: живой работы в ней не осталось, задачи {tasks} провалены или ждут проваленных. Место в очереди она больше не держит. Перезапустите эти задачи или снимите их — тогда фича закроется.',

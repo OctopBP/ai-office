@@ -416,6 +416,7 @@ export const en = {
   'plan.chat.cancelled': 'Feature {epic} "{title}" dropped from the plan: {reason}',
   'plan.noReason': 'no reason given',
   'plan.noEpic': 'no feature',
+  'plan.log.autoApproved': '"Start on its own" mode: the office approved {epic} "{title}"',
   'plan.log.hold': '{epic} "{title}" is on hold: {why}',
   'plan.chat.queued': '⏳ Feature {epic} "{title}" is approved but has not started yet: {why}.',
   'plan.chat.stuck': '⛔ Feature {epic} "{title}" is stuck: no live work is left in it, tasks {tasks} failed or wait for failed ones. It no longer holds a place in the queue. Restart those tasks or cancel them — then the feature will close.',

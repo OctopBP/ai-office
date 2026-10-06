@@ -369,6 +369,94 @@ async function main(): Promise<void> {
   );
   unloadOfficeState('o-plan-stuck');
 
+  // 12. Режим инициативы «начинать самому» (auto) согласует и фичи владельца
+  //     из плана менеджера (T-367, решение владельца Q-96): «поехали» не нужно,
+  //     но фокус, порядок и зависимости задач остаются в силе.
+  /** Что запустилось в офисе с этим id. */
+  const tookIn = (officeId: string): string[] => {
+    const mark = `${officeId}/`;
+    const list = started.filter((id) => id.startsWith(mark)).map((id) => id.slice(mark.length)).sort();
+    started = started.filter((id) => !id.startsWith(mark));
+    return list;
+  };
+  const twoFeatures = (prefix: string) => [
+    {
+      title: `${prefix} первая`, goal: 'цель первой',
+      tasks: [
+        { key: 'a', title: 'основа', description: 'работа', acceptanceCriteria: ['сделано'], roleId: 'backend' },
+        {
+          key: 'b', title: 'надстройка', description: 'работа', acceptanceCriteria: ['сделано'],
+          roleId: 'backend', dependsOn: ['a'],
+        },
+      ],
+    },
+    {
+      title: `${prefix} вторая`, goal: 'цель второй',
+      tasks: [{ key: 'c', title: 'вторая', description: 'работа', acceptanceCriteria: ['сделано'], roleId: 'backend' }],
+    },
+  ];
+
+  const auto = getOffice('o-plan-auto');
+  auto.seed();
+  auto.settings.planApproval = true;
+  auto.settings.focusEpics = 1;
+  auto.settings.autoPipeline = true;
+  auto.settings.initiativeMode = 'auto';
+  createPlan(auto, twoFeatures('Авто'));
+  const autoStarted = tookIn('o-plan-auto');
+  results.push(
+    `auto: фича владельца согласована при заведении: ${auto.epics.get('F-1')?.approved === true}`,
+    `auto: первая фича пошла без «поехали»: ${auto.epics.get('F-1')?.status === 'active'}`,
+    `auto: зависимость соблюдена — взята только основа: ${autoStarted.join(',') === 'T-1'}`,
+    `auto: вторая согласована, но ждёт места в фокусе: ${auto.epics.get('F-2')?.approved === true
+      && auto.epics.get('F-2')?.status === 'planned' && auto.epics.get('F-2')?.hold?.kind === 'slot'}`,
+  );
+  // Первая влита целиком — место освободилось, вторая идёт сама.
+  auto.updateTask('T-1', { status: 'done', merged: true, branch: 'task/T-1', finishedAt: Date.now() });
+  dispatch(auto);
+  auto.updateTask('T-2', { status: 'done', merged: true, branch: 'task/T-2', finishedAt: Date.now() });
+  dispatch(auto);
+  results.push(
+    `auto: после первой вторая началась сама: ${auto.epics.get('F-2')?.status === 'active'
+      && tookIn('o-plan-auto').join(',') === 'T-2,T-3'}`,
+  );
+  unloadOfficeState('o-plan-auto');
+
+  // Режим propose: фичи владельца по-прежнему ждут «поехали». Потом режим
+  // переключают в auto — уже заведённые получают согласие на следующем проходе
+  // планировщика (тот же проход идёт по тику надзора после старта сервера).
+  const propose = getOffice('o-plan-propose');
+  propose.seed();
+  propose.settings.planApproval = true;
+  propose.settings.focusEpics = 1;
+  propose.settings.autoPipeline = true;
+  propose.settings.initiativeMode = 'propose';
+  createPlan(propose, twoFeatures('Предложение'));
+  dispatch(propose);
+  results.push(
+    `propose: фича владельца не согласована: ${propose.epics.get('F-1')?.approved === false}`,
+    `propose: и ждёт «поехали»: ${propose.epics.get('F-1')?.status === 'planned'
+      && propose.epics.get('F-1')?.hold?.kind === 'approval'}`,
+    `propose: ничего не запущено: ${tookIn('o-plan-propose').length === 0}`,
+  );
+  propose.settings.initiativeMode = 'off';
+  dispatch(propose);
+  results.push(
+    `off: фича владельца тоже ждёт «поехали»: ${propose.epics.get('F-1')?.approved === false
+      && propose.epics.get('F-1')?.status === 'planned' && tookIn('o-plan-propose').length === 0}`,
+  );
+  propose.settings.initiativeMode = 'auto';
+  dispatch(propose);
+  results.push(
+    `auto после включения: заведённые согласованы: ${propose.epics.get('F-1')?.approved === true
+      && propose.epics.get('F-2')?.approved === true}`,
+    `auto после включения: первая пошла: ${propose.epics.get('F-1')?.status === 'active'
+      && tookIn('o-plan-propose').join(',') === 'T-1'}`,
+    `auto после включения: причины «ждёт согласия» больше нет: ${
+      propose.epicList().every((e) => e.hold?.kind !== 'approval')}`,
+  );
+  unloadOfficeState('o-plan-propose');
+
   unloadOfficeState('o-plan');
   unloadOfficeState('o-plan-2');
   unloadOfficeState('o-plan-3');

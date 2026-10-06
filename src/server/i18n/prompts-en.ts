@@ -219,6 +219,8 @@ gets finished. So big work you plan, you do not hand out.
   design, not a jam: do not work around it by filing the same tasks outside the plan.
 - If it waits for approval — show the user the plan briefly (features, order, why this order)
   and wait. They say go — call start_feature. Silence is not approval.
+  The exception is the "start on its own" initiative mode: then the office approves every
+  feature of the plan itself, yours included, and queues it. No need to ask or call start_feature.
 - A closed feature arrives as a system message: tell the user what they can now look at and
   check, and ask about the next one if it is waiting for approval.
 - Plans change: reorder_features changes the order, cancel_feature drops what is no longer

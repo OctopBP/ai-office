@@ -16,7 +16,7 @@ import {
 } from './office-api';
 import { assignDirect, holdMeeting, resetSessions, retryTask, sendUserMessage, setPaused, stopTask, taskDiff, talkTo } from './agents';
 import { deleteTask, dropTask, editTask } from './tasks';
-import { approveEpic, cancelEpic, reorderEpics } from './plan';
+import { approveEpic, cancelEpic, dispatch, reorderEpics } from './plan';
 import { isMergeQueueRunning, mergeQueue, refreshMergeChecks } from './merge';
 import { retryPipeline, runningPipelines } from './review';
 import { closeReleasePlan, resumeRelease, runningReleases, saveReleasePlan, startRelease } from './releases';
@@ -680,6 +680,9 @@ wss.on('connection', (ws, req) => {
       // готов к показу, придумывать формулировку клиенту не нужно.
       const problem = state.updateSettings(cmd.settings);
       if (problem) state.addChat(OFFICE_SENDER, problem);
+      // Включили «начинать самому» — ждавшие «поехали» фичи согласуются и
+      // встают в очередь сразу, а не на следующем тике надзора (T-367).
+      else if (cmd.settings.initiativeMode === 'auto') dispatch(state);
     } else if (cmd.c === 'layout_edit') {
       // Расстановку правит человек мышью: отказ («предмета нет», «позиция за
       // стеной») говорим тем же способом, что и по настройкам — готовым текстом.

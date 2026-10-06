@@ -257,6 +257,29 @@ function closeFinishedEpics(state: OfficeState): void {
   }
 }
 
+/**
+ * Режим инициативы «начинать самому» (auto): офис не ждёт «поехали» ни по
+ * своим фичам, ни по фичам владельца из плана менеджера. Так решил владелец
+ * (Q-96): режим auto — это согласие на весь план, а не только на своё.
+ */
+export const autoApproves = (state: OfficeState): boolean => state.initiativeMode() === 'auto';
+
+/**
+ * Проставить согласие фичам, которые ждут «поехали», если режим auto.
+ * Ловит и заведённые до включения режима, и пережившие перезапуск сервера:
+ * зовётся на каждом проходе планировщика, а он идёт и по тику надзора.
+ * Согласие — только допуск в очередь: место в фокусе, доля на своё и
+ * зависимости задач считаются дальше как обычно.
+ */
+function approveInAuto(state: OfficeState): void {
+  if (!autoApproves(state)) return;
+  for (const epic of state.epicList()) {
+    if (epic.status !== 'planned' || epic.approved) continue;
+    state.updateEpic(epic.id, { approved: true, attention: null, hold: null });
+    state.addLog(null, 'system', state.say('plan.log.autoApproved', { epic: epic.id, title: epic.title }));
+  }
+}
+
 /** Ближайшая фича, за которую офис ещё не брался. */
 const nextUnstarted = (state: OfficeState): Epic | null =>
   state.epicList().find((e) => e.status === 'planned') ?? null;
@@ -445,6 +468,7 @@ export function dispatch(state: OfficeState): void {
   if (state.paused || state.archived) return;
   const now = Date.now();
   closeFinishedEpics(state);
+  approveInAuto(state);
   activateEpics(state);
   releaseReady(state);
   markActiveHolds(state);
@@ -552,7 +576,8 @@ export function createPlan(
   // Проверки пройдены — заводим. Порядок фич продолжает уже существующий
   // план, а не начинается заново: новая фича встаёт в конец очереди, а не
   // впереди той, которую офис уже ведёт.
-  const approved = from?.approved ?? !state.needsApproval();
+  // В режиме auto фича владельца согласована сразу, как и своя (Q-96).
+  const approved = autoApproves(state) || (from?.approved ?? !state.needsApproval());
   let order = state.epicList().length;
   const made: Epic[] = [];
 
