@@ -37,7 +37,7 @@ import {
 import type { ReleaseTarget } from '../shared/release';
 import { commitAll, createWorktree, diffBranch, hasCommits, hasWork, isRepo, preserveBranch, removeWorktree } from './git';
 import {
-  approveEpic, byPriority, cancelEpic, createPlan, dispatch, planSummary, priorityRank,
+  approveEpic, byPriority, cancelEpic, createPlan, dispatch, priorityRank,
   reorderEpics, setPlanAgents, type PlannedEpic,
 } from './plan';
 import {
@@ -62,6 +62,7 @@ import {
 } from './rituals';
 import { resolveModel } from '../shared/models';
 import { reviewStatusText, taskDetails } from './task-view';
+import { formatBoard, isSelection, type BoardOpts, type BoardSay } from './board-view';
 import { resolve } from 'node:path';
 import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync } from 'node:fs';
 
@@ -739,44 +740,27 @@ function chatsSummary(state: OfficeState, current: string): string {
   }).join('\n');
 }
 
-/**
- * Доска задач текстом — по строке на задачу. Нужна в двух местах: инструменту
- * get_board и реплике менеджера на совещании. Файлов менеджер не видит, и доска
- * для него — единственный способ говорить о делах предметно, а не общими словами.
- */
 /** Стадии конвейера словами: их читает менеджер, а не интерфейс. */
 const stageText = (stage: PrStage, lang: Lang): string => t(lang, `pr.stage.${stage}`);
 
-function boardSummary(state: OfficeState): string {
-  const tasks = [...state.tasks.values()];
-  // Направления — над планом: они объясняют, откуда взялись инициативы.
+/**
+ * Доска задач текстом — инструменту get_board и реплике менеджера на
+ * совещании. Файлов менеджер не видит, и доска для него — единственный способ
+ * говорить о делах предметно. Текст строит board-view.ts: без условий —
+ * компактная сводка, с условиями — выборка; к сводке сверху добавляются
+ * направления, они объясняют, откуда взялись инициативы.
+ */
+function boardText(state: OfficeState, opts: BoardOpts = {}): string {
+  const say: BoardSay = (key, vars) => state.say(key, vars);
+  const text = formatBoard({
+    tasks: [...state.tasks.values()],
+    epics: [...state.epics.values()],
+    questions: state.questionList().filter(isOpenQuestion),
+    autoPipeline: state.settings.autoPipeline,
+  }, say, opts);
+  if (isSelection(opts)) return text;
   const directions = directionsText(state);
-  const plan = [
-    directions ? `${state.say('prompt.board.directions')}\n${directions}` : '',
-    planSummary(state),
-  ].filter(Boolean).join('\n\n');
-  const questions = state.questionList().some(isOpenQuestion)
-    ? `\n\n${state.say('prompt.board.questions')}\n${openQuestionsText(state)}`
-    : '';
-  if (!tasks.length) return (plan || state.say('prompt.board.empty')) + questions;
-  const lang = state.lang();
-  // План идёт первым: он объясняет, почему часть задач стоит, — без него
-  // доска выглядит как список, где половина работ непонятно чего ждёт.
-  const head = plan ? `${plan}\n\n` : '';
-  return head + tasks.map((task) => {
-    const { done, total } = criteriaProgress(task);
-    const marks = task.criteria.map((c) => `${c.done ? '✓' : '·'} ${c.text}`).join('; ');
-    const pr = state.prOf(task.id);
-    // Средний приоритет в строку не пишем: он у большинства задач, и подпись
-    // «средний» у каждой строки скрыла бы те две, что правда важнее.
-    const priority = task.priority === DEFAULT_TASK_PRIORITY
-      ? ''
-      : ` ${state.say('prompt.board.priority', { priority: state.priorityWord(task.priority) })}`;
-    return `${task.id} [${task.status}]${priority} ${task.title} → ${task.assigneeId ?? '—'}` +
-      (pr ? `\n    ${state.say('prompt.board.review')}: ${stageText(pr.stage, lang)} — ${clip(pr.note, 160)}` : '') +
-      (total ? `\n    ${state.say('prompt.board.criteria')} ${done}/${total}: ${clip(marks, 200)}` : '') +
-      (task.result ? `\n    ${state.say('prompt.board.result')}: ${clip(task.result, 160)}` : '');
-  }).join('\n') + questions;
+  return directions ? `${state.say('prompt.board.directions')}\n${directions}\n\n${text}` : text;
 }
 
 /**
@@ -1334,8 +1318,15 @@ const teamTools = (state: OfficeState, chatId: string) => createSdkMcpServer({
     tool(
       'get_board',
       state.say('tool.getBoard.desc'),
-      {},
-      async () => ({ content: [{ type: 'text', text: boardSummary(state) }] }),
+      {
+        featureId: z.string().optional().describe(state.say('tool.getBoard.featureId')),
+        status: z.union([z.string(), z.array(z.string())]).optional()
+          .describe(state.say('tool.getBoard.status')),
+        taskIds: z.array(z.string()).optional().describe(state.say('tool.getBoard.taskIds')),
+        limit: z.number().int().min(1).max(200).optional().describe(state.say('tool.getBoard.limit')),
+        offset: z.number().int().min(0).optional().describe(state.say('tool.getBoard.offset')),
+      },
+      async (args) => ({ content: [{ type: 'text', text: boardText(state, args) }] }),
       { annotations: { readOnlyHint: true } },
     ),
 
@@ -2328,7 +2319,7 @@ export async function holdMeeting(
       const head = meetingOffice.say('meeting.topic', { topic });
       const prompt = isManager(meetingOffice, inst)
         ? `${head}\n\n${before}${meetingOffice.say('meeting.boardNow')}\n` +
-          `${boardSummary(meetingOffice)}\n\n${turn}`
+          `${boardText(meetingOffice)}\n\n${turn}`
         : `${head}\n\n${before}${turn}`;
 
       let text = '';

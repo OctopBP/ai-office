@@ -6,8 +6,10 @@
  */
 import assert from 'node:assert/strict';
 import {
-  BOARD_CAP, formatBoard, type BoardEpic, type BoardInput, type BoardQuestion, type BoardTask,
+  BOARD_CAP, formatBoard as formatWith, type BoardEpic, type BoardInput, type BoardOpts,
+  type BoardQuestion, type BoardTask,
 } from '../src/server/board-view';
+import { t } from '../src/server/i18n';
 import type { EpicHold, EpicStatus, TaskStatus } from '../src/shared/types';
 
 let failed = 0;
@@ -77,6 +79,10 @@ const input: BoardInput = { tasks, epics, questions, autoPipeline: true };
 
 // ------------------------------------------------------------- проверки
 
+/** Доска на русском — проверки ниже сверяют русские формулировки словаря. */
+const formatBoard = (board: BoardInput, opts?: BoardOpts): string =>
+  formatWith(board, (key, vars) => t('ru', key, vars), opts);
+
 console.log('board-view:');
 
 const summary = formatBoard(input);
@@ -92,9 +98,9 @@ check('сводка: счётчики по статусам', () => {
 });
 
 check('сводка: фичи с прогрессом и причиной простоя', () => {
-  assert.match(summary, /E-12 «[^»]+» \[planned\] \d+ из \d+ — ждёт «поехали» владельца/);
+  assert.match(summary, /E-12 «[^»]+» \[planned\] \d+ из \d+ — ждёт вашего «поехали»/);
   assert.match(summary, /E-14 «[^»]+» \[planned\] \d+ из \d+ — ждёт слота: заняты E-13, E-15/);
-  assert.match(summary, /E-13 «[^»]+» \[active\] \d+ из \d+ — T-13 провалены/);
+  assert.match(summary, /E-13 «[^»]+» \[active\] \d+ из \d+ — провалены T-13/);
   assert.ok(!/^E-1 «/m.test(summary), 'закрытая фича строкой не показывается');
   assert.match(summary, /Закрыто фич: 10, снято: 1/);
 });
@@ -176,6 +182,14 @@ check('потолок: длинная выборка обрезается с п�
 
 check('пустая доска', () => {
   assert.match(formatBoard({ tasks: [], epics: [] }), /Доска пуста/);
+});
+
+check('язык: та же доска по-английски', () => {
+  const en = formatWith(input, (key, vars) => t('en', key, vars));
+  assert.match(en, /Tasks in total 400: /);
+  assert.match(en, /E-12 «[^»]+» \[planned\] \d+ of \d+ — waiting for your go-ahead/);
+  assert.match(en, /\[done, awaiting merge\]/);
+  assert.ok(!/[а-яё]/i.test(en.replace(/«[^»]*»/g, '').replace(/^(T-\d+|Q-\d+).*$/gm, '')), 'русских слов вне названий быть не должно');
 });
 
 if (failed) {

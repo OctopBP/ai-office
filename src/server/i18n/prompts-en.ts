@@ -106,12 +106,6 @@ export const promptsEn = {
   'pr.stage.merged': 'merged',
   'pr.stage.stuck': 'STUCK, needs your decision',
 
-  'prompt.board.empty': 'The board is empty.',
-  'prompt.board.review': 'review',
-  'prompt.board.priority': 'priority {priority}',
-  'prompt.board.criteria': 'criteria',
-  'prompt.board.result': 'result',
-
   // ------------------------------------------------------------ бриф проекта
   'prompt.brief.clipped': '… (brief truncated, the full text is in OFFICE.md)',
   'prompt.brief.header': 'ABOUT THE PROJECT — from OFFICE.md in the working directory:',
@@ -193,7 +187,8 @@ Refuse only if the task is beyond everyone on the team.
 But not every message is a request to do something. A question (“how does X work here?”,
 “what is in progress?”, “why did the task fail?”), a discussion of an approach, a request for
 advice or an opinion — that is a conversation with you, not work for the team. Answer in words:
-from the board (get_board, review_status, get_task, list_team), from the office journal and from what you
+from the board (get_board — the summary first, details by selection or get_task; review_status,
+list_team), from the office journal and from what you
 remember of the conversation — and do NOT create tasks. What you do not know, say so; if the
 answer requires looking into the code, offer to create a task, but do not create it yourself.
 A task appears only on an explicit request to do something. Unsure whether it is a question or
@@ -498,7 +493,12 @@ Keep your replies to the user short. Which language to write them in is said in 
   'start.cancelled': '{task} has been dropped — there is nothing to hand to a worker.',
   'plan.pm.epicEmpty': 'Feature {epic} "{title}" is closed: there is nothing left to do in it — every task was dropped. Tell the user and suggest what comes next.',
 
-  'tool.getBoard.desc': 'The current state of the task board with statuses and results — and the plan, if there is one: features in order and what each task is waiting for.',
+  'tool.getBoard.desc': 'The task board. Without arguments — a compact summary: counts by status, open plan features with progress and the reason they wait, live tasks as lines (queued, in progress, in review, blocked and failed), closed work as numbers, open questions to the owner. Start with the summary; details by selection (featureId, status, taskIds, limit/offset: conditions combine, a page holds up to 200) or one task in full via get_task.',
+  'tool.getBoard.featureId': 'A plan feature (E-…): its line, goal and all its tasks in plan order.',
+  'tool.getBoard.status': 'One status or several (a comma-separated string or an array): planned, backlog, assigned, in_progress, review, blocked, done, failed, cancelled.',
+  'tool.getBoard.taskIds': 'Specific tasks by id — as lines with criteria and result.',
+  'tool.getBoard.limit': 'How many tasks per selection page, 30 by default, at most 200.',
+  'tool.getBoard.offset': 'How many selected tasks to skip — the next page; the "There is more" line gives the number.',
 
   // ------------------------------------------------------------------- plan
   'plan.header': 'PLAN (the office runs at most {focus} features at a time):',
@@ -1165,7 +1165,6 @@ and the office journal are the same — they live outside the session. This is w
   'prompt.ritual.journalRow': '- {id} [{kind}, {scope}] {text}',
   'prompt.ritual.journalEmpty': '(the journal is empty)',
   'prompt.ritual.questionsHead': 'Open questions to the owner (still waiting for an answer):',
-  'prompt.board.questions': 'Open questions to the owner:',
   'tool.askOwner.replaces': 'Ids of open questions (Q-N) this one replaces: they merge into the new one and get its answer. Empty — replaces nothing.',
   'tool.listQuestions.desc': 'Open questions to the owner: id, kind, task, text, assumption and what is already merged into them.',
   'tool.mergeQuestions.desc': 'Combine two questions about the same thing: id merges into into. The merged one no longer waits on the owner and gets the answer to the main one — a process approval included.',
