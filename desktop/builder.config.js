@@ -26,6 +26,18 @@ const notarize = signed && Boolean(
   || (process.env.APPLE_ID && process.env.APPLE_APP_SPECIFIC_PASSWORD && process.env.APPLE_TEAM_ID),
 );
 
+/**
+ * Канал обновлений по суффиксу версии: 1.2.0-beta.3 → 'beta', 1.2.0 → null.
+ * electron-builder умеет выводить канал из версии сам (detectUpdateChannel),
+ * но только для generic-провайдера: у github этот шаг пропускается, и бета
+ * писала бы latest-mac.yml / latest.yml — стабильный канал получил бы её.
+ * Поэтому канал задаём в publish явно; тогда файлы обновлений называются
+ * beta-mac.yml / beta.yml, а latest*.yml при сборке пререлиза не появляются.
+ * generateUpdatesFilesForAllChannels для github не действует — один канал.
+ */
+const version = require('./package.json').version;
+const channel = /^\d+\.\d+\.\d+-([a-z]+)/i.exec(version)?.[1]?.toLowerCase() ?? null;
+
 if (process.platform === 'darwin') {
   console.log(signed
     ? `подпись macOS: сертификат Developer ID, нотаризация ${notarize ? 'включена' : 'выключена (нет данных Apple ID или ключа)'}`
@@ -109,5 +121,10 @@ module.exports = {
   // только при публикации. Публикует electron-builder только по явной
   // команде (`node scripts/pack-desktop.mjs --publish`), и всегда в черновик:
   // выпуск проверяют руками, прежде чем его увидят обновляторы.
-  publish: { provider: 'github', owner: 'OctopBP', repo: 'ai-office', releaseType: 'draft' },
+  // У стабильной версии канала нет — поле не задаётся, и всё как раньше
+  // (latest*.yml); у пререлиза канал берётся из суффикса версии (см. выше).
+  publish: {
+    provider: 'github', owner: 'OctopBP', repo: 'ai-office', releaseType: 'draft',
+    ...(channel ? { channel } : {}),
+  },
 };
