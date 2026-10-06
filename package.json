@@ -48,6 +48,7 @@
     "premerge": "tsx scripts/premerge.ts",
     "test:merge": "tsx scripts/test-merge.ts",
     "test:premerge": "tsx scripts/test-premerge.ts",
+    "test:deps": "node --import tsx/esm scripts/test-deps.ts",
     "test:overlap": "tsx scripts/test-overlap.ts",
     "test:squash": "tsx scripts/test-squash.ts",
     "test:taskfiles": "tsx scripts/test-taskfiles.ts",
