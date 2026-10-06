@@ -907,11 +907,16 @@ export interface LifeState {
   deferrals: number;
   /** Память процессов по состоянию (spec процессов §6.2), ключ — id процесса. */
   flows: Record<string, FlowMemory>;
+  /**
+   * Пары записей журнала, которые офис уже разобрал как противоречие, и когда.
+   * Ключ — pairKey из contradictions.ts, от порядка записей не зависит.
+   */
+  resolvedPairs: Record<string, number>;
 }
 
 export const emptyLife = (): LifeState => ({
   standupDay: null, standupAt: null, lastRun: {}, policy: { ...DEFAULT_RITUAL_POLICY }, runs: [],
-  reflection: null, reflectionAt: null, deferrals: 0, flows: {},
+  reflection: null, reflectionAt: null, deferrals: 0, flows: {}, resolvedPairs: {},
 });
 
 /** Сколько прогонов ритуалов помним: портфелю хватает нескольких недель. */
@@ -2037,6 +2042,7 @@ export class OfficeState {
       lastRun: { ...(data.life?.lastRun ?? {}) },
       runs: [...(data.life?.runs ?? [])],
       flows: { ...(data.life?.flows ?? {}) },
+      resolvedPairs: { ...(data.life?.resolvedPairs ?? {}) },
     };
     // Детализация трат: сворачиваем прямо на подъёме — за время, пока сервер
     // был выключен, сутки могли смениться не раз, и без этого файл вернулся бы

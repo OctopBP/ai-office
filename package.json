@@ -56,6 +56,7 @@
     "test:runguard": "node --import tsx scripts/test-runguard.ts",
     "test:rules": "tsx scripts/test-rules.ts",
     "test:life": "tsx scripts/test-life.ts",
+    "test:contradictions": "node --import tsx scripts/test-contradictions.ts",
     "test:review": "tsx scripts/test-review.ts",
     "test:workflow": "tsx scripts/test-workflow.ts",
     "test:flows": "tsx scripts/test-flows.ts",
