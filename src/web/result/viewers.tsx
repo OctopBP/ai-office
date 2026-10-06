@@ -90,7 +90,15 @@ function TextBody({ text }: { text: string }) {
   );
 }
 
+/** .html и .htm открываем страницей, остальной текст — исходником. */
+const isHtml = (path: string) => /\.html?$/i.test(path);
+
 export function TextViewer(props: ViewerProps) {
+  if (isHtml(props.file.path)) return <HtmlViewer {...props} />;
+  return <PlainTextViewer {...props} />;
+}
+
+function PlainTextViewer(props: ViewerProps) {
   const big = tooBig(props.file);
   const { text, error } = useFileText(props.url, big);
   if (big) return <DownloadViewer {...props} note={t('result.tooBig')} />;
@@ -112,6 +120,31 @@ export function MarkdownViewer(props: ViewerProps) {
         <button className={raw ? 'on' : ''} onClick={() => setRaw(true)}>{t('result.source')}</button>
       </div>
       {raw ? <TextBody text={text} /> : <Markdown source={text} />}
+    </div>
+  );
+}
+
+/**
+ * HTML-страница в песочнице. sandbox без allow-same-origin даёт странице
+ * непрозрачный origin: ни приложения, ни его cookies, localStorage и
+ * WebSocket ей не видно. allow-scripts — чтобы страницы со скриптами
+ * работали; формы, попапы и переход верхнего окна не разрешены.
+ */
+export function HtmlViewer(props: ViewerProps) {
+  const [code, setCode] = useState(false);
+  const big = tooBig(props.file);
+  const { text, error } = useFileText(props.url, big);
+  if (big) return <DownloadViewer {...props} note={t('result.tooBig')} />;
+  if (text === null) return <Loading error={error} />;
+  return (
+    <div className="result-html">
+      <div className="seg result-html-seg">
+        <button className={code ? '' : 'on'} aria-pressed={!code} onClick={() => setCode(false)}>{t('result.preview')}</button>
+        <button className={code ? 'on' : ''} aria-pressed={code} onClick={() => setCode(true)}>{t('result.code')}</button>
+      </div>
+      {code
+        ? <div className="result-html-code"><TextBody text={text} /></div>
+        : <iframe className="result-html-frame" sandbox="allow-scripts" srcDoc={text} title={props.file.path} />}
     </div>
   );
 }

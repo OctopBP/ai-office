@@ -106,6 +106,8 @@ export const en = {
   'result.imageBroken': 'The image could not be shown.',
   'result.rendered': 'Document',
   'result.source': 'Source',
+  'result.preview': 'Preview',
+  'result.code': 'Code',
   'result.zoom': 'Click to zoom',
   'result.badge': '{n} file|{n} files',
   'result.badgeHint': 'The task has a result: {n} file. Open the card to view|The task has a result: {n} files. Open the card to view',
