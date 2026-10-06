@@ -574,6 +574,11 @@ export interface Release {
    * и ветка канала, которую в конце перематывают на вершину выпуска.
    */
   promote?: { from: string; sha: string; branch: string } | null;
+  /**
+   * Куда ветка канала влита вниз после выпуска (§3.5): ['beta', 'main'].
+   * Неполный список у состоявшегося выпуска — ветки разошлись.
+   */
+  mergedDown?: string[];
   epicIds: string[];
   taskIds: string[];
   planId: string | null;

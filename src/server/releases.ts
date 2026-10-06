@@ -29,10 +29,10 @@ import {
 import { CHECK_NAME_RE, type Run, type Workflow, type WorkflowNode } from '../shared/workflow';
 import { taskClosed } from '../shared/types';
 import { worktreesRoot, type OfficeState, type Task } from './state';
-import type { ServerKey } from './i18n';
+import { t, type ServerKey } from './i18n';
 import {
-  OFFICE_PERSON, baseBranch, commitAll, detachedWorktree, git, isAncestor, isRepo, mergeBranch,
-  promoteBranch, pushRef, remoteUrl, revision, syncChannelBranch,
+  OFFICE_PERSON, baseBranch, commitAll, detachedWorktree, filesOfOfficeCommits, git, isAncestor, isRepo, mergeBranch,
+  mergeDown, promoteBranch, pushRef, remoteUrl, revision, syncChannelBranch,
 } from './git';
 import { integrationDir, runProjectCheck } from './merge';
 import { githubToken } from './cloud';
@@ -271,8 +271,8 @@ const clip = (s: string, n: number): string => {
  * Каналы выпуска (docs/design/release-channels/spec.md §3): у цели с
  * `channels` выпуск идёт в один канал. Снимок берётся с источника канала,
  * ветка канала обязана быть его предком, а в конце выпуска — после зелёного
- * CI и видимого релиза — её перематывают на вершину выпуска. Слияние вниз и
- * хотфиксы сюда не входят.
+ * CI и видимого релиза — её перематывают на вершину выпуска и вливают вниз
+ * по цепочке до основной (§3.5).
  */
 
 /** Канал выпуска у цели с каналами; у цели без каналов — null. */
@@ -298,6 +298,98 @@ function sourceBranch(target: ReleaseTarget, channel: ReleaseChannel, base: stri
   return from === 'main' ? base : channelSpec(target, from).branch;
 }
 
+/**
+ * Цепочка слияния вниз (§3.5): от ветки канала до основной, по обратному
+ * порядку `from` — ['release', 'beta', 'main']. Ветки канала, которой ещё нет
+ * (первый выпуск беты не состоялся), в цепочке нет: вливать её некуда.
+ */
+async function downChain(repo: string, target: ReleaseTarget, channel: ReleaseChannel, base: string): Promise<string[]> {
+  const chain = [channelSpec(target, channel).branch];
+  let at: ReleaseChannel = channel;
+  for (let guard = 0; guard < RELEASE_CHANNELS.length; guard += 1) {
+    const next = channelFrom(target.channels as ReleaseChannels, at);
+    if (next === 'main') break;
+    at = next;
+    const branch = channelSpec(target, at).branch;
+    if (await revision(repo, `refs/heads/${branch}`)) chain.push(branch);
+  }
+  chain.push(base);
+  return chain;
+}
+
+/** Темы коммитов «Выпуск» цели на обоих языках — их строки версии сливаются сами (§3.5). */
+const releaseSubjects = (target: ReleaseTarget): string[] =>
+  (['ru', 'en'] as const).map((lang) => `${t(lang, 'rel.commit', { target: target.title, version: '' }).trimEnd()} `);
+
+interface ChainResult {
+  /** Куда влито (или уже было влито) по цепочке: ['beta', 'main']. */
+  reached: string[];
+  /** Звенья, где что-то сдвинулось: «release → beta». */
+  moved: string[];
+  /** Почему цепочка встала; null — дошла до основной. */
+  stop: string | null;
+}
+
+/**
+ * Слить ветку канала вниз по цепочке (§3.5) под замком слияний: перемотка,
+ * если принимающая ветка — предок, иначе merge-коммит офиса; конфликт только
+ * в строках версии из коммитов «Выпуск» решается в пользу принимающей ветки.
+ * Сдвинутые ветки каналов уходят в origin без `+`; основную офис пушит как
+ * обычно. Первое неудачное звено останавливает цепочку.
+ */
+async function mergeChain(ctx: Ctx, channel: ReleaseChannel, base: string): Promise<ChainResult> {
+  const { state, repo, target } = ctx;
+  const out: ChainResult = { reached: [], moved: [], stop: null };
+  if (!(await revision(repo, `refs/heads/${channelSpec(target, channel).branch}`))) return out;
+  const chain = await downChain(repo, target, channel, base);
+  const subjects = releaseSubjects(target);
+  for (let i = 0; i + 1 < chain.length; i += 1) {
+    const from = chain[i];
+    const into = chain[i + 1];
+    const merged = await withMergeLock(repo, () => mergeDown(repo, from, into, integrationDir(state, repo), state.lang(), {
+      sign: { author: OFFICE_PERSON, committer: OFFICE_PERSON },
+      autoFiles: async (mergeBase) => [...new Set([
+        ...await filesOfOfficeCommits(repo, `${mergeBase}..${from}`, subjects),
+        ...await filesOfOfficeCommits(repo, `${mergeBase}..${into}`, subjects),
+      ])],
+    }));
+    if (merged.kind === 'conflict' || merged.kind === 'failed') {
+      out.stop = say(ctx, 'rel.ch.mergeDownFailed', { from, into, why: clip(merged.message, 300) });
+      return out;
+    }
+    if (merged.kind !== 'nothing') {
+      out.moved.push(`${from} → ${into}`);
+      if (into !== base && await remoteUrl(repo)) {
+        const sha = await revision(repo, `refs/heads/${into}`);
+        const pushed = sha ? await pushRef(repo, sha, `refs/heads/${into}`, githubToken(), state.lang()) : null;
+        if (!pushed?.ok) {
+          out.stop = say(ctx, 'rel.ch.pushDownFailed', { branch: into, why: clip(pushed?.message ?? '', 300) });
+          return out;
+        }
+      }
+    }
+    out.reached.push(into);
+  }
+  return out;
+}
+
+/**
+ * Лечение перед снимком (§3.4): ветка канала, ушедшая вперёд (хотфикс в
+ * `release`, коммиты в `beta`, не дошедшие вниз из-за прошлого сбоя),
+ * вливается вниз по своей цепочке — от верхнего канала к нижнему, чтобы
+ * хотфикс из `release` прошёл через `beta` до основной. Конфликт — стоп с
+ * причиной: сводить ветки будет человек или задача.
+ */
+async function healChannels(ctx: Ctx, base: string): Promise<string | null> {
+  const { state, target } = ctx;
+  for (const c of targetChannels(target)) {
+    const out = await mergeChain(ctx, c, base);
+    if (out.moved.length) state.addLog(null, 'system', say(ctx, 'rel.ch.healed', { links: out.moved.join(', ') }));
+    if (out.stop) return say(ctx, 'rel.ch.healFailed', { why: out.stop });
+  }
+  return null;
+}
+
 interface ChannelSnapshot {
   sha: string;
   /** Прошлый выпуск этого же канала; null — считать как без каналов. */
@@ -307,7 +399,7 @@ interface ChannelSnapshot {
 
 /**
  * Источник выпуска в канал (§3.2 п.1–2, §3.4). Ветки каналов сначала
- * сводятся с origin. Бета и альфа — вершина основной ветки (или ветки канала,
+ * сводятся с origin и, если ушли вперёд, вливаются вниз (`healChannels`). Бета и альфа — вершина основной ветки (или ветки канала,
  * из которого продвигаются); стабильный у цели с бетой — коммит тега
  * последней состоявшейся беты; хотфикс — вершина ветки стабильного. Ветка
  * канала обязана быть предком снимка: иначе в конце её не перемотать, и
@@ -322,7 +414,9 @@ async function channelSnapshot(ctx: Ctx, channel: ReleaseChannel, base: string):
     const synced = await syncChannelBranch(repo, branch, githubToken(), state.lang());
     if (synced === 'diverged') return fail(say(ctx, 'rel.ch.originDiverged', { branch }), { needsDecision: true });
   }
-  const beta = channel === 'stable' && !r.hotfix && target.channels?.beta ? lastBeta(state, target.id) : null;
+  const healFailed = await healChannels(ctx, base);
+  if (healFailed) return fail(healFailed, { needsDecision: true });
+  const beta =channel === 'stable' && !r.hotfix && target.channels?.beta ? lastBeta(state, target.id) : null;
   let from: string;
   let sha: string | null;
   if (channel === 'stable' && r.hotfix) {
@@ -607,9 +701,13 @@ const version: Executor<Ctx> = {
     if (plan?.version && spec.scheme.startsWith('semver')) next.version = plan.version;
     if (r.channel && target.channels) {
       // Цель с каналами (§4.2): версия считается по всем тегам и выпускам цели,
-      // у беты и альфы — следующий номер пререлиза.
+      // у беты и альфы — следующий номер пререлиза (X.Y.Z-beta.N, тег
+      // v{version}); стабильный из беты берёт ядро беты, хотфикс — патч.
+      const fromBeta = r.channel === 'stable' && !r.hotfix && target.channels.beta
+        ? lastBeta(state, target.id)?.version ?? null : null;
       next.version = nextChannelVersion({
         versions: await knownVersions(ctx), channel: r.channel, level, planVersion: plan?.version ?? null,
+        hotfix: Boolean(r.hotfix), fromBeta,
       });
     }
     if (target.kind === 'tag') {
@@ -1110,7 +1208,18 @@ const publish: Executor<Ctx> = {
     }
     const base = await baseBranch(repo);
     let mergedBack = true;
-    if (base) {
+    const channel = channelOf(target, r);
+    if (channel && base) {
+      // Цель с каналами (§3.5): ветка канала, уже перемотанная на вершину
+      // выпуска, вливается вниз до основной. Не вышло — выпуск всё равно
+      // состоялся; следующий начнёт с лечения (§3.4).
+      const out = await mergeChain(ctx, channel, base);
+      patch(ctx, { mergedDown: out.reached });
+      if (out.stop) {
+        state.addLog(null, 'error', out.stop);
+        tellPm(state, out.stop);
+      }
+    } else if (base) {
       const out = await withMergeLock(repo, () => mergeBranch(
         repo, r.branch, base, integrationDir(state, repo), state.lang(), undefined,
         { author: OFFICE_PERSON, committer: OFFICE_PERSON },
@@ -1196,7 +1305,7 @@ export interface StartResult {
  */
 export function startRelease(
   state: OfficeState, targetId: string, reason: ReleaseReason, note = '', now = Date.now(),
-  opts: { channel?: ReleaseChannel } = {},
+  opts: { channel?: ReleaseChannel; hotfix?: boolean } = {},
 ): StartResult {
   const target = state.releaseTarget(targetId);
   if (!target) {
@@ -1223,7 +1332,7 @@ export function startRelease(
   state.noteReleaseTarget(targetId, now);
   const release: Release = {
     id: state.newReleaseId(targetId),
-    targetId, ...(channels.length ? { channel } : {}), version: null, build: null, level: null, levelFrom: null,
+    targetId, ...(channels.length ? { channel } : {}), ...(opts.hotfix && channel === 'stable' && channels.length ? { hotfix: true } : {}), version: null, build: null, level: null, levelFrom: null,
     sha: '', fromSha: null, branch: '', epicIds: [], taskIds: [], planId: null, notes: '',
     reason, note, status: 'preparing', stage: state.say('rel.stage.start'), links: [],
     fixTaskId: null, attempts: 0, retries: 0, nextTryAt: null, needsDecision: false,

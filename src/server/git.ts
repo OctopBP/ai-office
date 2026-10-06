@@ -1553,3 +1553,95 @@ export async function syncChannelBranch(
   }
   return (await isAncestor(repoDir, remote, local)) ? 'ahead' : 'diverged';
 }
+
+export interface MergeDownResult {
+  /** nothing — уже влито; ff — перемотка; merged — merge-коммит; conflict — встали. */
+  kind: 'nothing' | 'ff' | 'merged' | 'conflict' | 'failed';
+  message: string;
+  conflicts: string[];
+}
+
+/**
+ * Влить ветку канала вниз по цепочке (§3.5): `release` → `beta` → `main`.
+ * Принимающая ветка — предок вливаемой — перемотка; иначе настоящий
+ * merge-коммит в копии офиса, не squash: сквош потерял бы предка, и
+ * следующее продвижение уже не было бы перемоткой.
+ *
+ * autoFiles — файлы, конфликт в которых решается сам в пользу принимающей
+ * ветки: строки версии из коммитов «Выпуск» (хотфикс 1.4.3 и бета
+ * 1.5.0-beta.3 оба правили `"version"`). Любой другой конфликт — стоп.
+ */
+export async function mergeDown(
+  repoDir: string, from: string, into: string, integrationDir: string, lang: Lang,
+  opts: { sign?: Signature; autoFiles?: (mergeBase: string) => Promise<string[]> } = {},
+): Promise<MergeDownResult> {
+  const fromSha = await revision(repoDir, `refs/heads/${from}`);
+  const intoSha = await revision(repoDir, `refs/heads/${into}`);
+  if (!fromSha) return { kind: 'failed', conflicts: [], message: t(lang, 'git.noBranch', { branch: from, repo: repoDir }) };
+  if (!intoSha) return { kind: 'failed', conflicts: [], message: t(lang, 'git.noBranch', { branch: into, repo: repoDir }) };
+  if (fromSha === intoSha || await isAncestor(repoDir, fromSha, intoSha)) {
+    return { kind: 'nothing', conflicts: [], message: t(lang, 'git.nothingToMerge') };
+  }
+  if (await isAncestor(repoDir, intoSha, fromSha)) {
+    const moved = await advanceBase(repoDir, into, intoSha, fromSha, [], lang);
+    return moved.ok
+      ? { kind: 'ff', conflicts: [], message: t(lang, 'git.merged', { branch: from, base: into }) }
+      : { kind: 'failed', conflicts: [], message: moved.message };
+  }
+  const copy = await integrationWorktree(repoDir, integrationDir, into, lang);
+  if (!copy.path) {
+    return { kind: 'failed', conflicts: [], message: t(lang, 'git.noIntegrationCopy', { dir: integrationDir, error: copy.error }) };
+  }
+  const wt = copy.path;
+  const done = async <T>(out: T): Promise<T> => {
+    await releaseIntegration(repoDir, wt, copy.temporary, lang);
+    return out;
+  };
+  const merge = await git(wt, ['merge', '--no-ff', '--no-edit', from], signed(opts.sign));
+  if (!merge.ok) {
+    const files = splitLines((await git(wt, ['diff', '--name-only', '--diff-filter=U'])).stdout);
+    const base = (await git(repoDir, ['merge-base', fromSha, intoSha])).stdout;
+    const auto = files.length && opts.autoFiles ? new Set(await opts.autoFiles(base)) : new Set<string>();
+    if (!files.length || files.some((f) => !auto.has(f))) {
+      await git(wt, ['merge', '--abort']);
+      return done({
+        kind: files.length ? 'conflict' as const : 'failed' as const, conflicts: files,
+        message: files.length
+          ? t(lang, 'git.mergeConflict', { files: files.join(', ') })
+          : t(lang, 'git.mergeFailed', { error: merge.stderr || merge.stdout, repo: repoDir }),
+      });
+    }
+    // Все конфликты — в строках версии: остаётся версия принимающей ветки.
+    const ours = await git(wt, ['checkout', '--ours', '--', ...files]);
+    const added = ours.ok ? await git(wt, ['add', '--', ...files]) : ours;
+    const commit = added.ok ? await git(wt, ['commit', '--no-verify', '--no-edit'], signed(opts.sign)) : added;
+    if (!commit.ok) {
+      await git(wt, ['merge', '--abort']);
+      return done({ kind: 'failed' as const, conflicts: files, message: t(lang, 'git.mergeFailed', { error: commit.stderr || commit.stdout, repo: repoDir }) });
+    }
+  }
+  const newSha = await revision(wt, 'HEAD');
+  if (!newSha) return done({ kind: 'failed' as const, conflicts: [], message: t(lang, 'git.noMergeCommit') });
+  const localMods = splitLines((await git(repoDir, ['diff', '--name-only', 'HEAD'])).stdout);
+  const mergedFiles = splitLines((await git(repoDir, ['diff', '--name-only', intoSha, newSha])).stdout);
+  const moved = await advanceBase(repoDir, into, intoSha, newSha, mergedFiles.filter((f) => localMods.includes(f)), lang);
+  return done(moved.ok
+    ? { kind: 'merged' as const, conflicts: [], message: t(lang, 'git.merged', { branch: from, base: into }) }
+    : { kind: 'failed' as const, conflicts: [], message: moved.message });
+}
+
+/**
+ * Файлы, которые трогали коммиты офиса с данной темой в диапазоне: так
+ * слияние вниз узнаёт строки версии из коммитов «Выпуск» (§3.5).
+ */
+export async function filesOfOfficeCommits(repoDir: string, range: string, subjects: string[]): Promise<string[]> {
+  const out = await git(repoDir, ['log', '--no-merges', '--format=%x1e%an%x1f%s', '--name-only', range]);
+  const files = new Set<string>();
+  for (const record of out.stdout.split('\x1e')) {
+    const [head = '', ...rest] = record.split('\n');
+    const [name = '', subject = ''] = head.split('\x1f');
+    if (name !== OFFICE_PERSON.name || !subjects.some((s) => subject.startsWith(s))) continue;
+    for (const f of rest.map((l) => l.trim()).filter(Boolean)) files.add(f);
+  }
+  return [...files];
+}
