@@ -92,7 +92,7 @@
 .ev-type i { flex: none; width: 6px; height: 6px; border-radius: 50%; background: var(--ev-tone); }
 .ev-type[data-type='task'] { --ev-tone: var(--accent); }
 .ev-type[data-type='review'] { --ev-tone: var(--ok-ink); }
-.ev-type[data-type='question'] { --ev-tone: var(--warn); }
+.ev-type[data-type='question'] { --ev-tone: var(--warn-ink); }
 .ev-type[data-type='error'] { --ev-tone: var(--danger); }
 .ev-type[data-type='chat'] { --ev-tone: var(--accent-3); }
 .ev-type[data-type='tool'] { --ev-tone: var(--ink-3); }
@@ -262,7 +262,7 @@
 .pm-chat-task { color: var(--ink-3); }
 .pm-chat-task.active { color: var(--accent); animation: pm-task-pulse 2.4s ease-in-out infinite; }
 .pm-chat-task.problem { color: var(--danger); }
-.pm-chat-task.idle { color: var(--warn); }
+.pm-chat-task.idle { color: var(--warn-ink); }
 .pm-chat-task.done { color: var(--ok-ink); }
 .pm-chat-task.cancelled { opacity: .7; }
 .pm-chat-task.cancelled .pm-chat-task-id { text-decoration: line-through; }
@@ -272,7 +272,7 @@
 }
 .pm-chat-waiting {
   flex: none; padding: 0 6px; border-radius: var(--radius-pill);
-  background: rgba(var(--warn-rgb), .16); color: color-mix(in srgb, var(--warn) 60%, var(--ink));
+  background: rgba(var(--warn-rgb), .16); color: color-mix(in srgb, var(--warn-ink) 60%, var(--ink));
   font-size: var(--fs-caption); font-weight: 500;
 }
 .pm-chat-dot {
@@ -392,7 +392,7 @@
 .cc-actions input { flex: 1; min-width: 0; }
 
 /* Вопрос: бейдж состояния, текст, ответ или кнопки-варианты. */
-.chip.cc-badge.waiting { color: var(--warn); background: rgba(var(--warn-rgb), .14); }
+.chip.cc-badge.waiting { color: var(--warn-ink); background: rgba(var(--warn-rgb), .14); }
 .chip.cc-badge.answered { color: var(--ok-ink); }
 .cc-text { white-space: pre-wrap; word-break: break-word; color: var(--ink); }
 .cc-question.dismissed .cc-text,

@@ -173,5 +173,5 @@
 .report-cell b.bad { color: var(--danger); }
 /* Исход задачи на её карточке: цвет — по смыслу, как у стадий конвейера. */
 .outcome-chip.clean { color: var(--ok-ink); }
-.outcome-chip.reworked, .outcome-chip.stuck { color: var(--warn); }
+.outcome-chip.reworked, .outcome-chip.stuck { color: var(--warn-ink); }
 .outcome-chip.failed, .outcome-chip.reverted, .outcome-chip.stopped_budget { color: var(--danger); }

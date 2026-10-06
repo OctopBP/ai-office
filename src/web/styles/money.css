@@ -44,7 +44,7 @@
 .limit-head { display: flex; align-items: baseline; gap: var(--space-3); font-size: var(--fs-md); }
 .limit-head b { margin-left: auto; font-variant-numeric: tabular-nums; }
 .limit-head b.ok { color: var(--ok-ink); }
-.limit-head b.warn { color: var(--warn); }
+.limit-head b.warn { color: var(--warn-ink); }
 .limit-head b.hot { color: var(--danger); }
 
 /* Строка задачи кликабельна — она ведёт в карточку, поэтому это кнопка;
@@ -56,7 +56,7 @@
 }
 .usage-row.task-row:hover { background: var(--film); }
 /* Контекст менеджера у порога обновления сессии — предупреждение, а не справка. */
-.usage-lines .warn { color: var(--warn); }
+.usage-lines .warn { color: var(--warn-ink); }
 
 /* ---------- таблица трат по времени ----------
    Панель уже даёт тень как поверхность над сценой (`.float` в Panel.tsx);
@@ -89,7 +89,7 @@
 /* Аномальный потребитель: тёплая подсветка строки и причина под названием. */
 .spend-report .spend-table tr.anomaly td { background: rgba(var(--warn-rgb), 0.12); }
 .spend-reason { display: block; font-size: var(--fs-sm, 12px); color: var(--danger); margin-top: 2px; }
-.spend-warn { color: var(--warn); }
+.spend-warn { color: var(--warn-ink); }
 .spend-bad { color: var(--danger); font-weight: 600; }
 .spend-signal { align-items: flex-start; text-align: left; }
 .spend-signal-main { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }

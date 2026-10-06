@@ -58,7 +58,7 @@
 }
 .fit-slide-unit { width: 18px; flex: none; color: var(--ink-3); }
 /* Дробный след не ложится на сетку — это не ошибка, но это надо видеть. */
-.fit-warn { color: var(--warn, #b26a00); }
+.fit-warn { color: var(--warn-ink, #b26a00); }
 .fit-check { display: flex; align-items: center; gap: 6px; margin: 8px 0; font-size: 12px; }
 
 .fit-actions { display: flex; gap: 8px; margin: 16px 0 8px; }

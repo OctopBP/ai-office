@@ -157,7 +157,7 @@
 .rail-office-dot {
   width: 12px; height: 12px; border-radius: 50%; flex: none;
   display: flex; align-items: center; justify-content: center;
-  background: none; color: var(--warn);
+  background: none; color: var(--warn-ink);
 }
 .rail-office-dot.live, .rail-office-dot.idle {
   width: 7px; height: 7px; margin: 0 2px; background: var(--ok);
@@ -358,7 +358,7 @@ body.office-dragging, body.office-dragging * { cursor: grabbing !important; user
   color: var(--ink-3); font-size: var(--fs-small);
   display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;
 }
-.rail-update-warn { color: var(--warn); font-size: var(--fs-small); line-height: 1.3; }
+.rail-update-warn { color: var(--warn-ink); font-size: var(--fs-small); line-height: 1.3; }
 .rail-update.error { border-color: var(--danger); }
 .rail-update-notes {
   padding: 0; border: 0; background: none; cursor: pointer;

@@ -83,7 +83,7 @@
 .office-card-dot.live { background: var(--ok-live); }
 /* Пауза — тем же янтарным, что и метка паузы в рейле: один статус, один цвет. */
 .office-card-dot.paused { background: var(--warn); }
-.office-card-waiting { font-size: var(--fs-small); color: var(--warn); margin-top: calc(-1 * var(--space-2)); }
+.office-card-waiting { font-size: var(--fs-small); color: var(--warn-ink); margin-top: calc(-1 * var(--space-2)); }
 
 /* Подвал прижат к низу: у карточек разной начинки деньги стоят на одной линии. */
 .office-card-foot {
@@ -179,7 +179,7 @@
 .setup-summary dt { color: var(--ink-3); }
 .setup-summary dd { margin: 0; color: var(--ink); display: flex; flex-direction: column; gap: 2px; }
 .setup-summary-member { font-size: var(--fs-md); }
-.setup-summary-noprovider { color: var(--warn); }
+.setup-summary-noprovider { color: var(--warn-ink); }
 
 .setup-progress { margin: 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: var(--space-2); }
 .setup-progress li { display: flex; gap: var(--space-3); align-items: flex-start; color: var(--ink-3); }

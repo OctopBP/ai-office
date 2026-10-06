@@ -14,7 +14,7 @@
 .chip.builtin { color: var(--ink-3); }
 .chip.project { color: var(--accent); }
 .chip.running { color: var(--accent); }
-.chip.waiting { color: var(--warn); }
+.chip.waiting { color: var(--warn-ink); }
 .chip.stuck { color: var(--danger); }
 
 /* ---------- граф ----------

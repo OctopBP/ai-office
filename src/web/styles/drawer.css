@@ -88,7 +88,7 @@
 .task-brief { font-size: var(--fs-md); word-break: break-word; }
 /* Ожидание окружения — предупреждение, а не ошибка: задача цела, чинить надо
    снаружи офиса, поэтому цвет предупреждающий, а не красный. */
-.task-envwait { font-size: var(--fs-md); color: var(--warn); word-break: break-word; }
+.task-envwait { font-size: var(--fs-md); color: var(--warn-ink); word-break: break-word; }
 .task-drawer .task-result { font-size: var(--fs-md); word-break: break-word; }
 .task-drawer .pr-review + .pr-review { margin-top: var(--space-3); }
 .task-drawer .task-handoff > div + div { margin-top: var(--space-2); }

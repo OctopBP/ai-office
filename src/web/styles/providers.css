@@ -36,7 +36,7 @@
 /* Мини-чип провайдера в строке «Команды»: серый, тёплый — если провайдер не подключён. */
 .chip.provider-mini { font-size: var(--fs-caption); flex: none; }
 .chip.provider-mini.muted { color: var(--ink-3); }
-.chip.provider-mini.warn { color: var(--warn); }
+.chip.provider-mini.warn { color: var(--warn-ink); }
 .hire-provider-warn { margin: var(--space-2) 0 0; }
 @keyframes provider-pulse { 50% { opacity: .35; } }
 @media (prefers-reduced-motion: reduce) {
@@ -72,7 +72,7 @@
   margin-left: calc(28px + var(--space-3));
 }
 .provider-caps { display: flex; flex-wrap: wrap; gap: var(--space-1); }
-.provider-caps .chip.warm { color: var(--warn); }
+.provider-caps .chip.warm { color: var(--warn-ink); }
 .provider-actions { display: flex; flex-wrap: wrap; align-items: flex-start; gap: var(--space-2); }
 .provider-sub { display: inline-flex; flex-direction: column; }
 .provider-sub .form-hint { margin-top: 2px; }

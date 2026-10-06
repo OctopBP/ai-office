@@ -35,9 +35,9 @@
 .life-assumed { display: flex; gap: var(--space-1); }
 .life-assumed .md { flex: 1; min-width: 0; }
 .chip.contradiction, .chip.revert { color: var(--danger); }
-.chip.stale { color: var(--warn); }
+.chip.stale { color: var(--warn-ink); }
 /* Заменённая запись: читается как история, а не как правило. */
-.chip.superseded { color: var(--warn); }
+.chip.superseded { color: var(--warn-ink); }
 .life-row.fact:has(.chip.superseded) .life-text { opacity: 0.6; }
 .chip.decision, .chip.lesson { color: var(--accent); }
 
@@ -73,4 +73,4 @@
 .life-edit textarea { width: 100%; resize: vertical; font: inherit; }
 .life-edit label { display: flex; flex-direction: column; gap: 2px; }
 .life-actions select { flex: 1; min-width: 0; }
-.life-hint { display: flex; align-items: center; gap: var(--space-2); flex-wrap: wrap; color: var(--warn); }
+.life-hint { display: flex; align-items: center; gap: var(--space-2); flex-wrap: wrap; color: var(--warn-ink); }

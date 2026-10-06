@@ -33,6 +33,7 @@
     "test:market": "tsx scripts/test-market.ts",
     "test:mcp": "tsx scripts/test-mcp.ts",
     "test:looks": "tsx scripts/test-looks.ts",
+    "test:contrast": "tsx scripts/check-contrast.ts",
     "test:imagegen": "tsx scripts/test-imagegen.ts",
     "test:packtools": "node scripts/test-pack-tools.mjs",
     "bench": "tsx scripts/bench-skills.ts",

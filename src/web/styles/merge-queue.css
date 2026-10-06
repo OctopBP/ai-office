@@ -91,5 +91,5 @@
   border-radius: var(--radius-row); font: var(--fs-small)/1.5 var(--font-mono); white-space: pre-wrap;
   max-height: 200px; overflow: auto; color: var(--ink-2);
 }
-.gate-overlaps { margin-top: var(--space-2); color: var(--warn); }
+.gate-overlaps { margin-top: var(--space-2); color: var(--warn-ink); }
 .gate-overlaps ul { margin: var(--space-1) 0 0; padding-left: var(--space-4); }

@@ -27,7 +27,7 @@
 .chip.planned { color: var(--ink-3); }
 .chip.cancelled { color: var(--ink-3); text-decoration: line-through; }
 .epic-chip { color: var(--ink-3); }
-.env-wait-chip { color: var(--warn); }
+.env-wait-chip { color: var(--warn-ink); }
 
 /* ---------- важность ----------
    Метка важности — такой же чип, отличается только цветом слова: высокая
@@ -35,7 +35,7 @@
    новое состояние задачи, а её оттенок. Средняя на доску не попадает вовсе
    (см. Board.tsx), поэтому цвета для неё здесь нет. */
 .prio-chip { cursor: pointer; }
-.prio-chip.high { color: var(--warn); }
+.prio-chip.high { color: var(--warn-ink); }
 .prio-chip.low { color: var(--accent-muted); }
 /* Сегменты важности в раскрытой карточке мельче навигационных: они стоят в
    строке поля, а не в шапке, и ряд «низкая обычная высокая» не должен

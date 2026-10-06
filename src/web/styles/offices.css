@@ -17,7 +17,7 @@
   font-size: var(--fs-small); color: var(--ink-3); vertical-align: middle;
 }
 .office-status.live { color: var(--ok-ink); }
-.office-status.paused { color: var(--warn); }
+.office-status.paused { color: var(--warn-ink); }
 /* Архивная строка — тот же ряд, но приглушённый: это склад, а не список
    проектов, по которым идёт работа. */
 .office-row.archived b { color: var(--ink-2); }
