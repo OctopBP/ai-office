@@ -1272,6 +1272,61 @@ async function main(): Promise<void> {
   unloadOfficeState('o-roles-model');
   wipe(modelFile);
 
+  // Второй сервер Figma (T-374) дизайнерам, нанятым раньше (T-380): разовая
+  // миграция дописывает figma-console к подписке с figma-bridge и к роли из
+  // пакета дизайнера, а снятый владельцем после неё сервер не возвращает.
+  const figmaFile = resolve(tmpdir(), `office-test-roles-figma-${process.pid}.json`);
+  const figmaDir = resolve(tmpdir(), 'roles-figma-office');
+  const design = defaultRole('design', 'ru')!;
+  const { package: _designLink, ...legacyDesign } = design;
+  save(figmaFile, () => ({
+    version: 1, projectDir: figmaDir, taskSeq: 0, tasks: [], chat: [], log: [],
+    instances: [], savedAt: Date.now(),
+    settings: { ...DEFAULT_SETTINGS, language: 'ru', chatLanguage: 'ru', codeLanguage: 'ru', model: CLAUDE_CHOICE },
+    // Прошлые миграции проведены, новой ещё нет — офис до T-380.
+    roleMigrations: ['sonnet-5-to-5-5', 'office-model'],
+    roles: [
+      // Нанятый из пакета, владелец правил список серверов: он в разнице.
+      {
+        ...design,
+        mcp: ['figma-bridge'],
+        package: { ...design.package!, overrides: { mcp: ['figma-bridge'] } },
+      },
+      // Роль без пакета, подписанная на мост Figma.
+      { ...legacyDesign, id: 'designer', title: 'Дизайнер', mcp: ['figma-bridge', 'imagegen'] },
+      // Не дизайнер — его миграция не касается.
+      { ...legacyBackend, id: 'writer', title: 'Писатель', mcp: [] },
+    ],
+  }));
+  flushAll();
+  const figmaRoles = openOfficeState({
+    id: 'o-roles-figma', projectDir: figmaDir, stateFile: figmaFile,
+  }).state;
+  results.push(
+    `дизайнер из пакета получил figma-console: ${
+      JSON.stringify(figmaRoles.role('design')?.mcp) === '["figma-bridge","figma-console"]'}`,
+    `дизайнер без пакета получил figma-console: ${
+      JSON.stringify(figmaRoles.role('designer')?.mcp) === '["figma-bridge","imagegen","figma-console"]'}`,
+    `не дизайнеру сервер не добавлен: ${JSON.stringify(figmaRoles.role('writer')?.mcp) === '[]'}`,
+  );
+  // Владелец снимает сервер с роли после миграции.
+  figmaRoles.updateRole('designer', { mcp: ['figma-bridge', 'imagegen'] });
+  unloadOfficeState('o-roles-figma');
+  flushAll();
+  const figmaSave = load(figmaFile);
+  const figmaAgain = openOfficeState({
+    id: 'o-roles-figma', projectDir: figmaDir, stateFile: figmaFile,
+  }).state;
+  results.push(
+    `отметка миграции figma-console в сохранении: ${figmaSave?.roleMigrations?.includes('figma-console') === true}`,
+    `повторная загрузка не дублирует figma-console: ${
+      figmaAgain.role('design')?.mcp?.filter((id) => id === 'figma-console').length === 1}`,
+    `снятый владельцем figma-console не вернулся: ${
+      JSON.stringify(figmaAgain.role('designer')?.mcp) === '["figma-bridge","imagegen"]'}`,
+  );
+  unloadOfficeState('o-roles-figma');
+  wipe(figmaFile);
+
   // Провайдер офиса при загрузке (T-243): явно сохранённая пара не меняется,
   // нет поля или оно битое — null («не выбран»), а не Claude Code. Повторная
   // загрузка ничего не меняет.

@@ -63,7 +63,7 @@ import {
   uiLanguage,
 } from './offices';
 import {
-  checkMcpServers, DEFAULT_MCP_SERVERS, mcpNamesFor, pollMcpStatus, serversFor, type McpStatusSource,
+  checkMcpServers, DEFAULT_MCP_SERVERS, mcpCatalog, mcpNamesFor, pollMcpStatus, serversFor, type McpStatusSource,
 } from './mcp';
 import { ensureChromium } from './chromium';
 import { employeeServers } from './skills';
@@ -574,10 +574,36 @@ function rolesFromSave(
     ? data.roles
     : rolesFromOverrides(data.roleOverrides, lang);
   if (pending.includes(SONNET_5_5_MIGRATION)) stored = stored.map(toSonnet55);
-  const roles = withManagerRole(sanitizeRoles(stored, lang), lang);
+  let roles = withManagerRole(sanitizeRoles(stored, lang), lang);
+  if (pending.includes(FIGMA_CONSOLE_MIGRATION)) roles = roles.map(withFigmaConsole);
   return pending.includes(OFFICE_MODEL_MIGRATION)
     ? roles.map((role) => inheritOfficeModel(role, office, lang))
     : roles;
+}
+
+/**
+ * Разовая миграция: дизайнерам, нанятым до T-374, — второй сервер Figma
+ * (`figma-console`) рядом с `figma-bridge`. Каталог офиса доливает умолчания
+ * сам (`mcpCatalog`), а подписка роли лежит в сохранении и сама не растёт.
+ *
+ * Разовая — потому что иначе не отличить «ещё не было» от «владелец снял»:
+ * отметка о проведении уезжает в `roleMigrations`, и сервер, снятый с роли
+ * после неё, больше не возвращается.
+ */
+const FIGMA_CONSOLE_MIGRATION = 'figma-console';
+
+/** Дизайнер — тот, кто подписан на мост Figma или нанят из пакета дизайнера. */
+function withFigmaConsole(role: Role): Role {
+  const names = mcpNamesFor(role);
+  if (names.includes('figma-console')) return role;
+  if (!names.includes('figma-bridge') && role.package?.name !== '@office/design') return role;
+  const mcp = [...names, 'figma-console'];
+  // У роли из пакета список собирается заново из пакета и разницы с ним,
+  // поэтому дописываем и в разницу: равную умолчанию пакета снимет сам
+  // `roleFromPackage` при следующей загрузке.
+  return role.package
+    ? { ...role, mcp, package: { ...role.package, overrides: { ...role.package.overrides, mcp } } }
+    : { ...role, mcp };
 }
 
 /**
@@ -617,7 +643,9 @@ function inheritOfficeModel(role: Role, office: ModelChoice | null, lang: Lang):
 const SONNET_5_5_MIGRATION = 'sonnet-5-to-5-5';
 
 /** Все разовые миграции ролей. Новый офис заводится с ними проведёнными. */
-const ROLE_MIGRATIONS: readonly string[] = [SONNET_5_5_MIGRATION, OFFICE_MODEL_MIGRATION];
+const ROLE_MIGRATIONS: readonly string[] = [
+  SONNET_5_5_MIGRATION, OFFICE_MODEL_MIGRATION, FIGMA_CONSOLE_MIGRATION,
+];
 
 /**
  * Перевести одну роль из сохранения с Sonnet 5 на Sonnet 5.5 — и модель самой
@@ -3785,10 +3813,12 @@ export class OfficeState {
   /**
    * Каталог внешних MCP-серверов офиса. Метод, а не обращение к полю: в
    * сохранениях старше каталога его нет, и подстраховку умолчанием не должен
-   * повторять каждый, кому нужен список серверов.
+   * повторять каждый, кому нужен список серверов. Умолчания, появившиеся после
+   * сохранения каталога, доливаем тем же `mcpCatalog`, что и сессия: иначе
+   * правка роли в интерфейсе молча выкидывала бы из неё новый сервер.
    */
   mcpServers(): McpServerDef[] {
-    return this.settings.mcpServers ?? DEFAULT_MCP_SERVERS;
+    return mcpCatalog(this.settings);
   }
 
   /**
