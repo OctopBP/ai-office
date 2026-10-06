@@ -31,7 +31,7 @@ import { ensureChromium } from './chromium';
 import { employeePlugins, employeeSkills, sessionTools } from './skills';
 import { autoApprovedText, classify, decide, effectiveMode, releaseCommandBlocked } from './permissions';
 import {
-  closeReleasePlan, proposeReleaseTarget, releaseStatusText, resumeRelease, saveReleasePlan, setReleaseAgents,
+  closeReleasePlan, proposeReleaseTarget, proposedAssets, releaseStatusText, resumeRelease, saveReleasePlan, setReleaseAgents,
   startRelease,
 } from './releases';
 import type { ReleaseTarget } from '../shared/release';
@@ -1614,10 +1614,14 @@ const teamTools = (state: OfficeState, chatId: string) => createSdkMcpServer({
         ci: z.enum(['auto', 'required', 'off']).default('auto').describe(state.say('tool.proposeTarget.ci')),
         timeoutMin: z.number().int().min(0).default(0).describe(state.say('tool.proposeTarget.timeout')),
         waitForTask: z.string().default('').describe(state.say('tool.proposeTarget.waitForTask')),
+        assets: z.array(z.string()).optional().describe(state.say('tool.proposeTarget.assets')),
         note: z.string().default('').describe(state.say('tool.proposeTarget.note')),
       },
       async (args) => {
         const id = args.id.trim();
+        const files = proposedAssets(state, id, args.kind, args.assets);
+        if (!files.ok) return { content: [{ type: 'text', text: files.message }], isError: true };
+        const assets = files.assets;
         const when: ReleaseTarget['policy']['when'] = [...new Set(args.when ?? [])];
         if (args.mergedEvery) when.push({ merged: args.mergedEvery });
         const target: ReleaseTarget = {
@@ -1627,6 +1631,7 @@ const teamTools = (state: OfficeState, chatId: string) => createSdkMcpServer({
           ...(args.bump?.trim() ? { bump: args.bump.trim() } : {}),
           ...(args.kind !== 'command' && args.ci !== 'auto' ? { ci: args.ci } : {}),
           ...(args.timeoutMin ? { timeoutMin: args.timeoutMin } : {}),
+          ...(assets.length ? { assets } : {}),
           policy: {
             when, approve: args.approve,
             ...(args.cooldownHours ? { cooldownHours: args.cooldownHours } : {}),

@@ -1316,6 +1316,7 @@ export function describeTarget(state: OfficeState, target: ReleaseTarget, comman
         level: say(`rel.setup.level.${target.version.level}` as ServerKey),
       }),
     target.bump ? say('rel.setup.bumpLine', { bump: target.bump }) : '',
+    target.assets?.length ? say('rel.setup.assetsLine', { files: target.assets.join(', ') }) : '',
     target.policy.cooldownHours ? say('rel.setup.cooldownLine', { n: target.policy.cooldownHours }) : '',
   ].filter(Boolean).join('\n');
 }
@@ -1333,6 +1334,20 @@ function withTarget(
     const e = err as { issues?: Array<{ path: Array<string | number>; message: string }>; message: string };
     return { error: e.issues ? e.issues.map((i) => `${i.path.slice(2).join('.') || 'target'}: ${i.message}`).join('; ') : e.message };
   }
+}
+
+/**
+ * Файлы релиза для предложенной цели. Разрешены только у тега. Не переданы —
+ * при замене цели остаются прежние (иначе повторное предложение молча сняло бы
+ * проверку видимости); пустой список снимает проверку явно.
+ */
+export function proposedAssets(
+  state: OfficeState, id: string, kind: ReleaseTarget['kind'], given?: string[],
+): { ok: true; assets: string[] } | { ok: false; message: string } {
+  const files = given?.map((a) => a.trim()).filter(Boolean);
+  if (files?.length && kind !== 'tag') return { ok: false, message: state.say('rel.setup.assetsTagOnly', { kind }) };
+  if (kind !== 'tag') return { ok: true, assets: [] };
+  return { ok: true, assets: [...new Set(files ?? state.releaseTarget(id)?.assets ?? [])] };
 }
 
 /**

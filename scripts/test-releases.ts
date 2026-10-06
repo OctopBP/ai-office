@@ -17,7 +17,7 @@ import { tmpdir } from 'node:os';
 import { resolve } from 'node:path';
 import { getOffice, type Task } from '../src/server/state';
 import {
-  dueRelease, proposeReleaseTarget, releaseStatusText, releaseTiming, resumeRelease, saveReleasePlan,
+  dueRelease, proposeReleaseTarget, proposedAssets, releaseStatusText, releaseTiming, resumeRelease, saveReleasePlan,
   scrubSecrets, setReleaseAgents, setReleaseCi, setReleaseHost, settleReleaseSetups, startRelease, whenReleasesIdle, type CiRun,
 } from '../src/server/releases';
 import { releaseCommandBlocked } from '../src/server/permissions';
@@ -468,6 +468,28 @@ async function main(): Promise<void> {
     const second = proposeReleaseTarget(office, { target: { ...staging, id: 'stage2', title: 'Стенд два', branch: 'preview' } });
     check('повторное предложение снимает первый вопрос', Boolean(questionOf(first.message)?.dismissedAt));
     check('замена названа заменой', Boolean(questionOf(second.message)?.text.includes('изменить')));
+
+    // Файлы релиза assets: только у тега, доходят до цели по «да», переживают замену.
+    const notTag = proposedAssets(office, 'stage2', 'push', ['latest-mac.yml']);
+    check('assets не у тега — понятная ошибка', !notTag.ok && notTag.message.includes('tag'));
+    const files = proposedAssets(office, 'mac', 'tag', [' latest-mac.yml ', 'latest-mac.yml']);
+    check('assets у тега — принят, без пробелов и повторов', files.ok && files.assets.join() === 'latest-mac.yml');
+    const mac: ReleaseTarget = { ...desktop, id: 'mac', title: 'Мак', assets: files.ok ? files.assets : [] };
+    const dq = questionOf(proposeReleaseTarget(office, { target: mac }).message)!;
+    check('владелец видит проверку видимости в вопросе', dq.text.includes('latest-mac.yml'));
+    office.updateQuestion(dq.id, { answer: 'Применить', answeredAt: Date.now() });
+    settleReleaseSetups(office);
+    check('«Применить» — assets в цели', office.releaseTarget('mac')?.assets?.join() === 'latest-mac.yml');
+    check('release_status показывает assets', releaseStatusText(office).includes('Проверка видимости: latest-mac.yml'));
+    const kept = proposedAssets(office, 'mac', 'tag');
+    check('замена без assets — прежние сохраняются', kept.ok && kept.assets.join() === 'latest-mac.yml');
+    const rq = questionOf(proposeReleaseTarget(office, { target: { ...mac, title: 'Мак 2', assets: kept.ok ? kept.assets : [] } }).message)!;
+    office.updateQuestion(rq.id, { answer: 'да', answeredAt: Date.now() });
+    settleReleaseSetups(office);
+    check('замена цели с тем же id — assets на месте', office.releaseTarget('mac')?.title === 'Мак 2'
+      && office.releaseTarget('mac')?.assets?.join() === 'latest-mac.yml');
+    const cleared = proposedAssets(office, 'mac', 'tag', []);
+    check('пустой список снимает проверку', cleared.ok && cleared.assets.length === 0);
     office.updateQuestion(questionOf(second.message)!.id, { answer: 'Применить', answeredAt: Date.now() });
     settleReleaseSetups(office);
     check('замена применилась', office.releaseTarget('stage2')?.branch === 'preview');

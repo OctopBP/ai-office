@@ -1076,6 +1076,8 @@ export const ru: Record<keyof typeof en, string> = {
   'rel.setup.badCheck': '«{name}» не годится в имя команды: строчные латинские буквы, цифры и дефис.',
   'rel.setup.badCommand': 'Команда сборки пустая или длиннее 500 знаков.',
   'rel.setup.bumpLine': 'Версия в файлах: {bump}',
+  'rel.setup.assetsTagOnly': 'Файлы релиза assets проверяются только у цели kind tag, а не {kind}: уберите assets или смените kind на tag.',
+  'rel.setup.assetsLine': 'Проверка видимости: {files}',
   'rel.setup.checkLine': 'Команда сборки «{name}»: {command}\n',
   'rel.setup.cooldownLine': 'Не чаще раза в {n} ч.',
   'rel.setup.declined': 'Цель выпуска «{target}» не применена: владелец отказался.',

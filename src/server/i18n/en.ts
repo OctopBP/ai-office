@@ -1076,6 +1076,8 @@ export const en = {
   'rel.setup.badCheck': '"{name}" is not a valid command name: lowercase latin letters, digits and hyphens.',
   'rel.setup.badCommand': 'The build command is empty or longer than 500 characters.',
   'rel.setup.bumpLine': 'Version into files: {bump}',
+  'rel.setup.assetsTagOnly': 'Release files (assets) are checked only for kind tag, not {kind}: drop assets or switch kind to tag.',
+  'rel.setup.assetsLine': 'Visibility check: {files}',
   'rel.setup.checkLine': 'Build command "{name}": {command}\n',
   'rel.setup.cooldownLine': 'At most once every {n} h.',
   'rel.setup.declined': 'Release target "{target}" not applied: the owner declined.',
