@@ -3052,3 +3052,17 @@ export interface UpdateState {
 export type UpdateCommandResult =
   | { ok: true }
   | { ok: false; reason: 'not-ready'; message: string };
+
+/**
+ * Секретная переменная окружения офиса — только метаданные (src/server/secrets.ts).
+ * Значение живёт в системной связке ключей и клиенту не отдаётся никогда:
+ * ни в этом типе, ни в событиях, ни в ответах сервера.
+ */
+export interface SecretMeta {
+  /** Имя переменной: `^[A-Z_][A-Z0-9_]{0,63}$`, не из зарезервированных. */
+  name: string;
+  /** Когда переменная заведена, мс эпохи. */
+  createdAt: number;
+  /** Когда значение меняли последний раз, мс эпохи. */
+  updatedAt: number;
+}

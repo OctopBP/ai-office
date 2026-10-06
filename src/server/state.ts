@@ -15,7 +15,7 @@ import type {
   PullRequestView, PrStage, ReviewNote, TaskOutcome, TaskDelivery, BranchMark,
   FactView, LifeView, OwnerQuestion, RitualId, RitualPolicy, RitualRun,
   DirectionView, ProposalView, InitiativeMode,
-  SpendEntryView, PmChat,
+  SpendEntryView, PmChat, SecretMeta,
 } from '../shared/types';
 import { OFFICE_SENDER } from '../shared/types';
 import { isOpenQuestion } from '../shared/questions';
@@ -1019,6 +1019,25 @@ export interface PersistedPmSession {
   handoff: string | null;
 }
 
+/**
+ * Метаданные секретов из файла состояния: файл мог править человек, поэтому
+ * берём только записи с годным именем и датами. Поле `value`, если его туда
+ * дописали руками, отбрасывается — в памяти офиса значений не бывает.
+ */
+function sanitizeSecretMetas(raw: unknown): Map<string, SecretMeta> {
+  const out = new Map<string, SecretMeta>();
+  if (!Array.isArray(raw)) return out;
+  for (const item of raw) {
+    if (!item || typeof item !== 'object') continue;
+    const { name, createdAt, updatedAt } = item as Record<string, unknown>;
+    if (typeof name !== 'string' || !/^[A-Z_][A-Z0-9_]{0,63}$/.test(name)) continue;
+    const created = typeof createdAt === 'number' && Number.isFinite(createdAt) ? createdAt : 0;
+    const updated = typeof updatedAt === 'number' && Number.isFinite(updatedAt) ? updatedAt : created;
+    out.set(name, { name, createdAt: created, updatedAt: updated });
+  }
+  return out;
+}
+
 export class OfficeState {
   instances = new Map<string, Instance>();
   tasks = new Map<string, Task>();
@@ -1084,6 +1103,11 @@ export class OfficeState {
    * стол — дело того офиса, где его подвинули.
    */
   layoutOverrides: Record<string, LayoutOverride> = {};
+  /**
+   * Секретные переменные офиса по имени — только метаданные. Значения лежат в
+   * системной связке ключей (secrets.ts), сюда и в файл состояния не попадают.
+   */
+  private secretList = new Map<string, SecretMeta>();
   /**
    * Что известно о внешних MCP-серверах, по id сервера. Живёт в памяти: это
    * наблюдение живых сессий, а не настройка офиса.
@@ -1532,8 +1556,34 @@ export class OfficeState {
       directionSeq: this.directionSeq,
       proposals: [...this.proposals.values()],
       proposalSeq: this.proposalSeq,
+      secrets: [...this.secretList.values()],
       savedAt: Date.now(),
     };
+  }
+
+  // ---------- секретные переменные: только метаданные ----------
+
+  /** Секретные переменные офиса по имени. Значений здесь нет — см. secrets.ts. */
+  secretMetas(): SecretMeta[] {
+    return [...this.secretList.values()]
+      .sort((a, b) => a.name.localeCompare(b.name))
+      .map((m) => ({ ...m }));
+  }
+
+  /** Отметить, что переменная заведена или её значение заменено в связке ключей. */
+  noteSecret(name: string, at = Date.now()): SecretMeta {
+    const prev = this.secretList.get(name);
+    const meta: SecretMeta = { name, createdAt: prev?.createdAt ?? at, updatedAt: at };
+    this.secretList.set(name, meta);
+    this.markDirty();
+    return { ...meta };
+  }
+
+  /** Забыть переменную. `false` — такой не было. */
+  forgetSecret(name: string): boolean {
+    if (!this.secretList.delete(name)) return false;
+    this.markDirty();
+    return true;
   }
 
   // ---------- живой офис: журнал, вопросы, ритуалы ----------
@@ -2027,6 +2077,7 @@ export class OfficeState {
     // Расстановку поднимаем ДО seed: по итоговой раскладке считаются столы,
     // за которые он сажает сотрудников.
     this.layoutOverrides = sanitizeOverrides(data.layoutOverrides);
+    this.secretList = sanitizeSecretMetas(data.secrets);
     this.seed();
     this.taskSeq = data.taskSeq;
     // План поднимаем ДО задач: задача ссылается на фичу, и разбирать доску

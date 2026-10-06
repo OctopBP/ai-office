@@ -1,5 +1,6 @@
 /**
- * Ключи провайдеров не доезжают до команд агента (T-200).
+ * Ключи провайдеров не доезжают до команд агента (T-200), а переменные офиса
+ * хранятся только в связке ключей и наружу отдают лишь метаданные (T-301).
  *
  * Сервер держит ключи в окружении ради движка, а Bash агента, проверки гейта
  * и git получают окружение без них. Проверяем три пути: `projectEnv` для
@@ -108,6 +109,115 @@ await check('вход по подписке не видит ключей про�
   await engineFor('claude-code').login({ provider: 'claude-code', kind: 'subscription' });
   await done;
   assert.deepEqual(leaked(readFileSync(loginDump, 'utf8')), []);
+});
+
+// ---------- переменные офиса (secrets.ts, T-301) ----------
+// Связка ключей подменена хранилищем в памяти: настоящий Keychain не трогаем.
+
+const { memoryKeychain } = await import('../src/server/engines/keys');
+const secrets = await import('../src/server/secrets');
+const { getOffice } = await import('../src/server/state');
+const mem = memoryKeychain();
+secrets.useSecretStore(mem);
+const OFFICE = 'secrets-test';
+const P8 = `-----BEGIN PRIVATE KEY-----\n${'MIGTAgEAMBMGByqGSM49AgEGCCqGSM49AwEHBHkwdwIBAQQg'.repeat(4)}\n${'x'.repeat(48)}\n-----END PRIVATE KEY-----`;
+
+const rejects = async (p: Promise<unknown>, code: string) => {
+  await assert.rejects(p, (e: unknown) => e instanceof secrets.SecretError && e.code === code && e.message.length > 0);
+};
+
+await check('имена: годные проходят, кривые отклоняются', async () => {
+  for (const ok of ['DEPLOY_TOKEN', '_X', 'A', `A${'B'.repeat(63)}`, 'APP_STORE_KEY_P8']) assert.equal(secrets.checkSecretName(ok), ok);
+  for (const bad of ['', 'lower', '1ABC', 'A-B', 'A B', `A${'B'.repeat(64)}`, 'ПУТЬ', 42]) {
+    assert.throws(() => secrets.checkSecretName(bad), (e: unknown) => (e as { code?: string }).code === 'bad-name', String(bad));
+  }
+});
+
+await check('зарезервированные имена отклоняются', async () => {
+  for (const name of ['PATH', 'HOME', 'SHELL', 'USER', 'NODE_OPTIONS', 'NODE_PATH', 'LD_PRELOAD', 'LD_LIBRARY_PATH',
+    'DYLD_INSERT_LIBRARIES', 'ANTHROPIC_API_KEY', 'OPENAI_API_KEY', 'GEMINI_API_KEY', 'OFFICE_STATE_FILE', 'ANTHROPIC_BASE_URL']) {
+    await rejects(secrets.setSecret(OFFICE, name, 'value-1234'), 'reserved');
+  }
+});
+
+await check('значение: пустое и длиннее 32 КБ отклоняются, .p8 проходит', async () => {
+  await rejects(secrets.setSecret(OFFICE, 'EMPTY', ''), 'bad-value');
+  await rejects(secrets.setSecret(OFFICE, 'EMPTY', '  \n '), 'bad-value');
+  await rejects(secrets.setSecret(OFFICE, 'HUGE', 'x'.repeat(32 * 1024 + 1)), 'bad-value');
+  await secrets.setSecret(OFFICE, 'MAX_SIZE', 'я'.repeat(16 * 1024));
+  await secrets.setSecret(OFFICE, 'ASC_KEY_P8', P8);
+  assert.equal((await secrets.secretsEnv(OFFICE)).MAX_SIZE, 'я'.repeat(16 * 1024));
+  await secrets.deleteSecret(OFFICE, 'MAX_SIZE');
+});
+
+await check('list отдаёт только имя и даты, без значений', async () => {
+  await secrets.setSecret(OFFICE, 'DEPLOY_TOKEN', 'tok-very-secret-1');
+  const list = secrets.listSecrets(OFFICE);
+  assert.deepEqual(list.map((m) => m.name), ['ASC_KEY_P8', 'DEPLOY_TOKEN']);
+  for (const meta of list) {
+    assert.deepEqual(Object.keys(meta).sort(), ['createdAt', 'name', 'updatedAt']);
+    assert.ok(meta.createdAt > 0 && meta.updatedAt >= meta.createdAt);
+  }
+  assert.ok(!JSON.stringify(list).includes('tok-very-secret-1'));
+});
+
+await check('замена меняет updatedAt, а не createdAt', async () => {
+  const before = secrets.listSecrets(OFFICE).find((m) => m.name === 'DEPLOY_TOKEN')!;
+  await new Promise((r) => setTimeout(r, 5));
+  await secrets.setSecret(OFFICE, 'DEPLOY_TOKEN', 'tok-very-secret-2');
+  const after = secrets.listSecrets(OFFICE).find((m) => m.name === 'DEPLOY_TOKEN')!;
+  assert.equal(after.createdAt, before.createdAt);
+  assert.ok(after.updatedAt > before.updatedAt);
+  assert.equal((await secrets.secretsEnv(OFFICE)).DEPLOY_TOKEN, 'tok-very-secret-2');
+});
+
+await check('состояние офиса и его снимок для state.json без значений', async () => {
+  const persisted = JSON.stringify(getOffice(OFFICE).toPersisted());
+  assert.ok(persisted.includes('DEPLOY_TOKEN'), 'метаданных нет в снимке');
+  for (const leak of ['tok-very-secret', 'MIGTAgEAMBMG', 'BEGIN PRIVATE KEY']) assert.ok(!persisted.includes(leak), leak);
+});
+
+await check('значения лежат только в связке, с привязкой к офису', async () => {
+  await secrets.setSecret('other-office', 'DEPLOY_TOKEN', 'other-value-9');
+  assert.equal((await secrets.secretsEnv(OFFICE)).DEPLOY_TOKEN, 'tok-very-secret-2');
+  assert.deepEqual(await secrets.secretsEnv('other-office'), { DEPLOY_TOKEN: 'other-value-9' });
+  assert.ok(await mem.get('office:other-office:env:DEPLOY_TOKEN:0'));
+});
+
+await check('secretsEnv собирает длинное значение из кусков', async () => {
+  assert.equal((await secrets.secretsEnv(OFFICE)).ASC_KEY_P8, P8);
+  const big = 'Q'.repeat(20_000);
+  await secrets.setSecret(OFFICE, 'BIG', big);
+  assert.equal((await secrets.secretsEnv(OFFICE)).BIG, big);
+  await secrets.setSecret(OFFICE, 'BIG', 'short-one');
+  assert.equal(await mem.get('office:secrets-test:env:BIG:1'), null, 'остался хвост старого значения');
+  await secrets.deleteSecret(OFFICE, 'BIG');
+  assert.equal(await mem.get('office:secrets-test:env:BIG:0'), null);
+  assert.ok(!secrets.listSecrets(OFFICE).some((m) => m.name === 'BIG'));
+});
+
+await check('mask заменяет значения на ***', async () => {
+  const lines = P8.split('\n');
+  const out = await secrets.maskSecrets(OFFICE,
+    `token=tok-very-secret-2; key:\n${P8}\npart: ${lines[1]}\nok on`);
+  assert.ok(!out.includes('tok-very-secret-2'));
+  assert.ok(!out.includes('MIGTAgEAMBMG'));
+  assert.ok(out.includes('token=***'));
+  assert.ok(out.endsWith('ok on'), 'короткое не должно маскироваться');
+  assert.equal(secrets.maskValues('a abc abcd', ['abc', 'abcd']), 'a abc ***');
+});
+
+await check('недоступная связка — понятная ошибка, не падение и не файл', async () => {
+  secrets.useSecretStore({
+    available: async () => false,
+    get: async () => { throw new Error('не должно вызываться'); },
+    set: async () => { throw new Error('не должно вызываться'); },
+    delete: async () => { throw new Error('не должно вызываться'); },
+  });
+  await rejects(secrets.setSecret(OFFICE, 'NEW_ONE', 'value-1234'), 'keychain');
+  await rejects(secrets.secretsEnv(OFFICE), 'keychain');
+  assert.ok(!secrets.listSecrets(OFFICE).some((m) => m.name === 'NEW_ONE'));
+  secrets.useSecretStore(mem);
 });
 
 if (failed) {

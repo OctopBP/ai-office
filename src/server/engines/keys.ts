@@ -39,12 +39,17 @@ export const KEY_VAR: Record<ProviderId, string> = {
 const SERVICE = 'AI Office';
 const account = (provider: ProviderId): string => `provider:${provider}`;
 
-export interface KeyStore {
+/**
+ * Связка ключей: записи службы «AI Office» по имени учётки. Ключи провайдеров
+ * лежат под `provider:<id>`, переменные офиса (secrets.ts) — под своими
+ * учётками с id офиса.
+ */
+export interface Keychain {
   /** Есть ли связка на этой машине вообще. */
   available(): Promise<boolean>;
-  get(provider: ProviderId): Promise<string | null>;
-  set(provider: ProviderId, secret: string): Promise<void>;
-  delete(provider: ProviderId): Promise<void>;
+  get(account: string): Promise<string | null>;
+  set(account: string, secret: string): Promise<void>;
+  delete(account: string): Promise<void>;
 }
 
 interface Run { code: number; stdout: string; stderr: string }
@@ -61,25 +66,31 @@ function run(cmd: string, args: string[], input?: string): Promise<Run> {
 
 const hex = (s: string): string => Buffer.from(s, 'utf8').toString('hex');
 
+/** Сколько знаков `security -i` читает одной строкой (проверено: 4060 проходит, 4100 режется). */
+const MAC_LINE_MAX = 4000;
+
 /** macOS: `security -i` читает команды со stdin, ключ передаётся шестнадцатерично (`-X`). */
-const macStore: KeyStore = {
+const macStore: Keychain = {
   async available() {
     return (await run('security', ['list-keychains'])).code === 0;
   },
-  async get(provider) {
-    const out = await run('security', ['find-generic-password', '-s', SERVICE, '-a', account(provider), '-w']);
+  async get(name) {
+    const out = await run('security', ['find-generic-password', '-s', SERVICE, '-a', name, '-w']);
     // 44 — «нет такой записи»: это не поломка, а отсутствие ключа.
     if (out.code === 44) return null;
     if (out.code !== 0) throw new Error(out.stderr.trim() || `security: код ${out.code}`);
     return out.stdout.replace(/\r?\n$/, '') || null;
   },
-  async set(provider, secret) {
-    const line = `add-generic-password -U -s "${SERVICE}" -a "${account(provider)}" -X ${hex(secret)}\n`;
+  async set(name, secret) {
+    // Строка `security -i` не длиннее ~4 КБ: длинное значение он режет на
+    // куски и исполняет хвост как отдельные команды. Длинное режет вызывающий.
+    const line = `add-generic-password -U -s "${SERVICE}" -a "${name}" -X ${hex(secret)}\n`;
+    if (line.length > MAC_LINE_MAX) throw new Error(`security: запись длиннее ${MAC_LINE_MAX} знаков`);
     const out = await run('security', ['-i'], line);
     if (out.code !== 0 || /error/i.test(out.stderr)) throw new Error(out.stderr.trim() || `security: код ${out.code}`);
   },
-  async delete(provider) {
-    const out = await run('security', ['delete-generic-password', '-s', SERVICE, '-a', account(provider)]);
+  async delete(name) {
+    const out = await run('security', ['delete-generic-password', '-s', SERVICE, '-a', name]);
     if (out.code !== 0 && out.code !== 44) throw new Error(out.stderr.trim() || `security: код ${out.code}`);
   },
 };
@@ -152,69 +163,72 @@ async function powershell(body: string): Promise<Run> {
     `${WIN_PRELUDE}\n${body}\n`);
 }
 
-const winTarget = (provider: ProviderId): string => `${SERVICE}/${account(provider)}`;
+const winTarget = (name: string): string => `${SERVICE}/${name}`;
 
-const winStore: KeyStore = {
+const winStore: Keychain = {
   async available() {
     return (await powershell('[OfficeCred]::Read("AI Office/probe") | Out-Null')).code === 0;
   },
-  async get(provider) {
+  async get(name) {
     const out = await powershell(
-      `$v = [OfficeCred]::Read(${psString(winTarget(provider))}); if ($v -ne $null) { [Console]::Out.Write([Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes($v))) }`);
+      `$v = [OfficeCred]::Read(${psString(winTarget(name))}); if ($v -ne $null) { [Console]::Out.Write([Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes($v))) }`);
     if (out.code !== 0) throw new Error(out.stderr.trim() || `powershell: код ${out.code}`);
     const text = out.stdout.trim();
     return text ? Buffer.from(text, 'base64').toString('utf8') : null;
   },
-  async set(provider, secret) {
-    const out = await powershell(`[OfficeCred]::Write(${psString(winTarget(provider))}, ${psString(secret)})`);
+  async set(name, secret) {
+    const out = await powershell(`[OfficeCred]::Write(${psString(winTarget(name))}, ${psString(secret)})`);
     if (out.code !== 0) throw new Error(out.stderr.trim() || `powershell: код ${out.code}`);
   },
-  async delete(provider) {
-    const out = await powershell(`[OfficeCred]::Delete(${psString(winTarget(provider))})`);
+  async delete(name) {
+    const out = await powershell(`[OfficeCred]::Delete(${psString(winTarget(name))})`);
     if (out.code !== 0) throw new Error(out.stderr.trim() || `powershell: код ${out.code}`);
   },
 };
 
 /** Linux: Secret Service (GNOME Keyring, KWallet) через `secret-tool`. */
-const linuxStore: KeyStore = {
+const linuxStore: Keychain = {
   async available() {
     // `search` без совпадений тоже даёт код 1, поэтому смотрим на то, запустилась ли программа.
     const out = await run('secret-tool', ['search', 'service', SERVICE]);
     return out.code === 0 || out.code === 1;
   },
-  async get(provider) {
-    const out = await run('secret-tool', ['lookup', 'service', SERVICE, 'account', account(provider)]);
+  async get(name) {
+    const out = await run('secret-tool', ['lookup', 'service', SERVICE, 'account', name]);
     if (out.code !== 0) return null;
     return out.stdout.replace(/\r?\n$/, '') || null;
   },
-  async set(provider, secret) {
+  async set(name, secret) {
     const out = await run('secret-tool',
-      ['store', `--label=${SERVICE} ${provider}`, 'service', SERVICE, 'account', account(provider)], secret);
+      ['store', `--label=${SERVICE} ${name.replace(/^provider:/, '')}`, 'service', SERVICE, 'account', name], secret);
     if (out.code !== 0) throw new Error(out.stderr.trim() || `secret-tool: код ${out.code}`);
   },
-  async delete(provider) {
-    await run('secret-tool', ['clear', 'service', SERVICE, 'account', account(provider)]);
+  async delete(name) {
+    await run('secret-tool', ['clear', 'service', SERVICE, 'account', name]);
   },
 };
 
-function memoryStore(): KeyStore {
-  const map = new Map<ProviderId, string>();
+/** Связка в памяти процесса: `OFFICE_KEYCHAIN=memory` и подмена в проверках. */
+export function memoryKeychain(): Keychain {
+  const map = new Map<string, string>();
   return {
     async available() { return true; },
-    async get(provider) { return map.get(provider) ?? null; },
-    async set(provider, secret) { map.set(provider, secret); },
-    async delete(provider) { map.delete(provider); },
+    async get(name) { return map.get(name) ?? null; },
+    async set(name, secret) { map.set(name, secret); },
+    async delete(name) { map.delete(name); },
   };
 }
 
-function systemStore(): KeyStore {
-  if (process.env.OFFICE_KEYCHAIN === 'memory') return memoryStore();
+function systemStore(): Keychain {
+  if (process.env.OFFICE_KEYCHAIN === 'memory') return memoryKeychain();
   if (process.platform === 'darwin') return macStore;
   if (process.platform === 'win32') return winStore;
   return linuxStore;
 }
 
-const store = systemStore();
+/** Связка ключей этой машины. */
+export const keychain: Keychain = systemStore();
+const store = keychain;
 
 /**
  * Ключи из связки, прочитанные при старте. Запуск сессии синхронный, и ходить
@@ -237,7 +251,7 @@ export function loadKeys(): Promise<void> {
     if (!keychainOk) return;
     for (const provider of PROVIDER_IDS) {
       try {
-        const key = await store.get(provider);
+        const key = await store.get(account(provider));
         if (key) cache.set(provider, key);
       } catch (err) {
         // Отказ связки по одному провайдеру не повод терять остальные.
@@ -267,14 +281,14 @@ export function providerKey(provider: ProviderId): { key: string; source: 'keych
 export async function saveKey(provider: ProviderId, secret: string): Promise<void> {
   await loadKeys();
   if (!keychainOk) throw new Error('keychain unavailable');
-  await store.set(provider, secret);
+  await store.set(account(provider), secret);
   cache.set(provider, secret);
   publish();
 }
 
 export async function deleteKey(provider: ProviderId): Promise<void> {
   await loadKeys();
-  if (keychainOk) await store.delete(provider);
+  if (keychainOk) await store.delete(account(provider));
   cache.delete(provider);
   publish();
 }

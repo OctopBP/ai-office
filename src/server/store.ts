@@ -8,7 +8,7 @@ import type { Run } from '../shared/workflow';
 import type { AgentRunEntry } from './spend';
 import type { Release, ReleasePlan, ReleaseSetup } from '../shared/release';
 import type { Direction, Epic, Fact, LifeState, PersistedPmSession, Proposal, Task } from './state';
-import type { MeetingView, OwnerQuestion } from '../shared/types';
+import type { MeetingView, OwnerQuestion, SecretMeta } from '../shared/types';
 import type { Role } from './roles';
 import { c } from './i18n';
 
@@ -152,6 +152,12 @@ export interface Persisted {
   directionSeq?: number;
   proposals?: Proposal[];
   proposalSeq?: number;
+  /**
+   * Секретные переменные офиса — только имена и даты (secrets.ts). Значения
+   * лежат в системной связке ключей и в файл состояния не пишутся никогда.
+   * В сохранениях до секретов поля нет.
+   */
+  secrets?: SecretMeta[];
   savedAt: number;
 }
 
