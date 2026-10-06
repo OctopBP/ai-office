@@ -32,6 +32,6 @@
       "done": ["Сборка чинится в ветке от выпуска", "Починка прошла ревью и влита в ветку выпуска"],
       "next": { "done": "ship", "failed": "stuck" } },
     { "id": "publish", "kind": "check", "run": "office:release-publish",
-      "next": { "pass": "end" } }
+      "next": { "pass": "end", "fail": "stuck" } }
   ]
 }

@@ -1483,3 +1483,73 @@ export async function fastForward(repoDir: string, base: string, remoteRef: stri
   if (await isDirty(repoDir)) return false;
   return (await git(repoDir, ['merge', '--ff-only', remoteRef])).ok;
 }
+
+// ------------------------------------------------------- каналы выпуска
+
+/**
+ * Итог продвижения ветки канала выпуска (docs/design/release-channels/spec.md
+ * §3.2–3.4): `beta`, `alpha` и `release` движутся только вперёд — перемоткой
+ * на выпущенный коммит, никогда не force-push.
+ */
+export type PromoteResult =
+  | { ok: true; kind: 'moved' | 'created' | 'same'; message: string }
+  | { ok: false; kind: 'diverged' | 'rejected' | 'failed'; message: string };
+
+/** Сдвинуть или создать локальную ветку, не ломая рабочую копию человека. */
+async function moveBranch(
+  repoDir: string, branch: string, old: string | null, sha: string, lang: Lang,
+): Promise<{ ok: boolean; message: string }> {
+  if (old) return advanceBase(repoDir, branch, old, sha, [], lang);
+  // Нулевое старое значение: ветку создаём, только если её никто не успел создать.
+  const made = await git(repoDir, ['update-ref', `refs/heads/${branch}`, sha, '0'.repeat(40)]);
+  return { ok: made.ok, message: made.stderr };
+}
+
+/**
+ * Продвинуть ветку канала на коммит (§3.2 п.7). Только перемотка: если
+ * нынешняя вершина ветки — не предок коммита, ветки разошлись, и ничего не
+ * двигается. В origin — пуш без `+`: не-перемотку отвергнет сам сервер, и
+ * тогда локальная ветка тоже остаётся где была. Ветки нет — создаётся
+ * (первый выпуск канала).
+ */
+export async function promoteBranch(
+  repoDir: string, branch: string, sha: string, token: string | null, lang: Lang,
+): Promise<PromoteResult> {
+  const old = await revision(repoDir, `refs/heads/${branch}`);
+  if (old && old !== sha && !(await isAncestor(repoDir, old, sha))) {
+    return { ok: false, kind: 'diverged', message: t(lang, 'git.channel.diverged', { branch, sha: sha.slice(0, 8) }) };
+  }
+  if (await remoteUrl(repoDir)) {
+    const pushed = await pushRef(repoDir, sha, `refs/heads/${branch}`, token, lang);
+    if (!pushed.ok) {
+      return { ok: false, kind: 'rejected', message: t(lang, 'git.channel.rejected', { branch, error: pushed.message }) };
+    }
+  }
+  if (old === sha) return { ok: true, kind: 'same', message: '' };
+  const moved = await moveBranch(repoDir, branch, old, sha, lang);
+  if (!moved.ok) return { ok: false, kind: 'failed', message: moved.message };
+  return { ok: true, kind: old ? 'moved' : 'created', message: '' };
+}
+
+/**
+ * Свести локальную ветку канала с `origin/<ветка>` перед снимком (§3.3):
+ * отстаёт — перематываем, опережает или разошлась — это расхождение, его
+ * решает выпуск. Нет origin или ветки там — сводить не с чем.
+ */
+export async function syncChannelBranch(
+  repoDir: string, branch: string, token: string | null, lang: Lang,
+): Promise<'none' | 'same' | 'ff' | 'created' | 'ahead' | 'diverged'> {
+  const url = await remoteUrl(repoDir);
+  if (!url) return 'none';
+  const fetched = await git(repoDir, ['fetch', '-q', authUrl(url, token), `+refs/heads/${branch}:refs/remotes/origin/${branch}`]);
+  if (!fetched.ok) return 'none';
+  const remote = await revision(repoDir, `refs/remotes/origin/${branch}`);
+  const local = await revision(repoDir, `refs/heads/${branch}`);
+  if (!remote) return 'none';
+  if (local === remote) return 'same';
+  if (!local) return (await moveBranch(repoDir, branch, null, remote, lang)).ok ? 'created' : 'diverged';
+  if (await isAncestor(repoDir, local, remote)) {
+    return (await moveBranch(repoDir, branch, local, remote, lang)).ok ? 'ff' : 'diverged';
+  }
+  return (await isAncestor(repoDir, remote, local)) ? 'ahead' : 'diverged';
+}

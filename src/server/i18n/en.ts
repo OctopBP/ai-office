@@ -220,6 +220,8 @@ export const en = {
   'git.baseMergeFailed': 'Could not merge {base} into the task branch: {error}',
   'git.conflictFiles': 'Conflict with {base} in: {files}',
   'git.mergeAssembled': 'Merge of {branch} into {base} assembled in the office working copy.',
+  'git.channel.diverged': 'Branch {branch} is not an ancestor of commit {sha} — it cannot be fast-forwarded, the branches have diverged.',
+  'git.channel.rejected': 'origin rejected the fast-forward of branch {branch}: it moved ahead on GitHub or is protected. The office never force-pushes. {error}',
   'git.noOrigin': 'The repository has no origin — there is nowhere to push the branch.',
 
   // ------------------------------------------------------- очередь слияния
@@ -978,6 +980,14 @@ export const en = {
   'rel.askAssumption': 'Until answered, the release waits and spends nothing.',
   'rel.askChat': '📦 Release "{target}" {version} is ready — waiting for your approval ({id}).',
   'rel.askLevel': ', {level} bump ({from})',
+  'rel.ch.originDiverged': 'Local branch {branch} has diverged from origin/{branch} — the release channel cannot be moved by fast-forward. Reconcile the branches by hand, then retry the release.',
+  'rel.ch.noBeta': '"{target}": there is no finished beta yet — a stable release is promoted only from a tested beta. Release a beta first.',
+  'rel.ch.noHotfixBranch': 'Branch {branch} is missing — there is nothing to release a hotfix from.',
+  'rel.ch.betaDiverged': 'Branch {branch} has commits that are not in {source} — it cannot be fast-forwarded to the snapshot. Merge {branch} down into {source} first, then retry the release.',
+  'rel.ch.stableDiverged': 'Branch {branch} has commits (a hotfix?) that are not in beta {beta} — a stable release cannot fast-forward to it. Release a new beta with the hotfix first.',
+  'rel.ch.promoteFailed': 'The release is built and visible, but branch {branch} was not moved: {why}',
+  'rel.ch.promoted': 'Channel branch {branch} fast-forwarded to {sha}.',
+  'rel.ch.migrateFailed': 'Could not move old release branches release/<id> to office/rel/<id>: {error}',
   'rel.branchFailed': 'Could not set branch {branch}: {error}',
   'rel.buildFailed': 'Build "{target}" failed.',
   'rel.buildTimeout': 'The build did not finish in {min} min and was stopped.',

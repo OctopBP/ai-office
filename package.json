@@ -72,6 +72,7 @@
     "test:flows": "tsx scripts/test-flows.ts",
     "test:releases": "tsx scripts/test-releases.ts",
     "test:channels": "node --import tsx scripts/test-release-channels.ts",
+    "test:promote": "node --import tsx scripts/test-release-promote.ts",
     "test:offices": "tsx scripts/test-offices.ts",
     "test:setup": "tsx scripts/test-setup.ts",
     "test:doctemplates": "node --import tsx scripts/test-doc-templates.ts",

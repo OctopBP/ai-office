@@ -32,7 +32,7 @@ import { worktreesRoot, type OfficeState, type Task } from './state';
 import type { ServerKey } from './i18n';
 import {
   OFFICE_PERSON, baseBranch, commitAll, detachedWorktree, git, isAncestor, isRepo, mergeBranch,
-  pushRef, remoteUrl, revision,
+  promoteBranch, pushRef, remoteUrl, revision, syncChannelBranch,
 } from './git';
 import { integrationDir, runProjectCheck } from './merge';
 import { githubToken } from './cloud';
@@ -256,8 +256,8 @@ const lastDone = (state: OfficeState, targetId: string, except?: string): Releas
 const releaseChannel = (r: Release): ReleaseChannel => r.channel ?? (r.version ? versionChannel(r.version) : null) ?? 'stable';
 
 /** Последний состоявшийся выпуск канала цели. */
-const lastDoneIn = (state: OfficeState, targetId: string, channel: ReleaseChannel): Release | null =>
-  state.releasesOf(targetId).find((r) => r.status === 'done' && releaseChannel(r) === channel) ?? null;
+const lastDoneIn = (state: OfficeState, targetId: string, channel: ReleaseChannel, except?: string): Release | null =>
+  state.releasesOf(targetId).find((r) => r.status === 'done' && r.id !== except && releaseChannel(r) === channel) ?? null;
 
 /** Строка задачи для заметок и вопроса: что сделано, одной строкой. */
 const clip = (s: string, n: number): string => {
@@ -265,19 +265,185 @@ const clip = (s: string, n: number): string => {
   return line.length > n ? `${line.slice(0, n - 1)}…` : line;
 };
 
+// ------------------------------------------------------------- каналы
+
+/**
+ * Каналы выпуска (docs/design/release-channels/spec.md §3): у цели с
+ * `channels` выпуск идёт в один канал. Снимок берётся с источника канала,
+ * ветка канала обязана быть его предком, а в конце выпуска — после зелёного
+ * CI и видимого релиза — её перематывают на вершину выпуска. Слияние вниз и
+ * хотфиксы сюда не входят.
+ */
+
+/** Канал выпуска у цели с каналами; у цели без каналов — null. */
+const channelOf = (target: ReleaseTarget, r: Release): ReleaseChannel | null =>
+  (target.channels && r.channel && target.channels[r.channel] ? r.channel : null);
+
+const channelSpec = (target: ReleaseTarget, channel: ReleaseChannel): ReleaseChannelSpec =>
+  target.channels?.[channel] as ReleaseChannelSpec;
+
+/** Последняя состоявшаяся бета — старшая по версии, а не по времени. */
+function lastBeta(state: OfficeState, targetId: string): Release | null {
+  let best: Release | null = null;
+  for (const r of state.releasesOf(targetId)) {
+    if (r.status !== 'done' || r.channel !== 'beta' || !r.version || !parseVersion(r.version)) continue;
+    if (!best || compareVersions(r.version, best.version as string) > 0) best = r;
+  }
+  return best;
+}
+
+/** Ветка, из которой продвигается канал: основная или ветка другого канала (§3.1). */
+function sourceBranch(target: ReleaseTarget, channel: ReleaseChannel, base: string): string {
+  const from = channelFrom(target.channels as ReleaseChannels, channel);
+  return from === 'main' ? base : channelSpec(target, from).branch;
+}
+
+interface ChannelSnapshot {
+  sha: string;
+  /** Прошлый выпуск этого же канала; null — считать как без каналов. */
+  prev: Release | null;
+  promote: NonNullable<Release['promote']>;
+}
+
+/**
+ * Источник выпуска в канал (§3.2 п.1–2, §3.4). Ветки каналов сначала
+ * сводятся с origin. Бета и альфа — вершина основной ветки (или ветки канала,
+ * из которого продвигаются); стабильный у цели с бетой — коммит тега
+ * последней состоявшейся беты; хотфикс — вершина ветки стабильного. Ветка
+ * канала обязана быть предком снимка: иначе в конце её не перемотать, и
+ * выпуск встаёт сразу, с причиной, — до сборки, а не после.
+ */
+async function channelSnapshot(ctx: Ctx, channel: ReleaseChannel, base: string): Promise<StepResult | ChannelSnapshot> {
+  const { state, repo, target } = ctx;
+  const r = rel(ctx);
+  const spec = channelSpec(target, channel);
+  for (const c of targetChannels(target)) {
+    const branch = channelSpec(target, c).branch;
+    const synced = await syncChannelBranch(repo, branch, githubToken(), state.lang());
+    if (synced === 'diverged') return fail(say(ctx, 'rel.ch.originDiverged', { branch }), { needsDecision: true });
+  }
+  const beta = channel === 'stable' && !r.hotfix && target.channels?.beta ? lastBeta(state, target.id) : null;
+  let from: string;
+  let sha: string | null;
+  if (channel === 'stable' && r.hotfix) {
+    from = spec.branch;
+    sha = await revision(repo, `refs/heads/${spec.branch}`);
+    if (!sha) return fail(say(ctx, 'rel.ch.noHotfixBranch', { branch: spec.branch }), { needsDecision: true });
+  } else if (channel === 'stable' && target.channels?.beta) {
+    if (!beta) return fail(say(ctx, 'rel.ch.noBeta', { target: target.title }), { needsDecision: true });
+    // Тег беты — то, что проверяли тестеры; запись выпуска — запасной путь,
+    // если тег не доехал до этой копии.
+    from = fillVersion(target.tag ?? DEFAULT_TAG, point(beta));
+    sha = (await revision(repo, `refs/tags/${from}^{commit}`)) ?? (beta.sha || null);
+    if (!sha) return fail(say(ctx, 'rel.noBranch', { branch: from }), { needsDecision: true });
+  } else {
+    from = sourceBranch(target, channel, base);
+    sha = await revision(repo, `refs/heads/${from}`);
+    if (!sha) return fail(say(ctx, 'rel.noBranch', { branch: from }));
+  }
+
+  const tip = await revision(repo, `refs/heads/${spec.branch}`);
+  if (tip && tip !== sha && !(await isAncestor(repo, tip, sha))) {
+    return channel === 'stable'
+      ? fail(say(ctx, 'rel.ch.stableDiverged', { branch: spec.branch, beta: beta?.version ?? from }), { needsDecision: true })
+      : fail(say(ctx, 'rel.ch.betaDiverged', { branch: spec.branch, source: from }), { needsDecision: true });
+  }
+  return { sha, prev: lastDoneIn(state, target.id, channel, r.id), promote: { from, sha, branch: spec.branch } };
+}
+
+/**
+ * Продвинуть ветку канала на вершину выпуска (§3.2 п.7). Зовётся из
+ * `publish` — последнего узла, до которого выпуск доходит только после
+ * зелёного CI и видимого релиза (или удачной сборки на машине), так что в
+ * ветке канала лежат только выпущенные коммиты. Только перемотка; не вышло —
+ * причина, выпуск встаёт с needsDecision.
+ */
+async function promoteChannel(ctx: Ctx): Promise<string | null> {
+  const { state, repo } = ctx;
+  const r = rel(ctx);
+  if (!r.promote) return null;
+  const tip = (await revision(repo, `refs/heads/${r.branch}`)) ?? r.sha;
+  const out = await promoteBranch(repo, r.promote.branch, tip, githubToken(), state.lang());
+  if (!out.ok) return say(ctx, 'rel.ch.promoteFailed', { branch: r.promote.branch, why: clip(out.message, 300) });
+  if (out.kind !== 'same') {
+    state.addLog(null, 'system', say(ctx, 'rel.ch.promoted', { branch: r.promote.branch, sha: tip.slice(0, 8) }));
+  }
+  return null;
+}
+
+// ------------------------------------------------- переезд временных веток
+
+/**
+ * Временные ветки выпусков переехали из `release/<id>` в `office/rel/<id>`
+ * (§5.4): иначе ветку канала `release` не создать — git хранит её файлом, а
+ * `release/…` — каталогом. Один раз на офис и репозиторий: влитые в основную
+ * удаляются, остальные переименовываются, у выпусков меняется `branch`.
+ * Трогаются только ветки выпусков офиса — `release/1.2` человека остаётся.
+ */
+const migrations = new Map<string, Promise<void>>();
+
+export function migrateReleaseBranches(state: OfficeState, repo: string): Promise<void> {
+  const key = `${state.officeId}:${repo}`;
+  let done = migrations.get(key);
+  if (!done) {
+    done = migrateOnce(state, repo).catch((err) => {
+      state.addLog(null, 'error', state.say('rel.ch.migrateFailed', { error: (err as Error).message }));
+    });
+    migrations.set(key, done);
+  }
+  return done;
+}
+
+async function migrateOnce(state: OfficeState, repo: string): Promise<void> {
+  if (!(await isRepo(repo))) return;
+  const list = await git(repo, ['for-each-ref', '--format=%(refname:short)', 'refs/heads/release/']);
+  if (!list.ok || !list.stdout) return;
+  const base = await baseBranch(repo);
+  const baseSha = base ? await revision(repo, base) : null;
+  const targets = new Set(state.releaseTargets().map((x) => x.id));
+  for (const old of list.stdout.split('\n').filter(Boolean)) {
+    const id = old.slice('release/'.length);
+    const ofTarget = /^([a-z0-9][a-z0-9-]*)-\d+$/.exec(id);
+    if (!state.releases.has(id) && !(ofTarget && targets.has(ofTarget[1]))) continue;
+    const release = state.releases.get(id);
+    const sha = await revision(repo, `refs/heads/${old}`);
+    // Ветку идущего или вставшего выпуска не удаляем, даже если она «влита»:
+    // снимок на вершине основной ветки — тоже её предок.
+    const settled = !release || release.status === 'done' || release.status === 'skipped';
+    const merged = Boolean(sha && baseSha && settled && (await isAncestor(repo, sha, baseSha)));
+    const next = `office/rel/${id}`;
+    const out = merged ? await git(repo, ['branch', '-D', old]) : await git(repo, ['branch', '-m', old, next]);
+    if (!out.ok) continue;
+    if (release?.branch === old) state.patchRelease(id, { branch: merged ? '' : next });
+  }
+}
+
 /**
  * Снимок (§3): SHA основной ветки, диапазон с прошлого выпуска, задачи и
  * фичи, которые в него вошли, и ветка выпуска на этом коммите. Нового нет —
  * выпуск тихо заканчивается: выпускать то же самое второй раз незачем.
+ * У цели с каналами источник, диапазон и продвижение — по каналу
+ * (`channelSnapshot`).
  */
 const snapshot: Executor<Ctx> = {
   async run(ctx) {
     const { state, repo, target } = ctx;
     if (!(await isRepo(repo))) return fail(say(ctx, 'rel.noRepo', { dir: repo }));
     const base = await baseBranch(repo);
-    const sha = base ? await revision(repo, base) : null;
-    if (!base || !sha) return fail(say(ctx, 'rel.noBase'));
-    const prev = lastDone(state, target.id, ctx.releaseId);
+    const head = base ? await revision(repo, base) : null;
+    if (!base || !head) return fail(say(ctx, 'rel.noBase'));
+    await migrateReleaseBranches(state, repo);
+    const channel = channelOf(target, rel(ctx));
+    let sha = head;
+    let prev: Release | null;
+    let promote: Release['promote'] = null;
+    if (channel) {
+      const picked = await channelSnapshot(ctx, channel, base);
+      if ('outcome' in picked) return picked;
+      ({ sha, prev, promote } = picked);
+    } else {
+      prev = lastDone(state, target.id, ctx.releaseId);
+    }
     // Первый выпуск цели, у которой версия живёт в тегах, считается от
     // последнего такого тега: выпуск офиса до настройки был, просто руками.
     const fromSha = prev?.sha || await lastTagSha(repo, target) || null;
@@ -285,7 +451,7 @@ const snapshot: Executor<Ctx> = {
     // остаётся слияние ветки выпуска, а своих коммитов с ним не приходит.
     const own = fromSha ? await git(repo, ['rev-list', '--no-merges', '--count', `${fromSha}..${sha}`]) : null;
     if (fromSha && (fromSha === sha || await isAncestor(repo, sha, fromSha) || (own?.ok && own.stdout === '0'))) {
-      const note = say(ctx, 'rel.nothingNew', { target: target.title, version: label(prev as Release) });
+      const note = say(ctx, 'rel.nothingNew', { target: target.title, version: prev ? label(prev) : '—' });
       patch(ctx, { status: 'skipped', stage: note, finishedAt: Date.now(), sha, fromSha });
       state.addChat(OFFICE_SENDER, note);
       return { outcome: 'empty', note };
@@ -309,11 +475,11 @@ const snapshot: Executor<Ctx> = {
       .filter((t) => t.merged && ((t.mergeCommit && commits.has(t.mergeCommit)) || named.has(t.id)))
       .sort((a, b) => (a.outcome?.at ?? 0) - (b.outcome?.at ?? 0));
     const epicIds = [...new Set(tasks.map((t) => t.epicId).filter((e): e is string => Boolean(e)))];
-    const branch = `release/${ctx.releaseId}`;
+    const branch = `office/rel/${ctx.releaseId}`;
     const made = await git(repo, ['branch', '-f', branch, sha]);
     if (!made.ok) return fail(say(ctx, 'rel.branchFailed', { branch, error: made.stderr }));
     patch(ctx, {
-      sha, fromSha, branch, taskIds: tasks.map((t) => t.id), epicIds,
+      sha, fromSha, branch, taskIds: tasks.map((t) => t.id), epicIds, promote,
       stage: say(ctx, 'rel.stage.snapshot', { n: commits.size, tasks: tasks.length }),
     });
     const lines = tasks.map((t) => `- ${t.id} ${clip(t.title, 80)}`);
@@ -934,6 +1100,14 @@ const publish: Executor<Ctx> = {
   async run(ctx) {
     const { state, target, repo } = ctx;
     const r = rel(ctx);
+    // Ветка канала двигается первой: если перемотка не прошла, выпуск
+    // встаёт, а временная ветка остаётся — повтор начнёт отсюда же.
+    const stop = await promoteChannel(ctx);
+    if (stop) {
+      state.addLog(null, 'error', stop);
+      tellPm(state, stop);
+      return fail(stop, { needsDecision: true });
+    }
     const base = await baseBranch(repo);
     let mergedBack = true;
     if (base) {

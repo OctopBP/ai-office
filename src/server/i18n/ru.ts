@@ -220,6 +220,8 @@ export const ru: Record<keyof typeof en, string> = {
   'git.baseMergeFailed': 'Не удалось влить {base} в ветку задачи: {error}',
   'git.conflictFiles': 'Конфликт с {base} в файлах: {files}',
   'git.mergeAssembled': 'Слияние {branch} с {base} собрано в рабочей копии офиса.',
+  'git.channel.diverged': 'Ветка {branch} не предок коммита {sha} — перемотка невозможна, ветки разошлись.',
+  'git.channel.rejected': 'origin не принял перемотку ветки {branch}: на GitHub она ушла вперёд или защищена. Офис не делает force-push. {error}',
   'git.noOrigin': 'У репозитория нет origin — отправлять ветку некуда.',
 
   // ------------------------------------------------------- очередь слияния
@@ -978,6 +980,14 @@ export const ru: Record<keyof typeof en, string> = {
   'rel.askAssumption': 'Пока нет ответа, выпуск стоит и ничего не тратит.',
   'rel.askChat': '📦 Готов выпуск «{target}» {version} — жду вашего согласия ({id}).',
   'rel.askLevel': ', разряд {level} ({from})',
+  'rel.ch.originDiverged': 'Локальная ветка {branch} разошлась с origin/{branch} — перемоткой канал не сдвинуть. Сведите ветки руками и повторите выпуск.',
+  'rel.ch.noBeta': '«{target}»: состоявшейся беты ещё нет — стабильный выпуск продвигается только из проверенной беты. Сначала выпустите бету.',
+  'rel.ch.noHotfixBranch': 'Ветки {branch} нет — выпускать хотфикс не из чего.',
+  'rel.ch.betaDiverged': 'В ветке {branch} есть коммиты, которых нет в {source}, — перемотать её на снимок нельзя. Сначала влейте {branch} вниз в {source}, затем повторите выпуск.',
+  'rel.ch.stableDiverged': 'В ветке {branch} есть коммиты (хотфикс?), которых нет в бете {beta}, — перемоткой стабильный на неё не сдвинуть. Сначала нужна новая бета с хотфиксом.',
+  'rel.ch.promoteFailed': 'Выпуск собран и виден, но ветка {branch} не сдвинута: {why}',
+  'rel.ch.promoted': 'Ветка канала {branch} перемотана на {sha}.',
+  'rel.ch.migrateFailed': 'Не удалось перенести старые ветки выпусков release/<id> в office/rel/<id>: {error}',
   'rel.branchFailed': 'Не удалось поставить ветку {branch}: {error}',
   'rel.buildFailed': 'Сборка «{target}» упала.',
   'rel.buildTimeout': 'Сборка не уложилась в {min} мин и остановлена.',

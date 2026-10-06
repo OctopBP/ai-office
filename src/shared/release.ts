@@ -561,8 +561,19 @@ export interface Release {
   sha: string;
   /** Прошлый выпуск этой цели. null — первый. */
   fromSha: string | null;
-  /** Ветка выпуска `release/<id>`: снимок, версия, починки. */
+  /**
+   * Временная ветка выпуска `office/rel/<id>`: снимок, версия, починки.
+   * У выпусков до каналов — `release/<id>`, их переименовывает
+   * `migrateReleaseBranches` (docs/design/release-channels/spec.md §5.4).
+   */
   branch: string;
+  /** Стабильный выпуск прямо из ветки `release` (§3.5): продвигать нечего. */
+  hotfix?: boolean;
+  /**
+   * Продвижение ветки канала: откуда снимок (ветка или тег беты), его коммит
+   * и ветка канала, которую в конце перематывают на вершину выпуска.
+   */
+  promote?: { from: string; sha: string; branch: string } | null;
   epicIds: string[];
   taskIds: string[];
   planId: string | null;
