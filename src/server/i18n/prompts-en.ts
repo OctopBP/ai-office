@@ -743,6 +743,20 @@ Keep your replies to the user short. Which language to write them in is said in 
     'the Figma MCP Bridge plugin in the file.',
   ].join('\n'),
 
+  'mcp.penpot.brief': [
+    'Penpot is available to you directly, through the `mcp__penpot__*` tools. The main one is',
+    '`execute_code`: you write JS against the Penpot Plugin API and it runs in the open editor',
+    'tab. Start with `high_level_overview`, take API reference from `penpot_api_info`,',
+    'screenshots with `export_shape`, pictures from files with `import_image`.',
+    'The script decides what to return: return only what you need (ids, names, sizes), not the',
+    'whole node tree — that is exactly what broke the Figma runs.',
+    'Penpot is the owner’s canvas for new layouts; Figma stays for the ones already made.',
+    'Writes go to the current page of the open file, and Penpot has one MCP tab at a time.',
+    'If the tools answer that there is no connection — say exactly that in the report. It is',
+    'fixed by starting the local server and opening the plugin in Penpot',
+    '(docs/design/penpot-mcp/setup.md), and a description is not a substitute for a layout.',
+  ].join('\n'),
+
   'mcp.imagegen.brief': [
     'You have something to draw with — the `mcp__imagegen__*` tools. `generate_image`',
     'takes a description and a path and saves the picture as a file in your working',

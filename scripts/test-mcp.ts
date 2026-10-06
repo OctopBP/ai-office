@@ -29,6 +29,16 @@ const list = (r: Role, s?: Settings): string => servers(r, s).join(', ') || '(н
 // ------------------------------------------------------------- подписки
 
 check('дизайнеру figma-bridge', servers(role('design')).includes('figma-bridge'), list(role('design')));
+check('дизайнеру penpot', servers(role('design')).includes('penpot'), list(role('design')));
+check('фронтенду penpot не нужен', !servers(role('frontend')).includes('penpot'), list(role('frontend')));
+// Локальный @penpot/mcp — HTTP-сервер на своих портах: stdio на каждую сессию
+// упёрся бы во второй сессии в занятый порт.
+const penpot = externalMcp(catalog(), role('design')).penpot;
+check('penpot ходит по http на localhost:4401',
+  penpot?.type === 'http' && 'url' in penpot && penpot.url === 'http://localhost:4401/mcp',
+  JSON.stringify(penpot));
+check('у penpot есть строка в промпте дизайнера', mcpBrief(catalog(), role('design'), 'ru').includes('mcp__penpot__'),
+  mcpBrief(catalog(), role('design'), 'ru').includes('mcp__penpot__') ? 'есть' : 'нет');
 check('фронтенду тот же figma-bridge', servers(role('frontend')).includes('figma-bridge'), list(role('frontend')));
 check('3D-художнику blender', servers(role('artist3d')).includes('blender'), list(role('artist3d')));
 check('бэкенду ничего', servers(role('backend')).length === 0, list(role('backend')));
