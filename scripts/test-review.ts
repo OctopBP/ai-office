@@ -697,15 +697,38 @@ async function main(): Promise<void> {
   {
     const task = taskBranch(dir, 'R', { 'r.md': 'Пост\n' },
       { roleId: 'smm', type: 'content', assigneeId: 'smm#1' });
+    // Подпись пулл-реквеста в момент доработки (T-361).
+    let reworkNote: string | undefined;
     const s = stub({
-      step: (_state, _task, req) => ({
-        ok: true, outcome: req.node === 'legal' ? 'ok' : 'done', summary: `сделал ${req.node}`, actor: req.prefer ?? 'legal#1',
-      }),
+      step: (_state, _task, req) => {
+        if (req.node === 'rework') reworkNote = office.prOf(task.id)?.note;
+        return {
+          ok: true, outcome: req.node === 'legal' ? 'ok' : 'done', summary: `сделал ${req.node}`, actor: req.prefer ?? 'legal#1',
+        };
+      },
     });
+    // Доработку держим, пока не посмотрим подпись сразу после ответа.
+    let release = () => {};
+    const hold = new Promise<void>((r) => { release = r; });
+    const steps = s.step;
+    s.step = (state, t, req) => (req.node === 'rework' ? hold.then(() => steps(state, t, req)) : steps(state, t, req)) as never;
     const done = runPipeline(office, task.id);
-    await decide(task.id, 'нет, короче и без цен');
+    const noId = await decide(task.id, 'нет, короче и без цен');
+    let afterNo: string | undefined;
+    for (let i = 0; i < 200; i += 1) {
+      afterNo = office.prOf(task.id)?.note;
+      if (afterNo && afterNo !== office.say('wf.gateWaiting', { id: noId })) break;
+      await new Promise((r) => setTimeout(r, 10));
+    }
+    release();
     await decide(task.id, 'да');
     await done;
+
+    say('▶ Подпись PR после ответа владельца не ждёт закрытый вопрос (T-361)');
+    check('после «нет» подпись сменилась на доработку', afterNo !== undefined
+      && [office.say('wf.gateClosedNo'), office.say('wf.stepNoteAuthor', { node: 'rework' })].includes(afterNo));
+    check('подпись не называет закрытый вопрос', !afterNo?.includes(noId));
+    check('в доработке подпись — про доработку', reworkNote === office.say('wf.stepNoteAuthor', { node: 'rework' }));
 
     say('▶ «Нет» владельца — доработка автором и второй круг');
     check('порядок шагов: юрист, доработка, юрист',

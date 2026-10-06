@@ -613,6 +613,8 @@ const rework: Executor<Ctx> = {
   async run(ctx) {
     const { state, task } = ctx;
     const text = ctx.run.artifacts.review?.text ?? '';
+    // Подпись описывает текущий узел, а не прошлый (T-361).
+    state.patchPr(task.id, { note: state.say('wf.reworkNote') });
     const fix = await agents.rework(state, task, reworkPrompt(state, task, text));
     const worktree = state.tasks.get(task.id)?.worktreePath ?? null;
     if (worktree) await settle(state, worktree, task, state.say('pipe.note.rework'));
@@ -929,6 +931,11 @@ const step: Executor<Ctx> = {
       state.say('prompt.step.finish', { outcomes: outcomes.join(', ') }),
     ].filter(Boolean).join('\n');
 
+    // Подпись пулл-реквеста — про этот шаг: иначе в ней висит прошлый узел,
+    // например «жду решения владельца» по уже закрытому вопросу (T-361).
+    state.patchPr(task.id, {
+      note: state.say(node.same === AUTHOR ? 'wf.stepNoteAuthor' : 'wf.stepNote', { node: node.id }),
+    });
     const out = await agents.step(state, task, {
       node: node.id, needs, prefer, exclude: excluded ? [excluded] : [],
       cwd: worktree, prompt, outcomes,
@@ -991,6 +998,17 @@ const YES_RE = new RegExp(
 
 /** Ответ владельца на согласование — «да»? Всё остальное, включая «Нужны правки», — «нет». */
 export const gateAnswerYes = (answer: string): boolean => YES_RE.test(answer);
+
+/**
+ * Подпись пулл-реквеста, когда вопрос согласования закрылся: что решил
+ * владелец и что дальше. Номер вопроса не называем — он уже закрыт, и
+ * менеджер не должен искать его среди открытых (T-361).
+ */
+export function gateClosedNote(state: OfficeState, q: OwnerQuestion | null): string {
+  if (!q) return state.say('wf.gateClosedGone');
+  if (!q.answeredAt) return state.say('wf.gateClosedDismissed');
+  return state.say(gateAnswerYes(q.answer ?? '') ? 'wf.gateClosedYes' : 'wf.gateClosedNo');
+}
 
 /**
  * Что спрашиваем у встроенных процессов — фразой из словаря, а не строкой из
@@ -1092,6 +1110,9 @@ const gate: Executor<Ctx> = {
     state.patchPr(task.id, { note: state.say('wf.gateWaiting', { id: question.id }) });
 
     const closed = await state.whenQuestionClosed(question.id);
+    // «Жду решения владельца» больше не правда: подпись сразу говорит, что
+    // решено, и не называет закрытый вопрос (T-361).
+    state.patchPr(task.id, { note: gateClosedNote(state, closed) });
     if (!closed) return { outcome: 'no', note: state.say('wf.gateGone', { id: question.id }) };
     if (!closed.answeredAt) {
       // Закрыт вместе с задачей — владельцу об этом отказе сказать нечего.
