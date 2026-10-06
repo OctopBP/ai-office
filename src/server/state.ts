@@ -63,7 +63,7 @@ import {
   uiLanguage,
 } from './offices';
 import {
-  checkMcpServers, DEFAULT_MCP_SERVERS, mcpCatalog, mcpNamesFor, pollMcpStatus, serversFor, type McpStatusSource,
+  checkMcpServers, DEFAULT_MCP_SERVERS, MCP_NOT_IN_SESSION, mcpCatalog, mcpNamesFor, pollMcpStatus, serversFor, type McpStatusSource,
 } from './mcp';
 import { ensureChromium } from './chromium';
 import { employeeServers } from './skills';
@@ -576,6 +576,7 @@ function rolesFromSave(
   if (pending.includes(SONNET_5_5_MIGRATION)) stored = stored.map(toSonnet55);
   let roles = withManagerRole(sanitizeRoles(stored, lang), lang);
   if (pending.includes(FIGMA_CONSOLE_MIGRATION)) roles = roles.map(withFigmaConsole);
+  if (pending.includes(PENPOT_MIGRATION)) roles = roles.map(withPenpot);
   return pending.includes(OFFICE_MODEL_MIGRATION)
     ? roles.map((role) => inheritOfficeModel(role, office, lang))
     : roles;
@@ -592,15 +593,48 @@ function rolesFromSave(
  */
 const FIGMA_CONSOLE_MIGRATION = 'figma-console';
 
-/** Дизайнер — тот, кто подписан на мост Figma или нанят из пакета дизайнера. */
+/**
+ * Дизайнер ли это — для миграций серверов дизайнера. Нанятый из пакета узнаётся
+ * по пакету, роль без пакета — по id (`design`, `design-2`, `designer`).
+ * Подписка на `figma-bridge` признаком не годится: она есть и у фронтенда, и
+ * по ней фронтенду доставались серверы дизайнера, а Penpot ему не нужен вовсе.
+ */
+function isDesigner(role: Role): boolean {
+  return role.package
+    ? role.package.name === '@office/design'
+    : /^design/.test(role.id) && mcpNamesFor(role).includes('figma-bridge');
+}
+
+/** Дизайнеру, нанятому раньше, — второй сервер Figma (кто дизайнер — `isDesigner`). */
 function withFigmaConsole(role: Role): Role {
   const names = mcpNamesFor(role);
-  if (names.includes('figma-console')) return role;
-  if (!names.includes('figma-bridge') && role.package?.name !== '@office/design') return role;
+  if (names.includes('figma-console') || !isDesigner(role)) return role;
   const mcp = [...names, 'figma-console'];
   // У роли из пакета список собирается заново из пакета и разницы с ним,
   // поэтому дописываем и в разницу: равную умолчанию пакета снимет сам
   // `roleFromPackage` при следующей загрузке.
+  return role.package
+    ? { ...role, mcp, package: { ...role.package, overrides: { ...role.package.overrides, mcp } } }
+    : { ...role, mcp };
+}
+
+/**
+ * Разовая миграция: дизайнерам, нанятым до T-378, — Penpot (`penpot`, http на
+ * localhost:4401). Как и с `figma-console`, каталог офиса доливает умолчание
+ * сам, а подписка роли лежит в сохранении и сама не растёт: у дизайнера из
+ * старого офиса оставался один `figma-bridge`, и в сессии не было ни одного
+ * `mcp__penpot__*`, хотя сервер у владельца запущен.
+ *
+ * Разовая по той же причине: снятый владельцем после миграции сервер не
+ * должен вернуться при следующей загрузке.
+ */
+const PENPOT_MIGRATION = 'penpot';
+
+/** Дизайнеру, нанятому раньше, — Penpot. */
+function withPenpot(role: Role): Role {
+  const names = mcpNamesFor(role);
+  if (names.includes('penpot') || !isDesigner(role)) return role;
+  const mcp = [...names, 'penpot'];
   return role.package
     ? { ...role, mcp, package: { ...role.package, overrides: { ...role.package.overrides, mcp } } }
     : { ...role, mcp };
@@ -644,7 +678,7 @@ const SONNET_5_5_MIGRATION = 'sonnet-5-to-5-5';
 
 /** Все разовые миграции ролей. Новый офис заводится с ними проведёнными. */
 const ROLE_MIGRATIONS: readonly string[] = [
-  SONNET_5_5_MIGRATION, OFFICE_MODEL_MIGRATION, FIGMA_CONSOLE_MIGRATION,
+  SONNET_5_5_MIGRATION, OFFICE_MODEL_MIGRATION, FIGMA_CONSOLE_MIGRATION, PENPOT_MIGRATION,
 ];
 
 /**
@@ -3856,17 +3890,29 @@ export class OfficeState {
     for (const next of list) {
       const prev = this.mcpState.get(next.id);
       this.mcpState.set(next.id, next);
-      if (prev?.status === next.status && prev.error === next.error) continue;
+      const same = prev?.status === next.status && prev.error === next.error;
+      // Отказ повторяем в логе каждой новой сессии: сессия без инструментов —
+      // своя у каждой роли, и строка у прошлого исполнителя ей не видна.
+      // «Подключился» на каждую задачу был бы шумом — его только по смене.
+      const failed = next.status !== 'connected' && next.status !== 'pending';
+      if (same && !(failed && prev?.agentId !== next.agentId)) continue;
       changed = true;
-      const title = this.mcpServers().find((s) => s.id === next.id)?.title || next.id;
+      const def = this.mcpServers().find((s) => s.id === next.id);
+      const title = def?.title || next.id;
       if (next.status === 'connected') {
         this.addLog(next.agentId, 'system', this.say('state.mcp.connected', { title }));
-      } else if (next.status !== 'pending') {
+      } else if (failed) {
         // Отказ сервера — это не отказ офиса: роль доработает тем, что есть.
         // Но человек должен видеть причину, а не гадать по пустым инструментам.
-        this.addLog(next.agentId, 'system', this.say('state.mcp.failed', {
-          title, reason: clipText(next.error, 200) || next.status,
-        }));
+        // У сервера по адресу (Penpot) причина почти всегда одна — его не
+        // запустили, — поэтому адрес называем прямо.
+        const reason = next.error === MCP_NOT_IN_SESSION
+          ? this.say('state.mcp.notInSession')
+          : clipText(next.error, 200) || next.status;
+        this.addLog(next.agentId, 'system', def && def.transport !== 'stdio' && def.url
+          ? this.say('state.mcp.failedUrl', { title, url: def.url, reason })
+          : this.say('state.mcp.failed', { title, reason }));
+        console.warn(`[mcp] сервер ${next.id} не подключился у ${next.agentId}: ${reason}`);
       }
     }
     if (changed) this.emit({ t: 'mcp.status', servers: this.mcpStatuses() });

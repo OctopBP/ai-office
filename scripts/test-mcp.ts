@@ -5,7 +5,7 @@
 // роль не заметит, а строка не от той роли хуже отсутствия строки — фронтенд,
 // которому сказано «делай макет в Figma», займётся не своим делом.
 import {
-  checkMcpServers, DEFAULT_MCP_SERVERS, externalMcp, mcpBrief, mcpCatalog, pollMcpStatus, serversFor,
+  checkMcpServers, DEFAULT_MCP_SERVERS, externalMcp, MCP_NOT_IN_SESSION, mcpBrief, mcpCatalog, pollMcpStatus, serversFor,
 } from '../src/server/mcp';
 import { defaultRole } from '../src/server/roles';
 import type { Role } from '../src/server/roles';
@@ -39,6 +39,13 @@ check('penpot ходит по http на localhost:4401',
   JSON.stringify(penpot));
 check('у penpot есть строка в промпте дизайнера', mcpBrief(catalog(), role('design'), 'ru').includes('mcp__penpot__'),
   mcpBrief(catalog(), role('design'), 'ru').includes('mcp__penpot__') ? 'есть' : 'нет');
+// Офис старше T-378 (T-389): в сохранённом каталоге penpot нет, а роль на
+// него подписана — каталог доливает умолчание, и сервер доезжает до сессии.
+const oldCatalog = catalog(DEFAULT_MCP_SERVERS.filter((d) => d.id === 'figma-bridge' || d.id === 'blender'));
+const hiredDesign = { ...role('design'), mcp: ['figma-bridge', 'figma-console', 'penpot'] };
+check('старый каталог: дизайнер получает penpot и figma-console',
+  ['penpot', 'figma-console'].every((id) => servers(hiredDesign, oldCatalog).includes(id)),
+  list(hiredDesign, oldCatalog));
 check('фронтенду тот же figma-bridge', servers(role('frontend')).includes('figma-bridge'), list(role('frontend')));
 check('3D-художнику blender', servers(role('artist3d')).includes('blender'), list(role('artist3d')));
 check('бэкенду ничего', servers(role('backend')).length === 0, list(role('backend')));
@@ -238,6 +245,17 @@ const odd = await pollMcpStatus(
   wanted, 'design#1', noWait, 1,
 );
 check('незнакомый статус считаем «поднимается»', odd[0]?.status === 'pending', String(odd[0]?.status));
+
+// Сервер, которого сессия не знает вовсе, — немой отказ: роль без
+// инструментов, а в логе пусто (так выглядел penpot у дизайнера, T-389).
+const silent = await pollMcpStatus(
+  fakeSession([[{ name: 'figma-bridge', status: 'connected' }]]) as never,
+  new Set(['figma-bridge', 'penpot']), 'design#1', noWait,
+);
+check('сервер не дошёл до сессии — это отказ',
+  silent.find((m) => m.id === 'penpot')?.status === 'failed'
+    && silent.find((m) => m.id === 'penpot')?.error === MCP_NOT_IN_SESSION,
+  JSON.stringify(silent.map((m) => `${m.id}:${m.status}`)));
 
 // Сессия оборвалась — это не событие про серверы, статус выдумывать нечего.
 const dead = await pollMcpStatus(fakeSession([null as never]) as never, wanted, 'design#1', noWait);

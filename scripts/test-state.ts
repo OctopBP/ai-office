@@ -21,6 +21,7 @@ import {
   totalRunningWorkers, unloadOfficeState,
 } from '../src/server/state';
 import { refreshEnvChecks } from '../src/server/envcheck';
+import { externalMcp } from '../src/server/mcp';
 import { sameChoice } from '../src/shared/providers';
 import { flushAll, load, save, wipe, type Persisted } from '../src/server/store';
 import {
@@ -1296,6 +1297,8 @@ async function main(): Promise<void> {
       { ...legacyDesign, id: 'designer', title: 'Дизайнер', mcp: ['figma-bridge', 'imagegen'] },
       // Не дизайнер — его миграция не касается.
       { ...legacyBackend, id: 'writer', title: 'Писатель', mcp: [] },
+      // Фронтенд с мостом Figma — тоже не дизайнер: Penpot ему не нужен.
+      { ...legacyBackend, id: 'frontend', title: 'Фронтенд', mcp: ['figma-bridge'] },
     ],
   }));
   flushAll();
@@ -1304,13 +1307,23 @@ async function main(): Promise<void> {
   }).state;
   results.push(
     `дизайнер из пакета получил figma-console: ${
-      JSON.stringify(figmaRoles.role('design')?.mcp) === '["figma-bridge","figma-console"]'}`,
+      JSON.stringify(figmaRoles.role('design')?.mcp) === '["figma-bridge","figma-console","penpot"]'}`,
     `дизайнер без пакета получил figma-console: ${
-      JSON.stringify(figmaRoles.role('designer')?.mcp) === '["figma-bridge","imagegen","figma-console"]'}`,
+      JSON.stringify(figmaRoles.role('designer')?.mcp) === '["figma-bridge","imagegen","figma-console","penpot"]'}`,
+    // Penpot (T-378) тем же дизайнерам, нанятым раньше (T-389), — и он
+    // доезжает до сессии, хотя в сохранённом каталоге офиса его нет.
+    `сессия нанятого дизайнера получает penpot: ${
+      'penpot' in externalMcp(figmaRoles.settings, figmaRoles.role('design')!)}`,
+    `penpot в сессии — http на localhost:4401: ${
+      JSON.stringify(externalMcp(figmaRoles.settings, figmaRoles.role('designer')!).penpot)
+        === JSON.stringify({ type: 'http', url: 'http://localhost:4401/mcp', alwaysLoad: true })}`,
     `не дизайнеру сервер не добавлен: ${JSON.stringify(figmaRoles.role('writer')?.mcp) === '[]'}`,
+    `фронтенду с мостом серверы дизайнера не добавлены: ${
+      JSON.stringify(figmaRoles.role('frontend')?.mcp) === '["figma-bridge"]'}`,
   );
   // Владелец снимает сервер с роли после миграции.
   figmaRoles.updateRole('designer', { mcp: ['figma-bridge', 'imagegen'] });
+  figmaRoles.updateRole('writer', { mcp: ['figma-bridge'] });
   unloadOfficeState('o-roles-figma');
   flushAll();
   const figmaSave = load(figmaFile);
@@ -1323,6 +1336,11 @@ async function main(): Promise<void> {
       figmaAgain.role('design')?.mcp?.filter((id) => id === 'figma-console').length === 1}`,
     `снятый владельцем figma-console не вернулся: ${
       JSON.stringify(figmaAgain.role('designer')?.mcp) === '["figma-bridge","imagegen"]'}`,
+    `отметка миграции penpot в сохранении: ${figmaSave?.roleMigrations?.includes('penpot') === true}`,
+    `повторная загрузка не дублирует penpot: ${
+      figmaAgain.role('design')?.mcp?.filter((id) => id === 'penpot').length === 1}`,
+    `проведённая миграция penpot не трогает новую подписку: ${
+      JSON.stringify(figmaAgain.role('writer')?.mcp) === '["figma-bridge"]'}`,
   );
   unloadOfficeState('o-roles-figma');
   wipe(figmaFile);

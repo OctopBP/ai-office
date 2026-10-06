@@ -140,6 +140,8 @@ export const en = {
   'state.settings.noLayout': 'There is no “{id}” layout in design/layouts. Available: {known}.',
   'state.mcp.connected': 'Server "{title}" connected.',
   'state.mcp.failed': 'Server "{title}" did not connect: {reason}. The role will work with built-in tools.',
+  'state.mcp.failedUrl': 'Server "{title}" at {url} did not connect: {reason}. Check that it is running and responding. The role will work with built-in tools.',
+  'state.mcp.notInSession': 'the session did not receive it',
   'state.settings.mcp.badId': 'Server "{id}": the name may only contain latin letters, digits and hyphens — tool names are built from it.',
   'state.settings.mcp.dupId': 'Server "{id}" appears twice in the catalogue: names must be unique.',
   'state.settings.mcp.noCommand': 'Server "{id}": no command to start it with.',

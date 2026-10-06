@@ -442,6 +442,9 @@ export interface McpStatusSource {
   }>>;
 }
 
+/** Причина отказа «сессия о сервере не знает»: текст для лога даёт словарь. */
+export const MCP_NOT_IN_SESSION = 'not-in-session';
+
 const KNOWN_STATUS = new Set(['connected', 'failed', 'needs-auth', 'pending', 'disabled']);
 
 /**
@@ -482,6 +485,13 @@ export async function pollMcpStatus(
         at: Date.now(),
         agentId,
       }));
+    // Сервер, о котором сессия не знает вовсе, — тот же отказ, только немой:
+    // SDK его не поднял, и роль осталась без инструментов без единой строки
+    // в логе. Называем это отказом, чтобы человек увидел причину.
+    for (const id of wanted) {
+      if (last.some((s) => s.id === id)) continue;
+      last.push({ id, status: 'failed', error: MCP_NOT_IN_SESSION, version: '', at: Date.now(), agentId });
+    }
     if (!last.some((s) => s.status === 'pending')) return last;
   }
   return last;
