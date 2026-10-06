@@ -1,4 +1,4 @@
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import { useStore } from '../store';
 import { ShellPage } from '../shell/ShellPage';
 import { Icon } from '../icons';
@@ -11,6 +11,7 @@ import { formatClock, formatDayLabel } from '../dates';
 import type { DocKind, DocMeta } from '../../shared/types';
 import { DocView } from './DocView';
 import { DOC_KINDS, countKind, createDoc, useDocs, visibleDocs } from './store';
+import { DocHistory } from './DocHistory';
 
 const TEMPLATES = ['vision', 'characters', 'brand'] as const;
 
@@ -19,7 +20,7 @@ const when = (at: number): string => `${formatDayLabel(at)}, ${formatClock(at)}`
 /**
  * Окно «Документы» (docs/design/office-docs/spec.md): библиотека документов
  * офиса — вкладки по типам, поиск, режим архива, список. Справа — карточка
- * документа (DocView); история версий — следующая часть.
+ * документа (DocView), по кнопке «История» — ящик версий (DocHistory).
  */
 export function DocsWindow({ onClose }: { onClose: () => void }) {
   const officeId = useStore((s) => s.offices.find((o) => o.current)?.id ?? null);
@@ -28,6 +29,7 @@ export function DocsWindow({ onClose }: { onClose: () => void }) {
   const list = visibleDocs(d);
   const searching = d.matches !== null;
   const selected = d.docs.find((x) => x.id === d.selectedId) ?? null;
+  const [historyOpen, setHistoryOpen] = useState(false);
 
   useEffect(() => { d.setOffice(officeId); }, [officeId]); // eslint-disable-line react-hooks/exhaustive-deps
   // Вернулась связь — перечитываем снимок, пока окно открыто.
@@ -114,6 +116,11 @@ export function DocsWindow({ onClose }: { onClose: () => void }) {
     <ShellPage bodyClass="fixed team-page"
       title={<span className="team-head-left">{t('docs.title')}{tabs}</span>}
       actions={<>
+        {selected && (
+          <button className={`ghost mini${historyOpen ? ' on' : ''}`} onClick={() => setHistoryOpen((v) => !v)}>
+            {t('docs.history.button')}
+          </button>
+        )}
         <button className="primary mini" disabled={!connected}
           onClick={() => void createDoc(t('docs.untitled'), d.tab)}>
           <Icon name="plus" size={12} /> {t('docs.new')}
@@ -156,7 +163,11 @@ export function DocsWindow({ onClose }: { onClose: () => void }) {
           ) : empty())}
         </div>
         <div className="team-detail">
-          {selected ? (
+          {selected && historyOpen ? (
+            <DocHistory docId={selected.id} version={selected.version} onClose={() => setHistoryOpen(false)}>
+              <DocView meta={selected} />
+            </DocHistory>
+          ) : selected ? (
             <DocView meta={selected} />
           ) : d.load === 'ready' && d.tab === 'foundation' && !d.docs.some((x) => x.kind === 'foundation' && !x.archived) && !searching ? (
             <div className="docs-center docs-intro">
