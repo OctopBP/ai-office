@@ -743,6 +743,19 @@ Keep your replies to the user short. Which language to write them in is said in 
     'the Figma MCP Bridge plugin in the file.',
   ].join('\n'),
 
+  'mcp.figma-console.brief': [
+    'Next to the bridge you have Figma Console — the `mcp__figma-console__figma_*` tools.',
+    'It does what the bridge cannot: components and variants (`figma_create_component_set`),',
+    'instances, component properties, Figma collections and variables — that is, theme tokens.',
+    'Start with `figma_get_status`: it shows whether the Desktop Bridge plugin is connected and',
+    'which file is active; with several files open, switch with `figma_navigate`.',
+    '`figma_execute` runs arbitrary Plugin API code in the file and asks the owner every time.',
+    'Use it when there is no ready-made tool (for example, FILL on auto layout children), and',
+    'do more in one call rather than ten small ones.',
+    'If the plugin is not connected — say exactly that in the report: it is fixed by running',
+    'the Figma Desktop Bridge plugin in Figma Desktop, not by working around it via the bridge.',
+  ].join('\n'),
+
   'mcp.penpot.brief': [
     'Penpot is available to you directly, through the `mcp__penpot__*` tools. The main one is',
     '`execute_code`: you write JS against the Penpot Plugin API and it runs in the open editor',

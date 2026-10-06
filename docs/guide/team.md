@@ -98,6 +98,7 @@
 | Сервер | Кому по умолчанию | Чем поднимается | Что нужно снаружи |
 |---|---|---|---|
 | `figma-bridge` | дизайнер, фронтенд | `npx @gethopp/figma-mcp-bridge` | плагин Figma MCP Bridge, открытый в файле |
+| `figma-console` | дизайнер | `npx -y figma-console-mcp@1.40.9` | Figma Desktop с запущенным плагином Desktop Bridge — [установка](figma-console.md) |
 | `blender` | 3D-художник | `uvx blender-mcp` | `uv` и аддон Blender MCP в запущенном Blender |
 | `imagegen` | иллюстратор | `node tools/imagegen/server.mjs` | ключ провайдера в окружении офиса (`NANOBANANA_API_KEY` либо `GEMINI_API_KEY`) |
 

@@ -574,6 +574,8 @@ export const en = {
   'settings.mcp.asked': 'Employee packs ask for',
   'settings.mcp.ask.add': 'Add to catalogue',
   'settings.mcp.ask.hint': 'A pack declares the servers its skills need — it does not connect them. Adding one means agreeing to run that command on this machine, so read it before you click.',
+  'settings.mcp.server.figma-console.name': 'Figma Console',
+  'settings.mcp.server.figma-console.about': 'Figma with component writing: variants, instances, variables and arbitrary Plugin API code. Works while the Desktop Bridge plugin is running in Figma Desktop; the FIGMA_ACCESS_TOKEN token is only needed for comments, versions and libraries. How to install the plugin — docs/guide/figma-console.md.',
   'role.mcp': 'External tools',
   'role.capabilities': 'Skills',
   'role.capabilities.hint': 'Process nodes find an employee by skills. Empty — the office derives them from the role tools.',

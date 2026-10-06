@@ -12,7 +12,7 @@
  * заведомую бессмыслицу вроде stdio без команды.
  */
 import { useId } from 'react';
-import { t } from './i18n';
+import { has, t } from './i18n';
 import { useStore } from './store';
 import type { McpServerDef, McpServerState } from '../shared/types';
 
@@ -36,6 +36,15 @@ const envFromText = (text: string): Record<string, string> => {
   }
   return out;
 };
+
+/**
+ * Название и описание сервера из каталога по умолчанию — из словаря, по id.
+ * Сервер, заведённый руками, своих строк не имеет: тогда пусто.
+ */
+function serverText(id: string, part: 'name' | 'about'): string | undefined {
+  const key = `settings.mcp.server.${id}.${part}`;
+  return has(key) ? t(key) : undefined;
+}
 
 /** Просьба пакета: сервер и роли, которым он нужен. */
 export interface McpRequest {
@@ -115,7 +124,7 @@ export function McpCatalog({ servers, requests, onChange }: {
                     onChange={(e) => patch(i, { id: e.target.value.trim() })}
                   />
                   <input
-                    className="mcp-title" value={srv.title} placeholder={t('settings.mcp.name')}
+                    className="mcp-title" value={srv.title} placeholder={serverText(srv.id, 'name') ?? t('settings.mcp.name')}
                     onChange={(e) => patch(i, { title: e.target.value })}
                   />
                   <select
@@ -135,6 +144,7 @@ export function McpCatalog({ servers, requests, onChange }: {
                 </div>
 
                 <Status state={status[srv.id]} />
+                {serverText(srv.id, 'about') && <span className="form-hint">{serverText(srv.id, 'about')}</span>}
 
                 <div className="form-row">
                   <div className="form-row-label">
