@@ -1,0 +1,79 @@
+/* Панель встроенного терминала (TerminalPanel.tsx): поверх нижней части
+   окна, правее рейла. Высоту ставит сама панель (перетаскивание верхней
+   кромки), свёрнутая — одна строка заголовка. --edge и --gap задаёт
+   оболочка; вне неё панель встаёт от края окна. */
+
+.term-panel {
+  position: absolute; left: calc(var(--edge, 0px) + var(--space-4)); right: var(--space-6); bottom: var(--gap, var(--space-2));
+  z-index: var(--z-popover);
+  display: flex; flex-direction: column;
+  background: var(--surface); border-radius: var(--radius-card);
+  box-shadow: var(--shadow-float); overflow: hidden;
+}
+.term-panel.minimized { height: auto; }
+.term-panel[hidden] { display: none; }
+
+/* Кромка для перетаскивания высоты — тонкая полоса поверх верха панели. */
+.term-grip {
+  position: absolute; top: 0; left: 0; right: 0; height: 6px;
+  cursor: ns-resize; z-index: 1;
+}
+.term-grip:hover { background: var(--film); }
+
+.term-head {
+  flex: none; display: flex; align-items: center; gap: var(--space-3);
+  height: calc(var(--control-h) + var(--space-2)); padding: 0 var(--space-2) 0 var(--space-3);
+  border-bottom: 1px solid var(--hairline);
+}
+.term-panel.minimized .term-head { border-bottom: none; }
+
+.term-tabs { display: flex; align-items: center; gap: var(--space-1); min-width: 0; overflow-x: auto; }
+.term-tab {
+  display: flex; align-items: center; gap: var(--space-2);
+  height: var(--mini-h); padding: 0 var(--space-1) 0 var(--space-2);
+  border-radius: var(--radius-tile); cursor: pointer;
+  font-size: var(--fs-small); color: var(--ink-3); white-space: nowrap;
+}
+.term-tab:hover { background: var(--film); }
+.term-tab.on { background: var(--film-2); color: var(--ink); }
+.term-tab-name { max-width: 160px; overflow: hidden; text-overflow: ellipsis; }
+.term-tab-dot { width: 6px; height: 6px; border-radius: var(--radius-pill); background: var(--ink-4); flex: none; }
+.term-tab.live .term-tab-dot { background: var(--ok); }
+.term-tab.opening .term-tab-dot { background: var(--warn); }
+.term-tab.error .term-tab-dot { background: var(--danger); }
+
+.term-panel button.term-icon,
+.term-panel button.term-tab-x {
+  display: grid; place-items: center; flex: none;
+  width: var(--mini-h); height: var(--mini-h); padding: 0;
+  border: none; background: transparent; color: var(--ink-3);
+  border-radius: var(--radius-tile); cursor: pointer;
+}
+.term-panel button.term-tab-x { width: 18px; height: 18px; border-radius: var(--radius-icon); }
+.term-panel button.term-icon:hover,
+.term-panel button.term-tab-x:hover { background: var(--film-3); color: var(--ink); }
+
+.term-cwd {
+  flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  font-family: var(--font-mono); font-size: var(--fs-small); color: var(--ink-3);
+}
+.term-actions { display: flex; gap: var(--space-1); flex: none; }
+
+.term-body { position: relative; flex: 1; min-height: 0; }
+.term-body[hidden], .term-view[hidden] { display: none; }
+.term-view { position: absolute; inset: 0; display: flex; flex-direction: column; }
+.term-host { flex: 1; min-height: 0; padding: var(--space-2) var(--space-3); }
+.term-host .term-xterm { width: 100%; height: 100%; }
+
+/* Отказ, обрыв или выход оболочки — полоса над буфером: прошлый вывод
+   остаётся читаемым. */
+.term-note {
+  flex: none; order: -1; display: flex; gap: var(--space-2); align-items: flex-start;
+  margin: var(--space-2) var(--space-3) 0; padding: var(--space-2) var(--space-3);
+  border-radius: var(--radius-row);
+  background: var(--film); color: var(--ink-3);
+  font-size: var(--fs-body);
+}
+.term-note.error { background: rgba(var(--danger-rgb), .1); color: var(--danger); }
+.term-note p { margin: 0; }
+.term-note .term-note-detail { color: var(--ink-3); font-size: var(--fs-small); margin-top: 2px; }

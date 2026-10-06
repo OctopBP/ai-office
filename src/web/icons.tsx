@@ -66,7 +66,11 @@ export type IconName =
   | 'circle'
   | 'circle-x'
   | 'forbid-2'
-  | 'percentage-40';
+  | 'percentage-40'
+  | 'x'
+  | 'plus'
+  | 'minus'
+  | 'chevron-up';
 
 const ICON_PATHS: Record<IconName, string[]> = {
   'arrow-up': ['M12 5l0 14', 'M18 11l-6 -6', 'M6 11l6 -6'],
@@ -354,6 +358,10 @@ const ICON_PATHS: Record<IconName, string[]> = {
   'percentage-40': [
     'M3 12a9 9 0 1 0 18 0a9 9 0 1 0 -18 0',
   ],
+  x: ['M18 6l-12 12', 'M6 6l12 12'],
+  plus: ['M12 5l0 14', 'M5 12l14 0'],
+  minus: ['M5 12l14 0'],
+  'chevron-up': ['M6 15l6 -6l6 6'],
 };
 
 /**

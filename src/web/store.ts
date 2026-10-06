@@ -10,6 +10,7 @@ import type {
   EpicView, LimitsView, FactView, OwnerQuestion, LifeView, RitualId, DirectionView, ProposalView,
   OfficeSetupPlan, SetupCatalog, SetupStep, OfficeHealth, EnvReport, RuleScopeView, PmChat,
   ProviderLoginFlow, ProviderLoginResult, ProviderProbeResult, ProvidersView, ProviderView, MarketPackageView,
+  TerminalCommand,
 } from '../shared/types';
 import { isConnected, PROVIDERS, type CustomApi, type ModelChoice, type ProviderId } from '../shared/providers';
 import { MODEL_TIERS, TIER_MODELS, type ModelTier } from '../shared/models';
@@ -1649,6 +1650,17 @@ const serverListeners = new Set<(e: ServerEvent) => void>();
 export function onServerEvent(listener: (e: ServerEvent) => void): () => void {
   serverListeners.add(listener);
   return () => { serverListeners.delete(listener); };
+}
+
+/**
+ * Команда терминала по тому же сокету, что и всё остальное. Вкладки терминала
+ * живут не здесь, а в `terminal/terminalBus.ts`. Сокет закрыт — команда
+ * теряется, а сервер на обрыве и сам убивает все терминалы соединения.
+ */
+export function sendTerminal(cmd: TerminalCommand): boolean {
+  if (socket?.readyState !== WebSocket.OPEN) return false;
+  socket.send(JSON.stringify(cmd));
+  return true;
 }
 
 export function connect(): void {
