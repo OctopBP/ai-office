@@ -64,6 +64,24 @@ const DESTRUCTIVE_MCP_TOOL = /^(delete|remove|clear|drop|purge|reset|ungroup|det
 const QA_BROWSER_SERVER = 'browser';
 
 /**
+ * Figma Console (`figma-console-mcp`, id в каталоге — `figma-console`). У него
+ * все инструменты названы с префиксом `figma_`, поэтому общие правила по
+ * глаголу к нему применяются после снятия префикса: `figma_get_variables` —
+ * чтение, `figma_delete_node` — стирание, как у моста.
+ *
+ * Сверх общего у него есть читающие инструменты с другими глаголами —
+ * скриншоты, аудит, разбор, сравнение версий, — и `figma_execute`: он
+ * исполняет в открытом файле произвольный код Plugin API, то есть может всё,
+ * включая удаление. Отличить по аргументам, стирает ли он, нельзя, поэтому
+ * ему `danger` — вопрос владельцу даже в режиме «только про необратимое».
+ */
+const FIGMA_CONSOLE_SERVER = 'figma-console';
+const FIGMA_CONSOLE_PREFIX = 'figma_';
+const FIGMA_CONSOLE_READ =
+  /^(capture_screenshot|take_screenshot|analyze_|audit_|check_|diagnose|diff_|lint_|blame_|ds_status|ds_analyze|ds_verify)/;
+const FIGMA_CONSOLE_CODE = /^execute(_|$)/;
+
+/**
  * Bash — основной источник опасных действий. Спрашиваем не про всякую команду
  * (иначе пользователь утонет в подтверждениях на ls и cat), а про те, что
  * необратимы или выходят за пределы проекта.
@@ -125,10 +143,17 @@ export function classify(
     if (OWN_MCP_SERVERS.has(server)) {
       return { risk: 'safe', reason: '', summary: toolName, detail: '', key: toolName };
     }
-    if (READ_MCP_TOOL.test(short) || server === QA_BROWSER_SERVER) {
+    // Глагол инструмента: у Figma Console он идёт после общего префикса.
+    const figmaConsole = server === FIGMA_CONSOLE_SERVER;
+    const verb = figmaConsole && short.startsWith(FIGMA_CONSOLE_PREFIX)
+      ? short.slice(FIGMA_CONSOLE_PREFIX.length)
+      : short;
+    if (READ_MCP_TOOL.test(verb) || server === QA_BROWSER_SERVER
+      || (figmaConsole && FIGMA_CONSOLE_READ.test(verb))) {
       return { risk: 'safe', reason: '', summary: `${server}: ${short}`, detail: '', key: toolName };
     }
-    const destructive = DESTRUCTIVE_MCP_TOOL.test(short);
+    const destructive = DESTRUCTIVE_MCP_TOOL.test(verb)
+      || (figmaConsole && FIGMA_CONSOLE_CODE.test(verb));
     return {
       risk: destructive ? 'danger' : 'write',
       reason: t(lang, destructive ? 'perm.reason.mcpDestructive' : 'perm.reason.mcpWrite'),

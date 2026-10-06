@@ -41,7 +41,8 @@
     "isolate": true,
     "maxTurns": null,
     "mcp": [
-      "figma-bridge"
+      "figma-bridge",
+      "figma-console"
     ]
   },
   "builtin": [
@@ -58,6 +59,20 @@
         "-y",
         "@gethopp/figma-mcp-bridge"
       ],
+      "alwaysLoad": true
+    },
+    {
+      "id": "figma-console",
+      "title": "Figma Console",
+      "transport": "stdio",
+      "command": "npx",
+      "args": [
+        "-y",
+        "figma-console-mcp@1.40.9"
+      ],
+      "env": {
+        "FIGMA_ACCESS_TOKEN": "${FIGMA_ACCESS_TOKEN}"
+      },
       "alwaysLoad": true
     }
   ]
