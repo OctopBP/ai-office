@@ -17,6 +17,7 @@ import type { BudgetStop, OutcomeKind, TaskOutcome } from '../shared/types';
 import { criteriaProgress, taskRepo, type OfficeState, type Task } from './state';
 import { findRevert, isAncestor, isRepo } from './git';
 import { confirmFactsFor } from './journal';
+import { archiveWorkingDocsOfTask } from './docs';
 
 /** Сколько дней после слияния надзор ещё проверяет, не откатили ли работу. */
 const REVERT_WINDOW_MS = 14 * 24 * 60 * 60 * 1000;
@@ -36,6 +37,9 @@ export function onOutcome(fn: OutcomeListener): () => void {
 
 /** Исходы слитой работы — те, которые откат вправе перекрыть. */
 const MERGED_KINDS: OutcomeKind[] = ['clean', 'reworked', 'stuck'];
+
+/** Исходы, после которых задача закрыта насовсем: влита или снята. */
+const CLOSING_KINDS: OutcomeKind[] = [...MERGED_KINDS, 'cancelled'];
 
 /**
  * Снять задачу: делать её больше не надо. Одно место на весь офис — снимают
@@ -101,6 +105,16 @@ export function recordOutcome(
   // Чистое закрытие подтверждает журнал, который задача видела: записи не
   // помешали — значит, они верны (§5.4).
   if (kind === 'clean') confirmFactsFor(state, task, at);
+  // Задача закрыта насовсем — влита или снята: её рабочие материалы больше
+  // не нужны в оглавлении. Провал и остановку бюджетом не трогаем: их
+  // перезапускают, и спека понадобится следующей попытке.
+  if (CLOSING_KINDS.includes(kind)) {
+    try {
+      archiveWorkingDocsOfTask(state, task.id, at);
+    } catch (err) {
+      state.addLog(null, 'error', `docs: ${(err as Error).message}`);
+    }
+  }
   for (const fn of listeners) fn(state, task, outcome);
   return outcome;
 }

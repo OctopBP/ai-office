@@ -49,6 +49,7 @@ import { cancelTask, closeIfDone, recordOutcome } from './outcomes';
 import { deleteTask, dropTask, editTask } from './tasks';
 import { limitBlock, resetClock } from './limits';
 import { journalBrief } from './journal';
+import { docsBrief, docTools } from './docs-tools';
 import { addRule, dropRule, editRule, ruleScopes, rulesBrief, rulesText } from './rules';
 import { noteCompaction } from './health';
 import { BUDGET_MIN_HISTORY, RunGuard, runKind, runThreshold, type GuardSignal } from './runguard';
@@ -253,7 +254,7 @@ async function repoReady(state: OfficeState, dir: string): Promise<boolean> {
  * ему вместо своих достаются офисные.
  */
 function projectBrief(state: OfficeState, roleId: string | null = null): string {
-  return officeBrief(state) + rulesBrief(state, roleId) + journalBrief(state, roleId);
+  return officeBrief(state) + rulesBrief(state, roleId) + journalBrief(state, roleId) + docsBrief(state);
 }
 
 /**
@@ -311,9 +312,11 @@ function systemBlocks(state: OfficeState, roleId: string | null, head: string): 
     head, languageBrief(state, roleId === null ? 'pm' : 'worker'),
     officeBrief(state), rulesBrief(state, roleId),
   ].filter((block) => block.trim());
-  const journal = journalBrief(state, roleId);
-  // Без журнала маркер не ставим: пустой хвост за ним — блок ни о чём.
-  return journal ? [...statics, SYSTEM_PROMPT_DYNAMIC_BOUNDARY, journal] : statics;
+  // Оглавление документов — в динамику вместе с журналом: правится оно
+  // агентами по ходу работы и сбивало бы кэш статики.
+  const dynamic = [journalBrief(state, roleId), docsBrief(state)].filter((block) => block.trim());
+  // Без журнала и документов маркер не ставим: пустой хвост за ним — блок ни о чём.
+  return dynamic.length ? [...statics, SYSTEM_PROMPT_DYNAMIC_BOUNDARY, ...dynamic] : statics;
 }
 
 /**
@@ -1529,6 +1532,10 @@ const teamTools = (state: OfficeState, chatId: string) => createSdkMcpServer({
       },
     ),
 
+    // Библиотека документов: у менеджера своей задачи нет, рабочий материал
+    // без типа ни к чему не привязан.
+    ...docTools(state, 'pm#1', null),
+
     tool(
       'release_status',
       state.say('tool.releaseStatus.desc'),
@@ -2702,6 +2709,7 @@ function workerTools(state: OfficeState, instanceId: string, task: Task) {
           return { content: [{ type: 'text', text: asked.text }], isError: !asked.ok };
         },
       ),
+      ...docTools(state, instanceId, task.id),
       tool(
         'finish_task',
         state.say('tool.finishTask.desc'),
@@ -4160,6 +4168,7 @@ async function runStep(state: OfficeState, task: Task, req: StepRequest): Promis
           return { content: [{ type: 'text', text: asked.text }], isError: !asked.ok };
         },
       ),
+      ...docTools(state, inst.id, task.id),
       tool(
         'finish_step',
         state.say('tool.finishStep.desc'),
