@@ -13,8 +13,12 @@
  * копия и ветки задач не задеваются: симлинк снимается `unlink`, а не
  * рекурсивным удалением, и npm пишет только в каталог копии офиса. Хеш
  * манифестов кладётся меткой внутрь каталога: следующий прогон с тем же
- * lock-файлом установку пропускает. Когда lock снова совпадает с базой,
- * свой каталог убирается и симлинк возвращается — поведение как раньше.
+ * lock-файлом установку пропускает.
+ *
+ * Lock не менялся — берём симлинк, но сначала сверяем lock слитого дерева с
+ * тем, что реально стоит в основном `node_modules` (`lockSatisfied`, T-346):
+ * основную копию после слияний никто не доустанавливает, и она отстаёт от
+ * базы. Отстала — ставим своё, как при поменявшемся lock.
  */
 import { createHash } from 'node:crypto';
 import {
@@ -89,6 +93,54 @@ export async function depsChanged(dir: string, baseRef: string, sha: string): Pr
   return !diff.ok || diff.stdout.trim() !== '';
 }
 
+interface LockEntry {
+  version?: string;
+  link?: boolean;
+  resolved?: string;
+  optional?: boolean;
+  devOptional?: boolean;
+}
+
+/**
+ * Стоит ли в `node_modules` дерева `dir` то, что требует его package-lock.json
+ * (T-346). Симлинк на основную копию сам по себе ничего не гарантирует:
+ * основной `node_modules` никто не обновляет после слияний, и ветка, lock не
+ * трогавшая, получала зависимости на шаг позади (T-317 завела @xterm, T-318
+ * упала в гейте с TS2307).
+ *
+ * Сверяем по факту, а не по меткам npm: у каждой записи `node_modules/…` из
+ * lock-файла читаем package.json установленного пакета и сравниваем версию;
+ * у записи-ссылки (`file:`) хватает того, что путь есть. Необязательную
+ * запись, которой нет, пропускаем: это пакет под чужую платформу. Lock-файла
+ * нет или он не читается — сверять не с чем, считаем, что годится.
+ */
+export function lockSatisfied(dir: string): boolean {
+  let packages: Record<string, LockEntry>;
+  try {
+    const lock = JSON.parse(readFileSync(resolve(dir, 'package-lock.json'), 'utf8'));
+    packages = lock?.packages ?? {};
+  } catch {
+    return true;
+  }
+  for (const [key, entry] of Object.entries(packages)) {
+    if (!key.startsWith('node_modules/')) continue;
+    const path = resolve(dir, key);
+    if (entry.link) {
+      if (!existsSync(path)) return false;
+      continue;
+    }
+    let installed: { version?: string };
+    try {
+      installed = JSON.parse(readFileSync(resolve(path, 'package.json'), 'utf8'));
+    } catch {
+      if (entry.optional || entry.devOptional) continue;
+      return false;
+    }
+    if (entry.version && installed.version !== entry.version) return false;
+  }
+  return true;
+}
+
 /**
  * Подготовить зависимости слитого дерева в копии офиса `worktree`.
  * `changed` — поменялись ли манифесты относительно базы (`depsChanged`).
@@ -97,22 +149,26 @@ export async function prepareDeps(
   repoDir: string, worktree: string, changed: boolean, lang: Lang,
 ): Promise<DepsOutcome> {
   const command = installCommand(worktree);
+  const hash = manifestsHash(worktree);
+  const marker = resolve(worktree, 'node_modules', DEPS_MARKER);
+  // Свой каталог, поставленный под ровно этот lock, годится при любом
+  // `changed`: менять его на симлинк незачем, ставить заново — тем более.
+  if (nodeModulesKind(worktree) === 'dir' && existsSync(marker)
+    && readFileSync(marker, 'utf8').trim() === hash) {
+    return { kind: 'cached', command, output: '', durationMs: 0 };
+  }
+
   if (!changed) {
-    // Lock как в базе — зависимости основной копии годятся. Если прошлый
-    // прогон оставил тут свой каталог или пустое место после неудачной
-    // установки, возвращаем симлинк, как было до него.
+    // Lock как в базе — обычно зависимости основной копии годятся. Если
+    // прошлый прогон оставил тут чужой каталог или пустое место после
+    // неудачной установки, возвращаем симлинк, как было до него.
     if (nodeModulesKind(worktree) !== 'link') {
       await clearNodeModules(worktree);
       await linkNodeModules(repoDir, worktree);
     }
-    return { kind: 'same', command, output: '', durationMs: 0 };
-  }
-
-  const hash = manifestsHash(worktree);
-  const marker = resolve(worktree, 'node_modules', DEPS_MARKER);
-  if (nodeModulesKind(worktree) === 'dir' && existsSync(marker)
-    && readFileSync(marker, 'utf8').trim() === hash) {
-    return { kind: 'cached', command, output: '', durationMs: 0 };
+    // Но верить симлинку вслепую нельзя: основной node_modules мог отстать
+    // от базы (T-346). Отстал — ставим своё, как при поменявшемся lock.
+    if (lockSatisfied(worktree)) return { kind: 'same', command, output: '', durationMs: 0 };
   }
 
   await clearNodeModules(worktree);

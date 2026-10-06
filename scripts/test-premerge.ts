@@ -10,13 +10,15 @@
  */
 import { execFileSync } from 'node:child_process';
 import {
-  chmodSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync,
+  chmodSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync,
+  writeFileSync,
 } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { resolve } from 'node:path';
 import {
   defaultIntegrationDir, formatReport, mergeChecks, preMergeGate,
 } from '../src/server/premerge';
+import { DEPS_MARKER, manifestsHash } from '../src/server/deps';
 import { getOffice } from '../src/server/state';
 import { runPipeline, setPipelineAgents } from '../src/server/review';
 
@@ -543,6 +545,44 @@ for (const name of Object.keys(p.dependencies||{})) console.log(require(name));
     const merged = await preMergeGate({ repoDir: dir, branch: 'task/T-dep', base: 'main', integrationDir });
     check('новая зависимость сливается', merged.ok === true && merged.stage === 'merged');
     check('после слияния основная копия цела', mainIntact());
+
+    // T-346: lock в main уже с dep-new, а основной node_modules его не получил —
+    // никто его не доустанавливает. Ветка после слияния lock не трогает.
+    git('checkout', '-q', '-b', 'task/T-after', 'main');
+    write('after.txt', 'после слияния\n');
+    git('add', '-A');
+    git('commit', '-qm', 'T-after: файл');
+    git('checkout', '-q', 'main');
+    // Прошлый прогон оставил свой каталог под тот же lock — убираем, чтобы
+    // проверить именно путь «симлинк на отставшую основную копию».
+    rmSync(nm, { recursive: true, force: true });
+
+    const stale = await preMergeGate({ repoDir: dir, branch: 'task/T-after', base: 'main', integrationDir, merge: false });
+    check('основная копия отстала: гейт зелёный', stale.ok === true && stale.stage === 'checked');
+    check('основная копия отстала: lock не менялся, но стоит npm ci',
+      stale.checks[0]?.command.startsWith('npm ci') === true && stale.checks[0].ok);
+    check('основная копия отстала: проверка видит пакет',
+      Boolean(stale.checks.find((c) => c.command.includes('typecheck'))?.output.includes('dep-new на месте')));
+    check('основная копия отстала: свой node_modules с меткой lock',
+      !isLink() && existsSync(resolve(nm, 'dep-new'))
+      && readFileSync(resolve(nm, DEPS_MARKER), 'utf8').trim() === manifestsHash(integrationDir));
+    check('основная копия отстала: основная копия цела', mainIntact());
+
+    const staleAgain = await preMergeGate({ repoDir: dir, branch: 'task/T-after', base: 'main', integrationDir, merge: false });
+    check('свой node_modules с той же меткой переиспользуется без npm ci',
+      staleAgain.ok === true && !staleAgain.checks.some((c) => /^npm (ci|install)\b/.test(c.command))
+      && !isLink() && existsSync(resolve(nm, DEPS_MARKER)));
+
+    // Основную копию доустановили (как сделал бы npm: ссылка на file:-пакет) —
+    // симлинк снова годится, и ставить нечего.
+    symlinkSync('../vendor/dep-new', resolve(dir, 'node_modules/dep-new'), 'dir');
+    rmSync(nm, { recursive: true, force: true });
+    const fresh = await preMergeGate({ repoDir: dir, branch: 'task/T-after', base: 'main', integrationDir, merge: false });
+    check('основная копия совпадает с lock: npm ci не запускается',
+      fresh.ok === true && !fresh.checks.some((c) => /^npm (ci|install)\b/.test(c.command)));
+    check('основная копия совпадает с lock: копия офиса на симлинке и видит пакет',
+      isLink() && existsSync(resolve(nm, 'sentinel.txt'))
+      && Boolean(fresh.checks.find((c) => c.command.includes('typecheck'))?.output.includes('dep-new на месте')));
   } finally {
     if (prevCache === undefined) delete process.env.npm_config_cache;
     else process.env.npm_config_cache = prevCache;
