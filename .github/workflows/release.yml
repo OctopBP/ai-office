@@ -1,7 +1,9 @@
 # Установщики приложения: по тегу `v*` собираются .dmg и .zip для macOS и .exe
 # для Windows вместе с файлами автообновления (latest*.yml, .blockmap) и
-# складываются в черновик релиза. Черновик, а не готовый релиз, —
-# сборку надо проверить руками на обеих системах, прежде чем её кто-то скачает.
+# складываются в черновик релиза. Черновик публикуется заключительным шагом,
+# только когда собрались все платформы и в релизе лежат все установщики и
+# latest*.yml. Упала хоть одна платформа — релиз остаётся черновиком с тем, что
+# успело собраться: обновляторы не увидят выпуск, в котором нет их файла.
 # Описание релиза открывается разделом «Что нового» — заметками выпуска из
 # аннотации тега, которую ставит офис (scripts/release-notes.mjs).
 #
@@ -128,9 +130,11 @@ jobs:
             desktop/out/latest*.yml
           if-no-files-found: error
 
-  draft:
+  release:
     needs: build
-    if: startsWith(github.ref, 'refs/tags/v')
+    # Не только при успехе сборки: упавшая платформа не должна терять собранное
+    # остальными — оно ляжет в черновик, публикацию же решает последний шаг.
+    if: ${{ !cancelled() && startsWith(github.ref, 'refs/tags/v') }}
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -187,3 +191,30 @@ jobs:
           draft: true
           files: out/*
           body_path: ${{ runner.temp }}/body.md
+      # Снять черновик — только когда все платформы собрались и все файлы уже
+      # в релизе. Список сверяется с самим релизом, а не с папкой out: так
+      # видно и недогруженный файл. Без latest.yml и latest-mac.yml
+      # опубликованный релиз сломал бы автообновление, поэтому их нет — релиз
+      # остаётся черновиком, а шаг падает с перечнем недостающего.
+      - name: публикация релиза
+        if: ${{ needs.build.result == 'success' }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          version="${GITHUB_REF_NAME#v}"
+          assets="$(gh release view "$GITHUB_REF_NAME" --json assets -q '.assets[].name')"
+          echo "в релизе:"; echo "$assets"
+          missing=""
+          for file in \
+            latest.yml latest-mac.yml \
+            "AI-Office-Setup-$version.exe" \
+            "AI-Office-$version-arm64.dmg" "AI-Office-$version-x64.dmg" \
+            "AI-Office-$version-arm64.zip" "AI-Office-$version-x64.zip"; do
+            grep -qxF "$file" <<< "$assets" || missing="$missing $file"
+          done
+          if [ -n "$missing" ]; then
+            echo "в релизе нет:$missing — оставляю черновиком"
+            exit 1
+          fi
+          gh release edit "$GITHUB_REF_NAME" --draft=false --latest
+          echo "релиз $GITHUB_REF_NAME опубликован"
