@@ -605,7 +605,6 @@ export const en = {
   "update.ready.title": "Version {version} is available",
   "update.restart": "Restart and update",
   "update.later": "Later",
-  "update.busy": "Will update once tasks finish or the app quits",
   "update.notes.toggle": "What's new",
   "update.notes.title": "What's new in {version}",
   "update.downloading": "Downloading update — {percent}%",

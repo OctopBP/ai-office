@@ -22,7 +22,8 @@ contextBridge.exposeInMainWorld('officeDesktop', {
       return () => ipcRenderer.removeListener('office:update', listener);
     },
     check: () => ipcRenderer.invoke('office:update-check'),
-    installNow: () => ipcRenderer.invoke('office:update-install'),
+    download: () => ipcRenderer.invoke('office:update-download'),
+    restartNow: () => ipcRenderer.invoke('office:update-restart'),
   },
 });
 

@@ -828,6 +828,10 @@ const running = new Map<string, Promise<void>>();
 export const isReleaseRunning = (state: OfficeState, releaseId: string): boolean =>
   running.has(`${state.officeId}:${releaseId}`);
 
+/** Сколько выпусков идёт в офисе прямо сейчас — для признака занятости (busy.ts). */
+export const runningReleases = (state: OfficeState): number =>
+  [...running.keys()].filter((key) => key.startsWith(`${state.officeId}:`)).length;
+
 /** Прогон выпуска. У выпуска он один. */
 export const runOfRelease = (state: OfficeState, releaseId: string): Run | null =>
   [...state.runs.values()].find((r) => r.subject.releaseId === releaseId) ?? null;

@@ -1,5 +1,5 @@
 /**
- * Тексты оболочки на двух языках — для экрана ошибки запуска.
+ * Тексты оболочки на двух языках — для экрана ошибки запуска и обновлений.
  *
  * Словари веба (src/web/i18n) здесь недоступны: экран ошибки показывается
  * ровно тогда, когда веб не загрузился. Язык — системный, как и у журнала
@@ -22,6 +22,21 @@ const DICT = {
     'fail.openLogs': 'Открыть журналы',
     'fail.retry': 'Перезапустить офис',
     'fail.quit': 'Выход',
+    'update.title': 'Обновления',
+    'update.latest': 'Установлена последняя версия.',
+    'update.available': 'Доступна версия {version}.',
+    'update.available.detail': 'Скачать её сейчас? Ставится обновление только по вашей команде.',
+    'update.download': 'Скачать',
+    'update.later': 'Позже',
+    'update.downloading': 'Версия {version} скачивается.',
+    'update.ready': 'Версия {version} скачана.',
+    'update.ready.detail': 'Перезапустить приложение сейчас?',
+    'update.ready.busy': 'В офисе идёт работа — перезапуск её оборвёт. Перезапустить всё равно?',
+    'update.restart': 'Перезапустить',
+    'update.err.notDownloadable': 'Скачивать нечего: новая версия не найдена',
+    'update.err.notReady': 'Обновление ещё не скачано',
+    'update.err.notPackaged': 'Обновления проверяются только в собранном приложении',
+    'update.err.notOffice': 'Команда не из окна офиса',
   },
   en: {
     'fail.title': 'The office did not open',
@@ -35,6 +50,21 @@ const DICT = {
     'fail.openLogs': 'Open logs',
     'fail.retry': 'Restart office',
     'fail.quit': 'Quit',
+    'update.title': 'Updates',
+    'update.latest': 'You have the latest version.',
+    'update.available': 'Version {version} is available.',
+    'update.available.detail': 'Download it now? Updates are installed only when you say so.',
+    'update.download': 'Download',
+    'update.later': 'Later',
+    'update.downloading': 'Version {version} is downloading.',
+    'update.ready': 'Version {version} is downloaded.',
+    'update.ready.detail': 'Restart the app now?',
+    'update.ready.busy': 'Work is running in the office — restarting will interrupt it. Restart anyway?',
+    'update.restart': 'Restart',
+    'update.err.notDownloadable': 'Nothing to download: no new version found',
+    'update.err.notReady': 'The update is not downloaded yet',
+    'update.err.notPackaged': 'Updates are checked only in the packaged app',
+    'update.err.notOffice': 'The command did not come from the office window',
   },
 };
 

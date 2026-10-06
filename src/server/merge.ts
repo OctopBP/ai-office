@@ -109,6 +109,9 @@ export async function refreshMergeChecks(state: OfficeState): Promise<MergeCheck
  */
 const queueRunning = new Set<string>();
 
+/** Идёт ли в офисе ручная очередь слияния — для признака занятости (busy.ts). */
+export const isMergeQueueRunning = (state: OfficeState): boolean => queueRunning.has(state.officeId);
+
 /**
  * Рабочая копия офиса для слияний — своя на КАЖДЫЙ репозиторий, рядом с
  * копиями задач. Имя не может совпасть с задачей: у задач имена вида T-3.

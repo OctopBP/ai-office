@@ -6,9 +6,10 @@ import type { ClientCommand, FieldError, RoleOp, ServerEvent } from '../shared/t
 import { asTaskPriority, OFFICE_SENDER } from '../shared/types';
 import { c, setProcessLang } from './i18n';
 import {
-  getOffice, isOpened, officeViews, openedOffices, openOfficeState, subscribeOffices,
+  getOffice, isOpened, loadedOffices, officeViews, openedOffices, openOfficeState, subscribeOffices,
   type OfficeState,
 } from './state';
+import { busyAnswer, type WorkSnapshot } from './busy';
 import {
   broadcast, broadcastSnapshot, greet, handleOfficeCommand, initOfficeApi, send,
   stateFor, unwatch, watch, watching,
@@ -16,9 +17,9 @@ import {
 import { assignDirect, holdMeeting, resetSessions, retryTask, sendUserMessage, setPaused, stopTask, taskDiff, talkTo } from './agents';
 import { deleteTask, dropTask, editTask } from './tasks';
 import { approveEpic, cancelEpic, reorderEpics } from './plan';
-import { mergeQueue, refreshMergeChecks } from './merge';
-import { retryPipeline } from './review';
-import { closeReleasePlan, resumeRelease, saveReleasePlan, startRelease } from './releases';
+import { isMergeQueueRunning, mergeQueue, refreshMergeChecks } from './merge';
+import { retryPipeline, runningPipelines } from './review';
+import { closeReleasePlan, resumeRelease, runningReleases, saveReleasePlan, startRelease } from './releases';
 import { resetProjectWorkflow, saveProjectWorkflow } from './workflows';
 import { startSupervisor } from './supervisor';
 import { answerQuestion, deleteQuestion, dismissQuestion, editQuestion, mergeQuestion } from './questions';
@@ -223,6 +224,18 @@ const MIME: Record<string, string> = {
   '.ico': 'image/x-icon', '.woff2': 'font/woff2', '.webp': 'image/webp',
 };
 
+/** Снимок того, что идёт в офисе прямо сейчас, — для `/api/busy` (busy.ts). */
+function officeWork(state: OfficeState): WorkSnapshot {
+  return {
+    workers: state.running,
+    pmTurns: [...state.pmSessions.values()].filter((s) => s.busy).length,
+    meeting: state.meetingRunning,
+    pipelines: runningPipelines(state),
+    mergeQueue: isMergeQueueRunning(state),
+    releases: runningReleases(state),
+  };
+}
+
 /**
  * Проверки окружения по HTTP: GET отдаёт последний посчитанный список, POST
  * пересчитывает его заново. Отдельным маршрутом, а не только событием по
@@ -280,6 +293,13 @@ const httpServer = createServer((req, res) => {
     // а подписать его надо уже на языке владельца. Настройка глобальная, и
     // офиса, у которого её спросить, у такого запроса нет.
     res.end(JSON.stringify({ offices: officeViews(), uiLanguage: uiLanguage() }));
+    return;
+  }
+  // Занят ли процесс работой, которую оборвёт перезапуск: приложение
+  // спрашивает это перед установкой обновления (desktop/updater.js, busy.ts).
+  if (url === '/api/busy') {
+    res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' });
+    res.end(JSON.stringify(busyAnswer(loadedOffices().map((s) => ({ officeId: s.officeId, work: officeWork(s) })))));
     return;
   }
   // Аватарка офиса: отдача картинки, загрузка и снятие — см. officeicon.ts.

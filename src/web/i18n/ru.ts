@@ -604,7 +604,6 @@ export const ru: Record<keyof typeof en, string> = {
   "update.ready.title": "Доступна версия {version}",
   "update.restart": "Перезапустить и обновить",
   "update.later": "Позже",
-  "update.busy": "Обновится, когда задачи закончатся или при выходе",
   "update.notes.toggle": "Что нового",
   "update.notes.title": "Что нового в {version}",
   "update.downloading": "Загружается обновление — {percent}%",

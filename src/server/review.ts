@@ -221,6 +221,10 @@ export function runPipeline(state: OfficeState, taskId: string): Promise<void> {
 export const isPipelineRunning = (state: OfficeState, taskId: string): boolean =>
   running.has(`${state.officeId}:${taskId}`);
 
+/** Сколько конвейеров идёт в офисе прямо сейчас — для признака занятости (busy.ts). */
+export const runningPipelines = (state: OfficeState): number =>
+  [...running.keys()].filter((key) => key.startsWith(`${state.officeId}:`)).length;
+
 /**
  * Дождаться, пока в офисе не останется идущих конвейеров. Нужно тем, кто
  * смотрит на результат со стороны: надзору в тестах и остановке сервера.

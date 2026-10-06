@@ -280,33 +280,35 @@ async function restartOffice() {
 
 /**
  * «Проверить обновления…» из меню. Веб показывает состояние сам, но меню
- * работает и без него, поэтому итог проверки говорим здесь же. Ошибку — нет:
- * она уже в журнале обновлений и в состоянии окна, а модальное окно из-за
- * пропавшей сети хуже, чем тишина.
+ * работает и без него, поэтому итог проверки и обе команды — скачать и
+ * перезапуститься — есть и здесь. Ошибку не показываем: она уже в журнале
+ * обновлений и в состоянии окна, а модальное окно из-за пропавшей сети хуже,
+ * чем тишина.
  */
 async function updatesFromMenu() {
   const state = await updater.check();
-  const version = app.getVersion();
-  if (state.status === 'none') {
+  const title = t('update.title');
+  if (state.phase === 'idle') {
     await dialog.showMessageBox({
-      type: 'info', title: 'Обновления', message: 'Установлена последняя версия.', detail: `AI Office ${version}`,
+      type: 'info', title, message: t('update.latest'), detail: `AI Office ${app.getVersion()}`,
     });
-  } else if (state.status === 'available' || state.status === 'downloading') {
-    await dialog.showMessageBox({
-      type: 'info', title: 'Обновления', message: `Нашлась версия ${state.version}.`,
-      detail: 'Она скачивается и поставится при выходе из приложения.',
-    });
-  } else if (state.status === 'ready') {
+  } else if (state.phase === 'available') {
     const { response } = await dialog.showMessageBox({
-      type: 'question', title: 'Обновления', message: `Версия ${state.version} скачана.`,
-      detail: 'Перезапустить приложение сейчас? Иначе обновление поставится при выходе.',
-      buttons: ['Перезапустить', 'Позже'], defaultId: 0, cancelId: 1,
+      type: 'question', title, message: t('update.available', { version: state.version }),
+      detail: t('update.available.detail'),
+      buttons: [t('update.download'), t('update.later')], defaultId: 0, cancelId: 1,
     });
-    if (response !== 0) return;
-    const result = await updater.installNow();
-    if (!result.ok) {
-      await dialog.showMessageBox({ type: 'info', title: 'Обновления', message: result.message });
-    }
+    if (response === 0) await updater.download();
+  } else if (state.phase === 'downloading') {
+    await dialog.showMessageBox({ type: 'info', title, message: t('update.downloading', { version: state.version }) });
+  } else if (state.phase === 'ready') {
+    const fresh = await updater.getState();
+    const { response } = await dialog.showMessageBox({
+      type: 'question', title, message: t('update.ready', { version: fresh.version }),
+      detail: t(fresh.busy ? 'update.ready.busy' : 'update.ready.detail'),
+      buttons: [t('update.restart'), t('update.later')], defaultId: fresh.busy ? 1 : 0, cancelId: 1,
+    });
+    if (response === 0) await updater.restartNow();
   }
 }
 
@@ -491,9 +493,9 @@ ipcMain.on('office:badge', (event, count) => {
 updater.onState((state) => mainWindow?.webContents.send('office:update', state));
 ipcMain.handle('office:update-state', (event) => (fromOffice(event) ? updater.getState() : null));
 ipcMain.handle('office:update-check', (event) => (fromOffice(event) ? updater.check() : null));
-ipcMain.handle('office:update-install', (event) => (fromOffice(event)
-  ? updater.installNow()
-  : { ok: false, reason: 'not-ready', message: 'Команда не из окна офиса' }));
+const notOffice = () => ({ ok: false, reason: 'not-ready', message: t('update.err.notOffice') });
+ipcMain.handle('office:update-download', (event) => (fromOffice(event) ? updater.download() : notOffice()));
+ipcMain.handle('office:update-restart', (event) => (fromOffice(event) ? updater.restartNow() : notOffice()));
 
 /**
  * Упавшая видеокарта — частая причина чёрного окна на Windows (старый или

@@ -7,42 +7,29 @@
  * только этот файл — правите мост, правьте и здесь.
  */
 
-/**
- * Состояние автообновления (desktop/updater.js).
- *
- * `none` — обновлений нет или ещё не проверяли; `error` — последняя проверка
- * или загрузка не удалась (подробности в updates.log в папке данных). Уже
- * скачанное обновление ошибкой следующей проверки не отменяется: `ready`
- * остаётся до перезапуска.
- */
-export type UpdateState =
-  | { status: 'none' }
-  | { status: 'checking' }
-  | { status: 'available'; version: string }
-  /** `percent` — целое от 0 до 100. */
-  | { status: 'downloading'; version: string; percent: number }
-  /** `notes` — описание релиза с GitHub, обычно HTML; бывает пустым. */
-  | { status: 'ready'; version: string; notes: string }
-  | { status: 'error'; message: string };
+import type { UpdateCommandResult, UpdateState } from './types';
+
+/** Состояние и ответы обновления описаны в контракте types.ts — здесь только мост. */
+export type { UpdateCommandResult, UpdatePhase, UpdateState } from './types';
 
 /**
- * Ответ на «поставить сейчас». При успехе приложение сразу закрывается и
- * перезапускается в новую версию. Отказ `busy` — в офисе идут задачи: работа
- * агентов не обрывается, а обновление ставится при выходе из приложения.
+ * Обновление приложения (desktop/updater.js). Само приложение только
+ * проверяет; скачать и перезапуститься — команды владельца из веба.
  */
-export type UpdateInstallResult =
-  | { ok: true }
-  | { ok: false; reason: 'busy' | 'not-ready'; message: string };
-
 export interface OfficeDesktopUpdates {
-  /** Текущее состояние — для первого рисования и после перезагрузки окна. */
+  /** Текущее состояние — для первого рисования и после перезагрузки окна. `busy` пересчитывается. */
   getState(): Promise<UpdateState>;
-  /** Подписка на смену состояния; возвращает отписку. */
+  /** Подписка на смену состояния, в том числе на смену `busy`; возвращает отписку. */
   onState(cb: (state: UpdateState) => void): () => void;
-  /** Проверить сейчас. Ошибка приходит состоянием `error`, а не исключением. */
+  /** Проверить сейчас. Ошибка приходит фазой `error`, а не исключением. */
   check(): Promise<UpdateState>;
-  /** Перезапуститься в скачанную версию, если в офисе никто не работает. */
-  installNow(): Promise<UpdateInstallResult>;
+  /** «Установить обновление»: начать загрузку из `available` (или повтор из `error` с версией). */
+  download(): Promise<UpdateCommandResult>;
+  /**
+   * «Перезапустить сейчас»: поставить скачанное (`ready`) и перезапуститься.
+   * Занятость не мешает — предупредить по `busy` должен веб до вызова.
+   */
+  restartNow(): Promise<UpdateCommandResult>;
 }
 
 export interface OfficeDesktop {
@@ -50,6 +37,6 @@ export interface OfficeDesktop {
   focus(): void;
   /** Число того, что ждёт владельца: значок в доке, подсветка на панели задач. Ноль снимает. */
   setBadge(count: number): void;
-  /** Автообновление. Нет поля — старая версия приложения без обновлений. */
+  /** Обновление приложения. Нет поля — старая версия приложения без обновлений. */
   updates?: OfficeDesktopUpdates;
 }

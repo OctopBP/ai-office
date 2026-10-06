@@ -2983,3 +2983,50 @@ export interface MarketView {
 // Размеры заданы артом: тайл 16 арт-пикселей × SCALE 3 = 48 экранных,
 // комната floor.png ровно 1152×720 = 24×15 тайлов.
 export const GRID = { cols: 24, cells: 15, cell: 48 };
+
+// ------------------------------------------------- обновление приложения
+
+/**
+ * Фаза обновления настольного приложения (desktop/updater.js). Поток ручной:
+ * приложение само только проверяет, а скачивает и ставит — по команде.
+ *
+ * `idle` — обновлений нет или ещё не проверяли; `checking` — идёт проверка;
+ * `available` — есть версия, не скачана; `downloading` — качается по команде
+ * `download()`; `ready` — скачано и ждёт `restartNow()`; `error` — проверка
+ * или загрузка не удалась (подробности в updates.log в папке данных).
+ */
+export type UpdatePhase = 'idle' | 'checking' | 'available' | 'downloading' | 'ready' | 'error';
+
+/**
+ * Состояние обновления — уходит в веб мостом `window.officeDesktop.updates`
+ * (src/shared/desktop.ts). Поля без значения в этой фазе отсутствуют.
+ */
+export interface UpdateState {
+  phase: UpdatePhase;
+  /**
+   * Версия обновления: есть в `available`, `downloading`, `ready`; в `error` —
+   * если ошибка случилась при загрузке известной версии (тогда `download()`
+   * можно повторить).
+   */
+  version?: string;
+  /** Процент загрузки, целое 0–100 — только в `downloading`. */
+  percent?: number;
+  /** Описание релиза с GitHub, обычно HTML; бывает пустым — в `available` и `ready`. */
+  notes?: string;
+  /** Текст ошибки — только в `error`. */
+  error?: string;
+  /**
+   * В офисе идёт работа, которую оборвёт перезапуск: сессия исполнителя,
+   * ход менеджера, совещание, конвейер, слияние или выпуск (src/server/busy.ts).
+   * Перезапуск это не запрещает — веб по признаку предупреждает владельца.
+   */
+  busy: boolean;
+}
+
+/**
+ * Ответ на команду моста. `ok: false` — команда не к месту в этой фазе
+ * (`not-ready`: скачивать нечего или ещё не скачано) или пришла не из окна офиса.
+ */
+export type UpdateCommandResult =
+  | { ok: true }
+  | { ok: false; reason: 'not-ready'; message: string };
