@@ -52,6 +52,7 @@
     "test:premerge": "tsx scripts/test-premerge.ts",
     "test:deps": "node --import tsx/esm scripts/test-deps.ts",
     "test:overlap": "tsx scripts/test-overlap.ts",
+    "test:layout": "node --import tsx/esm scripts/test-layout.ts",
     "test:boardview": "node --import tsx/esm scripts/test-board-view.ts",
     "test:squash": "tsx scripts/test-squash.ts",
     "test:taskfiles": "tsx scripts/test-taskfiles.ts",

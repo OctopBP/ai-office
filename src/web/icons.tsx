@@ -70,7 +70,10 @@ export type IconName =
   | 'x'
   | 'plus'
   | 'minus'
-  | 'chevron-up';
+  | 'chevron-up'
+  | 'chevron-down'
+  | 'arrows-maximize'
+  | 'arrows-minimize';
 
 const ICON_PATHS: Record<IconName, string[]> = {
   'arrow-up': ['M12 5l0 14', 'M18 11l-6 -6', 'M6 11l6 -6'],
@@ -362,6 +365,9 @@ const ICON_PATHS: Record<IconName, string[]> = {
   plus: ['M12 5l0 14', 'M5 12l14 0'],
   minus: ['M5 12l14 0'],
   'chevron-up': ['M6 15l6 -6l6 6'],
+  'chevron-down': ['M6 9l6 6l6 -6'],
+  'arrows-maximize': ['M16 4l4 0l0 4', 'M14 10l6 -6', 'M8 20l-4 0l0 -4', 'M4 20l6 -6'],
+  'arrows-minimize': ['M5 9l4 0l0 -4', 'M3 21l6 -6', 'M19 15l-4 0l0 4', 'M15 15l6 6', 'M19 9l-4 0l0 -4', 'M15 9l6 -6', 'M5 15l4 0l0 4', 'M3 3l6 6'],
 };
 
 /**

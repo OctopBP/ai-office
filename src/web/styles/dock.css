@@ -1,0 +1,192 @@
+/* Оконная система: док, разделитель, полоска свёрнутого дока. Спека
+   docs/design/window-system/spec.md §2. Цвета, радиусы, отступы, кегли и
+   слои — только токены tokens.css; обе темы подхватываются переменными.
+   Размер дока приходит из .dock { --dock-size } (его задаёт компонент). */
+
+.dock {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+  background: var(--surface);
+  border-radius: var(--radius-card);
+  box-shadow: var(--shadow-float);
+  overflow: hidden;
+  color: var(--ink-2);
+  font-size: var(--fs-row);
+}
+.dock-bottom { flex: 0 0 var(--dock-size); height: var(--dock-size); }
+.dock-right, .dock-left { flex: 0 0 var(--dock-size); width: var(--dock-size); }
+/* Разворот на весь экран: док занимает рабочую колонку целиком. */
+.dock.maximized { flex: 1 1 auto; width: auto; height: auto; }
+
+.dock-head {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  flex: 0 0 auto;
+  min-height: var(--control-h);
+  padding: 0 var(--space-1);
+  border-bottom: 1px solid var(--hairline);
+}
+.dock-tabs { display: flex; align-items: center; gap: var(--space-1); flex: 1 1 auto; min-width: 0; overflow-x: auto; scrollbar-width: none; }
+.dock-actions { display: flex; align-items: center; gap: var(--space-1); flex: 0 0 auto; }
+
+.dock-tab {
+  display: flex;
+  align-items: center;
+  flex: 0 1 auto;
+  min-width: 0;
+  height: var(--chip-h);
+  border-radius: var(--radius-tile);
+  color: var(--ink-3);
+}
+.dock-tab:hover { background: var(--film); color: var(--ink-2); }
+.dock-tab.active { background: var(--film-2); color: var(--ink); }
+.dock-tab-main {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-width: 0;
+  height: 100%;
+  padding: 0 var(--space-1) 0 var(--space-2);
+  border: 0;
+  border-radius: var(--radius-tile);
+  background: none;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+}
+.dock-tab-main:active { background: var(--film-3); }
+.dock-tab.active .dock-tab-main { font-weight: 600; }
+.dock-tab-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 24ch; }
+
+.dock-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 auto;
+  width: var(--mini-h);
+  height: var(--mini-h);
+  padding: 0;
+  border: 0;
+  border-radius: var(--radius-tile);
+  background: none;
+  color: var(--ink-3);
+  cursor: pointer;
+}
+.dock-btn:hover { background: var(--film); color: var(--ink); }
+.dock-btn:active { background: var(--film-3); }
+.dock-btn[aria-pressed='true'] { background: var(--film-2); color: var(--ink); }
+.dock-btn:disabled { opacity: .45; cursor: default; }
+.dock-tab-close { width: var(--space-6); height: var(--space-6); margin-right: var(--space-1); }
+.dock-ico-side { transform: rotate(-90deg); }
+.dock-right .dock-actions .dock-ico-side { transform: rotate(-90deg); }
+.dock-left .dock-actions .dock-ico-side { transform: rotate(90deg); }
+
+.dock-tab-main:focus-visible,
+.dock-btn:focus-visible,
+.dock-menu-item:focus-visible,
+.dock-strip-tab:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+
+.dock-dot { flex: 0 0 auto; width: var(--space-2); height: var(--space-2); border-radius: var(--radius-pill); }
+.dock-dot.ok { background: var(--ok); }
+.dock-dot.warn { background: var(--warn); }
+.dock-dot.danger { background: var(--danger); }
+.dock-sr {
+  position: absolute;
+  width: 1px; height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
+.dock-body { position: relative; flex: 1 1 auto; min-height: 0; overflow: hidden; }
+.dock-body[hidden], .dock-panel[hidden] { display: none; }
+.dock-panel { position: absolute; inset: 0; overflow: auto; }
+
+/* Меню «⋯» — переместить, закрыть остальные. */
+.dock-menu {
+  position: absolute;
+  top: 100%;
+  right: var(--space-1);
+  z-index: var(--z-popover);
+  display: flex;
+  flex-direction: column;
+  min-width: 200px;
+  padding: var(--space-1);
+  background: var(--surface);
+  border: 1px solid var(--hairline);
+  border-radius: var(--radius-row);
+  box-shadow: var(--shadow-toast);
+}
+.dock-menu-item {
+  min-height: var(--control-h);
+  padding: 0 var(--space-3);
+  border: 0;
+  border-radius: var(--radius-tile);
+  background: none;
+  color: var(--ink-2);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.dock-menu-item:hover { background: var(--film); color: var(--ink); }
+.dock-menu-item:active { background: var(--film-3); }
+
+/* Полоска свёрнутого дока: 26 px, боковая — с вертикальным текстом. */
+.dock-strip { display: flex; align-items: center; flex: 1 1 auto; min-width: 0; min-height: 0; }
+.dock-strip-tabs { display: flex; flex: 1 1 auto; min-width: 0; min-height: 0; gap: var(--space-1); overflow: hidden; }
+.dock-strip-tab {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-width: 0;
+  height: var(--mini-h);
+  padding: 0 var(--space-2);
+  border: 0;
+  border-radius: var(--radius-tile);
+  background: none;
+  color: var(--ink-3);
+  font: inherit;
+  cursor: pointer;
+}
+.dock-strip-tab:hover { background: var(--film); color: var(--ink); }
+.dock-strip-tab.active { color: var(--ink); font-weight: 600; }
+.dock-left .dock-strip, .dock-right .dock-strip { flex-direction: column; padding: var(--space-1) 0; }
+.dock-left .dock-strip-tabs, .dock-right .dock-strip-tabs { flex-direction: column; align-items: center; }
+.dock-left .dock-strip-tab, .dock-right .dock-strip-tab {
+  width: var(--mini-h);
+  height: auto;
+  padding: var(--space-2) 0;
+  writing-mode: vertical-rl;
+}
+.dock-left .dock-strip-tab .dock-tab-name, .dock-right .dock-strip-tab .dock-tab-name { max-width: 16ch; }
+
+/* Разделитель: зазор --space-2, полоса внутри, область нажатия шире зазора. */
+.dock-splitter {
+  position: relative;
+  flex: 0 0 var(--space-2);
+  touch-action: none;
+  outline: none;
+  z-index: 1;
+}
+.dock-splitter-bottom { cursor: row-resize; }
+.dock-splitter-left, .dock-splitter-right { cursor: col-resize; }
+.dock-splitter::before {
+  content: '';
+  position: absolute;
+  border-radius: var(--radius-pill);
+  background: transparent;
+}
+.dock-splitter-bottom::before { left: 0; right: 0; top: calc(50% - var(--space-1) / 2); height: var(--space-1); }
+.dock-splitter-left::before, .dock-splitter-right::before { top: 0; bottom: 0; left: calc(50% - var(--space-1) / 2); width: var(--space-1); }
+/* Невидимая зона захвата 24 px (--space-6) вокруг зазора. */
+.dock-splitter::after { content: ''; position: absolute; }
+.dock-splitter-bottom::after { left: 0; right: 0; top: calc(var(--space-2) * -1); bottom: calc(var(--space-2) * -1); }
+.dock-splitter-left::after, .dock-splitter-right::after { top: 0; bottom: 0; left: calc(var(--space-2) * -1); right: calc(var(--space-2) * -1); }
+.dock-splitter:hover::before, .dock-splitter.dragging::before { background: var(--accent); }
+.dock-splitter:focus-visible::before { background: var(--accent); outline: 2px solid var(--accent); outline-offset: 2px; }
