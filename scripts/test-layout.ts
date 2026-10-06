@@ -5,6 +5,7 @@
  * Запуск: node --import tsx/esm scripts/test-layout.ts (npm run test:layout)
  */
 import assert from 'node:assert/strict';
+import { narrowMode, fitDockSizes } from '../src/web/layout/narrow';
 import {
   activate, clampSize, closeOthers, closeWindow, defaultLayout, defaultRuntime, displayLayout, dockRange,
   effectiveSize, findWindow, makeRef, maximizeRuntime, moveWindow, normalize, openWindow, reorder,
@@ -179,6 +180,36 @@ check('узкое окно: боковые вкладки уходят в ниж
   assert.equal(d.docks.right, undefined);
   assert.ok(l.docks.right);
   assert.equal(displayLayout(l, { w: 1200 }), l);
+});
+
+check('режим узкого окна: пороги 1100 / 900 и высота 520', () => {
+  const m = (w: number, h = 800) => narrowMode({ w, h });
+  assert.deepEqual([m(1400).tier, m(1100).tier, m(1099).tier, m(900).tier, m(899).tier], ['wide', 'wide', 'medium', 'medium', 'narrow']);
+  assert.equal(m(1100).collapseRail, false);
+  assert.equal(m(1099).collapseRail, true);
+  assert.equal(m(900).collapseRail, true);
+  assert.equal(m(899).sideToBottom, true);
+  assert.equal(m(900).sideToBottom, false);
+  assert.equal(m(1000).sideRatio, 0.4);
+  assert.equal(m(1200).bottomRatio, null);
+  assert.equal(m(1200, 519).bottomRatio, 0.5);
+  assert.equal(m(1200, 520).bottomRatio, null);
+});
+check('узкое окно: боковые доки вместе ≤ 40 %, нижний ≤ 50 % при малой высоте', () => {
+  const col = { w: 1000, h: 500 };
+  const f = fitDockSizes({ left: 430, right: 430, bottom: 400 }, narrowMode({ w: 1000, h: 500 }), col);
+  assert.ok(f.left! + f.right! <= 400);
+  assert.equal(f.bottom, 250);
+  const one = fitDockSizes({ right: 430 }, narrowMode({ w: 1000, h: 800 }), col);
+  assert.equal(one.right, 400);
+  assert.equal(one.left, undefined);
+  const wide = { left: 430, right: 430 };
+  assert.deepEqual(fitDockSizes(wide, narrowMode({ w: 1400, h: 800 }), { w: 1400, h: 800 }), wide);
+});
+check('активная вкладка в узком режиме берётся из переопределения', () => {
+  const l = openWindow(openWindow(defaultLayout(), term), docs);
+  assert.equal(displayLayout(l, { w: 800 }, 'docs').docks.bottom?.active, 'docs');
+  assert.equal(displayLayout(l, { w: 800 }, 'нет такой').docks.bottom?.active, l.docks.bottom?.active);
 });
 
 console.log('горячие клавиши');

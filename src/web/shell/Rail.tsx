@@ -9,6 +9,7 @@ import type { OfficeView } from '../../shared/types';
 import { money } from '../money';
 import { t } from '../i18n';
 import { useLayout } from '../layout/store';
+import { narrowMode } from '../layout/narrow';
 import { isDockedKind, isDockedOn, openDocked } from '../layout/docked';
 import { Icon, type IconName } from '../icons';
 import { Kbd } from '../Kbd';
@@ -208,7 +209,9 @@ export function Rail({ onPanel, onModal }: {
   const settings = useStore((s) => s.settings);
   const pending = useStore((s) => s.pending);
   const enterOffice = useStore((s) => s.enterOffice);
-  const collapsed = useStore((s) => s.railCollapsed);
+  // Ниже 1100 px рейл сворачивается сам (спека окон §2.9); сохранённый выбор не трогаем.
+  const autoNarrow = useLayout((s) => narrowMode(s.viewport).collapseRail);
+  const collapsed = useStore((s) => s.railCollapsed) || autoNarrow;
   const setCollapsed = useStore((s) => s.setRailCollapsed);
   const leaveOffice = useStore((s) => s.leaveOffice);
   const view = useStore((s) => s.view);

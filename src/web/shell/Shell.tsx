@@ -1,5 +1,6 @@
 import { useLayout } from '../layout/store';
 import { makeRef } from '../layout/model';
+import { narrowMode } from '../layout/narrow';
 import { useEffect, useRef, useState } from 'react';
 import { Office3D } from '../office3d/Office3D';
 import { Board } from '../Board';
@@ -37,7 +38,8 @@ export function Shell(props: OverlayProps) {
   const { setPanel, setModal } = props;
   const view = useStore((s) => s.view);
   const setView = useStore((s) => s.setView);
-  const collapsed = useStore((s) => s.railCollapsed);
+  const autoNarrow = useLayout((s) => narrowMode(s.viewport).collapseRail);
+  const collapsed = useStore((s) => s.railCollapsed) || autoNarrow;
   const paused = useStore((s) => s.paused);
   const openTaskCard = useStore((s) => s.openTaskCard);
   const officeId = useStore((s) => s.offices.find((o) => o.current)?.id ?? 'office');

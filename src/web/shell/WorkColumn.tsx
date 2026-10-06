@@ -5,14 +5,15 @@
  * размер в стор раскладки (от него зависит зажим доков); раскладка своя у
  * каждого офиса. Логики раскладки здесь нет: она в layout/model.ts.
  */
-import { useEffect, useRef, type ReactNode } from 'react';
+import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { Dock } from '../layout/Dock';
 import { DropOverlay, startTabDrag } from '../layout/tabdrag';
 import { windowTitle } from '../layout/titles';
 import { Splitter } from '../layout/Splitter';
 import { useLayout } from '../layout/store';
 import { useLayoutHotkeys } from '../layout/hotkeys';
-import { dockRange, effectiveSize, makeRef, type DockId, type Layout, type WindowRef } from '../layout/model';
+import { narrowMode, fitDockSizes } from '../layout/narrow';
+import { displayLayout, dockRange, effectiveSize, findWindow, makeRef, type DockId, type Layout, type WindowRef } from '../layout/model';
 import type { DockStatus } from '../layout/Dock';
 import { TerminalWindow } from '../terminal/TerminalWindow';
 import { useTermViews, type TermStatus } from '../terminal/sessions';
@@ -51,7 +52,15 @@ export function WorkColumn({ officeId, onCallMeeting, children }: {
   children: ReactNode;
 }) {
   const ref = useRef<HTMLDivElement>(null);
-  const layout = useLayout((s) => s.layout);
+  const realLayout = useLayout((s) => s.layout);
+  const viewport = useLayout((s) => s.viewport);
+  const mode = useMemo(() => narrowMode(viewport), [viewport.w, viewport.h]);
+  // В узком окне вкладки боковых доков показываются в нижнем; модель не меняется.
+  const [narrowActive, setNarrowActive] = useState<string | null>(null);
+  const layout = useMemo(
+    () => (mode.sideToBottom ? displayLayout(realLayout, viewport, narrowActive) : realLayout),
+    [mode.sideToBottom, realLayout, viewport.w, narrowActive],
+  );
   const column = useLayout((s) => s.column);
   const maximized = useLayout((s) => s.maximized);
   const termViews = useTermViews((s) => s.byId);
@@ -90,8 +99,14 @@ export function WorkColumn({ officeId, onCallMeeting, children }: {
     const s = layout.docks[id];
     if (!s) return null;
     const hidden = maximized !== null && maximized !== id;
-    const size = effectiveSize(id, layout, column);
+    const sizes = fitDockSizes(
+      { left: layout.docks.left && effectiveSize('left', layout, column), right: layout.docks.right && effectiveSize('right', layout, column), bottom: layout.docks.bottom && effectiveSize('bottom', layout, column) },
+      mode, column,
+    );
+    const size = sizes[id] ?? effectiveSize(id, layout, column);
     const range = dockRange(id, layout, column);
+    // Настоящий док вкладки: в узком режиме она может лежать в боковом.
+    const homeOf = (win: string): DockId => findWindow(st().layout, win)?.dock ?? id;
     return (
       <div className={`work-dock work-dock-${id}${hidden ? ' off' : ''}`}>
         {!s.collapsed && maximized === null && (
@@ -112,13 +127,13 @@ export function WorkColumn({ officeId, onCallMeeting, children }: {
             return v ? TERM_STATUS[v.status] : undefined;
           }}
           onAdd={id === 'bottom' ? () => st().openWindow(makeRef('terminal', nextTerminalNumber(st().layout)), 'bottom') : undefined}
-          onActivate={(win) => st().activate(id, win)}
+          onActivate={(win) => { if (mode.sideToBottom) setNarrowActive(win); st().activate(homeOf(win), win); }}
           onClose={(win) => st().closeWindow(win)}
           onToggleCollapsed={() => st().toggleCollapsed(id)}
           onMaximize={() => st().maximize(id)}
           onMove={(win, to) => st().moveWindow(win, to)}
-          onCloseOthers={(win) => st().closeOthers(id, win)}
-          onReorder={(from, to) => st().reorder(id, from, to)}
+          onCloseOthers={(win) => st().closeOthers(homeOf(win), win)}
+          onReorder={(from, to) => { if (!mode.sideToBottom) st().reorder(id, from, to); }}
           onTabPointerDown={(e, win) => startTabDrag(e, win.id, windowTitle(win), ref.current)}
         />
       </div>

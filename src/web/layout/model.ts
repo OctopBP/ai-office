@@ -300,7 +300,7 @@ export const NARROW_W = 900;
 export const isNarrow = (viewport: { w: number }) => viewport.w < NARROW_W;
 
 /** Раскладка для показа: в узком режиме вкладки боковых доков переезжают в нижний. */
-export function displayLayout(layout: Layout, viewport: { w: number }): Layout {
+export function displayLayout(layout: Layout, viewport: { w: number }, active?: string | null): Layout {
   if (!isNarrow(viewport)) return layout;
   const side = (['left', 'right'] as DockId[]).filter((d) => layout.docks[d]);
   if (side.length === 0) return layout;
@@ -315,6 +315,8 @@ export function displayLayout(layout: Layout, viewport: { w: number }): Layout {
       collapsed: bottom?.collapsed ?? false,
     },
   };
+  const shown = docks.bottom!;
+  if (active && shown.tabs.some((w) => w.id === active)) shown.active = active;
   return { ...layout, docks, focus: layout.focus === 'main' ? 'main' : 'bottom' };
 }
 
