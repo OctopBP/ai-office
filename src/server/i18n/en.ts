@@ -719,6 +719,16 @@ export const en = {
   'direction.removedLog': 'Direction {id} removed',
   'direction.updatedLog': 'Direction {id} updated',
 
+  // ------------------------------------------------- document library
+  'docs.createdLog': 'Document {id} “{title}” created ({author})',
+  'docs.updatedLog': 'Document {id} “{title}” updated, version {version} ({author})',
+  'docs.archivedLog': 'Document {id} “{title}” archived',
+  'docs.indexHead': 'Office documents (read in full by id):',
+  'docs.indexMore': '…and {n} more',
+  'docs.kind.foundation': 'foundation',
+  'docs.kind.documentation': 'documentation',
+  'docs.kind.working': 'working',
+
   // ------------------------------------------------- правила офиса (RULES.md)
   'rules.fileHead': '# Rules\n\n<!-- Every list item is one rule: this file goes into the system prompt of the agents working in this repository. -->',
   'rules.scope.office': 'The whole office',

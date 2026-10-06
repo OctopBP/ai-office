@@ -61,6 +61,7 @@
     "test:rules": "tsx scripts/test-rules.ts",
     "test:life": "tsx scripts/test-life.ts",
     "test:journal": "node --import tsx scripts/test-journal-superseded.ts",
+    "test:docs": "node --import tsx scripts/test-docs.ts",
     "test:contradictions": "node --import tsx scripts/test-contradictions.ts && node --import tsx scripts/test-contradictions-ritual.ts && node --import tsx scripts/test-contradictions-history.ts",
     "test:review": "tsx scripts/test-review.ts",
     "test:workflow": "tsx scripts/test-workflow.ts",

@@ -719,6 +719,16 @@ export const ru: Record<keyof typeof en, string> = {
   'direction.removedLog': 'Направление {id} снято',
   'direction.updatedLog': 'Направление {id} изменено',
 
+  // ------------------------------------------------- библиотека документов
+  'docs.createdLog': 'Документ {id} «{title}» заведён ({author})',
+  'docs.updatedLog': 'Документ {id} «{title}» изменён, версия {version} ({author})',
+  'docs.archivedLog': 'Документ {id} «{title}» убран в архив',
+  'docs.indexHead': 'Документы офиса (прочитать целиком — по id):',
+  'docs.indexMore': '…и ещё {n}',
+  'docs.kind.foundation': 'основа',
+  'docs.kind.documentation': 'документация',
+  'docs.kind.working': 'рабочее',
+
   // ------------------------------------------------- правила офиса (RULES.md)
   'rules.fileHead': '# Правила\n\n<!-- Каждый пункт списка — одно правило: этот файл едет в системный промпт агентов, которые работают в этом репозитории. -->',
   'rules.scope.office': 'Весь офис',

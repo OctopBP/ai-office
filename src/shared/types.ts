@@ -1558,6 +1558,54 @@ export interface FactView {
 }
 
 /**
+ * Тип документа в библиотеке офиса (src/server/docs.ts):
+ * - `foundation` — основа: видение, GDD, персонажи, бренд;
+ * - `documentation` — документация: как устроено сейчас;
+ * - `working` — рабочие материалы: спеки и исследования к задаче.
+ */
+export type DocKind = 'foundation' | 'documentation' | 'working';
+
+/**
+ * Документ библиотеки офиса. Это хранилище офиса, как журнал, а не файлы
+ * `docs/` в git: документ живёт рядом с состоянием офиса и правится без
+ * коммитов и без согласия владельца.
+ */
+export interface OfficeDoc {
+  /** `D-N`, сквозная нумерация в пределах офиса. */
+  id: string;
+  title: string;
+  /** Одна строка: о чём документ. Едет в оглавление для промпта. */
+  summary: string;
+  kind: DocKind;
+  /** Задача, к которой относится рабочий материал. */
+  taskId?: string;
+  /** В архиве: не едет в оглавление и по умолчанию не ищется. */
+  archived: boolean;
+  /** Текст в markdown. */
+  body: string;
+  /** Номер текущей версии; первая — 1, каждая правка поднимает на единицу. */
+  version: number;
+  createdBy: string;
+  updatedBy: string;
+  createdAt: number;
+  updatedAt: number;
+}
+
+/** Документ без текста — строка оглавления. */
+export type DocMeta = Omit<OfficeDoc, 'body'>;
+
+/** Одна версия документа в истории. */
+export interface DocVersion {
+  version: number;
+  body: string;
+  title: string;
+  summary: string;
+  kind: DocKind;
+  author: string;
+  at: number;
+}
+
+/**
  * Страница журнала: часть записей и чем спросить продолжение (`GET /api/journal`).
  *
  * Снапшот отдаёт журнал целиком — интерфейсу так и надо, он держит его весь.
@@ -2446,6 +2494,10 @@ export type ServerEvent =
   /** Запись журнала завели или её статус изменился. */
   | { t: 'fact'; fact: FactView }
   | { t: 'fact.remove'; id: string }
+  /** Документ библиотеки офиса завели, поправили или убрали в архив. */
+  | { t: 'doc.created'; doc: DocMeta }
+  | { t: 'doc.updated'; doc: DocMeta }
+  | { t: 'doc.archived'; doc: DocMeta }
   /**
    * Вопрос владельцу задали, показали, ответили или сняли. Вместе с самим
    * вопросом едет и счётчик открытых: это единственный момент, когда он
