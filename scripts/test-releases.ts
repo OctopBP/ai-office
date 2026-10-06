@@ -17,14 +17,14 @@ import { tmpdir } from 'node:os';
 import { resolve } from 'node:path';
 import { getOffice, type Task } from '../src/server/state';
 import {
-  dueRelease, proposeReleaseTarget, proposedAssets, releaseStatusText, releaseTiming, resumeRelease, saveReleasePlan,
+  dueRelease, proposeReleaseTarget, proposedAssets, proposedChannels, releaseStatusText, releaseTiming, resumeRelease, saveReleasePlan,
   scrubSecrets, setReleaseAgents, setReleaseCi, setReleaseHost, settleReleaseSetups, startRelease, whenReleasesIdle, type CiRun,
 } from '../src/server/releases';
 import { releaseCommandBlocked } from '../src/server/permissions';
 import { builtinWorkflow } from '../src/server/workflows';
 import {
   nextVersion, parseBuildResult, parseGithubRelease, parseReleaseConfig, versionInAnswer, versionLabel,
-  type ReleaseTarget,
+  type Release, type ReleaseTarget,
 } from '../src/shared/release';
 
 process.env.OFFICE_LANG = 'ru';
@@ -495,6 +495,38 @@ async function main(): Promise<void> {
     check('замена применилась', office.releaseTarget('stage2')?.branch === 'preview');
     check('снятое предложение не применилось поверх', office.releaseTarget('stage2')?.branch === 'preview');
     check('предложения сохраняются', (office.toPersisted().releaseSetups ?? []).length >= 4);
+
+    // Каналы цели (release-channels §5.5): предложение, выбор канала, статус по каналам.
+    check('каналы не у тега — понятная ошибка', !proposedChannels(office, 'stage2', 'push', [], ['beta']).ok);
+    const lanes = proposedChannels(office, 'mac', 'tag', ['latest-mac.yml'], ['beta']);
+    check('каналы: stable добавлен сам, ветки по умолчанию, файлы беты выведены',
+      lanes.ok && lanes.channels?.stable.branch === 'release' && lanes.channels?.beta?.branch === 'beta'
+      && lanes.channels?.beta?.assets?.join() === 'beta-mac.yml');
+    const cq = questionOf(proposeReleaseTarget(office, {
+      target: { ...mac, title: 'Мак 2', assets: ['latest-mac.yml'], channels: lanes.ok ? lanes.channels ?? undefined : undefined },
+    }).message)!;
+    check('владелец видит каналы в вопросе', cq.text.includes('Бета: ветка beta') && cq.text.includes('beta-mac.yml'));
+    office.updateQuestion(cq.id, { answer: 'Применить', answeredAt: Date.now() });
+    settleReleaseSetups(office);
+    check('«Применить» — каналы в цели', Boolean(office.releaseTarget('mac')?.channels?.beta));
+    const keptLanes = proposedChannels(office, 'mac', 'tag', []);
+    check('замена без channels — прежние сохраняются', keptLanes.ok && Boolean(keptLanes.channels?.beta));
+    const noAlpha = startRelease(office, 'mac', 'manual', '', Date.now(), { channel: 'alpha' });
+    check('канала нет у цели — отказ с перечнем каналов', !noAlpha.ok && noAlpha.message.includes('stable, beta'));
+    const noLanes = startRelease(office, 'stage2', 'manual', '', Date.now(), { channel: 'beta' });
+    check('цель без каналов — бета отклонена', !noLanes.ok && noLanes.message.includes('нет каналов'));
+    const done = (id: string, version: string, channel: 'stable' | 'beta'): Release => ({
+      id, targetId: 'mac', channel, version, build: null, level: 'minor', levelFrom: 'plan', sha: '', fromSha: null,
+      branch: '', epicIds: [], taskIds: [], planId: null, notes: '', reason: 'manual', note: '', status: 'done', stage: '',
+      links: [], fixTaskId: null, attempts: 1, retries: 0, nextTryAt: null, needsDecision: false,
+      startedAt: Date.now() - 1000, finishedAt: Date.now(), costUsd: 0,
+    });
+    office.saveRelease(done('mac-ch-1', '1.4.0', 'stable'));
+    office.saveRelease(done('mac-ch-2', '1.5.0-beta.2', 'beta'));
+    const status = releaseStatusText(office);
+    check('release_status: последняя версия каждого канала',
+      status.includes('канал stable (Стабильный): последний выпуск 1.4.0') && status.includes('канал beta (Бета): последний выпуск 1.5.0-beta.2'));
+    for (const id of ['mac-ch-1', 'mac-ch-2']) office.releases.delete(id);
   }
 
   // 11. Релиз виден автообновлению: разбор ответа GitHub и узел после CI.

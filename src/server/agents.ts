@@ -31,7 +31,7 @@ import { ensureChromium } from './chromium';
 import { employeePlugins, employeeSkills, sessionTools } from './skills';
 import { autoApprovedText, classify, decide, effectiveMode, releaseCommandBlocked } from './permissions';
 import {
-  closeReleasePlan, proposeReleaseTarget, proposedAssets, releaseStatusText, resumeRelease, saveReleasePlan, setReleaseAgents,
+  closeReleasePlan, proposeReleaseTarget, proposedAssets, proposedChannels, releaseStatusText, resumeRelease, saveReleasePlan, setReleaseAgents,
   startRelease,
 } from './releases';
 import type { ReleaseTarget } from '../shared/release';
@@ -1552,9 +1552,10 @@ const teamTools = (state: OfficeState, chatId: string) => createSdkMcpServer({
           targets: state.releaseTargets().map((t) => `${t.id} (${t.title})`).join(', ') || '—',
         })),
         note: z.string().default('').describe(state.say('tool.startRelease.note')),
+        channel: z.enum(['stable', 'beta', 'alpha']).optional().describe(state.say('tool.startRelease.channel')),
       },
       async (args) => {
-        const out = startRelease(state, args.target.trim(), 'manual', args.note ?? '');
+        const out = startRelease(state, args.target.trim(), 'manual', args.note ?? '', Date.now(), { channel: args.channel });
         return { content: [{ type: 'text', text: out.message }], isError: !out.ok };
       },
     ),
@@ -1622,6 +1623,14 @@ const teamTools = (state: OfficeState, chatId: string) => createSdkMcpServer({
         timeoutMin: z.number().int().min(0).default(0).describe(state.say('tool.proposeTarget.timeout')),
         waitForTask: z.string().default('').describe(state.say('tool.proposeTarget.waitForTask')),
         assets: z.array(z.string()).optional().describe(state.say('tool.proposeTarget.assets')),
+        channels: z.array(z.union([
+          z.enum(['stable', 'beta', 'alpha']),
+          z.object({
+            channel: z.enum(['stable', 'beta', 'alpha']),
+            branch: z.string().optional(),
+            assets: z.array(z.string()).optional(),
+          }),
+        ])).optional().describe(state.say('tool.proposeTarget.channels')),
         note: z.string().default('').describe(state.say('tool.proposeTarget.note')),
       },
       async (args) => {
@@ -1629,6 +1638,8 @@ const teamTools = (state: OfficeState, chatId: string) => createSdkMcpServer({
         const files = proposedAssets(state, id, args.kind, args.assets);
         if (!files.ok) return { content: [{ type: 'text', text: files.message }], isError: true };
         const assets = files.assets;
+        const lanes = proposedChannels(state, id, args.kind, assets, args.channels);
+        if (!lanes.ok) return { content: [{ type: 'text', text: lanes.message }], isError: true };
         const when: ReleaseTarget['policy']['when'] = [...new Set(args.when ?? [])];
         if (args.mergedEvery) when.push({ merged: args.mergedEvery });
         const target: ReleaseTarget = {
@@ -1639,6 +1650,7 @@ const teamTools = (state: OfficeState, chatId: string) => createSdkMcpServer({
           ...(args.kind !== 'command' && args.ci !== 'auto' ? { ci: args.ci } : {}),
           ...(args.timeoutMin ? { timeoutMin: args.timeoutMin } : {}),
           ...(assets.length ? { assets } : {}),
+          ...(lanes.channels ? { channels: lanes.channels } : {}),
           policy: {
             when, approve: args.approve,
             ...(args.cooldownHours ? { cooldownHours: args.cooldownHours } : {}),

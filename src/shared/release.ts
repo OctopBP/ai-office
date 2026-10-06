@@ -547,6 +547,11 @@ export interface ReleaseLink {
 export interface Release {
   id: string;
   targetId: string;
+  /**
+   * Канал выпуска (docs/design/release-channels/spec.md §5.5). Нет — цель без
+   * каналов или выпуск, начатый до каналов: считается стабильным.
+   */
+  channel?: ReleaseChannel;
   version: string | null;
   build: number | null;
   /** Разряд, на который поднята версия, и откуда он. */

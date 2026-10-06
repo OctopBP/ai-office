@@ -20,9 +20,11 @@ import { readFileSync, writeFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { OFFICE_SENDER } from '../shared/types';
 import {
-  DEFAULT_TAG, DEFAULT_TIMEOUT_MIN, allowsManual, autoLevel, autoReasons, compareVersions, fillVersion, maxLevel,
-  nextVersion, parseBuildResult, parseGithubRelease, parseReleaseConfig, parseSemver, parseVersion, releaseActive, versionInAnswer, versionLabel,
-  type GithubReleaseCheck, type Release, type ReleaseReason, type ReleaseSetup, type ReleaseTarget, type VersionLevel, type VersionPoint,
+  DEFAULT_TAG, DEFAULT_TIMEOUT_MIN, RELEASE_CHANNELS, allowsManual, channelFrom, autoLevel, autoReasons, compareVersions, fillVersion, maxLevel,
+  nextChannelVersion, nextVersion, parseBuildResult, parseGithubRelease, parseReleaseConfig, parseSemver, parseVersion, releaseActive,
+  targetChannels, versionChannel, versionInAnswer, versionLabel,
+  type GithubReleaseCheck, type Release, type ReleaseChannel, type ReleaseChannelSpec, type ReleaseChannels, type ReleaseReason,
+  type ReleaseSetup, type ReleaseTarget, type VersionLevel, type VersionPoint,
 } from '../shared/release';
 import { CHECK_NAME_RE, type Run, type Workflow, type WorkflowNode } from '../shared/workflow';
 import { taskClosed } from '../shared/types';
@@ -250,6 +252,13 @@ const label = (r: Release): string => versionLabel(point(r)) || r.id;
 const lastDone = (state: OfficeState, targetId: string, except?: string): Release | null =>
   state.releasesOf(targetId).find((r) => r.status === 'done' && r.id !== except) ?? null;
 
+/** Канал выпуска: записанный, иначе по суффиксу версии, иначе стабильный. */
+const releaseChannel = (r: Release): ReleaseChannel => r.channel ?? (r.version ? versionChannel(r.version) : null) ?? 'stable';
+
+/** Последний состоявшийся выпуск канала цели. */
+const lastDoneIn = (state: OfficeState, targetId: string, channel: ReleaseChannel): Release | null =>
+  state.releasesOf(targetId).find((r) => r.status === 'done' && releaseChannel(r) === channel) ?? null;
+
 /** Строка задачи для заметок и вопроса: что сделано, одной строкой. */
 const clip = (s: string, n: number): string => {
   const line = s.replace(/\s+/g, ' ').trim();
@@ -344,6 +353,17 @@ async function lastTagSha(repo: string, target: ReleaseTarget): Promise<string |
   return found ? revision(repo, `${found.tag}^{commit}`) : null;
 }
 
+/** Все известные версии цели: из тегов по её шаблону и из истории выпусков. */
+async function knownVersions(ctx: Ctx): Promise<string[]> {
+  const { state, target, repo } = ctx;
+  const tags = await git(repo, ['tag', '--list']);
+  const fromTags = tags.stdout.split('\n').filter(Boolean)
+    .map((tag) => versionFromTag(tag, target.tag ?? DEFAULT_TAG)?.version ?? null);
+  const fromHistory = state.releasesOf(target.id)
+    .filter((x) => x.status === 'done' && x.id !== rel(ctx).id).map((x) => x.version);
+  return [...new Set([...fromTags, ...fromHistory].filter((v): v is string => Boolean(v)))];
+}
+
 /** Тег по шаблону цели → версия и номер, если тег с этого шаблона. */
 function versionFromTag(tag: string, pattern: string): VersionPoint | null {
   const esc = pattern.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
@@ -419,6 +439,13 @@ const version: Executor<Ctx> = {
     const current = await currentVersion(ctx);
     const next = nextVersion(spec.scheme, current, level, Date.now());
     if (plan?.version && spec.scheme.startsWith('semver')) next.version = plan.version;
+    if (r.channel && target.channels) {
+      // Цель с каналами (§4.2): версия считается по всем тегам и выпускам цели,
+      // у беты и альфы — следующий номер пререлиза.
+      next.version = nextChannelVersion({
+        versions: await knownVersions(ctx), channel: r.channel, level, planVersion: plan?.version ?? null,
+      });
+    }
     if (target.kind === 'tag') {
       const tag = fillVersion(target.tag ?? DEFAULT_TAG, next);
       if (await revision(ctx.repo, `refs/tags/${tag}`)) {
@@ -995,11 +1022,23 @@ export interface StartResult {
  */
 export function startRelease(
   state: OfficeState, targetId: string, reason: ReleaseReason, note = '', now = Date.now(),
+  opts: { channel?: ReleaseChannel } = {},
 ): StartResult {
   const target = state.releaseTarget(targetId);
   if (!target) {
     const known = state.releaseTargets().map((t) => t.id).join(', ');
     return { ok: false, message: known ? state.say('rel.noTarget', { id: targetId, known }) : state.say('rel.noTargets') };
+  }
+  // Канал по умолчанию — стабильный; канала, которого у цели нет, не бывает.
+  const channel = opts.channel ?? 'stable';
+  const channels = targetChannels(target);
+  if (channels.length ? !channels.includes(channel) : channel !== 'stable') {
+    return {
+      ok: false,
+      message: channels.length
+        ? state.say('rel.noChannel', { target: target.title, channel, known: channels.join(', ') })
+        : state.say('rel.noChannels', { target: target.title, channel }),
+    };
   }
   if (reason === 'manual' && !allowsManual(target.policy)) {
     return { ok: false, message: state.say('rel.noManual', { target: target.title }) };
@@ -1010,7 +1049,7 @@ export function startRelease(
   state.noteReleaseTarget(targetId, now);
   const release: Release = {
     id: state.newReleaseId(targetId),
-    targetId, version: null, build: null, level: null, levelFrom: null,
+    targetId, ...(channels.length ? { channel } : {}), version: null, build: null, level: null, levelFrom: null,
     sha: '', fromSha: null, branch: '', epicIds: [], taskIds: [], planId: null, notes: '',
     reason, note, status: 'preparing', stage: state.say('rel.stage.start'), links: [],
     fixTaskId: null, attempts: 0, retries: 0, nextTryAt: null, needsDecision: false,
@@ -1021,7 +1060,12 @@ export function startRelease(
     target: target.title, why: state.say(`rel.reason.${reason}` as ServerKey),
   }));
   void driveRelease(state, release.id);
-  return { ok: true, message: state.say('rel.startedOk', { id: release.id, target: target.title }), release };
+  return {
+    ok: true,
+    message: state.say('rel.startedOk', { id: release.id, target: target.title })
+      + (release.channel ? ` ${state.say('rel.startedChannel', { channel: release.channel })}` : ''),
+    release,
+  };
 }
 
 /**
@@ -1284,7 +1328,14 @@ function targetRows(state: OfficeState, targets: ReleaseTarget[]): string {
         merged,
       }),
       describeTarget(state, target, null).split('\n').slice(1).map((l) => `    ${l}`).join('\n'),
-      active ? `    ${state.say('rel.statusActive', { id: active.id, stage: active.stage })}` : '',
+      ...targetChannels(target).map((c) => {
+        const done = lastDoneIn(state, target.id, c);
+        return `    ${state.say('rel.statusChannel', {
+          channel: state.say(`rel.channel.${c}` as ServerKey), id: c,
+          last: done ? `${label(done)} (${new Date(done.startedAt).toISOString().slice(0, 10)})` : '—',
+        })}`;
+      }),
+      active ?`    ${state.say('rel.statusActive', { id: active.id, stage: active.stage })}` : '',
       plan ? `    ${state.say('rel.statusPlan', { id: plan.id, title: plan.title, epics: plan.epicIds.join(', ') })}` : '',
     ].filter(Boolean).join('\n');
   }).join('\n');
@@ -1327,7 +1378,61 @@ export function describeTarget(state: OfficeState, target: ReleaseTarget, comman
     target.bump ? say('rel.setup.bumpLine', { bump: target.bump }) : '',
     target.assets?.length ? say('rel.setup.assetsLine', { files: target.assets.join(', ') }) : '',
     target.policy.cooldownHours ? say('rel.setup.cooldownLine', { n: target.policy.cooldownHours }) : '',
+    ...channelLines(state, target),
   ].filter(Boolean).join('\n');
+}
+
+/** Каналы цели строками (§5.5): «Бета: ветка beta, теги v{version}-beta.N, проверка видимости beta-mac.yml». */
+function channelLines(state: OfficeState, target: ReleaseTarget): string[] {
+  const channels = target.channels;
+  if (!channels) return [];
+  return targetChannels(target).map((c) => {
+    const spec = channels[c] as ReleaseChannelSpec;
+    const tag = (target.tag ?? DEFAULT_TAG).replace('{version}', c === 'stable' ? '{version}' : `{version}-${c}.N`);
+    return state.say('rel.setup.channelLine', {
+      channel: state.say(`rel.channel.${c}` as ServerKey), branch: spec.branch, tag,
+      from: channelFromText(state, channels, c),
+      files: spec.assets?.length ? state.say('rel.setup.channelFiles', { files: spec.assets.join(', ') }) : '',
+    });
+  });
+}
+
+const channelFromText = (state: OfficeState, channels: ReleaseChannels, c: ReleaseChannel): string => {
+  const from = channelFrom(channels, c);
+  return state.say(`rel.channel.from.${from}` as ServerKey);
+};
+
+/** Ветка канала по умолчанию (§3.1): стабильный — release, остальные — по имени. */
+const DEFAULT_CHANNEL_BRANCH: Record<ReleaseChannel, string> = { stable: 'release', beta: 'beta', alpha: 'alpha' };
+
+export type ProposedChannel = ReleaseChannel | { channel: ReleaseChannel; branch?: string; assets?: string[] };
+
+/**
+ * Каналы предложенной цели (§5.5). Не переданы — при замене цели остаются
+ * прежние; пустой список снимает каналы. Стабильный канал есть всегда.
+ * Файлы пререлизного канала, если их не назвали, выводятся из файлов цели по
+ * правилу electron-builder: `latest*.yml` → `<канал>*.yml`.
+ */
+export function proposedChannels(
+  state: OfficeState, id: string, kind: ReleaseTarget['kind'], assets: string[], given?: ProposedChannel[],
+): { ok: true; channels: ReleaseChannels | null } | { ok: false; message: string } {
+  if (!given) return { ok: true, channels: state.releaseTarget(id)?.channels ?? null };
+  if (!given.length) return { ok: true, channels: null };
+  if (kind !== 'tag') return { ok: false, message: state.say('rel.setup.channelsTagOnly', { kind }) };
+  const list = given.map((g) => (typeof g === 'string' ? { channel: g } as Exclude<ProposedChannel, string> : g));
+  if (!list.some((g) => g.channel === 'stable')) list.unshift({ channel: 'stable' });
+  const out: Partial<Record<ReleaseChannel, ReleaseChannelSpec>> = {};
+  for (const c of RELEASE_CHANNELS) {
+    const g = list.find((x) => x.channel === c);
+    if (!g) continue;
+    const files = g.assets?.map((a) => a.trim()).filter(Boolean)
+      ?? (c === 'stable' ? [] : assets.filter((a) => /^latest/.test(a)).map((a) => a.replace(/^latest/, c)));
+    out[c] = {
+      branch: g.branch?.trim() || DEFAULT_CHANNEL_BRANCH[c],
+      ...(files.length ? { assets: [...new Set(files)] } : {}),
+    };
+  }
+  return { ok: true, channels: out as ReleaseChannels };
 }
 
 /** Настройка выпусков с этой целью и командой — или причина, почему так нельзя. */
