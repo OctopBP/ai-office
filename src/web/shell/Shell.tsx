@@ -16,6 +16,7 @@ import { TeamWindow } from '../TeamWindow';
 import { RailPage } from './RailPages';
 import { FlowsPage } from '../FlowsPage';
 import { ReleasesPage } from '../ReleasesPage';
+import { DocsWindow } from '../docs/DocsWindow';
 import { FirstLaunch, useFirstLaunch } from '../FirstLaunch';
 import { isRailView, useStore } from '../store';
 import { t } from '../i18n';
@@ -106,6 +107,7 @@ export function Shell(props: OverlayProps) {
         )}
         {view === 'flows' && <FlowsPage />}
         {view === 'releases' && <ReleasesPage />}
+        {view === 'docs' && <DocsWindow onClose={() => setView('office')} />}
         {view === 'life' && (
           <div className="shell-view shell-life">
             <h2 className="shell-life-title">{t('life.title')}</h2>

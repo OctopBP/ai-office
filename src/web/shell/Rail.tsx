@@ -172,11 +172,12 @@ function useOfficeDrag(offices: OfficeView[]) {
   };
 }
 
-type WindowKind = 'merge' | 'log' | 'money' | 'meetings' | 'flows' | 'releases' | 'team' | 'settings';
+type WindowKind = 'merge' | 'log' | 'money' | 'meetings' | 'flows' | 'releases' | 'docs' | 'team' | 'settings';
 const WINDOWS: Array<{ kind: WindowKind; icon: IconName }> = [
   { kind: 'merge', icon: 'git-merge' },
   { kind: 'log', icon: 'file-text' },
   { kind: 'money', icon: 'coin' },
+  { kind: 'docs', icon: 'book' },
   { kind: 'meetings', icon: 'message' },
   { kind: 'flows', icon: 'grid-dots' },
   { kind: 'releases', icon: 'package' },
