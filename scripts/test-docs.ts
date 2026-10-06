@@ -216,12 +216,46 @@ try {
     assert.equal(again.skipped.length, 2);
   });
 
+  check('importFromDir: источник в метаданных, повтор узнаёт по пути, а не по названию', () => {
+    const project = join(tmp, 'proj');
+    mkdirSync(join(project, 'docs', 'design', 'rules'), { recursive: true });
+    mkdirSync(join(project, 'docs', 'design', 'menu'), { recursive: true });
+    writeFileSync(join(project, 'docs', 'design', 'rules', 'spec.md'), '# Спека\n\nПравила офиса.');
+    writeFileSync(join(project, 'docs', 'design', 'menu', 'spec.md'), '# Спека\n\nМеню офиса.');
+    writeFileSync(join(project, 'docs', 'design', 'menu', 'notes.md'), '# Заметки');
+    const design = join(project, 'docs', 'design');
+    const files = ['rules/spec.md', 'menu/spec.md'];
+    const r = importFromDir(state, design, 'documentation', { base: project, files });
+    assert.equal(r.created.length, 2, 'одинаковые названия из разных файлов — разные документы');
+    const rules = readDoc(state, r.created[0])!;
+    assert.equal(rules.source, 'docs/design/rules/spec.md');
+    assert.equal(rules.summary, 'Правила офиса.');
+    assert.equal(rules.createdBy, 'import');
+    updateDoc(state, rules.id, { title: 'Правила' }, 'owner');
+    const again = importFromDir(state, design, 'documentation', { base: project, files });
+    assert.equal(again.created.length, 0, 'переименованный документ всё равно узнан');
+    assert.equal(again.skipped.length, 2);
+  });
+
+  check('importFromDir: материалы задачи — сразу в архиве и с задачей', () => {
+    const task = join(tmp, 'proj', 'docs', 'review', 'T-10');
+    mkdirSync(task, { recursive: true });
+    writeFileSync(join(task, 'report.md'), '# Отчёт ревью\n\nВсё чисто.');
+    const r = importFromDir(state, task, 'working', { base: join(tmp, 'proj'), archived: true, taskId: 'T-10' });
+    const d = readDoc(state, r.created[0])!;
+    assert.equal(d.archived, true);
+    assert.equal(d.taskId, 'T-10');
+    assert.equal(d.source, 'docs/review/T-10/report.md');
+    assert.ok(!listDocs(state).some((x) => x.id === d.id), 'архивный не в оглавлении');
+    assert.equal(importFromDir(state, task, 'working', { base: join(tmp, 'proj'), archived: true, taskId: 'T-10' }).created.length, 0);
+  });
+
   console.log('хранилище');
 
   check('документы переживают перезагрузку: всё читается с диска', () => {
     const index = JSON.parse(readFileSync(join(dir, 'index.json'), 'utf8')) as { seq: number; docs: unknown[] };
-    assert.equal(index.seq, 9);
-    assert.equal(index.docs.length, 9);
+    assert.equal(index.seq, 12);
+    assert.equal(index.docs.length, 12);
     // Индекс — точка фиксации: оборванная правка (версия записана, индекс нет) не видна.
     writeFileSync(join(dir, 'history', 'D-2', 'v2.json'), JSON.stringify({ version: 2, body: 'недописано' }));
     assert.equal(readDoc(state, 'D-2')?.body, 'офис агентов');

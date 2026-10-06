@@ -27,7 +27,7 @@
 import {
   existsSync, mkdirSync, readdirSync, readFileSync, renameSync, statSync, writeFileSync,
 } from 'node:fs';
-import { basename, dirname, join, resolve } from 'node:path';
+import { basename, dirname, join, relative, resolve } from 'node:path';
 import type { DocKind, DocMeta, DocVersion, OfficeDoc } from '../shared/types';
 import { getOffice, type OfficeState } from './state';
 
@@ -145,6 +145,12 @@ function cleanTaskId(v: unknown): string | undefined {
   return s || undefined;
 }
 
+/** Путь источника — с прямыми слешами, чтобы импорт на Windows узнавал свои же файлы. */
+function cleanSource(v: unknown): string | undefined {
+  const s = typeof v === 'string' ? v.trim().replace(/\\/g, '/') : '';
+  return s || undefined;
+}
+
 // ---------------------------------------------------------------- события
 
 function announce(state: OfficeState, t: 'doc.created' | 'doc.updated' | 'doc.archived', doc: DocMeta): void {
@@ -229,6 +235,10 @@ export interface CreateDocInput {
   kind?: DocKind;
   taskId?: string;
   author: string;
+  /** Только для импорта: откуда взят файл (см. OfficeDoc.source). */
+  source?: string;
+  /** Только для импорта: сразу в архив — материалы давно закрытых задач. */
+  archived?: boolean;
 }
 
 export function createDoc(office: Office, input: CreateDocInput, now = Date.now()): OfficeDoc {
@@ -245,7 +255,7 @@ export function createDoc(office: Office, input: CreateDocInput, now = Date.now(
     title,
     summary: cleanSummary(input.summary),
     kind: input.kind ?? 'working',
-    archived: false,
+    archived: input.archived === true,
     version: 1,
     createdBy: author,
     updatedBy: author,
@@ -254,6 +264,8 @@ export function createDoc(office: Office, input: CreateDocInput, now = Date.now(
   };
   const taskId = cleanTaskId(input.taskId);
   if (taskId) meta.taskId = taskId;
+  const source = cleanSource(input.source);
+  if (source) meta.source = source;
   const body = String(input.body ?? '');
   commit(dir, index, meta, body);
   announce(state, 'doc.created', meta);
@@ -379,8 +391,25 @@ export function docIndexForPrompt(office: Office, maxChars = PROMPT_INDEX_CHARS)
 
 export interface ImportResult {
   created: string[];
-  /** Файлы, документ с таким названием и типом у которых уже есть. */
+  /** Файлы, уже занесённые в библиотеку (см. importFromDir). */
   skipped: string[];
+}
+
+export interface ImportOptions {
+  /** Автор документов, по умолчанию 'import'. */
+  author?: string;
+  /**
+   * От чего считать путь источника (OfficeDoc.source); по умолчанию — сама
+   * папка импорта. Корень проекта даёт пути вида `docs/design/x/spec.md`,
+   * одинаковые при любом способе запуска.
+   */
+  base?: string;
+  /** Только эти файлы папки, а не все .md подряд. */
+  files?: string[];
+  /** Завести сразу в архиве. */
+  archived?: boolean;
+  /** Задача, к которой относятся документы. */
+  taskId?: string;
 }
 
 /** Название и описание из markdown: первый заголовок и первый абзац текста. */
@@ -419,26 +448,40 @@ function markdownFiles(dir: string): string[] {
 
 /**
  * Разовый импорт markdown-файлов папки (с подпапками) в библиотеку одним
- * типом. Повторный запуск не плодит дубли: файл, документ с чьим названием и
- * типом уже есть, пропускается.
+ * типом. Повторный запуск не плодит дубли: каждый документ помнит путь
+ * исходного файла (`source`), и файл, по чьему пути документ уже есть,
+ * пропускается — даже если документ с тех пор переименовали или убрали в
+ * архив. Документ без источника (заведён в офисе руками) совпадает по
+ * названию и типу: так импорт не повторяет то, что уже написали в офисе.
  */
-export function importFromDir(office: Office, dir: string, kind: DocKind, author = 'import'): ImportResult {
+export function importFromDir(
+  office: Office, dir: string, kind: DocKind, opts: string | ImportOptions = {},
+): ImportResult {
+  const o: ImportOptions = typeof opts === 'string' ? { author: opts } : opts;
   const state = officeOf(office);
   if (!isKind(kind)) throw new Error(`Неизвестный тип документа: ${String(kind)}`);
   const root = resolve(dir);
   if (!existsSync(root) || !statSync(root).isDirectory()) throw new Error(`Нет папки ${root}`);
-  const seen = new Set(listDocs(state, { includeArchived: true, kind }).map((d) => d.title));
+  const base = resolve(o.base ?? root);
+  const all = listDocs(state, { includeArchived: true });
+  const sources = new Set(all.map((d) => d.source).filter(Boolean));
+  const titles = new Set(all.filter((d) => !d.source && d.kind === kind).map((d) => d.title));
+  const files = o.files ? o.files.map((f) => resolve(root, f)) : markdownFiles(root);
   const result: ImportResult = { created: [], skipped: [] };
-  for (const file of markdownFiles(root)) {
+  for (const file of files) {
+    const source = cleanSource(relative(base, file))!;
     const body = readFileSync(file, 'utf8');
     const { title, summary } = describeMarkdown(body, basename(file).replace(/\.md$/i, ''));
     const clean = cleanTitle(title);
-    if (seen.has(clean)) {
+    if (sources.has(source) || titles.has(clean)) {
       result.skipped.push(file);
       continue;
     }
-    seen.add(clean);
-    result.created.push(createDoc(state, { title: clean, summary, body, kind, author }).id);
+    sources.add(source);
+    result.created.push(createDoc(state, {
+      title: clean, summary, body, kind, author: o.author ?? 'import', source,
+      archived: o.archived, taskId: o.taskId,
+    }).id);
   }
   return result;
 }

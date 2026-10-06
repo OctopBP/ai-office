@@ -61,6 +61,7 @@
     "test:rules": "tsx scripts/test-rules.ts",
     "test:life": "tsx scripts/test-life.ts",
     "test:journal": "node --import tsx scripts/test-journal-superseded.ts",
+    "import:docs": "node --import tsx scripts/import-docs.ts",
     "test:docs": "node --import tsx scripts/test-docs.ts",
     "test:docstools": "node --import tsx scripts/test-docs-tools.ts",
     "test:docs-api": "node --import tsx scripts/test-docs-api.ts",
