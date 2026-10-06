@@ -7,6 +7,9 @@
   --rail-w: 264px;
   --gap: var(--space-2);
   --edge: calc(var(--rail-w) + var(--gap) * 2);
+  /* Низ и правый край видов; с доком снизу/справа WorkColumn обнуляет отступ. */
+  --view-bottom: calc(var(--composer-h, 96px) + var(--gap) + var(--space-4));
+  --pad-r: var(--space-6);
 }
 .shell.rail-collapsed { --rail-w: 70px; }
 
@@ -19,8 +22,8 @@
    видов ниже, отмеряем от реальной высоты композера (`--composer-h`): поле
    резиновое, и фиксированные 124px с многострочным вводом уходили под него. */
 .shell .cam-chips {
-  left: auto; right: var(--space-6);
-  bottom: calc(var(--composer-h, 96px) + var(--gap) + var(--space-4));
+  left: auto; right: var(--pad-r);
+  bottom: var(--view-bottom);
 }
 /* Бейдж режима разработчика — из-под рейла к левому краю сцены, в верхний ряд. */
 .shell .dev3d-badge { left: calc(var(--edge) + var(--space-4)); top: var(--space-4); }
@@ -35,8 +38,8 @@
    min-height композера. */
 .shell-view {
   position: absolute; top: 62px;
-  bottom: calc(var(--composer-h, 96px) + var(--gap) + var(--space-4));
-  left: calc(var(--edge) + var(--space-4)); right: var(--space-6);
+  bottom: var(--view-bottom);
+  left: calc(var(--edge) + var(--space-4)); right: var(--pad-r);
   overflow-y: auto;
 }
 .shell-view .board { margin-top: 0; }
@@ -55,7 +58,7 @@
   max-width: calc(1180px + 2 * var(--shadow-room)); margin: 0 auto;
   top: calc(62px - var(--shadow-room));
   left: calc(var(--edge) + var(--space-4) - var(--shadow-room));
-  right: calc(var(--space-6) - var(--shadow-room));
+  right: calc(var(--pad-r) - var(--shadow-room));
   /* Снизу до края окна 20px — с запасом под тень --shadow-float (2 смещения
      + 8 размытия): при меньшем отступе тень упиралась бы в границу окна. */
   bottom: calc(var(--space-5) - var(--shadow-room));
@@ -397,3 +400,19 @@ body.office-dragging, body.office-dragging * { cursor: grabbing !important; user
   bottom: calc(var(--composer-h, 0px) + var(--gap) * 2);
   max-height: calc(100% - 62px - var(--composer-h, 0px) - var(--gap) * 3);
 }
+
+/* ---------- рабочая колонка: основная область и доки ---------- */
+/* Колонка лежит на всю оболочку; основная область — остаток после доков и
+   сама остаётся опорой для абсолютных видов. Доки отступают от рейла,
+   верхнего ряда и композера так же, как виды. */
+.work-col { position: absolute; inset: 0; display: flex; flex-direction: column; pointer-events: none; }
+.work-row { flex: 1 1 auto; display: flex; min-height: 0; min-width: 0; }
+.work-main { flex: 1 1 auto; position: relative; min-width: 0; min-height: 0; pointer-events: auto; }
+.work-main.off, .work-dock.off { display: none; }
+.work-dock { display: flex; pointer-events: auto; min-width: 0; min-height: 0; }
+.work-dock-right { flex: 0 0 auto; flex-direction: row; margin: 62px var(--space-6) calc(var(--composer-h, 0px) + var(--gap) * 2) var(--space-2); }
+.work-dock-bottom { flex: 0 0 auto; flex-direction: column; margin: var(--space-2) var(--space-6) calc(var(--composer-h, 0px) + var(--gap) * 2) calc(var(--edge) + var(--space-4)); }
+.work-col.has-b { --view-bottom: var(--space-4); }
+.work-col.has-r { --pad-r: 0px; }
+.work-col.maxi .work-dock:not(.off) { flex: 1 1 auto; }
+.dock-empty { margin: 0; padding: var(--space-4); color: var(--ink-3); font-size: var(--fs-body); }

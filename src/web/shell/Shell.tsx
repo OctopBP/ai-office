@@ -7,6 +7,7 @@ import { PmChatList } from './PmChatList';
 import { Toasts } from '../Toasts';
 import { Overlays, type OverlayProps } from '../Overlays';
 import { Rail } from './Rail';
+import { WorkColumn } from './WorkColumn';
 import { TopBar } from './TopBar';
 import { TerminalPanel } from '../terminal/TerminalPanel';
 import { Composer } from './Composer';
@@ -75,7 +76,7 @@ export function Shell(props: OverlayProps) {
 
   return (
     <div className={`shell${collapsed ? ' rail-collapsed' : ''}${paused ? ' paused' : ''}`}>
-      <div className="shell-main">
+      <WorkColumn officeId={officeId}><div className="shell-main">
         {/* Сцена не размонтируется при уходе на другой вид: смена камеры и
             позы агентов живут внутри неё (Object3D, OrbitControls), и снос
             дерева сбрасывал бы их к стартовым значениям при каждом
@@ -116,7 +117,7 @@ export function Shell(props: OverlayProps) {
         )}
         {first.open && <FirstLaunch where={officeId} onClose={first.close} />}
         <Toasts onOpenTask={(id) => { setView('board'); openTaskCard(id); }} />
-      </div>
+      </div></WorkColumn>
       <Rail onPanel={setPanel} onModal={setModal} />
       <TopBar terminalOpen={terminalOpen} onTerminal={() => setTerminalOpen((v) => !v)} />
       <TerminalPanel open={terminalOpen} onClose={() => setTerminalOpen(false)} />

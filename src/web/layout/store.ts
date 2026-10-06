@@ -20,6 +20,8 @@ interface LayoutState extends LayoutRuntime {
 
   /** Загрузить раскладку офиса (при монтировании и смене офиса). */
   load(officeId: string | null): void;
+  /** Дописать отложенную запись сразу — перед закрытием страницы. */
+  flush(): void;
   setViewport(w: number, h: number): void;
   setColumn(w: number, h: number): void;
 
@@ -59,6 +61,7 @@ export const useLayout = create<LayoutState>((set, get) => {
       saver.flush();
       set({ officeId, layout: officeId ? loadLayout(officeId) : defaultLayout(), maximized: null, drag: null });
     },
+    flush: () => saver.flush(),
     setViewport: (w, h) => set({ viewport: { w, h } }),
     setColumn: (w, h) => set({ column: { w, h } }),
 
