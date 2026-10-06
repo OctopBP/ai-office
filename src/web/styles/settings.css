@@ -59,3 +59,11 @@
 /* Предупреждение о полном доступе стоит строкой группы: отрицательный отступ
    из modal.css (рассчитанный на модалку) здесь прижал бы его к режимам. */
 .settings-content .access-confirm { margin: 0; }
+
+/* Канал обновлений (UpdateChannel.tsx): варианты столбиком, метка пререлиза у версии. */
+.channel-list { display: flex; flex-direction: column; gap: var(--space-3); }
+.app-version { display: inline-flex; align-items: center; gap: var(--space-2); font-size: var(--fs-body); color: var(--ink); }
+.app-version-tag {
+  padding: 1px var(--space-2); border-radius: var(--radius-pill);
+  background: var(--film-2); color: var(--ink); font-size: var(--fs-small); font-weight: 500;
+}

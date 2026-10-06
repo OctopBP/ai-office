@@ -16,6 +16,7 @@ import { t, type UiKey } from './i18n';
 import { McpCatalog, type McpRequest } from './McpCatalog';
 import { OfficeIconSetting } from './OfficeIcon';
 import { OfficeSecrets } from './OfficeSecrets';
+import { AppVersion, UpdateChannelSetting, hasChannelBridge } from './UpdateChannel';
 import { Icon } from './icons';
 import { ShellPage } from './shell/ShellPage';
 import { ProviderCard } from './ProviderCard';
@@ -479,6 +480,14 @@ export function SettingsPage({ onClose }: { onClose: () => void }) {
                   </label>
                 </Row>
               </Group>
+
+              {/* Только в приложении: в браузере моста обновлений нет. */}
+              {hasChannelBridge() && (
+                <Group title={t('settings.channel.title')} desc={t('settings.channel.desc')}>
+                  <Row label={t('settings.channel.versionLabel')}><AppVersion /></Row>
+                  <Row label={t('settings.channel.title')}><UpdateChannelSetting /></Row>
+                </Group>
+              )}
             </div>
           )}
 

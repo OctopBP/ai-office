@@ -16,6 +16,15 @@ export type { UpdateCommandResult, UpdatePhase, UpdateState } from './types';
  * Обновление приложения (desktop/updater.js). Само приложение только
  * проверяет; скачать и перезапуститься — команды владельца из веба.
  */
+export type UpdateChannel = 'stable' | 'beta' | 'alpha';
+
+/** Установленная версия: `prerelease` — суффикс без дефиса ('beta.3') или ''. */
+export interface AppVersionInfo {
+  version: string;
+  prerelease: string;
+  isPrerelease: boolean;
+}
+
 export interface OfficeDesktopUpdates {
   /** Текущее состояние — для первого рисования и после перезагрузки окна. `busy` пересчитывается. */
   getState(): Promise<UpdateState>;
@@ -30,6 +39,15 @@ export interface OfficeDesktopUpdates {
    * Занятость не мешает — предупредить по `busy` должен веб до вызова.
    */
   restartNow(): Promise<UpdateCommandResult>;
+  /** Канал обновлений, на котором сидит приложение. */
+  getChannel(): Promise<UpdateChannel>;
+  /**
+   * Сменить канал. Отказ (`ok: false`) приходит значением, а не исключением:
+   * например, идёт загрузка обновления — `message` показываем как есть.
+   */
+  setChannel(channel: UpdateChannel): Promise<UpdateCommandResult>;
+  /** Установленная версия с признаком пререлиза. */
+  getVersion(): Promise<AppVersionInfo>;
 }
 
 export interface OfficeDesktop {
