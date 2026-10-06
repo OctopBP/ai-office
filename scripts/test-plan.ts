@@ -286,6 +286,89 @@ async function main(): Promise<void> {
     `высокий приоритет не обходит фокус на числе фич: ${prio.epics.get('F-2')?.status === 'planned' && prioTook().length === 0}`,
   );
 
+  // 11. T-354: фичи с проваленным хвостом не держат места в фокусе. Так стоял
+  //     живой офис: в двух активных фичах всё влито, кроме одной проваленной
+  //     задачи, — провал не «конец», фичи не закрывались, и при фокусе в два
+  //     ни «поехали», ни инициатива в режиме auto не могли ничего начать.
+  const stuck = getOffice('o-plan-stuck');
+  stuck.seed();
+  stuck.settings.planApproval = true;
+  stuck.settings.focusEpics = 2;
+  stuck.settings.autoPipeline = true;
+  /** Что запустилось в этом офисе. */
+  const stuckTook = (): string[] => {
+    const mark = 'o-plan-stuck/';
+    const list = started.filter((x) => x.startsWith(mark)).map((x) => x.slice(mark.length)).sort();
+    started = [];
+    return list;
+  };
+  const sid = (title: string): string =>
+    [...stuck.tasks.values()].find((t) => t.title === title)?.id ?? `нет-задачи-${title}`;
+  createPlan(stuck, [
+    {
+      title: 'Браузер', goal: 'хвост с провалом',
+      tasks: [line('a1', 'a1'), line('a2', 'a2'), line('a3', 'a3', ['a2'])],
+    },
+    { title: 'Терминал', goal: 'хвост с провалом', tasks: [line('b1', 'b1'), line('b2', 'b2')] },
+    { title: 'Секреты', goal: 'согласованная третья', tasks: [line('c1', 'c1')] },
+    { title: 'Документы', goal: 'без согласия', tasks: [line('d1', 'd1')] },
+  ]);
+  approveEpic(stuck, 'F-1');
+  approveEpic(stuck, 'F-2');
+  stuckTook();
+  // Третью согласуют, пока места заняты честно идущей работой.
+  const queued = approveEpic(stuck, 'F-3');
+  results.push(
+    `согласованная при занятом фокусе говорит, чего ждёт: ${queued.message.includes('ждёт слота: заняты F-1, F-2')}`,
+    `и в шапке фичи та же причина: ${JSON.stringify(stuck.epics.get('F-3')?.hold) === JSON.stringify({ kind: 'slot', epics: ['F-1', 'F-2'] })}`,
+    `и в ленте офиса она тоже есть: ${stuck.chat.some((m) => m.text.includes('F-3') && m.text.includes('ждёт слота'))}`,
+  );
+
+  // Всё влито, кроме одной задачи в каждой фиче, — та провалилась.
+  for (const [ok, bad] of [['a1', 'a2'], ['b1', 'b2']]) {
+    stuck.updateTask(sid(ok), { status: 'done', merged: true, branch: `task/${sid(ok)}` });
+    stuck.updateTask(sid(bad), { status: 'failed', result: 'упала' });
+  }
+  dispatch(stuck);
+  const after = stuckTook();
+  results.push(
+    `фича с проваленным хвостом не закрыта «готовой»: ${stuck.epics.get('F-1')?.status === 'active'}`,
+    `но стоит с причиной — провалом и тем, кто его ждёт: ${JSON.stringify(stuck.epics.get('F-1')?.hold) === JSON.stringify({ kind: 'stuck', tasks: [sid('a2'), sid('a3')] })}`,
+    `о мёртвой фиче сказано в ленте: ${stuck.chat.some((m) => m.text.includes('F-1') && m.text.includes('живой работы'))}`,
+    `освободившееся место заняла согласованная третья: ${stuck.epics.get('F-3')?.status === 'active'}`,
+    `и её задача раздана: ${after.join(',') === sid('c1')}`,
+    `у пошедшей фичи причины простоя больше нет: ${stuck.epics.get('F-3')?.hold === null}`,
+  );
+
+  // «Поехали» по четвёртой: место есть (держит только F-3) — фича идёт сразу.
+  const go = approveEpic(stuck, 'F-4');
+  results.push(
+    `«поехали» переводит фичу в работу: ${go.ok && stuck.epics.get('F-4')?.status === 'active'}`,
+    `и её задача уходит свободному исполнителю: ${stuckTook().join(',') === sid('d1')}`,
+  );
+
+  // Инициатива в режиме auto (согласие проставлено сразу) встаёт в очередь
+  // с причиной, а когда место освобождается — начинается сама.
+  createPlan(stuck, [{ title: 'Инициатива', goal: 'офис себе', tasks: [line('e1', 'e1')] }],
+    { origin: 'office', rationale: 'сам', directionId: null, approved: true });
+  results.push(
+    `инициатива при занятом фокусе ждёт слота: ${stuck.epics.get('F-5')?.hold?.kind === 'slot'}`,
+  );
+  stuck.updateTask(sid('c1'), { status: 'done', merged: true, branch: `task/${sid('c1')}` });
+  dispatch(stuck);
+  results.push(
+    `в режиме auto офис сам берёт следующую фичу: ${stuck.epics.get('F-5')?.status === 'active'}`,
+    `и раздаёт её задачи: ${stuckTook().join(',') === sid('e1')}`,
+  );
+
+  // Перезапустили проваленную — фича ожила и снова держит место.
+  stuck.updateTask(sid('a2'), { status: 'in_progress' });
+  dispatch(stuck);
+  results.push(
+    `перезапуск проваленной снимает причину «стоит»: ${stuck.epics.get('F-1')?.hold === null}`,
+  );
+  unloadOfficeState('o-plan-stuck');
+
   unloadOfficeState('o-plan');
   unloadOfficeState('o-plan-2');
   unloadOfficeState('o-plan-3');

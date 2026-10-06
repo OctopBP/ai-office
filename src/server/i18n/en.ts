@@ -409,6 +409,15 @@ export const en = {
   'plan.chat.cancelled': 'Feature {epic} "{title}" dropped from the plan: {reason}',
   'plan.noReason': 'no reason given',
   'plan.noEpic': 'no feature',
+  'plan.log.hold': '{epic} "{title}" is on hold: {why}',
+  'plan.chat.queued': '⏳ Feature {epic} "{title}" is approved but has not started yet: {why}.',
+  'plan.chat.stuck': '⛔ Feature {epic} "{title}" is stuck: no live work is left in it, tasks {tasks} failed or wait for failed ones. It no longer holds a place in the queue. Restart those tasks or cancel them — then the feature will close.',
+  'plan.hold.approval': 'waiting for your go-ahead',
+  'plan.hold.slot': 'waiting for a slot: taken by {epics}',
+  'plan.hold.share': 'waiting for the initiative share: this week\'s limit is spent',
+  'plan.hold.tasks': 'waiting for tasks {tasks}',
+  'plan.hold.stuck': '{tasks} failed, your call is needed',
+  'plan.hold.unknown': 'reason unknown',
 
   // ------------------------------------------------------------------ офисы
   'offices.saveFailed': '⚠️  Could not save the office list: {error}',

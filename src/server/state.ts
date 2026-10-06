@@ -9,7 +9,7 @@ import type {
   PermissionDecision, AuthSource, MeetingView, PermissionMode, PermissionRequest, RoleDraft,
   McpServerDef, McpServerState, RoleEditable, RoleView, ServerEvent, Settings, TaskStatus,
   TaskPriority, TaskView, Usage,
-  EpicStatus, EpicView,
+  EpicHold, EpicStatus, EpicView,
   CloudStatus, EnvCheck, EnvReport, OfficeView, MergeCheck, MergeRun, LayoutOption,
   Layout, LayoutOverride, LayoutPropEdit,
   PullRequestView, PrStage, ReviewNote, TaskOutcome, TaskDelivery, BranchMark,
@@ -762,7 +762,12 @@ export interface Epic {
    * Когда офис в последний раз говорил про эту фичу менеджеру. Как и у задач:
    * иначе про фичу, ждущую согласия, напоминалось бы каждую минуту.
    */
-  attention: number | null;
+  attention: number | null;  /**
+   * Почему фича стоит (EpicView.hold). Производное: пересчитывает планировщик
+   * на каждом проходе. Хранится, чтобы смену причины говорить в ленту один
+   * раз, а не на каждом тике.
+   */
+  hold?: EpicHold | null;
 }
 
 export interface Task {
@@ -5146,6 +5151,7 @@ export const toEpicView = (e: Epic): EpicView => ({
   origin: e.origin ?? 'owner', rationale: e.rationale ?? '', directionId: e.directionId ?? null,
   release: e.release ?? null, chatId: e.chatId ?? null,
   createdAt: e.createdAt, startedAt: e.startedAt, finishedAt: e.finishedAt,
+  hold: e.hold ?? null,
 });
 
 export const toTaskView = (t: Task): TaskView => ({

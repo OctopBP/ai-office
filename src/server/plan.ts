@@ -24,7 +24,7 @@
  * («все задачи фичи в основной ветке»), а не по календарю.
  */
 import { asTaskPriority, dayKey, HEALTH_DIRECTION, taskClosed, taskOver } from '../shared/types';
-import type { TaskPriority } from '../shared/types';
+import type { EpicHold, TaskPriority } from '../shared/types';
 import { toTaskView, type Epic, type OfficeState, type PmAbout, type Task } from './state';
 import type { TaskType } from '../shared/workflow';
 import { cancelTask } from './outcomes';
@@ -121,6 +121,77 @@ export function waitingFor(state: OfficeState, task: Task): string[] {
 }
 
 /**
+ * Задача не начнётся никогда сама: провалена, снята или ждёт такую — в том
+ * числе через цепочку («ждёт ту, что ждёт проваленную»). `seen` бережёт от
+ * круга в зависимостях: круг тоже никогда не начнётся, и это тот же ответ.
+ */
+function dead(state: OfficeState, task: Task, seen = new Set<string>()): boolean {
+  if (task.status === 'failed' || task.status === 'cancelled') return true;
+  if (task.status !== 'planned') return false;
+  if (seen.has(task.id)) return true;
+  seen.add(task.id);
+  return waitingFor(state, task).some((id) => {
+    const dep = state.tasks.get(id);
+    return !!dep && dead(state, dep, seen);
+  });
+}
+
+/**
+ * Задача ещё может дать фиче результат: идёт, ждёт слияния или может
+ * начаться. Проваленная — нет: её перезапускают или снимают руками, и пока
+ * этого не сделали, она не работа, а вопрос к человеку.
+ */
+const alive = (state: OfficeState, task: Task): boolean =>
+  !over(state, task) && !dead(state, task);
+
+/**
+ * Держит ли активная фича место в фокусе. Только если в ней осталась живая
+ * работа. Раньше место держала любая фича в статусе active — и фича, где всё
+ * влито, кроме одной проваленной задачи, не закрывалась (провал не «конец»)
+ * и не отдавала место никогда. Два таких хвоста при фокусе в два — и план
+ * стоит целиком, хотя исполнители свободны (T-354).
+ */
+export const holdsSlot = (state: OfficeState, epic: Epic): boolean =>
+  epic.status === 'active' && state.tasksOfEpic(epic.id).some((t) => alive(state, t));
+
+/** Задача фактически движется: в работе, на ревью или ждёт слияния. */
+const moving = (state: OfficeState, task: Task): boolean =>
+  task.status !== 'planned' && task.status !== 'failed' && !over(state, task);
+
+/**
+ * Записать причину простоя фичи. Только при смене: тогда же она и уходит
+ * в ленту — одной строкой на смену, а не строкой на каждый тик.
+ */
+function setHold(state: OfficeState, epic: Epic, hold: EpicHold | null): void {
+  if (JSON.stringify(epic.hold ?? null) === JSON.stringify(hold)) return;
+  state.updateEpic(epic.id, { hold });
+  if (!hold || hold.kind === 'approval') return;   // про согласие говорит reportStalls
+  state.addLog(null, 'system', state.say('plan.log.hold', {
+    epic: epic.id, title: epic.title, why: holdText(state, hold),
+  }));
+  if (hold.kind === 'stuck') {
+    // Сама такая фича не сдвинется — это вопрос к человеку и менеджеру.
+    state.addOfficeNote(state.say('plan.chat.stuck', {
+      epic: epic.id, title: epic.title, tasks: hold.tasks.join(', '),
+    }), { epicId: epic.id });
+    agents.notifyPm(state, state.say('plan.pm.stuck', {
+      epic: epic.id, title: epic.title, tasks: hold.tasks.join(', '),
+    }), { epicId: epic.id });
+  }
+}
+
+/** Причина простоя словами — для ленты, чата и плана менеджера. */
+export function holdText(state: OfficeState, hold: EpicHold): string {
+  switch (hold.kind) {
+    case 'approval': return state.say('plan.hold.approval');
+    case 'slot': return state.say('plan.hold.slot', { epics: hold.epics.join(', ') });
+    case 'share': return state.say('plan.hold.share');
+    case 'tasks': return state.say('plan.hold.tasks', { tasks: hold.tasks.join(', ') });
+    case 'stuck': return state.say('plan.hold.stuck', { tasks: hold.tasks.join(', ') });
+  }
+}
+
+/**
  * Вес приоритета при выборе: меньше — раньше. Отдельной таблицей, а не
  * позицией в TASK_PRIORITIES, чтобы новый уровень в середине списка не
  * переставил молча всю очередь офиса.
@@ -200,37 +271,79 @@ const nextUnstarted = (state: OfficeState): Epic | null =>
  * второй, которую человек одобрять и не собирался.
  */
 function activateEpics(state: OfficeState): void {
-  const open = state.epicList().filter((e) => e.status === 'active' || e.status === 'planned');
-  let active = open.filter((e) => e.status === 'active').length;
+  // Место считаем по фичам с живой работой, а не по статусу active: см.
+  // holdsSlot. Список, а не число, — им же объясняем, кого ждёт очередь.
+  const holders = state.epicList().filter((e) => holdsSlot(state, e)).map((e) => e.id);
   // Долю на своё считаем один раз на проход: она не меняется, пока фичи
   // не начались, а пересчитывать журналы расходов на каждую фичу незачем.
   let budget: InitiativeBudget | null = null;
 
-  for (const epic of open) {
+  for (const epic of state.epicList()) {
     if (epic.status !== 'planned') continue;
-    if (active >= state.focusLimit()) return;
-    if (!epic.approved) continue;
+    if (!epic.approved) {
+      setHold(state, epic, { kind: 'approval' });
+      continue;
+    }
+    if (holders.length >= state.focusLimit()) {
+      setHold(state, epic, { kind: 'slot', epics: [...holders] });
+      continue;
+    }
     // Инициатива стоит, пока доля на своё исчерпана; фича владельца идёт.
     // Здоровье проекта — обязанность, а не инициатива: в долю не входит.
     if (epic.origin === 'office' && epic.directionId !== HEALTH_DIRECTION) {
       budget ??= initiativeBudget(state);
       if (budget.exhausted) {
-        if (!epic.attention) {
-          state.updateEpic(epic.id, { attention: Date.now() });
+        if (epic.hold?.kind !== 'share') {
           state.addLog(null, 'system', state.say('initiative.shareLog', {
             spent: budget.spentUsd.toFixed(2), allowed: budget.allowedUsd.toFixed(2),
             share: Math.round(state.initiativeShare() * 100), total: budget.totalUsd.toFixed(2),
           }));
         }
+        setHold(state, epic, { kind: 'share' });
         continue;
       }
     }
-    state.updateEpic(epic.id, { status: 'active', startedAt: Date.now(), attention: null });
-    active += 1;
+    state.updateEpic(epic.id, { status: 'active', startedAt: Date.now(), attention: null, hold: null });
+    holders.push(epic.id);
     state.addOfficeNote(
       state.say('plan.chat.epicActive', { epic: epic.id, title: epic.title }), { epicId: epic.id });
     state.addLog(null, 'system',
       state.say('plan.log.epicActive', { epic: epic.id, title: epic.title }));
+  }
+}
+
+/**
+ * Причина простоя у идущих фич — после раздачи, когда уже ясно, что поехало.
+ * Фича без живой работы стоит намертво (`stuck`); фича, где ничего не
+ * движется, а плановое ждёт чужих задач, — ждёт их (`tasks`). У закрытых
+ * причину стираем: им ждать нечего.
+ */
+function markActiveHolds(state: OfficeState): void {
+  for (const epic of state.epicList()) {
+    if (epic.status !== 'active') {
+      if (epic.status !== 'planned' && epic.hold) state.updateEpic(epic.id, { hold: null });
+      continue;
+    }
+    const tasks = state.tasksOfEpic(epic.id);
+    // Фича без задач стоит не «намертво», а пустая: говорить о ней нечего.
+    if (tasks.length && !tasks.some((t) => alive(state, t))) {
+      setHold(state, epic, {
+        kind: 'stuck',
+        tasks: tasks.filter((t) => dead(state, t) && t.status !== 'cancelled').map((t) => t.id),
+      });
+      continue;
+    }
+    if (tasks.some((t) => moving(state, t))) {
+      setHold(state, epic, null);
+      continue;
+    }
+    const awaited = new Set<string>();
+    for (const task of tasks) {
+      if (task.status === 'planned' && alive(state, task)) {
+        for (const id of waitingFor(state, task)) awaited.add(id);
+      }
+    }
+    setHold(state, epic, awaited.size ? { kind: 'tasks', tasks: [...awaited] } : null);
   }
 }
 
@@ -334,6 +447,7 @@ export function dispatch(state: OfficeState): void {
   closeFinishedEpics(state);
   activateEpics(state);
   releaseReady(state);
+  markActiveHolds(state);
   reportStalls(state, now);
 }
 
@@ -541,17 +655,37 @@ export function approveEpic(state: OfficeState, epicId: string): PlanResult {
     return { ok: false, message: state.say('plan.err.epicClosed', { epic: epicId }) };
   }
   if (epic.approved) {
-    return { ok: false, message: state.say('plan.err.already', { epic: epicId }) };
+    // Повторное «поехали» по стоящей фиче — не ошибка, а вопрос «почему
+    // стоит». Пересчитываем и отвечаем причиной, а не «офис ведёт её сам».
+    dispatch(state);
+    const hold = state.epics.get(epicId)?.hold;
+    return {
+      ok: false,
+      message: hold && epic.status === 'planned'
+        ? state.say('plan.err.alreadyHeld', { epic: epicId, why: holdText(state, hold) })
+        : state.say('plan.err.already', { epic: epicId }),
+    };
   }
   state.updateEpic(epicId, { approved: true, attention: null });
   state.addOfficeNote(
     state.say('plan.chat.approved', { epic: epic.id, title: epic.title }), { epicId: epic.id });
   dispatch(state);
   const fresh = state.epics.get(epicId);
+  if (fresh?.status === 'active') {
+    return {
+      ok: true,
+      message: state.say('plan.ok.started', { epic: epic.id, title: epic.title, focus: state.focusLimit() }),
+    };
+  }
+  // Согласована, но не пошла. Молча стоять нельзя: щелчок по кнопке ответа
+  // в чат не возвращает, поэтому причину говорим в ленту сами.
+  const why = fresh?.hold ? holdText(state, fresh.hold) : state.say('plan.hold.unknown');
+  state.addOfficeNote(
+    state.say('plan.chat.queued', { epic: epic.id, title: epic.title, why }), { epicId: epic.id });
   return {
     ok: true,
-    message: state.say(fresh?.status === 'active' ? 'plan.ok.started' : 'plan.ok.queued', {
-      epic: epic.id, title: epic.title, focus: state.focusLimit(),
+    message: state.say('plan.ok.queued', {
+      epic: epic.id, title: epic.title, focus: state.focusLimit(), why,
     }),
   };
 }
@@ -623,7 +757,8 @@ export function planSummary(state: OfficeState): string {
     const done = tasks.filter((t) => closed(state, t)).length;
     const head = `${epic.id} [${state.say(`plan.status.${epic.status}`)}]`
       + `${epic.status === 'planned' && !epic.approved ? ` ${state.say('plan.needsOk')}` : ''}`
-      + ` ${epic.title} — ${epic.goal}`;
+      + ` ${epic.title} — ${epic.goal}`
+      + (epic.hold && epic.hold.kind !== 'approval' ? ` (${holdText(state, epic.hold)})` : '');
     const stat = state.say('plan.progress', {
       done, total: tasks.length, spent: epicCost(state, epic.id).toFixed(2),
     });

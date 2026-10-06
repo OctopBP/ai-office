@@ -4,6 +4,7 @@ import { isOfficeSender, taskClosed } from '../shared/types';
 import { isOpenQuestion } from '../shared/questions';
 import { answerQuestion, approveEpic, prStageClass, prStageLabel, useStore } from './store';
 import { locale, t } from './i18n';
+import { epicWaitLabel } from './epicHold';
 import { AgentTag } from './Avatar';
 import { BudgetStopBanner } from './BudgetStopBanner';
 import { PriorityChip } from './TaskPriority';
@@ -211,7 +212,7 @@ export function EpicCard({ id, entry, bare }: { id: string; entry: ChatEntry; ba
             <span className="muted">{t('plan.progress', { done, total: mine.length })}</span>
             {money && <span className="muted">{money}</span>}
             {awaiting && <span className="muted">{t('plan.awaiting')}</span>}
-            {epic.status === 'planned' && epic.approved && <span className="muted">{t('plan.queued')}</span>}
+            {epicWaitLabel(epic) && <span className="muted">{epicWaitLabel(epic)}</span>}
           </div>
           {epic.status === 'active' && mine.length > 0 && (
             <div className="cc-rows">

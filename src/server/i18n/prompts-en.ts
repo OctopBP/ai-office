@@ -482,6 +482,7 @@ Keep your replies to the user short. Which language to write them in is said in 
   'plan.pm.nextWaits': 'The next feature {epic} "{title}" is waiting for the user to approve it: ask whether to start, and call start_feature once they say yes. Do not decide for them.',
   'plan.pm.nextNone': 'There are no more features in the plan — ask the user what is next.',
   'plan.pm.waiting': '[SYSTEM] There is no work left in the office: the plan has reached feature {epic} "{title}" ({tasks} tasks) and it is waiting for the user to approve it. The goal: {goal}. Show it to the user briefly and ask whether to start. If they say yes — call start_feature. Until they answer, the office stands still: that is by design, not a breakage.',
+  'plan.pm.stuck': '[SYSTEM] Feature {epic} "{title}" is stuck: no live work is left in it, tasks {tasks} failed or wait for failed ones. It no longer holds a focus slot. Decide: retry the tasks, file a fix, or cancel them — then the feature will close.',
   'plan.pm.blocked': '[SYSTEM] Task {task} "{title}" will never start: it waits for {deps}, and those have failed. They will not fix themselves — decide yourself: file a fix task, reword the failed one, or drop the dependency by planning the work again.',
 
   'plan.err.empty': 'The plan has no features — there is nothing to plan.',
@@ -498,7 +499,8 @@ Keep your replies to the user short. Which language to write them in is said in 
   'plan.err.epicDone': 'Feature {epic} is already done: there is nothing to drop.',
   'plan.err.already': 'Feature {epic} is already approved — the office is running it.',
   'plan.ok.started': 'Feature {epic} "{title}" is now in progress: the office is handing out its tasks. Do not call assign_task for them.',
-  'plan.ok.queued': 'Feature {epic} "{title}" is approved and queued: the office runs at most {focus} features at a time and will start it as soon as a place frees up.',
+  'plan.ok.queued': 'Feature {epic} "{title}" is approved and queued: the office runs at most {focus} features at a time and will start it as soon as a place frees up. Right now: {why}.',
+  'plan.err.alreadyHeld': 'Feature {epic} is already approved but on hold: {why}.',
   'plan.ok.cancelled': 'Feature {epic} "{title}" is dropped from the plan. The office will not hand out its unstarted tasks any more.',
 
   'tool.planFeatures.desc': 'Create a PLAN: several features, each with its own tasks, order and dependencies. The office hands out planned tasks ITSELF as they become ready — do NOT call assign_task for them. Use this when the work is more than one or two tasks: the user described several features, or one big one. The whole plan is created in a SINGLE call.',

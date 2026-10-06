@@ -6,6 +6,7 @@ import {
 import type { EpicStatus, EpicView, TaskStatus, TaskView } from '../shared/types';
 import { taskClosed, taskOver } from '../shared/types';
 import { t as tr } from './i18n';
+import { epicWaitLabel } from './epicHold';
 import { Icon, type IconName } from './icons';
 import { AgentTag } from './Avatar';
 import { PriorityChip } from './TaskPriority';
@@ -378,6 +379,7 @@ function EpicRow({ epic, order, total, filtered, onFilter }: {
   // отличаем её и подписью, и кнопкой.
   const awaiting = epic.status === 'planned' && !epic.approved;
   const open = epic.status === 'planned' || epic.status === 'active';
+  const wait = epicWaitLabel(epic);
 
   /** Сдвиг на одну позицию: порядок пересобираем целиком и шлём его весь. */
   const move = (delta: number) => {
@@ -422,9 +424,7 @@ function EpicRow({ epic, order, total, filtered, onFilter }: {
       {open && (
         <div className="epic-controls">
           {awaiting && <span className="muted small">{tr('plan.awaiting')}</span>}
-          {epic.status === 'planned' && epic.approved && (
-            <span className="muted small">{tr('plan.queued')}</span>
-          )}
+          {wait && <span className={`muted small epic-hold ${epic.hold?.kind ?? ''}`}>{wait}</span>}
           {awaiting && (
             <button className="merge" onClick={() => approveEpic(epic.id)}>{tr('plan.approve')}</button>
           )}
