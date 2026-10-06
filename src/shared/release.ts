@@ -70,6 +70,12 @@ const targetSchema = z.object({
   bump: z.string().min(1).max(500).optional(),
   /** Нужен ли CI: `auto` — ждём, если он есть; `required` — его отсутствие — ошибка; `off` — не ждём. */
   ci: z.enum(['auto', 'required', 'off']).optional(),
+  /**
+   * tag: файлы, без которых релиз на GitHub не виден автообновлению
+   * (у приложения на electron-updater — `latest-mac.yml`). Есть — после CI
+   * офис проверяет, что релиз опубликован, а не черновик, и файлы в нём.
+   */
+  assets: z.array(z.string().trim().min(1).max(200)).max(20).optional(),
   /** Репозиторий относительно проекта. Нет — сам проект. */
   repo: z.string().min(1).max(300).optional(),
   policy: policySchema,
@@ -109,6 +115,7 @@ export function parseReleaseConfig(data: unknown, checks: Record<string, string>
       }
     }
     if (target.kind !== 'push' && target.branch) throw new Error(`${where}: ветка branch нужна только пушу`);
+    if (target.kind !== 'tag' && target.assets?.length) throw new Error(`${where}: файлы релиза assets проверяются только у тега`);
     if (target.kind !== 'command' && target.run) throw new Error(`${where}: команда run нужна только сборке командой`);
     if (target.tag && !target.tag.includes('{version}') && !target.tag.includes('{build}')) {
       throw new Error(`${where}: в шаблоне тега нет ни {version}, ни {build} — все выпуски получили бы один тег`);
@@ -258,6 +265,38 @@ export function parseBuildResult(output: string): BuildResult | null {
     }
   }
   return null;
+}
+
+// ------------------------------------------------------- релиз на GitHub
+
+/**
+ * Виден ли релиз автообновлению. `missing` — релиза с этим тегом нет,
+ * `draft` — он черновик (electron-updater черновики не видит), `noAssets` —
+ * опубликован, но без нужных файлов.
+ */
+export type GithubReleaseCheck =
+  | { state: 'ok'; url: string }
+  | { state: 'missing' }
+  | { state: 'draft'; url: string }
+  | { state: 'noAssets'; url: string; missing: string[] };
+
+/**
+ * Разобрать ответ `GET /repos/{owner}/{repo}/releases` — список, а не
+ * `/releases/tags/{tag}`: черновик тега ещё не имеет, и по тегу GitHub его
+ * не отдаёт, а в списке он есть. Из нескольких релизов с одним тегом берём
+ * опубликованный — черновик-дубль рядом с ним делу не мешает.
+ */
+export function parseGithubRelease(data: unknown, tag: string, assets: string[]): GithubReleaseCheck {
+  const list = Array.isArray(data) ? data as Array<Record<string, unknown>> : [];
+  const mine = list.filter((r) => r && typeof r === 'object' && r.tag_name === tag);
+  if (!mine.length) return { state: 'missing' };
+  const release = mine.find((r) => r.draft !== true) ?? mine[0];
+  const url = typeof release.html_url === 'string' ? release.html_url : '';
+  if (release.draft === true) return { state: 'draft', url };
+  const names = new Set((Array.isArray(release.assets) ? release.assets as Array<Record<string, unknown>> : [])
+    .map((a) => (a && typeof a.name === 'string' ? a.name : '')));
+  const missing = assets.filter((name) => !names.has(name));
+  return missing.length ? { state: 'noAssets', url, missing } : { state: 'ok', url };
 }
 
 // ------------------------------------------------------------------ выпуск

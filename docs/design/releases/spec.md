@@ -99,6 +99,7 @@ start ─► snapshot (check) ─┬─ empty ─► end
 | `push` | check | `office:release-push` | fast-forward ветки цели до SHA выпуска и пуш |
 | `tag` | check | `office:release-tag` | аннотированный тег по шаблону цели, пуш тега |
 | `watch` | check | `office:ci-watch` | ждёт прогоны CI по SHA или тегу (§7); CI нет — сразу `pass` |
+| `visible` | check | `office:release-visible` | у тега с `assets`: релиз v{version} на GitHub опубликован, не черновик, и в нём файлы цели (`latest-mac.yml`); не стал виден за 10 мин — карточка «выпуск не дошёл» в чат и вопрос владельцу «проверить ещё раз / остановить» |
 | `build` | check | `project:<имя>` | команда цели в рабочей копии выпуска (§7.2) |
 | `fix` | step | `office:fix-build` | исполнитель с `code.write` получает хвост лога и SHA, чинит в ветке от снимка; ветка идёт по процессу `feature` в основную, а в выпуск — снимок плюс эта ветка (§7.3) |
 | `publish` | check | `office:release-publish` | записывает результат: ссылку на релиз, номер сборки, сообщение в чат |
@@ -163,6 +164,7 @@ interface ReleaseTarget {
         "version": { "scheme": "none" } },
       { "id": "desktop", "title": "Приложение", "kind": "tag", "tag": "v{version}",
         "bump": "npm version {version} --no-git-tag-version",
+        "assets": ["latest-mac.yml"],
         "policy": { "when": ["manual"], "approve": "always" },
         "version": { "scheme": "semver", "level": "plan" } },
       { "id": "testflight", "title": "TestFlight", "kind": "command", "run": "testflight",

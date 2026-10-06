@@ -21,8 +21,8 @@ import { resolve } from 'node:path';
 import { OFFICE_SENDER } from '../shared/types';
 import {
   DEFAULT_TAG, DEFAULT_TIMEOUT_MIN, allowsManual, autoLevel, autoReasons, fillVersion, maxLevel,
-  nextVersion, parseBuildResult, parseReleaseConfig, parseSemver, releaseActive, versionInAnswer, versionLabel,
-  type Release, type ReleaseReason, type ReleaseSetup, type ReleaseTarget, type VersionLevel, type VersionPoint,
+  nextVersion, parseBuildResult, parseGithubRelease, parseReleaseConfig, parseSemver, releaseActive, versionInAnswer, versionLabel,
+  type GithubReleaseCheck, type Release, type ReleaseReason, type ReleaseSetup, type ReleaseTarget, type VersionLevel, type VersionPoint,
 } from '../shared/release';
 import { CHECK_NAME_RE, type Run, type Workflow, type WorkflowNode } from '../shared/workflow';
 import { taskClosed } from '../shared/types';
@@ -59,6 +59,9 @@ export const releaseTiming = {
   /** Столько ждём первого прогона CI, прежде чем решить, что CI на коммит нет. */
   ciGraceMs: 3 * 60_000,
   taskPollMs: 5_000,
+  /** Релиз на GitHub после CI: как часто смотреть и сколько ждать, пока он станет виден. */
+  releasePollMs: 30_000,
+  releaseWaitMs: 10 * 60_000,
 };
 
 // ------------------------------------------------------------- агенты и CI
@@ -154,6 +157,27 @@ let ci: CiClient = githubCi;
 
 export function setReleaseCi(next: CiClient | null): void {
   ci = next ?? githubCi;
+}
+
+export interface ReleaseHost {
+  /** Список релизов репозитория как отдал GitHub. null — GitHub офису не виден. */
+  releases(repo: string): Promise<{ data: unknown; error?: string } | null>;
+}
+
+/** Релизы по умолчанию: GitHub того же репозитория, черновики видны с токеном на запись. */
+const githubReleases: ReleaseHost = {
+  async releases(repo) {
+    const gh = await githubFor(repo);
+    if (!gh) return null;
+    const r = await ghGet<unknown>(gh, '/releases?per_page=30');
+    return r.ok ? { data: r.data } : { data: null, error: r.error || 'GitHub' };
+  },
+};
+
+let host: ReleaseHost = githubReleases;
+
+export function setReleaseHost(next: ReleaseHost | null): void {
+  host = next ?? githubReleases;
 }
 
 // --------------------------------------------------------- секреты в логах
@@ -681,6 +705,81 @@ const watch: Executor<Ctx> = {
   exhausted: (ctx, last) => exhaustedFix(ctx, last),
 };
 
+/** Причина, по которой релиз ещё не виден автообновлению, — для владельца. */
+function invisibleWhy(ctx: Ctx, tag: string, got: Exclude<GithubReleaseCheck, { state: 'ok' }> | { state: 'error'; error: string }): string {
+  if (got.state === 'missing') return say(ctx, 'rel.visible.missing', { tag });
+  if (got.state === 'draft') return say(ctx, 'rel.visible.draft', { tag, url: got.url });
+  if (got.state === 'noAssets') return say(ctx, 'rel.visible.noAssets', { tag, files: got.missing.join(', '), url: got.url });
+  return say(ctx, 'rel.visible.error', { error: got.error });
+}
+
+/**
+ * Релиз виден автообновлению (после CI у тега): релиз с тегом выпуска
+ * опубликован, а не черновик, и в нём лежат файлы `assets` цели. Нет ни
+ * `assets`, ни GitHub — проверять нечего. Не стал виден за
+ * `releaseWaitMs` — в чат карточка «выпуск не дошёл», владельцу вопрос:
+ * проверить ещё раз (опубликовал черновик руками) или остановить выпуск.
+ */
+const visible: Executor<Ctx> = {
+  async run(ctx) {
+    const { state, target, repo, run } = ctx;
+    const assets = target.assets ?? [];
+    if (target.kind !== 'tag' || !assets.length) return { outcome: 'pass', note: say(ctx, 'rel.visible.skip') };
+    const tagName = fillVersion(target.tag ?? DEFAULT_TAG, point(rel(ctx)));
+    for (;;) {
+      // После перезапуска сервера вопрос уже задан — ждём ответа, не проверяя заново.
+      let question = run.waitingOn ? state.questions.get(run.waitingOn) ?? null : null;
+      if (!question) {
+        patch(ctx, { status: 'building', stage: say(ctx, 'rel.stage.visible', { tag: tagName }) });
+        const deadline = Date.now() + releaseTiming.releaseWaitMs;
+        let why = '';
+        for (;;) {
+          await state.whenResumed();
+          const got = await host.releases(repo);
+          if (!got) return { outcome: 'pass', note: say(ctx, 'rel.visible.noGithub') };
+          const seen = got.error ? { state: 'error' as const, error: got.error } : parseGithubRelease(got.data, tagName, assets);
+          if (seen.state === 'ok') {
+            if (seen.url) patch(ctx, { links: dedupe([...rel(ctx).links, { title: tagName, url: seen.url }]) });
+            return { outcome: 'pass', note: say(ctx, 'rel.visible.ok', { tag: tagName }) };
+          }
+          why = invisibleWhy(ctx, tagName, seen);
+          if (Date.now() + releaseTiming.releasePollMs > deadline) break;
+          await sleep(releaseTiming.releasePollMs);
+        }
+        const again = say(ctx, 'rel.visible.optAgain');
+        const stop = say(ctx, 'rel.visible.optStop');
+        const r = rel(ctx);
+        question = state.addQuestion({
+          from: OFFICE_SENDER, taskId: null, kind: 'gate',
+          text: say(ctx, 'rel.visible.ask', { target: target.title, version: label(r), why, again, stop }),
+          assumption: say(ctx, 'rel.visible.assumption'),
+          options: [again, stop],
+        });
+        const card = say(ctx, 'rel.visible.chat', {
+          target: target.title, version: label(r), why, min: Math.round(releaseTiming.releaseWaitMs / 60_000), id: question.id,
+        });
+        state.addChat(OFFICE_SENDER, card);
+        tellPm(state, card);
+        run.waitingOn = question.id;
+        run.status = 'waiting';
+        state.saveRun(run);
+      }
+      patch(ctx, { status: 'waiting', stage: say(ctx, 'rel.stage.visibleAsk', { id: question.id }) });
+      const closed = await state.whenQuestionClosed(question.id);
+      run.waitingOn = null;
+      run.status = 'running';
+      state.saveRun(run);
+      const answer = closed?.answeredAt ? closed.answer ?? '' : '';
+      if (visibleAgain(answer)) continue;
+      return fail(say(ctx, 'rel.visible.stopped', { tag: tagName }), { needsDecision: true });
+    }
+  },
+};
+
+/** «Проверить ещё раз» с кнопки или словами — смотрим релиз заново. */
+const visibleAgain = (answer: string): boolean =>
+  /^\s*(провер|ещё|еще|снова|опубликовал|check|again|retry|published)/iu.test(answer);
+
 /** Локальная сборка на машине одна за раз (§5): Xcode и связка ключей — общие. */
 let localBuild: Promise<unknown> = Promise.resolve();
 function withLocalBuild<T>(fn: () => Promise<T>): Promise<T> {
@@ -847,6 +946,7 @@ const OFFICE: Record<string, Executor<Ctx>> = {
   'office:release-push': push,
   'office:release-tag': tag,
   'office:ci-watch': watch,
+  'office:release-visible': visible,
   'office:release-build': build,
   'office:fix-build': fix,
   'office:release-publish': publish,

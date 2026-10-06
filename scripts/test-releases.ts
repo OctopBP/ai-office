@@ -18,12 +18,12 @@ import { resolve } from 'node:path';
 import { getOffice, type Task } from '../src/server/state';
 import {
   dueRelease, proposeReleaseTarget, releaseStatusText, releaseTiming, resumeRelease, saveReleasePlan,
-  scrubSecrets, setReleaseAgents, setReleaseCi, settleReleaseSetups, startRelease, whenReleasesIdle, type CiRun,
+  scrubSecrets, setReleaseAgents, setReleaseCi, setReleaseHost, settleReleaseSetups, startRelease, whenReleasesIdle, type CiRun,
 } from '../src/server/releases';
 import { releaseCommandBlocked } from '../src/server/permissions';
 import { builtinWorkflow } from '../src/server/workflows';
 import {
-  nextVersion, parseBuildResult, parseReleaseConfig, versionInAnswer, versionLabel,
+  nextVersion, parseBuildResult, parseGithubRelease, parseReleaseConfig, versionInAnswer, versionLabel,
   type ReleaseTarget,
 } from '../src/shared/release';
 
@@ -159,7 +159,7 @@ async function main(): Promise<void> {
       release: { targets: [desktop, staging, testflight] },
     });
     check('верная настройка сохранилась', ok === null && office.releaseTargets().length === 3);
-    check('процесс release разбирается', builtinWorkflow('release').nodes.length === 12);
+    check('процесс release разбирается', builtinWorkflow('release').nodes.length === 13);
   }
 
   // 1. Тег по просьбе: версия по плану фичи, заметки, согласие, версия в файлах, changelog.
@@ -473,6 +473,71 @@ async function main(): Promise<void> {
     check('замена применилась', office.releaseTarget('stage2')?.branch === 'preview');
     check('снятое предложение не применилось поверх', office.releaseTarget('stage2')?.branch === 'preview');
     check('предложения сохраняются', (office.toPersisted().releaseSetups ?? []).length >= 4);
+  }
+
+  // 11. Релиз виден автообновлению: разбор ответа GitHub и узел после CI.
+  {
+    say('▶ Релиз виден автообновлению');
+    const asset = (name: string) => ({ name, browser_download_url: `https://x.test/${name}` });
+    const published = [{ tag_name: 'v1.0.0', draft: false, html_url: 'https://x.test/r/1', assets: [asset('latest-mac.yml'), asset('AI.dmg')] }];
+    check('опубликован с файлом — ok', parseGithubRelease(published, 'v1.0.0', ['latest-mac.yml']).state === 'ok');
+    check('черновик — draft', parseGithubRelease([{ ...published[0], draft: true }], 'v1.0.0', ['latest-mac.yml']).state === 'draft');
+    const noFile = parseGithubRelease([{ ...published[0], assets: [asset('AI.dmg')] }], 'v1.0.0', ['latest-mac.yml']);
+    check('нет latest-mac.yml — noAssets с именем файла', noFile.state === 'noAssets' && noFile.missing.join() === 'latest-mac.yml');
+    check('нет релиза с тегом — missing', parseGithubRelease(published, 'v1.0.1', ['latest-mac.yml']).state === 'missing');
+    check('мусор вместо списка — missing', parseGithubRelease({ message: 'Not Found' }, 'v1.0.0', ['latest-mac.yml']).state === 'missing');
+    check('черновик-дубль рядом с опубликованным не мешает',
+      parseGithubRelease([{ ...published[0], draft: true, assets: [] }, published[0]], 'v1.0.0', ['latest-mac.yml']).state === 'ok');
+    let err = '';
+    try { parseReleaseConfig({ targets: [{ ...staging, assets: ['latest-mac.yml'] }] }); } catch (e) { err = (e as Error).message; }
+    check('файлы релиза у пуша — ошибка', err.includes('assets'));
+
+    releaseTiming.releasePollMs = 20;
+    releaseTiming.releaseWaitMs = 150;
+    office.settings.release = parseReleaseConfig(
+      { targets: [{ ...desktop, assets: ['latest-mac.yml'] }, { ...staging, ci: 'off' }, testflight] }, office.settings.checks,
+    );
+    let reply: 'draft' | 'published' | 'noFile' = 'draft';
+    let calls = 0;
+    let releaseId = '';
+    setReleaseHost({
+      async releases() {
+        calls += 1;
+        const tagName = `v${office.releases.get(releaseId)?.version}`;
+        const base = { tag_name: tagName, draft: reply === 'draft', html_url: `https://x.test/r/${tagName}` };
+        return { data: [{ ...base, assets: reply === 'published' ? [asset('latest-mac.yml')] : [asset('AI.dmg')] }] };
+      },
+    });
+    const gateWith = (text: string) => () => Boolean(openGate()?.text.includes(text));
+
+    mergedTask('Автообновление', 'updater.txt');
+    const a = startRelease(office, 'desktop', 'manual');
+    releaseId = a.release!.id;
+    await until(() => Boolean(openGate()));
+    answer('Выпускай');
+    check('черновик — владельцу вопрос с причиной', await until(gateWith('черновик')));
+    check('в чат — карточка «не дошёл»', office.chat.some((c) => c.text.includes('не дошёл') && c.text.includes('черновик')));
+    check('выпуск ждёт ответа', office.releases.get(releaseId)?.status === 'waiting');
+    check('GitHub опрашивали несколько раз', calls > 1);
+    reply = 'published';
+    answer('Проверить ещё раз');
+    await whenReleasesIdle(office);
+    const ok = office.releases.get(releaseId)!;
+    check('«проверить ещё раз» — релиз виден, выпуск состоялся', ok.status === 'done');
+    check('ссылка на релиз в выпуске', ok.links.some((l) => l.url === `https://x.test/r/v${ok.version}`));
+
+    reply = 'noFile';
+    mergedTask('Ещё правка', 'updater2.txt');
+    const b = startRelease(office, 'desktop', 'manual');
+    releaseId = b.release!.id;
+    await until(() => Boolean(openGate()));
+    answer('Выпускай');
+    check('нет latest-mac.yml — вопрос называет файл', await until(gateWith('latest-mac.yml')));
+    answer('Остановить выпуск');
+    await whenReleasesIdle(office);
+    const stopped = office.releases.get(releaseId)!;
+    check('«остановить» — выпуск встал и ждёт решения', stopped.status === 'failed' && stopped.needsDecision);
+    setReleaseHost(null);
   }
 
   // 9. Перезапуск: шедший выпуск поднимается вставшим, ждавший согласия — ждёт.
