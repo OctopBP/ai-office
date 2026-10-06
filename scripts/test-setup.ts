@@ -21,6 +21,11 @@ import { getOffice, openOfficeState } from '../src/server/state';
 import { loadRegistry, offices } from '../src/server/offices';
 import { buildOffice, planProblem, setupCatalog } from '../src/server/setup';
 import { loadPackage } from '../src/server/packages';
+import { listDocs, readDoc } from '../src/server/docs';
+
+/** Названия документов «Основы» офиса — по алфавиту, чтобы не зависеть от порядка. */
+const foundationTitles = (officeId: string): string[] =>
+  listDocs(getOffice(officeId), { kind: 'foundation' }).map((d) => d.title).sort();
 
 process.env.OFFICE_LANG = 'ru';
 
@@ -146,6 +151,12 @@ async function main(): Promise<void> {
     check('прогресс: шаг менеджера — «уже есть», а не найм',
       last.find((s) => s.id === 'hire:@office/pm')?.status === 'done');
     check('лента: запись о сборке', state.log.some((l) => l.text.includes('собран мастером')));
+    check('основа: интернет-магазин получил набор сайта',
+      foundationTitles(made1.officeId).join('|') === ['Видение и аудитория', 'Дизайн-система', 'Контент и тексты', 'UX-сценарии'].sort().join('|'));
+    const ux = listDocs(state, { kind: 'foundation' }).find((d) => d.title === 'UX-сценарии');
+    check('основа: в заготовке подзаголовки с подсказками',
+      Boolean(ux) && /^## .+\n\n_.+_$/m.test(readDoc(state, ux!.id)?.body ?? ''));
+    check('прогресс: шаг «Основы» назвал тип', last.find((s) => s.id === 'foundation')?.detail.startsWith('сайт') === true);
   }
 
   // 6. Занятая папка — отказ без офиса: это существующий проект, а не новый.
@@ -168,6 +179,8 @@ async function main(): Promise<void> {
   if ('officeId' in made3) {
     const roles = getOffice(made3.officeId).roles().filter((r) => !r.archived);
     check('без проекта и без команды: только менеджер', roles.length === 1 && roles[0].isManager);
+    check('основа: тип не определился — общий набор',
+      foundationTitles(made3.officeId).join('|') === ['Видение', 'Цели и ограничения'].join('|'));
     // Шаг «Провайдер» пропущен — офис без выбора, а не на Claude Code (T-243).
     check('провайдер не выбран: у офиса model = null',
       getOffice(made3.officeId).settings.model === null);
@@ -232,6 +245,12 @@ async function main(): Promise<void> {
   const nested = resolve(NESTED_ROOT, 'backend');
   check('папка роли в чужом репозитории: свой git с первым коммитом',
     isRepoWithCommits(nested) && realpathSync(git(nested, ['rev-parse', '--show-toplevel'])) === realpathSync(nested));
+
+  // 10. Игра по описанию: набор игры.
+  const made7 = await buildOffice(plan({ name: 'Подземелья', description: 'Пиксельный рогалик про игрового кота' }), 'ru', hooks([]));
+  check('основа: игра получила набор игры',
+    'officeId' in made7
+    && foundationTitles(made7.officeId).join('|') === ['GDD', 'Видение', 'Мир и сеттинг', 'Персонажи'].sort().join('|'));
 
   const failed = results.filter((r) => r.endsWith('false'));
   console.log(results.join('\n'));

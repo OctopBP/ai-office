@@ -9,7 +9,8 @@
  * офиса остаются только два случая: не удалось завести корень и не удалось
  * открыть офис.
  *
- * Мастер создаёт контейнеры, а не код: папки, git, README, `.gitignore`.
+ * Мастер создаёт контейнеры, а не код: папки, git, README, `.gitignore` и
+ * заготовки документов «Основы» под тип проекта (doc-templates.ts).
  * Scaffold фреймворка — первая задача команды.
  */
 import { existsSync, mkdirSync, readdirSync, readFileSync, realpathSync, statSync, writeFileSync } from 'node:fs';
@@ -20,6 +21,8 @@ import { slugify } from '../shared/slug';
 import {
   MAX_HIRE_COUNT, type OfficeSetupPlan, type SetupCatalog, type SetupStep, type SetupWorkspace,
 } from '../shared/types';
+import { detectProjectKind, foundationTemplates, type ProjectKind } from './doc-templates';
+import { createDoc, listDocs } from './docs';
 import { initRepo, repoProblem, repoTop } from './git';
 import { t } from './i18n';
 import { catalogPackages, ensureInstalled, installedPackage } from './market';
@@ -213,6 +216,7 @@ export async function buildOffice(plan: OfficeSetupPlan, lang: Lang, hooks: Setu
   }));
   const stepSettings = plan.teamPackage ? progress.add('settings', t(lang, 'setup.step.settings')) : null;
   const stepDirection = plan.description.trim() ? progress.add('direction', t(lang, 'setup.step.direction')) : null;
+  const stepFoundation = progress.add('foundation', t(lang, 'setup.step.foundation'));
 
   // --- корень и запись в реестре
   progress.start(stepOffice);
@@ -337,11 +341,37 @@ export async function buildOffice(plan: OfficeSetupPlan, lang: Lang, hooks: Setu
     else progress.done(stepDirection);
   }
 
+  // --- заготовки «Основы»: после настроек команды, потому что язык
+  // реализации мог прийти оттуда. Офис, где «Основа» уже есть, не трогаем.
+  progress.start(stepFoundation);
+  const kind = planProjectKind(plan);
+  try {
+    if (listDocs(state, { kind: 'foundation', includeArchived: true }).length) {
+      progress.done(stepFoundation, t(lang, 'setup.detail.foundationExists'));
+    } else {
+      const titles = foundationTemplates(kind, state.codeLang()).map((doc) =>
+        createDoc(state, { ...doc, kind: 'foundation', author: 'setup' }).title);
+      progress.done(stepFoundation, `${t(lang, `setup.kind.${kind}`)}: ${titles.join(', ')}`);
+    }
+  } catch (err) {
+    noteFailure(stepFoundation, (err as Error).message);
+  }
+
   state.addLog(null, 'system', t(lang, 'setup.log.built', {
     name: entry.name, dir: entry.projectDir, hired, folders: folders.join(', ') || '—',
   }));
   for (const line of failures) state.addLog(null, 'system', line);
   return { officeId: entry.id };
+}
+
+/**
+ * Тип проекта по тому, что мастер уже знает: название и описание из плана,
+ * имена пакетов участников и команды, метки установленных пакетов.
+ */
+export function planProjectKind(plan: OfficeSetupPlan): ProjectKind {
+  const names = [...plan.team.map((m) => m.package), ...(plan.teamPackage ? [plan.teamPackage] : [])];
+  const tags = names.flatMap((n) => installedPackage(n)?.pkg.manifest.tags ?? []);
+  return detectProjectKind([plan.name, plan.description, ...names, ...tags]);
 }
 
 /** Название пакета для подписи шага: из установленного, иначе имя. */
