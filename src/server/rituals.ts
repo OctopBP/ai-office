@@ -581,13 +581,13 @@ async function handleContradiction(
   if (!agents.resolveContradiction) {
     verdict = { kind: 'unresolved', reason: state.say('contradictions.noAgent') };
   } else {
-    const answer = await agents.resolveContradiction(state, buildResolvePrompt(pair.a, pair.b));
+    const answer = await agents.resolveContradiction(state, buildResolvePrompt(pair.a, pair.b, state.lang()));
     out.costUsd += answer.costUsd;
     verdict = answer.error && !answer.text.trim()
       ? { kind: 'unresolved', reason: state.say('contradictions.agentFailed', { error: clip(answer.error, 200) }) }
-      : parseVerdict(answer.text);
+      : parseVerdict(answer.text, state.lang());
   }
-  const decision = decideContradiction(pair.a, pair.b, verdict);
+  const decision = decideContradiction(pair.a, pair.b, verdict, state.lang());
   markPairResolved(state.life, pair.a.id, pair.b.id);
   state.touchLife();
 
