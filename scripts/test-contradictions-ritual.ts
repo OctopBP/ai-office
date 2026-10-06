@@ -2,14 +2,15 @@
  * Ритуал противоречий с самостоятельным разбором (rituals.ts → handleContradiction)
  * на заглушке агентов: исход stale закрывается без владельца и забывает запись,
  * два решения владельца уходят вопросом с выводом разбора и вариантами,
- * разобранная пара второй раз не поднимается.
+ * разобранная пара второй раз не поднимается — ни по памяти пар, ни по
+ * отвеченному вопросу; открытый повтор закрывается ссылкой на прежний ответ.
  *
  * Запуск: node --import tsx/esm scripts/test-contradictions-ritual.ts
  */
 import assert from 'node:assert/strict';
 import { getOffice, unloadOfficeState } from '../src/server/state';
 import { runRitual, setRitualAgents, type RitualOutput } from '../src/server/rituals';
-import { openQuestions } from '../src/server/questions';
+import { answerQuestion, officeAsks, openQuestions } from '../src/server/questions';
 import { isPairResolved } from '../src/server/contradictions';
 
 // Тексты офиса сверяем по-русски — значит, и офис должен быть русским.
@@ -114,6 +115,37 @@ async function main(): Promise<void> {
   await check('разобранная пара не поднимается повторно', () => {
     assert.equal(resolveCalls, callsBefore);
     assert.equal(office.questions.size, questionsBefore);
+  });
+
+  console.log('отвеченная пара без памяти пар');
+  // Как в офисах, где вопросы задали до появления resolvedPairs: память пуста,
+  // но владелец уже ответил — по вопросу, а не по ключу пары.
+  const asked = contradictionQuestions()[0];
+  assert.ok(answerQuestion(office, asked.id, `Верна ${ownerA.id}`));
+  office.life.resolvedPairs = {};
+  office.life.lastRun = {};
+  const callsAnswered = resolveCalls;
+  const questionsAnswered = office.questions.size;
+  const contradictionFacts = office.factList().filter((f) => f.kind === 'contradiction').length;
+  await runRitual(office, 'contradictions');
+  await check('отвеченная пара не поднимается снова: ни агента, ни вопроса, ни записи', () => {
+    assert.equal(resolveCalls, callsAnswered);
+    assert.equal(office.questions.size, questionsAnswered);
+    assert.equal(office.factList().filter((f) => f.kind === 'contradiction').length, contradictionFacts);
+  });
+
+  console.log('открытый повтор закрывается ссылкой на ответ');
+  const repeat = officeAsks(office, 'contradiction',
+    `Журнал разошёлся сам с собой: «${ownerB.id}: ${ownerB.text}» против «${ownerA.id}: ${ownerA.text}». Что верно?`, 'допущение');
+  office.life.lastRun = {};
+  flagged = [];
+  await runRitual(office, 'contradictions');
+  await check('повтор снят, в причине — прежний вопрос и ответ владельца', () => {
+    const q = office.questions.get(repeat.id)!;
+    assert.ok(q.dismissedAt);
+    const why = q.closedWhy ?? '';
+    assert.ok(why.includes(asked.id) && why.includes(`Верна ${ownerA.id}`), why);
+    assert.equal(office.questions.get(asked.id)?.dismissedAt, null);
   });
 
   const x = office.addFact({ kind: 'fact', text: 'Порт сервера по умолчанию 3002', scope: 'project' });

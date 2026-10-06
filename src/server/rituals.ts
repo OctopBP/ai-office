@@ -36,7 +36,8 @@ import {
   buildResolvePrompt, decideContradiction, isPairResolved, markPairResolved, parseVerdict,
   type ContradictionVerdict,
 } from './contradictions';
-import { askOwner, officeAsks, openQuestions, pickForStandup } from './questions';
+import { findPriorContradiction, repeatedQuestions } from './contradiction-history';
+import { askOwner, dismissQuestion, officeAsks, openQuestions, pickForStandup } from './questions';
 import { limitsView } from './limits';
 import { tellPm } from './review';
 import { runTypecheck } from './merge';
@@ -570,13 +571,26 @@ async function handleContradiction(
   const pair = a && b && a.id !== b.id ? { a, b } : null;
   const question = state.say('questions.contradiction', { a: clip(c.a, 160), b: clip(c.b, 160) });
 
+  if (pair && isPairResolved(state.life, pair.a.id, pair.b.id)) return 'skipped';
+  // Владелец эту тему уже видел — по записи, по цитатам или по формулировке.
+  const prior = findPriorContradiction(c, [a, b], state.questionList(), state.factList());
+  if (prior) {
+    if (pair) {
+      markPairResolved(state.life, pair.a.id, pair.b.id);
+      state.touchLife();
+    }
+    state.addLog(null, 'system', state.say('contradictions.repeatLog', {
+      what: clip(c.text || `${c.a} ≠ ${c.b}`, 160), ref: prior.questionId ?? prior.factId ?? '',
+    }));
+    return 'skipped';
+  }
+
   if (!pair) {
     // Сторону не нашли в журнале — разбирать нечего, спрашиваем как раньше.
     state.addFact({ kind: 'contradiction', text: c.text || `${c.a} ≠ ${c.b}`, scope: 'office', source: { ritual } });
     officeAsks(state, 'contradiction', question, state.say('questions.contradictionAssumption'));
     return 'asked';
   }
-  if (isPairResolved(state.life, pair.a.id, pair.b.id)) return 'skipped';
 
   let verdict: ContradictionVerdict;
   if (!agents.resolveContradiction) {
@@ -619,6 +633,24 @@ async function handleContradiction(
   officeAsks(state, 'contradiction', `${question}\n\n${review}`,
     state.say('questions.contradictionAssumption'), null, options);
   return 'asked';
+}
+
+/**
+ * Закрыть открытые вопросы-повторы о противоречиях: о тех же записях журнала
+ * владельца уже спрашивали. Закрываем ссылкой на прежний вопрос и его ответ.
+ */
+export function closeRepeatedContradictions(state: OfficeState): string[] {
+  const closed: string[] = [];
+  for (const { repeat, prior } of repeatedQuestions(state.questionList(), state.factList())) {
+    const why = prior.answeredAt
+      ? state.say('contradictions.repeatClosed', { id: prior.id, answer: clip(prior.answer ?? '', 200) })
+      : state.say('contradictions.repeatClosedOpen', { id: prior.id });
+    if (dismissQuestion(state, repeat.id, why)) {
+      state.addLog(null, 'system', `${repeat.id}: ${why}`);
+      closed.push(repeat.id);
+    }
+  }
+  return closed;
 }
 
 /** Положить то, что ритуал произвёл: записи, противоречия, вопросы. */
@@ -670,6 +702,7 @@ const runners: Record<RitualId, Runner> = {
   },
 
   async contradictions(state, now) {
+    closeRepeatedContradictions(state);
     const facts = state.factList().filter((f) => f.status === 'live' && isPromptable(f));
     const out = await agents.contradictions(state, facts);
     if (out.error) throw new Error(out.error);
