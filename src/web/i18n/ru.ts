@@ -577,6 +577,8 @@ export const ru: Record<keyof typeof en, string> = {
   'settings.mcp.ask.hint': 'Пакет объявляет серверы, нужные его навыкам, но не подключает их. Добавить — значит согласиться запускать эту команду на своей машине, поэтому прочитайте её до нажатия.',
   'settings.mcp.server.figma-console.name': 'Figma Console',
   'settings.mcp.server.figma-console.about': 'Figma с записью компонентов: варианты, инстансы, переменные и произвольный код Plugin API. Работает, пока в Figma Desktop запущен плагин Desktop Bridge; токен FIGMA_ACCESS_TOKEN нужен только для комментариев, версий и библиотек. Как поставить плагин — docs/guide/figma-console.md.',
+  'settings.mcp.server.unity.name': 'Редактор Unity',
+  'settings.mcp.server.unity.about': 'Живой редактор Unity: сцена, консоль, команды редактора и произвольный C# (eval — каждый раз с вопросом владельцу). Работает только при открытом редакторе Unity 6+ с установленным пакетом моста com.unity.pipeline. Установка: поставьте Unity CLI (brew install --cask unity-cli или curl -fsSL https://unity.com/install.sh | bash), в папке проекта выполните unity pipeline install и откройте проект в редакторе. Редактор закрыт — роль работает через CLI и batchmode.',
   'role.mcp': 'Внешние инструменты',
   'role.capabilities': 'Умения',
   'role.capabilities.hint': 'По умениям узлы процессов находят исполнителя. Пусто — офис выведет их по инструментам роли.',

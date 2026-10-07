@@ -1,0 +1,57 @@
+{
+  "schema": 1,
+  "name": "@office/unity",
+  "kind": "agent",
+  "title": {
+    "ru": "Unity-разработчик",
+    "en": "Unity developer"
+  },
+  "summary": {
+    "ru": "Игры на Unity и C#: код, тесты EditMode/PlayMode, сцены и префабы; проверяет себя через Unity CLI и batchmode, а при открытом редакторе — через MCP-мост.",
+    "en": "Unity and C# games: code, EditMode/PlayMode tests, scenes and prefabs; checks the work with the Unity CLI and batchmode, and through the MCP bridge when the editor is open."
+  },
+  "tags": [
+    "code",
+    "gamedev",
+    "unity",
+    "csharp"
+  ],
+  "color": "#6366f1",
+  "emoji": "🎮",
+  "look": "skaterMaleA",
+  "license": "MIT",
+  "capabilities": [
+    "code.write"
+  ],
+  "runtime": {
+    "engine": "claude-code",
+    "model": "opus",
+    "tools": [
+      "Read",
+      "Write",
+      "Edit",
+      "Glob",
+      "Grep",
+      "Bash",
+      "TodoWrite"
+    ],
+    "permissionMode": "ask-risky",
+    "isolate": true,
+    "maxTurns": null,
+    "mcp": [
+      "unity"
+    ]
+  },
+  "servers": [
+    {
+      "id": "unity",
+      "title": "Unity Editor",
+      "transport": "stdio",
+      "command": "unity",
+      "args": [
+        "mcp"
+      ],
+      "alwaysLoad": true
+    }
+  ]
+}

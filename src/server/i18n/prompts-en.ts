@@ -798,6 +798,19 @@ Keep your replies to the user short. Which language to write them in is said in 
     'That is no reason to stop: all the work is done by the background run, without the bridge.',
   ].join('\n'),
 
+  'mcp.unity.brief': [
+    'A live Unity Editor is available to you through `mcp__unity__*` (the official `unity mcp`',
+    'bridge). Use it to look at a scene, check the console, run an editor command.',
+    'That is reconnaissance and a quick check, not a way to deliver. The result is C# and YAML in',
+    'the task branch: an edit made in the open window does not exist until it is saved and',
+    'committed. Large scene rebuilds belong in an Editor script in the repository.',
+    '`eval` and `eval_file` run arbitrary C# in the owner’s editor and ask the owner every time —',
+    'take them only when a ready command does not exist, and do more in one call.',
+    'If the tools answer that there is no connection, the editor is closed or the',
+    '`com.unity.pipeline` package is not installed. Do not wait and do not stop: switch to the',
+    'Unity CLI and batchmode, and mention in the report that the bridge was unavailable.',
+  ].join('\n'),
+
   // ------------------------------------------------------- ход и итог задачи
   'agent.task.noReport': 'The task finished without a report.',
   'agent.task.stopped': '⏹ Stopped by you.',

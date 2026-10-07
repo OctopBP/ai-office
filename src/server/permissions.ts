@@ -82,6 +82,18 @@ const FIGMA_CONSOLE_READ =
 const FIGMA_CONSOLE_CODE = /^execute(_|$)/;
 
 /**
+ * Мост к редактору Unity (`unity mcp` из Unity CLI, id в каталоге — `unity`).
+ * Его главные инструменты — `eval` и `eval_file`: они исполняют в открытом
+ * редакторе произвольный C#, то есть могут стереть ассет, переписать сцену и
+ * сохранить её на диск мимо ветки задачи. Отличить по аргументам, безвреден
+ * ли код, нельзя, поэтому им `danger`, как `figma_execute`. Остальные его
+ * инструменты — зарегистрированные команды редактора — разбираются по общим
+ * правилам глагола.
+ */
+const UNITY_SERVER = 'unity';
+const UNITY_CODE = /^(eval|execute|run_code)(_|$)/;
+
+/**
  * Bash — основной источник опасных действий. Спрашиваем не про всякую команду
  * (иначе пользователь утонет в подтверждениях на ls и cat), а про те, что
  * необратимы или выходят за пределы проекта.
@@ -153,7 +165,8 @@ export function classify(
       return { risk: 'safe', reason: '', summary: `${server}: ${short}`, detail: '', key: toolName };
     }
     const destructive = DESTRUCTIVE_MCP_TOOL.test(verb)
-      || (figmaConsole && FIGMA_CONSOLE_CODE.test(verb));
+      || (figmaConsole && FIGMA_CONSOLE_CODE.test(verb))
+      || (server === UNITY_SERVER && UNITY_CODE.test(verb));
     return {
       risk: destructive ? 'danger' : 'write',
       reason: t(lang, destructive ? 'perm.reason.mcpDestructive' : 'perm.reason.mcpWrite'),

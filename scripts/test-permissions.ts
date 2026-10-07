@@ -63,6 +63,14 @@ const cases: Case[] = [
   ['mcp__browser__screenshot', { path: 'docs/qa/T-1/a.png' },    'safe'],
   ['mcp__browser__storyboard', { count: 3, intervalMs: 100 },    'safe'],
   ['mcp__other-browser__open', { url: 'https://example.com' },   'write'],
+  // Мост к редактору Unity: произвольный C# в открытом редакторе — всегда
+  // вопрос, остальное по общему глаголу. Правило — только для своего id.
+  ['mcp__unity__eval', { code: 'Debug.Log(1);' },                'danger'],
+  ['mcp__unity__eval_file', { path: 'Assets/Editor/Fix.cs' },    'danger'],
+  ['mcp__unity__get_console', {},                                'safe'],
+  ['mcp__unity__delete_asset', { path: 'Assets/A.png' },         'danger'],
+  ['mcp__unity__open_scene', { path: 'Assets/Main.unity' },      'write'],
+  ['mcp__other-unity__eval', { code: '1' },                      'write'],
 ];
 
 // Пустой список кейсов дал бы «все 0 кейсов прошли» — зелёный прогон, в котором

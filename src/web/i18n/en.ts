@@ -578,6 +578,8 @@ export const en = {
   'settings.mcp.ask.hint': 'A pack declares the servers its skills need — it does not connect them. Adding one means agreeing to run that command on this machine, so read it before you click.',
   'settings.mcp.server.figma-console.name': 'Figma Console',
   'settings.mcp.server.figma-console.about': 'Figma with component writing: variants, instances, variables and arbitrary Plugin API code. Works while the Desktop Bridge plugin is running in Figma Desktop; the FIGMA_ACCESS_TOKEN token is only needed for comments, versions and libraries. How to install the plugin — docs/guide/figma-console.md.',
+  'settings.mcp.server.unity.name': 'Unity Editor',
+  'settings.mcp.server.unity.about': 'A live Unity Editor: scene, console, editor commands and arbitrary C# (eval asks the owner every time). Works only while the Unity 6+ editor is open with the bridge package com.unity.pipeline installed. Setup: install the Unity CLI (brew install --cask unity-cli or curl -fsSL https://unity.com/install.sh | bash), run unity pipeline install in the project folder and open the project in the editor. With the editor closed the role works through the CLI and batchmode.',
   'role.mcp': 'External tools',
   'role.capabilities': 'Skills',
   'role.capabilities.hint': 'Process nodes find an employee by skills. Empty — the office derives them from the role tools.',

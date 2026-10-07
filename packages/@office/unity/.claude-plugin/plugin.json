@@ -1,0 +1,5 @@
+{
+  "name": "unity",
+  "version": "0.1.0",
+  "description": "Unity developer: C# code, EditMode/PlayMode tests, scenes and prefabs; verification through the Unity CLI and batchmode, live editor through the official unity mcp bridge."
+}
