@@ -188,7 +188,10 @@
 /* Пока строку тащат, курсор «хватания» держится и вне неё самой — иначе он
    на долю секунды переключался бы на обычный при быстром движении мыши. */
 body.office-dragging, body.office-dragging * { cursor: grabbing !important; user-select: none; }
-.rail-new { min-height: 40px; }
+.rail-section-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: var(--space-3); }
+.rail-section-head .section-title { margin-bottom: 0; }
+/* Кнопка «+» у заголовка секции: 24px — минимальная область нажатия. */
+.rail-new { width: 24px; min-height: 24px; padding: 0; color: var(--ink-2); flex: none; }
 
 .rail-sep { height: 1px; background: var(--hairline); margin-bottom: var(--space-5); flex: none; }
 
@@ -265,7 +268,7 @@ body.office-dragging, body.office-dragging * { cursor: grabbing !important; user
 .rail-collapsed .rail-office-dot.paused {
   display: flex; position: absolute; top: 3px; right: 3px;
 }
-.rail-collapsed .rail-new { width: 42px; min-height: 41px; }
+.rail-collapsed .rail-section-head { justify-content: center; }
 .rail-collapsed .rail-sep { width: 52px; }
 .rail-collapsed .rail-win { width: 52px; justify-content: center; padding: 0; margin: 0; }
 .rail-collapsed .rail-home { margin-bottom: var(--space-4); }

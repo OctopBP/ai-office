@@ -1016,7 +1016,7 @@ export const ru: Record<keyof typeof en, string> = {
   // ------------------------------------------------------------ оболочка
   "shell.offices": "Офисы",
   "shell.windows": "Окна офиса",
-  "shell.newOffice": "+  Новый офис",
+  "shell.newOffice": "Новый офис",
   "shell.officeStatus": "{n} агент · {working} в работе|{n} агента · {working} в работе|{n} агентов · {working} в работе",
   "shell.win.merge": "Очередь слияния",
   "shell.win.log": "Лог событий",

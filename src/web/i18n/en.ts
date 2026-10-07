@@ -1017,7 +1017,7 @@ export const en = {
   // ------------------------------------------------------------ оболочка
   "shell.offices": "Offices",
   "shell.windows": "Office windows",
-  "shell.newOffice": "+  New office",
+  "shell.newOffice": "New office",
   "shell.officeStatus": "{n} agent · {working} working|{n} agents · {working} working",
   "shell.win.merge": "Merge queue",
   "shell.win.log": "Event log",

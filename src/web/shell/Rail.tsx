@@ -287,7 +287,13 @@ export function Rail({ onPanel, onModal }: {
         </button>
       </Tooltip>
 
-      <div className="section-title">{t('shell.offices')}</div>
+      <div className="rail-section-head">
+        <div className="section-title">{t('shell.offices')}</div>
+        <button className="ghost rail-new" onClick={() => onModal('offices')}
+          title={t('shell.newOffice')} aria-label={t('shell.newOffice')}>
+          <Icon name="plus" size={14} />
+        </button>
+      </div>
       <div className="rail-offices">
         <div className="rail-office-list">
         {renderList.map((o) => {
@@ -381,9 +387,6 @@ export function Rail({ onPanel, onModal }: {
           </div>,
           document.body,
         )}
-        <button className="dashed rail-new" onClick={() => onModal('offices')} title={t('shell.newOffice')}>
-          {collapsed ? '+' : t('shell.newOffice')}
-        </button>
       </div>
 
       <div className="rail-sep" />
