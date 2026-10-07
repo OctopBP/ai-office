@@ -34,7 +34,7 @@ import { employeePlugins, employeeSkills, sessionTools } from './skills';
 import {
   autoApprovedText, classify, decide, effectiveMode, releaseCommandBlocked, type ClassifyZone,
 } from './permissions';
-import { outsideZone, soleZone, writeZone } from './subprojects';
+import { outsideZone, writeZone } from './subprojects';
 import { worktreeOwnFiles } from './premerge';
 import {
   closeReleasePlan, proposeReleaseTarget, proposedAssets, proposedChannels, releaseStatusText, resumeRelease, saveReleasePlan, setReleaseAgents,
@@ -56,7 +56,7 @@ import { deleteTask, dropTask, editTask } from './tasks';
 import { limitBlock, resetClock } from './limits';
 import { journalBrief } from './journal';
 import { docsBrief, docTools } from './docs-tools';
-import { addRule, dropRule, editRule, ruleScopes, rulesBrief, rulesText, zoneBrief } from './rules';
+import { addRule, dropRule, editRule, ruleScopes, rulesBrief, rulesText, sessionZone, zoneBrief } from './rules';
 import { noteCompaction } from './health';
 import { BUDGET_MIN_HISTORY, RunGuard, runKind, runThreshold, type GuardSignal } from './runguard';
 import { maybeAutoTitle, setChatTitler } from './chattitle';
@@ -261,23 +261,15 @@ async function repoReady(state: OfficeState, dir: string): Promise<boolean> {
  * сессия получает его первым сообщением, а не полагается на память прошлой.
  * `roleId` решает, какие записи роль видит: общие и свои; null — менеджер,
  * ему вместо своих достаются офисные. `subprojectId` — зона задачи (null —
- * «весь проект»): её бриф и правила едут вместо зон роли (spec подпроектов §4).
+ * «весь проект»): её бриф, правила и оглавление документов едут вместо зон
+ * роли (spec подпроектов §4). Зона разрешается один раз через `sessionZone`,
+ * чтобы три блока не разошлись: вне задачи — единственная зона роли.
  */
 function projectBrief(state: OfficeState, roleId: string | null = null, subprojectId?: string | null): string {
-  return officeBrief(state) + zoneBrief(state, roleId, subprojectId)
-    + rulesBrief(state, roleId, subprojectId) + journalBrief(state, roleId)
-    + docsBrief(state, docsZone(state, roleId, subprojectId));
-}
-
-/**
- * Зона для оглавления документов (docs/design/subprojects/spec.md §4.2):
- * у сессии задачи — зона задачи (null — «весь проект», оглавление целиком),
- * вне задачи — единственная зона роли; менеджер — всё.
- */
-function docsZone(state: OfficeState, roleId: string | null, zone: string | null | undefined): string | null {
-  if (zone !== undefined) return zone;
-  const role = roleId ? state.role(roleId) : undefined;
-  return role ? soleZone(role, state.subprojects())?.id ?? null : null;
+  const zone = sessionZone(state, roleId, subprojectId);
+  return officeBrief(state) + zoneBrief(state, roleId, zone)
+    + rulesBrief(state, roleId, zone) + journalBrief(state, roleId)
+    + docsBrief(state, zone);
 }
 
 /**
@@ -327,17 +319,19 @@ function officeBrief(state: OfficeState): string {
  * «сейчас в работе» перед маркером обнуляют кэш, и правка теряет смысл.
  * Проверять — по плитке «% ввода из кеша» на доске расходов.
  */
-function systemBlocks(state: OfficeState, roleId: string | null, head: string, zone?: string | null): string[] {
+function systemBlocks(state: OfficeState, roleId: string | null, head: string, subprojectId?: string | null): string[] {
+  // Та же зона, что в projectBrief: бриф, правила и документы — по одной.
+  const zone = sessionZone(state, roleId, subprojectId);
   // Правила — в статику рядом с брифом: они меняются раз в неделю, и платить
   // за них заново в каждой короткой сессии (реплика, вопрос коллеге) не за что.
   // Языки — туда же и по той же причине: настройка офиса, а не свойство сессии.
   const statics = [
     head, languageBrief(state, roleId === null ? 'pm' : 'worker'),
-    officeBrief(state), zoneBrief(state, roleId), rulesBrief(state, roleId),
+    officeBrief(state), zoneBrief(state, roleId, zone), rulesBrief(state, roleId, zone),
   ].filter((block) => block.trim());
   // Оглавление документов — в динамику вместе с журналом: правится оно
   // агентами по ходу работы и сбивало бы кэш статики.
-  const dynamic = [journalBrief(state, roleId), docsBrief(state, docsZone(state, roleId, zone))].filter((block) => block.trim());
+  const dynamic = [journalBrief(state, roleId), docsBrief(state, zone)].filter((block) => block.trim());
   // Без журнала и документов маркер не ставим: пустой хвост за ним — блок ни о чём.
   return dynamic.length ? [...statics, SYSTEM_PROMPT_DYNAMIC_BOUNDARY, ...dynamic] : statics;
 }
@@ -2763,7 +2757,7 @@ async function consultRole(
           role.brief,
           '',
           state.say('prompt.consult.systemTail'),
-        ].join('\n')),
+        ].join('\n'), subprojectId || undefined),
         cwd: place.cwd,
         // Только чтение и никаких офисных инструментов: отвечающий не должен
         // ни править свой проект, ни звать третьего.

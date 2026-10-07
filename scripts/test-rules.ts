@@ -222,8 +222,11 @@ async function main(): Promise<void> {
   check('разговор роли одной зоны — её бриф', zoneBrief(office, be).includes('Бриф серверной зоны.'));
   check('разговор роли одной зоны — её правила', rulesBrief(office, be).includes('Миграции схемы'));
   office.role(be)!.subprojects = ['server', 'docs'];
-  check('у роли двух зон в разговоре правила обеих',
-    rulesBrief(office, be).includes('Миграции схемы') && rulesBrief(office, be).includes('Схемы рисуем в mermaid'));
+  // Зона вне задачи одна на все блоки (T-488): у роли двух зон её нет —
+  // ни брифа, ни правил зон, только правила офиса.
+  check('у роли двух зон в разговоре правил зон нет',
+    !rulesBrief(office, be).includes('Миграции схемы') && !rulesBrief(office, be).includes('Схемы рисуем в mermaid')
+    && rulesBrief(office, be).includes('Комментарии по-русски'));
   check('у роли двух зон в разговоре брифа зоны нет', zoneBrief(office, be) === '');
   office.role(be)!.subprojects = [];
 

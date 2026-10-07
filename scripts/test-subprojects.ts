@@ -8,11 +8,15 @@
  */
 import './_isolate'; // первым: до чтения окружения в root.ts и store.ts
 import { execFileSync } from 'node:child_process';
-import { mkdirSync, rmSync } from 'node:fs';
+import { mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { resolve } from 'node:path';
 import { openOfficeState, unloadOfficeState } from '../src/server/state';
-import { assignDirect, officeAssign, pmPrompt, retryTask, subprojectsSummary, teamSummary } from '../src/server/agents';
+import {
+  assignDirect, officeAssign, pmPrompt, retryTask, subprojectsSummary, teamSummary, workerSystemPrompt,
+} from '../src/server/agents';
+import { createDoc, docIndexForPrompt, PROMPT_INDEX_CHARS } from '../src/server/docs';
+import { addRule } from '../src/server/rules';
 import { editTask } from '../src/server/tasks';
 import { createPlan } from '../src/server/plan';
 import { flushAll, save, type Persisted } from '../src/server/store';
@@ -576,7 +580,59 @@ async function unstaffedEpic(): Promise<void> {
   unloadOfficeState('o-sub-unstaffed');
 }
 
+/**
+ * Зона в промпте одна на все блоки (T-488): правила зоны (rules.ts) и
+ * оглавление её документов (docs) едут по одной и той же зоне сессии. На
+ * задаче — зона задачи; вне задачи у роли двух зон зоны нет вовсе: ни брифа,
+ * ни правил, ни документов какой-либо из них.
+ */
+function zoneInWorkerPrompt(): void {
+  results.push('зона в промпте исполнителя: правила и документы вместе (T-488):');
+  const dir = resolve(base, 'prompt-zone');
+  mkdirSync(resolve(dir, 'srv'), { recursive: true });
+  mkdirSync(resolve(dir, 'web'), { recursive: true });
+  const office = openOfficeState({ id: 'o-sub-prompt', projectDir: dir, stateFile: resolve(base, 'prompt.json') }).state;
+  office.dryRun = true;
+  office.subprojects().push(zone('srv', 'folder', 'srv'), zone('web', 'folder', 'web'));
+  writeFileSync(resolve(dir, 'srv/OFFICE.md'), 'Бриф зоны srv.\n');
+  writeFileSync(resolve(dir, 'web/OFFICE.md'), 'Бриф зоны web.\n');
+  addRule(office, 'sub:srv', 'Правило зоны srv');
+  addRule(office, 'sub:web', 'Правило зоны web');
+  createDoc(office, { title: 'Документ зоны srv', kind: 'working', subprojectId: 'srv', author: 'backend' });
+  createDoc(office, { title: 'Документ зоны web', kind: 'working', subprojectId: 'web', author: 'frontend' });
+  const be = office.role('backend')!;
+
+  const onTask = workerSystemPrompt(be, office, 'srv');
+  check('на задаче зоны: правила зоны в промпте', onTask.includes('Правило зоны srv'));
+  check('на задаче зоны: документы зоны в промпте', onTask.includes('Документ зоны srv'));
+  check('на задаче зоны: бриф зоны в промпте', onTask.includes('Бриф зоны srv.'));
+  check('на задаче зоны: чужой зоны нет',
+    !onTask.includes('Правило зоны web') && !onTask.includes('Документ зоны web') && !onTask.includes('Бриф зоны web.'));
+
+  be.subprojects = ['srv'];
+  const sole = workerSystemPrompt(be, office);
+  check('вне задачи, одна зона: её правила, документы и бриф',
+    sole.includes('Правило зоны srv') && sole.includes('Документ зоны srv') && sole.includes('Бриф зоны srv.')
+    && !sole.includes('Документ зоны web'));
+
+  be.subprojects = ['srv', 'web'];
+  const two = workerSystemPrompt(be, office);
+  for (const id of ['srv', 'web']) {
+    check(`вне задачи, две зоны: нет брифа зоны ${id}`, !two.includes(`Бриф зоны ${id}.`));
+    check(`вне задачи, две зоны: нет правил зоны ${id}`, !two.includes(`Правило зоны ${id}`));
+  }
+  // Без зоны оглавление — как у задачи «весь проект» (spec подпроектов §4.2):
+  // целиком, с подписью зоны в строке, а не оглавление какой-то из зон.
+  const whole = docIndexForPrompt(office, PROMPT_INDEX_CHARS, null);
+  check('вне задачи, две зоны: оглавление документов не сужено ни до одной зоны',
+    two.includes(whole) && !two.includes(docIndexForPrompt(office, PROMPT_INDEX_CHARS, 'srv'))
+    && !two.includes(docIndexForPrompt(office, PROMPT_INDEX_CHARS, 'web')));
+  be.subprojects = [];
+  unloadOfficeState('o-sub-prompt');
+}
+
 try {
+  zoneInWorkerPrompt();
   pureRules();
   admission();
   pickZone();

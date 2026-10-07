@@ -18,7 +18,7 @@ import { basename, resolve } from 'node:path';
 import type { RuleScopeView, RuleView, Subproject } from '../shared/types';
 import type { Role } from './roles';
 import type { OfficeState } from './state';
-import { zonePath } from './subprojects';
+import { soleZone, zonePath } from './subprojects';
 
 /** Имя файла правил. Одно и то же в корне офиса и в корне зоны. */
 export const RULES_FILE = 'RULES.md';
@@ -214,14 +214,17 @@ function block(header: string, rules: string[]): string {
 }
 
 /**
- * Зоны сессии. `subprojectId` — зона задачи: строка — эта зона, null — задача
- * «весь проект», без зоны; undefined — сессия без задачи (разговор,
- * совещание, консультация), и тогда это все зоны роли.
+ * Зона сессии — одна на бриф зоны, её правила и оглавление документов, чтобы
+ * блоки промпта не расходились. `subprojectId` — зона задачи: строка — эта
+ * зона, null — задача «весь проект», без зоны; undefined — сессия без задачи
+ * (разговор, совещание, консультация), и тогда это единственная зона роли,
+ * а у роли с несколькими зонами или без них — без зоны. Менеджер — без зоны.
  */
-function sessionZones(state: OfficeState, roleId: string, subprojectId: string | null | undefined): string[] {
-  if (subprojectId !== undefined) return subprojectId ? [subprojectId] : [];
+export function sessionZone(state: OfficeState, roleId: string | null, subprojectId: string | null | undefined): string | null {
+  if (!roleId) return null;
+  if (subprojectId !== undefined) return subprojectId || null;
   const role = state.role(roleId);
-  return role && !role.isManager ? role.subprojects ?? [] : [];
+  return role ? soleZone(role, state.subprojects())?.id ?? null : null;
 }
 
 /**
@@ -231,7 +234,7 @@ function sessionZones(state: OfficeState, roleId: string, subprojectId: string |
  *
  * Исполнитель на задаче получает правила офиса и зоны ЗАДАЧИ, а не своих
  * закреплений: универсал на задаче веба живёт по правилам веба. Без задачи —
- * офис и все зоны роли с подписями. Менеджер — все круги: файлов он не видит,
+ * офис и единственная зона роли (`sessionZone`). Менеджер — все круги: файлов он не видит,
  * а критерии готовности пишет он, и правило, до него не доехавшее, так и
  * останется пожеланием.
  */
@@ -241,10 +244,9 @@ export function rulesBrief(state: OfficeState, roleId: string | null, subproject
   let text = block(state.say('prompt.rules.office'), office?.rules.map((r) => r.text) ?? []);
 
   if (roleId) {
-    for (const zone of sessionZones(state, roleId, subprojectId)) {
-      const own = scopes.find((s) => s.kind === 'subproject' && s.subprojectId === zone);
-      if (own) text += block(state.say('prompt.rules.subproject', { label: own.label }), own.rules.map((r) => r.text));
-    }
+    const zone = sessionZone(state, roleId, subprojectId);
+    const own = scopes.find((s) => s.kind === 'subproject' && s.subprojectId === zone);
+    if (own) text += block(state.say('prompt.rules.subproject', { label: own.label }), own.rules.map((r) => r.text));
   } else {
     for (const scope of scopes) {
       if (scope.kind === 'subproject') {
@@ -266,17 +268,15 @@ const ZONE_BRIEF_FILE = 'OFFICE.md';
 
 /**
  * Бриф зоны в системный промпт — сразу после брифа офиса, в статику. Получают
- * его сессии задач зоны и разговоры роли, закреплённой ровно за одной зоной;
+ * его сессии задач зоны и разговоры роли, закреплённой ровно за одной зоной
+ * (с несколькими непонятно, чей бриф главный);
  * менеджер — нет (ему хватает `summary` в списке зон). Как и `RULES.md`, это
  * файл, а не поле: уезжает с кодом и правится руками мимо офиса.
  */
 export function zoneBrief(state: OfficeState, roleId: string | null, subprojectId?: string | null): string {
-  if (!roleId) return '';
-  const own = sessionZones(state, roleId, subprojectId);
-  // Без задачи бриф достаётся только роли с одной зоной: с несколькими
-  // непонятно, чей бриф главный, а склейка всех раздувала бы каждую реплику.
-  if (subprojectId === undefined && own.length !== 1) return '';
-  const zone = ruleZones(state).find(({ sub }) => sub.id === own[0]);
+  const own = sessionZone(state, roleId, subprojectId);
+  if (!own) return '';
+  const zone = ruleZones(state).find(({ sub }) => sub.id === own);
   if (!zone) return '';
   try {
     const text = readFileSync(resolve(zone.path, ZONE_BRIEF_FILE), 'utf8').trim();
