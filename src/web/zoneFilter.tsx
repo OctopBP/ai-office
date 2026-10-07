@@ -5,7 +5,7 @@ import { pushToast, useStore } from './store';
 import { t } from './i18n';
 
 /** Экраны, у которых свой фильтр: доска и документы отвечают на разные вопросы. */
-export type ZoneScreen = 'board' | 'docs' | 'log';
+export type ZoneScreen = 'board' | 'docs' | 'log' | 'money';
 
 /** `all` — без фильтра, `none` — «весь проект» (без зоны), иначе id зоны. */
 export const ZONE_ALL = 'all';

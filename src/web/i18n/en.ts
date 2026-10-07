@@ -390,6 +390,8 @@ export const en = {
   "money.byTask": "By task",
   "money.noTasksToday": "Nothing has been spent on tasks today.",
   "money.noTasks": "No task has cost anything yet.",
+  "money.zone.caption": "Zone: {name} · {n} of {total} tasks · {sum}. Plan limits and budget are shared by the whole office.",
+  "money.zone.empty": "Nothing has been spent in zone “{name}”",
   "money.ofTaskTotal": "{total} over the whole task",
   "money.budget.title": "Office budget",
   "money.budget.label": "Spending cap",

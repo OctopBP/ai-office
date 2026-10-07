@@ -389,6 +389,8 @@ export const ru: Record<keyof typeof en, string> = {
   "money.byTask": "По задачам",
   "money.noTasksToday": "Сегодня на задачи ещё не тратились.",
   "money.noTasks": "Пока ни одна задача ничего не стоила.",
+  "money.zone.caption": "Зона: {name} · {n} из {total} задач · {sum}. Лимиты плана и потолок общие на весь офис.",
+  "money.zone.empty": "В зоне «{name}» ничего не потрачено",
   "money.ofTaskTotal": "{total} за всю задачу",
   "money.budget.title": "Бюджет офиса",
   "money.budget.label": "Потолок расходов",

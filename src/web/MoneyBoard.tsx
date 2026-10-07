@@ -9,6 +9,7 @@ import { t } from './i18n';
 import { Avatar, AgentTag } from './Avatar';
 import { displayInstance, useInstanceName } from './instanceName';
 import { SpendReportModal } from './SpendReportModal';
+import { ZONE_ALL, ZoneFilter, zoneMatches, zoneName, useZones, useZoneValue } from './zoneFilter';
 
 /**
  * Доска расходов: во что офису обошёлся день и каждая задача, и сколько
@@ -278,8 +279,12 @@ export function MoneyBoard() {
   const total = span === 'today' ? today : usage;
 
   const spentOn = (task: TaskView): Usage => (span === 'today' ? task.today : task.usage);
-  const list = Object.values(tasks)
-    .filter((task) => spentOn(task).costUsd > 0 || spentOn(task).costUnavailable)
+  const [zone] = useZoneValue('money');
+  const zones = useZones();
+  const spentTasks = Object.values(tasks)
+    .filter((task) => spentOn(task).costUsd > 0 || spentOn(task).costUnavailable);
+  const list = spentTasks
+    .filter((task) => zoneMatches(zone, task.subprojectId))
     .sort((a, b) => spentOn(b).costUsd - spentOn(a).costUsd);
 
   const agents = Object.values(instances)
@@ -354,9 +359,20 @@ export function MoneyBoard() {
       </div>
 
       <h4 className="section-title">{t('money.byTask')}</h4>
+      <ZoneFilter screen="money" />
+      {zone !== ZONE_ALL && spentTasks.length > 0 && (
+        <p className="zone-note">
+          {t('money.zone.caption', {
+            name: zoneName(zone, zones), n: list.length, total: spentTasks.length,
+            sum: money(list.reduce((a, task) => a + spentOn(task).costUsd, 0)),
+          })}
+        </p>
+      )}
       {list.length === 0 && (
         <p className="muted small">
-          {t(span === 'today' ? 'money.noTasksToday' : 'money.noTasks')}
+          {zone !== ZONE_ALL && spentTasks.length > 0
+            ? t('money.zone.empty', { name: zoneName(zone, zones) })
+            : t(span === 'today' ? 'money.noTasksToday' : 'money.noTasks')}
         </p>
       )}
       <div className="usage-rows">
