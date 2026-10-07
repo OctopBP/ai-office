@@ -727,6 +727,7 @@ export const en = {
   'subprojects.admit.wholeProject': 'Role {role} is pinned to zones {zones}, and the task is for the whole project: such tasks go only to roles without zones. Can take it: {who}.',
   'subprojects.admit.otherZone': 'Role {role} is not pinned to the zone “{zone}”. Can take it: {who}.',
   'subprojects.admit.nobody': 'nobody in the team',
+  'subprojects.admit.noReviewer': 'Nobody can review the task: no reviewer is admitted to its zone. {problem}',
   'subprojects.blocked': 'Nobody can take it: {problem}',
   'subprojects.created': 'Subproject “{name}” created at {root}.',
   'env.roles.title': 'Office roster',

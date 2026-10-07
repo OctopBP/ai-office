@@ -26,7 +26,9 @@ import { resetProjectWorkflow, saveProjectWorkflow, workflowCatalog } from '../s
 import type { TaskType } from '../src/shared/workflow';
 import { superviseOffice } from '../src/server/supervisor';
 import { MessageQueue } from '../src/server/queue';
-import { OFFICE_SENDER } from '../src/shared/types';
+import { OFFICE_SENDER, type Subproject } from '../src/shared/types';
+import { reviewerFor, type ReviewerScope } from '../src/server/subprojects';
+import type { Role } from '../src/server/roles';
 
 // Проверки сверяют тексты офиса дословно и написаны по-русски — значит,
 // и офисы здесь должны быть русскими. Язык нового офиса берётся из
@@ -1162,6 +1164,49 @@ async function main(): Promise<void> {
       s.pm.every((m) => !m.includes('спроси пользователя')));
 
     office.dryRun = false;
+  }
+
+  // Ревьюер с допуском к зоне (spec подпроектов §3.2, строка «Ревью»):
+  // штатный — только если допущен, иначе запасной с code.review, иначе отказ.
+  {
+    say('▶ Ревьюер выбирается с допуском к зоне задачи');
+    const zones = [
+      { id: 'web', name: 'Веб', kind: 'folder', root: 'web' },
+      { id: 'server', name: 'Сервер', kind: 'folder', root: 'server' },
+    ] as unknown as Subproject[];
+    const mk = (id: string, own: string[], extra: Partial<Role> = {}) =>
+      ({ id, title: id, subprojects: own, capabilities: ['code.review'], ...extra }) as unknown as Role;
+    const scope = (roles: Role[]): ReviewerScope => ({
+      subprojects: () => zones,
+      workerRoles: () => roles.filter((r) => !r.isManager && !r.archived),
+      lang: () => 'ru',
+      role: (id) => roles.find((r) => r.id === id),
+    });
+    const web = { subprojectId: 'web' };
+
+    const free = reviewerFor(scope([mk('reviewer', []), mk('reviewer-2', ['web'])]), web);
+    check('штатный reviewer без закрепления ревьюит любую зону', free.role?.id === 'reviewer');
+
+    const pinned = reviewerFor(scope([mk('reviewer', ['server']), mk('reviewer-2', ['web'])]), web);
+    check('штатный не допущен к зоне — берётся запасной с code.review', pinned.role?.id === 'reviewer-2');
+
+    const noCap = reviewerFor(scope([
+      mk('reviewer', ['server']), mk('backend', ['web'], { capabilities: ['code.write'] }),
+    ]), web);
+    check('запасной без code.review ревьюером не становится', noCap.role === null);
+    check('нет допущенного ревьюера — отказ с причиной',
+      !!noCap.problem && noCap.problem.includes('некому') && noCap.problem.includes('Веб'));
+
+    const archived = reviewerFor(scope([
+      mk('reviewer', [], { archived: true }), mk('reviewer-2', ['server']), mk('reviewer-3', ['web']),
+    ]), web);
+    check('архивный штатный пропускается, запасной ищется по допуску', archived.role?.id === 'reviewer-3');
+
+    const whole = reviewerFor(scope([mk('reviewer', ['web']), mk('reviewer-2', [])]), { subprojectId: null });
+    check('задачу на весь проект ревьюит только роль без закрепления', whole.role?.id === 'reviewer-2');
+
+    const none = reviewerFor(scope([mk('backend', [], { capabilities: ['code.write'] })]), web);
+    check('ревьюеров нет вовсе — прежний отказ без причины зоны', none.role === null && none.problem === null);
   }
 
   const failed = results.filter((r) => r.includes('❌'));

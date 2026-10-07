@@ -727,6 +727,7 @@ export const ru: Record<keyof typeof en, string> = {
   'subprojects.admit.wholeProject': 'Роль {role} закреплена за зонами {zones}, а задача — на весь проект: такие задачи берут только роли без закрепления. По силам: {who}.',
   'subprojects.admit.otherZone': 'Роль {role} не закреплена за зоной «{zone}». Зона по силам: {who}.',
   'subprojects.admit.nobody': 'никому в команде',
+  'subprojects.admit.noReviewer': 'Ревьюить задачу некому: ни один ревьюер не допущен к её зоне. {problem}',
   'subprojects.blocked': 'Некому взять: {problem}',
   'subprojects.created': 'Заведён подпроект «{name}» с корнем {root}.',
   'env.roles.title': 'Состав офиса',

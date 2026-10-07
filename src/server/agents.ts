@@ -25,8 +25,8 @@ import { LANG_NAME_EN, type Lang, type Vars } from '../shared/i18n';
 import { t, type ServerKey } from './i18n';
 import type { BudgetStop, MeetingView, PmChat, PrStage, PullRequestView, ReviewVerdict, TaskEdit } from '../shared/types';
 import { cloudProblem, runCloudTask, stopCloudTask } from './cloud';
-import { capabilitiesOf, type Role } from './roles';
-import { admitProblem } from './subprojects';
+import type { Role } from './roles';
+import { admitProblem, reviewerFor } from './subprojects';
 import { externalMcp, mcpBrief, serversFor } from './mcp';
 import { SANDBOX, sandboxFor } from './sandbox';
 import { ensureChromium } from './chromium';
@@ -4315,25 +4315,18 @@ async function runStep(state: OfficeState, task: Task, req: StepRequest): Promis
   return { ok: true, outcome, summary, actor: inst.id };
 }
 
-/**
- * Роль ревьюера: базовая `reviewer`, а без неё — любая живая роль со
- * способностью `code.review`. Офис из мастера нанимает ревьюера под другим
- * id (`reviewer-2`: базовые имена заняты всегда), и поиск по id его не видел.
- */
-function reviewerRole(state: OfficeState): Role | undefined {
-  const base = state.role('reviewer');
-  if (base && !base.archived) return base;
-  return state.activeRoles().find((r) => !r.isManager && capabilitiesOf(r).includes('code.review'));
-}
-
 /** Ревью пулл-реквеста: смотрит живой ревьюер и выносит вердикт инструментом. */
 async function reviewPr(
   state: OfficeState, task: Task, pr: PullRequestView,
 ): Promise<ReviewOutcome> {
-  const role = reviewerRole(state);
+  // Ревьюер с допуском к зоне задачи (subprojects.ts → reviewerFor). Ревьюеры
+  // есть, но ни один не допущен — конвейер встаёт с причиной: решать владельцу
+  // (закрепить ревьюера за зоной или нанять), сам офис это не разберёт.
+  const { role, problem } = reviewerFor(state, task);
   if (!role) {
     return {
-      verdict: 'changes', text: '', reviewerId: null, error: state.say('review.noReviewerRole'),
+      verdict: 'changes', text: '', reviewerId: null, needsDecision: !!problem,
+      error: problem ?? state.say('review.noReviewerRole'),
     };
   }
   // Того же ревьюера, если он свободен: он уже смотрел этот диф и прошлые

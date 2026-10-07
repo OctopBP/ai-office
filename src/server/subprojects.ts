@@ -2,7 +2,7 @@ import { existsSync, statSync } from 'node:fs';
 import { basename, isAbsolute, resolve } from 'node:path';
 import type { Lang } from '../shared/i18n';
 import { OFFICE_COLORS, type Subproject, type SubprojectKind, type SubprojectView, type TaskStatus } from '../shared/types';
-import type { Role } from './roles';
+import { capabilitiesOf, type Role } from './roles';
 import { t } from './i18n';
 
 /**
@@ -154,6 +154,34 @@ export function admitProblem(
     });
   }
   return t(lang, 'subprojects.admit.otherZone', { role: roleLabel(role), zone: zoneName(subs, zone), who });
+}
+
+/** Допуску ревьюера нужен ещё поиск роли по id. OfficeState подходит как есть. */
+export interface ReviewerScope extends AdmitScope {
+  role(id: string): Role | undefined;
+}
+
+/**
+ * Ревьюер задачи (§3.2, строка «Ревью»). Допуск проверяется в обеих ветках:
+ * базовая `reviewer` берётся, только если она жива и допущена к зоне задачи;
+ * иначе — первая рабочая роль с `code.review`, допущенная к зоне. Ревьюеров
+ * нет вовсе — `problem: null` (прежний отказ «роли ревьюера нет»); есть, но
+ * ни один не допущен — причина словами, чтобы конвейер встал не молча.
+ */
+export function reviewerFor(
+  scope: ReviewerScope, task: { subprojectId?: string | null },
+): { role: Role; problem: null } | { role: null; problem: string | null } {
+  const zone = task.subprojectId ?? null;
+  const base = scope.role('reviewer');
+  const live = base && !base.archived && !base.isManager ? base : undefined;
+  if (live && admits(live, zone)) return { role: live, problem: null };
+  const spare = scope.workerRoles().filter((r) => capabilitiesOf(r).includes('code.review'));
+  const fit = spare.find((r) => admits(r, zone));
+  if (fit) return { role: fit, problem: null };
+  const first = live ?? spare[0];
+  if (!first) return { role: null, problem: null };
+  const why = admitProblem(scope, first, task) ?? '';
+  return { role: null, problem: t(scope.lang(), 'subprojects.admit.noReviewer', { problem: why }) };
 }
 
 /** Строковый список из сохранения без мусора и повторов. */
