@@ -1,4 +1,4 @@
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { accessLabel, openProviderSettings, pushToast, send, useInputDraft, useStore } from '../store';
 import { money } from '../money';
 import { t } from '../i18n';
@@ -50,6 +50,28 @@ export function Composer({ onSettings, inline = false }: {
   const setDraft = useStore((s) => s.setInputDraft);
   const input = useRef<HTMLTextAreaElement>(null);
   const box = useRef<HTMLDivElement>(null);
+  const menuBox = useRef<HTMLDivElement>(null);
+  const [menuOpen, setMenuOpen] = useState(false);
+  const closeMenu = () => { setMenuOpen(false); input.current?.focus(); };
+
+  // Меню закрывается кликом вне и Esc; курсор возвращается в поле.
+  useEffect(() => {
+    if (!menuOpen) return;
+    const onDown = (e: MouseEvent) => {
+      if (!menuBox.current?.contains(e.target as Node)) setMenuOpen(false);
+    };
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== 'Escape') return;
+      e.stopPropagation();
+      closeMenu();
+    };
+    document.addEventListener('mousedown', onDown);
+    document.addEventListener('keydown', onKey, true);
+    return () => {
+      document.removeEventListener('mousedown', onDown);
+      document.removeEventListener('keydown', onKey, true);
+    };
+  }, [menuOpen]);
 
   useEffect(() => {
     focus = () => input.current?.focus();
@@ -115,6 +137,13 @@ export function Composer({ onSettings, inline = false }: {
     : t('shell.composer.agent', { who: displayInstance(thread, instances, roles) });
   const model = roles.find((r) => r.id === 'pm')?.model;
   const cap = settings.globalBudgetUsd;
+  const items: [string, string, string][] = [
+    ['model', t('shell.more.model'), model ?? '—'],
+    ['edits', t('shell.more.edits'), accessLabel(settings.officePermissionMode)],
+    ['budget', t('shell.more.budget'), cap !== null ? money(cap) : t('shell.more.noBudget')],
+  ];
+  // Точка на кнопке — значения отличаются от умолчаний (права «ask-risky», бюджет без потолка).
+  const changed = settings.officePermissionMode !== 'ask-risky' || cap !== null;
 
   return (
     <div className={`shell-composer float${inline ? ' inline' : ''}`} ref={box}>
@@ -127,25 +156,41 @@ export function Composer({ onSettings, inline = false }: {
         </div>
       )}
       {view !== 'chat' && <ChatPeer compact />}
-      <textarea
-        ref={input} value={draft} rows={1} placeholder={placeholder} disabled={meeting || noProvider}
-        onChange={(e) => setDraft(e.target.value)}
-        onKeyDown={(e) => {
-          if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); submit(); }
-          // Escape отдаёт клавиши обратно офису: пока курсор в поле, хоткеи
-          // молчат, и без этого из композера было бы не выйти без мыши.
-          if (e.key === 'Escape') input.current?.blur();
-          e.stopPropagation();
-        }}
-      />
       <div className="shell-composer-row">
-        {model && <button className="chip-btn" onClick={onSettings} title={t('shell.chip.hint')}>{model} ▾</button>}
-        <button className="chip-btn" onClick={onSettings} title={t('shell.chip.hint')}>
-          {t('shell.chip.edits', { mode: accessLabel(settings.officePermissionMode) })}
-        </button>
-        <button className="chip-btn" onClick={onSettings} title={t('shell.chip.hint')}>
-          {cap !== null ? t('shell.chip.budget', { cap: money(cap) }) : t('shell.chip.noBudget')}
-        </button>
+        <textarea
+          ref={input} value={draft} rows={1} placeholder={placeholder} disabled={meeting || noProvider}
+          onChange={(e) => setDraft(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); submit(); }
+            // Escape отдаёт клавиши обратно офису: пока курсор в поле, хоткеи
+            // молчат, и без этого из композера было бы не выйти без мыши.
+            if (e.key === 'Escape') input.current?.blur();
+            e.stopPropagation();
+          }}
+        />
+        <div className="shell-composer-more" ref={menuBox}>
+          <button
+            type="button" className="sq shell-more" aria-haspopup="menu" aria-expanded={menuOpen}
+            aria-label={t('shell.more')} title={t('shell.more')} onClick={() => setMenuOpen((o) => !o)}
+          >
+            <Icon name="dots" size={16} />
+            {changed && <span className="shell-more-dot" aria-hidden />}
+          </button>
+          {menuOpen && (
+            <div className="shell-composer-menu float" role="menu" aria-label={t('shell.more.title')}>
+              <div className="shell-composer-menu-title">{t('shell.more.title')}</div>
+              {items.map(([key, label, value]) => (
+                <button
+                  key={key} type="button" role="menuitem" className="shell-composer-menu-item"
+                  title={t('shell.chip.hint')} onClick={() => { closeMenu(); onSettings(); }}
+                >
+                  <span className="shell-composer-menu-label">{label}</span>
+                  <span className="shell-composer-menu-value">{value}</span>
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
         <Tooltip tip={<><Hint label={t('shell.send')} keys={HOTKEY.task} /><Hint label={t('shell.newline')} keys="SHIFT+ENTER" /></>}>
           <button className="sq primary shell-send" onClick={submit} disabled={!connected || meeting || noProvider || !draft.trim()}>
             <Icon name="arrow-up" size={16} />
