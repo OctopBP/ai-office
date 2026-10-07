@@ -15,7 +15,7 @@ import {
   type ListDocsQuery,
 } from './docs';
 import type { OfficeState } from './state';
-import { soleZone } from './subprojects';
+import { sessionZone } from './rules';
 
 const KIND = z.enum(['foundation', 'documentation', 'working']);
 
@@ -53,17 +53,6 @@ export function docsBrief(state: OfficeState, zone?: string | null): string {
 const roleOf = (state: OfficeState, author: string) => state.role(author.split('#')[0]);
 
 /**
- * Зона сессии: зона задачи, а вне задачи — единственная зона закреплённой
- * роли. null — весь проект (менеджер, роль без закрепления, задача без зоны).
- */
-export function sessionZone(state: OfficeState, author: string, taskId: string | null): string | null {
-  const task = taskId ? state.tasks.get(taskId) : undefined;
-  if (task) return task.subprojectId ?? null;
-  const role = roleOf(state, author);
-  return role ? soleZone(role, state.subprojects())?.id ?? null : null;
-}
-
-/**
  * Почему автор не может менять документ этой области — или null, если может
  * (docs/design/subprojects/spec.md §4.2): «читать чужое можно, менять нельзя».
  * Менеджер и роли без закрепления правят всё; закреплённая роль — только
@@ -84,10 +73,13 @@ export function docEditProblem(
 /**
  * `author` — кто правит (id сотрудника или менеджера), `taskId` — задача
  * сессии: к ней привязывается рабочий материал, созданный без явного типа,
- * и от неё же берётся зона сессии (`sessionZone`).
+ * и от неё же берётся зона сессии (`sessionZone` из rules.ts).
  */
 export function docTools(state: OfficeState, author: string, taskId: string | null) {
-  const zone = sessionZone(state, author, taskId);
+  // Зона задачи: задача есть — её зона (null — весь проект), нет — undefined,
+  // и тогда rules.ts возьмёт единственную зону роли.
+  const task = taskId ? state.tasks.get(taskId) : undefined;
+  const zone = sessionZone(state, author.split('#')[0], task ? task.subprojectId ?? null : undefined);
   return [
     tool(
       'docs_list',
