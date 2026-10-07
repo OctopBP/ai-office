@@ -263,6 +263,59 @@ try {
     assert.equal(readDoc(state, 'D-2')?.body, 'офис агентов, v2');
   });
 
+  console.log('область (подпроекты)');
+
+  check('документ с зоной заводится, находится по зоне и не попадает в «весь офис»', () => {
+    const d = createDoc(state, { title: 'Схема API зоны', kind: 'documentation', subprojectId: 'api', author: 'backend' });
+    assert.equal(d.subprojectId, 'api');
+    assert.deepEqual(listDocs(state, { subprojectId: 'api' }).map((x) => x.id), [d.id]);
+    assert.ok(!listDocs(state, { subprojectId: 'office' }).some((x) => x.id === d.id));
+    assert.ok(!listDocs(state, { subprojectId: 'web' }).some((x) => x.id === d.id));
+    const withOffice = listDocs(state, { subprojectId: 'api', withOffice: true });
+    assert.ok(withOffice.some((x) => x.id === d.id) && withOffice.some((x) => !x.subprojectId));
+    assert.ok(listDocs(state).some((x) => x.id === d.id), 'без области — все');
+  });
+
+  check('createDoc: «office» и пустая зона — документ всего офиса', () => {
+    assert.equal(createDoc(state, { title: 'Общее 1', subprojectId: 'office', author: 'pm' }).subprojectId, undefined);
+    assert.equal(createDoc(state, { title: 'Общее 2', subprojectId: ' ', author: 'pm' }).subprojectId, undefined);
+  });
+
+  check('updateDoc: смена зоны — новая версия; null возвращает во «весь офис»', () => {
+    const d = createDoc(state, { title: 'Переезд', kind: 'documentation', author: 'pm' });
+    const moved = updateDoc(state, d.id, { subprojectId: 'web' }, 'pm')!;
+    assert.equal(moved.subprojectId, 'web');
+    assert.equal(moved.version, 2);
+    const back = updateDoc(state, d.id, { subprojectId: null }, 'pm')!;
+    assert.equal(back.subprojectId, undefined);
+    assert.equal(back.version, 3);
+  });
+
+  check('совместимость: документ без поля в старом index.json — общий', () => {
+    const index = JSON.parse(readFileSync(join(dir, 'index.json'), 'utf8')) as { docs: Record<string, unknown>[] };
+    const old = index.docs.find((x) => x.id === 'D-2')!;
+    assert.equal('subprojectId' in old, false, 'старые записи без поля');
+    assert.ok(listDocs(state, { subprojectId: 'office' }).some((x) => x.id === 'D-2'));
+    assert.ok(listDocs(state, { subprojectId: 'api', withOffice: true }).some((x) => x.id === 'D-2'));
+    assert.ok(!listDocs(state, { subprojectId: 'api' }).some((x) => x.id === 'D-2'));
+  });
+
+  check('оглавление зоны: основа офиса + всё своей зоны, без чужого и общей документации', () => {
+    const found = createDoc(state, { title: 'Видение', kind: 'foundation', author: 'pm' });
+    const own = createDoc(state, { title: 'Рабочее api', kind: 'working', subprojectId: 'api', author: 'backend' });
+    const alien = createDoc(state, { title: 'Рабочее web', kind: 'working', subprojectId: 'web', author: 'frontend' });
+    const alienFound = createDoc(state, { title: 'Основа web', kind: 'foundation', subprojectId: 'web', author: 'frontend' });
+    const common = createDoc(state, { title: 'Общая документация', kind: 'documentation', author: 'pm' });
+    const zoned = docIndexForPrompt(state, 100_000, 'api');
+    for (const d of [found, own]) assert.ok(zoned.includes(d.id), `${d.id} в оглавлении зоны`);
+    for (const d of [alien, alienFound, common]) assert.ok(!zoned.includes(`${d.id} `), `${d.id} не в оглавлении зоны`);
+    assert.ok(!zoned.includes('зона '), 'в оглавлении своей зоны подписей нет');
+    const full = docIndexForPrompt(state, 100_000);
+    for (const d of [found, own, alien, alienFound, common]) assert.ok(full.includes(`${d.id} `));
+    assert.match(full, new RegExp(`${alien.id} \\[рабочее, зона web\\]`), 'менеджер видит подпись зоны');
+    assert.equal(docIndexForPrompt(state, 100_000, null), full, 'null — «весь проект», целиком');
+  });
+
   console.log(`\nвсе проверки прошли: ${passed}`);
 } finally {
   state.retire();

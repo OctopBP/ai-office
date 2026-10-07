@@ -167,7 +167,24 @@ export interface ListDocsQuery {
   includeArchived?: boolean;
   /** Поиск по названию, описанию и тексту: все слова, без учёта регистра. */
   query?: string;
+  /**
+   * Область: `office` — только документы всего офиса (без зоны), id зоны —
+   * только документы этой зоны. Нет поля — все области.
+   */
+  subprojectId?: string;
+  /** Вместе с зоной из `subprojectId` — ещё и документы всего офиса. */
+  withOffice?: boolean;
 }
+
+/** Область документа подходит под запрос (см. ListDocsQuery.subprojectId). */
+function inScope(d: DocMeta, q: ListDocsQuery): boolean {
+  if (!q.subprojectId) return true;
+  if (!d.subprojectId) return q.subprojectId === OFFICE_SCOPE || q.withOffice === true;
+  return d.subprojectId === q.subprojectId;
+}
+
+/** Значение `subprojectId` в запросе: документы всего офиса, без зоны. */
+export const OFFICE_SCOPE = 'office';
 
 /**
  * Оглавление документов. Без запроса — свежие правки сверху; с запросом —
@@ -176,7 +193,7 @@ export interface ListDocsQuery {
 export function listDocs(office: Office, q: ListDocsQuery = {}): DocMeta[] {
   const dir = officeOf(office).docsDir();
   let docs = loadIndex(dir).docs.filter((d) =>
-    (q.includeArchived || !d.archived) && (!q.kind || d.kind === q.kind));
+    (q.includeArchived || !d.archived) && (!q.kind || d.kind === q.kind) && inScope(d, q));
   const words = (q.query ?? '').toLowerCase().split(/\s+/).filter(Boolean);
   if (!words.length) return docs.sort((a, b) => b.updatedAt - a.updatedAt);
 
@@ -234,6 +251,8 @@ export interface CreateDocInput {
   /** По умолчанию — рабочий материал. */
   kind?: DocKind;
   taskId?: string;
+  /** Зона документа; нет или пусто — весь офис. */
+  subprojectId?: string;
   author: string;
   /** Только для импорта: откуда взят файл (см. OfficeDoc.source). */
   source?: string;
@@ -264,6 +283,8 @@ export function createDoc(office: Office, input: CreateDocInput, now = Date.now(
   };
   const taskId = cleanTaskId(input.taskId);
   if (taskId) meta.taskId = taskId;
+  const zone = cleanTaskId(input.subprojectId);
+  if (zone && zone !== OFFICE_SCOPE) meta.subprojectId = zone;
   const source = cleanSource(input.source);
   if (source) meta.source = source;
   const body = String(input.body ?? '');
@@ -279,6 +300,8 @@ export interface DocPatch {
   kind?: DocKind;
   /** Пустая строка или null — отвязать от задачи. */
   taskId?: string | null;
+  /** Пустая строка, `office` или null — документ всего офиса. */
+  subprojectId?: string | null;
   /** false — вернуть из архива; true — убрать в архив новой версией. */
   archived?: boolean;
 }
@@ -311,11 +334,17 @@ export function updateDoc(office: Office, id: string, patch: DocPatch, author: s
     if (taskId) next.taskId = taskId;
     else delete next.taskId;
   }
+  if (patch.subprojectId !== undefined) {
+    const zone = cleanTaskId(patch.subprojectId);
+    if (zone && zone !== OFFICE_SCOPE) next.subprojectId = zone;
+    else delete next.subprojectId;
+  }
   if (patch.archived !== undefined) next.archived = patch.archived;
   const body = patch.body !== undefined ? String(patch.body) : prevBody;
 
   const changed = body !== prevBody || next.title !== prev.title || next.summary !== prev.summary
-    || next.kind !== prev.kind || next.taskId !== prev.taskId || next.archived !== prev.archived;
+    || next.kind !== prev.kind || next.taskId !== prev.taskId || next.archived !== prev.archived
+    || next.subprojectId !== prev.subprojectId;
   if (!changed) return { ...prev, body: prevBody };
 
   next.version = prev.version + 1;
@@ -357,15 +386,30 @@ export function archiveWorkingDocsOfTask(office: Office, taskId: string, now = D
 
 // ---------------------------------------------------------------- промпт
 
+/** Подпись области для строки оглавления: «зона Веб»; пропавшая зона — по id. */
+export function docZoneLabel(state: OfficeState, subprojectId: string): string {
+  const name = state.subprojects().find((s) => s.id === subprojectId)?.name ?? subprojectId;
+  return state.say('docs.zone', { name });
+}
+
 /**
  * Короткое оглавление для системного промпта: id, тип, название и описание.
  * Архивных нет; основа идёт первой, рабочие материалы последними, внутри —
  * свежие сверху. Длина ограничена `maxChars`: что не влезло, сводится к
  * строке «…и ещё N». Пустая строка — документов нет.
+ *
+ * `zone` — зона сессии (docs/design/subprojects/spec.md §4.2): id зоны —
+ * основа всего офиса плюс все документы этой зоны, а документация и рабочие
+ * материалы офиса и чужих зон не едут (они доступны через docs_list).
+ * null или undefined — оглавление целиком; у документов с зоной в строке
+ * подпись зоны — так оглавление видит менеджер.
  */
-export function docIndexForPrompt(office: Office, maxChars = PROMPT_INDEX_CHARS): string {
+export function docIndexForPrompt(office: Office, maxChars = PROMPT_INDEX_CHARS, zone?: string | null): string {
   const state = officeOf(office);
-  const docs = listDocs(state).sort((a, b) =>
+  const all = zone
+    ? listDocs(state).filter((d) => d.subprojectId === zone || (!d.subprojectId && d.kind === 'foundation'))
+    : listDocs(state);
+  const docs = all.sort((a, b) =>
     DOC_KINDS.indexOf(a.kind) - DOC_KINDS.indexOf(b.kind) || b.updatedAt - a.updatedAt);
   if (!docs.length) return '';
   const lines = [state.say('docs.indexHead')];
@@ -373,7 +417,8 @@ export function docIndexForPrompt(office: Office, maxChars = PROMPT_INDEX_CHARS)
   for (let i = 0; i < docs.length; i++) {
     const d = docs[i];
     const task = d.taskId ? `, ${d.taskId}` : '';
-    const line = `- ${d.id} [${state.say(`docs.kind.${d.kind}`)}${task}] ${d.title}${d.summary ? ` — ${d.summary}` : ''}`;
+    const area = !zone && d.subprojectId ? `, ${docZoneLabel(state, d.subprojectId)}` : '';
+    const line = `- ${d.id} [${state.say(`docs.kind.${d.kind}`)}${task}${area}] ${d.title}${d.summary ? ` — ${d.summary}` : ''}`;
     const rest = docs.length - i;
     // Место под хвост «…и ещё N» держим всегда, если после этой строки что-то останется.
     const tail = rest > 1 ? state.say('docs.indexMore', { n: rest - 1 }).length + 1 : 0;
@@ -410,6 +455,8 @@ export interface ImportOptions {
   archived?: boolean;
   /** Задача, к которой относятся документы. */
   taskId?: string;
+  /** Зона, к которой относятся документы (файлы из папки-зоны). Нет — весь офис. */
+  subprojectId?: string;
 }
 
 /** Название и описание из markdown: первый заголовок и первый абзац текста. */
@@ -480,7 +527,7 @@ export function importFromDir(
     sources.add(source);
     result.created.push(createDoc(state, {
       title: clean, summary, body, kind, author: o.author ?? 'import', source,
-      archived: o.archived, taskId: o.taskId,
+      archived: o.archived, taskId: o.taskId, subprojectId: o.subprojectId,
     }).id);
   }
   return result;

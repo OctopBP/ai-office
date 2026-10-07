@@ -782,6 +782,7 @@ export const ru: Record<keyof typeof en, string> = {
   'docs.archivedLog': 'Документ {id} «{title}» убран в архив',
   'docs.indexHead': 'Документы офиса (прочитать целиком — по id):',
   'docs.indexMore': '…и ещё {n}',
+  'docs.zone': 'зона {name}',
   'docs.kind.foundation': 'основа',
   'docs.kind.documentation': 'документация',
   'docs.kind.working': 'рабочее',

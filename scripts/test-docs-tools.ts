@@ -15,6 +15,7 @@ import { getOffice } from '../src/server/state';
 import { listDocs, readDoc } from '../src/server/docs';
 import { docsBrief, docTools } from '../src/server/docs-tools';
 import { cancelTask, recordOutcome } from '../src/server/outcomes';
+import { workerSystemPrompt } from '../src/server/agents';
 
 process.env.OFFICE_LANG = 'ru';
 
@@ -138,6 +139,84 @@ try {
     cancelTask(state, other);
     assert.equal(readDoc(state, id)?.archived, true);
   });
+
+  console.log('область (подпроекты)');
+
+  // Две зоны и роль, закреплённая за api. Поля правим напрямую: модель
+  // подпроектов проверяет test-subprojects, здесь важны только документы.
+  const raw = state as unknown as { subprojectList: { id: string; name: string; kind: string; root: string }[] };
+  raw.subprojectList = [
+    { id: 'api', name: 'API', kind: 'folder', root: 'api' },
+    { id: 'web', name: 'Веб', kind: 'folder', root: 'web' },
+  ];
+  const pinned = state.workerRoles()[0];
+  pinned.subprojects = ['api'];
+  const apiTask = state.createTask({ title: 'Ручка API', description: '', criteria: [], roleId: pinned.id });
+  state.updateTask(apiTask.id, { subprojectId: 'api' });
+  const apiWorker = tools(`${pinned.id}#1`, apiTask.id);
+
+  await check('docs_write без области — в зоне задачи; найдётся по зоне', async () => {
+    const r = await call(apiWorker, 'docs_write', { title: 'Схема ручек', summary: 'api', body: 'b' });
+    assert.ok(!r.isError, textOf(r));
+    const d = listDocs(state, { query: 'схема ручек' })[0];
+    assert.equal(d.subprojectId, 'api');
+    assert.equal(d.taskId, apiTask.id);
+    assert.match(textOf(await call(pm, 'docs_list', { subproject: 'api' })), new RegExp(`${d.id} .*зона API`));
+    assert.doesNotMatch(textOf(await call(pm, 'docs_list', { subproject: 'office' })), new RegExp(`${d.id} `));
+  });
+
+  await check('менеджер заводит документ чужой зоны явно; закреплённый видит его через all', async () => {
+    await call(pm, 'docs_write', { title: 'Макет веба', summary: '', body: 'w', kind: 'documentation', subproject: 'web' });
+    const web = listDocs(state, { query: 'макет веба' })[0];
+    assert.equal(web.subprojectId, 'web');
+    assert.doesNotMatch(textOf(await call(apiWorker, 'docs_list', {})), new RegExp(`${web.id} `), 'по умолчанию — своя зона и общее');
+    assert.match(textOf(await call(apiWorker, 'docs_list', { subproject: 'all' })), new RegExp(`${web.id} `));
+    assert.match(textOf(await call(apiWorker, 'docs_read', { id: web.id })), /\bw$/, 'читать чужое можно');
+  });
+
+  await check('закреплённая роль не меняет чужое и общее: docs_write и docs_set_kind', async () => {
+    const web = listDocs(state, { query: 'макет веба' })[0];
+    const common = readDoc(state, 'D-2')!;
+    assert.equal(common.subprojectId, undefined, 'старый документ без области — общий');
+    for (const d of [web, common]) {
+      const w = await call(apiWorker, 'docs_write', { id: d.id, title: 'x', summary: '', body: 'x' });
+      assert.ok(w.isError && /менять нельзя/.test(textOf(w)), textOf(w));
+      assert.ok((await call(apiWorker, 'docs_set_kind', { id: d.id, kind: 'working' })).isError);
+    }
+    assert.ok((await call(apiWorker, 'docs_write', { title: 'Общее', summary: '', body: 'x', subproject: 'office' })).isError);
+    const own = listDocs(state, { query: 'схема ручек' })[0];
+    assert.ok(!(await call(apiWorker, 'docs_write', { id: own.id, title: 'Схема ручек', summary: '', body: 'v2' })).isError);
+    assert.ok((await call(apiWorker, 'docs_write', { id: own.id, title: 'Схема ручек', summary: '', body: 'v3', subproject: 'web' })).isError,
+      'унести свой документ в чужую зону нельзя');
+    assert.ok(!(await call(pm, 'docs_set_kind', { id: web.id, kind: 'working' })).isError, 'менеджеру можно');
+  });
+
+  await check('промпт исполнителя зоны: основа офиса и своя зона, без чужого', async () => {
+    await call(pm, 'docs_write', { title: 'Видение', summary: '', body: 'v', kind: 'foundation' });
+    const vision = listDocs(state, { query: 'видение' })[0];
+    const own = listDocs(state, { query: 'схема ручек' })[0];
+    const web = listDocs(state, { query: 'макет веба' })[0];
+    const brief = docsBrief(state, 'api');
+    assert.match(brief, new RegExp(`${vision.id} `));
+    assert.match(brief, new RegExp(`${own.id} `));
+    assert.doesNotMatch(brief, new RegExp(`${web.id} `));
+    assert.doesNotMatch(brief, /D-2 /, 'общая документация — не основа, в оглавление зоны не едет');
+    const full = docsBrief(state);
+    assert.match(full, new RegExp(`${web.id} \\[рабочее, зона Веб\\]`), 'менеджер видит всё с подписью зоны');
+  });
+
+  await check('системный промпт исполнителя берёт оглавление зоны задачи', () => {
+    const own = listDocs(state, { query: 'схема ручек' })[0];
+    const web = listDocs(state, { query: 'макет веба' })[0];
+    const zoned = workerSystemPrompt(pinned, state, 'api');
+    assert.match(zoned, new RegExp(`${own.id} `));
+    assert.doesNotMatch(zoned, new RegExp(`${web.id} `));
+    const whole = workerSystemPrompt(pinned, state, null);
+    assert.match(whole, new RegExp(`${web.id} `), 'задача «весь проект» — оглавление целиком');
+    assert.doesNotMatch(workerSystemPrompt(pinned, state), new RegExp(`${web.id} `), 'вне задачи — единственная зона роли');
+  });
+
+  pinned.subprojects = undefined;
 
   console.log(`\nвсе проверки прошли: ${passed}`);
 } finally {

@@ -34,7 +34,7 @@ import { employeePlugins, employeeSkills, sessionTools } from './skills';
 import {
   autoApprovedText, classify, decide, effectiveMode, releaseCommandBlocked, type ClassifyZone,
 } from './permissions';
-import { outsideZone, writeZone } from './subprojects';
+import { outsideZone, soleZone, writeZone } from './subprojects';
 import { worktreeOwnFiles } from './premerge';
 import {
   closeReleasePlan, proposeReleaseTarget, proposedAssets, proposedChannels, releaseStatusText, resumeRelease, saveReleasePlan, setReleaseAgents,
@@ -265,7 +265,19 @@ async function repoReady(state: OfficeState, dir: string): Promise<boolean> {
  */
 function projectBrief(state: OfficeState, roleId: string | null = null, subprojectId?: string | null): string {
   return officeBrief(state) + zoneBrief(state, roleId, subprojectId)
-    + rulesBrief(state, roleId, subprojectId) + journalBrief(state, roleId) + docsBrief(state);
+    + rulesBrief(state, roleId, subprojectId) + journalBrief(state, roleId)
+    + docsBrief(state, docsZone(state, roleId, subprojectId));
+}
+
+/**
+ * Зона для оглавления документов (docs/design/subprojects/spec.md §4.2):
+ * у сессии задачи — зона задачи (null — «весь проект», оглавление целиком),
+ * вне задачи — единственная зона роли; менеджер — всё.
+ */
+function docsZone(state: OfficeState, roleId: string | null, zone: string | null | undefined): string | null {
+  if (zone !== undefined) return zone;
+  const role = roleId ? state.role(roleId) : undefined;
+  return role ? soleZone(role, state.subprojects())?.id ?? null : null;
 }
 
 /**
@@ -315,7 +327,7 @@ function officeBrief(state: OfficeState): string {
  * «сейчас в работе» перед маркером обнуляют кэш, и правка теряет смысл.
  * Проверять — по плитке «% ввода из кеша» на доске расходов.
  */
-function systemBlocks(state: OfficeState, roleId: string | null, head: string): string[] {
+function systemBlocks(state: OfficeState, roleId: string | null, head: string, zone?: string | null): string[] {
   // Правила — в статику рядом с брифом: они меняются раз в неделю, и платить
   // за них заново в каждой короткой сессии (реплика, вопрос коллеге) не за что.
   // Языки — туда же и по той же причине: настройка офиса, а не свойство сессии.
@@ -325,7 +337,7 @@ function systemBlocks(state: OfficeState, roleId: string | null, head: string): 
   ].filter((block) => block.trim());
   // Оглавление документов — в динамику вместе с журналом: правится оно
   // агентами по ходу работы и сбивало бы кэш статики.
-  const dynamic = [journalBrief(state, roleId), docsBrief(state)].filter((block) => block.trim());
+  const dynamic = [journalBrief(state, roleId), docsBrief(state, docsZone(state, roleId, zone))].filter((block) => block.trim());
   // Без журнала и документов маркер не ставим: пустой хвост за ним — блок ни о чём.
   return dynamic.length ? [...statics, SYSTEM_PROMPT_DYNAMIC_BOUNDARY, ...dynamic] : statics;
 }
@@ -4198,7 +4210,8 @@ async function runAgentSession(
 
 /**
  * Системный промпт исполнителя — один и тот же и для задачи, и для доработки.
- * `subprojectId` — зона задачи: бриф и правила этой зоны, а не зон роли.
+ * `subprojectId` — зона задачи: бриф, правила и оглавление документов этой
+ * зоны, а не зон роли.
  */
 export function workerSystemPrompt(role: Role, state: OfficeState, subprojectId?: string | null): string {
   return [

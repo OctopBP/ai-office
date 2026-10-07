@@ -782,6 +782,7 @@ export const en = {
   'docs.archivedLog': 'Document {id} “{title}” archived',
   'docs.indexHead': 'Office documents (read in full by id):',
   'docs.indexMore': '…and {n} more',
+  'docs.zone': 'zone {name}',
   'docs.kind.foundation': 'foundation',
   'docs.kind.documentation': 'documentation',
   'docs.kind.working': 'working',

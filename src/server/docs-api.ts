@@ -1,10 +1,10 @@
 /**
  * HTTP вокруг библиотеки документов офиса (docs.ts), у всех — `?office=<id>`:
- *   GET  /api/docs?kind=&query=&archived=1  — оглавление;
+ *   GET  /api/docs?kind=&query=&archived=1&subproject=<id>|office — оглавление;
  *   GET  /api/docs/<id>?version=N           — документ (текущий или версии N);
  *   GET  /api/docs/<id>/history             — все версии;
  *   POST /api/docs                          — завести, автор — владелец;
- *   PUT  /api/docs/<id>                     — править title, summary, body, kind;
+ *   PUT  /api/docs/<id>                     — править title, summary, body, kind, subprojectId;
  *   POST /api/docs/<id>/archive             — в архив, `{ archived: false }` — обратно.
  *
  * Рассылки здесь нет: docs.ts сам пишет событие `doc.*` в шину офиса, а шина
@@ -159,6 +159,7 @@ async function serve(req: IncomingMessage, res: ServerResponse, r: Route, query:
           docs: listDocs(office.id, {
             kind, query: params.get('query') ?? undefined,
             includeArchived: archived === '1' || archived === 'true',
+            subprojectId: params.get('subproject') || undefined,
           }),
         });
         return;
@@ -200,7 +201,7 @@ async function serve(req: IncomingMessage, res: ServerResponse, r: Route, query:
     }
 
     const fields: Record<string, string | undefined> = {};
-    for (const key of r.at === 'list' ? ['title', 'summary', 'body', 'kind', 'taskId'] : ['title', 'summary', 'body', 'kind']) {
+    for (const key of r.at === 'list' ? ['title', 'summary', 'body', 'kind', 'taskId', 'subprojectId'] : ['title', 'summary', 'body', 'kind', 'subprojectId']) {
       const v = str(input, key);
       if (v instanceof Error) {
         json(res, 400, { error: v.message });
@@ -216,13 +217,16 @@ async function serve(req: IncomingMessage, res: ServerResponse, r: Route, query:
 
     if (r.at === 'list') {
       const doc = createDoc(office.id, {
-        title: fields.title ?? '', summary: fields.summary, body: fields.body, kind, taskId: fields.taskId, author: OWNER,
+        title: fields.title ?? '', summary: fields.summary, body: fields.body, kind, taskId: fields.taskId,
+        subprojectId: fields.subprojectId, author: OWNER,
       });
       json(res, 201, { doc });
       return;
     }
     // r.at === 'doc', PUT
-    const doc = updateDoc(office.id, r.id, { title: fields.title, summary: fields.summary, body: fields.body, kind }, OWNER);
+    const doc = updateDoc(office.id, r.id, {
+      title: fields.title, summary: fields.summary, body: fields.body, kind, subprojectId: fields.subprojectId,
+    }, OWNER);
     if (!doc) return notFound(r.id);
     json(res, 200, { doc });
   } catch (err) {
