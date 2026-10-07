@@ -1256,7 +1256,7 @@ export const ru: Record<keyof typeof en, string> = {
   'life.rules.loading': 'Читаем правила…',
   'life.rules.hint': 'Правила лежат в RULES.md — в корне офиса и в корне каждого репозитория. Их можно править и руками: офис перечитывает файл на старте каждой сессии, так что правка доедет до следующей задачи.',
   'life.rules.kind.office': 'весь офис',
-  'life.rules.kind.repo': 'направление',
+  'life.rules.kind.subproject': 'зона',
   'life.rules.kind.role': 'роль',
   'life.rules.who': 'получают: {who}',
   'life.rules.nobody': 'здесь пока никто не работает',

@@ -1976,17 +1976,22 @@ export interface RuleView {
   text: string;
 }
 
-/** Круг правил: весь офис, направление (репозиторий) или одна роль. */
-export type RuleScopeKind = 'office' | 'repo' | 'role';
+/**
+ * Круг правил: весь офис, подпроект (зона, `sub:<id>`) или одна роль.
+ * Бывший круг репозитория `repo:<папка>` стал кругом зоны с тем же слагом.
+ */
+export type RuleScopeKind = 'office' | 'subproject' | 'role';
 
 export interface RuleScopeView {
   id: string;
   kind: RuleScopeKind;
-  /** Как круг называется человеку: папка репозитория или название роли. */
+  /** Зона круга — только у `subproject`. */
+  subprojectId?: string;
+  /** Как круг называется человеку: имя зоны с корнем или название роли. */
   label: string;
   /** Где лежит `RULES.md`. У ролевого круга пусто: его правила — в брифе. */
   path: string;
-  /** Кого круг накрывает. Пусто — в репозитории сейчас никто не работает. */
+  /** Кого круг накрывает. Пусто — за зоной сейчас никто не закреплён. */
   roles: Array<{ id: string; title: string }>;
   /** Ролевой круг правится в карточке роли, а не здесь. */
   editable: boolean;

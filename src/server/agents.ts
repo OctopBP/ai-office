@@ -56,7 +56,7 @@ import { deleteTask, dropTask, editTask } from './tasks';
 import { limitBlock, resetClock } from './limits';
 import { journalBrief } from './journal';
 import { docsBrief, docTools } from './docs-tools';
-import { addRule, dropRule, editRule, ruleScopes, rulesBrief, rulesText } from './rules';
+import { addRule, dropRule, editRule, ruleScopes, rulesBrief, rulesText, zoneBrief } from './rules';
 import { noteCompaction } from './health';
 import { BUDGET_MIN_HISTORY, RunGuard, runKind, runThreshold, type GuardSignal } from './runguard';
 import { maybeAutoTitle, setChatTitler } from './chattitle';
@@ -260,10 +260,12 @@ async function repoReady(state: OfficeState, dir: string): Promise<boolean> {
  * Журнал едет туда же, куда OFFICE.md, и по той же причине: следующая
  * сессия получает его первым сообщением, а не полагается на память прошлой.
  * `roleId` решает, какие записи роль видит: общие и свои; null — менеджер,
- * ему вместо своих достаются офисные.
+ * ему вместо своих достаются офисные. `subprojectId` — зона задачи (null —
+ * «весь проект»): её бриф и правила едут вместо зон роли (spec подпроектов §4).
  */
-function projectBrief(state: OfficeState, roleId: string | null = null): string {
-  return officeBrief(state) + rulesBrief(state, roleId) + journalBrief(state, roleId) + docsBrief(state);
+function projectBrief(state: OfficeState, roleId: string | null = null, subprojectId?: string | null): string {
+  return officeBrief(state) + zoneBrief(state, roleId, subprojectId)
+    + rulesBrief(state, roleId, subprojectId) + journalBrief(state, roleId) + docsBrief(state);
 }
 
 /**
@@ -319,7 +321,7 @@ function systemBlocks(state: OfficeState, roleId: string | null, head: string): 
   // Языки — туда же и по той же причине: настройка офиса, а не свойство сессии.
   const statics = [
     head, languageBrief(state, roleId === null ? 'pm' : 'worker'),
-    officeBrief(state), rulesBrief(state, roleId),
+    officeBrief(state), zoneBrief(state, roleId), rulesBrief(state, roleId),
   ].filter((block) => block.trim());
   // Оглавление документов — в динамику вместе с журналом: правится оно
   // агентами по ходу работы и сбивало бы кэш статики.
@@ -3044,7 +3046,7 @@ function startWorker(
     languageBrief(taskOffice, 'worker'),
     '',
     taskOffice.say('prompt.worker.life'),
-  ].join('\n') + projectBrief(taskOffice, role.id);
+  ].join('\n') + projectBrief(taskOffice, role.id, task.subprojectId ?? null);
 
   if (taskOffice.settings.engine === 'cloud') {
     startCloudWorker(task, inst, role, systemPrompt, taskOffice);
@@ -4194,14 +4196,17 @@ async function runAgentSession(
   }
 }
 
-/** Системный промпт исполнителя — один и тот же и для задачи, и для доработки. */
-export function workerSystemPrompt(role: Role, state: OfficeState): string {
+/**
+ * Системный промпт исполнителя — один и тот же и для задачи, и для доработки.
+ * `subprojectId` — зона задачи: бриф и правила этой зоны, а не зон роли.
+ */
+export function workerSystemPrompt(role: Role, state: OfficeState, subprojectId?: string | null): string {
   return [
     state.say('prompt.worker.system', { role: role.title }),
     role.brief,
     '',
     languageBrief(state, 'worker'),
-  ].join('\n') + projectBrief(state, role.id);
+  ].join('\n') + projectBrief(state, role.id, subprojectId);
 }
 
 /**
@@ -4240,7 +4245,7 @@ async function reworkTask(
   const run = await runAgentSession(state, inst, role, {
     cwd: worktree,
     prompt: instruction,
-    systemPrompt: workerSystemPrompt(role, state),
+    systemPrompt: workerSystemPrompt(role, state, task.subprojectId ?? null),
     taskId: task.id,
     mcp: { office: workerTools(state, inst.id, task) },
     note: state.say('agent.state.reworking'),
@@ -4372,7 +4377,7 @@ async function runStep(state: OfficeState, task: Task, req: StepRequest): Promis
   const run = await runAgentSession(state, inst, role, {
     cwd,
     prompt: req.prompt + extra,
-    systemPrompt: workerSystemPrompt(role, state),
+    systemPrompt: workerSystemPrompt(role, state, task.subprojectId ?? null),
     taskId: task.id,
     mcp: { office: tools },
     note: state.say('agent.state.step', { node: req.node, task: task.id }),
@@ -4513,7 +4518,7 @@ async function reviewPr(
   const run = await runAgentSession(state, inst, role, {
     cwd: task.worktreePath ?? pr.repoDir,
     prompt,
-    systemPrompt: workerSystemPrompt(role, state),
+    systemPrompt: workerSystemPrompt(role, state, task.subprojectId ?? null),
     taskId: task.id,
     mcp: { office: tools },
     note: state.say('agent.state.reviewing', { task: task.id }),

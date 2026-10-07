@@ -114,7 +114,9 @@ export const promptsEn = {
 
   // ------------------------------------------------------------ правила офиса
   'prompt.rules.office': 'OFFICE RULES — they hold for everyone, from RULES.md in the office root:',
-  'prompt.rules.repo': 'RULES OF THE {label} REPOSITORY — from its RULES.md:',
+  'prompt.rules.subproject': 'RULES OF THE ZONE {label} — from RULES.md in its root:',
+  'prompt.zoneBrief.header': 'ABOUT THE ZONE {label} — from OFFICE.md in the zone root:',
+  'prompt.zoneBrief.clipped': '… (zone brief truncated, the full text is in the zone OFFICE.md)',
   'prompt.rules.role': 'RULES OF THE ROLE {role} — from its brief:',
   'prompt.rules.clipped': '… (the rules are truncated, the full list is in RULES.md)',
 
@@ -1140,9 +1142,9 @@ and the office journal are the same — they live outside the session. This is w
   'tool.proposeRule.text': 'The rule itself, as it will go into the brief: one or two imperative sentences.',
   'tool.proposeRule.rationale': 'Why: which tasks, how many times.',
   'tool.proposeRule.ok': 'Proposed as {id}; the owner decides.',
-  'tool.listRules.desc': 'All the office rules with their ids and circles: the whole office, a repository (a direction — everyone working in it), a role. Read them before you write acceptance criteria for a task and before you add a rule: the criteria of a task must follow from the rules of the circle the assignee belongs to, and a rule that repeats an existing one only makes the list longer.',
+  'tool.listRules.desc': 'All the office rules with their ids and circles: the whole office, a subproject (a zone — every task of that zone and the roles pinned to it), a role. Read them before you write acceptance criteria for a task and before you add a rule: the criteria of a task must follow from the rules of the circle the assignee belongs to, and a rule that repeats an existing one only makes the list longer.',
   'tool.addRule.desc': 'Add a standing rule to a circle — when the OWNER asks for it in the chat, or when the team has agreed on it in a meeting. The rule is applied at once, is written into the office feed and reaches the agents of that circle on their next session. Not for a one-off instruction on a task (that is what the task text is for) and not for a lesson learned from a failure (that is note_fact).',
-  'tool.addRule.scope': 'Circle id from list_rules: office — everyone, repo:<folder> — everyone working in that repository.',
+  'tool.addRule.scope': 'Circle id from list_rules: office — everyone, sub:<zone id> — the tasks of that zone and the roles pinned to it (RULES.md in the zone root). The old repo:<folder> is accepted as a synonym of sub:<folder>.',
   'tool.addRule.text': 'The rule itself: one checkable imperative sentence, up to 500 characters.',
   'tool.addRule.ok': 'Rule {id} added to the circle “{scope}”. It reaches the agents of that circle on their next session; sessions already running keep working by the old rules.',
   'tool.editRule.desc': 'Reword an existing rule — narrow it, make it checkable, fix what the owner corrected. The text is replaced whole, so pass the full new wording.',

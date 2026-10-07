@@ -1257,7 +1257,7 @@ export const en = {
   'life.rules.loading': 'Reading the rules…',
   'life.rules.hint': 'Rules live in RULES.md — in the office root and in the root of every repository. You can edit the file by hand: the office re-reads it at the start of every session, so the change reaches the next task.',
   'life.rules.kind.office': 'the whole office',
-  'life.rules.kind.repo': 'direction',
+  'life.rules.kind.subproject': 'zone',
   'life.rules.kind.role': 'role',
   'life.rules.who': 'reaches: {who}',
   'life.rules.nobody': 'nobody works here yet',

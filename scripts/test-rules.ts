@@ -15,7 +15,7 @@ import { resolve } from 'node:path';
 import { getOffice, unloadOfficeState } from '../src/server/state';
 import {
   addRule, dropRule, editRule, parseRules, readRulesFile, ruleScopes, rulesBrief, rulesText,
-  serializeRules,
+  serializeRules, zoneBrief,
 } from '../src/server/rules';
 
 // Тексты офиса сверяем по-русски — значит, и офис должен быть русским.
@@ -99,9 +99,11 @@ async function main(): Promise<void> {
 
   const scopes = ruleScopes(office);
   const officeScope = scopes.find((s) => s.id === 'office');
-  const webScope = scopes.find((s) => s.kind === 'repo');
+  const webScope = scopes.find((s) => s.kind === 'subproject');
   check('круг офиса есть всегда', Boolean(officeScope));
   check('репозиторий роли стал кругом', Boolean(webScope) && webScope!.path === webDir);
+  check('круг репозитория стал кругом зоны sub:<id>',
+    webScope?.id.startsWith('sub:') === true && webScope?.subprojectId === webScope?.id.slice(4));
   check('круг накрывает обе копии фронтендера',
     (webScope?.roles.map((r) => r.id).join(',') ?? '') === `${fe},${fe2}`);
   check('бэкендер сидит в круге офиса',
@@ -133,10 +135,22 @@ async function main(): Promise<void> {
   // Руками дописанное правило офис видит и не затирает при своей записи.
   writeFileSync(resolve(webDir, 'RULES.md'),
     `${readFileSync(resolve(webDir, 'RULES.md'), 'utf8').trimEnd()}\n- Руками дописанное правило\n`, 'utf8');
-  check('правило из файла видно офису', ruleScopes(office).find((s) => s.kind === 'repo')?.rules.length === 2);
+  check('правило из файла видно офису', ruleScopes(office).find((s) => s.kind === 'subproject')?.rules.length === 2);
   addRule(office, webScope!.id, 'Третье правило');
   check('запись офиса не потеряла ручное правило',
     readRulesFile(webDir).rules.includes('Руками дописанное правило'));
+
+  // Старые id `repo:<slug>` — синоним `sub:<slug>`: ссылки из памяти менеджера
+  // и ленты продолжают попадать в тот же файл.
+  const legacy = `repo:${webScope!.subprojectId}`;
+  const legacyEdit = editRule(office, `${legacy}#1`, 'Анимируем появление и смену состояний элементов');
+  check('repo:<slug>#N правит правило зоны', legacyEdit.ok && legacyEdit.rule.id === `${webScope!.id}#1`);
+  const legacyAdd = addRule(office, legacy, 'Правило через старый id');
+  check('add_rule с repo:<slug> пишет в RULES.md зоны',
+    legacyAdd.ok && readRulesFile(webDir).rules.includes('Правило через старый id'));
+  dropRule(office, `${legacy}#${readRulesFile(webDir).rules.length}`);
+  check('drop_rule с repo:<slug> снимает из файла зоны',
+    !readRulesFile(webDir).rules.includes('Правило через старый id'));
 
   const dropped = dropRule(office, `${webScope!.id}#2`);
   check('правило снялось', dropped.ok && dropped.rule.text === 'Руками дописанное правило');
@@ -167,6 +181,52 @@ async function main(): Promise<void> {
   check('исполнителю чужое ролевое правило не достаётся',
     !rulesBrief(office, fe).includes('Миграции — отдельной задачей'));
 
+  // ---------------------------------------------- папка-зона и универсал
+  // Зона-папка внутри репозитория офиса: свой RULES.md и свой OFFICE.md.
+  // Универсал без закреплений получает правила и бриф только зоны своей
+  // задачи, а не всех зон офиса (spec подпроектов §4.1, §4.3).
+  mkdirSync(resolve(projectDir, 'server'), { recursive: true });
+  mkdirSync(resolve(projectDir, 'docs'), { recursive: true });
+  office.subprojects().push(
+    { id: 'server', name: 'Сервер', kind: 'folder', root: 'server', summary: '', color: 'accent-1', createdAt: 1 },
+    { id: 'docs', name: 'Документы', kind: 'folder', root: 'docs', summary: '', color: 'accent-2', createdAt: 1 },
+  );
+  writeFileSync(resolve(projectDir, 'server/OFFICE.md'), '# Сервер\n\nБриф серверной зоны.\n');
+  writeFileSync(resolve(projectDir, 'docs/OFFICE.md'), '# Документы\n\nБриф зоны документов.\n');
+  const serverAdd = addRule(office, 'sub:server', 'Миграции схемы — только вперёд');
+  check('add_rule с sub:<id> пишет RULES.md в корень зоны',
+    serverAdd.ok && readRulesFile(resolve(projectDir, 'server')).rules[0] === 'Миграции схемы — только вперёд');
+  check('файл правил офиса зона не тронула', !readRulesFile(projectDir).rules.includes('Миграции схемы — только вперёд'));
+  addRule(office, 'sub:docs', 'Схемы рисуем в mermaid');
+  check('list_rules показывает круг зоны', rulesText(office).includes('sub:server#1'));
+
+  const uni = await make('Универсал');
+  const onServer = rulesBrief(office, uni, 'server');
+  check('универсал на задаче зоны получил её правила', onServer.includes('Миграции схемы — только вперёд'));
+  check('правила чужих зон ему не достались',
+    !onServer.includes('Схемы рисуем в mermaid') && !onServer.includes('Анимируем появление'));
+  check('правила офиса на задаче зоны остались', onServer.includes('Комментарии по-русски'));
+  check('задача «весь проект» — только правила офиса',
+    !rulesBrief(office, uni, null).includes('Миграции схемы') && rulesBrief(office, uni, null).includes('Комментарии по-русски'));
+  check('фронтендер на задаче сервера живёт по правилам сервера',
+    rulesBrief(office, fe, 'server').includes('Миграции схемы') && !rulesBrief(office, fe, 'server').includes('Анимируем появление'));
+
+  const uniBrief = zoneBrief(office, uni, 'server');
+  check('бриф зоны задачи доехал с подписью', uniBrief.includes('Бриф серверной зоны.') && uniBrief.includes('Сервер (`server/`)'));
+  check('бриф чужой зоны не доехал', !uniBrief.includes('Бриф зоны документов.'));
+  check('без задачи у незакреплённой роли брифа зоны нет', zoneBrief(office, uni) === '');
+  check('менеджер брифы зон не получает', zoneBrief(office, null, 'server') === '');
+
+  // Разговор без задачи: закреплённая за одной зоной роль — её бриф и правила.
+  office.role(be)!.subprojects = ['server'];
+  check('разговор роли одной зоны — её бриф', zoneBrief(office, be).includes('Бриф серверной зоны.'));
+  check('разговор роли одной зоны — её правила', rulesBrief(office, be).includes('Миграции схемы'));
+  office.role(be)!.subprojects = ['server', 'docs'];
+  check('у роли двух зон в разговоре правила обеих',
+    rulesBrief(office, be).includes('Миграции схемы') && rulesBrief(office, be).includes('Схемы рисуем в mermaid'));
+  check('у роли двух зон в разговоре брифа зоны нет', zoneBrief(office, be) === '');
+  office.role(be)!.subprojects = [];
+
   // ------------------------------------------------- офис без своих правил
   const bare = getOffice('o-rules-bare');
   bare.projectDir = dir('bare');
@@ -187,7 +247,7 @@ async function main(): Promise<void> {
     const made = await twins.createRole({ title, brief: '', repoDir: at });
     if ('errors' in made) throw new Error(`${title}: ${made.errors.map((e) => e.message).join('; ')}`);
   }
-  const ids = ruleScopes(twins).filter((s) => s.kind === 'repo').map((s) => s.id);
+  const ids = ruleScopes(twins).filter((s) => s.kind === 'subproject').map((s) => s.id);
   check('две папки с одним именем получают разные id', new Set(ids).size === 2);
 
   unloadOfficeState('o-rules');

@@ -4,9 +4,10 @@
  *
  * Правило живёт файлом `RULES.md`, а не записью в состоянии, и круг правила
  * задаётся тем, где этот файл лежит: в корне офиса — правило для всех, в корне
- * репозитория — для всех, кто в нём работает. Так правило про анимации уезжает
- * вместе с фронтенд-репозиторием, видно в diff, правится руками мимо офиса и
- * достаётся сразу всем трём фронтендерам, а не вписывается в бриф каждого.
+ * подпроекта (папки или отдельного репозитория) — для задач этой зоны. Так
+ * правило про анимации уезжает вместе с кодом веба, видно в diff, правится
+ * руками мимо офиса и достаётся каждому, кто берёт задачу веба, а не
+ * вписывается в бриф каждого фронтендера.
  *
  * Третий круг — роль: её правила по-прежнему лежат в приписке к брифу
  * (`selfchange.ts`), и здесь они только показываются. Двух редакторов одного
@@ -14,12 +15,12 @@
  */
 import { readFileSync, writeFileSync } from 'node:fs';
 import { basename, resolve } from 'node:path';
-import type { RuleScopeView, RuleView } from '../shared/types';
+import type { RuleScopeView, RuleView, Subproject } from '../shared/types';
 import type { Role } from './roles';
 import type { OfficeState } from './state';
-import { soleZone, zoneRepo } from './subprojects';
+import { zonePath } from './subprojects';
 
-/** Имя файла правил. Одно и то же в корне офиса и в корне репозитория. */
+/** Имя файла правил. Одно и то же в корне офиса и в корне зоны. */
 export const RULES_FILE = 'RULES.md';
 
 /** Заголовок, под которым правила роли лежат в брифе (см. selfchange.ts). */
@@ -113,9 +114,6 @@ function writeRulesFile(state: OfficeState, dir: string, doc: RulesDoc): string 
   }
 }
 
-/** Ключ направления из пути: имя папки латиницей. Пустой — первые буквы пути. */
-const slug = (dir: string): string => basename(dir).toLowerCase().replace(/[^a-z0-9-]+/g, '-').replace(/^-|-$/g, '') || 'repo';
-
 /** Правила роли — из приписки к брифу пакета или из раздела в её брифе. */
 function roleRules(role: Role): string[] {
   const text = role.package
@@ -127,55 +125,57 @@ function roleRules(role: Role): string[] {
 const ruleViews = (scopeId: string, texts: string[]): RuleView[] =>
   texts.map((text, i) => ({ id: `${scopeId}#${i + 1}`, scopeId, text }));
 
+/** Префикс круга зоны и его старое имя, оставшееся синонимом (spec подпроектов §4.3). */
+const SUB = 'sub:';
+const LEGACY_REPO = 'repo:';
+
 /**
- * Репозиторий, по которому роль попадает в круг правил: у единственной
- * repo-зоны роли — её корень, иначе репозиторий офиса. Круги считаются по
- * репозиториям, а не по рабочей папке роли (`repoForRole`): правила лежат в
- * `RULES.md` корня репозитория, и у папки-зоны это файл офиса. Круги по
- * подпроектам — spec подпроектов §4.3.
+ * Зоны, у которых свой круг: корень офиса кругом-зоной не бывает — он и есть
+ * `office`, и repo-зона на самом репозитории офиса второго файла не заводит.
  */
-function roleRepo(state: OfficeState, role: Role): string {
-  const zone = soleZone(role, state.subprojects());
-  return zone ? zoneRepo(zone, state.projectDir) : state.projectDir;
+function ruleZones(state: OfficeState): Array<{ sub: Subproject; path: string }> {
+  return state.subprojects()
+    .map((sub) => ({ sub, path: zonePath(sub, state.projectDir) }))
+    .filter(({ path }) => path !== state.projectDir);
+}
+
+/** Подпись зоны человеку и в промпт: «Веб (`web/`)». */
+function zoneLabel(state: OfficeState, sub: Subproject): string {
+  const root = sub.kind === 'repo' ? basename(zonePath(sub, state.projectDir)) : `${sub.root}/`;
+  return `${sub.name || sub.id} (\`${root}\`)`;
 }
 
 /**
- * Круги правил этого офиса: офис, направления (репозитории, где работают роли)
- * и роли. Считается на каждый запрос, а не хранится: источник правды — файлы и
- * брифы, и список, разошедшийся с ними, врал бы обеим сторонам.
+ * Круги правил этого офиса: офис, подпроекты и роли. Считается на каждый
+ * запрос, а не хранится: источник правды — файлы и брифы, и список,
+ * разошедшийся с ними, врал бы обеим сторонам. Круги подпроектов строятся из
+ * `state.subprojects`, а не из репозиториев ролей.
  */
 export function ruleScopes(state: OfficeState): RuleScopeView[] {
   const roles = state.roles().filter((r) => !r.archived);
-  const atDir = (dir: string): Role[] => roles.filter((r) => roleRepo(state, r) === dir);
+  const brief = (list: Role[]) => list.map((r) => ({ id: r.id, title: r.title }));
 
   const office: RuleScopeView = {
     id: 'office',
     kind: 'office',
     label: state.say('rules.scope.office'),
     path: state.projectDir,
-    roles: atDir(state.projectDir).map((r) => ({ id: r.id, title: r.title })),
+    roles: brief(roles.filter((r) => !r.isManager)),
     editable: true,
     rules: ruleViews('office', readRulesFile(state.projectDir).rules),
   };
 
-  // Направления — по репозиториям ролей. Совпал с корнем офиса — это и есть
-  // офисный круг, второй раз он не показывается.
-  const dirs = [...new Set(roles.map((r) => roleRepo(state, r)))]
-    .filter((dir) => dir !== state.projectDir)
-    .sort();
-  const taken = new Set(['office']);
-  const repos = dirs.map((dir) => {
-    let id = `repo:${slug(dir)}`;
-    for (let n = 2; taken.has(id); n += 1) id = `repo:${slug(dir)}-${n}`;
-    taken.add(id);
+  const zones = ruleZones(state).map(({ sub, path }): RuleScopeView => {
+    const id = `${SUB}${sub.id}`;
     return {
       id,
-      kind: 'repo' as const,
-      label: basename(dir),
-      path: dir,
-      roles: atDir(dir).map((r) => ({ id: r.id, title: r.title })),
+      kind: 'subproject',
+      subprojectId: sub.id,
+      label: zoneLabel(state, sub),
+      path,
+      roles: brief(roles.filter((r) => !r.isManager && (r.subprojects ?? []).includes(sub.id))),
       editable: true,
-      rules: ruleViews(id, readRulesFile(dir).rules),
+      rules: ruleViews(id, readRulesFile(path).rules),
     };
   });
 
@@ -193,11 +193,17 @@ export function ruleScopes(state: OfficeState): RuleScopeView[] {
       rules: ruleViews(`role:${role.id}`, rules),
     }));
 
-  return [office, ...repos, ...roleScopes];
+  return [office, ...zones, ...roleScopes];
 }
 
-const scopeById = (state: OfficeState, id: string): RuleScopeView | undefined =>
-  ruleScopes(state).find((s) => s.id === id);
+/**
+ * Круг по id. `repo:<slug>` — синоним `sub:<slug>` навсегда: миграция заводит
+ * repo-зону с тем же слагом, и старые ссылки менеджера и ленты не ломаются.
+ */
+const scopeById = (state: OfficeState, id: string): RuleScopeView | undefined => {
+  const wanted = String(id ?? '').startsWith(LEGACY_REPO) ? SUB + id.slice(LEGACY_REPO.length) : id;
+  return ruleScopes(state).find((s) => s.id === wanted);
+};
 
 /** Правила одного круга строками — для промпта и для проверок. */
 export const rulesOf = (state: OfficeState, scopeId: string): string[] =>
@@ -208,29 +214,42 @@ function block(header: string, rules: string[]): string {
 }
 
 /**
+ * Зоны сессии. `subprojectId` — зона задачи: строка — эта зона, null — задача
+ * «весь проект», без зоны; undefined — сессия без задачи (разговор,
+ * совещание, консультация), и тогда это все зоны роли.
+ */
+function sessionZones(state: OfficeState, roleId: string, subprojectId: string | null | undefined): string[] {
+  if (subprojectId !== undefined) return subprojectId ? [subprojectId] : [];
+  const role = state.role(roleId);
+  return role && !role.isManager ? role.subprojects ?? [] : [];
+}
+
+/**
  * Правила в системный промпт. Клеится туда же, куда бриф проекта, и в ту же
  * статическую часть: правила меняются редко, и платить за них в каждой
  * короткой сессии незачем.
  *
- * Исполнитель получает свой круг: офис и свой репозиторий. Менеджер — все
- * круги с подписями: файлов он не видит, а критерии готовности пишет он, и
- * правило, до него не доехавшее, так и останется пожеланием.
+ * Исполнитель на задаче получает правила офиса и зоны ЗАДАЧИ, а не своих
+ * закреплений: универсал на задаче веба живёт по правилам веба. Без задачи —
+ * офис и все зоны роли с подписями. Менеджер — все круги: файлов он не видит,
+ * а критерии готовности пишет он, и правило, до него не доехавшее, так и
+ * останется пожеланием.
  */
-export function rulesBrief(state: OfficeState, roleId: string | null): string {
+export function rulesBrief(state: OfficeState, roleId: string | null, subprojectId?: string | null): string {
   const scopes = ruleScopes(state);
   const office = scopes.find((s) => s.id === 'office');
   let text = block(state.say('prompt.rules.office'), office?.rules.map((r) => r.text) ?? []);
 
   if (roleId) {
-    const role = state.role(roleId);
-    const dir = role ? roleRepo(state, role) : state.projectDir;
-    const own = scopes.find((s) => s.kind === 'repo' && s.path === dir);
-    if (own) text += block(state.say('prompt.rules.repo', { label: own.label }), own.rules.map((r) => r.text));
+    for (const zone of sessionZones(state, roleId, subprojectId)) {
+      const own = scopes.find((s) => s.kind === 'subproject' && s.subprojectId === zone);
+      if (own) text += block(state.say('prompt.rules.subproject', { label: own.label }), own.rules.map((r) => r.text));
+    }
   } else {
     for (const scope of scopes) {
-      if (scope.kind === 'repo') {
+      if (scope.kind === 'subproject') {
         const who = scope.roles.map((r) => r.id).join(', ') || state.say('rules.nobody');
-        text += block(state.say('prompt.rules.repo', { label: `${scope.label} — ${who}` }), scope.rules.map((r) => r.text));
+        text += block(state.say('prompt.rules.subproject', { label: `${scope.label} — ${who}` }), scope.rules.map((r) => r.text));
       }
       if (scope.kind === 'role') {
         text += block(state.say('prompt.rules.role', { role: scope.roles[0]?.id ?? scope.label }), scope.rules.map((r) => r.text));
@@ -240,6 +259,36 @@ export function rulesBrief(state: OfficeState, roleId: string | null): string {
 
   if (text.length <= PROMPT_LIMIT) return text;
   return `${text.slice(0, PROMPT_LIMIT)}\n${state.say('prompt.rules.clipped')}`;
+}
+
+/** Файл брифа зоны — тот же, что у офиса, в корне подпроекта (spec подпроектов §4.1). */
+const ZONE_BRIEF_FILE = 'OFFICE.md';
+
+/**
+ * Бриф зоны в системный промпт — сразу после брифа офиса, в статику. Получают
+ * его сессии задач зоны и разговоры роли, закреплённой ровно за одной зоной;
+ * менеджер — нет (ему хватает `summary` в списке зон). Как и `RULES.md`, это
+ * файл, а не поле: уезжает с кодом и правится руками мимо офиса.
+ */
+export function zoneBrief(state: OfficeState, roleId: string | null, subprojectId?: string | null): string {
+  if (!roleId) return '';
+  const own = sessionZones(state, roleId, subprojectId);
+  // Без задачи бриф достаётся только роли с одной зоной: с несколькими
+  // непонятно, чей бриф главный, а склейка всех раздувала бы каждую реплику.
+  if (subprojectId === undefined && own.length !== 1) return '';
+  const zone = ruleZones(state).find(({ sub }) => sub.id === own[0]);
+  if (!zone) return '';
+  try {
+    const text = readFileSync(resolve(zone.path, ZONE_BRIEF_FILE), 'utf8').trim();
+    if (!text) return '';
+    const body = text.length > PROMPT_LIMIT
+      ? `${text.slice(0, PROMPT_LIMIT)}\n${state.say('prompt.zoneBrief.clipped')}`
+      : text;
+    return `\n\n${state.say('prompt.zoneBrief.header', { label: zoneLabel(state, zone.sub) })}\n${body}`;
+  } catch {
+    // брифа у зоны нет — хватает брифа офиса
+    return '';
+  }
 }
 
 /** Результат правки: либо готовое правило, либо причина отказа словами. */
@@ -309,7 +358,7 @@ export function editRule(state: OfficeState, ruleId: string, text: string): Rule
   const problem = writeRulesFile(state, found.scope.path, doc);
   if (problem) return { ok: false, error: problem };
   announce(state, 'rules.log.edited', found.scope, clean);
-  return { ok: true, rule: { id: ruleId, scopeId: found.scope.id, text: clean } };
+  return { ok: true, rule: { id: `${found.scope.id}#${found.index}`, scopeId: found.scope.id, text: clean } };
 }
 
 export function dropRule(state: OfficeState, ruleId: string): RuleResult {
@@ -322,7 +371,7 @@ export function dropRule(state: OfficeState, ruleId: string): RuleResult {
   const problem = writeRulesFile(state, found.scope.path, doc);
   if (problem) return { ok: false, error: problem };
   announce(state, 'rules.log.dropped', found.scope, gone);
-  return { ok: true, rule: { id: ruleId, scopeId: found.scope.id, text: gone } };
+  return { ok: true, rule: { id: `${found.scope.id}#${found.index}`, scopeId: found.scope.id, text: gone } };
 }
 
 /**
