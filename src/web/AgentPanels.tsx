@@ -237,6 +237,7 @@ export function ModelPanel({ save, role, busy }: PanelProps) {
   const turns = blurField(save, 'maxTurns');
   const repo = blurField(save, 'repoDir');
   const checkingRepo = save.field('repoDir').saving;
+  const repoHint = useStore((s) => (s.roleHint?.roleId === role.id ? s.roleHint.hint : ''));
 
   const resetToOffice = () => {
     setModelReset(null);
@@ -374,6 +375,7 @@ export function ModelPanel({ save, role, busy }: PanelProps) {
           )}
           {busy && <span className="form-hint">{t('agent.busy.repoNote')}</span>}
           <FieldError save={save} f="repoDir" />
+          {repoHint && <span className="form-hint" role="status">{repoHint}</span>}
         </Row>
 
         <div>

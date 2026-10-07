@@ -292,6 +292,8 @@ interface State {
    * себя или очистить поля; непустой — ошибки, разложенные по полям.
    */
   roleFeedback: { op: RoleOp; roleId: string | null; errors: FieldError[] } | null;
+  /** Подсказка сервера о зоне после сохранения «Репозитория роли» (role.saved.hint). */
+  roleHint: { roleId: string; hint: string } | null;
   /** Витрина маркета. null — окно ещё не открывали в этой сессии. */
   market: MarketView | null;
   /** Итог последнего экспорта роли в пакет — форма роли читает и сбрасывает. */
@@ -694,6 +696,7 @@ export const useStore = create<State>((set, get) => ({
   log: [],
   permissions: [],
   roleFeedback: null,
+  roleHint: null,
   market: null,
   exportResult: null,
   teamRequest: null,
@@ -1306,7 +1309,10 @@ export const useStore = create<State>((set, get) => ({
         set({ roleFeedback: { op: e.op, roleId: e.roleId, errors: e.errors } });
         break;
       case 'role.saved':
-        set({ roleFeedback: { op: e.op, roleId: e.roleId, errors: [] } });
+        set({
+          roleFeedback: { op: e.op, roleId: e.roleId, errors: [] },
+          roleHint: e.hint ? { roleId: e.roleId, hint: e.hint } : null,
+        });
         break;
       case 'market':
         set({ market: e.market });
