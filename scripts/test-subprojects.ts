@@ -12,11 +12,12 @@ import { mkdirSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { resolve } from 'node:path';
 import { openOfficeState, unloadOfficeState } from '../src/server/state';
+import { retryTask } from '../src/server/agents';
 import { flushAll, save, type Persisted } from '../src/server/store';
 import { defaultRoles, type Role } from '../src/server/roles';
 import { loadPackage } from '../src/server/packages';
 import {
-  ensureZone, migrateRepoDirs, outsideZone, roleWorkdir, sanitizeSubprojects, taskRepoDir, writeZone,
+  admitProblem, admits, ensureZone, migrateRepoDirs, outsideZone, roleWorkdir, sanitizeSubprojects, taskRepoDir, writeZone,
   type ZoneTask,
 } from '../src/server/subprojects';
 import type { Subproject } from '../src/shared/types';
@@ -288,13 +289,58 @@ function zoneBoundary(): void {
   check('функция принимает и готовую зону записи', outsideZone(wz, files).length === 2);
 }
 
+function admission(): void {
+  results.push('допуск admits / admitProblem (§3.1):');
+  const subs = [zone('web', 'folder', 'apps/web'), zone('api', 'folder', 'apps/api')];
+  const pinned = role('frontend', { title: 'Фронтенд', subprojects: ['web'] });
+  const free = role('backend', { title: 'Бэкенд' });
+  const pm = role('pm', { isManager: true });
+  const scope = { subprojects: () => subs, workerRoles: () => [pinned, free], lang: () => 'ru' as const };
+  check('закреплён за зоной — допущен', admits(pinned, 'web') && admitProblem(scope, pinned, { subprojectId: 'web' }) === null);
+  const other = admitProblem(scope, pinned, { subprojectId: 'api' });
+  check('не закреплён за зоной — отказ', !admits(pinned, 'api') && !!other);
+  check('причина называет зону и кому по силам', !!other?.includes('«api»') && !!other?.includes('backend'));
+  check('без закрепления — любая зона', admits(free, 'api') && admitProblem(scope, free, { subprojectId: 'web' }) === null);
+  check('задача без зоны — роль без закрепления допущена',
+    admits(free, null) && admitProblem(scope, free, {}) === null && admitProblem(scope, free, { subprojectId: null }) === null);
+  const whole = admitProblem(scope, pinned, { subprojectId: null });
+  check('задача без зоны — закреплённая роль нет (§3.1)', !admits(pinned, null) && !!whole?.includes('весь проект'));
+  check('менеджер — никогда', !admits(pm, null) && !!admitProblem(scope, pm, {}));
+  check('пропавшая зона — отказ всем', !!admitProblem(scope, free, { subprojectId: 'gone' }));
+  const empty = { subprojects: () => [], workerRoles: () => [free], lang: () => 'en' as const };
+  check('офис без подпроектов — допуск всегда', admitProblem(empty, free, { subprojectId: null }) === null);
+}
+
+/** Последний рубеж (§3.2): startWorker не поднимает недопущенного. Доходим через retryTask. */
+async function startWorkerGate(): Promise<void> {
+  results.push('последний рубеж допуска в startWorker (§3.2):');
+  const svc = resolve(base, 'gate-svc');
+  gitRepo(svc);
+  const office = openOfficeState({ id: 'o-sub-gate', projectDir, stateFile: resolve(base, 'gate.json') }).state;
+  office.dryRun = true;
+  await office.editRole('frontend', { repoDir: svc });
+  const task = office.createTask({ title: 'сквозная', description: '', criteria: [], roleId: 'frontend' });
+  // Как будто state.json правили руками: зона задачи — «весь проект».
+  office.updateTask(task.id, { subprojectId: null });
+  await retryTask(office, task.id, { quiet: true });
+  const after = office.tasks.get(task.id)!;
+  const busy = [...office.instances.values()].some((i) => i.currentTaskId === task.id);
+  check('недопущенный не начал: задача blocked, сотрудник свободен', after.status === 'blocked' && !busy && !after.assigneeId);
+  const why = admitProblem(office, office.role('frontend')!, after);
+  check('причина в карточке', !!why && !!after.result?.includes(why));
+  check('причина в ленте', !!why && office.chat.some((e) => e.text.includes(why)));
+  unloadOfficeState('o-sub-gate');
+}
+
 try {
   pureRules();
+  admission();
   zoneBoundary();
   pureMigration();
   pureEnsureZone();
   officeMigration();
   await officeZones();
+  await startWorkerGate();
 } finally {
   rmSync(base, { recursive: true, force: true });
 }

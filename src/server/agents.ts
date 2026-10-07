@@ -26,6 +26,7 @@ import { t, type ServerKey } from './i18n';
 import type { BudgetStop, MeetingView, PmChat, PrStage, PullRequestView, ReviewVerdict, TaskEdit } from '../shared/types';
 import { cloudProblem, runCloudTask, stopCloudTask } from './cloud';
 import { capabilitiesOf, type Role } from './roles';
+import { admitProblem } from './subprojects';
 import { externalMcp, mcpBrief, serversFor } from './mcp';
 import { SANDBOX, sandboxFor } from './sandbox';
 import { ensureChromium } from './chromium';
@@ -1043,6 +1044,26 @@ const teamTools = (state: OfficeState, chatId: string) => createSdkMcpServer({
         }
 
         const roleId = task.roleId ?? 'backend';
+        // Явно названный сотрудник сверяется до слота (spec подпроектов §3.2):
+        // он должен быть, работать в роли задачи и быть допущен к её зоне.
+        // Раньше проверялись только существование и занятость — и задача
+        // уезжала кому угодно, вплоть до менеджера.
+        const named = args.instanceId ? state.instances.get(args.instanceId) ?? null : null;
+        if (args.instanceId) {
+          const fail = (text: string) => ({ content: [{ type: 'text' as const, text }], isError: true });
+          if (!named) return fail(state.say('tool.assignTask.noSuchWorker', { who: args.instanceId }));
+          const namedRole = state.role(named.roleId);
+          if (!namedRole) return fail(state.say('tool.assignTask.noSuchWorker', { who: args.instanceId }));
+          const unadmitted = admitProblem(state, namedRole, task);
+          if (unadmitted) {
+            return fail(state.say('tool.assignTask.unadmitted', { who: named.id, problem: unadmitted, task: task.id }));
+          }
+          if (named.roleId !== roleId) {
+            return fail(state.say('tool.assignTask.wrongRole', {
+              who: named.id, role: named.roleId, task: task.id, taskRole: roleId,
+            }));
+          }
+        }
         // Роль, из которой уволили всех, не доукомплектовываем молча: сотрудников
         // убрал пользователь, и нанять обратно — тоже его решение, а не наше.
         // Явно названного исполнителя это не касается: он живой человек в офисе.
@@ -1071,7 +1092,7 @@ const teamTools = (state: OfficeState, chatId: string) => createSdkMcpServer({
         }
 
         const inst = args.instanceId
-          ? state.instances.get(args.instanceId) ?? null
+          ? named
           : state.findFree(roleId) ?? state.spawn(roleId) ?? state.findFree(roleId);
 
         if (!inst) {
@@ -2777,6 +2798,21 @@ function startWorker(
 ): void {
   const role = taskOffice.role(inst.roleId);
   if (!role) return;
+
+  // Последний рубеж допуска (spec подпроектов §3.2): места выбора проверяют
+  // сами, но данные приезжают и из правленого руками state.json. Сессию не
+  // поднимаем, денег не тратим — задача встаёт с причиной в карточке и ленте.
+  const unadmitted = admitProblem(taskOffice, role, task);
+  if (unadmitted) {
+    const text = taskOffice.say('subprojects.blocked', { problem: unadmitted });
+    taskOffice.waitingForSlot.delete(task.id);
+    taskOffice.updateTask(task.id, {
+      status: 'blocked', result: text, limitedAt: null, interrupted: false,
+    });
+    taskOffice.addOfficeNote(text, { taskId: task.id });
+    notifyPm(taskOffice, `${task.id} «${task.title}»: ${text}`, { taskId: task.id });
+    return;
+  }
 
   // Задача поехала — из очереди за слотом её надо убрать в любом случае:
   // сюда приходят и мимо очереди (пользователь отдал задачу руками).

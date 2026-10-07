@@ -363,6 +363,8 @@ Keep your replies to the user short. Which language to write them in is said in 
   'tool.assignTask.budget': 'The office budget is spent: ${spent} of ${cap}. New tasks do not start. Tell the user — they can raise the limit in the settings.',
   'tool.assignTask.noTask': 'There is no task {task} on the board',
   'tool.assignTask.already': '{task} is already assigned to {who}',
+  'tool.assignTask.unadmitted': '{who} cannot take {task}: {problem} Name an employee of a role that can take the zone, or reassign the task via edit_task.',
+  'tool.assignTask.wrongRole': 'Worker {who} has role {role}, and task {task} is for role {taskRole}. Name an employee of role {taskRole} or change the task role via edit_task first.',
   'tool.assignTask.noStaff': '{problem} {task} stays on the board. Tell the user that somebody has to be hired for this role, or reassign the task to a role that can do it. Calling assign_task on this role again is pointless.',
   'tool.assignTask.queued': '{task} is queued: {problem}. The office will start it itself as soon as a slot frees up — there is no need to assign it again. Tell the user the task is accepted and waiting in line.',
   'tool.assignTask.noSuchWorker': 'There is no worker {who} in the office — they may have been let go. Look at list_team and name somebody who is there, or leave the field empty.',

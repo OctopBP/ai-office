@@ -91,6 +91,71 @@ export function taskRepoDir(
   return zone ? zoneRepo(zone, projectDir) : projectDir;
 }
 
+// ---------- допуск (§3) ----------
+
+/** То, что допуску нужно от офиса: зоны, рабочие роли, язык. OfficeState подходит как есть. */
+export interface AdmitScope {
+  subprojects(): Subproject[];
+  workerRoles(): Role[];
+  lang(): Lang;
+}
+
+/**
+ * Может ли роль взять задачу этой зоны (§3.1). Роль без закрепления — любую.
+ * Закреплённая — только задачу своих зон; задачу «весь проект» (null) —
+ * никогда: сквозная работа меняет чужой код по определению. В офисе без
+ * подпроектов закреплений нет, и допуск всегда истина.
+ */
+export function admits(role: Pick<Role, 'subprojects' | 'isManager'>, subprojectId: string | null | undefined): boolean {
+  if (role.isManager) return false;
+  const own = role.subprojects ?? [];
+  if (!own.length) return true;
+  return !!subprojectId && own.includes(subprojectId);
+}
+
+/** Имя зоны для текста: имя из списка, а пропавшая — её id. */
+const zoneName = (subs: readonly Subproject[], id: string): string =>
+  subs.find((s) => s.id === id)?.name ?? id;
+
+/** Роль словами: «frontend (Фронтенд)». */
+const roleLabel = (role: Pick<Role, 'id' | 'title'>): string =>
+  (role.title && role.title !== role.id ? `${role.id} (${role.title})` : role.id);
+
+/** Рабочие роли офиса, которым по силам задача этой зоны. */
+export function admittedRoles(scope: AdmitScope, subprojectId: string | null | undefined): Role[] {
+  return scope.workerRoles().filter((r) => admits(r, subprojectId));
+}
+
+/**
+ * Почему роль не может взять задачу — словами для менеджера, ленты и
+ * карточки. null — может. Отказ всегда называет, кому зона по силам: так
+ * менеджер переназначит задачу, а не попросит нанять ещё одного.
+ */
+export function admitProblem(
+  scope: AdmitScope,
+  role: Pick<Role, 'id' | 'title' | 'subprojects' | 'isManager'>,
+  task: { subprojectId?: string | null },
+): string | null {
+  const lang = scope.lang();
+  const subs = scope.subprojects();
+  const zone = task.subprojectId ?? null;
+  if (role.isManager) return t(lang, 'subprojects.admit.manager');
+  // Зоны нет (правили сохранение руками) — задачу не берёт никто: репозиторий
+  // и граница правок у неё не определены.
+  if (zone && !subs.some((s) => s.id === zone)) return t(lang, 'subprojects.admit.unknownZone', { zone });
+  if (admits(role, zone)) return null;
+  const others = admittedRoles(scope, zone).map(roleLabel);
+  const who = others.length ? others.join(', ') : t(lang, 'subprojects.admit.nobody');
+  if (zone === null) {
+    return t(lang, 'subprojects.admit.wholeProject', {
+      role: roleLabel(role),
+      zones: (role.subprojects ?? []).map((id) => zoneName(subs, id)).join(', '),
+      who,
+    });
+  }
+  return t(lang, 'subprojects.admit.otherZone', { role: roleLabel(role), zone: zoneName(subs, zone), who });
+}
+
 /** Строковый список из сохранения без мусора и повторов. */
 const stringList = (value: unknown): string[] | undefined =>
   (Array.isArray(value)
