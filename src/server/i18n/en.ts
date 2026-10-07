@@ -719,6 +719,7 @@ export const en = {
   'subprojects.problem.officeRepo': 'The whole office repository is “the whole project”, not a zone.',
   'subprojects.problem.notGit': '{path} is not the root of a git repository.',
   'subprojects.problem.overlap': 'The root overlaps the zone “{other}”.',
+  'subprojects.created': 'Subproject “{name}” created at {root}.',
   'env.roles.title': 'Office roster',
   'env.roles.noManager': 'The office has no manager — there is nobody to hand out the tasks.',
   'env.roles.noManagerFix': 'Hire a manager in the “Team” window.',

@@ -3,6 +3,7 @@ import {
 } from '../shared/providers';
 import { isModelTier } from '../shared/models';
 import { randomUUID } from 'node:crypto';
+import { statSync } from 'node:fs';
 import { resolve } from 'node:path';
 import type {
   AgentState, ChatDraft, ChatEntry, ChatRef, Criterion, DayUsage, Desk, FieldError, InstanceView, LogEntry,
@@ -79,8 +80,8 @@ import {
   loadPackage, packageBrief, packageModel, packageTitle, PACKAGE_NAME_RE, resolvePackage, type AgentPackage,
 } from './packages';
 import {
-  migrateRepoDirs, resolveRoot, roleWorkdir, sanitizeRoleZones, sanitizeSubprojects, soleZone,
-  subprojectView, SUBPROJECTS_MIGRATION, taskRepoDir,
+  ensureZone, migrateRepoDirs, resolveRoot, roleWorkdir, sanitizeRoleZones, sanitizeSubprojects, soleZone,
+  repoZonesReplaced, subprojectView, SUBPROJECTS_MIGRATION, taskRepoDir, withZones,
 } from './subprojects';
 import {
   DEFAULT_STATE_FILE, flush as flushFile, load, save, wipe as wipeFile,
@@ -3858,6 +3859,25 @@ export class OfficeState {
     return true;
   }
 
+  /**
+   * «Репозиторий роли» из формы, найма или мастера — сразу в зону (spec §7):
+   * зона с этим корнем находится или заводится, роль закрепляется за ней
+   * вместо прежних repo-зон. Пусто или корень офиса — закрепление за
+   * repo-зонами снимается. Менеджер не закрепляется никогда (§2.2).
+   */
+  private pinRoleToRepo(roleId: string, raw: string): void {
+    const role = this.role(roleId);
+    if (!role || role.isManager) return;
+    const got = ensureZone({ projectDir: this.projectDir, subprojects: this.subprojectList, root: raw });
+    if (got.created) {
+      this.subprojectList = got.subprojects;
+      this.addLog(null, 'system', this.say('subprojects.created', { name: got.zone!.name, root: got.zone!.root }));
+    }
+    const zones = repoZonesReplaced(role, this.subprojectList, got.zone?.id ?? null);
+    this.roleList = this.roleList.map((r) => (r.id === roleId ? withZones(r, zones) : r));
+    this.markDirty();
+  }
+
   /** Состав офиса для UI: у каждого сотрудника посчитан эффективный режим. */
   instanceViews(): InstanceView[] {
     return [...this.instances.values()].map((i) => this.instanceView(i));
@@ -4096,9 +4116,10 @@ export class OfficeState {
    * они — менеджер продолжал бы назначать задачи на заархивированную роль.
    */
   private roleSetChanged(before: string): void {
-    // Форма роли и найм из мастера ещё приносят `repoDir`, а читают его только
-    // зоны: разбираем сразу, иначе до перезапуска задачи роли ушли бы в
-    // репозиторий офиса (spec подпроектов §7).
+    // Форма роли и найм заводят зону сами (pinRoleToRepo). Здесь страховка:
+    // `repoDir`, приехавший другим путём, разбирается в зону через тот же
+    // ensureZone, иначе до перезапуска задачи роли ушли бы в репозиторий
+    // офиса (spec подпроектов §7).
     this.absorbRepoDirs();
     this.emit({ t: 'roles', roles: this.roleViews() });
     this.markDirty();
@@ -4227,13 +4248,14 @@ export class OfficeState {
       isolate: wanted.isolate,
       maxTurns: wanted.maxTurns,
       ...(wanted.allowLocalBinding ? { allowLocalBinding: true } : {}),
-      repoDir: wanted.repoDir,
       sprite: wanted.sprite,
       archived: false,
       brief: wanted.brief,
     };
     this.roleList = [...this.roleList, role];
     this.addLog(null, 'system', this.say('state.role.created', { title: role.title, id: role.id }));
+    // «Репозиторий роли» из формы — сразу зона и закрепление (spec подпроектов §7).
+    if (wanted.repoDir) this.pinRoleToRepo(role.id, wanted.repoDir);
     this.roleSetChanged(before);
     return { role };
   }
@@ -4365,9 +4387,14 @@ export class OfficeState {
    * своим номером в названии, своей внешностью и своими настройками, и
    * правка одного не трогает другого.
    *
+   * `opts.zoneRoot` — рабочее место нанятого (мастер): зона и закрепление за
+   * ней, а не поле роли (spec подпроектов §7).
+   *
    * Возвращает причину отказа готовым текстом или null.
    */
-  hireFromPackage(pkg: AgentPackage, source: PackageSource | null, extra: LinkOverrides = {}): string | null {
+  hireFromPackage(
+    pkg: AgentPackage, source: PackageSource | null, extra: LinkOverrides = {}, opts: { zoneRoot?: string } = {},
+  ): string | null {
     const fromPackage = this.roleList.filter((r) => r.package?.name === pkg.name && !r.archived);
     const vacancy = fromPackage.find((r) => this.staffOf(r.id).length === 0);
     // Открытая вакансия закрывается как есть: её рабочее место человек уже
@@ -4385,10 +4412,12 @@ export class OfficeState {
     // уволь и убери «Бэкенда 2», и следующий получил бы то же название, что
     // уже лежит в истории задач.
     const copy = fromPackage.reduce((max, r) => Math.max(max, r.package?.copy ?? 1), 0) + 1;
-    // `extra` — правки поверх пакета от того, кто нанимает: мастер нового
-    // офиса кладёт сюда рабочее место (repoDir). Они такие же оверрайды, как
-    // те, что человек потом сделает в карточке роли.
-    const overrides: LinkOverrides = { ...extra };
+    // `extra` — правки поверх пакета от того, кто нанимает. Они такие же
+    // оверрайды, как те, что человек потом сделает в карточке роли. Кроме
+    // рабочего места (repoDir): оно становится зоной и закреплением за ней
+    // (spec подпроектов §7), оверрайдом не ложится.
+    const { repoDir: legacyRoot, ...rest } = extra;
+    const overrides: LinkOverrides = { ...rest };
     // Второму такому же — другая внешность: двух одинаковых человечков в
     // комнате не различить. Это правка поверх пакета, и человек её поменяет.
     if (copy > 1) {
@@ -4404,6 +4433,13 @@ export class OfficeState {
     this.addLog(null, 'system', this.say('market.hiredFrom', {
       title: role.title, id: role.id, name: pkg.name, version: pkg.version,
     }));
+    // Найм синхронный, полной проверки репозитория тут нет: папки нет —
+    // зону-пустышку не заводим, роль остаётся в корне офиса, а о плохом пути
+    // скажет тот, кто нанимал (мастер помечает шаг failed).
+    const root = String(opts.zoneRoot ?? legacyRoot ?? '').trim();
+    if (root && statSync(this.resolveRepoDir(root), { throwIfNoEntry: false })?.isDirectory()) {
+      this.pinRoleToRepo(id, root);
+    }
     this.roleSetChanged(before);
     return this.hire(id);
   }
@@ -4535,7 +4571,10 @@ export class OfficeState {
       }
     }
     // Пути и внешность приходят из поля ввода — с пробелами по краям.
-    if (typeof clean.repoDir === 'string') clean.repoDir = clean.repoDir.trim();
+    // «Репозиторий роли» на роль больше не пишется: он становится зоной и
+    // закреплением за ней (spec подпроектов §7) — ниже, после правки роли.
+    const zoneRoot = 'repoDir' in clean ? String(clean.repoDir ?? '').trim() : null;
+    delete clean.repoDir;
     if (typeof clean.sprite === 'string') clean.sprite = clean.sprite.trim();
     if (typeof clean.title === 'string') clean.title = clean.title.trim();
     // Режим роли правит человек из UI — значение проверяем, как и офисное.
@@ -4606,6 +4645,7 @@ export class OfficeState {
         return next;
       });
     }
+    if (zoneRoot !== null) this.pinRoleToRepo(roleId, zoneRoot);
     if ('permissionMode' in clean && clean.permissionMode !== base.permissionMode) {
       this.addLog(null, 'system', clean.permissionMode
         ? this.say('state.role.modeSet', {
@@ -4624,7 +4664,9 @@ export class OfficeState {
     }
     this.addLog(null, 'system',
       this.say('state.role.updated', {
-        role: roleId, fields: [...Object.keys(clean), ...(resetModel ? ['ownModel'] : [])].join(', '),
+        role: roleId,
+        fields: [...Object.keys(clean), ...(zoneRoot !== null ? ['subprojects'] : []), ...(resetModel ? ['ownModel'] : [])]
+          .join(', '),
       }));
     // Название роли вшито в описание assign у менеджера — переименование
     // меняет перечень так же, как заведение новой роли.

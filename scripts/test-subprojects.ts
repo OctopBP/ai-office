@@ -6,14 +6,16 @@
  * Запуск: npm run test:subprojects
  */
 import './_isolate'; // первым: до чтения окружения в root.ts и store.ts
+import { execFileSync } from 'node:child_process';
 import { mkdirSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { resolve } from 'node:path';
 import { openOfficeState, unloadOfficeState } from '../src/server/state';
 import { flushAll, save, type Persisted } from '../src/server/store';
 import { defaultRoles, type Role } from '../src/server/roles';
+import { loadPackage } from '../src/server/packages';
 import {
-  migrateRepoDirs, roleWorkdir, sanitizeSubprojects, taskRepoDir, type ZoneTask,
+  ensureZone, migrateRepoDirs, roleWorkdir, sanitizeSubprojects, taskRepoDir, type ZoneTask,
 } from '../src/server/subprojects';
 import type { Subproject } from '../src/shared/types';
 
@@ -114,6 +116,92 @@ function pureMigration(): void {
     && back.roles.find((r) => r.id === 'frontend')?.subprojects?.join() === 'api');
 }
 
+function pureEnsureZone(): void {
+  results.push('ensureZone — найти или завести зону по корню:');
+  const first = ensureZone({ projectDir, subprojects: [], root: '../api', now: 5 });
+  check('заведена repo-зона с исходной строкой корня',
+    first.created && first.zone?.id === 'api' && first.zone.kind === 'repo' && first.zone.root === '../api'
+    && first.zone.createdAt === 5 && first.subprojects.length === 1);
+  const same = ensureZone({ projectDir, subprojects: first.subprojects, root: resolve(base, 'api') });
+  check('тот же корень абсолютным путём — та же зона, вторая не заводится',
+    !same.created && same.zone?.id === 'api' && same.subprojects.length === 1);
+  const clash = ensureZone({ projectDir, subprojects: first.subprojects, root: resolve(base, 'other', 'api') });
+  check('другой корень с тем же слагом — суффикс -2 и другой цвет',
+    clash.created && clash.zone?.id === 'api-2' && clash.zone.color !== first.zone!.color);
+  const office = ensureZone({ projectDir, subprojects: first.subprojects, root: projectDir });
+  check('корень офиса — зоны нет', office.zone === null && !office.created && office.subprojects.length === 1);
+  check('пусто — зоны нет', ensureZone({ projectDir, subprojects: [], root: '  ' }).zone === null);
+  const folder = ensureZone({ projectDir, subprojects: first.subprojects, root: '/apps/web/', kind: 'folder' });
+  check('папка: корень без крайних слешей, ищется по своему виду',
+    folder.created && folder.zone?.kind === 'folder' && folder.zone.root === 'apps/web'
+    && !ensureZone({ projectDir, subprojects: folder.subprojects, root: 'apps/web', kind: 'folder' }).created);
+  check('вход не мутируется', first.subprojects.length === 1);
+}
+
+/** Репозиторий с одним коммитом — форма роли проверяет корень через repoProblem. */
+function gitRepo(dir: string): void {
+  mkdirSync(dir, { recursive: true });
+  const run = (...args: string[]) => execFileSync('git', ['-C', dir, ...args], { stdio: 'ignore' });
+  run('init', '-q');
+  run('-c', 'user.name=t', '-c', 'user.email=t@t', 'commit', '-q', '--allow-empty', '-m', 'init');
+}
+
+async function officeZones(): Promise<void> {
+  results.push('форма роли и найм заводят зону вместо repoDir:');
+  const svc = resolve(base, 'svc');
+  const lib = resolve(base, 'lib');
+  gitRepo(svc);
+  gitRepo(lib);
+  const office = openOfficeState({ id: 'o-sub-zones', projectDir, stateFile: resolve(base, 'zones.json') }).state;
+  const errors = await office.editRole('frontend', { repoDir: '../svc' });
+  const front = () => office.role('frontend')!;
+  check('PATCH с repoDir: ошибок нет, зона заведена',
+    errors.length === 0 && office.subprojects().map((s) => `${s.id}:${s.kind}:${s.root}`).join() === 'svc:repo:../svc');
+  check('PATCH с repoDir: роль закреплена, поля repoDir нет',
+    front().subprojects?.join() === 'svc' && front().repoDir === undefined
+    && front().package?.overrides.repoDir === undefined);
+  await office.editRole('frontend', { repoDir: svc });
+  check('повторный PATCH с тем же корнем — вторая зона не заводится',
+    office.subprojects().length === 1 && front().subprojects?.join() === 'svc');
+  await office.editRole('backend', { repoDir: '../svc' });
+  check('вторая роль на том же корне — та же зона', office.role('backend')?.subprojects?.join() === 'svc'
+    && office.subprojects().length === 1);
+  await office.editRole('frontend', { repoDir: '../lib' });
+  check('PATCH на другой корень — новая зона, прежняя repo-зона снята',
+    office.subprojects().length === 2 && front().subprojects?.join() === 'lib');
+  await office.editRole('frontend', { repoDir: '' });
+  check('пустой repoDir снимает закрепление, зоны остаются',
+    front().subprojects === undefined && office.subprojects().length === 2);
+  const bad = await office.editRole('frontend', { repoDir: '../nope' });
+  check('корень не репозиторий — ошибка поля, зоны не заводится',
+    bad.some((e) => e.field === 'repoDir') && office.subprojects().length === 2);
+
+  const created = await office.createRole({ title: 'Сервис', repoDir: '../lib' });
+  check('новая роль из формы — закреплена за зоной, без repoDir',
+    'role' in created && office.role(created.role.id)?.subprojects?.join() === 'lib'
+    && office.role(created.role.id)?.repoDir === undefined && office.subprojects().length === 2);
+
+  const pkg = loadPackage('@office/backend');
+  if (!pkg) { check('пакет @office/backend найден', false); return; }
+  const before = new Set(office.roles().map((r) => r.id));
+  const problem = office.hireFromPackage(pkg, null, {}, { zoneRoot: '../svc' });
+  const hired = office.roles().find((r) => !before.has(r.id));
+  check('найм с рабочим местом — роль закреплена за той же зоной, оверрайда repoDir нет',
+    problem === null && hired?.subprojects?.join() === 'svc' && hired.repoDir === undefined
+    && hired.package?.overrides.repoDir === undefined && office.subprojects().length === 2);
+  const before2 = new Set(office.roles().map((r) => r.id));
+  office.hireFromPackage(pkg, null, { repoDir: resolve(base, 'svc') });
+  const legacy = office.roles().find((r) => !before2.has(r.id));
+  check('прежний вызов с extra.repoDir — тоже зона', legacy?.subprojects?.join() === 'svc'
+    && legacy.package?.overrides.repoDir === undefined && office.subprojects().length === 2);
+  const before3 = new Set(office.roles().map((r) => r.id));
+  office.hireFromPackage(pkg, null, {}, { zoneRoot: '../nope' });
+  const lost = office.roles().find((r) => !before3.has(r.id));
+  check('найм с несуществующей папкой — нанят без зоны, пустышка не заведена',
+    !!lost && !lost.subprojects?.length && lost.repoDir === undefined && office.subprojects().length === 2);
+  unloadOfficeState('o-sub-zones');
+}
+
 function officeMigration(): void {
   results.push('миграция на загрузке офиса и повторная загрузка:');
   const open = (id: string, file: string) => openOfficeState({ id, projectDir, stateFile: file }).state;
@@ -182,7 +270,9 @@ function officeMigration(): void {
 try {
   pureRules();
   pureMigration();
+  pureEnsureZone();
   officeMigration();
+  await officeZones();
 } finally {
   rmSync(base, { recursive: true, force: true });
 }

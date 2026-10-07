@@ -719,6 +719,7 @@ export const ru: Record<keyof typeof en, string> = {
   'subprojects.problem.officeRepo': 'Репозиторий офиса целиком — это «весь проект», а не зона.',
   'subprojects.problem.notGit': '{path} — не корень git-репозитория.',
   'subprojects.problem.overlap': 'Корень пересекается с зоной «{other}».',
+  'subprojects.created': 'Заведён подпроект «{name}» с корнем {root}.',
   'env.roles.title': 'Состав офиса',
   'env.roles.noManager': 'В офисе нет менеджера — задачи некому раздавать.',
   'env.roles.noManagerFix': 'Наймите менеджера в окне «Команда».',

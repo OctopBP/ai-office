@@ -1,7 +1,7 @@
 import { existsSync, statSync } from 'node:fs';
 import { basename, isAbsolute, resolve } from 'node:path';
 import type { Lang } from '../shared/i18n';
-import { OFFICE_COLORS, type Subproject, type SubprojectView, type TaskStatus } from '../shared/types';
+import { OFFICE_COLORS, type Subproject, type SubprojectKind, type SubprojectView, type TaskStatus } from '../shared/types';
 import type { Role } from './roles';
 import { t } from './i18n';
 
@@ -200,6 +200,61 @@ function nextColor(subs: readonly Subproject[]): string {
   return OFFICE_COLORS.find((c) => !used.has(c)) ?? OFFICE_COLORS[subs.length % OFFICE_COLORS.length];
 }
 
+export interface EnsuredZone {
+  /** Найденная или заведённая зона; null — корень совпал с офисом. */
+  zone: Subproject | null;
+  /** Зоны после вызова: заведена новая — она в конце списка. */
+  subprojects: Subproject[];
+  created: boolean;
+}
+
+/**
+ * Найти зону с этим корнем или завести новую. Одна на всех: миграция, мастер,
+ * форма роли и найм с рабочим местом — повторный вызов с тем же корнем (в том
+ * числе записанным иначе: относительный против абсолютного) вторую зону не
+ * заводит. id — слаг basename с суффиксом `-2`, `-3`; `root` — исходная строка.
+ * Repo-зона на корне офиса не заводится: это «весь проект».
+ */
+export function ensureZone(input: {
+  projectDir: string;
+  subprojects: readonly Subproject[];
+  root: string;
+  kind?: SubprojectKind;
+  now?: number;
+}): EnsuredZone {
+  const { projectDir } = input;
+  const kind = input.kind ?? 'repo';
+  const subs = [...input.subprojects];
+  const raw = input.root.trim();
+  const draft: Subproject = {
+    id: '', name: '', kind, root: kind === 'folder' ? raw.replace(/^\/+|\/+$/g, '') : raw,
+    summary: '', color: '', createdAt: 0,
+  };
+  const abs = zonePath(draft, projectDir);
+  if (!raw || abs === projectDir) return { zone: null, subprojects: subs, created: false };
+  const found = subs.find((s) => s.kind === kind && zonePath(s, projectDir) === abs);
+  if (found) return { zone: found, subprojects: subs, created: false };
+  const taken = new Set(subs.map((s) => s.id));
+  const base = zoneSlug(abs);
+  let id = base;
+  for (let n = 2; taken.has(id); n += 1) id = `${base}-${n}`;
+  const zone: Subproject = {
+    ...draft, id, name: basename(abs), color: nextColor(subs), createdAt: input.now ?? Date.now(),
+  };
+  subs.push(zone);
+  return { zone, subprojects: subs, created: true };
+}
+
+/**
+ * Закрепление роли по прежнему «репозиторию роли»: repo-зоны роли заменяются
+ * зоной `zoneId`, папки остаются. null — снять закрепление за repo-зонами.
+ */
+export function repoZonesReplaced(role: Role, subs: readonly Subproject[], zoneId: string | null): string[] {
+  const repoIds = new Set(subs.filter((s) => s.kind === 'repo').map((s) => s.id));
+  const kept = (role.subprojects ?? []).filter((id) => !repoIds.has(id));
+  return zoneId ? [...kept, zoneId] : kept;
+}
+
 /** Строка «репозитория роли» — с самой роли или из разницы с пакетом. */
 const repoDirOf = (role: Role): string =>
   (role.repoDir ?? '').trim() || String(role.package?.overrides.repoDir ?? '').trim();
@@ -250,7 +305,7 @@ export function migrateRepoDirs(input: {
 }): ZoneMigration {
   const { projectDir } = input;
   const now = input.now ?? Date.now();
-  const subs = [...input.subprojects];
+  let subs = [...input.subprojects];
   let changed = false;
 
   // Зоны заводим по отсортированным путям — в том же порядке, в каком
@@ -265,16 +320,9 @@ export function migrateRepoDirs(input: {
   const repoZone = (abs: string): Subproject | undefined =>
     subs.find((s) => s.kind === 'repo' && resolveRoot(projectDir, s.root) === abs);
   for (const abs of [...wanted.keys()].sort()) {
-    if (repoZone(abs)) continue;
-    const taken = new Set(subs.map((s) => s.id));
-    const base = zoneSlug(abs);
-    let id = base;
-    for (let n = 2; taken.has(id); n += 1) id = `${base}-${n}`;
-    subs.push({
-      id, name: basename(abs), kind: 'repo', root: wanted.get(abs)!,
-      summary: '', color: nextColor(subs), createdAt: now,
-    });
-    changed = true;
+    const got = ensureZone({ projectDir, subprojects: subs, root: wanted.get(abs)!, now });
+    subs = got.subprojects;
+    if (got.created) changed = true;
   }
 
   // Роли: репозиторий → закрепление за его зоной, поле снимается.
