@@ -50,7 +50,10 @@ export const useLayout = create<LayoutState>((set, get) => {
     const { layout, column, officeId } = get();
     const next = fn(layout, column);
     if (next === layout) return;
-    set((s) => ({ layout: next, ...syncRuntime(s, next) }));
+    // syncRuntime без изменений отдаёт весь стор `s` как есть, а в нём лежит
+    // прежний `layout`: порядок важен — раскладка идёт после разворота,
+    // иначе спред затирает новое значение старым и ни одно действие не работает.
+    set((s) => ({ ...syncRuntime(s, next), layout: next }));
     if (officeId) saver.schedule(officeId, next);
   };
 

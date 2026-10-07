@@ -17,6 +17,7 @@ import {
   type DropGeometry, type Rect,
 } from '../src/web/layout/dropzone';
 import { matchHotkey, nextTerminalId, runHotkey, worksInTextTarget, type HotkeyApi, type KeyInfo } from '../src/web/layout/hotkeys';
+import { useLayout } from '../src/web/layout/store';
 import { createSaver, layoutKey, loadLayout, saveLayout, type KeyValueStore } from '../src/web/layout/persist';
 
 let failed = 0;
@@ -474,6 +475,43 @@ check('applyDrop: перенос в другой док, в край, в свё�
   const into = applyDrop(col, log.id, { kind: 'tab', dock: 'right', slot: 1 });
   assert.equal(into.docks.right!.collapsed, false);
   assert.deepEqual(into.docks.right!.tabs.map((w) => w.id), [docs.id, log.id]);
+});
+
+// Стор: действия обязаны менять раскладку в самом сторе, а не только в модели.
+// Регресс T-490: спред syncRuntime затирал новую раскладку старой, и кнопки
+// открытия и закрытия терминала ничего не делали.
+check('стор: открытие терминала кладёт док в раскладку', () => {
+  useLayout.getState().reset();
+  useLayout.getState().openWindow(makeRef('terminal', '1'), 'bottom');
+  const d = useLayout.getState().layout.docks.bottom;
+  assert.deepEqual(d?.tabs.map((w) => w.id), ['terminal:1']);
+  assert.equal(d?.active, 'terminal:1');
+  assert.equal(d?.collapsed, false);
+});
+check('стор: свернуть и снова открыть терминал разворачивает док', () => {
+  useLayout.getState().reset();
+  useLayout.getState().openWindow(makeRef('terminal', '1'), 'bottom');
+  useLayout.getState().toggleCollapsed('bottom');
+  assert.equal(useLayout.getState().layout.docks.bottom?.collapsed, true);
+  useLayout.getState().openWindow(makeRef('terminal', '1'), 'bottom');
+  assert.equal(useLayout.getState().layout.docks.bottom?.collapsed, false);
+});
+check('стор: закрытие вкладки убирает терминал и снимает разворот (без ответа сервера)', () => {
+  useLayout.getState().reset();
+  useLayout.getState().openWindow(makeRef('terminal', '1'), 'bottom');
+  useLayout.getState().maximize('bottom');
+  assert.equal(useLayout.getState().maximized, 'bottom');
+  useLayout.getState().closeWindow('terminal:1');
+  assert.equal(useLayout.getState().layout.docks.bottom, undefined);
+  assert.equal(useLayout.getState().maximized, null);
+});
+check('стор: ⌘` показывает и прячет нижний док', () => {
+  useLayout.getState().reset();
+  const st = useLayout.getState();
+  assert.ok(runHotkey({ type: 'toggle-bottom' }, st));
+  assert.ok(useLayout.getState().layout.docks.bottom);
+  runHotkey({ type: 'toggle-bottom' }, useLayout.getState());
+  assert.equal(useLayout.getState().layout.docks.bottom?.collapsed, true);
 });
 
 // check с async не ждёт — даём таймерам отработать перед итогом
