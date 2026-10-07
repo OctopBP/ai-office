@@ -337,6 +337,7 @@ export const en = {
   "board.dropConfirm": "Drop the task “{title}”? Nobody will work on it any more; it stays on the board as dropped.",
   "board.deleteConfirm": "Erase the task “{title}” from the board for good? This cannot be undone.",
   "zone.deleted": "zone deleted",
+  "zone3d.legend": "Zone legend",
   "zone.filter": "Filter by zone",
   "zone.all": "All",
   "zone.none": "Whole project",
