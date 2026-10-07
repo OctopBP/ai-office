@@ -32,6 +32,7 @@ export const promptsEn = {
   'bubble.assignTask': 'assigning {what}',
   'bubble.finishTask': 'handing the work in',
   'bubble.listTeam': 'checking who is free',
+  'bubble.listSubprojects': 'checking the zones',
   'bubble.getBoard': 'checking the board',
   'bubble.getTask': 'looking at task {what}',
   'bubble.listRules': 'reading the office rules',
@@ -340,6 +341,7 @@ Keep your replies to the user short. Which language to write them in is said in 
   // -------------------------------------------------- инструменты менеджера
   'tool.team.instructions': 'Tools for running the office team.',
   'tool.listTeam.desc': 'Show the team: roles, the individual workers and who is free right now. Call this first, before creating and handing out tasks.',
+  'tool.listSubprojects.desc': 'The office subprojects (zones of responsibility): id, name, kind, root, pinned roles, universal roles and the number of open tasks per zone. Read-only: creating zones and re-pinning roles is the owner\'s decision.',
   'tool.createTask.desc': 'Create a task on the board. One task = one worker = one tangible result. Returns the task id, which you pass to assign_task.',
   'tool.createTask.title': 'Short headline, up to 60 characters',
   'tool.createTask.description': 'The full brief for the worker. They do not see your conversation with the user — describe everything: what to do, in which files, with what stack.',
@@ -1064,6 +1066,12 @@ Keep your replies to the user short. Which language to write them in is said in 
     'Directions of the owner — standing goals without a deadline, by which the office picks its own work on the weekly reflection:',
     '{directions}',
     'When the owner states a new long-term goal in chat — that is a direction, not a task: tell them to add it in the plan (the “Directions” block), and do not turn it into tasks yourself unless they ask.',
+  ].join('\n'),
+  'prompt.pm.subprojects': [
+    '',
+    '',
+    '{zones}',
+    'Create a task with the subprojectId of its zone (create_task, plan_features); without a zone a task is for the whole project, and only roles without pinning take it. Creating zones and re-pinning roles is the owner\'s decision: suggest it in the chat. Open tasks by zone — list_subprojects.',
   ].join('\n'),
   'prompt.pm.noDirections': '(only the built-in one: keep the project healthy)',
   'prompt.pm.handoff': `

@@ -26,7 +26,7 @@ import { t, type ServerKey } from './i18n';
 import type { BudgetStop, MeetingView, PmChat, PrStage, PullRequestView, ReviewVerdict, TaskEdit } from '../shared/types';
 import { cloudProblem, runCloudTask, stopCloudTask } from './cloud';
 import type { Role } from './roles';
-import { admitProblem, consultWorkdir, reviewerFor, zoneForRole } from './subprojects';
+import { admitProblem, consultWorkdir, reviewerFor, zoneForRole, zonesText } from './subprojects';
 import { externalMcp, mcpBrief, serversFor } from './mcp';
 import { SANDBOX, sandboxFor } from './sandbox';
 import { ensureChromium } from './chromium';
@@ -361,6 +361,7 @@ function toolBrief(name: string, input: Record<string, unknown>, lang: Lang): st
         if (short === 'assign_task') return say('bubble.assignTask', input.taskId);
         if (short === 'finish_task') return t(lang, 'bubble.finishTask');
         if (short === 'list_team') return t(lang, 'bubble.listTeam');
+        if (short === 'list_subprojects') return t(lang, 'bubble.listSubprojects');
         if (short === 'get_board') return t(lang, 'bubble.getBoard');
         if (short === 'get_task') return say('bubble.getTask', input.taskId);
         if (short === 'list_rules') return t(lang, 'bubble.listRules');
@@ -761,6 +762,7 @@ function boardText(state: OfficeState, opts: BoardOpts = {}): string {
     epics: [...state.epics.values()],
     questions: state.questionList().filter(isOpenQuestion),
     autoPipeline: state.settings.autoPipeline,
+    zones: state.subprojects(),
   }, say, opts);
   if (isSelection(opts)) return text;
   const directions = directionsText(state);
@@ -779,10 +781,31 @@ export const pmPrompt = (state: OfficeState, fresh: boolean, handoff: string | n
   + `\n\n${languageBrief(state, 'pm')}`
   + state.say('prompt.pm.life')
   + state.say('prompt.pm.directions', { directions: directionsText(state) || state.say('prompt.pm.noDirections') })
+  + subprojectsBrief(state)
   // Передача дел — только новой сессии, и в промпт, а не первым сообщением:
   // она нужна на каждом ходу, а не один раз, и не должна выглядеть репликой.
   // Продолжаемая сессия несёт то же в своей стенограмме — пересказом сжатия.
   + (fresh && handoff ? state.say('prompt.pm.handoff', { text: handoff }) : '');
+
+/**
+ * Блок «Подпроекты» в промпте менеджера (spec подпроектов §6.1): зоны с
+ * корнями и закреплёнными и правило «задачу — с subprojectId». В офисе без
+ * зон — пустая строка, и промпт остаётся прежним.
+ */
+function subprojectsBrief(state: OfficeState): string {
+  const zones = zonesText(state.subprojectViews(), state.workerRoles(), state.lang());
+  return zones ? state.say('prompt.pm.subprojects', { zones }) : '';
+}
+
+/**
+ * Ответ list_subprojects (§6.1): то же, что блок промпта, плюс открытые
+ * задачи по зонам. Только чтение — заводить и перезакреплять зоны менеджер
+ * не может, это решение владельца.
+ */
+export function subprojectsSummary(state: OfficeState): string {
+  return zonesText(state.subprojectViews(), state.workerRoles(), state.lang(), { open: true })
+    || state.say('subprojects.text.none');
+}
 
 /** Направления словами — в бриф менеджера и на доску. */
 function directionsText(state: OfficeState): string {
@@ -897,6 +920,14 @@ const teamTools = (state: OfficeState, chatId: string) => createSdkMcpServer({
       state.say('tool.listTeam.desc'),
       {},
       async () => ({ content: [{ type: 'text', text: teamSummary(state) }] }),
+      { annotations: { readOnlyHint: true } },
+    ),
+
+    tool(
+      'list_subprojects',
+      state.say('tool.listSubprojects.desc'),
+      {},
+      async () => ({ content: [{ type: 'text', text: subprojectsSummary(state) }] }),
       { annotations: { readOnlyHint: true } },
     ),
 

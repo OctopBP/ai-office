@@ -12,7 +12,7 @@ import { mkdirSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { resolve } from 'node:path';
 import { openOfficeState, unloadOfficeState } from '../src/server/state';
-import { assignDirect, officeAssign, retryTask, teamSummary } from '../src/server/agents';
+import { assignDirect, officeAssign, pmPrompt, retryTask, subprojectsSummary, teamSummary } from '../src/server/agents';
 import { editTask } from '../src/server/tasks';
 import { createPlan } from '../src/server/plan';
 import { flushAll, save, type Persisted } from '../src/server/store';
@@ -419,6 +419,57 @@ async function managerTools(): Promise<void> {
   unloadOfficeState('o-sub-tools');
 }
 
+/** Менеджер видит зоны: блок «Подпроекты» в промпте (§6.1). */
+async function managerSeesZones(): Promise<void> {
+  results.push('менеджер видит зоны: промпт, list_subprojects, сводка доски (§6.1):');
+  const office = openOfficeState({ id: 'o-sub-pm', projectDir, stateFile: resolve(base, 'pm.json') }).state;
+  office.dryRun = true;
+  const header = office.say('subprojects.text.header');
+  const plain = pmPrompt(office, true);
+  check('без зон блока «Подпроекты» нет', !plain.includes(header) && !plain.includes('subprojectId'));
+  check('list_subprojects без зон — «подпроектов нет»', subprojectsSummary(office) === office.say('subprojects.text.none'));
+  const svc = resolve(base, 'pm-svc');
+  gitRepo(svc);
+  await office.editRole('frontend', { repoDir: svc });
+  const zid = office.subprojects()[0]!.id;
+  const prompt = pmPrompt(office, true);
+  const block = prompt.slice(prompt.indexOf(header));
+  check('с зоной блок есть', prompt.includes(header));
+  check('в блоке id, вид и корень зоны',
+    block.includes(`- ${zid}`) && block.includes(office.say('subprojects.text.kind.repo')) && block.includes(svc));
+  check('в блоке закреплённая роль', block.includes(office.say('subprojects.text.members', { roles: `frontend (${office.role('frontend')!.title})` })));
+  check('в блоке универсалы', block.includes(`backend (${office.role('backend')!.title})`));
+  check('строка про subprojectId', block.includes('subprojectId'));
+  check('в промпте нет счётчика открытых задач', !block.includes(office.say('subprojects.text.open', { n: 0 })));
+
+  // list_subprojects: тот же список плюс открытые задачи по зоне.
+  office.createTask({ title: 'открытая', description: '', criteria: [], roleId: 'frontend' });
+  const closed = office.createTask({ title: 'закрытая', description: '', criteria: [], roleId: 'frontend' });
+  office.updateTask(closed.id, { status: 'cancelled' });
+  office.createTask({ title: 'вне зоны', description: '', criteria: [], roleId: 'backend' });
+  const list = subprojectsSummary(office);
+  check('list_subprojects: зона, вид и корень', list.includes(`- ${zid}`) && list.includes(svc));
+  check('list_subprojects: закреплённые роли',
+    list.includes(office.say('subprojects.text.members', { roles: `frontend (${office.role('frontend')!.title})` })));
+  check('list_subprojects: открытых задач зоны — одна', list.includes(office.say('subprojects.text.open', { n: 1 })));
+
+  // Сводка get_board: живые задачи по зонам; без зон — прежний вывод.
+  const say = (key: Parameters<typeof office.say>[0], vars?: Parameters<typeof office.say>[1]) => office.say(key, vars);
+  const input = { tasks: [...office.tasks.values()], epics: [], questions: [], autoPipeline: true };
+  const plainBoard = formatBoard(input, say);
+  check('сводка без зон — без групп', formatBoard({ ...input, zones: [] }, say) === plainBoard
+    && !plainBoard.includes(office.say('subprojects.text.wholeProject')));
+  const zoned = formatBoard({ ...input, zones: office.subprojects() }, say).split('\n');
+  const at = (text: string) => zoned.findIndex((l) => l.includes(text));
+  const zoneHead = at(office.say('board.zone', { zone: zid, n: 1 }));
+  const wholeHead = at(office.say('board.zone', { zone: office.say('subprojects.text.wholeProject'), n: 1 }));
+  check('сводка с зонами: группа зоны и группа «весь проект»', zoneHead >= 0 && wholeHead > zoneHead);
+  check('задача зоны — в группе зоны', at('открытая') === zoneHead + 1);
+  check('задача без зоны — в группе «весь проект»', at('вне зоны') === wholeHead + 1);
+  check('закрытая задача в группы не попала', at('закрытая') < 0);
+  unloadOfficeState('o-sub-pm');
+}
+
 /**
  * Последний рубеж (§3.2): startWorker не поднимает недопущенного. Места, где
  * исполнителя выбирает офис, отказывают раньше, поэтому доходим кнопкой
@@ -538,6 +589,7 @@ try {
   await officeZones();
   await startWorkerGate();
   await managerTools();
+  await managerSeesZones();
   await officeAssignGate();
   await unstaffedEpic();
 } finally {

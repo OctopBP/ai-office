@@ -48,7 +48,7 @@ const PAGE_MAX = 200;
 export type BoardTask = Pick<TaskView,
   'id' | 'title' | 'status' | 'roleId' | 'assigneeId' | 'epicId' | 'order' | 'priority'
   | 'dependsOn' | 'merged' | 'branch'>
-  & Partial<Pick<TaskView, 'result' | 'criteria'>>;
+  & Partial<Pick<TaskView, 'result' | 'criteria' | 'subprojectId'>>;
 
 /** Фича плана — поля для строки и причины простоя. */
 export type BoardEpic = Pick<EpicView, 'id' | 'title' | 'status' | 'order'>
@@ -66,6 +66,17 @@ export interface BoardInput {
   questions?: readonly BoardQuestion[];
   /** Settings.autoPipeline: по нему «сдана» отличается от «закрыта». По умолчанию — включён. */
   autoPipeline?: boolean;
+  /**
+   * Подпроекты офиса. Есть хотя бы один — живые задачи в сводке группируются
+   * по зонам; нет — сводка прежняя.
+   */
+  zones?: readonly BoardZone[];
+}
+
+/** Зона для заголовка группы в сводке. */
+export interface BoardZone {
+  id: string;
+  name: string;
 }
 
 /** Выборка. Все поля необязательные; ни одного — сводка. */
@@ -217,6 +228,30 @@ export function featureLine(say: BoardSay, input: BoardInput, epic: BoardEpic): 
 
 // ------------------------------------------------------------- сводка
 
+/**
+ * Живые задачи по зонам (spec подпроектов §6.1): группа на зону в порядке
+ * зон, задачи без зоны или с пропавшей зоной — в последней группе «весь
+ * проект». Пустые группы не печатаются. Порядок внутри группы — тот же, что
+ * у сводки: сначала то, что требует решения.
+ */
+function byZone(c: Ctx, live: readonly BoardTask[], zones: readonly BoardZone[]): string[] {
+  const known = new Set(zones.map((z) => z.id));
+  const groups = [
+    ...zones.map((z) => ({
+      title: z.name && z.name !== z.id ? `${z.id} (${z.name})` : z.id,
+      tasks: live.filter((x) => x.subprojectId === z.id),
+    })),
+    {
+      title: c.say('subprojects.text.wholeProject'),
+      tasks: live.filter((x) => !x.subprojectId || !known.has(x.subprojectId)),
+    },
+  ];
+  return groups.filter((g) => g.tasks.length).flatMap((g) => [
+    c.say('board.zone', { zone: g.title, n: g.tasks.length }),
+    ...g.tasks.map((x) => `  ${taskLine(c, x)}`),
+  ]);
+}
+
 /** Сводка доски без потолка: счётчики, фичи, живые задачи, закрытое числом, вопросы. */
 export function boardSummary(input: BoardInput, say: BoardSay): string {
   const c = ctxOf(input, say);
@@ -249,7 +284,8 @@ export function boardSummary(input: BoardInput, say: BoardSay): string {
     const live = tasks.filter((x) => isLive(c, x))
       .sort((a, b) => liveRank(a) - liveRank(b) || idNum(a.id) - idNum(b.id));
     if (live.length) {
-      const shown = live.slice(0, LIVE_SHOWN).map((x) => taskLine(c, x));
+      const top = live.slice(0, LIVE_SHOWN);
+      const shown = input.zones?.length ? byZone(c, top, input.zones) : top.map((x) => taskLine(c, x));
       if (live.length > LIVE_SHOWN) {
         shown.push(say('board.liveMore', { n: live.length - LIVE_SHOWN }));
       }

@@ -365,6 +365,43 @@ export function subprojectView(
   };
 }
 
+/**
+ * Зоны словами — блок «Подпроекты» в промпте менеджера и ответ
+ * list_subprojects (§6.1): id, имя, вид, корень, summary, кто закреплён и кто
+ * универсал. `open` — к зоне добавляется число открытых задач: в промпте его
+ * нет, статическая часть не должна меняться от каждой задачи. Зон нет —
+ * пустая строка: в офисе без зон блока нет.
+ */
+export function zonesText(
+  views: readonly SubprojectView[], roles: readonly Role[], lang: Lang, opts: { open?: boolean } = {},
+): string {
+  if (!views.length) return '';
+  const nobody = t(lang, 'subprojects.text.nobody');
+  const rows = views.map((v) => {
+    const lines = [t(lang, 'subprojects.text.row', {
+      id: v.id,
+      name: v.name && v.name !== v.id ? ` (${v.name})` : '',
+      kind: t(lang, v.kind === 'repo' ? 'subprojects.text.kind.repo' : 'subprojects.text.kind.folder'),
+      // Папку — как её завели, от корня офиса; репозиторий — полным путём.
+      root: v.kind === 'repo' ? v.repoDir : v.root,
+    })];
+    if (v.summary) lines.push(`  ${v.summary}`);
+    lines.push(`  ${v.members.length
+      ? t(lang, 'subprojects.text.members', { roles: v.members.map((m) => `${m.id} (${m.title})`).join(', ') })
+      : t(lang, 'subprojects.text.noMembers')}`);
+    if (opts.open) lines.push(`  ${t(lang, 'subprojects.text.open', { n: v.openTasks })}`);
+    if (v.problem) lines.push(`  ${t(lang, 'subprojects.text.problem', { problem: v.problem })}`);
+    return lines.join('\n');
+  });
+  const free = roles.filter((r) => !r.archived && !r.isManager && !(r.subprojects ?? []).length)
+    .map((r) => `${r.id} (${r.title})`);
+  return [
+    t(lang, 'subprojects.text.header'),
+    ...rows,
+    t(lang, 'subprojects.text.universals', { roles: free.join(', ') || nobody }),
+  ].join('\n');
+}
+
 /** Следующий свободный цвет палитры; занято всё — по кругу. */
 function nextColor(subs: readonly Subproject[]): string {
   const used = new Set(subs.map((s) => s.color));
