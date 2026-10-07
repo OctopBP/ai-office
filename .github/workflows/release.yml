@@ -38,8 +38,13 @@ jobs:
           node-version-file: .nvmrc
           cache: npm
       - run: npm ci
+      # Windows-сборка качает MinGit (scripts/fetch-mingit.mjs) по прямой
+      # ссылке; токен нужен запасному пути через API (--latest), чтобы не
+      # упираться в анонимный лимит на общем IP раннера.
       - name: ресурсы приложения
         run: npm run build:desktop
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       - name: зависимости оболочки
         run: npm ci
         working-directory: desktop
