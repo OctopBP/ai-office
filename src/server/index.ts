@@ -34,7 +34,7 @@ import { applyProposal } from './selfchange';
 import { RITUAL_IDS } from '../shared/types';
 import { githubToken, setGithubToken } from './cloud';
 import {
-  clearInitFlag, currentOffice, ensureOffice, loadRegistry, officeById, offices, setCurrent,
+  bootOffice, clearInitFlag, currentOffice, loadRegistry, officeById,
   uiLanguage,
   type OfficeEntry,
 } from './offices';
@@ -156,27 +156,14 @@ loadRegistry(DEFAULT_DIR);
 // говорит терминал ещё до того, как хоть один офис откроется.
 setProcessLang(uiLanguage());
 // Переменная окружения по-прежнему решает, с каким проектом открыться:
-// на неё опираются тесты и запуск «в другой папке» одной командой.
-if (process.env.OFFICE_PROJECT_DIR) {
-  const wanted = ensureOffice({
-    name: basename(DEFAULT_DIR) || c('offices.defaultName'), projectDir: DEFAULT_DIR,
-  });
-  setCurrent(wanted.id);
-}
-const wanted = currentOffice();
-if (!wanted) throw new Error(c('boot.noOffice'));
-
-/**
- * С каким офисом поднимаемся. Обычно это тот, который человек открывал
- * последним, но архивный офис не поднимается ни при каких условиях: по нему
- * не идёт никакая работа, а открытие — это уже работа. Тогда берём самый
- * старый неархивный; нет и такого (все офисы в архиве) — не поднимаем ничего.
- *
- * Отметку «открыт сейчас» при подмене переставляем в реестре: иначе следующий
- * запуск снова пришёл бы к архивному офису и снова искал замену.
- */
-const opened = wanted.archived ? offices().find((o) => !o.archived) ?? null : wanted;
-if (opened && opened.id !== wanted.id) setCurrent(opened.id);
+// на неё опираются тесты и запуск «в другой папке» одной командой. Офис этой
+// папки, убранный в архив, в архиве и остаётся (`bootOffice`): приложение
+// передаёт папку на каждом старте, и снятие архива здесь возвращало офис в
+// рейл после каждого перезапуска (T-491).
+if (!currentOffice()) throw new Error(c('boot.noOffice'));
+const opened = bootOffice(process.env.OFFICE_PROJECT_DIR
+  ? { name: basename(DEFAULT_DIR) || c('offices.defaultName'), projectDir: DEFAULT_DIR }
+  : null);
 
 /**
  * Причина, по которой стартовый офис не открылся, — или null, если открылся.

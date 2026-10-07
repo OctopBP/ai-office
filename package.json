@@ -78,6 +78,7 @@
     "test:promote": "node --import tsx scripts/test-release-promote.ts",
     "test:beta": "node --import tsx scripts/test-release-beta.ts",
     "test:offices": "tsx scripts/test-offices.ts",
+    "test:archiveboot": "node --import tsx scripts/test-office-archive-boot.ts",
     "test:setup": "tsx scripts/test-setup.ts",
     "test:doctemplates": "node --import tsx scripts/test-doc-templates.ts",
     "test:presets": "tsx scripts/test-presets.ts",

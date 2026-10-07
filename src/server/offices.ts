@@ -453,12 +453,16 @@ export function ensureOffice(input: { name: string; projectDir: string }): Offic
   const found = registry?.offices.find((o) => o.projectDir === projectDir);
   if (found) {
     // Открываемый офис не может оставаться скрытым: иначе его не видно
-    // в списке, из которого в него же предлагается вернуться. С архивом то же
-    // самое: сюда приходят по прямому указанию человека («открой офис вот
-    // этого проекта»), а это и есть возвращение проекта в работу.
-    if (found.hidden || found.archived) {
+    // в списке, из которого в него же предлагается вернуться.
+    //
+    // Архив здесь НЕ снимаем. Сюда приходят на каждом старте сервера:
+    // приложение всегда передаёт папку проекта по умолчанию в окружении, и
+    // разархивация тут возвращала убранный владельцем офис после каждого
+    // перезапуска. Из архива офис выходит только явной командой владельца
+    // (`unarchiveOffice`); архивный офис отдаём как есть, а какой офис
+    // поднять вместо него, решает вызывающий.
+    if (found.hidden) {
       found.hidden = false;
-      delete found.archived;
       write();
     }
     return found;
@@ -468,6 +472,27 @@ export function ensureOffice(input: { name: string; projectDir: string }): Offic
   // Директорию уже занял другой офис — открываем его, а не плодим дубль.
   const taken = registry?.offices.find((o) => o.projectDir === projectDir);
   return taken ?? currentOffice()!;
+}
+
+/**
+ * С каким офисом поднимается сервер. `fromEnv` — папка проекта из окружения
+ * (приложение передаёт её всегда): её офис находим или заводим и делаем
+ * текущим — но только если он не в архиве. Дальше обычно поднимается тот,
+ * кого человек открывал последним, а архивный офис не поднимается ни при
+ * каких условиях: тогда берём самый старый неархивный и переставляем на него
+ * отметку «открыт сейчас», чтобы следующий запуск не искал замену заново.
+ * null — все офисы в архиве. Архив здесь не снимается никогда.
+ */
+export function bootOffice(fromEnv: { name: string; projectDir: string } | null): OfficeEntry | null {
+  if (fromEnv) {
+    const wanted = ensureOffice(fromEnv);
+    if (!wanted.archived) setCurrent(wanted.id);
+  }
+  const wanted = currentOffice();
+  if (!wanted) return null;
+  const opened = wanted.archived ? offices().find((o) => !o.archived) ?? null : wanted;
+  if (opened && opened.id !== wanted.id) setCurrent(opened.id);
+  return opened;
 }
 
 /** Стоит ли офис на паузе по реестру. Записи нет или поля нет — не стоит. */
