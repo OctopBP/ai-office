@@ -17,7 +17,7 @@ import { tmpdir } from 'node:os';
 import { resolve } from 'node:path';
 import { getOffice, type Task } from '../src/server/state';
 import { releaseTiming, setReleaseAgents, startRelease, whenReleasesIdle } from '../src/server/releases';
-import type { Release, ReleaseTarget } from '../src/shared/release';
+import { defaultChannel, type Release, type ReleaseTarget } from '../src/shared/release';
 
 process.env.OFFICE_LANG = 'ru';
 
@@ -116,10 +116,28 @@ async function main(): Promise<void> {
   const bad = office.updateSettings({ release: { targets: [desktop] } });
   check('цель с каналами сохранилась', bad === null && Boolean(office.releaseTarget('desktop')?.channels?.beta));
 
-  // 1. Первая бета: v0.11.0-beta.1, ветка beta создана и в origin, main получил версию.
-  console.log('▶ Первая бета');
+  // 0. Канал по умолчанию: у цели с бетой — бета, без каналов — стабильный.
+  console.log('▶ Канал по умолчанию');
+  check('с бетой — бета', defaultChannel(desktop) === 'beta');
+  check('без каналов — стабильный', defaultChannel({}) === 'stable');
+  check('только стабильный — стабильный', defaultChannel({ channels: { stable: { branch: 'release' } } }) === 'stable');
+
+  // 1. Первая бета: по поводу epic.done, канал не назван — идёт в бету, а не
+  // встаёт на «состоявшейся беты ещё нет». Владелец видит канал и версию.
+  // v0.11.0-beta.1, ветка beta создана и в origin, main получил версию.
+  console.log('▶ Первая бета по поводу');
   mergedTask('Экспорт', 'export.txt');
-  const b1 = await release({ channel: 'beta' });
+  office.updateSettings({ release: { targets: [{ ...desktop, policy: { when: ['epic.done'], approve: 'always' } }] } });
+  const auto = startRelease(office, 'desktop', 'epic.done', '', Date.now());
+  check(`выпуск по поводу начат (${auto.message})`, auto.ok && auto.release?.channel === 'beta');
+  const gate = () => office.questionList().find((q) => q.kind === 'gate' && !q.answeredAt && !q.dismissedAt);
+  for (let i = 0; i < 500 && !gate(); i += 1) await new Promise((r) => setTimeout(r, 20));
+  const q = gate();
+  check(`вопрос называет канал и версию (${q?.text.split('\n')[0]})`, Boolean(q?.text.includes('Бета 0.11.0-beta.1')));
+  if (q) office.updateQuestion(q.id, { answer: 'Выпускай', answeredAt: Date.now() });
+  await whenReleasesIdle(office);
+  office.updateSettings({ release: { targets: [desktop] } });
+  const b1 = office.releases.get(auto.release!.id)!;
   check(`бета состоялась (${b1.status}: ${b1.stage})`, b1.status === 'done');
   check(`версия 0.11.0-beta.1 (${b1.version})`, b1.version === '0.11.0-beta.1' && b1.channel === 'beta');
   const t1 = tip(dir, 'refs/tags/v0.11.0-beta.1^{commit}');

@@ -20,7 +20,7 @@ import { readFileSync, writeFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { OFFICE_SENDER } from '../shared/types';
 import {
-  DEFAULT_TAG, DEFAULT_TIMEOUT_MIN, RELEASE_CHANNELS, allowsManual, channelFrom, autoLevel, autoReasons, compareVersions, fillVersion, maxLevel,
+  DEFAULT_TAG, DEFAULT_TIMEOUT_MIN, RELEASE_CHANNELS, allowsManual, channelFrom, defaultChannel, autoLevel, autoReasons, compareVersions, fillVersion, maxLevel,
   nextChannelVersion, nextVersion, parseBuildResult, parseGithubRelease, parseReleaseConfig, parseSemver, parseVersion, releaseActive,
   targetChannels, versionChannel, versionInAnswer, versionLabel,
   type GithubReleaseCheck, type Release, type ReleaseChannel, type ReleaseChannelSpec, type ReleaseChannels, type ReleaseReason,
@@ -781,17 +781,20 @@ const approve: Executor<Ctx> = {
       const yes = say(ctx, 'rel.optYes');
       const no = say(ctx, 'rel.optNo');
       const epics = r.epicIds.map((id) => state.epics.get(id)?.title).filter(Boolean).join(', ');
+      // У цели с каналами владелец видит, куда выпуск: «Бета 0.13.0-beta.1».
+      const channel = channelOf(target, r);
+      const version = channel ? `${say(ctx, `rel.channel.${channel}` as ServerKey)} ${label(r)}` : label(r);
       question = state.addQuestion({
         from: OFFICE_SENDER, taskId: null, kind: 'gate',
         text: say(ctx, 'rel.ask', {
-          target: target.title, version: label(r),
+          target: target.title, version,
           level: r.level ? say(ctx, 'rel.askLevel', { level: r.level, from: say(ctx, `rel.levelFrom.${r.levelFrom ?? 'auto'}` as ServerKey) }) : '',
           tasks: r.taskIds.length, epics: epics || '—', notes: clip(r.notes, 1200), yes, no,
         }),
         assumption: say(ctx, 'rel.askAssumption'),
         options: [yes, no],
       });
-      state.addChat(OFFICE_SENDER, say(ctx, 'rel.askChat', { target: target.title, version: label(r), id: question.id }));
+      state.addChat(OFFICE_SENDER, say(ctx, 'rel.askChat', { target: target.title, version, id: question.id }));
     }
     run.waitingOn = question.id;
     run.status = 'waiting';
@@ -1323,8 +1326,9 @@ export function startRelease(
     const known = state.releaseTargets().map((t) => t.id).join(', ');
     return { ok: false, message: known ? state.say('rel.noTarget', { id: targetId, known }) : state.say('rel.noTargets') };
   }
-  // Канал по умолчанию — стабильный; канала, которого у цели нет, не бывает.
-  const channel = opts.channel ?? 'stable';
+  // Канал по умолчанию — бета, если она у цели есть (стабильный — только явным
+  // продвижением беты); канала, которого у цели нет, не бывает.
+  const channel = opts.channel ?? defaultChannel(target);
   const channels = targetChannels(target);
   if (channels.length ? !channels.includes(channel) : channel !== 'stable') {
     return {

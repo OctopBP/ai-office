@@ -181,6 +181,15 @@ export function channelFrom(channels: ReleaseChannels, channel: ReleaseChannel):
 export const targetChannels = (target: Pick<ReleaseTarget, 'channels'>): ReleaseChannel[] =>
   (target.channels ? RELEASE_CHANNELS.filter((c) => Boolean(target.channels?.[c])) : []);
 
+/**
+ * Канал выпуска, когда его не назвали явно: выпуск по поводу (epic.done,
+ * mergedEvery) и ручной без канала. Есть бета — идём в неё: стабильный
+ * продвигается только из состоявшейся беты, и без неё сразу встал бы.
+ * Нет беты (или каналов вовсе) — стабильный.
+ */
+export const defaultChannel = (target: Pick<ReleaseTarget, 'channels'>): ReleaseChannel =>
+  (target.channels?.beta ? 'beta' : 'stable');
+
 /** Проверки каналов цели (§5.1): вид и схема, ветки, цепочка `from`. */
 function checkChannels(target: ReleaseTarget, where: string): void {
   const channels = target.channels as ReleaseChannels;
