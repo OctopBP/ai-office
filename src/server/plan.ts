@@ -28,6 +28,7 @@ import type { EpicHold, TaskPriority } from '../shared/types';
 import { toTaskView, type Epic, type OfficeState, type PmAbout, type Task } from './state';
 import type { TaskType } from '../shared/workflow';
 import { cancelTask } from './outcomes';
+import { zoneForRole } from './subprojects';
 
 // ------------------------------------------------------------ инициативы
 
@@ -499,6 +500,11 @@ export interface PlannedTask {
   dependsOn?: string[];
   /** Тип работы (spec процессов §7.2). Пусто — по роли. */
   type?: TaskType | '';
+  /**
+   * Зона задачи (spec подпроектов §6.1). Пусто — выводится из роли,
+   * `none` — «весь проект».
+   */
+  subprojectId?: string;
 }
 
 export interface PlannedEpic {
@@ -583,6 +589,19 @@ export function createPlan(
   const cycle = findCycle(epics);
   if (cycle) return { ok: false, message: state.say('plan.err.cycle', { chain: cycle.join(' → ') }) };
 
+  // Зона и допуск — для каждой задачи, а отказ целиком и с перечнем всех
+  // несошедшихся: по одной за раз менеджер чинил бы план кругами.
+  const zones = new Map<string, string | null>();   // ключ плана → зона
+  const bad: string[] = [];
+  for (const epic of epics) {
+    for (const task of epic.tasks) {
+      const picked = zoneForRole(state, state.role(task.roleId)!, task.subprojectId);
+      if ('error' in picked) bad.push(`- ${task.key.trim()} «${task.title}»: ${picked.error}`);
+      else zones.set(task.key.trim(), picked.zone);
+    }
+  }
+  if (bad.length) return { ok: false, message: state.say('plan.err.zones', { list: bad.join('\n') }) };
+
   // Проверки пройдены — заводим. Порядок фич продолжает уже существующий
   // план, а не начинается заново: новая фича встаёт в конец очереди, а не
   // впереди той, которую офис уже ведёт.
@@ -611,6 +630,7 @@ export function createPlan(
         dependsOn: [],
         status: 'planned',
         ...(task.type ? { type: task.type } : {}),
+        subprojectId: zones.get(task.key.trim()) ?? null,
         chatId: chatId ?? null,
       });
       keys.set(task.key.trim(), created.id);

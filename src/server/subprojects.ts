@@ -156,6 +156,40 @@ export function admitProblem(
   return t(lang, 'subprojects.admit.otherZone', { role: roleLabel(role), zone: zoneName(subs, zone), who });
 }
 
+/**
+ * Зона задачи из слов менеджера (§6.1). `wanted`: undefined или '' — вывести
+ * из роли; `none` — явно «весь проект»; иначе id зоны. Пусто: одна зона роли —
+ * она, несколько — отказ «укажи зону», ни одной — «весь проект». Названная
+ * зона проверяется на существование (отказ со списком зон) и допуск роли
+ * (отказ из admitProblem — с перечнем ролей, которым зона по силам).
+ */
+export function zoneForRole(
+  scope: AdmitScope,
+  role: Pick<Role, 'id' | 'title' | 'subprojects' | 'isManager'>,
+  wanted: string | null | undefined,
+): { zone: string | null } | { error: string } {
+  const lang = scope.lang();
+  const subs = scope.subprojects();
+  const raw = wanted?.trim() ?? '';
+  let zone: string | null;
+  if (raw === 'none') zone = null;
+  else if (raw) {
+    if (!subs.some((s) => s.id === raw)) {
+      const zones = subs.length ? subs.map((s) => s.id).join(', ') : '—';
+      return { error: t(lang, 'subprojects.zone.unknown', { zone: raw, zones }) };
+    }
+    zone = raw;
+  } else {
+    const own = role.isManager ? [] : role.subprojects ?? [];
+    if (own.length > 1) {
+      return { error: t(lang, 'subprojects.zone.ambiguous', { role: roleLabel(role), zones: own.join(', ') }) };
+    }
+    zone = own[0] ?? null;
+  }
+  const problem = admitProblem(scope, role, { subprojectId: zone });
+  return problem ? { error: problem } : { zone };
+}
+
 /** Допуску ревьюера нужен ещё поиск роли по id. OfficeState подходит как есть. */
 export interface ReviewerScope extends AdmitScope {
   role(id: string): Role | undefined;

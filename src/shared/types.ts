@@ -1545,6 +1545,12 @@ export interface TaskEdit {
   roleId?: string;
   type?: TaskType | '';
   priority?: TaskPriority;
+  /**
+   * Зона задачи (docs/design/subprojects/spec.md §6.1): id зоны, `none` —
+   * «весь проект», пусто — вывести из роли. Меняется, только пока задача не
+   * стартовала.
+   */
+  subprojectId?: string;
 }
 
 /**

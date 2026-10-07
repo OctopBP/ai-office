@@ -12,14 +12,16 @@ import { mkdirSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { resolve } from 'node:path';
 import { openOfficeState, unloadOfficeState } from '../src/server/state';
-import { assignDirect, officeAssign, retryTask } from '../src/server/agents';
+import { assignDirect, officeAssign, retryTask, teamSummary } from '../src/server/agents';
+import { editTask } from '../src/server/tasks';
+import { createPlan } from '../src/server/plan';
 import { flushAll, save, type Persisted } from '../src/server/store';
 import { dispatch } from '../src/server/plan';
 import { formatBoard } from '../src/server/board-view';
 import { defaultRoles, type Role } from '../src/server/roles';
 import { loadPackage } from '../src/server/packages';
 import {
-  admitProblem, admits, ensureZone, migrateRepoDirs, outsideZone, roleWorkdir, sanitizeSubprojects, taskRepoDir, writeZone,
+  admitProblem, admits, ensureZone, migrateRepoDirs, outsideZone, roleWorkdir, sanitizeSubprojects, taskRepoDir, writeZone, zoneForRole,
   type ZoneTask,
 } from '../src/server/subprojects';
 import type { Subproject } from '../src/shared/types';
@@ -313,6 +315,72 @@ function admission(): void {
   check('офис без подпроектов — допуск всегда', admitProblem(empty, free, { subprojectId: null }) === null);
 }
 
+function pickZone(): void {
+  results.push('зона из слов менеджера zoneForRole (§6.1):');
+  const subs = [zone('web', 'folder', 'apps/web'), zone('api', 'folder', 'apps/api')];
+  const pinned = role('frontend', { subprojects: ['web'] });
+  const both = role('fullstack', { subprojects: ['web', 'api'] });
+  const free = role('backend');
+  const scope = { subprojects: () => subs, workerRoles: () => [pinned, both, free], lang: () => 'ru' as const };
+  const zoneOf = (r: ReturnType<typeof zoneForRole>) => ('zone' in r ? r.zone : `!${r.error}`);
+  check('пусто, одна зона роли — она', zoneOf(zoneForRole(scope, pinned, '')) === 'web');
+  check('пусто, роль без закрепления — весь проект', zoneOf(zoneForRole(scope, free, '')) === null);
+  const amb = zoneForRole(scope, both, '');
+  check('пусто, несколько зон — отказ «укажи зону»', 'error' in amb && amb.error.includes('web, api'));
+  const unknown = zoneForRole(scope, free, 'nope');
+  check('неизвестный id — отказ с перечнем зон', 'error' in unknown && unknown.error.includes('«nope»') && unknown.error.includes('web, api'));
+  const denied = zoneForRole(scope, pinned, 'api');
+  check('недопущенная роль — причина из admitProblem',
+    'error' in denied && denied.error === admitProblem(scope, pinned, { subprojectId: 'api' }));
+  check('none — явно весь проект', zoneOf(zoneForRole(scope, free, 'none')) === null
+    && 'error' in zoneForRole(scope, pinned, 'none'));
+  check('названная своя зона — она', zoneOf(zoneForRole(scope, both, ' api ')) === 'api');
+}
+
+/** create_task, plan_features, edit_task и list_team в живом офисе (§6.1). */
+async function managerTools(): Promise<void> {
+  results.push('инструменты менеджера: зона задачи и закрепления (§6.1):');
+  const office = openOfficeState({ id: 'o-sub-tools', projectDir, stateFile: resolve(base, 'tools.json') }).state;
+  office.dryRun = true;
+  const zonesWord = () => office.say('prompt.team.zones');
+  check('list_team без зон — строки «зоны» нет', !teamSummary(office).includes(`${zonesWord()}:`));
+  const svc = resolve(base, 'tools-svc');
+  gitRepo(svc);
+  await office.editRole('frontend', { repoDir: svc });
+  const zid = office.subprojects()[0]!.id;
+  const team = teamSummary(office);
+  const lineOf = (id: string) => team.split('\n- ').find((l) => l.replace(/^- /, '').startsWith(`${id} (`)) ?? '';
+  check('list_team: закреплённая роль — её зона', lineOf('frontend').includes(`${zonesWord()}: ${zid}`));
+  check('list_team: роль без закрепления — весь проект', lineOf('backend').includes(`${zonesWord()}: ${office.say('prompt.team.wholeProject')}`));
+
+  const task = office.createTask({ title: 'правка', description: 'x', criteria: ['a'], roleId: 'backend' });
+  const unknown = editTask(office, task.id, { subprojectId: 'nope' });
+  check('edit_task: неизвестная зона — отказ', !unknown.ok && unknown.message.includes('nope'));
+  const moved = editTask(office, task.id, { subprojectId: zid });
+  check('edit_task: зона сменилась', moved.ok && office.tasks.get(task.id)?.subprojectId === zid);
+  const toFront = editTask(office, task.id, { roleId: 'frontend', subprojectId: 'none' });
+  check('edit_task: недопущенная пара — причина и ничего не тронуто',
+    !toFront.ok && toFront.message === admitProblem(office, office.role('frontend')!, { subprojectId: null })
+    && office.tasks.get(task.id)?.roleId === 'backend' && office.tasks.get(task.id)?.subprojectId === zid);
+  office.updateTask(task.id, { status: 'failed', repoDir: svc });
+  check('edit_task: у стартовавшей задачи зону не меняют', !editTask(office, task.id, { subprojectId: 'none' }).ok);
+
+  const before = office.tasks.size;
+  const plan = (front: string) => [{
+    title: 'фича', goal: 'цель', tasks: [
+      { key: 'ui', title: 'экран', description: 'x', acceptanceCriteria: ['a'], roleId: 'frontend', subprojectId: front },
+      { key: 'api', title: 'ручка', description: 'x', acceptanceCriteria: ['a'], roleId: 'backend', subprojectId: 'nope' },
+    ],
+  }];
+  const bad = createPlan(office, plan('none'));
+  check('plan_features: отказ целиком с перечнем задач',
+    !bad.ok && bad.message.includes('ui «экран»') && bad.message.includes('api «ручка»') && office.tasks.size === before);
+  const good = createPlan(office, [{ ...plan('')[0]!, tasks: [{ ...plan('')[0]!.tasks[0]!, subprojectId: '' }] }]);
+  const made = [...office.tasks.values()].find((t) => t.title === 'экран');
+  check('plan_features: пустая зона выведена из роли', good.ok && made?.subprojectId === zid);
+  unloadOfficeState('o-sub-tools');
+}
+
 /**
  * Последний рубеж (§3.2): startWorker не поднимает недопущенного. Места, где
  * исполнителя выбирает офис, отказывают раньше, поэтому доходим кнопкой
@@ -422,12 +490,14 @@ async function unstaffedEpic(): Promise<void> {
 try {
   pureRules();
   admission();
+  pickZone();
   zoneBoundary();
   pureMigration();
   pureEnsureZone();
   officeMigration();
   await officeZones();
   await startWorkerGate();
+  await managerTools();
   await officeAssignGate();
   await unstaffedEpic();
 } finally {

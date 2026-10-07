@@ -26,7 +26,7 @@ import { t, type ServerKey } from './i18n';
 import type { BudgetStop, MeetingView, PmChat, PrStage, PullRequestView, ReviewVerdict, TaskEdit } from '../shared/types';
 import { cloudProblem, runCloudTask, stopCloudTask } from './cloud';
 import type { Role } from './roles';
-import { admitProblem, reviewerFor } from './subprojects';
+import { admitProblem, reviewerFor, zoneForRole } from './subprojects';
 import { externalMcp, mcpBrief, serversFor } from './mcp';
 import { SANDBOX, sandboxFor } from './sandbox';
 import { ensureChromium } from './chromium';
@@ -802,6 +802,14 @@ export function noStaffReason(roleId: string, state: OfficeState): string | null
   return state.say('agent.noStaff', { role: roleId, title });
 }
 
+/** Зоны офиса для описания параметра subprojectId: «web (Веб), server (Сервер)». */
+export function zonesHint(state: OfficeState): string {
+  const subs = state.subprojects();
+  return subs.length
+    ? subs.map((s) => (s.name && s.name !== s.id ? `${s.id} (${s.name})` : s.id)).join(', ')
+    : state.say('tool.createTask.noZones');
+}
+
 /**
  * Допуск роли к зоне задачи там, где исполнителя выбирает сам офис (spec
  * подпроектов §3.2): раздача плана, очередь за слотом, починка окружения,
@@ -838,6 +846,7 @@ export function admitGate(
  * а не сценарием с живой моделью: от него зависит, кому PM раздаёт задачи.
  */
 export function teamSummary(state: OfficeState): string {
+  const subs = state.subprojects();
   const lines = state.workerRoles().map((role) => {
     const insts = state.staffOf(role.id);
     // Роль без сотрудников — открытая вакансия: она есть в реестре, но
@@ -854,8 +863,19 @@ export function teamSummary(state: OfficeState): string {
     const where = repo === state.projectDir
       ? ''
       : `\n  ${state.say('prompt.team.repo')}: ${repo}`;
+    // Закрепление — только в офисе с зонами: без них все роли «весь проект»,
+    // и строка ничего не говорила бы менеджеру (spec подпроектов §6.1).
+    const own = role.subprojects ?? [];
+    const zones = !subs.length
+      ? ''
+      : `\n  ${state.say('prompt.team.zones')}: ${own.length
+        ? own.map((id) => {
+          const zone = subs.find((s) => s.id === id);
+          return zone && zone.name && zone.name !== id ? `${id} (${zone.name})` : id;
+        }).join(', ')
+        : state.say('prompt.team.wholeProject')}`;
     const result = state.say(role.isolate ? 'prompt.team.isolated' : 'prompt.team.direct');
-    return `- ${role.id} (${role.title})${first ? ` — ${first}` : ''}\n  ${desc}${where}` +
+    return `- ${role.id} (${role.title})${first ? ` — ${first}` : ''}\n  ${desc}${zones}${where}` +
       `\n  ${state.say('prompt.team.result')}: ${result}`;
   });
   return `${state.say('prompt.team.header')}\n${lines.join('\n')}`;
@@ -896,6 +916,8 @@ const teamTools = (state: OfficeState, chatId: string) => createSdkMcpServer({
         type: z.enum([...TASK_TYPES, '']).default('').describe(state.say('tool.createTask.type')),
         priority: z.enum([...TASK_PRIORITIES, '']).default('')
           .describe(state.say('tool.createTask.priority')),
+        subprojectId: z.string().default('')
+          .describe(state.say('tool.createTask.subproject', { zones: zonesHint(state) })),
       },
       async (args) => {
         // Список ролей не дублируем в схеме: перечисление в enum уже один раз
@@ -921,6 +943,13 @@ const teamTools = (state: OfficeState, chatId: string) => createSdkMcpServer({
             }],
             isError: true,
           };
+        }
+        // Зона: названа — проверяется на существование и допуск роли; пусто —
+        // выводится из роли (spec подпроектов §6.1). Недопустимая пара — отказ
+        // со списком ролей, которым зона по силам: роль офис сам не подменяет.
+        const picked = zoneForRole(state, state.role(args.roleId)!, args.subprojectId);
+        if ('error' in picked) {
+          return { content: [{ type: 'text', text: picked.error }], isError: true };
         }
         const epicId = args.featureId?.trim() || null;
         if (epicId && !state.epics.get(epicId)) {
@@ -955,6 +984,7 @@ const teamTools = (state: OfficeState, chatId: string) => createSdkMcpServer({
           ...(args.type ? { type: args.type } : {}),
           // Пусто — средний: умолчание одно на весь офис (DEFAULT_TASK_PRIORITY).
           ...(args.priority ? { priority: args.priority } : {}),
+          subprojectId: picked.zone,
           chatId,
         });
         // В чат ложится ссылка, а не строка: карточка сама покажет статус и
@@ -996,6 +1026,8 @@ const teamTools = (state: OfficeState, chatId: string) => createSdkMcpServer({
         type: z.enum([...TASK_TYPES, '']).default('').describe(state.say('tool.createTask.type')),
         priority: z.enum([...TASK_PRIORITIES, '']).default('')
           .describe(state.say('tool.editTask.priority')),
+        subprojectId: z.string().default('')
+          .describe(state.say('tool.editTask.subproject', { zones: zonesHint(state) })),
       },
       async (args) => {
         // Пустая строка — «поле не трогаем», а не «стереть»: иначе правка
@@ -1007,6 +1039,7 @@ const teamTools = (state: OfficeState, chatId: string) => createSdkMcpServer({
         if (args.roleId.trim()) patch.roleId = args.roleId;
         if (args.type) patch.type = args.type;
         if (args.priority) patch.priority = args.priority;
+        if (args.subprojectId.trim()) patch.subprojectId = args.subprojectId;
         const outcome = editTask(state, args.taskId, patch);
         return { content: [{ type: 'text', text: outcome.message }], isError: !outcome.ok };
       },
@@ -1327,6 +1360,8 @@ const teamTools = (state: OfficeState, chatId: string) => createSdkMcpServer({
             dependsOn: z.array(z.string()).default([])
               .describe(state.say('tool.planFeatures.dependsOn')),
             type: z.enum([...TASK_TYPES, '']).default('').describe(state.say('tool.createTask.type')),
+            subprojectId: z.string().default('')
+              .describe(state.say('tool.planFeatures.subproject', { zones: zonesHint(state) })),
           })).describe(state.say('tool.planFeatures.tasks')),
         })).describe(state.say('tool.planFeatures.features')),
       },

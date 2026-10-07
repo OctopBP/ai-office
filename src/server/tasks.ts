@@ -24,6 +24,7 @@ import { TASK_TYPES, type TaskType } from '../shared/workflow';
 import type { OfficeState, Task } from './state';
 import { cancelTask } from './outcomes';
 import { dispatch } from './plan';
+import { admitProblem, zoneForRole } from './subprojects';
 
 /** Обрез для ленты: длинный заголовок в строке журнала ничего не добавляет. */
 const clip = (s: string, n = 60): string => (s.length > n ? `${s.slice(0, n - 1)}…` : s);
@@ -111,6 +112,35 @@ export function editTask(state: OfficeState, taskId: string, patch: TaskEdit): T
       next.type = resolved;
       changes.push(state.say('task.edit.field.type', { type: resolved ?? '—' }));
     }
+  }
+
+  // Зона и допуск (spec подпроектов §3.2, §6.1). Смена зоны — только у не
+  // стартовавшей задачи: репозиторий фиксируется на старте вместе с зоной.
+  // Смена роли или зоны — повторная проверка допуска пары «роль × зона».
+  // Проверяется до важности: та пишется сразу, а отказ не должен оставлять
+  // задачу правленой наполовину.
+  const finalRoleId = next.roleId ?? task.roleId;
+  const finalRole = finalRoleId ? state.role(finalRoleId) : undefined;
+  let zone = task.subprojectId ?? null;
+  if (patch.subprojectId !== undefined) {
+    if (!UNTOUCHED.includes(task.status) || task.repoDir) {
+      return { ok: false, message: state.say('subprojects.zone.started', { task: task.id }) };
+    }
+    const picked = finalRole
+      ? zoneForRole(state, finalRole, patch.subprojectId)
+      : zoneForRole(state, { id: '', title: '', subprojects: [], isManager: false }, patch.subprojectId);
+    if ('error' in picked) return { ok: false, message: picked.error };
+    zone = picked.zone;
+    if (zone !== (task.subprojectId ?? null)) {
+      next.subprojectId = zone;
+      changes.push(state.say('task.edit.field.zone', {
+        zone: zone ? state.subproject(zone)?.name ?? zone : '—',
+      }));
+    }
+  }
+  if (finalRole && (next.roleId !== undefined || next.subprojectId !== undefined)) {
+    const problem = admitProblem(state, finalRole, { subprojectId: zone });
+    if (problem) return { ok: false, message: problem };
   }
 
   // Важность живёт отдельным полем и меняется отдельным методом: её правят
