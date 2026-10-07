@@ -3875,6 +3875,9 @@ export class OfficeState {
     };
     if (kind === 'folder') zone.sharedPaths = shared;
     else delete zone.sharedPaths;
+    if (Array.isArray(draft.mergeChecks)) {
+      zone.mergeChecks = draft.mergeChecks.map((c) => String(c).trim()).filter(Boolean);
+    } else delete zone.mergeChecks;
     const problem = zoneProblem(zone, [...others, zone], this.projectDir, this.lang());
     if (problem) return { field: 'root', message: problem };
     this.subprojectList = existing
@@ -3883,6 +3886,28 @@ export class OfficeState {
     if (created) this.addLog(null, 'system', this.say('subprojects.created', { name: zone.name, root: zone.root }));
     this.markDirty();
     return { id: zone.id };
+  }
+
+  /**
+   * Удалить зону из настроек. Пока у неё есть открытые задачи — отказ готовым
+   * текстом с их числом; иначе закрепления ролей снимаются. Закрытые задачи
+   * остаются на доске со ссылкой на несуществующую зону.
+   */
+  deleteSubproject(id: string): { id: string } | { message: string } {
+    const zone = this.subproject(id);
+    if (!zone) return { message: this.say('subprojects.err.unknown', { id }) };
+    const open = this.subprojectViews().find((v) => v.id === id)?.openTasks ?? 0;
+    if (open > 0) return { message: this.say('subprojects.err.hasOpen', { name: zone.name, n: open }) };
+    this.subprojectList = this.subprojectList.filter((s) => s.id !== id);
+    this.roleList = this.roleList.map((r) => {
+      if (!r.subprojects?.includes(id)) return r;
+      const rest = r.subprojects.filter((z) => z !== id);
+      const { subprojects: _drop, ...bare } = r;
+      return rest.length ? { ...bare, subprojects: rest } : bare;
+    });
+    this.addLog(null, 'system', this.say('subprojects.deleted', { name: zone.name }));
+    this.markDirty();
+    return { id };
   }
 
   subproject(id: string | null | undefined): Subproject | null {

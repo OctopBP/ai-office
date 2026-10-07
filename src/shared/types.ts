@@ -511,6 +511,8 @@ export interface SubprojectDraft {
   color: string;
   /** Только folder. */
   sharedPaths: string[];
+  /** Свои проверки слияния; нет поля — общий набор офиса, пустой список — «не гонять ничего». */
+  mergeChecks?: string[];
 }
 
 /** Подпроект для веба и инструментов: с посчитанным и проверенным. */
@@ -2758,6 +2760,7 @@ export type ServerEvent =
   | { t: 'subproject.saved'; id: string }
   /** Подпроект не сохранён: текст под полем (`field`) или общий (`null`). */
   | { t: 'subproject.error'; field: SubprojectField | null; message: string }
+  | { t: 'subproject.deleted'; id: string }
   /** Ход сборки офиса — просившему, список целиком при каждом изменении. */
   | { t: 'setup.progress'; steps: SetupStep[] }
   | { t: 'cloud'; cloud: CloudStatus }
@@ -2953,6 +2956,7 @@ export type ClientCommand =
    * `subproject.error`.
    */
   | { c: 'save_subproject'; id?: string; draft: SubprojectDraft }
+  | { c: 'delete_subproject'; id: string }
   | { c: 'rename_office'; officeId: string; name: string }
   /**
    * Переставить офис в списке: `index` — куда он должен встать, считая от нуля

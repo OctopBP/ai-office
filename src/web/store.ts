@@ -1312,6 +1312,7 @@ export const useStore = create<State>((set, get) => ({
       case 'roles':
         set({ roles: e.roles });
         break;
+      case 'subproject.deleted':
       case 'subproject.saved':
         set((s) => ({ subprojectReply: { seq: (s.subprojectReply?.seq ?? 0) + 1, id: e.id, field: null, message: null } }));
         break;
@@ -2028,6 +2029,11 @@ export function socketOpen(): boolean {
 /** Завести (`id` нет) или поправить подпроект; ответ придёт в `subprojectReply`. */
 export function saveSubproject(id: string | undefined, draft: SubprojectDraft): void {
   socket?.send(JSON.stringify({ c: 'save_subproject', id, draft }));
+}
+
+/** Удалить подпроект; ответ — тот же `subprojectReply` (отказ с числом открытых задач или успех). */
+export function deleteSubproject(id: string): void {
+  socket?.send(JSON.stringify({ c: 'delete_subproject', id }));
 }
 
 export function updateRole(roleId: string, patch: Partial<RoleEditable>): void {

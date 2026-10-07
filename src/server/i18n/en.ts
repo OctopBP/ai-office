@@ -741,6 +741,8 @@ export const en = {
   'subprojects.err.rootTaken': 'This root is already taken by the zone “{name}”.',
   'subprojects.err.sharedOut': 'The path {path} points outside the repository.',
   'subprojects.created': 'Subproject “{name}” created at {root}.',
+  'subprojects.err.hasOpen': 'Zone “{name}” has {n} open task(s): close or move them first.',
+  'subprojects.deleted': 'Subproject “{name}” deleted. Roles unpinned from it.',
   'subprojects.text.header': 'Subprojects (zones of responsibility):',
   'subprojects.text.row': '- {id}{name} — {kind}, root {root}',
   'subprojects.text.kind.folder': 'a folder in the office repository',

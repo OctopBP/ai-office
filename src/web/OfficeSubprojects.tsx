@@ -2,7 +2,8 @@ import { useEffect, useRef, useState } from 'react';
 import type { SubprojectDraft, SubprojectField, SubprojectKind, SubprojectView } from '../shared/types';
 import { OFFICE_COLORS } from '../shared/types';
 import { t } from './i18n';
-import { saveSubproject, socketOpen, useStore } from './store';
+import { FileLink } from './chat/FileLink';
+import { deleteSubproject, saveSubproject, socketOpen, useStore } from './store';
 
 /**
  * Раздел настроек «Подпроекты» (docs/design/subprojects/ui.md §1): список зон
@@ -18,15 +19,35 @@ const emptyDraft = (color: string): SubprojectDraft => ({
 
 const fromZone = (z: SubprojectView): SubprojectDraft => ({
   name: z.name, root: z.root, kind: z.kind, summary: z.summary, color: z.color, sharedPaths: z.sharedPaths ?? [],
+  ...(z.mergeChecks ? { mergeChecks: z.mergeChecks } : {}),
 });
 
 /** Первый цвет палитры, не занятый другими зонами; заняты все — по кругу. */
 const freeColor = (zones: readonly SubprojectView[]): string =>
   OFFICE_COLORS.find((c) => !zones.some((z) => z.color === c)) ?? OFFICE_COLORS[zones.length % OFFICE_COLORS.length];
 
+/**
+ * Правила и бриф зоны — файлы в её корне. Просмотр читает только файлы проекта
+ * (`/api/file`), поэтому ссылки есть у зон-папок; корень репозитория вне
+ * проекта просмотр не откроет.
+ */
+function ZoneDocs({ zone }: { zone: SubprojectView }) {
+  if (zone.kind !== 'folder') return null;
+  return (
+    <span className="zone-docs">
+      <FileLink fileRef={{ path: `${zone.root}/RULES.md` }} task={null} className="zone-doc-link">
+        {t('settings.zones.rules')}
+      </FileLink>
+      <FileLink fileRef={{ path: `${zone.root}/OFFICE.md` }} task={null} className="zone-doc-link">
+        {t('settings.zones.brief')}
+      </FileLink>
+    </span>
+  );
+}
+
 function ZoneCard({ zone, onOpen }: { zone: SubprojectView; onOpen: () => void }) {
   return (
-    <li>
+    <li className="zone-item">
       <button type="button" className="zone-card" onClick={onOpen}>
         <span className="zone-mark" style={{ background: `var(--${zone.color})` }} aria-hidden="true" />
         <span className="zone-body">
@@ -48,6 +69,7 @@ function ZoneCard({ zone, onOpen }: { zone: SubprojectView; onOpen: () => void }
           <span>{zone.openTasks === 0 ? t('settings.zones.noTasks') : t('settings.zones.openTasks', { n: zone.openTasks })}</span>
         </span>
       </button>
+      <ZoneDocs zone={zone} />
     </li>
   );
 }
@@ -57,6 +79,10 @@ function ZoneForm({ zone, zones, onClose }: { zone: SubprojectView | null; zones
   const [shared, setShared] = useState((zone?.sharedPaths ?? []).join(', '));
   const [errors, setErrors] = useState<Partial<Record<SubprojectField | 'form', string>>>({});
   const [busy, setBusy] = useState(false);
+  // Свои проверки слияния: null — общий набор офиса, строка — по команде в строке.
+  const [checks, setChecks] = useState<string | null>(zone?.mergeChecks ? zone.mergeChecks.join('\n') : null);
+  const [confirmDelete, setConfirmDelete] = useState(false);
+  const [lastAction, setLastAction] = useState<'save' | 'delete'>('save');
   const reply = useStore((s) => s.subprojectReply);
   const picked = useStore((s) => s.picked);
   const picking = useStore((s) => s.picking);
@@ -105,7 +131,19 @@ function ZoneForm({ zone, zones, onClose }: { zone: SubprojectView | null; zones
     setBusy(true);
     setErrors({});
     const sharedPaths = draft.kind === 'repo' ? [] : shared.split(',').map((p) => p.trim()).filter(Boolean);
-    saveSubproject(zone?.id, { ...draft, sharedPaths });
+    setLastAction('save');
+    const mergeChecks = checks === null ? undefined : checks.split('\n').map((c) => c.trim()).filter(Boolean);
+    const { mergeChecks: _old, ...rest } = draft;
+    saveSubproject(zone?.id, { ...rest, sharedPaths, ...(mergeChecks ? { mergeChecks } : {}) });
+  };
+
+  const remove = (): void => {
+    if (!zone) return;
+    if (!socketOpen()) { setErrors({ form: t('settings.zones.err.offline') }); return; }
+    setBusy(true);
+    setErrors({});
+    setLastAction('delete');
+    deleteSubproject(zone.id);
   };
 
   const kindButton = (kind: SubprojectKind) => (
@@ -220,19 +258,64 @@ function ZoneForm({ zone, zones, onClose }: { zone: SubprojectView | null; zones
           </label>
         )}
 
+        <div className="zone-field">
+          <span id="zone-checks-label">{t('settings.zones.field.checks')}</span>
+          {checks === null ? (
+            <div className="zone-row">
+              <span className="form-hint zone-grow">{t('settings.zones.checksShared')}</span>
+              <button type="button" className="mini" onClick={() => setChecks('')}>{t('settings.zones.checksOwn')}</button>
+            </div>
+          ) : (
+            <>
+              <textarea
+                className="zone-mono"
+                rows={3}
+                value={checks}
+                spellCheck={false}
+                aria-labelledby="zone-checks-label"
+                onChange={(e) => setChecks(e.target.value)}
+              />
+              <span className="form-hint">{checks.trim() ? t('settings.zones.checksHint') : t('settings.zones.checksNone')}</span>
+              <button type="button" className="mini zone-checks-reset" onClick={() => setChecks(null)}>
+                {t('settings.zones.checksReset')}
+              </button>
+            </>
+          )}
+        </div>
+
         {errors.form && (
           <div className="zone-fail" role="alert">
-            {t('settings.zones.err.failed', { text: errors.form })}
-            <button type="button" className="mini" onClick={submit}>{t('settings.zones.retry')}</button>
+            {t(lastAction === 'delete' ? 'settings.zones.err.deleteFailed' : 'settings.zones.err.failed', { text: errors.form })}
+            <button type="button" className="mini" onClick={lastAction === 'delete' ? remove : submit}>{t('settings.zones.retry')}</button>
           </div>
         )}
 
-        <div className="modal-actions">
-          <button type="button" onClick={onClose}>{t('common.cancel')}</button>
-          <button type="submit" className="primary" disabled={busy}>
-            {t(zone ? 'common.save' : 'settings.zones.create')}
-          </button>
-        </div>
+        {confirmDelete && zone ? (
+          <div className="zone-confirm" role="alertdialog" aria-label={t('settings.zones.delete.title', { name: zone.name })}>
+            <p>{t('settings.zones.delete.text', { name: zone.name })}</p>
+            {zone.members.length > 0 && (
+              <p className="form-hint">{t('settings.zones.delete.unpin', { roles: zone.members.map((m) => m.title).join(', ') })}</p>
+            )}
+            <div className="modal-actions">
+              <button type="button" onClick={() => setConfirmDelete(false)}>{t('common.cancel')}</button>
+              <button type="button" className="danger" disabled={busy} onClick={remove}>
+                {t(zone.members.length > 0 ? 'settings.zones.delete.unpinAndDelete' : 'settings.zones.delete.action')}
+              </button>
+            </div>
+          </div>
+        ) : (
+          <div className="modal-actions">
+            {zone && (
+              <button type="button" className="danger zone-delete" onClick={() => { setErrors({}); setConfirmDelete(true); }}>
+                {t('settings.zones.delete.open')}
+              </button>
+            )}
+            <button type="button" onClick={onClose}>{t('common.cancel')}</button>
+            <button type="submit" className="primary" disabled={busy}>
+              {t(zone ? 'common.save' : 'settings.zones.create')}
+            </button>
+          </div>
+        )}
       </form>
     </div>
   );

@@ -626,6 +626,14 @@ wss.on('connection', (ws, req) => {
       } else {
         send(ws, { t: 'subproject.error', field: got.field, message: got.message });
       }
+    } else if (cmd.c === 'delete_subproject') {
+      const got = state.deleteSubproject(cmd.id);
+      if ('id' in got) {
+        send(ws, { t: 'subproject.deleted', id: got.id });
+        broadcastSnapshot(state);
+      } else {
+        send(ws, { t: 'subproject.error', field: null, message: got.message });
+      }
     } else if (cmd.c === 'create_role') {
       void state.createRole(cmd.role).then((made) => {
         if ('errors' in made) send(ws, { t: 'role.error', op: 'create', roleId: null, errors: made.errors });

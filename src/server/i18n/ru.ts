@@ -741,6 +741,8 @@ export const ru: Record<keyof typeof en, string> = {
   'subprojects.err.rootTaken': 'Этот корень уже занят зоной «{name}».',
   'subprojects.err.sharedOut': 'Путь {path} выходит за репозиторий.',
   'subprojects.created': 'Заведён подпроект «{name}» с корнем {root}.',
+  'subprojects.err.hasOpen': 'В зоне «{name}» открытых задач: {n}. Закройте их или переназначьте — тогда зону можно удалить.',
+  'subprojects.deleted': 'Подпроект «{name}» удалён, закрепления ролей сняты.',
   'subprojects.text.header': 'Подпроекты (зоны ответственности):',
   'subprojects.text.row': '- {id}{name} — {kind}, корень {root}',
   'subprojects.text.kind.folder': 'папка в репозитории офиса',
