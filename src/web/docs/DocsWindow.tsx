@@ -33,6 +33,11 @@ export function DocsWindow({ onClose }: { onClose: () => void }) {
   // «Весь проект» — документы всего офиса.
   const inZone = (x: DocMeta) => zone === ZONE_ALL
     || (zone === ZONE_NONE ? !x.subprojectId : x.subprojectId === zone || (x.kind === 'foundation' && !x.subprojectId));
+  // Область нового документа: по умолчанию зона фильтра, при «Все» и «Весь проект» — весь офис.
+  const filterArea = zones.some((z) => z.id === zone) ? zone : 'office';
+  const [pickedArea, setPickedArea] = useState<string | null>(null);
+  useEffect(() => { setPickedArea(null); }, [zone]);
+  const newArea = pickedArea ?? filterArea;
   const d = { ...store, docs: store.docs.filter(inZone) };
   const list = visibleDocs(d);
   const searching = d.matches !== null;
@@ -111,7 +116,7 @@ export function DocsWindow({ onClose }: { onClose: () => void }) {
           <div className="card docs-invite">{t('docs.empty.foundation')}</div>
           {TEMPLATES.map((k) => (
             <button key={k} className="team-role-row dashed" disabled={!connected}
-              onClick={() => go(() => void createDoc(t(`docs.tpl.${k}`), 'foundation'))}>
+              onClick={() => go(() => void createDoc(t(`docs.tpl.${k}`), 'foundation', newArea))}>
               + {t(`docs.tpl.${k}`)}
             </button>
           ))}
@@ -122,7 +127,7 @@ export function DocsWindow({ onClose }: { onClose: () => void }) {
       return (
         <div className="docs-empty muted">
           <p>{t('docs.empty.documentation')}</p>
-          <button disabled={!connected} onClick={() => go(() => void createDoc(t('docs.untitled'), 'documentation'))}>{t('docs.new')}</button>
+          <button disabled={!connected} onClick={() => go(() => void createDoc(t('docs.untitled'), 'documentation', newArea))}>{t('docs.new')}</button>
         </div>
       );
     }
@@ -155,8 +160,15 @@ export function DocsWindow({ onClose }: { onClose: () => void }) {
             {t('docs.history.button')}
           </button>
         )}
+        {zones.length > 0 && (
+          <select className="mini" aria-label={t('docs.areaNew')} title={t('docs.areaNew')}
+            value={newArea} onChange={(e) => setPickedArea(e.target.value)}>
+            <option value="office">{t('docs.areaOffice')}</option>
+            {zones.map((z) => <option key={z.id} value={z.id}>{z.name}</option>)}
+          </select>
+        )}
         <button className="primary mini" disabled={!connected}
-          onClick={() => go(() => void createDoc(t('docs.untitled'), d.tab))}>
+          onClick={() => go(() => void createDoc(t('docs.untitled'), d.tab, newArea))}>
           <Icon name="plus" size={12} /> {t('docs.new')}
         </button>
         <Tooltip tip={t('panel.close')}>
@@ -219,7 +231,7 @@ export function DocsWindow({ onClose }: { onClose: () => void }) {
               <h3>{t('docs.intro.title')}</h3>
               <p className="muted">{t('docs.intro.text')}</p>
               <button className="primary" disabled={!connected}
-                onClick={() => go(() => void createDoc(t('docs.tpl.vision'), 'foundation'))}>{t('docs.intro.write')}</button>
+                onClick={() => go(() => void createDoc(t('docs.tpl.vision'), 'foundation', newArea))}>{t('docs.intro.write')}</button>
             </div>
           ) : (
             <div className="muted docs-center">{t('docs.pick')}</div>

@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { pushToast, useStore } from '../store';
 import { Markdown } from '../Markdown';
 import { Icon } from '../icons';
+import { ZoneBadge, useZones } from '../zoneFilter';
 import { AgentTag } from '../Avatar';
 import { t } from '../i18n';
 import { formatClock, formatDayLabel } from '../dates';
@@ -27,6 +28,7 @@ export function DocView({ meta }: { meta: DocMeta }) {
   const [doc, setDoc] = useState<OfficeDoc | null>(null);
   const [failed, setFailed] = useState(false);
   const [menu, setMenu] = useState(false);
+  const zones = useZones();
 
   const [editing, setEditing] = useState(false);
   const [title, setTitle] = useState('');
@@ -116,6 +118,13 @@ export function DocView({ meta }: { meta: DocMeta }) {
       label: t('docs.undo'),
       run: () => { void updateDoc(doc.id, { kind: prev }); },
     });
+  };
+
+  const changeArea = async (area: string) => {
+    if (!doc || area === (doc.subprojectId ?? 'office')) return;
+    const r = await updateDoc(doc.id, { subprojectId: area });
+    if (!r.ok) { toast(t('docs.areaError', { error: r.error }), 'failed'); return; }
+    setDoc(r.doc);
   };
 
   const setArchived = async (archived: boolean) => {
@@ -214,6 +223,20 @@ export function DocView({ meta }: { meta: DocMeta }) {
               {DOC_KINDS.map((k) => <option key={k} value={k}>{t(`docs.kind.${k}`)}</option>)}
             </select>
           ) : <span className="chip">{t(`docs.kind.${doc.kind}`)}</span>}
+          {zones.length > 0 && (
+            <label className="docs-area">
+              {t('docs.area')}{' '}
+              {connected && !archived ? (
+                <select value={doc.subprojectId ?? 'office'} onChange={(e) => void changeArea(e.target.value)}>
+                  <option value="office">{t('docs.areaOffice')}</option>
+                  {zones.map((z) => <option key={z.id} value={z.id}>{z.name}</option>)}
+                  {doc.subprojectId && !zones.some((z) => z.id === doc.subprojectId) && (
+                    <option value={doc.subprojectId}>{t('zone.deleted')}</option>
+                  )}
+                </select>
+              ) : <ZoneBadge id={doc.subprojectId} />}
+            </label>
+          )}
           {doc.kind === 'working' && doc.taskId && <span className="chip">{doc.taskId}</span>}
           <span>{t('docs.editedBy')} {author}, {when(doc.updatedAt)}</span>
           <span>{t('docs.version', { n: doc.version })}</span>

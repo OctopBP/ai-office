@@ -1761,12 +1761,16 @@ export interface DocCreateBody {
   /** По умолчанию — рабочий материал. */
   kind?: DocKind;
   taskId?: string;
+  /** Область: id зоны; без поля или `office` — весь офис. */
+  subprojectId?: string;
 }
 export interface DocUpdateBody {
   title?: string;
   summary?: string;
   body?: string;
   kind?: DocKind;
+  /** Сменить область: id зоны или `office` — весь офис. */
+  subprojectId?: string;
 }
 /** Без поля — в архив; `false` — вернуть из архива. */
 export interface DocArchiveBody { archived?: boolean }

@@ -145,14 +145,14 @@ export const countKind = (s: Pick<DocsState, 'docs' | 'matches'>, k: DocKind): n
   s.docs.filter((d) => d.kind === k && !d.archived && (s.matches ? s.matches.has(d.id) : true)).length;
 
 /** Создать документ владельцем; новый документ сразу выделяется в списке. */
-export async function createDoc(title: string, kind: DocKind): Promise<boolean> {
+export async function createDoc(title: string, kind: DocKind, subprojectId?: string): Promise<boolean> {
   const { officeId } = useDocs.getState();
   if (!officeId) return false;
   try {
     const res = await fetch(`/api/docs?office=${encodeURIComponent(officeId)}`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ title, kind }),
+      body: JSON.stringify({ title, kind, ...(subprojectId ? { subprojectId } : {}) }),
     });
     if (!res.ok) return false;
     const { doc } = (await res.json()) as { doc: DocMeta };
