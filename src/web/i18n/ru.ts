@@ -298,6 +298,7 @@ export const ru: Record<keyof typeof en, string> = {
   "taskCard.brief": "Задание",
   "taskCard.envWait": "Ждёт окружения",
   "taskCard.envWaitChip": "ждёт окружения",
+  "taskCard.admitWait": "Ждёт допуска",
   "taskCard.envWaitNote": "Пока проверка красная, задачу не запускают и денег на неё не тратят. Почините — офис возьмёт её сам.",
   "taskCard.links": "Связи",
   "taskCard.waitsFor": "Ждёт, пока эти доедут до основной ветки:",

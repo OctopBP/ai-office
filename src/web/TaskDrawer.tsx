@@ -142,6 +142,14 @@ export function TaskDrawer() {
         </section>
       )}
 
+      {/* Допуск: некому взять задачу, потому что никто из её роли не допущен к зоне. */}
+      {task.admitWait && (
+        <section>
+          <h3 className="section-title">{t('taskCard.admitWait')}</h3>
+          <div className="task-envwait">{task.admitWait}</div>
+        </section>
+      )}
+
       <section>
         <h3 className="section-title">{t('taskCard.about')}</h3>
         <div className="kv">

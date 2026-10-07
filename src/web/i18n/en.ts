@@ -299,6 +299,7 @@ export const en = {
   "taskCard.brief": "Brief",
   "taskCard.envWait": "Waiting for the environment",
   "taskCard.envWaitChip": "waiting for the environment",
+  "taskCard.admitWait": "Waiting for access",
   "taskCard.envWaitNote": "While the check is red the task is not started and no money is spent on it. Fix it and the office picks the task up itself.",
   "taskCard.links": "Links",
   "taskCard.waitsFor": "Waits for these to reach the main branch:",
