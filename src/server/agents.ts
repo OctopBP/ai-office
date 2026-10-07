@@ -26,7 +26,7 @@ import { t, type ServerKey } from './i18n';
 import type { BudgetStop, MeetingView, PmChat, PrStage, PullRequestView, ReviewVerdict, TaskEdit } from '../shared/types';
 import { cloudProblem, runCloudTask, stopCloudTask } from './cloud';
 import type { Role } from './roles';
-import { admitProblem, reviewerFor, zoneForRole } from './subprojects';
+import { admitProblem, consultWorkdir, reviewerFor, zoneForRole } from './subprojects';
 import { externalMcp, mcpBrief, serversFor } from './mcp';
 import { SANDBOX, sandboxFor } from './sandbox';
 import { ensureChromium } from './chromium';
@@ -2652,6 +2652,7 @@ const MAX_CONSULTS_PER_TASK = 5;
  */
 async function consultRole(
   state: OfficeState, askerId: string, roleId: string, question: string, taskId: string,
+  subprojectId?: string | null,
 ): Promise<{ ok: boolean; text: string }> {
   const asker = state.instances.get(askerId);
   const role = state.role(roleId);
@@ -2663,6 +2664,10 @@ async function consultRole(
   if (role.id === asker.roleId) {
     return { ok: false, text: state.say('consult.ownRole') };
   }
+  // Папка консультации (§6.2): с зоной — её корень и только у допущенной
+  // роли, без зоны — прежнее правило repoForRole.
+  const place = consultWorkdir(state, role, subprojectId, state.projectDir);
+  if ('error' in place) return { ok: false, text: place.error };
 
   const used = state.consultsByTask.get(taskId) ?? 0;
   if (used >= MAX_CONSULTS_PER_TASK) {
@@ -2714,7 +2719,7 @@ async function consultRole(
           '',
           state.say('prompt.consult.systemTail'),
         ].join('\n')),
-        cwd: state.repoForRole(role),
+        cwd: place.cwd,
         // Только чтение и никаких офисных инструментов: отвечающий не должен
         // ни править свой проект, ни звать третьего.
         tools: ['Read', 'Glob', 'Grep'],
@@ -2788,9 +2793,10 @@ function workerTools(state: OfficeState, instanceId: string, task: Task) {
         {
           role: z.string().describe(state.say('tool.askColleague.role')),
           question: z.string().describe(state.say('tool.askColleague.question')),
+          subprojectId: z.string().optional().describe(state.say('tool.askColleague.subprojectId')),
         },
         async (args) => {
-          const answer = await consultRole(state, instanceId, args.role, args.question, task.id);
+          const answer = await consultRole(state, instanceId, args.role, args.question, task.id, args.subprojectId);
           return { content: [{ type: 'text', text: answer.text }], isError: !answer.ok };
         },
       ),

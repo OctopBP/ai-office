@@ -678,6 +678,7 @@ Keep your replies to the user short. Which language to write them in is said in 
   'tool.askColleague.desc': 'Ask a colleague from another role about their part of the work: how their code is built, what the data format is, why it was done that way. A live worker of that role answers, looking at their own project. Use this INSTEAD of digging into somebody else’s repository or guessing.',
   'tool.askColleague.role': 'Role id: backend, frontend, design, reviewer, artist, artist3d, illustrator, smm, legal',
   'tool.askColleague.question': 'One concrete question. Not “tell me about the backend”, but “what is the response format of GET /notes”.',
+  'tool.askColleague.subprojectId': 'Optional: id of the zone (subproject) the question is about. Then a role admitted to that zone answers, looking at its root. Without it — in the role’s working folder.',
   'tool.finishTask.desc': 'Hand in the finished task. Call it exactly once, when the work is completely done.',
   'tool.finishTask.summary': 'What was done, 2–4 sentences. The PM will see this.',
   'tool.finishTask.assumed': 'What you decided on your own without asking: assumptions, choices between options, how you read the unclear parts. The reviewer and the owner will read this. Nothing decided — write "nothing".',

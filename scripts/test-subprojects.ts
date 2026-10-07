@@ -21,7 +21,7 @@ import { formatBoard } from '../src/server/board-view';
 import { defaultRoles, type Role } from '../src/server/roles';
 import { loadPackage } from '../src/server/packages';
 import {
-  admitProblem, admits, ensureZone, migrateRepoDirs, outsideZone, roleWorkdir, sanitizeSubprojects, taskRepoDir, writeZone, zoneForRole,
+  admitProblem, admits, consultWorkdir, ensureZone, repoDirHint, migrateRepoDirs, outsideZone, roleWorkdir, sanitizeSubprojects, taskRepoDir, writeZone, zoneForRole,
   type ZoneTask,
 } from '../src/server/subprojects';
 import type { Subproject } from '../src/shared/types';
@@ -337,6 +337,44 @@ function pickZone(): void {
   check('названная своя зона — она', zoneOf(zoneForRole(scope, both, ' api ')) === 'api');
 }
 
+/** Рабочая папка ask_colleague (§6.2): корень зоны у допущенной роли, без зоны — как раньше. */
+function consultPlace(): void {
+  results.push('папка консультации consultWorkdir (§6.2):');
+  const subs = [zone('web', 'folder', 'apps/web'), zone('lib', 'repo', '../lib')];
+  const pinned = role('frontend', { title: 'Фронтенд', subprojects: ['web'] });
+  const free = role('backend', { title: 'Бэкенд' });
+  const scope = { subprojects: () => subs, workerRoles: () => [pinned, free], lang: () => 'ru' as const };
+  const cwdOf = (r: ReturnType<typeof consultWorkdir>) => ('cwd' in r ? r.cwd : `!${r.error}`);
+  check('без subprojectId — прежнее правило repoForRole',
+    cwdOf(consultWorkdir(scope, pinned, undefined, projectDir)) === roleWorkdir(pinned, subs, projectDir)
+    && cwdOf(consultWorkdir(scope, free, '', projectDir)) === projectDir);
+  check('закреплённая роль, folder-зона — projectDir/root',
+    cwdOf(consultWorkdir(scope, pinned, 'web', projectDir)) === resolve(projectDir, 'apps/web'));
+  check('универсал, repo-зона — resolve(root)',
+    cwdOf(consultWorkdir(scope, free, 'lib', projectDir)) === resolve(projectDir, '../lib'));
+  const denied = consultWorkdir(scope, pinned, 'lib', projectDir);
+  check('недопущенная роль — отказ из admitProblem',
+    'error' in denied && denied.error === admitProblem(scope, pinned, { subprojectId: 'lib' }));
+  check('неизвестная зона — отказ', 'error' in consultWorkdir(scope, free, 'gone', projectDir));
+}
+
+/** Подсказка на правку роли с repoDir (§7): называет зону на обоих языках. */
+function repoDirReply(): void {
+  results.push('подсказка repoDirHint на PATCH роли (§7):');
+  const lib = zone('lib', 'repo', '../lib');
+  const pinned = role('backend', { subprojects: ['lib'] });
+  const base = { role: pinned, after: [lib], projectDir };
+  const made = repoDirHint({ ...base, lang: 'ru', raw: '../lib', before: [] });
+  check('новая зона — «Заведена» с именем и корнем', !!made?.includes('Заведена') && !!made?.includes('«lib»') && !!made?.includes('../lib'));
+  const had = repoDirHint({ ...base, lang: 'ru', raw: resolve(projectDir, '../lib'), before: [lib] });
+  check('уже бывшая зона — «уже заведённой»', !!had?.includes('уже заведённой') && !!had?.includes('«lib»'));
+  const en = repoDirHint({ ...base, lang: 'en', raw: '../lib', before: [] });
+  check('по-английски — тоже с зоной', !!en?.includes('subproject') && !!en?.includes('“lib”'));
+  check('пустой путь — закрепление снято', !!repoDirHint({ ...base, lang: 'ru', raw: '', before: [lib] })?.includes('снято'));
+  check('менеджер — без подсказки',
+    repoDirHint({ ...base, role: role('pm', { isManager: true }), lang: 'ru', raw: '../lib', before: [] }) === null);
+}
+
 /** create_task, plan_features, edit_task и list_team в живом офисе (§6.1). */
 async function managerTools(): Promise<void> {
   results.push('инструменты менеджера: зона задачи и закрепления (§6.1):');
@@ -491,6 +529,8 @@ try {
   pureRules();
   admission();
   pickZone();
+  consultPlace();
+  repoDirReply();
   zoneBoundary();
   pureMigration();
   pureEnsureZone();

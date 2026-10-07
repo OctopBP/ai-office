@@ -157,6 +157,50 @@ export function admitProblem(
 }
 
 /**
+ * Рабочая папка консультации `ask_colleague` (§6.2). Без зоны — прежнее
+ * правило `roleWorkdir`. С зоной — её корень, но только если роль к ней
+ * допущена (закреплена или универсал); иначе отказ из admitProblem.
+ */
+export function consultWorkdir(
+  scope: AdmitScope,
+  role: Pick<Role, 'id' | 'title' | 'subprojects' | 'isManager'>,
+  subprojectId: string | null | undefined,
+  projectDir: string,
+): { cwd: string } | { error: string } {
+  const subs = scope.subprojects();
+  const wanted = subprojectId?.trim();
+  if (!wanted) return { cwd: roleWorkdir(role, subs, projectDir) };
+  const problem = admitProblem(scope, role, { subprojectId: wanted });
+  if (problem) return { error: problem };
+  return { cwd: zonePath(subs.find((s) => s.id === wanted)!, projectDir) };
+}
+
+/**
+ * Подсказка в ответ на правку роли с «репозиторием роли» (§7): поле устарело,
+ * путь стал repo-зоной, и владелец должен узнать, какой — заведённой сейчас
+ * или уже бывшей. Пустой путь или корень офиса — закрепление за repo-зонами
+ * снято. Зону, за которой роль не закрепилась (менеджер), не называем — null.
+ */
+export function repoDirHint(input: {
+  lang: Lang;
+  raw: string | null | undefined;
+  role: Pick<Role, 'subprojects' | 'isManager'> | null | undefined;
+  before: readonly Subproject[];
+  after: readonly Subproject[];
+  projectDir: string;
+}): string | null {
+  const { lang, role, projectDir } = input;
+  if (!role || role.isManager) return null;
+  const abs = resolveRoot(projectDir, input.raw);
+  if (abs === projectDir) return t(lang, 'subprojects.repoDir.cleared');
+  const own = role.subprojects ?? [];
+  const sub = input.after.find((s) => s.kind === 'repo' && own.includes(s.id) && resolveRoot(projectDir, s.root) === abs);
+  if (!sub) return null;
+  const created = !input.before.some((s) => s.id === sub.id);
+  return t(lang, created ? 'subprojects.repoDir.created' : 'subprojects.repoDir.pinned', { name: sub.name, root: sub.root });
+}
+
+/**
  * Зона задачи из слов менеджера (§6.1). `wanted`: undefined или '' — вывести
  * из роли; `none` — явно «весь проект»; иначе id зоны. Пусто: одна зона роли —
  * она, несколько — отказ «укажи зону», ни одной — «весь проект». Названная

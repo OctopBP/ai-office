@@ -54,6 +54,7 @@ import { flushAll } from './store';
 import { attachTerminalClient, closeAllTerminals, detachTerminalClient, handleTerminalCommand } from './terminal-api';
 import { loadKeys, providerKey } from './engines/keys';
 import { greetProviders, handleProviderCommand, handleProvidersHttp, providersView } from './providers-api';
+import { repoDirHint } from './subprojects';
 import { isConnected } from '../shared/providers';
 
 const PORT = Number(process.env.OFFICE_PORT ?? 3001);
@@ -487,9 +488,9 @@ const ENV_AFFECTING: ReadonlySet<ClientCommand['c']> = new Set([
  * разложенным по полям формы, успех — отдельным событием: список ролей видят
  * все, кто смотрит офис, а «форму можно закрывать» касается только просившего.
  */
-function replyRole(ws: WebSocket, op: RoleOp, roleId: string, errors: FieldError[]): void {
+function replyRole(ws: WebSocket, op: RoleOp, roleId: string, errors: FieldError[], hint?: string | null): void {
   if (errors.length) send(ws, { t: 'role.error', op, roleId, errors });
-  else send(ws, { t: 'role.saved', op, roleId });
+  else send(ws, { t: 'role.saved', op, roleId, ...(hint ? { hint } : {}) });
 }
 
 const wss = new WebSocketServer({ server: httpServer });
@@ -613,9 +614,18 @@ wss.on('connection', (ws, req) => {
     } else if (cmd.c === 'update_role') {
       // Проверка репозитория ходит в git и потому длится: отвечаем событием,
       // когда она закончится, а не задерживаем разбор остальных команд.
+      const zonesBefore = [...state.subprojects()];
       void state.editRole(cmd.roleId, cmd.patch)
         .then((errors) => {
-          replyRole(ws, 'update', cmd.roleId, errors);
+          // «Репозиторий роли» устарел и стал зоной (spec подпроектов §7):
+          // ответ называет её, чтобы владелец знал, где теперь правится путь.
+          const hint = !errors.length && cmd.patch && 'repoDir' in cmd.patch
+            ? repoDirHint({
+              lang: state.lang(), raw: cmd.patch.repoDir, role: state.role(cmd.roleId),
+              before: zonesBefore, after: state.subprojects(), projectDir: state.projectDir,
+            })
+            : null;
+          replyRole(ws, 'update', cmd.roleId, errors, hint);
           // Пересчёт после ответа, а не вместе с командой: роль правится
           // асинхронно, и проверка репозитория роли до записи увидела бы старый путь.
           return refreshEnvChecks(state);
