@@ -39,6 +39,8 @@ const DICT = {
     'update.err.notOffice': 'Команда не из окна офиса',
     'update.err.badChannel': 'Неизвестный канал обновлений',
     'update.err.channelWhileDownloading': 'Идёт загрузка обновления — канал можно сменить после неё',
+    'update.err.nativeTimeout': 'Установщик macOS не принял обновление за три минуты',
+    'update.err.nativeFailed': 'Обновление не поставилось, офис продолжает работать: {error}. Подробности — в журнале обновлений',
     // Согласие на тестовый канал (спека каналов §7.7). Черновик, на проверку юристу (§7.9).
     'consent.title': 'Канал обновлений',
     'consent.beta.message': 'Бета-версии — тестовые сборки.',
@@ -98,6 +100,8 @@ const DICT = {
     'update.err.notOffice': 'The command did not come from the office window',
     'update.err.badChannel': 'Unknown update channel',
     'update.err.channelWhileDownloading': 'An update is downloading — change the channel after it finishes',
+    'update.err.nativeTimeout': 'The macOS installer did not accept the update within three minutes',
+    'update.err.nativeFailed': 'The update could not be installed, the office keeps running: {error}. Details are in the update log',
     'consent.title': 'Update channel',
     'consent.beta.message': 'Beta versions are test builds.',
     'consent.alpha.message': 'Alpha versions are developer builds; they break more often than betas.',

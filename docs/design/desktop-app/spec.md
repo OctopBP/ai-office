@@ -305,6 +305,10 @@ GH_TOKEN=… node scripts/pack-desktop.mjs --publish
 работа, которую оборвёт перезапуск (`GET /api/busy`, `src/server/busy.ts`):
 сессия исполнителя, ход менеджера, совещание, конвейер, слияние, выпуск.
 Перезапуск он не запрещает — веб предупреждает владельца.
+Скачанное владельцем обновление ставится и при обычном выходе
+(`autoInstallOnAppQuit`, T-437): на macOS без этого флага electron-updater
+вообще не отдаёт zip установщику Squirrel.Mac. События обновлятора и ошибки
+Squirrel.Mac пишутся в `<userData>/updates.log`.
 
 ---
 

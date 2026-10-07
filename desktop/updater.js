@@ -47,6 +47,14 @@ const CHECK_EVERY_MS = 4 * 60 * 60 * 1000;
 const BUSY_EVERY_MS = 10 * 1000;
 /** Сколько ждём ответа сервера офиса о занятости. */
 const ASK_TIMEOUT_MS = 3000;
+/**
+ * Сколько «Перезапустить сейчас» ждёт, пока Squirrel.Mac заберёт скачанный zip
+ * у electron-updater и проверит подпись. Обычно секунды; минуты — значит,
+ * что-то не так, и гасить сервер ради установки, которой не будет, нельзя.
+ */
+const NATIVE_WAIT_MS = 3 * 60 * 1000;
+/** Сколько ждём выхода после quitAndInstall, прежде чем выйти обычным путём. */
+const QUIT_GRACE_MS = 15 * 1000;
 
 /** @type {import('../src/shared/types').UpdateState} */
 let state = { phase: 'idle', busy: false };
@@ -64,6 +72,19 @@ let prefs = null;
 let hooks = { port: () => 0, stopOffice: async () => {}, window: () => null, onChannel: () => {} };
 /** Идёт откат: вторая команда отката или смены канала его не перебивает. */
 let downgrading = false;
+/** Идёт перезапуск в новую версию: повторные нажатия его не запускают заново. */
+let restarting = false;
+/**
+ * Squirrel.Mac (нативный обновлятор Electron на macOS) у себя тоже скачал и
+ * проверил обновление. Только после этого quitAndInstall что-то делает, и
+ * только тогда обновление ставится при выходе. До T-435 сюда не доходило:
+ * см. комментарий в init.
+ */
+let nativeReady = false;
+/** Последняя ошибка Squirrel.Mac — её отдаём владельцу, если установка не вышла. */
+let nativeError = null;
+/** Ждущие готовности Squirrel.Mac: { done, fail }. */
+const nativeWaiters = new Set();
 
 /** Строка в журнал обновлений и в stdout — из исходников запуск идёт в терминале. */
 function log(level, ...parts) {
@@ -163,14 +184,28 @@ function init(options) {
     return;
   }
   ({ autoUpdater: updater } = require('electron-updater'));
-  // Ручной поток: ни загрузки, ни установки без команды владельца.
+  // Ручной поток: без команды владельца ничего не качается. А то, что он
+  // скачал сам, ставится и при обычном выходе — потому autoInstallOnAppQuit
+  // включён с самого начала, а не только в restartNow.
+  //
+  // На macOS это не вкусовщина. MacUpdater отдаёт скачанный zip нативному
+  // Squirrel.Mac через локальный сервер, и запрос к нему (checkForUpdates у
+  // нативного обновлятора) делает только при autoInstallOnAppQuit = true. А
+  // его quitAndInstall при autoInstallOnAppQuit = true считает, что запрос
+  // уже был, и молча ждёт события от Squirrel. До T-435 флаг был false на
+  // загрузке и становился true прямо перед quitAndInstall — Squirrel не
+  // спрашивали ни разу, «Перезапустить сейчас» ждало вечно, а выход руками
+  // ничего не ставил (в журнале 0.11.0 нет строки «requested by Squirrel.Mac»).
   updater.autoDownload = false;
-  updater.autoInstallOnAppQuit = false;
+  updater.autoInstallOnAppQuit = true;
   updater.logger = {
     info: (...a) => log('info', ...a),
     warn: (...a) => log('warn', ...a),
     error: (...a) => log('error', ...a),
-    debug: () => {},
+    // Отладочные строки MacUpdater — про локальный сервер для Squirrel.Mac и
+    // его запрос за zip. Их немного, а без них по журналу не понять, дошло
+    // ли обновление до установщика.
+    debug: (...a) => log('debug', ...a),
   };
 
   channels.applyChannel(updater, getChannel());
@@ -190,18 +225,81 @@ function init(options) {
     version: state.version ?? '',
     percent: Math.max(0, Math.min(100, Math.round(p.percent ?? 0))),
   }));
-  updater.on('update-downloaded', (info) => setState({
-    phase: 'ready', version: info.version, notes: notesText(info.releaseNotes),
-  }));
+  updater.on('update-downloaded', (info) => {
+    log('info', `update-downloaded: ${info.version} скачано${process.platform === 'darwin' ? ', жду Squirrel.Mac' : ''}`);
+    setState({ phase: 'ready', version: info.version, notes: notesText(info.releaseNotes) });
+  });
   updater.on('error', (err) => {
-    log('error', err);
+    log('error', 'ошибка autoUpdater:', err);
     fail(err);
+  });
+  watchNative();
+  // Обычный выход со скачанным обновлением — строкой в журнал: по ней видно,
+  // ждали ли мы установку при выходе и принял ли её Squirrel.Mac.
+  // once: main.js откладывает выход до остановки сервера, и before-quit приходит дважды.
+  app.once('before-quit', () => {
+    if (state.phase !== 'ready' || restarting) return;
+    const native = process.platform !== 'darwin' ? '' : nativeReady ? ', Squirrel.Mac его принял' : ', но Squirrel.Mac его ещё не принял — не поставится';
+    log('info', `выход со скачанным ${state.version}: ставится при выходе${native}`);
   });
 
   // На тестовом канале без действующего согласия первая проверка ждёт диалога (§7.7).
   void ensureConsent().then(() => check());
   timer = setInterval(() => void check(), CHECK_EVERY_MS);
   timer.unref?.();
+}
+
+/**
+ * Следить за нативным обновлятором (Squirrel.Mac). Его события electron-updater
+ * наружу почти не пускает, а без них по журналу не понять, дошло ли
+ * обновление до установщика. На Windows нативного шага нет — там установщик
+ * NSIS запускает сам electron-updater.
+ */
+function watchNative() {
+  if (process.platform !== 'darwin') return;
+  const native = require('electron').autoUpdater;
+  native.on('checking-for-update', () => log('info', 'Squirrel.Mac забирает скачанное обновление'));
+  native.on('update-downloaded', () => {
+    nativeReady = true;
+    nativeError = null;
+    log('info', 'Squirrel.Mac принял обновление: подпись сошлась, поставится при выходе');
+    for (const w of nativeWaiters) w.done();
+  });
+  native.on('error', (err) => {
+    nativeError = err;
+    // Самая частая причина здесь — подпись новой сборки не сходится со
+    // старой (другой сертификат или незаверенная сборка): Squirrel.Mac
+    // такое обновление не ставит.
+    log('error', 'Squirrel.Mac не принял обновление:', err);
+    for (const w of nativeWaiters) w.fail(err);
+  });
+  native.on('before-quit-for-update', () => log('info', 'Squirrel.Mac: выхожу, чтобы поставить обновление'));
+}
+
+/**
+ * Дождаться, пока Squirrel.Mac примет обновление. Если он уже ошибся или
+ * ещё не начинал, просим его забрать обновление снова: адрес локального
+ * сервера с zip electron-updater ему уже выдал.
+ */
+function waitNative() {
+  if (process.platform !== 'darwin' || nativeReady) return Promise.resolve();
+  return new Promise((resolve, reject) => {
+    const waiter = {
+      done: () => { cleanup(); resolve(); },
+      fail: (err) => { cleanup(); reject(err); },
+    };
+    const timeout = setTimeout(() => waiter.fail(new Error(t('update.err.nativeTimeout'))), NATIVE_WAIT_MS);
+    function cleanup() {
+      clearTimeout(timeout);
+      nativeWaiters.delete(waiter);
+    }
+    nativeWaiters.add(waiter);
+    if (nativeError) {
+      nativeError = null;
+      log('info', 'прошу Squirrel.Mac забрать обновление ещё раз');
+      try { require('electron').autoUpdater.checkForUpdates(); } catch (err) { waiter.fail(err); }
+    }
+  });
 }
 
 /**
@@ -336,6 +434,9 @@ async function download() {
     return { ok: false, reason: 'not-ready', message: t('update.err.notDownloadable') };
   }
   log('info', `качаю ${state.version} по команде`);
+  // Новая загрузка — новый zip: прежний ответ Squirrel.Mac к нему не относится.
+  nativeReady = false;
+  nativeError = null;
   setState({ phase: 'downloading', version: state.version, percent: 0 });
   updater.downloadUpdate().catch((err) => {
     log('error', 'загрузка не удалась:', err);
@@ -347,28 +448,61 @@ async function download() {
 /**
  * «Перезапустить сейчас»: поставить скачанное и перезапуститься. Занятость
  * не мешает — владельца о ней уже предупредил веб по признаку `busy`.
+ *
+ * Порядок важен. Сначала ждём, пока Squirrel.Mac примет обновление: если он
+ * его отверг (подпись не сошлась), офис остаётся работать, а владелец видит
+ * ошибку. Раньше сервер гасили до этого — и при сорвавшейся установке окно
+ * оставалось без сервера. Потом гасим сервер и только затем quitAndInstall.
+ * Повторные нажатия, пока идёт перезапуск, ничего не запускают заново.
  */
 async function restartNow() {
   if (state.phase !== 'ready' || !updater) {
     return { ok: false, reason: 'not-ready', message: t('update.err.notReady') };
   }
-  log('info', `ставлю ${state.version} и перезапускаюсь${state.busy ? ' (офис занят, владелец согласился)' : ''}`);
-  // Установка теперь по согласию владельца: если quitAndInstall сорвётся,
-  // обновление всё равно поставится при выходе.
-  updater.autoInstallOnAppQuit = true;
+  if (restarting) {
+    log('info', 'перезапуск уже идёт — повторное нажатие пропущено');
+    return { ok: true };
+  }
+  restarting = true;
+  log('info', `перезапуск в ${state.version}: ${state.busy ? 'офис занят, владелец согласился' : 'офис свободен'}`);
+  try {
+    if (!nativeReady && process.platform === 'darwin') log('info', 'жду, пока Squirrel.Mac примет обновление');
+    await waitNative();
+  } catch (err) {
+    restarting = false;
+    log('error', 'установка невозможна, офис продолжает работать:', err);
+    const message = t('update.err.nativeFailed', { error: errorText(err) });
+    // Фазой ошибки с версией: веб покажет текст, а «Повторить» скачает заново
+    // и снова отдаст обновление Squirrel.Mac.
+    setState({ phase: 'error', error: message, version: state.version });
+    return { ok: false, reason: 'not-ready', message };
+  }
   // Сервер останавливаем сами и дожидаемся: он дописывает состояние офисов,
   // а quitAndInstall закрывает окна без оглядки на before-quit.
-  await hooks.stopOffice();
-  // Тихая установка на Windows (без мастера NSIS) и запуск новой версии после.
+  log('info', 'останавливаю сервер офиса');
+  try {
+    await hooks.stopOffice();
+  } catch (err) {
+    log('error', 'сервер офиса не остановился чисто, ставлю всё равно:', err);
+  }
+  log('info', 'сервер остановлен, вызываю quitAndInstall');
   setImmediate(() => {
     try {
+      // Тихая установка на Windows (без мастера NSIS) и запуск новой версии после.
       updater.quitAndInstall(true, true);
     } catch (err) {
       // Сервер уже остановлен, и окно без него мертво: выходим, а обновление
-      // поставится при выходе (autoInstallOnAppQuit выше).
-      log('error', 'quitAndInstall не удался:', err);
+      // поставится при выходе (autoInstallOnAppQuit).
+      log('error', 'quitAndInstall не удался, выхожу обычным путём:', err);
       app.quit();
+      return;
     }
+    // Страховка: если и после quitAndInstall процесс жив, выходим сами —
+    // принятое обновление Squirrel.Mac и NSIS ставят и при обычном выходе.
+    setTimeout(() => {
+      log('warn', `через ${QUIT_GRACE_MS / 1000} с после quitAndInstall приложение ещё живо — выхожу обычным путём`);
+      app.quit();
+    }, QUIT_GRACE_MS).unref?.();
   });
   return { ok: true };
 }
@@ -405,8 +539,10 @@ function getVersion() {
  * проверка (§7.3).
  *
  * Пока идёт загрузка или откат, канал не меняется: обновление уже выбрано.
- * Скачанное, но не поставленное обновление забываем — оно ставится только по
- * restartNow.
+ * Скачанное, но не поставленное обновление из состояния забываем. Учти: на
+ * macOS Squirrel.Mac его уже принял и поставит при выходе, если до выхода
+ * владелец не скачает другое (autoInstallOnAppQuit, см. init) — это версия,
+ * которую он сам скачал.
  */
 async function applyChannelChange(next) {
   if (!channels.isChannel(next)) {
