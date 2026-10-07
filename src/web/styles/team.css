@@ -175,3 +175,23 @@
 .outcome-chip.clean { color: var(--ok-ink); }
 .outcome-chip.reworked, .outcome-chip.stuck { color: var(--warn-ink); }
 .outcome-chip.failed, .outcome-chip.reverted, .outcome-chip.stopped_budget { color: var(--danger); }
+
+/* Закрепление сотрудников за зонами (docs/design/subprojects/ui.md §2) */
+.team-zones { display: flex; flex-wrap: wrap; gap: var(--space-1); margin-top: var(--space-1); }
+.team-zone-chip {
+  display: inline-flex; align-items: center; gap: var(--space-1); max-width: 100%;
+  padding: 0 var(--space-2); background: var(--film); border: 1px solid transparent; border-radius: var(--radius-pill);
+  font-size: var(--fs-small); color: var(--ink-2); overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.team-zone-chip.all { color: var(--ink-3); }
+.team-zone-chip.lost, .team-pin-opt.lost { border-color: var(--danger); color: var(--danger); }
+.team-zone-dot { flex: none; width: 8px; height: 8px; border-radius: 2px; }
+.team-pin { display: flex; flex-direction: column; gap: var(--space-2); margin-bottom: var(--space-3); }
+.team-pin-list { display: flex; flex-wrap: wrap; gap: var(--space-2); }
+.team-pin-opt {
+  display: inline-flex; align-items: center; gap: var(--space-1); min-height: var(--chip-h);
+  padding: 0 var(--space-3); border-radius: var(--radius-pill); background: var(--surface);
+  border: 1px solid var(--hairline); color: var(--ink-2); font-size: var(--fs-small);
+}
+.team-pin-opt.on { background: var(--film-2); color: var(--ink); border-color: var(--ink-3); }
+.team-pin-opt:disabled { opacity: .55; cursor: not-allowed; }

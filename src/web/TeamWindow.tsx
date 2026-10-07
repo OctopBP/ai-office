@@ -15,6 +15,7 @@ import { Icon } from './icons';
 import { Hint, Tooltip } from './Tooltip';
 import { HOTKEY } from './hotkeys';
 import { ShellPage } from './shell/ShellPage';
+import { ZoneChips, ZonePinning } from './TeamZones';
 
 const stateLabel = (state: AgentState): string => t(`agent.state.${state}`);
 
@@ -249,6 +250,7 @@ export function TeamWindow({ onClose }: { onClose: () => void }) {
                         {inst.name && role ? `${role.title} · ` : ''}{stateLabel(inst.state)}
                         {role?.package && ` · ${role.package.name} ${role.package.version}`}
                       </span>
+                      {role && <ZoneChips role={role} />}
                     </span>
                     {role && <RoleProviderChip role={role} />}
                     {inst.deskless && (
@@ -328,6 +330,7 @@ export function TeamWindow({ onClose }: { onClose: () => void }) {
         </div>
 
         <div className="team-detail">
+          {selectedInst && selectedRole && !selectedRole.archived && <ZonePinning role={selectedRole} />}
           {selectedInst && (
             <AgentSettings
               key={selectedInst.id}
