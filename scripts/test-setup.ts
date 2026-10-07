@@ -132,17 +132,22 @@ async function main(): Promise<void> {
     const state = getOffice(made1.officeId);
     const roles = state.roles().filter((r) => !r.archived);
     const backends = roles.filter((r) => r.package?.name === '@office/backend');
-    check('команда: два бэкендера, у обоих repoDir backend',
-      backends.length === 2 && backends.every((r) => r.repoDir === 'backend'));
-    check('команда: у фронтенда repoDir frontend',
-      roles.find((r) => r.package?.name === '@office/frontend')?.repoDir === 'frontend');
-    check('команда: дизайнер в общем корне', !roles.find((r) => r.package?.name === '@office/design')?.repoDir);
+    // Рабочее место из мастера разобрано в подпроекты (spec подпроектов §7):
+    // repo-зона на папку, роль закреплена за ней, своего repoDir у роли нет.
+    const zoneOf = (r: (typeof roles)[number] | undefined) =>
+      state.subprojects().find((s) => r?.subprojects?.length === 1 && s.id === r.subprojects[0]);
+    check('команда: два бэкендера, оба в repo-зоне backend',
+      backends.length === 2 && backends.every((r) => !r.repoDir && zoneOf(r)?.root === 'backend' && zoneOf(r)?.kind === 'repo'));
+    check('команда: у фронтенда repo-зона frontend',
+      zoneOf(roles.find((r) => r.package?.name === '@office/frontend'))?.root === 'frontend');
+    check('команда: бэкендеры в одной зоне, а не в двух', state.subprojects().filter((s) => s.root === 'backend').length === 1);
+    check('команда: дизайнер в общем корне', !zoneOf(roles.find((r) => r.package?.name === '@office/design')));
     check('команда: менеджер один', roles.filter((r) => r.isManager).length === 1);
     check('команда: набор по умолчанию не нанят (нет юриста и SMM)',
       !roles.some((r) => r.package?.name === '@office/legal' || r.package?.name === '@office/smm'));
     check('команда: все нанятые сидят за столами',
       roles.every((r) => r.isManager || state.staffOf(r.id).length === 1));
-    check('команда: repoFor бэкендера — внутри корня', state.repoFor(backends[0]) === resolve(root, 'backend'));
+    check('команда: repoForRole бэкендера — внутри корня', state.repoForRole(backends[0]) === resolve(root, 'backend'));
     check('настройки команды применены: конвейер ревью включён', state.settings.autoPipeline === true);
     check('направление: описание стало направлением владельца',
       state.directionList().some((d) => d.text.startsWith('Интернет-магазин')));
@@ -216,8 +221,8 @@ async function main(): Promise<void> {
     check('существующая: .gitignore не дописан', !existsSync(resolve(EXISTING, '.gitignore')));
     const state = getOffice(made5.officeId);
     const last = steps5[steps5.length - 1];
-    check('готовый путь: бэкенд нанят с абсолютным repoDir',
-      state.roles().find((r) => r.package?.name === '@office/backend')?.repoDir === EXISTING
+    check('готовый путь: бэкенд нанят в repo-зону по абсолютному пути',
+      state.repoForRole(state.roles().find((r) => r.package?.name === '@office/backend')) === EXISTING
       && last.find((s) => s.id === 'hire:@office/backend')?.status === 'done');
     check('плохой путь: фронтенд нанят, но шаг failed',
       state.roles().some((r) => r.package?.name === '@office/frontend')

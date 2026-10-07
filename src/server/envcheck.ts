@@ -12,13 +12,14 @@
 
 import { accessSync, constants, statSync } from 'node:fs';
 import { OFFICE_SENDER } from '../shared/types';
-import type { EnvCheck, EnvReport } from '../shared/types';
+import type { EnvCheck, EnvReport, Subproject } from '../shared/types';
 import { PROVIDER_IDS, PROVIDERS, isConnected, type ProviderId } from '../shared/providers';
 import { engineFor, type ProviderStatus } from './engines';
 import { repoProblem } from './git';
 import type { Role } from './roles';
 import { criticalEnvFail } from './state';
 import type { OfficeState, Task } from './state';
+import { zoneProblem, zoneRepo } from './subprojects';
 
 /**
  * Критичные проверки: пока такая красная, не выполнима ни одна задача, и
@@ -223,15 +224,24 @@ async function gitCheck(state: OfficeState): Promise<EnvCheck> {
 }
 
 /**
- * Репозиторий роли. Роль может работать в своём репозитории — узнать, что путь
- * неверный, из проваленной задачи слишком поздно.
+ * Подпроект офиса (spec подпроектов §2.3). У repo-зоны свой репозиторий —
+ * узнать, что путь неверный, из проваленной задачи слишком поздно. Папка-зона
+ * живёт в репозитории офиса, его уже проверил `gitCheck`; у неё смотрим
+ * только, что папка на месте, — тем же расчётом, что и вид зоны. Одна проверка
+ * на зону, а не на роль: две роли в одной зоне не дают двух одинаковых строк.
  */
-async function roleRepoCheck(state: OfficeState, role: Role, dir: string): Promise<EnvCheck> {
-  const title = state.say('env.repo.title', { role: role.title });
+async function subprojectCheck(state: OfficeState, sub: Subproject): Promise<EnvCheck | null> {
+  const id = `sub:${sub.id}`;
+  const title = state.say('env.sub.title', { name: sub.name });
+  if (sub.kind === 'folder') {
+    const problem = zoneProblem(sub, state.subprojects(), state.projectDir, state.lang());
+    return problem === null ? null : fail(id, title, problem, state.say('env.sub.fixFolder', { name: sub.name }));
+  }
+  const dir = zoneRepo(sub, state.projectDir);
   const problem = await repoProblem(dir, state.lang());
   return problem === null
-    ? ok(`repo:${role.id}`, title, dir)
-    : fail(`repo:${role.id}`, title, problem, state.say('env.repo.fix', { role: role.title }));
+    ? ok(id, title, dir)
+    : fail(id, title, problem, state.say('env.sub.fix', { name: sub.name }));
 }
 
 /**
@@ -277,16 +287,13 @@ export async function refreshEnvChecks(state: OfficeState): Promise<EnvReport> {
       state.say('env.git.fix', { dir: state.projectDir })));
   }
   checks.push(rolesCheck(state));
-  // Архивные роли пропускаем: работать в них некому, и ходить в git ради
-  // строчки про репозиторий уволенной роли незачем.
-  for (const role of state.activeRoles()) {
-    const dir = state.repoFor(role);
-    if (dir === state.projectDir) continue;
+  for (const sub of state.subprojects()) {
     try {
-      checks.push(await roleRepoCheck(state, role, dir));
+      const check = await subprojectCheck(state, sub);
+      if (check) checks.push(check);
     } catch (err) {
-      checks.push(fail(`repo:${role.id}`, state.say('env.repo.title', { role: role.title }),
-        (err as Error).message, state.say('env.repo.fix', { role: role.title })));
+      checks.push(fail(`sub:${sub.id}`, state.say('env.sub.title', { name: sub.name }),
+        (err as Error).message, state.say('env.sub.fix', { name: sub.name })));
     }
   }
   return state.setEnv(checks);

@@ -1022,8 +1022,9 @@ async function main(): Promise<void> {
     `файл вместо директории отклонён: ${errFile.length === 1 && errFile[0].field === 'repoDir'}`,
     `директория без git отклонена: ${errNoGit.length === 1 && errNoGit[0].field === 'repoDir'}`,
     `все ошибки пришли парой {field, message}: ${shaped}`,
+    // Принятый путь сразу разбирается в repo-зону (spec подпроектов §7).
     `настоящий репозиторий принят: ${okRepo.length === 0
-      && rc.role(emptyishId)?.repoDir === realRepo}`,
+      && !rc.role(emptyishId)?.repoDir && rc.repoForRole(rc.role(emptyishId)) === realRepo}`,
     `негодный путь до роли не доехал: ${rc.role(emptyishId)?.repoDir !== noSuchDir}`,
   );
 

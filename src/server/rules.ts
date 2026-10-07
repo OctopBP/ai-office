@@ -17,6 +17,7 @@ import { basename, resolve } from 'node:path';
 import type { RuleScopeView, RuleView } from '../shared/types';
 import type { Role } from './roles';
 import type { OfficeState } from './state';
+import { soleZone, zoneRepo } from './subprojects';
 
 /** Имя файла правил. Одно и то же в корне офиса и в корне репозитория. */
 export const RULES_FILE = 'RULES.md';
@@ -127,13 +128,25 @@ const ruleViews = (scopeId: string, texts: string[]): RuleView[] =>
   texts.map((text, i) => ({ id: `${scopeId}#${i + 1}`, scopeId, text }));
 
 /**
+ * Репозиторий, по которому роль попадает в круг правил: у единственной
+ * repo-зоны роли — её корень, иначе репозиторий офиса. Круги считаются по
+ * репозиториям, а не по рабочей папке роли (`repoForRole`): правила лежат в
+ * `RULES.md` корня репозитория, и у папки-зоны это файл офиса. Круги по
+ * подпроектам — spec подпроектов §4.3.
+ */
+function roleRepo(state: OfficeState, role: Role): string {
+  const zone = soleZone(role, state.subprojects());
+  return zone ? zoneRepo(zone, state.projectDir) : state.projectDir;
+}
+
+/**
  * Круги правил этого офиса: офис, направления (репозитории, где работают роли)
  * и роли. Считается на каждый запрос, а не хранится: источник правды — файлы и
  * брифы, и список, разошедшийся с ними, врал бы обеим сторонам.
  */
 export function ruleScopes(state: OfficeState): RuleScopeView[] {
   const roles = state.roles().filter((r) => !r.archived);
-  const atDir = (dir: string): Role[] => roles.filter((r) => state.repoFor(r) === dir);
+  const atDir = (dir: string): Role[] => roles.filter((r) => roleRepo(state, r) === dir);
 
   const office: RuleScopeView = {
     id: 'office',
@@ -147,7 +160,7 @@ export function ruleScopes(state: OfficeState): RuleScopeView[] {
 
   // Направления — по репозиториям ролей. Совпал с корнем офиса — это и есть
   // офисный круг, второй раз он не показывается.
-  const dirs = [...new Set(roles.map((r) => state.repoFor(r)))]
+  const dirs = [...new Set(roles.map((r) => roleRepo(state, r)))]
     .filter((dir) => dir !== state.projectDir)
     .sort();
   const taken = new Set(['office']);
@@ -210,7 +223,7 @@ export function rulesBrief(state: OfficeState, roleId: string | null): string {
 
   if (roleId) {
     const role = state.role(roleId);
-    const dir = role ? state.repoFor(role) : state.projectDir;
+    const dir = role ? roleRepo(state, role) : state.projectDir;
     const own = scopes.find((s) => s.kind === 'repo' && s.path === dir);
     if (own) text += block(state.say('prompt.rules.repo', { label: own.label }), own.rules.map((r) => r.text));
   } else {

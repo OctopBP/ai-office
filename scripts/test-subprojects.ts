@@ -13,7 +13,7 @@ import { openOfficeState, unloadOfficeState } from '../src/server/state';
 import { flushAll, save, type Persisted } from '../src/server/store';
 import { defaultRoles, type Role } from '../src/server/roles';
 import {
-  legacyRoleRepo, migrateRepoDirs, roleWorkdir, sanitizeSubprojects, taskRepoDir, type ZoneTask,
+  migrateRepoDirs, roleWorkdir, sanitizeSubprojects, taskRepoDir, type ZoneTask,
 } from '../src/server/subprojects';
 import type { Subproject } from '../src/shared/types';
 
@@ -52,12 +52,6 @@ function pureRules(): void {
   check('задача folder-зоны — репозиторий офиса', taskRepoDir('web', subs, projectDir) === projectDir);
   check('задача repo-зоны — её репозиторий', taskRepoDir('api', subs, projectDir) === api);
   check('задача пропавшей зоны — репозиторий офиса', taskRepoDir('gone', subs, projectDir) === projectDir);
-  check('прежний repoFor: свой repoDir до миграции',
-    legacyRoleRepo(role('a', { repoDir: '../api' }), [], projectDir) === api);
-  check('прежний repoFor: folder-зона живёт в репозитории офиса',
-    legacyRoleRepo(role('a', { subprojects: ['web'] }), subs, projectDir) === projectDir);
-  check('прежний repoFor: repo-зона — её репозиторий',
-    legacyRoleRepo(role('a', { subprojects: ['api'] }), subs, projectDir) === api);
   const clean = sanitizeSubprojects([
     zone('web', 'folder', '/apps/web/'), zone('web', 'repo', 'x'), { id: 'Плохой', kind: 'repo', root: 'x' },
     { id: 'nokind', root: 'x' }, { ...zone('w2', 'folder', 'w'), sharedPaths: ['package.json', ''], mergeChecks: [] },
@@ -130,7 +124,7 @@ function officeMigration(): void {
   seed.updateTask(done.id, { status: 'done', repoDir: resolve(base, 'api') });
   const plain = seed.createTask({ title: 'общая', description: '', criteria: [], roleId: 'frontend' });
   check('офис без подпроектов: зона новой задачи — «весь проект»', planned.subprojectId === null);
-  check('офис без подпроектов: repoFor — корень офиса', seed.repoFor(seed.role('backend')) === projectDir);
+  check('офис без подпроектов: repoForRole — корень офиса', seed.repoForRole(seed.role('backend')) === projectDir);
 
   // Сохранение «до подпроектов»: repoDir у ролей, у задач нет subprojectId.
   const old = seed.toPersisted() as Persisted & { subprojects?: unknown };
@@ -156,7 +150,6 @@ function officeMigration(): void {
   check('роли закреплены, repoDir снят',
     office.role('backend')?.subprojects?.join() === 'api' && office.role('backend')?.repoDir === undefined
     && office.role('design')?.subprojects?.join() === 'api' && office.role('design')?.docsDir === 'docs/design');
-  check('прежний repoFor мигрированной роли — тот же путь', office.repoFor(office.role('backend')) === api);
   check('repoForRole мигрированной роли — её репозиторий', office.repoForRole(office.role('backend')) === api);
   check('repoForRole незакреплённой роли — корень офиса', office.repoForRole(office.role('frontend')) === projectDir);
   const task = (id: string) => office.tasks.get(id)!;

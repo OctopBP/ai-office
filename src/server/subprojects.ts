@@ -91,21 +91,6 @@ export function taskRepoDir(
   return zone ? zoneRepo(zone, projectDir) : projectDir;
 }
 
-/**
- * Прежний «репозиторий роли» поверх зон: свой `repoDir`, пока его не разобрала
- * миграция (свежий найм из мастера); иначе репозиторий единственной зоны роли;
- * иначе офис. Для мигрированной роли даёт ровно прежний путь.
- */
-export function legacyRoleRepo(
-  role: Pick<Role, 'subprojects' | 'isManager' | 'repoDir'> | null | undefined,
-  subs: readonly Subproject[],
-  projectDir: string,
-): string {
-  if (role?.repoDir?.trim()) return resolveRoot(projectDir, role.repoDir);
-  const zone = role ? soleZone(role, subs) : null;
-  return zone ? zoneRepo(zone, projectDir) : projectDir;
-}
-
 /** Строковый список из сохранения без мусора и повторов. */
 const stringList = (value: unknown): string[] | undefined =>
   (Array.isArray(value)

@@ -770,7 +770,7 @@ export function teamSummary(state: OfficeState): string {
         : state.say('prompt.team.free')}`).join(', ')
       : state.say('prompt.team.vacant');
     const first = role.brief.split('\n')[0] ?? '';
-    const repo = state.repoFor(role);
+    const repo = state.repoForRole(role);
     // Репозиторий называем, только если он свой: иначе строка одинаковая
     // у всех и лишь удлиняет ответ.
     const where = repo === state.projectDir
@@ -2338,7 +2338,7 @@ export async function holdMeeting(
             isManager(meetingOffice, inst) ? null : role.id,
             systemPrompt.join('\n'),
           ),
-          cwd: meetingOffice.repoFor(role),
+          cwd: meetingOffice.repoForRole(role),
           tools: isManager(meetingOffice, inst) ? [] : ['Read', 'Glob', 'Grep'],
           permissionMode: 'default',
           canUseTool: permissionHandler(meetingOffice, inst.id),
@@ -2458,7 +2458,7 @@ export function talkTo(talkOffice: OfficeState, instanceId: string, text: string
     options: {
       ...sessionRuntime(talkOffice, role),
       systemPrompt,
-      cwd: talkOffice.repoFor(role),
+      cwd: talkOffice.repoForRole(role),
       tools: ['Read', 'Glob', 'Grep', 'WebSearch', 'WebFetch'],
       permissionMode: 'default',
       canUseTool: permissionHandler(talkOffice, instanceId),
@@ -2581,7 +2581,7 @@ async function consultRole(
           '',
           state.say('prompt.consult.systemTail'),
         ].join('\n')),
-        cwd: state.repoFor(role),
+        cwd: state.repoForRole(role),
         // Только чтение и никаких офисных инструментов: отвечающий не должен
         // ни править свой проект, ни звать третьего.
         tools: ['Read', 'Glob', 'Grep'],
@@ -2865,12 +2865,13 @@ function startWorker(
   const abort = new AbortController();
   inst.abort = abort;
 
-  // Роль может работать в своём репозитории: ветка, diff и слияние задачи
-  // пойдут именно в него. Фиксируем его на задаче — потом по ней мержат и
-  // сравнивают, а правку роли к тому времени могли уже поменять.
-  // При продолжении репозиторий — тот, где задача уже шла: правку роли
-  // могли поменять, а ветка и рабочая копия остались в прежнем.
-  const repoDir = (opts.resume && task.repoDir) || taskOffice.repoFor(role);
+  // Репозиторий задачи выводится из её зоны (spec подпроектов §2.3): у
+  // repo-зоны свой, иначе репозиторий офиса. Ветка, diff и слияние пойдут
+  // именно в него. Фиксируем его на задаче — потом по ней мержат и
+  // сравнивают, а зону к тому времени могли уже поменять.
+  // При продолжении репозиторий — тот, где задача уже шла: зону могли
+  // поменять, а ветка и рабочая копия остались в прежнем.
+  const repoDir = (opts.resume && task.repoDir) || taskOffice.repoForTask(task);
   taskOffice.updateTask(task.id, { repoDir });
 
   (async () => {

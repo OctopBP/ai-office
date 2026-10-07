@@ -79,7 +79,7 @@ import {
   loadPackage, packageBrief, packageModel, packageTitle, PACKAGE_NAME_RE, resolvePackage, type AgentPackage,
 } from './packages';
 import {
-  legacyRoleRepo, migrateRepoDirs, resolveRoot, roleWorkdir, sanitizeRoleZones, sanitizeSubprojects, soleZone,
+  migrateRepoDirs, resolveRoot, roleWorkdir, sanitizeRoleZones, sanitizeSubprojects, soleZone,
   subprojectView, SUBPROJECTS_MIGRATION, taskRepoDir,
 } from './subprojects';
 import {
@@ -3782,16 +3782,6 @@ export class OfficeState {
   // ---------- роли и настройки ----------
 
   /**
-   * Репозиторий роли — прежнее правило для мест, которые ещё не перешли на
-   * `repoForTask`/`repoForRole` (spec подпроектов §2.3). Миграция снимает
-   * `repoDir`, поэтому роль из единственной repo-зоны получает её корень —
-   * ровно прежний путь. Уйдёт, когда у него не останется вызовов.
-   */
-  repoFor(role: Role | null | undefined): string {
-    return legacyRoleRepo(role, this.subprojectList, this.projectDir);
-  }
-
-  /**
    * Рабочая папка роли вне задачи (spec подпроектов §2.3): совещание,
    * разговор с ролью, консультация, состав команды. Одна зона — её корень;
    * несколько, ни одной или зона пропала — корень офиса. Это папка, где
@@ -4106,6 +4096,10 @@ export class OfficeState {
    * они — менеджер продолжал бы назначать задачи на заархивированную роль.
    */
   private roleSetChanged(before: string): void {
+    // Форма роли и найм из мастера ещё приносят `repoDir`, а читают его только
+    // зоны: разбираем сразу, иначе до перезапуска задачи роли ушли бы в
+    // репозиторий офиса (spec подпроектов §7).
+    this.absorbRepoDirs();
     this.emit({ t: 'roles', roles: this.roleViews() });
     this.markDirty();
     if (this.roleMenuSignature() !== before) roleSetWatcher?.(this);
