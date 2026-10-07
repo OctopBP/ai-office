@@ -121,3 +121,34 @@
 /* Значение маскируется и в многострочном поле: type=password у textarea нет. */
 .secret-value { -webkit-text-security: disc; resize: vertical; }
 .secret-form-actions { display: flex; align-items: center; gap: var(--space-2); }
+
+/* ---------- Подпроекты в настройках офиса ---------- */
+.office-zones { display: flex; flex-direction: column; gap: var(--space-3); }
+.zone-toolbar { display: flex; justify-content: flex-end; }
+.zone-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: var(--space-2); }
+.zone-card {
+  display: flex; align-items: stretch; gap: var(--space-3); width: 100%; text-align: left;
+  padding: var(--space-3); background: var(--surface); color: var(--ink-2);
+  border: 1px solid var(--hairline); border-radius: var(--radius-card);
+}
+.zone-mark { flex: none; width: 6px; border-radius: var(--radius-pill); }
+.zone-body { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: var(--space-1); }
+.zone-head { display: flex; align-items: center; flex-wrap: wrap; gap: var(--space-2); min-width: 0; }
+.zone-name { font-size: var(--fs-md); font-weight: 600; color: var(--ink); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 100%; }
+.zone-kind { padding: 0 var(--space-2); background: var(--film); border-radius: var(--radius-pill); font-size: var(--fs-small); color: var(--ink-2); }
+.zone-root { font-family: var(--font-mono, monospace); font-size: var(--fs-small); color: var(--ink-3); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+.zone-summary { font-size: var(--fs-small); color: var(--ink-3); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.zone-problem { font-size: var(--fs-small); color: var(--danger); overflow-wrap: anywhere; }
+.zone-side { flex: none; display: flex; flex-direction: column; align-items: flex-end; gap: var(--space-1); max-width: 40%; font-size: var(--fs-small); color: var(--ink-3); text-align: right; }
+.zone-empty { display: flex; flex-direction: column; align-items: center; gap: var(--space-2); padding: var(--space-5); text-align: center; color: var(--ink-2); }
+.zone-form { width: 430px; display: flex; flex-direction: column; gap: var(--space-3); max-height: calc(100vh - 40px); overflow-y: auto; }
+.zone-field { display: flex; flex-direction: column; gap: var(--space-1); font-size: var(--fs-small); color: var(--ink-2); }
+.zone-field input[aria-invalid='true'] { border-color: var(--danger); }
+.zone-row { display: flex; gap: var(--space-2); }
+.zone-row input { flex: 1; min-width: 0; }
+.zone-mono { font-family: var(--font-mono, monospace); }
+.zone-swatches { display: flex; flex-wrap: wrap; gap: var(--space-2); }
+.zone-swatch { width: 28px; height: 28px; padding: 0; border-radius: var(--radius-pill); border: 2px solid transparent; font-weight: 600; }
+.zone-swatch.on { border-color: var(--ink); }
+.zone-swatch.taken:not(.on) { opacity: .35; }
+.zone-fail { display: flex; align-items: center; justify-content: space-between; gap: var(--space-2); padding: var(--space-2) var(--space-3); border-radius: var(--radius-row); background: var(--film); color: var(--danger); font-size: var(--fs-small); }

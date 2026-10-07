@@ -499,6 +499,20 @@ export interface Subproject {
   createdAt: number;
 }
 
+/** Поле формы подпроекта, к которому относится ошибка сервера. */
+export type SubprojectField = 'name' | 'root' | 'sharedPaths';
+
+/** Что человек вводит в форме подпроекта. */
+export interface SubprojectDraft {
+  name: string;
+  root: string;
+  kind?: SubprojectKind;
+  summary: string;
+  color: string;
+  /** Только folder. */
+  sharedPaths: string[];
+}
+
 /** Подпроект для веба и инструментов: с посчитанным и проверенным. */
 export interface SubprojectView extends Subproject {
   /** Абсолютный путь репозитория, где живут ветки задач этой зоны. */
@@ -2740,6 +2754,10 @@ export type ServerEvent =
   | { t: 'setup.catalog'; catalog: SetupCatalog }
   /** Ответ диалога папки — просившему. `dir` null — отменили или не вышло (тогда есть `error`). */
   | { t: 'folder.picked'; purpose: string; dir: string | null; error: string | null }
+  /** Подпроект сохранён — просившему; форму можно закрывать. */
+  | { t: 'subproject.saved'; id: string }
+  /** Подпроект не сохранён: текст под полем (`field`) или общий (`null`). */
+  | { t: 'subproject.error'; field: SubprojectField | null; message: string }
   /** Ход сборки офиса — просившему, список целиком при каждом изменении. */
   | { t: 'setup.progress'; steps: SetupStep[] }
   | { t: 'cloud'; cloud: CloudStatus }
@@ -2929,6 +2947,12 @@ export type ClientCommand =
    * куда класть путь. `start` — где открыть диалог.
    */
   | { c: 'pick_folder'; purpose: string; start?: string }
+  /**
+   * Завести (`id` нет) или поправить подпроект. `id` не меняется. Вид не
+   * прислан — сервер определяет его по корню. Ответ: `subproject.saved` или
+   * `subproject.error`.
+   */
+  | { c: 'save_subproject'; id?: string; draft: SubprojectDraft }
   | { c: 'rename_office'; officeId: string; name: string }
   /**
    * Переставить офис в списке: `index` — куда он должен встать, считая от нуля

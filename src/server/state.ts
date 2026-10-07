@@ -4,7 +4,7 @@ import {
 import { isModelTier } from '../shared/models';
 import { randomUUID } from 'node:crypto';
 import { statSync } from 'node:fs';
-import { resolve } from 'node:path';
+import { isAbsolute, relative, resolve, sep } from 'node:path';
 import type {
   AgentState, ChatDraft, ChatEntry, ChatRef, Criterion, DayUsage, Desk, FieldError, InstanceView, LogEntry,
   PermissionDecision, AuthSource, MeetingView, PermissionMode, PermissionRequest, RoleDraft,
@@ -16,9 +16,9 @@ import type {
   PullRequestView, PrStage, ReviewNote, TaskOutcome, TaskDelivery, BranchMark,
   FactView, LifeView, OwnerQuestion, RitualId, RitualPolicy, RitualRun,
   DirectionView, ProposalView, InitiativeMode,
-  SpendEntryView, PmChat, SecretMeta, Subproject, SubprojectView,
+  SpendEntryView, PmChat, SecretMeta, Subproject, SubprojectDraft, SubprojectField, SubprojectView,
 } from '../shared/types';
-import { OFFICE_SENDER } from '../shared/types';
+import { isOfficeColor, OFFICE_SENDER } from '../shared/types';
 import { isOpenQuestion } from '../shared/questions';
 import {
   asTaskPriority, DEFAULT_TASK_PRIORITY, accumulate,
@@ -81,7 +81,7 @@ import {
 } from './packages';
 import {
   ensureZone, migrateRepoDirs, resolveRoot, roleWorkdir, sanitizeRoleZones, sanitizeSubprojects, soleZone,
-  repoZonesReplaced, subprojectView, SUBPROJECTS_MIGRATION, taskRepoDir, withZones,
+  repoZonesReplaced, subprojectView, SUBPROJECTS_MIGRATION, taskRepoDir, withZones, zoneProblem,
 } from './subprojects';
 import {
   DEFAULT_STATE_FILE, flush as flushFile, load, save, wipe as wipeFile,
@@ -3820,6 +3820,69 @@ export class OfficeState {
   /** Подпроекты офиса. */
   subprojects(): Subproject[] {
     return this.subprojectList;
+  }
+
+  /**
+   * Завести (`id` нет) или поправить подпроект из формы настроек. Проверяет
+   * инварианты зоны и возвращает отказ готовым текстом с полем формы. `id`
+   * при правке не меняется; вид, если человек его не назвал, берётся по корню.
+   */
+  saveSubproject(
+    id: string | undefined, draft: SubprojectDraft,
+  ): { id: string } | { field: SubprojectField | null; message: string } {
+    const fail = (field: SubprojectField | null, key: ServerKey, vars?: Vars) =>
+      ({ field, message: this.say(key, vars) });
+    const existing = id ? this.subproject(id) : null;
+    if (id && !existing) return fail(null, 'subprojects.err.unknown', { id });
+    const name = String(draft.name ?? '').trim();
+    if (!name) return fail('name', 'subprojects.err.name');
+    if (this.subprojectList.some((s) => s.id !== id && s.name.trim().toLowerCase() === name.toLowerCase())) {
+      return fail('name', 'subprojects.err.nameTaken');
+    }
+    const raw = String(draft.root ?? '').trim();
+    if (!raw) return fail('root', 'subprojects.err.rootEmpty');
+    const abs = resolve(this.projectDir, raw);
+    const inside = abs.startsWith(this.projectDir + sep);
+    const kind = draft.kind ?? (inside ? 'folder' : 'repo');
+    let root = raw;
+    if (kind === 'folder') {
+      if (!inside) return fail('root', 'subprojects.problem.badRoot', { root: raw });
+      root = relative(this.projectDir, abs).split(sep).join('/');
+    }
+    const shared: string[] = [];
+    for (const item of Array.isArray(draft.sharedPaths) ? draft.sharedPaths : []) {
+      const path = String(item).trim();
+      if (!path) continue;
+      if (isAbsolute(path) || path.split('/').includes('..')) return fail('sharedPaths', 'subprojects.err.sharedOut', { path });
+      if (!shared.includes(path)) shared.push(path);
+    }
+    const others = this.subprojectList.filter((s) => s.id !== id);
+    let zone: Subproject;
+    let created = false;
+    if (existing) {
+      zone = { ...existing, kind, root };
+    } else {
+      const got = ensureZone({ projectDir: this.projectDir, subprojects: others, root, kind });
+      if (!got.zone) return fail('root', 'subprojects.problem.officeRepo');
+      if (!got.created) return fail('root', 'subprojects.err.rootTaken', { name: got.zone.name });
+      zone = got.zone;
+      created = true;
+    }
+    zone = {
+      ...zone, name, kind, root,
+      summary: String(draft.summary ?? '').trim(),
+      color: isOfficeColor(draft.color) ? draft.color : zone.color,
+    };
+    if (kind === 'folder') zone.sharedPaths = shared;
+    else delete zone.sharedPaths;
+    const problem = zoneProblem(zone, [...others, zone], this.projectDir, this.lang());
+    if (problem) return { field: 'root', message: problem };
+    this.subprojectList = existing
+      ? this.subprojectList.map((s) => (s.id === zone.id ? zone : s))
+      : [...this.subprojectList, zone];
+    if (created) this.addLog(null, 'system', this.say('subprojects.created', { name: zone.name, root: zone.root }));
+    this.markDirty();
+    return { id: zone.id };
   }
 
   subproject(id: string | null | undefined): Subproject | null {

@@ -16,6 +16,7 @@ import { t, type UiKey } from './i18n';
 import { McpCatalog, type McpRequest } from './McpCatalog';
 import { OfficeIconSetting } from './OfficeIcon';
 import { OfficeSecrets } from './OfficeSecrets';
+import { OfficeSubprojects } from './OfficeSubprojects';
 import { AppVersion, UpdateChannelSetting, hasChannelBridge } from './UpdateChannel';
 import { Icon } from './icons';
 import { ShellPage } from './shell/ShellPage';
@@ -601,6 +602,10 @@ export function SettingsPage({ onClose }: { onClose: () => void }) {
 
               <Group title={t('settings.secrets.title')} desc={t('settings.secrets.desc')}>
                 <OfficeSecrets />
+              </Group>
+
+              <Group title={t('settings.zones.title')} desc={t('settings.zones.desc')}>
+                <OfficeSubprojects />
               </Group>
 
               {/* Токен стоит в этой группе, а не у облака: на него ссылается

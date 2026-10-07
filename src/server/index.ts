@@ -617,6 +617,15 @@ wss.on('connection', (ws, req) => {
           // асинхронно, и проверка репозитория роли до записи увидела бы старый путь.
           return refreshEnvChecks(state);
         });
+    } else if (cmd.c === 'save_subproject') {
+      const got = state.saveSubproject(cmd.id, cmd.draft);
+      if ('id' in got) {
+        send(ws, { t: 'subproject.saved', id: got.id });
+        // Зоны едут только в снимке: без него список в настройках остался бы прежним.
+        broadcastSnapshot(state);
+      } else {
+        send(ws, { t: 'subproject.error', field: got.field, message: got.message });
+      }
     } else if (cmd.c === 'create_role') {
       void state.createRole(cmd.role).then((made) => {
         if ('errors' in made) send(ws, { t: 'role.error', op: 'create', roleId: null, errors: made.errors });

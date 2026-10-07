@@ -5,6 +5,7 @@ import type {
   McpServerState, MergeCheck, MergeCheckState, MergeRun, MergeStep, MergeStepStatus,
   PermissionDecision,
   MarketView, PermissionMode, PermissionRequest, MeetingView, RoleDraft, RoleEditable, RoleOp, RoleView,
+  SubprojectDraft, SubprojectField, SubprojectView,
   ServerEvent, Settings, SpendStep, TaskEdit, TaskPriority, TaskView, Usage, CloudStatus, OfficeView, OfficeIcon, OfficeColor,
   PullRequestView, PrStage,
   EpicView, LimitsView, FactView, OwnerQuestion, LifeView, RitualId, DirectionView, ProposalView,
@@ -292,6 +293,10 @@ interface State {
    * себя или очистить поля; непустой — ошибки, разложенные по полям.
    */
   roleFeedback: { op: RoleOp; roleId: string | null; errors: FieldError[] } | null;
+  /** Зоны офиса из снимка. Пусто — офис без подпроектов. */
+  subprojects: SubprojectView[];
+  /** Ответ на `save_subproject`: сохранено или отказ с полем. `seq` отличает повтор. */
+  subprojectReply: { seq: number; id: string | null; field: SubprojectField | null; message: string | null } | null;
   /** Подсказка сервера о зоне после сохранения «Репозитория роли» (role.saved.hint). */
   roleHint: { roleId: string; hint: string } | null;
   /** Витрина маркета. null — окно ещё не открывали в этой сессии. */
@@ -696,6 +701,8 @@ export const useStore = create<State>((set, get) => ({
   log: [],
   permissions: [],
   roleFeedback: null,
+  subprojects: [],
+  subprojectReply: null,
   roleHint: null,
   market: null,
   exportResult: null,
@@ -957,7 +964,7 @@ export const useStore = create<State>((set, get) => ({
         const officeId = e.offices.find((o) => o.current)?.id;
         set((s) => ({
           lang: asLang(e.uiLanguage),
-          roles: e.roles, instances, pos,
+          roles: e.roles, instances, pos, subprojects: e.subprojects ?? [],
           tasks: Object.fromEntries(e.tasks.map((t) => [t.id, t])),
           epics: Object.fromEntries(e.epics.map((f) => [f.id, f])),
           chat: e.chat, log: e.log, permissions: e.permissions, settings: e.settings,
@@ -1304,6 +1311,12 @@ export const useStore = create<State>((set, get) => ({
         break;
       case 'roles':
         set({ roles: e.roles });
+        break;
+      case 'subproject.saved':
+        set((s) => ({ subprojectReply: { seq: (s.subprojectReply?.seq ?? 0) + 1, id: e.id, field: null, message: null } }));
+        break;
+      case 'subproject.error':
+        set((s) => ({ subprojectReply: { seq: (s.subprojectReply?.seq ?? 0) + 1, id: null, field: e.field, message: e.message } }));
         break;
       case 'role.error':
         set({ roleFeedback: { op: e.op, roleId: e.roleId, errors: e.errors } });
@@ -2010,6 +2023,11 @@ export function fire(instanceId: string): void {
  */
 export function socketOpen(): boolean {
   return socket?.readyState === WebSocket.OPEN;
+}
+
+/** Завести (`id` нет) или поправить подпроект; ответ придёт в `subprojectReply`. */
+export function saveSubproject(id: string | undefined, draft: SubprojectDraft): void {
+  socket?.send(JSON.stringify({ c: 'save_subproject', id, draft }));
 }
 
 export function updateRole(roleId: string, patch: Partial<RoleEditable>): void {
