@@ -179,7 +179,10 @@ function startWaiting(): void {
       }
       if (slotProblem(state)) return;      // мест снова нет — ждём следующего освобождения
       const outcome = officeAssign(state, taskId);
-      if (!outcome.ok) return;             // пауза, бюджет, некому взять — попробуем позже
+      // Задачу сняли с очереди — её роль не допущена к зоне: она не держит
+      // остальных. Иначе — пауза, бюджет, нет людей: попробуем позже.
+      if (!outcome.ok && !state.waitingForSlot.has(taskId)) continue;
+      if (!outcome.ok) return;
       state.addOfficeNote(state.say('agent.queue.started', {
         task: taskId, title: task.title, message: outcome.message,
       }), { taskId });
@@ -797,6 +800,36 @@ export function noStaffReason(roleId: string, state: OfficeState): string | null
   if (state.staffOf(roleId).length > 0) return null;
   const title = state.role(roleId)?.title ?? roleId;
   return state.say('agent.noStaff', { role: roleId, title });
+}
+
+/**
+ * Допуск роли к зоне задачи там, где исполнителя выбирает сам офис (spec
+ * подпроектов §3.2): раздача плана, очередь за слотом, починка окружения,
+ * надзор, перезапуск, возобновление, доработка. null — можно, и прежняя
+ * причина ожидания снимается. Отказ записывается в задачу (`admitWait`), а
+ * в ленту и менеджеру уходит один раз на причину — как ожидание окружения:
+ * надзор и очередь зовут раздачу каждый проход, и одна и та же строка
+ * превратилась бы в шум. `quiet` — отказ вернётся тому, кто спросил, и
+ * говорить его вслух не нужно; в задачу он всё равно записывается.
+ */
+export function admitGate(
+  state: OfficeState, task: Task, roleId: string, opts: { quiet?: boolean } = {},
+): string | null {
+  const role = state.role(roleId);
+  // Роли нет вовсе — это не допуск, а вакансия: ответит noStaffReason.
+  const problem = role ? admitProblem(state, role, task) : null;
+  if (!problem) {
+    if (task.admitWait) state.updateTask(task.id, { admitWait: null });
+    return null;
+  }
+  const text = state.say('subprojects.blocked', { problem });
+  if (task.admitWait === text) return text;
+  state.updateTask(task.id, { admitWait: text });
+  if (!opts.quiet) {
+    state.addOfficeNote(text, { taskId: task.id });
+    notifyPm(state, `${task.id} «${task.title}»: ${text}`, { taskId: task.id });
+  }
+  return text;
 }
 
 /**
@@ -3402,6 +3435,11 @@ export async function retryTask(
   }
 
   const roleId = task.roleId ?? 'backend';
+  // Допуск — до git и до слота: роль могли перезакрепить, пока задача
+  // стояла. Отказ сказан один раз внутри admitGate: надзор зовёт сюда каждый
+  // проход, и повтор той же строки в ленте был бы шумом.
+  const unadmitted = admitGate(state, task, roleId, opts);
+  if (unadmitted) return { ok: false, message: unadmitted };
   const noStaff = noStaffReason(roleId, state);
   if (noStaff) return no('restart.noStaff', { problem: noStaff, task: taskId });
   // Перезапуск ходит в git и переписывает задачу в backlog, поэтому лимит
@@ -3554,6 +3592,10 @@ export function resumeTask(state: OfficeState, taskId: string): { ok: boolean; m
     return { ok: false, message: state.say('resume.blocked', { task: taskId, problem: envProblem }) };
   }
   const roleId = task.roleId ?? 'backend';
+  // Пока задача стояла по лимиту, роль могли перезакрепить за другой зоной.
+  // Надзор отказ только пишет в лог, поэтому вслух его говорит admitGate — один раз.
+  const unadmitted = admitGate(state, task, roleId);
+  if (unadmitted) return { ok: false, message: state.say('resume.blocked', { task: taskId, problem: unadmitted }) };
   const noStaff = noStaffReason(roleId, state);
   if (noStaff) return { ok: false, message: state.say('resume.blocked', { task: taskId, problem: noStaff }) };
   const noSlot = slotProblem(state);
@@ -3597,6 +3639,16 @@ export function officeAssign(state: OfficeState, taskId: string): { ok: boolean;
   }
 
   const roleId = task.roleId ?? 'backend';
+  // Допуск — до слота: задача, которую роли не взять, не должна занимать
+  // очередь за слотом и держать тех, кто за ней. Сюда сходятся выпуск из
+  // плана, очередь за слотом, починка окружения и надзор (spec подпроектов
+  // §3.2). Задача остаётся в backlog с причиной в карточке и поедет сама,
+  // когда роль перезакрепят: надзор пройдёт по ней снова.
+  const unadmitted = admitGate(state, task, roleId);
+  if (unadmitted) {
+    state.waitingForSlot.delete(taskId);
+    return { ok: false, message: unadmitted };
+  }
   const noStaff = noStaffReason(roleId, state);
   if (noStaff) return { ok: false, message: noStaff };
 
@@ -4091,6 +4143,10 @@ async function reworkTask(
   const worktree = task.worktreePath;
   if (!worktree) return { ok: false, message: state.say('review.noWorktree') };
 
+  // Автор и так своей роли, но роль могли перезакрепить, пока шло ревью:
+  // тогда дорабатывать некому, и решать это менеджеру или человеку.
+  const unadmitted = admitGate(state, task, roleId);
+  if (unadmitted) return { ok: false, needsDecision: true, message: unadmitted };
   const inst = await waitForFree(state, roleId, task.assigneeId);
   if (!inst) {
     const empty = state.staffOf(roleId).length === 0;

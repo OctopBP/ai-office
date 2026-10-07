@@ -57,6 +57,7 @@ export function cancelTask(state: OfficeState, task: Task, at = Date.now()): voi
     // Ожидания снятой задачи больше никого не касаются: она не поедет ни
     // после починки окружения, ни когда освободится слот.
     envWait: null,
+    admitWait: null,
     attention: null,
     assigneeId: null,
   });

@@ -913,6 +913,13 @@ export interface Task {
    */
   envWait: string | null;
   /**
+   * Почему задачу некому взять: роль задачи не допущена к её зоне (spec
+   * подпроектов §3.2–3.3). Готовый к показу текст; пока поле заполнено, офис
+   * задачу сам не раздаёт, а лента услышала причину один раз. Снимается, как
+   * только раздача пройдёт допуск. null — допуск задаче не мешает.
+   */
+  admitWait: string | null;
+  /**
    * Когда офис в последний раз показывал эту задачу менеджеру, потому что она
    * стоит. Нужно, чтобы не рассказывать про одно и то же на каждом проходе.
    */
@@ -3203,6 +3210,7 @@ export class OfficeState {
       interrupted: false,
       limitedAt: null,
       envWait: null,
+      admitWait: null,
       attention: null,
       workerSessionId: null,
       reviewerSessionId: null,
@@ -5445,7 +5453,7 @@ export const toTaskView = (t: Task): TaskView => ({
   files: t.files, branch: t.branch, baseBranch: t.baseBranch,
   worktreePath: t.worktreePath, repoDir: t.repoDir ?? null, subprojectId: t.subprojectId ?? null, merged: t.merged,
   interrupted: t.interrupted, limitedAt: t.limitedAt ?? null,
-  envWait: t.envWait ?? null, createdAt: t.createdAt,
+  envWait: t.envWait ?? null, admitWait: t.admitWait ?? null, createdAt: t.createdAt,
   startedAt: t.startedAt, finishedAt: t.finishedAt,
   usage: t.usage,
   today: t.daily?.[dayKey()] ?? emptyUsage(),
@@ -5537,6 +5545,7 @@ function migrateTask(raw: Task & {
     // Ожидание окружения на диск попадает, но живёт недолго: окружение
     // пересчитывается на старте офиса, и текст причины там же обновится.
     envWait: raw.envWait ?? null,
+    admitWait: raw.admitWait ?? null,
     attention: raw.attention ?? null,
     workerSessionId: raw.workerSessionId ?? null, reviewerSessionId: raw.reviewerSessionId ?? null,
     epicId: raw.epicId ?? null, order: raw.order ?? 0, dependsOn: raw.dependsOn ?? [],

@@ -46,7 +46,7 @@ import { criticalEnvFail, taskRepo, type OfficeState, type Task } from './state'
 import { liveBase, revision } from './git';
 import { refreshEnvChecks } from './envcheck';
 import { isPipelineRunning, pipelineProblem, runPipeline, tellPm, tellPmByChat } from './review';
-import { officeAssign, resumeTask, retryTask, slotProblem } from './agents';
+import { admitGate, officeAssign, resumeTask, retryTask, slotProblem } from './agents';
 import { limitBlock, resetClock } from './limits';
 import { byPriority, dispatch } from './plan';
 import { detectReverts } from './outcomes';
@@ -366,6 +366,10 @@ async function watchBoard(state: OfficeState, now: number): Promise<void> {
     // Свободного исполнителя ждём молча: retryTask на занятой роли напишет
     // в чат отказ, и на каждом проходе это был бы один и тот же шум.
     if (!state.findFree(task.roleId ?? 'backend')) continue;
+    // Роль не допущена к зоне задачи (spec подпроектов §3.2) — возобновлять
+    // некому. Причину admitGate запишет в задачу и скажет в ленту один раз;
+    // «возобновляю» перед заведомым отказом было бы враньём каждый проход.
+    if (admitGate(state, task, task.roleId ?? 'backend')) continue;
     // Ровно по той же причине молча ждём и свободный слот: на потолке
     // одновременных исполнителей возобновлять нечего, а строка в ленте
     // раз в минуту — это шум, а не сообщение.

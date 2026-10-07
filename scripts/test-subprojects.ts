@@ -12,7 +12,7 @@ import { mkdirSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { resolve } from 'node:path';
 import { openOfficeState, unloadOfficeState } from '../src/server/state';
-import { retryTask } from '../src/server/agents';
+import { assignDirect, officeAssign, retryTask } from '../src/server/agents';
 import { flushAll, save, type Persisted } from '../src/server/store';
 import { defaultRoles, type Role } from '../src/server/roles';
 import { loadPackage } from '../src/server/packages';
@@ -311,7 +311,11 @@ function admission(): void {
   check('офис без подпроектов — допуск всегда', admitProblem(empty, free, { subprojectId: null }) === null);
 }
 
-/** Последний рубеж (§3.2): startWorker не поднимает недопущенного. Доходим через retryTask. */
+/**
+ * Последний рубеж (§3.2): startWorker не поднимает недопущенного. Места, где
+ * исполнителя выбирает офис, отказывают раньше, поэтому доходим кнопкой
+ * «отдать этому» — она допуск сама не сверяет.
+ */
 async function startWorkerGate(): Promise<void> {
   results.push('последний рубеж допуска в startWorker (§3.2):');
   const svc = resolve(base, 'gate-svc');
@@ -322,7 +326,8 @@ async function startWorkerGate(): Promise<void> {
   const task = office.createTask({ title: 'сквозная', description: '', criteria: [], roleId: 'frontend' });
   // Как будто state.json правили руками: зона задачи — «весь проект».
   office.updateTask(task.id, { subprojectId: null });
-  await retryTask(office, task.id, { quiet: true });
+  const inst = office.findFree('frontend') ?? office.spawn('frontend')!;
+  assignDirect(office, task.id, inst.id);
   const after = office.tasks.get(task.id)!;
   const busy = [...office.instances.values()].some((i) => i.currentTaskId === task.id);
   check('недопущенный не начал: задача blocked, сотрудник свободен', after.status === 'blocked' && !busy && !after.assigneeId);
@@ -330,6 +335,45 @@ async function startWorkerGate(): Promise<void> {
   check('причина в карточке', !!why && !!after.result?.includes(why));
   check('причина в ленте', !!why && office.chat.some((e) => e.text.includes(why)));
   unloadOfficeState('o-sub-gate');
+}
+
+/**
+ * Раздача офисом (§3.2–3.3): officeAssign, перезапуск и надзор сверяют допуск
+ * роли к зоне задачи. Незакреплённому за зоной задача не уходит и остаётся в
+ * очереди с причиной; повторная раздача ленту не засоряет; закреплённому —
+ * уходит.
+ */
+async function officeAssignGate(): Promise<void> {
+  results.push('раздача офисом по зоне (§3.2–3.3):');
+  const svc = resolve(base, 'assign-svc');
+  gitRepo(svc);
+  const office = openOfficeState({ id: 'o-sub-assign', projectDir, stateFile: resolve(base, 'assign.json') }).state;
+  office.dryRun = true;
+  await office.editRole('frontend', { repoDir: svc });
+  const zoneId = office.role('frontend')!.subprojects?.[0];
+  check('frontend закреплён за зоной', !!zoneId);
+
+  // Задача «на весь проект» для закреплённой роли — взять некому.
+  const whole = office.createTask({ title: 'на весь проект', description: '', criteria: [], roleId: 'frontend' });
+  office.updateTask(whole.id, { subprojectId: null });
+  const first = officeAssign(office, whole.id);
+  const again = officeAssign(office, whole.id);
+  await retryTask(office, whole.id);
+  const stuck = office.tasks.get(whole.id)!;
+  check('незакреплённому не ушла: отказ, задача в backlog без исполнителя',
+    !first.ok && !again.ok && stuck.status === 'backlog' && !stuck.assigneeId);
+  check('очередь за слотом её не держит', !office.waitingForSlot.has(whole.id));
+  check('причина записана в задаче', !!stuck.admitWait && stuck.admitWait === first.message);
+  const lines = office.chat.filter((e) => e.text === stuck.admitWait).length;
+  check('в ленте причина ровно один раз на три попытки', lines === 1);
+
+  // Задача зоны для закреплённой роли — уходит, причина снимается.
+  office.updateTask(whole.id, { subprojectId: zoneId ?? null });
+  const ok = officeAssign(office, whole.id);
+  const started = office.tasks.get(whole.id)!;
+  check('закреплённому ушла', ok.ok && started.status === 'in_progress' && !!started.assigneeId);
+  check('причина ожидания снята', started.admitWait === null);
+  unloadOfficeState('o-sub-assign');
 }
 
 try {
@@ -341,6 +385,7 @@ try {
   officeMigration();
   await officeZones();
   await startWorkerGate();
+  await officeAssignGate();
 } finally {
   rmSync(base, { recursive: true, force: true });
 }
