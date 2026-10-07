@@ -11,6 +11,7 @@ import { Icon, type IconName } from './icons';
 import { AgentTag } from './Avatar';
 import { PriorityChip } from './TaskPriority';
 import { splitTasksByDay } from './taskDays';
+import { ZONE_ALL, ZoneBadge, ZoneFilter, zoneMatches, zoneName, useZones, useZoneValue } from './zoneFilter';
 
 const statusLabel = (status: TaskStatus): string => tr(`task.status.${status}`);
 
@@ -217,6 +218,7 @@ function Card({ t }: { t: TaskView }) {
             {tr('result.badge', { n: t.delivery!.files.length })}
           </span>
         )}
+        <ZoneBadge id={t.subprojectId} />
         {t.assigneeId && <AgentTag id={t.assigneeId} className="muted" />}
         {t.criteria.length > 0 && (
           <span className="muted">{done}/{t.criteria.length}</span>
@@ -572,7 +574,10 @@ export function Board() {
   // Фича могла исчезнуть из плана, пока фильтр стоял на ней, — тогда он
   // показывал бы пустую доску, и понять почему было бы нельзя.
   const picked = only && epics[only] ? only : null;
-  const list = picked ? all.filter((t) => t.epicId === picked) : all;
+  const [zone, setZone] = useZoneValue('board');
+  const zones = useZones();
+  const byZone = all.filter((t) => zoneMatches(zone, t.subprojectId));
+  const list = picked ? byZone.filter((t) => t.epicId === picked) : byZone;
 
   return (
     <div className="board">
@@ -617,8 +622,19 @@ export function Board() {
             </div>
           </div>
         )}
+        {tab === 'tasks' && <ZoneFilter screen="board" />}
+        {tab === 'tasks' && zone !== ZONE_ALL && all.length > 0 && (
+          <p className="zone-note">{tr('zone.caption.tasks', { name: zoneName(zone, zones), n: byZone.length, total: all.length })}</p>
+        )}
         {tab === 'tasks' && all.length === 0 && <p className="empty">{tr('board.empty')}</p>}
-        {tab === 'tasks' && all.length > 0 && (
+        {tab === 'tasks' && all.length > 0 && byZone.length === 0 && (
+          <div className="empty">
+            <p>{tr('board.zone.empty', { name: zoneName(zone, zones) })}</p>
+            <p className="muted small">{tr('board.zone.emptyHint')}</p>
+            <button className="mini" onClick={() => setZone(ZONE_ALL)}>{tr('board.zone.showAll')}</button>
+          </div>
+        )}
+        {tab === 'tasks' && byZone.length > 0 && (
           <div className="task-groups">
             {groupTasks(list, plan, autoPipeline).map((group) => (
               <TaskGroupBlock key={group.key} group={group} />

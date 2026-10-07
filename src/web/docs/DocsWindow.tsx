@@ -7,6 +7,7 @@ import { AgentTag } from '../Avatar';
 import { HOTKEY } from '../hotkeys';
 import { Kbd } from '../Kbd';
 import { t } from '../i18n';
+import { ZONE_ALL, ZONE_NONE, ZoneBadge, ZoneFilter, zoneName, useZones, useZoneValue } from '../zoneFilter';
 import { formatClock, formatDayLabel } from '../dates';
 import type { DocKind, DocMeta } from '../../shared/types';
 import { DocView } from './DocView';
@@ -25,7 +26,14 @@ const when = (at: number): string => `${formatDayLabel(at)}, ${formatClock(at)}`
 export function DocsWindow({ onClose }: { onClose: () => void }) {
   const officeId = useStore((s) => s.offices.find((o) => o.current)?.id ?? null);
   const connected = useStore((s) => s.connected);
-  const d = useDocs();
+  const store = useDocs();
+  const zones = useZones();
+  const [zone, setZone] = useZoneValue('docs');
+  // Фильтр только отбирает показ: у зоны видны её документы и основа проекта без зоны,
+  // «Весь проект» — документы всего офиса.
+  const inZone = (x: DocMeta) => zone === ZONE_ALL
+    || (zone === ZONE_NONE ? !x.subprojectId : x.subprojectId === zone || (x.kind === 'foundation' && !x.subprojectId));
+  const d = { ...store, docs: store.docs.filter(inZone) };
   const list = visibleDocs(d);
   const searching = d.matches !== null;
   const selected = d.docs.find((x) => x.id === d.selectedId) ?? null;
@@ -63,6 +71,7 @@ export function DocsWindow({ onClose }: { onClose: () => void }) {
         <b>{doc.title}</b>
         {searching && d.allKinds && <span className="chip">{kindTitle(doc.kind)}</span>}
         {doc.kind === 'working' && doc.taskId && <span className="chip">{doc.taskId}</span>}
+        <ZoneBadge id={doc.subprojectId} />
       </span>
       <span className="docs-row-desc muted small">{doc.summary || t('docs.noSummary')}</span>
       <span className="docs-row-meta small">
@@ -84,6 +93,15 @@ export function DocsWindow({ onClose }: { onClose: () => void }) {
             </button>
           ))}
           <button onClick={d.resetSearch}>{t('docs.empty.reset')}</button>
+        </div>
+      );
+    }
+    if (zone !== ZONE_ALL && countKind(d, d.tab) === 0 && !d.showArchived) {
+      return (
+        <div className="docs-empty muted">
+          <p>{t('docs.zone.empty', { name: zoneName(zone, zones) })}</p>
+          <p className="small">{t('docs.zone.emptyHint')}</p>
+          <button onClick={() => setZone(ZONE_ALL)}>{t('zone.showAll')}</button>
         </div>
       );
     }
@@ -163,6 +181,10 @@ export function DocsWindow({ onClose }: { onClose: () => void }) {
               {t('docs.showArchive')}
             </label>
           </div>
+          <ZoneFilter screen="docs" />
+          {zone !== ZONE_ALL && (
+            <p className="zone-note">{t('zone.caption.docs', { name: zoneName(zone, zones), n: list.length, total: store.docs.length })}</p>
+          )}
           {!connected && <div className="team-notice">{t('docs.offline')}</div>}
           {d.load === 'error' && (
             <div className="team-notice">

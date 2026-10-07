@@ -1,10 +1,11 @@
 import { Fragment, memo, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from 'react';
-import type { LogEntry } from '../shared/types';
+import type { LogEntry, TaskView } from '../shared/types';
 import { useStore } from './store';
 import { t, type UiKey } from './i18n';
 import { Avatar, NO_ROLE_COLOR } from './Avatar';
 import { Icon } from './icons';
 import { displayInstance, roleOfInstance } from './instanceName';
+import { ZONE_ALL, ZoneBadge, ZoneFilter, zoneMatches, zoneName, useZones, useZoneValue } from './zoneFilter';
 import { dayKey, formatClock, formatDayLabel, formatFullDateTime, hasTime } from './dates';
 
 /**
@@ -37,6 +38,12 @@ const TASK_RE = /\bT-\d+|задач|\btask/i;
 // Инструменты офиса, которые по смыслу — не «вызвал инструмент», а шаг процесса.
 const REVIEW_TOOL_RE = /approve_pr|request_changes|merge/i;
 const QUESTION_TOOL_RE = /ask_owner|ask_colleague/i;
+
+/** Задача записи — первая из упомянутых в тексте, известная доске; нет такой — запись без зоны. */
+export function logTask(text: string, tasks: Record<string, TaskView>): TaskView | undefined {
+  for (const m of text.matchAll(/\bT-\d+\b/g)) if (tasks[m[0]]) return tasks[m[0]];
+  return undefined;
+}
 
 export function eventTypeOf(l: LogEntry): EventType {
   if (l.kind === 'error') return 'error';
@@ -88,13 +95,23 @@ export function EventLog() {
       .sort((a, b) => a.name.localeCompare(b.name));
   }, [log, instances, roles]);
 
+  const tasks = useStore((s) => s.tasks);
+  const zones = useZones();
+  const [zone, setZone] = useZoneValue('log');
+  // Фильтр режет только то, у чего зона есть; планёрки, лимиты, выпуски видны всегда.
+  const inZone = (entry: LogEntry) => {
+    const task = logTask(entry.text, tasks);
+    return zone === ZONE_ALL || !task || zoneMatches(zone, task.subprojectId);
+  };
   const rows = typed.filter(({ entry, type: tp }) =>
-    (who === ALL || (who === OFFICE ? !entry.agentId : entry.agentId === who))
+    inZone(entry)
+    && (who === ALL || (who === OFFICE ? !entry.agentId : entry.agentId === who))
     && (type === ALL || tp === type));
   const filtered = who !== ALL || type !== ALL;
 
   return (
     <div className="ev-log">
+      <ZoneFilter screen="log" />
       <div className="ev-filters">
         <select value={who} onChange={(e) => setWho(e.target.value)} aria-label={t('log.filter.who')}>
           <option value={ALL}>{t('log.filter.whoAll')}</option>
@@ -111,6 +128,13 @@ export function EventLog() {
         <span className="ev-count muted small">{t('log.count', { n: rows.length })}</span>
       </div>
       <EventTable rows={rows} empty={filtered ? t('log.emptyFiltered') : t('log.empty')} />
+      {zone !== ZONE_ALL && !rows.some(({ entry }) => logTask(entry.text, tasks)) && (
+        <div className="ev-empty muted small">
+          <p>{t('log.zone.quiet', { name: zoneName(zone, zones) })}</p>
+          <p>{t('log.zone.quietHint')}</p>
+          <button className="mini" onClick={() => setZone(ZONE_ALL)}>{t('zone.showAll')}</button>
+        </div>
+      )}
     </div>
   );
 }
@@ -163,6 +187,7 @@ export function EventTable({ rows, empty }: {
 
 const EventRow = memo(function EventRow({ entry, type, odd }: { entry: LogEntry; type: EventType; odd: boolean }) {
   const textRef = useRef<HTMLSpanElement>(null);
+  const zoneTask = useStore((s) => logTask(entry.text, s.tasks));
   const [open, setOpen] = useState(false);
   const [long, setLong] = useState(false);
   // Раскрывать есть что, только если текст правда не влез в две строки.
@@ -190,6 +215,7 @@ const EventRow = memo(function EventRow({ entry, type, odd }: { entry: LogEntry;
           <span className="auto-tag" title={t('log.autoHint')}>{t('log.auto')}</span>
         )}
         <TaskLinks text={entry.text} />
+        {zoneTask && <ZoneBadge id={zoneTask.subprojectId} />}
       </span>
     </div>
   );
