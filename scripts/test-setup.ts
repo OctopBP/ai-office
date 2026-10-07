@@ -203,7 +203,11 @@ async function main(): Promise<void> {
   }
 
   // 8. Существующая папка: не трогаем; роль с готовым путём проверяется, а
-  //    роль с несуществующим — нанимается, но шаг помечен упавшим.
+  //    роль с несуществующим — нанимается, но шаг помечен упавшим. Папка без
+  //    git — тоже: найм проверяет только существование, а мастер обещал
+  //    репозиторий, поэтому зоны нет и шаг failed.
+  const PLAIN = resolve(ROOT, 'plain-folder');
+  mkdirSync(PLAIN, { recursive: true });
   const steps5: SetupStep[][] = [];
   const made5 = await buildOffice(plan({
     name: 'Готовый',
@@ -211,6 +215,7 @@ async function main(): Promise<void> {
     team: [
       { package: '@office/backend', count: 1, workspace: { kind: 'path', dir: EXISTING } },
       { package: '@office/frontend', count: 1, workspace: { kind: 'path', dir: resolve(ROOT, 'nowhere') } },
+      { package: '@office/design', count: 1, workspace: { kind: 'path', dir: PLAIN } },
       { package: '@nope/missing', count: 1, workspace: { kind: 'root' } },
     ],
   }), 'ru', hooks(steps5));
@@ -230,9 +235,14 @@ async function main(): Promise<void> {
     check('плохой путь: фронтенд нанят, но шаг failed',
       state.roles().some((r) => r.package?.name === '@office/frontend')
       && last.find((s) => s.id === 'hire:@office/frontend')?.status === 'failed');
+    const designer = state.roles().find((r) => r.package?.name === '@office/design');
+    check('папка без git: дизайнер нанят без зоны и без repoDir, шаг failed',
+      !!designer && designer.repoDir === undefined && !designer.subprojects?.length
+      && !state.subprojects().some((z) => z.root === PLAIN)
+      && last.find((s) => s.id === 'hire:@office/design')?.status === 'failed');
     check('нет пакета: шаг failed, остальные не пострадали',
       last.find((s) => s.id === 'hire:@nope/missing')?.status === 'failed');
-    check('лента: упавшие шаги записаны', state.log.filter((l) => l.text.includes('не удался')).length === 2);
+    check('лента: упавшие шаги записаны', state.log.filter((l) => l.text.includes('не удался')).length === 3);
   }
 
   // 9. Существующий корень с git и роль в своей папке: папка внутри чужого
@@ -253,6 +263,13 @@ async function main(): Promise<void> {
   const nested = resolve(NESTED_ROOT, 'backend');
   check('папка роли в чужом репозитории: свой git с первым коммитом',
     isRepoWithCommits(nested) && realpathSync(git(nested, ['rev-parse', '--show-toplevel'])) === realpathSync(nested));
+  if ('officeId' in made6) {
+    const state = getOffice(made6.officeId);
+    const backend = state.roles().find((r) => r.package?.name === '@office/backend');
+    const zone = state.subprojects().find((z) => z.kind === 'repo' && z.root === 'backend');
+    check('папка роли в чужом репозитории: repo-зона и закрепление, repoDir нет',
+      !!backend && !!zone && backend.repoDir === undefined && backend.subprojects?.join() === zone.id);
+  }
 
   // 10. Игра по описанию: набор игры.
   const made7 = await buildOffice(plan({ name: 'Подземелья', description: 'Пиксельный рогалик про игрового кота' }), 'ru', hooks([]));

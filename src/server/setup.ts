@@ -300,21 +300,26 @@ export async function buildOffice(plan: OfficeSetupPlan, lang: Lang, hooks: Setu
     if ('error' in got) { noteFailure(step, got.error); continue; }
     if (got.pkg.manifest.kind !== 'agent') { noteFailure(step, t(lang, 'market.isTeam', { name: member.package })); continue; }
     if (got.pkg.manifest.manager) { progress.done(step, t(lang, 'setup.detail.managerAlready')); continue; }
-    const repoDir = repoDirOf(member.workspace);
+    // Рабочее место — зона подпроекта и закрепление за ней, а не поле роли
+    // (spec подпроектов §7). Найм проверяет только, что папка есть, а мастер
+    // обещал репозиторий: без git зону не заводим, роль остаётся в корне
+    // офиса, а шаг честно помечается failed.
+    const zoneRoot = repoDirOf(member.workspace);
     const notes: string[] = [];
-    if (member.workspace.kind === 'path') {
-      const problem = await repoProblem(repoDir, lang);
-      if (problem) notes.push(problem);
+    let repoMissing = false;
+    if (zoneRoot) {
+      const problem = await repoProblem(resolve(entry.projectDir, zoneRoot), lang);
+      if (problem) { notes.push(problem); repoMissing = true; }
     }
     let n = 0;
     for (let i = 0; i < member.count; i += 1) {
-      const problem = state.hireFromPackage(got.pkg, got.source, repoDir ? { repoDir } : {});
+      const problem = state.hireFromPackage(got.pkg, got.source, {}, zoneRoot && !repoMissing ? { zoneRoot } : {});
       if (problem) { notes.push(problem); break; }
       n += 1;
     }
     hired += n;
     const detail = [t(lang, 'setup.detail.hired', { n, total: member.count }), ...notes].join('; ');
-    if (n < member.count || (notes.length && member.workspace.kind === 'path')) noteFailure(step, detail);
+    if (n < member.count || repoMissing) noteFailure(step, detail);
     else progress.done(step, detail);
   }
 
