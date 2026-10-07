@@ -920,6 +920,8 @@ export const ru: Record<keyof typeof en, string> = {
   "agent.access.effective": "Действует: {mode} · {source}",
   "agent.access.chain": "Сначала режим офиса, поверх него — режим роли, поверх него — личный режим сотрудника. Побеждает самый личный.",
   "agent.isolate.hint": "Каждая задача идёт в отдельной ветке и рабочей копии — правки не мешают другим.",
+  "role.allowLocalBinding": "Разрешить локальные порты",
+  "agent.allowLocalBinding.hint": "Исполнитель сможет поднимать свой сервер и веб для проверки в браузере.",
   "agent.model.reset": "Модель сброшена на {model}: у нового провайдера свой список.",
   "agent.brief.showAll": "Показать целиком",
   "agent.brief.hideAll": "Свернуть",

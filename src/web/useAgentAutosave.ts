@@ -24,7 +24,7 @@ import {
 
 export type AgentField =
   | 'name' | 'personalMode'
-  | 'title' | 'sprite' | 'provider' | 'model' | 'ownModel' | 'tier' | 'permissionMode' | 'isolate'
+  | 'title' | 'sprite' | 'provider' | 'model' | 'ownModel' | 'tier' | 'permissionMode' | 'isolate' | 'allowLocalBinding'
   | 'maxTurns' | 'repoDir' | 'mcp' | 'capabilities' | 'brief' | 'briefExtra';
 
 type RoleField = Exclude<AgentField, 'name' | 'personalMode'>;
@@ -32,7 +32,7 @@ type InstField = 'name' | 'personalMode';
 
 /** Выбор из списка: ошибка откатывает значение к серверному, а не оставляет его в поле. */
 const INSTANT: ReadonlySet<AgentField> = new Set<AgentField>([
-  'personalMode', 'sprite', 'provider', 'model', 'ownModel', 'tier', 'permissionMode', 'isolate', 'mcp', 'capabilities',
+  'personalMode', 'sprite', 'provider', 'model', 'ownModel', 'tier', 'permissionMode', 'isolate', 'allowLocalBinding', 'mcp', 'capabilities',
 ]);
 
 /** Длинные тексты сохраняются сами через эту паузу в наборе. */

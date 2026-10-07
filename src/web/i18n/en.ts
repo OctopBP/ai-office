@@ -921,6 +921,8 @@ export const en = {
   "agent.access.effective": "In effect: {mode} · {source}",
   "agent.access.chain": "The office mode comes first, the role mode overrides it, the employee's personal mode overrides both. The most personal one wins.",
   "agent.isolate.hint": "Each task runs in its own branch and working copy, so edits don't collide with others.",
+  "role.allowLocalBinding": "Allow local ports",
+  "agent.allowLocalBinding.hint": "The worker can start its own server and web app to check changes in a browser.",
   "agent.model.reset": "Model reset to {model}: the new provider has its own list.",
   "agent.brief.showAll": "Show all",
   "agent.brief.hideAll": "Collapse",

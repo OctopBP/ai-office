@@ -401,6 +401,20 @@ export function ModelPanel({ save, role, busy }: PanelProps) {
             onYes={() => { setConfirmIsolate(false); save.set({ isolate: false }); }}
           />
         )}
+
+        <div>
+          <label className="form-check">
+            <input
+              type="checkbox" checked={save.value<boolean>('allowLocalBinding')}
+              onChange={(e) => save.set({ allowLocalBinding: e.target.checked })}
+            />
+            <span className="form-check-text">
+              <FieldLabel text={t('role.allowLocalBinding')} save={save} f="allowLocalBinding" when="next" busy={busy} />
+              <span className="form-hint">{t('agent.allowLocalBinding.hint')}</span>
+            </span>
+          </label>
+          <FieldError save={save} f="allowLocalBinding" />
+        </div>
       </Section>
     </>
   );
