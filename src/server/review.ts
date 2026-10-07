@@ -28,6 +28,7 @@
 import { readFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
 import type { OwnerQuestion, PullRequestView, ReviewVerdict } from '../shared/types';
+import { countWorking } from './busy';
 import { OFFICE_SENDER } from '../shared/types';
 import type { Lang } from '../shared/i18n';
 import type { ServerKey } from './i18n';
@@ -221,9 +222,16 @@ export function runPipeline(state: OfficeState, taskId: string): Promise<void> {
 export const isPipelineRunning = (state: OfficeState, taskId: string): boolean =>
   running.has(`${state.officeId}:${taskId}`);
 
-/** Сколько конвейеров идёт в офисе прямо сейчас — для признака занятости (busy.ts). */
-export const runningPipelines = (state: OfficeState): number =>
-  [...running.keys()].filter((key) => key.startsWith(`${state.officeId}:`)).length;
+/**
+ * Сколько конвейеров в офисе работает прямо сейчас — для признака занятости
+ * (busy.ts). Конвейер, ждущий согласования владельца, не в счёт.
+ */
+export const runningPipelines = (state: OfficeState): number => {
+  const prefix = `${state.officeId}:`;
+  return countWorking([...running.keys()]
+    .filter((key) => key.startsWith(prefix))
+    .map((key) => state.runOf(key.slice(prefix.length))));
+};
 
 /**
  * Дождаться, пока в офисе не останется идущих конвейеров. Нужно тем, кто

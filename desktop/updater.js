@@ -110,12 +110,26 @@ async function askBusy() {
   try {
     const res = await fetch(`http://127.0.0.1:${port}/api/busy`, { signal: AbortSignal.timeout(ASK_TIMEOUT_MS) });
     if (!res.ok) throw new Error(`сервер ответил ${res.status}`);
-    const { busy } = await res.json();
+    const { busy, reasons } = await res.json();
+    logBusyWhy(busy === true ? (Array.isArray(reasons) && reasons.length ? reasons.join(' | ') : 'сервер не назвал причин') : '');
     return busy === true;
   } catch (err) {
     log('warn', 'не удалось спросить офис о занятости:', err);
     return true;
   }
+}
+
+/** Последняя записанная в журнал причина занятости — пусто, если офис свободен. */
+let lastBusyWhy = '';
+
+/**
+ * Записать в журнал обновлений, что офис посчитал работой. Опрос идёт каждые
+ * десять секунд, поэтому пишем только смену причины, а не каждый ответ.
+ */
+function logBusyWhy(why) {
+  if (why === lastBusyWhy) return;
+  lastBusyWhy = why;
+  log('info', why ? `офис занят, перезапуск оборвёт работу — ${why}` : 'офис свободен, работы, которую оборвёт перезапуск, нет');
 }
 
 /** Переспросить занятость и разослать, если она сменилась. */

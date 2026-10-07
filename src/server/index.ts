@@ -229,6 +229,7 @@ const MIME: Record<string, string> = {
 /** Снимок того, что идёт в офисе прямо сейчас, — для `/api/busy` (busy.ts). */
 function officeWork(state: OfficeState): WorkSnapshot {
   return {
+    tasks: [...state.tasks.values()].filter((t) => t.status === 'assigned' || t.status === 'in_progress').map((t) => t.id),
     workers: state.running,
     pmTurns: [...state.pmSessions.values()].filter((s) => s.busy).length,
     meeting: state.meetingRunning,

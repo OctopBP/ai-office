@@ -39,6 +39,7 @@ import { githubToken } from './cloud';
 import { maskValues, secretsEnv } from './secrets';
 import { githubFor, type GithubRepo } from './github';
 import { workflowFor } from './workflows';
+import { countWorking } from './busy';
 import { gateAnswerYes, tellPm, withMergeLock } from './review';
 import { dispatch } from './plan';
 import {
@@ -1284,9 +1285,16 @@ const running = new Map<string, Promise<void>>();
 export const isReleaseRunning = (state: OfficeState, releaseId: string): boolean =>
   running.has(`${state.officeId}:${releaseId}`);
 
-/** Сколько выпусков идёт в офисе прямо сейчас — для признака занятости (busy.ts). */
-export const runningReleases = (state: OfficeState): number =>
-  [...running.keys()].filter((key) => key.startsWith(`${state.officeId}:`)).length;
+/**
+ * Сколько выпусков в офисе работает прямо сейчас — для признака занятости
+ * (busy.ts). Выпуск, ждущий «Выпускай» или другого ответа владельца, не в счёт.
+ */
+export const runningReleases = (state: OfficeState): number => {
+  const prefix = `${state.officeId}:`;
+  return countWorking([...running.keys()]
+    .filter((key) => key.startsWith(prefix))
+    .map((key) => runOfRelease(state, key.slice(prefix.length))));
+};
 
 /** Прогон выпуска. У выпуска он один. */
 export const runOfRelease = (state: OfficeState, releaseId: string): Run | null =>
