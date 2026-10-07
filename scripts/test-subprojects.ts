@@ -26,6 +26,7 @@ import { defaultRoles, type Role } from '../src/server/roles';
 import { loadPackage } from '../src/server/packages';
 import {
   admitProblem, admits, consultWorkdir, ensureZone, repoDirHint, migrateRepoDirs, outsideZone, roleWorkdir, sanitizeSubprojects, taskRepoDir, writeZone, zoneForRole,
+  seatZone, zoneSeating,
   type ZoneTask,
 } from '../src/server/subprojects';
 import type { Subproject } from '../src/shared/types';
@@ -586,6 +587,88 @@ async function unstaffedEpic(): Promise<void> {
  * задаче — зона задачи; вне задачи у роли двух зон зоны нет вовсе: ни брифа,
  * ни правил, ни документов какой-либо из них.
  */
+function zoneSeats(): void {
+  results.push('рассадка по зонам (T-499):');
+  // Сетка 3×2: верхний ряд 0 1 2, нижний 3 4 5.
+  const grid = [0, 1, 2, 3, 4, 5].map((index) => ({ index, x: index % 3, y: Math.floor(index / 3) }));
+  check('без зон — null, рассадку не трогаем',
+    zoneSeating(grid, [{ id: 'a', zone: null, desk: 0 }, { id: 'b', zone: null, desk: 5 }], ['web']) === null);
+  const seats = [
+    { id: 'a', zone: 'web', desk: 0 }, { id: 'b', zone: 'web', desk: 5 },
+    { id: 'c', zone: 'api', desk: 2 }, { id: 'd', zone: null, desk: 1 }, { id: 'e', zone: null, desk: 4 },
+  ];
+  const got = zoneSeating(grid, seats, ['web', 'api'])!;
+  const at = (id: string) => grid.find((d) => d.index === got.get(id))!;
+  const dist = (p: string, q: string) => Math.abs(at(p).x - at(q).x) + Math.abs(at(p).y - at(q).y);
+  check('закреплённые за одной зоной — на соседних столах', dist('a', 'b') === 1);
+  check('кто уже в блоке своей зоны, остаётся', got.get('a') === 0 && got.get('c') === 2);
+  check('незакреплённый держит свой стол, если тот не ушёл под зону', got.get('e') === 4);
+  check('вытесненный незакреплённый — на свободный', got.get('d') === 3);
+  check('столы не повторяются', new Set(got.values()).size === seats.length);
+  const again = zoneSeating(grid, seats.map((s) => ({ ...s, desk: got.get(s.id)! })), ['web', 'api'])!;
+  check('повторный расчёт никого не двигает', seats.every((s) => again.get(s.id) === got.get(s.id)));
+  check('столов не хватило — лишнего нет в ответе',
+    zoneSeating(grid.slice(0, 1), seats.slice(0, 2), ['web'])!.size === 1);
+  check('сидит в первой существующей зоне роли',
+    seatZone({ subprojects: ['gone', 'api', 'web'], isManager: false }, [zone('web', 'folder', 'w'), zone('api', 'repo', '../api')]) === 'api'
+    && seatZone({ subprojects: ['api'], isManager: true }, [zone('api', 'repo', '../api')]) === null);
+
+  // Офис целиком: без зон рассадка не меняется, с зонами — соседи, перезапуск не перемешивает.
+  const open = (id: string, file: string) => openOfficeState({ id, projectDir, stateFile: file }).state;
+  const desksOf = (o: ReturnType<typeof open>) =>
+    JSON.stringify([...o.instances.values()].map((i) => [i.id, i.desk.index]).sort());
+  const plain = open('o-seat-plain', resolve(base, 'seat-plain.json'));
+  const before = desksOf(plain);
+  plain.updateRole('backend', { title: 'Бэкенд' });
+  check('офис без зон: правка роли не двигает ни одного стола', desksOf(plain) === before);
+  const plainFile = resolve(base, 'seat-plain-2.json');
+  const plainSnap = plain.toPersisted();
+  save(plainFile, () => plainSnap);
+  flushAll();
+  const plainAgain = open('o-seat-plain-2', plainFile);
+  check('офис без зон: перезапуск не перемешивает столы', desksOf(plainAgain) === before);
+
+  const withZones = plain.toPersisted() as Persisted & { subprojects?: unknown };
+  withZones.subprojects = [zone('web', 'folder', 'apps/web'), zone('api', 'folder', 'apps/api')];
+  const zonedFile = resolve(base, 'seat-zoned.json');
+  save(zonedFile, () => withZones);
+  flushAll();
+  const zoned = open('o-seat-zoned', zonedFile);
+  check('зоны появились, но закреплений нет — столы прежние', desksOf(zoned) === before);
+  const staff = [...zoned.instances.values()].filter((i) => !zoned.role(i.roleId)?.isManager);
+  // Трое из разных концов комнаты: им есть куда съезжаться.
+  const pinned = [staff[0], staff[3], staff[staff.length - 1]].map((i) => i.roleId);
+  const scattered = JSON.stringify(pinned.map((r) => zoned.staffOf(r)[0].desk.index));
+  const pm = [...zoned.instances.values()].find((i) => zoned.role(i.roleId)?.isManager)!;
+  const pmDesk = pm.desk.index;
+  for (const r of pinned) zoned.updateRole(r, { subprojects: ['web', 'api'] } as never);
+  check('закрепления легли в роли', pinned.every((r) => seatZone(zoned.role(r), zoned.subprojects()) === 'web'));
+  const seatsOf = (ids: string[]) => ids.map((r) => zoned.staffOf(r)[0].desk);
+  const block = seatsOf(pinned);
+  check('закреплённых пересадили', JSON.stringify(block.map((d) => d.index)) !== scattered);
+  const deskSet = new Set([...zoned.instances.values()].map((i) => i.desk.index));
+  // Соседство: каждый закреплённый в шаге от кого-то из своих — на сетке
+  // раскладки ближе стола, чем у ближайшего соседа вообще, не бывает.
+  const all = [...zoned.instances.values()].map((i) => i.desk);
+  const step = Math.min(...all.flatMap((p) => all.filter((q) => q !== p)
+    .map((q) => Math.abs(p.x - q.x) + Math.abs(p.y - q.y))));
+  const near = block.every((p) => block.some((q) => q !== p && Math.abs(p.x - q.x) + Math.abs(p.y - q.y) <= step));
+  check('закреплённые за зоной (первой из списка) — на соседних столах', near);
+  check('после пересадки столы не повторяются', deskSet.size === zoned.instances.size);
+  check('менеджер остался за своим столом', pm.desk.index === pmDesk);
+  const arranged = desksOf(zoned);
+  zoned.updateRole(staff[0].roleId, { title: 'Переименован' });
+  check('правка без смены закреплений никого не двигает', desksOf(zoned) === arranged);
+  const zonedFile2 = resolve(base, 'seat-zoned-2.json');
+  const zonedSnap = zoned.toPersisted();
+  save(zonedFile2, () => zonedSnap);
+  flushAll();
+  const zonedAgain = open('o-seat-zoned-2', zonedFile2);
+  check('офис с зонами: перезапуск не перемешивает столы', desksOf(zonedAgain) === arranged);
+
+  for (const id of ['o-seat-plain', 'o-seat-plain-2', 'o-seat-zoned', 'o-seat-zoned-2']) unloadOfficeState(id);
+}
+
 function zoneInWorkerPrompt(): void {
   results.push('зона в промпте исполнителя: правила и документы вместе (T-488):');
   const dir = resolve(base, 'prompt-zone');
@@ -633,6 +716,7 @@ function zoneInWorkerPrompt(): void {
 
 try {
   zoneInWorkerPrompt();
+  zoneSeats();
   pureRules();
   admission();
   pickZone();

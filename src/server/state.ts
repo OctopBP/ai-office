@@ -81,7 +81,7 @@ import {
 } from './packages';
 import {
   ensureZone, migrateRepoDirs, resolveRoot, roleWorkdir, sanitizeRoleZones, sanitizeSubprojects, soleZone,
-  repoZonesReplaced, subprojectView, SUBPROJECTS_MIGRATION, taskRepoDir, withZones, zoneProblem,
+  repoZonesReplaced, seatZone, subprojectView, SUBPROJECTS_MIGRATION, taskRepoDir, withZones, zoneProblem, zoneSeating,
 } from './subprojects';
 import {
   DEFAULT_STATE_FILE, flush as flushFile, load, save, wipe as wipeFile,
@@ -1510,7 +1510,35 @@ export class OfficeState {
     // Выгруженный офис в свой файл больше не пишет: файлом распоряжается
     // состояние, поднятое после него, и старый снимок затёр бы его доску.
     if (this.retired) return;
+    this.reseatOnZoneChange();
     save(this.stateFile, () => this.toPersisted());
+  }
+
+  /**
+   * Закрепления сотрудников за зонами, как их видит рассадка: кто за какой
+   * зоной сидит и в каком порядке идут зоны. null — до первой сверки,
+   * undefined — офис поднимается с диска и сверять рано (см. `restore`).
+   */
+  private zoneSeatKey: string | null | undefined = null;
+
+  /**
+   * Пересадить по зонам, если закрепления поменялись: найм или увольнение
+   * закреплённого, правка зон роли, новая или удалённая зона. Сверка висит
+   * на `markDirty` — через него проходит любая такая правка, и отдельный
+   * вызов в каждом месте не понадобится. Первая сверка только запоминает:
+   * перезапуск сервера никого не пересаживает. Задачи от рассадки не зависят.
+   */
+  private reseatOnZoneChange(): void {
+    const key = [
+      this.subprojectList.map((s) => s.id).join(','),
+      ...[...this.instances.values()]
+        .map((i) => [i.id, seatZone(this.role(i.roleId), this.subprojectList)])
+        .filter(([, zone]) => zone).map(([id, zone]) => `${id}=${zone}`).sort(),
+    ].join('\n');
+    const prev = this.zoneSeatKey;
+    if (prev === undefined) return;
+    this.zoneSeatKey = key;
+    if (prev !== null && prev !== key) this.resyncDesks();
   }
 
   /**
@@ -2100,6 +2128,9 @@ export class OfficeState {
       console.log(c('state.restore.otherDir'));
       return false;
     }
+    // Пока состав поднимается по одному, закрепления «меняются» на каждом
+    // шаге — пересадку по зонам не сверяем до конца загрузки.
+    this.zoneSeatKey = undefined;
 
     // Язык общения узнаём раньше всего: на нём поднимаются базовые роли, и не
     // зная его, офис поставил бы английские названия рядом с русской
@@ -2345,6 +2376,9 @@ export class OfficeState {
       // смене раскладки.
       if ([...this.instances.values()].some((i) => i.deskless)) this.resyncDesks();
     }
+    // Закрепления на момент загрузки — точка отсчёта для пересадки.
+    this.zoneSeatKey = null;
+    this.reseatOnZoneChange();
     // Офисной суммы в старых сохранениях тоже нет — собираем её из агентов.
     if (!data.usage) {
       for (const inst of this.instances.values()) accumulate(this.usage, inst.usage);
@@ -2766,8 +2800,24 @@ export class OfficeState {
     const pmDesk = desks[plan.pmIndex];
     if (manager && pmDesk) seat(manager, pmDesk);
 
+    // В офисе с зонами пункты 2–3 заменяет рассадка по зонам: закреплённые
+    // за одной зоной — на соседних столах, остальные — на оставшихся
+    // (`zoneSeating`). Без зон она возвращает null, и всё идёт как раньше.
+    const others = [...this.instances.values()].filter((i) => !(i === manager && pmDesk));
+    const byZone = zoneSeating(
+      desks.filter((d) => !taken.has(d.index)),
+      others.map((i) => ({ id: i.id, zone: seatZone(this.role(i.roleId), this.subprojectList), desk: i.desk.index })),
+      this.subprojectList.map((s) => s.id),
+    );
+    if (byZone) {
+      for (const inst of others) {
+        const desk = desks.find((d) => d.index === byZone.get(inst.id));
+        if (desk) seat(inst, desk); else homeless.push(inst);
+      }
+    }
+
     // 2. Каждый на своё прежнее место, если оно уцелело и свободно.
-    for (const inst of this.instances.values()) {
+    for (const inst of byZone ? [] : this.instances.values()) {
       if (inst === manager && pmDesk) continue;
       const same = desks.find((d) => d.index === inst.desk.index);
       if (!same || taken.has(same.index) || inst.deskless) { queue.push(inst); continue; }

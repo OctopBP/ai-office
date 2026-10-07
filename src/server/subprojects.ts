@@ -650,3 +650,94 @@ export function outsideZone(zone: WriteZone | Subproject | null | undefined, fil
     .filter((f) => !inWriteZone(f, write))
     .sort();
 }
+
+/**
+ * Зона, у которой сотрудник роли сидит в офисе: первая существующая из
+ * `Role.subprojects`. Менеджер и незакреплённые — null. На раздачу задач
+ * это не влияет: только где стоит стол (главный принцип — офис визуализация).
+ */
+export function seatZone(role: Pick<Role, 'subprojects' | 'isManager'> | null | undefined, subs: readonly Subproject[]): string | null {
+  if (!role || role.isManager) return null;
+  return (role.subprojects ?? []).find((id) => subs.some((s) => s.id === id)) ?? null;
+}
+
+/** Сотрудник для рассадки: id, зона по `seatZone` и номер стола сейчас. */
+export interface ZoneSeat {
+  id: string;
+  zone: string | null;
+  desk: number;
+}
+
+/** Стол для рассадки: номер и клетка — больше функции знать не нужно. */
+export interface SeatDesk {
+  index: number;
+  x: number;
+  y: number;
+}
+
+/**
+ * Рассадка по зонам: закреплённые за одной зоной садятся на соседние столы,
+ * незакреплённые — на оставшиеся. Возвращает id → номер стола; кому стола не
+ * хватило, в ответе нет. null — ни у кого нет зоны: тогда рассадку не трогаем
+ * вовсе, и офис без зон сидит ровно как раньше.
+ *
+ * Результат — функция столов, состава и порядка зон, а не текущих мест,
+ * поэтому повторный вызов с тем же составом даёт тот же ответ: перезапуск
+ * сервера никого не пересаживает. Текущие места учтены только там, где выбор
+ * свободен, — чтобы двигать как можно меньше людей:
+ *  - блок зоны растёт от первого свободного стола (сверху вниз, слева направо)
+ *    к ближайшим свободным; зоны идут в порядке списка подпроектов;
+ *  - кто уже сидит внутри блока своей зоны, остаётся на своём столе;
+ *  - незакреплённый сохраняет свой стол, если тот не ушёл под зону.
+ */
+export function zoneSeating(
+  desks: readonly SeatDesk[], seats: readonly ZoneSeat[], zoneOrder: readonly string[],
+): Map<string, number> | null {
+  if (!seats.some((s) => s.zone)) return null;
+  const order = [...desks].sort((a, b) => a.y - b.y || a.x - b.x || a.index - b.index);
+  const free = new Set(order.map((d) => d.index));
+  const out = new Map<string, number>();
+  const byId = (a: ZoneSeat, b: ZoneSeat) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0);
+  const zones = [
+    ...zoneOrder.filter((z) => seats.some((s) => s.zone === z)),
+    // Зона, которой нет в порядке (не должно случаться), — в конце, по id.
+    ...[...new Set(seats.map((s) => s.zone).filter((z): z is string => !!z && !zoneOrder.includes(z)))].sort(),
+  ];
+
+  for (const zone of zones) {
+    const members = seats.filter((s) => s.zone === zone).sort(byId);
+    const block: SeatDesk[] = [];
+    while (block.length < members.length) {
+      const near = (d: SeatDesk) => (block.length
+        ? Math.min(...block.map((b) => Math.abs(b.x - d.x) + Math.abs(b.y - d.y)))
+        : 0);
+      let best: SeatDesk | null = null;
+      for (const d of order) {
+        if (free.has(d.index) && (!best || near(d) < near(best))) best = d;
+      }
+      if (!best) break;
+      free.delete(best.index);
+      block.push(best);
+    }
+    const left = new Set(block.map((d) => d.index));
+    const rest: ZoneSeat[] = [];
+    for (const m of members) {
+      if (left.has(m.desk)) { out.set(m.id, m.desk); left.delete(m.desk); } else rest.push(m);
+    }
+    const spare = block.filter((d) => left.has(d.index));
+    rest.forEach((m, i) => { if (spare[i]) out.set(m.id, spare[i].index); });
+  }
+
+  const loose = seats.filter((s) => !s.zone).sort(byId);
+  const moved: ZoneSeat[] = [];
+  for (const s of loose) {
+    if (free.has(s.desk)) { out.set(s.id, s.desk); free.delete(s.desk); } else moved.push(s);
+  }
+  for (const s of moved) {
+    const d = desks.find((x) => free.has(x.index));
+    if (!d) continue;
+    out.set(s.id, d.index);
+    free.delete(d.index);
+  }
+  return out;
+}
