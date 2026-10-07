@@ -269,6 +269,7 @@ export const ru: Record<keyof typeof en, string> = {
   "plan.hold.share": "ждёт доли на своё: лимит недели исчерпан",
   "plan.hold.tasks": "ждёт задачи {tasks}",
   "plan.hold.stuck": "стоит: провалены {tasks} — перезапустите или снимите",
+  "plan.hold.unstaffed": "некому делать: {tasks} ждут допуска к зоне",
   "plan.focus": "одновременно ведём фич: {n}",
   "plan.waits": "ждёт {deps}",
   "settings.plan.title": "План и фичи",

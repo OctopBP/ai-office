@@ -143,13 +143,16 @@ export interface EpicView {
  * - `tasks` — фича идёт, но всё в ней ждёт задач `tasks` (обычно из других фич);
  * - `stuck` — живой работы не осталось: задачи `tasks` провалены или ждут
  *   проваленных. Сама такая фича не сдвинется — перезапустить или снять.
+ * - `unstaffed` — некому делать: все готовые к старту задачи `tasks` ждут
+ *   допуска к зоне (`admitWait`, spec подпроектов §3.3).
  */
 export type EpicHold =
   | { kind: 'approval' }
   | { kind: 'slot'; epics: string[] }
   | { kind: 'share' }
   | { kind: 'tasks'; tasks: string[] }
-  | { kind: 'stuck'; tasks: string[] };
+  | { kind: 'stuck'; tasks: string[] }
+  | { kind: 'unstaffed'; tasks: string[] };
 
 /**
  * Задача доведена до конца — её результат уже в основной ветке (или его туда

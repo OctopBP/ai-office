@@ -188,6 +188,7 @@ export function holdText(state: OfficeState, hold: EpicHold): string {
     case 'share': return state.say('plan.hold.share');
     case 'tasks': return state.say('plan.hold.tasks', { tasks: hold.tasks.join(', ') });
     case 'stuck': return state.say('plan.hold.stuck', { tasks: hold.tasks.join(', ') });
+    case 'unstaffed': return state.say('plan.hold.unstaffed', { tasks: hold.tasks.join(', ') });
   }
 }
 
@@ -354,6 +355,15 @@ function markActiveHolds(state: OfficeState): void {
         kind: 'stuck',
         tasks: tasks.filter((t) => dead(state, t) && t.status !== 'cancelled').map((t) => t.id),
       });
+      continue;
+    }
+    // Некому делать (spec подпроектов §3.3): ничего не начато, а все выпущенные
+    // в очередь задачи ждут допуска к зоне. Допуск прошёл — admitGate снял
+    // admitWait, и следующий проход снимет причину сам.
+    const queued = tasks.filter((t) => t.status === 'backlog');
+    if (queued.length && queued.every((t) => t.admitWait)
+      && !tasks.some((t) => t.status !== 'backlog' && moving(state, t))) {
+      setHold(state, epic, { kind: 'unstaffed', tasks: queued.map((t) => t.id) });
       continue;
     }
     if (tasks.some((t) => moving(state, t))) {

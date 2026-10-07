@@ -100,6 +100,7 @@ export function holdWords(say: BoardSay, hold: EpicHold): string {
     case 'share': return say('plan.hold.share');
     case 'tasks': return say('plan.hold.tasks', { tasks: someIds(hold.tasks) });
     case 'stuck': return say('plan.hold.stuck', { tasks: someIds(hold.tasks) });
+    case 'unstaffed': return say('plan.hold.unstaffed', { tasks: someIds(hold.tasks) });
   }
 }
 

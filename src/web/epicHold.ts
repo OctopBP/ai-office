@@ -13,6 +13,7 @@ export function epicHoldText(hold: EpicHold): string {
     case 'share': return t('plan.hold.share');
     case 'tasks': return t('plan.hold.tasks', { tasks: hold.tasks.join(', ') });
     case 'stuck': return t('plan.hold.stuck', { tasks: hold.tasks.join(', ') });
+    case 'unstaffed': return t('plan.hold.unstaffed', { tasks: hold.tasks.join(', ') });
   }
 }
 

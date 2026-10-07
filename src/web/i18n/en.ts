@@ -270,6 +270,7 @@ export const en = {
   "plan.hold.share": "waiting for the initiative share: this week's limit is spent",
   "plan.hold.tasks": "waiting for tasks {tasks}",
   "plan.hold.stuck": "stuck: {tasks} failed — restart or cancel them",
+  "plan.hold.unstaffed": "nobody to do it: {tasks} wait for zone access",
   "plan.focus": "features run at once: {n}",
   "plan.waits": "waits for {deps}",
   "settings.plan.title": "Plan and features",

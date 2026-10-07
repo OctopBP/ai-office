@@ -432,6 +432,7 @@ export const ru: Record<keyof typeof en, string> = {
   'plan.hold.share': 'ждёт доли на своё: лимит недели исчерпан',
   'plan.hold.tasks': 'ждёт задачи {tasks}',
   'plan.hold.stuck': 'провалены {tasks}, нужна ваша команда',
+  'plan.hold.unstaffed': 'некому делать: {tasks} ждут допуска к зоне',
   'plan.hold.unknown': 'причина не определена',
 
   // ------------------------------------------------------------------ доска глазами менеджера (board-view.ts)

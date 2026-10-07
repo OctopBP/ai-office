@@ -432,6 +432,7 @@ export const en = {
   'plan.hold.share': 'waiting for the initiative share: this week\'s limit is spent',
   'plan.hold.tasks': 'waiting for tasks {tasks}',
   'plan.hold.stuck': '{tasks} failed, your call is needed',
+  'plan.hold.unstaffed': 'nobody to do it: {tasks} wait for zone access',
   'plan.hold.unknown': 'reason unknown',
 
   // ------------------------------------------------------------------ доска глазами менеджера (board-view.ts)

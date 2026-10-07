@@ -14,6 +14,8 @@ import { resolve } from 'node:path';
 import { openOfficeState, unloadOfficeState } from '../src/server/state';
 import { assignDirect, officeAssign, retryTask } from '../src/server/agents';
 import { flushAll, save, type Persisted } from '../src/server/store';
+import { dispatch } from '../src/server/plan';
+import { formatBoard } from '../src/server/board-view';
 import { defaultRoles, type Role } from '../src/server/roles';
 import { loadPackage } from '../src/server/packages';
 import {
@@ -376,6 +378,47 @@ async function officeAssignGate(): Promise<void> {
   unloadOfficeState('o-sub-assign');
 }
 
+/**
+ * Фича, которую некому делать (§3.3): план выпустил задачу, а допуска к зоне
+ * у роли нет — фича получает hold `unstaffed`, и сводка get_board называет
+ * причину в строке фичи. Допуск прошёл — причина снимается.
+ */
+async function unstaffedEpic(): Promise<void> {
+  results.push('фича «некому делать» (§3.3):');
+  const svc = resolve(base, 'unstaffed-svc');
+  gitRepo(svc);
+  const office = openOfficeState({ id: 'o-sub-unstaffed', projectDir, stateFile: resolve(base, 'unstaffed.json') }).state;
+  office.dryRun = true;
+  await office.editRole('frontend', { repoDir: svc });
+  const zoneId = office.role('frontend')!.subprojects?.[0] ?? null;
+  const board = () => formatBoard({
+    tasks: [...office.tasks.values()], epics: [...office.epics.values()], questions: [],
+    autoPipeline: office.settings.autoPipeline,
+  }, (key, vars) => office.say(key, vars));
+
+  const epic = office.createEpic({ title: 'витрина', goal: '', approved: true });
+  const task = office.createTask({
+    title: 'на весь проект', description: '', criteria: [], roleId: 'frontend', epicId: epic.id, status: 'planned',
+  });
+  office.updateTask(task.id, { subprojectId: null });
+  dispatch(office);
+  const held = office.epics.get(epic.id)!;
+  check('задача выпущена и ждёт допуска', office.tasks.get(task.id)!.status === 'backlog' && !!office.tasks.get(task.id)!.admitWait);
+  check('фича получила hold unstaffed',
+    held.hold?.kind === 'unstaffed' && held.hold.tasks.join() === task.id);
+  const why = office.say('plan.hold.unstaffed', { tasks: task.id });
+  check('причина в строке фичи get_board', board().split('\n').some((l) => l.includes(epic.id) && l.includes(why)));
+
+  // Допуск прошёл: задача в зоне закреплённой роли, admitGate снимает admitWait.
+  office.updateTask(task.id, { subprojectId: zoneId });
+  const ok = officeAssign(office, task.id);
+  dispatch(office);
+  check('допуск прошёл — admitWait снят', ok.ok && office.tasks.get(task.id)!.admitWait === null);
+  check('hold unstaffed снят', office.epics.get(epic.id)!.hold?.kind !== 'unstaffed');
+  check('в get_board причины больше нет', !board().includes(why));
+  unloadOfficeState('o-sub-unstaffed');
+}
+
 try {
   pureRules();
   admission();
@@ -386,6 +429,7 @@ try {
   await officeZones();
   await startWorkerGate();
   await officeAssignGate();
+  await unstaffedEpic();
 } finally {
   rmSync(base, { recursive: true, force: true });
 }
