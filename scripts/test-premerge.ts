@@ -16,7 +16,7 @@ import {
 import { tmpdir } from 'node:os';
 import { resolve } from 'node:path';
 import {
-  defaultIntegrationDir, formatReport, mergeChecks, preMergeGate,
+  defaultIntegrationDir, formatReport, mergeChecks, preMergeGate, zoneMergeChecks,
 } from '../src/server/premerge';
 import { DEPS_MARKER, manifestsHash } from '../src/server/deps';
 import { getOffice } from '../src/server/state';
@@ -145,6 +145,25 @@ async function pipelineGate(check: (name: string, ok: boolean) => void): Promise
   check('в наборе гейта только скрипты проекта',
     commands.length === 2 && commands[0].includes('typecheck') && commands[1].includes('test:state'));
   check('test:pm в набор не попал', commands.every((c) => !c.includes('test:pm')));
+
+  // Свой набор зоны (spec подпроектов §5.3) сильнее общего; у зоны без набора
+  // и у задачи «весь проект» — общий. Разовая переменная окружения не мешает.
+  {
+    const envBefore = process.env.OFFICE_MERGE_CHECKS;
+    delete process.env.OFFICE_MERGE_CHECKS;
+    const shared = ['npm run --silent office-check'];
+    const own = zoneMergeChecks(dir, { mergeChecks: ['npm run --silent zone-check'] }, shared);
+    check('у зоны свой набор — берётся он', own.length === 1 && own[0].includes('zone-check'));
+    check('у зоны пустой набор — не гонять ничего',
+      zoneMergeChecks(dir, { mergeChecks: [] }, shared).length === 0);
+    check('у зоны без набора — общий из настроек',
+      zoneMergeChecks(dir, {}, shared).join() === shared.join());
+    check('у зоны без набора и без настройки — умолчание офиса',
+      zoneMergeChecks(dir, {}, null).join() === commands.join());
+    check('задача без зоны — общий набор',
+      zoneMergeChecks(dir, null, shared).join() === shared.join());
+    if (envBefore !== undefined) process.env.OFFICE_MERGE_CHECKS = envBefore;
+  }
 
   // 1. Пока main не уехал, ветка зелена под всем набором — сама по себе.
   const alone = await preMergeGate({

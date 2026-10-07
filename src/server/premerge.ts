@@ -192,6 +192,20 @@ export function mergeChecks(
 }
 
 /**
+ * Набор проверок задачи зоны (docs/design/subprojects/spec.md §5.3): разовая
+ * правка окружения сильнее всего, затем свой набор зоны (`Subproject.mergeChecks`,
+ * пустой список — «не гонять ничего»), затем общий офиса (`Settings.mergeChecks`
+ * или `OFFICE_MERGE_CHECKS`). Задача без зоны — общий набор.
+ */
+export function zoneMergeChecks(
+  repoDir: string,
+  zone: { mergeChecks?: readonly string[] } | null | undefined,
+  configured?: readonly string[] | null,
+): string[] {
+  return mergeChecks(repoDir, zone?.mergeChecks ?? configured);
+}
+
+/**
  * Что гонять, если не сказано иное. Тот же набор, что у конвейера, и это
  * важнее краткости: человек, прогнавший `npm run premerge` руками, должен
  * получить тот же вердикт, что получит офис, — иначе зелёная консоль

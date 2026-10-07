@@ -48,7 +48,7 @@ import {
 } from './git';
 import { integrationDir, runProjectCheck, runTypecheck, taskBase } from './merge';
 import { formatOverlaps, type DuplicateEdit } from './overlap';
-import { mergeChecks, preMergeGate, toGateView, type PreMergeReport } from './premerge';
+import { preMergeGate, zoneMergeChecks, toGateView, type PreMergeReport } from './premerge';
 import { writeZone } from './subprojects';
 import { mergedKind, recordOutcome } from './outcomes';
 import { deliveryAt } from './taskfiles';
@@ -740,10 +740,12 @@ const merge: Executor<Ctx> = {
     const { state, task, repo, branch, base } = ctx;
     return withLock(mergeLocks, repo, async (): Promise<StepResult> => {
       state.patchPr(task.id, { note: state.say('pipe.merging', { base }) });
-      const checks = mergeChecks(repo, state.settings.mergeChecks);
+      const subproject = state.subproject(task.subprojectId);
+      // Свой набор проверок зоны сильнее общего (spec подпроектов §5.3).
+      const checks = zoneMergeChecks(repo, subproject, state.settings.mergeChecks);
       // Граница зоны (spec подпроектов §5.2): ветка папки-зоны не правит
       // чужое. «Весь проект» и repo-зона — без ограничения (null).
-      const zone = writeZone(state.subproject(task.subprojectId));
+      const zone = writeZone(subproject);
 
       // Дублирующие правки считает сам гейт — на пробном слиянии, до того как
       // база сдвинется (после неё «кто что правил после точки ветвления» уже
