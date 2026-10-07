@@ -10,9 +10,10 @@
   min-width: 0;
   min-height: 0;
   background: var(--surface);
+  border: 1px solid var(--hairline); /* как у карточек и панелей кита */
   border-radius: var(--radius-card);
   box-shadow: var(--shadow-float);
-  overflow: hidden;
+  overflow: hidden; /* содержимое (xterm) обрезается по внутреннему краю рамки */
   color: var(--ink-2);
   font-size: var(--fs-row);
 }
