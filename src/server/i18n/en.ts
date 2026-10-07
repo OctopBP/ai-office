@@ -740,6 +740,8 @@ export const en = {
   'subprojects.err.rootEmpty': 'Enter a root. The whole repository is the “whole project”, not a zone.',
   'subprojects.err.rootTaken': 'This root is already taken by the zone “{name}”.',
   'subprojects.err.sharedOut': 'The path {path} points outside the repository.',
+  'subprojects.err.pinManager': 'The manager is not pinned to zones: it does not take tasks.',
+  'subprojects.err.pinList': 'Pinning is a list of zone ids.',
   'subprojects.created': 'Subproject “{name}” created at {root}.',
   'subprojects.err.hasOpen': 'Zone “{name}” has {n} open task(s): close or move them first.',
   'subprojects.deleted': 'Subproject “{name}” deleted. Roles unpinned from it.',

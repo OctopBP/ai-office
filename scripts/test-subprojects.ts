@@ -29,7 +29,7 @@ import {
   seatZone, zoneSeating,
   type ZoneTask,
 } from '../src/server/subprojects';
-import type { Subproject } from '../src/shared/types';
+import type { Subproject, SubprojectDraft } from '../src/shared/types';
 
 const results: string[] = [];
 const check = (what: string, ok: boolean) => {
@@ -714,7 +714,196 @@ function zoneInWorkerPrompt(): void {
   unloadOfficeState('o-sub-prompt');
 }
 
+/**
+ * Команда save_subproject (T-480): обработчик в index.ts зовёт ровно
+ * state.saveSubproject, поэтому проверяем его на временном офисе. Зоны обоих
+ * видов, переживание перезагрузки из файла, ошибки полей.
+ */
+function saveSubprojectCommand(): void {
+  results.push('команда save_subproject (T-480):');
+  const dir = resolve(base, 'cmd-office');
+  mkdirSync(resolve(dir, 'apps/web/src'), { recursive: true });
+  mkdirSync(resolve(dir, 'apps/admin'), { recursive: true });
+  gitRepo(resolve(base, 'cmd-api'));
+  const file = resolve(base, 'cmd.json');
+  const open = () => openOfficeState({ id: 'o-sub-cmd', projectDir: dir, stateFile: file }).state;
+  const office = open();
+  const draft = (name: string, root: string, extra: Partial<SubprojectDraft> = {}): SubprojectDraft =>
+    ({ name, root, summary: '', color: 'accent-2', sharedPaths: [], ...extra });
+
+  const web = office.saveSubproject(undefined, draft('Веб', 'apps/web', { summary: ' витрина ', sharedPaths: ['package.json', ' ', 'package.json'] }));
+  const webId = 'id' in web ? web.id : '';
+  const webZone = () => office.subproject(webId);
+  check('зона-папка заведена', !!webId && webZone()?.kind === 'folder' && webZone()?.root === 'apps/web'
+    && webZone()?.name === 'Веб' && webZone()?.summary === 'витрина' && webZone()?.color === 'accent-2');
+  check('зона-папка: общие пути без пустых и повторов', webZone()?.sharedPaths?.join() === 'package.json');
+  const api = office.saveSubproject(undefined, draft('API', '../cmd-api'));
+  const apiId = 'id' in api ? api.id : '';
+  check('зона-репозиторий заведена по пути вне офиса',
+    !!apiId && office.subproject(apiId)?.kind === 'repo' && office.subproject(apiId)?.root === '../cmd-api'
+    && office.subproject(apiId)?.sharedPaths === undefined);
+  check('обе зоны в state.subprojects', office.subprojects().map((s) => s.id).join() === `${webId},${apiId}`);
+
+  // Правка имени: id не меняется, остальные поля из черновика.
+  const renamed = office.saveSubproject(webId, draft('Витрина', 'apps/web'));
+  check('правка имени: тот же id, новое имя', 'id' in renamed && renamed.id === webId && webZone()?.name === 'Витрина'
+    && office.subprojects().length === 2);
+  const same = office.saveSubproject(webId, draft('витрина', 'apps/web'));
+  check('своё же имя в другом регистре — не повтор', 'id' in same);
+
+  const fieldOf = (got: ReturnType<typeof office.saveSubproject>) => ('field' in got ? got.field : 'ok');
+  const dupNew = office.saveSubproject(undefined, draft(' api ', 'apps/admin'));
+  check('новая зона с занятым именем — ошибка поля name', fieldOf(dupNew) === 'name'
+    && 'message' in dupNew && dupNew.message === office.say('subprojects.err.nameTaken'));
+  check('правка в занятое имя — ошибка поля name', fieldOf(office.saveSubproject(webId, draft('API', 'apps/web'))) === 'name'
+    && webZone()?.name === 'витрина');
+  check('пустое имя — ошибка поля name', fieldOf(office.saveSubproject(undefined, draft('  ', 'apps/admin'))) === 'name');
+  check('пустой корень — ошибка поля root', fieldOf(office.saveSubproject(undefined, draft('Пусто', ' '))) === 'root');
+  check('тот же корень второй зоной — ошибка поля root',
+    fieldOf(office.saveSubproject(undefined, draft('Дубль', 'apps/web/'))) === 'root');
+  const outer = office.saveSubproject(undefined, draft('Приложения', 'apps'));
+  check('корень поверх чужой зоны — ошибка поля root', fieldOf(outer) === 'root' && !!('message' in outer && outer.message));
+  check('корень внутри чужой зоны — ошибка поля root',
+    fieldOf(office.saveSubproject(undefined, draft('Исходники', 'apps/web/src'))) === 'root');
+  check('папка вне офиса явным видом folder — ошибка поля root',
+    fieldOf(office.saveSubproject(undefined, draft('Чужая', '../cmd-api', { kind: 'folder' }))) === 'root');
+  check('корень самого офиса — ошибка поля root',
+    fieldOf(office.saveSubproject(undefined, draft('Всё', dir, { kind: 'repo' }))) === 'root');
+  check('общий путь за пределы репозитория — ошибка поля sharedPaths',
+    fieldOf(office.saveSubproject(undefined, draft('Админка', 'apps/admin', { sharedPaths: ['../x'] }))) === 'sharedPaths');
+  check('неизвестный id — ошибка без поля', fieldOf(office.saveSubproject('nope', draft('Нет', 'apps/admin'))) === null);
+  check('отказы зон не завели', office.subprojects().length === 2);
+  const admin = office.saveSubproject(undefined, draft('Админка', 'apps/admin'));
+  check('правка зоны на корень поверх соседней — ошибка поля root, корень прежний',
+    'id' in admin && fieldOf(office.saveSubproject(webId, draft('витрина', 'apps'))) === 'root' && webZone()?.root === 'apps/web');
+
+  // Переживает перезагрузку из файла.
+  // Порядок ключей после разбора сохранения другой — сравниваем по значению.
+  const norm = (subs: Subproject[]) => JSON.stringify(subs.map((z) => Object.fromEntries(Object.entries(z).sort())));
+  const before = norm(office.subprojects());
+  flushAll();
+  unloadOfficeState('o-sub-cmd');
+  const again = open();
+  check('после перезагрузки зоны те же', again.subprojects().length === 3 && norm(again.subprojects()) === before);
+  unloadOfficeState('o-sub-cmd');
+}
+
+/**
+ * Команда delete_subproject (T-498): с открытыми задачами — отказ с их
+ * числом; без них — зона уходит, закрепления ролей снимаются.
+ */
+async function deleteSubprojectCommand(): Promise<void> {
+  results.push('команда delete_subproject (T-498):');
+  const dir = resolve(base, 'del-office');
+  mkdirSync(resolve(dir, 'web'), { recursive: true });
+  mkdirSync(resolve(dir, 'srv'), { recursive: true });
+  const file = resolve(base, 'del.json');
+  const office = openOfficeState({ id: 'o-sub-del', projectDir: dir, stateFile: file }).state;
+  office.dryRun = true;
+  const make = (name: string, root: string) => {
+    const got = office.saveSubproject(undefined, { name, root, summary: '', color: 'accent-1', sharedPaths: [] });
+    return 'id' in got ? got.id : '';
+  };
+  const web = make('web', 'web');
+  const srv = make('srv', 'srv');
+  await office.editRole('frontend', { subprojects: [web, srv] });
+  await office.editRole('backend', { subprojects: [web] });
+  const t1 = office.createTask({ title: 'раз', description: '', criteria: [], roleId: 'frontend', subprojectId: web });
+  office.createTask({ title: 'два', description: '', criteria: [], roleId: 'backend', subprojectId: web });
+  const closed = office.createTask({ title: 'закрыта', description: '', criteria: [], roleId: 'backend', subprojectId: web });
+  office.updateTask(closed.id, { status: 'done' });
+
+  const refused = office.deleteSubproject(web);
+  check('с открытыми задачами — отказ, число задач в причине',
+    'message' in refused && refused.message === office.say('subprojects.err.hasOpen', { name: 'web', n: 2 }));
+  check('после отказа зона и закрепления на месте',
+    !!office.subproject(web) && office.role('frontend')?.subprojects?.join() === `${web},${srv}`);
+  office.updateTask(t1.id, { status: 'cancelled' });
+  const one = office.deleteSubproject(web);
+  check('одна открытая — в причине одна',
+    'message' in one && one.message === office.say('subprojects.err.hasOpen', { name: 'web', n: 1 }));
+  for (const task of office.tasks.values()) {
+    if (task.subprojectId === web && task.status !== 'done' && task.status !== 'cancelled') {
+      office.updateTask(task.id, { status: 'done' });
+    }
+  }
+  const ok = office.deleteSubproject(web);
+  check('без открытых задач — удалена', 'id' in ok && ok.id === web && !office.subproject(web)
+    && office.subprojects().map((s) => s.id).join() === srv);
+  check('закрепление снято, чужая зона роли осталась', office.role('frontend')?.subprojects?.join() === srv);
+  check('роль без других зон — поля subprojects нет', office.role('backend')?.subprojects === undefined);
+  check('неизвестная зона — отказ', 'message' in office.deleteSubproject(web));
+  flushAll();
+  unloadOfficeState('o-sub-del');
+  const again = openOfficeState({ id: 'o-sub-del', projectDir: dir, stateFile: file }).state;
+  check('после перезагрузки удаление и снятые закрепления сохранились',
+    again.subprojects().map((s) => s.id).join() === srv && again.role('frontend')?.subprojects?.join() === srv
+    && again.role('backend')?.subprojects === undefined);
+  unloadOfficeState('o-sub-del');
+}
+
+/** update_role с patch.subprojects (T-494): закрепить, снять; менеджера — нельзя. */
+async function pinRoleCommand(): Promise<void> {
+  results.push('update_role с patch.subprojects (T-494):');
+  const dir = resolve(base, 'pin-office');
+  mkdirSync(resolve(dir, 'web'), { recursive: true });
+  mkdirSync(resolve(dir, 'srv'), { recursive: true });
+  const file = resolve(base, 'pin.json');
+  const office = openOfficeState({ id: 'o-sub-pin', projectDir: dir, stateFile: file }).state;
+  const make = (name: string) => {
+    const got = office.saveSubproject(undefined, { name, root: name, summary: '', color: 'accent-1', sharedPaths: [] });
+    return 'id' in got ? got.id : '';
+  };
+  const web = make('web');
+  const srv = make('srv');
+  const pins = (id: string) => office.role(id)?.subprojects;
+
+  const set = await office.editRole('frontend', { subprojects: [web, srv] });
+  check('закрепление за двумя зонами', set.length === 0 && pins('frontend')?.join() === `${web},${srv}`);
+  check('правка не завела и не тронула зон', office.subprojects().length === 2);
+  await office.editRole('frontend', { subprojects: [web, web] });
+  check('повтор id в списке схлопнут', pins('frontend')?.join() === web);
+  const off = await office.editRole('frontend', { subprojects: [] });
+  check('пустой список снимает закрепление — поля нет', off.length === 0 && pins('frontend') === undefined);
+
+  const unknown = await office.editRole('frontend', { subprojects: ['nope'] });
+  check('неизвестная зона — ошибка поля subprojects, роль не тронута',
+    unknown.some((e) => e.field === 'subprojects') && pins('frontend') === undefined);
+  const junk = await office.editRole('frontend', { subprojects: 'web' as unknown as string[] });
+  check('не список — ошибка поля subprojects', junk.some((e) => e.field === 'subprojects') && pins('frontend') === undefined);
+
+  // Роль из пакета: закрепление живёт оверрайдом ссылки и тоже снимается.
+  const pkg = loadPackage('@office/backend');
+  const before = new Set(office.roles().map((r) => r.id));
+  if (pkg) office.hireFromPackage(pkg, null);
+  const hired = office.roles().find((r) => !before.has(r.id) && r.package);
+  if (hired) {
+    await office.editRole(hired.id, { subprojects: [srv] });
+    check('роль из пакета закреплена', pins(hired.id)?.join() === srv);
+    await office.editRole(hired.id, { subprojects: [] });
+    check('роль из пакета: закрепление снято', !pins(hired.id)?.length
+      && office.role(hired.id)?.package?.overrides.subprojects === undefined);
+  } else check('нанята роль из пакета @office/backend', false);
+
+  const pm = office.roles().find((r) => r.isManager)!;
+  const pmErr = await office.editRole(pm.id, { subprojects: [web] });
+  check('менеджера закрепить нельзя — ошибка поля subprojects',
+    pmErr.some((e) => e.field === 'subprojects') && !pins(pm.id)?.length);
+  check('менеджеру можно прислать пустой список', (await office.editRole(pm.id, { subprojects: [] })).length === 0);
+
+  await office.editRole('backend', { subprojects: [srv] });
+  flushAll();
+  unloadOfficeState('o-sub-pin');
+  const again = openOfficeState({ id: 'o-sub-pin', projectDir: dir, stateFile: file }).state;
+  check('после перезагрузки закрепление то же', again.role('backend')?.subprojects?.join() === srv
+    && again.role('frontend')?.subprojects === undefined);
+  unloadOfficeState('o-sub-pin');
+}
+
 try {
+  saveSubprojectCommand();
+  await deleteSubprojectCommand();
+  await pinRoleCommand();
   zoneInWorkerPrompt();
   zoneSeats();
   pureRules();

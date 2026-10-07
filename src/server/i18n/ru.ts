@@ -740,6 +740,8 @@ export const ru: Record<keyof typeof en, string> = {
   'subprojects.err.rootEmpty': 'Укажите корень. Весь репозиторий — это «весь проект», не зона.',
   'subprojects.err.rootTaken': 'Этот корень уже занят зоной «{name}».',
   'subprojects.err.sharedOut': 'Путь {path} выходит за репозиторий.',
+  'subprojects.err.pinManager': 'Менеджера не закрепляют за зонами: задачи он не берёт.',
+  'subprojects.err.pinList': 'Закрепление — это список id зон.',
   'subprojects.created': 'Заведён подпроект «{name}» с корнем {root}.',
   'subprojects.err.hasOpen': 'В зоне «{name}» открытых задач: {n}. Закройте их или переназначьте — тогда зону можно удалить.',
   'subprojects.deleted': 'Подпроект «{name}» удалён, закрепления ролей сняты.',

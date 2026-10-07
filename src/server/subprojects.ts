@@ -310,6 +310,23 @@ export function sanitizeRoleZones(value: unknown): string[] | undefined {
 }
 
 /**
+ * Что не так с закреплением из формы роли (команда update_role) — или null.
+ * Менеджер не закрепляется (задачи он не берёт); id должны быть зонами
+ * офиса — кроме тех, что уже стоят на роли: пропавшую зону мы не выкидываем
+ * (§2.2), и снять соседнее закрепление она мешать не должна.
+ */
+export function rolePinProblem(
+  value: unknown, role: Partial<Pick<Role, 'isManager' | 'subprojects'>>, subs: readonly Subproject[], lang: Lang,
+): string | null {
+  if (!Array.isArray(value)) return t(lang, 'subprojects.err.pinList');
+  const list = sanitizeRoleZones(value) ?? [];
+  if (role.isManager && list.length) return t(lang, 'subprojects.err.pinManager');
+  const known = new Set([...subs.map((s) => s.id), ...(role.subprojects ?? [])]);
+  const unknown = list.find((id) => !known.has(id));
+  return unknown ? t(lang, 'subprojects.err.unknown', { id: unknown }) : null;
+}
+
+/**
  * Что с зоной не так — или null. Считается синхронно и дёшево, на каждый
  * снимок: папки нет, путь не корень git (нет `.git`), корни пересеклись.
  */

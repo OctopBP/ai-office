@@ -80,7 +80,7 @@ import {
   loadPackage, packageBrief, packageModel, packageTitle, PACKAGE_NAME_RE, resolvePackage, type AgentPackage,
 } from './packages';
 import {
-  ensureZone, migrateRepoDirs, resolveRoot, roleWorkdir, sanitizeRoleZones, sanitizeSubprojects, soleZone,
+  ensureZone, migrateRepoDirs, resolveRoot, rolePinProblem, roleWorkdir, sanitizeRoleZones, sanitizeSubprojects, soleZone,
   repoZonesReplaced, seatZone, subprojectView, SUBPROJECTS_MIGRATION, taskRepoDir, withZones, zoneProblem, zoneSeating,
 } from './subprojects';
 import {
@@ -3953,6 +3953,13 @@ export class OfficeState {
       if (!r.subprojects?.includes(id)) return r;
       const rest = r.subprojects.filter((z) => z !== id);
       const { subprojects: _drop, ...bare } = r;
+      // У роли из пакета закрепление живёт оверрайдом ссылки: сохраняется и
+      // поднимается именно он, и без правки здесь зона вернулась бы к роли
+      // после перезапуска.
+      if (bare.package?.overrides.subprojects) {
+        const { subprojects: _old, ...overrides } = bare.package.overrides;
+        bare.package = { ...bare.package, overrides: rest.length ? { ...overrides, subprojects: rest } : overrides };
+      }
       return rest.length ? { ...bare, subprojects: rest } : bare;
     });
     this.addLog(null, 'system', this.say('subprojects.deleted', { name: zone.name }));
@@ -4336,6 +4343,11 @@ export class OfficeState {
         const problem = await repoProblem(this.resolveRepoDir(dir), this.lang());
         if (problem) errors.push({ field: 'repoDir', message: problem });
       }
+    }
+    if ('subprojects' in patch) {
+      const role = (roleId ? this.role(roleId) : null) ?? {};
+      const problem = rolePinProblem(patch.subprojects, role, this.subprojectList, this.lang());
+      if (problem) errors.push({ field: 'subprojects', message: problem });
     }
     return errors;
   }
@@ -4721,6 +4733,11 @@ export class OfficeState {
     // закреплением за ней (spec подпроектов §7) — ниже, после правки роли.
     const zoneRoot = 'repoDir' in clean ? String(clean.repoDir ?? '').trim() : null;
     delete clean.repoDir;
+    // Закрепление — тем же правилом, что из сохранения: без повторов, а пустой
+    // список — «закрепления нет», и поля тогда на роли быть не должно.
+    if ('subprojects' in clean) {
+      clean.subprojects = base.isManager ? undefined : sanitizeRoleZones(clean.subprojects);
+    }
     if (typeof clean.sprite === 'string') clean.sprite = clean.sprite.trim();
     if (typeof clean.title === 'string') clean.title = clean.title.trim();
     // Режим роли правит человек из UI — значение проверяем, как и офисное.
@@ -4774,6 +4791,7 @@ export class OfficeState {
         delete link.overrides.model;
       }
       if (byTier) delete link.overrides.model;
+      if (!link.overrides.subprojects) delete link.overrides.subprojects;
       if ('briefExtra' in clean) link.briefExtra = String(clean.briefExtra ?? '').trim();
       // `brief` у привязанной роли не правится: форма его и не шлёт, а патч
       // из сети с ним молча отбрасывается — отвязка делается явной командой.
@@ -4788,6 +4806,7 @@ export class OfficeState {
         if (resetModel) { delete next.provider; delete next.model; }
         if (byTier) delete next.model;
         if (!next.tier) delete next.tier;
+        if (!next.subprojects) delete next.subprojects;
         return next;
       });
     }
