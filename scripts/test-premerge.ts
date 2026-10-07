@@ -16,7 +16,7 @@ import {
 import { tmpdir } from 'node:os';
 import { resolve } from 'node:path';
 import {
-  defaultIntegrationDir, formatReport, mergeChecks, preMergeGate, zoneMergeChecks,
+  defaultIntegrationDir, formatReport, mergeChecks, preMergeGate, zoneChecksRoot, zoneMergeChecks,
 } from '../src/server/premerge';
 import { DEPS_MARKER, manifestsHash } from '../src/server/deps';
 import { getOffice } from '../src/server/state';
@@ -688,6 +688,96 @@ async function scopeGate(check: (name: string, ok: boolean) => void): Promise<vo
   }
 }
 
+/**
+ * Проверки папки-зоны (spec подпроектов §5.3): команды идут из корня зоны на
+ * слитом дереве, умолчание берётся из package.json зоны. Repo-зона и задача
+ * без зоны — из корня репозитория, как раньше; папка зоны без package.json —
+ * тоже из корня.
+ */
+async function zoneRootGate(check: (name: string, ok: boolean) => void): Promise<void> {
+  const dir = mkdtempSync(resolve(tmpdir(), 'office-premerge-root-'));
+  const git = (...args: string[]) => execFileSync('git', args, { cwd: dir, encoding: 'utf8' }).trim();
+  const write = (name: string, body: string) => {
+    mkdirSync(resolve(dir, name, '..'), { recursive: true });
+    writeFileSync(resolve(dir, name), body);
+  };
+  // Скрипт печатает, откуда его запустили: по этому и сверяем каталог.
+  const where = (tag: string) => `node -e "console.log('${tag}@'+process.cwd())"`;
+  const integrationDir = resolve(dir, '.office', 'merge');
+  const fromEnv = process.env.OFFICE_MERGE_CHECKS;
+  delete process.env.OFFICE_MERGE_CHECKS;
+  try {
+    git('init', '-q', '-b', 'main');
+    git('config', 'user.email', 'office@local');
+    git('config', 'user.name', 'AI Office');
+    write('.gitignore', '.office/\n');
+    // В корне только typecheck, в зоне «web» — typecheck и test: умолчания различимы.
+    write('package.json', JSON.stringify({ name: 'root', scripts: { typecheck: where('root') } }));
+    write('web/package.json', JSON.stringify({
+      name: 'web', scripts: { typecheck: where('web'), test: where('web-test') },
+    }));
+    write('web/a.txt', '1\n');
+    write('docs/a.txt', '1\n');
+    git('add', '-A');
+    git('commit', '-qm', 'Начало');
+    git('checkout', '-q', '-b', 'task/T-web', 'main');
+    write('web/a.txt', '2\n');
+    git('add', '-A');
+    git('commit', '-qm', 'T-web: веб');
+    git('checkout', '-q', 'main');
+
+    const folder = { kind: 'folder', root: 'web/' };
+    const repoZone = { kind: 'repo', root: 'web' };
+    const docs = { kind: 'folder', root: 'docs' };
+    check('корень зоны: у папки-зоны — её корень без косых', zoneChecksRoot(folder) === 'web');
+    check('корень зоны: у repo-зоны и без зоны — нет',
+      zoneChecksRoot(repoZone) === null && zoneChecksRoot(null) === null);
+
+    const both = ['npm run --silent typecheck', 'npm run --silent test'];
+    const rootOnly = ['npm run --silent typecheck'];
+    check('корень зоны: умолчание папки-зоны — по package.json зоны',
+      zoneMergeChecks(dir, folder, null).join() === both.join());
+    check('корень зоны: умолчание repo-зоны и без зоны — по корню репозитория',
+      zoneMergeChecks(dir, repoZone, null).join() === rootOnly.join()
+      && zoneMergeChecks(dir, null, null).join() === rootOnly.join());
+    check('корень зоны: папка без package.json — умолчание из корня',
+      zoneMergeChecks(dir, docs, null).join() === rootOnly.join());
+    check('корень зоны: свой набор зоны сильнее умолчания',
+      zoneMergeChecks(dir, { ...folder, mergeChecks: ['x'] }, null).join() === 'x');
+
+    const ranIn = (out: string, tag: string, tail: string) =>
+      out.split('\n').some((l) => l.startsWith(`${tag}@`) && l.trim().endsWith(tail));
+    const base = { repoDir: dir, branch: 'task/T-web', base: 'main', integrationDir, merge: false };
+
+    const inZone = await preMergeGate({ ...base, checksRoot: zoneChecksRoot(folder) });
+    check('корень зоны: гейт папки-зоны зелёный', inZone.stage === 'checked' && inZone.ok);
+    check('корень зоны: умолчание гейта взято из package.json зоны',
+      inZone.checks.map((c) => c.command).join() === both.join());
+    check('корень зоны: команды идут из корня зоны',
+      ranIn(inZone.checks[0]?.output ?? '', 'web', '/web')
+      && ranIn(inZone.checks[1]?.output ?? '', 'web-test', '/web'));
+
+    for (const [name, checksRoot] of [
+      ['repo-зона', zoneChecksRoot(repoZone)], ['без зоны', undefined],
+      ['папка без package.json', zoneChecksRoot(docs)],
+    ] as const) {
+      const gate = await preMergeGate({ ...base, checksRoot });
+      const out = gate.checks[0]?.output ?? '';
+      check(`корень зоны: ${name} — как раньше, из корня репозитория`,
+        gate.stage === 'checked' && gate.ok
+        && gate.checks.map((c) => c.command).join() === rootOnly.join()
+        && ranIn(out, 'root', '') && !/\/(web|docs)$/.test(out.trim()));
+    }
+
+    const given = await preMergeGate({ ...base, checksRoot: 'web', checks: [where('given')] });
+    check('корень зоны: заданный набор тоже идёт из корня зоны',
+      given.ok && ranIn(given.checks[0]?.output ?? '', 'given', '/web'));
+  } finally {
+    if (fromEnv !== undefined) process.env.OFFICE_MERGE_CHECKS = fromEnv;
+    rmSync(dir, { recursive: true, force: true });
+  }
+}
+
 async function main(): Promise<void> {
   const dir = fixture();
   const git = (...args: string[]) => execFileSync('git', args, { cwd: dir, encoding: 'utf8' }).trim();
@@ -800,6 +890,7 @@ async function main(): Promise<void> {
   await pipelineGate(check);
   await depsGate(check);
   await scopeGate(check);
+  await zoneRootGate(check);
 
   const failed = results.filter((r) => !r.endsWith('true'));
   for (const r of results) console.log(`  ${r.endsWith('true') ? '✅' : '❌'} ${r}`);

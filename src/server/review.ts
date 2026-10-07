@@ -48,7 +48,7 @@ import {
 } from './git';
 import { integrationDir, runProjectCheck, runTypecheck, taskBase } from './merge';
 import { formatOverlaps, type DuplicateEdit } from './overlap';
-import { preMergeGate, zoneMergeChecks, toGateView, type PreMergeReport } from './premerge';
+import { preMergeGate, zoneChecksRoot, zoneMergeChecks, toGateView, type PreMergeReport } from './premerge';
 import { writeZone } from './subprojects';
 import { mergedKind, recordOutcome } from './outcomes';
 import { deliveryAt } from './taskfiles';
@@ -746,6 +746,8 @@ const merge: Executor<Ctx> = {
       // Граница зоны (spec подпроектов §5.2): ветка папки-зоны не правит
       // чужое. «Весь проект» и repo-зона — без ограничения (null).
       const zone = writeZone(subproject);
+      // Проверки папки-зоны — из её корня на слитом дереве (§5.3).
+      const checksRoot = zoneChecksRoot(subproject);
 
       // Дублирующие правки считает сам гейт — на пробном слиянии, до того как
       // база сдвинется (после неё «кто что правил после точки ветвления» уже
@@ -772,7 +774,7 @@ const merge: Executor<Ctx> = {
         const gate = await preMergeGate({
           repoDir: repo, branch, base, integrationDir: integrationDir(state, repo),
           lang: state.lang(), checks, allowDirty: true, merge: false,
-          sign: mergeSignature(state, task), message, zone,
+          sign: mergeSignature(state, task), message, zone, checksRoot,
         });
         // Виден в карточке задачи независимо от исхода — гейт мог остановить
         // конвейер следующей строкой, а его вывод должен остаться на виду.
@@ -808,7 +810,7 @@ const merge: Executor<Ctx> = {
         const gate = await preMergeGate({
           repoDir: repo, branch, base, integrationDir: integrationDir(state, repo),
           lang: state.lang(), checks, allowDirty: true, sign: mergeSignature(state, task),
-          message, zone,
+          message, zone, checksRoot,
         });
         // Строка технического лога — как и соседняя `merge …`, не переводится:
         // её читают в логе сервера, а не в интерфейсе.

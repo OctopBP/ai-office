@@ -19,8 +19,9 @@
  * (T-140), и гейт следит, чтобы в основную уехало ровно проверенное дерево.
  */
 import { createHash } from 'node:crypto';
+import { existsSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { basename, resolve } from 'node:path';
+import { basename, join, resolve } from 'node:path';
 import type { GateReportView } from '../shared/types';
 import { asLang, type Lang } from '../shared/i18n';
 import { t } from './i18n';
@@ -148,6 +149,13 @@ export interface PreMergeOptions {
    * scripts/premerge.ts).
    */
   zone?: WriteZone | null;
+  /**
+   * Каталог проверок от корня слитого дерева — корень папки-зоны (§5.3):
+   * команды идут с `cwd` в нём, умолчание ищется по его package.json. Нет —
+   * корень репозитория. Зависимости (`prepareDeps`) ставятся на весь
+   * репозиторий: lock-файл общий.
+   */
+  checksRoot?: string | null;
 }
 
 /**
@@ -191,18 +199,47 @@ export function mergeChecks(
     .map((name) => `npm run --silent ${name}`);
 }
 
+/** Зона задачи — столько, сколько нужно проверкам слияния. */
+export interface ChecksZone {
+  kind?: string;
+  root?: string;
+  mergeChecks?: readonly string[];
+}
+
+/**
+ * Корень проверок задачи (§5.3): у папки-зоны — её корень относительно
+ * репозитория, у repo-зоны и задачи без зоны — `null` (корень репозитория).
+ */
+export function zoneChecksRoot(zone: ChecksZone | null | undefined): string | null {
+  if (!zone || zone.kind !== 'folder') return null;
+  const root = (zone.root ?? '').replace(/\\/g, '/').replace(/^\/+|\/+$/g, '');
+  return root && root !== '.' ? root : null;
+}
+
+/**
+ * Каталог проверок в дереве `treeDir`: корень зоны, если он там есть и в нём
+ * лежит package.json, иначе корень дерева. Зону могли ещё не завести в
+ * базе, а папка без package.json — не проект, npm в ней не запустить.
+ */
+export function checksDir(treeDir: string, root: string | null | undefined): string {
+  if (!root) return treeDir;
+  const dir = join(treeDir, root);
+  return existsSync(join(dir, 'package.json')) ? dir : treeDir;
+}
+
 /**
  * Набор проверок задачи зоны (docs/design/subprojects/spec.md §5.3): разовая
  * правка окружения сильнее всего, затем свой набор зоны (`Subproject.mergeChecks`,
  * пустой список — «не гонять ничего»), затем общий офиса (`Settings.mergeChecks`
- * или `OFFICE_MERGE_CHECKS`). Задача без зоны — общий набор.
+ * или `OFFICE_MERGE_CHECKS`). Умолчание у папки-зоны ищется по package.json в
+ * её корне, а нет его там — в корне репозитория. Задача без зоны — общий набор.
  */
 export function zoneMergeChecks(
   repoDir: string,
-  zone: { mergeChecks?: readonly string[] } | null | undefined,
+  zone: ChecksZone | null | undefined,
   configured?: readonly string[] | null,
 ): string[] {
-  return mergeChecks(repoDir, zone?.mergeChecks ?? configured);
+  return mergeChecks(checksDir(repoDir, zoneChecksRoot(zone)), zone?.mergeChecks ?? configured);
 }
 
 /**
@@ -335,7 +372,10 @@ export async function preMergeGate(options: PreMergeOptions): Promise<PreMergeRe
     //    всё равно ничего не изменят — слияния не будет. Набор по умолчанию
     //    берём из слитого дерева, а не из базы: ветка могла завести свои
     //    скрипты, и проверять её надо ими.
-    const commands = options.checks ?? defaultChecks(worktree);
+    //    Проверки папки-зоны идут из её корня (§5.3); корня с package.json на
+    //    слитом дереве нет — из корня репозитория, как раньше.
+    const cwd = checksDir(worktree, options.checksRoot);
+    const commands = options.checks ?? defaultChecks(cwd);
 
     // 2в. Зависимости слитого дерева (T-300). Ветка могла завести пакет, которого
     //     нет в node_modules основной копии, — тогда ставим зависимости дерева
@@ -363,7 +403,7 @@ export async function preMergeGate(options: PreMergeOptions): Promise<PreMergeRe
     }
 
     for (const command of commands) {
-      const res = await runProjectCheck(worktree, command, lang);
+      const res = await runProjectCheck(cwd, command, lang);
       const check: PreMergeCheck = {
         command, ok: res.ok, output: res.output,
         files: res.ok ? [] : errorFiles(res.output), durationMs: res.durationMs,
