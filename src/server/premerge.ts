@@ -483,6 +483,23 @@ async function branchOwnFiles(repoDir: string, base: string, branch: string): Pr
   return diff.ok ? diff.stdout.split('\n').map((l) => l.trim()).filter(Boolean) : [];
 }
 
+/**
+ * Файлы задачи в её рабочей копии — для проверки при сдаче (`finish_task`,
+ * §5.2 п. 2). Тот же счёт, что у `branchOwnFiles`, только дифф идёт от общего
+ * предка с базой до рабочего дерева: исполнитель сдаёт до коммита офиса, и
+ * незакоммиченное тоже его работа. Новые неотслеживаемые файлы — туда же.
+ */
+export async function worktreeOwnFiles(worktree: string, base: string): Promise<string[]> {
+  const mb = await git(worktree, ['merge-base', base, 'HEAD']);
+  if (!mb.ok || !mb.stdout) return [];
+  const [diff, untracked] = await Promise.all([
+    git(worktree, ['-c', 'core.quotepath=false', 'diff', '--name-only', '--no-renames', mb.stdout]),
+    git(worktree, ['-c', 'core.quotepath=false', 'ls-files', '--full-name', '--others', '--exclude-standard']),
+  ]);
+  const lines = (r: { ok: boolean; stdout: string }) => (r.ok ? r.stdout.split('\n') : []);
+  return [...lines(diff), ...lines(untracked)].map((l) => l.trim()).filter(Boolean);
+}
+
 /** Отчёт словами: то, что печатает консольный скрипт и кладёт в ленту офис. */
 export function formatReport(report: PreMergeReport, lang: Lang): string {
   const lines: string[] = [

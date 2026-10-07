@@ -31,7 +31,11 @@ import { externalMcp, mcpBrief, serversFor } from './mcp';
 import { SANDBOX, sandboxFor } from './sandbox';
 import { ensureChromium } from './chromium';
 import { employeePlugins, employeeSkills, sessionTools } from './skills';
-import { autoApprovedText, classify, decide, effectiveMode, releaseCommandBlocked } from './permissions';
+import {
+  autoApprovedText, classify, decide, effectiveMode, releaseCommandBlocked, type ClassifyZone,
+} from './permissions';
+import { outsideZone, writeZone } from './subprojects';
+import { worktreeOwnFiles } from './premerge';
 import {
   closeReleasePlan, proposeReleaseTarget, proposedAssets, proposedChannels, releaseStatusText, resumeRelease, saveReleasePlan, setReleaseAgents,
   startRelease,
@@ -517,6 +521,34 @@ function consume(
 }
 
 /**
+ * Что задача папки-зоны успела поменять вне своей зоны — текстом отказа для
+ * исполнителя, или null, если всё в зоне. Та же `outsideZone`, что у гейта,
+ * плюс незакоммиченное: исполнитель сдаёт до коммита офиса. Задача без своей
+ * копии (без изоляции) сравнивать не с чем — её ловит только гейт.
+ */
+async function zoneBreach(state: OfficeState, task: Task): Promise<string | null> {
+  const zone = writeZone(state.subproject(task.subprojectId));
+  if (!zone || !task.baseBranch || !task.worktreePath || !existsSync(task.worktreePath)) return null;
+  const outside = outsideZone(zone, await worktreeOwnFiles(task.worktreePath, task.baseBranch));
+  if (!outside.length) return null;
+  return state.say('tool.finishTask.outsideZone', {
+    zone: zone.label, roots: zone.roots.join(', '), files: outside.map((f) => `- ${f}`).join('\n'),
+  });
+}
+
+/**
+ * Зона записи задачи для классификатора (spec подпроектов §5.2, п. 3): пути
+ * зоны считаются от корня копии задачи — рабочая папка сессии может быть и
+ * подпапкой (артефакты). undefined — задача без папки-зоны, писать не ограничиваем.
+ */
+function classifyZone(state: OfficeState, taskId: string | null, workdir: string): ClassifyZone | undefined {
+  const task = taskId ? state.tasks.get(taskId) : undefined;
+  const zone = task ? writeZone(state.subproject(task.subprojectId)) : null;
+  if (!task || !zone) return undefined;
+  return { ...zone, base: task.worktreePath || task.repoDir || workdir };
+}
+
+/**
  * Единственная точка, через которую проходит КАЖДЫЙ вызов инструмента.
  * Решает сама, если действие безопасно; иначе поднимает модалку пользователю
  * и блокирует агента до ответа.
@@ -580,7 +612,19 @@ function permissionHandler(
       }
     }
 
-    const verdict = classify(toolName, input, workdir, state.lang());
+    const zone = classifyZone(state, taskId, workdir);
+    const verdict = classify(toolName, input, workdir, state.lang(), zone);
+
+    // Чужая зона — ранний отказ без вопроса и в любом режиме: правило уже
+    // принято, владельцу решать нечего. Это подсказка, а не граница — Bash
+    // сюда не попадает, его ловят finish_task и гейт слияния.
+    if (verdict.deny && zone) {
+      const message = state.say('agent.deny.foreignZone', {
+        path: verdict.detail, zone: zone.label, roots: zone.roots.join(', '),
+      });
+      state.addLog(instanceId, 'system', message);
+      return { behavior: 'deny', message };
+    }
 
     if (verdict.risk === 'safe') {
       return { behavior: 'allow', updatedInput: input };
@@ -595,7 +639,7 @@ function permissionHandler(
       };
     }
 
-    const byMode = decide(mode, verdict.risk);
+    const byMode = decide(mode, verdict.risk, verdict.deny);
 
     if (byMode === 'deny') {
       return {
@@ -2707,6 +2751,10 @@ function workerTools(state: OfficeState, instanceId: string, task: Task) {
         },
         async (args) => {
           const fresh = state.tasks.get(task.id);
+          // Правки вне зоны (spec подпроектов §5.2) — сдачу не принимаем: сессия
+          // ещё жива и откатит их за ход, а гейт всё равно не пропустил бы ветку.
+          const breach = fresh ? await zoneBreach(state, fresh) : null;
+          if (breach) return { content: [{ type: 'text', text: breach }], isError: true };
           const { done, total } = fresh ? criteriaProgress(fresh) : { done: 0, total: 0 };
           // Неотмеченные пункты не «дожимаем» за исполнителя: расхождение между
           // «сдал» и «отмечено» — это и есть сигнал пользователю посмотреть внимательнее.

@@ -62,6 +62,7 @@
     "test:busy": "node --import tsx scripts/test-busy.ts",
     "test:rules": "tsx scripts/test-rules.ts",
     "test:subprojects": "node --import tsx scripts/test-subprojects.ts",
+    "test:zone-write": "node --import tsx scripts/test-zone-write.ts",
     "test:life": "tsx scripts/test-life.ts",
     "test:journal": "node --import tsx scripts/test-journal-superseded.ts",
     "import:docs": "node --import tsx scripts/import-docs.ts",

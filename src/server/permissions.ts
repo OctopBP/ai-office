@@ -1,8 +1,9 @@
-import { resolve, isAbsolute, sep } from 'node:path';
+import { resolve, isAbsolute, relative, sep } from 'node:path';
 import type { PermissionMode, RiskLevel } from '../shared/types';
 import type { Lang } from '../shared/i18n';
 import { t, type ServerKey } from './i18n';
 import type { Settings } from '../shared/types';
+import { inWriteZone, type WriteZone } from './subprojects';
 
 export interface Verdict {
   risk: RiskLevel;
@@ -11,6 +12,19 @@ export interface Verdict {
   detail: string;    // подробности: команда, путь, фрагмент
   /** Ключ для «разрешать всегда»: Bash-команды различаем по первому слову. */
   key: string;
+  /**
+   * Запрет без вопроса в любом режиме — запись в чужую зону (spec подпроектов
+   * §5.2). У запрета `detail` — путь, в который пытались писать.
+   */
+  deny?: true;
+}
+
+/**
+ * Зона задачи-папки для классификатора: что можно менять и от какого
+ * каталога считать её пути (корень копии репозитория задачи).
+ */
+export interface ClassifyZone extends WriteZone {
+  base: string;
 }
 
 /** Инструменты, которые ничего не меняют — их не спрашиваем никогда. */
@@ -146,6 +160,8 @@ export function classify(
   input: Record<string, unknown>,
   projectDir: string,
   lang: Lang,
+  /** Зона задачи-папки: запись вне неё — отказ. Чтение не ограничивается. */
+  zone?: ClassifyZone,
 ): Verdict {
   // Имя инструмента MCP — `mcp__<сервер>__<инструмент>`. Сервер отделяем от
   // инструмента: своё от чужого различается именно сервером.
@@ -185,6 +201,19 @@ export function classify(
   if (WRITE_TOOLS.has(toolName)) {
     const path = input.file_path ?? input.notebook_path;
     const outside = !insideProject(path, projectDir);
+    // Чужая зона внутри той же копии. Вне копии — своя развилка ниже (`danger`
+    // и песочница ОС): зона говорит только о файлах репозитория задачи.
+    const foreign = zone && path ? foreignZonePath(String(path), projectDir, zone) : null;
+    if (zone && foreign) {
+      return {
+        risk: 'danger',
+        reason: t(lang, 'perm.reason.foreignZone', { zone: zone.label }),
+        summary: `${toolName} → ${path}`,
+        detail: foreign,
+        key: `${toolName}:zone`,
+        deny: true,
+      };
+    }
     const content = String(input.content ?? input.new_string ?? '');
     return {
       risk: outside ? 'danger' : 'write',
@@ -273,8 +302,24 @@ export function isPermissionMode(value: unknown): value is PermissionMode {
   return typeof value === 'string' && (MODES as readonly string[]).includes(value);
 }
 
-/** Решение по уже классифицированному вызову в заданном режиме. */
-export function decide(mode: PermissionMode, risk: RiskLevel): Decision {
+/**
+ * Путь записи от корня копии, если он внутри копии и вне зоны; иначе null.
+ * Файлы вне копии зона не судит — их уже держат `outside` и песочница.
+ */
+function foreignZonePath(path: string, projectDir: string, zone: ClassifyZone): string | null {
+  const abs = isAbsolute(path) ? resolve(path) : resolve(projectDir, path);
+  const rel = relative(resolve(zone.base), abs);
+  if (!rel || rel.startsWith('..') || isAbsolute(rel)) return null;
+  const file = rel.split(sep).join('/');
+  return inWriteZone(file, zone) ? null : file;
+}
+
+/**
+ * Решение по уже классифицированному вызову в заданном режиме. `deny` из
+ * вердикта сильнее любого режима, включая «разрешать всё».
+ */
+export function decide(mode: PermissionMode, risk: RiskLevel, deny?: boolean): Decision {
+  if (deny) return 'deny';
   // Читающие инструменты не спрашиваем ни в одном режиме, включая readonly.
   if (risk === 'safe') return 'allow';
   switch (mode) {

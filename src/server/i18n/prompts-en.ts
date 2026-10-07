@@ -90,6 +90,7 @@ export const promptsEn = {
   'agent.deny.readOnly': 'This review is read-only: read files, search and use git log/show/blame — no chains or redirects.',
   'agent.deny.sessionBan': 'The user has denied “{key}” for this role for the rest of the session. Do not try to work around the ban some other way — solve the task differently, or explain in your report why it cannot be done.',
   'agent.deny.readonly': 'This role works in read-only mode and cannot change files or run commands.',
+  'agent.deny.foreignZone': 'Denied: {path} is outside the “{zone}” zone. Your task changes only its folder ({roots}) and the zone\'s shared paths; reading other folders is fine. If another zone needs a change, describe it in your report and the manager will file a task for that zone.',
   'agent.deny.user': 'The user denied this action. Do NOT try to reach the same result by another route — through an interpreter (python -c, node -e), a different utility or any other trick: that is a direct violation of the ban. If the task cannot be solved without this action, stop trying and write in your report what exactly is blocked.',
 
   'agent.result.budget': 'the task budget is spent — raise the limit in the office settings or split the task up',
@@ -675,6 +676,7 @@ Keep your replies to the user short. Which language to write them in is said in 
   'tool.finishTask.left': 'What is NOT done and why: items you did not get to, known gaps. Everything done — "nothing".',
   'tool.finishTask.files': 'Paths to the files you created and changed',
   'tool.finishTask.partial': '⚠️ Criteria ticked off: {done} of {total}.',
+  'tool.finishTask.outsideZone': 'Not accepted: the branch changes files outside the “{zone}” zone:\n{files}\nA task of this zone may only change its folder ({roots}) and the zone\'s shared paths, otherwise the merge gate will reject it. Revert these files (git checkout/restore from the base branch, delete stray new ones) and call finish_task again. If another zone needs a change, describe it in the left field and the manager will file a task for that zone.',
   'tool.finishTask.acceptedPartial': 'The office accepted the work. Careful: {done} of {total} criteria are ticked off — if the rest are done too, tick them with check_criterion.',
   'tool.finishTask.accepted': 'The office accepted the work.',
 
