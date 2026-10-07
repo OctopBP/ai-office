@@ -360,3 +360,85 @@ export function migrateRepoDirs(input: {
 
   return { roles, subprojects: subs, taskZones, changed };
 }
+
+// ---------- «читать можно, менять нельзя» (§5) ----------
+
+/**
+ * Что задаче папки-зоны разрешено менять: корень зоны и общие пути вне его.
+ * Пути — от корня репозитория офиса, через `/`. `label` — имя зоны словами,
+ * им причина отказа и говорит.
+ */
+export interface WriteZone {
+  roots: string[];
+  sharedPaths: string[];
+  label: string;
+}
+
+/**
+ * Общие пути зоны по умолчанию — корневые lock-файлы. Монорепо с одним
+ * lock-файлом на всех — частый случай, и зона, которая добавила зависимость,
+ * не должна упираться в гейт из-за `package-lock.json`. Явный `sharedPaths`
+ * (в том числе пустой) перебивает умолчание.
+ */
+export const DEFAULT_SHARED_PATHS: readonly string[] = [
+  'package-lock.json', 'npm-shrinkwrap.json', 'yarn.lock', 'pnpm-lock.yaml', 'bun.lockb', 'bun.lock',
+];
+
+/**
+ * Зона записи задачи — или null, если ограничивать нечем: «весь проект»
+ * (subprojectId null, в том числе офис без подпроектов), зона пропала из
+ * сохранения, repo-зона (её граница — рабочая копия и песочница ОС, §5.1).
+ */
+export function writeZone(sub: Subproject | null | undefined): WriteZone | null {
+  if (!sub || sub.kind !== 'folder') return null;
+  const root = sub.root.replace(/^\/+|\/+$/g, '');
+  if (!root) return null;
+  return {
+    roots: [root],
+    sharedPaths: [...(sub.sharedPaths ?? DEFAULT_SHARED_PATHS)],
+    label: sub.name || sub.id,
+  };
+}
+
+/** Шаблон git pathspec в регулярку: `*` — внутри сегмента, `**` — через сегменты. */
+function pathspecRe(spec: string): RegExp {
+  let re = '';
+  for (let i = 0; i < spec.length; i += 1) {
+    const ch = spec[i];
+    if (ch === '*' && spec[i + 1] === '*') {
+      const slash = spec[i + 2] === '/';
+      re += slash ? '(?:.*/)?' : '.*';
+      i += slash ? 2 : 1;
+    } else if (ch === '*') re += '[^/]*';
+    else if (ch === '?') re += '[^/]';
+    else re += ch.replace(/[.+^${}()|[\]\\]/g, '\\$&');
+  }
+  return new RegExp(`^${re}(?:/.*)?$`);
+}
+
+/** Путь лежит в каталоге `root` — по сегментам: `web` не пускает в `webhooks/`. */
+const underRoot = (file: string, root: string): boolean => file === root || file.startsWith(`${root}/`);
+
+/** Файл (путь от корня репозитория) разрешено менять задаче этой зоны. */
+export function inWriteZone(file: string, zone: WriteZone): boolean {
+  const path = file.replace(/\\/g, '/').replace(/^\.\/+/, '');
+  if (zone.roots.some((root) => underRoot(path, root))) return true;
+  return zone.sharedPaths.some((spec) => {
+    const clean = spec.trim().replace(/^\/+/, '');
+    if (!clean) return false;
+    return /[*?]/.test(clean) ? pathspecRe(clean).test(path) : underRoot(path, clean.replace(/\/+$/, ''));
+  });
+}
+
+/**
+ * Изменённые пути вне зоны задачи (§5.2), отсортированные и без повторов.
+ * Чистая функция: список путей приносит вызывающий (гейт — из `git diff`).
+ * Зоны нет (задача «весь проект», офис без подпроектов) или она repo — пусто.
+ */
+export function outsideZone(zone: WriteZone | Subproject | null | undefined, files: readonly string[]): string[] {
+  const write = zone && 'roots' in zone ? zone : writeZone(zone);
+  if (!write) return [];
+  return [...new Set(files.map((f) => f.trim()).filter(Boolean))]
+    .filter((f) => !inWriteZone(f, write))
+    .sort();
+}

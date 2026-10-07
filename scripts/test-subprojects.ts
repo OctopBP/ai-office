@@ -1,7 +1,8 @@
 /**
  * Модель подпроектов без единого токена (docs/design/subprojects/spec.md §2, §7):
  * рабочая папка роли и репозиторий задачи по зоне, прежний «репозиторий
- * роли» поверх зон и миграция repoDir → repo-зона с повторным прогоном.
+ * роли» поверх зон, миграция repoDir → repo-зона с повторным прогоном и
+ * граница зоны «читать можно, менять нельзя» (§5).
  *
  * Запуск: npm run test:subprojects
  */
@@ -15,7 +16,8 @@ import { flushAll, save, type Persisted } from '../src/server/store';
 import { defaultRoles, type Role } from '../src/server/roles';
 import { loadPackage } from '../src/server/packages';
 import {
-  ensureZone, migrateRepoDirs, roleWorkdir, sanitizeSubprojects, taskRepoDir, type ZoneTask,
+  ensureZone, migrateRepoDirs, outsideZone, roleWorkdir, sanitizeSubprojects, taskRepoDir, writeZone,
+  type ZoneTask,
 } from '../src/server/subprojects';
 import type { Subproject } from '../src/shared/types';
 
@@ -267,8 +269,28 @@ function officeMigration(): void {
   unloadOfficeState('o-sub-again');
 }
 
+function zoneBoundary(): void {
+  results.push('пути вне зоны (§5.2):');
+  const web = zone('web', 'folder', 'apps/web');
+  const files = ['apps/web/src/a.ts', 'apps/webhooks/x.ts', 'src/server/b.ts', 'package-lock.json', 'apps/web/src/a.ts'];
+  check('без зоны — без ограничения', outsideZone(null, files).length === 0);
+  check('repo-зона — без ограничения', outsideZone(zone('api', 'repo', '../api'), files).length === 0);
+  const out = outsideZone(web, files);
+  check('вне зоны — чужая папка и соседний префикс, по одному разу и по порядку',
+    out.join(',') === 'apps/webhooks/x.ts,src/server/b.ts');
+  check('корневой lock-файл — общий путь по умолчанию', !out.includes('package-lock.json'));
+  check('пустой sharedPaths — lock-файл тоже чужой',
+    outsideZone({ ...web, sharedPaths: [] }, files).includes('package-lock.json'));
+  check('sharedPaths с маской и каталогом', outsideZone({ ...web, sharedPaths: ['docs/**/*.md', 'src/shared'] },
+    ['docs/a/b.md', 'docs/a.txt', 'src/shared/types.ts', 'src/sharedx.ts']).join(',') === 'docs/a.txt,src/sharedx.ts');
+  const wz = writeZone(web);
+  check('зона записи с именем зоны', wz?.label === 'web' && wz.roots.join() === 'apps/web');
+  check('функция принимает и готовую зону записи', outsideZone(wz, files).length === 2);
+}
+
 try {
   pureRules();
+  zoneBoundary();
   pureMigration();
   pureEnsureZone();
   officeMigration();

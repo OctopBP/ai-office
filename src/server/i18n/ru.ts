@@ -278,6 +278,8 @@ export const ru: Record<keyof typeof en, string> = {
   'premerge.reportCopy': 'Слияние собрано в {dir}',
   'premerge.reportDirty': 'Незакоммиченные правки в рабочей копии: {files}',
   'premerge.reportStashed': 'Правки рабочей копии убирались в stash и возвращены: {files}',
+  'premerge.scope': 'Ветка {branch} меняет файлы вне зоны «{zone}»: {files}. Задаче этой зоны можно править только её папку и общие пути зоны. Слияние не выполнено, {base} не тронута.',
+  'premerge.reportOutside': 'Файлы вне зоны: {files}',
   'premerge.reportConflicts': 'Конфликтные файлы: {files}',
   'premerge.reportFiles': 'Файлы с ошибками: {files}',
   'premerge.reportOutput': 'Вывод проверки:',

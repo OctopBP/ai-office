@@ -489,7 +489,8 @@ export interface Subproject {
   mergeChecks?: string[];
   /**
    * Только folder: пути ВНЕ корня, которые задачам зоны разрешено менять
-   * (git pathspec от корня репозитория). Нет поля — правится только корень.
+   * (git pathspec от корня репозитория). Нет поля — корневые lock-файлы
+   * (`DEFAULT_SHARED_PATHS`); пустой список — только корень.
    */
   sharedPaths?: string[];
   createdAt: number;

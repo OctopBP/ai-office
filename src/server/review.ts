@@ -49,6 +49,7 @@ import {
 import { integrationDir, runProjectCheck, runTypecheck, taskBase } from './merge';
 import { formatOverlaps, type DuplicateEdit } from './overlap';
 import { mergeChecks, preMergeGate, toGateView, type PreMergeReport } from './premerge';
+import { writeZone } from './subprojects';
 import { mergedKind, recordOutcome } from './outcomes';
 import { deliveryAt } from './taskfiles';
 import { taskResultFiles } from './questions';
@@ -665,6 +666,20 @@ function stopOnRedGate(ctx: Ctx, report: PreMergeReport): StepResult {
 }
 
 /**
+ * Ветка правит чужую зону (spec подпроектов §5.2). Повтор не лечит, как и
+ * красная проверка: встаём с причиной — какие файлы и какая зона.
+ */
+function stopOnScope(ctx: Ctx, report: PreMergeReport): StepResult {
+  const { state, task, base } = ctx;
+  const zone = writeZone(state.subproject(task.subprojectId));
+  const why = state.say('pipe.mergeGateScope', {
+    base, zone: zone?.label ?? '', files: report.outside.join(', '),
+  });
+  state.addOfficeNote(state.say('pipe.mergeOutcome', { task: task.id, message: why }), { taskId: task.id });
+  return fail(why, true);
+}
+
+/**
  * Ветка разошлась с базой — пробное слияние даёт конфликт, или база уехала,
  * пока гейт гонял проверки. Это чинит автор на следующем круге
  * (resync → fix-conflict), а не человек руками.
@@ -726,6 +741,9 @@ const merge: Executor<Ctx> = {
     return withLock(mergeLocks, repo, async (): Promise<StepResult> => {
       state.patchPr(task.id, { note: state.say('pipe.merging', { base }) });
       const checks = mergeChecks(repo, state.settings.mergeChecks);
+      // Граница зоны (spec подпроектов §5.2): ветка папки-зоны не правит
+      // чужое. «Весь проект» и repo-зона — без ограничения (null).
+      const zone = writeZone(state.subproject(task.subprojectId));
 
       // Дублирующие правки считает сам гейт — на пробном слиянии, до того как
       // база сдвинется (после неё «кто что правил после точки ветвления» уже
@@ -752,11 +770,12 @@ const merge: Executor<Ctx> = {
         const gate = await preMergeGate({
           repoDir: repo, branch, base, integrationDir: integrationDir(state, repo),
           lang: state.lang(), checks, allowDirty: true, merge: false,
-          sign: mergeSignature(state, task), message,
+          sign: mergeSignature(state, task), message, zone,
         });
         // Виден в карточке задачи независимо от исхода — гейт мог остановить
         // конвейер следующей строкой, а его вывод должен остаться на виду.
         state.patchPr(task.id, { gate: toGateView(gate) });
+        if (gate.stage === 'scope') return stopOnScope(ctx, gate);
         if (gate.stage === 'checks') return stopOnRedGate(ctx, gate);
         if (gate.stage === 'conflict') return afterConflict(ctx, gate);
         // Гейт мог встать и не на проверках — например, не поднялась копия для
@@ -787,7 +806,7 @@ const merge: Executor<Ctx> = {
         const gate = await preMergeGate({
           repoDir: repo, branch, base, integrationDir: integrationDir(state, repo),
           lang: state.lang(), checks, allowDirty: true, sign: mergeSignature(state, task),
-          message,
+          message, zone,
         });
         // Строка технического лога — как и соседняя `merge …`, не переводится:
         // её читают в логе сервера, а не в интерфейсе.
@@ -797,6 +816,7 @@ const merge: Executor<Ctx> = {
           + ` copy ${gate.integrationDir}`);
         state.patchPr(task.id, { gate: toGateView(gate) });
 
+        if (gate.stage === 'scope') return stopOnScope(ctx, gate);
         if (gate.stage === 'checks') return stopOnRedGate(ctx, gate);
         if (gate.stage === 'conflict') return afterConflict(ctx, gate);
         // Гейт был зелёным, а само слияние не прошло — чаще всего базу правда

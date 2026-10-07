@@ -31,6 +31,7 @@ import {
 import { errorFiles, hasScript, runProjectCheck } from './checks';
 import { depsChanged, prepareDeps } from './deps';
 import { duplicateEdits, formatOverlapFiles, type DuplicateEdit } from './overlap';
+import { outsideZone, type WriteZone } from './subprojects';
 
 /** Одна проверка на слитом дереве. */
 export interface PreMergeCheck {
@@ -50,7 +51,8 @@ export interface PreMergeCheck {
  * слияние (занят каталог, нет прав); 'checks' — проверки на слитом дереве
  * красные; 'merge' — слияние не прошло; 'nothing' — сливать было нечего;
  * 'merged' — влито; 'checked' — гейт зелёный, но слияние не просили
- * (режим только проверки).
+ * (режим только проверки); 'scope' — ветка меняет файлы вне зоны задачи
+ * (docs/design/subprojects/spec.md §5.2).
  *
  * 'integration' стоит отдельно намеренно: раньше любая неудача сборки слияния
  * приезжала стадией 'conflict', конвейер читал это как расхождение с базой и
@@ -59,7 +61,7 @@ export interface PreMergeCheck {
  */
 export type PreMergeStage =
   | 'dirty' | 'conflict' | 'integration' | 'checks' | 'merge' | 'nothing'
-  | 'merged' | 'checked';
+  | 'merged' | 'checked' | 'scope';
 
 export interface PreMergeReport {
   ok: boolean;
@@ -78,6 +80,8 @@ export interface PreMergeReport {
    * останавливают — это предупреждение (см. overlap.ts и урок T-138).
    */
   overlaps: DuplicateEdit[];
+  /** Файлы ветки вне зоны задачи. Непусто — стадия `scope`, слияния нет. */
+  outside: string[];
   checks: PreMergeCheck[];
   /** Первая упавшая проверка — она и остановила гейт. */
   failed: PreMergeCheck | null;
@@ -138,6 +142,12 @@ export interface PreMergeOptions {
    * squash-ом: один обычный коммит поверх базы. Не задано — merge-коммитом.
    */
   message?: string;
+  /**
+   * Зона задачи-папки: что ветке можно менять. Нет — без ограничения
+   * (задача «весь проект», офис без подпроектов, repo-зона, ручной запуск
+   * scripts/premerge.ts).
+   */
+  zone?: WriteZone | null;
 }
 
 /**
@@ -205,7 +215,7 @@ export async function preMergeGate(options: PreMergeOptions): Promise<PreMergeRe
   const started = Date.now();
   const report: PreMergeReport = {
     ok: false, stage: 'dirty', message: '', branch, base,
-    dirty: [], stashed: false, conflicts: [], overlaps: [], checks: [], failed: null,
+    dirty: [], stashed: false, conflicts: [], overlaps: [], outside: [], checks: [], failed: null,
     merged: false, integrationDir, gateMs: 0, totalMs: 0, warnings: [],
   };
   const done = (stage: PreMergeStage, ok: boolean, message: string): PreMergeReport => {
@@ -283,6 +293,19 @@ export async function preMergeGate(options: PreMergeOptions): Promise<PreMergeRe
       return done('merge', false, t(lang, 'premerge.assembleFailed', { error: built.message }));
     }
     const worktree = built.worktree;
+
+    // 2а. Зона задачи: что ветка меняет вне своей папки. Дёшево и раньше
+    //     зависимостей и проверок — красная зона их всё равно отменит.
+    if (options.zone) {
+      report.outside = outsideZone(options.zone, await branchOwnFiles(repoDir, base, branch));
+      if (report.outside.length) {
+        await dropAssembled(worktree, base);
+        await release();
+        return done('scope', false, t(lang, 'premerge.scope', {
+          branch, base, zone: options.zone.label, files: report.outside.join(', '),
+        }));
+      }
+    }
     // Дерево, которое сейчас будут проверять. Настоящее слияние обязано
     // положить в базу именно его — сверяем ниже, перед сдвигом базы.
     const checkedTree = (await git(worktree, ['rev-parse', `${built.sha}^{tree}`])).stdout;
@@ -429,6 +452,23 @@ export function toGateView(report: PreMergeReport): GateReportView {
   };
 }
 
+/**
+ * Файлы, которые ветка поменяла сама (§5.2): `git diff --name-only` от общего
+ * предка с базой, `--no-renames` — перенос файла из чужой папки в свою это
+ * удаление чужого. Не от первой точки ветвления (`forkPoint` в overlap.ts):
+ * офис подтягивает базу в ветку задачи перед ревью, и дифф от точки
+ * ветвления принёс бы чужие правки базы как нарушение зоны. Общий предок
+ * после подтягивания — вершина базы, и в диффе ровно работа задачи.
+ */
+async function branchOwnFiles(repoDir: string, base: string, branch: string): Promise<string[]> {
+  const mb = await git(repoDir, ['merge-base', base, branch]);
+  if (!mb.ok || !mb.stdout) return [];
+  const diff = await git(repoDir, [
+    '-c', 'core.quotepath=false', 'diff', '--name-only', '--no-renames', `${mb.stdout}..${branch}`,
+  ]);
+  return diff.ok ? diff.stdout.split('\n').map((l) => l.trim()).filter(Boolean) : [];
+}
+
 /** Отчёт словами: то, что печатает консольный скрипт и кладёт в ленту офис. */
 export function formatReport(report: PreMergeReport, lang: Lang): string {
   const lines: string[] = [
@@ -448,6 +488,9 @@ export function formatReport(report: PreMergeReport, lang: Lang): string {
   }
   // Предупреждение печатается и у зелёного гейта: слияние оно не отменяет,
   // но человек должен увидеть его вместе с исходом, а не вместо него.
+  if (report.outside.length) {
+    lines.push(t(lang, 'premerge.reportOutside', { files: report.outside.join(', ') }));
+  }
   if (report.overlaps.length) {
     lines.push(`⚠️ ${t(lang, 'premerge.reportOverlaps', {
       files: formatOverlapFiles(report.overlaps, lang),

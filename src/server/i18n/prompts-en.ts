@@ -996,6 +996,7 @@ Keep your replies to the user short. Which language to write them in is said in 
   'pipe.githubMergeFailed': '{task}: GitHub did not merge the pull request — {error}',
   'pipe.mergedNoPull': '{task}: merged on GitHub, but the local {base} did not follow — the office working copy is on another branch or has uncommitted edits.',
   'pipe.mergeGateRed': 'Together with {base} the check “{command}” fails.{files}\nCheck output:\n{output}\nOn the branch alone it passes, on the merged tree it does not: {base} is untouched, and nothing gets merged until this is fixed.',
+  'pipe.mergeGateScope': 'The branch changes files outside the “{zone}” zone: {files}. A zone task may only edit its folder and the zone\'s shared paths — {base} is untouched. Revert these edits; work in another zone goes into the report, and the manager will file a task for that zone.',
   'pipe.mergeGateFiles': ' Files: {files}.',
   'pipe.mergeGateBroken': 'The merge into {base} did not happen, and the branch is not to blame: {message} Retrying is pointless — the environment the office assembles merges in has to be fixed first.',
   'pipe.mergeOutcome': '{task}: {message}',

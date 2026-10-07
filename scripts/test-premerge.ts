@@ -592,6 +592,83 @@ for (const name of Object.keys(p.dependencies||{})) console.log(require(name));
   }
 }
 
+/**
+ * Граница зоны (spec подпроектов §5.2): стадия `scope` отклоняет ветку,
+ * которая правит чужую папку, и называет файлы. Чужие правки, подтянутые из
+ * базы слиянием, нарушением не считаются; без зоны гейт не ограничивает.
+ */
+async function scopeGate(check: (name: string, ok: boolean) => void): Promise<void> {
+  const dir = mkdtempSync(resolve(tmpdir(), 'office-premerge-scope-'));
+  const git = (...args: string[]) => execFileSync('git', args, { cwd: dir, encoding: 'utf8' }).trim();
+  const write = (name: string, body: string) => {
+    mkdirSync(resolve(dir, name, '..'), { recursive: true });
+    writeFileSync(resolve(dir, name), body);
+  };
+  const integrationDir = resolve(dir, '.office', 'merge');
+  try {
+    git('init', '-q', '-b', 'main');
+    git('config', 'user.email', 'office@local');
+    git('config', 'user.name', 'AI Office');
+    write('.gitignore', '.office/\n');
+    write('web/a.txt', '1\n');
+    write('server/b.txt', '1\n');
+    write('package-lock.json', '{}\n');
+    git('add', '-A');
+    git('commit', '-qm', 'Начало');
+
+    // Ветка зоны «Веб»: своя папка и общий lock-файл, потом база правит
+    // сервер, и ветка её подтягивает — это не нарушение.
+    git('checkout', '-q', '-b', 'task/T-in', 'main');
+    write('web/a.txt', '2\n');
+    write('package-lock.json', '{"a":1}\n');
+    git('add', '-A');
+    git('commit', '-qm', 'T-in: веб');
+    git('checkout', '-q', 'main');
+    write('server/b.txt', '2\n');
+    git('add', '-A');
+    git('commit', '-qm', 'Сервер в базе');
+    git('checkout', '-q', 'task/T-in');
+    git('merge', '-q', '--no-edit', 'main');
+
+    // Ветка зоны «Веб», которая лезет в сервер.
+    git('checkout', '-q', '-b', 'task/T-out', 'main');
+    write('web/c.txt', '1\n');
+    write('server/b.txt', '3\n');
+    git('add', '-A');
+    git('commit', '-qm', 'T-out: веб и чужой сервер');
+    git('checkout', '-q', 'main');
+
+    const zone = { roots: ['web'], sharedPaths: ['package-lock.json'], label: 'Веб' };
+    const mainBefore = git('rev-parse', 'main');
+    const out = await preMergeGate({
+      repoDir: dir, branch: 'task/T-out', base: 'main', integrationDir, checks: [], zone,
+    });
+    check('scope: ветка с правкой чужой папки — стадия scope',
+      out.stage === 'scope' && !out.ok && !out.merged);
+    check('scope: названы файл вне зоны и зона',
+      out.outside.join() === 'server/b.txt' && out.message.includes('server/b.txt') && out.message.includes('«Веб»'));
+    check('scope: база не тронута', git('rev-parse', 'main') === mainBefore);
+    check('scope: отчёт словами перечисляет файлы', formatReport(out, 'ru').includes('Файлы вне зоны: server/b.txt'));
+
+    const inside = await preMergeGate({
+      repoDir: dir, branch: 'task/T-in', base: 'main', integrationDir, checks: [], merge: false, zone,
+    });
+    check('scope: своя папка, lock-файл и подтянутая база — пропускает',
+      inside.stage === 'checked' && inside.ok && !inside.outside.length);
+
+    const free = await preMergeGate({
+      repoDir: dir, branch: 'task/T-out', base: 'main', integrationDir, checks: [], merge: false,
+    });
+    check('scope: задача без зоны не ограничивается', free.stage === 'checked' && free.ok);
+    const nullZone = await preMergeGate({
+      repoDir: dir, branch: 'task/T-out', base: 'main', integrationDir, checks: [], merge: false, zone: null,
+    });
+    check('scope: зона null не ограничивает', nullZone.stage === 'checked' && nullZone.ok);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+}
+
 async function main(): Promise<void> {
   const dir = fixture();
   const git = (...args: string[]) => execFileSync('git', args, { cwd: dir, encoding: 'utf8' }).trim();
@@ -703,6 +780,7 @@ async function main(): Promise<void> {
   await busyIntegration(check);
   await pipelineGate(check);
   await depsGate(check);
+  await scopeGate(check);
 
   const failed = results.filter((r) => !r.endsWith('true'));
   for (const r of results) console.log(`  ${r.endsWith('true') ? '✅' : '❌'} ${r}`);

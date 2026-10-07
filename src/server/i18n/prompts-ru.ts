@@ -974,6 +974,7 @@ export const promptsRu: Record<keyof typeof promptsEn, string> = {
   'pipe.githubMergeFailed': '{task}: GitHub не влил пулл-реквест — {error}',
   'pipe.mergedNoPull': '{task}: влито на GitHub, но локальная {base} не подтянулась — в рабочей копии офиса другая ветка или незакоммиченные правки.',
   'pipe.mergeGateRed': 'Вместе с {base} падает проверка «{command}».{files}\nВывод проверки:\n{output}\nВ ветке она проходит, а на слитом дереве — нет: {base} не тронута, и сливать нечего, пока это не починят.',
+  'pipe.mergeGateScope': 'Ветка меняет файлы вне зоны «{zone}»: {files}. Задаче зоны можно править только её папку и общие пути зоны — {base} не тронута. Эти правки нужно откатить; работа чужой зоны — в отчёт, менеджер заведёт задачу той зоне.',
   'pipe.mergeGateFiles': ' Файлы: {files}.',
   'pipe.mergeGateBroken': 'Слить в {base} не вышло, и дело не в ветке: {message} Повторять бессмысленно — сначала надо починить обстановку, в которой офис собирает слияние.',
   'pipe.mergeOutcome': '{task}: {message}',

@@ -278,6 +278,8 @@ export const en = {
   'premerge.reportCopy': 'Merge assembled in {dir}',
   'premerge.reportDirty': 'Uncommitted changes in the working copy: {files}',
   'premerge.reportStashed': 'Working copy changes were stashed and restored: {files}',
+  'premerge.scope': 'Branch {branch} changes files outside the “{zone}” zone: {files}. A task of this zone may only edit its folder and the zone\'s shared paths. Nothing was merged, {base} is untouched.',
+  'premerge.reportOutside': 'Files outside the zone: {files}',
   'premerge.reportConflicts': 'Conflicting files: {files}',
   'premerge.reportFiles': 'Files with errors: {files}',
   'premerge.reportOutput': 'Check output:',
