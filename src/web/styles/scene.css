@@ -200,3 +200,12 @@
   width: var(--space-5); height: var(--space-5);
   display: flex; align-items: center; justify-content: center;
 }
+
+/* Табличка зоны подпроекта на полу 3D-офиса. Цвет и цвет текста — из
+   палитры зоны (--accent-N / --accent-N-ink), задаются на элементе. */
+.zone3d-label {
+  font: 600 var(--fs-small)/1 var(--font);
+  padding: var(--space-1) var(--space-2);
+  border-radius: var(--radius-pill);
+  max-width: 160px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}

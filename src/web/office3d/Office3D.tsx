@@ -28,6 +28,7 @@ import { Window3D } from './Window3D';
 import { Hotspots3D, type Spot3, type SpotKind, type SpotTarget } from './Hotspots3D';
 import { CeilingLamps, Lights } from './Lights3D';
 import { Agents3D } from './Agents3D';
+import { Zones3D } from './Zones3D';
 import { Pixelation } from './Pixelation';
 import { Camera3D, CameraChips, FOV, startPose } from './Camera3D';
 import { DevBadge, DevOverlay } from './Dev3D';
@@ -642,6 +643,8 @@ function Scene({ onOpen, onDoor, active }: {
           {graphics.dev && <DevOverlay layout={layout} palette={palette} />}
           <Walls scene={scene} offset={offset} palette={palette} />
         </group>
+        {/* Участки подпроектов: рисуются из состояния, без зон — ничего. */}
+        <Zones3D offset={offset} size={scene.size} />
         {/* Мебель ждёт своих моделей одним общим `Suspense`: пока набор не
             приехал, комната стоит пустой, но стены и пол уже нарисованы. */}
         <Suspense fallback={null}>
