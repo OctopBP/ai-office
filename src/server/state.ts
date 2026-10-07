@@ -300,7 +300,7 @@ export const criticalEnvFail = (checks: EnvCheck[]): EnvCheck | null =>
  */
 const ROLE_EDITABLE_KEYS: readonly (keyof RoleEditable)[] = [
   'title', 'emoji', 'color', 'model', 'provider', 'tier', 'permissionMode',
-  'isolate', 'maxTurns', 'repoDir', 'sprite', 'brief', 'briefExtra', 'mcp', 'capabilities',
+  'isolate', 'maxTurns', 'allowLocalBinding', 'repoDir', 'sprite', 'brief', 'briefExtra', 'mcp', 'capabilities',
 ];
 
 /** Свои проверки проекта: имя по форме, команда непустая и не бесконечная. */
@@ -413,6 +413,7 @@ function linkFromSave(raw: Partial<Role>, pkg: AgentPackage, id: string, lang: L
     if (value === undefined) continue;
     if (key === 'title' && typeof value === 'string' && titles.includes(value)) continue;
     if (key === 'maxTurns' && sanitizeMaxTurns(value) === undefined) continue;
+    if (key === 'allowLocalBinding' && typeof value !== 'boolean') continue;
     if ((key === 'provider' || key === 'model') && sameValue(value, literal[key])) continue;
     if (!sameValue(value, defaults[key as keyof Role])) {
       (link.overrides as Record<string, unknown>)[key] = value;
@@ -515,6 +516,7 @@ function sanitizeRole(raw: Partial<Role>, id: string, lang: Lang): Role {
     // Непригодный лимит ходов выкидываем: роль вернётся к офисному, а
     // остальные её настройки останутся на месте.
     maxTurns: turns === undefined ? (base.maxTurns ?? null) : turns,
+    allowLocalBinding: raw.allowLocalBinding === true,
     // Набор инструментов из UI не правится (его нет в RoleEditable), так что
     // у роли без пакета сохранение — единственный его источник. Роль,
     // отвязанная от нашего пакета, набор пакета берёт по-прежнему из него:
@@ -3925,6 +3927,7 @@ export class OfficeState {
       ...(r.tier ? { tier: r.tier } : {}),
       permissionMode: r.permissionMode,
       isolate: r.isolate, maxTurns: r.maxTurns ?? null,
+      allowLocalBinding: r.allowLocalBinding === true,
       repoDir: r.repoDir ?? '', sprite: r.sprite ?? '', brief: r.brief,
       briefExtra: r.package?.briefExtra ?? '',
       package: this.packageView(r),
@@ -4116,6 +4119,7 @@ export class OfficeState {
       // Умения — из словаря; пусто — офис выведет их по инструментам.
       capabilities: Array.isArray(draft.capabilities) ? draft.capabilities.map((c) => String(c)).filter(isCapability) : [],
       maxTurns: draft.maxTurns ?? null,
+      allowLocalBinding: draft.allowLocalBinding === true,
       repoDir: typeof draft.repoDir === 'string' ? draft.repoDir.trim() : '',
       sprite: typeof draft.sprite === 'string' ? draft.sprite.trim() : '',
       brief: typeof draft.brief === 'string' ? draft.brief : '',
@@ -4136,6 +4140,7 @@ export class OfficeState {
       permissionMode: wanted.permissionMode,
       isolate: wanted.isolate,
       maxTurns: wanted.maxTurns,
+      ...(wanted.allowLocalBinding ? { allowLocalBinding: true } : {}),
       repoDir: wanted.repoDir,
       sprite: wanted.sprite,
       archived: false,
@@ -4475,6 +4480,9 @@ export class OfficeState {
       const turns = sanitizeMaxTurns(clean.maxTurns);
       if (turns === undefined) delete clean.maxTurns;
       else clean.maxTurns = turns;
+    }
+    if ('allowLocalBinding' in clean && typeof clean.allowLocalBinding !== 'boolean') {
+      delete clean.allowLocalBinding;
     }
     // Правка ложится в набор ролей самого офиса: соседний работает со своими.
     // Роль заменяется новым объектом, а не правится на месте: снимок, который

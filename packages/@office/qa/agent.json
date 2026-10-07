@@ -36,6 +36,7 @@
     "permissionMode": "ask-risky",
     "isolate": true,
     "maxTurns": null,
+    "allowLocalBinding": true,
     "mcp": [
       "browser"
     ]

@@ -193,6 +193,7 @@ export const claudeCodeEngine: EngineAdapter = {
       officeTools: 'in-process',
       nativeHands: true,
       sandbox: platform === 'darwin' || platform === 'linux',
+      localBinding: platform === 'darwin' || platform === 'linux',
       compaction: 'auto-window',
       costUsd: 'reported',
       planLimits: true,

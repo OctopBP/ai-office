@@ -27,6 +27,7 @@ import type { BudgetStop, MeetingView, PmChat, PrStage, PullRequestView, ReviewV
 import { cloudProblem, runCloudTask, stopCloudTask } from './cloud';
 import { capabilitiesOf, type Role } from './roles';
 import { externalMcp, mcpBrief, serversFor } from './mcp';
+import { SANDBOX, sandboxFor } from './sandbox';
 import { ensureChromium } from './chromium';
 import { employeePlugins, employeeSkills, sessionTools } from './skills';
 import { autoApprovedText, classify, decide, effectiveMode, releaseCommandBlocked } from './permissions';
@@ -317,54 +318,6 @@ function systemBlocks(state: OfficeState, roleId: string | null, head: string): 
   const dynamic = [journalBrief(state, roleId), docsBrief(state)].filter((block) => block.trim());
   // Без журнала и документов маркер не ставим: пустой хвост за ним — блок ни о чём.
   return dynamic.length ? [...statics, SYSTEM_PROMPT_DYNAMIC_BOUNDARY, ...dynamic] : statics;
-}
-
-/**
- * Песочница ОС для исполнителей (на macOS — встроенный Seatbelt, ставить нечего).
- * Второй слой защиты, а не замена модалки разрешений: песочница держит границу
- * по файлам и сети, но не мешает послать сигнал процессу (kill) или сделать
- * git push. Эти действия по-прежнему ловит классификатор рисков.
- *
- * По умолчанию запись разрешена только в рабочую директорию сессии (cwd) и
- * временную папку — то есть в workspace/, и никуда больше.
- */
-const SANDBOX = {
-  enabled: true,
-  // Не притворяться защищёнными: если песочница недоступна, лучше упасть,
-  // чем молча выполнять команды без изоляции.
-  failIfUnavailable: true,
-  // Убрать аварийный люк dangerouslyDisableSandbox.
-  allowUnsandboxedCommands: false,
-  // По умолчанию true — тогда песочница отключает подтверждения для Bash
-  // и модалка перестаёт срабатывать. Нам нужны оба слоя.
-  autoAllowBashIfSandboxed: false,
-} as const;
-
-/**
- * Команды, которые 3D-роли запускают вне песочницы. Blender 4.3 при старте,
- * ещё до скрипта и даже с --background, спрашивает у системы Metal-устройство,
- * а Seatbelt к GPU не пускает — и Blender падает SIGSEGV (T-116). Лечится
- * только запуском вне песочницы; владелец это разрешил (T-117).
- *
- * Исключаем обёртку, а не сам Blender: так вне песочницы уходит ровно одна
- * точка входа — фон, заводские настройки, проверка Metal как предохранитель,
- * а путь к Blender она берёт из $BLENDER, то есть к машине не привязана.
- * Шаблон `:*` — совпадение по префиксу, с любыми аргументами; путь
- * относительный, потому что Bash исполнителя стоит в корне своей рабочей копии.
- * Модалку разрешений исключение не снимает: вызов по-прежнему идёт через
- * классификатор рисков.
- */
-const BLENDER_UNSANDBOXED = ['tools/blender/run.sh:*', './tools/blender/run.sh:*'];
-
-/**
- * Песочница под роль. Исключение для Blender получают только роли со
- * способностью `design.3d` (3D-художник и его копии): остальным незачем
- * выходить из песочницы, и лишняя дыра им не нужна.
- */
-function sandboxFor(role: Role) {
-  return capabilitiesOf(role).includes('design.3d')
-    ? { ...SANDBOX, excludedCommands: BLENDER_UNSANDBOXED }
-    : SANDBOX;
 }
 
 // ---------------------------------------------------------------- утилиты
@@ -3015,7 +2968,7 @@ function startWorker(
           permissionMode: 'default',
           canUseTool: permissionHandler(taskOffice, inst.id, task.id, workdir),
           settingSources: [],
-          sandbox: sandboxFor(role),
+          sandbox: sandboxFor(role, workdir),
           // Лимит ходов берём из настроек офиса задачи, а не из константы:
           // задачи разной величины упираются в него по-разному, и поднять его
           // должно быть можно без правки кода. Свой лимит роли сильнее
@@ -4002,7 +3955,7 @@ async function runAgentSession(
         permissionMode: 'default',
         canUseTool: permissionHandler(state, inst.id, opts.taskId, opts.cwd),
         settingSources: [],
-        sandbox: sandboxFor(role),
+        sandbox: sandboxFor(role, opts.cwd),
         // Доработка по отзыву и разбор конфликта — та же работа исполнителя,
         // и лимит ходов у них тот же: свой у роли, иначе офисный.
         maxTurns: state.turnsFor(role) ?? undefined,

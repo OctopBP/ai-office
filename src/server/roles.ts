@@ -41,6 +41,13 @@ export interface Role {
    */
   maxTurns?: number | null;
   /**
+   * Разрешить сессии поднимать локальные серверы: слушать 127.0.0.1,
+   * заводить unix-сокеты (IPC tsx) и писать в кеш вне рабочей копии
+   * (`sandboxFor` в sandbox.ts). Нужно тестировщику, чтобы поднять свой офис
+   * и проверить веб в браузере. Нет поля — нельзя.
+   */
+  allowLocalBinding?: boolean;
+  /**
    * Ограничение набора встроенных инструментов. undefined — все.
    * Юристу и SMM оболочка не нужна: чем уже поверхность, тем меньше поводов
    * для подтверждений и меньше шансов сделать что-то необратимое. Дизайнеру
@@ -205,7 +212,7 @@ export const copyTitle = (title: string, copy: number | undefined): string =>
 /** Поля, по которым считается разница роли с пакетом. */
 export const OVERRIDABLE_KEYS: readonly (keyof LinkOverrides)[] = [
   'title', 'emoji', 'color', 'model', 'provider', 'tier', 'permissionMode', 'isolate',
-  'maxTurns', 'repoDir', 'sprite', 'mcp', 'capabilities',
+  'maxTurns', 'allowLocalBinding', 'repoDir', 'sprite', 'mcp', 'capabilities',
 ];
 
 /**
@@ -246,6 +253,7 @@ export function roleFromPackage(pkg: AgentPackage, lang: Lang, id: string, link?
     permissionMode: m.runtime.permissionMode,
     isolate: m.runtime.isolate,
     maxTurns: m.runtime.maxTurns,
+    allowLocalBinding: m.runtime.allowLocalBinding === true,
     ...(m.runtime.tools ? { tools: [...m.runtime.tools] } : {}),
     mcp: [...m.runtime.mcp],
     ...(m.docsDir ? { docsDir: m.docsDir } : {}),

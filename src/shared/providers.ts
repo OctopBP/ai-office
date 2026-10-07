@@ -195,6 +195,11 @@ export interface EngineCapabilities {
   nativeHands: boolean;
   /** Песочница ОС для команд на этой платформе. */
   sandbox: boolean;
+  /**
+   * Песочница умеет пустить сессию к локальным портам и unix-сокетам
+   * (настройка роли `allowLocalBinding`). Нет — настройка тихо не действует.
+   */
+  localBinding: boolean;
   compaction: 'auto-window' | 'auto' | 'manual' | 'none';
   costUsd: 'reported' | 'computed' | 'none';
   /** Окна подписки с процентами и сбросом. */

@@ -29,6 +29,7 @@ export const codexEngine: EngineAdapter = {
       nativeHands: false,
       // На Windows песочница Codex экспериментальная — не считаем её за гарантию.
       sandbox: platform === 'darwin' || platform === 'linux',
+      localBinding: false,
       compaction: 'manual',
       costUsd: 'computed',
       planLimits: true,

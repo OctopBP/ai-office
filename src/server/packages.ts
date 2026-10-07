@@ -164,6 +164,12 @@ export interface AgentManifest {
     permissionMode: PermissionMode | null;
     isolate: boolean;
     maxTurns: number | null;
+    /**
+     * Пустить сессию слушать локальные порты (127.0.0.1), заводить
+     * unix-сокеты и писать во временные каталоги кеша — то, без чего не
+     * поднять свой сервер для проверки в браузере. Нет в манифесте — нельзя.
+     */
+    allowLocalBinding?: boolean;
     /** Серверы из каталога офиса, на которые роль подписана по умолчанию. */
     mcp: string[];
   };
@@ -333,6 +339,10 @@ export function parseManifest(raw: unknown, fallbackName: string): { manifest: A
     } else maxTurns = n;
   }
   const mcp = strList(rt.mcp) ?? (rt.mcp === undefined ? [] : (err('runtime.mcp', 'expected a list of server ids'), []));
+  if (rt.allowLocalBinding !== undefined && typeof rt.allowLocalBinding !== 'boolean') {
+    err('runtime.allowLocalBinding', 'expected true or false');
+  }
+  const allowLocalBinding = rt.allowLocalBinding === true;
 
   // --- то, что было в pack.json
   const skills = strList(m.skills) ?? (m.skills === undefined ? [] : (err('skills', 'expected a list of skill names'), []));
@@ -363,7 +373,8 @@ export function parseManifest(raw: unknown, fallbackName: string): { manifest: A
     manifest: {
       schema: MANIFEST_SCHEMA, name, kind, members, settings, title, summary, tags, color, emoji, look,
       manager, docsDir, license, capabilities,
-      runtime: { engine: engine as Engine, model, tools, permissionMode, isolate, maxTurns, mcp },
+      runtime: { engine: engine as Engine, model, tools, permissionMode, isolate, maxTurns, mcp,
+        ...(allowLocalBinding ? { allowLocalBinding } : {}) },
       skills, builtin, use, servers, requires,
     },
     problems,

@@ -282,6 +282,46 @@ for (const name of ourTeam) {
 }
 check('менеджер в нашем каталоге первый', ourTeam[0], '@office/pm');
 
+// ------------------------------------------------ локальные порты (T-439)
+
+{
+  const { sandboxFor, SANDBOX } = await import('../src/server/sandbox');
+  const qa = roleFromPackage(loadPackage('@office/qa', ours)!, 'ru', 'qa');
+  const backend = roleFromPackage(loadPackage('@office/backend', ours)!, 'ru', 'backend');
+  check('qa: локальные порты включены по умолчанию', qa.allowLocalBinding, true);
+  check('backend: локальные порты выключены', backend.allowLocalBinding, false);
+  check('порты по умолчанию включены только у qa',
+    listPackages(ours).filter((p) => p.manifest.runtime?.allowLocalBinding === true).map((p) => p.name), ['@office/qa']);
+  check('манифест: не булево — ошибка',
+    parseManifest({ schema: 1, name: '@acme/a', title: { en: 'A' }, runtime: { model: 'sonnet', allowLocalBinding: 'yes' } }, 'x')
+      .problems.some((p) => p.path === 'runtime.allowLocalBinding' && p.level === 'error'), true);
+
+  const cwd = mkdtempSync(resolve(tmpdir(), 'office-sandbox-'));
+  mkdirSync(resolve(cwd, 'node_modules'));
+  const box = sandboxFor(qa, cwd) as Record<string, any>;
+  check('qa: allowLocalBinding доезжает до песочницы', box.network?.allowLocalBinding, true);
+  check('qa: unix-сокеты только во временной папке песочницы',
+    box.network?.allowUnixSockets?.length === 1 && /\/claude-\d+$/.test(box.network.allowUnixSockets[0]), true);
+  check('qa: запись только в кеш vite',
+    (box.filesystem?.allowWrite as string[]).map((p) => p.split('/').slice(-2).join('/')),
+    ['node_modules/.vite', 'node_modules/.vite-temp']);
+  check('qa: остальная песочница прежняя',
+    [box.enabled, box.failIfUnavailable, box.allowUnsandboxedCommands, box.autoAllowBashIfSandboxed], [true, true, false, false]);
+  check('backend: песочница без сети и записи', sandboxFor(backend, cwd), SANDBOX);
+
+  // Правка из окна роли — оверрайд ссылки на пакет.
+  const off = roleFromPackage(loadPackage('@office/qa', ours)!, 'ru', 'qa',
+    { ...qa.package!, overrides: { allowLocalBinding: false } });
+  check('qa: выключили в окне роли — песочница без портов', (sandboxFor(off, cwd) as Record<string, any>).network, undefined);
+  const on = roleFromPackage(loadPackage('@office/backend', ours)!, 'ru', 'backend',
+    { ...backend.package!, overrides: { allowLocalBinding: true } });
+  check('backend: включили в окне роли — оверрайд держится', [on.allowLocalBinding, on.package?.overrides.allowLocalBinding], [true, true]);
+  check('3D-роль с портами: оба исключения разом',
+    Object.keys(sandboxFor({ ...on, capabilities: ['design.3d'] }, cwd)).filter((k) => k === 'excludedCommands' || k === 'network'),
+    ['excludedCommands', 'network']);
+  rmSync(cwd, { recursive: true, force: true });
+}
+
 rmSync(root, { recursive: true, force: true });
 console.log(failed ? `\nпровалено кейсов: ${failed}` : '\nвсе кейсы прошли');
 process.exit(failed ? 1 : 0);

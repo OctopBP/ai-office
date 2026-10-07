@@ -72,6 +72,7 @@ export const opencodeEngine: EngineAdapter = {
       nativeHands: false,
       // Команды рук офиса идут под Seatbelt — только на macOS и если он запускается.
       sandbox: sandboxAvailable(platform),
+      localBinding: false,
       compaction: 'auto',
       costUsd: 'computed',
       planLimits: false,
