@@ -79,14 +79,18 @@ export interface Role {
    */
   capabilities?: Capability[];
   /**
-   * Свой репозиторий роли. Пусто — общий репозиторий офиса.
-   * Путь абсолютный либо относительный от директории офиса.
-   *
-   * Команда не обязана жить в одном репозитории: бэкенд может работать в
-   * одном, фронтенд в другом, дизайнер — в третьем. Ветка задачи, её diff и
-   * слияние идут в тот репозиторий, где роль работает.
+   * Устарело, читается только миграцией (docs/design/subprojects/spec.md §7):
+   * свой репозиторий роли. Миграция заводит на нём repo-зону, закрепляет за
+   * ней роль и снимает поле. Путь абсолютный либо от директории офиса.
    */
   repoDir?: string;
+  /**
+   * Подпроекты, за которыми роль закреплена. Нет поля или пусто — весь
+   * проект: так работают все офисы до подпроектов. Иначе роль получает задачи
+   * только этих зон — никогда чужих (docs/design/subprojects/spec.md §3).
+   * У роли из пакета живёт оверрайдом ссылки: закрепление — дело офиса.
+   */
+  subprojects?: string[];
   /**
    * Внешность агента — идентификатор из `shared/looks.ts`. Пусто или нет
    * поля — веб подбирает внешность по id роли: у базовых ролей своя
@@ -212,7 +216,7 @@ export const copyTitle = (title: string, copy: number | undefined): string =>
 /** Поля, по которым считается разница роли с пакетом. */
 export const OVERRIDABLE_KEYS: readonly (keyof LinkOverrides)[] = [
   'title', 'emoji', 'color', 'model', 'provider', 'tier', 'permissionMode', 'isolate',
-  'maxTurns', 'allowLocalBinding', 'repoDir', 'sprite', 'mcp', 'capabilities',
+  'maxTurns', 'allowLocalBinding', 'repoDir', 'subprojects', 'sprite', 'mcp', 'capabilities',
 ];
 
 /**

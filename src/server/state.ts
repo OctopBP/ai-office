@@ -3,7 +3,7 @@ import {
 } from '../shared/providers';
 import { isModelTier } from '../shared/models';
 import { randomUUID } from 'node:crypto';
-import { isAbsolute, resolve } from 'node:path';
+import { resolve } from 'node:path';
 import type {
   AgentState, ChatDraft, ChatEntry, ChatRef, Criterion, DayUsage, Desk, FieldError, InstanceView, LogEntry,
   PermissionDecision, AuthSource, MeetingView, PermissionMode, PermissionRequest, RoleDraft,
@@ -15,7 +15,7 @@ import type {
   PullRequestView, PrStage, ReviewNote, TaskOutcome, TaskDelivery, BranchMark,
   FactView, LifeView, OwnerQuestion, RitualId, RitualPolicy, RitualRun,
   DirectionView, ProposalView, InitiativeMode,
-  SpendEntryView, PmChat, SecretMeta,
+  SpendEntryView, PmChat, SecretMeta, Subproject, SubprojectView,
 } from '../shared/types';
 import { OFFICE_SENDER } from '../shared/types';
 import { isOpenQuestion } from '../shared/questions';
@@ -78,6 +78,10 @@ import {
 import {
   loadPackage, packageBrief, packageModel, packageTitle, PACKAGE_NAME_RE, resolvePackage, type AgentPackage,
 } from './packages';
+import {
+  legacyRoleRepo, migrateRepoDirs, resolveRoot, roleWorkdir, sanitizeRoleZones, sanitizeSubprojects, soleZone,
+  subprojectView, SUBPROJECTS_MIGRATION, taskRepoDir,
+} from './subprojects';
 import {
   DEFAULT_STATE_FILE, flush as flushFile, load, save, wipe as wipeFile,
   type Persisted, type PersistedInstance,
@@ -300,7 +304,7 @@ export const criticalEnvFail = (checks: EnvCheck[]): EnvCheck | null =>
  */
 const ROLE_EDITABLE_KEYS: readonly (keyof RoleEditable)[] = [
   'title', 'emoji', 'color', 'model', 'provider', 'tier', 'permissionMode',
-  'isolate', 'maxTurns', 'allowLocalBinding', 'repoDir', 'sprite', 'brief', 'briefExtra', 'mcp', 'capabilities',
+  'isolate', 'maxTurns', 'allowLocalBinding', 'repoDir', 'subprojects', 'sprite', 'brief', 'briefExtra', 'mcp', 'capabilities',
 ];
 
 /** Свои проверки проекта: имя по форме, команда непустая и не бесконечная. */
@@ -531,8 +535,12 @@ function sanitizeRole(raw: Partial<Role>, id: string, lang: Lang): Role {
       ? { mcp: raw.mcp.filter((m): m is string => typeof m === 'string') }
       : (pkg ? { mcp: [...pkg.manifest.runtime.mcp] } : {})),
     docsDir: text(raw.docsDir) ?? pkg?.manifest.docsDir ?? base.docsDir,
-    // Пустой repoDir — законное «общий репозиторий офиса», а не пропуск.
-    repoDir: typeof raw.repoDir === 'string' ? raw.repoDir : base.repoDir,
+    // Репозиторий роли (устарел) поднимаем только непустым: его разберёт
+    // миграция в подпроекты, а пустой и так значил «общий репозиторий».
+    ...(text(raw.repoDir) ? { repoDir: raw.repoDir } : {}),
+    // Закрепление за зонами. id пропавшей зоны не выкидываем (spec §2.2):
+    // пустой список молча расширил бы роль до «всего проекта».
+    ...(sanitizeRoleZones(raw.subprojects) ? { subprojects: sanitizeRoleZones(raw.subprojects) } : {}),
     // Пустой спрайт — тоже законное значение: «подбери по id роли». Снятую
     // внешность подменяем на замену из реестра (`liveLookId`): сохранение
     // переживает удаление записи из `looks.json`.
@@ -681,6 +689,7 @@ const SONNET_5_5_MIGRATION = 'sonnet-5-to-5-5';
 /** Все разовые миграции ролей. Новый офис заводится с ними проведёнными. */
 const ROLE_MIGRATIONS: readonly string[] = [
   SONNET_5_5_MIGRATION, OFFICE_MODEL_MIGRATION, FIGMA_CONSOLE_MIGRATION, PENPOT_MIGRATION,
+  SUBPROJECTS_MIGRATION,
 ];
 
 /**
@@ -870,6 +879,11 @@ export interface Task {
   worktreePath: string | null;
   /** Репозиторий, в котором выполнялась задача: у ролей они могут отличаться. */
   repoDir: string | null;
+  /**
+   * Зона задачи (docs/design/subprojects/spec.md §2.3). null — «весь проект».
+   * В сохранениях старше подпроектов поля нет: его выставит миграция.
+   */
+  subprojectId: string | null;
   merged: boolean;
   /**
    * Сессии исполнителя и ревьюера этой задачи — чтобы доработка и повторное
@@ -1160,6 +1174,8 @@ export class OfficeState {
   // русский бриф в английском офисе означал бы агента, который отвечает
   // не на том языке, на котором с ним говорят.
   private roleList: Role[] = defaultRoles(newOfficeLang());
+  /** Подпроекты офиса — зоны ответственности. Пусто — офис без зон. */
+  private subprojectList: Subproject[] = [];
   /** Проведённые разовые миграции ролей. У нового офиса переводить нечего — все проведены. */
   private roleMigrations: string[] = [...ROLE_MIGRATIONS];
   /**
@@ -1607,6 +1623,7 @@ export class OfficeState {
       meetings: this.meetings,
       settings: this.settings,
       roles: this.roleList,
+      subprojects: this.subprojectList,
       roleMigrations: this.roleMigrations,
       layoutOverrides: this.layoutOverrides,
       instances: [...this.instances.values()].map<PersistedInstance>((i) => ({
@@ -2255,6 +2272,11 @@ export class OfficeState {
       }
       this.tasks.set(t.id, t);
     }
+    // Подпроекты — после ролей и задач: миграция с «репозитория роли»
+    // переписывает и тех, и других (spec подпроектов §7). Идёт на каждой
+    // загрузке: она идемпотентна по содержимому, а не только по отметке.
+    this.subprojectList = sanitizeSubprojects(data.subprojects);
+    this.absorbRepoDirs();
 
     // Конвейер живёт в сессиях, а они умерли вместе с процессом: любой PR,
     // застигнутый перезапуском на ходу, поднимаем как вставший. Врать, что
@@ -3152,6 +3174,8 @@ export class OfficeState {
     priority?: TaskPriority;
     /** Чат с менеджером, в котором задачу завели. Нет — задача без чата. */
     chatId?: string | null;
+    /** Зона задачи. Не передана — выводится из роли (`zoneForNewTask`). */
+    subprojectId?: string | null;
   }): Task {
     this.taskSeq += 1;
     const task: Task = {
@@ -3173,6 +3197,7 @@ export class OfficeState {
       baseBranch: null,
       worktreePath: null,
       repoDir: null,
+      subprojectId: this.zoneForNewTask(input.subprojectId, input.roleId),
       merged: false,
       interrupted: false,
       limitedAt: null,
@@ -3757,23 +3782,90 @@ export class OfficeState {
   // ---------- роли и настройки ----------
 
   /**
-   * Репозиторий роли: свой, если задан, иначе общий репозиторий офиса.
-   * Относительный путь считается от директории офиса.
+   * Репозиторий роли — прежнее правило для мест, которые ещё не перешли на
+   * `repoForTask`/`repoForRole` (spec подпроектов §2.3). Миграция снимает
+   * `repoDir`, поэтому роль из единственной repo-зоны получает её корень —
+   * ровно прежний путь. Уйдёт, когда у него не останется вызовов.
    */
   repoFor(role: Role | null | undefined): string {
-    return this.resolveRepoDir(role?.repoDir);
+    return legacyRoleRepo(role, this.subprojectList, this.projectDir);
   }
 
   /**
-   * Путь репозитория роли в абсолютном виде. Пусто — общий репозиторий офиса.
-   * Отдельно от repoFor: проверять путь из формы приходится до того, как роль
-   * существует, а считаться он обязан ровно так же — иначе форма одобрит одну
-   * директорию, а задача пойдёт в другую.
+   * Рабочая папка роли вне задачи (spec подпроектов §2.3): совещание,
+   * разговор с ролью, консультация, состав команды. Одна зона — её корень;
+   * несколько, ни одной или зона пропала — корень офиса. Это папка, где
+   * сессия читает; граница правок задаётся задачей.
+   */
+  repoForRole(role: Role | null | undefined): string {
+    return roleWorkdir(role, this.subprojectList, this.projectDir);
+  }
+
+  /**
+   * Репозиторий задачи по её зоне: «весь проект» и папка — репозиторий офиса,
+   * repo-зона — свой. После старта путь берётся из `task.repoDir`.
+   */
+  repoForTask(task: Pick<Task, 'subprojectId'>): string {
+    return taskRepoDir(task.subprojectId, this.subprojectList, this.projectDir);
+  }
+
+  /**
+   * Путь из формы в абсолютном виде. Пусто — общий репозиторий офиса. Им
+   * проверяется корень repo-зоны, и считаться он обязан ровно так же, как
+   * путь зоны, — иначе форма одобрит одну директорию, а задача пойдёт в другую.
    */
   resolveRepoDir(dir: string | null | undefined): string {
-    const clean = dir?.trim();
-    if (!clean) return this.projectDir;
-    return isAbsolute(clean) ? resolve(clean) : resolve(this.projectDir, clean);
+    return resolveRoot(this.projectDir, dir);
+  }
+
+  /** Подпроекты офиса. */
+  subprojects(): Subproject[] {
+    return this.subprojectList;
+  }
+
+  subproject(id: string | null | undefined): Subproject | null {
+    return id ? this.subprojectList.find((s) => s.id === id) ?? null : null;
+  }
+
+  /** Подпроекты для веба: с путями, закреплёнными и проблемой. */
+  subprojectViews(): SubprojectView[] {
+    return this.subprojectList.map((sub) => subprojectView(
+      sub, this.subprojectList, this.roleList, this.tasks.values(), this.projectDir, this.lang(),
+    ));
+  }
+
+  /**
+   * Зона новой задачи. Названа — она; не названа — единственная зона роли:
+   * роль, закреплённая за одной зоной (в том числе мигрированная из
+   * «репозитория роли»), получает задачи там же, где и раньше.
+   */
+  private zoneForNewTask(wanted: string | null | undefined, roleId: string | null): string | null {
+    if (wanted !== undefined) return wanted;
+    const role = roleId ? this.role(roleId) : null;
+    return role ? soleZone(role, this.subprojectList)?.id ?? null : null;
+  }
+
+  /**
+   * Разобрать «репозиторий роли» в подпроекты (spec §7): на загрузке и после
+   * каждой правки, которая могла его принести (форма роли, найм из мастера).
+   * Возвращает, изменилось ли что-то.
+   */
+  private absorbRepoDirs(): boolean {
+    const result = migrateRepoDirs({
+      projectDir: this.projectDir,
+      roles: this.roleList,
+      subprojects: this.subprojectList,
+      tasks: this.tasks.values(),
+    });
+    if (!result.changed) return false;
+    this.roleList = result.roles;
+    this.subprojectList = result.subprojects;
+    for (const [id, zone] of result.taskZones) {
+      const task = this.tasks.get(id);
+      if (task) task.subprojectId = zone;
+    }
+    this.markDirty();
+    return true;
   }
 
   /** Состав офиса для UI: у каждого сотрудника посчитан эффективный режим. */
@@ -5164,6 +5256,7 @@ export class OfficeState {
       roles: this.roleViews(),
       instances: this.instanceViews(),
       tasks: [...this.tasks.values()].map(toTaskView),
+      subprojects: this.subprojectViews(),
       epics: this.epicList().map(toEpicView),
       mcpStatus: this.mcpStatuses(),
       chat: this.chat,
@@ -5314,7 +5407,7 @@ export const toTaskView = (t: Task): TaskView => ({
   // Веб про старые форматы не знает: в снимке приоритет есть всегда.
   priority: asTaskPriority(t.priority),
   files: t.files, branch: t.branch, baseBranch: t.baseBranch,
-  worktreePath: t.worktreePath, repoDir: t.repoDir ?? null, merged: t.merged,
+  worktreePath: t.worktreePath, repoDir: t.repoDir ?? null, subprojectId: t.subprojectId ?? null, merged: t.merged,
   interrupted: t.interrupted, limitedAt: t.limitedAt ?? null,
   envWait: t.envWait ?? null, createdAt: t.createdAt,
   startedAt: t.startedAt, finishedAt: t.finishedAt,
