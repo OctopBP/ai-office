@@ -89,7 +89,7 @@ export function Shell(props: OverlayProps) {
   }, []);
 
   return (
-    <div className={`shell${collapsed ? ' rail-collapsed' : ''}${paused ? ' paused' : ''}`}>
+    <div className={`shell${view === 'board' || view === 'chat' || isRailView(view) ? ' no-float-composer' : ''}${collapsed ? ' rail-collapsed' : ''}${paused ? ' paused' : ''}`}>
       <WorkColumn officeId={officeId} onCallMeeting={() => setModal('meeting')}><div className="shell-main">
         {/* Сцена не размонтируется при уходе на другой вид: смена камеры и
             позы агентов живут внутри неё (Object3D, OrbitControls), и снос

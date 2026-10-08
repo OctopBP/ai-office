@@ -98,6 +98,9 @@ export function WorkColumn({ officeId, onCallMeeting, children }: {
   const dock = (id: DockId) => {
     const s = layout.docks[id];
     if (!s) return null;
+    // Свёрнутый нижний док не рисуем совсем: ни полоски, ни отступа. Открывает
+    // его кнопка в верхнем ряду, рейл и Ctrl/Cmd+`.
+    if (id === 'bottom' && s.collapsed) return null;
     const hidden = maximized !== null && maximized !== id;
     const sizes = fitDockSizes(
       { left: layout.docks.left && effectiveSize('left', layout, column), right: layout.docks.right && effectiveSize('right', layout, column), bottom: layout.docks.bottom && effectiveSize('bottom', layout, column) },
@@ -140,7 +143,7 @@ export function WorkColumn({ officeId, onCallMeeting, children }: {
     );
   };
 
-  const has = (id: DockId) => (layout.docks[id] ? ` has-${id[0]}` : '');
+  const has = (id: DockId) => (layout.docks[id] && !(id === 'bottom' && layout.docks[id]!.collapsed) ? ` has-${id[0]}` : '');
   return (
     <div ref={ref} className={`work-col${has('bottom')}${has('right')}${has('left')}${maximized ? ' maxi' : ''}`}>
       <div className="work-row">

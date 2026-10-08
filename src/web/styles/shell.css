@@ -430,6 +430,11 @@ body.office-dragging, body.office-dragging * { cursor: grabbing !important; user
 .work-dock-right { flex: 0 0 auto; flex-direction: row; margin: 62px var(--space-6) calc(var(--composer-h, 0px) + var(--gap) * 2) var(--space-2); }
 .work-dock-left { flex: 0 0 auto; flex-direction: row-reverse; margin: 62px var(--space-2) calc(var(--composer-h, 0px) + var(--gap) * 2) calc(var(--edge) + var(--space-4)); }
 .work-dock-bottom { flex: 0 0 auto; flex-direction: column; margin: var(--space-2) var(--space-6) calc(var(--composer-h, 0px) + var(--gap) * 2) calc(var(--edge) + var(--space-4)); }
+/* Без плавающего композера (доска, чат, страницы рейла) под нижним доком
+   резерва нет: он стоит обычной панелью у нижнего края. */
+.shell.no-float-composer .work-dock-bottom { margin-bottom: var(--space-4); }
+.shell.no-float-composer .work-dock-right,
+.shell.no-float-composer .work-dock-left { margin-bottom: var(--space-4); }
 .work-col.has-b { --view-bottom: var(--space-4); }
 .work-col.has-r { --pad-r: 0px; }
 /* Левый док сам отступает от рейла: виды основной области отмеряют от своего края. */
