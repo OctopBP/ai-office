@@ -5,6 +5,9 @@ description: Self-review checklist to run before handing over a mockup or finish
 
 # Self-check before handoff
 
+Sections A-G check conformance; intent and restraint are checked by the
+`design-critique` skill — run it earlier, before this one.
+
 This step is mandatory: run it before `finish_task` on any task that produced
 a screen, component or frame. Go through every section. In the report write one line per section:
 `passed` or `violated: <what, where, why left as is>`. A bare "all ok" is not
@@ -43,3 +46,7 @@ Buttons are verbs, not "OK". No error codes shown to a person. Strings exist in 
 
 ## G. Markup (code tasks)
 Semantic tags (`button`, `label`, `nav`); `aria-*` only where native semantics are missing; 200% zoom does not break the layout; checked in both themes.
+
+## H. Restraint (after `design-critique`)
+- What was removed is listed in the report (or why nothing was).
+- No stock pattern from `design-critique/reference/ai-tells.md` is left without a named reason.

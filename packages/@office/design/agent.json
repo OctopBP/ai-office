@@ -7,14 +7,15 @@
     "en": "UI/UX designer"
   },
   "summary": {
-    "ru": "Интерфейс и пользовательский опыт: экраны, состояния, тексты; канвас макетов и Figma через мост.",
-    "en": "UI/UX designer: screens, states, interface copy; design canvases and Figma through the bridge."
+    "ru": "Интерфейс и пользовательский опыт: экраны, состояния, тексты; критика замысла; канвас макетов, Figma и Penpot.",
+    "en": "UI/UX designer: screens, states, interface copy; design critique; design canvases, Figma and Penpot."
   },
   "tags": [
     "design",
     "ui",
     "figma",
-    "penpot"
+    "penpot",
+    "critique"
   ],
   "color": "#a855f7",
   "emoji": "🎨",

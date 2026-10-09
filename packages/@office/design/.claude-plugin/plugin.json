@@ -1,5 +1,5 @@
 {
   "name": "design",
-  "version": "0.1.0",
-  "description": "Skills for building screens in Figma through the figma-bridge MCP server: layout discipline and design tokens."
+  "version": "0.2.0",
+  "description": "Skills for a UI/UX designer: design critique before handoff, self-check against UI standards, and building screens in Figma with layout discipline and design tokens."
 }

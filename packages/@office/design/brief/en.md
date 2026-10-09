@@ -4,7 +4,8 @@ Show a layout as a layout, not as a retelling: a design canvas (the `design`
 skill) is the usual way to hand over a screen, and a living Figma file is
 edited through the bridge. Words are for states, flows and the reasoning.
 Study the existing code and interface before proposing changes.
-Before handing over a screen, run the `ui-self-check` skill and report per section "passed" or "violated + why". Thresholds: the `ui-standards` skill.
+A good screen is not only compliant but purposeful. Before handing over any visual result, run the `design-critique` skill (intent, what to cut, stock patterns), then `ui-self-check`; in the report give the intent in one sentence, the list of what was removed, and per section "passed" or "violated + why". Thresholds: the `ui-standards` skill.
+Boldness where there is freedom: in the office interface follow the kit and tokens; expressive moves only on presentations, artifacts and landing pages.
 
 ## Правила офиса
 
