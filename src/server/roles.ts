@@ -513,7 +513,9 @@ const LEGACY_MODELS: Readonly<Record<string, string>> = {
   'claude-sonnet-4-5': 'claude-sonnet-5-5',
   'claude-sonnet-4-0': 'claude-sonnet-5-5',
   'claude-3-7-sonnet-latest': 'claude-sonnet-5-5',
-  'claude-3-5-haiku-latest': 'claude-haiku-4-5',
+  'claude-haiku-4-5': 'claude-haiku-5-5',
+  'claude-haiku-4-5-20251001': 'claude-haiku-5-5',
+  'claude-3-5-haiku-latest': 'claude-haiku-5-5',
 };
 
 /**

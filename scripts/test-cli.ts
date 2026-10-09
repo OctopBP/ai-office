@@ -72,7 +72,7 @@ office.seed();
 // Модель без провайдера привязывается к провайдеру офиса — он выбран явно (T-243).
 office.updateSettings({ model: { provider: 'claude-code', model: 'claude-sonnet-5-5' } });
 // Роль из встроенного пакета с припиской и оверрайдом: экспорт — форк, бриф целиком.
-office.updateRole('backend', { briefExtra: 'Стек: Fastify.', model: 'claude-haiku-4-5' });
+office.updateRole('backend', { briefExtra: 'Стек: Fastify.', model: 'claude-haiku-5-5' });
 const exported = exportRole(office.role('backend')!, '@alice/backend', '', projectDir, 'ru');
 check('экспорт привязанной роли', exported.ok && exported.dir, resolve(projectDir, 'agents/backend'));
 const expPkg = exported.ok ? readPackage(exported.dir).pkg : null;

@@ -897,7 +897,7 @@ export const en = {
   "role.model.claude-fable-5-1": "Fable 5.1 — $10/$50, the most capable",
   "role.model.claude-sonnet-5-5": "Sonnet 5.5 — $2/$10, the workhorse",
   "role.model.claude-sonnet-5": "Sonnet 5 — $2/$10, the previous workhorse",
-  "role.model.claude-haiku-4-5": "Haiku 4.5 — $1/$5, simple and fast",
+  "role.model.claude-haiku-5-5": "Haiku 5.5 — $1/$5, simple and fast",
   "role.mode.default": "{mode} (the default)",
   "role.turnsRange": "A whole number from {min} to {max}, or empty to use the office one",
   "role.archive.pm": "The PM cannot be archived — without them the office has nobody to talk to",

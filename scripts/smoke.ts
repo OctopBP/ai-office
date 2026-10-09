@@ -4,7 +4,7 @@ import { query } from '@anthropic-ai/claude-agent-sdk';
 const t0 = Date.now();
 for await (const m of query({
   prompt: 'Ответь ровно одним словом: работает',
-  options: { model: 'claude-haiku-4-5', tools: [], settingSources: [], maxTurns: 1 },
+  options: { model: 'claude-haiku-5-5', tools: [], settingSources: [], maxTurns: 1 },
 })) {
   if (m.type === 'system' && m.subtype === 'init') {
     console.log('INIT ok | apiKeySource:', m.apiKeySource, '| cwd:', m.cwd);

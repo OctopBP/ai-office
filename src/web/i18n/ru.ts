@@ -896,7 +896,7 @@ export const ru: Record<keyof typeof en, string> = {
   "role.model.claude-fable-5-1": "Fable 5.1 — $10/$50, самая сильная",
   "role.model.claude-sonnet-5-5": "Sonnet 5.5 — $2/$10, рабочая лошадка",
   "role.model.claude-sonnet-5": "Sonnet 5 — $2/$10, прошлая рабочая лошадка",
-  "role.model.claude-haiku-4-5": "Haiku 4.5 — $1/$5, простое и быстрое",
+  "role.model.claude-haiku-5-5": "Haiku 5.5 — $1/$5, простое и быстрое",
   "role.mode.default": "{mode} (по умолчанию)",
   "role.turnsRange": "Целое число от {min} до {max} или пусто — как в офисе",
   "role.archive.pm": "PM нельзя убрать в архив — без него офису не с кем разговаривать",

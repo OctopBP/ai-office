@@ -17,7 +17,7 @@ import {
 import { deskPoint } from '../src/shared/layout';
 import { isLookId, LOOKS } from '../src/shared/looks';
 import {
-  criticalEnvFail, DEFAULT_SETTINGS, getOffice, openOfficeState, subscribeOffices, toTaskView,
+  criticalEnvFail, DEFAULT_SETTINGS, getOffice, openOfficeState, sanitizeModelChoice, subscribeOffices, toTaskView,
   totalRunningWorkers, unloadOfficeState,
 } from '../src/server/state';
 import { refreshEnvChecks } from '../src/server/envcheck';
@@ -406,7 +406,7 @@ async function main(): Promise<void> {
   save(junkFile, () => ({
     version: 1, projectDir: junkDir, taskSeq: 0, tasks: [], chat: [], log: [],
     instances: [], settings: { ...DEFAULT_SETTINGS }, savedAt: Date.now(),
-    roleOverrides: { backend: { maxTurns: 0, model: 'claude-haiku-4-5' } },
+    roleOverrides: { backend: { maxTurns: 0, model: 'claude-haiku-5-5' } },
   }));
   flushAll();
   const junkOffice = openOfficeState({
@@ -423,11 +423,11 @@ async function main(): Promise<void> {
     `роль вернулась к офисному лимиту: ${
       junkOffice.turnsFor(junkOffice.role('backend')!) === DEFAULT_SETTINGS.taskMaxTurns}`,
     `остальные правки роли из файла уцелели: ${
-      junkOffice.role('backend')?.model === 'claude-haiku-4-5'}`,
+      junkOffice.role('backend')?.model === 'claude-haiku-5-5'}`,
     `старое сохранение подняло весь базовый набор ролей: ${
       junkOffice.roles().length === defaultRoles('ru').length}`,
     `перенесённый набор сохранён целиком: ${Array.isArray(migrated.roles)
-      && migrated.roles.some((r) => r.id === 'backend' && r.model === 'claude-haiku-4-5')
+      && migrated.roles.some((r) => r.id === 'backend' && r.model === 'claude-haiku-5-5')
       && migrated.roles.some((r) => r.id === 'reviewer')}`,
     `в перенесённом наборе ровно один менеджер: ${
       (migrated.roles ?? []).filter((r) => r.isManager).length === 1}`,
@@ -707,9 +707,9 @@ async function main(): Promise<void> {
   }).state;
   ra.updateSettings({ model: CLAUDE_CHOICE });
   const baseModel = defaultRole('backend', 'ru')!.model;
-  ra.updateRole('backend', { model: 'claude-haiku-4-5', title: 'Бэкенд офиса A' });
+  ra.updateRole('backend', { model: 'claude-haiku-5-5', title: 'Бэкенд офиса A' });
   results.push(
-    `правка роли применилась в своём офисе: ${ra.role('backend')?.model === 'claude-haiku-4-5'}`,
+    `правка роли применилась в своём офисе: ${ra.role('backend')?.model === 'claude-haiku-5-5'}`,
     `в соседнем офисе роль осталась прежней: ${rb.role('backend')?.model === baseModel
       && rb.role('backend')?.title === defaultRole('backend', 'ru')!.title}`,
     `правка не дошла и до базового набора: ${defaultRole('backend', 'ru')!.model === baseModel}`,
@@ -730,7 +730,7 @@ async function main(): Promise<void> {
   const managers = (o: typeof ra): number => o.roles().filter((r) => r.isManager).length;
   results.push(
     `набор ролей поднялся с диска: ${rolesRestored}`,
-    `правка роли пережила перезапуск: ${ra.role('backend')?.model === 'claude-haiku-4-5'
+    `правка роли пережила перезапуск: ${ra.role('backend')?.model === 'claude-haiku-5-5'
       && ra.role('backend')?.title === 'Бэкенд офиса A'}`,
     `своя роль офиса поднялась: ${ra.role('writer')?.title === 'Технический писатель'}`,
     `в соседнем офисе этой роли нет: ${rb.role('writer') === undefined}`,
@@ -861,7 +861,7 @@ async function main(): Promise<void> {
   // пресеты (`agent_p3`) остались только в старых сохранениях.
   const made = await rc.createRole({
     title: 'Технический писатель',
-    model: 'claude-haiku-4-5',
+    model: 'claude-haiku-5-5',
     sprite: LOOKS[0].id,
     brief: 'Пишет документацию к тому, что сделала команда.',
   });
@@ -870,7 +870,7 @@ async function main(): Promise<void> {
   results.push(
     `роль заведена: ${writer !== null}`,
     `id собран сервером из русского названия: ${writerId === 'tehnicheskiy-pisatel'}`,
-    `поля формы доехали до роли: ${writer?.model === 'claude-haiku-4-5'
+    `поля формы доехали до роли: ${writer?.model === 'claude-haiku-5-5'
       && writer?.sprite === LOOKS[0].id}`,
     `новая роль не менеджер и не в архиве: ${writer?.isManager === false && writer?.archived === false}`,
     `роль видна менеджеру: ${rc.workerRoles().some((r) => r.id === writerId)}`,
@@ -1239,7 +1239,12 @@ async function main(): Promise<void> {
     `старые версии переведены внутри семейства: ${currentModel('claude-sonnet-4-6') === 'claude-sonnet-5-5'
       && currentModel('claude-opus-4-8') === 'claude-opus-5-5'
       && currentModel('claude-fable-5') === 'claude-fable-5-1'
-      && currentModel('claude-haiku-4-5') === 'claude-haiku-4-5'}`,
+      && currentModel('claude-haiku-5-5') === 'claude-haiku-5-5'}`,
+    // Выход Haiku 5.5: и короткий id, и снимок с датой уходят на новое поколение.
+    `Haiku 4.5 переведён на Haiku 5.5: ${currentModel('claude-haiku-4-5') === 'claude-haiku-5-5'
+      && currentModel('claude-haiku-4-5-20251001') === 'claude-haiku-5-5'
+      && currentModel(currentModel('claude-haiku-4-5')) === 'claude-haiku-5-5'
+      && sanitizeModelChoice({ provider: 'claude-code', model: 'claude-haiku-4-5' })?.model === 'claude-haiku-5-5'}`,
     `незнакомая модель осталась как есть: ${currentModel('my-custom-model') === 'my-custom-model'}`,
   );
   unloadOfficeState('o-roles-model');

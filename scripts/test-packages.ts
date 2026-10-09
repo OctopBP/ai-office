@@ -164,10 +164,10 @@ check('менеджер гарантирован и первый', withManagerRo
 const pkg = loadPackage('@office/backend')!;
 const tuned = roleFromPackage(pkg, 'ru', 'backend', {
   name: pkg.name, version: '0.0.1',
-  overrides: { model: 'claude-haiku-4-5', title: 'Бэкенд', repoDir: '' },
+  overrides: { model: 'claude-haiku-5-5', title: 'Бэкенд', repoDir: '' },
   briefExtra: 'Проект на Fastify.',
 });
-check('оверрайд применяется', tuned.model, 'claude-haiku-4-5');
+check('оверрайд применяется', tuned.model, 'claude-haiku-5-5');
 check('оверрайд, равный умолчанию, вычищен', Object.keys(tuned.package!.overrides), ['model']);
 check('версия в ссылке — с диска', tuned.package!.version, '1.2.0');
 check('приписка снизу к брифу', tuned.brief, 'Ты бэкенд.\nПиши код.\n\nПроект на Fastify.');
@@ -197,7 +197,7 @@ const { DEFAULT_SETTINGS } = await import('../src/server/state');
 const stateFile = resolve(root, 'office.json');
 const projectDir = resolve(root, 'project');
 mkdirSync(projectDir, { recursive: true });
-const savedBackend = { ...defaultRole('backend', 'ru')!, model: 'claude-haiku-4-5', brief: 'Ты бэкенд.\nПиши код.\nПроект на Fastify.' };
+const savedBackend = { ...defaultRole('backend', 'ru')!, model: 'claude-haiku-5-5', brief: 'Ты бэкенд.\nПиши код.\nПроект на Fastify.' };
 delete (savedBackend as { package?: unknown }).package;
 const savedDesign = { ...defaultRole('design', 'ru')!, title: 'Designer', brief: 'Совсем другой бриф.' };
 delete (savedDesign as { package?: unknown }).package;
@@ -218,7 +218,7 @@ flushAll();
 const office = openOfficeState({ id: 'o-pkg', projectDir, stateFile }).state;
 const b = office.role('backend')!;
 check('старое сохранение привязалось к пакету', b.package?.name, '@office/backend');
-check('разница с пакетом стала оверрайдом', b.package?.overrides, { model: 'claude-haiku-4-5' });
+check('разница с пакетом стала оверрайдом', b.package?.overrides, { model: 'claude-haiku-5-5' });
 check('хвост брифа стал припиской', b.package?.briefExtra, 'Проект на Fastify.');
 check('бриф собран заново из пакета и приписки', b.brief, 'Ты бэкенд.\nПиши код.\n\nПроект на Fastify.');
 check('переписанный бриф — форк без пакета', office.role('design')?.package, undefined);

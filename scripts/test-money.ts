@@ -355,7 +355,7 @@ results.push(`нулевая трата записи не заводит: ${spOf
 spInst.currentTaskId = null;
 spOffice.addUsage('backend#1', {
   costUsd: 0.05, tokensIn: 5, tokensOut: 1, cacheRead: 0, cacheWrite: 0,
-}, 'claude-haiku-4-5-20251001');
+}, 'claude-haiku-5-5');
 results.push(`трата вне задачи тоже записана: ${
   spOffice.spendList().length === 3 && spOffice.spendList()[2]?.taskId === null}`);
 

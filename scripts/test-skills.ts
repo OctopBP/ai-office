@@ -165,7 +165,7 @@ if (process.env.SKILLS_LIVE === '1') {
     options: {
       cwd: root,
       systemPrompt: { type: 'preset', preset: 'claude_code' },
-      model: 'claude-haiku-4-5',
+      model: 'claude-haiku-5-5',
       skills: employeeSkills(role('builtinonly')),
       settingSources: [],
       maxTurns: 1,

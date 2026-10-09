@@ -213,7 +213,7 @@ check('добавление по ссылке — установлено', listC
 // Обновление: откатываем роль на 1.0.0 и просим обновить.
 const back = await installFromGit({ repo, path: 'agents/lawyer', commit: c100 }, cache, 'ru');
 if (back.ok) office.updateRolePackage('lawyer', back.pkg, { repo, path: 'agents/lawyer', commit: c100 });
-office.updateRole('lawyer', { model: 'claude-haiku-4-5', briefExtra: 'Наш стек: Node.' });
+office.updateRole('lawyer', { model: 'claude-haiku-5-5', briefExtra: 'Наш стек: Node.' });
 check('роль откачена на 1.0.0', [office.role('lawyer')?.package?.version, office.role('lawyer')?.tools], ['1.0.0', ['Read']]);
 await handleMarketCommand({ c: 'market_check' }, office, send);
 check('проверка нашла обновление', /новая версия есть у 1/.test(lastOffice()), true);
@@ -222,7 +222,7 @@ check('витрина показывает, до чего обновлять', c
 await handleMarketCommand({ c: 'market_update', roleId: 'lawyer' }, office, send);
 const updated = office.role('lawyer')!;
 check('роль обновлена до 1.1.0', [updated.package?.version, updated.tools, updated.package?.source?.commit], ['1.1.0', ['Read', 'Write'], c110]);
-check('оверрайд и приписка пережили обновление', [updated.model, updated.brief], ['claude-haiku-4-5', 'Ты юрист. Пиши кратко.\n\nНаш стек: Node.']);
+check('оверрайд и приписка пережили обновление', [updated.model, updated.brief], ['claude-haiku-5-5', 'Ты юрист. Пиши кратко.\n\nНаш стек: Node.']);
 await handleMarketCommand({ c: 'market_update', roleId: 'pm' }, office, send);
 check('встроенный не обновляется отдельно', /встроенный/.test(lastOffice()), true);
 await handleMarketCommand({ c: 'market_update', roleId: 'lawyer' }, office, send);

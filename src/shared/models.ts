@@ -17,7 +17,7 @@ export const MODEL_ALIASES = {
   fable: 'claude-fable-5-1',
   opus: 'claude-opus-5-5',
   sonnet: 'claude-sonnet-5-5',
-  haiku: 'claude-haiku-4-5',
+  haiku: 'claude-haiku-5-5',
 } as const;
 
 export type ModelAlias = keyof typeof MODEL_ALIASES;
@@ -36,11 +36,11 @@ export type ModelAlias = keyof typeof MODEL_ALIASES;
  *
  * Чего здесь тоже намеренно нет: моделей по приглашению (`claude-mythos-5`,
  * `claude-mythos-preview` — их не выдать обычным ключом) и id с датой
- * (`claude-haiku-4-5-20251001` и подобные) — это те же модели, закреплённые за
+ * (`claude-sonnet-4-5-20250929` и подобные) — это те же модели, закреплённые за
  * снимком. Незнакомый id в роли форму не ломает: она показывает его отдельной
  * строкой списка как есть.
  *
- * `claude-opus-5-5`, `claude-fable-5-1` и `claude-sonnet-5-5` в типе установленного SDK ещё не
+ * `claude-opus-5-5`, `claude-fable-5-1`, `claude-sonnet-5-5` и `claude-haiku-5-5` в типе установленного SDK ещё не
  * значатся — модели вышли позже пакета, а тип у него открытый
  * (`(string & {})`), так что id проходят.
  */
@@ -49,7 +49,7 @@ export const MODEL_IDS: readonly string[] = [
   'claude-fable-5-1',
   'claude-sonnet-5-5',
   'claude-sonnet-5',
-  'claude-haiku-4-5',
+  'claude-haiku-5-5',
 ];
 
 /**
