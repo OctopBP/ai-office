@@ -16,6 +16,7 @@ import { resolve } from 'node:path';
 import { getOffice } from '../src/server/state';
 import { checkMergeable } from '../src/server/git';
 import { integrationDir, mergeQueue, refreshMergeChecks } from '../src/server/merge';
+import { runProjectCheck } from '../src/server/checks';
 
 // Проверки сверяют тексты офиса дословно и написаны по-русски — значит,
 // и офисы здесь должны быть русскими. Язык нового офиса берётся из
@@ -243,6 +244,19 @@ async function main(): Promise<void> {
     `в отказе назван репозиторий: ${Boolean(lostStep?.message.includes(back))}`,
     `в отказе названа ветка: ${Boolean(lostStep?.message.includes('task/T-1'))}`,
     `в чужом репозитории ничего не влито: ${at(back, 'main') === backMain}`,
+  );
+
+  // Проверка, снятая по таймауту, обязана сказать об этом в выводе. Скрипт,
+  // который копит результаты до конца, к моменту снятия не напечатал ничего,
+  // и гейт показывал голое «Command failed» — как у настоящего падения (T-508).
+  const hung = await runProjectCheck(dir, 'sleep 5', 'ru', { timeoutMs: 300 });
+  results.push(
+    `зависшая проверка снята по таймауту: ${hung.ok === false && hung.timedOut === true}`,
+    `в выводе снятой проверки сказано про таймаут: ${hung.output.includes('не уложилась')}`,
+  );
+  const fell = await runProjectCheck(dir, 'echo упала; exit 3', 'ru');
+  results.push(
+    `обычное падение таймаутом не названо: ${fell.ok === false && !fell.timedOut && !fell.output.includes('не уложилась')}`,
   );
 
   rmSync(dir, { recursive: true, force: true });

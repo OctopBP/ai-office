@@ -62,10 +62,17 @@ export async function runProjectCheck(
     return { ok: true, output, message: output, durationMs: Date.now() - started };
   } catch (err) {
     const e = err as { stdout?: string; stderr?: string; message?: string; killed?: boolean; signal?: string };
-    const output = tail(mask(`${e.stdout ?? ''}${e.stderr ?? ''}`.trim() || (e.message ?? '')), lang, opts.outputLimit);
+    const timedOut = Boolean(e.killed && e.signal === 'SIGTERM');
+    // Снятая сигналом проверка часто не успевает напечатать ничего: скрипты
+    // проверок копят результаты до конца. Без этой строки в гейте оставалось
+    // голое «Command failed», неотличимое от настоящего падения (T-508).
+    const killed = timedOut
+      ? t(lang, 'checks.timedOut', { min: String(Math.round((opts.timeoutMs ?? CHECK_TIMEOUT_MS) / 60_000)) })
+      : e.signal ? t(lang, 'checks.killed', { signal: e.signal }) : '';
+    const text = tail(mask(`${e.stdout ?? ''}${e.stderr ?? ''}`.trim() || (e.message ?? '')), lang, opts.outputLimit);
+    const output = killed ? `${text}\n${killed}` : text;
     return {
-      ok: false, output, message: output, durationMs: Date.now() - started,
-      timedOut: Boolean(e.killed && e.signal === 'SIGTERM'),
+      ok: false, output, message: output, durationMs: Date.now() - started, timedOut,
     };
   }
 }

@@ -55,7 +55,7 @@ check('граница суток: влитое ровно сутки назад 
 
 check('текст по умолчанию: строка «ещё N влито раньше»', () => {
   const text = reviewStatusText(prs, { now: NOW }, 'ru');
-  assert.match(text, /ещё 3 влито раньше/);
+  assert.match(text, /ещё 3 закрыто раньше/);
   assert.ok(!text.includes('T-8'));
   assert.ok(text.includes('T-2 «Задача T-2»'));
 });
@@ -63,7 +63,7 @@ check('текст по умолчанию: строка «ещё N влито р
 check('всё давно влито: пишет, что свежего нет, и число', () => {
   const text = reviewStatusText([pr('T-8', 'merged', 30 * 24 * HOUR)], { now: NOW }, 'ru');
   assert.match(text, /Невлитых задач нет/);
-  assert.match(text, /ещё 1 влито раньше/);
+  assert.match(text, /ещё 1 закрыто раньше/);
 });
 
 check('пустой конвейер', () => {

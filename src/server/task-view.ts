@@ -4,6 +4,7 @@
  * язык, на выход текст, поэтому их легко проверить отдельно (test-task-view.ts).
  */
 import type { PullRequestView } from '../shared/types';
+import { prClosed } from '../shared/types';
 import type { Lang } from '../shared/i18n';
 import type { Epic, Task } from './state';
 import { t } from './i18n';
@@ -48,9 +49,10 @@ export function pickReviews(prs: Iterable<PullRequestView>, query: ReviewQuery =
     return { shown, olderMerged: 0, total, offset, hasMore: offset + shown.length < total };
   }
   // Время слияния отдельно не хранится: у влитого пулл-реквеста updatedAt —
-  // последняя смена стадии, то есть само слияние.
+  // последняя смена стадии, то есть само слияние. Закрытый снятием конвейер
+  // живёт по тем же правилам: свежий виден, давний не мешает.
   const since = (query.now ?? Date.now()) - RECENT_MERGED_MS;
-  const shown = sorted.filter((pr) => pr.stage !== 'merged' || pr.updatedAt >= since);
+  const shown = sorted.filter((pr) => !prClosed(pr.stage) || pr.updatedAt >= since);
   return { shown, olderMerged: total - shown.length, total, offset: 0, hasMore: false };
 }
 

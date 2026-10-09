@@ -4,7 +4,7 @@ import {
   retryPipeline, retryTask, showDiff, stopTask, useStore,
 } from './store';
 import type { TaskView } from '../shared/types';
-import { taskClosed } from '../shared/types';
+import { prClosed, taskClosed } from '../shared/types';
 import { locale, t } from './i18n';
 import { BudgetStopBanner } from './BudgetStopBanner';
 import { Hint, Tooltip } from './Tooltip';
@@ -83,7 +83,7 @@ export function TaskDrawer() {
   const check = checks[task.id];
   const badge = mergeBadge(task, mergeStepFor(run, task.id), check);
   // Пока конвейер ведёт задачу, ручное слияние вырвало бы ветку у ревьюера.
-  const pipelineRunning = Boolean(pr) && pr.stage !== 'stuck' && pr.stage !== 'merged';
+  const pipelineRunning = Boolean(pr) && pr.stage !== 'stuck' && !prClosed(pr.stage);
   // Стереть насовсем можно только задачу без следа: за остальными стоит
   // работа, деньги или ветка, и они снимаются. Правило то же, что на сервере
   // (tasks.ts) — здесь оно решает лишь, показывать ли кнопку.

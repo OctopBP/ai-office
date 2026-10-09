@@ -1,5 +1,6 @@
 import { prStageLabel, prStageClass, retryPipeline, showDiff, useStore } from './store';
 import type { PullRequestView } from '../shared/types';
+import { prClosed } from '../shared/types';
 import { locale, t } from './i18n';
 import { Markdown } from './Markdown';
 
@@ -21,7 +22,7 @@ export function PrPipeline() {
   const prs = useStore((s) => s.prs);
   const auto = useStore((s) => s.settings.autoPipeline);
   const list = Object.values(prs).sort(order);
-  const live = list.filter((p) => p.stage !== 'merged');
+  const live = list.filter((p) => !prClosed(p.stage));
 
   if (!auto) {
     return (

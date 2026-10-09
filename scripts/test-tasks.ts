@@ -8,10 +8,16 @@
  *
  * Запуск: npm run test:tasks
  */
+import { rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { resolve } from 'node:path';
 import { getOffice, unloadOfficeState } from '../src/server/state';
 import { dispatch, setPlanAgents } from '../src/server/plan';
 import { deleteTask, dropTask, editTask } from '../src/server/tasks';
 import { retryTask } from '../src/server/agents';
+import { stuckPrs } from '../src/server/review';
+import { standupText } from '../src/server/rituals';
+import { reviewStatusText } from '../src/server/task-view';
 
 // Тексты офиса сверяем по-русски — значит, и офис должен быть русским.
 process.env.OFFICE_LANG = 'ru';
@@ -137,6 +143,14 @@ async function main(): Promise<void> {
   check('снятая с ревью закрыта', office.tasks.get(onReview.id)?.status === 'cancelled');
   check('исход снятой с ревью — «снята»',
     office.tasks.get(onReview.id)?.outcome?.kind === 'cancelled');
+  // Конвейер снятой задачи закрыт: ни review_status, ни планёрка не держат
+  // её «вставшей» — снять второй раз уже нельзя, и решать там нечего (T-507).
+  check('конвейер снятой с ревью закрыт', office.prOf(onReview.id)?.stage === 'dropped');
+  check('снятая не в списке вставших', !stuckPrs(office).some((p) => p.taskId === onReview.id));
+  const statusLine = reviewStatusText(office.prs.values(), {}, 'ru')
+    .split('\n').find((l) => l.startsWith(onReview.id)) ?? '';
+  check('review_status не зовёт снятую вставшей', !statusLine.includes('ВСТАЛО'));
+  check('в планёрке снятой нет', !standupText(office).includes(onReview.id));
 
   // Снятие на ходу: живой сессии в проверке нет, и задача закрывается сразу.
   const onTheFly = add({ title: 'Уже в работе' });
@@ -231,6 +245,45 @@ async function main(): Promise<void> {
   office.updateTask(orphan.id, { chatId: 'C-404' });
   editTask(office, orphan.id, { title: 'Чат пропал, переписана' });
   check('с пропавшим чатом — в основной', lastIn(main.id).includes(orphan.id));
+
+  // Снятые до T-507: задача уже «снята», а конвейер так и остался вставшим.
+  // Миграция при загрузке закрывает его, задачу и ветку не трогая.
+  const zombie = add({ title: 'Снята, а конвейер стоит' });
+  office.startPr({
+    taskId: zombie.id, title: zombie.title,
+    branch: `task/${zombie.id}`, base: 'main', repoDir: '/tmp/нет',
+  });
+  office.patchPr(zombie.id, { stage: 'stuck', needsDecision: true, note: 'конфликт' });
+  office.updateTask(zombie.id, { status: 'cancelled', branch: `task/${zombie.id}` });
+  check('до миграции зомби в списке вставших', stuckPrs(office).some((p) => p.taskId === zombie.id));
+  const savedFile = resolve(tmpdir(), `office-tasks-state-${process.pid}.json`);
+  writeFileSync(savedFile, JSON.stringify(office.toPersisted()));
+  const reload = (id: string) => {
+    const state = getOffice(id);
+    state.setStateFile(savedFile);
+    state.projectDir = office.projectDir;
+    return { state, ok: state.restore() };
+  };
+  const { state: again, ok: restored } = reload('o-tasks-restore');
+  check('состояние поднялось с диска', restored);
+  check('после загрузки конвейер зомби закрыт', again.prOf(zombie.id)?.stage === 'dropped');
+  check('и решения не ждёт', again.prOf(zombie.id)?.needsDecision === false);
+  check('задача осталась снятой', again.tasks.get(zombie.id)?.status === 'cancelled');
+  check('ветка на месте', again.tasks.get(zombie.id)?.branch === `task/${zombie.id}`);
+  check('после загрузки зомби не в списке вставших', !stuckPrs(again).some((p) => p.taskId === zombie.id));
+  check('и в планёрке его нет', !standupText(again).includes(zombie.id));
+  const zombieLine = reviewStatusText(again.prs.values(), { all: true }, 'ru')
+    .split('\n').find((l) => l.startsWith(zombie.id)) ?? '';
+  check('review_status не зовёт зомби вставшим', zombieLine !== '' && !zombieLine.includes('ВСТАЛО'));
+  // Идемпотентность: закрытый конвейер вторая загрузка не трогает.
+  writeFileSync(savedFile, JSON.stringify(again.toPersisted()));
+  unloadOfficeState('o-tasks-restore');
+  const { state: third } = reload('o-tasks-restore-2');
+  check('повторная загрузка ничего не меняет',
+    third.prOf(zombie.id)?.stage === 'dropped'
+    && third.prOf(zombie.id)?.updatedAt === again.prOf(zombie.id)?.updatedAt);
+  unloadOfficeState('o-tasks-restore-2');
+  rmSync(savedFile, { force: true });
 
   unloadOfficeState('o-tasks');
 

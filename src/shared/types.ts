@@ -2077,7 +2077,11 @@ export type PrStage =
   | 'rework'    // автор правит по отзыву
   | 'merging'   // вливаем в базовую ветку
   | 'merged'    // влито, ветка и рабочая копия убраны
+  | 'dropped'   // задачу сняли: конвейер закрыт, ветка и рабочая копия на месте
   | 'stuck';    // встали: нужен человек
+
+/** Конвейер закрыт насовсем: влито или задачу сняли. Дальше он не поедет и ничего не ждёт. */
+export const prClosed = (stage: PrStage): boolean => stage === 'merged' || stage === 'dropped';
 
 export type ReviewVerdict = 'approve' | 'changes';
 

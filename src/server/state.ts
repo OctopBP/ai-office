@@ -18,7 +18,7 @@ import type {
   DirectionView, ProposalView, InitiativeMode,
   SpendEntryView, PmChat, SecretMeta, Subproject, SubprojectDraft, SubprojectField, SubprojectView,
 } from '../shared/types';
-import { isOfficeColor, OFFICE_SENDER } from '../shared/types';
+import { isOfficeColor, OFFICE_SENDER, prClosed } from '../shared/types';
 import { isOpenQuestion } from '../shared/questions';
 import {
   asTaskPriority, DEFAULT_TASK_PRIORITY, accumulate,
@@ -2321,7 +2321,7 @@ export class OfficeState {
     // застигнутый перезапуском на ходу, поднимаем как вставший. Врать, что
     // ревью идёт, нельзя — ревьюера уже нет.
     for (const pr of data.prs ?? []) {
-      const alive: PrStage[] = ['merged', 'stuck'];
+      const alive: PrStage[] = ['merged', 'dropped', 'stuck'];
       const known = {
         ...pr,
         retries: pr.retries ?? 0,
@@ -2329,7 +2329,17 @@ export class OfficeState {
         needsDecision: pr.needsDecision ?? false,
         gate: pr.gate ?? null,
       };
-      this.prs.set(pr.taskId, alive.includes(pr.stage) ? known : {
+      // Снятая задача, у которой конвейер так и остался открытым (снимали до
+      // T-507), — конвейер закрыт: вставшим он не считается. Миграция
+      // идемпотентна: закрытый конвейер не трогаем, задачу и ветку тоже.
+      const dropped = this.tasks.get(pr.taskId)?.status === 'cancelled' && !prClosed(pr.stage);
+      this.prs.set(pr.taskId, dropped ? {
+        ...known,
+        stage: 'dropped',
+        needsDecision: false,
+        nextTryAt: null,
+        note: this.say('state.pr.dropped'),
+      } : alive.includes(pr.stage) ? known : {
         ...known,
         stage: 'stuck',
         note: this.say('state.pr.interrupted'),

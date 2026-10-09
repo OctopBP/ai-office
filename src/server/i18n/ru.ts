@@ -48,6 +48,7 @@ export const ru: Record<keyof typeof en, string> = {
   'task.priority.low': 'низкий',
   'task.priority.normal': 'средний',
   'task.priority.high': 'высокий',
+  'state.pr.dropped': 'Задачу сняли — конвейер закрыт. Ветка и рабочая копия на месте.',
   'state.pr.interrupted': 'Конвейер прервал перезапуск сервера. Ветка и рабочая копия целы — толкните заново.',
   'state.pr.pullingBase': 'Подтягиваю основную ветку.',
 
@@ -228,6 +229,8 @@ export const ru: Record<keyof typeof en, string> = {
   // ------------------------------------------------------- очередь слияния
   'merge.checkFailed': 'Проверка слияний не удалась: {error}',
   'merge.outputClipped': '… (начало вывода отброшено)',
+  'checks.timedOut': 'Проверка не уложилась в {min} мин и была остановлена — это таймаут: до отчёта о проверках она не дошла.',
+  'checks.killed': 'Проверку сняли сигналом {signal}, она не успела закончиться и отчитаться.',
   'merge.noTypecheck': 'В проекте нет скрипта «npm run typecheck» — проверка сборки пропущена.',
   'merge.typecheckOk': 'npm run typecheck прошёл без ошибок.',
   'merge.noNpm': 'npm не найден — проверку сборки прогнать нечем.',

@@ -14,6 +14,7 @@
  * исход стирает: начинается новая попытка, и судить её по прошлой нельзя.
  */
 import type { BudgetStop, OutcomeKind, TaskOutcome } from '../shared/types';
+import { prClosed } from '../shared/types';
 import { criteriaProgress, taskRepo, type OfficeState, type Task } from './state';
 import { findRevert, isAncestor, isRepo } from './git';
 import { confirmFactsFor } from './journal';
@@ -62,6 +63,13 @@ export function cancelTask(state: OfficeState, task: Task, at = Date.now()): voi
     assigneeId: null,
   });
   state.waitingForSlot.delete(task.id);
+  // Конвейер снятой задачи закрываем: вставшим он больше не считается и
+  // решения ни от кого не ждёт — иначе планёрка и review_status показывали
+  // бы его «вставшим» вечно, а снять задачу второй раз уже нельзя (T-507).
+  const pr = state.prOf(task.id);
+  if (pr && !prClosed(pr.stage)) {
+    state.patchPr(task.id, { stage: 'dropped', needsDecision: false, nextTryAt: null, note: state.say('state.pr.dropped') });
+  }
   recordOutcome(state, task.id, 'cancelled', at);
 }
 

@@ -77,6 +77,7 @@ export const en = {
   'pr.stage.merging': 'merging',
   'pr.stage.merged': 'merged',
   'pr.stage.stuck': 'stuck',
+  'pr.stage.dropped': 'dropped',
   'run.status.running': 'running',
   'run.status.waiting': 'waiting for a decision',
   'run.status.stuck': 'stuck',

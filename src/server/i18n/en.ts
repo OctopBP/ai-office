@@ -48,6 +48,7 @@ export const en = {
   'task.priority.low': 'low',
   'task.priority.normal': 'normal',
   'task.priority.high': 'high',
+  'state.pr.dropped': 'The task was dropped — pipeline closed. The branch and the working copy are kept.',
   'state.pr.interrupted': 'The pipeline was cut short by a server restart. The branch and the working copy are intact — push it again.',
   'state.pr.pullingBase': 'Pulling the base branch.',
 
@@ -228,6 +229,8 @@ export const en = {
   // ------------------------------------------------------- очередь слияния
   'merge.checkFailed': 'The merge check failed: {error}',
   'merge.outputClipped': '… (the start of the output was dropped)',
+  'checks.timedOut': 'The check did not finish within {min} min and was stopped — a timeout: it never got to report its checks.',
+  'checks.killed': 'The check was killed by signal {signal} before it could finish and report.',
   'merge.noTypecheck': 'The project has no “npm run typecheck” script — the build check was skipped.',
   'merge.typecheckOk': 'npm run typecheck passed with no errors.',
   'merge.noNpm': 'npm was not found — there is nothing to run the build check with.',

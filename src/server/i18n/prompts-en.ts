@@ -107,6 +107,7 @@ export const promptsEn = {
   'pr.stage.merging': 'merging into the base branch',
   'pr.stage.merged': 'merged',
   'pr.stage.stuck': 'STUCK, needs your decision',
+  'pr.stage.dropped': 'task dropped, pipeline closed',
 
   // ------------------------------------------------------------ бриф проекта
   'prompt.brief.clipped': '… (brief truncated, the full text is in OFFICE.md)',
@@ -387,7 +388,7 @@ Keep your replies to the user short. Which language to write them in is said in 
   'tool.reviewStatus.all': 'true — the whole pipeline, long-merged tasks included, page by page. Default false: unmerged and merged in the last 24 hours.',
   'tool.reviewStatus.limit': 'Only with all=true: tasks per page, 30 by default.',
   'tool.reviewStatus.offset': 'Only with all=true: how many of the first (most recent) to skip, 0 by default.',
-  'tool.reviewStatus.older': '{n} more merged earlier — review_status with all=true shows them all',
+  'tool.reviewStatus.older': '{n} more closed earlier (merged or dropped) — review_status with all=true shows them all',
   'tool.reviewStatus.nothingFresh': 'No unmerged tasks, nothing merged in the last 24 hours.',
   'tool.reviewStatus.page': 'showing {from}–{to} of {total}',
   'tool.reviewStatus.pageEmpty': 'this page is empty: offset {offset}, total {total}',

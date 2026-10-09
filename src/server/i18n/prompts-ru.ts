@@ -102,6 +102,7 @@ export const promptsRu: Record<keyof typeof promptsEn, string> = {
   'pr.stage.merging': 'вливается в основную ветку',
   'pr.stage.merged': 'влито',
   'pr.stage.stuck': 'ВСТАЛО, нужно твоё решение',
+  'pr.stage.dropped': 'задачу сняли, конвейер закрыт',
 
   // ------------------------------------------------------------ бриф проекта
   'prompt.brief.clipped': '… (бриф обрезан, полностью — в OFFICE.md)',
@@ -373,7 +374,7 @@ export const promptsRu: Record<keyof typeof promptsEn, string> = {
   'tool.reviewStatus.all': 'true — весь конвейер, включая давно влитые задачи, постранично. По умолчанию false: невлитые и влитые за сутки.',
   'tool.reviewStatus.limit': 'Только с all=true: сколько задач на странице, по умолчанию 30.',
   'tool.reviewStatus.offset': 'Только с all=true: сколько первых (самых свежих) пропустить, по умолчанию 0.',
-  'tool.reviewStatus.older': 'ещё {n} влито раньше — все покажет review_status с all=true',
+  'tool.reviewStatus.older': 'ещё {n} закрыто раньше (влито или снято) — все покажет review_status с all=true',
   'tool.reviewStatus.nothingFresh': 'Невлитых задач нет, за последние сутки ничего не влито.',
   'tool.reviewStatus.page': 'показаны {from}–{to} из {total}',
   'tool.reviewStatus.pageEmpty': 'на этой странице пусто: offset {offset}, а всего {total}',

@@ -76,6 +76,7 @@ export const ru: Record<keyof typeof en, string> = {
   'pr.stage.merging': 'вливаю',
   'pr.stage.merged': 'влито',
   'pr.stage.stuck': 'встало',
+  'pr.stage.dropped': 'снята',
   'run.status.running': 'идёт',
   'run.status.waiting': 'ждёт решения',
   'run.status.stuck': 'встал',

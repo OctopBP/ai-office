@@ -50,7 +50,13 @@ const DIR_E = resolve(ROOT, 'proj-e');
 const DIR_F = resolve(ROOT, 'proj-f');
 
 const results: string[] = [];
-const check = (text: string, ok: boolean): void => { results.push(`${text}: ${ok}`); };
+// Каждая проверка печатается сразу, а не в конце: прогон, снятый гейтом по
+// таймауту, иначе не оставлял ни строки, и не было видно, докуда он дошёл (T-508).
+const check = (text: string, ok: boolean): void => {
+  const line = `${text}: ${ok}`;
+  results.push(line);
+  console.log(`  ${ok === true ? '✅' : '❌'} ${line}`);
+};
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 /** Подставной клиент: тот же интерфейс, что у сокета, только без сети. */
@@ -999,7 +1005,7 @@ async function main(): Promise<void> {
   // Прошедшей считается только строка, кончающаяся на true: «не false» пропускало
   // в зачёт всё, что вообще не булево, — например undefined из-за опечатки.
   const failed = results.filter((r) => !r.endsWith('true'));
-  for (const r of results) console.log(`  ${r.endsWith('true') ? '✅' : '❌'} ${r}`);
+  for (const r of failed) console.log(`  ❌ ${r}`);
   if (results.length === 0) {
     console.error('не выполнено ни одной проверки — прогону верить нельзя');
     process.exit(2);
