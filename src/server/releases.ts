@@ -20,11 +20,11 @@ import { readFileSync, writeFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { OFFICE_SENDER } from '../shared/types';
 import {
-  DEFAULT_TAG, DEFAULT_TIMEOUT_MIN, RELEASE_CHANNELS, allowsManual, channelFrom, defaultChannel, autoLevel, autoReasons, compareVersions, fillVersion, maxLevel,
+  DEFAULT_TAG, DEFAULT_TIMEOUT_MIN, RELEASE_CHANNELS, STOP_LOG_LINES, allowsManual, channelFrom, defaultChannel, autoLevel, autoReasons, compareVersions, fillVersion, maxLevel,
   nextChannelVersion, nextVersion, parseBuildResult, parseGithubRelease, parseReleaseConfig, parseSemver, parseVersion, releaseActive,
   targetChannels, versionChannel, versionInAnswer, versionLabel,
   type GithubReleaseCheck, type Release, type ReleaseChannel, type ReleaseChannelSpec, type ReleaseChannels, type ReleaseReason,
-  type ReleaseSetup, type ReleaseTarget, type VersionLevel, type VersionPoint,
+  type ReleaseSetup, type ReleaseStop, type ReleaseTarget, type VersionLevel, type VersionPoint,
 } from '../shared/release';
 import { CHECK_NAME_RE, type Run, type Workflow, type WorkflowNode } from '../shared/workflow';
 import { taskClosed } from '../shared/types';
@@ -221,6 +221,10 @@ export async function releaseSecrets(state: OfficeState): Promise<
   }
 }
 
+/** Последние строки вывода: ошибку обычно называют именно они. */
+export const logTail = (text: string, lines = STOP_LOG_LINES): string =>
+  text.replace(/\s+$/, '').split(/\r?\n/).slice(-lines).join('\n');
+
 // ------------------------------------------------------------------ узлы
 
 interface Ctx {
@@ -237,6 +241,18 @@ const rel = (ctx: Ctx): Release => ctx.state.releases.get(ctx.releaseId) as Rele
 const patch = (ctx: Ctx, p: Partial<Release>): Release => ctx.state.patchRelease(ctx.releaseId, p) as Release;
 const say = (ctx: Ctx, key: Parameters<OfficeState['say']>[0], vars?: Parameters<OfficeState['say']>[1]) => ctx.state.say(key, vars);
 const fail = (note: string, extra: Partial<StepResult> = {}): StepResult => ({ outcome: 'fail', note, ...extra });
+
+/**
+ * Запомнить хвост вывода упавшей команды или CI: если выпуск на этом встанет
+ * (сразу или после неудачной починки), менеджер прочитает его в `get_release`.
+ * Значения переменных офиса закрываются до обрезки: лог CI приходит сырым.
+ * Связка недоступна, а переменные есть — закрыть нечем, и хвост не хранится.
+ */
+async function keepFailLog(ctx: Ctx, raw: string): Promise<void> {
+  const secrets = await releaseSecrets(ctx.state);
+  const safe = secrets.ok ? secrets.mask(raw) : ctx.state.secretMetas().length ? '' : scrubSecrets(raw);
+  patch(ctx, { failLog: logTail(safe) || null });
+}
 
 /** Репозиторий цели: сам проект или путь внутри него. */
 export const targetRepo = (state: OfficeState, target: ReleaseTarget): string =>
@@ -847,7 +863,10 @@ const bump: Executor<Ctx> = {
     const out = await runProjectCheck(dir, fillVersion(target.bump, point(r)), state.lang(), {
       timeoutMs: 5 * 60_000, env: secrets.env, mask: secrets.mask,
     });
-    if (!out.ok) return fail(say(ctx, 'rel.bumpFailed', { output: out.output }));
+    if (!out.ok) {
+      await keepFailLog(ctx, out.output);
+      return fail(say(ctx, 'rel.bumpFailed', { output: out.output }));
+    }
     const log = resolve(dir, 'CHANGELOG.md');
     const has = await git(dir, ['ls-files', '--error-unmatch', 'CHANGELOG.md']);
     if (has.ok && r.notes.trim()) {
@@ -997,8 +1016,13 @@ const watch: Executor<Ctx> = {
       if (runs.length && runs.every((x) => x.status === 'completed')) {
         const bad = runs.filter((x) => !['success', 'skipped', 'neutral'].includes(x.conclusion ?? ''));
         patch(ctx, { links: dedupe([...rel(ctx).links, ...runs.map((x) => ({ title: x.name, url: x.url }))]) });
-        if (!bad.length) return { outcome: 'pass', artifact: { kind: 'result', text: runs.map((x) => `${x.name}: ${x.conclusion}`).join('\n') } };
-        const log = scrubSecrets((await ci.failedLog(repo, bad[0])).slice(-LOG_TAIL));
+        if (!bad.length) {
+          patch(ctx, { failLog: null });
+          return { outcome: 'pass', artifact: { kind: 'result', text: runs.map((x) => `${x.name}: ${x.conclusion}`).join('\n') } };
+        }
+        const raw = await ci.failedLog(repo, bad[0]);
+        await keepFailLog(ctx, raw);
+        const log = scrubSecrets(raw.slice(-LOG_TAIL));
         const note = say(ctx, 'rel.ciFailed', { name: bad.map((x) => x.name).join(', '), url: bad[0].url });
         return fail(note, { artifact: { kind: 'result', text: `${note}\n${log}`, ref: bad[0].url } });
       }
@@ -1142,11 +1166,12 @@ const build: Executor<Ctx> = {
       const result = parseBuildResult(out.output);
       if (!out.ok) {
         const log = out.output.slice(-LOG_TAIL);
+        await keepFailLog(ctx, out.output);
         const note = out.timedOut ? say(ctx, 'rel.buildTimeout', { min }) : say(ctx, 'rel.buildFailed', { target: target.title });
         return fail(note, { artifact: { kind: 'result', text: `${note}\n${log}` } });
       }
       const links = result?.url ? dedupe([...r.links, { title: result.title ?? target.title, url: result.url }]) : r.links;
-      patch(ctx, { links, build: result?.build ?? rel(ctx).build });
+      patch(ctx, { links, build: result?.build ?? rel(ctx).build, failLog: null });
       if (result?.text) state.addLog(null, 'system', `${target.title}: ${result.text}`);
       return { outcome: 'pass', artifact: { kind: 'result', text: result?.text ?? say(ctx, 'rel.built') } };
     });
@@ -1209,8 +1234,8 @@ const publish: Executor<Ctx> = {
     // встаёт, а временная ветка остаётся — повтор начнёт отсюда же.
     const stop = await promoteChannel(ctx);
     if (stop) {
+      // Менеджеру причину скажет остановка выпуска (`markStopped`).
       state.addLog(null, 'error', stop);
-      tellPm(state, stop);
       return fail(stop, { needsDecision: true });
     }
     const base = await baseBranch(repo);
@@ -1247,7 +1272,7 @@ const publish: Executor<Ctx> = {
       else state.addChat(OFFICE_SENDER, say(ctx, 'rel.planStillOpen', { plan: plan.title }));
     }
     const done = patch(ctx, {
-      status: 'done', finishedAt: Date.now(), needsDecision: false,
+      status: 'done', finishedAt: Date.now(), needsDecision: false, stop: null, failLog: null,
       stage: say(ctx, 'rel.stage.done'),
       costUsd: rel(ctx).costUsd,
     });
@@ -1366,6 +1391,61 @@ export function startRelease(
   };
 }
 
+/** Узлы процесса выпуска, у которых есть название стадии в словаре. */
+const NODE_TITLES = new Set([
+  'snapshot', 'version', 'notes', 'approve', 'bump', 'ship', 'push', 'tag', 'watch', 'visible', 'build', 'fix', 'publish',
+]);
+
+/** Стадия по узлу процесса: «Снимок (snapshot)». Узел не из набора — как есть. */
+const stageTitle = (state: OfficeState, node: string): string => {
+  if (!node) return state.say('rel.node.none');
+  return NODE_TITLES.has(node) ? `${state.say(`rel.node.${node}` as ServerKey)} (${node})` : node;
+};
+
+/** Что будет дальше со вставшим выпуском: ждёт решения, повторится сам или попытки вышли. */
+function stopNext(state: OfficeState, r: Release, needsDecision: boolean): string {
+  if (needsDecision) return state.say('rel.stopDecision', { id: r.id });
+  if (state.releasesOf(r.targetId)[0]?.id !== r.id || r.retries >= RETRY_MS.length) return state.say('rel.stopNoRetry', { id: r.id });
+  return state.say('rel.stopRetry', { n: r.retries + 1, max: RETRY_MS.length });
+}
+
+/**
+ * Выпуск встал или упал: причина, стадия и хвост журнала ложатся в сам выпуск,
+ * а менеджеру уходит системное сообщение с id и причиной — так же, как о
+ * вставшем конвейере ревью. Повтор надзора, вставший на том же узле с той же
+ * причиной, менеджеру второй раз не пересказывается: `stop` прошлой остановки
+ * остаётся в выпуске до конца выпуска или явного `resume_release`.
+ */
+function markStopped(state: OfficeState, releaseId: string, node: string, why: Halt): void {
+  const before = state.releases.get(releaseId);
+  if (!before) return;
+  const prev = before.stop ?? null;
+  const needsDecision = Boolean(why.needsDecision);
+  const r = state.patchRelease(releaseId, {
+    status: 'failed', stage: why.note, needsDecision,
+    stop: { node, reason: why.note, log: before.failLog ?? '', at: Date.now(), needsDecision },
+  }) as Release;
+  if (prev && prev.node === node && prev.reason === why.note && prev.needsDecision === needsDecision) return;
+  tellPm(state, state.say('rel.stuckPm', {
+    id: r.id, target: state.releaseTarget(r.targetId)?.title ?? r.targetId, version: versionLabel(point(r)) || '—',
+    stage: stageTitle(state, node), why: why.note, next: stopNext(state, r, needsDecision),
+  }));
+}
+
+/**
+ * Причина остановки вставшего выпуска. У выпусков, вставших до появления
+ * `stop`, собирается из того, что есть: фраза стадии и узел прогона.
+ */
+export function stopOf(state: OfficeState, r: Release): ReleaseStop | null {
+  if (r.status !== 'failed') return null;
+  if (r.stop) return r.stop;
+  const run = runOfRelease(state, r.id);
+  return {
+    node: run?.nodeId ?? '', reason: r.stage || run?.note || '', log: r.failLog ?? '',
+    at: run?.updatedAt ?? r.startedAt, needsDecision: r.needsDecision,
+  };
+}
+
 /**
  * Провести выпуск от текущего узла до конца. Повторный заход продолжает тот
  * же прогон с узла, где он встал: сделанные шаги — версия, заметки,
@@ -1379,7 +1459,7 @@ export function driveRelease(state: OfficeState, releaseId: string): Promise<voi
     .catch((err) => {
       const text = state.say('rel.crashed', { id: releaseId, error: (err as Error).message });
       state.addLog(null, 'error', text);
-      state.patchRelease(releaseId, { status: 'failed', stage: text });
+      markStopped(state, releaseId, runOfRelease(state, releaseId)?.nodeId ?? '', { note: text });
     })
     .finally(() => running.delete(key));
   running.set(key, promise);
@@ -1391,7 +1471,7 @@ async function driveOnce(state: OfficeState, releaseId: string): Promise<void> {
   if (!release) return;
   const target = state.releaseTarget(release.targetId);
   if (!target) {
-    state.patchRelease(releaseId, { status: 'failed', stage: state.say('rel.targetGone', { id: release.targetId }), needsDecision: true });
+    markStopped(state, releaseId, '', { note: state.say('rel.targetGone', { id: release.targetId }), needsDecision: true });
     return;
   }
   const workflow = workflowFor(state, WORKFLOW_ID);
@@ -1418,10 +1498,8 @@ async function driveOnce(state: OfficeState, releaseId: string): Promise<void> {
     stuck: (ctx, why) => {
       const r = rel(ctx);
       if (r.status === 'skipped') return;
-      state.patchRelease(releaseId, { status: 'failed', stage: why.note, needsDecision: Boolean(why.needsDecision) });
-      const text = state.say('rel.stuck', { target: target.title, version: label(r), why: why.note });
-      state.addChat(OFFICE_SENDER, text);
-      if (why.needsDecision) tellPm(state, text);
+      markStopped(state, releaseId, ctx.node.id, why);
+      state.addChat(OFFICE_SENDER, state.say('rel.stuck', { target: target.title, version: label(r), why: why.note }));
     },
     // Выпуск тратит на заметки (менеджер) и на починку (задача): рост их расхода и есть цена узла.
     cost: () => (state.instances.get('pm#1')?.usage.costUsd ?? 0) + fixCost(),
@@ -1459,7 +1537,10 @@ export function resumeRelease(state: OfficeState, releaseId: string): StartResul
       run.waitingOn = null;
     }
   }
-  state.patchRelease(releaseId, { retries: 0, nextTryAt: null, needsDecision: false, fixTaskId: release.needsDecision ? null : release.fixTaskId });
+  // Причина прошлой остановки снимается: встанет снова — менеджер узнает об этом заново.
+  state.patchRelease(releaseId, {
+    retries: 0, nextTryAt: null, needsDecision: false, stop: null, fixTaskId: release.needsDecision ? null : release.fixTaskId,
+  });
   void driveRelease(state, releaseId);
   return { ok: true, message: state.say('rel.resumed', { id: releaseId }) };
 }
@@ -1597,7 +1678,89 @@ export function closeReleasePlan(state: OfficeState, id: string): { ok: boolean;
 export function releaseStatusText(state: OfficeState): string {
   const targets = state.releaseTargets();
   const rows = targets.length ? targetRows(state, targets) : state.say('rel.noTargets');
-  return `${rows}\n${secretNamesLine(state)}`;
+  // Вставший выпуск цели, которой уже нет в настройках, под целью не показать.
+  const known = new Set(targets.map((x) => x.id));
+  const orphans = state.releaseList().reverse().filter((r) => r.status === 'failed' && !known.has(r.targetId)).slice(0, STOPPED_SHOWN);
+  const lost = orphans.length
+    ? `\n${state.say('rel.statusOrphans')}\n${orphans.map((r) => `    ${stoppedRow(state, r)}`).join('\n')}`
+    : '';
+  return `${rows}${lost}\n${secretNamesLine(state)}`;
+}
+
+/** Сколько вставших выпусков показывать под целью. */
+const STOPPED_SHOWN = 3;
+
+const stamp = (at: number): string => `${new Date(at).toISOString().slice(0, 16).replace('T', ' ')} UTC`;
+
+/**
+ * Вставшие выпуски цели, свежие первыми: всё, что встало после последнего
+ * состоявшегося. Старые провалы, после которых цель уже выпустилась, менеджеру
+ * не нужны — их видно по id через `get_release`.
+ */
+function stoppedReleases(state: OfficeState, targetId: string): Release[] {
+  const out: Release[] = [];
+  for (const r of state.releasesOf(targetId)) {
+    if (r.status === 'done') break;
+    if (r.status === 'failed') out.push(r);
+  }
+  return out.slice(0, STOPPED_SHOWN);
+}
+
+function stoppedRow(state: OfficeState, r: Release): string {
+  const stop = stopOf(state, r) as ReleaseStop;
+  return state.say('rel.statusStopped', {
+    id: r.id, when: stamp(stop.at), stage: stageTitle(state, stop.node), why: clip(stop.reason, 400) || '—',
+    next: stopNext(state, r, stop.needsDecision),
+  });
+}
+
+/**
+ * Один выпуск целиком — для `get_release`: цель, версия, канал, пройденные
+ * стадии с исходом, а у вставшего — причина остановки и хвост журнала.
+ */
+export function releaseText(state: OfficeState, releaseId: string): { ok: boolean; message: string } {
+  const r = state.releases.get(releaseId);
+  if (!r) {
+    const known = state.releaseList().slice(-10).map((x) => x.id).join(', ');
+    return { ok: false, message: `${state.say('rel.noRelease', { id: releaseId })}${known ? ` ${state.say('rel.get.known', { ids: known })}` : ''}` };
+  }
+  const target = state.releaseTarget(r.targetId);
+  const run = runOfRelease(state, r.id);
+  const channel = r.channel ? `${state.say(`rel.channel.${r.channel}` as ServerKey)} (${r.channel})` : state.say('rel.get.noChannel');
+  const lines = [
+    state.say('rel.get.head', {
+      id: r.id, target: r.targetId, title: target?.title ?? state.say('rel.get.targetGone'), kind: target?.kind ?? '—',
+    }),
+    state.say('rel.get.state', { status: r.status, stage: r.stage || '—' }),
+    state.say('rel.get.version', {
+      version: versionLabel(point(r)) || '—', level: r.level ?? '—', channel,
+    }),
+    state.say('rel.get.started', {
+      started: stamp(r.startedAt), finished: r.finishedAt ? stamp(r.finishedAt) : '—',
+      why: state.say(`rel.reason.${r.reason}` as ServerKey), note: r.note ? ` — ${clip(r.note, 200)}` : '',
+    }),
+    state.say('rel.get.content', {
+      branch: r.branch || '—', sha: r.sha ? r.sha.slice(0, 8) : '—', tasks: r.taskIds.length,
+      epics: r.epicIds.join(', ') || '—', attempts: r.attempts,
+    }),
+  ];
+  const steps = run?.steps ?? [];
+  lines.push(state.say('rel.get.steps'));
+  if (!steps.length) lines.push(`  ${state.say('rel.get.noSteps')}`);
+  steps.forEach((step, i) => {
+    lines.push(`  ${state.say('rel.get.step', { n: i + 1, stage: stageTitle(state, step.node), outcome: step.outcome, sec: (step.ms / 1000).toFixed(1) })}`);
+  });
+  if (r.fixTaskId) lines.push(state.say('rel.get.fixTask', { task: r.fixTaskId }));
+  const stop = stopOf(state, r);
+  if (stop) {
+    lines.push(state.say('rel.get.stop', { stage: stageTitle(state, stop.node), when: stamp(stop.at), why: stop.reason || '—' }));
+    lines.push(stopNext(state, r, stop.needsDecision));
+    lines.push(stop.log
+      ? `${state.say('rel.get.log', { n: stop.log.split('\n').length })}\n${stop.log}`
+      : state.say('rel.get.noLog'));
+  }
+  if (r.links.length) lines.push(`${state.say('rel.get.links')}\n${r.links.map((l) => `  ${l.title}: ${l.url}`).join('\n')}`);
+  return { ok: true, message: lines.join('\n') };
 }
 
 /**
@@ -1634,6 +1797,7 @@ function targetRows(state: OfficeState, targets: ReleaseTarget[]): string {
         })}`;
       }),
       active ?`    ${state.say('rel.statusActive', { id: active.id, stage: active.stage })}` : '',
+      ...stoppedReleases(state, target.id).map((r) => `    ${stoppedRow(state, r)}`),
       plan ? `    ${state.say('rel.statusPlan', { id: plan.id, title: plan.title, epics: plan.epicIds.join(', ') })}` : '',
     ].filter(Boolean).join('\n');
   }).join('\n');

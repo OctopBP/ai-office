@@ -2359,7 +2359,13 @@ export class OfficeState {
     // сервером. Надзор пустит его снова с того же узла (releases.ts).
     for (const release of data.releases ?? []) {
       this.releases.set(release.id, release.status === 'preparing' || release.status === 'building'
-        ? { ...release, status: 'failed', stage: this.say('state.pr.interrupted'), needsDecision: false }
+        ? {
+          ...release, status: 'failed', stage: this.say('state.pr.interrupted'), needsDecision: false,
+          stop: {
+            node: [...this.runs.values()].find((r) => r.subject.releaseId === release.id)?.nodeId ?? '',
+            reason: this.say('state.pr.interrupted'), log: release.failLog ?? '', at: Date.now(), needsDecision: false,
+          },
+        }
         : release);
     }
     this.releaseSeq = data.releaseSeq ?? this.releases.size;

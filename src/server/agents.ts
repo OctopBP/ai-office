@@ -38,7 +38,7 @@ import {
 import { outsideZone, writeZone } from './subprojects';
 import { worktreeOwnFiles } from './premerge';
 import {
-  closeReleasePlan, proposeReleaseTarget, proposedAssets, proposedChannels, releaseStatusText, resumeRelease, saveReleasePlan, setReleaseAgents,
+  closeReleasePlan, proposeReleaseTarget, proposedAssets, proposedChannels, releaseStatusText, releaseText, resumeRelease, saveReleasePlan, setReleaseAgents,
   startRelease,
 } from './releases';
 import type { ReleaseTarget } from '../shared/release';
@@ -1690,6 +1690,17 @@ const teamTools = (state: OfficeState, chatId: string) => createSdkMcpServer({
       state.say('tool.releaseStatus.desc'),
       {},
       async () => ({ content: [{ type: 'text', text: releaseStatusText(state) }] }),
+      { annotations: { readOnlyHint: true } },
+    ),
+
+    tool(
+      'get_release',
+      state.say('tool.getRelease.desc'),
+      { releaseId: z.string().describe(state.say('tool.getRelease.id')) },
+      async (args) => {
+        const out = releaseText(state, args.releaseId.trim());
+        return { content: [{ type: 'text', text: out.message }], isError: !out.ok };
+      },
       { annotations: { readOnlyHint: true } },
     ),
 

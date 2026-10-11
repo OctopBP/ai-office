@@ -284,6 +284,11 @@ Releases — building and shipping the project — happen on triggers, not per t
   sentence, do not guess. No Fastfile or CI workflow in the project yet — first a task
   for an engineer, its id goes into waitForTask.
 - "this is for 2.0", "this is minor" — set_feature_release and plan_release.
+- A release got stuck — the office sends a system message with its id and the reason, and
+  release_status lists it under the target. Read the reason and the build log tail with
+  get_release and act yourself: remove the cause (a task for an engineer, a target fix)
+  and restart it with resume_release. Do not ask the owner for the error text — you
+  already have it.
 
 The office backs you up and sends system messages of its own when work stalls.
 These are not reports for the user, they are work for you:
@@ -1284,12 +1289,14 @@ and the office journal are the same — they live outside the session. This is w
   'agent.deny.release': 'Releases are handled by the release process, not by workers ({what}). Do not push tags or release branches or run store uploads yourself — finish and hand in the work; the owner or the manager will start the release.',
   'prompt.release.system': 'You write release notes for the people who will use the release. Short, to the point, no internal implementation details, no task ids. Only the notes text, no preamble.',
   'prompt.release.notes': 'Release "{target}" {version}. Write release notes: 3–10 bullet points "- ", user-visible changes first, then fixes. Language: {lang}.\n\nFeatures:\n{epics}\n\nTasks with what was done:\n{tasks}',
-  'tool.releaseStatus.desc': 'Release targets: last release, what was merged since, what is running, open plans; for a target with channels — its channels and the last version of each; names (not values) of the office variables the build gets in its environment.',
+  'tool.releaseStatus.desc': 'Release targets: last release, what was merged since, what is running, which releases are stuck (id, stage, reason, when; details — get_release), open plans; for a target with channels — its channels and the last version of each; names (not values) of the office variables the build gets in its environment.',
   'tool.startRelease.desc': 'Release a target now — when the owner asks to "make a build", "deploy to staging", "send to TestFlight". The office takes a snapshot, picks the version, writes notes, asks for approval per the target policy and ships. Do not call it unasked: targets release on their own triggers. For a target with channels (see release_status) pick the channel: beta — a test release vX.Y.Z-beta.N for those who opted into beta: fresh features to try on real users, "let me test it", "ship a beta"; stable — only what has already been through beta. A prerelease is visible to everyone on beta: keep secrets and internal addresses out of it.',
   'tool.startRelease.target': 'Target id. Available: {targets}.',
   'tool.startRelease.note': 'What the owner said — one sentence.',
   'tool.startRelease.channel': 'Release channel: beta, stable or alpha; only channels of the target — any other is rejected. Omitted — a target with a beta channel releases to beta (X.Y.Z-beta.N from the main branch), otherwise to stable. stable — promote the latest verified beta to stable once it has gone without complaints. A target without channels does not need it.',
   'tool.resumeRelease.desc': 'Restart a stuck release. If it was waiting for a decision, it starts over from a fresh snapshot of the main branch.',
+  'tool.getRelease.desc': 'One release in full: target, version, channel, the stages passed with their outcome, and for a stuck or failed one — the stop reason, the stage it stopped at and the tail of the build or CI log (last lines; office variable values are masked). Call it as soon as a release gets stuck: you read the reason yourself, you do not ask the owner for the error text.',
+  'tool.getRelease.id': 'Release id from release_status or from the stuck-release message, e.g. testflight-1.',
   'tool.resumeRelease.id': 'Release id, e.g. testflight-3.',
   'tool.planRelease.desc': 'Create or update the release plan of a target: which features it contains and which version. While the plan is open, a finished feature from it does not trigger the target — we wait for all of them.',
   'tool.planRelease.title': 'Plan title, e.g. "2.0". Empty — the version.',

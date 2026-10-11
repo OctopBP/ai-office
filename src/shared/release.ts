@@ -552,6 +552,28 @@ export interface ReleaseLink {
   url: string;
 }
 
+/** Сколько последних строк вывода сборки или CI хранит вставший выпуск. */
+export const STOP_LOG_LINES = 40;
+
+/**
+ * Почему выпуск встал или упал — чтобы менеджер прочитал причину сам
+ * (`release_status`, `get_release`), а не просил текст ошибки у владельца.
+ */
+export interface ReleaseStop {
+  /** Узел процесса, на котором встал: snapshot, build, watch… Пусто — упал вне узла. */
+  node: string;
+  /** Текст ошибки. */
+  reason: string;
+  /**
+   * Хвост вывода команды или CI, последние STOP_LOG_LINES строк. Пусто, если
+   * до сборки не дошло. Значения переменных офиса в нём закрыты.
+   */
+  log: string;
+  at: number;
+  /** Повторять бессмысленно: нужно решение. */
+  needsDecision: boolean;
+}
+
 /** Выпуск как предмет (§9.1): одна попытка выпустить одну цель. */
 export interface Release {
   id: string;
@@ -606,6 +628,18 @@ export interface Release {
   retries: number;
   nextTryAt: number | null;
   needsDecision: boolean;
+  /**
+   * Причина остановки вставшего или упавшего выпуска. Имеет смысл только при
+   * `status: 'failed'`: пока надзор повторяет выпуск, она остаётся от прошлой
+   * остановки (по ней видно, что встал там же), а снимают её удачный выпуск и
+   * явный `resume_release`.
+   */
+  stop?: ReleaseStop | null;
+  /**
+   * Хвост вывода последней упавшей сборки или CI: переживает починку и
+   * перезапуск, а при остановке уходит в `stop.log`. Сборка прошла — снимается.
+   */
+  failLog?: string | null;
   startedAt: number;
   finishedAt: number | null;
   costUsd: number;
