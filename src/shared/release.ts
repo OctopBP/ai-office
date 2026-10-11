@@ -690,6 +690,11 @@ export interface Release {
   tag?: string | null;
   pushed?: string[];
   buildRan?: boolean;
+  /**
+   * Перезапуск заново (`resume_release` с `fresh`, §9.4): версия выпуска
+   * остаётся прежней, узел версии её не пересчитывает.
+   */
+  keepVersion?: boolean;
   /** Отмена: причина и что осталось снаружи. Только при `status: 'cancelled'`. */
   cancel?: ReleaseCancel | null;
   startedAt: number;

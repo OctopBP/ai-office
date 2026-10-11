@@ -38,7 +38,7 @@ import {
 import { outsideZone, writeZone } from './subprojects';
 import { worktreeOwnFiles } from './premerge';
 import {
-  cancelRelease, closeReleasePlan, proposeReleaseTarget, proposedAssets, proposedChannels, proposedDirs, releaseStatusText, releaseText, resumeRelease, saveReleasePlan, setReleaseAgents,
+  cancelRelease, closeReleasePlan, proposeReleaseTarget, proposedAssets, proposedChannels, proposedDirs, releaseStatusText, releaseText, restartRelease, resumeRelease, saveReleasePlan, setReleaseAgents,
   startCheckedRelease,
 } from './releases';
 import type { ReleaseTarget } from '../shared/release';
@@ -1723,9 +1723,13 @@ const teamTools = (state: OfficeState, chatId: string) => createSdkMcpServer({
     tool(
       'resume_release',
       state.say('tool.resumeRelease.desc'),
-      { releaseId: z.string().describe(state.say('tool.resumeRelease.id')) },
+      {
+        releaseId: z.string().describe(state.say('tool.resumeRelease.id')),
+        fresh: z.boolean().default(false).describe(state.say('tool.resumeRelease.fresh')),
+      },
       async (args) => {
-        const out = resumeRelease(state, args.releaseId.trim());
+        const id = args.releaseId.trim();
+        const out = args.fresh ? await restartRelease(state, id) : resumeRelease(state, id);
         return { content: [{ type: 'text', text: out.message }], isError: !out.ok };
       },
     ),

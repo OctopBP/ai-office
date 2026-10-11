@@ -640,7 +640,8 @@ const snapshot: Executor<Ctx> = {
   async run(ctx) {
     const { state, target } = ctx;
     // Репозиторий выбирается один раз: у выпуска, который его уже записал
-    // (повтор, resume_release), настройка цели заново не читается.
+    // (повтор, resume_release), настройка цели заново не читается. Перезапуск
+    // заново (`fresh`) запись снимает — и репозиторий берётся с цели.
     let repo = rel(ctx).repoDir ?? '';
     if (!repo) {
       const found = await resolveReleaseRepo(state, target);
@@ -808,6 +809,18 @@ const version: Executor<Ctx> = {
     const r = rel(ctx);
     const spec = target.version;
     const plan = state.openReleasePlan(target.id);
+    if (r.keepVersion && (r.version !== null || r.build !== null)) {
+      // Перезапуск заново (§9.4): версия та же. Свой тег этой версии, уже
+      // ушедший наружу, узел тега передвинет; чужой — причина встать.
+      if (target.kind === 'tag') {
+        const name = fillVersion(target.tag ?? DEFAULT_TAG, point(r));
+        if (name !== r.tag && await revision(ctx.repo, `refs/tags/${name}`)) {
+          return fail(say(ctx, 'rel.tagExists', { tag: name }), { needsDecision: true });
+        }
+      }
+      patch(ctx, { planId: plan?.id ?? null });
+      return { outcome: 'pass', artifact: { kind: 'version', text: say(ctx, 'rel.versionKept', { version: versionLabel(point(r)) || '—' }), ref: r.version ?? '' } };
+    }
     let level: VersionLevel;
     let levelFrom: Release['levelFrom'];
     if (spec.level === 'plan') {
@@ -1633,13 +1646,16 @@ export function stopOf(state: OfficeState, r: Release): ReleaseStop | null {
  * же прогон с узла, где он встал: сделанные шаги — версия, заметки,
  * согласие — не переделываются.
  */
-export function driveRelease(state: OfficeState, releaseId: string): Promise<void> {
+export function driveRelease(state: OfficeState, releaseId: string, prepare?: () => Promise<void>): Promise<void> {
   const key = `${state.officeId}:${releaseId}`;
   const already = running.get(key);
   if (already) return already;
   const abort = new AbortController();
   aborts.set(key, abort);
-  const promise = driveOnce(state, releaseId, abort.signal)
+  // `prepare` — уборка перед перезапуском заново: идёт под тем же ключом, чтобы
+  // надзор не пустил выпуск повтором, пока убираются следы прошлой попытки.
+  const promise = (prepare ? prepare() : Promise.resolve())
+    .then(() => driveOnce(state, releaseId, abort.signal))
     .catch((err) => {
       if (err instanceof ReleaseCancelled || state.releases.get(releaseId)?.status === 'cancelled') return;
       const text = state.say('rel.crashed', { id: releaseId, error: (err as Error).message });
@@ -1883,6 +1899,87 @@ export async function cancelRelease(state: OfficeState, releaseId: string, reaso
     ? `\n${state.say(traces.buildFree ? 'rel.cancel.buildFree' : 'rel.cancel.buildSpent', { build: done.build })}`
     : '';
   return { ok: true, message: `${state.say('rel.cancel.ok', vars)}\n${left}${build}`, release: done };
+}
+
+/**
+ * Начать вставший выпуск заново (`resume_release` с `fresh`, §9.4) — после
+ * того как цель поправили. Следы прошлой попытки убираются, репозиторий,
+ * рабочая папка и остальные настройки читаются с цели заново, снимок берётся
+ * свежий, версия остаётся прежней. Согласие владельца спрашивается по
+ * политике цели, как у нового выпуска. Цель с блокирующей проблемой выпуск не
+ * пускает — менеджер получает перечень, а не тот же вставший выпуск.
+ */
+export async function restartRelease(state: OfficeState, releaseId: string): Promise<StartResult> {
+  const release = state.releases.get(releaseId);
+  if (!release) return { ok: false, message: state.say('rel.noRelease', { id: releaseId }) };
+  if (release.status === 'cancelled') return { ok: false, message: state.say('rel.cancel.noResume', { id: releaseId }) };
+  if (release.status === 'done' || release.status === 'skipped') {
+    return { ok: false, message: state.say('rel.notResumable', { id: releaseId }) };
+  }
+  if (isReleaseRunning(state, releaseId) || releaseActive(release.status)) {
+    return { ok: false, message: state.say('rel.fresh.running', { id: releaseId }) };
+  }
+  const target = state.releaseTarget(release.targetId);
+  if (!target) return { ok: false, message: state.say('rel.targetGone', { id: release.targetId }) };
+  const other = activeRelease(state, release.targetId);
+  if (other) return { ok: false, message: state.say('rel.busy', { target: target.title, id: other.id, stage: other.stage }) };
+  const workflow = workflowFor(state, WORKFLOW_ID);
+  if (!workflow) return { ok: false, message: state.say('rel.noWorkflow') };
+  const problems = targetProblems(state, target);
+  if (hasBlocking(problems)) {
+    return { ok: false, message: state.say('rel.check.startBlocked', { target: target.title, list: problemLines(state, problems).join('\n') }) };
+  }
+
+  let outside: string[] = [];
+  let crashed: Error | null = null;
+  await new Promise<void>((cleaned) => {
+    void driveRelease(state, releaseId, async () => {
+      try {
+        const r = state.releases.get(releaseId) as Release;
+        const run = runOfRelease(state, releaseId);
+        dismissReleaseQuestion(state, run);
+        const traces = await dropTraces(state, r);
+        outside = traces.outside;
+        if (run) {
+          run.nodeId = workflow.nodes[0].id;
+          run.from = null;
+          run.loops = {};
+          run.artifacts = {};
+          run.waitingOn = null;
+          state.saveRun(run);
+        }
+        // Канал, которого у поправленной цели больше нет, заменяется её каналом по умолчанию.
+        const channels = targetChannels(target);
+        const channel = channels.length ? (r.channel && channels.includes(r.channel) ? r.channel : defaultChannel(target)) : undefined;
+        state.patchRelease(releaseId, {
+          repoDir: undefined, channel, sha: '', fromSha: null, branch: traces.branch, promote: null, mergedDown: undefined,
+          epicIds: [], taskIds: [], planId: null, notes: '', links: [], fixTaskId: null,
+          // Попытки остаются, если что-то ушло наружу: тег тогда передвигается, а сборка берёт новый номер.
+          attempts: traces.buildFree ? 0 : Math.max(1, r.attempts), retries: 0, nextTryAt: null,
+          needsDecision: false, stop: null, failLog: null, tag: traces.tag, keepVersion: true,
+          status: 'preparing', stage: state.say('rel.stage.start'), finishedAt: null,
+        });
+      } catch (err) {
+        crashed = err as Error;
+        throw err;
+      } finally {
+        cleaned();
+      }
+    });
+  });
+  // Уборка упала: выпуск снова встал, причина ушла менеджеру обычным путём.
+  if (crashed) return { ok: false, message: state.say('rel.crashed', { id: releaseId, error: (crashed as Error).message }) };
+  const done = state.releases.get(releaseId) as Release;
+  const vars = { id: releaseId, target: target.title, version: versionLabel(point(done)) || '—' };
+  const text = state.say('rel.fresh.done', vars);
+  state.addLog(null, 'system', text);
+  state.addChat(OFFICE_SENDER, text);
+  const warn = problems.length ? `\n${state.say('rel.check.startWarn', { list: problemLines(state, problems).join('\n') })}` : '';
+  return {
+    ok: true,
+    message: `${state.say('rel.fresh.ok', vars)}${outside.length ? `\n${outsideText(state, outside)}` : ''}${warn}`,
+    release: done,
+  };
 }
 
 // ---------------------------------------------------------------- поводы
@@ -2434,5 +2531,14 @@ export function settleReleaseSetups(state: OfficeState): void {
     state.saveReleaseSetup({ ...setup, status: 'applied' });
     state.noteReleaseTarget(setup.target.id);
     state.addChat(OFFICE_SENDER, state.say('rel.setup.applied', { target: setup.target.title }));
+    // Вставший выпуск цели держится за прежние настройки (репозиторий записан
+    // на нём): менеджеру — что цель уже другая и выпуск пора пустить заново.
+    const stuck = state.releasesOf(setup.target.id).find((r) => r.status !== 'cancelled' && r.status !== 'skipped');
+    if (stuck?.status === 'failed') {
+      tellPm(state, state.say('rel.setup.stuckPm', {
+        target: setup.target.title, id: stuck.id, version: versionLabel(point(stuck)) || '—',
+        why: stopOf(state, stuck)?.reason || stuck.stage || '—',
+      }));
+    }
   }
 }
