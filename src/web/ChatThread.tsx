@@ -4,8 +4,7 @@ import { isOfficeSender } from '../shared/types';
 import { inPmChat, shownDraft, useStore } from './store';
 import { t } from './i18n';
 import { AgentTag } from './Avatar';
-import { ChatPeer } from './ChatPeer';
-import { PeerPicker } from './PeerPicker';
+import { ChatHead } from './ChatPeer';
 import { Markdown } from './Markdown';
 import { mentionedTask } from './chat/filePaths';
 import { CardGroup, RefCard, TaskCard } from './ChatCards';
@@ -76,9 +75,7 @@ export function ChatThread() {
 
   return (
     <>
-      <PeerPicker />
-
-      <ChatPeer />
+      <ChatHead locked={shown.length > 0 || !!draft} />
 
       {thread === 'meeting' && (
         <p className="small note">{t('chat.note.meeting')}</p>

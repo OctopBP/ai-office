@@ -2,6 +2,7 @@ import { useStore } from './store';
 import { Avatar } from './Avatar';
 import { useInstanceName } from './instanceName';
 import { t } from './i18n';
+import { PeerPicker } from './PeerPicker';
 
 /**
  * Собеседник текущего треда: лицо, имя и должность. Стоит над лентой в виде
@@ -37,6 +38,40 @@ export function ChatPeer({ compact = false }: { compact?: boolean }) {
     <div className="chat-peer chat-peer-head">
       <div className="chat-peer-title" title={title}>{title}</div>
       <div className="chat-peer-who">{who}</div>
+    </div>
+  );
+}
+
+/**
+ * Шапка чата в одну строку: слева название (обрезается многоточием), справа
+ * собеседник. Пока в чате нет ни одной реплики — выбор собеседника, дальше —
+ * его имя текстом: переписку нельзя «перенаправить» другому на полпути.
+ */
+export function ChatHead({ locked }: { locked: boolean }) {
+  const thread = useStore((s) => s.thread);
+  const peer = useStore((s) => (s.thread !== 'meeting' ? s.instances[s.thread] : undefined));
+  const role = useStore((s) => s.roles.find((r) => r.id === peer?.roleId));
+  const name = useInstanceName(peer?.id ?? '');
+  const isDraft = useStore((s) => s.thread === 'pm#1' && s.pmChatDraft);
+  const openTitle = useStore((s) => (s.thread === 'pm#1' && s.pmChatId ? s.pmChats[s.pmChatId]?.title : undefined));
+  // У прямых тредов и переговорки своего названия нет — им служит имя собеседника.
+  const title = isDraft
+    ? t('pmChats.new')
+    : openTitle ?? (thread === 'meeting' ? t('chat.tab.meeting') : peer ? role?.title ?? peer.roleId : '');
+  const who = thread === 'meeting' ? t('chat.tab.meeting') : thread === 'pm#1' ? t('chat.tab.pm') : name;
+  return (
+    <div className="chat-head">
+      <div className="chat-head-title" title={title}>{title}</div>
+      <div className="chat-head-peer">
+        {locked ? (
+          <span className="chat-head-who" title={who}>
+            {peer && <Avatar roleId={peer.roleId} instanceId={peer.id} size="xs" />}
+            <b>{who}</b>
+          </span>
+        ) : (
+          <PeerPicker />
+        )}
+      </div>
     </div>
   );
 }
