@@ -41,6 +41,7 @@ import { maskValues, secretsEnv } from './secrets';
 import { githubFor, type GithubRepo } from './github';
 import { workflowFor } from './workflows';
 import { countWorking } from './busy';
+import { checkReleaseTarget, hasBlocking, type TargetProblem } from './release-check';
 import { gateAnswerYes, tellPm, withMergeLock } from './review';
 import { dispatch } from './plan';
 import {
@@ -290,6 +291,28 @@ export async function resolveReleaseRepo(
   const shared = rolesRepo(state);
   if (shared && await isRepo(shared)) return { ok: true, dir: shared };
   return { ok: false, reason: state.say('rel.noTargetRepo', { target: target.id, dir: named }) };
+}
+
+/**
+ * Проблемы настройки цели (T-554): то, на чём выпуск встал бы, видно до него.
+ * `command` — команда сборки, если она ещё не лежит в проверках проекта
+ * (предложение цели); `pending` — цель ждёт задачу, которая может принести
+ * рабочую папку.
+ */
+export function targetProblems(
+  state: OfficeState, target: ReleaseTarget, opts: { command?: string | null; pending?: boolean } = {},
+): TargetProblem[] {
+  return checkReleaseTarget({
+    target, officeDir: state.projectDir, sharedRepo: rolesRepo(state),
+    command: opts.command ?? state.settings.checks?.[target.run ?? ''] ?? null,
+    pending: opts.pending,
+  });
+}
+
+/** Проблемы цели строками: блокирующие первыми и со своей пометкой. */
+export function problemLines(state: OfficeState, problems: TargetProblem[]): string[] {
+  return [...problems].sort((a, b) => Number(b.blocking) - Number(a.blocking)).map((p) =>
+    `${p.blocking ? '⛔' : '⚠️'} ${state.say(`rel.check.${p.code}` as ServerKey, p.vars)}`);
 }
 
 /**
@@ -1457,6 +1480,28 @@ export function startRelease(
   };
 }
 
+/**
+ * Ручной старт с проверкой цели (T-554): с блокирующей проблемой выпуск не
+ * заводится вовсе — менеджер получает перечень в ответе, а не вставший выпуск
+ * через минуту. Предупреждения выпуск не держат и дописываются к ответу.
+ * Выпуск по расписанию идёт мимо: его некому отклонить, и причина остановки
+ * уходит менеджеру обычным путём.
+ */
+export function startCheckedRelease(
+  state: OfficeState, targetId: string, reason: ReleaseReason, note = '', now = Date.now(),
+  opts: { channel?: ReleaseChannel; hotfix?: boolean } = {},
+): StartResult {
+  const target = state.releaseTarget(targetId);
+  if (!target) return startRelease(state, targetId, reason, note, now, opts);
+  const problems = targetProblems(state, target);
+  if (hasBlocking(problems)) {
+    return { ok: false, message: state.say('rel.check.startBlocked', { target: target.title, list: problemLines(state, problems).join('\n') }) };
+  }
+  const out = startRelease(state, targetId, reason, note, now, opts);
+  if (!out.ok || !problems.length) return out;
+  return { ...out, message: `${out.message}\n${state.say('rel.check.startWarn', { list: problemLines(state, problems).join('\n') })}` };
+}
+
 /** Узлы процесса выпуска, у которых есть название стадии в словаре. */
 const NODE_TITLES = new Set([
   'snapshot', 'version', 'notes', 'approve', 'bump', 'ship', 'push', 'tag', 'watch', 'visible', 'build', 'fix', 'publish',
@@ -1844,6 +1889,13 @@ function secretNamesLine(state: OfficeState): string {
     : state.say('rel.statusNoSecrets');
 }
 
+/** Итог проверки цели для `release_status`: «в порядке» или перечень проблем. */
+function checkRows(state: OfficeState, target: ReleaseTarget): string[] {
+  const problems = targetProblems(state, target);
+  if (!problems.length) return [state.say('rel.check.ok')];
+  return [state.say('rel.check.found'), ...problemLines(state, problems).map((l) => `  ${l}`)];
+}
+
 function targetRows(state: OfficeState, targets: ReleaseTarget[]): string {
   return targets.map((target) => {
     const last = lastDone(state, target.id);
@@ -1858,6 +1910,7 @@ function targetRows(state: OfficeState, targets: ReleaseTarget[]): string {
         merged,
       }),
       describeTarget(state, target, null).split('\n').slice(1).map((l) => `    ${l}`).join('\n'),
+      ...checkRows(state, target).map((l) => `    ${l}`),
       ...targetChannels(target).map((c) => {
         const done = lastDoneIn(state, target.id, c);
         return `    ${state.say('rel.statusChannel', {
@@ -2034,6 +2087,14 @@ export function proposeReleaseTarget(state: OfficeState, input: SetupInput): { o
   if ('error' in checked) return { ok: false, message: state.say('rel.setup.invalid', { error: checked.error }) };
   const fixed = checked.targets.find((t) => t.id === target.id) as ReleaseTarget;
 
+  // Проверка до вопроса владельцу: с блокирующей проблемой спрашивать не о чем.
+  const problems = targetProblems(state, fixed, {
+    command: check?.command ?? null,
+    pending: Boolean(waitTaskId && !state.tasks.get(waitTaskId)?.merged),
+  });
+  const found = problemLines(state, problems).join('\n');
+  if (hasBlocking(problems)) return { ok: false, message: state.say('rel.setup.blocked', { target: fixed.title, list: found }) };
+
   // Второе предложение той же цели заменяет первое: владелец отвечает на последнее.
   for (const old of state.releaseSetups.values()) {
     if (old.target.id === fixed.id && (old.status === 'asked' || old.status === 'approved')) {
@@ -2052,7 +2113,8 @@ export function proposeReleaseTarget(state: OfficeState, input: SetupInput): { o
       target: describeTarget(state, fixed, check?.command ?? null),
       check: check ? state.say('rel.setup.checkLine', { name: check.name, command: check.command }) : '',
       wait: waitTaskId ? state.say('rel.setup.waitLine', { task: waitTaskId }) : '',
-      note: input.note?.trim() ? `\n${input.note.trim()}` : '',
+      note: (input.note?.trim() ? `\n${input.note.trim()}` : '')
+        + (found ? `\n\n${state.say('rel.setup.warnOwner', { list: found })}` : ''),
       yes, no,
     }).replace(/\n{3,}/g, '\n\n'),
     assumption: state.say('rel.setup.assumption'),
@@ -2063,7 +2125,11 @@ export function proposeReleaseTarget(state: OfficeState, input: SetupInput): { o
     status: 'asked', createdAt: Date.now(), decidedAt: null,
   });
   void state.whenQuestionClosed(question.id).then(() => settleReleaseSetups(state));
-  return { ok: true, message: state.say('rel.setup.asked', { id: question.id, target: fixed.title }) };
+  return {
+    ok: true,
+    message: state.say('rel.setup.asked', { id: question.id, target: fixed.title })
+      + (found ? `\n${state.say('rel.setup.warnPm', { list: found })}` : ''),
+  };
 }
 
 /**

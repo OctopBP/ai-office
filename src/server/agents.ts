@@ -39,7 +39,7 @@ import { outsideZone, writeZone } from './subprojects';
 import { worktreeOwnFiles } from './premerge';
 import {
   closeReleasePlan, proposeReleaseTarget, proposedAssets, proposedChannels, proposedDirs, releaseStatusText, releaseText, resumeRelease, saveReleasePlan, setReleaseAgents,
-  startRelease,
+  startCheckedRelease,
 } from './releases';
 import type { ReleaseTarget } from '../shared/release';
 import { commitAll, createWorktree, diffBranch, hasCommits, hasWork, isRepo, preserveBranch, removeWorktree } from './git';
@@ -1715,7 +1715,7 @@ const teamTools = (state: OfficeState, chatId: string) => createSdkMcpServer({
         channel: z.enum(['stable', 'beta', 'alpha']).optional().describe(state.say('tool.startRelease.channel')),
       },
       async (args) => {
-        const out = startRelease(state, args.target.trim(), 'manual', args.note ?? '', Date.now(), { channel: args.channel });
+        const out = startCheckedRelease(state, args.target.trim(), 'manual', args.note ?? '', Date.now(), { channel: args.channel });
         return { content: [{ type: 'text', text: out.message }], isError: !out.ok };
       },
     ),

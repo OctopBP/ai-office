@@ -19,7 +19,7 @@ import { deleteTask, dropTask, editTask } from './tasks';
 import { approveEpic, cancelEpic, dispatch, reorderEpics } from './plan';
 import { isMergeQueueRunning, mergeQueue, refreshMergeChecks } from './merge';
 import { retryPipeline, runningPipelines } from './review';
-import { closeReleasePlan, resumeRelease, runningReleases, saveReleasePlan, startRelease } from './releases';
+import { closeReleasePlan, resumeRelease, runningReleases, saveReleasePlan, startCheckedRelease } from './releases';
 import { resetProjectWorkflow, saveProjectWorkflow } from './workflows';
 import { startSupervisor } from './supervisor';
 import { answerQuestion, deleteQuestion, dismissQuestion, editQuestion, mergeQuestion } from './questions';
@@ -568,7 +568,7 @@ wss.on('connection', (ws, req) => {
       else state.addChat(OFFICE_SENDER, state.say('wf.reset', { id: cmd.id }));
       state.emitWorkflows();
     } else if (cmd.c === 'release_start') {
-      const out = startRelease(state, cmd.targetId, 'manual');
+      const out = startCheckedRelease(state, cmd.targetId, 'manual');
       if (!out.ok) state.addChat(OFFICE_SENDER, out.message);
     } else if (cmd.c === 'release_resume') {
       const out = resumeRelease(state, cmd.releaseId);
