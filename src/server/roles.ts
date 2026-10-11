@@ -48,6 +48,11 @@ export interface Role {
    */
   allowLocalBinding?: boolean;
   /**
+   * Свой порог предохранителя расхода — входные токены одного запуска
+   * (`runThreshold` в runguard.ts). Пусто или null — действует общий порог.
+   */
+  spendFuseTokens?: number | null;
+  /**
    * Ограничение набора встроенных инструментов. undefined — все.
    * Юристу и SMM оболочка не нужна: чем уже поверхность, тем меньше поводов
    * для подтверждений и меньше шансов сделать что-то необратимое. Дизайнеру
@@ -216,7 +221,7 @@ export const copyTitle = (title: string, copy: number | undefined): string =>
 /** Поля, по которым считается разница роли с пакетом. */
 export const OVERRIDABLE_KEYS: readonly (keyof LinkOverrides)[] = [
   'title', 'emoji', 'color', 'model', 'provider', 'tier', 'permissionMode', 'isolate',
-  'maxTurns', 'allowLocalBinding', 'repoDir', 'subprojects', 'sprite', 'mcp', 'capabilities',
+  'maxTurns', 'allowLocalBinding', 'spendFuseTokens', 'repoDir', 'subprojects', 'sprite', 'mcp', 'capabilities',
 ];
 
 /**
@@ -258,6 +263,7 @@ export function roleFromPackage(pkg: AgentPackage, lang: Lang, id: string, link?
     isolate: m.runtime.isolate,
     maxTurns: m.runtime.maxTurns,
     allowLocalBinding: m.runtime.allowLocalBinding === true,
+    ...(m.runtime.spendFuseTokens ? { spendFuseTokens: m.runtime.spendFuseTokens } : {}),
     ...(m.runtime.tools ? { tools: [...m.runtime.tools] } : {}),
     mcp: [...m.runtime.mcp],
     ...(m.docsDir ? { docsDir: m.docsDir } : {}),

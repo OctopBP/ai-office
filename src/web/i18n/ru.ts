@@ -446,6 +446,7 @@ export const ru: Record<keyof typeof en, string> = {
   "budgetStop.compactions": "автосжатий подряд: {n}",
   "budgetStop.fromHistory": "Порог — три медианы прошлых запусков роли (запусков: {n}).",
   "budgetStop.fromDefault": "Истории мало, взят порог по умолчанию.",
+  "budgetStop.fromRole": "Порог задан у самой роли.",
   "budgetStop.restartHint": "Запустить заново, порог останется прежним",
   "spendReport.error": "Не удалось загрузить разбор расхода.",
   "spendReport.empty.title": "За этот период агенты не запускались",

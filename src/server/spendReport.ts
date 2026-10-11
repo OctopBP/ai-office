@@ -139,6 +139,8 @@ export interface SpendReportOptions {
   /** Подписи: название задачи и роли. Не нашлось — подписью будет id. */
   taskTitle?: (id: string) => string | undefined;
   roleTitle?: (id: string) => string | undefined;
+  /** Свой порог предохранителя роли (`Role.spendFuseTokens`); нет — общий. */
+  roleLimit?: (id: string) => number | null | undefined;
 }
 
 /** Сигналы перерасхода по уже собранным срезам. Правила — только сравнение с SPEND_SIGNALS. */
@@ -211,10 +213,13 @@ export function spendSignals(
  * и пересчитывать историю на каждый запуск ради этого незачем.
  *
  * `history` — все запуски офиса, не только за период: порог роли строится
- * по последним запускам, где бы они ни лежали.
+ * по последним запускам, где бы они ни лежали. `roleLimit` — свой порог роли
+ * (`Role.spendFuseTokens`): без него запуск тестировщика в пределах своего
+ * порога считался бы аномалией по общему.
  */
 export function taskAnomalies(
   slice: SpendSlice, taskRuns: readonly AgentRunEntry[], history: readonly AgentRunEntry[], lang: Lang,
+  roleLimit?: (roleId: string) => number | null | undefined,
 ): SpendAnomaly[] {
   const S = SPEND_SIGNALS;
   const anomalies: SpendAnomaly[] = [];
@@ -227,7 +232,7 @@ export function taskAnomalies(
     const kind = runKind(r.nodeId);
     const key = `${r.roleId} ${kind}`;
     let limit = limits.get(key);
-    if (limit === undefined) limits.set(key, limit = runThreshold(history, r.roleId, kind).tokens);
+    if (limit === undefined) limits.set(key, limit = runThreshold(history, r.roleId, kind, roleLimit?.(r.roleId)).tokens);
     const spent = runInputTokens(r);
     const ratio = spent / limit;
     if (!worst || ratio > worst.ratio) worst = { ratio, spent, limit };
@@ -284,7 +289,7 @@ export function buildSpendReport(runs: AgentRunEntry[], opts: SpendReportOptions
     .sort((a, b) => a.key.localeCompare(b.key));
   const topTasks = byTask.filter((s) => s.key !== NO_KEY).slice(0, SPEND_SIGNALS.topTasks)
     .map((slice): SpendTopTask => {
-      const anomalies = taskAnomalies(slice, inPeriod.filter((r) => r.taskId === slice.key), runs, lang);
+      const anomalies = taskAnomalies(slice, inPeriod.filter((r) => r.taskId === slice.key), runs, lang, opts.roleLimit);
       return { ...slice, anomaly: anomalies.length > 0, anomalies };
     });
 
@@ -307,5 +312,6 @@ export function officeSpendReport(
     officeId: state.officeId,
     taskTitle: (id) => state.tasks.get(id)?.title,
     roleTitle: (id) => state.role(id)?.title,
+    roleLimit: (id) => state.role(id)?.spendFuseTokens,
   });
 }

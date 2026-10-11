@@ -27,7 +27,8 @@ export function BudgetStopBanner({ task, compact }: { task: TaskView; compact?: 
         <span className="mono small">{figures}</span>
         {!compact && (
           <span className="muted small">
-            {t(stop.limitSource === 'history' ? 'budgetStop.fromHistory' : 'budgetStop.fromDefault', { n: stop.samples })}
+            {t(stop.limitSource === 'role' ? 'budgetStop.fromRole'
+              : stop.limitSource === 'history' ? 'budgetStop.fromHistory' : 'budgetStop.fromDefault', { n: stop.samples })}
           </span>
         )}
       </div>

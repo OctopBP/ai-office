@@ -78,6 +78,7 @@ export const ru: Record<keyof typeof en, string> = {
   'state.role.titleTaken': 'Роль «{title}» в офисе уже есть — два одинаковых названия в списке не различить.',
   'state.role.noModel': 'Выберите модель — без неё сессию роли не запустить.',
   'state.role.turnsRange': 'Лимит ходов — целое от {min} до {max} либо пусто, чтобы взять офисный.',
+  'state.role.fuseRange': 'Порог предохранителя расхода — целое число токенов от {min} до {max} либо пусто, чтобы взять общий.',
   'state.role.badMode': 'Неизвестный режим доступа.',
   'state.role.noSprite': 'Внешности «{sprite}» нет в наборе — выберите одну из предложенных.',
   'state.role.created': 'Заведена роль {title} ({id})',

@@ -193,6 +193,7 @@ export function scaffoldFromRole(role: Role, name: string, lang: Lang, extra: Pa
       isolate: role.isolate,
       maxTurns: role.maxTurns ?? null,
       ...(role.allowLocalBinding ? { allowLocalBinding: true } : {}),
+      ...(role.spendFuseTokens ? { spendFuseTokens: role.spendFuseTokens } : {}),
       mcp: role.mcp ?? [],
     },
     skills: fields.skills ?? [],

@@ -1,10 +1,15 @@
 /**
  * Предохранитель расхода одного запуска агента.
  *
- * Отдельной настройки у порога нет намеренно: «сколько можно» у ревьюера и у
+ * Общей настройки у порога нет намеренно: «сколько можно» у ревьюера и у
  * исполнителя разное, и угадать число за владельца нельзя. Порог берётся из
  * того, сколько обычно съедает такой же запуск — та же роль, тот же тип
  * работы, — с запасом втрое. Пока истории мало, действует константа.
+ *
+ * Исключение — свой порог роли (`Role.spendFuseTokens`): работа, которая
+ * заведомо дороже обычной (браузерные проверки тестировщика), в общий порог
+ * не укладывается, и история её не выручит — запуски, остановленные на
+ * пороге, сами же его и держат. Задан порог у роли — действует он.
  *
  * Здесь только расчёт и счётчики, без сессий и состояния офиса: остановку
  * делает цикл исполнителя (`collectWorker` в agents.ts), а этот модуль лишь
@@ -15,6 +20,8 @@ import type { BudgetStop } from '../shared/types';
 
 /** Порог, пока истории меньше `BUDGET_MIN_HISTORY` запусков. */
 export const BUDGET_DEFAULT_TOKENS = 2_000_000;
+/** Потолок своего порога роли: выше — уже не предохранитель. */
+export const BUDGET_ROLE_MAX_TOKENS = 20_000_000;
 /** Сколько последних запусков берётся в медиану. */
 export const BUDGET_HISTORY = 30;
 /** С какого числа запусков истории уже верим больше, чем константе. */
@@ -44,10 +51,22 @@ export function runInputTokens(r: Pick<AgentRunEntry,
   return r.input_tokens + r.cache_read_input_tokens + r.cache_creation_input_tokens;
 }
 
+/**
+ * Привести свой порог роли к допустимому: целое от общего порога до потолка
+ * либо null («своего порога нет — действует общий»). undefined — значение
+ * непригодно: дробь, строка, число вне границ.
+ */
+export function sanitizeSpendFuse(value: unknown): number | null | undefined {
+  if (value === null) return null;
+  if (typeof value !== 'number' || !Number.isInteger(value)) return undefined;
+  if (value < BUDGET_DEFAULT_TOKENS || value > BUDGET_ROLE_MAX_TOKENS) return undefined;
+  return value;
+}
+
 export interface RunThreshold {
   tokens: number;
-  source: 'history' | 'default';
-  /** Медиана по истории; null — истории мало и порог по умолчанию. */
+  source: BudgetStop['limitSource'];
+  /** Медиана по истории; null — истории мало. */
   median: number | null;
   /** Сколько запусков нашлось в истории (не больше `BUDGET_HISTORY`). */
   samples: number;
@@ -63,15 +82,28 @@ function median(values: number[]): number {
  * Порог запуска роли `roleId` для работы типа `kind`. В историю идут только
  * запуски по задачам: разговор менеджера или ритуал на той же роли — другая
  * работа. Запуски лежат от старых к свежим, поэтому последние — с конца.
+ *
+ * `roleLimit` — свой порог роли (`Role.spendFuseTokens`): задан — действует
+ * он, а история остаётся в ответе справкой. Непригодное значение не действует.
  */
-export function runThreshold(runs: readonly AgentRunEntry[], roleId: string, kind: string): RunThreshold {
+export function runThreshold(
+  runs: readonly AgentRunEntry[], roleId: string, kind: string, roleLimit?: number | null,
+): RunThreshold {
   const history: number[] = [];
   for (let i = runs.length - 1; i >= 0 && history.length < BUDGET_HISTORY; i--) {
     const r = runs[i];
     if (r.roleId !== roleId || r.taskId === null || runKind(r.nodeId) !== kind) continue;
     history.push(runInputTokens(r));
   }
-  if (history.length < BUDGET_MIN_HISTORY) {
+  const enough = history.length >= BUDGET_MIN_HISTORY;
+  const own = sanitizeSpendFuse(roleLimit);
+  if (own) {
+    return {
+      tokens: own, source: 'role',
+      median: enough ? Math.round(median(history)) : null, samples: history.length,
+    };
+  }
+  if (!enough) {
     return { tokens: BUDGET_DEFAULT_TOKENS, source: 'default', median: null, samples: history.length };
   }
   const m = median(history);

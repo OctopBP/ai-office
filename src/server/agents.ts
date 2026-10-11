@@ -3942,29 +3942,37 @@ interface WorkerRun {
  * Предохранитель на запуск: порог — из истории той же роли на той же работе.
  * Тип работы — узел идущего прогона, как и в записи о запуске (`addAgentRun`):
  * иначе порог считался бы по одной истории, а запуск ложился бы в другую.
+ * Свой порог роли (`Role.spendFuseTokens`) сильнее истории; берётся из снимка
+ * роли, с которым запуск стартовал, — как и остальные её настройки.
  */
-function guardFor(state: OfficeState, inst: Instance): RunGuard {
+function guardFor(state: OfficeState, inst: Instance, role: Role): RunGuard {
   const flow = inst.currentTaskId ? state.runOf(inst.currentTaskId) : null;
   const live = flow && (flow.status === 'running' || flow.status === 'waiting') ? flow : null;
-  return new RunGuard(runThreshold(state.agentRunList(), inst.roleId, runKind(live?.nodeId ?? null)));
+  return new RunGuard(runThreshold(
+    state.agentRunList(), inst.roleId, runKind(live?.nodeId ?? null), role.spendFuseTokens));
 }
 
 const kTokens = (tokens: number) => Math.round(tokens / 1000);
 
 /** Откуда взялся порог — словами, для предупреждения и причины остановки. */
-function budgetSource(state: OfficeState, source: 'history' | 'default', median: number | null, samples: number): string {
+function budgetSource(
+  state: OfficeState, source: BudgetStop['limitSource'], median: number | null, samples: number, role: Role,
+): string {
+  if (source === 'role') return state.say('agent.budget.sourceRole', { role: role.title });
   return source === 'history'
     ? state.say('agent.budget.sourceHistory', { median: kTokens(median ?? 0), n: samples })
     : state.say('agent.budget.sourceDefault', { min: BUDGET_MIN_HISTORY });
 }
 
 /** Причина остановки словами — с цифрами и тем, откуда взялся порог. */
-function budgetReason(state: OfficeState, stop: BudgetStop): string {
+function budgetReason(state: OfficeState, stop: BudgetStop, role: Role): string {
   const k = kTokens;
-  const source = budgetSource(state, stop.limitSource, stop.medianTokens, stop.samples);
+  const source = budgetSource(state, stop.limitSource, stop.medianTokens, stop.samples, role);
   return stop.reason === 'tokens'
     ? state.say('agent.budget.tokens', { spent: k(stop.spentTokens), limit: k(stop.limitTokens), source })
-    : state.say('agent.budget.compactions', { n: stop.compactions, spent: k(stop.spentTokens), limit: k(stop.limitTokens) });
+    : state.say('agent.budget.compactions', {
+      n: stop.compactions, spent: k(stop.spentTokens), limit: k(stop.limitTokens), source,
+    });
 }
 
 /**
@@ -4022,7 +4030,7 @@ async function collectWorker(
       const text = state.say('agent.budget.warn', {
         task, who: inst.id, pct: Math.floor((signal.spentTokens / signal.limitTokens) * 100),
         spent: kTokens(signal.spentTokens), limit: kTokens(signal.limitTokens),
-        source: budgetSource(state, source, median, samples),
+        source: budgetSource(state, source, median, samples, role),
       });
       state.addLog(inst.id, 'system', text);
       state.addOfficeNote(text, inst.currentTaskId ? { taskId: inst.currentTaskId } : undefined);
@@ -4031,7 +4039,7 @@ async function collectWorker(
     run.budget = signal.stop;
     stoppedAt = Date.now();
     state.addLog(inst.id, 'error', state.say('agent.budget.stopping', {
-      task, reason: budgetReason(state, signal.stop),
+      task, reason: budgetReason(state, signal.stop, role),
     }));
     releaseHalt = haltSession(session, inst);
   };
@@ -4083,7 +4091,7 @@ async function collectWorker(
     // Разбор расхода считает остановки по записям о запусках.
     state.noteBudgetStop(inst.id, stoppedAt);
     // Что бы ни ответила прерванная сессия, причина одна — предохранитель.
-    return { text: '', failed: budgetReason(state, run.budget), thrashed: false, budget: run.budget };
+    return { text: '', failed: budgetReason(state, run.budget, role), thrashed: false, budget: run.budget };
   }
   run.failed ??= resumed?.unanswered() ?? null;
   return run;
@@ -4109,7 +4117,7 @@ export async function driveWorker(
   }
   // Предохранитель один на весь запуск, вместе с повтором на широком окне:
   // повтор продолжает ту же работу, и токены у них общие.
-  const guard = guardFor(state, inst);
+  const guard = guardFor(state, inst, role);
   const run = await collectWorker(
     state, inst, role, open({ resume: first.resume, prompt: first.prompt, window }),
     first.resumed, !first.resume, guard);

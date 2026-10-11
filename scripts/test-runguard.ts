@@ -8,17 +8,21 @@
  * Запуск: npm run test:runguard
  */
 import './_isolate'; // первым: до чтения окружения в root.ts и store.ts
+import { writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { resolve } from 'node:path';
 
 process.env.OFFICE_LANG = 'ru';
 
 const {
-  BUDGET_DEFAULT_TOKENS, BUDGET_HISTORY, BUDGET_MIN_HISTORY, RunGuard, runKind, runThreshold,
+  BUDGET_DEFAULT_TOKENS, BUDGET_HISTORY, BUDGET_MIN_HISTORY, BUDGET_ROLE_MAX_TOKENS,
+  RunGuard, runKind, runThreshold, sanitizeSpendFuse,
 } = await import('../src/server/runguard');
 const { openOfficeState } = await import('../src/server/state');
 const { driveWorker } = await import('../src/server/agents');
 const { recordOutcome } = await import('../src/server/outcomes');
+const { loadPackage } = await import('../src/server/packages');
+const { taskAnomalies } = await import('../src/server/spendReport');
 type AgentRunEntry = import('../src/server/spend').AgentRunEntry;
 type WorkerOpen = import('../src/server/agents').WorkerOpen;
 
@@ -243,6 +247,149 @@ results.push(`исход stopped_budget хранит цифры: ${outcome?.kind
 const later = recordOutcome(office, task.id, 'stuck');
 results.push(`исход после решения человека перекрывает остановку: ${later?.kind === 'stuck'
   && office.tasks.get(task.id)?.outcome?.budget === undefined}`);
+
+// ---------- свой порог роли (T-559) ----------
+
+const QA_FUSE = 5_000_000;
+// Свой порог сильнее и константы, и истории; история остаётся справкой.
+const ownEmpty = runThreshold([], 'qa', 'task', QA_FUSE);
+const ownOverHistory = runThreshold(ten, 'backend', 'task', QA_FUSE);
+results.push(
+  `свой порог роли сильнее порога по умолчанию: ${ownEmpty.tokens === QA_FUSE && ownEmpty.source === 'role'
+    && ownEmpty.median === null}`,
+  `свой порог роли сильнее истории: ${ownOverHistory.tokens === QA_FUSE && ownOverHistory.source === 'role'
+    && ownOverHistory.median === tenT.median && ownOverHistory.samples === 10}`,
+  `порог роли null и непригодный не действуют: ${runThreshold([], 'qa', 'task', null).source === 'default'
+    && runThreshold([], 'qa', 'task', 100).tokens === BUDGET_DEFAULT_TOKENS
+    && runThreshold([], 'qa', 'task', 2_500_000.5).source === 'default'}`,
+  `границы своего порога: ${sanitizeSpendFuse(BUDGET_DEFAULT_TOKENS) === BUDGET_DEFAULT_TOKENS
+    && sanitizeSpendFuse(BUDGET_ROLE_MAX_TOKENS) === BUDGET_ROLE_MAX_TOKENS && sanitizeSpendFuse(null) === null
+    && sanitizeSpendFuse(BUDGET_DEFAULT_TOKENS - 1) === undefined
+    && sanitizeSpendFuse(BUDGET_ROLE_MAX_TOKENS + 1) === undefined
+    && sanitizeSpendFuse('5000000') === undefined && sanitizeSpendFuse(3_000_000.5) === undefined
+    && sanitizeSpendFuse(NaN) === undefined}`,
+);
+
+// Пакет тестировщика несёт 5 млн, остальные роли — без своего порога.
+if (!office.roles().some((r) => r.package?.name === '@office/qa')) {
+  office.hireFromPackage(loadPackage('@office/qa')!, null);
+}
+const qaId = office.roles().find((r) => r.package?.name === '@office/qa')?.id ?? '';
+const qa = () => office.role(qaId)!;
+results.push(
+  `пакет qa: порог 5 млн в манифесте и у нанятой роли: ${
+    loadPackage('@office/qa')!.manifest.runtime.spendFuseTokens === QA_FUSE && qa().spendFuseTokens === QA_FUSE}`,
+  `у остальных ролей своего порога нет: ${office.roles().filter((r) => r.id !== qaId)
+    .every((r) => r.spendFuseTokens === undefined || r.spendFuseTokens === null)}`,
+  `снимок роли для UI несёт порог: ${office.roleViews().find((r) => r.id === qaId)?.spendFuseTokens === QA_FUSE
+    && office.roleViews().find((r) => r.id === 'backend')?.spendFuseTokens === null}`,
+);
+
+// PATCH роли: границы проверяются, неверное отклоняется и ничего не меняет.
+const bad: unknown[] = [BUDGET_DEFAULT_TOKENS - 1, BUDGET_ROLE_MAX_TOKENS + 1, 3_000_000.5, '5000000', 0, -1];
+const refusals = [];
+for (const value of bad) {
+  refusals.push(await office.editRole('backend', { spendFuseTokens: value as number }));
+}
+results.push(
+  `PATCH: неверные значения отклонены с ошибкой поля: ${refusals.every((e) => e.length === 1
+    && e[0].field === 'spendFuseTokens' && e[0].message.includes('2000000') && e[0].message.includes('20000000'))
+    && office.role('backend')!.spendFuseTokens === undefined}`,
+);
+const okPatch = await office.editRole('backend', { spendFuseTokens: 3_000_000 });
+results.push(`PATCH: годное значение принято: ${okPatch.length === 0 && office.role('backend')!.spendFuseTokens === 3_000_000
+  && office.role('backend')!.package?.overrides.spendFuseTokens === 3_000_000}`);
+const backPatch = await office.editRole('backend', { spendFuseTokens: null });
+results.push(`PATCH: null возвращает общий порог: ${backPatch.length === 0 && !office.role('backend')!.spendFuseTokens
+  && office.role('backend')!.package?.overrides.spendFuseTokens === undefined}`);
+await office.editRole(qaId, { spendFuseTokens: 8_000_000 });
+results.push(`PATCH: ручной порог qa держится оверрайдом: ${qa().spendFuseTokens === 8_000_000
+  && qa().package?.overrides.spendFuseTokens === 8_000_000}`);
+await office.editRole(qaId, { spendFuseTokens: QA_FUSE });
+results.push(`PATCH: вернули умолчание пакета — оверрайд снят: ${qa().spendFuseTokens === QA_FUSE
+  && qa().package?.overrides.spendFuseTokens === undefined}`);
+
+// Сквозь цикл: у qa запуск идёт за 2 млн и останавливается на своих 5 млн,
+// а причина называет действующий порог и то, что он задан у роли.
+const qaWorker = [...office.instances.values()].find((i) => i.roleId === qaId)!;
+const qaTask = office.createTask({ title: 'Браузерная проверка', description: 'порог роли', criteria: [], roleId: qaId });
+qaWorker.currentTaskId = qaTask.id;
+async function driveAs(inst: typeof worker, as: typeof role, messages: Msg[]) {
+  const fake = fakeSession(messages);
+  const logFrom = office.log.length;
+  const run = await driveWorker(office, inst, as, { resume: undefined, prompt: 'задача', resumed: null },
+    (() => fake.session) as unknown as WorkerOpen);
+  return { run, fake, logs: office.log.slice(logFrom).map((e) => e.text) };
+}
+const million = 1_000_000;
+const qaCalm = await driveAs(qaWorker, qa(), [call('q1', million), call('q2', million), call('q3', million)]);
+results.push(`цикл qa: 3 млн — выше общего порога, запуск идёт: ${qaCalm.run.budget === null
+  && !qaCalm.fake.state.interrupted && qaCalm.run.text === 'готово'}`);
+const qaStop = await driveAs(qaWorker, qa(),
+  [1, 2, 3, 4, 5, 6].map((n) => call(`s${n}`, million)));
+results.push(
+  `цикл qa: остановка на 5 млн: ${qaStop.fake.state.interrupted && qaStop.fake.state.drained === 5
+    && qaStop.run.budget?.limitTokens === QA_FUSE && qaStop.run.budget.limitSource === 'role'}`,
+  `цикл qa: сообщение называет действующий порог роли: ${qaStop.run.failed?.includes('5000 тыс.') === true
+    && qaStop.run.failed.includes('свой порог роли') && qaStop.run.failed.includes(qa().title)
+    && qaStop.logs.some((l) => l.includes('предохранитель расхода останавливает запуск') && l.includes('5000 тыс.'))}`,
+  `цикл qa: предупреждение на 80% своего порога: ${qaStop.logs.some((l) => l.includes('80% порога запуска')
+    && l.includes('4000 тыс.') && l.includes('5000 тыс.'))}`,
+);
+// Молотилка тоже называет действующий порог.
+const qaThrash = await driveAs(qaWorker, qa(), [call('m1', 10_000), autoCompact, autoCompact, autoCompact]);
+results.push(`цикл qa: молотилка называет порог роли: ${qaThrash.run.failed?.includes('5000 тыс.') === true
+  && qaThrash.run.failed.includes('свой порог роли')}`);
+// Остальные роли — на прежнем пороге и после всех правок.
+worker.currentTaskId = task.id;
+const backendAgain = await drive([1, 2, 3, 4, 5, 6].map((n) => call(`b${n}`, step)));
+results.push(`цикл: у backend порог прежний: ${backendAgain.run.budget?.limitTokens === BUDGET_DEFAULT_TOKENS
+  && backendAgain.run.budget.limitSource === 'default'}`);
+
+// Разбор расхода: запуск qa в пределах своего порога — не аномалия.
+const qaRun = [spent(3_000_000, { roleId: qaId, taskId: 'T-qa' })];
+const slice = { key: 'T-qa', label: 'T-qa', costUsd: 1 } as Parameters<typeof taskAnomalies>[0];
+results.push(`разбор расхода знает порог роли: ${
+  taskAnomalies(slice, qaRun, qaRun, 'ru').some((a) => a.kind === 'overBudget')
+  && !taskAnomalies(slice, qaRun, qaRun, 'ru', (id) => office.role(id)?.spendFuseTokens).some((a) => a.kind === 'overBudget')}`);
+
+// ---------- миграция нанятого тестировщика ----------
+
+// Сохранение старше T-559: миграция не проведена, порога у ролей нет.
+const plain = { title: 'Тестировщик', emoji: '🧪', color: '#0d9488', permissionMode: null, isolate: true, brief: 'свой бриф' };
+const saved = {
+  version: 1, projectDir: resolve(tmpdir(), 'guard-old'),
+  roleMigrations: ['sonnet-5-to-5-5'],
+  roles: [
+    { id: 'qa', package: { name: '@office/qa', version: '1.0.0', overrides: {}, briefExtra: '' } },
+    { id: 'qa-2', ...plain, title: 'Тестировщик без пакета' },
+    { id: 'qa-3', ...plain, title: 'Тестировщик с ручным порогом', spendFuseTokens: 9_000_000 },
+    { id: 'qa-4', ...plain, title: 'Тестировщик со снятым порогом', spendFuseTokens: null },
+    { id: 'qa-5', package: { name: '@office/qa', version: '1.0.0', overrides: { spendFuseTokens: 7_000_000 }, briefExtra: '' } },
+    { id: 'writer', ...plain, title: 'Писатель' },
+    { id: 'qa-6', ...plain, title: 'Тестировщик с мусором', spendFuseTokens: 12 },
+  ],
+};
+const savedFile = resolve(tmpdir(), `guard-saved-${process.pid}.json`);
+writeFileSync(savedFile, JSON.stringify(saved));
+const fuses = (o: typeof office) => Object.fromEntries(o.roles().map((r) => [r.id, r.spendFuseTokens]));
+const aged = openOfficeState({ id: 'o-guard-old', projectDir: resolve(tmpdir(), 'guard-old'), stateFile: savedFile }).state;
+const f1 = fuses(aged);
+results.push(
+  `миграция: нанятая из пакета qa получает 5 млн: ${f1.qa === QA_FUSE}`,
+  `миграция: qa без пакета получает 5 млн: ${f1['qa-2'] === QA_FUSE}`,
+  `миграция: ручное значение не затёрто: ${f1['qa-3'] === 9_000_000 && f1['qa-5'] === 7_000_000}`,
+  `миграция: снятый владельцем порог не возвращается: ${f1['qa-4'] === null}`,
+  `миграция: остальные роли без своего порога: ${!f1.writer && !f1.pm && !f1.backend}`,
+  `миграция: мусор в сохранении заменён умолчанием: ${f1['qa-6'] === QA_FUSE}`,
+);
+// Повторная загрузка того же офиса ничего не меняет; снятое после миграции не возвращается.
+await aged.editRole('qa-2', { spendFuseTokens: null });
+aged.flush();
+const again = openOfficeState({ id: 'o-guard-again', projectDir: resolve(tmpdir(), 'guard-old'), stateFile: savedFile }).state;
+const f2 = fuses(again);
+results.push(`миграция идемпотентна: ${f2.qa === QA_FUSE && f2['qa-2'] === null && f2['qa-3'] === 9_000_000
+  && f2['qa-4'] === null && f2['qa-5'] === 7_000_000 && f2['qa-6'] === QA_FUSE && !f2.writer}`);
 
 const failed = results.filter((r) => !r.endsWith('true'));
 for (const r of results) console.log(`  ${r.endsWith('true') ? '✅' : '❌'} ${r}`);

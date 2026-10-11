@@ -37,6 +37,7 @@
     "isolate": true,
     "maxTurns": null,
     "allowLocalBinding": true,
+    "spendFuseTokens": 5000000,
     "mcp": [
       "browser"
     ]

@@ -59,6 +59,7 @@ import {
   limitsView, noteRateLimit as recordRateLimit, pollLimits,
   type LimitSource, type RateLimitInfo,
 } from './limits';
+import { BUDGET_DEFAULT_TOKENS, BUDGET_ROLE_MAX_TOKENS, sanitizeSpendFuse } from './runguard';
 import {
   currentOffice, officeArchived, officeIconView, officePaused, offices, setOfficePaused,
   uiLanguage,
@@ -305,7 +306,7 @@ export const criticalEnvFail = (checks: EnvCheck[]): EnvCheck | null =>
  */
 const ROLE_EDITABLE_KEYS: readonly (keyof RoleEditable)[] = [
   'title', 'emoji', 'color', 'model', 'provider', 'tier', 'permissionMode',
-  'isolate', 'maxTurns', 'allowLocalBinding', 'repoDir', 'subprojects', 'sprite', 'brief', 'briefExtra', 'mcp', 'capabilities',
+  'isolate', 'maxTurns', 'allowLocalBinding', 'spendFuseTokens', 'repoDir', 'subprojects', 'sprite', 'brief', 'briefExtra', 'mcp', 'capabilities',
 ];
 
 /** Свои проверки проекта: имя по форме, команда непустая и не бесконечная. */
@@ -419,6 +420,7 @@ function linkFromSave(raw: Partial<Role>, pkg: AgentPackage, id: string, lang: L
     if (key === 'title' && typeof value === 'string' && titles.includes(value)) continue;
     if (key === 'maxTurns' && sanitizeMaxTurns(value) === undefined) continue;
     if (key === 'allowLocalBinding' && typeof value !== 'boolean') continue;
+    if (key === 'spendFuseTokens' && sanitizeSpendFuse(value) === undefined) continue;
     if ((key === 'provider' || key === 'model') && sameValue(value, literal[key])) continue;
     if (!sameValue(value, defaults[key as keyof Role])) {
       (link.overrides as Record<string, unknown>)[key] = value;
@@ -461,6 +463,12 @@ function sanitizeRole(raw: Partial<Role>, id: string, lang: Lang): Role {
       // выкидываем, роль возвращается к офисному.
       if ('maxTurns' in link.overrides && sanitizeMaxTurns(link.overrides.maxTurns) === undefined) {
         delete link.overrides.maxTurns;
+      }
+      // Порог предохранителя — так же: испорченный выкидываем, и роль
+      // возвращается к умолчанию пакета.
+      if ('spendFuseTokens' in link.overrides
+        && sanitizeSpendFuse(link.overrides.spendFuseTokens) === undefined) {
+        delete link.overrides.spendFuseTokens;
       }
       if ('provider' in link.overrides && !isProviderId(link.overrides.provider)) delete link.overrides.provider;
       if (typeof link.overrides.model === 'string' && !MODEL_RE.test(link.overrides.model)) {
@@ -522,6 +530,10 @@ function sanitizeRole(raw: Partial<Role>, id: string, lang: Lang): Role {
     // остальные её настройки останутся на месте.
     maxTurns: turns === undefined ? (base.maxTurns ?? null) : turns,
     allowLocalBinding: raw.allowLocalBinding === true,
+    // Свой порог предохранителя: непригодный выкидываем — действует общий.
+    // null храним как есть: это «владелец снял порог», а не «не задано».
+    ...(sanitizeSpendFuse(raw.spendFuseTokens) !== undefined
+      ? { spendFuseTokens: sanitizeSpendFuse(raw.spendFuseTokens) } : {}),
     // Набор инструментов из UI не правится (его нет в RoleEditable), так что
     // у роли без пакета сохранение — единственный его источник. Роль,
     // отвязанная от нашего пакета, набор пакета берёт по-прежнему из него:
@@ -588,9 +600,35 @@ function rolesFromSave(
   let roles = withManagerRole(sanitizeRoles(stored, lang), lang);
   if (pending.includes(FIGMA_CONSOLE_MIGRATION)) roles = roles.map(withFigmaConsole);
   if (pending.includes(PENPOT_MIGRATION)) roles = roles.map(withPenpot);
+  if (pending.includes(QA_SPEND_FUSE_MIGRATION)) roles = roles.map(withQaSpendFuse);
   return pending.includes(OFFICE_MODEL_MIGRATION)
     ? roles.map((role) => inheritOfficeModel(role, office, lang))
     : roles;
+}
+
+/**
+ * Разовая миграция: тестировщику, нанятому до T-559, — свой порог
+ * предохранителя расхода. Браузерные проверки в общий порог не укладываются.
+ *
+ * Роли из пакета миграция не нужна: она считается заново из манифеста, и
+ * умолчание `runtime.spendFuseTokens` доезжает до неё само. Миграция — для
+ * тестировщика без пакета (отвязан или пакет пропал): его настройки лежат в
+ * сохранении и сами не растут. Заданное руками не трогаем — в том числе
+ * null, которым владелец порог снял.
+ */
+const QA_SPEND_FUSE_MIGRATION = 'qa-spend-fuse';
+
+/** Порог тестировщика по умолчанию — тот же, что в манифесте `@office/qa`. */
+export const QA_SPEND_FUSE_TOKENS = 5_000_000;
+
+function withQaSpendFuse(role: Role): Role {
+  if (role.spendFuseTokens !== undefined) return role;
+  // Роль с живым пакетом уже посчитана из манифеста; сюда доходит роль без
+  // пакета — её узнаём по ссылке на пропавший пакет или по id (`qa`, `qa-2`).
+  const isQa = role.package ? role.package.name === '@office/qa' : /^qa(-\d+)?$/.test(role.id);
+  if (!isQa || role.isManager) return role;
+  if (role.package && resolvePackage(role.package)) return role;
+  return { ...role, spendFuseTokens: QA_SPEND_FUSE_TOKENS };
 }
 
 /**
@@ -690,7 +728,7 @@ const SONNET_5_5_MIGRATION = 'sonnet-5-to-5-5';
 /** Все разовые миграции ролей. Новый офис заводится с ними проведёнными. */
 const ROLE_MIGRATIONS: readonly string[] = [
   SONNET_5_5_MIGRATION, OFFICE_MODEL_MIGRATION, FIGMA_CONSOLE_MIGRATION, PENPOT_MIGRATION,
-  SUBPROJECTS_MIGRATION,
+  SUBPROJECTS_MIGRATION, QA_SPEND_FUSE_MIGRATION,
 ];
 
 /**
@@ -4199,6 +4237,7 @@ export class OfficeState {
       permissionMode: r.permissionMode,
       isolate: r.isolate, maxTurns: r.maxTurns ?? null,
       allowLocalBinding: r.allowLocalBinding === true,
+      spendFuseTokens: r.spendFuseTokens ?? null,
       repoDir: r.repoDir ?? '', sprite: r.sprite ?? '', brief: r.brief,
       briefExtra: r.package?.briefExtra ?? '',
       package: this.packageView(r),
@@ -4338,6 +4377,16 @@ export class OfficeState {
         }),
       });
     }
+    // Порог предохранителя: ниже общего он душил бы роль, выше потолка —
+    // перестал бы быть предохранителем. null законен — «как у всех».
+    if ('spendFuseTokens' in patch && sanitizeSpendFuse(patch.spendFuseTokens) === undefined) {
+      errors.push({
+        field: 'spendFuseTokens',
+        message: this.say('state.role.fuseRange', {
+          min: BUDGET_DEFAULT_TOKENS, max: BUDGET_ROLE_MAX_TOKENS,
+        }),
+      });
+    }
     if ('permissionMode' in patch
         && patch.permissionMode !== null && !isPermissionMode(patch.permissionMode)) {
       errors.push({ field: 'permissionMode', message: this.say('state.role.badMode') });
@@ -4401,6 +4450,7 @@ export class OfficeState {
       capabilities: Array.isArray(draft.capabilities) ? draft.capabilities.map((c) => String(c)).filter(isCapability) : [],
       maxTurns: draft.maxTurns ?? null,
       allowLocalBinding: draft.allowLocalBinding === true,
+      spendFuseTokens: draft.spendFuseTokens ?? null,
       repoDir: typeof draft.repoDir === 'string' ? draft.repoDir.trim() : '',
       sprite: typeof draft.sprite === 'string' ? draft.sprite.trim() : '',
       brief: typeof draft.brief === 'string' ? draft.brief : '',
@@ -4422,6 +4472,7 @@ export class OfficeState {
       isolate: wanted.isolate,
       maxTurns: wanted.maxTurns,
       ...(wanted.allowLocalBinding ? { allowLocalBinding: true } : {}),
+      ...(wanted.spendFuseTokens ? { spendFuseTokens: wanted.spendFuseTokens } : {}),
       sprite: wanted.sprite,
       archived: false,
       brief: wanted.brief,
@@ -4787,6 +4838,11 @@ export class OfficeState {
     }
     if ('allowLocalBinding' in clean && typeof clean.allowLocalBinding !== 'boolean') {
       delete clean.allowLocalBinding;
+    }
+    // Порог предохранителя уже проверен в checkRolePatch; сюда непригодное
+    // доходит только мимо него — выкидываем, как и остальное.
+    if ('spendFuseTokens' in clean && sanitizeSpendFuse(clean.spendFuseTokens) === undefined) {
+      delete clean.spendFuseTokens;
     }
     // Правка ложится в набор ролей самого офиса: соседний работает со своими.
     // Роль заменяется новым объектом, а не правится на месте: снимок, который

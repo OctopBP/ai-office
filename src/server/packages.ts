@@ -43,6 +43,7 @@ import {
 import { checkMcpServers } from './mcp';
 import { isPermissionMode } from './permissions';
 import { ROOT } from './root';
+import { BUDGET_DEFAULT_TOKENS, BUDGET_ROLE_MAX_TOKENS, sanitizeSpendFuse } from './runguard';
 
 /**
  * Где лежат пакеты. Сейчас — папка в репозитории: там живут наши, `@office/*`.
@@ -170,6 +171,11 @@ export interface AgentManifest {
      * поднять свой сервер для проверки в браузере. Нет в манифесте — нельзя.
      */
     allowLocalBinding?: boolean;
+    /**
+     * Свой порог предохранителя расхода — входные токены одного запуска.
+     * Нет в манифесте — действует общий порог офиса (runguard.ts).
+     */
+    spendFuseTokens?: number;
     /** Серверы из каталога офиса, на которые роль подписана по умолчанию. */
     mcp: string[];
   };
@@ -343,6 +349,13 @@ export function parseManifest(raw: unknown, fallbackName: string): { manifest: A
     err('runtime.allowLocalBinding', 'expected true or false');
   }
   const allowLocalBinding = rt.allowLocalBinding === true;
+  let spendFuseTokens: number | null = null;
+  if (rt.spendFuseTokens !== undefined && rt.spendFuseTokens !== null) {
+    const fuse = sanitizeSpendFuse(rt.spendFuseTokens);
+    if (!fuse) {
+      err('runtime.spendFuseTokens', `an integer from ${BUDGET_DEFAULT_TOKENS} to ${BUDGET_ROLE_MAX_TOKENS}`);
+    } else spendFuseTokens = fuse;
+  }
 
   // --- то, что было в pack.json
   const skills = strList(m.skills) ?? (m.skills === undefined ? [] : (err('skills', 'expected a list of skill names'), []));
@@ -374,7 +387,8 @@ export function parseManifest(raw: unknown, fallbackName: string): { manifest: A
       schema: MANIFEST_SCHEMA, name, kind, members, settings, title, summary, tags, color, emoji, look,
       manager, docsDir, license, capabilities,
       runtime: { engine: engine as Engine, model, tools, permissionMode, isolate, maxTurns, mcp,
-        ...(allowLocalBinding ? { allowLocalBinding } : {}) },
+        ...(allowLocalBinding ? { allowLocalBinding } : {}),
+        ...(spendFuseTokens ? { spendFuseTokens } : {}) },
       skills, builtin, use, servers, requires,
     },
     problems,
