@@ -282,7 +282,9 @@ Releases — building and shipping the project — happen on triggers, not per t
   ask and approve") — propose_release_target. The owner applies it with their "yes". What
   they did not say (the CI branch, the build command, whether they approve) — ask in one
   sentence, do not guess. No Fastfile or CI workflow in the project yet — first a task
-  for an engineer, its id goes into waitForTask.
+  for an engineer, its id goes into waitForTask. The repository is not the office root, or
+  the build runs from a nested folder — say so in repoDir and workDir; they apply to a new
+  release, a started release stays in its own repository.
 - "this is for 2.0", "this is minor" — set_feature_release and plan_release.
 - A release got stuck — the office sends a system message with its id and the reason, and
   release_status lists it under the target. Read the reason and the build log tail with
@@ -1308,13 +1310,15 @@ and the office journal are the same — they live outside the session. This is w
   'tool.setFeatureRelease.desc': 'The feature contribution to a release: which bump it causes and which target it goes to. Set it when the owner says "this is for 2.0" or "this is minor". Empty bump and target — clear.',
   'tool.setFeatureRelease.target': 'Target id. Empty — any.',
   'tool.setFeatureRelease.ok': '{epic}: bump {level}, target {target}.',
-  'tool.proposeTarget.desc': 'Propose a release target from the owner description: where and how to ship the project and when to do it on its own ("deploy to staging after every feature", "TestFlight only when I ask"). The target is not applied right away: the owner gets a question and presses "Apply". The same target id replaces an existing one (see release_status). Do not guess what the owner did not say — the CI branch, the build command, whether they want to approve — ask. If the project has no Fastfile or CI workflow yet, first file a task for an engineer and pass its id in waitForTask.',
+  'tool.proposeTarget.desc': 'Propose a release target from the owner description: where and how to ship the project and when to do it on its own ("deploy to staging after every feature", "TestFlight only when I ask"). The target is not applied right away: the owner gets a question and presses "Apply". The same target id replaces an existing one (see release_status). Do not guess what the owner did not say — the CI branch, the build command, whether they want to approve — ask. If the project has no Fastfile or CI workflow yet, first file a task for an engineer and pass its id in waitForTask. If the release must not come from the office root (the root is not git, the repository is in a nested folder) or the commands run from a folder inside the repository — set repoDir and workDir.',
   'tool.proposeTarget.id': 'Target id: lowercase latin letters, digits, hyphens — staging, testflight, desktop.',
   'tool.proposeTarget.title': 'Human title: "Staging", "TestFlight".',
   'tool.proposeTarget.kind': 'push — push to a branch CI picks up; tag — a version tag CI builds from; command — a build command on this machine (iOS, TestFlight).',
   'tool.proposeTarget.branch': 'For push: the branch CI picks up.',
   'tool.proposeTarget.tag': 'For tag: a tag pattern with {version}. Empty — v{version}.',
   'tool.proposeTarget.buildCommand': 'For command: the shell command that builds and uploads, e.g. "bundle exec fastlane beta". No secrets in it.',
+  'tool.proposeTarget.repoDir': 'Absolute path of the repository to release from: the snapshot, tag, push and version bump happen there. Needed when the office root is not git or is not that repository. Omitted — a replaced target keeps its value, empty string — drop it (office root). A release already started stays in its own repository.',
+  'tool.proposeTarget.workDir': 'Folder inside the repository (relative path, e.g. apps/mobile) that buildCommand and bump run from. Omitted — a replaced target keeps its value, empty string — drop it (repository root).',
   'tool.proposeTarget.bump': 'A command that bumps the version in files, with {version} and {build}, e.g. "npm version {version} --no-git-tag-version". Empty — the version lives only in the tag.',
   'tool.proposeTarget.when': 'Triggers: manual — on request, epic.done — after each finished feature.',
   'tool.proposeTarget.mergedEvery': 'Release every N merged tasks. 0 — no such trigger.',

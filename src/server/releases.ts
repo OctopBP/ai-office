@@ -16,7 +16,7 @@
  * реализацию ставит agents.ts, а проверки подменяют её своей. CI — так же:
  * CiClient по умолчанию ходит в GitHub Actions, проверки дают свой.
  */
-import { readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, readFileSync, statSync, writeFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { OFFICE_SENDER } from '../shared/types';
 import {
@@ -29,6 +29,7 @@ import {
 import { CHECK_NAME_RE, type Run, type Workflow, type WorkflowNode } from '../shared/workflow';
 import { taskClosed } from '../shared/types';
 import { worktreesRoot, type OfficeState, type Task } from './state';
+import { soleZone, zoneRepo } from './subprojects';
 import { t, type ServerKey } from './i18n';
 import {
   OFFICE_PERSON, baseBranch, commitAll, detachedWorktree, filesOfOfficeCommits, git, isAncestor, isRepo, mergeBranch,
@@ -254,9 +255,52 @@ async function keepFailLog(ctx: Ctx, raw: string): Promise<void> {
   patch(ctx, { failLog: logTail(safe) || null });
 }
 
-/** Репозиторий цели: сам проект или путь внутри него. */
+/** Репозиторий цели по её настройке: свой (`repoDir`), путь внутри проекта (`repo`) или сам проект. */
 export const targetRepo = (state: OfficeState, target: ReleaseTarget): string =>
-  (target.repo ? resolve(state.projectDir, target.repo) : state.projectDir);
+  target.repoDir || (target.repo ? resolve(state.projectDir, target.repo) : state.projectDir);
+
+/**
+ * Репозиторий, за которым закреплены все рабочие роли офиса, если он один и
+ * это не корень офиса. Роль без зоны, с несколькими зонами или с зоной-папкой
+ * работает в корне офиса — тогда общего репозитория нет.
+ */
+function rolesRepo(state: OfficeState): string | null {
+  const subs = state.subprojects();
+  const dirs = new Set(state.roles().filter((role) => !role.isManager).map((role) => {
+    const zone = soleZone(role, subs);
+    return zone ? zoneRepo(zone, state.projectDir) : state.projectDir;
+  }));
+  const [only] = [...dirs];
+  return dirs.size === 1 && only !== state.projectDir ? only : null;
+}
+
+/**
+ * Откуда выпускать цель — решается один раз, на снимке, и записывается в
+ * выпуск (`Release.repoDir`). Путь, названный целью (`repoDir`, `repo`),
+ * обязан быть git-репозиторием. Не назван, а корень офиса не git: если все
+ * роли закреплены за одним репозиторием — он; иначе выпускать неоткуда, и
+ * причина говорит, чем это лечится.
+ */
+export async function resolveReleaseRepo(
+  state: OfficeState, target: ReleaseTarget,
+): Promise<{ ok: true; dir: string } | { ok: false; reason: string }> {
+  const named = targetRepo(state, target);
+  if (await isRepo(named)) return { ok: true, dir: named };
+  if (target.repoDir || target.repo) return { ok: false, reason: state.say('rel.noRepo', { dir: named }) };
+  const shared = rolesRepo(state);
+  if (shared && await isRepo(shared)) return { ok: true, dir: shared };
+  return { ok: false, reason: state.say('rel.noTargetRepo', { target: target.id, dir: named }) };
+}
+
+/**
+ * Папка запуска команд цели в рабочей копии `dir`: `workDir` цели или корень
+ * копии. null — такой папки в снимке нет.
+ */
+function commandDir(dir: string, target: ReleaseTarget): string | null {
+  if (!target.workDir) return dir;
+  const at = resolve(dir, target.workDir);
+  return existsSync(at) && statSync(at).isDirectory() ? at : null;
+}
 
 /** Рабочая копия выпуска цели (§7.2): одна на цель, переиспользуется между выпусками. */
 export const releaseDir = (state: OfficeState, target: ReleaseTarget): string =>
@@ -541,8 +585,19 @@ async function migrateOnce(state: OfficeState, repo: string): Promise<void> {
  */
 const snapshot: Executor<Ctx> = {
   async run(ctx) {
-    const { state, repo, target } = ctx;
-    if (!(await isRepo(repo))) return fail(say(ctx, 'rel.noRepo', { dir: repo }));
+    const { state, target } = ctx;
+    // Репозиторий выбирается один раз: у выпуска, который его уже записал
+    // (повтор, resume_release), настройка цели заново не читается.
+    let repo = rel(ctx).repoDir ?? '';
+    if (!repo) {
+      const found = await resolveReleaseRepo(state, target);
+      if (!found.ok) return fail(found.reason, { needsDecision: true });
+      repo = found.dir;
+      patch(ctx, { repoDir: repo });
+      ctx.repo = repo;
+    } else if (!(await isRepo(repo))) {
+      return fail(say(ctx, 'rel.noRepo', { dir: repo }), { needsDecision: true });
+    }
     const base = await baseBranch(repo);
     const head = base ? await revision(repo, base) : null;
     if (!base || !head) return fail(say(ctx, 'rel.noBase'));
@@ -670,13 +725,14 @@ async function currentVersion(ctx: Ctx): Promise<VersionPoint> {
   if (source === 'tag') {
     found = (await lastStableTag(repo, target))?.point ?? null;
   } else if (source === 'package.json') {
-    const shown = await git(repo, ['show', `${r.sha}:package.json`]);
+    const file = target.workDir ? `${target.workDir.replace(/\\/g, '/').replace(/\/+$/, '')}/package.json` : 'package.json';
+    const shown = await git(repo, ['show', `${r.sha}:${file}`]);
     try {
       const v = (JSON.parse(shown.stdout) as { version?: string }).version;
       if (v) found = { version: v, build: null };
     } catch { /* нет package.json — берём историю */ }
   } else if (source === 'command' && target.version.read) {
-    const out = await runProjectCheck(repo, target.version.read, state.lang(), { timeoutMs: 60_000 });
+    const out = await runProjectCheck(commandDir(repo, target) ?? repo, target.version.read, state.lang(), { timeoutMs: 60_000 });
     const line = out.output.split('\n').map((l) => l.trim()).filter(Boolean).pop();
     if (out.ok && line) found = { version: line, build: /^\d+$/.test(line) ? Number(line) : null };
   }
@@ -857,10 +913,12 @@ const bump: Executor<Ctx> = {
     const dir = releaseDir(state, target);
     const copy = await detachedWorktree(repo, dir, r.branch);
     if (!copy.ok) return fail(say(ctx, 'rel.copyFailed', { error: copy.message }));
+    const cwd = commandDir(dir, target);
+    if (!cwd) return fail(say(ctx, 'rel.noWorkDir', { dir: target.workDir ?? '', repo }), { needsDecision: true });
     const secrets = await releaseSecrets(state);
     if (!secrets.ok) return fail(say(ctx, 'rel.secretsFailed', { error: secrets.error }), { needsDecision: true });
     patch(ctx, { stage: say(ctx, 'rel.stage.bump', { version: label(r) }) });
-    const out = await runProjectCheck(dir, fillVersion(target.bump, point(r)), state.lang(), {
+    const out = await runProjectCheck(cwd, fillVersion(target.bump, point(r)), state.lang(), {
       timeoutMs: 5 * 60_000, env: secrets.env, mask: secrets.mask,
     });
     if (!out.ok) {
@@ -956,6 +1014,9 @@ function fileFixTask(ctx: Ctx, log: string, waitFor: boolean): Task | null {
   const r = rel(ctx);
   const roleId = fixRole(state, r);
   if (!roleId) return null;
+  const zone = ctx.repo === state.projectDir
+    ? null
+    : state.subprojects().find((sub) => sub.kind === 'repo' && zoneRepo(sub, state.projectDir) === ctx.repo) ?? null;
   const task = state.createTask({
     title: say(ctx, 'rel.fix.title', { target: target.title, version: label(r) }),
     description: say(ctx, waitFor ? 'rel.fix.desc' : 'rel.fix.descStopped', {
@@ -964,6 +1025,9 @@ function fileFixTask(ctx: Ctx, log: string, waitFor: boolean): Task | null {
     }),
     criteria: [say(ctx, 'rel.fix.crit1'), say(ctx, 'rel.fix.crit2')],
     roleId, type: 'code', priority: 'high',
+    // Ветка выпуска лежит в репозитории выпуска: если это repo-зона, задача
+    // обязана стартовать в ней, иначе ветвиться ей не от чего.
+    ...(zone ? { subprojectId: zone.id } : {}),
   });
   if (waitFor) state.updateTask(task.id, { forkFrom: r.branch });
   dispatch(state);
@@ -1142,13 +1206,15 @@ const build: Executor<Ctx> = {
       const dir = releaseDir(state, target);
       const copy = await detachedWorktree(repo, dir, r.branch);
       if (!copy.ok) return fail(say(ctx, 'rel.copyFailed', { error: copy.message }));
+      const cwd = commandDir(dir, target);
+      if (!cwd) return fail(say(ctx, 'rel.noWorkDir', { dir: target.workDir ?? '', repo }), { needsDecision: true });
       const notesFile = `${dir}.notes.md`;
       writeFileSync(notesFile, r.notes);
       const secrets = await releaseSecrets(state);
       if (!secrets.ok) return fail(say(ctx, 'rel.secretsFailed', { error: secrets.error }), { needsDecision: true });
       const min = target.timeoutMin ?? DEFAULT_TIMEOUT_MIN;
       patch(ctx, { stage: say(ctx, 'rel.stage.build', { version: label(r), min }) });
-      const out = await runProjectCheck(dir, command, state.lang(), {
+      const out = await runProjectCheck(cwd, command, state.lang(), {
         timeoutMs: min * 60_000,
         outputLimit: 8000,
         // Вывод замаскирован внутри: и лог провала, и строка OFFICE_RESULT
@@ -1487,14 +1553,16 @@ async function driveOnce(state: OfficeState, releaseId: string): Promise<void> {
   state.patchRelease(releaseId, {
     status: release.status === 'waiting' ? 'waiting' : 'preparing', needsDecision: false,
   });
-  const repo = targetRepo(state, target);
+  // Репозиторий — с выпуска: снимок записал его при старте. До снимка (и у
+  // выпусков, начатых до появления поля) — по настройке цели.
+  const repoOf = (): string => state.releases.get(releaseId)?.repoDir || targetRepo(state, target);
   const current = run;
   const fixCost = () => {
     const id = state.releases.get(releaseId)?.fixTaskId;
     return id ? state.tasks.get(id)?.usage.costUsd ?? 0 : 0;
   };
   const hooks: RunHooks<Ctx> = {
-    context: (node) => ({ state, releaseId, target, workflow, node, run: current, repo }),
+    context: (node) => ({ state, releaseId, target, workflow, node, run: current, repo: repoOf() }),
     stuck: (ctx, why) => {
       const r = rel(ctx);
       if (r.status === 'skipped') return;
@@ -1744,6 +1812,7 @@ export function releaseText(state: OfficeState, releaseId: string): { ok: boolea
       epics: r.epicIds.join(', ') || '—', attempts: r.attempts,
     }),
   ];
+  if (r.repoDir) lines.push(state.say('rel.get.repo', { dir: r.repoDir, work: target?.workDir || '.' }));
   const steps = run?.steps ?? [];
   lines.push(state.say('rel.get.steps'));
   if (!steps.length) lines.push(`  ${state.say('rel.get.noSteps')}`);
@@ -1838,6 +1907,8 @@ export function describeTarget(state: OfficeState, target: ReleaseTarget, comman
         level: say(`rel.setup.level.${target.version.level}` as ServerKey),
       }),
     target.bump ? say('rel.setup.bumpLine', { bump: target.bump }) : '',
+    target.repoDir ? say('rel.setup.repoLine', { dir: target.repoDir }) : '',
+    target.workDir ? say('rel.setup.workDirLine', { dir: target.workDir }) : '',
     target.assets?.length ? say('rel.setup.assetsLine', { files: target.assets.join(', ') }) : '',
     target.policy.cooldownHours ? say('rel.setup.cooldownLine', { n: target.policy.cooldownHours }) : '',
     ...channelLines(state, target),
@@ -1924,6 +1995,20 @@ export function proposedAssets(
   if (files?.length && kind !== 'tag') return { ok: false, message: state.say('rel.setup.assetsTagOnly', { kind }) };
   if (kind !== 'tag') return { ok: true, assets: [] };
   return { ok: true, assets: [...new Set(files ?? state.releaseTarget(id)?.assets ?? [])] };
+}
+
+/**
+ * Репозиторий и рабочая папка предложенной цели. Не переданы — при замене
+ * цели остаются прежние (иначе повторное предложение молча вернуло бы выпуск
+ * в корень офиса); пустая строка снимает поле явно.
+ */
+export function proposedDirs(
+  state: OfficeState, id: string, given: { repoDir?: string; workDir?: string },
+): Pick<ReleaseTarget, 'repoDir' | 'workDir'> {
+  const old = state.releaseTarget(id);
+  const repoDir = given.repoDir === undefined ? old?.repoDir : given.repoDir.trim();
+  const workDir = given.workDir === undefined ? old?.workDir : given.workDir.trim().replace(/^\.[\\/]+|[\\/]+$/g, '');
+  return { ...(repoDir ? { repoDir } : {}), ...(workDir && workDir !== '.' ? { workDir } : {}) };
 }
 
 /**

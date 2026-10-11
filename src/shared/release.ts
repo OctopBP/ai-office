@@ -106,6 +106,17 @@ const targetSchema = z.object({
   assets: z.array(z.string().trim().min(1).max(200)).max(20).optional(),
   /** Репозиторий относительно проекта. Нет — сам проект. */
   repo: z.string().min(1).max(300).optional(),
+  /**
+   * Свой репозиторий цели, абсолютный путь: снимок, тег, пуш и подъём версии
+   * идут в него. Нужен, когда корень офиса — не тот репозиторий, из которого
+   * выпускают (или вовсе не git). Нет — `repo` или корень офиса.
+   */
+  repoDir: z.string().trim().min(1).max(500).optional(),
+  /**
+   * Папка внутри репозитория, из которой запускаются команда сборки и `bump`
+   * (монорепозиторий: `apps/mobile`). Нет — корень репозитория.
+   */
+  workDir: z.string().trim().min(1).max(300).optional(),
   policy: policySchema,
   version: versionSchema,
   /**
@@ -129,6 +140,9 @@ export type ReleaseConfig = z.infer<typeof configSchema>;
 /** Сколько ждать CI или сборку, если цель не сказала. */
 export const DEFAULT_TIMEOUT_MIN = 30;
 export const DEFAULT_TAG = 'v{version}';
+
+/** Абсолютный путь POSIX или Windows. Модуль общий с вебом, `node:path` здесь нет. */
+const isAbsolutePath = (p: string): boolean => /^(\/|[A-Za-z]:[\\/]|\\\\)/.test(p);
 
 /**
  * Разобрать настройку выпусков. Как и файл процесса, её пишет человек, и
@@ -163,6 +177,12 @@ export function parseReleaseConfig(data: unknown, checks: Record<string, string>
     }
     if (target.repo && (target.repo.startsWith('/') || target.repo.split(/[\\/]/).includes('..'))) {
       throw new Error(`${where}: repo — путь внутри проекта`);
+    }
+    if (target.repoDir && !isAbsolutePath(target.repoDir)) {
+      throw new Error(`${where}: repoDir — абсолютный путь репозитория`);
+    }
+    if (target.workDir && (isAbsolutePath(target.workDir) || target.workDir.split(/[\\/]/).includes('..'))) {
+      throw new Error(`${where}: workDir — путь внутри репозитория, без «..»`);
     }
     if (target.channels) checkChannels(target, where);
   }
@@ -588,6 +608,13 @@ export interface Release {
   /** Разряд, на который поднята версия, и откуда он. */
   level: VersionLevel | null;
   levelFrom: 'plan' | 'auto' | 'fixed' | 'owner' | null;
+  /**
+   * Репозиторий выпуска, абсолютный путь. Фиксируется снимком при старте, как
+   * `task.repoDir` на задаче: всё, что делается с выпуском потом (повтор,
+   * `resume_release`), идёт сюда, даже если цель с тех пор поменяли. Нет —
+   * выпуск начат до появления поля или снимок ещё не снят.
+   */
+  repoDir?: string;
   /** Что выпускаем: вершина ветки выпуска. Пусто до снимка. */
   sha: string;
   /** Прошлый выпуск этой цели. null — первый. */

@@ -1412,12 +1412,18 @@ export async function pushRef(
  * releases/spec.md §7.2). Копия переиспользуется: DerivedData, поды и прочее
  * игнорируемое остаётся, а отслеживаемое сбрасывается ровно в снимок.
  * Отцепленная — потому что ветку выпуска тем временем может взять слияние
- * починки, а одна ветка в двух копиях git не даёт.
+ * починки, а одна ветка в двух копиях git не даёт. Копия, оставшаяся от
+ * другого репозитория (цель перевели на другой `repoDir`), пересоздаётся:
+ * одноимённая ссылка могла найтись и там, и собралось бы чужое дерево.
  */
 export async function detachedWorktree(
   repoDir: string, path: string, ref: string,
 ): Promise<{ ok: boolean; message: string }> {
-  if (existsSync(resolve(path, '.git'))) {
+  const commonDir = async (dir: string): Promise<string> => {
+    const out = await git(dir, ['rev-parse', '--path-format=absolute', '--git-common-dir']);
+    return out.ok ? out.stdout.trim() : '';
+  };
+  if (existsSync(resolve(path, '.git')) && (await commonDir(path)) === (await commonDir(repoDir))) {
     const co = await git(path, ['checkout', '--detach', '--force', ref]);
     if (co.ok) {
       await git(path, ['reset', '--hard', ref]);

@@ -87,7 +87,8 @@ async function main(): Promise<void> {
     const id = started.release?.id ?? '';
     await whenReleasesIdle(office);
     const r = office.releases.get(id)!;
-    const why = `${plain} — не git-репозиторий.`;
+    // Репозиторий цели не назван, а корень офиса не git (T-553): причина говорит, чем это лечится.
+    const why = office.say('rel.noTargetRepo', { target: 'testflight', dir: plain });
     check('выпуск встал', r.status === 'failed');
     check('в выпуске — стадия и причина', r.stop?.node === 'snapshot' && r.stop.reason === why && r.stop.at > 0, JSON.stringify(r.stop));
     check('до сборки не дошло — хвоста журнала нет', r.stop?.log === '');

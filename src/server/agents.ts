@@ -38,7 +38,7 @@ import {
 import { outsideZone, writeZone } from './subprojects';
 import { worktreeOwnFiles } from './premerge';
 import {
-  closeReleasePlan, proposeReleaseTarget, proposedAssets, proposedChannels, releaseStatusText, releaseText, resumeRelease, saveReleasePlan, setReleaseAgents,
+  closeReleasePlan, proposeReleaseTarget, proposedAssets, proposedChannels, proposedDirs, releaseStatusText, releaseText, resumeRelease, saveReleasePlan, setReleaseAgents,
   startRelease,
 } from './releases';
 import type { ReleaseTarget } from '../shared/release';
@@ -1772,6 +1772,8 @@ const teamTools = (state: OfficeState, chatId: string) => createSdkMcpServer({
         tag: z.string().default('').describe(state.say('tool.proposeTarget.tag')),
         buildCommand: z.string().default('').describe(state.say('tool.proposeTarget.buildCommand')),
         bump: z.string().default('').describe(state.say('tool.proposeTarget.bump')),
+        repoDir: z.string().optional().describe(state.say('tool.proposeTarget.repoDir')),
+        workDir: z.string().optional().describe(state.say('tool.proposeTarget.workDir')),
         when: z.array(z.enum(['manual', 'epic.done'])).default([]).describe(state.say('tool.proposeTarget.when')),
         mergedEvery: z.number().int().min(0).default(0).describe(state.say('tool.proposeTarget.mergedEvery')),
         approve: z.enum(['always', 'major', 'never']).describe(state.say('tool.proposeTarget.approve')),
@@ -1810,6 +1812,7 @@ const teamTools = (state: OfficeState, chatId: string) => createSdkMcpServer({
           ...(args.kind !== 'command' && args.ci !== 'auto' ? { ci: args.ci } : {}),
           ...(args.timeoutMin ? { timeoutMin: args.timeoutMin } : {}),
           ...(assets.length ? { assets } : {}),
+          ...proposedDirs(state, id, { repoDir: args.repoDir, workDir: args.workDir }),
           ...(lanes.channels ? { channels: lanes.channels } : {}),
           policy: {
             when, approve: args.approve,
