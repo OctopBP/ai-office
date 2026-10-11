@@ -78,6 +78,7 @@
     "test:promote": "node --import tsx scripts/test-release-promote.ts",
     "test:beta": "node --import tsx scripts/test-release-beta.ts",
     "test:release-stop": "node --import tsx scripts/test-release-stop.ts",
+    "test:release-cancel": "node --import tsx scripts/test-release-cancel.ts",
     "test:release-repo": "node --import tsx scripts/test-release-repo.ts",
     "test:release-check": "node --import tsx scripts/test-release-check.ts",
     "test:offices": "tsx scripts/test-offices.ts",

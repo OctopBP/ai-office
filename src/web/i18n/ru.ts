@@ -1485,6 +1485,7 @@ export const ru: Record<keyof typeof en, string> = {
   'releases.status.done': 'выпущено',
   'releases.status.failed': 'встал',
   'releases.status.skipped': 'пропущен',
+  'releases.status.cancelled': 'отменён',
   'releases.reason.manual': 'просьба',
   'releases.reason.epic': 'фича',
   'releases.reason.merged': 'слияния',

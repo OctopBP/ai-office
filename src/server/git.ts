@@ -1408,6 +1408,17 @@ export async function pushRef(
 }
 
 /**
+ * Есть ли ссылка в origin. null — выяснить не удалось (нет сети, нет доступа):
+ * вызывающий обязан считать, что она там может быть.
+ */
+export async function remoteHasRef(repoDir: string, ref: string, token: string | null): Promise<boolean | null> {
+  const url = await remoteUrl(repoDir);
+  if (!url) return false;
+  const r = await git(repoDir, ['ls-remote', authUrl(url, token), ref]);
+  return r.ok ? r.stdout.trim() !== '' : null;
+}
+
+/**
  * Отцепленная рабочая копия на данной ссылке — для выпуска (docs/design/
  * releases/spec.md §7.2). Копия переиспользуется: DerivedData, поды и прочее
  * игнорируемое остаётся, а отслеживаемое сбрасывается ровно в снимок.

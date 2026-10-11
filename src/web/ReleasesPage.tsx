@@ -45,7 +45,7 @@ const label = (r: Release): string => versionLabel({ version: r.version, build: 
 
 function StatusChip({ release }: { release: Release }) {
   const cls = release.status === 'done' ? 'done' : release.status === 'failed' ? 'stuck'
-    : release.status === 'waiting' ? 'waiting' : release.status === 'skipped' ? 'builtin' : 'running';
+    : release.status === 'waiting' ? 'waiting' : release.status === 'skipped' || release.status === 'cancelled' ? 'builtin' : 'running';
   return <span className={`chip ${cls}`}>{t(`releases.status.${release.status}`)}</span>;
 }
 

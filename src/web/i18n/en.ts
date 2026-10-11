@@ -1486,6 +1486,7 @@ export const en = {
   'releases.status.done': 'released',
   'releases.status.failed': 'stuck',
   'releases.status.skipped': 'skipped',
+  'releases.status.cancelled': 'cancelled',
   'releases.reason.manual': 'request',
   'releases.reason.epic': 'feature',
   'releases.reason.merged': 'merges',

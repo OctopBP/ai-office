@@ -561,7 +561,7 @@ export function parseGithubRelease(data: unknown, tag: string, assets: string[])
 
 // ------------------------------------------------------------------ выпуск
 
-export type ReleaseStatus = 'preparing' | 'waiting' | 'building' | 'done' | 'failed' | 'skipped';
+export type ReleaseStatus = 'preparing' | 'waiting' | 'building' | 'done' | 'failed' | 'skipped' | 'cancelled';
 
 /** Выпуск ещё идёт: второй на ту же цель не начинается. */
 export const releaseActive = (status: ReleaseStatus): boolean =>
@@ -592,6 +592,20 @@ export interface ReleaseStop {
   at: number;
   /** Повторять бессмысленно: нужно решение. */
   needsDecision: boolean;
+}
+
+/**
+ * Отмена выпуска (§9.3): почему отменён и что при этом осталось снаружи —
+ * запушенный тег, ветка в origin, опубликованный релиз, ушедшая сборка. Офис
+ * убирает только своё и неопубликованное; остальное называет строками.
+ */
+export interface ReleaseCancel {
+  reason: string;
+  at: number;
+  /** Что осталось снаружи, готовыми фразами. Пусто — следов нет. */
+  outside: string[];
+  /** Номер сборки наружу не ушёл: следующий выпуск цели возьмёт его снова. */
+  buildFree: boolean;
 }
 
 /** Выпуск как предмет (§9.1): одна попытка выпустить одну цель. */
@@ -667,6 +681,17 @@ export interface Release {
    * перезапуск, а при остановке уходит в `stop.log`. Сборка прошла — снимается.
    */
   failLog?: string | null;
+  /**
+   * Следы выпуска — по ним отмена решает, что убирать
+   * (§9.3). `tag` — тег, который создал офис; `pushed` — ссылки, ушедшие в
+   * origin (`refs/tags/v1.2.0`, `refs/heads/staging`); `buildRan` — команда
+   * сборки запускалась с номером `build`, и он мог уйти наружу.
+   */
+  tag?: string | null;
+  pushed?: string[];
+  buildRan?: boolean;
+  /** Отмена: причина и что осталось снаружи. Только при `status: 'cancelled'`. */
+  cancel?: ReleaseCancel | null;
   startedAt: number;
   finishedAt: number | null;
   costUsd: number;

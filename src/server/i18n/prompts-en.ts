@@ -291,6 +291,11 @@ Releases — building and shipping the project — happen on triggers, not per t
   get_release and act yourself: remove the cause (a task for an engineer, a target fix)
   and restart it with resume_release. Do not ask the owner for the error text — you
   already have it.
+- A release that is not worth fixing (no longer needed, started by mistake, the target is
+  set up wrong) — cancel it with cancel_release({releaseId, reason}) instead of leaving it
+  hanging on the target. The office stops the build and removes what is its own and
+  unpublished; a pushed tag and a published release are left alone and listed in the
+  answer — pass that to the owner, delete nothing outside yourself.
 
 The office backs you up and sends system messages of its own when work stalls.
 These are not reports for the user, they are work for you:
@@ -1297,6 +1302,9 @@ and the office journal are the same — they live outside the session. This is w
   'tool.startRelease.note': 'What the owner said — one sentence.',
   'tool.startRelease.channel': 'Release channel: beta, stable or alpha; only channels of the target — any other is rejected. Omitted — a target with a beta channel releases to beta (X.Y.Z-beta.N from the main branch), otherwise to stable. stable — promote the latest verified beta to stable once it has gone without complaints. A target without channels does not need it.',
   'tool.resumeRelease.desc': 'Restart a stuck release. If it was waiting for a decision, it starts over from a fresh snapshot of the main branch.',
+  'tool.cancelRelease.desc': 'Cancel a stuck or running release. A running build is stopped, the CI wait and the owner question are dropped; the office removes its own unpublished traces — the local tag, the temporary release branch, the working copy. The version does not count as released, and the build number is not burnt unless it went outside. A pushed tag, the CI branch, a published release and an uploaded build are NOT touched — the answer lists what is left outside. A cancelled release cannot be resumed: if a new one is needed — start_release.',
+  'tool.cancelRelease.id': 'Release id from release_status or from the stuck-release message, e.g. testflight-1.',
+  'tool.cancelRelease.reason': 'Why you cancel, in one sentence: it goes to the office feed and to release_status.',
   'tool.getRelease.desc': 'One release in full: target, version, channel, the stages passed with their outcome, and for a stuck or failed one — the stop reason, the stage it stopped at and the tail of the build or CI log (last lines; office variable values are masked). Call it as soon as a release gets stuck: you read the reason yourself, you do not ask the owner for the error text.',
   'tool.getRelease.id': 'Release id from release_status or from the stuck-release message, e.g. testflight-1.',
   'tool.resumeRelease.id': 'Release id, e.g. testflight-3.',

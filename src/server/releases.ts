@@ -16,7 +16,7 @@
  * реализацию ставит agents.ts, а проверки подменяют её своей. CI — так же:
  * CiClient по умолчанию ходит в GitHub Actions, проверки дают свой.
  */
-import { existsSync, readFileSync, statSync, writeFileSync } from 'node:fs';
+import { existsSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { OFFICE_SENDER } from '../shared/types';
 import {
@@ -24,16 +24,16 @@ import {
   nextChannelVersion, nextVersion, parseBuildResult, parseGithubRelease, parseReleaseConfig, parseSemver, parseVersion, releaseActive,
   targetChannels, versionChannel, versionInAnswer, versionLabel,
   type GithubReleaseCheck, type Release, type ReleaseChannel, type ReleaseChannelSpec, type ReleaseChannels, type ReleaseReason,
-  type ReleaseSetup, type ReleaseStop, type ReleaseTarget, type VersionLevel, type VersionPoint,
+  type ReleaseCancel, type ReleaseSetup, type ReleaseStop, type ReleaseTarget, type VersionLevel, type VersionPoint,
 } from '../shared/release';
-import { CHECK_NAME_RE, type Run, type Workflow, type WorkflowNode } from '../shared/workflow';
+import { CHECK_NAME_RE, nodeOf, type Run, type Workflow, type WorkflowNode } from '../shared/workflow';
 import { taskClosed } from '../shared/types';
 import { worktreesRoot, type OfficeState, type Task } from './state';
 import { soleZone, zoneRepo } from './subprojects';
 import { t, type ServerKey } from './i18n';
 import {
   OFFICE_PERSON, baseBranch, commitAll, detachedWorktree, filesOfOfficeCommits, git, isAncestor, isRepo, mergeBranch,
-  mergeDown, promoteBranch, pushRef, remoteUrl, revision, syncChannelBranch,
+  mergeDown, promoteBranch, pushRef, remoteHasRef, remoteUrl, revision, syncChannelBranch,
 } from './git';
 import { integrationDir, runProjectCheck } from './merge';
 import { githubToken } from './cloud';
@@ -44,6 +44,7 @@ import { countWorking } from './busy';
 import { checkReleaseTarget, hasBlocking, type TargetProblem } from './release-check';
 import { gateAnswerYes, tellPm, withMergeLock } from './review';
 import { dispatch } from './plan';
+import { cancelTask } from './outcomes';
 import {
   drive, newRun, resumeRun, type Executor, type Halt, type Resolve, type RunHooks, type StepResult,
 } from './runs';
@@ -67,6 +68,8 @@ export const releaseTiming = {
   /** Релиз на GitHub после CI: как часто смотреть и сколько ждать, пока он станет виден. */
   releasePollMs: 30_000,
   releaseWaitMs: 10 * 60_000,
+  /** Столько отмена ждёт, пока идущий выпуск остановится, прежде чем убирать следы. */
+  cancelWaitMs: 20_000,
 };
 
 // ------------------------------------------------------------- агенты и CI
@@ -237,10 +240,37 @@ interface Ctx {
   node: WorkflowNode;
   run: Run;
   repo: string;
+  /** Срабатывает при отмене выпуска: снимает команду сборки и будит ожидания. */
+  signal: AbortSignal;
+}
+
+/**
+ * Выпуск отменён посреди узла (§9.3). Действие узла разматывается этим
+ * исключением: дальше не идёт ни один шаг, а следы убирает сама отмена.
+ */
+class ReleaseCancelled extends Error {
+  constructor() { super('release cancelled'); }
 }
 
 const rel = (ctx: Ctx): Release => ctx.state.releases.get(ctx.releaseId) as Release;
-const patch = (ctx: Ctx, p: Partial<Release>): Release => ctx.state.patchRelease(ctx.releaseId, p) as Release;
+/** Выпуск ещё не отменён — иначе узел обрывается на месте. */
+const alive = (ctx: Ctx): void => {
+  if (ctx.signal.aborted || rel(ctx)?.status === 'cancelled') throw new ReleaseCancelled();
+};
+/** Правка выпуска из узла. У отменённого выпуска узлу править нечего — он обрывается. */
+const patch = (ctx: Ctx, p: Partial<Release>): Release => {
+  alive(ctx);
+  return ctx.state.patchRelease(ctx.releaseId, p) as Release;
+};
+/**
+ * Записать след — тег создан, ссылка ушла в origin, сборка запускалась. Пишется
+ * и у отменённого выпуска: отмена могла прийти, пока шёл пуш, а знать о нём надо.
+ */
+const record = (ctx: Ctx, p: Pick<Release, 'tag' | 'pushed' | 'buildRan'>): void => {
+  ctx.state.patchRelease(ctx.releaseId, p);
+};
+const recordPushed = (ctx: Ctx, ref: string): void =>
+  record(ctx, { pushed: [...new Set([...(rel(ctx).pushed ?? []), ref])] });
 const say = (ctx: Ctx, key: Parameters<OfficeState['say']>[0], vars?: Parameters<OfficeState['say']>[1]) => ctx.state.say(key, vars);
 const fail = (note: string, extra: Partial<StepResult> = {}): StepResult => ({ outcome: 'fail', note, ...extra });
 
@@ -326,7 +356,7 @@ function commandDir(dir: string, target: ReleaseTarget): string | null {
 }
 
 /** Рабочая копия выпуска цели (§7.2): одна на цель, переиспользуется между выпусками. */
-export const releaseDir = (state: OfficeState, target: ReleaseTarget): string =>
+export const releaseDir = (state: OfficeState, target: Pick<ReleaseTarget, 'id'>): string =>
   resolve(worktreesRoot(state), '_release', target.id);
 
 const point = (r: Release): VersionPoint => ({ version: r.version, build: r.build });
@@ -590,7 +620,7 @@ async function migrateOnce(state: OfficeState, repo: string): Promise<void> {
     const sha = await revision(repo, `refs/heads/${old}`);
     // Ветку идущего или вставшего выпуска не удаляем, даже если она «влита»:
     // снимок на вершине основной ветки — тоже её предок.
-    const settled = !release || release.status === 'done' || release.status === 'skipped';
+    const settled = !release || release.status === 'done' || release.status === 'skipped' || release.status === 'cancelled';
     const merged = Boolean(sha && baseSha && settled && (await isAncestor(repo, sha, baseSha)));
     const next = `office/rel/${id}`;
     const out = merged ? await git(repo, ['branch', '-D', old]) : await git(repo, ['branch', '-m', old, next]);
@@ -741,7 +771,8 @@ async function currentVersion(ctx: Ctx): Promise<VersionPoint> {
   const history: VersionPoint = { version: prev?.version ?? null, build: null };
   // Номер сборки — наибольший из всех попыток цели, а не из последней
   // удачной: номер, уже ушедший в TestFlight, повторять нельзя.
-  const builds = state.releasesOf(target.id).map((x) => x.build ?? 0);
+  // Отменённый выпуск, чей номер наружу не ушёл, его не сжигает (§9.3).
+  const builds = state.releasesOf(target.id).filter((x) => !(x.status === 'cancelled' && x.cancel?.buildFree)).map((x) => x.build ?? 0);
   const maxBuild = Math.max(0, ...builds);
   const source = target.version.source ?? (target.kind === 'tag' ? 'tag' : undefined);
   let found: VersionPoint | null = null;
@@ -896,7 +927,7 @@ const approve: Executor<Ctx> = {
     state.saveRun(run);
     patch(ctx, { status: 'waiting', stage: say(ctx, 'rel.stage.waiting', { id: question.id }) });
 
-    const closed = await state.whenQuestionClosed(question.id);
+    const closed = await state.whenQuestionClosed(question.id, ctx.signal);
     patch(ctx, { status: 'preparing' });
     const answer = closed?.answeredAt ? closed.answer ?? '' : '';
     const override = versionInAnswer(answer);
@@ -942,8 +973,9 @@ const bump: Executor<Ctx> = {
     if (!secrets.ok) return fail(say(ctx, 'rel.secretsFailed', { error: secrets.error }), { needsDecision: true });
     patch(ctx, { stage: say(ctx, 'rel.stage.bump', { version: label(r) }) });
     const out = await runProjectCheck(cwd, fillVersion(target.bump, point(r)), state.lang(), {
-      timeoutMs: 5 * 60_000, env: secrets.env, mask: secrets.mask,
+      timeoutMs: 5 * 60_000, env: secrets.env, mask: secrets.mask, signal: ctx.signal,
     });
+    alive(ctx);
     if (!out.ok) {
       await keepFailLog(ctx, out.output);
       return fail(say(ctx, 'rel.bumpFailed', { output: out.output }));
@@ -994,6 +1026,7 @@ const push: Executor<Ctx> = {
     patch(ctx, { status: 'building', attempts: rel(ctx).attempts + 1, stage: say(ctx, 'rel.stage.push', { branch: target.branch as string }) });
     const pushed = await pushRef(repo, sha, `refs/heads/${target.branch}`, githubToken(), state.lang());
     if (!pushed.ok) return fail(say(ctx, 'rel.pushFailed', { branch: target.branch as string, error: pushed.message }), { needsDecision: true });
+    recordPushed(ctx, `refs/heads/${target.branch}`);
     state.addLog(null, 'system', say(ctx, 'rel.pushed', { target: target.title, branch: target.branch as string, sha: sha.slice(0, 8) }));
     return { outcome: 'pass', artifact: { kind: 'shipped', ref: sha, text: `${target.branch} ← ${sha.slice(0, 8)}` } };
   },
@@ -1012,10 +1045,13 @@ const tag: Executor<Ctx> = {
     const made = await git(repo, ['tag', '-a', ...(again ? ['-f'] : []), name, '-m', `${target.title} ${label(r)}\n\n${r.notes}`, sha],
       { GIT_COMMITTER_NAME: OFFICE_PERSON.name, GIT_COMMITTER_EMAIL: OFFICE_PERSON.email });
     if (!made.ok) return fail(say(ctx, 'rel.tagFailed', { tag: name, error: made.stderr }), { needsDecision: true });
+    record(ctx, { tag: name });
     const links = [...r.links];
     if (await remoteUrl(repo)) {
+      alive(ctx);
       const pushed = await pushRef(repo, `refs/tags/${name}`, `refs/tags/${name}`, githubToken(), state.lang(), again);
       if (!pushed.ok) return fail(say(ctx, 'rel.pushFailed', { branch: name, error: pushed.message }), { needsDecision: true });
+      recordPushed(ctx, `refs/tags/${name}`);
       const gh = await githubFor(repo);
       if (gh) links.push({ title: name, url: `https://github.com/${gh.owner}/${gh.repo}/releases/tag/${encodeURIComponent(name)}` });
     } else {
@@ -1030,6 +1066,15 @@ const dedupe = <T extends { url: string }>(list: T[]): T[] =>
   list.filter((x, i) => list.findIndex((y) => y.url === x.url) === i);
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+
+/** Пауза узла между опросами. Отмена выпуска её обрывает — и узел вместе с ней. */
+async function pause(ctx: Ctx, ms: number): Promise<void> {
+  await new Promise<void>((done) => {
+    const timer = setTimeout(done, ms);
+    ctx.signal.addEventListener('abort', () => { clearTimeout(timer); done(); }, { once: true });
+  });
+  alive(ctx);
+}
 
 /** Задача «починить сборку» без ожидания — когда петля починки исчерпана (§14.2). */
 function fileFixTask(ctx: Ctx, log: string, waitFor: boolean): Task | null {
@@ -1117,7 +1162,7 @@ const watch: Executor<Ctx> = {
         return fail(say(ctx, 'rel.ciTimeout', { min: target.timeoutMin ?? DEFAULT_TIMEOUT_MIN }), { needsDecision: true });
       }
       patch(ctx, { stage: say(ctx, 'rel.stage.ciRunning', { n: runs.filter((x) => x.status !== 'completed').length }) });
-      await sleep(releaseTiming.ciPollMs);
+      await pause(ctx, releaseTiming.ciPollMs);
     }
   },
   exhausted: (ctx, last) => exhaustedFix(ctx, last),
@@ -1162,7 +1207,7 @@ const visible: Executor<Ctx> = {
           }
           why = invisibleWhy(ctx, tagName, seen);
           if (Date.now() + releaseTiming.releasePollMs > deadline) break;
-          await sleep(releaseTiming.releasePollMs);
+          await pause(ctx, releaseTiming.releasePollMs);
         }
         const again = say(ctx, 'rel.visible.optAgain');
         const stop = say(ctx, 'rel.visible.optStop');
@@ -1183,7 +1228,8 @@ const visible: Executor<Ctx> = {
         state.saveRun(run);
       }
       patch(ctx, { status: 'waiting', stage: say(ctx, 'rel.stage.visibleAsk', { id: question.id }) });
-      const closed = await state.whenQuestionClosed(question.id);
+      const closed = await state.whenQuestionClosed(question.id, ctx.signal);
+      alive(ctx);
       run.waitingOn = null;
       run.status = 'running';
       state.saveRun(run);
@@ -1218,7 +1264,12 @@ const build: Executor<Ctx> = {
     const command = state.settings.checks?.[target.run ?? ''];
     if (!command) return fail(say(ctx, 'rel.noCommand', { name: target.run ?? '' }), { needsDecision: true });
     patch(ctx, { stage: say(ctx, 'rel.stage.queued') });
-    return withLocalBuild(async () => {
+    // Очередь на сборку может стоять часами за чужим выпуском: отмена из неё выходит сразу.
+    const cancelled = new Promise<never>((_, reject) => {
+      ctx.signal.addEventListener('abort', () => reject(new ReleaseCancelled()), { once: true });
+    });
+    return Promise.race([cancelled, withLocalBuild(async () => {
+      alive(ctx);
       await state.whenResumed();
       const sha = await shipSha(ctx);
       if (!sha) return fail(say(ctx, 'rel.noBranch', { branch: rel(ctx).branch }));
@@ -1237,7 +1288,10 @@ const build: Executor<Ctx> = {
       if (!secrets.ok) return fail(say(ctx, 'rel.secretsFailed', { error: secrets.error }), { needsDecision: true });
       const min = target.timeoutMin ?? DEFAULT_TIMEOUT_MIN;
       patch(ctx, { stage: say(ctx, 'rel.stage.build', { version: label(r), min }) });
+      // С этого места номер сборки считается ушедшим: команда могла его выложить.
+      record(ctx, { buildRan: true });
       const out = await runProjectCheck(cwd, command, state.lang(), {
+        signal: ctx.signal,
         timeoutMs: min * 60_000,
         outputLimit: 8000,
         // Вывод замаскирован внутри: и лог провала, и строка OFFICE_RESULT
@@ -1252,6 +1306,7 @@ const build: Executor<Ctx> = {
           OFFICE_RELEASE_TARGET: target.id,
         },
       });
+      alive(ctx);
       const result = parseBuildResult(out.output);
       if (!out.ok) {
         const log = out.output.slice(-LOG_TAIL);
@@ -1263,7 +1318,7 @@ const build: Executor<Ctx> = {
       patch(ctx, { links, build: result?.build ?? rel(ctx).build, failLog: null });
       if (result?.text) state.addLog(null, 'system', `${target.title}: ${result.text}`);
       return { outcome: 'pass', artifact: { kind: 'result', text: result?.text ?? say(ctx, 'rel.built') } };
-    });
+    })]);
   },
   exhausted: (ctx, last) => exhaustedFix(ctx, last),
 };
@@ -1304,7 +1359,7 @@ const fix: Executor<Ctx> = {
         patch(ctx, { fixTaskId: null });
         return { outcome: 'done', note: say(ctx, 'rel.fixMerged', { task: task.id }) };
       }
-      await sleep(releaseTiming.taskPollMs);
+      await pause(ctx, releaseTiming.taskPollMs);
     }
   },
 };
@@ -1392,12 +1447,27 @@ const OFFICE: Record<string, Executor<Ctx>> = {
   'office:release-publish': publish,
 };
 
-const resolveExecutor: Resolve<Ctx> = (node) => (node.run ? OFFICE[node.run] : undefined);
+/** Действие узла с проверкой отмены до и после: отменённый выпуск дальше узла не идёт. */
+const resolveExecutor: Resolve<Ctx> = (node) => {
+  const found = node.run ? OFFICE[node.run] : undefined;
+  if (!found) return undefined;
+  return {
+    async run(ctx) {
+      alive(ctx);
+      const out = await found.run(ctx);
+      alive(ctx);
+      return out;
+    },
+    exhausted: found.exhausted,
+  };
+};
 
 // -------------------------------------------------------------- прогоны
 
 /** Идущие выпуски: ключ «офис:выпуск». */
 const running = new Map<string, Promise<void>>();
+/** Чем остановить идущий выпуск: тот же ключ. */
+const aborts = new Map<string, AbortController>();
 
 export const isReleaseRunning = (state: OfficeState, releaseId: string): boolean =>
   running.has(`${state.officeId}:${releaseId}`);
@@ -1463,7 +1533,7 @@ export function startRelease(
     id: state.newReleaseId(targetId),
     targetId, ...(channels.length ? { channel } : {}), ...(opts.hotfix && channel === 'stable' && channels.length ? { hotfix: true } : {}), version: null, build: null, level: null, levelFrom: null,
     sha: '', fromSha: null, branch: '', epicIds: [], taskIds: [], planId: null, notes: '',
-    reason, note, status: 'preparing', stage: state.say('rel.stage.start'), links: [],
+    reason, note, status: 'preparing', stage: state.say('rel.stage.start'), links: [], pushed: [],
     fixTaskId: null, attempts: 0, retries: 0, nextTryAt: null, needsDecision: false,
     startedAt: now, finishedAt: null, costUsd: 0,
   };
@@ -1529,7 +1599,8 @@ function stopNext(state: OfficeState, r: Release, needsDecision: boolean): strin
  */
 function markStopped(state: OfficeState, releaseId: string, node: string, why: Halt): void {
   const before = state.releases.get(releaseId);
-  if (!before) return;
+  // Отменённый выпуск вставшим не становится, что бы ни вернул оборванный узел.
+  if (!before || before.status === 'cancelled') return;
   const prev = before.stop ?? null;
   const needsDecision = Boolean(why.needsDecision);
   const r = state.patchRelease(releaseId, {
@@ -1566,20 +1637,26 @@ export function driveRelease(state: OfficeState, releaseId: string): Promise<voi
   const key = `${state.officeId}:${releaseId}`;
   const already = running.get(key);
   if (already) return already;
-  const promise = driveOnce(state, releaseId)
+  const abort = new AbortController();
+  aborts.set(key, abort);
+  const promise = driveOnce(state, releaseId, abort.signal)
     .catch((err) => {
+      if (err instanceof ReleaseCancelled || state.releases.get(releaseId)?.status === 'cancelled') return;
       const text = state.say('rel.crashed', { id: releaseId, error: (err as Error).message });
       state.addLog(null, 'error', text);
       markStopped(state, releaseId, runOfRelease(state, releaseId)?.nodeId ?? '', { note: text });
     })
-    .finally(() => running.delete(key));
+    .finally(() => {
+      running.delete(key);
+      if (aborts.get(key) === abort) aborts.delete(key);
+    });
   running.set(key, promise);
   return promise;
 }
 
-async function driveOnce(state: OfficeState, releaseId: string): Promise<void> {
+async function driveOnce(state: OfficeState, releaseId: string, signal: AbortSignal): Promise<void> {
   const release = state.releases.get(releaseId);
-  if (!release) return;
+  if (!release || release.status === 'cancelled') return;
   const target = state.releaseTarget(release.targetId);
   if (!target) {
     markStopped(state, releaseId, '', { note: state.say('rel.targetGone', { id: release.targetId }), needsDecision: true });
@@ -1607,10 +1684,10 @@ async function driveOnce(state: OfficeState, releaseId: string): Promise<void> {
     return id ? state.tasks.get(id)?.usage.costUsd ?? 0 : 0;
   };
   const hooks: RunHooks<Ctx> = {
-    context: (node) => ({ state, releaseId, target, workflow, node, run: current, repo: repoOf() }),
+    context: (node) => ({ state, releaseId, target, workflow, node, run: current, repo: repoOf(), signal }),
     stuck: (ctx, why) => {
       const r = rel(ctx);
-      if (r.status === 'skipped') return;
+      if (r.status === 'skipped' || r.status === 'cancelled') return;
       markStopped(state, releaseId, ctx.node.id, why);
       state.addChat(OFFICE_SENDER, state.say('rel.stuck', { target: target.title, version: label(r), why: why.note }));
     },
@@ -1634,8 +1711,8 @@ async function driveOnce(state: OfficeState, releaseId: string): Promise<void> {
 export function resumeRelease(state: OfficeState, releaseId: string): StartResult {
   const release = state.releases.get(releaseId);
   if (!release) return { ok: false, message: state.say('rel.noRelease', { id: releaseId }) };
-  if (release.status === 'done' || release.status === 'skipped') {
-    return { ok: false, message: state.say('rel.notResumable', { id: releaseId }) };
+  if (release.status === 'done' || release.status === 'skipped' || release.status === 'cancelled') {
+    return { ok: false, message: state.say(release.status === 'cancelled' ? 'rel.cancel.noResume' : 'rel.notResumable', { id: releaseId }) };
   }
   if (isReleaseRunning(state, releaseId)) return { ok: false, message: state.say('rel.alreadyRunning', { id: releaseId }) };
   const other = activeRelease(state, release.targetId);
@@ -1656,6 +1733,156 @@ export function resumeRelease(state: OfficeState, releaseId: string): StartResul
   });
   void driveRelease(state, releaseId);
   return { ok: true, message: state.say('rel.resumed', { id: releaseId }) };
+}
+
+// ------------------------------------------------------------------ отмена
+
+interface Traces {
+  /** Что осталось снаружи или на доске, готовыми фразами. */
+  outside: string[];
+  /** Номер сборки наружу не ушёл. */
+  buildFree: boolean;
+  /** Что из своего офис оставил: тег, ушедший наружу, и ветку под живой починкой. */
+  tag: string | null;
+  branch: string;
+}
+
+/**
+ * Убрать следы выпуска (§9.3): рабочую копию цели, локальный тег, временную
+ * ветку. Убирается только своё и неопубликованное. Тег, ушедший в origin,
+ * ветка CI, релиз на GitHub и сборка, которую команда могла выложить, остаются
+ * как есть и возвращаются фразами — решать про них менеджеру и владельцу.
+ * Не удалось узнать, ушёл ли тег (нет сети), — он остаётся: лишний локальный
+ * тег дешевле, чем снятый с опубликованного выпуска.
+ */
+async function dropTraces(state: OfficeState, r: Release): Promise<Traces> {
+  const target = state.releaseTarget(r.targetId);
+  const repo = r.repoDir && await isRepo(r.repoDir) ? r.repoDir : '';
+  const outside: string[] = [];
+  const pushed = new Set(r.pushed ?? []);
+  // Выпуск, начатый до появления записи следов (у новых `pushed` есть всегда):
+  // судим по числу попыток.
+  const legacy = r.pushed === undefined && r.attempts > 0;
+
+  // Рабочая копия — одна на цель: её не трогаем, пока цель выпускает другой
+  // выпуск, и у старого выпуска, после которого цель уже выпускалась.
+  const other = state.releasesOf(r.targetId).find((x) => x.id !== r.id && (releaseActive(x.status) || isReleaseRunning(state, x.id)));
+  if (!other && state.releasesOf(r.targetId)[0]?.id === r.id) {
+    const dir = releaseDir(state, { id: r.targetId });
+    if (repo && existsSync(dir)) await git(repo, ['worktree', 'remove', '--force', dir]);
+    rmSync(dir, { recursive: true, force: true });
+    rmSync(`${dir}.notes.md`, { force: true });
+    if (repo) await git(repo, ['worktree', 'prune']);
+  }
+
+  let keptTag: string | null = null;
+  const tagName = r.tag
+    ?? (legacy && target?.kind === 'tag' && (r.version !== null || r.build !== null) ? fillVersion(target.tag ?? DEFAULT_TAG, point(r)) : null);
+  if (tagName && repo) {
+    const ref = `refs/tags/${tagName}`;
+    const local = await revision(repo, `${ref}^{commit}`);
+    // Тег без записи считаем своим, только если он стоит на коммите выпуска.
+    const mine = Boolean(r.tag) || (local !== null && local === r.sha);
+    if (mine && (local || pushed.has(ref))) {
+      const remote = pushed.has(ref) ? true : await remoteHasRef(repo, ref, githubToken());
+      if (remote === false) {
+        await git(repo, ['tag', '-d', tagName]);
+      } else {
+        keptTag = tagName;
+        outside.push(state.say(remote ? 'rel.out.tag' : 'rel.out.tagUnknown', { tag: tagName }));
+        const seen = remote ? await host.releases(repo).catch(() => null) : null;
+        const found = seen && !seen.error ? parseGithubRelease(seen.data, tagName, []) : null;
+        if (found?.state === 'ok') outside.push(state.say('rel.out.published', { tag: tagName, url: found.url }));
+        else if (found?.state === 'draft') outside.push(state.say('rel.out.draft', { tag: tagName, url: found.url }));
+      }
+    }
+  }
+  for (const ref of pushed) {
+    if (ref.startsWith('refs/heads/')) outside.push(state.say('rel.out.branch', { branch: ref.slice('refs/heads/'.length), sha: r.sha.slice(0, 8) || '—' }));
+  }
+  const built = Boolean(r.buildRan) || (legacy && target?.kind === 'command');
+  if (built) {
+    const links = r.links.map((l) => l.url).join(', ');
+    outside.push(state.say('rel.out.build', { build: r.build === null ? '—' : r.build, links: links ? ` (${links})` : '' }));
+  }
+
+  // Починка сборки ветвится от ветки выпуска. Не начатую снимаем вместе с
+  // выпуском; идущую не обрываем — ветка остаётся ей, а менеджер о ней узнаёт.
+  let branch = r.branch;
+  const fixTask = r.fixTaskId ? state.tasks.get(r.fixTaskId) ?? null : null;
+  const fixOpen = Boolean(fixTask && !fixTask.merged && !['done', 'failed', 'cancelled'].includes(fixTask.status));
+  const fixIdle = fixOpen && (fixTask?.status === 'planned' || fixTask?.status === 'backlog');
+  const fixBusy = fixOpen && !fixIdle;
+  if (fixTask && fixIdle) cancelTask(state, fixTask);
+  if (fixTask && fixBusy) outside.push(state.say('rel.out.fixTask', { task: fixTask.id, branch: r.branch || '—' }));
+  if (branch && !fixBusy) {
+    if (repo) await git(repo, ['branch', '-D', branch]);
+    branch = '';
+  }
+  return { outside, buildFree: !built && !pushed.size && !keptTag && !legacy, tag: keptTag, branch };
+}
+
+/** Снять открытый вопрос выпуска («Выпускай?», «релиз не виден»): ответа на него уже не ждут. */
+function dismissReleaseQuestion(state: OfficeState, run: Run | null): void {
+  const q = run?.waitingOn ? state.questions.get(run.waitingOn) : null;
+  if (q && !q.answeredAt && !q.dismissedAt) state.updateQuestion(q.id, { dismissedAt: Date.now() });
+}
+
+const outsideText = (state: OfficeState, outside: string[]): string =>
+  (outside.length ? `${state.say('rel.out.head')}\n${outside.map((l) => `- ${l}`).join('\n')}` : state.say('rel.out.none'));
+
+/**
+ * Отменить вставший или идущий выпуск (`cancel_release`, §9.3). Идущий
+ * останавливается: команда сборки снимается, ожидания CI и владельца
+ * обрываются. Потом убираются следы (`dropTraces`), а что осталось снаружи —
+ * возвращается менеджеру. Отменённый выпуск состоявшимся не считается: версия
+ * свободна, номер сборки — тоже, если он не ушёл наружу.
+ */
+export async function cancelRelease(state: OfficeState, releaseId: string, reason: string): Promise<StartResult> {
+  const release = state.releases.get(releaseId);
+  if (!release) return { ok: false, message: state.say('rel.noRelease', { id: releaseId }) };
+  if (release.status === 'done' || release.status === 'skipped' || release.status === 'cancelled') {
+    return { ok: false, message: state.say('rel.cancel.finished', { id: releaseId, status: release.status }) };
+  }
+  const key = `${state.officeId}:${releaseId}`;
+  const run = runOfRelease(state, releaseId);
+  const going = running.get(key);
+  // Итог уже пишется: ветка канала двигается и вливается вниз — отменять поздно.
+  const workflow = workflowFor(state, WORKFLOW_ID);
+  if (going && run && workflow && nodeOf(workflow, run.nodeId)?.run === 'office:release-publish') {
+    return { ok: false, message: state.say('rel.cancel.tooLate', { id: releaseId }) };
+  }
+  const why = clip(reason, 300) || state.say('rel.cancel.noReason');
+  const stage = state.say('rel.stage.cancelled', { why });
+  state.patchRelease(releaseId, { status: 'cancelled', stage, needsDecision: false, nextTryAt: null });
+  aborts.get(key)?.abort();
+  dismissReleaseQuestion(state, run);
+  // Узел обрывается на ближайшей проверке; идущий пуш доходит до конца, и
+  // следы считаются уже после него. Офис на паузе узел не отпустит — не ждём.
+  if (going) await Promise.race([going, sleep(releaseTiming.cancelWaitMs)]);
+
+  const traces = await dropTraces(state, state.releases.get(releaseId) as Release);
+  const cancel: ReleaseCancel = { reason: why, at: Date.now(), outside: traces.outside, buildFree: traces.buildFree };
+  const done = state.patchRelease(releaseId, {
+    status: 'cancelled', stage, finishedAt: Date.now(), needsDecision: false, nextTryAt: null, stop: null,
+    fixTaskId: null, branch: traces.branch, tag: traces.tag, cancel,
+  }) as Release;
+  if (run) {
+    run.status = 'done';
+    run.waitingOn = null;
+    run.needsDecision = false;
+    run.note = stage;
+    state.saveRun(run);
+  }
+  const vars = { id: releaseId, target: state.releaseTarget(done.targetId)?.title ?? done.targetId, version: label(done), why };
+  const left = outsideText(state, traces.outside);
+  const text = `${state.say('rel.cancel.done', vars)}\n${left}`;
+  state.addLog(null, 'system', text);
+  state.addChat(OFFICE_SENDER, text);
+  const build = done.build !== null
+    ? `\n${state.say(traces.buildFree ? 'rel.cancel.buildFree' : 'rel.cancel.buildSpent', { build: done.build })}`
+    : '';
+  return { ok: true, message: `${state.say('rel.cancel.ok', vars)}\n${left}${build}`, release: done };
 }
 
 // ---------------------------------------------------------------- поводы
@@ -1819,6 +2046,23 @@ function stoppedReleases(state: OfficeState, targetId: string): Release[] {
   return out.slice(0, STOPPED_SHOWN);
 }
 
+/**
+ * Отменённые выпуски цели после последнего состоявшегося: менеджер видит, что
+ * выпуск отменён (а не «последний»), почему и что от него осталось снаружи.
+ */
+function cancelledRows(state: OfficeState, targetId: string): string[] {
+  const out: string[] = [];
+  for (const r of state.releasesOf(targetId)) {
+    if (r.status === 'done') break;
+    if (r.status !== 'cancelled') continue;
+    out.push(state.say('rel.statusCancelled', {
+      id: r.id, version: label(r), when: stamp(r.cancel?.at ?? r.finishedAt ?? r.startedAt), why: clip(r.cancel?.reason ?? '', 200) || '—',
+      outside: r.cancel?.outside.length ? state.say('rel.statusCancelledOut', { list: r.cancel.outside.join('; ') }) : state.say('rel.out.none'),
+    }));
+  }
+  return out.slice(0, STOPPED_SHOWN);
+}
+
 function stoppedRow(state: OfficeState, r: Release): string {
   const stop = stopOf(state, r) as ReleaseStop;
   return state.say('rel.statusStopped', {
@@ -1873,6 +2117,10 @@ export function releaseText(state: OfficeState, releaseId: string): { ok: boolea
       ? `${state.say('rel.get.log', { n: stop.log.split('\n').length })}\n${stop.log}`
       : state.say('rel.get.noLog'));
   }
+  if (r.status === 'cancelled') {
+    lines.push(state.say('rel.get.cancel', { when: stamp(r.cancel?.at ?? r.finishedAt ?? r.startedAt), why: r.cancel?.reason || '—' }));
+    lines.push(outsideText(state, r.cancel?.outside ?? []));
+  }
   if (r.links.length) lines.push(`${state.say('rel.get.links')}\n${r.links.map((l) => `  ${l.title}: ${l.url}`).join('\n')}`);
   return { ok: true, message: lines.join('\n') };
 }
@@ -1920,6 +2168,7 @@ function targetRows(state: OfficeState, targets: ReleaseTarget[]): string {
       }),
       active ?`    ${state.say('rel.statusActive', { id: active.id, stage: active.stage })}` : '',
       ...stoppedReleases(state, target.id).map((r) => `    ${stoppedRow(state, r)}`),
+      ...cancelledRows(state, target.id).map((row) => `    ${row}`),
       plan ? `    ${state.say('rel.statusPlan', { id: plan.id, title: plan.title, epics: plan.epicIds.join(', ') })}` : '',
     ].filter(Boolean).join('\n');
   }).join('\n');
