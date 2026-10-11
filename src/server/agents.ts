@@ -1080,6 +1080,9 @@ const teamTools = (state: OfficeState, chatId: string) => createSdkMcpServer({
         if (args.priority) patch.priority = args.priority;
         if (args.subprojectId.trim()) patch.subprojectId = args.subprojectId;
         const outcome = editTask(state, args.taskId, patch);
+        // Перенос в другую зону убирает рабочую копию прошлой попытки: ждём,
+        // чтобы следующий же restart_task не упёрся в ещё занятую папку.
+        await outcome.settled;
         return { content: [{ type: 'text', text: outcome.message }], isError: !outcome.ok };
       },
     ),

@@ -8,7 +8,7 @@
  */
 import './_isolate'; // первым: до чтения окружения в root.ts и store.ts
 import { execFileSync } from 'node:child_process';
-import { mkdirSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { resolve } from 'node:path';
 import { openOfficeState, unloadOfficeState } from '../src/server/state';
@@ -18,6 +18,7 @@ import {
 import { createDoc, docIndexForPrompt, PROMPT_INDEX_CHARS } from '../src/server/docs';
 import { addRule } from '../src/server/rules';
 import { editTask } from '../src/server/tasks';
+import { t } from '../src/server/i18n';
 import { createPlan } from '../src/server/plan';
 import { flushAll, save, type Persisted } from '../src/server/store';
 import { dispatch } from '../src/server/plan';
@@ -405,8 +406,6 @@ async function managerTools(): Promise<void> {
   check('edit_task: недопущенная пара — причина и ничего не тронуто',
     !toFront.ok && toFront.message === admitProblem(office, office.role('frontend')!, { subprojectId: null })
     && office.tasks.get(task.id)?.roleId === 'backend' && office.tasks.get(task.id)?.subprojectId === zid);
-  office.updateTask(task.id, { status: 'failed', repoDir: svc });
-  check('edit_task: у стартовавшей задачи зону не меняют', !editTask(office, task.id, { subprojectId: 'none' }).ok);
 
   const before = office.tasks.size;
   const plan = (front: string) => [{
@@ -422,6 +421,150 @@ async function managerTools(): Promise<void> {
   const made = [...office.tasks.values()].find((t) => t.title === 'экран');
   check('plan_features: пустая зона выведена из роли', good.ok && made?.subprojectId === zid);
   unloadOfficeState('o-sub-tools');
+}
+
+/**
+ * Перенос задачи между зонами через edit_task (T-517): нестартовавшая — между
+ * любыми зонами и на «весь проект», в том числе из плана фич; стартовавшая,
+ * но стоящая — со сбросом привязки к прежнему репозиторию; идущая, сданная и
+ * влитая — отказ с подсказкой.
+ */
+async function moveTaskZone(): Promise<void> {
+  results.push('перенос задачи между зонами (T-517):');
+  const one = resolve(base, 'move-one');
+  const two = resolve(base, 'move-two');
+  gitRepo(one);
+  gitRepo(two);
+  const office = openOfficeState({ id: 'o-sub-move', projectDir, stateFile: resolve(base, 'move.json') }).state;
+  office.dryRun = true;
+  // frontend закреплён за первой зоной, вторая — ничья, backend — универсал.
+  await office.editRole('frontend', { repoDir: one });
+  const a = office.subprojects()[0]!.id;
+  const made = office.saveSubproject(undefined, { name: 'Вторая', root: two, kind: 'repo', summary: '', color: 'accent-2', sharedPaths: [] });
+  const b = 'id' in made ? made.id : '';
+  check('две зоны заведены', !!a && !!b && a !== b);
+  const nameOf = (id: string) => office.subproject(id)!.name;
+  const logged = (text: string) => office.log.some((l) => l.text.includes(text));
+  const zoneOf = (id: string) => office.tasks.get(id)?.subprojectId ?? null;
+  const add = (roleId: string, zoneId?: string) => office.createTask({
+    title: 'перенос', description: 'x', criteria: ['a'], roleId, ...(zoneId ? { subprojectId: zoneId } : {}),
+  });
+
+  // Нестартовавшая: зона → зона → весь проект.
+  const fresh = add('backend', a);
+  const toB = editTask(office, fresh.id, { subprojectId: b });
+  check('в очереди: зона → другая зона', toB.ok && zoneOf(fresh.id) === b && !toB.settled);
+  check('перенос в ленте: откуда и куда', logged(office.say('subprojects.zone.moved', { task: fresh.id, from: nameOf(a), to: nameOf(b) })));
+  const toNone = editTask(office, fresh.id, { subprojectId: 'none' });
+  check('в очереди: зона → весь проект', toNone.ok && zoneOf(fresh.id) === null);
+  check('перенос на весь проект в ленте',
+    logged(office.say('subprojects.zone.moved', { task: fresh.id, from: nameOf(b), to: office.say('subprojects.zone.whole') })));
+  check('весь проект → зона', editTask(office, fresh.id, { subprojectId: a }).ok && zoneOf(fresh.id) === a);
+
+  // Задача плана фич.
+  const plan = createPlan(office, [{
+    title: 'фича', goal: 'цель', tasks: [
+      { key: 'k', title: 'плановая', description: 'x', acceptanceCriteria: ['a'], roleId: 'backend', subprojectId: a },
+    ],
+  }]);
+  const planned = [...office.tasks.values()].find((t) => t.title === 'плановая')!;
+  check('задача плана заведена в фиче', plan.ok && !!planned.epicId);
+  // Раздача dry-run могла её уже забрать — возвращаем в план: проверяется перенос, а не раздача.
+  [...office.instances.values()].forEach((i) => { if (i.currentTaskId === planned.id) i.abort?.abort(); });
+  office.updateTask(planned.id, { status: 'planned', assigneeId: null });
+  check('задача плана: зона → другая зона', editTask(office, planned.id, { subprojectId: b }).ok && zoneOf(planned.id) === b);
+  check('задача плана: зона → весь проект', editTask(office, planned.id, { subprojectId: 'none' }).ok && zoneOf(planned.id) === null);
+  office.updateTask(planned.id, { status: 'cancelled' });
+
+  // Роль не допущена к новой зоне.
+  const pinned = add('frontend');
+  check('задача закреплённой роли — в её зоне', zoneOf(pinned.id) === a);
+  const denied = editTask(office, pinned.id, { subprojectId: b });
+  check('роль не допущена: отказ называет допущенные роли и ничего не трогает',
+    !denied.ok && denied.message.includes('backend') && denied.message.includes(nameOf(b)) && zoneOf(pinned.id) === a);
+  const both = editTask(office, pinned.id, { roleId: 'backend', subprojectId: b });
+  check('роль и зона одним вызовом — проходит',
+    both.ok && zoneOf(pinned.id) === b && office.tasks.get(pinned.id)?.roleId === 'backend');
+
+  // Ждавшая допуска задача после переноса больше не ждёт.
+  const waiting = add('frontend');
+  office.updateTask(waiting.id, { subprojectId: null, admitWait: 'некому' });
+  check('перенос снимает «некому взять»',
+    editTask(office, waiting.id, { subprojectId: a }).ok && office.tasks.get(waiting.id)?.admitWait === null);
+  [...office.instances.values()].forEach((i) => { if (i.currentTaskId === waiting.id) i.abort?.abort(); });
+  office.updateTask(waiting.id, { status: 'cancelled' });
+
+  // assigned без сессии — как нестартовавшая.
+  const assigned = add('backend', a);
+  office.updateTask(assigned.id, { status: 'assigned', assigneeId: 'backend#9' });
+  check('assigned без сессии: зона меняется', editTask(office, assigned.id, { subprojectId: b }).ok && zoneOf(assigned.id) === b);
+  office.updateTask(assigned.id, { status: 'cancelled' });
+
+  // Провалена после старта: ветка и рабочая копия в репозитории первой зоны.
+  const failed = add('backend', a);
+  const git = (dir: string, ...args: string[]) =>
+    execFileSync('git', ['-C', dir, '-c', 'user.name=t', '-c', 'user.email=t@t', ...args], { encoding: 'utf8' }).trim();
+  const baseBranch = git(one, 'rev-parse', '--abbrev-ref', 'HEAD');
+  const branch = `task/${failed.id}`;
+  const copy = resolve(base, 'move-wt', failed.id);
+  git(one, 'worktree', 'add', '-q', '-b', branch, copy, baseBranch);
+  git(copy, 'commit', '-q', '--allow-empty', '-m', 'наработки');
+  office.updateTask(failed.id, {
+    status: 'failed', repoDir: one, branch, baseBranch, worktreePath: copy,
+    workerSessionId: 's-1', startedAt: 1, limitedAt: 5,
+  });
+  const movedFailed = editTask(office, failed.id, { subprojectId: b });
+  await movedFailed.settled;
+  const after = office.tasks.get(failed.id)!;
+  check('failed: зона сменилась, привязка сброшена',
+    movedFailed.ok && after.subprojectId === b && after.repoDir === null && after.branch === null
+    && after.baseBranch === null && after.worktreePath === null && after.workerSessionId === null && after.limitedAt === null);
+  check('failed: статус прежний, в ответе — restart_task',
+    after.status === 'failed' && movedFailed.message.includes('restart_task') && movedFailed.message.includes(nameOf(b)));
+  check('failed: репозиторий задачи — новой зоны', office.repoForTask(after) === two);
+  check('failed: рабочая копия прошлой попытки снята', !existsSync(copy));
+  const branches = git(one, 'branch', '--list', `${branch}*`);
+  check('failed: ветка прошлой попытки в старом репозитории цела', branches.includes(`${branch}.stopped-1`));
+  check('failed: в новом репозитории чужих веток нет', git(two, 'branch', '--list', `${branch}*`) === '');
+  const again = await retryTask(office, failed.id, { quiet: true });
+  const restarted = office.tasks.get(failed.id)!;
+  check('failed: restart_task запускает в новой зоне',
+    again.ok && restarted.status === 'in_progress' && restarted.subprojectId === b
+    && restarted.repoDir !== one && office.repoForTask(restarted) === two);
+  check('failed: ветка в старом репозитории пережила перезапуск',
+    git(one, 'branch', '--list', `${branch}*`).includes(`${branch}.stopped-1`));
+
+  // Идёт прямо сейчас — отказ с подсказкой (задача только что перезапущена).
+  const live = editTask(office, failed.id, { subprojectId: a });
+  check('в работе: отказ с drop_task и новой задачей',
+    !live.ok && live.message.includes('drop_task') && live.message.includes('create_task') && zoneOf(failed.id) === b);
+  [...office.instances.values()].forEach((i) => { if (i.currentTaskId === failed.id) i.abort?.abort(); });
+
+  // Остановлена (blocked) без рабочей копии: хватает репозитория на задаче.
+  const blocked = add('backend', a);
+  office.updateTask(blocked.id, { status: 'blocked', repoDir: one, startedAt: 1 });
+  const movedBlocked = editTask(office, blocked.id, { subprojectId: 'none' });
+  await movedBlocked.settled;
+  const freed = office.tasks.get(blocked.id)!;
+  check('blocked: зона → весь проект, репозиторий отвязан',
+    movedBlocked.ok && freed.subprojectId === null && freed.repoDir === null && office.repoForTask(freed) === projectDir);
+  office.updateTask(blocked.id, { status: 'cancelled' });
+
+  // На ревью и влитая.
+  const inReview = add('backend', a);
+  office.updateTask(inReview.id, { status: 'review', repoDir: one });
+  const reviewNo = editTask(office, inReview.id, { subprojectId: b });
+  check('на ревью: отказ с подсказкой',
+    !reviewNo.ok && reviewNo.message.includes('drop_task') && reviewNo.message.includes('create_task') && zoneOf(inReview.id) === a);
+  const merged = add('backend', a);
+  office.updateTask(merged.id, { status: 'done', merged: true, repoDir: one });
+  const mergedNo = editTask(office, merged.id, { subprojectId: b });
+  check('влитая: отказ с подсказкой завести новую',
+    !mergedNo.ok && mergedNo.message.includes('create_task') && mergedNo.message !== reviewNo.message && zoneOf(merged.id) === a);
+  check('отказы есть в обоих словарях и оба называют, что делать',
+    (['subprojects.zone.running', 'subprojects.zone.review'] as const).every((key) =>
+      (['ru', 'en'] as const).every((lang) => t(lang, key, { task: 'T-1' }).includes('drop_task'))));
+  unloadOfficeState('o-sub-move');
 }
 
 /** Менеджер видит зоны: блок «Подпроекты» в промпте (§6.1). */
@@ -918,6 +1061,7 @@ try {
   await officeZones();
   await startWorkerGate();
   await managerTools();
+  await moveTaskZone();
   await managerSeesZones();
   await officeAssignGate();
   await unstaffedEpic();

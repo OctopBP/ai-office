@@ -19,9 +19,11 @@
  *   только там, где стирать нечего: ни сессии, ни ветки, ни потраченных
  *   денег. Всё остальное — снятие, ровно как у ролей (архив против «стереть»).
  */
+import { existsSync } from 'node:fs';
 import { type TaskEdit, type TaskStatus } from '../shared/types';
 import { TASK_TYPES, type TaskType } from '../shared/workflow';
 import type { OfficeState, Task } from './state';
+import { hasWork, preserveBranch, removeWorktree } from './git';
 import { cancelTask } from './outcomes';
 import { dispatch } from './plan';
 import { admitProblem, zoneForRole } from './subprojects';
@@ -33,10 +35,73 @@ export interface TaskResult {
   ok: boolean;
   /** Готовый к показу текст: что получилось или почему нельзя. */
   message: string;
+  /**
+   * Уборка за прошлой попыткой после переноса задачи в другую зону: рабочая
+   * копия в прежнем репозитории снята, ветка сохранена. Сама задача к этому
+   * моменту уже отвязана; дождаться стоит тому, кто следом её перезапустит, —
+   * иначе новая рабочая копия упрётся в ещё не убранную папку старой.
+   */
+  settled?: Promise<void>;
 }
 
 /** За задачу взялись прямо сейчас: трогать её ТЗ нельзя. */
 const RUNNING: TaskStatus[] = ['assigned', 'in_progress', 'review'];
+
+/**
+ * Идёт ли задача прямо сейчас. `assigned` без живой сессии — не идёт: статус
+ * остался от назначения, ТЗ никто не читал, и править такую задачу можно так
+ * же, как лежащую в очереди.
+ */
+function runningNow(state: OfficeState, task: Task): boolean {
+  if (!RUNNING.includes(task.status)) return false;
+  if (task.status !== 'assigned') return true;
+  return [...state.instances.values()].some((i) => i.currentTaskId === task.id);
+}
+
+/** Зона словами для ленты и ответа менеджеру: имя, а у «всего проекта» — так и сказать. */
+const zoneWord = (state: OfficeState, id: string | null): string =>
+  (id ? state.subproject(id)?.name ?? id : state.say('subprojects.zone.whole'));
+
+/**
+ * Почему зону этой задачи менять нельзя — с подсказкой, что делать вместо.
+ * null — можно. Отдельно от общего отказа правки: там речь про ТЗ, а здесь
+ * про репозиторий, и выход у менеджера другой — новая задача в нужной зоне.
+ */
+function zoneLock(state: OfficeState, task: Task): string | null {
+  if (task.merged || task.status === 'done') return state.say('subprojects.zone.merged', { task: task.id });
+  if (task.outcome || task.status === 'cancelled') return state.say('subprojects.zone.closed', { task: task.id });
+  if (task.status === 'review') return state.say('subprojects.zone.review', { task: task.id });
+  if (runningNow(state, task)) return state.say('subprojects.zone.running', { task: task.id });
+  return null;
+}
+
+/** След прошлой попытки в прежнем репозитории: что убирать после переноса. */
+interface Attempt {
+  repoDir: string;
+  branch: string | null;
+  baseBranch: string | null;
+  worktreePath: string | null;
+}
+
+/**
+ * Убрать рабочую копию прошлой попытки, а ветку оставить. Ветку с коммитами
+ * переименовываем, как при перезапуске: задача может вернуться в прежнюю
+ * зону, и новая попытка завела бы ветку с тем же именем поверх старой.
+ * Ошибки git не поднимаем: задача уже отвязана, а несостоявшаяся уборка —
+ * мусор в прежнем репозитории, а не поломка задачи.
+ */
+async function shelveAttempt(state: OfficeState, taskId: string, old: Attempt): Promise<void> {
+  try {
+    if (!existsSync(old.repoDir)) return;
+    if (old.worktreePath) {
+      await removeWorktree(old.repoDir, old.worktreePath, old.branch ?? '', { keepBranch: true });
+    }
+    if (!old.branch || !old.baseBranch) return;
+    if (!(await hasWork(old.repoDir, old.branch, old.baseBranch))) return;
+    const kept = await preserveBranch(old.repoDir, old.branch);
+    if (kept) state.addOfficeNote(state.say('restart.branchKept', { task: taskId, branch: kept }), { taskId });
+  } catch { /* уборка — не причина ронять правку */ }
+}
 
 /** Задача ещё не начиналась: её и раздают, и стирают без последствий. */
 const UNTOUCHED: TaskStatus[] = ['planned', 'backlog'];
@@ -48,14 +113,23 @@ const UNTOUCHED: TaskStatus[] = ['planned', 'backlog'];
 export function editTask(state: OfficeState, taskId: string, patch: TaskEdit): TaskResult {
   const task = state.tasks.get(taskId);
   if (!task) return { ok: false, message: state.say('task.err.noTask', { task: taskId }) };
+  // Отказ про зону — раньше общего: он говорит, что делать с задачей не той
+  // зоны, а общий — только что ТЗ уже читают.
+  if (patch.subprojectId !== undefined) {
+    const locked = zoneLock(state, task);
+    if (locked) return { ok: false, message: locked };
+  }
   if (task.outcome || task.status === 'done' || task.status === 'cancelled') {
     return { ok: false, message: state.say('task.edit.closed', { task: task.id }) };
   }
-  if (RUNNING.includes(task.status)) {
+  if (runningNow(state, task)) {
     return { ok: false, message: state.say('task.edit.running', { task: task.id }) };
   }
 
   const changes: string[] = [];
+  // Строка про зону — отдельно: в ленту перенос идёт своей записью.
+  let zoneChange = '';
+  const rewritten = (): string[] => changes.filter((c) => c !== zoneChange);
   const next: Partial<Task> = {};
 
   const title = patch.title?.trim();
@@ -114,33 +188,57 @@ export function editTask(state: OfficeState, taskId: string, patch: TaskEdit): T
     }
   }
 
-  // Зона и допуск (spec подпроектов §3.2, §6.1). Смена зоны — только у не
-  // стартовавшей задачи: репозиторий фиксируется на старте вместе с зоной.
-  // Смена роли или зоны — повторная проверка допуска пары «роль × зона».
-  // Проверяется до важности: та пишется сразу, а отказ не должен оставлять
-  // задачу правленой наполовину.
+  // Зона и допуск (spec подпроектов §3.2, §6.1). Зона меняется у любой
+  // задачи, которая сейчас не идёт (идущие, сданные и закрытые отсеял
+  // zoneLock). Смена роли или зоны — повторная проверка допуска пары
+  // «роль × зона»: роль и зону можно прислать одним вызовом, и судят новую
+  // пару, а не прежнюю роль с новой зоной. Проверяется до важности: та
+  // пишется сразу, а отказ не должен оставлять задачу правленой наполовину.
   const finalRoleId = next.roleId ?? task.roleId;
   const finalRole = finalRoleId ? state.role(finalRoleId) : undefined;
-  let zone = task.subprojectId ?? null;
+  const oldZone = task.subprojectId ?? null;
+  let zone = oldZone;
+  let shelved: Attempt | null = null;
   if (patch.subprojectId !== undefined) {
-    if (!UNTOUCHED.includes(task.status) || task.repoDir) {
-      return { ok: false, message: state.say('subprojects.zone.started', { task: task.id }) };
-    }
     const picked = finalRole
       ? zoneForRole(state, finalRole, patch.subprojectId)
       : zoneForRole(state, { id: '', title: '', subprojects: [], isManager: false }, patch.subprojectId);
     if ('error' in picked) return { ok: false, message: picked.error };
     zone = picked.zone;
-    if (zone !== (task.subprojectId ?? null)) {
+    if (zone !== oldZone) {
       next.subprojectId = zone;
-      changes.push(state.say('task.edit.field.zone', {
-        zone: zone ? state.subproject(zone)?.name ?? zone : '—',
-      }));
+      zoneChange = state.say('task.edit.field.zone', {
+        from: zoneWord(state, oldZone), to: zoneWord(state, zone),
+      });
+      changes.push(zoneChange);
+      // Задача уже стартовала: репозиторий, ветка и рабочая копия остались от
+      // прошлой попытки в прежней зоне. Отвязываем всё разом — иначе
+      // продолжение взяло бы старый репозиторий с новой зоной, а перезапуск
+      // пошёл бы убирать ветку не туда. Сессии тоже: их разговор — про код
+      // прежнего репозитория. Ожидание лимита и пометку обрыва снимаем по той
+      // же причине: продолжать нечего, задача начнётся с нуля.
+      if (task.repoDir || task.branch || task.worktreePath) {
+        shelved = {
+          repoDir: task.repoDir ?? state.repoForTask(task),
+          branch: task.branch, baseBranch: task.baseBranch, worktreePath: task.worktreePath,
+        };
+      }
+      if (shelved || task.workerSessionId || task.reviewerSessionId) {
+        Object.assign(next, {
+          repoDir: null, branch: null, baseBranch: null, worktreePath: null,
+          workerSessionId: null, reviewerSessionId: null,
+          interrupted: false, limitedAt: null,
+        } satisfies Partial<Task>);
+      }
     }
   }
   if (finalRole && (next.roleId !== undefined || next.subprojectId !== undefined)) {
     const problem = admitProblem(state, finalRole, { subprojectId: zone });
     if (problem) return { ok: false, message: problem };
+    // Пара теперь допустима — прежняя причина «некому взять» устарела. Не
+    // снять её здесь значит оставить задачу и фичу стоять до следующего
+    // прохода надзора, хотя менеджер только что всё починил.
+    if (task.admitWait) next.admitWait = null;
   }
 
   // Важность живёт отдельным полем и меняется отдельным методом: её правят
@@ -161,9 +259,22 @@ export function editTask(state: OfficeState, taskId: string, patch: TaskEdit): T
   state.addOfficeNote(state.say('task.edit.chat', {
     task: task.id, title: fresh.title, changed: changes.join(', '),
   }), { taskId: task.id });
-  state.addLog(null, 'system', state.say('task.edit.log', {
-    task: task.id, changed: changes.join(', '),
-  }));
+  // Перенос между зонами — отдельной строкой ленты: «откуда и куда» ищут
+  // именно по ней, а не в перечне переписанных полей.
+  if (zoneChange) {
+    state.addLog(null, 'system', state.say('subprojects.zone.moved', {
+      task: task.id, from: zoneWord(state, oldZone), to: zoneWord(state, zone),
+    }));
+  }
+  if (rewritten().length) {
+    state.addLog(null, 'system', state.say('task.edit.log', {
+      task: task.id, changed: rewritten().join(', '),
+    }));
+  }
+  const settled = shelved ? shelveAttempt(state, task.id, shelved) : undefined;
+  // Задача ждала допуска и дождалась: раздаём сразу, а не на следующем тике.
+  if (next.admitWait === null && UNTOUCHED.includes(task.status)) dispatch(state);
+  const rebound = shelved ? state.say('subprojects.zone.rebound', { to: zoneWord(state, zone) }) : '';
   // Остановленная задача сама не поедет: правка ТЗ — ещё не перезапуск, и
   // обещать обратное нельзя.
   const idle = task.status === 'failed' || task.status === 'blocked'
@@ -173,7 +284,8 @@ export function editTask(state: OfficeState, taskId: string, patch: TaskEdit): T
     ok: true,
     message: state.say('task.edit.ok', {
       task: task.id, title: fresh.title, changed: changes.join(', '),
-    }) + idle,
+    }) + rebound + idle,
+    ...(settled ? { settled } : {}),
   };
 }
 
