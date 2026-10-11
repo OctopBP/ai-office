@@ -18,6 +18,7 @@ import {
 import { createDoc, docIndexForPrompt, PROMPT_INDEX_CHARS } from '../src/server/docs';
 import { addRule } from '../src/server/rules';
 import { editTask } from '../src/server/tasks';
+import { setRoleBase } from '../src/server/rolebase';
 import { t } from '../src/server/i18n';
 import { createPlan } from '../src/server/plan';
 import { flushAll, save, type Persisted } from '../src/server/store';
@@ -567,6 +568,138 @@ async function moveTaskZone(): Promise<void> {
   unloadOfficeState('o-sub-move');
 }
 
+/** Менеджер меняет базу роли сам: зона, путь, сброс, отказы, идущие задачи (T-518). */
+async function roleBase(): Promise<void> {
+  results.push('set_role_base: менеджер меняет базу роли (T-518):');
+  const one = resolve(base, 'rb-one');
+  const two = resolve(base, 'rb-two');
+  const plain = resolve(base, 'rb-plain');
+  gitRepo(one);
+  gitRepo(two);
+  mkdirSync(plain, { recursive: true });
+  writeFileSync(resolve(base, 'rb-file'), 'x');
+  const office = openOfficeState({ id: 'o-sub-rolebase', projectDir, stateFile: resolve(base, 'rolebase.json') }).state;
+  office.dryRun = true;
+  const made = office.saveSubproject(undefined, { name: 'Первая', root: one, kind: 'repo', summary: '', color: 'accent-1', sharedPaths: [] });
+  const a = 'id' in made ? made.id : '';
+  const front = () => office.role('frontend')!;
+  const lineOf = (id: string) => teamSummary(office).split('\n- ').find((l) => l.replace(/^- /, '').startsWith(`${id} (`)) ?? '';
+  const events: string[] = [];
+  const off = office.subscribe((e) => { events.push(e.t); });
+
+  // Задача в работе и задача в плане — обе заведены до смены, «на весь проект».
+  const running = office.createTask({ title: 'идёт', description: '', criteria: [], roleId: 'frontend' });
+  office.updateTask(running.id, { status: 'in_progress', repoDir: projectDir });
+  const review = office.createTask({ title: 'на ревью', description: '', criteria: [], roleId: 'frontend' });
+  office.updateTask(review.id, { status: 'review', repoDir: projectDir });
+  const waiting = office.createTask({ title: 'ждёт', description: '', criteria: [], roleId: 'frontend' });
+  const foreign = office.createTask({ title: 'чужая', description: '', criteria: [], roleId: 'backend' });
+  office.updateTask(foreign.id, { status: 'in_progress', repoDir: projectDir });
+
+  // Начало строки ленты: «…роли frontend (…) сменил менеджер».
+  const logHead = office.say('roleBase.log', { role: `frontend (${front().title})`, was: '', now: '' }).split(':')[0]!;
+  const logBefore = office.log.length;
+  const toZone = await setRoleBase(office, { roleId: 'frontend', subprojectId: a });
+  check('на зону: роль закреплена', toZone.ok && front().subprojects?.join() === a);
+  check('на зону: repoForRole — репозиторий зоны', office.repoForRole(front()) === one);
+  const logged = office.log.slice(logBefore).map((l) => l.text);
+  check('в ленте — кто сменил и было → стало',
+    logged.some((l) => l.startsWith(logHead) && l.includes(projectDir) && l.includes(one)));
+  check('клиентам ушли роли и снимок', events.includes('roles') && events.includes('snapshot'));
+  check('list_team: новая зона и путь', lineOf('frontend').includes(`${office.say('prompt.team.zones')}: ${a}`) && lineOf('frontend').includes(one));
+  check('list_subprojects: роль в закреплённых',
+    subprojectsSummary(office).includes(office.say('subprojects.text.members', { roles: `frontend (${front().title})` })));
+  check('снимок: роль среди закреплённых зоны',
+    office.subprojectViews().find((v) => v.id === a)?.members.some((m) => m.id === 'frontend') === true);
+  check('ответ перечисляет идущую и ревью с прежним репозиторием',
+    toZone.message.includes(office.say('roleBase.running'))
+    && [running, review].every((task) => toZone.message.includes(office.say('roleBase.taskRow', {
+      task: task.id, title: task.title, status: task.status, dir: projectDir,
+    }))));
+  check('ответ не тащит чужую задачу', !toZone.message.includes(foreign.id));
+  check('идущие задачи не тронуты', office.tasks.get(running.id)?.repoDir === projectDir
+    && office.tasks.get(running.id)?.status === 'in_progress' && office.tasks.get(running.id)?.subprojectId === null
+    && office.tasks.get(review.id)?.repoDir === projectDir);
+  check('не стартовавшая в чужой зоне названа отдельно',
+    toZone.message.includes(office.say('roleBase.stuck')) && toZone.message.includes(waiting.id)
+    && toZone.message.split(office.say('roleBase.stuck'))[0]!.includes(waiting.id) === false);
+  const fresh = office.createTask({ title: 'новая', description: '', criteria: [], roleId: 'frontend' });
+  check('новая задача роли стартует в новом репозитории',
+    fresh.subprojectId === a && office.repoForTask(fresh) === one);
+
+  const baseLogs = () => office.log.filter((l) => l.text.startsWith(logHead)).length;
+  const logCount = baseLogs();
+  const again = await setRoleBase(office, { roleId: 'frontend', subprojectId: a });
+  check('то же закрепление — «уже так», в ленту не пишем',
+    again.ok && again.message.includes(one) && !again.message.includes(office.say('roleBase.running'))
+    && baseLogs() === logCount);
+
+  // Путь: зона по нему находится или заводится — как из формы роли.
+  const toPath = await setRoleBase(office, { roleId: 'frontend', path: two });
+  const b = office.subprojects().find((s) => s.id !== a)?.id ?? '';
+  check('на путь: заведена repo-зона, роль в ней вместо прежней',
+    toPath.ok && !!b && front().subprojects?.join() === b && office.repoForRole(front()) === two);
+  check('на путь: ответ называет заведённую зону', toPath.message.includes(office.say('roleBase.zoneCreated', { zone: b, root: two })));
+  const known = await setRoleBase(office, { roleId: 'backend', path: one });
+  check('путь уже заведённой зоны — вторая не заводится',
+    known.ok && office.subprojects().length === 2 && office.role('backend')?.subprojects?.join() === a
+    && !known.message.includes(a + ' с корнем'));
+  const both = await setRoleBase(office, { roleId: 'frontend', subprojectId: `${a}, ${b}` });
+  check('список зон через запятую', both.ok && front().subprojects?.join() === `${a},${b}`
+    && office.repoForRole(front()) === projectDir);
+
+  // Сброс: `none` снимает закрепление, пустой путь возвращает в общий репозиторий.
+  const none = await setRoleBase(office, { roleId: 'frontend', subprojectId: 'none' });
+  check('none: закрепление снято, роль в репозитории офиса',
+    none.ok && front().subprojects === undefined && office.repoForRole(front()) === projectDir
+    && lineOf('frontend').includes(office.say('prompt.team.wholeProject')));
+  check('после сброса застрявших задач нет', !none.message.includes(office.say('roleBase.stuck')));
+  await setRoleBase(office, { roleId: 'frontend', path: two });
+  const cleared = await setRoleBase(office, { roleId: 'frontend', path: '' });
+  check('пустой путь: роль в общем репозитории, зоны остались',
+    cleared.ok && front().subprojects === undefined && office.subprojects().length === 2);
+
+  // Отказы: ничего не меняют и в ленту не пишут.
+  await setRoleBase(office, { roleId: 'frontend', subprojectId: a });
+  const zonesNow = office.subprojects().length;
+  const logNow = baseLogs();
+  const intact = () => front().subprojects?.join() === a && office.subprojects().length === zonesNow && baseLogs() === logNow;
+  const noRole = await setRoleBase(office, { roleId: 'ghost', subprojectId: a });
+  check('нет роли — отказ с её id', !noRole.ok && noRole.message === office.say('state.role.missing', { role: 'ghost' }));
+  const pm = office.roles().find((r) => r.isManager)!;
+  const noPm = await setRoleBase(office, { roleId: pm.id, subprojectId: a });
+  check('менеджер не закрепляется', !noPm.ok && noPm.message === office.say('subprojects.err.pinManager') && pm.subprojects === undefined);
+  const noZone = await setRoleBase(office, { roleId: 'frontend', subprojectId: `${a}, nope` });
+  check('нет зоны — отказ с её id и списком зон', !noZone.ok && noZone.message.includes('nope') && noZone.message.includes(a) && intact());
+  const missing = resolve(base, 'rb-missing');
+  const noDir = await setRoleBase(office, { roleId: 'frontend', path: missing });
+  check('нет папки — отказ', !noDir.ok && noDir.message === t(office.lang(), 'git.noDir', { dir: missing }) && intact());
+  const file = resolve(base, 'rb-file');
+  const notDir = await setRoleBase(office, { roleId: 'frontend', path: file });
+  check('путь — файл, а не папка — отказ', !notDir.ok && notDir.message === t(office.lang(), 'git.notDir', { dir: file }) && intact());
+  const notGit = await setRoleBase(office, { roleId: 'frontend', path: plain });
+  check('папка без git — отказ', !notGit.ok && notGit.message === t(office.lang(), 'git.notRepo', { dir: plain }) && intact());
+  const formSays = await office.editRole('frontend', { repoDir: plain });
+  check('отказ тот же, что у формы роли', formSays.map((e) => e.message).join(' ') === notGit.message && intact());
+  const twice = await setRoleBase(office, { roleId: 'frontend', subprojectId: a, path: two });
+  check('зона и путь разом — отказ', !twice.ok && twice.message === office.say('roleBase.err.both') && intact());
+  const nothing = await setRoleBase(office, { roleId: 'frontend' });
+  const blank = await setRoleBase(office, { roleId: 'frontend', subprojectId: '', path: '' });
+  check('ничего не названо — отказ, а не сброс',
+    !nothing.ok && !blank.ok && blank.message === office.say('roleBase.err.neither') && intact());
+  const lenient = await setRoleBase(office, { roleId: 'frontend', subprojectId: '', path: two });
+  check('пустая зона рядом с путём — это путь', lenient.ok && front().subprojects?.join() === b);
+
+  check('тексты менеджера: перезакрепить можно самому, зоны заводит владелец',
+    (['ru', 'en'] as const).every((lang) =>
+      t(lang, 'tool.listSubprojects.desc').includes('set_role_base')
+      && t(lang, 'prompt.pm.subprojects', { zones: '' }).includes('set_role_base')
+      && t(lang, 'tool.setRoleBase.desc').length > 0));
+  check('в промпте менеджера с зонами — set_role_base', pmPrompt(office, true).includes('set_role_base'));
+  off();
+  unloadOfficeState('o-sub-rolebase');
+}
+
 /** Менеджер видит зоны: блок «Подпроекты» в промпте (§6.1). */
 async function managerSeesZones(): Promise<void> {
   results.push('менеджер видит зоны: промпт, list_subprojects, сводка доски (§6.1):');
@@ -1063,6 +1196,7 @@ try {
   await managerTools();
   await moveTaskZone();
   await managerSeesZones();
+  await roleBase();
   await officeAssignGate();
   await unstaffedEpic();
 } finally {

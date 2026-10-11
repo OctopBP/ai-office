@@ -32,6 +32,7 @@ export const promptsEn = {
   'bubble.assignTask': 'assigning {what}',
   'bubble.finishTask': 'handing the work in',
   'bubble.listTeam': 'checking who is free',
+  'bubble.setRoleBase': 'changing the base of role {what}',
   'bubble.listSubprojects': 'checking the zones',
   'bubble.getBoard': 'checking the board',
   'bubble.getTask': 'looking at task {what}',
@@ -344,7 +345,7 @@ Keep your replies to the user short. Which language to write them in is said in 
   // -------------------------------------------------- инструменты менеджера
   'tool.team.instructions': 'Tools for running the office team.',
   'tool.listTeam.desc': 'Show the team: roles, the individual workers and who is free right now. Call this first, before creating and handing out tasks.',
-  'tool.listSubprojects.desc': 'The office subprojects (zones of responsibility): id, name, kind, root, pinned roles, universal roles and the number of open tasks per zone. Read-only: creating zones and re-pinning roles is the owner\'s decision.',
+  'tool.listSubprojects.desc': 'The office subprojects (zones of responsibility): id, name, kind, root, pinned roles, universal roles and the number of open tasks per zone. Read-only. You can re-pin a role to a zone or change its path yourself — set_role_base; creating new zones is the owner\'s decision.',
   'tool.createTask.desc': 'Create a task on the board. One task = one worker = one tangible result. Returns the task id, which you pass to assign_task.',
   'tool.createTask.title': 'Short headline, up to 60 characters',
   'tool.createTask.description': 'The full brief for the worker. They do not see your conversation with the user — describe everything: what to do, in which files, with what stack.',
@@ -431,6 +432,10 @@ Keep your replies to the user short. Which language to write them in is said in 
   'tool.retryReview.ok': '{task}: the pipeline has been started again. The result will come as a system message.',
 
   // ------------------------------------ editing, dropping and deleting tasks
+  'tool.setRoleBase.desc': 'Change the base project of a role — where it works. Either pin the role to existing zones (subprojectId) or set the path of its repository (path); exactly one of the two. Tasks of the role that are already running or in review are untouched: they finish in the repository fixed at start — the reply lists them. New tasks of the role start in the new place. The change is written to the office feed and shows at once in list_team and list_subprojects.',
+  'tool.setRoleBase.role': 'The role, one of: {roles}.',
+  'tool.setRoleBase.subproject': 'Which zones to pin the role to: {zones}. Several — separated by commas; the list replaces the previous pinning entirely. `none` — unpin: the role takes tasks of any zone and without a zone. Do not pass together with path.',
+  'tool.setRoleBase.path': 'Absolute path to the project folder of the role: the folder must exist and be a git repository with a commit. The role is pinned to the repo zone of this path (created if missing) instead of its previous repository. Empty string — return the role to the shared office repository. Do not pass together with subprojectId.',
   'tool.editTask.desc': 'Rewrite a task that already exists: headline, brief, criteria, role, importance. This is what keeps the board free of duplicates when the user changed their mind or clarified the request. Only the fields you pass are changed: an empty field means “leave it alone”. A task somebody is already working on cannot be rewritten — the worker is working off the brief they read.',
   'tool.editTask.taskId': 'Task id, e.g. T-3',
   'tool.editTask.title': 'New headline. Empty — keep the old one.',
@@ -1074,7 +1079,7 @@ Keep your replies to the user short. Which language to write them in is said in 
     '',
     '',
     '{zones}',
-    'Create a task with the subprojectId of its zone (create_task, plan_features); without a zone a task is for the whole project, and only roles without pinning take it. Creating zones and re-pinning roles is the owner\'s decision: suggest it in the chat. Open tasks by zone — list_subprojects.',
+    'Create a task with the subprojectId of its zone (create_task, plan_features); without a zone a task is for the whole project, and only roles without pinning take it. You can re-pin a role to another zone or change the path of its repository yourself — set_role_base; running tasks of the role finish in the previous repository. Creating new zones is the owner\'s decision: suggest it in the chat. Open tasks by zone — list_subprojects.',
   ].join('\n'),
   'prompt.pm.noDirections': '(only the built-in one: keep the project healthy)',
   'prompt.pm.handoff': `

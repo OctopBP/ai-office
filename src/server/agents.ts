@@ -18,6 +18,7 @@ import {
   type Instance, type OfficeState, type PmAbout, type PmSession, type Task,
 } from './state';
 import { clearEnvWait, envBlock, markEnvWait, roleProviderProblem } from './envcheck';
+import { setRoleBase } from './rolebase';
 import {
   DEFAULT_PROCESS_WORKERS, DEFAULT_TASK_PRIORITY, emptyUsage, OFFICE_SENDER, TASK_PRIORITIES,
 } from '../shared/types';
@@ -370,6 +371,7 @@ function toolBrief(name: string, input: Record<string, unknown>, lang: Lang): st
         if (short === 'finish_task') return t(lang, 'bubble.finishTask');
         if (short === 'list_team') return t(lang, 'bubble.listTeam');
         if (short === 'list_subprojects') return t(lang, 'bubble.listSubprojects');
+        if (short === 'set_role_base') return say('bubble.setRoleBase', input.roleId);
         if (short === 'get_board') return t(lang, 'bubble.getBoard');
         if (short === 'get_task') return say('bubble.getTask', input.taskId);
         if (short === 'list_rules') return t(lang, 'bubble.listRules');
@@ -807,8 +809,8 @@ function subprojectsBrief(state: OfficeState): string {
 
 /**
  * Ответ list_subprojects (§6.1): то же, что блок промпта, плюс открытые
- * задачи по зонам. Только чтение — заводить и перезакреплять зоны менеджер
- * не может, это решение владельца.
+ * задачи по зонам. Только чтение: перезакрепляет роль и меняет её путь
+ * менеджер инструментом set_role_base, а заводить зоны — решение владельца.
  */
 export function subprojectsSummary(state: OfficeState): string {
   return zonesText(state.subprojectViews(), state.workerRoles(), state.lang(), { open: true })
@@ -937,6 +939,25 @@ const teamTools = (state: OfficeState, chatId: string) => createSdkMcpServer({
       {},
       async () => ({ content: [{ type: 'text', text: subprojectsSummary(state) }] }),
       { annotations: { readOnlyHint: true } },
+    ),
+
+    tool(
+      'set_role_base',
+      state.say('tool.setRoleBase.desc'),
+      {
+        roleId: z.string().describe(state.say('tool.setRoleBase.role', {
+          roles: state.workerRoles().map((r) => `${r.id} (${r.title})`).join(', '),
+        })),
+        // Без умолчаний: пустой path — это «вернуть в общий репозиторий», и
+        // подставленная пустая строка превратила бы любой вызов в сброс.
+        subprojectId: z.string().optional()
+          .describe(state.say('tool.setRoleBase.subproject', { zones: zonesHint(state) })),
+        path: z.string().optional().describe(state.say('tool.setRoleBase.path')),
+      },
+      async (args) => {
+        const outcome = await setRoleBase(state, args);
+        return { content: [{ type: 'text', text: outcome.message }], isError: !outcome.ok };
+      },
     ),
 
     tool(
