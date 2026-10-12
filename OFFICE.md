@@ -59,7 +59,7 @@ Node + TypeScript, React 19 + Zustand на фронте, `ws` для связи,
 | `src/shared/looks.ts` | Внешности агентов: скины персонажа и запасные спрайты для аватарок |
 | `src/web/portraits.ts`, `src/web/Avatar.tsx` | Портреты для аватарок: `design/models/characters/portraits/<внешность>.png`; нет портрета — квадрат с кодом роли |
 | `src/web/office3d/Office3D.tsx` | Трёхмерный рендер комнаты и человечков |
-| `src/web/shell/Shell.tsx` | Оболочка: рейл офисов, сегменты видов, композер |
+| `src/web/shell/` | Оболочка, по файлу на часть: `Shell.tsx` — каркас (выбирает вид, доки и оверлеи), `Rail.tsx` — рейл офисов и окон, `OfficesModal.tsx` — окно офисов и подтверждение операций с офисом, `RailPages.tsx` и `ShellPage.tsx` — страницы окон рейла, `TopBar.tsx` — сегменты видов, `WorkColumn.tsx` — рабочая колонка с доками, `Composer.tsx` — композер, `PmChatList.tsx` — список чатов с менеджером, `EnvBanner.tsx` — полоса блокировки окружения, `UpdateBlock.tsx` и `ReleaseNotes.tsx` — обновление приложения и заметки к выпуску, `ProviderIcon.tsx` — знак провайдера движка; стили — `src/web/styles/shell.css`, `offices.css` |
 | `src/web/styles/tokens.css`, `kit.css` | Токены и кит нового UI; стенд — `?kit=1` |
 | `src/web/MoneyBoard.tsx` | Доска расходов: счёт за день, по задачам, шкалы лимитов |
 | `design/sprites/gen.py` | Генератор пиксель-спрайтов (темы day и night) |
