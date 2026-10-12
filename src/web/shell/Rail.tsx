@@ -18,7 +18,7 @@ import { HOTKEY } from '../hotkeys';
 import { officeAvatarStyle } from '../officeColor';
 import { OfficeAvatarIcon } from '../OfficeIcon';
 import { ProviderIcon } from './ProviderIcon';
-import { OfficeConfirm } from '../OfficesModal';
+import { OfficeConfirm } from './OfficesModal';
 import { UpdateBlock } from './UpdateBlock';
 
 /** Сколько пикселей нужно сдвинуть указатель, прежде чем короткий клик по

@@ -7,7 +7,7 @@ import { TaskDrawer } from './TaskDrawer';
 import { PermissionModal } from './PermissionModal';
 import { DiffPanel } from './DiffPanel';
 import { MeetingModal } from './MeetingModal';
-import { OfficesModal } from './OfficesModal';
+import { OfficesModal } from './shell/OfficesModal';
 import { t } from './i18n';
 
 // Лог, расходы, слияние, совещания, команда, процессы, выпуски и настройки —

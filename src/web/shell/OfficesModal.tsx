@@ -2,12 +2,12 @@ import { Fragment, useEffect, useRef, useState } from 'react';
 import {
   activeOffices, archiveOffice, archivedOffices, createOffice, renameOffice, setOfficeIcon,
   summarizeOfficeActivity, useStore,
-} from './store';
-import type { OfficeView } from '../shared/types';
-import { t } from './i18n';
-import { Icon } from './icons';
-import { officeAvatarStyle } from './officeColor';
-import { OfficeAvatarIcon } from './OfficeIcon';
+} from '../store';
+import type { OfficeView } from '../../shared/types';
+import { t } from '../i18n';
+import { Icon } from '../icons';
+import { officeAvatarStyle } from '../officeColor';
+import { OfficeAvatarIcon } from '../OfficeIcon';
 
 // Палитра выбора без претензии на полноту — 16 эмодзи на разные темы проекта.
 const ICON_PALETTE = [
