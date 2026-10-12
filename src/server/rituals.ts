@@ -26,15 +26,16 @@ import type { WorkflowNode } from '../shared/workflow';
 import { builtinWorkflows } from './workflows';
 import { drive, newRun, type Executor } from './runs';
 import { dayKey, HEALTH_DIRECTION, limitReset, OFFICE_SENDER } from '../shared/types';
-import type { BranchMark, HealthEntry, OwnerQuestion, RitualId, RitualRun } from '../shared/types';
+import type { BranchMark, FactView, HealthEntry, OwnerQuestion, RitualId, RitualRun } from '../shared/types';
 import { LANG_LOCALE } from '../shared/i18n';
 import { roleReports, WEEK_MS as REPORT_WEEK_MS, type RoleReport } from '../shared/report';
 import { toTaskView, type Fact, type OfficeState, type Task } from './state';
 import { archiveFact, forget, STALE_AFTER_MS, supersedeFacts } from './journal';
 import { isPromptable } from './superseded';
 import {
-  buildResolvePrompt, decideContradiction, isPairResolved, markPairResolved, parseVerdict,
-  type ContradictionVerdict,
+  buildResolvePrompt, decideContradiction, isOwnerDecision, isPairResolved, markPairResolved, observationKey,
+  OBSERVATION_ID, parseVerdict, taskIdsIn,
+  type ContradictionVerdict, type TaskNote,
 } from './contradictions';
 import { findPriorContradiction, repeatedQuestions } from './contradiction-history';
 import { askOwner, dismissQuestion, officeAsks, openQuestions, pickForStandup } from './questions';
@@ -539,18 +540,60 @@ function factByQuote(facts: Fact[], quote: string): Fact | null {
   }) ?? null;
 }
 
-/** Вывод разбора словами — для строки ленты и для вопроса владельцу. */
+/** Вывод разбора словами — для вопроса владельцу, когда офис сам пару не закрыл. */
 function verdictText(state: OfficeState, verdict: ContradictionVerdict): string {
   if (verdict.kind === 'stale') {
-    return state.say('contradictions.verdict.stale', {
+    const text = state.say('contradictions.verdict.stale', {
       keep: verdict.keepId, forget: verdict.forgetId, reason: clip(verdict.reason, 300),
     });
+    return verdict.evidence
+      ? `${text} ${state.say('contradictions.closed.evidence', { evidence: clip(verdict.evidence, 200) })}`
+      : text;
   }
   if (verdict.kind === 'compatible') {
     return state.say('contradictions.verdict.compatible', { reason: clip(verdict.reason, 300) });
   }
   const reason = state.say('contradictions.verdict.unresolved', { reason: clip(verdict.reason, 300) });
   return verdict.lean ? `${reason} ${state.say('contradictions.verdict.lean', { lean: clip(verdict.lean, 200) })}` : reason;
+}
+
+/**
+ * Сторона противоречия: запись журнала или новое наблюдение ритуала, которого
+ * в журнале ещё нет (консолидация сверяет дельту с журналом). view — то, что
+ * видит агент разбора; key — чем сторона входит в память разобранных пар.
+ */
+interface ContradictionSide {
+  fact: Fact | null;
+  view: FactView;
+  key: string;
+}
+
+/** Длина варианта ответа: длиннее questions.ts → tidyOptions вариант выбросит. */
+const OPTION_LEN = 40;
+
+/**
+ * Сторона кнопкой для владельца: id записи и начало её текста. По id в ответе
+ * supersededByAnswer понимает, какая запись проиграла, поэтому чужие id из
+ * текста в кнопку не попадают.
+ */
+function sideOption(state: OfficeState, side: ContradictionSide): string {
+  const head = side.fact ? `${side.fact.id}: ` : `${state.say('contradictions.option.observation')}: `;
+  const text = side.view.text.replace(/^-?\s*[A-Z]+-\d+\s*(\[[^\]]*\])?:?/, '').replace(/\b[A-Z]+-\d+\b/g, '');
+  return `${head}${clip(text, OPTION_LEN - head.length)}`;
+}
+
+/** Задачи, которые упоминают стороны: их статус и отчёт уходят агенту разбора. */
+function tasksFor(state: OfficeState, sides: ContradictionSide[]): TaskNote[] {
+  const ids: string[] = [];
+  for (const { view } of sides) {
+    for (const id of [view.source.taskId ?? '', ...taskIdsIn(view.text)]) {
+      if (id && !ids.includes(id)) ids.push(id);
+    }
+  }
+  return ids.slice(0, 6).flatMap((id) => {
+    const task = state.tasks.get(id);
+    return task ? [{ id, title: task.title, status: task.status, result: task.result }] : [];
+  });
 }
 
 /** Что стало с одним противоречием: спросили, закрыли сами или пропустили как разобранное. */
@@ -566,29 +609,53 @@ async function handleContradiction(
   state: OfficeState, ritual: RitualId, c: { a: string; b: string; text: string }, out: RitualOutput,
 ): Promise<ContradictionFate> {
   const live = state.factList().filter((f) => f.status === 'live' && isPromptable(f));
-  const a = factByQuote(live, c.a);
-  const b = factByQuote(live, c.b);
-  const pair = a && b && a.id !== b.id ? { a, b } : null;
-  const question = state.say('questions.contradiction', { a: clip(c.a, 160), b: clip(c.b, 160) });
+  const now = Date.now();
+  const sideOf = (quote: string): ContradictionSide => {
+    const fact = factByQuote(live, quote);
+    if (fact) return { fact, view: fact, key: fact.id };
+    return {
+      fact: null,
+      key: observationKey(quote),
+      view: {
+        id: OBSERVATION_ID, kind: 'fact', text: quote.trim(), scope: 'project', source: { ritual },
+        createdAt: now, confirmedAt: now, status: 'live',
+      },
+    };
+  };
+  const a = sideOf(c.a);
+  const b = sideOf(c.b);
+  // Обе цитаты — одна и та же запись: расходиться ей не с чем.
+  if (a.fact && a.fact.id === b.fact?.id) return 'skipped';
+  const what = clip(c.text || `${c.a} ≠ ${c.b}`, 160);
+  const label = (side: ContradictionSide): string =>
+    clip(side.fact ? `${side.fact.id}: ${side.fact.text}` : side.view.text, 160);
+  // Подписи снимаем до разбора: уточнение формулировки перепишет текст записи,
+  // а в ленте должно остаться то, что расходилось.
+  const labels = { a: label(a), b: label(b) };
+  const question = state.say('questions.contradiction', labels);
+  const remember = (): void => {
+    markPairResolved(state.life, a.key, b.key);
+    state.touchLife();
+  };
 
-  if (pair && isPairResolved(state.life, pair.a.id, pair.b.id)) return 'skipped';
+  if (isPairResolved(state.life, a.key, b.key)) return 'skipped';
   // Владелец эту тему уже видел — по записи, по цитатам или по формулировке.
-  const prior = findPriorContradiction(c, [a, b], state.questionList(), state.factList());
+  const prior = findPriorContradiction(c, [a.fact, b.fact], state.questionList(), state.factList());
   if (prior) {
-    if (pair) {
-      markPairResolved(state.life, pair.a.id, pair.b.id);
-      state.touchLife();
-    }
+    remember();
     state.addLog(null, 'system', state.say('contradictions.repeatLog', {
-      what: clip(c.text || `${c.a} ≠ ${c.b}`, 160), ref: prior.questionId ?? prior.factId ?? '',
+      what, ref: prior.questionId ?? prior.factId ?? '',
     }));
     return 'skipped';
   }
 
-  if (!pair) {
-    // Сторону не нашли в журнале — разбирать нечего, спрашиваем как раньше.
+  const options = [sideOption(state, a), sideOption(state, b), state.say('contradictions.option.both')];
+  if (!a.fact && !b.fact) {
+    // Ни одной стороны в журнале нет — забывать нечего и сверять не с чем:
+    // вопрос владельцу, но с кнопками и один раз.
+    remember();
     state.addFact({ kind: 'contradiction', text: c.text || `${c.a} ≠ ${c.b}`, scope: 'office', source: { ritual } });
-    officeAsks(state, 'contradiction', question, state.say('questions.contradictionAssumption'));
+    officeAsks(state, 'contradiction', question, state.say('questions.contradictionAssumption'), null, options);
     return 'asked';
   }
 
@@ -596,43 +663,75 @@ async function handleContradiction(
   if (!agents.resolveContradiction) {
     verdict = { kind: 'unresolved', reason: state.say('contradictions.noAgent') };
   } else {
-    const answer = await agents.resolveContradiction(state, buildResolvePrompt(pair.a, pair.b, state.lang()));
+    const prompt = buildResolvePrompt(a.view, b.view, state.lang(), tasksFor(state, [a, b]));
+    const answer = await agents.resolveContradiction(state, prompt);
     out.costUsd += answer.costUsd;
     verdict = answer.error && !answer.text.trim()
       ? { kind: 'unresolved', reason: state.say('contradictions.agentFailed', { error: clip(answer.error, 200) }) }
       : parseVerdict(answer.text, state.lang());
   }
-  const decision = decideContradiction(pair.a, pair.b, verdict, state.lang());
-  markPairResolved(state.life, pair.a.id, pair.b.id);
-  state.touchLife();
+  const decision = decideContradiction(a.view, b.view, verdict, state.lang());
+  remember();
 
   if (decision.action === 'close') {
-    if (decision.verdict.kind === 'stale') {
-      // «Верна более новая»: устаревшая сторона помнит, чем её заменили.
-      supersedeFacts(state, [decision.verdict.forgetId], decision.verdict.keepId);
-      archiveFact(state, decision.verdict.forgetId);
-    }
+    const closed = decision.verdict.kind === 'stale'
+      ? applyStale(state, ritual, a, b, decision.verdict)
+      : state.say('contradictions.closed.compatible', { reason: clip(decision.verdict.reason, 300) });
     state.addLog(null, 'system', state.say('contradictions.closedLog', {
-      a: pair.a.id, b: pair.b.id, what: clip(c.text || `${pair.a.text} ≠ ${pair.b.text}`, 160),
-      verdict: verdictText(state, decision.verdict),
+      what, ...labels, verdict: closed,
     }));
     return 'resolved';
   }
 
   state.addFact({ kind: 'contradiction', text: c.text || `${c.a} ≠ ${c.b}`, scope: 'office', source: { ritual } });
-  const review = decision.why === 'owner-decisions'
-    ? state.say('contradictions.review.ownerDecisions', { verdict: verdictText(state, decision.verdict) })
-    : state.say('contradictions.review.unresolved', { verdict: verdictText(state, decision.verdict) });
-  const options = decision.verdict.kind === 'unresolved' && decision.verdict.options?.length
-    ? decision.verdict.options
-    : [
-      state.say('contradictions.option.first', { id: pair.a.id }),
-      state.say('contradictions.option.second', { id: pair.b.id }),
-      state.say('contradictions.option.both'),
-    ];
+  const review = state.say(
+    decision.why === 'owner-decisions' ? 'contradictions.review.ownerDecisions'
+      : decision.why === 'unsure' ? 'contradictions.review.unsure'
+        : 'contradictions.review.unresolved',
+    { verdict: verdictText(state, decision.verdict) },
+  );
   officeAsks(state, 'contradiction', `${question}\n\n${review}`,
     state.say('questions.contradictionAssumption'), null, options);
   return 'asked';
+}
+
+/**
+ * Применить вердикт «верна одна»: проигравшая запись помечается заменённой и
+ * уходит в архив (из журнала не стирается — остаётся историей), победившая
+ * подтверждается и, если агент дал уточнение, переписывается. Верное новое
+ * наблюдение заводится записью. Возвращает итог словами — для строки ленты.
+ */
+function applyStale(
+  state: OfficeState, ritual: RitualId, a: ContradictionSide, b: ContradictionSide,
+  verdict: Extract<ContradictionVerdict, { kind: 'stale' }>,
+): string {
+  const [keep, lose] = a.view.id === verdict.keepId ? [a, b] : [b, a];
+  const rewrite = verdict.rewrite ? clip(verdict.rewrite, 600) : '';
+  const parts: string[] = [];
+  let keepId: string;
+  if (keep.fact) {
+    keepId = keep.fact.id;
+    // Решение владельца офис не переформулирует — только подтверждает.
+    const reworded = Boolean(rewrite) && rewrite !== keep.fact.text && !isOwnerDecision(keep.fact);
+    state.updateFact(keepId, { confirmedAt: Date.now(), ...(reworded ? { text: rewrite } : {}) });
+    if (reworded) parts.push(state.say('contradictions.closed.rewritten', { id: keepId, text: clip(rewrite, 300) }));
+  } else {
+    // Верно наблюдение: оно становится записью на месте устаревшей.
+    keepId = state.addFact({
+      kind: 'fact', text: rewrite || keep.view.text, scope: lose.fact?.scope ?? 'project', source: { ritual },
+    }).id;
+  }
+  if (lose.fact) {
+    supersedeFacts(state, [lose.fact.id], keepId);
+    archiveFact(state, lose.fact.id);
+    parts.unshift(state.say(keep.fact ? 'contradictions.closed.stale' : 'contradictions.closed.observationRight', {
+      keep: keepId, forget: lose.fact.id, reason: clip(verdict.reason, 300),
+    }));
+  } else {
+    parts.unshift(state.say('contradictions.closed.observationWrong', { keep: keepId, reason: clip(verdict.reason, 300) }));
+  }
+  if (verdict.evidence) parts.push(state.say('contradictions.closed.evidence', { evidence: clip(verdict.evidence, 300) }));
+  return parts.map((part) => part.replace(/[.\s]+$/, '')).join('. ');
 }
 
 /**

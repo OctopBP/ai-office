@@ -7,8 +7,8 @@
  */
 import assert from 'node:assert/strict';
 import {
-  buildResolvePrompt, decideContradiction, isPairResolved, markPairResolved, pairKey, parseVerdict,
-  RESOLVED_PAIRS_KEPT, type ContradictionVerdict,
+  buildResolvePrompt, decideContradiction, isPairResolved, markPairResolved, OBSERVATION_ID, observationKey,
+  pairKey, parseVerdict, RESOLVED_PAIRS_KEPT, taskIdsIn, type ContradictionVerdict,
 } from '../src/server/contradictions';
 import type { FactView } from '../src/shared/types';
 
@@ -29,9 +29,9 @@ const plainB = fact('J-2', 'lesson', { ritual: 'consolidate' as FactView['source
 const ownerDecision = fact('J-3', 'decision');
 const ownerAnswer = fact('J-4', 'fact', { questionId: 'Q-7' });
 
-const stale: ContradictionVerdict = { kind: 'stale', keepId: 'J-2', forgetId: 'J-1', reason: 'в коде иначе' };
+const stale: ContradictionVerdict = { kind: 'stale', keepId: 'J-2', forgetId: 'J-1', reason: 'в коде иначе', evidence: 'src/server/index.ts → POST /api/office/icon' };
 const compatible: ContradictionVerdict = { kind: 'compatible', reason: 'разные экраны' };
-const unresolved: ContradictionVerdict = { kind: 'unresolved', reason: 'нет следов', lean: 'J-2', options: ['J-1', 'J-2'] };
+const unresolved: ContradictionVerdict = { kind: 'unresolved', reason: 'нет следов', lean: 'J-2' };
 
 console.log('decideContradiction');
 
@@ -47,16 +47,32 @@ check('unresolved ведёт к вопросу владельцу с вывод�
   assert.deepEqual(decideContradiction(plainA, plainB, unresolved, 'ru'), { action: 'ask', why: 'unresolved', verdict: unresolved });
 });
 
-check('два решения владельца — всегда вопрос, какой бы ни был вердикт', () => {
-  const ownStale: ContradictionVerdict = { kind: 'stale', keepId: 'J-3', forgetId: 'J-4', reason: 'новее' };
-  for (const v of [ownStale, compatible, unresolved]) {
+check('stale без проверяемого основания — вопрос: агент не уверен', () => {
+  const bare: ContradictionVerdict = { kind: 'stale', keepId: 'J-2', forgetId: 'J-1', reason: 'кажется, новее' };
+  assert.deepEqual(decideContradiction(plainA, plainB, bare, 'ru'), { action: 'ask', why: 'unsure', verdict: bare });
+});
+
+check('вердикт с пометкой «не уверен» — вопрос, даже с основанием', () => {
+  for (const v of [{ ...stale, unsure: true }, { ...compatible, unsure: true }] as ContradictionVerdict[]) {
+    assert.deepEqual(decideContradiction(plainA, plainB, v, 'ru'), { action: 'ask', why: 'unsure', verdict: v });
+  }
+});
+
+check('между двумя решениями владельца офис не выбирает, каким бы ни был вердикт', () => {
+  const ownStale: ContradictionVerdict = { kind: 'stale', keepId: 'J-3', forgetId: 'J-4', reason: 'новее', evidence: 'git log' };
+  const unsureCompatible: ContradictionVerdict = { ...compatible, unsure: true };
+  for (const v of [ownStale, unsureCompatible, unresolved]) {
     for (const [a, b] of [[ownerDecision, ownerAnswer], [ownerAnswer, ownerDecision]]) {
       assert.deepEqual(decideContradiction(a, b, v, 'ru'), { action: 'ask', why: 'owner-decisions', verdict: v });
     }
   }
   // Два ответа владельца на вопросы и два решения — тоже решения владельца.
-  assert.equal(decideContradiction(ownerAnswer, fact('J-5', 'lesson', { questionId: 'Q-8' }), compatible, 'ru').action, 'ask');
-  assert.equal(decideContradiction(ownerDecision, fact('J-6', 'decision'), compatible, 'ru').action, 'ask');
+  assert.equal(decideContradiction(ownerAnswer, fact('J-5', 'lesson', { questionId: 'Q-8' }), ownStale, 'ru').action, 'ask');
+  assert.equal(decideContradiction(ownerDecision, fact('J-6', 'decision'), unresolved, 'ru').action, 'ask');
+});
+
+check('два решения владельца про разное — уверенное «противоречия нет» закрывает пару, оба в силе', () => {
+  assert.deepEqual(decideContradiction(ownerDecision, ownerAnswer, compatible, 'ru'), { action: 'close', verdict: compatible });
 });
 
 check('одно решение владельца против факта разбирается обычным порядком', () => {
@@ -64,7 +80,7 @@ check('одно решение владельца против факта раз
 });
 
 check('stale с id не из пары — вопрос, а не забывание', () => {
-  const wrong: ContradictionVerdict = { kind: 'stale', keepId: 'J-2', forgetId: 'J-99', reason: 'х' };
+  const wrong: ContradictionVerdict = { kind: 'stale', keepId: 'J-2', forgetId: 'J-99', reason: 'х', evidence: 'х' };
   const d = decideContradiction(plainA, plainB, wrong, 'ru');
   assert.equal(d.action, 'ask');
   assert.equal(d.action === 'ask' && d.why, 'unresolved');
@@ -80,6 +96,26 @@ check('задание содержит обе записи, правила пр�
     'rg/grep', 'целиком не читай', '"kind":"stale"', '"kind":"compatible"', '"kind":"unresolved"', 'задача T-1']) {
     assert.ok(p.includes(part), `в задании нет «${part}»`);
   }
+});
+
+check('в задании — критерии проверки: даты, задачи, намерение и уверенность', () => {
+  const p = buildResolvePrompt(plainA, plainB, 'ru');
+  for (const part of ['"evidence"', '"rewrite"', '"sure"', 'отложено', 'намерении, приоритете или вкусе', 'про разные моменты']) {
+    assert.ok(p.includes(part), `в задании нет «${part}»`);
+  }
+  assert.ok(!p.includes('{tasks}') && !p.includes('{observation}'));
+});
+
+check('упомянутые задачи приходят в задание с доски: статус и отчёт', () => {
+  const p = buildResolvePrompt(plainA, plainB, 'ru', [{ id: 'T-1', title: 'Иконка-картинка', status: 'done', result: 'влито,\nмаршрут есть' }]);
+  assert.ok(p.includes('T-1 «Иконка-картинка» — статус done. Отчёт: влито, маршрут есть'), p);
+  assert.deepEqual(taskIdsIn('T-6/T-43: сделано, см. T-6 и J-8'), ['T-6', 'T-43']);
+});
+
+check('новое наблюдение названо в задании наблюдением', () => {
+  const p = buildResolvePrompt(plainA, { ...plainB, id: OBSERVATION_ID }, 'ru');
+  assert.ok(p.includes(`Запись ${OBSERVATION_ID} — новое наблюдение`));
+  assert.ok(!buildResolvePrompt(plainA, plainB, 'ru').includes('новое наблюдение'));
 });
 
 check('в офисе с английским языком задание и причины приходят по-английски', () => {
@@ -98,6 +134,13 @@ check('разбирает три исхода, в том числе в обёр�
   assert.deepEqual(parseVerdict(JSON.stringify(stale), 'ru'), stale);
   assert.deepEqual(parseVerdict('```json\n' + JSON.stringify(compatible) + '\n```', 'ru'), compatible);
   assert.deepEqual(parseVerdict(JSON.stringify(unresolved), 'ru'), unresolved);
+});
+
+check('разбирает уточнение формулировки и пометку «не уверен»', () => {
+  const v = parseVerdict(JSON.stringify({ ...stale, rewrite: ' новый текст ', sure: false }), 'ru');
+  assert.deepEqual(v, { ...stale, rewrite: 'новый текст', unsure: true });
+  assert.deepEqual(parseVerdict(JSON.stringify({ ...stale, sure: true }), 'ru'), stale);
+  assert.deepEqual(parseVerdict('{"kind":"compatible","reason":"х","sure":false}', 'ru'), { kind: 'compatible', reason: 'х', unsure: true });
 });
 
 check('мусор и неизвестный исход — unresolved', () => {
@@ -122,6 +165,14 @@ check('отмеченная пара разобрана в любом поряд
   assert.equal(isPairResolved(life, 'J-2', 'J-1'), true);
   assert.equal(isPairResolved(life, 'J-1', 'J-3'), false);
   assert.equal(Object.keys(life.resolvedPairs).length, 1);
+});
+
+check('наблюдение без id входит в память пар по своему тексту', () => {
+  assert.equal(observationKey('  «Порт   сервера 3010» '), observationKey('порт сервера 3010'));
+  const life = { resolvedPairs: {} as Record<string, number> };
+  markPairResolved(life, 'J-1', observationKey('Порт сервера 3010'), 1);
+  assert.equal(isPairResolved(life, observationKey('порт  сервера 3010'), 'J-1'), true);
+  assert.equal(isPairResolved(life, observationKey('порт сервера 3002'), 'J-1'), false);
 });
 
 check('память обрезается по самым старым парам', () => {

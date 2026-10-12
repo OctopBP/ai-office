@@ -14,20 +14,29 @@ import { t } from './i18n';
 
 /** Что агент разбора выяснил о паре записей. */
 export type ContradictionVerdict =
-  /** Одна запись устарела: её забыть, другую оставить. */
-  | { kind: 'stale'; keepId: string; forgetId: string; reason: string }
-  /** Противоречия нет: записи про разные контексты и верны обе. */
-  | { kind: 'compatible'; reason: string }
-  /** Разобраться не вышло. lean — к чему склоняется агент, options — варианты для владельца. */
-  | { kind: 'unresolved'; reason: string; lean?: string; options?: string[] };
+  /**
+   * Одна запись верна, другая устарела: её забыть, верную оставить.
+   * evidence — чем это проверено (файл, символ, маршрут, коммит, задача, даты);
+   * без него вердикт не закрывает пару. rewrite — уточнённый текст верной
+   * записи, если прежняя формулировка неполна. unsure — агент сам не уверен.
+   */
+  | { kind: 'stale'; keepId: string; forgetId: string; reason: string; evidence?: string; rewrite?: string; unsure?: boolean }
+  /** Противоречия нет: записи про разное или про разные моменты, верны обе. */
+  | { kind: 'compatible'; reason: string; unsure?: boolean }
+  /** Разобраться не вышло. lean — к чему склоняется агент. */
+  | { kind: 'unresolved'; reason: string; lean?: string };
 
 /** Действие по итогам разбора. */
 export type ContradictionDecision =
   | { action: 'close'; verdict: Exclude<ContradictionVerdict, { kind: 'unresolved' }> }
   | {
       action: 'ask';
-      /** Почему спрашиваем: столкнулись два решения владельца или разбор не дал ответа. */
-      why: 'owner-decisions' | 'unresolved';
+      /**
+       * Почему спрашиваем: столкнулись два решения владельца, разбор не дал
+       * ответа или агент не уверен в своём вердикте (в том числе не назвал,
+       * чем он проверен).
+       */
+      why: 'owner-decisions' | 'unresolved' | 'unsure';
       /** Вывод разбора — прикладывается к вопросу владельцу. */
       verdict: ContradictionVerdict;
     };
@@ -38,10 +47,12 @@ export function isOwnerDecision(fact: Pick<FactView, 'kind' | 'source'>): boolea
 }
 
 /**
- * Закрыть самим или спросить владельца. Два решения владельца офис не
- * перерешивает никогда, какой бы ни был вердикт. Вердикт «устарела» с id не из
- * этой пары считается неразобранным: забыть чужую запись по ошибке хуже, чем
- * лишний вопрос.
+ * Закрыть самим или спросить владельца. Выбирать между двумя решениями
+ * владельца офис не берётся никогда: закрыть такую пару сам он может только
+ * уверенным «противоречия нет», когда оба решения остаются в силе. Вердикт
+ * «устарела» с id не из этой пары считается неразобранным: забыть чужую запись
+ * по ошибке хуже, чем лишний вопрос. Неуверенный вердикт и «устарела» без
+ * проверяемого основания пару не закрывают — это тоже вопрос владельцу.
  */
 export function decideContradiction(
   a: Pick<FactView, 'id' | 'kind' | 'source'>,
@@ -49,7 +60,9 @@ export function decideContradiction(
   verdict: ContradictionVerdict,
   lang: Lang,
 ): ContradictionDecision {
-  if (isOwnerDecision(a) && isOwnerDecision(b)) return { action: 'ask', why: 'owner-decisions', verdict };
+  if (isOwnerDecision(a) && isOwnerDecision(b) && !(verdict.kind === 'compatible' && !verdict.unsure)) {
+    return { action: 'ask', why: 'owner-decisions', verdict };
+  }
   if (verdict.kind === 'unresolved') return { action: 'ask', why: 'unresolved', verdict };
   if (verdict.kind === 'stale') {
     const ids = [a.id, b.id];
@@ -61,7 +74,27 @@ export function decideContradiction(
       };
     }
   }
+  if (verdict.unsure) return { action: 'ask', why: 'unsure', verdict };
+  if (verdict.kind === 'stale' && !verdict.evidence) return { action: 'ask', why: 'unsure', verdict };
   return { action: 'close', verdict };
+}
+
+/** Id стороны, которой в журнале ещё нет: новое наблюдение ритуала. */
+export const OBSERVATION_ID = 'NEW';
+
+/** Задача, упомянутая в записях: агенту разбора нужен её итог, а доски у него нет. */
+export interface TaskNote {
+  id: string;
+  title: string;
+  status: string;
+  result?: string | null;
+}
+
+/** Id задач в тексте — по порядку и без повторов. */
+export function taskIdsIn(text: string): string[] {
+  const seen: string[] = [];
+  for (const m of text.matchAll(/\bT-\d+\b/g)) if (!seen.includes(m[0])) seen.push(m[0]);
+  return seen;
 }
 
 /** Одна запись в задании: id, вид, когда заведена и откуда. */
@@ -78,10 +111,22 @@ function describeFact(fact: FactView, lang: Lang): string {
   });
 }
 
-/** Задание агенту разбора на одну пару записей. */
-export function buildResolvePrompt(a: FactView, b: FactView, lang: Lang): string {
+/**
+ * Задание агенту разбора на одну пару записей. tasks — задачи, которые записи
+ * упоминают, с доски: их статус и отчёт агенту иначе взять неоткуда.
+ */
+export function buildResolvePrompt(a: FactView, b: FactView, lang: Lang, tasks: TaskNote[] = []): string {
+  const board = tasks.length
+    ? tasks.map((task) => t(lang, 'prompt.resolveContradiction.taskRow', {
+      id: task.id, title: task.title, status: task.status,
+      result: (task.result ?? '').replace(/\s+/g, ' ').trim().slice(0, 400) || '—',
+    })).join('\n')
+    : t(lang, 'prompt.resolveContradiction.noTasks');
+  const observation = [a, b].some((f) => f.id === OBSERVATION_ID)
+    ? `\n${t(lang, 'prompt.resolveContradiction.observation', { id: OBSERVATION_ID })}`
+    : '';
   return t(lang, 'prompt.resolveContradiction.task', {
-    a: describeFact(a, lang), b: describeFact(b, lang), aId: a.id, bId: b.id,
+    a: describeFact(a, lang), b: describeFact(b, lang), aId: a.id, bId: b.id, tasks: board, observation,
   });
 }
 
@@ -104,17 +149,19 @@ export function parseVerdict(text: string, lang: Lang): ContradictionVerdict {
   const v = raw as Record<string, unknown>;
   const str = (x: unknown): string => (typeof x === 'string' ? x.trim() : '');
   const reason = str(v.reason);
+  // Не уверен — только явное «нет»: пропущенное поле вердикт не портит.
+  const unsure = v.sure === false || v.sure === 'false';
   if (v.kind === 'stale' && str(v.keepId) && str(v.forgetId)) {
-    return { kind: 'stale', keepId: str(v.keepId), forgetId: str(v.forgetId), reason };
+    const out: ContradictionVerdict = { kind: 'stale', keepId: str(v.keepId), forgetId: str(v.forgetId), reason };
+    if (str(v.evidence)) out.evidence = str(v.evidence);
+    if (str(v.rewrite)) out.rewrite = str(v.rewrite);
+    if (unsure) out.unsure = true;
+    return out;
   }
-  if (v.kind === 'compatible') return { kind: 'compatible', reason };
+  if (v.kind === 'compatible') return unsure ? { kind: 'compatible', reason, unsure: true } : { kind: 'compatible', reason };
   if (v.kind === 'unresolved') {
     const out: ContradictionVerdict = { kind: 'unresolved', reason };
     if (str(v.lean)) out.lean = str(v.lean);
-    if (Array.isArray(v.options)) {
-      const options = v.options.map(str).filter(Boolean).slice(0, 4);
-      if (options.length) out.options = options;
-    }
     return out;
   }
   return fail(t(lang, 'contradictions.reason.unknownKind', { what: reason || String(v.kind) }));
@@ -128,6 +175,16 @@ export const RESOLVED_PAIRS_KEPT = 500;
 /** Где лежит память: LifeState.resolvedPairs, ключ — пара, значение — когда разобрана. */
 export interface ResolvedPairsHolder {
   resolvedPairs: Record<string, number>;
+}
+
+/**
+ * Ключ стороны без id — нового наблюдения: по его тексту, без регистра,
+ * кавычек и лишних пробелов. С ним пара «запись против наблюдения» тоже
+ * запоминается и второй раз не разбирается.
+ */
+export function observationKey(text: string): string {
+  const norm = text.toLowerCase().replace(/[«»“”"'`]/g, '').replace(/\s+/g, ' ').trim();
+  return `~${norm.slice(0, 120)}`;
 }
 
 /** Ключ пары записей, не зависящий от порядка. */
