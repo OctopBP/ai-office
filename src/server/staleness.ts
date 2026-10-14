@@ -201,3 +201,102 @@ export function summarizeVerdicts(verdicts: FreshnessVerdict[]): FreshnessSummar
     downgraded: [...byFact].filter(([, list]) => list.some(o => o.downgraded)).map(([id]) => id),
   };
 }
+
+const VERDICT_KINDS: ReadonlySet<string> = new Set(['stale', 'actual', 'unknown']);
+const BASIS_KINDS: ReadonlySet<string> = new Set(['code', 'git', 'task', 'newer']);
+
+/**
+ * Вердикты из ответа агента проверки. Ждём JSON `{"verdicts":[…]}` или голый
+ * массив; текст вокруг допустим. Неразборчивый ответ — пустой список: записи
+ * без вердикта вызывающий считает «не знаю» и откладывает.
+ */
+export function parseFreshnessVerdicts(text: string): FreshnessVerdict[] {
+  const objStart = text.indexOf('{');
+  const arrStart = text.indexOf('[');
+  const isArray = arrStart >= 0 && (objStart < 0 || arrStart < objStart);
+  const start = isArray ? arrStart : objStart;
+  const end = text.lastIndexOf(isArray ? ']' : '}');
+  if (start < 0 || end <= start) return [];
+  let raw: unknown;
+  try {
+    raw = JSON.parse(text.slice(start, end + 1));
+  } catch {
+    return [];
+  }
+  const list = Array.isArray(raw) ? raw : (raw as { verdicts?: unknown } | null)?.verdicts;
+  if (!Array.isArray(list)) return [];
+  const str = (x: unknown): string => (typeof x === 'string' ? x.trim() : '');
+  const out: FreshnessVerdict[] = [];
+  for (const item of list) {
+    if (!item || typeof item !== 'object') continue;
+    const v = item as Record<string, unknown>;
+    const factId = str(v.factId) || str(v.id);
+    const verdict = str(v.verdict);
+    if (!/^J-\d+$/.test(factId) || !VERDICT_KINDS.has(verdict)) continue;
+    const one: FreshnessVerdict = { factId, verdict: verdict as FreshnessVerdictKind, reason: str(v.reason) };
+    const b = v.basis as Record<string, unknown> | undefined;
+    if (b && typeof b === 'object' && BASIS_KINDS.has(str(b.kind)) && str(b.ref)) {
+      one.basis = { kind: str(b.kind) as FreshnessBasisKind, ref: str(b.ref) };
+    }
+    out.push(one);
+  }
+  return out;
+}
+
+/* ── Память проверенных записей ─────────────────────────────────────────── */
+
+/** Сколько записей помнить: архивные и стёртые вычищаются, это — предохранитель. */
+export const FRESHNESS_KEPT = 1000;
+
+export interface FreshnessMark {
+  /** Отпечаток записи на момент разбора: вид и текст. */
+  sig: string;
+  at: number;
+}
+
+/** Где лежит память: LifeState.freshnessChecked, ключ — id записи. */
+export interface FreshnessHolder {
+  freshnessChecked: Record<string, FreshnessMark>;
+}
+
+/**
+ * Отпечаток записи: вид и текст. Дата подтверждения в него не входит —
+ * «изменили» значит переписали, а не просто подтвердили задачей.
+ */
+export function freshnessSig(fact: { kind: string; text: string }): string {
+  // FNV-1a: короткий и стабильный, криптостойкость здесь не нужна.
+  let h = 0x811c9dc5;
+  const s = `${fact.kind}\u0000${fact.text.trim()}`;
+  for (let i = 0; i < s.length; i++) {
+    h ^= s.charCodeAt(i);
+    h = Math.imul(h, 0x01000193) >>> 0;
+  }
+  return h.toString(36);
+}
+
+/** Запись уже разобрана и с тех пор не менялась — второй раз её не поднимаем. */
+export function isFreshnessChecked(holder: FreshnessHolder, fact: { id: string; kind: string; text: string }): boolean {
+  const mark = holder.freshnessChecked?.[fact.id];
+  return Boolean(mark) && mark!.sig === freshnessSig(fact);
+}
+
+/**
+ * Запомнить запись разобранной. Правит holder на месте; записать на диск —
+ * забота вызывающего (state.touchLife()).
+ */
+export function markFreshnessChecked(
+  holder: FreshnessHolder, fact: { id: string; kind: string; text: string }, now = Date.now(),
+): void {
+  const marks = holder.freshnessChecked ?? (holder.freshnessChecked = {});
+  marks[fact.id] = { sig: freshnessSig(fact), at: now };
+  const keys = Object.keys(marks);
+  if (keys.length <= FRESHNESS_KEPT) return;
+  keys.sort((x, y) => marks[x].at - marks[y].at);
+  for (const key of keys.slice(0, keys.length - FRESHNESS_KEPT)) delete marks[key];
+}
+
+/** Забыть отметки записей, которых в живом журнале больше нет. */
+export function pruneFreshness(holder: FreshnessHolder, alive: (id: string) => boolean): void {
+  const marks = holder.freshnessChecked ?? {};
+  for (const id of Object.keys(marks)) if (!alive(id)) delete marks[id];
+}

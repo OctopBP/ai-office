@@ -4755,7 +4755,20 @@ const SHELL_ESCAPES = /[;&|><`$\n]/;
  * чтение проекта — файлы, git, поиск. Ответ — текст с JSON, разбирает его
  * ритуал (parseVerdict), здесь только сессия и расход.
  */
-async function resolveContradictionSession(state: OfficeState, prompt: string): Promise<ResolveOutput> {
+function resolveContradictionSession(state: OfficeState, prompt: string): Promise<ResolveOutput> {
+  return readonlyRitualSession(state, state.say('prompt.resolveContradiction.system', { lang: LANG_NAME_EN[state.lang()] }), prompt);
+}
+
+/**
+ * Агент самопроверки свежести журнала: та же сессия только на чтение, ответ —
+ * JSON с вердиктами, разбирает его freshness.ts.
+ */
+function checkFreshnessSession(state: OfficeState, prompt: string): Promise<ResolveOutput> {
+  return readonlyRitualSession(state, state.say('prompt.freshness.system', { lang: LANG_NAME_EN[state.lang()] }), prompt);
+}
+
+/** Короткая сессия ритуала только на чтение проекта: файлы, git, поиск. */
+async function readonlyRitualSession(state: OfficeState, systemPrompt: string, prompt: string): Promise<ResolveOutput> {
   const out: ResolveOutput = { text: '', costUsd: 0 };
   if (state.dryRun) return out;
   const before = state.instances.get('pm#1')?.usage.costUsd ?? 0;
@@ -4765,7 +4778,7 @@ async function resolveContradictionSession(state: OfficeState, prompt: string): 
       prompt,
       options: {
         ...ritualRuntime(state),
-        systemPrompt: state.say('prompt.resolveContradiction.system', { lang: LANG_NAME_EN[state.lang()] }),
+        systemPrompt,
         cwd: state.projectDir,
         tools: ['Read', 'Glob', 'Grep', 'Bash'],
         permissionMode: 'default',
@@ -5022,6 +5035,7 @@ setRitualAgents({
     return ritualSession(state, state.say('prompt.contradictions.system', { lang }), prompt);
   },
   resolveContradiction: resolveContradictionSession,
+  checkFreshness: checkFreshnessSession,
 
   /**
    * Рефлексия — на модели менеджера: это и есть менеджер, только с цифрами

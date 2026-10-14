@@ -21,6 +21,7 @@ import { tellPm } from './review';
 import { onOutcome } from './outcomes';
 import { supersedeFacts } from './journal';
 import { supersededByAnswer } from './superseded';
+import { applyFreshnessAnswer } from './freshness';
 
 /** Сколько вопросов можно задать по одной задаче — как у `ask_colleague`. */
 export const MAX_QUESTIONS_PER_TASK = 2;
@@ -162,6 +163,18 @@ export function answerQuestion(state: OfficeState, askedId: string, answer: stri
   state.updateQuestion(id, { answer: text, answeredAt: now, dismissedAt: null });
   const along = absorbed(state, id);
   for (const q of along) state.updateQuestion(q.id, { answer: text, answeredAt: now });
+
+  // «Все в силе» на вопрос о свежести подтверждает сами решения из списка.
+  // Новой записи не заводим: она повторила бы их все в промпте ещё раз.
+  const confirmed = question.kind === 'stale' ? applyFreshnessAnswer(state, question, text) : [];
+  if (confirmed.length) {
+    state.addOfficeNote(state.say('freshness.answeredChat', { id, ids: confirmed.join(', ') }),
+      { chatId: question.chatId, taskId: question.taskId });
+    tellPm(state, state.say('questions.pmAnswered', {
+      id, question: question.text, assumption: question.assumption, answer: text, task: '—',
+    }), { chatId: question.chatId, taskId: question.taskId });
+    return true;
+  }
 
   const roleId = question.from !== OFFICE_SENDER ? state.instances.get(question.from)?.roleId ?? null : null;
   const fact = state.addFact({

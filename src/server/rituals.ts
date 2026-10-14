@@ -30,7 +30,8 @@ import type { BranchMark, FactView, HealthEntry, OwnerQuestion, RitualId, Ritual
 import { LANG_LOCALE } from '../shared/i18n';
 import { roleReports, WEEK_MS as REPORT_WEEK_MS, type RoleReport } from '../shared/report';
 import { toTaskView, type Fact, type OfficeState, type Task } from './state';
-import { archiveFact, forget, STALE_AFTER_MS, supersedeFacts } from './journal';
+import { archiveFact, STALE_AFTER_MS, supersedeFacts } from './journal';
+import { runFreshness } from './freshness';
 import { isPromptable } from './superseded';
 import {
   buildResolvePrompt, decideContradiction, isOwnerDecision, isPairResolved, markPairResolved, observationKey,
@@ -119,6 +120,12 @@ export interface RitualAgents {
    * агента — пара считается неразобранной и уходит владельцу.
    */
   resolveContradiction?(state: OfficeState, prompt: string): Promise<ResolveOutput>;
+  /**
+   * Самопроверка свежести фактов и уроков по коду, git и доске — только
+   * чтение (freshness.ts). Нет агента — факты забываются по датам, уроки
+   * уходят владельцу.
+   */
+  checkFreshness?(state: OfficeState, prompt: string): Promise<ResolveOutput>;
 }
 
 const emptyOutput = (): RitualOutput => ({ facts: [], contradictions: [], questions: [], costUsd: 0 });
@@ -812,20 +819,20 @@ const runners: Record<RitualId, Runner> = {
     };
   },
 
+  /**
+   * Свежесть журнала (freshness.ts): факты и уроки офис проверяет сам,
+   * решения, которые пора подтвердить, — один вопрос владельцу за прогон.
+   */
   async forget(state, now) {
-    const result = forget(state, now);
-    for (const f of result.staled) state.addLog(null, 'system', state.say('journal.staleLog', { id: f.id }));
-    for (const f of result.archived) state.addLog(null, 'system', state.say('journal.archivedLog', { id: f.id }));
-    for (const f of result.toAsk) {
-      officeAsks(state, 'stale', state.say('journal.staleQuestion', {
-        text: clip(f.text, 200), id: f.id, days: Math.round((now - f.confirmedAt) / 86_400_000),
-      }), state.say('journal.staleAssumption'));
-    }
-    const produced = { staled: result.staled.length, archived: result.archived.length, asked: result.toAsk.length };
+    // Самопроверка — на модели: без провайдера и за порогом лимита ритуал
+    // идёт по-старому, по датам, а не откладывается целиком.
+    const check = state.officeRuntime() && !limitsBusy(state, now) ? agents.checkFreshness : undefined;
+    const result = await runFreshness(state, now, check ? (s, prompt) => check.call(agents, s, prompt) : undefined);
+    const { costUsd, ...produced } = result;
     // Раз в неделю, вместе с забыванием, офис смотрит и на сами ритуалы.
     adjustPortfolio(state, now);
     return {
-      ritual: 'forget', at: now, costUsd: 0, produced,
+      ritual: 'forget', at: now, costUsd, produced,
       note: state.say('ritual.forget.note', produced),
     };
   },

@@ -1042,11 +1042,17 @@ export interface LifeState {
    * Ключ — pairKey из contradictions.ts, от порядка записей не зависит.
    */
   resolvedPairs: Record<string, number>;
+  /**
+   * Записи журнала, которые ритуал свежести уже разобрал, с отпечатком текста
+   * (staleness.ts → markFreshnessChecked). Пока запись не переписали, второй
+   * раз её не проверяют и о ней не спрашивают.
+   */
+  freshnessChecked: Record<string, { sig: string; at: number }>;
 }
 
 export const emptyLife = (): LifeState => ({
   standupDay: null, standupAt: null, lastRun: {}, policy: { ...DEFAULT_RITUAL_POLICY }, runs: [],
-  reflection: null, reflectionAt: null, deferrals: 0, flows: {}, resolvedPairs: {},
+  reflection: null, reflectionAt: null, deferrals: 0, flows: {}, resolvedPairs: {}, freshnessChecked: {},
 });
 
 /** Сколько прогонов ритуалов помним: портфелю хватает нескольких недель. */
@@ -2268,6 +2274,7 @@ export class OfficeState {
       runs: [...(data.life?.runs ?? [])],
       flows: { ...(data.life?.flows ?? {}) },
       resolvedPairs: { ...(data.life?.resolvedPairs ?? {}) },
+      freshnessChecked: { ...(data.life?.freshnessChecked ?? {}) },
     };
     // Детализация трат: сворачиваем прямо на подъёме — за время, пока сервер
     // был выключен, сутки могли смениться не раз, и без этого файл вернулся бы
