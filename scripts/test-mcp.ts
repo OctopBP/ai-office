@@ -6,7 +6,12 @@
 // которому сказано «делай макет в Figma», займётся не своим делом.
 import {
   checkMcpServers, DEFAULT_MCP_SERVERS, externalMcp, MCP_NOT_IN_SESSION, mcpBrief, mcpCatalog, pollMcpStatus, serversFor,
+  unityProjectArgs,
 } from '../src/server/mcp';
+import { execFileSync } from 'node:child_process';
+import { mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { defaultRole, defaultRoles } from '../src/server/roles';
 import type { Role } from '../src/server/roles';
 import type { McpServerDef, Settings } from '../src/shared/types';
@@ -138,6 +143,79 @@ const wd = (cwd?: string): string | undefined => {
 };
 check('рабочая копия доезжает до сервера', wd('/tmp/work') === '/tmp/work', String(wd('/tmp/work')));
 check('без рабочей копии переменной нет', wd() === undefined, String(wd()));
+
+// --------------------------------------------- путь проекта для моста Unity
+
+// Роль работает в копии задачи, а редактор владелец открывает на основной
+// папке репозитория зоны (T-575). Мост с --project-path <копия> открытый
+// редактор не найдёт, поэтому выбор пути проверяем на настоящих git-копиях.
+{
+  const unity = DEFAULT_MCP_SERVERS.find((s) => s.id === 'unity')!;
+  const pathOf = (cwd?: string, project?: string | string[]): string =>
+    unityProjectArgs(unity, cwd, project).join(' ') || '(нет)';
+  const tmp = realpathSync(mkdtempSync(join(tmpdir(), 'office-unity-')));
+  const git = (dir: string, ...args: string[]): void => {
+    execFileSync('git', ['-C', dir, ...args], { stdio: 'ignore' });
+  };
+  /** Unity-проект в `dir`: файл версии, по которому его узнаёт офис. */
+  const unityAt = (dir: string): void => {
+    mkdirSync(join(dir, 'ProjectSettings'), { recursive: true });
+    writeFileSync(join(dir, 'ProjectSettings', 'ProjectVersion.txt'), 'm_EditorVersion: 6000.0.0f1\n');
+  };
+  const openEditor = (dir: string): void => {
+    mkdirSync(join(dir, 'Temp'), { recursive: true });
+    writeFileSync(join(dir, 'Temp', 'UnityLockfile'), '');
+  };
+  try {
+    // Проект в корне репозитория, копия задачи — в другом месте, как .office/worktrees.
+    const main = join(tmp, 'rewind-morpeh');
+    mkdirSync(main);
+    git(main, 'init', '-q', '-b', 'main');
+    unityAt(main);
+    git(main, 'add', '.');
+    git(main, '-c', 'user.name=t', '-c', 'user.email=t@t', 'commit', '-qm', 'init');
+    const copy = join(tmp, 'worktrees', 'T-1');
+    git(main, 'worktree', 'add', '-q', '-b', 'task/T-1', copy);
+
+    check('Unity: редактор нигде — копия задачи', pathOf(copy, main) === `--project-path ${copy}`, pathOf(copy, main));
+    openEditor(main);
+    check('Unity: редактор в основной папке, задача в копии',
+      pathOf(copy, main) === `--project-path ${main}`, pathOf(copy, main));
+    // project указывает не туда (например, на копию) — основную папку
+    // находим через git worktree list.
+    check('Unity: основная папка найдена через git',
+      pathOf(copy, copy) === `--project-path ${main}`, pathOf(copy, copy));
+    check('Unity: только копия задачи — тоже находим', pathOf(copy) === `--project-path ${main}`, pathOf(copy));
+
+    // Проект в подпапке репозитория.
+    const nested = join(tmp, 'game-repo');
+    mkdirSync(join(nested, 'client'), { recursive: true });
+    git(nested, 'init', '-q', '-b', 'main');
+    unityAt(join(nested, 'client', 'Game'));
+    writeFileSync(join(nested, 'README.md'), 'x\n');
+    git(nested, 'add', '.');
+    git(nested, '-c', 'user.name=t', '-c', 'user.email=t@t', 'commit', '-qm', 'init');
+    const nestedCopy = join(tmp, 'worktrees', 'T-2');
+    git(nested, 'worktree', 'add', '-q', '-b', 'task/T-2', nestedCopy);
+    check('Unity: проект на два уровня ниже, редактора нет',
+      pathOf(nestedCopy, nested) === `--project-path ${join(nestedCopy, 'client', 'Game')}`, pathOf(nestedCopy, nested));
+    openEditor(join(nested, 'client', 'Game'));
+    check('Unity: проект в подпапке, редактор в основной папке',
+      pathOf(nestedCopy, nested) === `--project-path ${join(nested, 'client', 'Game')}`, pathOf(nestedCopy, nested));
+
+    // Глубже двух уровней не ищем.
+    const deep = join(tmp, 'deep');
+    unityAt(join(deep, 'a', 'b', 'c'));
+    check('Unity: глубже двух уровней не ищем', pathOf(deep) === '(нет)', pathOf(deep));
+    const plain = join(tmp, 'plain', 'src');
+    mkdirSync(plain, { recursive: true });
+    check('Unity: не Unity-проект — флага нет', pathOf(plain) === '(нет)', pathOf(plain));
+    check('Unity: путь задан руками — не трогаем',
+      unityProjectArgs({ ...unity, args: [...unity.args, '--project-path', '/x'] }, copy, main).length === 0, '(пусто)');
+  } finally {
+    rmSync(tmp, { recursive: true, force: true });
+  }
+}
 
 // ------------------------------------------------- нет файла stdio-сервера
 

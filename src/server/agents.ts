@@ -36,7 +36,7 @@ import {
   autoApprovedText, classify, decide, effectiveMode, gitReadOnlyProblem, releaseCommandBlocked,
   type ClassifyZone,
 } from './permissions';
-import { outsideZone, writeZone } from './subprojects';
+import { outsideZone, writeZone, zonePath } from './subprojects';
 import { worktreeOwnFiles } from './premerge';
 import {
   cancelRelease, closeReleasePlan, proposeReleaseTarget, proposedAssets, proposedChannels, proposedDirs, releaseStatusText, releaseText, restartRelease, resumeRelease, saveReleasePlan, setReleaseAgents,
@@ -72,7 +72,7 @@ import {
 import { resolveModel } from '../shared/models';
 import { reviewStatusText, taskDetails } from './task-view';
 import { formatBoard, isSelection, type BoardOpts, type BoardSay } from './board-view';
-import { resolve } from 'node:path';
+import { isAbsolute, relative, resolve } from 'node:path';
 import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync } from 'node:fs';
 
 /**
@@ -3000,6 +3000,24 @@ function limitWhen(state: OfficeState, role: Role): string {
 }
 
 /**
+ * Папки, где мост Unity ищет проект и открытый редактор (`unityProjectArgs`):
+ * копия задачи, репозиторий зоны и корень зоны — и в репозитории, и в копии.
+ * У зоны-папки корень лежит глубже корня репозитория, и неглубокий поиск
+ * вниз до него мог бы не дотянуться. Остальные рабочие копии репозитория
+ * mcp.ts находит сам через git.
+ */
+function unityPlaces(office: OfficeState, task: Task, workRoot: string, repoDir: string): string[] {
+  const zone = task.subprojectId ? office.subprojects().find((s) => s.id === task.subprojectId) : undefined;
+  if (!zone) return [workRoot, repoDir];
+  const root = zonePath(zone, office.projectDir);
+  const inRepo = relative(repoDir, root);
+  const inside = !inRepo.startsWith('..') && !isAbsolute(inRepo);
+  return [
+    ...(inside ? [resolve(workRoot, inRepo)] : []), workRoot, repoDir, root,
+  ];
+}
+
+/**
  * Запустить исполнителя. Офис задачи передаётся явно и дальше используется
  * ВЕЗДЕ вместо текущего: работа идёт минутами, а пользователь за это время
  * может уйти в другой офис — доска, лента и отчёт обязаны остаться в своём.
@@ -3213,7 +3231,7 @@ function startWorker(
           tools: sessionTools(role),
           mcpServers: {
             office: workerTools(taskOffice, inst.id, task),
-            ...externalMcp(taskOffice.settings, role, workdir, repoDir),
+            ...externalMcp(taskOffice.settings, role, workdir, unityPlaces(taskOffice, task, workRoot, repoDir)),
           },
           // Скилы роли — из её пакета в employees/<роль>/. Пакета нет, обе
           // опции undefined, и сессия собирается ровно как прежде.

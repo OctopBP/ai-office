@@ -21,7 +21,8 @@
  * целиком уезжают на фронт в каждом снимке — записанный здесь токен утёк бы
  * дважды.
  */
-import { existsSync } from 'node:fs';
+import { execFileSync } from 'node:child_process';
+import { existsSync, readdirSync } from 'node:fs';
 import { basename, isAbsolute, join, resolve } from 'node:path';
 import type { McpServerConfig } from './engines/types';
 import type { Lang } from '../shared/i18n';
@@ -349,7 +350,7 @@ function resolveEnv(env: Record<string, string>): Record<string, string> {
  * этой переменной складывал бы их в корень офиса мимо ветки — то есть в
  * никуда. Мостам до Figma и Blender переменная не мешает: они её не читают.
  */
-function toSdkConfig(def: McpServerDef, cwd?: string, project?: string): McpServerConfig {
+function toSdkConfig(def: McpServerDef, cwd?: string, project?: string | readonly string[]): McpServerConfig {
   const env = resolveEnv(def.env);
   if (def.transport === 'stdio') {
     const node = nodeCommand(def.command);
@@ -381,39 +382,105 @@ const isUnityProject = (dir: string): boolean =>
 const editorOpenOn = (dir: string): boolean => existsSync(join(dir, 'Temp', 'UnityLockfile'));
 
 /**
+ * Папки, которые при поиске Unity-проекта вниз смотреть незачем: служебные
+ * Unity, зависимости и скрытые. Без этого обход второго уровня заходил бы в
+ * Library с тысячами папок кеша.
+ */
+const UNITY_SKIP = new Set(['Library', 'Temp', 'Logs', 'obj', 'Build', 'Builds', 'node_modules']);
+
+/** Подпапки, куда стоит заглянуть при поиске проекта; ошибка чтения — пусто. */
+function subdirs(dir: string): string[] {
+  try {
+    return readdirSync(dir, { withFileTypes: true })
+      .filter((e) => e.isDirectory() && !e.name.startsWith('.') && !UNITY_SKIP.has(e.name))
+      .map((e) => join(dir, e.name))
+      .sort();
+  } catch {
+    return [];
+  }
+}
+
+/**
+ * Unity-проекты в папке: она сама, иначе её подпапки на один, потом на два
+ * уровня вниз (проект часто лежит не в корне репозитория, а в `Game/` или
+ * `client/Unity/`). Глубже не идём: обход дерева на каждом старте сессии
+ * дороже, чем польза, а проект на пятом уровне задаётся руками в аргументах.
+ */
+function unityProjectsIn(dir: string): string[] {
+  if (!existsSync(dir)) return [];
+  if (isUnityProject(dir)) return [dir];
+  const first = subdirs(dir);
+  const level1 = first.filter(isUnityProject);
+  if (level1.length) return level1;
+  return first.filter((d) => !isUnityProject(d)).flatMap(subdirs).filter(isUnityProject);
+}
+
+/**
+ * Рабочие копии git-репозитория, в котором лежит `dir`, основная — первой
+ * (так их отдаёт `git worktree list`). Не репозиторий, нет git — пусто.
+ */
+function gitWorktrees(dir: string): string[] {
+  if (!existsSync(dir)) return [];
+  try {
+    const out = execFileSync('git', ['-C', dir, 'worktree', 'list', '--porcelain'], {
+      encoding: 'utf8', timeout: 5000, stdio: ['ignore', 'pipe', 'ignore'],
+    });
+    return out.split('\n')
+      .filter((line) => line.startsWith('worktree '))
+      .map((line) => line.slice('worktree '.length));
+  } catch {
+    return [];
+  }
+}
+
+/**
  * Путь проекта для моста к Unity (`unity mcp --project-path <путь>`, T-572).
  * Без него мост цепляется к первому найденному редактору, а открытых может
  * быть несколько — и роль смотрела бы в чужой проект.
  *
- * Кандидатов два: рабочая копия задачи (`cwd`) и корень репозитория
- * (`project`). Владелец обычно открывает редактор на своём проекте, а копия
- * задачи живёт в .office/worktrees, поэтому сначала ищем тот, где редактор
- * открыт сейчас; не открыт нигде — рабочую копию, потом корень. Мост
- * поднимается вместе с сессией, так что редактор, открытый позже, он найдёт
- * по этому же пути.
+ * Роль работает в копии задачи (.office/worktrees/…), а владелец открывает
+ * редактор на своей папке проекта — основной рабочей копии репозитория зоны
+ * (T-575). Поэтому кандидаты — не только `cwd` и `project`, но и все рабочие
+ * копии того же git-репозитория, а в каждой — Unity-проект в ней самой или
+ * на один-два уровня ниже. Порядок выбора:
+ *  1. проект, на котором редактор открыт сейчас (`Temp/UnityLockfile`), где бы
+ *     он ни лежал — в копии задачи, в основной папке или в соседней копии;
+ *  2. проект в копии задачи (`cwd` и первые папки `project`);
+ *  3. проект в репозитории зоны и её корне, затем в основной рабочей копии
+ *     репозитория и прочих копиях — в порядке `git worktree list`.
+ * Мост поднимается вместе с сессией, так что редактор, открытый позже, он
+ * найдёт по выбранному пути.
  *
  * Дописываем только своему серверу из умолчаний (id и команда `unity`),
  * только если путь в аргументах не задан руками и только Unity-проекту:
  * иначе мост искал бы редактор, которого нет, и роль осталась бы без
  * инструментов там, где раньше их получала.
  */
-function unityProjectArgs(def: McpServerDef, cwd?: string, project?: string): string[] {
+export function unityProjectArgs(def: McpServerDef, cwd?: string, project?: string | readonly string[]): string[] {
   if (def.id !== 'unity' || basename(def.command) !== 'unity') return [];
   if (def.args.includes('--project-path')) return [];
-  const dirs = [cwd, project].filter((d): d is string => !!d && isUnityProject(d));
-  const dir = dirs.find(editorOpenOn) ?? dirs[0];
+  const given = [cwd, ...(typeof project === 'string' ? [project] : project ?? [])]
+    .filter((d): d is string => !!d);
+  if (!given.length) return [];
+  const worktrees = given.map(gitWorktrees).find((list) => list.length) ?? [];
+  // Переданные папки идут первыми: копия задачи, затем репозиторий зоны и её
+  // корень. Основная рабочая копия из git нужна, когда `project` — не она.
+  const roots = [...new Set([...given, ...worktrees].map((d) => resolve(d)))];
+  const found = [...new Set(roots.flatMap(unityProjectsIn))];
+  const dir = found.find(editorOpenOn) ?? found[0];
   return dir ? ['--project-path', dir] : [];
 }
 
 /**
  * Внешние MCP-серверы роли — в том виде, в каком их ждёт опция сессии.
  * `cwd` — рабочая копия сотрудника: она нужна серверам, которые пишут файлы
- * (§ `toSdkConfig`). `project` — корень репозитория задачи: по нему или по
- * `cwd` мост Unity находит свой редактор (§ `unityProjectArgs`). Пусто —
- * серверы поднимаются как раньше.
+ * (§ `toSdkConfig`). `project` — корень репозитория задачи или список папок
+ * (копия задачи, репозиторий, корень зоны): по ним и по `cwd` мост Unity
+ * находит свой редактор (§ `unityProjectArgs`). Пусто — серверы поднимаются
+ * как раньше.
  */
 export const externalMcp = (
-  settings: Settings, role: Role, cwd?: string, project?: string,
+  settings: Settings, role: Role, cwd?: string, project?: string | readonly string[],
 ): Record<string, McpServerConfig> =>
   Object.fromEntries(serversFor(settings, role).map((s) => [s.id, toSdkConfig(s, cwd, project)]));
 
