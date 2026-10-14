@@ -71,6 +71,17 @@ const cases: Case[] = [
   ['mcp__unity__delete_asset', { path: 'Assets/A.png' },         'danger'],
   ['mcp__unity__open_scene', { path: 'Assets/Main.unity' },      'write'],
   ['mcp__other-unity__eval', { code: '1' },                      'write'],
+  // figcraft: снимок и экспорт картинкой в ответ — чтение, экспорт в файл и
+  // произвольная команда — запись. Правило — только для своего id.
+  ['mcp__figcraft__inspect_document', { depth: 2 },              'safe'],
+  ['mcp__figcraft__list_commands', { filter: 'layout' },         'safe'],
+  ['mcp__figcraft__screenshot', { scale: 1 },                    'safe'],
+  ['mcp__figcraft__export', { ids: ['1:2'], format: 'png' },     'safe'],
+  ['mcp__figcraft__export', { ids: ['1:2'], format: 'png', path: 'docs/a.png' }, 'write'],
+  ['mcp__figcraft__run_command', { command: 'inspect.code' },    'write'],
+  ['mcp__figcraft__save_file', { path: 'docs/a.figcraft' },      'write'],
+  ['mcp__figcraft__create_node', { type: 'frame' },              'write'],
+  ['mcp__other-figcraft__screenshot', {},                        'write'],
 ];
 
 // Пустой список кейсов дал бы «все 0 кейсов прошли» — зелёный прогон, в котором

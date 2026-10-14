@@ -108,6 +108,19 @@ const UNITY_SERVER = 'unity';
 const UNITY_CODE = /^(eval|execute|run_code)(_|$)/;
 
 /**
+ * figcraft (`figcraft-cli mcp`, id в каталоге — `figcraft`, разбор — D-4 §5).
+ * `inspect_document`, `inspect_ui`, `get_node` и `list_commands` читающие по
+ * общему глаголу. Сверх того читают два инструмента без глагола в имени:
+ * `screenshot` — всегда, это снимок документа картинкой агенту, и `export` —
+ * только без `path`: тогда картинка тоже возвращается в ответе. С `path` он
+ * пишет файл, а периметра записи у сервера нет, поэтому это запись, как и
+ * `save_file`. `run_command` и читает, и пишет — отличить нельзя, он пишущий.
+ */
+const FIGCRAFT_SERVER = 'figcraft';
+const figcraftReads = (verb: string, input: Record<string, unknown>): boolean =>
+  verb === 'screenshot' || (verb === 'export' && (input.path === undefined || input.path === ''));
+
+/**
  * Bash — основной источник опасных действий. Спрашиваем не про всякую команду
  * (иначе пользователь утонет в подтверждениях на ls и cat), а про те, что
  * необратимы или выходят за пределы проекта.
@@ -177,7 +190,8 @@ export function classify(
       ? short.slice(FIGMA_CONSOLE_PREFIX.length)
       : short;
     if (READ_MCP_TOOL.test(verb) || server === QA_BROWSER_SERVER
-      || (figmaConsole && FIGMA_CONSOLE_READ.test(verb))) {
+      || (figmaConsole && FIGMA_CONSOLE_READ.test(verb))
+      || (server === FIGCRAFT_SERVER && figcraftReads(verb, input))) {
       return { risk: 'safe', reason: '', summary: `${server}: ${short}`, detail: '', key: toolName };
     }
     const destructive = DESTRUCTIVE_MCP_TOOL.test(verb)

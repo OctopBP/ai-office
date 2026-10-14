@@ -825,6 +825,18 @@ Keep your replies to the user short. Which language to write them in is said in 
     'variable is missing, and do not route around generation by downloading pictures.',
   ].join('\n'),
 
+  'mcp.figcraft.brief': [
+    'figcraft is available to you through `mcp__figcraft__*` — it is a pilot and does not replace Figma.',
+    'It runs without a window: the document lives in the server process, so MAKE the mockup, do not describe it.',
+    'Read the tree with a limit: `inspect_document` and `get_node` with `depth` of 2 at most.',
+    'Find menu commands with `list_commands` and a `filter`, and create in bulk with `batch`.',
+    'Check yourself with a picture: `screenshot` or `export` without `path` return it straight to you.',
+    '`save_file` and `export` with `path` write anywhere — write files only inside your working copy.',
+    'Do not use Share ▸ Online: the file goes to a third-party server without encryption.',
+    'If the server did not start, `figcraft-cli` is not on PATH — say so in the report',
+    '(docs/design/figcraft/setup.md).',
+  ].join('\n'),
+
   'mcp.blender.brief': [
     'A live Blender is available to you directly through `mcp__blender__*`: look at the scene,',
     'find an object, measure it, grab a frame.',

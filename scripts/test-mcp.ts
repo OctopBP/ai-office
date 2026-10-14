@@ -7,7 +7,7 @@
 import {
   checkMcpServers, DEFAULT_MCP_SERVERS, externalMcp, MCP_NOT_IN_SESSION, mcpBrief, mcpCatalog, pollMcpStatus, serversFor,
 } from '../src/server/mcp';
-import { defaultRole } from '../src/server/roles';
+import { defaultRole, defaultRoles } from '../src/server/roles';
 import type { Role } from '../src/server/roles';
 import type { McpServerDef, Settings } from '../src/shared/types';
 
@@ -46,6 +46,20 @@ const hiredDesign = { ...role('design'), mcp: ['figma-bridge', 'figma-console', 
 check('старый каталог: дизайнер получает penpot и figma-console',
   ['penpot', 'figma-console'].every((id) => servers(hiredDesign, oldCatalog).includes(id)),
   list(hiredDesign, oldCatalog));
+// figcraft (T-569) — пилот: в каталоге есть, но по умолчанию никому не
+// подключён; дизайнер получает его галочкой, и тогда это stdio-процесс CLI.
+const figcraftDef = DEFAULT_MCP_SERVERS.find((s) => s.id === 'figcraft');
+check('figcraft в каталоге: stdio, figcraft-cli mcp --no-system-fonts',
+  figcraftDef?.transport === 'stdio' && figcraftDef.command === 'figcraft-cli'
+    && figcraftDef.args.join(' ') === 'mcp --no-system-fonts' && figcraftDef.alwaysLoad,
+  JSON.stringify(figcraftDef));
+const figcraftSubscribers = [...defaultRoles('ru'), role('design')].filter((r) => servers(r).includes('figcraft'));
+check('figcraft никому не подключён по умолчанию', figcraftSubscribers.length === 0,
+  figcraftSubscribers.map((r) => r.id).join(', ') || '(нет)');
+const pilotDesign = { ...role('design'), mcp: [...(role('design').mcp ?? []), 'figcraft'] };
+const figcraft = externalMcp(catalog(), pilotDesign).figcraft;
+check('дизайнер с галочкой получает figcraft',
+  !!figcraft && 'command' in figcraft && figcraft.command === 'figcraft-cli', JSON.stringify(figcraft));
 check('фронтенду тот же figma-bridge', servers(role('frontend')).includes('figma-bridge'), list(role('frontend')));
 check('3D-художнику blender', servers(role('artist3d')).includes('blender'), list(role('artist3d')));
 check('бэкенду ничего', servers(role('backend')).length === 0, list(role('backend')));
