@@ -63,25 +63,55 @@ Editor-скрипты, тесты, правишь сцены, префабы и 
    `Assets/` есть `.meta` и наоборот), уникальность GUID, в индексе нет
    `Library/` и прочего мусора, Force Text на месте, бинарники — LFS-указатели.
    Если есть Unity CLI — `unity vcs status` и `unity vcs doctor` делают это сами.
-2. **Unity CLI** (https://docs.unity.com/en-us/unity-cli/unity-cli). Узнай,
+2. **Мост к редактору** (`mcp__unity__*`). Есть инструменты и они отвечают —
+   редактор открыт: прочитай консоль на ошибки компиляции и прогони тесты
+   командой редактора, если она есть. Инструментов нет или ответ «нет
+   подключения» — не жди и не повторяй, сразу следующий шаг.
+3. **Unity CLI** (https://docs.unity.com/en-us/unity-cli/unity-cli). Узнай,
    есть ли он: `unity --version`, редакторы — `unity editors -i`. Флаги смотри
    в `unity <команда> --help` на машине, а не по памяти. В пайпе ставь
    `UNITY_NON_INTERACTIVE=1`. Тесты — `unity test` (EditMode и PlayMode);
    код выхода 6 — прогон не состоялся (компиляция, лицензия, таймаут), 8 —
    тесты прошли до конца и есть упавшие. При запущенном редакторе быстрая
    проверка компиляции — `unity recompile --strict`.
-3. **Batchmode**, если CLI нет, а редактор есть:
+4. **Batchmode**, если CLI нет, а редактор есть:
    `"$UNITY" -batchmode -projectPath "$PWD" -runTests -testPlatform EditMode -testResults artifacts/editmode.xml -logFile artifacts/editmode.log`,
    затем то же с `PlayMode` (без `-nographics`, если тесты рендерят).
    Путь к редактору — `UNITY_PATH` или Hub (`/Applications/Unity/Hub/Editor/<версия>/Unity.app/Contents/MacOS/Unity`).
    `-quit` вместе с `-runTests` не ставь: редактор закроется до тестов.
-4. **Разбор результата.** Верь XML (NUnit 3), а не коду выхода: у
+5. **Разбор результата.** Верь XML (NUnit 3), а не коду выхода: у
    `<test-run>` смотри `total` и `failed`; `total == 0` — провал (тесты не
    нашлись). Для упавших выпиши в отчёт `name`, `message` и первые строки
    `stack-trace`. Нет XML — прогон не состоялся: ищи в логе `error CS`,
    `Scripts have compiler errors`, `License`.
-5. Не путай «прогон не состоялся» (лицензия, компиляция) и «тесты упали» —
+6. Не путай «прогон не состоялся» (лицензия, компиляция) и «тесты упали» —
    пиши в отчёте, что именно случилось, с выдержкой из лога.
+
+### Таймаут обязателен
+
+`unity test` и batchmode без таймаута не запускай: при отказе лицензии
+процесс висит без кода выхода, и задача встаёт целиком. На macOS команды
+`timeout` из коробки нет — бери `timeout`/`gtimeout`, если `command -v` их
+находит, иначе Perl, который есть всегда:
+
+```sh
+perl -e 'alarm shift; exec @ARGV' 900 unity test --mode EditMode
+perl -e 'alarm shift; exec @ARGV' 900 "$UNITY" -batchmode -projectPath "$PWD" -runTests ...
+```
+
+Код выхода 142 (или 124 у `timeout`) — прогон убит по таймауту. Тогда
+прочитай хвост лога (`-logFile`, у CLI — путь из `--help` или
+`~/Library/Logs/Unity/Editor.log`) и пойми, на чём встал. Если после
+таймаута остался процесс редактора, запущенный тобой на `-projectPath
+"$PWD"`, заверши его; редактор владельца не трогай.
+
+### Отказ лицензии и read only
+
+В выводе или логе `Failed to connect to LicenseClient`, `No valid Unity
+license`, `read only` / `read-only` — это окружение, а не твой код. Повторять
+такой прогон бессмысленно: допускается одна повторная попытка, дальше не
+пробуй. Сдай работу со статикой и напиши в отчёте прямо: «тесты не прогнаны:
+<причина>», с выдержкой строки из лога. Выдумывать результат нельзя.
 
 Каждая фича — с тестом: логика — EditMode, поведение в кадре — PlayMode.
 

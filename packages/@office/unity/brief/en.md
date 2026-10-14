@@ -58,22 +58,52 @@ Always top to bottom; at each step use what the machine has.
 1. **Static checks without Unity.** `.meta` pairing, unique GUIDs, no
    `Library/` in the index, Force Text, binaries as LFS pointers. With the
    Unity CLI, `unity vcs status` and `unity vcs doctor` do this for you.
-2. **Unity CLI** (https://docs.unity.com/en-us/unity-cli/unity-cli). Check it
+2. **Editor bridge** (`mcp__unity__*`). If the tools exist and answer, the
+   editor is open: read the console for compile errors and run tests through
+   an editor command if there is one. No tools or "not connected" — do not
+   wait or retry, go straight to the next step.
+3. **Unity CLI** (https://docs.unity.com/en-us/unity-cli/unity-cli). Check it
    is there: `unity --version`, editors — `unity editors -i`. Read flags from
    `unity <command> --help` on the machine. Set `UNITY_NON_INTERACTIVE=1` in
    pipes. Tests — `unity test` (EditMode and PlayMode); exit code 6 — the run
    did not happen (compilation, license, timeout), 8 — tests ran and some
    failed. With a running editor, `unity recompile --strict` checks compilation fast.
-3. **Batchmode** when there is an editor but no CLI:
+4. **Batchmode** when there is an editor but no CLI:
    `"$UNITY" -batchmode -projectPath "$PWD" -runTests -testPlatform EditMode -testResults artifacts/editmode.xml -logFile artifacts/editmode.log`,
    then the same with `PlayMode`. Editor path — `UNITY_PATH` or the Hub
    folder. Never add `-quit` to `-runTests`.
-4. **Reading results.** Trust the NUnit 3 XML, not the exit code: `total`
+5. **Reading results.** Trust the NUnit 3 XML, not the exit code: `total`
    and `failed` on `<test-run>`; `total == 0` is a failure. For failures,
    report `name`, `message` and the top of `stack-trace`. No XML — the run did
    not happen: search the log for `error CS`, `Scripts have compiler errors`, `License`.
-5. Do not confuse "the run did not happen" with "tests failed" — say which,
+6. Do not confuse "the run did not happen" with "tests failed" — say which,
    with a log excerpt.
+
+### Always use a timeout
+
+Never run `unity test` or batchmode without a timeout: when the license is
+refused the process hangs with no exit code and the whole task stalls. macOS
+has no `timeout` out of the box — use `timeout`/`gtimeout` if `command -v`
+finds them, otherwise Perl, which is always there:
+
+```sh
+perl -e 'alarm shift; exec @ARGV' 900 unity test --mode EditMode
+perl -e 'alarm shift; exec @ARGV' 900 "$UNITY" -batchmode -projectPath "$PWD" -runTests ...
+```
+
+Exit code 142 (or 124 from `timeout`) means the run was killed by the
+timeout. Read the tail of the log (`-logFile`; for the CLI see `--help` or
+`~/Library/Logs/Unity/Editor.log`) to see where it stuck. If an editor you
+started on `-projectPath "$PWD"` is still running, stop it; never touch the
+owner's editor.
+
+### License refused or read only
+
+`Failed to connect to LicenseClient`, `No valid Unity license`, `read only` /
+`read-only` in the output or log is the environment, not your code. Retrying
+is pointless: one retry at most, then stop. Deliver with the static checks
+and say plainly in the report: "tests not run: <reason>", quoting the log
+line. Never invent a result.
 
 Every feature comes with a test: logic — EditMode, in-frame behaviour — PlayMode.
 

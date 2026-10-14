@@ -22,7 +22,7 @@
  * дважды.
  */
 import { existsSync } from 'node:fs';
-import { isAbsolute, resolve } from 'node:path';
+import { basename, isAbsolute, join, resolve } from 'node:path';
 import type { McpServerConfig } from './engines/types';
 import type { Lang } from '../shared/i18n';
 import type { McpServerDef, McpServerState, Settings } from '../shared/types';
@@ -349,7 +349,7 @@ function resolveEnv(env: Record<string, string>): Record<string, string> {
  * этой переменной складывал бы их в корень офиса мимо ветки — то есть в
  * никуда. Мостам до Figma и Blender переменная не мешает: они её не читают.
  */
-function toSdkConfig(def: McpServerDef, cwd?: string): McpServerConfig {
+function toSdkConfig(def: McpServerDef, cwd?: string, project?: string): McpServerConfig {
   const env = resolveEnv(def.env);
   if (def.transport === 'stdio') {
     const node = nodeCommand(def.command);
@@ -357,7 +357,7 @@ function toSdkConfig(def: McpServerDef, cwd?: string): McpServerConfig {
     return {
       type: 'stdio',
       command: node.command,
-      args: def.args,
+      args: [...def.args, ...unityProjectArgs(def, cwd, project)],
       ...(Object.keys(withCwd).length ? { env: withCwd } : {}),
       alwaysLoad: def.alwaysLoad,
     };
@@ -370,15 +370,52 @@ function toSdkConfig(def: McpServerDef, cwd?: string): McpServerConfig {
   };
 }
 
+/** Unity-проект — папка, в которой есть `ProjectSettings/ProjectVersion.txt`. */
+const isUnityProject = (dir: string): boolean =>
+  existsSync(join(dir, 'ProjectSettings', 'ProjectVersion.txt'));
+
+/**
+ * Редактор открыт на проекте, пока в нём лежит `Temp/UnityLockfile`: Unity
+ * заводит его при открытии и убирает вместе с `Temp/` при закрытии.
+ */
+const editorOpenOn = (dir: string): boolean => existsSync(join(dir, 'Temp', 'UnityLockfile'));
+
+/**
+ * Путь проекта для моста к Unity (`unity mcp --project-path <путь>`, T-572).
+ * Без него мост цепляется к первому найденному редактору, а открытых может
+ * быть несколько — и роль смотрела бы в чужой проект.
+ *
+ * Кандидатов два: рабочая копия задачи (`cwd`) и корень репозитория
+ * (`project`). Владелец обычно открывает редактор на своём проекте, а копия
+ * задачи живёт в .office/worktrees, поэтому сначала ищем тот, где редактор
+ * открыт сейчас; не открыт нигде — рабочую копию, потом корень. Мост
+ * поднимается вместе с сессией, так что редактор, открытый позже, он найдёт
+ * по этому же пути.
+ *
+ * Дописываем только своему серверу из умолчаний (id и команда `unity`),
+ * только если путь в аргументах не задан руками и только Unity-проекту:
+ * иначе мост искал бы редактор, которого нет, и роль осталась бы без
+ * инструментов там, где раньше их получала.
+ */
+function unityProjectArgs(def: McpServerDef, cwd?: string, project?: string): string[] {
+  if (def.id !== 'unity' || basename(def.command) !== 'unity') return [];
+  if (def.args.includes('--project-path')) return [];
+  const dirs = [cwd, project].filter((d): d is string => !!d && isUnityProject(d));
+  const dir = dirs.find(editorOpenOn) ?? dirs[0];
+  return dir ? ['--project-path', dir] : [];
+}
+
 /**
  * Внешние MCP-серверы роли — в том виде, в каком их ждёт опция сессии.
  * `cwd` — рабочая копия сотрудника: она нужна серверам, которые пишут файлы
- * (§ `toSdkConfig`). Пусто — серверы поднимаются как раньше.
+ * (§ `toSdkConfig`). `project` — корень репозитория задачи: по нему или по
+ * `cwd` мост Unity находит свой редактор (§ `unityProjectArgs`). Пусто —
+ * серверы поднимаются как раньше.
  */
 export const externalMcp = (
-  settings: Settings, role: Role, cwd?: string,
+  settings: Settings, role: Role, cwd?: string, project?: string,
 ): Record<string, McpServerConfig> =>
-  Object.fromEntries(serversFor(settings, role).map((s) => [s.id, toSdkConfig(s, cwd)]));
+  Object.fromEntries(serversFor(settings, role).map((s) => [s.id, toSdkConfig(s, cwd, project)]));
 
 /**
  * Дополнение к системному промпту: чем роль умеет пользоваться и что делать,

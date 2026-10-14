@@ -3212,7 +3212,7 @@ function startWorker(
           tools: sessionTools(role),
           mcpServers: {
             office: workerTools(taskOffice, inst.id, task),
-            ...externalMcp(taskOffice.settings, role, workdir),
+            ...externalMcp(taskOffice.settings, role, workdir, repoDir),
           },
           // Скилы роли — из её пакета в employees/<роль>/. Пакета нет, обе
           // опции undefined, и сессия собирается ровно как прежде.
