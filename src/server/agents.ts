@@ -33,7 +33,8 @@ import { SANDBOX, sandboxFor } from './sandbox';
 import { ensureChromium } from './chromium';
 import { employeePlugins, employeeSkills, sessionTools } from './skills';
 import {
-  autoApprovedText, classify, decide, effectiveMode, releaseCommandBlocked, type ClassifyZone,
+  autoApprovedText, classify, decide, effectiveMode, gitReadOnlyProblem, releaseCommandBlocked,
+  type ClassifyZone,
 } from './permissions';
 import { outsideZone, writeZone } from './subprojects';
 import { worktreeOwnFiles } from './premerge';
@@ -4183,6 +4184,32 @@ function resumedPrompt(state: OfficeState, instanceId: string, text: string): {
   };
 }
 
+/** Инструменты роли плюс Bash; `undefined` — у роли и так все инструменты. */
+function withBash(tools: string[] | undefined): string[] | undefined {
+  return !tools || tools.includes('Bash') ? tools : [...tools, 'Bash'];
+}
+
+/**
+ * Bash шага с `shell: "git-read"`: одна git-команда на чтение проходит без
+ * вопроса в любом режиме доступа — запись ей недоступна по построению; всё
+ * прочее в Bash отклоняется, даже если у роли Bash полный. Остальные
+ * инструменты судит обычный обработчик роли.
+ */
+function gitReadGuard(
+  state: OfficeState, instanceId: string, guard: ReturnType<typeof permissionHandler>,
+): ReturnType<typeof permissionHandler> {
+  return async (name, input, opts) => {
+    if (name !== 'Bash') return guard(name, input, opts);
+    const command = String((input as { command?: unknown }).command ?? '');
+    const problem = gitReadOnlyProblem(command);
+    if (problem) {
+      state.addLog(instanceId, 'system', state.say('agent.log.gitReadDenied', { what: problem }));
+      return { behavior: 'deny', message: state.say('agent.deny.gitRead', { what: problem }) };
+    }
+    return { behavior: 'allow', updatedInput: input };
+  };
+}
+
 async function runAgentSession(
   state: OfficeState, inst: Instance, role: Role,
   opts: {
@@ -4193,6 +4220,8 @@ async function runAgentSession(
     resume?: string;
     /** Что ещё видно на чтение: документной роли — вся рабочая копия. */
     extraDirs?: string[];
+    /** Оболочка шага процесса сверх инструментов роли (узел `shell`). */
+    shell?: 'git-read';
   },
 ): Promise<SessionRun> {
   if (state.budgetExhausted()) {
@@ -4228,12 +4257,14 @@ async function runAgentSession(
         },
         cwd: opts.cwd,
         additionalDirectories: opts.extraDirs,
-        tools: sessionTools(role),
+        tools: opts.shell ? withBash(sessionTools(role)) : sessionTools(role),
         mcpServers: { ...opts.mcp, ...externalMcp(state.settings, role, opts.cwd) },
         plugins: employeePlugins(role),
         skills: employeeSkills(role),
         permissionMode: 'default',
-        canUseTool: permissionHandler(state, inst.id, opts.taskId, opts.cwd),
+        canUseTool: opts.shell
+          ? gitReadGuard(state, inst.id, permissionHandler(state, inst.id, opts.taskId, opts.cwd))
+          : permissionHandler(state, inst.id, opts.taskId, opts.cwd),
         settingSources: [],
         sandbox: sandboxFor(role, opts.cwd),
         // Доработка по отзыву и разбор конфликта — та же работа исполнителя,
@@ -4390,6 +4421,7 @@ async function runStep(state: OfficeState, task: Task, req: StepRequest): Promis
     try { mkdirSync(cwd, { recursive: true }); } catch { /* создаст сам исполнитель */ }
     extra = `\n${state.say('prompt.step.docsDir', { dir })}`;
   }
+  if (req.shell === 'git-read') extra += `\n${state.say('prompt.step.gitRead')}`;
 
   let outcome: string | null = null;
   let summary = '';
@@ -4452,6 +4484,7 @@ async function runStep(state: OfficeState, task: Task, req: StepRequest): Promis
     mcp: { office: tools },
     note: state.say('agent.state.step', { node: req.node, task: task.id }),
     extraDirs: role.docsDir ? [req.cwd] : undefined,
+    shell: req.shell,
   });
   if (!run.ok || !outcome) {
     return {

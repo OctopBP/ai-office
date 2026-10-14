@@ -728,6 +728,7 @@ Keep your replies to the user short. Which language to write them in is said in 
   'prompt.step.artifact': '— {name} ({kind}): {text}',
   'prompt.step.done': 'The step counts as done when:',
   'prompt.step.docsDir': 'Work in the folder {dir} of the task working copy; the project sources are readable.',
+  'prompt.step.gitRead': 'This step has Bash for read-only git: git log, diff, show, status, blame, rev-parse, ls-files and the like — one command at a time, no chains or redirects. Changing the repository is not allowed.',
   'prompt.step.finish': 'Do the step in full and finish with exactly one finish_step call. Pick the outcome from: {outcomes}. In summary, write what the next one in the chain needs: they have not seen your work.',
   'tool.finishStep.desc': 'Finish the process step. Called exactly once, at the end.',
   'tool.finishStep.outcome': 'How the step ended: {outcomes}.',
@@ -1341,6 +1342,7 @@ and the office journal are the same — they live outside the session. This is w
   'tool.ritualAsk.assumption': 'What the office assumes until answered.',
   // ------------------------------------------------------------ releases
   'agent.deny.release': 'Releases are handled by the release process, not by workers ({what}). Do not push tags or release branches or run store uploads yourself — finish and hand in the work; the owner or the manager will start the release.',
+  'agent.deny.gitRead': 'In this step Bash runs only a single read-only git command: log, diff, show, status, blame, rev-parse, ls-files, cat-file, branch --list and the like. Not allowed: other programs, commands that change the repository or working copy, chains (; && |), substitutions $( ) and redirects. Blocked: {what}',
   'prompt.release.system': 'You write release notes for the people who will use the release. Short, to the point, no internal implementation details, no task ids. Only the notes text, no preamble.',
   'prompt.release.notes': 'Release "{target}" {version}. Write release notes: 3–10 bullet points "- ", user-visible changes first, then fixes. Language: {lang}.\n\nFeatures:\n{epics}\n\nTasks with what was done:\n{tasks}',
   'tool.releaseStatus.desc': 'Release targets: last release, what was merged since, what is running, which releases are stuck (id, stage, reason, when; details — get_release), open plans; for a target with channels — its channels and the last version of each; names (not values) of the office variables the build gets in its environment.',

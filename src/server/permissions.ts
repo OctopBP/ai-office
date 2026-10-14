@@ -399,3 +399,124 @@ export function releaseCommandBlocked(command: string, settings: Pick<Settings, 
   if (/\bgh release (create|upload|edit)\b/.test(cmd)) return 'gh release';
   return null;
 }
+
+// ------------------------------------------- git на чтение для шага процесса
+
+/**
+ * Подкоманды git, которые ничего не меняют ни в репозитории, ни в рабочей
+ * копии. Список разрешённого, а не запрещённого: незнакомая подкоманда — отказ.
+ * `branch`, `reflog`, `remote` и `worktree` пишут в части своих форм — их
+ * разбирают отдельно ниже.
+ */
+const GIT_READ_SUBCOMMANDS = new Set([
+  'log', 'show', 'diff', 'status', 'blame', 'annotate', 'rev-parse', 'rev-list',
+  'ls-files', 'ls-tree', 'cat-file', 'shortlog', 'describe', 'merge-base',
+  'name-rev', 'grep', 'whatchanged', 'diff-tree', 'diff-files', 'diff-index',
+  'for-each-ref', 'show-ref', 'show-branch', 'range-diff', 'count-objects',
+  'branch', 'reflog', 'remote', 'worktree',
+]);
+
+/** Глобальные ключи git до подкоманды, которые ничего не открывают. */
+const GIT_SAFE_GLOBAL = new Set(['--no-pager', '-P', '--no-optional-locks', '--no-replace-objects']);
+
+/**
+ * Ключи, которые и у читающих подкоманд пишут в файл или зовут внешнюю
+ * программу: `--output` у diff/log, `-O` у grep (открыть в пейджере),
+ * внешний diff.
+ */
+const GIT_WRITING_OPTION = /^(--output(=|$)|-O|--open-files-in-pager|--ext-diff$)/;
+
+/** Ключи `git branch`, которые меняют ветки. */
+const GIT_BRANCH_WRITE = /^(-[dDmMcCfu]|--delete|--move|--copy|--force|--set-upstream-to|--unset-upstream|--edit-description|--create-reflog|--track|--no-track|--recurse-submodules)/;
+/** Ключи `git branch` со значением следующим словом: значение — не имя ветки. */
+const GIT_BRANCH_VALUE = new Set(['--contains', '--no-contains', '--merged', '--no-merged', '--points-at', '--sort', '--format', '--color', '--column']);
+
+/**
+ * Символы, которые делают из команды больше одной: цепочки, конвейеры,
+ * подстановки, перенаправления, переводы строк. Обратную косую черту тоже не
+ * пускаем — разбор слов ниже нарочно простой и экранирования не знает.
+ */
+const SHELL_META = /[;&|`$()<>\n\r\\]/;
+
+/** Слова команды с учётом одинарных и двойных кавычек; null — кавычка не закрыта. */
+function shellWords(command: string): string[] | null {
+  const words: string[] = [];
+  let cur = '';
+  let started = false;
+  let quote: '"' | "'" | null = null;
+  for (const ch of command) {
+    if (quote) {
+      if (ch === quote) quote = null;
+      else cur += ch;
+    } else if (ch === '"' || ch === "'") {
+      quote = ch;
+      started = true;
+    } else if (/\s/.test(ch)) {
+      if (started) words.push(cur);
+      cur = '';
+      started = false;
+    } else {
+      cur += ch;
+      started = true;
+    }
+  }
+  if (quote) return null;
+  if (started) words.push(cur);
+  return words;
+}
+
+/**
+ * Проверка Bash-команды для шага процесса с доступом `shell: "git-read"`
+ * (workflows/research.json → verify): разрешена ровно одна команда git на
+ * чтение. null — можно; иначе — что именно не пустили (уходит агенту в отказ).
+ *
+ * Отказ всему, что не одна git-команда: другие программы, `env`/`command`
+ * перед git, переменные окружения, цепочки `;` `&&` `|`, подстановки `$( )`
+ * и перенаправления. Глобальные ключи git — только безобидные: `-c`, `-C`,
+ * `--git-dir`, `--exec-path` позволяют подменить конфиг или репозиторий и
+ * исполнить чужое (`-c core.pager=…`).
+ */
+export function gitReadOnlyProblem(command: string): string | null {
+  const trimmed = command.trim();
+  if (!trimmed) return 'empty';
+  const meta = SHELL_META.exec(trimmed);
+  if (meta) return `shell: ${JSON.stringify(meta[0])}`;
+  const words = shellWords(trimmed);
+  if (!words) return 'shell: quote';
+  if (words[0] !== 'git') return words[0];
+
+  let i = 1;
+  while (i < words.length && words[i].startsWith('-')) {
+    if (!GIT_SAFE_GLOBAL.has(words[i])) return `git ${words[i]}`;
+    i++;
+  }
+  const sub = words[i];
+  if (!sub) return 'git';
+  if (!GIT_READ_SUBCOMMANDS.has(sub)) return `git ${sub}`;
+  const args = words.slice(i + 1);
+  const bad = args.find((a) => GIT_WRITING_OPTION.test(a));
+  if (bad) return `git ${sub} ${bad}`;
+
+  if (sub === 'branch') {
+    // Без --list имя в аргументах — это создание ветки.
+    let listing = false;
+    let named = false;
+    for (let k = 0; k < args.length; k++) {
+      const a = args[k];
+      if (GIT_BRANCH_WRITE.test(a)) return `git branch ${a}`;
+      if (a === '--list' || a === '-l') listing = true;
+      else if (GIT_BRANCH_VALUE.has(a)) k++;
+      else if (!a.startsWith('-')) named = true;
+    }
+    if (named && !listing) return 'git branch <name>';
+  }
+  // reflog: expire и delete переписывают журнал ссылок.
+  if (sub === 'reflog' && args[0] && !args[0].startsWith('-') && !['show', 'exists'].includes(args[0])) {
+    return `git reflog ${args[0]}`;
+  }
+  // remote: только список; add, remove, set-url и прочие — запись в конфиг.
+  if (sub === 'remote' && args.some((a) => a !== '-v' && a !== '--verbose')) return `git remote ${args.join(' ')}`;
+  // worktree: только list.
+  if (sub === 'worktree' && args[0] !== 'list') return `git worktree ${args[0] ?? ''}`.trim();
+  return null;
+}

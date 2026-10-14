@@ -1061,6 +1061,7 @@ export const en = {
   'ritual.standupPm': '[SYSTEM] The owner has just seen the standup below. Add ONE short sentence of your own if you have something to say beyond it (a risk you see, something the owner should decide today). Nothing to add — reply with a single word: ok.\n\n{text}',
   // ------------------------------------------------------------ releases
   'agent.log.releaseBlocked': 'Release outside the process stopped: {what}',
+  'agent.log.gitReadDenied': 'Workflow step has read-only git — blocked: {what}',
   'state.settings.release': 'Release targets not saved: {detail}',
   'rel.alreadyRunning': 'Release {id} is already running.',
   'rel.cancel.buildFree': 'Build number {build} never left the machine — the next release of the target takes it again.',

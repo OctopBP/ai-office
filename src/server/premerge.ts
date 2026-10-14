@@ -172,7 +172,7 @@ export interface PreMergeOptions {
  */
 export const OFFICE_MERGE_CHECKS: readonly string[] = [
   'typecheck',
-  'test:presets', 'test:nav', 'test:reach', 'test:perm',
+  'test:presets', 'test:nav', 'test:reach', 'test:perm', 'test:gitread',
   'test:state', 'test:merge', 'test:offices', 'test:review',
   // Общий прогон чужого проекта — последним: у нас его нет, а там он самый долгий.
   'test',

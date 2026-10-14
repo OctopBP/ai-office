@@ -4,7 +4,7 @@
   "trigger": { "on": "task.finished", "type": "research" },
   "nodes": [
     { "id": "verify", "kind": "step", "needs": ["research.web"], "noRole": "ok", "stage": "review",
-      "in": ["report"], "out": "verify",
+      "shell": "git-read", "in": ["report"], "out": "verify",
       "done": ["Ключевые утверждения проверены по источникам", "Пробелы и спорные места названы"],
       "next": { "ok": "accept", "gaps": { "to": "rework", "max": 1 }, "failed": "stuck" } },
     { "id": "rework", "kind": "step", "needs": ["research.web"], "same": "author", "stage": "rework",

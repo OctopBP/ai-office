@@ -112,6 +112,8 @@ export interface StepRequest {
   prompt: string;
   /** Исходы, из которых шаг выбирает. */
   outcomes: string[];
+  /** Оболочка сверх инструментов роли (узел `shell`): `git-read` — git только на чтение. */
+  shell?: 'git-read';
 }
 
 export interface StepOutcome {
@@ -970,7 +972,7 @@ const step: Executor<Ctx> = {
     });
     const out = await agents.step(state, task, {
       node: node.id, needs, prefer, exclude: excluded ? [excluded] : [],
-      cwd: worktree, prompt, outcomes,
+      cwd: worktree, prompt, outcomes, shell: node.shell,
     });
     if (out.actor) {
       // Владельцу в чат — подпись исполнителя: код экземпляра ему ни о чём.
