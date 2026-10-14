@@ -21,7 +21,8 @@
   "look": "skaterMaleA",
   "license": "MIT",
   "capabilities": [
-    "code.write"
+    "code.write",
+    "game.unity"
   ],
   "runtime": {
     "engine": "claude-code",

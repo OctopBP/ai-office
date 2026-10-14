@@ -40,6 +40,42 @@ export const SANDBOX = {
 const BLENDER_UNSANDBOXED = ['tools/blender/run.sh:*', './tools/blender/run.sh:*'];
 
 /**
+ * Подкоманды Unity CLI, которые поднимают редактор или говорят с открытым
+ * редактором (T-567, T-571). В песочнице редактор не получает лицензию: клиент
+ * лицензий — .NET-процесс, его именованный мьютекс `Global\Unity.Licensing.
+ * Client.Pipe…` и журнал в ~/Library/Logs/Unity Seatbelt не пускает, клиент
+ * падает, а редактор ждёт его канал 75 с и виснет без кода выхода. Вслед за
+ * лицензией не пишутся ~/Library/Application Support/Unity(Hub) и
+ * ~/Library/Unity, а редактор в batchmode пишет туда же, куда GUI. Узкое
+ * расширение песочницы этого не лечит: пути мьютексов .NET, mach-сервисы
+ * лицензий и Hub зависят от версии, поэтому — вне песочницы, как Blender.
+ *
+ * Список закрытый: установка редакторов, self-update, вход в аккаунт и прочее
+ * остаются в песочнице. Шаблон `:*` — префикс с любыми аргументами; команду
+ * вне песочницы Claude Code узнаёт, только если ВСЯ строка из таких частей:
+ * `cd … && unity test` или `unity test | tail` уйдут в песочницу (бриф роли).
+ */
+const UNITY_SUBCOMMANDS = ['test', 'run', 'build', 'recompile', 'license', 'status', 'list'];
+
+/** Каталог редакторов Unity Hub на macOS: `<версия>/Unity.app/Contents/MacOS/Unity`. */
+const UNITY_HUB_EDITORS = '/Applications/Unity/Hub/Editor';
+
+/**
+ * Исключения для роли Unity: подкоманды CLI (по имени в PATH и по полному
+ * пути `~/.unity/bin/unity`, куда его ставит установщик) и сам редактор для
+ * прямого batchmode — из Hub и из `UNITY_PATH`, если сервер видит её. Путь
+ * в переменной (`"$UNITY_PATH" -batchmode`) Claude Code не раскрывает и вне
+ * песочницы не выпускает — поэтому бриф велит писать путь редактора целиком.
+ */
+export function unityUnsandboxed(env: NodeJS.ProcessEnv = process.env): string[] {
+  const clis = ['unity', 'UNITY_NON_INTERACTIVE=1 unity'];
+  if (env.HOME) clis.push(join(env.HOME, '.unity/bin/unity'), `UNITY_NON_INTERACTIVE=1 ${join(env.HOME, '.unity/bin/unity')}`);
+  const editors = [`${UNITY_HUB_EDITORS}/*/Unity.app/Contents/MacOS/Unity *`];
+  if (env.UNITY_PATH?.trim()) editors.push(`${env.UNITY_PATH.trim()}:*`);
+  return [...clis.flatMap((cli) => UNITY_SUBCOMMANDS.map((sub) => `${cli} ${sub}:*`)), ...editors];
+}
+
+/**
  * Путь без симлинков: Seatbelt сверяет настоящие пути (`/tmp` на macOS —
  * это `/private/tmp`). Самого каталога может ещё не быть — тогда
  * разворачиваем родителя.
@@ -78,7 +114,8 @@ function viteCacheDirs(cwd: string | undefined): string[] {
  *
  * Исключение для Blender получают только роли со способностью `design.3d`
  * (3D-художник и его копии): остальным незачем выходить из песочницы, и
- * лишняя дыра им не нужна.
+ * лишняя дыра им не нужна. Так же исключение для Unity — только роли со
+ * способностью `game.unity` (пакет @office/unity), а не всем, кто пишет код.
  *
  * Настройка роли `allowLocalBinding` открывает то, без чего не поднять свой
  * сервер для проверки в браузере (тестировщику — свой офис на 3003 и vite):
@@ -92,11 +129,15 @@ export function sandboxFor(
   role: Pick<Role, 'capabilities' | 'isolate' | 'tools' | 'docsDir' | 'isManager' | 'allowLocalBinding'>,
   cwd?: string,
 ) {
-  const blender = capabilitiesOf(role).includes('design.3d');
-  if (!blender && !role.allowLocalBinding) return SANDBOX;
+  const caps = capabilitiesOf(role);
+  const excluded = [
+    ...(caps.includes('design.3d') ? BLENDER_UNSANDBOXED : []),
+    ...(caps.includes('game.unity') ? unityUnsandboxed() : []),
+  ];
+  if (!excluded.length && !role.allowLocalBinding) return SANDBOX;
   return {
     ...SANDBOX,
-    ...(blender ? { excludedCommands: BLENDER_UNSANDBOXED } : {}),
+    ...(excluded.length ? { excludedCommands: excluded } : {}),
     ...(role.allowLocalBinding ? {
       network: {
         allowLocalBinding: true,

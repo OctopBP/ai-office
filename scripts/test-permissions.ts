@@ -39,6 +39,13 @@ const cases: Case[] = [
   ['Bash',  { command: 'find . -name "*.tmp" -delete' },         'danger'],
   ['Bash',  { command: 'python3 script.py' },                    'write'],
   ['Bash',  { command: 'node server.js --port 3000' },           'write'],
+  // Unity не строже Blender (T-571): запуск редактора и тестов — обычная
+  // запись, как `tools/blender/run.sh`, а не «необратимое».
+  ['Bash',  { command: 'tools/blender/run.sh scene.py' },        'write'],
+  ['Bash',  { command: 'unity test --platform editmode' },       'write'],
+  ['Bash',  { command: 'unity recompile' },                      'write'],
+  ['Bash',  { command: '/Users/x/.unity/bin/unity test' },       'write'],
+  ['Bash',  { command: '/Applications/Unity/Hub/Editor/6000.0.23f1/Unity.app/Contents/MacOS/Unity -batchmode -nographics -quit -projectPath . -runTests -testPlatform EditMode -logFile -' }, 'write'],
   // Публикация макета наружу — как `git push`: спрашиваем даже в режиме
   // «только про необратимое», потому что работа уходит с машины.
   ['Artifact', { file_path: 'poster.html', title: 'Постер' },    'danger'],

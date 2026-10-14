@@ -285,7 +285,7 @@ check('менеджер в нашем каталоге первый', ourTeam[0]
 // ------------------------------------------------ локальные порты (T-439)
 
 {
-  const { sandboxFor, SANDBOX } = await import('../src/server/sandbox');
+  const { sandboxFor, SANDBOX, unityUnsandboxed } = await import('../src/server/sandbox');
   const qa = roleFromPackage(loadPackage('@office/qa', ours)!, 'ru', 'qa');
   const backend = roleFromPackage(loadPackage('@office/backend', ours)!, 'ru', 'backend');
   check('qa: локальные порты включены по умолчанию', qa.allowLocalBinding, true);
@@ -319,6 +319,26 @@ check('менеджер в нашем каталоге первый', ourTeam[0]
   check('3D-роль с портами: оба исключения разом',
     Object.keys(sandboxFor({ ...on, capabilities: ['design.3d'] }, cwd)).filter((k) => k === 'excludedCommands' || k === 'network'),
     ['excludedCommands', 'network']);
+
+  // Unity вне песочницы — только роли со способностью game.unity (T-571).
+  const unity = roleFromPackage(loadPackage('@office/unity', ours)!, 'ru', 'unity');
+  check('unity: пакет объявляет game.unity', unity.capabilities?.includes('game.unity'), true);
+  const unityBox = sandboxFor(unity, cwd) as Record<string, any>;
+  const excluded = (unityBox.excludedCommands ?? []) as string[];
+  check('unity: CLI и редактор вне песочницы', [
+    excluded.includes('unity test:*'),
+    excluded.includes('unity recompile:*'),
+    excluded.some((c) => c.endsWith('/.unity/bin/unity test:*')),
+    excluded.includes('/Applications/Unity/Hub/Editor/*/Unity.app/Contents/MacOS/Unity *'),
+  ], [true, true, true, true]);
+  check('unity: Blender не достаётся', excluded.some((c) => c.includes('blender')), false);
+  check('unity: сеть и запись не расширены', [unityBox.network, unityBox.filesystem], [undefined, undefined]);
+  check('unity: UNITY_PATH попадает в исключения',
+    unityUnsandboxed({ UNITY_PATH: '/opt/Unity/Unity' }).includes('/opt/Unity/Unity:*'), true);
+  check('backend без game.unity: Unity в песочнице', sandboxFor({ ...backend, capabilities: ['code.write'] }, cwd), SANDBOX);
+  check('3D-роль: Unity не достаётся',
+    ((sandboxFor({ ...backend, capabilities: ['design.3d'] }, cwd) as Record<string, any>).excludedCommands as string[])
+      .some((c) => /unity/i.test(c)), false);
   rmSync(cwd, { recursive: true, force: true });
 }
 

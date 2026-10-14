@@ -24,6 +24,8 @@ export const CAPABILITIES = [
   'docs.write', 'docs.legal', 'docs.marketing',
   'design.ui', 'design.sprite', 'design.3d', 'image.generate',
   'research.web', 'plan', 'summarize', 'qa.play',
+  // Запуск Unity (редактор, `unity test`) вне песочницы — sandbox.ts.
+  'game.unity',
 ] as const;
 export type Capability = typeof CAPABILITIES[number];
 export const isCapability = (s: string): s is Capability =>
