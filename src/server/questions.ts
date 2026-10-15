@@ -22,6 +22,7 @@ import { onOutcome } from './outcomes';
 import { supersedeFacts } from './journal';
 import { supersededByAnswer } from './superseded';
 import { applyFreshnessAnswer } from './freshness';
+import { isDelegateAnswer, withDelegateOption } from './contradictions';
 
 /** Сколько вопросов можно задать по одной задаче — как у `ask_colleague`. */
 export const MAX_QUESTIONS_PER_TASK = 2;
@@ -127,8 +128,11 @@ export function officeAsks(
   // Ритуал не помнит, о чём офис уже спросил: повтор тихо сводим к открытому.
   const same = findDuplicate({ taskId, text }, openQuestions(state));
   if (same) return same;
+  const tidy = questionOptions(options, text);
   const question = state.addQuestion({
-    from: OFFICE_SENDER, taskId, kind, text, assumption, options: questionOptions(options, text),
+    from: OFFICE_SENDER, taskId, kind, text, assumption,
+    // У противоречия всегда есть кнопка «Пусть офис разберётся».
+    options: kind === 'contradiction' ? withDelegateOption(tidy, state.say('contradictions.option.delegate')) : tidy,
     chatId: questionChat(state, taskId),
   });
   state.addLog(null, 'system', state.say('questions.askedLog', { id: question.id, text: clip(text, 120) }));
@@ -144,6 +148,61 @@ export function officeAsks(
  */
 function questionChat(state: OfficeState, taskId: string | null, chatId?: string | null): string {
   return state.pmChatFor({ chatId, taskId }) ?? state.ensureMainChat().id;
+}
+
+/**
+ * Открытым вопросам о противоречиях, заданным до кнопки «Пусть офис
+ * разберётся», добавить её. Идемпотентна. Возвращает id дополненных.
+ */
+export function ensureDelegateOptions(state: OfficeState): string[] {
+  const label = state.say('contradictions.option.delegate');
+  const done: string[] = [];
+  for (const q of openQuestions(state)) {
+    if (q.kind !== 'contradiction' || q.mergedInto) continue;
+    const options = withDelegateOption(q.options, label);
+    if (options.length === (q.options?.length ?? 0) && options.every((o, i) => o === q.options?.[i])) continue;
+    state.updateQuestion(q.id, { options });
+    done.push(q.id);
+  }
+  return done;
+}
+
+/**
+ * Разбор противоречия по поручению владельца. Ставит rituals.ts: там агент
+ * разбора и правка журнала, а questions.ts импортировать ритуалы не может —
+ * они импортируют его. Возвращает промис разбора, чтобы его можно было ждать.
+ */
+type DelegateRunner = (state: OfficeState, question: OwnerQuestion) => Promise<void>;
+let delegateRunner: DelegateRunner | null = null;
+const running = new Set<Promise<void>>();
+
+export function setContradictionDelegate(run: DelegateRunner): void {
+  delegateRunner = run;
+}
+
+/** Дождаться разборов, начатых ответами владельца (для тестов и остановки). */
+export async function settleDelegations(): Promise<void> {
+  while (running.size) await Promise.allSettled([...running]);
+}
+
+function startDelegation(state: OfficeState, question: OwnerQuestion): void {
+  if (!delegateRunner) {
+    state.addLog(null, 'system', state.say('contradictions.delegate.failedLog', {
+      id: question.id, verdict: state.say('contradictions.verdict.unresolved', { reason: state.say('contradictions.noAgent') }),
+    }));
+    return;
+  }
+  const job = delegateRunner(state, question)
+    .catch((err: unknown) => {
+      state.addLog(null, 'system', state.say('contradictions.delegate.failedLog', {
+        id: question.id,
+        verdict: state.say('contradictions.verdict.unresolved', {
+          reason: state.say('contradictions.agentFailed', { error: clip(String((err as Error)?.message ?? err), 200) }),
+        }),
+      }));
+    })
+    .finally(() => { running.delete(job); });
+  running.add(job);
 }
 
 /**
@@ -173,6 +232,16 @@ export function answerQuestion(state: OfficeState, askedId: string, answer: stri
     tellPm(state, state.say('questions.pmAnswered', {
       id, question: question.text, assumption: question.assumption, answer: text, task: '—',
     }), { chatId: question.chatId, taskId: question.taskId });
+    return true;
+  }
+
+  // «Пусть офис разберётся» на противоречие — не ответ по существу, а
+  // поручение: в журнал он фактом не ложится, туда попадёт итог разбора.
+  if (question.kind === 'contradiction' && isDelegateAnswer(text)) {
+    state.addLog(null, 'system', state.say('contradictions.delegate.startLog', { id }));
+    state.addOfficeNote(state.say('contradictions.delegate.startChat', { id }),
+      { chatId: question.chatId, taskId: question.taskId });
+    startDelegation(state, question);
     return true;
   }
 
@@ -335,6 +404,7 @@ export function openQuestionsText(state: OfficeState): string {
  * спрашивать всерьёз то, что уже сработало, незачем.
  */
 export function pickForStandup(state: OfficeState, n: number, now = Date.now()): OwnerQuestion[] {
+  ensureDelegateOptions(state);
   const settled = (q: OwnerQuestion): number =>
     (q.taskId && state.tasks.get(q.taskId)?.outcome?.kind === 'clean' ? 1 : 0);
   const picked = openQuestions(state)

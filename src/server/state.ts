@@ -1823,7 +1823,10 @@ export class OfficeState {
   }): OwnerQuestion {
     this.questionSeq += 1;
     // Вариантов либо нет вовсе, либо их больше одного: один вариант — не выбор.
-    const options = (input.options ?? []).map((o) => o.trim()).filter(Boolean);
+    // Исключение — противоречие: у него кнопка «Пусть офис разберётся» бывает
+    // единственной, и это выбор между ней и ответом своими словами.
+    const given = (input.options ?? []).map((o) => o.trim()).filter(Boolean);
+    const options = given.length > 1 || input.kind === 'contradiction' ? given : [];
     const question: OwnerQuestion = {
       id: `Q-${this.questionSeq}`,
       from: input.from,
@@ -1832,7 +1835,7 @@ export class OfficeState {
       kind: input.kind,
       text: input.text.trim(),
       assumption: input.assumption.trim(),
-      ...(options.length > 1 ? { options } : {}),
+      ...(options.length ? { options } : {}),
       ...(input.files?.length ? { files: input.files } : {}),
       askedAt: Date.now(),
       shownAt: null,

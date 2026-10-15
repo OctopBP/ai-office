@@ -53,14 +53,20 @@ export function isOwnerDecision(fact: Pick<FactView, 'kind' | 'source'>): boolea
  * «устарела» с id не из этой пары считается неразобранным: забыть чужую запись
  * по ошибке хуже, чем лишний вопрос. Неуверенный вердикт и «устарела» без
  * проверяемого основания пару не закрывают — это тоже вопрос владельцу.
+ *
+ * delegated — владелец сам поручил офису разобраться («Пусть офис
+ * разберётся»): тогда и между двумя его решениями офис выбирает — верным
+ * считается подтверждённое кодом, git или влитой задачей. Остальные проверки
+ * (id из пары, уверенность, основание) действуют как обычно.
  */
 export function decideContradiction(
   a: Pick<FactView, 'id' | 'kind' | 'source'>,
   b: Pick<FactView, 'id' | 'kind' | 'source'>,
   verdict: ContradictionVerdict,
   lang: Lang,
+  opts: { delegated?: boolean } = {},
 ): ContradictionDecision {
-  if (isOwnerDecision(a) && isOwnerDecision(b) && !(verdict.kind === 'compatible' && !verdict.unsure)) {
+  if (!opts.delegated && isOwnerDecision(a) && isOwnerDecision(b) && !(verdict.kind === 'compatible' && !verdict.unsure)) {
     return { action: 'ask', why: 'owner-decisions', verdict };
   }
   if (verdict.kind === 'unresolved') return { action: 'ask', why: 'unresolved', verdict };
@@ -165,6 +171,50 @@ export function parseVerdict(text: string, lang: Lang): ContradictionVerdict {
     return out;
   }
   return fail(t(lang, 'contradictions.reason.unknownKind', { what: reason || String(v.kind) }));
+}
+
+/* ── «Пусть офис разберётся» ────────────────────────────────────────────── */
+
+/** Сколько вариантов у вопроса — как в questions.ts: больше кнопок в строку не влезет. */
+const MAX_OPTIONS = 4;
+
+/**
+ * Ответы, которыми владелец отдаёт противоречие офису. Сравниваются после
+ * normDelegate: без регистра, пунктуации, «ё» и лишних пробелов. Сюда же
+ * попадают подписи кнопки на обоих языках — ответ кнопкой приходит её текстом.
+ */
+const DELEGATE_ANSWERS = new Set([
+  'пусть офис разберется', 'пусть офис разбирается', 'пусть офис решит', 'офис разберется', 'офис пусть решит',
+  'реши сам', 'решите сами', 'реши сама', 'решай сам', 'решайте сами', 'реши', 'решите',
+  'разберись сам', 'разберитесь сами', 'разберись сама', 'разберись', 'разберитесь',
+  'разбирайся сам', 'разбирайтесь сами', 'сами разберитесь', 'сам разберись', 'сами решите', 'сам реши',
+  'let the office sort it out', 'let the office decide', 'let the office figure it out',
+  'decide yourself', 'decide yourselves', 'you decide', 'figure it out', 'sort it out', 'sort it out yourself',
+  'figure it out yourself', 'up to you',
+]);
+
+function normDelegate(text: string): string {
+  return text.toLowerCase().replace(/ё/g, 'е').replace(/[^\p{L}\p{N}]+/gu, ' ').trim();
+}
+
+/**
+ * Владелец отдал решение офису: нажал «Пусть офис разберётся» или написал
+ * то же словами («Реши сам», «Разберись сам!»). Только ответ целиком — «реши
+ * сам, но J-3 верна» уже называет сторону и разбирается как обычный ответ.
+ */
+export function isDelegateAnswer(text: string): boolean {
+  return DELEGATE_ANSWERS.has(normDelegate(text));
+}
+
+/**
+ * Варианты вопроса о противоречии с кнопкой «Пусть офис разберётся» в конце.
+ * Вариантов всего не больше четырёх: лишние стороны уступают место кнопке.
+ * Уже есть — список не меняется (повторный вызов безопасен).
+ */
+export function withDelegateOption(options: string[] | undefined, label: string): string[] {
+  const list = options ?? [];
+  if (list.some(isDelegateAnswer)) return list;
+  return [...list.slice(0, MAX_OPTIONS - 1), label];
 }
 
 /* ── Память разобранных пар ─────────────────────────────────────────────── */

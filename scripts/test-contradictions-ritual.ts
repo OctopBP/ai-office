@@ -144,7 +144,7 @@ async function main(): Promise<void> {
     const qs = contradictionQuestions();
     assert.equal(qs.length, 1);
     assert.ok(qs[0].text.includes('ваши решения') && qs[0].text.includes('в коде только state.json'));
-    assert.deepEqual(qs[0].options, [`${ownerA.id}: Хранилище — JSON-файл`, `${ownerB.id}: Хранилище — SQLite`, 'Верны обе, это разные случаи']);
+    assert.deepEqual(qs[0].options, [`${ownerA.id}: Хранилище — JSON-файл`, `${ownerB.id}: Хранилище — SQLite`, 'Верны обе, это разные случаи', 'Пусть офис разберётся']);
   });
   await check('решения владельца не забыты', () => {
     assert.equal(office.facts.get(ownerA.id)?.status, 'live');
@@ -222,7 +222,7 @@ async function main(): Promise<void> {
     const q = contradictionQuestions().find((item) => item.text.includes('в выводе не уверен'));
     assert.ok(q, 'нет вопроса о неуверенном вердикте');
     assert.ok(q.text.includes('похоже, меняли'));
-    assert.deepEqual(q.options, [`${u1.id}: Лимит одновременных фич равен двум`, `${u2.id}: Лимит одновременных фич равен трё…`, 'Верны обе, это разные случаи']);
+    assert.deepEqual(q.options, [`${u1.id}: Лимит одновременных фич равен двум`, `${u2.id}: Лимит одновременных фич равен трё…`, 'Верны обе, это разные случаи', 'Пусть офис разберётся']);
     assert.ok(q.options!.every((o) => o.length <= 40));
     assert.equal(office.facts.get(u1.id)?.status, 'live');
   });

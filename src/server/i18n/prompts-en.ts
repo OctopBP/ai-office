@@ -1282,6 +1282,7 @@ and the office journal are the same — they live outside the session. This is w
     '{"kind":"unresolved","reason":"<what was missing or what the dispute is about>","lean":"<what you lean to, optional>"}',
     'In stale use only the ids {aId} and {bId}. A stale verdict without evidence is not accepted. Set sure to false if the conclusion is more of a guess: then the owner decides.',
   ].join('\n'),
+  'prompt.resolveContradiction.delegated': 'The owner asked the office to settle this. If one entry is confirmed by the code, git history or a merged task, it holds, even if both are owner decisions: answer stale with that evidence. If neither side is confirmed, answer unresolved.',
   'prompt.resolveContradiction.fact': '[{id}] kind: {kind}, created {when}{from}\n{text}',
   'prompt.resolveContradiction.from': ', source: {list}',
   'prompt.resolveContradiction.taskRow': '- {id} “{title}” — status {status}. Report: {result}',

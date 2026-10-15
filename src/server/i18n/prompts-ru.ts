@@ -1257,6 +1257,7 @@ export const promptsRu: Record<keyof typeof promptsEn, string> = {
     '{"kind":"unresolved","reason":"<чего не хватило или о чём спор>","lean":"<к чему склоняешься, необязательно>"}',
     'В stale используй только id {aId} и {bId}. Без evidence вердикт stale не принимается. sure ставь false, если вывод — скорее догадка: тогда решит владелец.',
   ].join('\n'),
+  'prompt.resolveContradiction.delegated': 'Владелец поручил решить это офису. Если одна запись подтверждена кодом, историей git или влитой задачей, верна она, даже если обе — решения владельца: ответь stale с этим основанием. Подтверждения нет ни одной стороне — unresolved.',
   'prompt.resolveContradiction.fact': '[{id}] вид: {kind}, заведена {when}{from}\n{text}',
   'prompt.resolveContradiction.from': ', источник: {list}',
   'prompt.resolveContradiction.taskRow': '- {id} «{title}» — статус {status}. Отчёт: {result}',

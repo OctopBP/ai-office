@@ -32,14 +32,16 @@ import { roleReports, WEEK_MS as REPORT_WEEK_MS, type RoleReport } from '../shar
 import { toTaskView, type Fact, type OfficeState, type Task } from './state';
 import { archiveFact, STALE_AFTER_MS, supersedeFacts } from './journal';
 import { runFreshness } from './freshness';
-import { isPromptable } from './superseded';
+import { factIdsIn, isPromptable } from './superseded';
 import {
   buildResolvePrompt, decideContradiction, isOwnerDecision, isPairResolved, markPairResolved, observationKey,
   OBSERVATION_ID, parseVerdict, taskIdsIn,
   type ContradictionVerdict, type TaskNote,
 } from './contradictions';
 import { findPriorContradiction, repeatedQuestions } from './contradiction-history';
-import { askOwner, dismissQuestion, officeAsks, openQuestions, pickForStandup } from './questions';
+import {
+  askOwner, dismissQuestion, ensureDelegateOptions, officeAsks, openQuestions, pickForStandup, setContradictionDelegate,
+} from './questions';
 import { limitsView } from './limits';
 import { tellPm } from './review';
 import { runTypecheck } from './merge';
@@ -742,6 +744,83 @@ function applyStale(
 }
 
 /**
+ * Стороны вопроса о противоречии: записи журнала из подписей «J-12: текст»
+ * в кавычках шаблона questions.contradiction. Не нашлись так — первые id
+ * записей в тексте (вопрос могли переформулировать).
+ */
+function questionSides(state: OfficeState, text: string): Fact[] {
+  const quoted = [...text.matchAll(/[«“"]\s*(J-\d+):/g)].map((m) => m[1]);
+  const ids = [...new Set([...quoted, ...factIdsIn(text)])];
+  return ids.flatMap((id) => state.facts.get(id) ?? []).slice(0, 2);
+}
+
+/**
+ * «Пусть офис разберётся»: владелец отдал вопрос о противоречии офису. Тот же
+ * агент разбора, что у ритуала (только чтение: код, git, доска), но решение
+ * журнала здесь действует целиком: подтверждённая кодом, git или влитой
+ * задачей сторона верна, даже если обе записи — решения владельца. Верная
+ * запись подтверждается свежей датой, устаревшая уходит в архив с пометкой
+ * «заменена»; итог — строкой в ленте и в чате вопроса. Не вышло — обе записи
+ * остаются, в ленте причина, и вопрос владельцу заново не задаётся: пара
+ * отмечена разобранной.
+ */
+export async function delegateContradiction(
+  state: OfficeState, question: OwnerQuestion,
+): Promise<'resolved' | 'unresolved'> {
+  const where = { chatId: question.chatId, taskId: question.taskId };
+  const fail = (verdict: string): 'unresolved' => {
+    const text = state.say('contradictions.delegate.failedLog', { id: question.id, verdict });
+    state.addLog(null, 'system', text);
+    state.addOfficeNote(text, where);
+    return 'unresolved';
+  };
+  const unresolved = (reason: string): string => state.say('contradictions.verdict.unresolved', { reason });
+
+  const sides = questionSides(state, question.text);
+  if (sides.length < 2) {
+    return fail(unresolved(state.say('contradictions.delegate.noSides', { ids: sides.map((f) => f.id).join(', ') || '—' })));
+  }
+  const gone = sides.find((f) => f.status !== 'live' || !isPromptable(f));
+  if (gone) return fail(unresolved(state.say('contradictions.delegate.gone', { id: gone.id })));
+
+  const [a, b] = sides.map((fact): ContradictionSide => ({ fact, view: fact, key: fact.id }));
+  const labels = { a: clip(`${a.view.id}: ${a.view.text}`, 160), b: clip(`${b.view.id}: ${b.view.text}`, 160) };
+  let verdict: ContradictionVerdict;
+  if (!agents.resolveContradiction) {
+    verdict = { kind: 'unresolved', reason: state.say('contradictions.noAgent') };
+  } else {
+    const prompt = `${buildResolvePrompt(a.view, b.view, state.lang(), tasksFor(state, [a, b]))}\n\n`
+      + state.say('prompt.resolveContradiction.delegated');
+    const answer = await agents.resolveContradiction(state, prompt);
+    verdict = answer.error && !answer.text.trim()
+      ? { kind: 'unresolved', reason: state.say('contradictions.agentFailed', { error: clip(answer.error, 200) }) }
+      : parseVerdict(answer.text, state.lang());
+  }
+  // Пара разобрана при любом исходе: ритуал её больше не поднимет.
+  markPairResolved(state.life, a.key, b.key);
+  state.touchLife();
+
+  const decision = decideContradiction(a.view, b.view, verdict, state.lang(), { delegated: true });
+  if (decision.action !== 'close') return fail(verdictText(state, decision.verdict));
+
+  let closed: string;
+  if (decision.verdict.kind === 'stale') {
+    closed = applyStale(state, 'contradictions', a, b, decision.verdict);
+  } else {
+    // Верны обе — обе и подтверждаем.
+    const now = Date.now();
+    for (const side of [a, b]) state.updateFact(side.view.id, { confirmedAt: now });
+    closed = state.say('contradictions.closed.compatible', { reason: clip(decision.verdict.reason, 300) });
+  }
+  const text = state.say('contradictions.delegate.closedLog', { id: question.id, ...labels, verdict: closed });
+  state.addLog(null, 'system', text);
+  state.addOfficeNote(text, where);
+  return 'resolved';
+}
+
+setContradictionDelegate(async (state, question) => { await delegateContradiction(state, question); });
+
+/**
  * Закрыть открытые вопросы-повторы о противоречиях: о тех же записях журнала
  * владельца уже спрашивали. Закрываем ссылкой на прежний вопрос и его ответ.
  */
@@ -809,6 +888,7 @@ const runners: Record<RitualId, Runner> = {
 
   async contradictions(state, now) {
     closeRepeatedContradictions(state);
+    ensureDelegateOptions(state);
     const facts = state.factList().filter((f) => f.status === 'live' && isPromptable(f));
     const out = await agents.contradictions(state, facts);
     if (out.error) throw new Error(out.error);
