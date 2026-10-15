@@ -105,6 +105,7 @@ function readTasks(stateFile: string): CleanupTask[] {
   return (data.tasks ?? []).map((t) => ({
     id: t.id, status: t.status, merged: t.merged,
     branch: t.branch ?? null, baseBranch: t.baseBranch ?? null, worktreePath: t.worktreePath ?? null,
+    finishedAt: t.finishedAt ?? null, startedAt: t.startedAt ?? null,
   }));
 }
 

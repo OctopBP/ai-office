@@ -32,6 +32,7 @@ import { roleReports, WEEK_MS as REPORT_WEEK_MS, type RoleReport } from '../shar
 import { toTaskView, type Fact, type OfficeState, type Task } from './state';
 import { archiveFact, STALE_AFTER_MS, supersedeFacts } from './journal';
 import { runFreshness } from './freshness';
+import { tidyOffice } from './tidy';
 import { factIdsIn, isPromptable } from './superseded';
 import {
   buildResolvePrompt, decideContradiction, isOwnerDecision, isPairResolved, markPairResolved, observationKey,
@@ -1008,10 +1009,14 @@ const runners: Record<RitualId, Runner> = {
         state.say('health.staleAssumption'), task.id);
       stale += 1;
     }
-    const produced = { checks: checks === 'red' ? 1 : 0, stale };
+    // Уборка веток и worktree — раз в сутки, итог она пишет в ленту сама.
+    const tidy = await tidyOffice(state, now);
+    const removed = tidy ? tidy.branches + tidy.worktrees : 0;
+    const produced = { checks: checks === 'red' ? 1 : 0, stale, removed };
     return {
       ritual: 'health', at: now, costUsd: 0, produced,
-      note: state.say('health.note', { checks: state.say(checks === 'red' ? 'health.red' : 'health.ok'), stale }),
+      note: state.say('health.note', { checks: state.say(checks === 'red' ? 'health.red' : 'health.ok'), stale })
+        + (removed ? state.say('health.tidyNote', { removed }) : ''),
     };
   },
 

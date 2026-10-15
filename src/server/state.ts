@@ -135,6 +135,8 @@ export const DEFAULT_SETTINGS: Settings = {
   // это офис, которым нужно управлять руками, а от этого он и должен избавлять.
   ritualsEnabled: true,
   ritualLimitThreshold: DEFAULT_RITUAL_LIMIT,
+  // Две недели — столько ветка снятой задачи ждёт, не вернут ли её.
+  cleanupDays: 14,
   initiativeMode: DEFAULT_INITIATIVE_MODE,
   initiativeShare: DEFAULT_INITIATIVE_SHARE,
   pmContextLimit: DEFAULT_PM_CONTEXT_LIMIT,
@@ -1033,6 +1035,8 @@ export interface LifeState {
   /** Итог последней рефлексии и когда она была — для планёрки (§5.5). */
   reflection: string | null;
   reflectionAt: number | null;
+  /** Когда офис последний раз убирал ветки и worktree (tidy.ts). */
+  cleanupAt?: number | null;
   /** Сколько раз за неделю ритуалы откладывались из-за лимита — для портфеля (§8.2). */
   deferrals: number;
   /** Память процессов по состоянию (spec процессов §6.2), ключ — id процесса. */
@@ -4989,6 +4993,12 @@ export class OfficeState {
       const clean = sanitizeShare(next.initiativeShare);
       if (clean === undefined) delete next.initiativeShare;
       else next.initiativeShare = clean;
+    }
+    if ('cleanupDays' in next) {
+      // 0 законен — «уборка выключена»; мусор оставляет прежнее значение.
+      const n = Number(next.cleanupDays);
+      if (!Number.isInteger(n) || n < 0 || n > 365) delete next.cleanupDays;
+      else next.cleanupDays = n;
     }
     if ('meetingEveryDays' in next) {
       const n = Number(next.meetingEveryDays);

@@ -19,6 +19,7 @@ import { criteriaProgress, taskRepo, type OfficeState, type Task } from './state
 import { findRevert, isAncestor, isRepo } from './git';
 import { confirmFactsFor } from './journal';
 import { archiveWorkingDocsOfTask } from './docs';
+import { releaseWorktree } from './tidy';
 
 /** Сколько дней после слияния надзор ещё проверяет, не откатили ли работу. */
 const REVERT_WINDOW_MS = 14 * 24 * 60 * 60 * 1000;
@@ -71,6 +72,11 @@ export function cancelTask(state: OfficeState, task: Task, at = Date.now()): voi
     state.patchPr(task.id, { stage: 'dropped', needsDecision: false, nextTryAt: null, note: state.say('state.pr.dropped') });
   }
   recordOutcome(state, task.id, 'cancelled', at);
+  // Рабочая копия снятой задачи больше не нужна: всё сделанное уже в ветке
+  // (на ходу agents.ts коммитит до снятия). Ветка живёт ещё cleanupDays дней.
+  void releaseWorktree(state, task.id).catch((err: Error) => {
+    state.addLog(null, 'error', err.message);
+  });
 }
 
 /**

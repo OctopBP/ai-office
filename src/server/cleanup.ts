@@ -14,7 +14,9 @@
  *
  * Правила. Удалять можно ветки и worktree задач в статусах done, cancelled,
  * failed (done без слияния — «закрыта без слияния»), а ветки прошлых попыток —
- * если последний коммит старше N дней. Никогда не трогаем: основную и текущую
+ * если последний коммит старше N дней. Невлитая ветка снятой, проваленной или
+ * закрытой без слияния задачи живёт N дней от закрытия (`finishedAt`): вдруг
+ * её захотят вернуть; её worktree — нет. Никогда не трогаем: основную и текущую
  * ветку, задачи в работе, на ревью и blocked, ветки выпусков, worktree с
  * незакоммиченными изменениями (они уходят предупреждением) и заблокированные
  * `git worktree lock`. Сироты без задачи по умолчанию только показываются.
@@ -36,6 +38,17 @@ export interface CleanupTask {
   branch?: string | null;
   baseBranch?: string | null;
   worktreePath?: string | null;
+  /**
+   * Когда задачу закрыли, мс. По нему считается срок ветки снятой задачи:
+   * дата последнего коммита тут обманчива — сняли могли и через месяц.
+   */
+  finishedAt?: number | null;
+  /**
+   * Когда началась текущая попытка, мс. restart_task сохраняет прошлую
+   * попытку и тут же стартует новую, поэтому это и момент сохранения: срок
+   * прошлой попытки считается от него, если он позже её последнего коммита.
+   */
+  startedAt?: number | null;
 }
 
 export interface CleanupOffice {
@@ -205,7 +218,7 @@ async function commitTime(repoDir: string, rev: string): Promise<number | null> 
 }
 
 /** Есть ли в копии незакоммиченные изменения (включая неотслеживаемые файлы). */
-async function isDirty(path: string): Promise<boolean> {
+export async function isDirty(path: string): Promise<boolean> {
   const r = await git(path, ['status', '--porcelain']);
   // Не смогли спросить — считаем грязной: лучше оставить лишнее, чем стереть чужое.
   return !r.ok || r.stdout.length > 0;
@@ -213,6 +226,7 @@ async function isDirty(path: string): Promise<boolean> {
 
 /** Решение по задаче: причина и можно ли удалять. */
 function verdict(
+  kind: Candidate['kind'],
   task: CleanupTask | undefined,
   attempt: boolean,
   lastCommitAt: number | null,
@@ -222,10 +236,11 @@ function verdict(
     return { reason: 'active', remove: false, hold: `задача в статусе ${task.status}` };
   }
   if (attempt) {
-    if (lastCommitAt === null) {
+    const since = Math.max(lastCommitAt ?? 0, task?.startedAt ?? 0);
+    if (!since) {
       return { reason: 'attempt', remove: false, hold: 'не удалось узнать дату коммита' };
     }
-    const age = opts.now - lastCommitAt;
+    const age = opts.now - since;
     return age > opts.days * DAY
       ? { reason: 'attempt', remove: true, hold: null }
       : { reason: 'attempt', remove: false, hold: `моложе ${opts.days} дн.` };
@@ -235,16 +250,31 @@ function verdict(
       ? { reason: 'orphan', remove: true, hold: null }
       : { reason: 'orphan', remove: false, hold: 'сирота: удаляется только с --orphans' };
   }
+  let reason: StaleReason;
   switch (task.status) {
     case 'done':
-      return { reason: task.merged ? 'merged' : 'closed', remove: true, hold: null };
+      if (task.merged) return { reason: 'merged', remove: true, hold: null };
+      reason = 'closed';
+      break;
     case 'cancelled':
-      return { reason: 'cancelled', remove: true, hold: null };
+      reason = 'cancelled';
+      break;
     case 'failed':
-      return { reason: 'failed', remove: true, hold: null };
+      reason = 'failed';
+      break;
     default:
       return { reason: 'open', remove: false, hold: `задача в статусе ${task.status}` };
   }
+  // Worktree закрытой задачи не нужен сразу: всё ценное в ветке, а грязную
+  // копию отсеет проверка выше по течению. Невлитая ветка живёт N дней от
+  // закрытия: снятую могут вернуть, проваленную — перезапустить, а закрытую
+  // без слияния (конвейер выключен) — ещё слить руками.
+  if (kind === 'worktree') return { reason, remove: true, hold: null };
+  const since = task.finishedAt ?? lastCommitAt;
+  if (since === null) return { reason, remove: false, hold: 'не удалось узнать дату закрытия' };
+  return opts.now - since > opts.days * DAY
+    ? { reason, remove: true, hold: null }
+    : { reason, remove: false, hold: `моложе ${opts.days} дн.` };
 }
 
 /**
@@ -316,7 +346,7 @@ export async function findStale(office: CleanupOffice, options: FindOptions = {}
     const lastCommitAt = wt.branch
       ? branches.get(wt.branch) ?? await commitTime(repoDir, wt.branch)
       : wt.head ? await commitTime(repoDir, wt.head) : null;
-    let decision = verdict(task, parsed?.attempt ?? false, lastCommitAt, opts);
+    let decision = verdict('worktree', task, parsed?.attempt ?? false, lastCommitAt, opts);
 
     // Копия выпуска (`<корень>/_release/<цель>`, releases.ts) отцеплена, и по
     // ветке её не узнать — узнаём по месту.
@@ -344,7 +374,7 @@ export async function findStale(office: CleanupOffice, options: FindOptions = {}
     const parsed = parseTaskBranch(branch);
     if (!parsed) continue;
     const task = tasks.get(parsed.taskId);
-    let decision = verdict(task, parsed.attempt, lastCommitAt, opts);
+    let decision = verdict('branch', task, parsed.attempt, lastCommitAt, opts);
     const guard = isProtected(branch) ?? pinned.get(branch) ?? null;
     if (guard) decision = { ...decision, remove: false, hold: guard };
     candidates.push({
