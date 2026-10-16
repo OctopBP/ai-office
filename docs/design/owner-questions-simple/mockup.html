@@ -1,0 +1,325 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<title>T-586 · Вопросы владельцу — макет</title>
+<style>
+/* Значения скопированы из src/web/styles/tokens.css (светлая тема), чтобы файл открывался сам по себе.
+   В коде брать только переменные, не числа. */
+:root{
+  --radius-panel:16px;--radius-card:12px;--radius-row:10px;--radius-pill:999px;
+  --control-h:32px;--mini-h:26px;
+  --space-1:4px;--space-2:8px;--space-3:12px;--space-4:16px;--space-5:20px;--space-6:24px;--space-8:32px;
+  --font:'Inter Variable',Inter,-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;
+  --font-mono:ui-monospace,SFMono-Regular,Menlo,monospace;
+  --fs-caption:10px;--fs-small:11px;--fs-body:12.5px;--fs-md:13px;--fs-title:15px;--fs-head:16px;
+  --accent-1:#2f7bf6;--accent-3:#a855f7;--accent-5:#ea580c;--accent-6:#f0b429;--accent-8:#0d9488;
+  --canvas:#f1f1f1;--surface:#fff;--film:rgba(0,0,0,.06);--film-2:rgba(0,0,0,.07);--film-3:rgba(0,0,0,.11);
+  --hairline:#dadada;--ink:#141414;--ink-2:#323232;--ink-3:#5c5c5c;--ink-4:#6b6b6b;
+  --accent:#2563eb;--accent-rgb:37,99,235;--accent-ink:#fff;
+  --ok-ink:#137a38;--warn:#f2a33a;--warn-ink:#8f5a00;--danger:#c93c31;
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--canvas);font:var(--fs-body)/1.45 var(--font);color:var(--ink-2);padding:var(--space-8)}
+h1{font-size:20px;color:var(--ink);margin:0 0 4px}
+.lead{color:var(--ink-3);margin:0 0 var(--space-8);max-width:760px}
+.board{display:grid;grid-template-columns:repeat(auto-fill,minmax(520px,1fr));gap:var(--space-8);align-items:start}
+.state{display:flex;flex-direction:column;gap:var(--space-2)}
+.state>.cap{font-size:var(--fs-small);font-weight:600;color:var(--ink-3);letter-spacing:.04em;text-transform:uppercase}
+.state>.cap b{color:var(--accent);margin-right:6px}
+.state>.note{font-size:var(--fs-small);color:var(--ink-4);margin:0}
+.panel{background:var(--surface);border-radius:var(--radius-panel);border:1px solid var(--hairline);padding:var(--space-4);display:flex;flex-direction:column;gap:var(--space-3)}
+
+/* шапка вкладки */
+.bar{display:flex;align-items:center;gap:var(--space-3)}
+.bar .count{font-size:var(--fs-small);color:var(--ink-4);margin-left:auto}
+.seg{display:inline-flex;background:var(--film);border-radius:var(--radius-pill);padding:2px}
+.seg span{height:28px;padding:0 var(--space-3);display:inline-flex;align-items:center;border-radius:var(--radius-pill);font-size:var(--fs-small);color:var(--ink-3)}
+.seg span.on{background:var(--surface);color:var(--ink);font-weight:600;box-shadow:0 0 0 1px var(--hairline)}
+
+/* заголовок группы */
+.grp{display:flex;align-items:center;gap:var(--space-2);margin-top:var(--space-1)}
+.grp h3{margin:0;font-size:var(--fs-caption);letter-spacing:.06em;text-transform:uppercase;color:var(--ink-3)}
+.grp .n{font-size:var(--fs-caption);background:var(--film);color:var(--ink-3);border-radius:var(--radius-pill);padding:1px 7px}
+.grp.decide h3{color:var(--accent)}
+.grp .act{margin-left:auto}
+.grp .rule{flex:1;height:1px;background:var(--hairline)}
+
+/* кнопки */
+.btn{height:var(--mini-h);padding:0 10px;border-radius:var(--radius-pill);border:0;background:var(--film);color:var(--ink);font:500 var(--fs-small) var(--font);display:inline-flex;align-items:center;gap:6px;cursor:pointer}
+.btn:hover{background:var(--film-2)}
+.btn.main{background:var(--accent);color:var(--accent-ink)}
+.btn.ghost{background:none;color:var(--ink-3)}
+.btn.ghost u{text-underline-offset:2px}
+.btn.helper{background:none;box-shadow:inset 0 0 0 1px var(--hairline);color:var(--ink-2)}
+.btn.helper::before{content:"✦";color:var(--accent-3)}
+.btn.lg{height:var(--control-h);padding:0 14px;font-size:var(--fs-body)}
+
+/* карточка */
+.card{border:1px solid var(--hairline);border-radius:var(--radius-card);padding:var(--space-3) var(--space-4);display:flex;flex-direction:column;gap:var(--space-2);background:var(--surface)}
+.card .meta{display:flex;gap:var(--space-2);align-items:center;font-size:var(--fs-caption);color:var(--ink-4)}
+.dot{width:6px;height:6px;border-radius:50%;background:var(--accent-1);flex:none}
+.dot.c{background:var(--accent-5)}.dot.r{background:var(--accent-8)}.dot.s{background:var(--warn)}
+.card .title{font-size:var(--fs-title);font-weight:600;color:var(--ink);line-height:1.35;margin:0}
+.opts{display:flex;flex-wrap:wrap;gap:var(--space-2);align-items:center}
+.assume{font-size:var(--fs-small);color:var(--ink-4)}
+.foot{display:flex;align-items:center;gap:var(--space-2);margin-top:2px}
+.foot .more{margin-left:auto}
+.ownrow{display:flex;gap:var(--space-2)}
+.ownrow input{flex:1;height:var(--control-h);border-radius:var(--radius-pill);border:1px solid var(--hairline);padding:0 var(--space-3);font:var(--fs-body) var(--font);background:var(--surface)}
+
+/* подробности */
+.card details>summary{list-style:none;cursor:pointer;color:var(--ink-3);font-size:var(--fs-small);display:inline-flex;gap:4px;align-items:center}
+.card details>summary::-webkit-details-marker{display:none}
+.card details>summary::after{content:"▾";font-size:9px}
+.card details[open]>summary::after{content:"▴"}
+.card details[open]>summary{margin-bottom:var(--space-2)}
+.det{border-top:1px dashed var(--hairline);padding-top:var(--space-3);display:flex;flex-direction:column;gap:var(--space-3);font-size:var(--fs-body)}
+.det .lbl{font-size:var(--fs-caption);text-transform:uppercase;letter-spacing:.06em;color:var(--ink-4);margin-bottom:2px}
+.quote{border-left:3px solid var(--hairline);padding:2px 0 2px var(--space-3);color:var(--ink-2)}
+.quote .ref{font-family:var(--font-mono);font-size:var(--fs-caption);color:var(--ink-4)}
+.vs{font-size:var(--fs-caption);color:var(--ink-4);text-align:center}
+.refs{display:flex;gap:6px;flex-wrap:wrap}
+.ref-chip{font:var(--fs-caption) var(--font-mono);background:var(--film);border-radius:var(--radius-pill);padding:2px 8px;color:var(--ink-3)}
+.manage{display:flex;gap:var(--space-1);border-top:1px solid var(--hairline);padding-top:var(--space-2)}
+
+/* подтверждение */
+.card.confirm{background:rgba(var(--accent-rgb),.04);border-color:rgba(var(--accent-rgb),.25)}
+.card.confirm .says{font-size:var(--fs-md);color:var(--ink);margin:0}
+.card.confirm .says b{color:var(--accent)}
+
+/* группа */
+.card.stack{position:relative}
+.card.stack::after{content:"";position:absolute;left:10px;right:10px;bottom:-5px;height:5px;border:1px solid var(--hairline);border-top:0;border-radius:0 0 var(--radius-card) var(--radius-card);background:var(--surface)}
+.card.stack.open::after{display:none}
+.badge{font-size:var(--fs-caption);font-weight:600;background:var(--film);border-radius:var(--radius-pill);padding:1px 8px;color:var(--ink-3)}
+.sub{border:1px solid var(--hairline);border-radius:var(--radius-row);padding:var(--space-2) var(--space-3);display:flex;flex-direction:column;gap:6px;background:var(--canvas)}
+.sub .t{color:var(--ink);font-weight:500;font-size:var(--fs-body);margin:0}
+.sub.done .t{color:var(--ink-4);text-decoration:line-through}
+.sub .ok{font-size:var(--fs-small);color:var(--ok-ink)}
+.common{display:flex;flex-direction:column;gap:6px;background:rgba(var(--accent-rgb),.05);border-radius:var(--radius-row);padding:var(--space-2) var(--space-3)}
+.common .lbl{font-size:var(--fs-caption);color:var(--ink-4)}
+
+/* очередь */
+.qhead{display:flex;align-items:center;gap:var(--space-3)}
+.progress{display:flex;gap:4px;flex:1}
+.progress i{height:4px;flex:1;border-radius:2px;background:var(--film-3)}
+.progress i.done{background:var(--accent)}
+.progress i.now{background:var(--ink-2)}
+.progress i.conf{background:var(--film-3);opacity:.6}
+.qhead .pos{font-size:var(--fs-small);color:var(--ink-3);white-space:nowrap}
+.qfoot{display:flex;justify-content:space-between;color:var(--ink-4);font-size:var(--fs-small)}
+
+/* пусто */
+.empty{text-align:center;padding:var(--space-8) var(--space-4);color:var(--ink-3);display:flex;flex-direction:column;gap:var(--space-2);align-items:center}
+.empty .ico{width:44px;height:44px;border-radius:50%;background:rgba(var(--ok-rgb,22,163,74),.12);color:var(--ok-ink);display:grid;place-items:center;font-size:20px}
+.empty h4{margin:0;color:var(--ink);font-size:var(--fs-title)}
+.empty p{margin:0;max-width:340px}
+.hist{font-size:var(--fs-small);color:var(--ink-4)}
+
+/* до: для контраста */
+.before{opacity:.9;filter:grayscale(.2)}
+.before .wall{font-size:var(--fs-small);color:var(--ink-3);display:flex;flex-direction:column;gap:6px}
+.before .wall div{background:var(--film);border-radius:6px;padding:6px 8px}
+</style>
+</head>
+<body>
+<h1>Вопросы владельцу — новая подача (T-586)</h1>
+<p class="lead">Вкладка «Вопросы» окна «Жизнь офиса», светлая тема, токены из <code>tokens.css</code>. Пример данных — реальные вопросы из журнала офиса, переписанные человеческим языком. Раскрывающиеся «Подробнее» работают кликом.</p>
+
+<div class="board">
+
+<!-- 1 · ОЧЕРЕДЬ -->
+<section class="state">
+  <div class="cap"><b>1</b>Очередь «1 из N» — режим по умолчанию</div>
+  <div class="panel">
+    <div class="bar">
+      <div class="seg"><span class="on">Очередь</span><span>Списком</span></div>
+      <span class="count">7 вопросов · 5 карточек</span>
+    </div>
+    <div class="qhead">
+      <span class="pos"><b style="color:var(--accent)">Нужно решение</b> · 1 из 5</span>
+      <div class="progress"><i class="now"></i><i></i><i></i><i class="conf"></i><i class="conf"></i></div>
+    </div>
+    <div class="card">
+      <div class="meta"><span class="dot"></span>Допущение исполнителя · задача T-586 · 2 ч назад</div>
+      <p class="title">Выпускать 0.14.0-beta.1 прямо сейчас?</p>
+      <div class="opts">
+        <button class="btn main lg">Выпускай</button>
+        <button class="btn lg">Не сейчас</button>
+        <button class="btn ghost"><u>Ответить своими словами</u></button>
+      </div>
+      <div class="foot">
+        <span class="assume">Пока считаем: не выпускаем, ждём вашего слова.</span>
+        <details class="more"><summary>Подробнее</summary></details>
+      </div>
+    </div>
+    <div class="qfoot"><span>Ответите — откроется следующий</span><span><a style="color:var(--ink-3)">Пропустить →</a></span></div>
+  </div>
+  <p class="note">Прогресс — по карточкам. Первые три сегмента — «Нужно решение», два бледных — «На подтверждение»: очередь идёт сначала решения, потом подтверждения.</p>
+</section>
+
+<!-- 2 · СПИСОК -->
+<section class="state">
+  <div class="cap"><b>2</b>«Списком» — две группы</div>
+  <div class="panel">
+    <div class="bar">
+      <div class="seg"><span>Очередь</span><span class="on">Списком</span></div>
+      <span class="count">7 вопросов</span>
+    </div>
+    <div class="grp decide"><h3>Нужно ваше решение</h3><span class="n">5</span><span class="rule"></span></div>
+    <div class="card">
+      <div class="meta"><span class="dot"></span>Допущение исполнителя · T-586</div>
+      <p class="title">Выпускать 0.14.0-beta.1 прямо сейчас?</p>
+      <div class="opts"><button class="btn main">Выпускай</button><button class="btn">Не сейчас</button><button class="btn ghost"><u>Ответить своими словами</u></button></div>
+      <div class="foot"><span class="assume">Пока считаем: не выпускаем.</span><details class="more"><summary>Подробнее</summary></details></div>
+    </div>
+    <div class="card">
+      <div class="meta"><span class="dot c"></span>Журнал спорит сам с собой</div>
+      <p class="title">Кто заводит зону проекта — менеджер или вы?</p>
+      <div class="opts"><button class="btn">Менеджер сам</button><button class="btn">Только я</button><button class="btn ghost"><u>Ответить своими словами</u></button><button class="btn helper">Пусть офис разберётся</button></div>
+      <div class="foot"><span class="assume">Пока считаем: менеджер заводит сам.</span><details class="more"><summary>Подробнее</summary></details></div>
+    </div>
+    <div class="card stack">
+      <div class="meta"><span class="dot c"></span>Журнал спорит сам с собой <span class="badge">×3</span></div>
+      <p class="title">3 похожих вопроса — про прошлые выпуски</p>
+      <div class="opts"><button class="btn main">Реши сам по тегам git</button><button class="btn ghost"><u>Раскрыть все</u></button></div>
+    </div>
+    <div class="grp"><h3>На подтверждение</h3><span class="n">2</span><span class="rule"></span><button class="btn ghost act">Согласен со всеми</button></div>
+    <div class="card confirm">
+      <div class="meta"><span class="dot s"></span>Проверка свежести · 1 д назад</div>
+      <p class="says">Офис считает: <b>запись про лимит на Shell.tsx устарела</b> — убрать в архив.</p>
+      <div class="opts"><button class="btn main">Согласен</button><button class="btn">Нет, иначе</button><details class="more" style="margin-left:auto"><summary style="font-size:11px;color:var(--ink-3);cursor:pointer;list-style:none">Подробнее ▾</summary></details></div>
+    </div>
+    <div class="card confirm">
+      <div class="meta"><span class="dot s"></span>Проверка свежести · 1 д назад</div>
+      <p class="says">Офис считает: <b>0.8.0 вышел 2 октября</b>, фичи QA входят в 0.7.0.</p>
+      <div class="opts"><button class="btn main">Согласен</button><button class="btn">Нет, иначе</button></div>
+    </div>
+  </div>
+  <p class="note">Группы не сворачиваются, пока в «Нужно решение» есть карточки; «На подтверждение» сворачивается в строку «2 на подтверждение ▸», если решений ≥ 3.</p>
+</section>
+
+<!-- 3 · КАРТОЧКА: свёрнута / раскрыта -->
+<section class="state">
+  <div class="cap"><b>3</b>Карточка с противоречием: свёрнута → раскрыта «Подробнее»</div>
+  <div class="panel">
+    <div class="card">
+      <div class="meta"><span class="dot c"></span>Журнал спорит сам с собой · 3 ч назад</div>
+      <p class="title">Кто заводит зону проекта — менеджер или вы?</p>
+      <div class="opts"><button class="btn">Менеджер сам</button><button class="btn">Только я</button><button class="btn ghost"><u>Ответить своими словами</u></button><button class="btn helper">Пусть офис разберётся</button></div>
+      <div class="foot"><span class="assume">Пока считаем: менеджер заводит сам.</span><details class="more"><summary>Подробнее</summary></details></div>
+    </div>
+    <div class="card" style="border-color:var(--accent)">
+      <div class="meta"><span class="dot c"></span>Журнал спорит сам с собой · 3 ч назад</div>
+      <p class="title">Кто заводит зону проекта — менеджер или вы?</p>
+      <div class="opts"><button class="btn">Менеджер сам</button><button class="btn">Только я</button><button class="btn ghost"><u>Ответить своими словами</u></button><button class="btn helper">Пусть офис разберётся</button></div>
+      <div class="foot"><span class="assume">Пока считаем: менеджер заводит сам.</span></div>
+      <details open>
+        <summary>Скрыть подробности</summary>
+        <div class="det">
+          <div>
+            <div class="lbl">Две записи журнала</div>
+            <div class="quote">«Менеджер только предлагает зону, заводите её вы» <div class="ref">J-351 · ваш ответ «Согласен со всеми»</div></div>
+            <div class="vs">против</div>
+            <div class="quote">«set_role_base с параметром path заводит repo-зону сам» <div class="ref">J-369 · ваш ответ «Оставить как в форме»</div></div>
+          </div>
+          <div><div class="lbl">Что показал разбор</div>Верна вторая запись: коммит 75d09a6 (T-518) уже добавил такое поведение, src/server/rolebase.ts:86.</div>
+          <div><div class="lbl">Допущение целиком</div>Пока считаем, что менеджер заводит зону сам; первая запись уйдёт в архив.</div>
+          <div><div class="lbl">Связано</div><div class="refs"><span class="ref-chip">J-351</span><span class="ref-chip">J-369</span><span class="ref-chip">T-518</span><span class="ref-chip">75d09a6</span></div></div>
+          <div class="manage"><button class="btn ghost">Править</button><button class="btn ghost">Слить с другим</button><button class="btn ghost">Удалить</button></div>
+        </div>
+      </details>
+    </div>
+  </div>
+  <p class="note">Кнопка «Пусть офис разберётся» — только у противоречий, всегда последняя в ряду. Служебная приписка «Обе записи — ваши решения…» не показывается вовсе.</p>
+</section>
+
+<!-- 4 · ПОДТВЕРЖДЕНИЕ -->
+<section class="state">
+  <div class="cap"><b>4</b>Подтверждение: «Офис считает…»</div>
+  <div class="panel">
+    <div class="card confirm">
+      <div class="meta"><span class="dot s"></span>Проверка свежести · 1 д назад</div>
+      <p class="says">Офис считает: <b>запись про лимит на Shell.tsx устарела</b> — убрать в архив.</p>
+      <div class="opts"><button class="btn main">Согласен</button><button class="btn">Нет, иначе</button><details class="more" style="margin-left:auto"><summary style="font-size:11px;color:var(--ink-3);cursor:pointer;list-style:none">Подробнее ▾</summary></details></div>
+    </div>
+    <div class="card confirm" style="border-color:var(--accent)">
+      <div class="meta"><span class="dot s"></span>Проверка свежести · 1 д назад</div>
+      <p class="says">Офис считает: <b>запись про лимит на Shell.tsx устарела</b> — убрать в архив.</p>
+      <div class="ownrow"><input placeholder="Как тогда? Например: запись ещё нужна"><button class="btn main lg">Отправить</button></div>
+      <div class="opts"><button class="btn ghost"><u>Вернуться к «Согласен»</u></button></div>
+      <div class="foot"><span class="assume">Пока считаем: запись уйдёт в архив, когда вы согласитесь.</span></div>
+    </div>
+  </div>
+  <p class="note">«Нет, иначе» открывает поле ответа; варианты (options) у подтверждения не используются. «Ответить своими словами» заменено на «Нет, иначе». Фон — лёгкий оттенок акцента, чтобы отличать от решений.</p>
+</section>
+
+<!-- 5 · ГРУППА -->
+<section class="state">
+  <div class="cap"><b>5</b>Группа похожих: свёрнута → раскрыта</div>
+  <div class="panel">
+    <div class="card stack">
+      <div class="meta"><span class="dot c"></span>Журнал спорит сам с собой <span class="badge">×3</span></div>
+      <p class="title">3 похожих вопроса — про прошлые выпуски</p>
+      <div class="opts"><button class="btn main">Реши сам по тегам git</button><button class="btn">Верна свежая запись</button><button class="btn ghost"><u>Раскрыть все</u></button></div>
+      <div class="foot"><span class="assume">Пока считаем: верна запись, подтверждённая тегом git.</span></div>
+    </div>
+    <div class="card stack open" style="border-color:var(--accent)">
+      <div class="meta"><span class="dot c"></span>Журнал спорит сам с собой <span class="badge">×3</span></div>
+      <p class="title">3 похожих вопроса — про прошлые выпуски</p>
+      <div class="common">
+        <span class="lbl">Общий ответ — на все три</span>
+        <div class="opts"><button class="btn main">Реши сам по тегам git</button><button class="btn">Верна свежая запись</button></div>
+      </div>
+      <div class="sub">
+        <p class="t">Вышел ли 0.8.0 — или вы ответили «Не сейчас»?</p>
+        <div class="opts"><button class="btn">Вышел</button><button class="btn">Не вышел</button><button class="btn ghost"><u>Своими словами</u></button><details><summary style="font-size:11px;color:var(--ink-3);cursor:pointer">Подробнее ▾</summary></details></div>
+      </div>
+      <div class="sub done">
+        <p class="t">Входят ли фичи QA в 0.7.0 или в 0.8.0?</p>
+        <span class="ok">✓ Отвечено: «В 0.7.0»</span>
+      </div>
+      <div class="sub">
+        <p class="t">Выпущены ли 0.9.0–0.13.0?</p>
+        <div class="opts"><button class="btn">Да</button><button class="btn">Нет</button><button class="btn ghost"><u>Своими словами</u></button></div>
+      </div>
+      <div class="foot"><span class="assume">Пока считаем: верна запись, подтверждённая тегом git.</span><details class="more"><summary>Свернуть</summary></details></div>
+    </div>
+  </div>
+  <p class="note">Общий ответ показывается только если у всех вопросов группы одинаковые варианты. Тогда «Реши сам» закрывает все открытые; уже отвеченные не затрагиваются. Нет общих вариантов — группа без блока «Общий ответ», только раскрытие.</p>
+</section>
+
+<!-- 6 · ПУСТО -->
+<section class="state">
+  <div class="cap"><b>6</b>Пустое состояние</div>
+  <div class="panel">
+    <div class="bar">
+      <div class="seg"><span class="on">Очередь</span><span>Списком</span></div>
+      <span class="count">0 вопросов</span>
+    </div>
+    <div class="empty">
+      <div class="ico">✓</div>
+      <h4>Все вопросы разобраны</h4>
+      <p>Офис спросит, когда ему придётся что-то допустить без вас.</p>
+      <button class="btn ghost"><u>Показать закрытые (12)</u></button>
+    </div>
+  </div>
+  <p class="note">То же — в конце очереди после последнего ответа. Если остались одни подтверждения — заголовок «Решений нет, осталось 2 подтвердить». Закрытые (отвеченные, снятые, влитые) прячутся за ссылкой — как сейчас раздел «Закрытые и влитые».</p>
+</section>
+
+<!-- 7 · БЫЛО -->
+<section class="state before">
+  <div class="cap"><b>×</b>Для сравнения: как сейчас (одна карточка)</div>
+  <div class="panel">
+    <div class="wall">
+      <div>Журнал разошёлся сам с собой: «J-351 (ответ владельца «Согласен со всеми», п.7): «менеджер только предлагает зону, заводите её вы»» против «J-369 (ответ владельца «Оставить как в форме»): set_role_base с параметром path — «если repo-зоны с таким путём ещё нет, она заводится сама»; J-368…». Что верно?</div>
+      <div>Обе записи — ваши решения, офис их сам не перерешивает. Вывод разбора: Решили: J-351 устарела и забыта, верна J-369 — … коммит 75d09a6 (2026-10-11, T-518) … строки 86…</div>
+      <div>допущение: … · ответить своими словами · Пусть офис разберётся</div>
+    </div>
+  </div>
+</section>
+
+</div>
+</body>
+</html>
