@@ -115,6 +115,11 @@ const UNITY_CODE = /^(eval|execute|run_code)(_|$)/;
  * только без `path`: тогда картинка тоже возвращается в ответе. С `path` он
  * пишет файл, а периметра записи у сервера нет, поэтому это запись, как и
  * `save_file`. `run_command` и читает, и пишет — отличить нельзя, он пишущий.
+ *
+ * Имена сверены с живым `tools/list` 0.6.0 (T-595): те же 18. Сам сервер
+ * помечает `export` как `readOnlyHint: true` и с `path` — мы строже, потому
+ * что файл на диске уже не чтение. У `screenshot` в 0.6.0 есть `window`
+ * (снимок окна в режиме `--attach`) — тоже чтение.
  */
 const FIGCRAFT_SERVER = 'figcraft';
 const figcraftReads = (verb: string, input: Record<string, unknown>): boolean =>

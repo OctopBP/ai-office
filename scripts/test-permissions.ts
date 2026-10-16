@@ -83,6 +83,8 @@ const cases: Case[] = [
   ['mcp__figcraft__inspect_document', { depth: 2 },              'safe'],
   ['mcp__figcraft__list_commands', { filter: 'layout' },         'safe'],
   ['mcp__figcraft__screenshot', { scale: 1 },                    'safe'],
+  ['mcp__figcraft__screenshot', { window: true },                'safe'],
+  ['mcp__figcraft__inspect_ui', {},                              'safe'],
   ['mcp__figcraft__export', { ids: ['1:2'], format: 'png' },     'safe'],
   ['mcp__figcraft__export', { ids: ['1:2'], format: 'png', path: 'docs/a.png' }, 'write'],
   ['mcp__figcraft__run_command', { command: 'inspect.code' },    'write'],

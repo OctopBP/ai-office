@@ -834,8 +834,8 @@ Keep your replies to the user short. Which language to write them in is said in 
     'Check yourself with a picture: `screenshot` or `export` without `path` return it straight to you.',
     '`save_file` and `export` with `path` write anywhere — write files only inside your working copy.',
     'Do not use Share ▸ Online: the file goes to a third-party server without encryption.',
-    'If the server did not start, `figcraft-cli` is not on PATH — say so in the report',
-    '(docs/design/figcraft/setup.md).',
+    'If the server did not start, the office did not find `figcraft-cli` (`FIGCRAFT_CLI`,',
+    '`~/.office/tools/bin` or PATH) — say so in the report (docs/design/figcraft/setup.md).',
   ].join('\n'),
 
   'mcp.blender.brief': [

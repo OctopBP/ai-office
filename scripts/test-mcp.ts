@@ -6,7 +6,7 @@
 // которому сказано «делай макет в Figma», займётся не своим делом.
 import {
   checkMcpServers, DEFAULT_MCP_SERVERS, externalMcp, MCP_NOT_IN_SESSION, mcpBrief, mcpCatalog, pollMcpStatus, serversFor,
-  unityProjectArgs,
+  toolCommand, unityProjectArgs,
 } from '../src/server/mcp';
 import { execFileSync } from 'node:child_process';
 import { mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
@@ -64,7 +64,25 @@ check('figcraft никому не подключён по умолчанию', f
 const pilotDesign = { ...role('design'), mcp: [...(role('design').mcp ?? []), 'figcraft'] };
 const figcraft = externalMcp(catalog(), pilotDesign).figcraft;
 check('дизайнер с галочкой получает figcraft',
-  !!figcraft && 'command' in figcraft && figcraft.command === 'figcraft-cli', JSON.stringify(figcraft));
+  !!figcraft && 'command' in figcraft && figcraft.command === toolCommand('figcraft-cli'), JSON.stringify(figcraft));
+// Где искать бинарник (T-595): переменная → ~/.office/tools/bin → PATH. Дом и
+// окружение подставные, чтобы ответ не зависел от машины, где идёт проверка.
+const fakeHome = mkdtempSync(join(tmpdir(), 'office-mcp-home-'));
+check('figcraft-cli без установки — голое имя для PATH', toolCommand('figcraft-cli', {}, fakeHome) === 'figcraft-cli',
+  toolCommand('figcraft-cli', {}, fakeHome));
+mkdirSync(join(fakeHome, '.office', 'tools', 'bin'), { recursive: true });
+writeFileSync(join(fakeHome, '.office', 'tools', 'bin', 'figcraft-cli'), '');
+check('figcraft-cli из ~/.office/tools/bin', toolCommand('figcraft-cli', {}, fakeHome)
+  === join(fakeHome, '.office', 'tools', 'bin', 'figcraft-cli'), toolCommand('figcraft-cli', {}, fakeHome));
+check('FIGCRAFT_CLI важнее места по умолчанию',
+  toolCommand('figcraft-cli', { FIGCRAFT_CLI: '/opt/fc/figcraft-cli' }, fakeHome) === '/opt/fc/figcraft-cli',
+  toolCommand('figcraft-cli', { FIGCRAFT_CLI: '/opt/fc/figcraft-cli' }, fakeHome));
+check('полный путь из каталога не подменяется',
+  toolCommand('/x/figcraft-cli', { FIGCRAFT_CLI: '/opt/fc/figcraft-cli' }, fakeHome) === '/x/figcraft-cli',
+  toolCommand('/x/figcraft-cli', { FIGCRAFT_CLI: '/opt/fc/figcraft-cli' }, fakeHome));
+check('чужие команды не трогаются', toolCommand('npx', { FIGCRAFT_CLI: '/opt/fc/figcraft-cli' }, fakeHome) === 'npx',
+  toolCommand('npx', {}, fakeHome));
+rmSync(fakeHome, { recursive: true, force: true });
 check('фронтенду тот же figma-bridge', servers(role('frontend')).includes('figma-bridge'), list(role('frontend')));
 check('3D-художнику blender', servers(role('artist3d')).includes('blender'), list(role('artist3d')));
 check('бэкенду ничего', servers(role('backend')).length === 0, list(role('backend')));

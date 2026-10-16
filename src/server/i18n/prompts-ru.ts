@@ -814,8 +814,8 @@ export const promptsRu: Record<keyof typeof promptsEn, string> = {
     'Себя проверяй картинкой: `screenshot` или `export` без `path` вернут её прямо тебе.',
     '`save_file` и `export` с `path` пишут куда угодно — пиши файлы только внутрь рабочей копии.',
     'Share ▸ Online не используй: файл уходит на чужой сервер без шифрования.',
-    'Если сервер не запустился, значит `figcraft-cli` не стоит в PATH, — так и напиши в отчёте',
-    '(docs/design/figcraft/setup.md).',
+    'Если сервер не запустился, значит офис не нашёл `figcraft-cli` (`FIGCRAFT_CLI`,',
+    '`~/.office/tools/bin` или PATH), — так и напиши в отчёте (docs/design/figcraft/setup.md).',
   ].join('\n'),
 
   'mcp.blender.brief': [

@@ -23,6 +23,7 @@
  */
 import { execFileSync } from 'node:child_process';
 import { existsSync, readdirSync } from 'node:fs';
+import { homedir } from 'node:os';
 import { basename, isAbsolute, join, resolve } from 'node:path';
 import type { McpServerConfig } from './engines/types';
 import type { Lang } from '../shared/i18n';
@@ -54,6 +55,39 @@ function nodeCommand(command: string): { command: string; env: Record<string, st
   return bin && (command === 'node' || command === bin)
     ? { command: bin, env: { ELECTRON_RUN_AS_NODE: '1' } }
     : { command, env: {} };
+}
+
+/** Имя CLI figcraft в каталоге: по нему `toolCommand` ищет настоящий бинарник. */
+export const FIGCRAFT_CLI = 'figcraft-cli';
+
+/**
+ * Где лежит бинарник внешнего инструмента, который ставит владелец, а не npm.
+ *
+ * В каталоге он записан голым именем — так каталог одинаков у всех и не
+ * хранит путь, который есть только на одной машине. Но запуск по одному
+ * PATH ненадёжен: приложение для macOS берёт PATH у входного шелла, а не
+ * ответил шелл — остаётся системный, без `~/.local/bin` и прочего из
+ * `.zshrc`. Тогда сервер молча не поднимался бы. Поэтому порядок такой:
+ *
+ * 1. переменная окружения (`FIGCRAFT_CLI=/полный/путь`) — переопределение;
+ * 2. `~/.office/tools/bin/<имя>` — место по умолчанию, обычно симлинк на
+ *    бинарник конкретной версии (`~/.office/tools/figcraft-0.6.0/…`): новая
+ *    версия ставится рядом, а переключается одним симлинком;
+ * 3. голое имя — пусть ищет PATH, как раньше.
+ *
+ * Полный путь, вписанный владельцем в каталог вместо имени, сюда не попадает
+ * и запускается как есть. Подмена делается на запуске, а не в каталоге, по
+ * той же причине, что у `nodeCommand`.
+ */
+const TOOL_BINARIES: Record<string, string> = { [FIGCRAFT_CLI]: 'FIGCRAFT_CLI' };
+
+export function toolCommand(command: string, env: NodeJS.ProcessEnv = process.env, home = homedir()): string {
+  const envName = TOOL_BINARIES[command];
+  if (!envName) return command;
+  const fromEnv = env[envName]?.trim();
+  if (fromEnv) return fromEnv;
+  const local = join(home, '.office', 'tools', 'bin', command);
+  return existsSync(local) ? local : command;
 }
 
 const server = (def: Partial<McpServerDef> & { id: string }): McpServerDef => ({
@@ -140,16 +174,23 @@ export const DEFAULT_MCP_SERVERS: McpServerDef[] = [
     alwaysLoad: true,
   }),
   /**
-   * figcraft — самостоятельный клон Figma на Rust (MIT/Apache, альфа 0.5.1),
+   * figcraft — самостоятельный клон Figma на Rust (MIT/Apache, альфа),
    * пилот рядом с Penpot, а не замена Figma (разбор — документ офиса D-4).
    * В отличие от трёх мостов выше, его MCP-сервер встроен в CLI и работает
    * headless: движок в процессе `figcraft-cli mcp`, без окна, без плагина и без
    * ключей. Поэтому stdio на каждую сессию, порты не нужны, и два дизайнера
    * друг другу не мешают.
    *
+   * Сверено вживую с 0.6.0 (T-595, по figcraft.run/mcp): запуск тот же, MCP
+   * `2025-06-18`, 18 инструментов, `tools/list` — около 16,7 КБ. Режим с окном
+   * (`mcp --attach <порт>` к `figcraft --control <порт>`) сюда не входит: порт
+   * один на машину, такую запись владелец заводит сам на время просмотра.
+   *
    * `--no-system-fonts` — одинаковый рендер на любой машине: только встроенные
    * шрифты, без того, что стоит у владельца. Версию фиксирует установленный
    * бинарник (npm-пакета нет), ставит его владелец — docs/design/figcraft/setup.md.
+   * Где офис ищет бинарник, решает `toolCommand` ниже: `figcraft-cli` здесь —
+   * имя, а не путь.
    *
    * Ни одна роль по умолчанию на него не подписана: на время пилота дизайнер
    * получает сервер галочкой. Периметра записи у сервера нет — `save_file` и
@@ -158,7 +199,7 @@ export const DEFAULT_MCP_SERVERS: McpServerDef[] = [
   server({
     id: 'figcraft',
     title: 'FigCraft',
-    command: 'figcraft-cli',
+    command: FIGCRAFT_CLI,
     args: ['mcp', '--no-system-fonts'],
     // 18 инструментов, а поиска инструментов у дизайнера нет — держим их в
     // промпте с первого хода, как у Figma.
@@ -353,7 +394,7 @@ function resolveEnv(env: Record<string, string>): Record<string, string> {
 function toSdkConfig(def: McpServerDef, cwd?: string, project?: string | readonly string[]): McpServerConfig {
   const env = resolveEnv(def.env);
   if (def.transport === 'stdio') {
-    const node = nodeCommand(def.command);
+    const node = nodeCommand(toolCommand(def.command));
     const withCwd = { ...env, ...node.env, ...(cwd ? { OFFICE_WORKDIR: cwd } : {}) };
     return {
       type: 'stdio',
