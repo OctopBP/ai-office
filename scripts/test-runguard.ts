@@ -210,7 +210,7 @@ results.push(
   `цикл: запуск вернул остановку с причиной и цифрами: ${byTokens.run.budget?.reason === 'tokens'
     && byTokens.run.budget.spentTokens === BUDGET_DEFAULT_TOKENS
     && byTokens.run.failed !== null && byTokens.run.failed.includes('2000 тыс.')
-    && byTokens.run.failed.includes('порог по умолчанию') && !byTokens.run.thrashed}`,
+    && byTokens.run.failed.includes('по умолчанию: истории меньше') && !byTokens.run.thrashed}`,
 );
 
 // Три автосжатия подряд при копеечном расходе — тоже остановка.
@@ -331,7 +331,7 @@ results.push(
   `цикл qa: остановка на 5 млн: ${qaStop.fake.state.interrupted && qaStop.fake.state.drained === 5
     && qaStop.run.budget?.limitTokens === QA_FUSE && qaStop.run.budget.limitSource === 'role'}`,
   `цикл qa: сообщение называет действующий порог роли: ${qaStop.run.failed?.includes('5000 тыс.') === true
-    && qaStop.run.failed.includes('свой порог роли') && qaStop.run.failed.includes(qa().title)
+    && qaStop.run.failed.includes('задан для роли') && qaStop.run.failed.includes(qa().title)
     && qaStop.logs.some((l) => l.includes('предохранитель расхода останавливает запуск') && l.includes('5000 тыс.'))}`,
   `цикл qa: предупреждение на 80% своего порога: ${qaStop.logs.some((l) => l.includes('80% порога запуска')
     && l.includes('4000 тыс.') && l.includes('5000 тыс.'))}`,
@@ -339,12 +339,49 @@ results.push(
 // Молотилка тоже называет действующий порог.
 const qaThrash = await driveAs(qaWorker, qa(), [call('m1', 10_000), autoCompact, autoCompact, autoCompact]);
 results.push(`цикл qa: молотилка называет порог роли: ${qaThrash.run.failed?.includes('5000 тыс.') === true
-  && qaThrash.run.failed.includes('свой порог роли')}`);
+  && qaThrash.run.failed.includes('задан для роли')}`);
 // Остальные роли — на прежнем пороге и после всех правок.
 worker.currentTaskId = task.id;
 const backendAgain = await drive([1, 2, 3, 4, 5, 6].map((n) => call(`b${n}`, step)));
 results.push(`цикл: у backend порог прежний: ${backendAgain.run.budget?.limitTokens === BUDGET_DEFAULT_TOKENS
   && backendAgain.run.budget.limitSource === 'default'}`);
+
+// ---------- порог офиса (T-605) ----------
+
+// Порядок источников: роль → офис → история → умолчание.
+const OFFICE_FUSE = 4_000_000;
+const officeOnly = runThreshold([], 'design', 'task', null, OFFICE_FUSE);
+const officeOverHistory = runThreshold(ten, 'backend', 'task', undefined, OFFICE_FUSE);
+const roleOverOffice = runThreshold(ten, 'backend', 'task', QA_FUSE, OFFICE_FUSE);
+results.push(
+  `порядок: порог офиса сильнее умолчания: ${officeOnly.tokens === OFFICE_FUSE && officeOnly.source === 'office'}`,
+  `порядок: порог офиса сильнее истории: ${officeOverHistory.tokens === OFFICE_FUSE
+    && officeOverHistory.source === 'office' && officeOverHistory.median === tenT.median}`,
+  `порядок: порог роли сильнее порога офиса: ${roleOverOffice.tokens === QA_FUSE && roleOverOffice.source === 'role'}`,
+  `порядок: офис 0 и null — не задан: ${runThreshold(ten, 'backend', 'task', null, 0).source === 'history'
+    && runThreshold([], 'backend', 'task', null, null).source === 'default'
+    && runThreshold([], 'backend', 'task', null, 100).tokens === BUDGET_DEFAULT_TOKENS}`,
+);
+// Настройка офиса: правка существующей командой, мусор не принимается, 0 снимает.
+office.updateSettings({ spendFuseTokens: OFFICE_FUSE });
+const settingSet = office.settings.spendFuseTokens === OFFICE_FUSE;
+office.updateSettings({ spendFuseTokens: 100 });
+const garbageKept = office.settings.spendFuseTokens === OFFICE_FUSE;
+results.push(`настройки: порог офиса принят, мусор не затирает: ${settingSet && garbageKept}`);
+// Сквозь цикл: backend без своего порога останавливается на пороге офиса,
+// а qa со своим 5 млн — по-прежнему на своём.
+const backendOffice = await drive([1, 2, 3, 4, 5, 6, 7, 8, 9].map((n) => call(`o${n}`, million / 2)));
+results.push(
+  `цикл: backend стоп на пороге офиса: ${backendOffice.run.budget?.limitTokens === OFFICE_FUSE
+    && backendOffice.run.budget.limitSource === 'office'}`,
+  `цикл: сообщение называет порог офиса: ${backendOffice.run.failed?.includes('задан для офиса') === true
+    && backendOffice.logs.some((l) => l.includes('% порога запуска') && l.includes('(задан для офиса)'))}`,
+);
+const qaWithOffice = await driveAs(qaWorker, qa(), [1, 2, 3, 4, 5, 6].map((n) => call(`w${n}`, million)));
+results.push(`цикл: у qa порог роли сильнее офиса: ${qaWithOffice.run.budget?.limitTokens === QA_FUSE
+  && qaWithOffice.run.budget.limitSource === 'role'}`);
+office.updateSettings({ spendFuseTokens: 0 });
+results.push(`настройки: 0 снимает порог офиса: ${office.settings.spendFuseTokens === null}`);
 
 // Разбор расхода: запуск qa в пределах своего порога — не аномалия.
 const qaRun = [spent(3_000_000, { roleId: qaId, taskId: 'T-qa' })];

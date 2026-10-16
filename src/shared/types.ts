@@ -998,6 +998,14 @@ export interface Settings {
    * снимает и worktree снятой задачи.
    */
   cleanupDays?: number;
+  /**
+   * Порог предохранителя расхода для всех ролей офиса без своего
+   * (`Role.spendFuseTokens`): входные токены (с кешем) одного запуска. Целое
+   * от 2 000 000 до 20 000 000. Пусто, null или 0 — не задан: тогда порог по
+   * истории роли, а при истории меньше 10 запусков — 2 000 000. Порядок —
+   * `src/server/runguard.ts` → `runThreshold`.
+   */
+  spendFuseTokens?: number | null;
 }
 
 /**
@@ -1683,9 +1691,10 @@ export interface BudgetStop {
   limitTokens: number;
   /**
    * 'history' — медиана по прошлым запускам ×3; 'default' — истории мало;
-   * 'role' — свой порог роли (`Role.spendFuseTokens`).
+   * 'role' — свой порог роли (`Role.spendFuseTokens`); 'office' — порог
+   * офиса для ролей без своего (`Settings.spendFuseTokens`).
    */
-  limitSource: 'history' | 'default' | 'role';
+  limitSource: 'history' | 'default' | 'role' | 'office';
   /** Медиана истории и по скольким запускам она взята; истории мало — медианы нет. */
   medianTokens: number | null;
   samples: number;

@@ -3988,14 +3988,16 @@ interface WorkerRun {
  * Предохранитель на запуск: порог — из истории той же роли на той же работе.
  * Тип работы — узел идущего прогона, как и в записи о запуске (`addAgentRun`):
  * иначе порог считался бы по одной истории, а запуск ложился бы в другую.
- * Свой порог роли (`Role.spendFuseTokens`) сильнее истории; берётся из снимка
- * роли, с которым запуск стартовал, — как и остальные её настройки.
+ * Свой порог роли (`Role.spendFuseTokens`) сильнее порога офиса
+ * (`Settings.spendFuseTokens`), оба — сильнее истории. Порог роли берётся из
+ * снимка роли, с которым запуск стартовал, — как и остальные её настройки.
  */
 function guardFor(state: OfficeState, inst: Instance, role: Role): RunGuard {
   const flow = inst.currentTaskId ? state.runOf(inst.currentTaskId) : null;
   const live = flow && (flow.status === 'running' || flow.status === 'waiting') ? flow : null;
   return new RunGuard(runThreshold(
-    state.agentRunList(), inst.roleId, runKind(live?.nodeId ?? null), role.spendFuseTokens));
+    state.agentRunList(), inst.roleId, runKind(live?.nodeId ?? null), role.spendFuseTokens,
+    state.settings.spendFuseTokens));
 }
 
 const kTokens = (tokens: number) => Math.round(tokens / 1000);
@@ -4005,6 +4007,7 @@ function budgetSource(
   state: OfficeState, source: BudgetStop['limitSource'], median: number | null, samples: number, role: Role,
 ): string {
   if (source === 'role') return state.say('agent.budget.sourceRole', { role: role.title });
+  if (source === 'office') return state.say('agent.budget.sourceOffice');
   return source === 'history'
     ? state.say('agent.budget.sourceHistory', { median: kTokens(median ?? 0), n: samples })
     : state.say('agent.budget.sourceDefault', { min: BUDGET_MIN_HISTORY });

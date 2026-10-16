@@ -460,6 +460,7 @@ export const en = {
   "budgetStop.fromHistory": "Limit is 3× the median of the role's past runs (runs: {n}).",
   "budgetStop.fromDefault": "Not enough history, default limit used.",
   "budgetStop.fromRole": "The limit is set on the role itself.",
+  "budgetStop.fromOffice": "The limit is set for the whole office.",
   "budgetStop.restartHint": "Run again; the limit stays the same",
   "spendReport.error": "Could not load the usage breakdown.",
   "spendReport.empty.title": "No agent runs in this period",

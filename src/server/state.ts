@@ -2264,6 +2264,9 @@ export class OfficeState {
       ?? DEFAULT_SETTINGS.maxConcurrentWorkers;
     // И с числом ведомых фич: ноль означал бы план, который не начнётся.
     this.settings.focusEpics = sanitizeFocus(this.settings.focusEpics) ?? DEFAULT_FOCUS_EPICS;
+    // Порог предохранителя офиса из правленого руками файла: непригодный —
+    // «не задан», а не порог, который остановит каждый запуск.
+    if (sanitizeSpendFuse(this.settings.spendFuseTokens) === undefined) delete this.settings.spendFuseTokens;
     // Расстановку поднимаем ДО seed: по итоговой раскладке считаются столы,
     // за которые он сажает сотрудников.
     this.layoutOverrides = sanitizeOverrides(data.layoutOverrides);
@@ -5024,6 +5027,13 @@ export class OfficeState {
       const n = Number(next.cleanupDays);
       if (!Number.isInteger(n) || n < 0 || n > 365) delete next.cleanupDays;
       else next.cleanupDays = n;
+    }
+    if ('spendFuseTokens' in next) {
+      // 0 и null — «не задан»: порог по истории роли. Вне границ — мусор,
+      // оставляем прежнее значение, как и у остальных чисел настроек.
+      const raw = next.spendFuseTokens;
+      if (raw === null || raw === 0) next.spendFuseTokens = null;
+      else if (sanitizeSpendFuse(raw) === undefined) delete next.spendFuseTokens;
     }
     if ('meetingEveryDays' in next) {
       const n = Number(next.meetingEveryDays);

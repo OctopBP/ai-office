@@ -312,6 +312,7 @@ export function officeSpendReport(
     officeId: state.officeId,
     taskTitle: (id) => state.tasks.get(id)?.title,
     roleTitle: (id) => state.role(id)?.title,
-    roleLimit: (id) => state.role(id)?.spendFuseTokens,
+    // Порог офиса — для ролей без своего: тот же порядок, что у предохранителя.
+    roleLimit: (id) => state.role(id)?.spendFuseTokens || state.settings.spendFuseTokens,
   });
 }

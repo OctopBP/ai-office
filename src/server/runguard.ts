@@ -1,8 +1,8 @@
 /**
  * Предохранитель расхода одного запуска агента.
  *
- * Общей настройки у порога нет намеренно: «сколько можно» у ревьюера и у
- * исполнителя разное, и угадать число за владельца нельзя. Порог берётся из
+ * Расчётного общего числа у порога нет намеренно: «сколько можно» у ревьюера
+ * и у исполнителя разное, и угадать его за владельца нельзя. Порог берётся из
  * того, сколько обычно съедает такой же запуск — та же роль, тот же тип
  * работы, — с запасом втрое. Пока истории мало, действует константа.
  *
@@ -10,6 +10,12 @@
  * заведомо дороже обычной (браузерные проверки тестировщика), в общий порог
  * не укладывается, и история её не выручит — запуски, остановленные на
  * пороге, сами же его и держат. Задан порог у роли — действует он.
+ *
+ * Между ролью и историей — порог офиса (`Settings.spendFuseTokens`): одно
+ * число для всех ролей без своего. Порядок источников: роль → офис →
+ * история (от `BUDGET_MIN_HISTORY` запусков) → `BUDGET_DEFAULT_TOKENS`.
+ * «Без потолка» нет намеренно: предохранитель ловит и буксующую сессию, а
+ * не только дорогую работу; кому мало — потолок `BUDGET_ROLE_MAX_TOKENS`.
  *
  * Здесь только расчёт и счётчики, без сессий и состояния офиса: остановку
  * делает цикл исполнителя (`collectWorker` в agents.ts), а этот модуль лишь
@@ -84,10 +90,13 @@ function median(values: number[]): number {
  * работа. Запуски лежат от старых к свежим, поэтому последние — с конца.
  *
  * `roleLimit` — свой порог роли (`Role.spendFuseTokens`): задан — действует
- * он, а история остаётся в ответе справкой. Непригодное значение не действует.
+ * он, а история остаётся в ответе справкой. `officeLimit` — порог офиса
+ * (`Settings.spendFuseTokens`): действует, когда у роли своего нет, и тоже
+ * сильнее истории. Непригодное значение (0, мусор) — «не задано».
  */
 export function runThreshold(
-  runs: readonly AgentRunEntry[], roleId: string, kind: string, roleLimit?: number | null,
+  runs: readonly AgentRunEntry[], roleId: string, kind: string,
+  roleLimit?: number | null, officeLimit?: number | null,
 ): RunThreshold {
   const history: number[] = [];
   for (let i = runs.length - 1; i >= 0 && history.length < BUDGET_HISTORY; i--) {
@@ -96,13 +105,11 @@ export function runThreshold(
     history.push(runInputTokens(r));
   }
   const enough = history.length >= BUDGET_MIN_HISTORY;
+  const medianOrNull = enough ? Math.round(median(history)) : null;
   const own = sanitizeSpendFuse(roleLimit);
-  if (own) {
-    return {
-      tokens: own, source: 'role',
-      median: enough ? Math.round(median(history)) : null, samples: history.length,
-    };
-  }
+  if (own) return { tokens: own, source: 'role', median: medianOrNull, samples: history.length };
+  const office = sanitizeSpendFuse(officeLimit);
+  if (office) return { tokens: office, source: 'office', median: medianOrNull, samples: history.length };
   if (!enough) {
     return { tokens: BUDGET_DEFAULT_TOKENS, source: 'default', median: null, samples: history.length };
   }
