@@ -10,6 +10,7 @@
 import { readFileSync, statSync } from 'node:fs';
 import type { ChatEntry, LogEntry, OfficeActivity, TaskStatus, Usage } from '../shared/types';
 import { dayKey, emptyUsage } from '../shared/types';
+import { countDoneUnmerged, countInWork } from '../shared/work';
 import { c } from './i18n';
 
 /**
@@ -34,9 +35,6 @@ interface StateLike {
   daily?: Record<string, Usage>;
 }
 
-/** Пока задача в этих статусах, она числится за исполнителем. */
-const IN_WORK: TaskStatus[] = ['assigned', 'in_progress', 'review'];
-
 export const emptyActivity = (): OfficeActivity => ({
   inProgress: 0, doneUnmerged: 0, lastEventAt: null, usage: emptyUsage(), today: emptyUsage(),
   // Живые сессии и запросы доступа есть только у поднятого офиса, а по файлу
@@ -56,11 +54,11 @@ const later = (a: number | null, b: number | null | undefined): number | null =>
 /** Сводка по уже разобранному состоянию — общая для памяти и для диска. */
 export function summarize(state: StateLike): OfficeActivity {
   const result = emptyActivity();
+  // Правило подсчёта общее с вебом (shared/work.ts): у активного офиса клиент
+  // считает по тому же правилу, и число не зависит от выбора офиса.
+  result.inProgress = countInWork(state.tasks ?? []);
+  result.doneUnmerged = countDoneUnmerged(state.tasks ?? []);
   for (const t of state.tasks ?? []) {
-    if (IN_WORK.includes(t.status)) result.inProgress += 1;
-    // Ветка без слияния — единственный признак незабранной работы:
-    // задачи без своей ветки сливать нечего.
-    else if (t.status === 'done' && t.branch && !t.merged) result.doneUnmerged += 1;
     result.lastEventAt = later(result.lastEventAt, t.finishedAt);
     result.lastEventAt = later(result.lastEventAt, t.startedAt);
     result.lastEventAt = later(result.lastEventAt, t.createdAt);

@@ -6,6 +6,7 @@ import {
 } from '../store';
 import type { ModalKind, PanelKind } from '../Overlays';
 import type { OfficeView } from '../../shared/types';
+import { countInWork } from '../../shared/work';
 import { money } from '../money';
 import { t } from '../i18n';
 import { useLayout } from '../layout/store';
@@ -246,7 +247,8 @@ export function Rail({ onPanel, onModal }: {
     useOfficeDrag(offices);
   // Счётчики те же, что были в HUD: в работе — по задачам, а не по позам агентов.
   const all = Object.values(tasks);
-  const working = all.filter((x) => x.status === 'in_progress').length;
+  // Правило общее с сводкой сервера (shared/work.ts): иначе число у офиса менялось бы от выбора.
+  const working = countInWork(all);
   const readyToMerge = all.filter((x) => x.status === 'done' && x.branch && !x.merged).length;
   // У совещаний счётчик — единица, пока одно идёт: это «сейчас говорят», а не число прошлых.
   const meetingLive = useStore((s) => s.meeting?.status === 'running');
