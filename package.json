@@ -33,6 +33,7 @@
     "test:packages": "tsx scripts/test-packages.ts",
     "test:market": "tsx scripts/test-market.ts",
     "test:mcp": "tsx scripts/test-mcp.ts",
+    "test:figcraft": "node --import tsx scripts/test-figcraft.ts",
     "test:looks": "tsx scripts/test-looks.ts",
     "test:contrast": "tsx scripts/check-contrast.ts",
     "test:imagegen": "tsx scripts/test-imagegen.ts",

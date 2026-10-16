@@ -1569,6 +1569,61 @@ export interface TaskFilesView {
 }
 
 /**
+ * Макеты FigCraft (src/server/figcraft.ts). Откуда взят файл: рабочая копия
+ * задачи (пока задача не влита) или основная рабочая директория офиса.
+ */
+export type FigcraftFileSource = 'worktree' | 'main';
+
+export interface FigcraftFile {
+  /** Путь от корня источника, через «/»: «docs/design/T-12/экран.figcraft». */
+  path: string;
+  /** Полный путь на машине сервера — его и передавать в POST /api/figcraft/open. */
+  absPath: string;
+  source: FigcraftFileSource;
+  /** Байты. */
+  size: number;
+  /** Время изменения, мс с эпохи. */
+  mtime: number;
+}
+
+/**
+ * Можно ли открыть макет в десктопном FigCraft. `canOpen` — итог для кнопки:
+ * приложение найдено и запрос пришёл с машины сервера. Иначе `reason` —
+ * готовая подсказка для неактивной кнопки.
+ */
+export interface FigcraftAppStatus {
+  found: boolean;
+  /** Где нашлось приложение (бандл .app или исполняемый файл); null — не нашлось. */
+  path: string | null;
+  canOpen: boolean;
+  reason: string | null;
+  /** Инструкция по установке — docs/design/figcraft/setup.md. */
+  docs: string;
+}
+
+/** GET /api/figcraft/files?office=&task= */
+export interface FigcraftFilesView {
+  office: string;
+  /** null — общий список по основной директории офиса. */
+  task: string | null;
+  /** Откуда список; 'none' — у задачи нет ни живой копии, ни влитых файлов. */
+  source: FigcraftFileSource | 'none';
+  files: FigcraftFile[];
+  /** Обход упёрся в потолок числа файлов или каталогов — список неполный. */
+  truncated: boolean;
+  app: FigcraftAppStatus;
+}
+
+/** Код отказа POST /api/figcraft/open — веб различает их без разбора текста. */
+export type FigcraftOpenErrorCode =
+  | 'bad-request' | 'bad-path' | 'not-found' | 'no-app' | 'remote' | 'forbidden' | 'closed' | 'launch-failed';
+
+/** POST /api/figcraft/open {office, path} */
+export type FigcraftOpenResult =
+  | { ok: true; path: string; app: string }
+  | { ok: false; code: FigcraftOpenErrorCode; error: string; docs?: string };
+
+/**
  * Что в задаче можно переписать после того, как её завели. Поле, которого
  * нет в правке, остаётся прежним: «поменяй роль» не должно молча стирать
  * критерии. Пустой список критериев не принимается — задача без них
