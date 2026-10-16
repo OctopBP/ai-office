@@ -187,6 +187,9 @@
 .team-zone-chip.lost, .team-pin-opt.lost { border-color: var(--danger); color: var(--danger); }
 .team-zone-dot { flex: none; width: 8px; height: 8px; border-radius: 2px; }
 .team-pin { display: flex; flex-direction: column; gap: var(--space-2); margin-bottom: var(--space-3); }
+/* Шапка агента отрицательным отступом закрывает верхний padding панели. Под
+   блоком зон этот padding уже занят, и шапка наезжала бы на подсказку. */
+.team-pin + .agent-page > .agent-top { margin-top: 0; }
 .team-pin-list { display: flex; flex-wrap: wrap; gap: var(--space-2); }
 .team-pin-opt {
   display: inline-flex; align-items: center; gap: var(--space-1); min-height: var(--chip-h);

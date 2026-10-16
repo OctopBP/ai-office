@@ -1142,6 +1142,24 @@ async function pinRoleCommand(): Promise<void> {
   const off = await office.editRole('frontend', { subprojects: [] });
   check('пустой список снимает закрепление — поля нет', off.length === 0 && pins('frontend') === undefined);
 
+  // Веб видит закрепление только через RoleView (T-584): без поля карточка
+  // считает роль «весь проект», и следующий клик заменял бы прежнюю зону.
+  const view = (id: string) => office.roleViews().find((r) => r.id === id);
+  const sent: string[][] = [];
+  const unsub = office.subscribe((e) => {
+    if (e.t === 'roles') sent.push(e.roles.find((r) => r.id === 'frontend')?.subprojects ?? []);
+  });
+  await office.editRole('frontend', { subprojects: [web] });
+  check('roleViews отдаёт закрепление роли', view('frontend')?.subprojects?.join() === web);
+  check('после update_role разослано событие roles с закреплением', sent.at(-1)?.join() === web);
+  await office.editRole('frontend', { subprojects: [...(view('frontend')?.subprojects ?? []), srv] });
+  check('второй клик по виду добавляет зону, а не заменяет',
+    view('frontend')?.subprojects?.join() === `${web},${srv}` && sent.at(-1)?.join() === `${web},${srv}`);
+  await office.editRole('frontend', { subprojects: [] });
+  check('снятое закрепление — в виде поля нет', view('frontend')?.subprojects === undefined && sent.at(-1)?.length === 0);
+  check('у незакреплённой роли в виде поля нет', view('backend')?.subprojects === undefined);
+  unsub();
+
   const unknown = await office.editRole('frontend', { subprojects: ['nope'] });
   check('неизвестная зона — ошибка поля subprojects, роль не тронута',
     unknown.some((e) => e.field === 'subprojects') && pins('frontend') === undefined);
@@ -1173,6 +1191,8 @@ async function pinRoleCommand(): Promise<void> {
   const again = openOfficeState({ id: 'o-sub-pin', projectDir: dir, stateFile: file }).state;
   check('после перезагрузки закрепление то же', again.role('backend')?.subprojects?.join() === srv
     && again.role('frontend')?.subprojects === undefined);
+  check('после перезагрузки закрепление видно и в roleViews',
+    again.roleViews().find((r) => r.id === 'backend')?.subprojects?.join() === srv);
   unloadOfficeState('o-sub-pin');
 }
 

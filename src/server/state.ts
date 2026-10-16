@@ -4253,6 +4253,9 @@ export class OfficeState {
       allowLocalBinding: r.allowLocalBinding === true,
       spendFuseTokens: r.spendFuseTokens ?? null,
       repoDir: r.repoDir ?? '', sprite: r.sprite ?? '', brief: r.brief,
+      // Закрепление за зонами: без него веб видит роль как «весь проект», и
+      // карточка сотрудника каждым кликом заменяет закрепление, а не дополняет.
+      ...(r.subprojects?.length ? { subprojects: [...r.subprojects] } : {}),
       briefExtra: r.package?.briefExtra ?? '',
       package: this.packageView(r),
       // Действующий набор, а не сырое поле: у роли без своей подписки это
