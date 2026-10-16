@@ -108,19 +108,6 @@ export function Zones3D({ offset, size }: { offset: [number, number]; size: [num
   const dimmed = (id: string) => active && id !== filter;
 
   return (
-    <>
-    <Html fullscreen zIndexRange={[60, 0]} style={{ pointerEvents: 'none', userSelect: 'none' }}>
-      <ul className="zone3d-legend" aria-label={t('zone3d.legend')}>
-        {subprojects.map((z) => (
-          <li key={z.id} className={z.members.length === 0 ? 'empty' : undefined} title={z.name}>
-            <span className="zone3d-swatch" aria-hidden="true"
-              style={z.members.length === 0 ? undefined : { background: `var(--${z.color})` }} />
-            <span className="zone3d-legend-name">{z.name}</span>
-            <span className="zone3d-legend-n">{z.members.length}</span>
-          </li>
-        ))}
-      </ul>
-    </Html>
     <group position={[offset[0], FLOOR_Y, offset[1]]}>
       {plots.map((p) => {
         const color = css.getPropertyValue(`--${p.color}`).trim() || '#808080';
@@ -153,6 +140,5 @@ export function Zones3D({ offset, size }: { offset: [number, number]; size: [num
         );
       })}
     </group>
-    </>
   );
 }

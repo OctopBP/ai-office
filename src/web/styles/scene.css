@@ -209,20 +209,4 @@
   border-radius: var(--radius-pill);
   max-width: 160px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
-
-/* Легенда зон в углу сцены: цвет, имя, число закреплённых. */
-.zone3d-legend {
-  position: absolute; left: var(--space-3); bottom: var(--space-3);
-  display: flex; flex-direction: column; gap: var(--space-1);
-  margin: 0; padding: var(--space-2); list-style: none;
-  max-width: 220px;
-  background: var(--surface); color: var(--ink-2);
-  border: 1px solid var(--hairline); border-radius: var(--radius-tile);
-  box-shadow: var(--shadow-float);
-  font: 500 var(--fs-row)/1.2 var(--font);
-}
-.zone3d-legend li { display: flex; align-items: center; gap: var(--space-2); min-width: 0; }
-.zone3d-legend li.empty { color: var(--ink-3); }
-.zone3d-swatch { flex: none; width: 12px; height: 12px; border-radius: var(--space-1); background: var(--ink-3); }
-.zone3d-legend-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .zone3d-legend-n { flex: none; font-variant-numeric: tabular-nums; }

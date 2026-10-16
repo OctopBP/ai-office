@@ -337,7 +337,6 @@ export const ru: Record<keyof typeof en, string> = {
   "board.dropConfirm": "Снять задачу «{title}»? Делать её больше не будут; на доске она останется снятой.",
   "board.deleteConfirm": "Стереть задачу «{title}» с доски насовсем? Отменить это нельзя.",
   "zone.deleted": "зона удалена",
-  "zone3d.legend": "Легенда зон",
   "zone.filter": "Фильтр по зоне",
   "zone.all": "Все",
   "zone.none": "Весь проект",
