@@ -125,6 +125,7 @@ export const ru: Record<keyof typeof en, string> = {
   'merge.step.pending': 'в очереди',
 
   // ------------------------------------------------------------- поля форм
+  'field.spendFuseRange': 'Число от {min} до {max} млн токенов или пусто — не задан',
   'field.turnsRange': 'Целое число от {min} до {max} или пусто — без ограничения',
   'field.workersRange': 'Целое число от {min} до {max}',
   "hud.pause.hint": "Пауза: остановить всех исполнителей — SPACE",
@@ -938,6 +939,13 @@ export const ru: Record<keyof typeof en, string> = {
   "role.isolate": "Своя ветка на задачу",
   "role.turns.officeUnlimited": "как в офисе (сейчас без ограничения)",
   "role.turns.office": "как в офисе (сейчас {n})",
+  "role.spendFuse": "Потолок входных токенов на запуск, млн",
+  "role.spendFuse.hint": "Сколько входных токенов (с кешем) может съесть один запуск этой роли, от 2 до 20 млн. Пусто — как в офисе.",
+  "role.spendFuse.office": "как в офисе (сейчас {n} млн)",
+  "role.spendFuse.officeAuto": "как в офисе (по истории, иначе 2 млн)",
+  "settings.limits.spendFuse": "Потолок входных токенов на запуск, млн",
+  "settings.limits.spendFuse.hint": "Для ролей без своего порога: сколько входных токенов (с кешем) может съесть один запуск исполнителя, от 2 до 20 млн. Пусто — не задан: порог по истории роли, а пока запусков меньше 10 — 2 млн.",
+  "settings.limits.spendFuse.placeholder": "не задан",
   "role.turns.hint": "Потолок ходов одной сессии этой роли — тот самый лимит, из-за которого задача падает с «Reached maximum number of turns». Пусто — лимит офиса.",
   "role.repo": "Репозиторий роли",
   "role.repo.placeholder": "общий репозиторий офиса",

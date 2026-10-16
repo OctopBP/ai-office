@@ -1,7 +1,7 @@
 import { useEffect, useReducer, useRef } from 'react';
 import {
-  archiveRole, clearRoleFeedback, detachRole, parseTaskMaxTurns, removeRole, setAgentName,
-  setAgentPermission, socketOpen, updateRole, useStore,
+  archiveRole, clearRoleFeedback, detachRole, parseSpendFuse, parseTaskMaxTurns, removeRole, setAgentName,
+  setAgentPermission, socketOpen, spendFuseToMillions, updateRole, useStore,
 } from './store';
 import { t } from './i18n';
 import {
@@ -25,7 +25,7 @@ import {
 export type AgentField =
   | 'name' | 'personalMode'
   | 'title' | 'sprite' | 'provider' | 'model' | 'ownModel' | 'tier' | 'permissionMode' | 'isolate' | 'allowLocalBinding'
-  | 'maxTurns' | 'repoDir' | 'mcp' | 'capabilities' | 'brief' | 'briefExtra';
+  | 'maxTurns' | 'spendFuseTokens' | 'repoDir' | 'mcp' | 'capabilities' | 'brief' | 'briefExtra';
 
 type RoleField = Exclude<AgentField, 'name' | 'personalMode'>;
 type InstField = 'name' | 'personalMode';
@@ -84,6 +84,7 @@ function serverValue(f: AgentField, role: RoleView, inst: InstanceView): unknown
     case 'name': return inst.name ?? '';
     case 'personalMode': return inst.permissionMode;
     case 'maxTurns': return role.maxTurns?.toString() ?? '';
+    case 'spendFuseTokens': return spendFuseToMillions(role.spendFuseTokens);
     case 'capabilities': return role.capabilities ?? [];
     // Без провайдера у роли и у офиса (T-243) — null, а не подставленный Claude Code.
     case 'provider': return role.provider ?? null;
@@ -103,12 +104,14 @@ function localError(f: AgentField, v: unknown): string | null {
     return t('agent.err.nameLong', { max: MAX_AGENT_NAME });
   }
   if (f === 'maxTurns') return parseTaskMaxTurns(String(v)).error;
+  if (f === 'spendFuseTokens') return parseSpendFuse(String(v)).error;
   return null;
 }
 
 /** Значение формы → значение патча роли. */
 function toPatch(f: RoleField, v: unknown): unknown {
   if (f === 'maxTurns') return parseTaskMaxTurns(String(v)).value;
+  if (f === 'spendFuseTokens') return parseSpendFuse(String(v)).value;
   if (f === 'title') return String(v).trim();
   return v;
 }

@@ -2158,6 +2158,28 @@ export function parseTaskMaxTurns(v: string): { value: number | null; error: str
   return { value: n, error: null };
 }
 
+export const SPEND_FUSE_MIN_M = 2;
+export const SPEND_FUSE_MAX_M = 20;
+
+/** Токены порога → млн для поля ввода; не задан — пустая строка. */
+export function spendFuseToMillions(tokens: number | null | undefined): string {
+  return tokens ? String(Math.round(tokens / 10_000) / 100) : '';
+}
+
+/**
+ * Разбирает поле порога входных токенов на запуск, введённое в млн. Пустое
+ * поле — «не задан» (null, отправлять можно). Вне 2–20 млн — ошибка.
+ */
+export function parseSpendFuse(v: string): { value: number | null; error: string | null } {
+  const trimmed = v.trim().replace(',', '.');
+  if (trimmed === '') return { value: null, error: null };
+  const n = Number(trimmed);
+  if (!Number.isFinite(n) || n < SPEND_FUSE_MIN_M || n > SPEND_FUSE_MAX_M) {
+    return { value: null, error: tr('field.spendFuseRange', { min: SPEND_FUSE_MIN_M, max: SPEND_FUSE_MAX_M }) };
+  }
+  return { value: Math.round(n * 1_000_000), error: null };
+}
+
 /**
  * Разбирает поле «Одновременно исполнителей». В отличие от лимита шагов,
  * пустое поле здесь не значит «без ограничения»: офис без потолка сессий —

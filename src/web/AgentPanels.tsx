@@ -4,7 +4,7 @@ import { PROVIDERS, PROVIDER_IDS, isConnected, type ProviderId } from '../shared
 import { lookById } from '../shared/looks';
 import {
   accessLabel, clearExportResult, exportRole, fire, fullAccessWarning, marketUpdate, openLayoutSettings,
-  openProviderSettings, permissionSource, permissionSourceLabel, roleTiers, useStore,
+  openProviderSettings, permissionSource, permissionSourceLabel, roleTiers, spendFuseToMillions, useStore,
 } from './store';
 import { has, t, type UiKey } from './i18n';
 import { Icon } from './icons';
@@ -235,6 +235,8 @@ export function ModelPanel({ save, role, busy }: PanelProps) {
   const models = useProviderModels(provider);
   const status = providers.find((p) => p.id === provider)?.status;
   const turns = blurField(save, 'maxTurns');
+  const fuse = blurField(save, 'spendFuseTokens');
+  const officeFuse = useStore((s) => s.settings.spendFuseTokens);
   const repo = blurField(save, 'repoDir');
   const checkingRepo = save.field('repoDir').saving;
   const repoHint = useStore((s) => (s.roleHint?.roleId === role.id ? s.roleHint.hint : ''));
@@ -361,6 +363,19 @@ export function ModelPanel({ save, role, busy }: PanelProps) {
               : t('role.turns.office', { n: role.effectiveMaxTurns })}
           />
           <FieldError save={save} f="maxTurns" />
+        </Row>
+
+        <Row
+          id="agent-fuse" label={<FieldLabel text={t('role.spendFuse')} save={save} f="spendFuseTokens" when="next" busy={busy} />}
+          hint={t('role.spendFuse.hint')}
+        >
+          <input
+            id="agent-fuse" {...fuse} inputMode="decimal"
+            placeholder={officeFuse
+              ? t('role.spendFuse.office', { n: spendFuseToMillions(officeFuse) })
+              : t('role.spendFuse.officeAuto')}
+          />
+          <FieldError save={save} f="spendFuseTokens" />
         </Row>
       </Section>
 

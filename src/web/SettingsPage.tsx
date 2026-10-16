@@ -1,6 +1,6 @@
 import { useEffect, useId, useState, type ReactNode } from 'react';
 import {
-  accessModes, clearSettingsSection, fullAccessWarning, parseMaxWorkers, parseTaskMaxTurns,
+  accessModes, clearSettingsSection, fullAccessWarning, parseMaxWorkers, parseSpendFuse, parseTaskMaxTurns, spendFuseToMillions,
   refreshProviders, setCloudToken, updateSettings, useStore, type ThemeMode,
 } from './store';
 import {
@@ -314,6 +314,7 @@ export function SettingsPage({ onClose }: { onClose: () => void }) {
   const [maxTurns, setMaxTurns] = useState(settings.taskMaxTurns?.toString() ?? '');
   const [maxWorkers, setMaxWorkers] = useState(
     (settings.maxConcurrentWorkers ?? DEFAULT_OFFICE_WORKERS).toString());
+  const [spendFuse, setSpendFuse] = useState(spendFuseToMillions(settings.spendFuseTokens));
   const [engine, setEngine] = useState(settings.engine);
   const [repo, setRepo] = useState(settings.cloudRepoUrl ?? '');
   const [layoutId, setLayoutId] = useState(settings.layoutId);
@@ -349,6 +350,7 @@ export function SettingsPage({ onClose }: { onClose: () => void }) {
     Math.round((settings.initiativeShare ?? DEFAULT_INITIATIVE_SHARE) * 100));
   const [confirmAuto, setConfirmAuto] = useState(false);
   const maxTurnsParsed = parseTaskMaxTurns(maxTurns);
+  const spendFuseParsed = parseSpendFuse(spendFuse);
   const maxWorkersParsed = parseMaxWorkers(maxWorkers);
 
   const chooseSection = (id: Section) => {
@@ -369,6 +371,7 @@ export function SettingsPage({ onClose }: { onClose: () => void }) {
       taskBudgetUsd: parse(perTask),
       // Значение вне диапазона не отправляем — на месте останется то, что было в настройках.
       ...(maxTurnsParsed.error ? {} : { taskMaxTurns: maxTurnsParsed.value }),
+      ...(spendFuseParsed.error ? {} : { spendFuseTokens: spendFuseParsed.value }),
       // Пустое поле лимита исполнителей — «не менять»: «без ограничения»
       // здесь не бывает, и null сервер всё равно отбросил бы.
       ...(maxWorkersParsed.value === null ? {} : { maxConcurrentWorkers: maxWorkersParsed.value }),
@@ -553,6 +556,13 @@ export function SettingsPage({ onClose }: { onClose: () => void }) {
                   <input id={`${fid}-turns`} value={maxTurns} placeholder={t('settings.limits.unlimited')}
                     onChange={(e) => setMaxTurns(e.target.value)} />
                   {maxTurnsParsed.error && <span className="form-hint error">{maxTurnsParsed.error}</span>}
+                </Row>
+                <Row label={t('settings.limits.spendFuse')} htmlFor={`${fid}-fuse`}
+                  hint={t('settings.limits.spendFuse.hint')}>
+                  <input id={`${fid}-fuse`} value={spendFuse} inputMode="decimal"
+                    placeholder={t('settings.limits.spendFuse.placeholder')}
+                    onChange={(e) => setSpendFuse(e.target.value)} />
+                  {spendFuseParsed.error && <span className="form-hint error">{spendFuseParsed.error}</span>}
                 </Row>
               </Group>
 

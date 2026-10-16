@@ -126,6 +126,7 @@ export const en = {
   'merge.step.pending': 'queued',
 
   // ------------------------------------------------------------- поля форм
+  'field.spendFuseRange': 'A number from {min} to {max} million tokens, or empty for not set',
   'field.turnsRange': 'A whole number from {min} to {max}, or empty for no limit',
   'field.workersRange': 'A whole number from {min} to {max}',
   "hud.pause.hint": "Pause: stop every worker — SPACE",
@@ -939,6 +940,13 @@ export const en = {
   "role.isolate": "Its own branch per task",
   "role.turns.officeUnlimited": "as in the office (no limit right now)",
   "role.turns.office": "as in the office ({n} right now)",
+  "role.spendFuse": "Input token ceiling per run, M",
+  "role.spendFuse.hint": "How many input tokens (cache included) one run of this role may use, 2 to 20 million. Empty: same as the office.",
+  "role.spendFuse.office": "same as office (now {n} M)",
+  "role.spendFuse.officeAuto": "same as office (from history, otherwise 2 M)",
+  "settings.limits.spendFuse": "Input token ceiling per run, M",
+  "settings.limits.spendFuse.hint": "For roles without their own limit: how many input tokens (cache included) one worker run may use, 2 to 20 million. Empty means not set: the role's history decides, and with fewer than 10 runs it is 2 million.",
+  "settings.limits.spendFuse.placeholder": "not set",
   "role.turns.hint": "The cap on the turns of one session of this role — the very limit behind a task failing with “Reached maximum number of turns”. Empty means the office limit.",
   "role.repo": "Role repository",
   "role.repo.placeholder": "the shared office repository",

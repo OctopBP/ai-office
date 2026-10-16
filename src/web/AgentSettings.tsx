@@ -21,7 +21,7 @@ const TABS: AgentTab[] = ['profile', 'model', 'access', 'brief', 'results'];
 /** Какие поля на какой вкладке — для красной точки ошибки на названии вкладки. */
 const TAB_FIELDS: Record<AgentTab, AgentField[]> = {
   profile: ['name', 'title', 'sprite'],
-  model: ['provider', 'model', 'ownModel', 'maxTurns', 'repoDir', 'isolate', 'allowLocalBinding'],
+  model: ['provider', 'model', 'ownModel', 'maxTurns', 'spendFuseTokens', 'repoDir', 'isolate', 'allowLocalBinding'],
   access: ['permissionMode', 'personalMode', 'mcp', 'capabilities'],
   brief: ['brief', 'briefExtra'],
   results: [],
@@ -41,6 +41,7 @@ const FIELD_LABEL: Record<AgentField, UiKey> = {
   isolate: 'role.isolate',
   allowLocalBinding: 'role.allowLocalBinding',
   maxTurns: 'settings.limits.turns',
+  spendFuseTokens: 'role.spendFuse',
   repoDir: 'role.repo',
   mcp: 'role.mcp',
   capabilities: 'role.capabilities',
