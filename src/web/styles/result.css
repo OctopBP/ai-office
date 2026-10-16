@@ -135,3 +135,16 @@
 .result-file.is-main .result-file-icon,
 .result-file-open { color: var(--accent); }
 .result-file-open { flex: none; font-size: var(--fs-caption); }
+
+/* ---------- макеты FigCraft ---------- */
+.figcraft-list { display: flex; flex-direction: column; gap: var(--space-2); }
+.figcraft-row {
+  display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: var(--space-2);
+  padding: var(--space-2); border-radius: var(--radius-row); background: var(--film);
+}
+.figcraft-info { display: flex; flex-direction: column; gap: 2px; min-width: 0; flex: 1 1 160px; }
+.figcraft-name, .figcraft-path { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.figcraft-path { font-size: var(--fs-caption); }
+.figcraft-actions { display: flex; gap: var(--space-2); flex-wrap: wrap; }
+.figcraft-actions button { min-height: 24px; min-width: 24px; }
+/* Ссылка на макет в тексте: то же оформление, что у остальных ссылок на файлы. */

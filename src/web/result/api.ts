@@ -10,7 +10,7 @@ import { useStore } from '../store';
 import { locale } from '../i18n';
 
 /** Офис, чью задачу смотрим. Без `office=` сервер взял бы «текущий» — а он мог смениться. */
-function officeQuery(): string {
+export function officeQuery(): string {
   const id = useStore.getState().offices.find((o) => o.current)?.id;
   return id ? `office=${encodeURIComponent(id)}&` : '';
 }

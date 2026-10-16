@@ -9,7 +9,7 @@
  */
 
 /** Расширения, по которым голое имя без каталогов считаем файлом. */
-export const BARE_EXTENSIONS = ['md', 'txt', 'json', 'png', 'jpg', 'jpeg', 'webp', 'gif', 'svg', 'pdf', 'glb', 'gltf'];
+export const BARE_EXTENSIONS = ['md', 'txt', 'json', 'png', 'jpg', 'jpeg', 'webp', 'gif', 'svg', 'pdf', 'glb', 'gltf', 'figcraft'];
 
 /** Что открыть: путь как написан и каталог, в котором сначала искать голое имя. */
 export interface FileRef {

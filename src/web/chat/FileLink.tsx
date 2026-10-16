@@ -6,6 +6,7 @@ import { lazy, Suspense, useCallback, useState, type KeyboardEvent, type MouseEv
 import { t } from '../i18n';
 import { useStore } from '../store';
 import type { FileRef } from './filePaths';
+import { isFigcraftPath, openFigcraftRef } from '../result/figcraft';
 
 const FilePreview = lazy(() => import('./FilePreview'));
 
@@ -25,6 +26,8 @@ export function FileLink({ fileRef, task, children, className = 'md-file', title
     // Реплика и карточка вокруг могут сами ловить клик — открытие только наше.
     e.preventDefault();
     e.stopPropagation();
+    // .figcraft — zip, показывать нечего: открываем в приложении FigCraft.
+    if (isFigcraftPath(fileRef.path)) { void openFigcraftRef(fileRef.path, known ? task : null); return; }
     setOpen(true);
   };
   return (
@@ -33,7 +36,7 @@ export function FileLink({ fileRef, task, children, className = 'md-file', title
         className={className}
         role="button"
         tabIndex={0}
-        title={title ?? t('fileLink.open')}
+        title={title ?? t(isFigcraftPath(fileRef.path) ? 'figcraft.open' : 'fileLink.open')}
         onClick={go}
         onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') go(e); }}
       >
