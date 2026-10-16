@@ -383,7 +383,7 @@ function EpicRow({ epic, order, total, filtered, onFilter }: {
   const open = epic.status === 'planned' || epic.status === 'active';
   const wait = epicWaitLabel(epic);
 
-  /** Сдвиг на одну позицию: порядок пересобираем целиком и шлём его весь. */
+  /** Сдвиг на одну позицию (список на экране развёрнут: «выше» = позже в плане): порядок пересобираем целиком и шлём его весь. */
   const move = (delta: number) => {
     const ids = Object.values(epics).sort((a, b) => a.order - b.order).map((e) => e.id);
     const at = ids.indexOf(epic.id);
@@ -412,9 +412,9 @@ function EpicRow({ epic, order, total, filtered, onFilter }: {
         {spent > 0 && <span className="muted">{`$${spent.toFixed(2)}`}</span>}
         {open && (
           <span className="epic-move">
-            <button className="sq mini" disabled={order === 0} onClick={() => move(-1)}
-              title={tr('plan.moveUp')}>↑</button>
             <button className="sq mini" disabled={order === total - 1} onClick={() => move(1)}
+              title={tr('plan.moveUp')}>↑</button>
+            <button className="sq mini" disabled={order === 0} onClick={() => move(-1)}
               title={tr('plan.moveDown')}>↓</button>
           </span>
         )}
@@ -570,6 +570,8 @@ export function Board() {
   }, [asked, showEpicOnBoard]);
 
   const plan = Object.values(epics).sort((a, b) => a.order - b.order);
+  // На экране новые фичи сверху; порядок плана (он же очерёдность исполнения) не трогаем.
+  const planOnScreen = [...plan].reverse();
   const all = Object.values(tasks).sort((a, b) => a.createdAt - b.createdAt);
   // Фича могла исчезнуть из плана, пока фильтр стоял на ней, — тогда он
   // показывал бы пустую доску, и понять почему было бы нельзя.
@@ -609,11 +611,11 @@ export function Board() {
             </div>
             <div className="plan-rows">
               {plan.length === 0 && <p className="empty">{tr('board.sub.empty')}</p>}
-              {plan.map((epic, i) => (
+              {planOnScreen.map((epic) => (
                 <EpicRow
                   key={epic.id}
                   epic={epic}
-                  order={i}
+                  order={plan.indexOf(epic)}
                   total={plan.length}
                   filtered={picked === epic.id}
                   onFilter={() => setOnly(picked === epic.id ? null : epic.id)}
