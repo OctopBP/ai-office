@@ -168,7 +168,11 @@ function askOwnerOnce(state: OfficeState, facts: Fact[], now: number, result: Fr
   }));
   officeAsks(state, 'stale', state.say('freshness.ownerQuestion', { list: rows.join('\n') }),
     state.say('journal.staleAssumption'), null,
-    [state.say('freshness.optionAll'), state.say('freshness.optionReview')]);
+    [state.say('freshness.optionAll'), state.say('freshness.optionReview')], {
+      title: state.say('freshness.ownerTitle', { n: listed.length }),
+      details: rows.join('\n'),
+      groupKey: 'journal-freshness',
+    });
   for (const f of listed) {
     state.updateFact(f.id, { askedAt: now });
     markFreshnessChecked(state.life, f, now);

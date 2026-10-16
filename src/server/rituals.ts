@@ -81,7 +81,9 @@ export interface ConsolidationInput {
 export interface RitualOutput {
   facts: Array<{ kind: 'fact' | 'decision' | 'lesson'; text: string; scope: string; taskId?: string }>;
   contradictions: Array<{ a: string; b: string; text: string }>;
-  questions: Array<{ text: string; assumption: string; options?: string[]; replaces?: string[] }>;
+  questions: Array<{
+    text: string; assumption: string; options?: string[]; replaces?: string[]; title?: string; details?: string;
+  }>;
   costUsd: number;
   error?: string;
 }
@@ -586,6 +588,9 @@ const OPTION_LEN = 40;
  * supersededByAnswer понимает, какая запись проиграла, поэтому чужие id из
  * текста в кнопку не попадают.
  */
+/** Группа вопросов о противоречиях журнала (`OwnerQuestion.groupKey`). */
+export const CONTRADICTION_GROUP = 'journal-contradiction';
+
 function sideOption(state: OfficeState, side: ContradictionSide): string {
   const head = side.fact ? `${side.fact.id}: ` : `${state.say('contradictions.option.observation')}: `;
   const text = side.view.text.replace(/^-?\s*[A-Z]+-\d+\s*(\[[^\]]*\])?:?/, '').replace(/\b[A-Z]+-\d+\b/g, '');
@@ -643,6 +648,9 @@ async function handleContradiction(
   // а в ленте должно остаться то, что расходилось.
   const labels = { a: label(a), b: label(b) };
   const question = state.say('questions.contradiction', labels);
+  // Суть — словами ритуала, без номеров записей; цитаты сторон — в деталях.
+  const gist = c.text.trim() || state.say('questions.contradictionGist');
+  const quotes = state.say('questions.contradictionDetails', labels);
   const remember = (): void => {
     markPairResolved(state.life, a.key, b.key);
     state.touchLife();
@@ -665,7 +673,9 @@ async function handleContradiction(
     // вопрос владельцу, но с кнопками и один раз.
     remember();
     state.addFact({ kind: 'contradiction', text: c.text || `${c.a} ≠ ${c.b}`, scope: 'office', source: { ritual } });
-    officeAsks(state, 'contradiction', question, state.say('questions.contradictionAssumption'), null, options);
+    officeAsks(state, 'contradiction', question, state.say('questions.contradictionAssumption'), null, options, {
+      title: state.say('questions.contradictionTitle', { what: gist }), details: quotes, groupKey: CONTRADICTION_GROUP,
+    });
     return 'asked';
   }
 
@@ -700,8 +710,20 @@ async function handleContradiction(
         : 'contradictions.review.unresolved',
     { verdict: verdictText(state, decision.verdict) },
   );
+  // Разбор вынес вывод — офис предлагает его и просит только подтвердить.
+  // Предложение — та же кнопка, что и у варианта, поэтому ответ разбирается
+  // как обычно: названная сторона остаётся, другая уходит в архив.
+  const settled = decision.verdict;
+  const proposal = settled.kind === 'stale'
+    ? sideOption(state, settled.keepId === a.view.id ? a : b)
+    : settled.kind === 'compatible' ? state.say('contradictions.option.both') : '';
   officeAsks(state, 'contradiction', `${question}\n\n${review}`,
-    state.say('questions.contradictionAssumption'), null, options);
+    state.say('questions.contradictionAssumption'), null, options, {
+      title: state.say(proposal ? 'questions.contradictionConfirmTitle' : 'questions.contradictionTitle', { what: gist }),
+      details: `${quotes}\n\n${review}`,
+      groupKey: CONTRADICTION_GROUP,
+      ...(proposal ? { confirm: true, proposal } : {}),
+    });
   return 'asked';
 }
 
@@ -863,8 +885,9 @@ async function applyOutput(state: OfficeState, ritual: RitualId, out: RitualOutp
   for (const q of out.questions) {
     if (!q.text.trim()) continue;
     // Замена — как у менеджера: новый вопрос забирает старые себе.
-    if (q.replaces?.length) askOwner(state, OFFICE_SENDER, null, q.text, q.assumption, q.options, q.replaces);
-    else officeAsks(state, 'assumption', q.text, q.assumption, null, q.options);
+    const meta = { title: q.title, details: q.details };
+    if (q.replaces?.length) askOwner(state, OFFICE_SENDER, null, q.text, q.assumption, q.options, q.replaces, null, meta);
+    else officeAsks(state, 'assumption', q.text, q.assumption, null, q.options, { ...meta, groupKey: `ritual-${ritual}` });
     questions += 1;
   }
   return { facts, contradictions, resolved, questions };
@@ -1006,7 +1029,9 @@ const runners: Record<RitualId, Runner> = {
         && q.kind === 'assumption' && q.from === OFFICE_SENDER);
       if (asked) continue;
       officeAsks(state, 'assumption', state.say('health.staleBranch', { task: task.id, title: task.title, days }),
-        state.say('health.staleAssumption'), task.id);
+        state.say('health.staleAssumption'), task.id, undefined, {
+          title: state.say('health.staleBranchTitle', { title: task.title, days }), groupKey: 'stale-branch',
+        });
       stale += 1;
     }
     // Уборка веток и worktree — раз в сутки, итог она пишет в ленту сама.
@@ -1115,7 +1140,9 @@ export function askAboutReverts(state: OfficeState, tasks: Task[]): void {
     if (asked) continue;
     officeAsks(state, 'revert',
       state.say('questions.revert', { task: task.id, title: task.title }),
-      state.say('questions.revertAssumption'), task.id);
+      state.say('questions.revertAssumption'), task.id, undefined, {
+        title: state.say('questions.revertTitle', { title: task.title }), groupKey: 'task-revert',
+      });
   }
 }
 

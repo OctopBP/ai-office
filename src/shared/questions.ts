@@ -9,6 +9,53 @@ import type { OwnerQuestion } from './types';
 export const isOpenQuestion = (q: OwnerQuestion): boolean =>
   !q.answeredAt && !q.dismissedAt && !q.mergedInto;
 
+/** Необязательные поля разметки вопроса: суть, детали, подтверждение, группа. */
+export type QuestionMeta = Pick<OwnerQuestion, 'title' | 'details' | 'confirm' | 'proposal' | 'groupKey'>;
+
+/** Предел короткой сути вопроса. */
+export const TITLE_MAX = 120;
+
+/**
+ * Короткая суть из сырой строки: одна строка, без номеров записей журнала
+ * (J-12) и хешей коммитов, не длиннее `max`. Пустая строка — сути нет.
+ */
+export function questionTitle(raw: string | undefined, max = TITLE_MAX): string {
+  const line = (raw ?? '')
+    .replace(/\(\s*\bJ-\d+\b\s*\)/g, '')
+    .replace(/\bJ-\d+\b:?/g, '')
+    // Хеш коммита: 7–40 шестнадцатеричных знаков, среди которых есть цифра.
+    .replace(/\b(?=[0-9a-f]*\d)(?=[0-9a-f]*[a-f])[0-9a-f]{7,40}\b/g, '')
+    .replace(/\(\s*[,;]?\s*\)/g, '')
+    .replace(/\s+([,.;:!?»)])/g, '$1')
+    .replace(/\s+/g, ' ')
+    .replace(/^[\s,;:—–-]+|[\s,;:—–-]+$/g, '')
+    .trim();
+  return line.length > max ? `${line.slice(0, max - 1).trimEnd()}…` : line;
+}
+
+/** Что показать заголовком: короткая суть, а у старых вопросов — весь текст. */
+export const questionHeadline = (q: Pick<OwnerQuestion, 'title' | 'text'>): string =>
+  q.title?.trim() || q.text;
+
+/**
+ * Привести разметку к виду для хранения: пустое выбрасываем, суть чистим и
+ * режем, `proposal` без `confirm` и `confirm` без `proposal` не храним —
+ * подтверждать нечего.
+ */
+export function tidyQuestionMeta(meta: QuestionMeta | undefined): QuestionMeta {
+  if (!meta) return {};
+  const out: QuestionMeta = {};
+  const title = questionTitle(meta.title);
+  if (title) out.title = title;
+  const details = meta.details?.trim();
+  if (details) out.details = details;
+  const proposal = meta.proposal?.trim();
+  if (meta.confirm && proposal) { out.confirm = true; out.proposal = proposal; }
+  const group = meta.groupKey?.trim();
+  if (group) out.groupKey = group;
+  return out;
+}
+
 /** Слова короче этого — служебные: «и», «на», «что». */
 const MIN_WORD = 4;
 /** Грубая основа: «макеты», «макет», «макетов» — одно слово. */

@@ -928,8 +928,11 @@ const approve: Executor<Ctx> = {
         text: say(ctx, 'rel.ask', {
           target: target.title, version,
           level: r.level ? say(ctx, 'rel.askLevel', { level: r.level, from: say(ctx, `rel.levelFrom.${r.levelFrom ?? 'auto'}` as ServerKey) }) : '',
-          tasks: r.taskIds.length, epics: epics || '—', notes: clip(r.notes, 1200), yes, no,
+          tasks: r.taskIds.length, epics: epics || '—', notes: clip(r.notes, 1200),
         }),
+        title: say(ctx, 'rel.askTitle', { target: target.title, version }),
+        details: say(ctx, 'rel.askDetails', { tasks: r.taskIds.length, epics: epics || '—', notes: clip(r.notes, 1200) }),
+        groupKey: 'release-approval',
         assumption: say(ctx, 'rel.askAssumption'),
         options: [yes, no],
       });
@@ -1227,7 +1230,10 @@ const visible: Executor<Ctx> = {
         const r = rel(ctx);
         question = state.addQuestion({
           from: OFFICE_SENDER, taskId: null, kind: 'gate',
-          text: say(ctx, 'rel.visible.ask', { target: target.title, version: label(r), why, again, stop }),
+          text: say(ctx, 'rel.visible.ask', { target: target.title, version: label(r), why }),
+          title: say(ctx, 'rel.visible.title', { target: target.title, version: label(r) }),
+          details: why,
+          groupKey: 'release-visible',
           assumption: say(ctx, 'rel.visible.assumption'),
           options: [again, stop],
         });
@@ -2461,8 +2467,9 @@ export function proposeReleaseTarget(state: OfficeState, input: SetupInput): { o
       wait: waitTaskId ? state.say('rel.setup.waitLine', { task: waitTaskId }) : '',
       note: (input.note?.trim() ? `\n${input.note.trim()}` : '')
         + (found ? `\n\n${state.say('rel.setup.warnOwner', { list: found })}` : ''),
-      yes, no,
-    }).replace(/\n{3,}/g, '\n\n'),
+    }).replace(/\n{3,}/g, '\n\n').trim(),
+    title: state.say(replaces ? 'rel.setup.titleReplace' : 'rel.setup.titleNew', { target: fixed.title }),
+    groupKey: 'release-setup',
     assumption: state.say('rel.setup.assumption'),
     options: [yes, no],
   });

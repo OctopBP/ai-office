@@ -1208,6 +1208,8 @@ and the office journal are the same — they live outside the session. This is w
   'tool.askOwner.question': 'The question, one or two sentences, with enough context to answer without opening the task.',
   'tool.askOwner.assumption': 'What you assume until the answer comes — and keep working by.',
   'tool.askOwner.options': 'Ready-made answers, 2–4 of them, each up to 40 characters: the owner clicks a button instead of typing. List the options when the question is a choice between several; do not invent options where a free-form answer is needed — leave the list empty.',
+  'tool.askOwner.title': 'The gist of the question in plain words, up to 120 characters: the owner sees it first. No journal entry numbers (J-N), task ids or commit hashes — those go to details.',
+  'tool.askOwner.details': 'Details on demand: quotes, grounds, links, entry numbers and commits. Do not repeat the answer options here and do not write “press…” — the owner sees the buttons anyway.',
   'tool.noteFact.desc': 'Record something the office should remember about this project in the office journal: a fact learned, a decision agreed with the owner, a lesson from a failed or reworked task. It goes into the system prompts of future sessions. Do not record what is already in OFFICE.md or obvious from the code.',
   'tool.noteFact.kind': '“fact” — how things are; “decision” — what was agreed and must be followed; “lesson” — what went wrong and how not to repeat it.',
   'tool.noteFact.text': 'One or two sentences. Specific: “tests run with node --import tsx/esm, npm run test:* fails in the sandbox”, not “tests are tricky”.',

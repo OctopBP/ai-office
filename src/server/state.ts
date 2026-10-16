@@ -19,7 +19,7 @@ import type {
   SpendEntryView, PmChat, SecretMeta, Subproject, SubprojectDraft, SubprojectField, SubprojectView,
 } from '../shared/types';
 import { isOfficeColor, OFFICE_SENDER, prClosed } from '../shared/types';
-import { isOpenQuestion } from '../shared/questions';
+import { isOpenQuestion, tidyQuestionMeta, type QuestionMeta } from '../shared/questions';
 import {
   asTaskPriority, DEFAULT_TASK_PRIORITY, accumulate,
   dayKey, emptyUsage, DEFAULT_RITUAL_LIMIT, DEFAULT_RITUAL_POLICY,
@@ -1824,7 +1824,7 @@ export class OfficeState {
   addQuestion(input: {
     from: string; taskId: string | null; kind: OwnerQuestion['kind']; text: string; assumption: string;
     options?: string[]; chatId?: string | null; files?: string[];
-  }): OwnerQuestion {
+  } & QuestionMeta): OwnerQuestion {
     this.questionSeq += 1;
     // Вариантов либо нет вовсе, либо их больше одного: один вариант — не выбор.
     // Исключение — противоречие: у него кнопка «Пусть офис разберётся» бывает
@@ -1838,6 +1838,7 @@ export class OfficeState {
       ...(input.chatId ? { chatId: input.chatId } : {}),
       kind: input.kind,
       text: input.text.trim(),
+      ...tidyQuestionMeta(input),
       assumption: input.assumption.trim(),
       ...(options.length ? { options } : {}),
       ...(input.files?.length ? { files: input.files } : {}),

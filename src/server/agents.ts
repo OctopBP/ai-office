@@ -1490,10 +1490,13 @@ const teamTools = (state: OfficeState, chatId: string) => createSdkMcpServer({
         question: z.string().describe(state.say('tool.askOwner.question')),
         assumption: z.string().describe(state.say('tool.askOwner.assumption')),
         options: z.array(z.string()).default([]).describe(state.say('tool.askOwner.options')),
+        title: z.string().optional().describe(state.say('tool.askOwner.title')),
+        details: z.string().optional().describe(state.say('tool.askOwner.details')),
         replaces: z.array(z.string()).default([]).describe(state.say('tool.askOwner.replaces')),
       },
       async (args) => {
-        const asked = askOwner(state, 'pm#1', null, args.question, args.assumption, args.options, args.replaces, chatId);
+        const asked = askOwner(state, 'pm#1', null, args.question, args.assumption, args.options, args.replaces, chatId,
+          { title: args.title, details: args.details });
         return { content: [{ type: 'text', text: asked.text }], isError: !asked.ok };
       },
     ),
@@ -2902,9 +2905,12 @@ function workerTools(state: OfficeState, instanceId: string, task: Task) {
           question: z.string().describe(state.say('tool.askOwner.question')),
           assumption: z.string().describe(state.say('tool.askOwner.assumption')),
           options: z.array(z.string()).default([]).describe(state.say('tool.askOwner.options')),
+          title: z.string().optional().describe(state.say('tool.askOwner.title')),
+          details: z.string().optional().describe(state.say('tool.askOwner.details')),
         },
         async (args) => {
-          const asked = askOwner(state, instanceId, task.id, args.question, args.assumption, args.options);
+          const asked = askOwner(state, instanceId, task.id, args.question, args.assumption, args.options, [], null,
+            { title: args.title, details: args.details });
           return { content: [{ type: 'text', text: asked.text }], isError: !asked.ok };
         },
       ),
@@ -4465,9 +4471,12 @@ async function runStep(state: OfficeState, task: Task, req: StepRequest): Promis
           question: z.string().describe(state.say('tool.askOwner.question')),
           assumption: z.string().describe(state.say('tool.askOwner.assumption')),
           options: z.array(z.string()).default([]).describe(state.say('tool.askOwner.options')),
+          title: z.string().optional().describe(state.say('tool.askOwner.title')),
+          details: z.string().optional().describe(state.say('tool.askOwner.details')),
         },
         async (args) => {
-          const asked = askOwner(state, inst.id, task.id, args.question, args.assumption, args.options);
+          const asked = askOwner(state, inst.id, task.id, args.question, args.assumption, args.options, [], null,
+            { title: args.title, details: args.details });
           return { content: [{ type: 'text', text: asked.text }], isError: !asked.ok };
         },
       ),
@@ -4741,11 +4750,14 @@ function ritualTools(state: OfficeState, out: RitualOutput) {
           question: z.string().describe(state.say('tool.ritualAsk.question')),
           assumption: z.string().describe(state.say('tool.ritualAsk.assumption')),
           options: z.array(z.string()).default([]).describe(state.say('tool.askOwner.options')),
+          title: z.string().optional().describe(state.say('tool.askOwner.title')),
+          details: z.string().optional().describe(state.say('tool.askOwner.details')),
           replaces: z.array(z.string()).default([]).describe(state.say('tool.askOwner.replaces')),
         },
         async (args) => {
           out.questions.push({
             text: args.question, assumption: args.assumption, options: args.options, replaces: args.replaces,
+            title: args.title, details: args.details,
           });
           return { content: [{ type: 'text', text: state.say('tool.ok') }] };
         },

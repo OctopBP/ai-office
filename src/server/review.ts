@@ -1130,7 +1130,9 @@ const gate: Executor<Ctx> = {
       const files = await taskResultFiles(task, ctx.repo, ctx.base, ctx.branch);
       question = state.addQuestion({
         from: OFFICE_SENDER, taskId: task.id, kind: 'gate',
-        text: state.say('wf.gateAsk', { task: task.id, title: task.title, what, yes, no: no.replace(/…$/, '') }),
+        text: state.say('wf.gateAsk', { task: task.id, title: task.title, what }),
+        title: state.say('wf.gateTitle', { title: task.title }),
+        groupKey: 'task-gate',
         assumption: state.say('wf.gateAssumption'),
         options: [yes, no],
         files,

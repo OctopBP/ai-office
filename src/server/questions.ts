@@ -13,7 +13,7 @@
 import { basename } from 'node:path';
 import type { OwnerQuestion, QuestionKind } from '../shared/types';
 import { OFFICE_SENDER } from '../shared/types';
-import { findDuplicate } from '../shared/questions';
+import { findDuplicate, questionTitle, type QuestionMeta } from '../shared/questions';
 import { git } from './git';
 import { fileKind } from './taskfiles';
 import { isOpenQuestion, type OfficeState, type Task } from './state';
@@ -93,6 +93,8 @@ export function askOwner(
   options?: string[], replaces: string[] = [],
   /** Чат менеджера, из которого спросили. Нет — чат задачи, если он у неё есть. */
   chatId?: string | null,
+  /** Короткая суть и детали (`title`, `details`); нет — вопрос как раньше. */
+  meta: Pick<QuestionMeta, 'title' | 'details'> = {},
 ): { ok: boolean; text: string; question: OwnerQuestion | null } {
   if (!text.trim()) return { ok: false, text: state.say('questions.empty'), question: null };
   // Такой вопрос уже ждёт владельца — второй раз его не заводим и лимит не
@@ -111,6 +113,7 @@ export function askOwner(
   const question = state.addQuestion({
     from, taskId, kind: 'assumption', text, assumption: assumption || state.say('questions.noAssumption'),
     options: questionOptions(options, text), chatId: questionChat(state, taskId, chatId),
+    title: meta.title, details: meta.details,
   });
   state.addLog(from === OFFICE_SENDER ? null : from, 'system',
     state.say('questions.askedLog', { id: question.id, text: clip(text, 120) }));
@@ -120,20 +123,27 @@ export function askOwner(
   return { ok: true, text: state.say('questions.askedOk', { id: question.id }) + note, question };
 }
 
-/** Вопрос от самого офиса: ритуал заметил противоречие, протухшее решение, откат. */
+/**
+ * Вопрос от самого офиса: ритуал заметил противоречие, протухшее решение, откат.
+ * `meta` — короткая суть, детали, группа и, если офис уже решил сам, что он
+ * предлагает подтвердить. Предложение подтверждения всегда есть среди кнопок.
+ */
 export function officeAsks(
   state: OfficeState, kind: QuestionKind, text: string, assumption: string, taskId: string | null = null,
-  options?: string[],
+  options?: string[], meta: QuestionMeta = {},
 ): OwnerQuestion {
   // Ритуал не помнит, о чём офис уже спросил: повтор тихо сводим к открытому.
   const same = findDuplicate({ taskId, text }, openQuestions(state));
   if (same) return same;
-  const tidy = questionOptions(options, text);
+  let tidy = questionOptions(options, text);
+  const proposal = meta.confirm ? meta.proposal?.trim() : '';
+  if (proposal && !tidy.includes(proposal)) tidy = [proposal, ...tidy].slice(0, MAX_OPTIONS);
   const question = state.addQuestion({
     from: OFFICE_SENDER, taskId, kind, text, assumption,
     // У противоречия всегда есть кнопка «Пусть офис разберётся».
     options: kind === 'contradiction' ? withDelegateOption(tidy, state.say('contradictions.option.delegate')) : tidy,
     chatId: questionChat(state, taskId),
+    ...meta,
   });
   state.addLog(null, 'system', state.say('questions.askedLog', { id: question.id, text: clip(text, 120) }));
   state.addChatRef({ kind: 'question', id: question.id }, question.chatId);
@@ -321,7 +331,8 @@ export function mergeQuestion(state: OfficeState, id: string, intoId: string, by
 
 /** Поправить формулировку открытого вопроса. Варианты согласования не трогаем. */
 export function editQuestion(
-  state: OfficeState, id: string, patch: { text?: string; assumption?: string; options?: string[] }, by?: string,
+  state: OfficeState, id: string,
+  patch: { text?: string; assumption?: string; options?: string[]; title?: string; details?: string }, by?: string,
 ): Outcome {
   const q = state.questions.get(id);
   if (!q || !isOpenQuestion(q)) return { ok: false, text: state.say('questions.noSuch', { id }) };
@@ -329,6 +340,11 @@ export function editQuestion(
   if (!text) return { ok: false, text: state.say('questions.empty') };
   const assumption = (patch.assumption ?? q.assumption).trim() || q.assumption;
   const next: Partial<OwnerQuestion> = { text, assumption, editedAt: Date.now() };
+  // Короткая суть описывает прежний текст: новый текст без новой сути — суть
+  // снимаем, и вопрос показывается текстом, как старый.
+  if (patch.title !== undefined) next.title = questionTitle(patch.title) || undefined;
+  else if (text !== q.text && q.title) next.title = undefined;
+  if (patch.details !== undefined) next.details = patch.details.trim() || undefined;
   // Новый текст может сам называть варианты («синяя или зелёная?») — тогда
   // берём их; не называет — прежние кнопки остаются: правка опечатки их не отменяет.
   if (q.kind !== 'gate' && (patch.options || text !== q.text)) {
