@@ -1,4 +1,5 @@
-import { updateRole, useStore } from './store';
+import { useEffect } from 'react';
+import { clearRoleFeedback, updateRole, useStore } from './store';
 import { t } from './i18n';
 import type { RoleView, SubprojectView } from '../shared/types';
 
@@ -39,10 +40,18 @@ export function ZoneChips({ role }: { role: RoleView }) {
 
 /** Закрепление роли за зонами: кнопки-переключатели; пусто — «Весь проект». */
 export function ZonePinning({ role }: { role: RoleView }) {
+  // Все хуки — до раннего возврата: их число не должно зависеть от зон и роли.
   const zones = useStore((s) => s.subprojects);
+  // Состояние чипов — только из ролей с сервера; отказ приходит событием role.error.
+  const fb = useStore((s) => s.roleFeedback);
+  // Смена выбранной роли сбрасывает старый отказ, чтобы он не висел под чужими чипами.
+  useEffect(() => { clearRoleFeedback(); }, [role.id]);
   if (!zones.length || role.isManager) return null;
   const ids = role.subprojects ?? [];
   const lost = ids.filter((id) => !zones.some((z) => z.id === id));
+  const refusal = fb && fb.roleId === role.id && fb.op === 'update'
+    ? fb.errors.find((e) => e.field === 'subprojects' || e.field === '')?.message
+    : undefined;
   const set = (next: string[]) => updateRole(role.id, { subprojects: next });
   const toggle = (id: string) => set(ids.includes(id) ? ids.filter((x) => x !== id) : [...ids, id]);
   return (
@@ -74,6 +83,7 @@ export function ZonePinning({ role }: { role: RoleView }) {
           </button>
         ))}
       </div>
+      {refusal && <span className="menu-error" role="alert"><span aria-hidden="true">⚠ </span>{refusal}</span>}
       <span className="hint">{lost.length ? t('team.zones.lost') : t('team.zones.hint')}</span>
     </div>
   );
