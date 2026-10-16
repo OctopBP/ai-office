@@ -505,6 +505,9 @@ export function AccessPanel({ save, role, inst, busy }: PanelProps) {
               <span className="form-check-text">
                 {srv.title || srv.id}
                 {srv.disabled && <span className="muted"> — {t('role.mcp.off')}</span>}
+                {srv.missingBinary && (
+                  <span className="form-hint" style={{ display: 'block' }}>{t('role.mcp.missing', { name: srv.missingBinary })}</span>
+                )}
               </span>
             </label>
           ))

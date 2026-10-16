@@ -610,6 +610,7 @@ export const en = {
   'role.mcp.hint': 'Servers from the office catalogue (Settings → Tools). Nothing ticked means the role works with built-in tools only.',
   'role.mcp.empty': 'The office catalogue is empty. Servers are added in Settings → Tools.',
   'role.mcp.off': 'off in the catalogue',
+  'role.mcp.missing': 'the office did not find {name}. Download it from the github.com/storytold/figcraft releases and put it at ~/.office/tools/bin/{name} (or set the FIGCRAFT_CLI variable to its path). You can tick the box already. Details — docs/design/figcraft/setup.md.',
   "settings.lang.ui": "Interface language",
   "settings.lang.ui.hint": "Labels, buttons and windows of the application itself. The setting is shared: the language switches at once in every office and in every open tab. It does not touch the language the team speaks or the one the project is written in.",
   "settings.lang.ui.elsewhere": "The interface language ({lang}) is set once for the whole application: home screen → Settings. The office languages leave the labels on screen alone.",

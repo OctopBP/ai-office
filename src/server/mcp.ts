@@ -90,6 +90,23 @@ export function toolCommand(command: string, env: NodeJS.ProcessEnv = process.en
   return existsSync(local) ? local : command;
 }
 
+/**
+ * Бинарник внешнего инструмента не найден ни одним из путей `toolCommand`.
+ * Возвращает имя, которое надо поставить, или пустую строку — если искать
+ * нечего (не наш инструмент) или бинарник есть. Нужно только интерфейсу:
+ * запись в каталоге показывается всё равно, а рядом — подсказка, что и куда
+ * поставить. Запуск сессии от этого не зависит.
+ */
+export function toolMissing(command: string, env: NodeJS.ProcessEnv = process.env, home = homedir()): string {
+  if (!TOOL_BINARIES[command]) return '';
+  const found = toolCommand(command, env, home);
+  if (isAbsolute(found)) return existsSync(found) ? '' : command;
+  const sep = process.platform === 'win32' ? ';' : ':';
+  const exts = process.platform === 'win32' ? ['', '.exe', '.cmd'] : [''];
+  const dirs = (env.PATH ?? '').split(sep).filter(Boolean);
+  return dirs.some((dir) => exts.some((ext) => existsSync(join(dir, found + ext)))) ? '' : command;
+}
+
 const server = (def: Partial<McpServerDef> & { id: string }): McpServerDef => ({
   title: '',
   transport: 'stdio',
@@ -323,6 +340,23 @@ export const mcpCatalog = (settings: Settings): McpServerDef[] => {
   const missing = DEFAULT_MCP_SERVERS.filter((d) => !saved.some((s) => s.id === d.id));
   return missing.length ? [...saved, ...missing] : saved;
 };
+
+/**
+ * Каталог, каким его видит клиент: тот же `mcpCatalog`, что у сессии, плюс
+ * `missingBinary` у записей, чей бинарник не нашёлся.
+ *
+ * Отдавать клиенту сырое `settings.mcpServers` нельзя: у офиса, сохранившего
+ * каталог до появления сервера в умолчаниях, его там нет. Так и было с
+ * figcraft (T-602) — сессия его знала, а в «Инструментах» роли его не было,
+ * и включить галочкой было нечего.
+ */
+export const mcpCatalogView = (
+  settings: Settings, env: NodeJS.ProcessEnv = process.env, home = homedir(),
+): McpServerDef[] =>
+  mcpCatalog(settings).map((def) => {
+    const missing = def.transport === 'stdio' ? toolMissing(def.command, env, home) : '';
+    return missing ? { ...def, missingBinary: missing } : def;
+  });
 
 /**
  * Имена серверов роли. Умолчание роли из пакета лежит в её манифесте и при

@@ -65,7 +65,7 @@ import {
   uiLanguage,
 } from './offices';
 import {
-  checkMcpServers, DEFAULT_MCP_SERVERS, MCP_NOT_IN_SESSION, mcpCatalog, mcpNamesFor, pollMcpStatus, serversFor, type McpStatusSource,
+  checkMcpServers, DEFAULT_MCP_SERVERS, MCP_NOT_IN_SESSION, mcpCatalog, mcpCatalogView, mcpNamesFor, pollMcpStatus, serversFor, type McpStatusSource,
 } from './mcp';
 import { ensureChromium } from './chromium';
 import { employeeServers } from './skills';
@@ -4193,6 +4193,16 @@ export class OfficeState {
   }
 
   /**
+   * Настройки, какими их видит клиент. Отличие от сохранённых одно: каталог
+   * MCP — уже долитый умолчаниями (`mcpCatalogView`), а не сырое поле. Иначе
+   * сервер из умолчаний, появившийся после сохранения каталога офиса, сессия
+   * знала бы, а «Инструменты» роли — нет (T-602, figcraft).
+   */
+  settingsView(): Settings {
+    return { ...this.settings, mcpServers: mcpCatalogView(this.settings) };
+  }
+
+  /**
    * Что известно о внешних серверах. Не сохраняется на диск: сервер поднимает
    * сессия, и после перезапуска офиса прошлое «подключился» — не знание, а
    * воспоминание. Пустой список честнее: узнаем, когда кто-то поработает.
@@ -5086,7 +5096,7 @@ export class OfficeState {
     // Старое поле — зеркало языка общения, и поправить его надо ДО рассылки:
     // клиент прежней сборки читает язык офиса именно отсюда.
     this.settings.language = this.lang();
-    this.emit({ t: 'settings', settings: this.settings });
+    this.emit({ t: 'settings', settings: this.settingsView() });
     if (this.settings.layoutId !== prevLayout) {
       // Раскладка меняет офис на глаз, а не одно число в форме, — это событие
       // для ленты. Вместе с пресетом меняется и оверрайд: у каждого пресета
@@ -5572,7 +5582,7 @@ export class OfficeState {
       drafts: [...this.drafts.values()],
       log: this.log.slice(-200),
       permissions: this.pendingRequests(),
-      settings: this.settings,
+      settings: this.settingsView(),
       // Язык интерфейса берётся у реестра, а не у офиса: он один на всё
       // приложение, и переключение проекта его не меняет.
       uiLanguage: uiLanguage(),

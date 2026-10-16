@@ -5,7 +5,7 @@
 // роль не заметит, а строка не от той роли хуже отсутствия строки — фронтенд,
 // которому сказано «делай макет в Figma», займётся не своим делом.
 import {
-  checkMcpServers, DEFAULT_MCP_SERVERS, externalMcp, MCP_NOT_IN_SESSION, mcpBrief, mcpCatalog, pollMcpStatus, serversFor,
+  checkMcpServers, DEFAULT_MCP_SERVERS, externalMcp, MCP_NOT_IN_SESSION, mcpBrief, mcpCatalog, mcpCatalogView, pollMcpStatus, serversFor,
   toolCommand, unityProjectArgs,
 } from '../src/server/mcp';
 import { execFileSync } from 'node:child_process';
@@ -82,7 +82,47 @@ check('полный путь из каталога не подменяется',
   toolCommand('/x/figcraft-cli', { FIGCRAFT_CLI: '/opt/fc/figcraft-cli' }, fakeHome));
 check('чужие команды не трогаются', toolCommand('npx', { FIGCRAFT_CLI: '/opt/fc/figcraft-cli' }, fakeHome) === 'npx',
   toolCommand('npx', {}, fakeHome));
+// Что видит клиент (T-602): каталог офиса, сохранённый до figcraft, всё равно
+// отдаётся с ним — иначе в «Инструментах» роли его нечем включить. Бинарника
+// нет — запись остаётся, но с подсказкой; есть — без неё.
+const savedBefore = catalog(DEFAULT_MCP_SERVERS.filter((d) => d.id !== 'figcraft'));
+const emptyHome = mkdtempSync(join(tmpdir(), 'office-mcp-empty-'));
+const viewNoBin = mcpCatalogView(savedBefore, { PATH: '' }, emptyHome).find((s) => s.id === 'figcraft');
+check('клиенту: figcraft в старом каталоге есть', !!viewNoBin, JSON.stringify(viewNoBin?.id));
+check('клиенту: без бинарника — подсказка figcraft-cli', viewNoBin?.missingBinary === 'figcraft-cli',
+  String(viewNoBin?.missingBinary));
+const viewWithBin = mcpCatalogView(savedBefore, { PATH: '' }, fakeHome).find((s) => s.id === 'figcraft');
+check('клиенту: бинарник в ~/.office/tools/bin — без подсказки', !!viewWithBin && !viewWithBin.missingBinary,
+  String(viewWithBin?.missingBinary));
+const viewEnvMissing = mcpCatalogView(savedBefore, { PATH: '', FIGCRAFT_CLI: join(emptyHome, 'нет') }, fakeHome)
+  .find((s) => s.id === 'figcraft');
+check('клиенту: FIGCRAFT_CLI на пустое место — подсказка', viewEnvMissing?.missingBinary === 'figcraft-cli',
+  String(viewEnvMissing?.missingBinary));
+mkdirSync(join(emptyHome, 'bin'));
+writeFileSync(join(emptyHome, 'bin', 'figcraft-cli'), '');
+const viewInPath = mcpCatalogView(savedBefore, { PATH: join(emptyHome, 'bin') }, join(emptyHome, 'дом'))
+  .find((s) => s.id === 'figcraft');
+check('клиенту: бинарник в PATH — без подсказки', !!viewInPath && !viewInPath.missingBinary,
+  String(viewInPath?.missingBinary));
+check('клиенту: у остальных серверов подсказки нет',
+  mcpCatalogView(savedBefore, { PATH: '' }, emptyHome).every((s) => s.id === 'figcraft' || !s.missingBinary), '');
+// Форма настроек сохраняет каталог, пришедший с сервера, — служебное поле в
+// настройки офиса уехать не должно.
+const resaved = checkMcpServers(mcpCatalogView(savedBefore, { PATH: '' }, emptyHome)).servers;
+check('missingBinary не сохраняется формой', resaved.every((s) => !('missingBinary' in s)), '');
+rmSync(emptyHome, { recursive: true, force: true });
 rmSync(fakeHome, { recursive: true, force: true });
+// И сам снимок, который уходит клиенту: офис со старым каталогом.
+{
+  const { OfficeState } = await import('../src/server/state');
+  const office = new OfficeState('o-test-mcp');
+  office.settings = { ...office.settings, mcpServers: savedBefore.mcpServers };
+  const sent = office.settingsView().mcpServers ?? [];
+  check('settingsView: figcraft в каталоге клиента', sent.some((s) => s.id === 'figcraft'),
+    sent.map((s) => s.id).join(', '));
+  check('settingsView: сохранённое поле не тронуто',
+    !(office.settings.mcpServers ?? []).some((s) => s.id === 'figcraft'), '');
+}
 check('фронтенду тот же figma-bridge', servers(role('frontend')).includes('figma-bridge'), list(role('frontend')));
 check('3D-художнику blender', servers(role('artist3d')).includes('blender'), list(role('artist3d')));
 check('бэкенду ничего', servers(role('backend')).length === 0, list(role('backend')));
