@@ -75,7 +75,7 @@
 .flow-node-tags { display: flex; flex-wrap: wrap; gap: 3px; }
 .flow-tag {
   display: inline-flex; align-items: center; gap: 3px;
-  padding: 1px 6px; border-radius: 4px;
+  padding: 1px 6px; border-radius: 6px;
   font-size: 9px; font-weight: 600; letter-spacing: .05em; text-transform: uppercase;
   background: var(--film); color: var(--ink-3);
 }

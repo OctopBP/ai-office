@@ -3,7 +3,7 @@
 
 /* Табличка над фигурой: имя или подпись; пунктиром — файл вне списка. */
 .skin-tag {
-  padding: 2px 7px; border-radius: 6px; white-space: nowrap;
+  padding: 2px 7px; border-radius: var(--radius-icon); white-space: nowrap;
   background: var(--surface); border: 1px solid var(--hairline);
   font-size: 11px; font-weight: 500; color: var(--ink);
 }
@@ -12,20 +12,20 @@
 
 .skin-preview {
   display: block; width: 100%; margin-bottom: 4px;
-  image-rendering: pixelated; border: 1px solid var(--hairline); border-radius: 6px; background: #fff;
+  image-rendering: pixelated; border: 1px solid var(--hairline); border-radius: var(--radius-icon); background: #fff;
 }
 
 .skin-list { display: flex; flex-direction: column; gap: 6px; }
 .skin-card {
   display: grid; grid-template-columns: 44px 1fr; gap: 4px 8px; padding: 6px 8px;
-  border: 1px solid var(--hairline); border-radius: 6px; background: var(--film);
+  border: 1px solid var(--hairline); border-radius: var(--radius-icon); background: var(--film);
   font-size: 12px; cursor: pointer;
 }
 .skin-card.on { border-color: var(--accent); }
 .skin-card.off { border-style: dashed; }
 .skin-card img {
   grid-row: span 3; width: 44px; height: 44px;
-  image-rendering: pixelated; border-radius: 4px; background: #fff;
+  image-rendering: pixelated; border-radius: 6px; background: #fff;
 }
 .skin-card-head { display: flex; align-items: baseline; gap: 6px; flex-wrap: wrap; }
 .skin-card-head b { font-family: var(--font-mono, monospace); }

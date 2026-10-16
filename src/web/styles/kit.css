@@ -183,7 +183,7 @@ kbd {
   box-shadow: var(--shadow-float);
 }
 .agent-badge-role {
-  min-width: 22px; padding: 4px; border-radius: 8px; text-align: center;
+  min-width: 22px; padding: 4px; border-radius: var(--radius-tile); text-align: center;
   font: 700 10px/1 var(--font); color: #fff; background: var(--ink-3);
 }
 
@@ -214,7 +214,7 @@ kbd {
 .avatar-ph.avatar-sm { width: 20px; height: 20px; font-size: 8px; border-radius: var(--radius-icon); }
 .avatar-ph.avatar-md { width: 30px; height: 30px; font-size: 10px; }
 .avatar-ph.avatar-lg { width: 48px; height: 48px; font-size: 14px; border-radius: var(--radius-row); }
-.avatar-ph.avatar-xs { width: 16px; height: 16px; font-size: 7px; border-radius: 4px; }
+.avatar-ph.avatar-xs { width: 16px; height: 16px; font-size: 7px; border-radius: 6px; }
 
 /* Аватарка с портретом: PNG целиком, без подложки и без обрезки — так
    решил владелец (T-145). Портреты нарисованы на прозрачном фоне, поэтому

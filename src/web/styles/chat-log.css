@@ -73,7 +73,7 @@
 }
 .ev-who.office .ev-name { color: var(--ink-3); font-weight: 400; }
 .ev-sys {
-  flex: none; width: 16px; height: 16px; border-radius: 4px;
+  flex: none; width: 16px; height: 16px; border-radius: 6px;
   display: inline-grid; place-items: center;
   background: var(--film-3); color: var(--ink-3);
 }
@@ -113,7 +113,7 @@
 /* Упоминание задачи — ссылка, а не кнопка кита: стоит внутри строки текста. */
 .ev-task {
   display: inline; min-height: 0; height: auto; padding: 0 2px; margin: 0;
-  border: 0; border-radius: 3px; background: none; vertical-align: baseline;
+  border: 0; border-radius: 5px; background: none; vertical-align: baseline;
   color: var(--accent); font: inherit; font-weight: 600; line-height: inherit; cursor: pointer;
 }
 .ev-task:hover:not(:disabled) { background: var(--film-2); text-decoration: underline; }

@@ -20,7 +20,7 @@
 .agent-name-btn {
   all: unset; cursor: text; display: inline-flex; align-items: center; gap: var(--space-1);
   max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
-  border-radius: 6px;
+  border-radius: var(--radius-icon);
 }
 .agent-name-btn svg { color: var(--ink-3); opacity: 0; transition: opacity .12s; flex: none; }
 .agent-name-btn:hover svg, .agent-name-btn:focus-visible svg { opacity: 1; }

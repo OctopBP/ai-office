@@ -17,7 +17,7 @@
 .market-row-sub { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .market-emoji {
   flex: none; width: 26px; height: 26px; display: inline-flex; align-items: center; justify-content: center;
-  border-radius: 8px; font-size: 14px; color: #fff;
+  border-radius: var(--radius-tile); font-size: 14px; color: #fff;
 }
 .market-emoji.big { width: 32px; height: 32px; margin-right: var(--space-2); vertical-align: middle; font-size: 16px; }
 .market-badge {
@@ -41,7 +41,7 @@
 .market-permissions dl { display: grid; grid-template-columns: max-content 1fr; gap: var(--space-1) var(--space-4); margin: var(--space-2) 0 0; font-size: var(--fs-md); }
 .market-permissions dt { color: var(--ink-3); }
 .market-permissions dd { margin: 0; color: var(--ink); }
-.market-server code { font-size: var(--fs-small); background: var(--film); padding: 0 4px; border-radius: 4px; }
+.market-server code { font-size: var(--fs-small); background: var(--film); padding: 0 4px; border-radius: 6px; }
 .market-brief {
   margin: 0; padding: var(--space-3); white-space: pre-wrap; font: inherit; font-size: var(--fs-md); line-height: 1.5;
   color: var(--ink-2); background: var(--film); border-radius: var(--radius-row); max-height: 320px; overflow: auto;

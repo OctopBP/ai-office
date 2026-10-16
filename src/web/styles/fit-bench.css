@@ -39,7 +39,7 @@
    разошлось с тем, куда фигура должна была попасть. */
 .fit-read {
   display: flex; flex-direction: column; gap: 3px; padding: 8px 10px;
-  background: var(--film); border: 1px solid var(--hairline); border-radius: 6px;
+  background: var(--film); border: 1px solid var(--hairline); border-radius: var(--radius-icon);
   font-size: 12px;
 }
 .fit-read div { display: flex; justify-content: space-between; gap: 10px; }
@@ -53,7 +53,7 @@
    ползунком в ровное число не попасть, а след задаётся целыми клетками. */
 .fit-slide-input {
   width: 52px; flex: none; text-align: right; font-size: 12px;
-  padding: 2px 4px; border: 1px solid var(--line); border-radius: 4px;
+  padding: 2px 4px; border: 1px solid var(--line); border-radius: 6px;
   background: var(--bg-1); color: var(--ink-1);
 }
 .fit-slide-unit { width: 18px; flex: none; color: var(--ink-3); }

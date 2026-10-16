@@ -296,7 +296,7 @@ body.office-dragging, body.office-dragging * { cursor: grabbing !important; user
   position: absolute; left: calc(var(--edge) + var(--space-4)); right: var(--space-6); bottom: var(--gap);
   display: flex; flex-direction: column; gap: var(--space-3);
   padding: var(--space-3) var(--space-3) var(--space-3) var(--space-5); z-index: var(--z-hud);
-  border-radius: 14px;
+  border-radius: var(--radius-card);
 }
 /* Встроенный в колонку чата: в потоке под лентой, ширина — ширина колонки. */
 .shell-composer.inline {
