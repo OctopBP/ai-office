@@ -170,8 +170,14 @@ function askOwnerOnce(state: OfficeState, facts: Fact[], now: number, result: Fr
     state.say('journal.staleAssumption'), null,
     [state.say('freshness.optionAll'), state.say('freshness.optionReview')], {
       title: state.say('freshness.ownerTitle', { n: listed.length }),
-      details: rows.join('\n'),
+      // Решения списком — цитатами; полный вопрос остаётся в `text`.
+      quotes: listed.map((f) => ({
+        ref: f.id, text: f.text, note: state.say('freshness.quoteNote', { days: days(f, now) }),
+      })),
+      refs: listed.map((f) => ({ kind: 'journal' as const, id: f.id })),
       groupKey: 'journal-freshness',
+      groupTitle: state.say('freshness.groupTitle'),
+      groupOptions: [state.say('freshness.optionAll'), state.say('freshness.optionReview')],
     });
   for (const f of listed) {
     state.updateFact(f.id, { askedAt: now });

@@ -13,7 +13,7 @@
 import { basename } from 'node:path';
 import type { OwnerQuestion, QuestionKind } from '../shared/types';
 import { OFFICE_SENDER } from '../shared/types';
-import { findDuplicate, questionTitle, type QuestionMeta } from '../shared/questions';
+import { confirmedProposal, findDuplicate, questionTitle, type QuestionMeta } from '../shared/questions';
 import { git } from './git';
 import { fileKind } from './taskfiles';
 import { isOpenQuestion, type OfficeState, type Task } from './state';
@@ -136,7 +136,7 @@ export function officeAsks(
   const same = findDuplicate({ taskId, text }, openQuestions(state));
   if (same) return same;
   let tidy = questionOptions(options, text);
-  const proposal = meta.confirm ? meta.proposal?.trim() : '';
+  const proposal = meta.proposal?.trim();
   if (proposal && !tidy.includes(proposal)) tidy = [proposal, ...tidy].slice(0, MAX_OPTIONS);
   const question = state.addQuestion({
     from: OFFICE_SENDER, taskId, kind, text, assumption,
@@ -226,8 +226,14 @@ export function answerQuestion(state: OfficeState, askedId: string, answer: stri
   const question = rootQuestion(state, askedId);
   if (!question || question.answeredAt) return false;
   const id = question.id;
-  const text = answer.trim();
-  if (!text) return false;
+  const given = answer.trim();
+  if (!given) return false;
+  // «Согласен: …» на подтверждение (спека owner-questions-simple §3) — то же,
+  // что нажатие кнопки `proposal`: дальше разбираем сам `proposal`, и
+  // противоречие, свежесть или согласование применяются как у кнопки.
+  // «Нет, иначе» приходит текстом владельца и разбирается как обычный ответ.
+  const proposal = confirmedProposal(question, given);
+  const text = proposal ?? given;
   const now = Date.now();
   state.updateQuestion(id, { answer: text, answeredAt: now, dismissedAt: null });
   const along = absorbed(state, id);
@@ -257,8 +263,9 @@ export function answerQuestion(state: OfficeState, askedId: string, answer: stri
 
   const roleId = question.from !== OFFICE_SENDER ? state.instances.get(question.from)?.roleId ?? null : null;
   const fact = state.addFact({
-    kind: question.kind === 'stale' ? 'decision' : 'fact',
-    text: state.say('questions.factText', { question: question.text, answer: text }),
+    // Подтверждённое предложение офиса — решение владельца, а не просто факт.
+    kind: question.kind === 'stale' || proposal ? 'decision' : 'fact',
+    text: state.say('questions.factText', { question: question.text, answer: given }),
     // Ответ по допущению исполнителя — факт его роли; остальное — про проект.
     scope: question.kind === 'assumption' && roleId ? `role:${roleId}` : 'project',
     source: { questionId: id, ...(question.taskId ? { taskId: question.taskId } : {}) },

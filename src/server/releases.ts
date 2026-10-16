@@ -932,7 +932,9 @@ const approve: Executor<Ctx> = {
         }),
         title: say(ctx, 'rel.askTitle', { target: target.title, version }),
         details: say(ctx, 'rel.askDetails', { tasks: r.taskIds.length, epics: epics || '—', notes: clip(r.notes, 1200) }),
+        refs: r.taskIds.map((id) => ({ kind: 'task' as const, id, label: state.tasks.get(id)?.title })),
         groupKey: 'release-approval',
+        groupTitle: say(ctx, 'rel.askGroup'),
         assumption: say(ctx, 'rel.askAssumption'),
         options: [yes, no],
       });
@@ -1232,8 +1234,10 @@ const visible: Executor<Ctx> = {
           from: OFFICE_SENDER, taskId: null, kind: 'gate',
           text: say(ctx, 'rel.visible.ask', { target: target.title, version: label(r), why }),
           title: say(ctx, 'rel.visible.title', { target: target.title, version: label(r) }),
-          details: why,
+          // Почему не видно — основание: что офис проверил и что увидел.
+          basis: why,
           groupKey: 'release-visible',
+          groupTitle: say(ctx, 'rel.visible.group'),
           assumption: say(ctx, 'rel.visible.assumption'),
           options: [again, stop],
         });
@@ -2469,7 +2473,9 @@ export function proposeReleaseTarget(state: OfficeState, input: SetupInput): { o
         + (found ? `\n\n${state.say('rel.setup.warnOwner', { list: found })}` : ''),
     }).replace(/\n{3,}/g, '\n\n').trim(),
     title: state.say(replaces ? 'rel.setup.titleReplace' : 'rel.setup.titleNew', { target: fixed.title }),
+    ...(waitTaskId ? { refs: [{ kind: 'task' as const, id: waitTaskId }] } : {}),
     groupKey: 'release-setup',
+    groupTitle: state.say('rel.setup.group'),
     assumption: state.say('rel.setup.assumption'),
     options: [yes, no],
   });

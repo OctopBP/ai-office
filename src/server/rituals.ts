@@ -26,7 +26,9 @@ import type { WorkflowNode } from '../shared/workflow';
 import { builtinWorkflows } from './workflows';
 import { drive, newRun, type Executor } from './runs';
 import { dayKey, HEALTH_DIRECTION, limitReset, OFFICE_SENDER } from '../shared/types';
-import type { BranchMark, FactView, HealthEntry, OwnerQuestion, RitualId, RitualRun } from '../shared/types';
+import type { BranchMark, FactView, HealthEntry, OwnerQuestion, QuestionQuote, QuestionRef, RitualId, RitualRun } from '../shared/types';
+import { refsInText } from '../shared/questions';
+import type { ServerKey } from './i18n';
 import { LANG_LOCALE } from '../shared/i18n';
 import { roleReports, WEEK_MS as REPORT_WEEK_MS, type RoleReport } from '../shared/report';
 import { toTaskView, type Fact, type OfficeState, type Task } from './state';
@@ -597,6 +599,31 @@ function sideOption(state: OfficeState, side: ContradictionSide): string {
   return `${head}${clip(text, OPTION_LEN - head.length)}`;
 }
 
+/**
+ * Цитата стороны для подробностей вопроса: id записи и её текст, подпись —
+ * откуда запись («ваш ответ на Q-12») или её вид. Наблюдение без записи
+ * подписано как новое.
+ */
+function sideQuote(state: OfficeState, side: ContradictionSide): QuestionQuote {
+  if (!side.fact) return { ref: state.say('contradictions.option.observation'), text: side.view.text };
+  const { fact } = side;
+  const note = fact.source.questionId
+    ? state.say('questions.quoteAnswer', { id: fact.source.questionId })
+    : state.say(`journal.kind.${fact.kind}` as ServerKey);
+  return { ref: fact.id, text: fact.text, note };
+}
+
+/** Ссылки вопроса о противоречии: записи сторон, затем всё, что названо в текстах. */
+function contradictionRefs(sides: ContradictionSide[], ...texts: string[]): QuestionRef[] {
+  const refs: QuestionRef[] = sides.flatMap((s) => (s.fact ? [{ kind: 'journal' as const, id: s.fact.id }] : []));
+  for (const s of sides) {
+    if (s.fact?.source.taskId) refs.push({ kind: 'task', id: s.fact.source.taskId });
+    refs.push(...refsInText(s.view.text));
+  }
+  for (const text of texts) refs.push(...refsInText(text));
+  return refs;
+}
+
 /** Задачи, которые упоминают стороны: их статус и отчёт уходят агенту разбора. */
 function tasksFor(state: OfficeState, sides: ContradictionSide[]): TaskNote[] {
   const ids: string[] = [];
@@ -650,7 +677,15 @@ async function handleContradiction(
   const question = state.say('questions.contradiction', labels);
   // Суть — словами ритуала, без номеров записей; цитаты сторон — в деталях.
   const gist = c.text.trim() || state.say('questions.contradictionGist');
-  const quotes = state.say('questions.contradictionDetails', labels);
+  // Полный вопрос с номерами — в подробности, цитаты сторон — отдельным полем.
+  const details = clip(c.text.trim() || `${c.a} ≠ ${c.b}`, 600);
+  const quotes = [sideQuote(state, a), sideQuote(state, b)];
+  const group = {
+    groupKey: CONTRADICTION_GROUP,
+    groupTitle: state.say('questions.contradictionGroup'),
+    // Общий ответ на все расхождения: стороны у каждого свои, а эти два — общие.
+    groupOptions: [state.say('contradictions.option.both'), state.say('contradictions.option.delegate')],
+  };
   const remember = (): void => {
     markPairResolved(state.life, a.key, b.key);
     state.touchLife();
@@ -674,7 +709,8 @@ async function handleContradiction(
     remember();
     state.addFact({ kind: 'contradiction', text: c.text || `${c.a} ≠ ${c.b}`, scope: 'office', source: { ritual } });
     officeAsks(state, 'contradiction', question, state.say('questions.contradictionAssumption'), null, options, {
-      title: state.say('questions.contradictionTitle', { what: gist }), details: quotes, groupKey: CONTRADICTION_GROUP,
+      title: state.say('questions.contradictionTitle', { what: gist }), details, quotes,
+      refs: contradictionRefs([a, b], c.text), ...group,
     });
     return 'asked';
   }
@@ -720,9 +756,12 @@ async function handleContradiction(
   officeAsks(state, 'contradiction', `${question}\n\n${review}`,
     state.say('questions.contradictionAssumption'), null, options, {
       title: state.say(proposal ? 'questions.contradictionConfirmTitle' : 'questions.contradictionTitle', { what: gist }),
-      details: `${quotes}\n\n${review}`,
-      groupKey: CONTRADICTION_GROUP,
-      ...(proposal ? { confirm: true, proposal } : {}),
+      details, quotes,
+      // «Что показал разбор» — сам вывод, без служебных приписок вокруг него.
+      basis: verdictText(state, settled),
+      refs: contradictionRefs([a, b], c.text, settled.reason, 'evidence' in settled ? settled.evidence ?? '' : ''),
+      ...group,
+      ...(proposal ? { proposal } : {}),
     });
   return 'asked';
 }
@@ -887,7 +926,12 @@ async function applyOutput(state: OfficeState, ritual: RitualId, out: RitualOutp
     // Замена — как у менеджера: новый вопрос забирает старые себе.
     const meta = { title: q.title, details: q.details };
     if (q.replaces?.length) askOwner(state, OFFICE_SENDER, null, q.text, q.assumption, q.options, q.replaces, null, meta);
-    else officeAsks(state, 'assumption', q.text, q.assumption, null, q.options, { ...meta, groupKey: `ritual-${ritual}` });
+    else {
+      officeAsks(state, 'assumption', q.text, q.assumption, null, q.options, {
+        ...meta, refs: refsInText(`${q.text}\n${q.details ?? ''}`),
+        groupKey: `ritual-${ritual}`, groupTitle: state.say('questions.ritualGroup'),
+      });
+    }
     questions += 1;
   }
   return { facts, contradictions, resolved, questions };
@@ -1030,7 +1074,9 @@ const runners: Record<RitualId, Runner> = {
       if (asked) continue;
       officeAsks(state, 'assumption', state.say('health.staleBranch', { task: task.id, title: task.title, days }),
         state.say('health.staleAssumption'), task.id, undefined, {
-          title: state.say('health.staleBranchTitle', { title: task.title, days }), groupKey: 'stale-branch',
+          title: state.say('health.staleBranchTitle', { title: task.title, days }),
+          refs: [{ kind: 'task', id: task.id, label: task.title }],
+          groupKey: 'stale-branch', groupTitle: state.say('health.staleBranchGroup'),
         });
       stale += 1;
     }
@@ -1141,7 +1187,9 @@ export function askAboutReverts(state: OfficeState, tasks: Task[]): void {
     officeAsks(state, 'revert',
       state.say('questions.revert', { task: task.id, title: task.title }),
       state.say('questions.revertAssumption'), task.id, undefined, {
-        title: state.say('questions.revertTitle', { title: task.title }), groupKey: 'task-revert',
+        title: state.say('questions.revertTitle', { title: task.title }),
+        refs: [{ kind: 'task', id: task.id, label: task.title }],
+        groupKey: 'task-revert', groupTitle: state.say('questions.revertGroup'),
       });
   }
 }
