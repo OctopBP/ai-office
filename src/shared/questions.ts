@@ -251,3 +251,165 @@ export function findDuplicate(
   }
   return best;
 }
+
+// ------------------------------------------------- подача вопросов (веб, §2–§5)
+
+/** Предел «Пока считаем» в одну строку карточки: длиннее — полный текст в подробностях. */
+export const ASSUMPTION_LINE = 140;
+
+/**
+ * Служебные приписки старых вопросов: инструкции к кнопкам («Нажмите…») и
+ * пояснения ритуалов. Режутся шаблонами по предложениям; новые вопросы их не
+ * содержат (цель — убрать в источнике).
+ */
+const BOILERPLATE = /^(?:Нажмите|Ответьте|Напишите|Press|Reply|Click)\b|^Обе записи — ваши решения|^Both entries are your decisions|^Вывод разбора:/i;
+
+/** Текст без служебных приписок: режет предложения-шаблоны. Вырезано всё — исходный текст. */
+export function stripBoilerplate(text: string): string {
+  const out = text.split('\n')
+    .map((line) => line.split(/(?<=[.!?…])[ \t]+/).filter((s) => !BOILERPLATE.test(s.trim())).join(' '))
+    .join('\n')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
+  return out || text.trim();
+}
+
+/** Простой текст из Markdown: для строки допущения и заголовка. */
+export function plainText(md: string): string {
+  return md
+    .replace(/```[\s\S]*?```/g, ' ')
+    .replace(/!?\[([^\]]*)\]\([^)]*\)/g, '$1')
+    .replace(/^\s{0,3}(?:#{1,6}|[-*+]|\d+[.)])\s+/gm, '')
+    .replace(/[`*_~>]+/g, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+/** Первое предложение: до точки, «?» или «!» с пробелом после (десятичные точки и «0.14.0» целы). */
+function firstSentence(text: string): string {
+  const m = /^[\s\S]*?[.!?…](?=\s|$)/.exec(text);
+  return (m?.[0] ?? text).trim();
+}
+
+/**
+ * Заголовок старого вопроса без `title` (§7): первое предложение текста без
+ * Markdown, приписок, J-/T-номеров и хешей, не длиннее 120 знаков.
+ */
+export function titleFallback(q: Pick<OwnerQuestion, 'text'>): string {
+  const plain = plainText(stripBoilerplate(q.text));
+  const sentence = firstSentence(plain);
+  return questionTitle(sentence) || questionTitle(plain) || clipText(plain, TITLE_MAX);
+}
+
+/** Заголовок карточки: `title`, иначе запасной вариант из текста. */
+export const cardTitle = (q: Pick<OwnerQuestion, 'title' | 'text'>): string =>
+  q.title?.trim() || titleFallback(q);
+
+/** Вопрос-подтверждение: офис уже решил и ждёт «Согласен» / «Нет, иначе». */
+export const isConfirmQuestion = (q: Pick<OwnerQuestion, 'proposal'>): boolean => !!q.proposal?.trim();
+
+/** Для строки «Офис считает: …»: длинное предложение режется до первого предложения. */
+export function proposalLine(proposal: string): string {
+  const p = plainText(proposal);
+  return p.length <= TITLE_MAX ? p : clipText(firstSentence(p), TITLE_MAX);
+}
+
+export type QuestionSection = 'decide' | 'confirm';
+
+/** Две группы открытых вопросов; каждая — по возрасту, старые сверху. */
+export function splitGroups(open: readonly OwnerQuestion[]): { decide: OwnerQuestion[]; confirm: OwnerQuestion[] } {
+  const sorted = [...open].sort((a, b) => a.askedAt - b.askedAt);
+  return {
+    decide: sorted.filter((q) => !isConfirmQuestion(q)),
+    confirm: sorted.filter(isConfirmQuestion),
+  };
+}
+
+/** Шаг очереди: один вопрос или группа однотипных. */
+export interface QuestionCard {
+  /** Одиночный — id вопроса; группа — `group:{секция}:{groupKey}`. */
+  id: string;
+  section: QuestionSection;
+  questions: OwnerQuestion[];
+  grouped: boolean;
+  groupKey?: string;
+}
+
+/**
+ * Карточки одной группы: вопросы с одним `groupKey` (≥ 2) сводятся в одну
+ * карточку, которая стоит там, где первый из них. Порядок — по `askedAt`.
+ */
+export function buildCards(list: readonly OwnerQuestion[], section: QuestionSection): QuestionCard[] {
+  const sorted = [...list].sort((a, b) => a.askedAt - b.askedAt);
+  const byKey = new Map<string, OwnerQuestion[]>();
+  for (const q of sorted) {
+    const key = q.groupKey?.trim();
+    if (key) byKey.set(key, [...(byKey.get(key) ?? []), q]);
+  }
+  const cards: QuestionCard[] = [];
+  const placed = new Set<string>();
+  for (const q of sorted) {
+    const key = q.groupKey?.trim();
+    const members = key ? byKey.get(key) : undefined;
+    if (key && members && members.length >= 2) {
+      if (placed.has(key)) continue;
+      placed.add(key);
+      cards.push({ id: `group:${section}:${key}`, section, questions: members, grouped: true, groupKey: key });
+    } else {
+      cards.push({ id: q.id, section, questions: [q], grouped: false });
+    }
+  }
+  return cards;
+}
+
+const flatOpt = (s: string): string => s.trim().toLowerCase();
+
+/**
+ * Общие варианты группы: `groupOptions` у первого вопроса, иначе набор
+ * `options`, если он совпал у всех (по тексту, без регистра). Нет — пусто.
+ */
+export function commonOptions(group: readonly OwnerQuestion[]): string[] {
+  const declared = group.find((q) => q.groupOptions?.length)?.groupOptions;
+  if (declared?.length) return declared;
+  const first = group[0]?.options ?? [];
+  if (!first.length) return [];
+  const key = (o: readonly string[]): string => o.map(flatOpt).join('\u0000');
+  const want = key(first);
+  return group.every((q) => key(q.options ?? []) === want) ? first : [];
+}
+
+/** Допущение группы: если у всех открытых совпадает — оно, иначе пусто. */
+export function commonAssumption(group: readonly OwnerQuestion[]): string {
+  const first = group[0]?.assumption?.trim() ?? '';
+  return first && group.every((q) => (q.assumption?.trim() ?? '') === first) ? first : '';
+}
+
+/** Тема группы для заголовка: у первого вопроса, где она есть. */
+export const groupTopic = (group: readonly OwnerQuestion[]): string =>
+  group.find((q) => q.groupTitle?.trim())?.groupTitle?.trim() ?? '';
+
+/**
+ * Очередь: сначала «Нужно ваше решение», потом «На подтверждение». Пропущенные
+ * (`skipped` — id карточек) уходят в конец своей группы, вопрос остаётся открытым.
+ */
+export function buildQueue(open: readonly OwnerQuestion[], skipped: readonly string[] = []): QuestionCard[] {
+  const { decide, confirm } = splitGroups(open);
+  const order = (cards: QuestionCard[]): QuestionCard[] => {
+    const skip = new Set(skipped);
+    return [...cards.filter((c) => !skip.has(c.id)), ...skipped
+      .map((id) => cards.find((c) => c.id === id))
+      .filter((c): c is QuestionCard => !!c)];
+  };
+  return [...order(buildCards(decide, 'decide')), ...order(buildCards(confirm, 'confirm'))];
+}
+
+/** Сегмент полосы прогресса очереди. */
+export type QueueSegment = 'done' | 'now' | 'decide' | 'confirm';
+
+/** Полоса прогресса: сделанные, текущий, остальные — решения и подтверждения. */
+export function queueSegments(done: number, queue: readonly QuestionCard[]): QueueSegment[] {
+  return [
+    ...Array<QueueSegment>(done).fill('done'),
+    ...queue.map((c, i): QueueSegment => (i === 0 ? 'now' : c.section)),
+  ];
+}

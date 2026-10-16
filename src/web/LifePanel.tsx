@@ -1,9 +1,9 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import {
-  addRule, answerQuestion, archiveFact, confirmFact, decideProposal, deleteQuestion, dismissQuestion, dropRule,
-  editQuestion, editRule, listRules, mergeQuestion, requestTeamRole, runRitual, useStore,
+  addRule, archiveFact, confirmFact, decideProposal, dropRule,
+  editRule, listRules, requestTeamRole, runRitual, useStore,
 } from './store';
-import { findDuplicate, isOpenQuestion } from '../shared/questions';
+import { buildQueue, cardTitle, isOpenQuestion, queueSegments } from '../shared/questions';
 import type {
   FactStatus, HealthEntry, OwnerQuestion, ProposalView, RitualId, RuleScopeView, RuleView,
 } from '../shared/types';
@@ -12,8 +12,7 @@ import { locale, t } from './i18n';
 import { useInstanceName } from './instanceName';
 import { Icon } from './icons';
 import { Markdown } from './Markdown';
-import { mentionedTask } from './chat/filePaths';
-import { ResultFiles } from './chat/ResultFiles';
+import { AgreeAll, CardView } from './QuestionCards';
 
 type Tab = 'questions' | 'proposals' | 'rules' | 'journal' | 'rituals' | 'health';
 
@@ -114,106 +113,21 @@ function Proposals() {
   );
 }
 
-/** Кто из пары остаётся главным: согласование (его ждёт процесс), иначе старший. */
-const keeperOf = (a: OwnerQuestion, b: OwnerQuestion): OwnerQuestion => {
-  if ((a.kind === 'gate') !== (b.kind === 'gate')) return a.kind === 'gate' ? a : b;
-  return a.askedAt <= b.askedAt ? a : b;
-};
-
-function QuestionRow({ q, all }: { q: OwnerQuestion; all: OwnerQuestion[] }) {
-  const [answer, setAnswer] = useState('');
-  // Поле ввода раскрывается ссылкой только у вопроса с вариантами: без них
-  // строка должна выглядеть ровно как раньше.
-  const [own, setOwn] = useState(false);
-  // Ответ уходит по сокету, а вопрос закрывается уже следующим состоянием от
-  // сервера — до этого момента держим кнопки заблокированными, иначе клик по
-  // второму варианту отправит второй ответ.
-  const [sending, setSending] = useState(false);
-  // Правка, объединение и удаление — по одному режиму за раз, прямо в строке:
-  // нативный confirm() в офисе не используется.
-  const [mode, setMode] = useState<'edit' | 'merge' | 'delete' | null>(null);
-  const [draft, setDraft] = useState({ text: q.text, assumption: q.assumption });
-  const open = isOpenQuestion(q);
-  const waiting = !q.answeredAt && !q.dismissedAt;
+/** Закрытый вопрос: суть, как закрыт и ответ — без кнопок. */
+function ClosedQuestionRow({ q }: { q: OwnerQuestion }) {
   const asked = useInstanceName(q.from);
   const who = isOfficeSender(q.from) ? t('common.office') : asked;
-  const options = q.options ?? [];
-  const others = all.filter((o) => o.id !== q.id && isOpenQuestion(o));
-  const along = all.filter((o) => o.mergedInto === q.id);
-  // Подсказка — только у того из пары, кого стоит влить: у второго её нет,
-  // иначе одна и та же пара предлагалась бы дважды в обе стороны.
-  const twin = open ? findDuplicate(q, all) : null;
-  const hint = twin && keeperOf(q, twin).id === twin.id ? twin : null;
-  const [target, setTarget] = useState('');
-  const send = (text: string) => {
-    const value = text.trim();
-    if (!value || sending) return;
-    setSending(true);
-    answerQuestion(q.id, value);
-    setAnswer('');
-  };
-  // Вариант с «…» на конце («Нужны правки…») сам по себе не ответ: к нему
-  // нужно уточнение, поэтому он открывает поле с заготовкой, а не уходит сразу.
-  const pick = (opt: string) => {
-    if (!opt.endsWith('…')) return send(opt);
-    setOwn(true);
-    setAnswer(`${opt.slice(0, -1).trim()}: `);
-  };
-  const startEdit = () => { setDraft({ text: q.text, assumption: q.assumption }); setMode('edit'); };
-  const saveEdit = () => {
-    if (!draft.text.trim()) return;
-    editQuestion(q.id, draft.text, draft.assumption);
-    setMode(null);
-  };
-  const merge = (into: string) => {
-    if (!into) return;
-    mergeQuestion(q.id, into);
-    setMode(null);
-  };
-  // Открытое согласование удалить нельзя — его ждёт процесс; влитое тоже ждёт.
-  const deletable = !(q.kind === 'gate' && waiting);
-  const busy = sending || mode !== null;
+  const waiting = !q.answeredAt && !q.dismissedAt;
   return (
-    <div className={`life-row question ${q.kind}${open ? '' : ' closed'}`}>
+    <div className={`life-row question ${q.kind} closed`}>
       <div className="life-row-head">
         <span className="mono dim">{q.id}</span>
         <span className={`chip ${q.kind}`}>{t(`life.questions.kind.${q.kind}`)}</span>
         <span className="muted small">{t('life.questions.from', { who })}</span>
         {q.taskId && <span className="muted small">{t('life.questions.task', { task: q.taskId })}</span>}
         <span className="muted small">{when(q.askedAt)}</span>
-        {q.editedAt && <span className="muted small">{t('life.questions.edited')}</span>}
       </div>
-      {mode === 'edit' ? (
-        <div className="life-edit">
-          <textarea value={draft.text} rows={3} autoFocus
-            onChange={(e) => setDraft({ ...draft, text: e.target.value })} />
-          <label className="muted small">{t('life.questions.assumed')}
-            <input value={draft.assumption} onChange={(e) => setDraft({ ...draft, assumption: e.target.value })} />
-          </label>
-          <div className="life-actions">
-            <button className="allow" disabled={!draft.text.trim()} onClick={saveEdit}>{t('life.questions.save')}</button>
-            <button className="mini" onClick={() => setMode(null)}>{t('common.cancel')}</button>
-          </div>
-        </div>
-      ) : (
-        <>
-          {/* Вопрос и допущение пишет агент, и пишет Markdown-ом: списки
-              вариантов, код, выделение. Подпись «Допущение» остаётся простым
-              текстом слева от него. */}
-          <div className="life-text"><Markdown source={q.text} compact files={{ task: q.taskId ?? mentionedTask(q.text) }} /></div>
-          {q.assumption && (
-            <div className="muted small life-assumed">
-              <span>{t('life.questions.assumed')}:</span>
-              <Markdown source={q.assumption} compact />
-            </div>
-          )}
-        </>
-      )}
-      {along.length > 0 && (
-        <div className="muted small">
-          {t('life.questions.along', { ids: along.map((o) => (o.taskId ? `${o.id} (${o.taskId})` : o.id)).join(', ') })}
-        </div>
-      )}
+      <div className="life-text">{cardTitle(q)}</div>
       {q.mergedInto && (
         <div className="muted small">
           {t(waiting ? 'life.questions.mergedWaiting' : 'life.questions.mergedInto', { id: q.mergedInto })}
@@ -225,100 +139,155 @@ function QuestionRow({ q, all }: { q: OwnerQuestion; all: OwnerQuestion[] }) {
           {t('life.questions.dismissed')}{q.closedWhy ? ` — ${q.closedWhy}` : ''} · {when(q.dismissedAt)}
         </div>
       )}
-      {mode !== 'edit' && <ResultFiles files={q.files} task={q.taskId} />}
-      {hint && mode === null && (
-        <div className="life-hint small">
-          <span>{t('life.questions.similar', { id: hint.id })}</span>
-          <button className="mini" disabled={sending} onClick={() => merge(hint.id)}>
-            {t('life.questions.mergeInto', { id: hint.id })}
-          </button>
-        </div>
-      )}
-      {open && mode === null && options.length > 0 && (
-        <div className="life-options">
-          {options.map((opt, i) => (
-            <button key={`${i}:${opt}`} className="mini" disabled={sending} onClick={() => pick(opt)}>{opt}</button>
-          ))}
-        </div>
-      )}
-      {open && mode === null && (
-        <div className="life-actions">
-          {options.length > 0 && !own ? (
-            <button className="mini ghost" disabled={sending} onClick={() => setOwn(true)}>
-              {t('life.questions.ownWords')}
-            </button>
-          ) : (
-            <>
-              <input value={answer} placeholder={t('life.questions.answerPlaceholder')}
-                autoFocus={own} disabled={sending}
-                onChange={(e) => setAnswer(e.target.value)}
-                onKeyDown={(e) => { if (e.key === 'Enter') send(answer); }} />
-              <button className="allow" disabled={sending || !answer.trim()} onClick={() => send(answer)}>
-                {t('life.questions.answer')}
-              </button>
-            </>
-          )}
-          <button className="mini" disabled={sending} onClick={() => dismissQuestion(q.id)}>
-            {t('life.questions.dismiss')}
-          </button>
-        </div>
-      )}
-      {mode === 'merge' && (
-        <div className="life-actions">
-          <select value={target} onChange={(e) => setTarget(e.target.value)}>
-            <option value="">{t('life.questions.mergePick')}</option>
-            {others.map((o) => (
-              <option key={o.id} value={o.id}>{o.id}{o.taskId ? ` · ${o.taskId}` : ''} — {clipText(o.text, 70)}</option>
-            ))}
-          </select>
-          <button className="allow" disabled={!target} onClick={() => merge(target)}>{t('life.questions.merge')}</button>
-          <button className="mini" onClick={() => setMode(null)}>{t('common.cancel')}</button>
-        </div>
-      )}
-      {mode === 'delete' && (
-        <div className="life-actions">
-          <span className="small">{t('life.questions.deleteConfirm', { id: q.id })}</span>
-          <button className="mini" onClick={() => setMode(null)}>{t('common.cancel')}</button>
-          <button className="danger" onClick={() => { deleteQuestion(q.id); setMode(null); }}>
-            {t('life.questions.delete')}
-          </button>
-        </div>
-      )}
-      {mode === null && (open || deletable) && (
-        <div className="life-manage">
-          {open && <button className="mini ghost" disabled={busy} onClick={startEdit}>{t('life.questions.edit')}</button>}
-          {open && others.length > 0 && (
-            <button className="mini ghost" disabled={busy} onClick={() => { setTarget(''); setMode('merge'); }}>
-              {t('life.questions.mergeWith')}
-            </button>
-          )}
-          {deletable && (
-            <button className="mini ghost" disabled={busy} onClick={() => setMode('delete')}>
-              {t('life.questions.delete')}
-            </button>
-          )}
-        </div>
-      )}
     </div>
   );
 }
 
-const clipText = (s: string, n: number): string => {
-  const line = s.replace(/\s+/g, ' ').trim();
-  return line.length > n ? `${line.slice(0, n - 1)}…` : line;
-};
+type QuestionsView = 'queue' | 'list';
+const VIEW_KEY = 'life.questions.view';
+
+function loadView(): QuestionsView {
+  try { return localStorage.getItem(VIEW_KEY) === 'list' ? 'list' : 'queue'; } catch { return 'queue'; }
+}
+
+/** Пока решений меньше этого, подтверждения в списке не сворачиваются в строку. */
+const FOLD_CONFIRM_AT = 3;
 
 function Questions() {
   const questions = useStore((s) => s.questions);
-  const open = questions.filter(isOpenQuestion).sort((a, b) => b.askedAt - a.askedAt);
-  const closed = questions.filter((q) => !isOpenQuestion(q)).sort((a, b) => b.askedAt - a.askedAt);
-  if (!questions.length) return <p className="empty">{t('life.questions.empty')}</p>;
+  const [view, setView] = useState<QuestionsView>(loadView);
+  const [skipped, setSkipped] = useState<string[]>([]);
+  const [showClosed, setShowClosed] = useState(false);
+  const [foldOpen, setFoldOpen] = useState(false);
+  const open = useMemo(() => questions.filter(isOpenQuestion), [questions]);
+  const closed = useMemo(
+    () => questions.filter((q) => !isOpenQuestion(q)).sort((a, b) => b.askedAt - a.askedAt),
+    [questions],
+  );
+  const queue = useMemo(() => buildQueue(open, skipped), [open, skipped]);
+  const decideCards = queue.filter((c) => c.section === 'decide');
+  const confirmCards = queue.filter((c) => c.section === 'confirm');
+  // Сделанные шаги очереди: карточки, что были на экране и исчезли.
+  const seen = useRef(new Set<string>());
+  queue.forEach((c) => seen.current.add(c.id));
+  const done = [...seen.current].filter((id) => !queue.some((c) => c.id === id)).length;
+  const current = queue[0];
+  const switchView = (next: QuestionsView) => {
+    if (next === view) return;
+    try { localStorage.setItem(VIEW_KEY, next); } catch { /* приватный режим */ }
+    // Обратно в очередь — текущей становится первая неотвеченная, пропущенные не помнятся.
+    if (next === 'queue') setSkipped([]);
+    setView(next);
+  };
+  const currentId = current?.id;
+  useEffect(() => {
+    if (view === 'list' && currentId) document.getElementById(`oq-card-${currentId}`)?.scrollIntoView?.({ block: 'nearest' });
+    // Прокрутка к текущей — только при переключении режима.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [view]);
+  const cardCount = queue.length;
+  const closedBlock = closed.length > 0 && (
+    <>
+      <button className="mini ghost oq-closedlink" aria-expanded={showClosed} onClick={() => setShowClosed(!showClosed)}>
+        {showClosed ? t('life.questions.hideClosed') : t('life.questions.showClosed', { n: closed.length })}
+      </button>
+      {showClosed && (
+        <>
+          <div className="section-title">{t('life.questions.closed')}</div>
+          {closed.slice(0, 30).map((q) => <ClosedQuestionRow key={q.id} q={q} />)}
+        </>
+      )}
+    </>
+  );
+  const bar = (
+    <div className="oq-bar">
+      <div className="seg" role="group" aria-label={t('life.questions.viewLabel')}>
+        {(['queue', 'list'] as QuestionsView[]).map((v) => (
+          <button key={v} className={view === v ? 'on' : ''} aria-pressed={view === v} onClick={() => switchView(v)}>
+            {t(v === 'queue' ? 'life.questions.viewQueue' : 'life.questions.viewList')}
+          </button>
+        ))}
+      </div>
+      <span className="oq-count">
+        {t('life.questions.countQuestions', { n: open.length })}
+        {view === 'queue' ? ` · ${t('life.questions.countCards', { n: cardCount })}` : ''}
+      </span>
+    </div>
+  );
+  if (!open.length) {
+    return (
+      <div className="life-list">
+        {questions.length > 0 && bar}
+        <div className="oq-empty">
+          <div className="oq-empty-ico" aria-hidden>✓</div>
+          <h4>{t('life.questions.emptyTitle')}</h4>
+          <p>{t('life.questions.emptyText')}</p>
+        </div>
+        {closedBlock}
+      </div>
+    );
+  }
+  if (view === 'queue' && current) {
+    const segs = queueSegments(done, queue);
+    const decideLeft = decideCards.length;
+    return (
+      <div className="life-list">
+        {bar}
+        {current.section === 'confirm' && decideLeft === 0 && (
+          <div className="oq-handover">{t('life.questions.noDecisions', { n: confirmCards.length })}</div>
+        )}
+        <div className="oq-qhead">
+          <span className={`oq-pos ${current.section}`} aria-live="polite">
+            <b>{t(current.section === 'decide' ? 'life.questions.queueDecide' : 'life.questions.queueConfirm')}</b>
+            {' · '}{t('life.questions.queuePos', { pos: done + 1, total: done + queue.length })}
+          </span>
+          <div className="oq-progress" aria-hidden>
+            {segs.map((sg, i) => <i key={i} className={sg} />)}
+          </div>
+        </div>
+        <CardView key={current.id} card={current} all={questions} />
+        <div className="oq-qfoot">
+          <span>{t('life.questions.queueHint')}</span>
+          {queue.length > 1 && (
+            <button className="mini ghost" onClick={() => setSkipped([...skipped.filter((id) => id !== current.id), current.id])}>
+              {t('life.questions.skip')}
+            </button>
+          )}
+        </div>
+        {closedBlock}
+      </div>
+    );
+  }
+  const foldConfirm = decideCards.length >= FOLD_CONFIRM_AT && confirmCards.length > 0 && !foldOpen;
   return (
     <div className="life-list">
-      {open.length > 0 && <div className="section-title">{t('life.questions.open')}</div>}
-      {open.map((q) => <QuestionRow key={q.id} q={q} all={questions} />)}
-      {closed.length > 0 && <div className="section-title">{t('life.questions.closed')}</div>}
-      {closed.slice(0, 30).map((q) => <QuestionRow key={q.id} q={q} all={questions} />)}
+      {bar}
+      {decideCards.length > 0 ? (
+        <div className="oq-group decide">
+          <h3>{t('life.questions.sectionDecide')}</h3>
+          <span className="oq-n">{decideCards.reduce((n, c) => n + c.questions.length, 0)}</span>
+          <span className="oq-rule" />
+        </div>
+      ) : (
+        <div className="oq-handover">{t('life.questions.onlyConfirm', { n: confirmCards.length })}</div>
+      )}
+      {decideCards.map((c) => <CardView key={c.id} card={c} all={questions} />)}
+      {confirmCards.length > 0 && (foldConfirm ? (
+        <button className="mini ghost oq-fold" aria-expanded={false} onClick={() => setFoldOpen(true)}>
+          {t('life.questions.confirmFold', { n: confirmCards.reduce((n, c) => n + c.questions.length, 0) })} ▸
+        </button>
+      ) : (
+        <>
+          <div className="oq-group">
+            <h3>{t('life.questions.sectionConfirm')}</h3>
+            <span className="oq-n">{confirmCards.reduce((n, c) => n + c.questions.length, 0)}</span>
+            <span className="oq-rule" />
+            <AgreeAll cards={confirmCards} />
+          </div>
+          {confirmCards.map((c) => <CardView key={c.id} card={c} all={questions} />)}
+        </>
+      ))}
+      {closedBlock}
     </div>
   );
 }
