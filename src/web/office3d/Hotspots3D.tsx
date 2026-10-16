@@ -237,6 +237,7 @@ export function Hotspots3D({ spots, meetingTable, deskItems, layout, palette, of
   const tasks = useStore((s) => s.tasks);
   const selected = useStore((s) => s.selected);
   const select = useStore((s) => s.select);
+  const editingLayout = useStore((s) => s.editingLayout);
 
   /**
    * Счётчик на доске — сколько задач ждут решения: сданные на ревью и
@@ -283,7 +284,10 @@ export function Hotspots3D({ spots, meetingTable, deskItems, layout, palette, of
           />
         );
       })}
-      {free.map((d) => (
+      {/* Свободные места — те же, у которых Office3D (T-598) прячет стол и
+          стул, и по тому же условию: в правке раскладки мебель видна, значит
+          и метка нужна; в обычном режиме пустое место скрыто целиком. */}
+      {editingLayout && free.map((d) => (
         <FreeDesk key={`free-${d.index}`} at={[d.x + 1, d.y + 0.7]} />
       ))}
     </group>
