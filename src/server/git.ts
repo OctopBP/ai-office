@@ -598,6 +598,14 @@ async function raiseCopy(
  * запасной каталог рядом (`_base-<id>`), а не встаёт: в основную ветку не
  * вливалось НИЧЕГО, пока человек не приходил разбирать это руками (T-56, T-58).
  */
+/**
+ * Папка копий слияния офиса внутри каталога копий задач: `<корень>/_base`.
+ * В ней по копии на репозиторий (`integrationDir` в merge.ts) и запасные
+ * каталоги `<копия>-<id>`. Отсюда же её узнаёт уборка (cleanup.ts): удалять
+ * копию слияния нельзя никогда.
+ */
+export const integrationRoot = (worktreesRoot: string): string => resolve(worktreesRoot, '_base');
+
 async function integrationWorktree(
   repoDir: string, dir: string, base: string, lang: Lang,
 ): Promise<IntegrationCopy> {

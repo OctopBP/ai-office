@@ -4,8 +4,9 @@
  *
  * Проверяем:
  *  1. у каждого кандидата есть задача, статус, дата коммита и причина;
- *  2. main, ветки задач в работе, на ревью и blocked, ветки выпусков и
- *     грязные worktree не удаляются никогда — даже с --orphans;
+ *  2. main, ветки задач в работе, на ревью и blocked, ветки выпусков,
+ *     копия слияния офиса в _base и грязные worktree не удаляются никогда —
+ *     даже с --orphans;
  *  3. снятые, влитые, проваленные и старые прошлые попытки удаляются,
  *     свежая прошлая попытка остаётся;
  *  4. сироты по умолчанию только показываются, с флагом — удаляются;
@@ -86,7 +87,8 @@ try {
   branch('task/T-9', 3, null);           // сирота: задачи нет в состоянии
   branch('task/T-10.stopped-1', 30, null); // старая попытка задачи на ревью
   branch('office/rel/r-1', 30, 'rel-r-1'); // ветка выпуска в каталоге копий
-  sh(repo, ['worktree', 'add', '-q', '--detach', resolve(root, '_base', 'foreign'), 'main']);
+  sh(repo, ['worktree', 'add', '-q', '--detach', resolve(root, '_base', 'office-x'), 'main']);
+  sh(repo, ['worktree', 'add', '-q', '--detach', resolve(root, '_base-legacy'), 'main']);
   sh(repo, ['worktree', 'add', '-q', '--detach', resolve(root, '_release', 'desktop'), 'main']);
 
   const tasks: CleanupTask[] = [
@@ -133,8 +135,9 @@ try {
   const dirty = find(scan.candidates, 'worktree', 'task/T-6');
   check('грязный worktree оставлен с предупреждением',
     dirty?.remove === false && scan.warnings.some((w) => w.includes('T-6')), JSON.stringify(dirty));
-  const base = scan.candidates.find((c) => c.kind === 'worktree' && c.path?.includes('_base'));
-  check('посторонний worktree в _base — сирота', base?.reason === 'orphan' && !base.remove);
+  const base = scan.candidates.find((c) => c.kind === 'worktree' && c.path?.includes('_base/'));
+  check('копия слияния в _base не помечена и оставлена с причиной',
+    base?.remove === false && base.hold === 'копия слияния офиса', JSON.stringify(base));
 
   // --- 2. Удаление с --orphans: защищённое всё равно на месте.
   const report = await prune(scan.repoDir, (await findStale(office, { now: NOW, orphans: true })).candidates);
@@ -151,7 +154,9 @@ try {
   check('снятая, влитая, закрытая без слияния удалены', !has('task/T-1') && !has('task/T-2') && !has('task/T-7'));
   check('worktree влитой задачи снят', !existsSync(resolve(root, 'T-1')));
   check('старая прошлая попытка удалена, свежая на месте', !has('task/T-8.stopped-1') && has('task/T-8.stopped-2'));
-  check('сирота удалена с флагом', !has('task/T-9') && !existsSync(resolve(root, '_base', 'foreign')));
+  check('сирота удалена с флагом', !has('task/T-9'));
+  check('копия слияния в _base на месте даже с --orphans и --apply',
+    existsSync(resolve(root, '_base', 'office-x')) && existsSync(resolve(root, '_base-legacy')));
   check('в отчёте есть удалённые и пропущенные',
     report.removed.length > 0 && report.skipped.some((s) => s.why === 'незакоммиченные изменения'));
   check('отчёт без неудач', report.skipped.every((s) => !s.candidate.remove),

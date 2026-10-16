@@ -7,7 +7,7 @@ import { t } from './i18n';
 import { taskRepo, worktreesRoot, type OfficeState, type Task } from './state';
 import { dispatch } from './plan';
 import {
-  checkMergeable, liveBase, mergeBranch, OFFICE_PERSON, removeWorktree, revision, taskCommitMessage,
+  checkMergeable, integrationRoot, liveBase, mergeBranch, OFFICE_PERSON, removeWorktree, revision, taskCommitMessage,
 } from './git';
 import { runTypecheck } from './checks';
 import { duplicateEdits, formatOverlaps } from './overlap';
@@ -124,7 +124,7 @@ export const isMergeQueueRunning = (state: OfficeState): boolean => queueRunning
  * репозитории нет. Задачи вложенных репозиториев не сливались никогда.
  */
 export const integrationDir = (state: OfficeState, repoDir: string): string => {
-  const root = resolve(worktreesRoot(state), '_base');
+  const root = integrationRoot(worktreesRoot(state));
   dropLegacyBase(root);
   return resolve(root, repoSlug(repoDir));
 };

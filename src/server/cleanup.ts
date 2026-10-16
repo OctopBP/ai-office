@@ -5,8 +5,7 @@
  * копится: ветки снятых задач (drop_task, когда работа уже начата),
  * проваленных и закрытых без слияния; ветки прошлых попыток, которые
  * restart_task сохраняет как `task/T-N.stopped-K` (`preserveBranch` в git.ts);
- * посторонние worktree в каталоге копий офиса — например, в `_base`, заведённые
- * мимо офиса.
+ * посторонние worktree в каталоге копий офиса, заведённые мимо офиса.
  *
  * Два шага, и первый ничего не меняет:
  *   findStale — собрать кандидатов и решить по каждому, можно ли удалять;
@@ -17,7 +16,8 @@
  * если последний коммит старше N дней. Невлитая ветка снятой, проваленной или
  * закрытой без слияния задачи живёт N дней от закрытия (`finishedAt`): вдруг
  * её захотят вернуть; её worktree — нет. Никогда не трогаем: основную и текущую
- * ветку, задачи в работе, на ревью и blocked, ветки выпусков, worktree с
+ * ветку, задачи в работе, на ревью и blocked, ветки и копии выпусков, копию
+ * слияния офиса (`_base`), worktree с
  * незакоммиченными изменениями (они уходят предупреждением) и заблокированные
  * `git worktree lock`. Сироты без задачи по умолчанию только показываются.
  *
@@ -28,7 +28,7 @@
 import { realpathSync } from 'node:fs';
 import { basename, relative, resolve, isAbsolute } from 'node:path';
 import type { TaskStatus } from '../shared/types';
-import { baseBranch, currentBranch, git, repoTop } from './git';
+import { baseBranch, currentBranch, git, integrationRoot, repoTop } from './git';
 
 /** Ровно то из задачи, что нужно уборке. */
 export interface CleanupTask {
@@ -351,7 +351,14 @@ export async function findStale(office: CleanupOffice, options: FindOptions = {}
     // Копия выпуска (`<корень>/_release/<цель>`, releases.ts) отцеплена, и по
     // ветке её не узнать — узнаём по месту.
     const releaseCopy = root !== null && inside(path, resolve(root, '_release'));
-    const guard = (wt.branch ? isProtected(wt.branch) : null) ?? (releaseCopy ? 'копия выпуска' : null);
+    // Копия слияния (`<корень>/_base/<репозиторий>` и запасные рядом, merge.ts)
+    // тоже отцеплена; через неё офис сливает задачи — не удаляем ни с каким флагом.
+    // `<корень>/_base-<id>` — запасной каталог времён одной копии на офис.
+    const mergeCopy = root !== null
+      && (inside(path, integrationRoot(root)) || (inside(path, root) && /^_base-/.test(relative(root, path))));
+    const guard = (wt.branch ? isProtected(wt.branch) : null)
+      ?? (releaseCopy ? 'копия выпуска' : null)
+      ?? (mergeCopy ? 'копия слияния офиса' : null);
     if (guard) decision = { ...decision, remove: false, hold: guard };
     if (decision.remove && wt.locked) {
       decision = { ...decision, remove: false, hold: 'заблокирован (git worktree lock)' };
