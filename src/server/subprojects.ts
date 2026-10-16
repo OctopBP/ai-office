@@ -480,6 +480,18 @@ export function repoZonesReplaced(role: Role, subs: readonly Subproject[], zoneI
   return zoneId ? [...kept, zoneId] : kept;
 }
 
+/**
+ * «Репозиторий роли» для `RoleView.repoDir` (§7): корень единственной
+ * repo-зоны среди закреплённых — строкой, как её завели, чтобы форма роли
+ * сохраняла то же значение обратно. Нет repo-зоны или их несколько — прежнее
+ * поле роли.
+ */
+export function roleRepoDir(role: Role, subs: readonly Subproject[]): string {
+  const ids = new Set(role.isManager ? [] : role.subprojects ?? []);
+  const repos = subs.filter((s) => s.kind === 'repo' && ids.has(s.id));
+  return repos.length === 1 ? repos[0].root : role.repoDir ?? '';
+}
+
 /** Строка «репозитория роли» — с самой роли или из разницы с пакетом. */
 const repoDirOf = (role: Role): string =>
   (role.repoDir ?? '').trim() || String(role.package?.overrides.repoDir ?? '').trim();

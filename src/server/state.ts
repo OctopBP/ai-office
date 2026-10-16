@@ -82,7 +82,7 @@ import {
 } from './packages';
 import {
   ensureZone, migrateRepoDirs, resolveRoot, rolePinProblem, roleWorkdir, sanitizeRoleZones, sanitizeSubprojects, soleZone,
-  repoZonesReplaced, seatZone, subprojectView, SUBPROJECTS_MIGRATION, taskRepoDir, withZones, zoneProblem, zoneSeating,
+  repoZonesReplaced, roleRepoDir, seatZone, subprojectView, SUBPROJECTS_MIGRATION, taskRepoDir, withZones, zoneProblem, zoneSeating,
 } from './subprojects';
 import {
   DEFAULT_STATE_FILE, flush as flushFile, load, save, wipe as wipeFile,
@@ -4253,7 +4253,7 @@ export class OfficeState {
       isolate: r.isolate, maxTurns: r.maxTurns ?? null,
       allowLocalBinding: r.allowLocalBinding === true,
       spendFuseTokens: r.spendFuseTokens ?? null,
-      repoDir: r.repoDir ?? '', sprite: r.sprite ?? '', brief: r.brief,
+      repoDir: roleRepoDir(r, this.subprojectList), sprite: r.sprite ?? '', brief: r.brief,
       // Закрепление за зонами: без него веб видит роль как «весь проект», и
       // карточка сотрудника каждым кликом заменяет закрепление, а не дополняет.
       ...(r.subprojects?.length ? { subprojects: [...r.subprojects] } : {}),

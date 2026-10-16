@@ -27,7 +27,7 @@ import { formatBoard } from '../src/server/board-view';
 import { defaultRoles, type Role } from '../src/server/roles';
 import { loadPackage } from '../src/server/packages';
 import {
-  admitProblem, admits, consultWorkdir, ensureZone, repoDirHint, migrateRepoDirs, outsideZone, roleWorkdir, sanitizeSubprojects, taskRepoDir, writeZone, zoneForRole,
+  admitProblem, admits, consultWorkdir, ensureZone, repoDirHint, migrateRepoDirs, outsideZone, roleRepoDir, roleWorkdir, sanitizeSubprojects, taskRepoDir, writeZone, zoneForRole,
   seatZone, zoneSeating,
   type ZoneTask,
 } from '../src/server/subprojects';
@@ -64,6 +64,15 @@ function pureRules(): void {
   check('менеджер не закрепляется — корень офиса',
     roleWorkdir(role('a', { subprojects: ['api'], isManager: true }), subs, projectDir) === projectDir);
   check('нет роли — корень офиса', roleWorkdir(null, subs, projectDir) === projectDir);
+  results.push('RoleView.repoDir (§7):');
+  const subs2 = [...subs, zone('lib', 'repo', '/abs/lib')];
+  check('одна repo-зона — её корень', roleRepoDir(role('a', { subprojects: ['api'] }), subs2) === '../api');
+  check('repo-зона и папка — корень repo-зоны', roleRepoDir(role('a', { subprojects: ['web', 'api'] }), subs2) === '../api');
+  check('только папочная зона — прежнее поле', roleRepoDir(role('a', { subprojects: ['web'], repoDir: 'old' }), subs2) === 'old');
+  check('без закрепления — прежнее поле, пусто', roleRepoDir(role('a'), subs2) === '');
+  check('несколько repo-зон — прежнее поле',
+    roleRepoDir(role('a', { subprojects: ['api', 'lib'], repoDir: 'old' }), subs2) === 'old');
+  check('пропавшая зона — прежнее поле', roleRepoDir(role('a', { subprojects: ['gone'] }), subs2) === '');
   check('задача «весь проект» — репозиторий офиса', taskRepoDir(null, subs, projectDir) === projectDir);
   check('задача folder-зоны — репозиторий офиса', taskRepoDir('web', subs, projectDir) === projectDir);
   check('задача repo-зоны — её репозиторий', taskRepoDir('api', subs, projectDir) === api);
@@ -174,6 +183,9 @@ async function officeZones(): Promise<void> {
   check('PATCH с repoDir: роль закреплена, поля repoDir нет',
     front().subprojects?.join() === 'svc' && front().repoDir === undefined
     && front().package?.overrides.repoDir === undefined);
+  const view = (id: string) => office.roleViews().find((r) => r.id === id)!;
+  check('RoleView.repoDir — корень единственной repo-зоны роли', view('frontend').repoDir === '../svc');
+  check('RoleView.repoDir роли без закрепления — прежнее пустое', view('reviewer').repoDir === '');
   await office.editRole('frontend', { repoDir: svc });
   check('повторный PATCH с тем же корнем — вторая зона не заводится',
     office.subprojects().length === 1 && front().subprojects?.join() === 'svc');
@@ -186,6 +198,7 @@ async function officeZones(): Promise<void> {
   await office.editRole('frontend', { repoDir: '' });
   check('пустой repoDir снимает закрепление, зоны остаются',
     front().subprojects === undefined && office.subprojects().length === 2);
+  check('RoleView.repoDir после снятия закрепления — пусто', view('frontend').repoDir === '');
   const bad = await office.editRole('frontend', { repoDir: '../nope' });
   check('корень не репозиторий — ошибка поля, зоны не заводится',
     bad.some((e) => e.field === 'repoDir') && office.subprojects().length === 2);
