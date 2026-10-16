@@ -18,7 +18,7 @@ import type {
   DirectionView, ProposalView, InitiativeMode,
   SpendEntryView, PmChat, SecretMeta, Subproject, SubprojectDraft, SubprojectField, SubprojectView,
 } from '../shared/types';
-import { isOfficeColor, OFFICE_SENDER, prClosed } from '../shared/types';
+import { isOfficeColor, OFFICE_SENDER, prClosed, tidyReplies } from '../shared/types';
 import { isOpenQuestion, tidyQuestionMeta, type QuestionMeta } from '../shared/questions';
 import {
   asTaskPriority, DEFAULT_TASK_PRIORITY, accumulate,
@@ -1137,6 +1137,13 @@ export class PmSession {
   lastUsedAt = 0;
   /** Сторож простоя: сработал — сессию усыпляют. */
   sleepTimer: ReturnType<typeof setTimeout> | null = null;
+  /**
+   * Кнопки быстрого ответа, которые менеджер предложил в текущем ходе
+   * (`offer_replies`). Реплика хода ложится в чат только в конце хода, поэтому
+   * варианты ждут здесь и прикрепляются к ней (`settlePmReply`). Только в памяти:
+   * ход перезапуск не переживает, а легшая реплика хранит их сама.
+   */
+  replies: string[] | null = null;
 
   constructor(readonly chatId: string) {}
 
@@ -3513,10 +3520,13 @@ export class OfficeState {
    */
   addChat(
     from: string, text: string, thread = 'pm#1', meetingId?: string, chatId?: string, ref?: ChatRef,
-  ): void {
+    replies?: readonly string[],
+  ): ChatEntry {
     const entry: ChatEntry = { id: randomUUID(), thread, from, text, at: Date.now() };
     if (meetingId) entry.meetingId = meetingId;
     if (ref) entry.ref = ref;
+    const tidy = tidyReplies(replies);
+    if (tidy.length) entry.replies = tidy;
     const pmChat = thread === 'pm#1' ? this.routePmChat(chatId) : null;
     if (pmChat) {
       entry.chatId = pmChat.id;
@@ -3535,6 +3545,7 @@ export class OfficeState {
     // Реплики самого офиса тишину не сбивают: планёрка и ритуалы пишут в
     // чат, и считать это работой значило бы никогда не дождаться тишины.
     if (from !== OFFICE_SENDER) this.noteWork();
+    return entry;
   }
 
   /**

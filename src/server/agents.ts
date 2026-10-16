@@ -71,6 +71,7 @@ import {
 } from './rituals';
 import { resolveModel } from '../shared/models';
 import { reviewStatusText, taskDetails } from './task-view';
+import { offerReplies, settlePmReply } from './replies';
 import { formatBoard, isSelection, type BoardOpts, type BoardSay } from './board-view';
 import { isAbsolute, relative, resolve } from 'node:path';
 import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync } from 'node:fs';
@@ -1501,6 +1502,22 @@ const teamTools = (state: OfficeState, chatId: string) => createSdkMcpServer({
       },
     ),
 
+    // Кнопки под репликой этого хода: реплика ляжет в чат в конце хода, и
+    // варианты прикрепятся к ней (src/server/replies.ts).
+    tool(
+      'offer_replies',
+      state.say('tool.offerReplies.desc'),
+      {
+        options: z.array(z.string()).describe(state.say('tool.offerReplies.options')),
+      },
+      async (args) => {
+        const replies = offerReplies(state.pmSession(chatId), args.options);
+        return replies
+          ? { content: [{ type: 'text', text: state.say('tool.offerReplies.ok', { replies: replies.join(' · ') }) }] }
+          : { content: [{ type: 'text', text: state.say('tool.offerReplies.invalid') }], isError: true };
+      },
+    ),
+
     tool(
       'list_chats',
       state.say('tool.listChats.desc'),
@@ -2014,13 +2031,16 @@ function startPm(state: OfficeState, pm: PmSession): void {
           // чат: иначе веб на миг покажет и готовый ответ, и черновик.
           endPmTurn(state, pm);
           if (isOk(msg) && msg.result?.trim()) {
-            state.addChat('pm#1', msg.result.trim(), 'pm#1', undefined, chatId);
+            settlePmReply(state, pm, msg.result.trim());
             void maybeAutoTitle(state, chatId);
           } else if (!isOk(msg)) {
             const reason = resultReason(msg, state.lang());
             state.addChat(OFFICE_SENDER, state.say('agent.pm.noAnswer', { reason: clip(reason, 300) }), 'pm#1', undefined, chatId);
             state.setState('pm#1', 'failed', state.say('agent.state.error'));
           }
+          // Реплики не вышло — кнопкам не к чему прилипнуть, а в следующий ход
+          // они не переезжают: там будет другой вопрос.
+          pm.replies = null;
           settlePm(state);
           pm.lastUsedAt = Date.now();
           // Набор ролей меняли, пока менеджер отвечал: ход закончен, обрывать
@@ -2037,6 +2057,7 @@ function startPm(state: OfficeState, pm: PmSession): void {
       // Первым делом снимаем «печатает…»: дописывать реплику некому, а висеть
       // до перезапуска сервера она не должна.
       endPmTurn(state, pm, 'error');
+      pm.replies = null;
       state.addLog('pm#1', 'error', state.say('agent.log.pmCrashed', { error: message }));
       if (resumeId) {
         // Скорее всего прошлой сессии уже нет на диске — забываем её,

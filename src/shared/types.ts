@@ -2409,6 +2409,51 @@ export interface ChatEntry {
    * плодит. `text` при этом — запасная строка для старых клиентов и истории.
    */
   ref?: ChatRef;
+  /**
+   * Кнопки быстрого ответа под репликой менеджера (`offer_replies`): 2–4
+   * коротких варианта, уже нормализованные `tidyReplies`. Нажатие — обычная
+   * реплика владельца с текстом варианта. Отдельного признака «отвечено» нет:
+   * кнопки живы, пока после реплики в её чате нет ответа владельца
+   * (`repliesOpen`), — так их нечем рассинхронизировать.
+   */
+  replies?: string[];
+}
+
+/** Вариантов быстрого ответа — не меньше и не больше. */
+export const REPLIES_MIN = 2;
+export const REPLIES_MAX = 4;
+/** Длина варианта: на кнопку, не на абзац. */
+export const REPLY_LEN = 40;
+
+/**
+ * Привести варианты быстрого ответа к виду для хранения: пробелы схлопнуты,
+ * пустые и повторы (без учёта регистра) выброшены, длинные обрезаны до
+ * `REPLY_LEN`, лишние сверх `REPLIES_MAX` отброшены. Меньше `REPLIES_MIN`
+ * осталось — выбирать не из чего, кнопок нет: пустой список.
+ */
+export function tidyReplies(options: readonly unknown[] | undefined): string[] {
+  const out: string[] = [];
+  for (const o of options ?? []) {
+    if (typeof o !== 'string') continue;
+    let text = o.replace(/\s+/g, ' ').trim();
+    if (text.length > REPLY_LEN) text = `${text.slice(0, REPLY_LEN - 1).trimEnd()}…`;
+    if (!text || out.some((x) => x.toLowerCase() === text.toLowerCase())) continue;
+    out.push(text);
+    if (out.length >= REPLIES_MAX) break;
+  }
+  return out.length >= REPLIES_MIN ? out : [];
+}
+
+/**
+ * Живы ли кнопки под репликой: варианты есть, и владелец в этом чате после
+ * неё ещё ничего не написал. Ответил (кнопкой или своими словами) — кнопки
+ * отработаны и показываются погашенными или не показываются вовсе.
+ */
+export function repliesOpen(entry: ChatEntry, chat: readonly ChatEntry[]): boolean {
+  if (!entry.replies?.length) return false;
+  const at = chat.indexOf(entry);
+  const after = at >= 0 ? chat.slice(at + 1) : chat.filter((e) => e.at > entry.at);
+  return !after.some((e) => e.from === 'user' && e.thread === entry.thread && e.chatId === entry.chatId);
 }
 
 /**

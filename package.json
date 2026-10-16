@@ -75,6 +75,7 @@
     "test:docs-api": "node --import tsx scripts/test-docs-api.ts",
     "test:staleness": "node --import tsx scripts/test-staleness.ts && node --import tsx scripts/test-freshness-ritual.ts",
     "test:question-meta": "node --import tsx scripts/test-question-meta.ts",
+    "test:replies": "node --import tsx scripts/test-replies.ts",
     "test:question-queue": "node --import tsx scripts/test-question-queue.ts",
     "test:contradictions": "node --import tsx scripts/test-contradictions.ts && node --import tsx scripts/test-contradictions-ritual.ts && node --import tsx scripts/test-contradictions-history.ts && node --import tsx scripts/test-contradictions-delegate.ts",
     "test:review": "tsx scripts/test-review.ts",
