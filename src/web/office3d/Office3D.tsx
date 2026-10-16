@@ -16,7 +16,7 @@
 import { Component, Suspense, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { Canvas, useFrame, useLoader } from '@react-three/fiber';
 import * as THREE from 'three';
-import { propKeys, spriteOf } from '../../shared/layout';
+import { deskPoint, propKeys, spriteOf } from '../../shared/layout';
 import type { LayoutProp } from '../../shared/layout';
 import { useStore } from '../store';
 import { catalog, type HotspotPanel } from '../layoutData';
@@ -582,6 +582,47 @@ function Scene({ onOpen, onDoor, active }: {
     const workDesks = all.filter((item) => spriteOf(catalog, item.sprite)?.slots?.some((s) => s.kind === 'work'));
     return { placed: propList, spots: spotList, meetingTable: table, deskItems: workDesks };
   }, [layout]);
+
+  /**
+   * Рабочие места по номеру стола: ключ стола и ключ его стула. Стул в
+   * раскладке отдельный предмет, связи со столом у него нет, поэтому стулом
+   * стола считается ближайший к точке посадки (не дальше двух тайлов), и один
+   * стул не достаётся двум столам.
+   */
+  const seatKeys = useMemo(() => {
+    const free = placed.filter((item) => item.def.fallback === 'chair');
+    return deskItems.map((desk, index) => {
+      let at: { x: number; y: number };
+      try { at = deskPoint(layout, catalog, index, 'work'); } catch { return { desk: desk.key }; }
+      let best = -1;
+      let bestD = 2;
+      free.forEach((c, i) => {
+        const dist = Math.hypot(c.cx - at.x, c.cy - at.y);
+        if (dist < bestD) { bestD = dist; best = i; }
+      });
+      const chair = best >= 0 ? free.splice(best, 1)[0].key : undefined;
+      return { desk: desk.key, chair };
+    });
+  }, [placed, deskItems, layout]);
+
+  /** Номера столов, за которыми закреплён сотрудник (безместные не в счёт).
+   *  Строкой, чтобы смена статуса агента не перерисовывала сцену. */
+  const busyDesks = useStore((s) => Object.values(s.instances)
+    .filter((i) => !i.deskless).map((i) => i.desk.index).sort((a, b) => a - b).join(','));
+  const editingLayout = useStore((s) => s.editingLayout);
+
+  /** Незанятые стол и стул не рисуем; в правке раскладки показываем всё. */
+  const shown = useMemo(() => {
+    if (editingLayout) return placed;
+    const busy = new Set(busyDesks ? busyDesks.split(',').map(Number) : []);
+    const hide = new Set<string>();
+    seatKeys.forEach((k, index) => {
+      if (busy.has(index)) return;
+      hide.add(k.desk);
+      if (k.chair) hide.add(k.chair);
+    });
+    return hide.size ? placed.filter((item) => !hide.has(item.key)) : placed;
+  }, [placed, seatKeys, busyDesks, editingLayout]);
   const [w, d] = scene.size;
   const offset = useMemo<[number, number]>(() => [-w / 2, -d / 2], [w, d]);
 
@@ -649,7 +690,7 @@ function Scene({ onOpen, onDoor, active }: {
             приехал, комната стоит пустой, но стены и пол уже нарисованы. */}
         <Suspense fallback={null}>
           <FurnitureModels>
-            <Props3D items={placed} palette={palette} offset={offset} size={scene.size} />
+            <Props3D items={shown} palette={palette} offset={offset} size={scene.size} />
             <Hotspots3D
               spots={spots} meetingTable={meetingTable} deskItems={deskItems}
               layout={layout} palette={palette} offset={offset}
