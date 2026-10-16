@@ -153,6 +153,7 @@ export const ru: Record<keyof typeof en, string> = {
   "chat.empty.pm": "Например: «Сделай CRUD для заметок: JSON API на бэке и страницу на фронте». Или просто спросите: «Что сейчас в работе?» — задачу PM не заведёт.",
   "chat.you": "вы",
   "chat.typing": "печатает…",
+  "chat.replies": "Быстрые ответы",
   "chatCard.expand": "Подробнее",
   "chatCard.collapse": "Свернуть",
   "chatCard.openTask": "Открыть задачу",

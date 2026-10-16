@@ -439,3 +439,6 @@
 .cc-event.stuck .cc-dot.fail { background: var(--danger); }
 .cc-event-text { flex: 1; min-width: 0; color: var(--ink-2); }
 .cc-event-why { padding-left: calc(8px + var(--space-2)); font-size: var(--fs-small); color: var(--ink-3); word-break: break-word; }
+
+/* Кнопки быстрого ответа под репликой менеджера — вид как у вариантов вопроса. */
+.msg-replies { margin-top: var(--space-2); }

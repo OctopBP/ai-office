@@ -1,7 +1,7 @@
-import { useLayoutEffect, useRef } from 'react';
+import { useLayoutEffect, useRef, useState } from 'react';
 import type { ChatEntry } from '../shared/types';
-import { isOfficeSender } from '../shared/types';
-import { inPmChat, shownDraft, useStore } from './store';
+import { isOfficeSender, repliesOpen } from '../shared/types';
+import { inPmChat, send, shownDraft, useStore } from './store';
 import { t } from './i18n';
 import { AgentTag } from './Avatar';
 import { ChatHead } from './ChatPeer';
@@ -39,6 +39,7 @@ export function ChatThread() {
     : chat.filter((m) => m.thread === thread);
   const last = shown[shown.length - 1];
   const items = groupRefs(shown);
+  const connected = useStore((s) => s.connected);
 
   const toBottom = (el: HTMLDivElement) => { el.scrollTop = el.scrollHeight; };
 
@@ -125,6 +126,9 @@ export function ChatThread() {
                     {group.map((g) => g.ref?.kind === 'task' && <TaskCard key={g.id} id={g.ref.id} entry={g} bare />)}
                   </CardGroup>
                 ) : m.ref ? <RefCard refTo={m.ref} entry={m} /> : <div className="msg-text"><Markdown source={m.text} compact files={{ task: mentionedTask(m.text) }} /></div>}
+                {thread === 'pm#1' && m === last && !draft && repliesOpen(m, chat) && (
+                  <QuickReplies options={m.replies ?? []} disabled={!connected} />
+                )}
               </div>
             </div>
           );
@@ -164,4 +168,21 @@ function groupRefs(list: ChatEntry[]): { m: ChatEntry; group?: ChatEntry[] }[] {
     } else out.push({ m });
   }
   return out;
+}
+
+/**
+ * Кнопки быстрого ответа под репликой менеджера. Нажатие — обычная реплика
+ * владельца; когда она ляжет в ленту, `repliesOpen` погасит ряд. До этого
+ * кнопки заперты, чтобы двойной клик не отправил ответ дважды.
+ */
+function QuickReplies({ options, disabled }: { options: string[]; disabled: boolean }) {
+  const [sent, setSent] = useState(false);
+  return (
+    <div className="oq-opts msg-replies" role="group" aria-label={t('chat.replies')}>
+      {options.map((o) => (
+        <button key={o} className="mini oq-opt" disabled={disabled || sent} title={o}
+          onClick={() => { setSent(true); send(o); }}>{o}</button>
+      ))}
+    </div>
+  );
 }
