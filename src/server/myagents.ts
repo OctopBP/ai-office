@@ -103,7 +103,7 @@ function publishedOf(raw: unknown): MyAgentPublished | null {
   const p = raw as Record<string, unknown>;
   const str = (k: string): string => (typeof p[k] === 'string' ? p[k] as string : '');
   if (!str('name') || !str('version') || !str('commit')) return null;
-  return { name: str('name'), version: str('version'), commit: str('commit'), repo: str('repo'), path: str('path'), at: str('at'), registry: str('registry') };
+  return { name: str('name'), version: str('version'), commit: str('commit'), repo: str('repo'), path: str('path'), at: str('at'), registry: str('registry'), license: str('license') };
 }
 
 function readMeta(dir: string): { zone: string | null; published: MyAgentPublished | null } {

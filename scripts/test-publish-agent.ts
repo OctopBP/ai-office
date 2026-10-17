@@ -2,7 +2,9 @@
  * «Опубликовать в маркет» для своего агента офиса (src/server/agentpublish.ts,
  * T-626): ошибки запроса и валидатора по полям, понятный отказ без GitHub и
  * без токена, публикация во ВРЕМЕННЫЙ реестр, найм из него и повторная
- * публикация с поднятой версией.
+ * публикация с поднятой версией. Лицензия (T-628): по умолчанию MIT, пустая
+ * или кривая — ошибка поля `package:license`, повтор берёт прошлую, пакет с
+ * лицензией виден в списке реестра.
  *
  * Живой реестр и GitHub не трогаем: «GitHub» — голый репозиторий во
  * времянке, на который git переадресует `https://github.com/alice/agents.git`
@@ -37,8 +39,8 @@ process.env.OFFICE_LANG = 'ru';
 
 const { publishMyAgent, stagePublication } = await import('../src/server/agentpublish');
 const { createMyAgent, getMyAgent, handleMyAgentsHttp, updateMyAgent } = await import('../src/server/myagents');
-const { installFromRegistry, latestVersion, parseRegistry } = await import('../src/server/market');
-const { readPackage } = await import('../src/server/packages');
+const { installFromRegistry, latestVersion, loadRegistry, parseRegistry } = await import('../src/server/market');
+const { readPackage, validatePackage } = await import('../src/server/packages');
 const { getOffice } = await import('../src/server/state');
 type MyAgentCtx = import('../src/server/myagents').MyAgentCtx;
 type PublishEnv = import('../src/server/agentpublish').PublishEnv;
@@ -146,7 +148,36 @@ await check('валидатор: битый пакет — ошибки по п�
   const { pkg } = readPackage(good);
   assert.equal(pkg?.name, '@alice/gamer');
   assert.equal(pkg?.version, '2.0.0');
+  assert.equal(pkg?.manifest.license, 'MIT');
+  assert.equal(JSON.parse(readFileSync(join(good, '.claude-plugin/plugin.json'), 'utf8')).license, 'MIT');
+  // Своя лицензия ложится в манифест как есть.
+  const apache = join(tmp, 'apache-out');
+  stagePublication(getMyAgent(root, id, ctx)!.dir, '@alice/gamer', '2.0.0', apache, 'Apache-2.0');
+  assert.equal(readPackage(apache).pkg?.manifest.license, 'Apache-2.0');
   assert.equal(existsSync(join(good, '.office-local.json')), false);
+});
+
+await check('пакет без лицензии — ошибка package:license, а не предупреждение', () => {
+  const src = join(tmp, 'nolicense-src');
+  mkdirSync(join(src, '.claude-plugin'), { recursive: true });
+  writeFileSync(join(src, 'agent.json'), JSON.stringify({ schema: 1, name: '@local/x', kind: 'agent', title: { ru: 'x' } }));
+  writeFileSync(join(src, '.claude-plugin/plugin.json'), JSON.stringify({ name: 'x', version: '0.1.0' }));
+  const { errors, warnings } = stagePublication(src, '@alice/x', '1.0.0', join(tmp, 'nolicense-out'), '');
+  assert.ok(fields(errors).includes('package:license'), JSON.stringify(errors));
+  assert.ok(!fields(warnings).includes('package:license'));
+});
+
+await check('пустая или кривая лицензия — ошибка поля package:license, до любых записей', async () => {
+  const before = sh(remote, 'rev-parse', 'main');
+  for (const license of ['', '   ', 'MIT; rm -rf', 'не лицензия', 'MIT OR', 'x'.repeat(101)]) {
+    const r = await publishMyAgent(root, id, { name: '@alice/x', repoDir: work, license }, ctx, env);
+    assert.ok(!r.ok, license);
+    if (r.ok) return;
+    assert.equal(r.code, 400);
+    assert.deepEqual(fields(r.errors), ['package:license'], `${license}: ${JSON.stringify(r.errors)}`);
+  }
+  assert.equal(sh(remote, 'rev-parse', 'main'), before);
+  assert.equal(existsSync(registryFile), false);
 });
 
 const NAME = '@alice/boardgame-designer';
@@ -159,6 +190,8 @@ await check('публикация: коммит и тег на «GitHub», за�
   assert.equal(r.published.version, '1.0.0');
   assert.equal(r.published.path, 'agents/boardgame-designer');
   assert.equal(r.published.repo, GITHUB);
+  assert.equal(r.published.license, 'MIT');
+  assert.ok(!r.warnings.some((w) => w.field === 'package:license'), JSON.stringify(r.warnings));
   // Коммит и тег — на удалённом, а не только в рабочей копии.
   assert.equal(sh(remote, 'rev-parse', 'main'), r.published.commit);
   assert.equal(sh(remote, 'rev-parse', 'boardgame-designer@1.0.0^{commit}'), r.published.commit);
@@ -170,6 +203,23 @@ await check('публикация: коммит и тег на «GitHub», за�
   const view = getMyAgent(root, id, ctx)!;
   assert.equal(view.name, `@local/${id}`);
   assert.deepEqual({ name: view.published?.name, version: view.published?.version }, { name: NAME, version: '1.0.0' });
+  assert.equal(view.published?.license, 'MIT');
+});
+
+await check('пакет с лицензией виден в списке реестра', async () => {
+  const { registry, error } = await loadRegistry(registryFile, true);
+  assert.equal(error, null);
+  const entry = registry?.packages.find((e) => e.name === NAME);
+  assert.ok(entry, JSON.stringify(registry));
+  assert.equal(latestVersion(entry)!.version, '1.0.0');
+  // В опубликованном коммите манифест с лицензией, валидатор о ней молчит.
+  const manifest = JSON.parse(sh(work, 'show', `${entry.versions[0].commit}:agents/boardgame-designer/agent.json`));
+  assert.equal(manifest.license, 'MIT');
+  const checkout = join(tmp, 'checkout');
+  execFileSync('git', ['clone', '--quiet', GITHUB, checkout], { env: process.env });
+  const problems = validatePackage(join(checkout, 'agents/boardgame-designer'));
+  assert.ok(!problems.some((p) => p.path === 'license'), JSON.stringify(problems));
+  assert.ok(!problems.some((p) => p.level === 'error'), JSON.stringify(problems));
 });
 
 await check('другой офис нанимает из реестра: пакет ставится по коммиту', async () => {
@@ -181,6 +231,7 @@ await check('другой офис нанимает из реестра: пак�
   if (!made.ok) return;
   assert.equal(made.pkg.name, NAME);
   assert.equal(made.pkg.version, '1.0.0');
+  assert.equal(made.pkg.manifest.license, 'MIT');
   assert.match(made.pkg.briefs.ru ?? '', /геймдизайнер/);
 });
 
@@ -195,15 +246,27 @@ await check('та же или старая версия — ошибка пол�
   assert.ok(!r.ok && fields(r.errors).includes('version'));
 });
 
-await check('повторная публикация без версии поднимает её', async () => {
-  const r = await publishMyAgent(root, id, { name: NAME, repoDir: work }, ctx, env);
+await check('повторная публикация без версии поднимает её, лицензию можно сменить', async () => {
+  const r = await publishMyAgent(root, id, { name: NAME, repoDir: work, license: 'Apache-2.0' }, ctx, env);
   assert.ok(r.ok, JSON.stringify(r));
   if (!r.ok) return;
   assert.equal(r.published.version, '1.0.1');
+  assert.equal(r.published.license, 'Apache-2.0');
   const registry = parseRegistry(JSON.parse(readFileSync(registryFile, 'utf8')))!;
   const entry = registry.packages.find((e) => e.name === NAME)!;
   assert.deepEqual(entry.versions.map((v) => v.version), ['1.0.1', '1.0.0']);
   assert.equal(getMyAgent(root, id, ctx)!.published?.version, '1.0.1');
+});
+
+await check('повтор без лицензии берёт лицензию прошлой публикации', async () => {
+  const r = await publishMyAgent(root, id, { name: NAME, repoDir: work }, ctx, env);
+  assert.ok(r.ok, JSON.stringify(r));
+  if (!r.ok) return;
+  assert.equal(r.published.version, '1.0.2');
+  assert.equal(r.published.license, 'Apache-2.0');
+  assert.equal(getMyAgent(root, id, ctx)!.published?.license, 'Apache-2.0');
+  const manifest = JSON.parse(sh(work, 'show', `${r.published.commit}:agents/boardgame-designer/agent.json`));
+  assert.equal(manifest.license, 'Apache-2.0');
 });
 
 await check('пуш не прошёл — понятная ошибка, реестр не тронут', async () => {
@@ -215,7 +278,7 @@ await check('пуш не прошёл — понятная ошибка, рее�
   assert.deepEqual(fields(r.errors), ['repoDir']);
   assert.match(r.errors[0].message, /запушить/);
   assert.equal(readFileSync(registryFile, 'utf8'), before);
-  assert.equal(getMyAgent(root, id, ctx)!.published?.version, '1.0.1');
+  assert.equal(getMyAgent(root, id, ctx)!.published?.version, '1.0.2');
 });
 
 await check('HTTP: POST /api/my-agents/<id>/publish отвечает ошибками по полям', async () => {

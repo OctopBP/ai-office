@@ -35,6 +35,15 @@ import { githubSlug, publishInfo, readRegistryFile, scopeProblem, upsertEntry, w
 const SEMVER_RE = /^\d+\.\d+\.\d+(-[0-9a-z.-]+)?$/i;
 /** Папка в репозитории: относительный путь из простых сегментов. */
 const PATH_RE = /^[A-Za-z0-9._-]+(\/[A-Za-z0-9._-]+)*$/;
+/** Лицензия по умолчанию: без лицензии пакет в индекс не попадает (спека маркета §12.3). */
+export const DEFAULT_LICENSE = 'MIT';
+/**
+ * Лицензия — идентификатор или выражение SPDX: `MIT`, `Apache-2.0`,
+ * `GPL-3.0-or-later`, `MIT OR Apache-2.0`, `LicenseRef-Своя`. Не больше 100 знаков.
+ */
+const LICENSE_ID = String.raw`\(?[A-Za-z0-9][A-Za-z0-9.+-]*\)?`;
+const LICENSE_RE = new RegExp(`^${LICENSE_ID}( (AND|OR|WITH) ${LICENSE_ID})*$`);
+export const licenseOk = (license: string): boolean => license.length <= 100 && LICENSE_RE.test(license);
 
 /** Куда публиковать. Подменяется в проверке: там временный реестр. */
 export interface PublishEnv {
@@ -59,48 +68,68 @@ export type PublishResult =
 const fail = (code: number, errors: FieldError[], warnings: FieldError[] = []): PublishResult => ({ ok: false, code, errors, warnings });
 const firstLine = (s: string): string => s.split('\n').map((l) => l.trim()).find(Boolean) ?? '';
 
-/** Переименовать копию пакета и выставить версию: `agent.json` и `plugin.json`. */
-function retarget(dir: string, name: string, version: string): void {
+/** Лицензия в манифесте агента офиса; пусто — не задана или манифест не читается. */
+function manifestLicense(dir: string): string {
+  try {
+    const m = JSON.parse(readFileSync(resolve(dir, 'agent.json'), 'utf8')) as { license?: unknown };
+    return typeof m.license === 'string' ? m.license.trim() : '';
+  } catch {
+    return '';
+  }
+}
+
+/** Переименовать копию пакета, выставить версию и лицензию: `agent.json` и `plugin.json`. */
+function retarget(dir: string, name: string, version: string, license: string): void {
   const manifestFile = resolve(dir, 'agent.json');
   const manifest = JSON.parse(readFileSync(manifestFile, 'utf8')) as Record<string, unknown>;
   manifest.name = name;
+  manifest.license = license;
   writeFileSync(manifestFile, `${JSON.stringify(manifest, null, 2)}\n`);
   const pluginFile = resolve(dir, '.claude-plugin/plugin.json');
   const plugin = existsSync(pluginFile) ? JSON.parse(readFileSync(pluginFile, 'utf8')) as Record<string, unknown> : {};
   plugin.name = name.split('/')[1];
   plugin.version = version;
+  plugin.license = license;
   writeFileSync(pluginFile, `${JSON.stringify(plugin, null, 2)}\n`);
   // Файл офиса (зона, прошлые публикации) в пакет реестра не уходит.
   rmSync(resolve(dir, LOCAL_META), { force: true });
 }
 
 /**
- * Собрать пакет для реестра: копия папки агента под новым именем и версией —
- * и валидатор, тот же, что у `office-agent validate`. Замечания — по полям
- * вида `package:<файл или поле манифеста>`.
+ * Собрать пакет для реестра: копия папки агента под новым именем, версией и
+ * лицензией — и валидатор, тот же, что у `office-agent validate`. Замечания —
+ * по полям вида `package:<файл или поле манифеста>`. Замечание о лицензии здесь
+ * ошибка, а не предупреждение: пакет без лицензии реестр не покажет.
  */
-export function stagePublication(src: string, name: string, version: string, dest: string): { errors: FieldError[]; warnings: FieldError[] } {
+export function stagePublication(
+  src: string, name: string, version: string, dest: string, license = DEFAULT_LICENSE,
+): { errors: FieldError[]; warnings: FieldError[] } {
   cpSync(src, dest, { recursive: true });
   try {
-    retarget(dest, name, version);
+    retarget(dest, name, version, license);
   } catch (err) {
     return { errors: [{ field: 'package:agent.json', message: (err as Error).message }], warnings: [] };
   }
   const problems = validatePackage(dest);
-  const as = (level: 'error' | 'warn'): FieldError[] =>
-    problems.filter((p) => p.level === level).map((p) => ({ field: `package:${p.path}`, message: p.message }));
-  return { errors: as('error'), warnings: as('warn') };
+  const blocking = (p: { level: string; path: string }): boolean => p.level === 'error' || p.path === 'license';
+  const as = (pick: (p: { level: string; path: string }) => boolean): FieldError[] =>
+    problems.filter(pick).map((p) => ({ field: `package:${p.path}`, message: p.message }));
+  return { errors: as(blocking), warnings: as((p) => !blocking(p)) };
 }
 
 /** Проверить запрос до любых записей: имя, версия, репозиторий, токен. */
 async function checkRequest(
   agent: MyAgentView, req: MyAgentPublishRequest, env: PublishEnv, ctx: MyAgentCtx,
-): Promise<{ errors: FieldError[]; version: string; repoDir: string; path: string; origin: string; token: string }> {
+): Promise<{ errors: FieldError[]; version: string; license: string; repoDir: string; path: string; origin: string; token: string }> {
   const errors: FieldError[] = [];
   const lang = ctx.lang;
   const name = (req.name ?? '').trim();
   const prev = agent.published;
   const version = (req.version ?? '').trim() || (prev && prev.name === name ? bumpPatch(prev.version) : agent.version);
+  // Не задана — прошлая публикация, манифест агента, MIT; задана пустой — ошибка.
+  const license = typeof req.license === 'string'
+    ? req.license.trim()
+    : prev?.license || manifestLicense(agent.dir) || DEFAULT_LICENSE;
   const repoDir = (req.repoDir ?? '').trim();
   const path = (req.path ?? '').trim().replace(/^\/+|\/+$/g, '') || `agents/${name.split('/')[1] ?? ''}`;
   let origin = '';
@@ -110,6 +139,8 @@ async function checkRequest(
   else if (prev && prev.name === name && compareVersions(version, prev.version) <= 0) {
     errors.push({ field: 'version', message: t(lang, 'publishAgent.versionOld', { version, prev: prev.version }) });
   }
+  if (!license) errors.push({ field: 'package:license', message: t(lang, 'publishAgent.licenseEmpty') });
+  else if (!licenseOk(license)) errors.push({ field: 'package:license', message: t(lang, 'publishAgent.licenseBad', { license }) });
   // Папку по умолчанию выводим из имени: при плохом имени ошибка одна — у имени.
   const pathGiven = Boolean((req.path ?? '').trim()) || PACKAGE_NAME_RE.test(name);
   if (pathGiven && (!PATH_RE.test(path) || path.split('/').some((s) => s === '..' || s === '.'))) {
@@ -137,7 +168,7 @@ async function checkRequest(
     if (!serviceBase(env.registry)) errors.push({ field: 'registry', message: t(lang, 'publishAgent.registryReadOnly', { source: env.registry }) });
     else if (!token) errors.push({ field: 'token', message: t(lang, 'publishAgent.noToken') });
   }
-  return { errors, version, repoDir, path, origin, token };
+  return { errors, version, license, repoDir, path, origin, token };
 }
 
 /**
@@ -152,14 +183,14 @@ export async function publishMyAgent(
   if (!agent) return fail(404, [{ field: '', message: t(lang, 'myagent.missing', { name: `@local/${id}` }) }]);
   const checked = await checkRequest(agent, req ?? ({} as MyAgentPublishRequest), env, ctx);
   if (checked.errors.length) return fail(400, checked.errors);
-  const { version, repoDir, path, origin, token } = checked;
+  const { version, license, repoDir, path, origin, token } = checked;
   const name = req.name.trim();
 
   // 1–2. Копия под новым именем во времянке — и валидатор, как у `office-agent publish`.
   const stage = await mkdtemp(resolve(tmpdir(), 'office-publish-'));
   const staged = resolve(stage, 'pkg');
   try {
-    const { errors, warnings } = stagePublication(agent.dir, name, version, staged);
+    const { errors, warnings } = stagePublication(agent.dir, name, version, staged, license);
     if (errors.length) return fail(400, errors, warnings);
 
     // 3. В репозиторий владельца: коммит только папки пакета, тег версии, пуш.
@@ -226,7 +257,7 @@ export async function publishMyAgent(
     // 5. Связь с исходным агентом офиса.
     const published: MyAgentPublished = {
       name, version, commit: info.commit, repo: info.entry.repo, path: info.entry.path,
-      at: new Date().toISOString(), registry: base || resolve(env.registry),
+      at: new Date().toISOString(), registry: base || resolve(env.registry), license,
     };
     writePublished(agent.dir, published);
     return { ok: true, agent: getMyAgent(root, id, ctx)!, published, warnings };

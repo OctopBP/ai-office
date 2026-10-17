@@ -155,6 +155,8 @@ export const ru: Record<keyof typeof en, string> = {
   'myagent.badBody': 'Тело запроса должно быть JSON-объектом.',
   'myagent.method': 'Такой метод здесь не поддерживается.',
   'publishAgent.nameBad': 'Имя в маркете: @владелец/имя — латиница, цифры и дефис (сейчас «{name}»).',
+  'publishAgent.licenseEmpty': 'Лицензия обязательна: без неё реестр не покажет пакет. Например, MIT.',
+  'publishAgent.licenseBad': 'Лицензия — идентификатор SPDX, например MIT или Apache-2.0 (сейчас «{license}»).',
   'publishAgent.versionBad': 'Версия — semver, например 1.0.0 (сейчас «{version}»).',
   'publishAgent.versionOld': 'Версия {version} не новее опубликованной {prev}: поднимите её.',
   'publishAgent.pathBad': 'Папка в репозитории — относительный путь вида agents/my-agent (сейчас «{path}»).',

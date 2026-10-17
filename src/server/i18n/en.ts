@@ -155,6 +155,8 @@ export const en = {
   'myagent.badBody': 'Request body must be a JSON object.',
   'myagent.method': 'This method is not supported here.',
   'publishAgent.nameBad': 'Name in the market: @owner/name — latin letters, digits and dashes (got «{name}»).',
+  'publishAgent.licenseEmpty': 'A license is required: the registry does not list packages without one. E.g. MIT.',
+  'publishAgent.licenseBad': 'License must be an SPDX identifier, e.g. MIT or Apache-2.0 (got «{license}»).',
   'publishAgent.versionBad': 'Version must be semver, e.g. 1.0.0 (got «{version}»).',
   'publishAgent.versionOld': 'Version {version} is not newer than the published {prev}: raise it.',
   'publishAgent.pathBad': 'Folder in the repository: a relative path like agents/my-agent (got «{path}»).',

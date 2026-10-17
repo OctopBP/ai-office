@@ -110,6 +110,8 @@ export interface MyAgentPublished {
   at: string;
   /** Куда вписали: файл реестра или адрес сервиса индекса. */
   registry: string;
+  /** Лицензия опубликованного пакета (SPDX); пусто — публикация до T-628. */
+  license: string;
 }
 
 /** Тело `POST /api/my-agents/<id>/publish`. */
@@ -124,6 +126,12 @@ export interface MyAgentPublishRequest {
   path?: string;
   /** Токен GitHub для сервиса индекса; пусто — `GITHUB_TOKEN` сервера. */
   token?: string;
+  /**
+   * Лицензия пакета в реестре, идентификатор SPDX (`MIT`, `Apache-2.0`).
+   * Не задана — лицензия прошлой публикации, затем из манифеста агента,
+   * затем `MIT`. Пустая строка — ошибка поля `package:license`.
+   */
+  license?: string;
 }
 
 /** Что сделали со своим агентом — приезжает в ответе, чтобы форма знала, на что ответ. */
