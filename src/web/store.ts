@@ -373,6 +373,8 @@ interface State {
   runs: Record<string, Run>;
   /** Процессы офиса: встроенные и свои у проекта. */
   workflows: WorkflowEntry[];
+  /** Сообщение об отказе в правке процесса, по id процесса; снимается успешным действием, событием `workflows` или закрытием. */
+  workflowProblems: Record<string, string>;
   /** Выпуски и планы выпусков (docs/design/releases/spec.md §11). */
   releases: Release[];
   releasePlans: ReleasePlan[];
@@ -733,6 +735,7 @@ export const useStore = create<State>((set, get) => ({
   prs: {},
   runs: {},
   workflows: [],
+  workflowProblems: {},
   releases: [],
   releasePlans: [],
   facts: [],
@@ -1371,7 +1374,7 @@ export const useStore = create<State>((set, get) => ({
         set((s) => ({ runs: { ...s.runs, [e.run.subject.taskId ?? e.run.id]: e.run } }));
         break;
       case 'workflows':
-        set({ workflows: e.workflows });
+        set({ workflows: e.workflows, workflowProblems: {} });
         break;
       case 'release':
         set((s) => ({
@@ -2705,17 +2708,32 @@ export function resetWorkflow(id: string): void {
   socket?.send(JSON.stringify({ c: 'workflow_reset', id }));
 }
 
+/** Показать отказ под процессом или убрать его (`null`). */
+export function setWorkflowProblem(workflowId: string, text: string | null): void {
+  useStore.setState((s) => {
+    if (text === null) {
+      if (!(workflowId in s.workflowProblems)) return s;
+      const { [workflowId]: _drop, ...rest } = s.workflowProblems;
+      return { workflowProblems: rest };
+    }
+    return { workflowProblems: { ...s.workflowProblems, [workflowId]: text } };
+  });
+}
+
 /** Правки процесса офиса (docs/design/workflows/spec.md, «Правки процесса офиса»): выключить узел. */
 export function disableWorkflowNode(workflowId: string, node: string, why: string): void {
+  setWorkflowProblem(workflowId, null);
   socket?.send(JSON.stringify({ c: 'workflow_node_off', workflowId, node, why }));
 }
 
 export function enableWorkflowNode(workflowId: string, node: string, why: string): void {
+  setWorkflowProblem(workflowId, null);
   socket?.send(JSON.stringify({ c: 'workflow_node_on', workflowId, node, why }));
 }
 
 /** Вернуть процесс к базовому: снять все правки офиса, история остаётся. */
 export function resetWorkflowEdits(workflowId: string, why: string): void {
+  setWorkflowProblem(workflowId, null);
   socket?.send(JSON.stringify({ c: 'workflow_edits_reset', workflowId, why }));
 }
 

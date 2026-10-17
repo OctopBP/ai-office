@@ -1,5 +1,5 @@
 import { useId, useState } from 'react';
-import { disableWorkflowNode, enableWorkflowNode, resetWorkflowEdits, useStore } from './store';
+import { disableWorkflowNode, enableWorkflowNode, resetWorkflowEdits, setWorkflowProblem, useStore } from './store';
 import type { WorkflowEntry } from '../shared/workflow';
 import type { SkipWhen } from '../shared/workflow-overrides';
 import { formatFullDateTime } from './dates';
@@ -19,16 +19,15 @@ function whenLabel(when: SkipWhen | undefined): string {
 
 const byLabel = (by: string): string => (by === 'owner' ? t('wfx.by.owner') : by === 'manager' ? t('wfx.by.manager') : by);
 
-function NodeRow({ entry, view, why, onProblem }: {
-  entry: WorkflowEntry; view: NodeView; why: string; onProblem: (text: string | null) => void;
+function NodeRow({ entry, view, why }: {
+  entry: WorkflowEntry; view: NodeView; why: string;
 }) {
   const { node, mode } = view;
   const on = mode === 'on' || mode === 'required';
   const lockText = view.locked === 'required' ? t('wfx.node.required.hint') : view.locked === 'noBypass' ? t('wfx.node.noBypass.hint') : '';
   const flip = () => {
     const act = toggleAction(entry, view);
-    if ('problem' in act) { onProblem(t('wfx.rejected', { node: node.id, problem: act.problem })); return; }
-    onProblem(null);
+    if ('problem' in act) { setWorkflowProblem(entry.id, t('wfx.rejected', { node: node.id, problem: act.problem })); return; }
     if (act.action === 'enable') enableWorkflowNode(entry.id, node.id, why);
     else disableWorkflowNode(entry.id, node.id, why);
   };
@@ -64,7 +63,7 @@ function NodeRow({ entry, view, why, onProblem }: {
 }
 
 function ProcessCard({ entry, why }: { entry: WorkflowEntry; why: string }) {
-  const [problem, setProblem] = useState<string | null>(null);
+  const problem = useStore((s) => s.workflowProblems[entry.id]);
   const views = nodeViews(entry);
   const history = [...(entry.officeEdits?.history ?? [])].reverse();
   return (
@@ -73,14 +72,19 @@ function ProcessCard({ entry, why }: { entry: WorkflowEntry; why: string }) {
         <b>{entry.id}</b>
         <span className="muted small">{t('wfx.nodes', { n: entry.workflow.nodes.length })}</span>
         <button className="mini wfx-reset" disabled={!hasEdits(entry)}
-          onClick={() => { setProblem(null); resetWorkflowEdits(entry.id, why); }}>
+          onClick={() => resetWorkflowEdits(entry.id, why)}>
           {t('wfx.reset')}
         </button>
       </header>
       <ol className="wfx-nodes">
-        {views.map((v) => <NodeRow key={v.node.id} entry={entry} view={v} why={why} onProblem={setProblem} />)}
+        {views.map((v) => <NodeRow key={v.node.id} entry={entry} view={v} why={why} />)}
       </ol>
-      {problem && <div className="flows-problem" role="alert">{problem}</div>}
+      {problem && (
+        <div className="flows-problem" role="alert">
+          <span>{problem}</span>
+          <button className="mini" onClick={() => setWorkflowProblem(entry.id, null)}>{t('common.close')}</button>
+        </div>
+      )}
       <div className="wfx-history">
         <h4 className="wfx-history-title">{t('wfx.history')}</h4>
         {history.length === 0 && <p className="muted small">{t('wfx.history.empty')}</p>}
