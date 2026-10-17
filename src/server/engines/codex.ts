@@ -8,6 +8,7 @@ import { CODEX_BIN, codexBinary, codexQuery, runtimeEnv } from '../providers/cod
 import { codexStatus } from '../providers/diagnostics';
 import { codexPrice } from '../providers/pricing';
 import { limitBlock } from '../limits';
+import { ENGINE_BUILTIN_TOOLS } from '../../shared/providers';
 import { installFromNpm } from './install';
 import { deleteKey, providerKey, saveKey, verifyKey } from './keys';
 import { startCliLogin } from './login';
@@ -16,6 +17,8 @@ import { LoginError, type EngineAdapter, type EngineCapabilities, type ModelInfo
 export const codexEngine: EngineAdapter = {
   id: 'codex',
   providers: ['codex'],
+
+  builtinTools: ENGINE_BUILTIN_TOOLS['codex'],
 
   capabilities(platform: NodeJS.Platform = process.platform): EngineCapabilities {
     return {

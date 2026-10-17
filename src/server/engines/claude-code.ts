@@ -12,6 +12,7 @@ import { commandScrubFile, engineEnv, projectEnv } from '../childenv';
 import { c } from '../i18n';
 import { limitBlock } from '../limits';
 import { MODEL_ALIASES, MODEL_IDS } from '../../shared/models';
+import { ENGINE_BUILTIN_TOOLS } from '../../shared/providers';
 import { engineDir, installedBin, installFromNpm, runnable } from './install';
 import { deleteKey, providerKey, saveKey, verifyKey } from './keys';
 import { startCliLogin } from './login';
@@ -182,6 +183,8 @@ const LABEL_OF: Record<string, string> = {
 export const claudeCodeEngine: EngineAdapter = {
   id: 'claude-code',
   providers: ['claude-code'],
+
+  builtinTools: ENGINE_BUILTIN_TOOLS['claude-code'],
 
   capabilities(platform: NodeJS.Platform = process.platform): EngineCapabilities {
     return {

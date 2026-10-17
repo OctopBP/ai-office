@@ -57,6 +57,7 @@ async function providerView(id: ProviderId, force: boolean): Promise<ProviderVie
     ],
     status,
     capabilities: caps,
+    builtinTools: [...engine.builtinTools],
     key: key ? { tail: key.key.slice(-4), source: key.source } : null,
     ...(error ? { installError: error } : {}),
     // Адрес — не секрет: веб показывает его на карточке и в форме входа.

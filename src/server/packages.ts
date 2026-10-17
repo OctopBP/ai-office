@@ -1,4 +1,4 @@
-import { PROVIDER_IDS } from '../shared/providers';
+import { engineOf, PROVIDER_IDS, unknownEngineTools } from '../shared/providers';
 /**
  * Пакеты агентов: то, из чего в офисе заводится роль.
  *
@@ -329,6 +329,13 @@ export function parseManifest(raw: unknown, fallbackName: string): { manifest: A
   if (rt.tools !== undefined) {
     tools = strList(rt.tools);
     if (!tools) { err('runtime.tools', 'expected a list of tool names'); tools = null; }
+  }
+  // Имя, которого движок не знает, сессия молча отбросит: роль останется,
+  // например, без веба и не узнает об этом. Не ошибка — пакет годен, но
+  // автору стоит знать.
+  if (tools && ENGINES.includes(engine as Engine)) {
+    const engineId = engineOf(engine as Engine);
+    for (const tool of unknownEngineTools(engineId, tools)) warn('runtime.tools', `unknown tool "${tool}" for engine ${engineId}`);
   }
   let permissionMode: PermissionMode | null = null;
   if (rt.permissionMode !== undefined && rt.permissionMode !== null) {

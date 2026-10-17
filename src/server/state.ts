@@ -1,5 +1,5 @@
 import {
-  isProviderId, PROVIDERS, sameChoice, type ModelChoice, type ProviderId,
+  engineOf, isProviderId, PROVIDERS, sameChoice, unknownEngineTools, type EngineId, type ModelChoice, type ProviderId,
 } from '../shared/providers';
 import { isModelTier } from '../shared/models';
 import { randomUUID } from 'node:crypto';
@@ -4515,6 +4515,10 @@ export class OfficeState {
       maxTurns: wanted.maxTurns,
       ...(wanted.allowLocalBinding ? { allowLocalBinding: true } : {}),
       ...(wanted.spendFuseTokens ? { spendFuseTokens: wanted.spendFuseTokens } : {}),
+      // Подписка кладётся всегда, даже пустая: без поля роль получила бы
+      // умолчания по id, а они заведены для базовых ролей, не для этой.
+      mcp: [...(wanted.mcp ?? [])],
+      ...(wanted.capabilities?.length ? { capabilities: wanted.capabilities.filter(isCapability) } : {}),
       sprite: wanted.sprite,
       archived: false,
       brief: wanted.brief,
@@ -4666,7 +4670,11 @@ export class OfficeState {
     const vacancy = fromPackage.find((r) => this.staffOf(r.id).length === 0);
     // Открытая вакансия закрывается как есть: её рабочее место человек уже
     // мог настроить, и правки мастера поверх были бы сюрпризом.
-    if (vacancy) return this.hire(vacancy.id);
+    if (vacancy) {
+      const refused = this.hire(vacancy.id);
+      if (!refused) this.warnUnknownTools(vacancy);
+      return refused;
+    }
     if (pkg.manifest.manager) return this.say('market.managerTaken', { name: pkg.name });
     if (fromPackage.length >= MAX_HIRE_COUNT) {
       return this.say('state.hire.copies', { title: packageTitle(pkg, this.lang()), max: MAX_HIRE_COUNT });
@@ -4708,7 +4716,31 @@ export class OfficeState {
       this.pinRoleToRepo(id, root);
     }
     this.roleSetChanged(before);
-    return this.hire(id);
+    const refused = this.hire(id);
+    if (!refused) this.warnUnknownTools(role);
+    return refused;
+  }
+
+  /**
+   * Инструменты роли, которых не знает движок, на котором она будет работать:
+   * свой провайдер роли или выбор офиса. null — незнакомых нет. Сессия такие
+   * имена молча отбрасывает, поэтому говорим о них заранее.
+   */
+  unknownRoleTools(role: Role): { engine: EngineId; tools: string[] } | null {
+    if (!role.tools?.length) return null;
+    const provider = this.runtimeOf(role)?.provider ?? role.provider ?? 'claude-code';
+    const engine = engineOf(provider);
+    const tools = unknownEngineTools(engine, role.tools);
+    return tools.length ? { engine, tools } : null;
+  }
+
+  /** Предупреждение в ленту при найме: роль с инструментом, которого у движка нет. */
+  private warnUnknownTools(role: Role): void {
+    const unknown = this.unknownRoleTools(role);
+    if (!unknown) return;
+    this.addLog(null, 'system', this.say('market.unknownTools', {
+      title: role.title, id: role.id, tools: unknown.tools.join(', '), engine: unknown.engine,
+    }));
   }
 
   /**

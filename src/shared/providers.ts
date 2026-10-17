@@ -180,6 +180,39 @@ export type ProviderStatus =
 export const isConnected = (status: ProviderStatus): boolean =>
   status.state === 'ready' || status.state === 'limited';
 
+/**
+ * Руки офиса: инструменты, которые офис исполняет сам за движки без своих рук
+ * (`officeCatalog` в providers/codex-tools.ts; OpenCode зовёт его через мост).
+ */
+export const OFFICE_HANDS_TOOLS = ['Read', 'Write', 'Edit', 'Glob', 'Grep', 'Bash', 'TodoWrite'] as const;
+
+/**
+ * Встроенные инструменты, которые движок реально даёт роли (`Role.tools`,
+ * `runtime.tools`) — матрица D-5 §3.1. По списку форма рисует галочки, а
+ * валидатор предупреждает об имени, которого движок не знает: такое имя
+ * сессия молча отбросила бы. `Skill` сюда не входит — офис дописывает его
+ * сам, когда у роли есть скилы.
+ */
+export const ENGINE_BUILTIN_TOOLS: Record<EngineId, readonly string[]> = {
+  'claude-code': [
+    ...OFFICE_HANDS_TOOLS, 'WebSearch', 'WebFetch', 'NotebookEdit', 'MultiEdit', 'Task', 'Agent', 'Artifact',
+    'AskUserQuestion', 'BashOutput', 'KillShell', 'ToolSearch',
+  ],
+  // Свой web_search движка включается, когда WebSearch есть в списке (providers/codex.ts).
+  codex: [...OFFICE_HANDS_TOOLS, 'WebSearch'],
+  // Свои webfetch и websearch OpenCode выключены (providers/opencode.ts).
+  opencode: [...OFFICE_HANDS_TOOLS],
+};
+
+/** Инструменты, которые офис добавляет сам и которые не проверяются по списку движка. */
+const IMPLICIT_TOOLS = new Set(['Skill']);
+
+/** Имена из списка инструментов роли, которых движок не знает. */
+export function unknownEngineTools(engine: EngineId, tools: readonly string[]): string[] {
+  const known = new Set(ENGINE_BUILTIN_TOOLS[engine]);
+  return tools.filter((t) => !known.has(t) && !IMPLICIT_TOOLS.has(t));
+}
+
 /** Что движок умеет. По матрице офис решает, что показать и что разрешить (spec §5.5). */
 export interface EngineCapabilities {
   subscriptionLogin: boolean;

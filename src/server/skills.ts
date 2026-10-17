@@ -43,7 +43,7 @@ import { basename, dirname, resolve } from 'node:path';
 import type { SdkPluginConfig } from './engines/types';
 import type { McpServerDef } from '../shared/types';
 import { checkMcpServers } from './mcp';
-import { packageDir, parseManifest } from './packages';
+import { parseManifest, resolvePackage } from './packages';
 import type { Role } from './roles';
 import { ROOT } from './root';
 
@@ -214,9 +214,13 @@ export function readPackFields(dir: string): PackFile {
  * задачи, а не до следующего перезапуска сервера.
  */
 export function employeePack(role: Role): EmployeePack | null {
-  // Привязанная роль — папка пакета; остальные — набор по id в employees/.
-  const dir = role.package ? packageDir(role.package.name) : resolve(EMPLOYEES_DIR, role.id);
-  if (!existsSync(dir)) return null;
+  // Привязанная роль — папка пакета там, где он на самом деле лежит: у
+  // встроенного в packages/, у поставленного из маркета — в кеше по версии.
+  // Остальные — набор по id в employees/.
+  // Тем же путём роль находит пакет при загрузке, так что скилы берутся
+  // ровно из того пакета, из которого собрана роль.
+  const dir = role.package ? resolvePackage(role.package)?.dir : resolve(EMPLOYEES_DIR, role.id);
+  if (!dir || !existsSync(dir)) return null;
 
   const plugins: Plugin[] = [];
   const own = pluginAt(dir, role.id);

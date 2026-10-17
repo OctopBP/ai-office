@@ -8,7 +8,7 @@
  * (`keys.ts`), адрес Ollama и своего сервера — в `endpoints.ts`.
  */
 import { execFile } from 'node:child_process';
-import { providerSpec, type ProviderId } from '../../shared/providers';
+import { ENGINE_BUILTIN_TOOLS, providerSpec, type ProviderId } from '../../shared/providers';
 import { limitBlock } from '../limits';
 import {
   OPENCODE_BIN, OPENCODE_PKG, OPENCODE_VERSION, fetchModels, opencodeBinary, opencodeEnv, opencodeQuery,
@@ -58,6 +58,8 @@ async function reachable(provider: ProviderId, url: string, force: boolean): Pro
 export const opencodeEngine: EngineAdapter = {
   id: 'opencode',
   providers: OPENCODE_PROVIDERS,
+
+  builtinTools: ENGINE_BUILTIN_TOOLS['opencode'],
 
   capabilities(platform: NodeJS.Platform = process.platform): EngineCapabilities {
     return {

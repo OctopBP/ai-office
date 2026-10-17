@@ -86,6 +86,12 @@ export interface EngineAdapter {
   readonly id: EngineId;
   readonly providers: ProviderId[];
   capabilities(platform?: NodeJS.Platform): EngineCapabilities;
+  /**
+   * Встроенные инструменты, которые движок реально даёт роли
+   * (`ENGINE_BUILTIN_TOOLS` в shared/providers.ts): по ним форма рисует
+   * галочки, а валидатор предупреждает о незнакомом имени.
+   */
+  readonly builtinTools: readonly string[];
 
   /** Где лежит движок и какой версии; null — не установлен. */
   locate(): Promise<{ path: string; version: string } | null>;

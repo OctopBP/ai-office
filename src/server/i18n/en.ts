@@ -120,6 +120,7 @@ export const en = {
   'market.builtin': 'Package {name} is built in: it updates with the office, not on its own.',
   'market.managerTaken': 'Package {name} is a manager, and the office already has its one manager.',
   'market.hiredFrom': 'Role {title} ({id}) created from package {name} {version}',
+  'market.unknownTools': 'Role {title} ({id}) lists tools the {engine} engine does not have: {tools}. The session will run without them.',
   'chromium.installing': 'No browser for {who} on this machine — installing Chromium in the background, this takes a couple of minutes.',
   'chromium.installed': 'Chromium for {who} installed: the QA browser is ready.',
   'chromium.installFailed': 'Could not install Chromium for {who}: {reason}. Without it QA has no browser; the office will retry when the next task starts, or install by hand: npx playwright install chromium.',

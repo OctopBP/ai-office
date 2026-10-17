@@ -120,6 +120,7 @@ export const ru: Record<keyof typeof en, string> = {
   'market.builtin': 'Пакет {name} встроенный: он обновляется вместе с офисом, отдельно — нет.',
   'market.managerTaken': 'Пакет {name} — менеджер, а менеджер в офисе уже есть и один.',
   'market.hiredFrom': 'Заведена роль {title} ({id}) из пакета {name} {version}',
+  'market.unknownTools': 'У роли {title} ({id}) в списке инструменты, которых нет у движка {engine}: {tools}. Сессия пойдёт без них.',
   'chromium.installing': 'Браузера для {who} на этой машине нет — ставлю Chromium в фоне, это пара минут.',
   'chromium.installed': 'Chromium для {who} установлен: браузер QA готов к работе.',
   'chromium.installFailed': 'Chromium для {who} поставить не удалось: {reason}. Без него у QA не будет браузера; офис попробует снова на старте следующей задачи, а вручную ставится так: npx playwright install chromium.',
