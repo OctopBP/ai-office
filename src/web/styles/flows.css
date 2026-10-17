@@ -174,3 +174,22 @@
 .release-field { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
 .release-field input, .release-field select { width: 100%; box-sizing: border-box; }
 .release-when { display: flex; flex-wrap: wrap; gap: var(--space-1) var(--space-3); }
+
+/* Полировка страницы «Выпуски»: поля контейнера как у `.shell-page-body.pad`,
+   ровный зазор между карточками, перенос длинных версий, тегов и заметок. */
+.life.releases { padding: var(--space-4); }
+.releases .life-list { gap: var(--space-3); padding: 0 0 var(--space-1); }
+.releases .life-row { gap: var(--space-2); min-width: 0; overflow-wrap: anywhere; }
+.releases .life-row-head { gap: var(--space-2) var(--space-3); line-height: 1.4; }
+.releases .life-row-head > b { font-size: var(--fs-body); min-width: 0; }
+.releases .release-facts, .releases .release-links { line-height: 1.5; min-width: 0; }
+.releases .release-facts > span, .releases .release-live > * { min-width: 0; }
+.releases .release-live { padding: var(--space-1) var(--space-2); border-radius: var(--radius-icon); background: var(--surface); }
+.releases .release-live.stuck { background: rgba(var(--warn-rgb), .14); }
+.releases .chip { flex: none; white-space: nowrap; }
+.releases .empty { margin: 0; padding: var(--space-6) var(--space-4); text-align: center; color: var(--ink-3); background: var(--film); border-radius: var(--radius-card); }
+.releases .flows-nodes { display: block; max-width: 100%; overflow-x: auto; }
+.releases .release-epics { gap: var(--space-1); }
+.releases .release-epic { white-space: normal; overflow-wrap: anywhere; }
+.releases .release-check { white-space: normal; align-items: flex-start; }
+.releases .release-when { min-width: 0; }
