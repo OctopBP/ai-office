@@ -15,6 +15,7 @@ import { DEFAULT_GRAPHICS, GRAPHICS_RANGE, type Graphics } from './office3d/grap
 import { t, type UiKey } from './i18n';
 import { McpCatalog, type McpRequest } from './McpCatalog';
 import { OfficeIconSetting } from './OfficeIcon';
+import { OfficeWorkflows } from './OfficeWorkflows';
 import { OfficeSecrets } from './OfficeSecrets';
 import { OfficeSubprojects } from './OfficeSubprojects';
 import { AppVersion, UpdateChannelSetting, hasChannelBridge } from './UpdateChannel';
@@ -32,7 +33,7 @@ const parse = (v: string): number | null => {
   return v.trim() === '' || !Number.isFinite(n) || n <= 0 ? null : n;
 };
 
-type Section = 'general' | 'providers' | 'access' | 'limits' | 'tools' | 'project' | 'life' | 'graphics';
+type Section = 'general' | 'providers' | 'access' | 'limits' | 'tools' | 'project' | 'life' | 'workflows' | 'graphics';
 
 const THEME_MODES: Array<[ThemeMode, UiKey]> = [
   ['day', 'settings.theme.day'],
@@ -48,6 +49,7 @@ const SECTIONS: Array<[Section, UiKey]> = [
   ['tools', 'settings.section.tools'],
   ['project', 'settings.section.project'],
   ['life', 'settings.section.life'],
+  ['workflows', 'settings.section.workflows'],
   ['graphics', 'settings.section.graphics'],
 ];
 
@@ -738,6 +740,14 @@ export function SettingsPage({ onClose }: { onClose: () => void }) {
                   disabled={initiativeMode === 'off'}
                   onChange={setInitiativeShare}
                 />
+              </Group>
+            </div>
+          )}
+
+          {section === 'workflows' && (
+            <div className="form">
+              <Group title={t('wfx.title')} desc={t('wfx.desc')}>
+                <OfficeWorkflows />
               </Group>
             </div>
           )}

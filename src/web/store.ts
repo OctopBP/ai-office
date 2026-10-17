@@ -2705,6 +2705,20 @@ export function resetWorkflow(id: string): void {
   socket?.send(JSON.stringify({ c: 'workflow_reset', id }));
 }
 
+/** Правки процесса офиса (docs/design/workflows/spec.md, «Правки процесса офиса»): выключить узел. */
+export function disableWorkflowNode(workflowId: string, node: string, why: string): void {
+  socket?.send(JSON.stringify({ c: 'workflow_node_off', workflowId, node, why }));
+}
+
+export function enableWorkflowNode(workflowId: string, node: string, why: string): void {
+  socket?.send(JSON.stringify({ c: 'workflow_node_on', workflowId, node, why }));
+}
+
+/** Вернуть процесс к базовому: снять все правки офиса, история остаётся. */
+export function resetWorkflowEdits(workflowId: string, why: string): void {
+  socket?.send(JSON.stringify({ c: 'workflow_edits_reset', workflowId, why }));
+}
+
 /** Выпустить цель сейчас (docs/design/releases/spec.md §5). */
 export function startRelease(targetId: string): void {
   socket?.send(JSON.stringify({ c: 'release_start', targetId }));
