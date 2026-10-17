@@ -17,6 +17,14 @@ What you can do:
 5. Touch — `tap` and `swipe {points, durationMs}` along a path at a given
    speed (a fast swipe is about 120 ms, a slow one about 600 ms); frames
    during a gesture — `storyboard {count, intervalMs, swipe | tap}`.
+   Fill a form — `type {selector, text}`: the value replaces the field
+   content and the page gets `input` (React fields pick it up); `slowly: true`
+   types key by key, `press: "Enter"` presses a key afterwards. Keys alone —
+   `press_key {key, selector?, count?}`: Enter, Tab, Escape. The selector is
+   CSS (`#email`) or Playwright (`label=Email`, `role=textbox[name="Name"]`)
+   and must match exactly one field. Dark theme —
+   `set_color_scheme {scheme: "dark"}` (prefers-color-scheme), no reload;
+   check both schemes if the app has a dark one.
 6. Collect the console, failed requests and exceptions — `get_console`,
    `get_failed_requests`, `get_errors`.
 7. Take a screenshot — `screenshot` into `docs/qa/<task>/shots/` — and look at

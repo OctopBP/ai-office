@@ -17,6 +17,14 @@
 5. Касаться пальцем — `tap` и `swipe {points, durationMs}` по траектории с
    заданной скоростью (быстрый свайп около 120 мс, медленный около 600 мс);
    раскадровка во время жеста — `storyboard {count, intervalMs, swipe | tap}`.
+   Заполнить форму — `type {selector, text}`: значение заменяет содержимое
+   поля, страница получает `input` (React-поля его видят); `slowly: true` —
+   печать по клавишам, `press: "Enter"` — клавиша после ввода. Клавиши
+   отдельно — `press_key {key, selector?, count?}`: Enter, Tab, Escape.
+   Селектор — CSS (`#email`) или Playwright (`label=Почта`,
+   `role=textbox[name="Имя"]`); он должен находить ровно одно поле.
+   Тёмная тема — `set_color_scheme {scheme: "dark"}` (prefers-color-scheme),
+   без перезагрузки; проверь обе схемы, если у приложения есть тёмная.
 6. Собрать консоль, упавшие запросы и исключения — `get_console`,
    `get_failed_requests`, `get_errors`.
 7. Снять скриншот — `screenshot` в `docs/qa/<задача>/shots/` — и разобрать

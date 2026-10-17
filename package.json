@@ -26,6 +26,7 @@
     "scene:check": "python3 tools/blender/inspect_glb.py",
     "units": "python3 scripts/units.py",
     "test:perm": "tsx scripts/test-permissions.ts",
+    "test:browser-input": "node tools/browser/input.mjs",
     "test:gitread": "node --import tsx/esm scripts/test-git-read.ts",
     "test:providers": "node --import tsx scripts/test-providers.ts",
     "test:secrets": "node --import tsx scripts/test-secrets.ts",

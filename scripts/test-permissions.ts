@@ -69,6 +69,9 @@ const cases: Case[] = [
   ['mcp__browser__tap', { x: 10, y: 20 },                        'safe'],
   ['mcp__browser__screenshot', { path: 'docs/qa/T-1/a.png' },    'safe'],
   ['mcp__browser__storyboard', { count: 3, intervalMs: 100 },    'safe'],
+  ['mcp__browser__type', { selector: '#email', text: 'a@b.c' },  'safe'],
+  ['mcp__browser__press_key', { key: 'Enter' },                  'safe'],
+  ['mcp__browser__set_color_scheme', { scheme: 'dark' },         'safe'],
   ['mcp__other-browser__open', { url: 'https://example.com' },   'write'],
   // Мост к редактору Unity: произвольный C# в открытом редакторе — всегда
   // вопрос, остальное по общему глаголу. Правило — только для своего id.

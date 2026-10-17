@@ -13,6 +13,10 @@
 //   OFFICE_TASK_ID       — номер задачи; раскадровка по умолчанию идёт в docs/qa/<задача>/shots/
 //   OFFICE_BROWSER_PATH  — свой исполняемый файл Chromium для обычного режима
 //   OFFICE_BROWSER_SHELL — chrome-headless-shell для запасного режима
+//
+// Ввод: type заполняет поле по селектору (значение заменяет содержимое, страница получает
+// input и change — контролируемые инпуты React его видят), press_key жмёт клавиши.
+// set_color_scheme эмулирует prefers-color-scheme через page.emulateMedia.
 
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
@@ -232,6 +236,7 @@ const session = {
   mode: null, // 'headless' | 'headless-shell-single-process'
   device: { name: 'desktop', ...PRESETS.desktop },
   offline: false,
+  colorScheme: 'light', // 'light' | 'dark': prefers-color-scheme страницы
   desktopUA: null,
   launching: null,
 };
@@ -326,6 +331,7 @@ async function ensurePage() {
       // Родной UA запоминаем до первого override, чтобы вернуть его при переходе на десктоп.
       session.desktopUA ??= (await page.evaluate(() => navigator.userAgent)).replace('HeadlessChrome', 'Chrome');
       await applyDevice();
+      await page.emulateMedia({ colorScheme: session.colorScheme });
     })().finally(() => {
       session.launching = null;
     });
@@ -516,7 +522,7 @@ function filterSince(list, since, limit) {
 }
 
 function deviceView() {
-  return { ...session.device, offline: session.offline, mode: session.mode };
+  return { ...session.device, offline: session.offline, colorScheme: session.colorScheme, mode: session.mode };
 }
 
 // Путь внутри рабочей копии; всё, что уходит наружу через `..` или абсолютный путь, — отказ.
@@ -917,6 +923,109 @@ server.registerTool(
     if (board.status === 'rejected') throw board.reason;
     if (done.status === 'rejected') throw new Error(`кадры сняты в ${board.value.dir}, но жест сорвался: ${firstLine(done.reason)}`);
     return gesture ? { ...board.value, gesture: done.value } : board.value;
+  }),
+);
+
+// ——— Ввод с клавиатуры ———
+
+const INPUT_TIMEOUT = 5_000;
+
+// Поле по селектору Playwright: CSS (#email), text=…, role=textbox[name="…"], label=….
+// Ровно один элемент: иначе ввод ушёл бы не в то поле, а агент бы этого не заметил.
+async function fieldBy(selector) {
+  const page = await ensurePage();
+  const loc = page.locator(selector);
+  const count = await loc.count();
+  if (count === 0) throw new Error(`селектор не нашёл элемент: ${selector}`);
+  if (count > 1) throw new Error(`селектор нашёл ${count} элементов, нужен один: ${selector}`);
+  return loc;
+}
+
+// Что теперь в поле: value у input и textarea, текст у contenteditable.
+const fieldValue = (loc) =>
+  loc.evaluate((el) => ('value' in el ? String(el.value) : el.textContent || ''));
+
+const keySchema = z
+  .string()
+  .min(1)
+  .max(40)
+  .describe('Клавиша в нотации Playwright: Enter, Tab, Escape, Backspace, ArrowDown, Control+A, Shift+Tab');
+
+server.registerTool(
+  'type',
+  {
+    description:
+      'Ввести текст в поле (input, textarea, contenteditable) по селектору Playwright: #id, .class, text=…, ' +
+      'role=textbox[name="Почта"], label=Почта. Значение полностью заменяет содержимое поля; страница получает ' +
+      'события input и change, поэтому контролируемые инпуты React его подхватывают. slowly — печать по одной ' +
+      'клавише (keydown/keypress/keyup на каждый символ) для полей, которые слушают клавиши. ' +
+      'press — клавиша после ввода, например Enter для отправки формы.',
+    inputSchema: {
+      selector: z.string().min(1).describe('Селектор поля, например #email или role=textbox[name="Имя"]'),
+      text: z.string().max(10_000).describe('Новое значение поля; пустая строка очищает поле'),
+      slowly: z.boolean().optional().describe('Печатать посимвольно, а не вставлять значение целиком'),
+      press: keySchema.optional(),
+    },
+  },
+  tool(async ({ selector, text, slowly, press }) => {
+    const loc = await fieldBy(selector);
+    if (slowly) {
+      // Сначала очистка тем же fill: печать по клавишам дописывает, а не заменяет.
+      await loc.fill('', { timeout: INPUT_TIMEOUT });
+      await loc.pressSequentially(text, { delay: 20, timeout: INPUT_TIMEOUT + text.length * 50 });
+    } else {
+      await loc.fill(text, { timeout: INPUT_TIMEOUT });
+    }
+    // Значение читаем до press: Enter может отправить форму и сбросить поле.
+    const value = await fieldValue(loc);
+    if (press) await loc.press(press, { timeout: INPUT_TIMEOUT });
+    return { selector, value, ...(press ? { pressed: press } : {}) };
+  }),
+);
+
+server.registerTool(
+  'press_key',
+  {
+    description:
+      'Нажать клавишу или сочетание: Enter, Tab, Escape, Backspace, стрелки, Control+A. С selector — сначала ' +
+      'фокус на этом элементе, без него — в элемент, который сейчас в фокусе. count — сколько раз подряд.',
+    inputSchema: {
+      key: keySchema,
+      selector: z.string().min(1).optional().describe('Элемент, в который нажать; без него — текущий фокус'),
+      count: z.number().int().min(1).max(50).optional().describe('По умолчанию 1'),
+    },
+  },
+  tool(async ({ key, selector, count }) => {
+    const page = await ensurePage();
+    const loc = selector ? await fieldBy(selector) : null;
+    for (let i = 0; i < (count || 1); i++) {
+      if (loc) await loc.press(key, { timeout: INPUT_TIMEOUT });
+      else await page.keyboard.press(key);
+    }
+    // Куда ушёл фокус — главное, что проверяют Tab и Escape.
+    const focus = await page.evaluate(() => {
+      const el = document.activeElement;
+      if (!el || el === document.body) return null;
+      return { tag: el.tagName.toLowerCase(), id: el.id || undefined, name: el.getAttribute('name') || undefined };
+    });
+    return { key, count: count || 1, focus };
+  }),
+);
+
+server.registerTool(
+  'set_color_scheme',
+  {
+    description:
+      'Эмулировать системную тему: prefers-color-scheme light или dark через page.emulateMedia, без перезагрузки. ' +
+      'Медиазапросы и matchMedia страницы срабатывают сразу; схема сохраняется для следующих open.',
+    inputSchema: {
+      scheme: z.enum(['light', 'dark']),
+    },
+  },
+  tool(async ({ scheme }) => {
+    session.colorScheme = scheme;
+    if (session.page && !session.page.isClosed()) await session.page.emulateMedia({ colorScheme: scheme });
+    return { colorScheme: scheme };
   }),
 );
 
