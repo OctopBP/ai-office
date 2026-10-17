@@ -118,7 +118,10 @@ kbd {
 }
 .seg button:hover:not(:disabled) { background: var(--film); }
 .seg button.on { background: var(--accent); color: var(--accent-ink); font-weight: 500; }
-.seg button.on:hover:not(:disabled) { filter: none; }
+/* Фон возвращаем явно: `.seg button:hover:not(:disabled)` выше стоит позже
+   `button.on:hover` кита и иначе затирал заливку выбранного сегмента плёнкой —
+   белый текст на светлом фоне под курсором не читался. */
+.seg button.on:hover:not(:disabled) { background: var(--accent); filter: none; }
 /* Точка непрочитанного на сегменте: у самой подписи, чтобы не раздвигать ряд
    и не шевелить соседние сегменты, когда она загорается и гаснет. */
 .seg button { display: inline-flex; align-items: center; gap: 6px; }

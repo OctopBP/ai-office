@@ -542,9 +542,12 @@ export type ThemeMode = Theme | 'system';
 const darkMedia = window.matchMedia('(prefers-color-scheme: dark)');
 const resolveTheme = (mode: ThemeMode): Theme => (mode === 'system' ? (darkMedia.matches ? 'night' : 'day') : mode);
 function initialThemeMode(): ThemeMode {
-  const v = localStorage.getItem('office-theme');
+  let v: string | null = null;
+  try { v = localStorage.getItem('office-theme'); } catch { /* хранилище закрыто — «как в системе» */ }
   return v === 'day' || v === 'night' || v === 'system' ? v : 'system';
 }
+/** Явный выбор важнее системной схемы: вешаем тему на страницу сразу, до первой отрисовки. */
+document.documentElement.dataset.theme = resolveTheme(initialThemeMode());
 
 const INPUT_DRAFTS_KEY = 'office-input-drafts';
 
@@ -827,7 +830,7 @@ export const useStore = create<State>((set, get) => ({
     saveInputDrafts(inputDrafts);
     return { inputDrafts };
   }),
-  setThemeMode: (m) => { localStorage.setItem('office-theme', m); set({ themeMode: m, theme: resolveTheme(m) }); },
+  setThemeMode: (m) => { try { localStorage.setItem('office-theme', m); } catch { /* выбор не запомнится, но применится */ } set({ themeMode: m, theme: resolveTheme(m) }); },
   view: 'office',
   // Открыли чат — точка непрочитанного своё отслужила.
   // Ушли из вида «Чат» — черновик нового чата не переживает и этого.
