@@ -86,8 +86,44 @@ export interface MyAgentView {
   dir: string;
   /** Роли этого офиса, нанятые из агента (без архивных). */
   roleIds: string[];
+  /** Последняя публикация в маркет; null — агент живёт только в этом офисе. */
+  published: MyAgentPublished | null;
   /** Замечания валидатора пакета (без ошибок — пакет с ошибкой в список не попадает). */
   warnings: string[];
+}
+
+/**
+ * Публикация своего агента в маркет: под каким именем и версией он лежит в
+ * реестре. Пакет в реестре — форк под областью владельца, а не `@local`.
+ */
+export interface MyAgentPublished {
+  /** `@alice/boardgame-designer`. */
+  name: string;
+  version: string;
+  /** Полный хеш коммита, на который смотрит запись реестра. */
+  commit: string;
+  /** Репозиторий на GitHub, `https://github.com/alice/agents.git`. */
+  repo: string;
+  /** Папка пакета в репозитории. */
+  path: string;
+  /** ISO-время публикации. */
+  at: string;
+  /** Куда вписали: файл реестра или адрес сервиса индекса. */
+  registry: string;
+}
+
+/** Тело `POST /api/my-agents/<id>/publish`. */
+export interface MyAgentPublishRequest {
+  /** Имя в реестре: `@<владелец GitHub>/<имя>`. */
+  name: string;
+  /** Пусто — следующая patch после прошлой публикации, а впервые — версия пакета. */
+  version?: string;
+  /** Рабочая копия репозитория владельца на машине сервера; origin — на GitHub. */
+  repoDir: string;
+  /** Папка пакета в репозитории; пусто — `agents/<имя>`. */
+  path?: string;
+  /** Токен GitHub для сервиса индекса; пусто — `GITHUB_TOKEN` сервера. */
+  token?: string;
 }
 
 /** Что сделали со своим агентом — приезжает в ответе, чтобы форма знала, на что ответ. */

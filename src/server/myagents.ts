@@ -18,10 +18,15 @@
  *   GET    /api/my-agents/draft?roleId=    — черновик из роли для формы;
  *   PUT    /api/my-agents/<id>             — править, `{ patch }`; правка доезжает до копий офиса;
  *   POST   /api/my-agents/<id>/hire        — нанять ещё раз (карточка «Нанять»);
- *   DELETE /api/my-agents/<id>             — удалить; нанятого — 409.
+ *   DELETE /api/my-agents/<id>             — удалить; нанятого — 409;
+ *   POST   /api/my-agents/<id>/publish     — опубликовать в маркет (agentpublish.ts),
+ *          `{ name: '@владелец/имя', version?, repoDir, path?, token? }`.
  * `<id>` — имя без области: `boardgame-designer` для `@local/boardgame-designer`.
  * `hire` по умолчанию true («Сохранить и нанять»); false — только сохранить.
  * В ответе создания и найма — `hired: { roleId, problem }`, правки — `roleIds`.
+ *
+ * Сбоку же, в `.office-local.json`, офис помнит последнюю публикацию: имя и
+ * версию в реестре (`MyAgentView.published`).
  *
  * Найм идёт через `hireFromPackage`, правка копий — через `updateRolePackage`
  * (раздел «офис» ниже). Набор инструментов сессии берётся из `runtime.tools`
@@ -34,7 +39,8 @@ import { isAbsolute, resolve } from 'node:path';
 import type { Lang } from '../shared/i18n';
 import { isLookId } from '../shared/looks';
 import { MODEL_RE } from '../shared/models';
-import type { MyAgentDraft, MyAgentSkill, MyAgentView } from '../shared/myagent';
+import type { PublishEnv } from './agentpublish';
+import type { MyAgentDraft, MyAgentPublished, MyAgentPublishRequest, MyAgentSkill, MyAgentView } from '../shared/myagent';
 import { engineOf, isProviderId, unknownEngineTools, type ProviderId } from '../shared/providers';
 import { ROLE_TITLE_LIMIT, type FieldError } from '../shared/types';
 import { isCapability } from '../shared/workflow';
@@ -81,13 +87,33 @@ const shortId = (name: string): string => name.split('/').pop() ?? name;
 
 // ------------------------------------------------------------ чтение
 
-function readMeta(dir: string): { zone: string | null } {
+/** Файл офиса как есть: объект или пустой, если файла нет или он битый. */
+function readMetaRaw(dir: string): Record<string, unknown> {
   try {
-    const raw = JSON.parse(readFileSync(resolve(dir, LOCAL_META), 'utf8')) as { zone?: unknown };
-    return { zone: typeof raw.zone === 'string' && raw.zone ? raw.zone : null };
+    const raw = JSON.parse(readFileSync(resolve(dir, LOCAL_META), 'utf8')) as unknown;
+    return raw && typeof raw === 'object' && !Array.isArray(raw) ? raw as Record<string, unknown> : {};
   } catch {
-    return { zone: null };
+    return {};
   }
+}
+
+/** Последняя публикация агента в маркет из файла офиса; null — не публиковали. */
+function publishedOf(raw: unknown): MyAgentPublished | null {
+  if (!raw || typeof raw !== 'object') return null;
+  const p = raw as Record<string, unknown>;
+  const str = (k: string): string => (typeof p[k] === 'string' ? p[k] as string : '');
+  if (!str('name') || !str('version') || !str('commit')) return null;
+  return { name: str('name'), version: str('version'), commit: str('commit'), repo: str('repo'), path: str('path'), at: str('at'), registry: str('registry') };
+}
+
+function readMeta(dir: string): { zone: string | null; published: MyAgentPublished | null } {
+  const raw = readMetaRaw(dir);
+  return { zone: typeof raw.zone === 'string' && raw.zone ? raw.zone : null, published: publishedOf(raw.published) };
+}
+
+/** Записать публикацию в файл офиса рядом с пакетом; остальные поля файла не трогаются. */
+export function writePublished(dir: string, published: MyAgentPublished): void {
+  writeFileSync(resolve(dir, LOCAL_META), `${JSON.stringify({ ...readMetaRaw(dir), published }, null, 2)}\n`);
 }
 
 /** Свои скилы пакета: `skills/<имя>/SKILL.md` без front matter. */
@@ -132,7 +158,7 @@ function draftOf(pkg: AgentPackage, lang: Lang, zone: string | null): MyAgentDra
 }
 
 function viewOf(pkg: AgentPackage, warnings: string[], ctx: MyAgentCtx): MyAgentView {
-  const { zone } = readMeta(pkg.dir);
+  const { zone, published } = readMeta(pkg.dir);
   const draft = draftOf(pkg, ctx.lang, zone);
   return {
     name: pkg.name,
@@ -145,6 +171,7 @@ function viewOf(pkg: AgentPackage, warnings: string[], ctx: MyAgentCtx): MyAgent
     zone,
     dir: pkg.dir,
     roleIds: hiredFrom(pkg.name, ctx.roles),
+    published,
     warnings,
   };
 }
@@ -274,7 +301,7 @@ function freeId(title: string, root: string): string {
 // ------------------------------------------------------------ запись
 
 /** `0.1.3` → `0.1.4`: правка своего агента — новая версия пакета. */
-const bumpPatch = (v: string): string => {
+export const bumpPatch = (v: string): string => {
   const m = /^(\d+)\.(\d+)\.(\d+)/.exec(v);
   return m ? `${m[1]}.${m[2]}.${Number(m[3]) + 1}` : '0.1.0';
 };
@@ -332,7 +359,8 @@ function writeAgent(
       const description = (skill.description ?? '').replace(/\s+/g, ' ').trim() || skill.name;
       writeFileSync(resolve(dir, 'SKILL.md'), `---\nname: ${skill.name}\ndescription: ${description}\n---\n\n${skill.text.trim()}\n`);
     }
-    writeFileSync(resolve(tmp, LOCAL_META), `${JSON.stringify({ zone: draft.zone ?? null }, null, 2)}\n`);
+    // Правка не теряет того, что офис записал сбоку: публикацию в маркет.
+    writeFileSync(resolve(tmp, LOCAL_META), `${JSON.stringify({ ...readMetaRaw(target), zone: draft.zone ?? null }, null, 2)}\n`);
 
     const { pkg, problems } = readPackage(tmp);
     if (!pkg) {
@@ -587,6 +615,8 @@ export interface MyAgentsHttpEnv {
   office: (wanted: string | null) =>
     | { root: string; ctx: MyAgentCtx; role: (id: string) => Role | undefined; office: MyAgentOffice }
     | { code: number; error: string };
+  /** Куда публиковать в маркет; нет — реестр процесса (agentpublish.ts). */
+  publish?: () => PublishEnv;
 }
 
 const defaultEnv: MyAgentsHttpEnv = {
@@ -696,6 +726,17 @@ async function serve(req: IncomingMessage, res: ServerResponse, url: string, que
     return json(res, hired.problem ? 409 : 200, {
       agent, hired: { roleId: hired.roleId, problem: hired.problem }, warnings: hired.warnings,
     });
+  }
+  const publish = /^([^/]+)\/publish$/.exec(rest);
+  if (publish) {
+    if (method !== 'POST') return json(res, 405, { error: c('myagent.method') }, { Allow: 'POST' });
+    const got = await body(req);
+    if (!got) return bad();
+    // Модуль публикации тянет маркет и git — грузим его, только когда публикуют.
+    const { publishMyAgent } = await import('./agentpublish');
+    const result = await publishMyAgent(root, decodeURIComponent(publish[1]), got as unknown as MyAgentPublishRequest, ctx, env.publish?.());
+    if (result.ok) return json(res, 200, { agent: result.agent, published: result.published, warnings: result.warnings });
+    return json(res, result.code, { errors: result.errors, warnings: result.warnings });
   }
   let id: string;
   try {
