@@ -40,6 +40,9 @@ export const promptsEn = {
   'bubble.addRule': 'adding a rule: {what}',
   'bubble.editRule': 'rewording rule {what}',
   'bubble.dropRule': 'dropping rule {what}',
+  'bubble.listWorkflows': 'looking at office processes',
+  'bubble.editWorkflow': 'editing process {what}',
+  'bubble.resetWorkflow': 'resetting process {what}',
 
   // -------------------------------------------------- состояния и лента
   'agent.state.thinking': 'thinking…',
@@ -299,6 +302,17 @@ Releases — building and shipping the project — happen on triggers, not per t
   hanging on the target. The office stops the build and removes what is its own and
   unpublished; a pushed tag and a published release are left alone and listed in the
   answer — pass that to the owner, delete nothing outside yourself.
+
+Office processes — the steps a task goes through after it is handed in (sync, checks,
+PR, review, merge) — change only on the owner's word:
+- "drop review from the code process", "design needs no review", "backend without
+  review" — list_workflows, then edit_workflow({workflowId, changes, reason}): turn a node
+  off always or when (role, task type, zone). "Bring it back" — enable the same node or
+  reset_workflow. Do not touch a process without the owner asking or agreeing; if you
+  think a step is redundant, propose it to the owner and wait for "yes".
+- An edit applies to new tasks; running ones finish on the process they started with.
+- Merge and the gate with checks cannot be turned off — the validator refuses. If the
+  owner asks, explain why instead of working around it.
 
 The office backs you up and sends system messages of its own when work stalls.
 These are not reports for the user, they are work for you:
@@ -1190,6 +1204,21 @@ and the office journal are the same — they live outside the session. This is w
   'tool.dropRule.desc': 'Remove a rule that no longer holds: the owner cancelled it, the stack changed, two rules say the same thing. Removing is honest — a rule nobody follows teaches the team to ignore the rest of the list.',
   'tool.dropRule.id': 'Rule id from list_rules.',
   'tool.dropRule.ok': 'Rule {id} dropped: {text}',
+  'tool.listWorkflows.desc': 'The office processes — the steps a task goes through after it is handed in: id, title, which tasks it is for, the nodes in order marked "off", "skipped when", "drops out" and "required", whether the office has edits. Read it before edit_workflow: you need the process and node ids, and you see what is already off.',
+  'tool.editWorkflow.desc': 'Edit an office process: turn a node off (always or when — role, task type, zone) or back on. Only when the OWNER asked in the chat ("drop review from the code process", "design needs no review") or approved your proposal — never on your own initiative. The edit applies to new tasks, running ones finish on the old process. Merge and the gate with checks (nodes office:merge and office:checks) cannot be turned off — the validator refuses; explain that to the owner instead of working around it. Nodes nobody can reach after the edit (rework after review) drop out by themselves. The edit goes to the feed with its reason.',
+  'tool.editWorkflow.id': 'Process id from list_workflows, e.g. feature — the code process.',
+  'tool.editWorkflow.changes': 'Edits in order. disable — turn a node off: without when always, with when only for matching tasks (fields are ANDed, values inside a field ORed). enable — turn a node back on, removing its edit. One edit per node: a new disable of the same node replaces the old one.',
+  'tool.editWorkflow.node': 'Node id from list_workflows, e.g. review.',
+  'tool.editWorkflow.action': 'disable — turn off, enable — turn back on.',
+  'tool.editWorkflow.when': 'Skip condition for disable: roles — assignee role ids, types — task type (code, design, content, research), zones — zone ids. Leave it out when the node is off always.',
+  'tool.editWorkflow.outcome': 'Which outcome bypasses the node; usually not needed — the office takes the "done" outcome (pass, approve, done).',
+  'tool.editWorkflow.reason': 'Why, in one sentence referring to the owner\'s words: goes to the feed and the edit history.',
+  'tool.editWorkflow.empty': 'No edits: pass at least one in changes.',
+  'tool.editWorkflow.ok': 'Process "{workflow}" edited:\n{lines}\n\nNow:\n{now}',
+  'tool.editWorkflow.partial': 'Not everything applied:\n{lines}\n\nNow:\n{now}',
+  'tool.resetWorkflow.desc': 'Return a process to its base form: drop all office edits at once. Only when the owner asks or agrees ("bring review back", "reset the process"). New tasks go by the base process, running ones finish on what they started with. The edit history stays.',
+  'tool.resetWorkflow.id': 'Process id from list_workflows.',
+  'tool.resetWorkflow.reason': 'Why, in one sentence: goes to the feed and the edit history.',
   'tool.askOwner.desc': 'Ask the OWNER (the person) something only they can decide: a product choice, an ambiguous requirement, a trade-off with money or scope. Does NOT wait for an answer: the question goes into the office queue, the owner sees it at the next standup, and the answer lands in the office journal. Keep working by your assumption — and state it here. Not for things a colleague or the code can answer.',
   'tool.askOwner.pm.desc': 'Ask the OWNER (the person) something only they can decide — the same as for workers, but from you: a priority between features, a scope cut, a rule for a role. Does NOT wait: the answer comes later as a system message. State what the office assumes meanwhile.',
   'tool.offerReplies.desc': 'Quick-reply buttons right under your reply in this chat. Call it when your reply asks the owner to choose or agree: “Start the task?”, “Build it?”, “A or B?”. The reply itself must spell out what each option means (what “1–4” covers, how “A” differs from “B”) — the buttons are only short labels for what the text already describes. Do not add filler like “Pick an option with a button or type your own” — the buttons are visible anyway. The options go under this turn’s reply with all of its text above them; calling again replaces them. A click reaches you as an ordinary owner message with the option text. This is not ask_owner: the question does not go to “Office life”.',

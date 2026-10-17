@@ -58,6 +58,7 @@ import { deleteTask, dropTask, editTask } from './tasks';
 import { limitBlock, resetClock } from './limits';
 import { journalBrief } from './journal';
 import { docsBrief, docTools } from './docs-tools';
+import { workflowTools } from './workflow-tools';
 import { addRule, dropRule, editRule, ruleScopes, rulesBrief, rulesText, sessionZone, zoneBrief } from './rules';
 import { noteCompaction } from './health';
 import { BUDGET_MIN_HISTORY, RunGuard, runKind, runThreshold, type GuardSignal } from './runguard';
@@ -380,6 +381,9 @@ function toolBrief(name: string, input: Record<string, unknown>, lang: Lang): st
         if (short === 'add_rule') return say('bubble.addRule', clip(input.text, 40));
         if (short === 'edit_rule') return say('bubble.editRule', input.ruleId);
         if (short === 'drop_rule') return say('bubble.dropRule', input.ruleId);
+        if (short === 'list_workflows') return t(lang, 'bubble.listWorkflows');
+        if (short === 'edit_workflow') return say('bubble.editWorkflow', input.workflowId);
+        if (short === 'reset_workflow') return say('bubble.resetWorkflow', input.workflowId);
         return short;
       }
       return name;
@@ -1701,6 +1705,10 @@ const teamTools = (state: OfficeState, chatId: string) => createSdkMcpServer({
         return { content: [{ type: 'text', text: state.say('tool.noteFact.ok', { id: fact.id }) }] };
       },
     ),
+
+    // Процессы офиса: правка только по слову владельца — это сказано и в
+    // описаниях, и в промпте; слияние и гейт не даёт выключить валидатор.
+    ...workflowTools(state),
 
     // Библиотека документов: у менеджера своей задачи нет, рабочий материал
     // без типа ни к чему не привязан.
