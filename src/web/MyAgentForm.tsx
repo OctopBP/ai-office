@@ -141,6 +141,7 @@ export function MyAgentForm({ mode, onSaved, onCancel, onDirty }: {
   const [loadError, setLoadError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [errors, setErrors] = useState<FieldError[]>([]);
+  const [touched, setTouched] = useState<Set<string>>(new Set());
   const [skillDraft, setSkillDraft] = useState<MyAgentSkill | null>(null);
   const [skillErrors, setSkillErrors] = useState<string[]>([]);
 
@@ -223,7 +224,14 @@ export function MyAgentForm({ mode, onSaved, onCancel, onDirty }: {
   };
 
   const unplaced = errors.filter((e) => !SHOWN_FIELDS.has(e.field.split('.')[0]) || e.field.startsWith('skills'));
-  const inv = (field: string) => errorsOf(errors, field).length > 0;
+  // Пустое обязательное поле подсказывает само — после первого ухода с него.
+  const required = [['title', form.title, 'agent.custom.titleEmpty'], ['brief', form.brief, 'agent.custom.briefEmpty']] as const;
+  const emptyErrors: FieldError[] = required
+    .filter(([name, value]) => touched.has(name) && value.trim() === '' && !errors.some((e) => e.field === name))
+    .map(([name, , key]) => ({ field: name, message: t(key) }));
+  const shownErrors = [...errors, ...emptyErrors];
+  const touch = (name: string) => setTouched((prev) => (prev.has(name) ? prev : new Set(prev).add(name)));
+  const inv = (field: string) => errorsOf(shownErrors, field).length > 0;
   const briefTokens = Math.round(form.brief.length / 3.5);
 
   const heading = mode.kind === 'edit'
@@ -236,7 +244,7 @@ export function MyAgentForm({ mode, onSaved, onCancel, onDirty }: {
     'aria-describedby': inv(name) ? `${uid}-${name}-err` : undefined,
     className: inv(name) ? 'invalid' : undefined,
   });
-  const note = (name: string): ReactNode => <FieldNote id={`${uid}-${name}-err`} errors={errorsOf(errors, name)} />;
+  const note = (name: string): ReactNode => <FieldNote id={`${uid}-${name}-err`} errors={errorsOf(shownErrors, name)} />;
 
   return (
     <form
@@ -274,7 +282,7 @@ export function MyAgentForm({ mode, onSaved, onCancel, onDirty }: {
               <Row id={`${uid}-title`} label={t('agent.custom.title')} hint={t('agent.custom.titleHint', { n: form.title.length, max: TITLE_LIMIT })}>
                 <input
                   {...field('title')} value={form.title} autoFocus={mode.kind === 'create'} maxLength={200}
-                  onChange={(e) => set('title', e.target.value)}
+                  onChange={(e) => set('title', e.target.value)} onBlur={() => touch('title')}
                 />
                 {note('title')}
                 {mode.kind === 'edit' && <span className="form-hint">{t('agent.custom.idStays', { name: mode.agent.name })}</span>}
@@ -318,7 +326,7 @@ export function MyAgentForm({ mode, onSaved, onCancel, onDirty }: {
                 <textarea
                   {...field('brief')} className={`my-agent-brief mono${inv('brief') ? ' invalid' : ''}`} rows={10}
                   value={form.brief} placeholder={t('agent.custom.briefPlaceholder')}
-                  onChange={(e) => set('brief', e.target.value)}
+                  onChange={(e) => set('brief', e.target.value)} onBlur={() => touch('brief')}
                 />
                 <span className={`form-hint${form.brief.length > BRIEF_SOFT ? ' warn' : ''}`}>
                   {t('agent.custom.briefCount', { n: form.brief.length, tokens: briefTokens, soft: BRIEF_SOFT, max: BRIEF_MAX })}
@@ -474,7 +482,8 @@ export function MyAgentForm({ mode, onSaved, onCancel, onDirty }: {
       <div className="my-agent-foot">
         {saving && <span className="muted small" role="status"><span className="spinner" /> {t(mode.kind === 'edit' ? 'agent.custom.saving' : 'agent.custom.hiring')}</span>}
         <button type="button" onClick={onCancel} disabled={saving}>{t('common.cancel')}</button>
-        <button type="submit" className="go" disabled={saving || loading || !nonEmpty} title={nonEmpty ? undefined : t('agent.custom.needBoth')}>
+        {!nonEmpty && !saving && <span className="muted small" id={`${uid}-need`}>{t('agent.custom.needBoth')}</span>}
+        <button type="submit" className="go" aria-describedby={nonEmpty ? undefined : `${uid}-need`} disabled={saving || loading || !nonEmpty} title={nonEmpty ? undefined : t('agent.custom.needBoth')}>
           {saving
             ? t(mode.kind === 'edit' ? 'agent.custom.saving' : 'agent.custom.hiring')
             : t(mode.kind === 'edit' ? 'common.save' : 'agent.custom.saveHire')}

@@ -2040,6 +2040,8 @@ export const ru: Record<keyof typeof en, string> = {
   "agent.custom.saving": "Сохраняю…",
   "agent.custom.hiring": "Нанимаю…",
   "agent.custom.saveHire": "Сохранить и нанять",
+  "agent.custom.titleEmpty": "Введите название — по нему агента видно в списке и чате",
+  "agent.custom.briefEmpty": "Напишите инструкции: кто агент, что делает и чего не делает",
   "agent.custom.needBoth": "Заполните название и инструкции",
   "agent.custom.create": "Создать агента",
   "agent.custom.fromRole": "Создать на основе",

@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { openProviderSettings, recheckEnv, useStore } from '../store';
 import { t } from '../i18n';
 import { Icon } from '../icons';
@@ -16,6 +16,7 @@ import { Icon } from '../icons';
 export function EnvBanner() {
   const env = useStore((s) => s.env);
   const [checking, setChecking] = useState(false);
+  const box = useRef<HTMLDivElement>(null);
 
   const failed = env.at === 0 ? [] : env.checks.filter((c) => c.critical && c.status === 'fail');
 
@@ -24,10 +25,25 @@ export function EnvBanner() {
   // зависла в «Проверяем…», если офис/сеть недоступны.
   useEffect(() => setChecking(false), [env.at]);
 
-  if (!failed.length) return null;
+  const shown = failed.length > 0;
+
+  // Полоса стоит над оболочкой, а не поверх: её высоту отдаём оболочке в
+  // `--env-banner-h`, и та сдвигается вниз — шапки и кнопки окон не перекрыты.
+  useEffect(() => {
+    const root = document.documentElement;
+    const el = box.current;
+    if (!shown || !el) { root.style.removeProperty('--env-banner-h'); return; }
+    const sync = () => root.style.setProperty('--env-banner-h', `${el.offsetHeight}px`);
+    sync();
+    const ro = new ResizeObserver(sync);
+    ro.observe(el);
+    return () => { ro.disconnect(); root.style.removeProperty('--env-banner-h'); };
+  }, [shown]);
+
+  if (!shown) return null;
 
   return (
-    <div className="env-banner" role="alert">
+    <div className="env-banner" role="alert" ref={box}>
       <div className="env-banner-rows">
         {failed.map((check) => (
           <div className="env-banner-row" key={check.id}>

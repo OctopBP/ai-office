@@ -2,7 +2,7 @@
    композер снизу. Размеры — из макета «11 · оболочка в новом стиле». */
 
 .shell {
-  position: fixed; inset: 0; background: var(--canvas);
+  position: fixed; inset: var(--env-banner-h, 0px) 0 0 0; background: var(--canvas);
   /* Рейл 264 с отступом 8 от краёв; всё правее него отмеряется от --edge. */
   --rail-w: 264px;
   --gap: var(--space-2);
@@ -347,7 +347,7 @@ body.office-dragging, body.office-dragging * { cursor: grabbing !important; user
 .shell-send { width: 36px; min-height: 36px; box-shadow: none; }
 
 /* ---------- полоса блокировки окружения ---------- */
-/* На весь верх экрана, поверх рейла: критичная проверка сломана — это важнее
+/* На весь верх экрана, над оболочкой (она сдвигается на --env-banner-h): критичная проверка сломана — это важнее
    любого вида офиса. z-index выше --z-panel и --z-drawer (открытая доска,
    деньги, дровер агента/задачи тоже не должны перекрывать кнопку
    «перепроверить»), но ниже --z-modal, чтобы модалки всё же были сверху. */

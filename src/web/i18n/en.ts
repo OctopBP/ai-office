@@ -2041,6 +2041,8 @@ export const en = {
   "agent.custom.saving": "Saving…",
   "agent.custom.hiring": "Hiring…",
   "agent.custom.saveHire": "Save and hire",
+  "agent.custom.titleEmpty": "Enter a name — it identifies the agent in the list and chat",
+  "agent.custom.briefEmpty": "Write the instructions: who the agent is, what it does and what it does not do",
   "agent.custom.needBoth": "Fill in the name and the instructions",
   "agent.custom.create": "Create agent",
   "agent.custom.fromRole": "Create from this",
