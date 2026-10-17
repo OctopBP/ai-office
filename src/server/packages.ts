@@ -44,6 +44,7 @@ import { checkMcpServers } from './mcp';
 import { isPermissionMode } from './permissions';
 import { ROOT } from './root';
 import { BUDGET_DEFAULT_TOKENS, BUDGET_ROLE_MAX_TOKENS, sanitizeSpendFuse } from './runguard';
+import { OFFICIAL_SCOPE } from './scopes';
 
 /**
  * Где лежат пакеты. Сейчас — папка в репозитории: там живут наши, `@office/*`.
@@ -69,8 +70,8 @@ export const PACKAGE_CACHE = process.env.OFFICE_PACKAGE_CACHE
 /** Имя файла с записью об установке рядом с пакетом в кеше. */
 export const LOCK_FILE = '.office-lock.json';
 
-/** Область наших пакетов. Зарезервирована: чужой пакет так называться не может. */
-export const OFFICIAL_SCOPE = '@office';
+/** Область наших пакетов: живёт в scopes.ts, здесь — для прежних импортёров. */
+export { OFFICIAL_SCOPE };
 
 /** Версия схемы манифеста. Не версия пакета — та лежит в plugin.json. */
 export const MANIFEST_SCHEMA = 1;

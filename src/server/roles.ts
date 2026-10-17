@@ -7,9 +7,11 @@ import { DEFAULT_LANG, type Lang } from '../shared/i18n';
 import { ROLE_TITLE_LIMIT } from '../shared/types';
 import type { Capability } from '../shared/workflow';
 import {
-  defaultTeam, loadPackage, OFFICIAL_SCOPE, packageBrief, packageModel, packageTitle,
+  defaultTeam, loadPackage, packageBrief, packageModel, packageTitle,
   type AgentPackage,
 } from './packages';
+// Не из packages.ts: тот через permissions → subprojects замыкается обратно на roles.
+import { OFFICIAL_SCOPE } from './scopes';
 
 export interface Role {
   id: string;
