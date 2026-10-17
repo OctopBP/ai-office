@@ -71,7 +71,7 @@ import {
 } from './rituals';
 import { resolveModel } from '../shared/models';
 import { reviewStatusText, taskDetails } from './task-view';
-import { offerReplies, settlePmReply } from './replies';
+import { notePmText, offerReplies, settlePmReply } from './replies';
 import { formatBoard, isSelection, type BoardOpts, type BoardSay } from './board-view';
 import { isAbsolute, relative, resolve } from 'node:path';
 import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync } from 'node:fs';
@@ -1995,6 +1995,7 @@ function startPm(state: OfficeState, pm: PmSession): void {
         // и каждый продолжается своим разговором.
         consume(state, 'pm#1', msg, false);
         notePmSession(state, pm, msg);
+        notePmText(pm, msg);
         // Любое сообщение сессии — признак жизни: черновик отодвигает своего
         // сторожа, иначе долгий ход с одними вызовами инструментов сняли бы
         // как зависший.
@@ -2041,6 +2042,7 @@ function startPm(state: OfficeState, pm: PmSession): void {
           // Реплики не вышло — кнопкам не к чему прилипнуть, а в следующий ход
           // они не переезжают: там будет другой вопрос.
           pm.replies = null;
+          pm.turnText = [];
           settlePm(state);
           pm.lastUsedAt = Date.now();
           // Набор ролей меняли, пока менеджер отвечал: ход закончен, обрывать
@@ -2058,6 +2060,7 @@ function startPm(state: OfficeState, pm: PmSession): void {
       // до перезапуска сервера она не должна.
       endPmTurn(state, pm, 'error');
       pm.replies = null;
+      pm.turnText = [];
       state.addLog('pm#1', 'error', state.say('agent.log.pmCrashed', { error: message }));
       if (resumeId) {
         // Скорее всего прошлой сессии уже нет на диске — забываем её,

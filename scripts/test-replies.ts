@@ -4,14 +4,16 @@
  * копит их на сессии чата, а конец хода прикрепляет к последней реплике хода —
  * той, что ложится в чат по `result`. Реплика с вариантами уходит на веб
  * событием `chat`, сохраняется в состоянии и переживает перезапуск; кнопки
- * гаснут, как только владелец ответил в этом чате.
+ * гаснут, как только владелец ответил в этом чате. Ход из нескольких
+ * текстовых блоков с кнопками даёт реплику со всем текстом хода (T-643).
  *
  * Запуск: npm run test:replies
  */
 import assert from 'node:assert/strict';
 import type { ChatEntry, ServerEvent } from '../src/shared/types';
 import { REPLY_LEN, repliesOpen, tidyReplies } from '../src/shared/types';
-import { offerReplies, settlePmReply } from '../src/server/replies';
+import { notePmText, offerReplies, settlePmReply } from '../src/server/replies';
+import type { SDKMessage } from '../src/server/engines/types';
 import { getOffice, unloadOfficeState } from '../src/server/state';
 
 process.env.OFFICE_LANG = 'ru';
@@ -24,6 +26,19 @@ function check(name: string, fn: () => void): void {
 }
 
 const OFFICE_ID = 'o-replies';
+
+/** Готовое сообщение SDK с текстовыми блоками менеджера (и, по желанию, вызовом инструмента). */
+function assistant(texts: string[], opts: { tool?: string; parent?: string } = {}): SDKMessage {
+  const content: unknown[] = texts.map((text) => ({ type: 'text', text }));
+  if (opts.tool) content.push({ type: 'tool_use', id: `tu-${opts.tool}`, name: opts.tool, input: {} });
+  return {
+    type: 'assistant',
+    parent_tool_use_id: opts.parent ?? null,
+    session_id: 's-replies',
+    uuid: `u-${Math.random()}`,
+    message: { role: 'assistant', content },
+  } as unknown as SDKMessage;
+}
 
 function main(): void {
   console.log('нормализация');
@@ -99,6 +114,47 @@ function main(): void {
   check('реплика без вариантов кнопок не показывает', () => {
     const plain = office.chat.find((e) => e.text === 'Принято.')!;
     assert.equal(repliesOpen(plain, office.chat), false);
+  });
+
+  console.log('ход из нескольких текстовых блоков (T-643)');
+  check('реплика с кнопками несёт весь текст хода, кнопки под ней', () => {
+    const intro = 'Уведомления из модуля партий можно собрать так:\n1. Вас добавили в партию.\n2. Выставлены результаты игры.\n3. Партия перенесена.\n4. Партия отменена.\n5. Напоминание за час.\n6. Новый участник.';
+    const plan = 'Варианты: «1–2» — только два главных события, push; «1–4» — плюс перенос и отмена; «всё 1–6» — все события и список в приложении.';
+    const tail = 'Какой состав берём?';
+    notePmText(pm, assistant([intro], { tool: 'mcp__team__list_tasks' }));
+    notePmText(pm, assistant([plan], { tool: 'mcp__team__offer_replies' }));
+    offerReplies(pm, ['1–2, только push', '1–4, только push', 'Всё 1–6 + список', 'Обсудим подробнее']);
+    // Речь подагента в реплику менеджера не попадает.
+    notePmText(pm, assistant(['служебный текст подагента'], { parent: 'tu-x' }));
+    // Итог хода SDK присылает и сообщением, и в result — дубля быть не должно.
+    notePmText(pm, assistant([tail]));
+    const reply = settlePmReply(office, pm, tail);
+    assert.equal(reply.text, `${intro}\n\n${plan}\n\n${tail}`);
+    assert.deepEqual(reply.replies, ['1–2, только push', '1–4, только push', 'Всё 1–6 + список', 'Обсудим подробнее']);
+    assert.equal(office.chat[office.chat.length - 1].id, reply.id, 'реплика с кнопками — последняя в чате');
+    assert.equal(office.chat.filter((e) => e.chatId === chat.id && e.text.includes(intro)).length, 1, 'текст хода в чате один раз');
+    assert.deepEqual(pm.turnText, [], 'текст хода после хода забыт');
+    assert.equal(pm.replies, null);
+  });
+  check('итог хода, не пришедший отдельным сообщением, дописывается в конец', () => {
+    notePmText(pm, assistant(['Есть два пути: А — быстро, Б — надёжно.'], { tool: 'mcp__team__offer_replies' }));
+    offerReplies(pm, ['А', 'Б']);
+    const reply = settlePmReply(office, pm, 'Что выбираем?');
+    assert.equal(reply.text, 'Есть два пути: А — быстро, Б — надёжно.\n\nЧто выбираем?');
+  });
+  check('реплика без кнопок — по-прежнему итог хода, без подводки', () => {
+    notePmText(pm, assistant(['Сейчас посмотрю доску.'], { tool: 'mcp__team__list_tasks' }));
+    notePmText(pm, assistant(['На доске две задачи в работе.']));
+    const reply = settlePmReply(office, pm, 'На доске две задачи в работе.');
+    assert.equal(reply.text, 'На доске две задачи в работе.');
+    assert.equal(reply.replies, undefined);
+    assert.deepEqual(pm.turnText, []);
+  });
+  check('сжатие памяти и передача дел в текст хода не попадают', () => {
+    pm.rotating = true;
+    notePmText(pm, assistant(['Передача дел: …']));
+    pm.rotating = false;
+    assert.deepEqual(pm.turnText, []);
   });
 
   off();
