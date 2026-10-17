@@ -150,6 +150,7 @@ export const en = {
   'myagent.created': 'Own agent {title} created ({name} {version})',
   'myagent.updated': 'Own agent {title} ({name}) updated: {from} → {to}',
   'myagent.deleted': 'Own agent {name} deleted',
+  'myagent.zoneUnknown': 'There is no zone "{zone}" in this office — the agent is hired without pinning, to the whole project.',
   'myagent.closed': 'Office {office} is not open: its own agents are read from the opened office only.',
   'myagent.badBody': 'Request body must be a JSON object.',
   'myagent.method': 'This method is not supported here.',

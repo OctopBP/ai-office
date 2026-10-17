@@ -13,15 +13,20 @@
  *
  * HTTP, у всех — `?office=<id>` (без него — открытый последним):
  *   GET    /api/my-agents                  — список;
- *   POST   /api/my-agents                  — создать, `{ draft }`;
- *   POST   /api/my-agents/from-role        — создать на основе роли, `{ roleId, patch? }`;
+ *   POST   /api/my-agents                  — создать и нанять, `{ draft, hire? }`;
+ *   POST   /api/my-agents/from-role        — создать на основе роли, `{ roleId, patch?, hire? }`;
  *   GET    /api/my-agents/draft?roleId=    — черновик из роли для формы;
- *   PUT    /api/my-agents/<id>             — править, `{ patch }`;
- *   DELETE /api/my-agents/<id>             — удалить.
+ *   PUT    /api/my-agents/<id>             — править, `{ patch }`; правка доезжает до копий офиса;
+ *   POST   /api/my-agents/<id>/hire        — нанять ещё раз (карточка «Нанять»);
+ *   DELETE /api/my-agents/<id>             — удалить; нанятого — 409.
  * `<id>` — имя без области: `boardgame-designer` для `@local/boardgame-designer`.
+ * `hire` по умолчанию true («Сохранить и нанять»); false — только сохранить.
+ * В ответе создания и найма — `hired: { roleId, problem }`, правки — `roleIds`.
  *
- * Найм, распространение правки по нанятым копиям и ограничение инструментов
- * сессии — не здесь: модуль только хранит и проверяет.
+ * Найм идёт через `hireFromPackage`, правка копий — через `updateRolePackage`
+ * (раздел «офис» ниже). Набор инструментов сессии берётся из `runtime.tools`
+ * пакета: `roleFromPackage` → `Role.tools` → `sessionTools` (skills.ts).
+ * Веб получает состав офиса по сокету: найм и правка шлют `roles` сами.
  */
 import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import type { IncomingMessage, ServerResponse } from 'node:http';
@@ -38,11 +43,11 @@ import { c, t } from './i18n';
 import { mcpCatalog } from './mcp';
 import { readBody } from './officeicon';
 import { currentOffice, officeById } from './offices';
-import { packageDir, pick, readPackage, type AgentPackage } from './packages';
+import { loadPackage, packageDir, pick, readPackage, type AgentPackage } from './packages';
 import { isPermissionMode } from './permissions';
-import { slugifyRoleId, type Role } from './roles';
+import { slugifyRoleId, type LinkOverrides, type Role } from './roles';
 import { LOCAL_SCOPE } from './scopes';
-import { getOffice, isOpened } from './state';
+import { getOffice, isOpened, type OfficeState } from './state';
 
 /** Пороги формы — те же, что в спеке §5. */
 export const SUMMARY_LIMIT = 140;
@@ -461,6 +466,114 @@ export function deleteMyAgent(root: string, id: string, ctx: MyAgentCtx): { ok: 
   return { ok: true, name: current.name };
 }
 
+// ------------------------------------------------------------ офис
+
+/**
+ * Что нужно от офиса для найма, правки копий и ленты. В сервере — OfficeState
+ * открытого офиса, в проверке — он же на временном файле.
+ */
+export type MyAgentOffice = Pick<
+  OfficeState, 'hireFromPackage' | 'updateRolePackage' | 'detachRole' | 'roles' | 'subprojects' | 'addLog'
+>;
+
+/** Чем кончился найм: новая (или закрытая вакансией) роль либо причина отказа. */
+export interface MyAgentHire {
+  roleId: string | null;
+  problem: string | null;
+  warnings: FieldError[];
+}
+
+/** Роли офиса, ссылающиеся на свой агент по имени, включая архивные. */
+const linkedRoles = (name: string, roles: readonly Role[]): Role[] =>
+  roles.filter((r) => r.package?.name === name && r.package.local && !r.package.source);
+
+/**
+ * Нанять своего агента в офис тем же путём, что пакет из маркета
+ * (`hireFromPackage`): роль ссылается на папку своих агентов через
+ * `RoleLink.local`. Зона из `.office-local.json` ложится оверрайдом
+ * `subprojects`; зоны, которой в офисе нет, — найм без закрепления и
+ * предупреждение.
+ */
+export function hireMyAgent(office: MyAgentOffice, root: string, id: string, ctx: MyAgentCtx): MyAgentHire {
+  const name = localName(id);
+  const pkg = ID_RE.test(id) ? loadPackage(name, root) : null;
+  if (!pkg) return { roleId: null, problem: t(ctx.lang, 'myagent.missing', { name }), warnings: [] };
+  const warnings: FieldError[] = [];
+  const { zone } = readMeta(pkg.dir);
+  const extra: LinkOverrides = {};
+  if (zone) {
+    if (office.subprojects().some((s) => s.id === zone)) extra.subprojects = [zone];
+    else warnings.push({ field: 'zone', message: t(ctx.lang, 'myagent.zoneUnknown', { zone }) });
+  }
+  const before = new Set(office.roles().map((r) => r.id));
+  const problem = office.hireFromPackage(pkg, null, extra);
+  const after = linkedRoles(name, office.roles()).filter((r) => !r.archived);
+  // Новая роль — та, которой не было; иначе найм закрыл открытую вакансию.
+  const roleId = after.find((r) => !before.has(r.id))?.id ?? (problem ? null : after[0]?.id ?? null);
+  return { roleId, problem, warnings };
+}
+
+/**
+ * Довести правку своего агента до всех его копий в этом офисе через
+ * `updateRolePackage`: оверрайды и приписка остаются, остальное считается
+ * из нового пакета. Другие офисы не трогаются (Q-206). Вернёт id обновлённых.
+ */
+export function syncMyAgentCopies(office: MyAgentOffice, root: string, name: string): string[] {
+  const pkg = loadPackage(name, root);
+  if (!pkg) return [];
+  const done: string[] = [];
+  for (const role of linkedRoles(name, office.roles())) {
+    if (!office.updateRolePackage(role.id, pkg, null)) done.push(role.id);
+  }
+  return done;
+}
+
+/** Создать и, если просили, сразу нанять. В ленту — «создан». */
+export function createAndHire(
+  office: MyAgentOffice, root: string, made: MyAgentResult, ctx: MyAgentCtx, hire: boolean,
+): { result: MyAgentResult; hired: MyAgentHire | null } {
+  if (!made.ok) return { result: made, hired: null };
+  office.addLog(null, 'system', t(ctx.lang, 'myagent.created', {
+    title: made.agent.title, name: made.agent.name, version: made.agent.version,
+  }));
+  if (!hire) return { result: made, hired: null };
+  const hired = hireMyAgent(office, root, shortId(made.agent.name), ctx);
+  // Кто нанят — пересчитываем по свежему составу офиса.
+  const agent = getMyAgent(root, shortId(made.agent.name), { ...ctx, roles: office.roles() }) ?? made.agent;
+  return { result: { ...made, agent, warnings: [...made.warnings, ...hired.warnings] }, hired };
+}
+
+/** Править, довести до копий этого офиса и записать в ленту. */
+export function updateAndSync(
+  office: MyAgentOffice, root: string, id: string, patch: Partial<MyAgentDraft>, ctx: MyAgentCtx,
+): { result: MyAgentResult; roleIds: string[] } {
+  const from = getMyAgent(root, id, ctx)?.version ?? '';
+  const result = updateMyAgent(root, id, patch, ctx);
+  if (!result.ok) return { result, roleIds: [] };
+  office.addLog(null, 'system', t(ctx.lang, 'myagent.updated', {
+    title: result.agent.title, name: result.agent.name, from, to: result.agent.version,
+  }));
+  return { result, roleIds: syncMyAgentCopies(office, root, result.agent.name) };
+}
+
+/**
+ * Удалить. Пока агент нанят (не в архиве) — отказ `myagent.hiredBusy`,
+ * нанятых не ломаем. Архивные копии перед удалением отвязываются (форк):
+ * без пакета они не восстановились бы.
+ */
+export function deleteAndDetach(
+  office: MyAgentOffice, root: string, id: string, ctx: MyAgentCtx,
+): ReturnType<typeof deleteMyAgent> {
+  const live = { ...ctx, roles: office.roles() };
+  const current = getMyAgent(root, id, live);
+  if (current && !current.roleIds.length) {
+    for (const role of linkedRoles(current.name, live.roles)) if (role.archived) office.detachRole(role.id);
+  }
+  const result = deleteMyAgent(root, id, live);
+  if (result.ok) office.addLog(null, 'system', t(ctx.lang, 'myagent.deleted', { name: result.name }));
+  return result;
+}
+
 // ------------------------------------------------------------ HTTP
 
 /** Потолок тела: бриф до 30 000 символов плюс скилы. */
@@ -472,7 +585,7 @@ export const MY_AGENTS_BODY_MAX = 2 * 1024 * 1024;
  */
 export interface MyAgentsHttpEnv {
   office: (wanted: string | null) =>
-    | { root: string; ctx: MyAgentCtx; role: (id: string) => Role | undefined }
+    | { root: string; ctx: MyAgentCtx; role: (id: string) => Role | undefined; office: MyAgentOffice }
     | { code: number; error: string };
 }
 
@@ -487,6 +600,7 @@ const defaultEnv: MyAgentsHttpEnv = {
       root: state.agentsDir(),
       ctx: { lang: state.lang(), mcpIds: mcpCatalog(state.settings).map((d) => d.id), roles: state.roles() },
       role: (id) => state.role(id),
+      office: state,
     };
   },
 };
@@ -513,6 +627,18 @@ function answer(res: ServerResponse, result: MyAgentResult, okCode: number): voi
   else json(res, 400, { errors: result.errors, warnings: result.warnings });
 }
 
+/**
+ * Ответ на создание: 201 с агентом и итогом найма. Отказ найма (нет места,
+ * лимит копий) — не ошибка создания: агент сохранён, причина в `hired.problem`.
+ */
+function created(res: ServerResponse, got: { result: MyAgentResult; hired: MyAgentHire | null }): void {
+  if (!got.result.ok) return answer(res, got.result, 201);
+  json(res, 201, {
+    agent: got.result.agent, warnings: got.result.warnings,
+    hired: got.hired ? { roleId: got.hired.roleId, problem: got.hired.problem } : null,
+  });
+}
+
 /** Обработать запрос к `/api/my-agents*`. false — адрес не наш. */
 export function handleMyAgentsHttp(
   req: IncomingMessage, res: ServerResponse, url: string, query: string, env: MyAgentsHttpEnv = defaultEnv,
@@ -531,7 +657,7 @@ async function serve(req: IncomingMessage, res: ServerResponse, url: string, que
     json(res, office.code, { error: office.error });
     return;
   }
-  const { root, ctx } = office;
+  const { root, ctx, office: state } = office;
   const method = req.method ?? 'GET';
   const rest = url.slice('/api/my-agents'.length).replace(/^\/|\/$/g, '');
   const bad = () => json(res, 400, { errors: [{ field: '', message: c('myagent.badBody') }], warnings: [] });
@@ -541,7 +667,8 @@ async function serve(req: IncomingMessage, res: ServerResponse, url: string, que
     if (method === 'POST') {
       const got = await body(req);
       if (!got) return bad();
-      return answer(res, createMyAgent(root, (got.draft ?? {}) as Partial<MyAgentDraft>, ctx), 201);
+      const made = createMyAgent(root, (got.draft ?? {}) as Partial<MyAgentDraft>, ctx);
+      return created(res, createAndHire(state, root, made, ctx, got.hire !== false));
     }
     return json(res, 405, { error: c('myagent.method') }, { Allow: 'GET, POST' });
   }
@@ -557,7 +684,18 @@ async function serve(req: IncomingMessage, res: ServerResponse, url: string, que
     const got = await body(req);
     if (!got) return bad();
     const role = typeof got.roleId === 'string' ? office.role(got.roleId) : undefined;
-    return answer(res, createFromRole(root, role, (got.patch ?? {}) as Partial<MyAgentDraft>, ctx), 201);
+    const made = createFromRole(root, role, (got.patch ?? {}) as Partial<MyAgentDraft>, ctx);
+    return created(res, createAndHire(state, root, made, ctx, got.hire !== false));
+  }
+  if (rest.endsWith('/hire')) {
+    if (method !== 'POST') return json(res, 405, { error: c('myagent.method') }, { Allow: 'POST' });
+    const hid = rest.slice(0, -'/hire'.length);
+    if (!getMyAgent(root, hid, ctx)) return json(res, 404, { error: t(ctx.lang, 'myagent.missing', { name: localName(hid) }) });
+    const hired = hireMyAgent(state, root, hid, ctx);
+    const agent = getMyAgent(root, hid, { ...ctx, roles: state.roles() });
+    return json(res, hired.problem ? 409 : 200, {
+      agent, hired: { roleId: hired.roleId, problem: hired.problem }, warnings: hired.warnings,
+    });
   }
   let id: string;
   try {
@@ -572,12 +710,13 @@ async function serve(req: IncomingMessage, res: ServerResponse, url: string, que
   if (method === 'PUT') {
     const got = await body(req);
     if (!got) return bad();
-    const result = updateMyAgent(root, id, (got.patch ?? {}) as Partial<MyAgentDraft>, ctx);
+    const { result, roleIds } = updateAndSync(state, root, id, (got.patch ?? {}) as Partial<MyAgentDraft>, ctx);
     if (!result.ok && !getMyAgent(root, id, ctx)) return json(res, 404, { errors: result.errors, warnings: [] });
+    if (result.ok) return json(res, 200, { agent: result.agent, warnings: result.warnings, roleIds });
     return answer(res, result, 200);
   }
   if (method === 'DELETE') {
-    const result = deleteMyAgent(root, id, ctx);
+    const result = deleteAndDetach(state, root, id, ctx);
     if (result.ok) return json(res, 200, { ok: true, name: result.name });
     return json(res, getMyAgent(root, id, ctx) ? 409 : 404, { errors: result.errors });
   }

@@ -150,6 +150,7 @@ export const ru: Record<keyof typeof en, string> = {
   'myagent.created': 'Создан свой агент {title} ({name} {version})',
   'myagent.updated': 'Свой агент {title} ({name}) обновлён: {from} → {to}',
   'myagent.deleted': 'Свой агент {name} удалён',
+  'myagent.zoneUnknown': 'Зоны «{zone}» в этом офисе нет — агент нанят без закрепления, в весь проект.',
   'myagent.closed': 'Офис {office} не открыт: свои агенты читаются только у открытого офиса.',
   'myagent.badBody': 'Тело запроса должно быть JSON-объектом.',
   'myagent.method': 'Такой метод здесь не поддерживается.',

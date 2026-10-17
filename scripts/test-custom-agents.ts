@@ -1,14 +1,16 @@
 /**
- * Свои агенты офиса (src/server/myagents.ts, T-623): создание пакетом в
- * данных офиса, ошибки по полям, правка, «создать на основе» роли, удаление
- * и HTTP-маршруты `/api/my-agents*`.
+ * Свои агенты офиса (src/server/myagents.ts, T-623, T-624): создание пакетом в
+ * данных офиса, ошибки по полям, правка, «создать на основе» роли, удаление,
+ * найм в офис с зоной, правка нанятых копий, набор инструментов сессии и
+ * HTTP-маршруты `/api/my-agents*`.
  *
  * Офис пишет во временную папку: живое состояние не трогаем.
  *
  * Запуск: npm run test:customagents
  */
 import assert from 'node:assert/strict';
-import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { execFileSync } from 'node:child_process';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
@@ -16,10 +18,11 @@ import { PassThrough } from 'node:stream';
 import type { MyAgentView } from '../src/shared/myagent';
 import type { FieldError } from '../src/shared/types';
 import {
-  createFromRole, createMyAgent, deleteMyAgent, getMyAgent, handleMyAgentsHttp, listMyAgents, LOCAL_META,
-  updateMyAgent, type MyAgentCtx, type MyAgentsHttpEnv,
+  createAndHire, createFromRole, createMyAgent, deleteAndDetach, deleteMyAgent, getMyAgent, handleMyAgentsHttp,
+  listMyAgents, LOCAL_META, updateAndSync, updateMyAgent, type MyAgentCtx, type MyAgentsHttpEnv,
 } from '../src/server/myagents';
-import { loadPackage, validatePackage } from '../src/server/packages';
+import { loadPackage, resolvePackage, validatePackage } from '../src/server/packages';
+import { sessionTools } from '../src/server/skills';
 import { defaultRoles, type Role } from '../src/server/roles';
 import { getOffice } from '../src/server/state';
 
@@ -41,6 +44,7 @@ const BRIEF = 'Ты геймдизайнер настольных игр: пиш
 const roles: Role[] = [];
 const ctx: MyAgentCtx = { lang: 'ru', mcpIds: ['figma-bridge'], roles };
 const fields = (errors: FieldError[]): string[] => errors.map((e) => e.field).sort();
+const hiredOf = (name: string): Role[] => state.roles().filter((r) => r.package?.name === name && !r.archived);
 
 /** Запрос к ручке без сети: тело — поток, ответ собирается в объект. */
 async function call(method: string, url: string, body?: unknown): Promise<{ code: number; body: any }> {
@@ -56,7 +60,11 @@ async function call(method: string, url: string, body?: unknown): Promise<{ code
       writeHead(c: number) { code = c; res.headersSent = true; return res; },
       end(s: string) { text = s; ok(); },
     };
-    const env: MyAgentsHttpEnv = { office: () => ({ root, ctx, role: (id) => roles.find((r) => r.id === id) }) };
+    const env: MyAgentsHttpEnv = {
+      office: () => ({
+        root, ctx: { ...ctx, roles: [...roles, ...state.roles()] }, role: (id) => roles.find((r) => r.id === id), office: state,
+      }),
+    };
     assert.equal(handleMyAgentsHttp(req, res as unknown as ServerResponse, path, query, env), true);
   });
   req.end(body === undefined ? '' : JSON.stringify(body));
@@ -181,14 +189,30 @@ try {
     assert.equal(fail.code, 400);
     assert.deepEqual(fields(fail.body.errors), ['brief', 'title']);
 
-    const made = await call('POST', '/api/my-agents', { draft: { id: 'writer', title: 'Редактор', brief: BRIEF, zone: 'docs' } });
+    const made = await call('POST', '/api/my-agents', {
+      draft: { id: 'writer', title: 'Редактор', brief: BRIEF, zone: 'docs' }, hire: false,
+    });
     assert.equal(made.code, 201, JSON.stringify(made.body));
     assert.equal(made.body.agent.name, '@local/writer');
     assert.equal(made.body.agent.zone, 'docs');
+    assert.equal(made.body.hired, null, 'hire: false — только сохранить');
+    assert.equal(hiredOf('@local/writer').length, 0);
 
     const put = await call('PUT', '/api/my-agents/writer', { patch: { summary: 'Тексты и вычитка' } });
     assert.equal(put.code, 200);
     assert.equal(put.body.agent.summary, 'Тексты и вычитка');
+    assert.deepEqual(put.body.roleIds, []);
+
+    const hire = await call('POST', '/api/my-agents/writer/hire');
+    assert.equal(hire.code, 200, JSON.stringify(hire.body));
+    assert.ok(hire.body.hired.roleId);
+    assert.deepEqual(hire.body.agent.roleIds, [hire.body.hired.roleId]);
+    assert.deepEqual(fields(hire.body.warnings), ['zone'], 'зоны docs в офисе нет');
+    assert.equal((await call('DELETE', '/api/my-agents/writer')).code, 409, 'нанятого не удалить');
+    const put2 = await call('PUT', '/api/my-agents/writer', { patch: { summary: 'Только вычитка' } });
+    assert.deepEqual(put2.body.roleIds, [hire.body.hired.roleId], 'правка доехала до копии');
+    for (const inst of state.staffOf(hire.body.hired.roleId)) assert.equal(state.fire(inst.id), null);
+    assert.deepEqual(state.archiveRole(hire.body.hired.roleId, true), []);
     assert.equal((await call('PUT', '/api/my-agents/ghost', { patch: {} })).code, 404);
 
     roles.push(defaultRoles('ru').find((r) => !r.isManager)!);
@@ -200,9 +224,80 @@ try {
     roles.length = 0;
 
     assert.equal((await call('DELETE', '/api/my-agents/writer')).code, 200);
+    assert.equal(state.role(hire.body.hired.roleId)?.package, undefined, 'архивная копия отвязана, а не сломана');
     assert.equal((await call('DELETE', '/api/my-agents/writer')).code, 404);
     assert.equal((await call('GET', '/api/my-agents')).body.agents.length, 3);
     assert.equal((await call('POST', '/api/my-agents', 'не объект')).code, 400);
+  });
+
+  await check('создание нанимает в офис с зоной: RoleLink.local, пакет из agentsDir', () => {
+    const zoneDir = join(tmp, 'design-repo');
+    mkdirSync(zoneDir, { recursive: true });
+    execFileSync('git', ['init', '-q', zoneDir]);
+    const zone = state.saveSubproject(undefined, {
+      name: 'Дизайн', root: zoneDir, kind: 'repo', summary: '', color: 'accent-1', sharedPaths: [],
+    });
+    assert.ok('id' in zone, JSON.stringify(zone));
+    const logBefore = state.log.length;
+    const made = createMyAgent(root, {
+      id: 'designer', title: 'Дизайнер карточек', brief: BRIEF, tools: ['Read', 'Write', 'Glob'], zone: zone.id,
+    }, ctx);
+    const { result, hired } = createAndHire(state, root, made, ctx, true);
+    assert.ok(result.ok, JSON.stringify(result));
+    assert.ok(hired && !hired.problem && hired.roleId, JSON.stringify(hired));
+    assert.deepEqual(hired.warnings, []);
+    const role = state.role(hired.roleId!)!;
+    assert.equal(role.package?.name, '@local/designer');
+    assert.equal(role.package?.local, root, 'ссылка на папку своих агентов офиса');
+    assert.equal(role.package?.source, undefined);
+    assert.deepEqual(role.subprojects, [zone.id], 'закреплён за выбранной зоной');
+    assert.equal(resolvePackage(role.package!)?.dir, resolve(root, '@local', 'designer'));
+    assert.deepEqual(result.agent.roleIds, [role.id]);
+    const texts = state.log.slice(logBefore).map((e) => e.text);
+    assert.ok(texts.some((x) => /Создан свой агент Дизайнер карточек/.test(x)), texts.join('\n'));
+  });
+
+  await check('сессия своего агента получает только выбранные инструменты', () => {
+    const role = state.roles().find((r) => r.package?.name === '@local/designer')!;
+    assert.deepEqual(role.tools, ['Read', 'Write', 'Glob']);
+    assert.deepEqual(sessionTools(role), ['Read', 'Write', 'Glob'], 'без скилов Skill не дописывается');
+    // Со скилом в пакете офис дописывает только Skill — иначе скил не открыть.
+    const withSkill = createAndHire(state, root, createMyAgent(root, {
+      id: 'counter', title: 'Счётчик баланса', brief: BRIEF, tools: ['Read'],
+      skills: [{ name: 'balance', description: 'баланс', text: 'Считай ожидание.' }],
+    }, ctx), ctx, true);
+    assert.ok(withSkill.hired?.roleId, JSON.stringify(withSkill.hired));
+    const counter = state.role(withSkill.hired.roleId!)!;
+    assert.deepEqual(sessionTools(counter), ['Read', 'Skill']);
+    assert.ok(!sessionTools(counter)!.includes('Bash'), 'Bash не выбран — в сессии его нет');
+  });
+
+  await check('правка своего агента доходит до копий этого офиса через updateRolePackage', () => {
+    const roleId = state.roles().find((r) => r.package?.name === '@local/designer')!.id;
+    // Оверрайд человека на копии должен пережить правку пакета.
+    state.updateRole(roleId, { maxTurns: 77 });
+    const logBefore = state.log.length;
+    const { result, roleIds } = updateAndSync(state, root, 'designer', {
+      brief: `${BRIEF} Пишешь только про карточки.`, tools: ['Read', 'Grep'],
+    }, { ...ctx, roles: state.roles() });
+    assert.ok(result.ok, JSON.stringify(result));
+    assert.deepEqual(roleIds, [roleId]);
+    const role = state.role(roleId)!;
+    assert.equal(role.package?.version, '0.1.1');
+    assert.match(role.brief, /только про карточки/);
+    assert.deepEqual(sessionTools(role), ['Read', 'Grep'], 'новый набор инструментов доехал до сессии');
+    assert.equal(role.maxTurns, 77, 'оверрайд копии остался');
+    assert.equal(role.package?.local, root);
+    const texts = state.log.slice(logBefore).map((e) => e.text);
+    assert.ok(texts.some((x) => /обновлён: 0\.1\.0 → 0\.1\.1/.test(x)), texts.join('\n'));
+  });
+
+  await check('удаление нанятого своего агента — отказ, копия цела', () => {
+    const roleId = state.roles().find((r) => r.package?.name === '@local/designer')!.id;
+    const no = deleteAndDetach(state, root, 'designer', ctx);
+    assert.ok(!no.ok);
+    assert.match(no.errors[0].message, new RegExp(roleId));
+    assert.ok(state.role(roleId)?.package && resolvePackage(state.role(roleId)!.package!), 'пакет на месте');
   });
 
   console.log(`\nСвои агенты: ${passed} проверок прошло`);
