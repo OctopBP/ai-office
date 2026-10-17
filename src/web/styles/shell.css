@@ -315,10 +315,6 @@ body.office-dragging, body.office-dragging * { cursor: grabbing !important; user
 .shell-composer-row textarea { flex: 1; min-width: 0; align-self: center; }
 .shell-composer-more { position: relative; flex: none; }
 .shell-more { position: relative; width: 36px; min-height: 36px; box-shadow: none; }
-.shell-more-dot {
-  position: absolute; top: 6px; right: 6px; width: 8px; height: 8px; border-radius: 50%;
-  background: var(--accent); border: 2px solid var(--surface); box-sizing: content-box;
-}
 .shell-composer-menu {
   position: absolute; right: 0; bottom: calc(100% + var(--space-2)); z-index: var(--z-popover);
   display: flex; flex-direction: column; min-width: 240px; padding: var(--space-1);

@@ -142,8 +142,6 @@ export function Composer({ onSettings, inline = false }: {
     ['edits', t('shell.more.edits'), accessLabel(settings.officePermissionMode)],
     ['budget', t('shell.more.budget'), cap !== null ? money(cap) : t('shell.more.noBudget')],
   ];
-  // Точка на кнопке — значения отличаются от умолчаний (права «ask-risky», бюджет без потолка).
-  const changed = settings.officePermissionMode !== 'ask-risky' || cap !== null;
 
   return (
     <div className={`shell-composer float${inline ? ' inline' : ''}`} ref={box}>
@@ -174,7 +172,6 @@ export function Composer({ onSettings, inline = false }: {
             aria-label={t('shell.more')} title={t('shell.more')} onClick={() => setMenuOpen((o) => !o)}
           >
             <Icon name="dots" size={16} />
-            {changed && <span className="shell-more-dot" aria-hidden />}
           </button>
           {menuOpen && (
             <div className="shell-composer-menu float" role="menu" aria-label={t('shell.more.title')}>
