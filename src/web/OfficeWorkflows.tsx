@@ -5,7 +5,7 @@ import type { SkipWhen } from '../shared/workflow-overrides';
 import { formatFullDateTime } from './dates';
 import { Icon } from './icons';
 import { t } from './i18n';
-import { hasEdits, nodeViews, toggleAction, type NodeView } from './workflowEdits';
+import { failureText, hasEdits, nodeViews, toggleAction, type NodeView } from './workflowEdits';
 
 /** Условие пропуска одной строкой: «роли: backend; типы: code». */
 function whenLabel(when: SkipWhen | undefined): string {
@@ -24,7 +24,9 @@ function NodeRow({ entry, view, why }: {
 }) {
   const { node, mode } = view;
   const on = mode === 'on' || mode === 'required';
-  const lockText = view.locked === 'required' ? t('wfx.node.required.hint') : view.locked === 'noBypass' ? t('wfx.node.noBypass.hint') : '';
+  // «Обязательный» — замок; остальные причины — подпись с вопросом, не с замком.
+  const note = view.failure ? failureText(view.failure) : '';
+  const lockText = view.locked === 'required' ? t('wfx.node.required.hint') : note;
   const flip = () => {
     const act = toggleAction(entry, view);
     if ('problem' in act) { setWorkflowProblem(entry.id, t('wfx.rejected', { node: node.id, problem: act.problem })); return; }
@@ -50,6 +52,9 @@ function NodeRow({ entry, view, why }: {
           </span>
         )}
       </span>
+      {note && view.locked !== 'required' && (
+        <span className="wfx-node-note small"><Icon name="help" size={12} /> {note}</span>
+      )}
       <label className="wfx-switch" title={lockText || undefined}>
         <input
           type="checkbox" role="switch" checked={on} disabled={view.locked !== null}
@@ -93,6 +98,7 @@ function ProcessCard({ entry, why }: { entry: WorkflowEntry; why: string }) {
             <li key={`${h.at}-${h.action}-${h.node ?? ''}`}>
               <span className="muted small mono">{formatFullDateTime(h.at)}</span>{' '}
               <span>{t(`wfx.action.${h.action}`, { node: h.node ?? '' })}</span>{' '}
+              {h.when && <span className="small">({t('wfx.only', { when: whenLabel(h.when) })})</span>}{' '}
               <span className="muted small">· {byLabel(h.by)} · {t('wfx.why', { why: h.why })}</span>
             </li>
           ))}

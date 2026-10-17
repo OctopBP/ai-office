@@ -91,6 +91,27 @@ export function bypassOutcome(node: WorkflowNode, wanted?: string): string | nul
   return BYPASS_OUTCOMES.find((o) => o in node.next) ?? null;
 }
 
+/** Причина отказа правки кодом: интерфейс по нему подбирает текст на своём языке. */
+export type OverrideFailureCode =
+  | 'noNode' | 'dup' | 'required' | 'emptyWhen' | 'noOutcome' | 'noBypass'
+  | 'cycle' | 'noSteps' | 'dropped' | 'noEnd' | 'needed' | 'broken'
+  | 'noWorkflow' | 'noReason' | 'notDisabled';
+
+/** Отказ с кодом; `node` — о каком узле речь, `detail` — довесок (список, артефакт, сырой текст). */
+export interface OverrideFailure {
+  code: OverrideFailureCode;
+  node?: string;
+  detail?: string;
+  text: string;
+}
+
+class OverrideError extends Error {
+  constructor(readonly failure: OverrideFailure) { super(failure.text); }
+}
+const fail = (code: OverrideFailureCode, text: string, node?: string, detail?: string): never => {
+  throw new OverrideError({ code, text, ...(node ? { node } : {}), ...(detail ? { detail } : {}) });
+};
+
 /**
  * Собрать процесс без узлов `off`. Бросает понятную ошибку, если без них
  * процесс не собирается: нет исхода обхода, обход ходит по кругу, выпал
@@ -104,7 +125,7 @@ function withoutNodes(base: Workflow, off: Map<string, NodeOverride>): Workflow 
     const seen = new Set<string>();
     let cur = to;
     while (off.has(cur)) {
-      if (seen.has(cur)) throw new Error(`${where}: выключенные узлы обходят друг друга по кругу (${[...seen].join(' → ')})`);
+      if (seen.has(cur)) fail('cycle', `${where}: выключенные узлы обходят друг друга по кругу (${[...seen].join(' → ')})`, cur, [...seen].join(' → '));
       seen.add(cur);
       const node = nodeOf(base, cur) as WorkflowNode;
       const outcome = bypassOutcome(node, off.get(cur)?.outcome) as string;
@@ -125,7 +146,7 @@ function withoutNodes(base: Workflow, off: Map<string, NodeOverride>): Workflow 
 
   const start = bypass(base.nodes[0].id)?.to ?? base.nodes[0].id;
   if (start === END || start === STUCK) {
-    throw new Error(`${where}: без выключенных узлов в процессе не остаётся ни одного шага`);
+    fail('noSteps', `${where}: без выключенных узлов в процессе не остаётся ни одного шага`);
   }
 
   // Узлы, до которых от начала больше не дойти, выпадают: их некому вызвать.
@@ -144,18 +165,22 @@ function withoutNodes(base: Workflow, off: Map<string, NodeOverride>): Workflow 
 
   for (const node of base.nodes) {
     if (node.run && REQUIRED_RUNS.includes(node.run) && !reach.has(node.id) && !off.has(node.id)) {
-      throw new Error(`${where}: обязательный узел «${node.id}» (${node.run}) выпадает из процесса — до него больше не дойти`);
+      fail('dropped', `${where}: обязательный узел «${node.id}» (${node.run}) выпадает из процесса — до него больше не дойти`, node.id);
     }
   }
   if (!kept.some((n) => Object.values(n.next).some((tr) => tr.to === END))) {
-    throw new Error(`${where}: без выключенных узлов у процесса нет пути до конца`);
+    fail('noEnd', `${where}: без выключенных узлов у процесса нет пути до конца`);
   }
 
   try {
     return parseWorkflow({ ...base, nodes: kept.map((n) => ({ ...n, next: n.next })) }, where);
   } catch (err) {
-    throw new Error(`${(err as Error).message} — правка ломает процесс`);
+    const text = (err as Error).message;
+    const needs = /узел «([^»]+)» ждёт артефакт «([^»]+)»/.exec(text);
+    if (needs) fail('needed', `${text} — правка ломает процесс`, needs[1], needs[2]);
+    fail('broken', `${text} — правка ломает процесс`, undefined, text);
   }
+  throw new Error('недостижимо');
 }
 
 /**
@@ -177,26 +202,26 @@ export function applyOverrides(base: Workflow, rules: readonly NodeOverride[], s
  * вместе с любым сочетанием условных — задача может попасть под любые из них
  * сразу. null — набор годен, иначе текст ошибки.
  */
-export function overridesProblem(base: Workflow, rules: readonly NodeOverride[]): string | null {
+export function overridesFailure(base: Workflow, rules: readonly NodeOverride[]): OverrideFailure | null {
   const seen = new Set<string>();
   for (const rule of rules) {
     const node = nodeOf(base, rule.node);
     if (!node) {
       const known = base.nodes.map((n) => n.id).join(', ');
-      return `в процессе «${base.id}» нет узла «${rule.node}»; есть: ${known}`;
+      return { code: 'noNode', node: rule.node, detail: known, text: `в процессе «${base.id}» нет узла «${rule.node}»; есть: ${known}` };
     }
-    if (seen.has(rule.node)) return `узел «${rule.node}» правится дважды`;
+    if (seen.has(rule.node)) return { code: 'dup', node: rule.node, text: `узел «${rule.node}» правится дважды` };
     seen.add(rule.node);
     if (node.run && REQUIRED_RUNS.includes(node.run)) {
-      return `узел «${node.id}» (${node.run}) обязательный — слияние и гейт с проверками выключить нельзя`;
+      return { code: 'required', node: node.id, text: `узел «${node.id}» (${node.run}) обязательный — слияние и гейт с проверками выключить нельзя` };
     }
     if (rule.when && isEmptyWhen(rule.when)) {
-      return `у правки узла «${node.id}» пустое условие — для «всегда» условие не задают`;
+      return { code: 'emptyWhen', node: node.id, text: `у правки узла «${node.id}» пустое условие — для «всегда» условие не задают` };
     }
     if (!bypassOutcome(node, rule.outcome)) {
       return rule.outcome
-        ? `у узла «${node.id}» нет исхода «${rule.outcome}»; есть: ${Object.keys(node.next).join(', ')}`
-        : `у узла «${node.id}» нет исхода «сделано» (${BYPASS_OUTCOMES.join(', ')}) — непонятно, куда идти без него`;
+        ? { code: 'noOutcome', node: node.id, detail: rule.outcome, text: `у узла «${node.id}» нет исхода «${rule.outcome}»; есть: ${Object.keys(node.next).join(', ')}` }
+        : { code: 'noBypass', node: node.id, text: `у узла «${node.id}» нет исхода «сделано» (${BYPASS_OUTCOMES.join(', ')}) — непонятно, куда идти без него` };
     }
   }
 
@@ -212,8 +237,14 @@ export function overridesProblem(base: Workflow, rules: readonly NodeOverride[])
     try {
       withoutNodes(base, off);
     } catch (err) {
-      return (err as Error).message;
+      if (err instanceof OverrideError) return err.failure;
+      return { code: 'broken', detail: (err as Error).message, text: (err as Error).message };
     }
   }
   return null;
+}
+
+/** То же текстом (русским, для ленты и инструментов менеджера): null — набор годен. */
+export function overridesProblem(base: Workflow, rules: readonly NodeOverride[]): string | null {
+  return overridesFailure(base, rules)?.text ?? null;
 }

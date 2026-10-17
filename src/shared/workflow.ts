@@ -399,7 +399,7 @@ export interface WorkflowEntry {
   officeEdits?: {
     rev: number;
     rules: { node: string; when?: { roles?: string[]; types?: TaskType[]; zones?: string[] }; outcome?: string }[];
-    history: { at: number; by: string; why: string; action: 'disable' | 'enable' | 'reset'; node?: string }[];
+    history: { at: number; by: string; why: string; action: 'disable' | 'enable' | 'reset'; node?: string; when?: { roles?: string[]; types?: TaskType[]; zones?: string[] }; outcome?: string }[];
   };
 }
 

@@ -30,6 +30,7 @@ import { catalog, DEFAULT_LAYOUT_ID, layoutFor, passabilityFor } from './layoutD
 import { interestsFor, rotateInterests, type Interest } from './interests';
 import { isBusy } from './agentState';
 import { displayInstance } from './instanceName';
+import { failureText } from './workflowEdits';
 import { go, readRoute, type HomeTab } from './router';
 import { adjacentFree, deskPoint, findPath, meetingSeat } from '../shared/layout';
 
@@ -1378,6 +1379,10 @@ export const useStore = create<State>((set, get) => ({
         break;
       case 'workflows':
         set({ workflows: e.workflows, workflowProblems: {} });
+        break;
+      case 'workflow.rejected':
+        // Отказ сервера на ws-команду: код причины → текст на языке интерфейса под процессом.
+        setWorkflowProblem(e.workflowId, failureText(e.failure));
         break;
       case 'release':
         set((s) => ({

@@ -576,10 +576,14 @@ wss.on('connection', (ws, req) => {
       state.emitWorkflows();
     } else if (cmd.c === 'workflow_node_off') {
       const out = disableNode(state, cmd);
-      state.addChat(OFFICE_SENDER, out.message);
+      // Отказ из интерфейса — кодом под нужный процесс, а не английским текстом в чат.
+      if (out.failure) state.emit({ t: 'workflow.rejected', workflowId: cmd.workflowId, failure: out.failure });
+      else state.addChat(OFFICE_SENDER, out.message);
     } else if (cmd.c === 'workflow_node_on') {
       const out = enableNode(state, cmd);
-      state.addChat(OFFICE_SENDER, out.message);
+      // Отказ из интерфейса — кодом под нужный процесс, а не английским текстом в чат.
+      if (out.failure) state.emit({ t: 'workflow.rejected', workflowId: cmd.workflowId, failure: out.failure });
+      else state.addChat(OFFICE_SENDER, out.message);
     } else if (cmd.c === 'workflow_edits_reset') {
       const out = resetOverrides(state, cmd);
       state.addChat(OFFICE_SENDER, out.message);

@@ -12,7 +12,7 @@
  * которым начинала, а новые идут по новому.
  */
 import {
-  applyOverrides, overridesProblem, type NodeOverride, type SkipSubject, type SkipWhen, type WorkflowOverrides,
+  applyOverrides, overridesFailure, type OverrideFailure, type NodeOverride, type SkipSubject, type SkipWhen, type WorkflowOverrides,
 } from '../shared/workflow-overrides';
 import { TASK_TYPES, type Run, type TaskType, type Workflow, type WorkflowEntry } from '../shared/workflow';
 import type { OfficeState, Task } from './state';
@@ -21,6 +21,13 @@ import { workflowCatalog, workflowFor } from './workflows';
 export interface OverrideResult {
   ok: boolean;
   message: string;
+  /** Отказ кодом: интерфейс сам подбирает текст на своём языке. */
+  failure?: OverrideFailure;
+}
+
+/** Отказ правки: текст в ленту и код для интерфейса. */
+function rejected(state: OfficeState, failure: OverrideFailure): OverrideResult {
+  return { ok: false, message: state.say('wfo.rejected', { problem: failure.text }), failure };
 }
 
 /** Правки процесса в офисе; пустой набор, если правок не было. */
@@ -68,8 +75,8 @@ function commit(
   state: OfficeState, base: Workflow, rules: NodeOverride[],
   change: WorkflowOverrides['history'][number], text: string,
 ): OverrideResult {
-  const problem = overridesProblem(base, rules);
-  if (problem) return { ok: false, message: state.say('wfo.rejected', { problem }) };
+  const failure = overridesFailure(base, rules);
+  if (failure) return rejected(state, failure);
   const prev = overridesOf(state, base.id);
   state.setWorkflowOverrides({
     workflowId: base.id, rev: prev.rev + 1, rules, history: [...prev.history, change],
@@ -93,13 +100,13 @@ export function disableNode(state: OfficeState, input: {
   workflowId: string; node: string; when?: SkipWhen; outcome?: string; why: string; by?: string;
 }): OverrideResult {
   const base = baseOf(state, input.workflowId);
-  if (typeof base === 'string') return { ok: false, message: state.say('wfo.rejected', { problem: base }) };
+  if (typeof base === 'string') return rejected(state, { code: 'noWorkflow', text: base });
   const why = input.why?.trim() ?? '';
-  if (!why) return { ok: false, message: state.say('wfo.rejected', { problem: 'нужна причина правки' }) };
+  if (!why) return rejected(state, { code: 'noReason', text: 'нужна причина правки' });
   const tidy = tidyWhen(input.when);
-  if (tidy.problem) return { ok: false, message: state.say('wfo.rejected', { problem: tidy.problem }) };
+  if (tidy.problem) return rejected(state, { code: 'broken', detail: tidy.problem, text: tidy.problem });
   if (input.when && !tidy.when) {
-    return { ok: false, message: state.say('wfo.rejected', { problem: `у правки узла «${input.node}» пустое условие — для «всегда» условие не задают` }) };
+    return rejected(state, { code: 'emptyWhen', node: input.node, text: `у правки узла «${input.node}» пустое условие — для «всегда» условие не задают` });
   }
   const rule: NodeOverride = {
     node: input.node,
@@ -120,12 +127,12 @@ export function enableNode(state: OfficeState, input: {
   workflowId: string; node: string; why: string; by?: string;
 }): OverrideResult {
   const base = baseOf(state, input.workflowId);
-  if (typeof base === 'string') return { ok: false, message: state.say('wfo.rejected', { problem: base }) };
+  if (typeof base === 'string') return rejected(state, { code: 'noWorkflow', text: base });
   const why = input.why?.trim() ?? '';
-  if (!why) return { ok: false, message: state.say('wfo.rejected', { problem: 'нужна причина правки' }) };
+  if (!why) return rejected(state, { code: 'noReason', text: 'нужна причина правки' });
   const current = overridesOf(state, base.id).rules;
   if (!current.some((r) => r.node === input.node)) {
-    return { ok: false, message: state.say('wfo.rejected', { problem: `узел «${input.node}» в процессе «${base.id}» не выключен` }) };
+    return rejected(state, { code: 'notDisabled', node: input.node, text: `узел «${input.node}» в процессе «${base.id}» не выключен` });
   }
   return commit(state, base, current.filter((r) => r.node !== input.node), {
     at: Date.now(), by: input.by ?? OWNER, why, action: 'enable', node: input.node,
@@ -137,9 +144,9 @@ export function resetOverrides(state: OfficeState, input: {
   workflowId: string; why: string; by?: string;
 }): OverrideResult {
   const base = baseOf(state, input.workflowId);
-  if (typeof base === 'string') return { ok: false, message: state.say('wfo.rejected', { problem: base }) };
+  if (typeof base === 'string') return rejected(state, { code: 'noWorkflow', text: base });
   const why = input.why?.trim() ?? '';
-  if (!why) return { ok: false, message: state.say('wfo.rejected', { problem: 'нужна причина правки' }) };
+  if (!why) return rejected(state, { code: 'noReason', text: 'нужна причина правки' });
   const current = overridesOf(state, base.id).rules;
   if (!current.length) return { ok: true, message: state.say('wfo.nothingToReset', { workflow: base.id }) };
   const nodes = current.map((r) => r.node).join(', ');

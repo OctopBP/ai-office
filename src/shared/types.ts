@@ -6,6 +6,7 @@ import type { AuthKind, CustomApi, EngineCapabilities, EngineId, ModelChoice, Pr
 // снапшот, и команды клиента, а разбирать контракт по двум файлам неудобно.
 export type { Layout, LayoutOverride, LayoutPropEdit } from './layout';
 import type { FlowMemory, Handoff, Run, TaskType, WorkflowEntry } from './workflow';
+import type { OverrideFailure } from './workflow-overrides';
 import type { EpicRelease, Release, ReleaseConfig, ReleasePlan } from './release';
 import type { Layout, LayoutOverride, LayoutPropEdit } from './layout';
 
@@ -2864,6 +2865,8 @@ export type ServerEvent =
   | { t: 'release'; release: Release }
   | { t: 'release.plan'; plan: ReleasePlan }
   | { t: 'workflows'; workflows: WorkflowEntry[] }
+  /** Сервер отклонил правку узла процесса из интерфейса: код причины, текст подбирает веб. */
+  | { t: 'workflow.rejected'; workflowId: string; failure: OverrideFailure }
   | { t: 'direction'; direction: DirectionView }
   | { t: 'direction.remove'; id: string }
   | { t: 'proposal'; proposal: ProposalView }
