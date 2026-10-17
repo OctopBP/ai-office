@@ -5,7 +5,9 @@
 
 /* ---------- правая колонка ---------- */
 
-.chat { overflow-y: auto; padding: var(--space-1); min-height: 0; flex: 1; }
+/* Полей у ленты нет: их даёт контейнер (тело панели, `.shell-page-body.pad`,
+   колонка вида «Чат»), второй слой давал двойной отступ (T-607). */
+.chat { overflow-y: auto; min-height: 0; flex: 1; }
 .msg { margin-bottom: var(--space-3); }
 .msg-from { font-size: var(--fs-small); color: var(--ink-3); margin-bottom: var(--space-1); }
 /* Время реплики отжимает подпись автора влево, а само садится в правый край строки. */
