@@ -1,0 +1,503 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<title>T-611 · Макет: окно «Команда» → «Создать агента»</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<!--
+  Макет собран на токенах офиса (src/web/styles/tokens.css, светлая тема) и размерах team.css:
+  список 380 px, правая панель с padding 20/24, строки 12 px, пилюли, плёнка вместо теней.
+  Figma в этой сессии подключена к чужому файлу («Лордерон»), поэтому макет — HTML,
+  как docs/design/office-menu/prototype.html. Тёмная тема: кнопка вверху меняет data-theme.
+-->
+<style>
+:root, [data-theme='day'] {
+  --radius-panel:18px; --radius-card:14px; --radius-row:12px; --radius-icon:7px; --radius-pill:999px;
+  --space-1:4px; --space-2:8px; --space-3:12px; --space-4:16px; --space-5:20px; --space-6:24px; --space-8:32px;
+  --fs-caption:10px; --fs-small:11px; --fs-body:12.5px; --fs-md:13px; --fs-title:15px; --fs-head:16px;
+  --canvas:#f1f1f1; --surface:#fff; --film:rgba(0,0,0,.06); --film-2:rgba(0,0,0,.07); --film-3:rgba(0,0,0,.11);
+  --hairline:#dadada; --ink:#141414; --ink-2:#323232; --ink-3:#5c5c5c; --ink-4:#6b6b6b;
+  --accent:#2563eb; --accent-rgb:37,99,235; --accent-ink:#fff;
+  --ok-ink:#137a38; --ok-rgb:22,163,74; --warn:#f2a33a; --warn-rgb:242,163,58; --warn-ink:#8f5a00;
+  --danger:#c93c31; --danger-rgb:201,60,49; --veil:rgba(0,0,0,.35); --shadow-toast:0 5px 14px rgba(0,0,0,.33);
+  --accent-1:#2f7bf6; --accent-2:#6366f1; --accent-3:#a855f7; --accent-4:#ec4899;
+  --accent-5:#ea580c; --accent-6:#f0b429; --accent-7:#84cc16; --accent-8:#0d9488;
+  --font:'Inter Variable',Inter,-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;
+  --font-mono:ui-monospace,SFMono-Regular,Menlo,monospace;
+}
+[data-theme='night'] {
+  --canvas:#0d0e11; --surface:#111214; --film:rgba(255,255,255,.06); --film-2:rgba(255,255,255,.07); --film-3:rgba(255,255,255,.14);
+  --hairline:#2a2d34; --ink:#f4f4f5; --ink-2:#e4e4e7; --ink-3:#a1a1a1; --ink-4:#8a8a8a;
+  --ok-ink:#4ade80; --ok-rgb:74,222,128; --warn:#ffb800; --warn-rgb:255,184,0; --warn-ink:#ffb800;
+  --danger:#ff6b6b; --danger-rgb:255,107,107; --veil:rgba(0,0,0,.6);
+}
+* { box-sizing:border-box; }
+body { margin:0; background:#e6e6e6; font:var(--fs-body)/1.4 var(--font); color:var(--ink-2); }
+[data-theme='night'] body, body[data-theme='night'] { background:#050506; }
+h1,h2,h3,p { margin:0; }
+.sheet { max-width:1360px; margin:0 auto; padding:24px 24px 80px; }
+.sheet > h1 { font-size:22px; color:var(--ink); }
+.sheet > .lead { color:var(--ink-3); margin:6px 0 20px; max-width:860px; }
+.toolbar { display:flex; gap:8px; margin-bottom:24px; flex-wrap:wrap; }
+.toc a { color:var(--accent); text-decoration:none; margin-right:14px; }
+.shot { margin:0 0 56px; }
+.shot > h2 { font-size:15px; color:var(--ink); margin-bottom:4px; }
+.shot > .cap { color:var(--ink-3); margin-bottom:12px; max-width:900px; }
+.note { font-size:11px; color:var(--ink-3); margin-top:8px; max-width:900px; }
+.note b { color:var(--ink-2); }
+
+/* ---- кнопки и контролы (как в приложении) ---- */
+button, select, input, textarea { font:inherit; color:inherit; }
+button { cursor:pointer; border:0; background:var(--film); height:32px; padding:0 14px; border-radius:var(--radius-pill); color:var(--ink); }
+button:hover { background:var(--film-2); }
+button.mini { height:26px; padding:0 10px; font-size:var(--fs-small); }
+button.go { color:var(--accent-ink); background:var(--accent); }
+button.ghost { background:transparent; }
+button.danger { color:var(--danger); }
+button:disabled { opacity:.45; cursor:default; }
+.sq { width:28px; height:28px; padding:0; border-radius:var(--radius-icon); background:transparent; }
+.seg { display:inline-flex; background:var(--film); border-radius:var(--radius-pill); padding:2px; gap:2px; }
+.seg button { height:28px; background:transparent; }
+.seg button.on { background:var(--surface); box-shadow:0 0 0 1px var(--hairline); }
+.muted { color:var(--ink-3); } .small { font-size:var(--fs-small); }
+
+/* ---- окно «Команда» ---- */
+.win { background:var(--surface); border:1px solid var(--hairline); border-radius:var(--radius-panel); height:860px; display:flex; flex-direction:column; overflow:hidden; position:relative; }
+.win.short { height:auto; min-height:0; }
+.win-head { display:flex; align-items:center; gap:16px; padding:12px 20px; border-bottom:1px solid var(--hairline); }
+.win-head h2 { font-size:var(--fs-head); color:var(--ink); display:flex; align-items:center; gap:16px; }
+.win-head .sp { flex:1; }
+.tab-count { opacity:.6; font-weight:400; }
+.win-body { display:flex; flex:1; min-height:0; }
+.list-pane { width:380px; flex:none; border-right:1px solid var(--hairline); padding:12px; display:flex; flex-direction:column; gap:8px; overflow:hidden; }
+.list-head { display:flex; gap:8px; align-items:center; }
+.search { flex:1; height:32px; border:0; border-radius:var(--radius-pill); background:var(--film); padding:0 14px; }
+.group-title { font-size:var(--fs-small); color:var(--ink-3); text-transform:uppercase; letter-spacing:.04em; margin:8px 4px 2px; }
+.row { display:flex; align-items:center; gap:8px; padding:8px 12px; border:1px solid transparent; border-radius:var(--radius-row); }
+.row:hover { background:var(--film); }
+.row.sel { background:var(--film-2); border-color:var(--hairline); }
+.row.new { animation:pulse 2s ease-out 1; box-shadow:0 0 0 2px rgba(var(--accent-rgb),.5); }
+.ava { width:30px; height:30px; border-radius:11px; display:grid; place-items:center; font-size:16px; flex:none; }
+.row-text { display:flex; flex-direction:column; min-width:0; flex:1; }
+.row-title { color:var(--ink); font-weight:500; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.badge { font-size:var(--fs-caption); padding:1px 7px; border-radius:var(--radius-pill); background:var(--film); color:var(--ink-3); white-space:nowrap; }
+.badge.ok { color:var(--ok-ink); background:rgba(var(--ok-rgb),.12); }
+.badge.warn { color:var(--warn-ink); background:rgba(var(--warn-rgb),.16); }
+.badge.acc { color:var(--accent); background:rgba(var(--accent-rgb),.1); }
+.dot { width:7px; height:7px; border-radius:50%; background:var(--danger); display:inline-block; }
+.detail { flex:1; min-width:0; overflow:hidden; padding:20px 24px; position:relative; }
+.detail.noscroll { padding:0; display:flex; flex-direction:column; }
+.toast { position:absolute; right:20px; bottom:20px; background:var(--ink); color:var(--surface); padding:10px 14px; border-radius:var(--radius-row); box-shadow:var(--shadow-toast); display:flex; gap:12px; align-items:center; }
+
+/* ---- форма ---- */
+.form-head { display:flex; align-items:center; gap:12px; padding:14px 24px; border-bottom:1px solid var(--hairline); flex:none; }
+.form-head h3 { font-size:var(--fs-title); color:var(--ink); }
+.form-head .sp { flex:1; }
+.form-nav { display:flex; gap:4px; padding:8px 24px; border-bottom:1px solid var(--hairline); flex:none; }
+.form-nav a { padding:4px 10px; border-radius:var(--radius-pill); color:var(--ink-3); text-decoration:none; display:flex; gap:6px; align-items:center; }
+.form-nav a.on { background:var(--film-2); color:var(--ink); }
+.form-scroll { flex:1; overflow:hidden; padding:20px 24px; display:flex; flex-direction:column; gap:20px; }
+.form-foot { flex:none; display:flex; align-items:center; gap:8px; padding:12px 24px; border-top:1px solid var(--hairline); background:var(--surface); }
+.form-foot .sp { flex:1; }
+.sec { border:1px solid var(--hairline); border-radius:var(--radius-card); padding:16px; display:flex; flex-direction:column; gap:14px; }
+.sec > h4 { margin:0; font-size:var(--fs-md); color:var(--ink); display:flex; gap:8px; align-items:center; }
+.sec > h4 .n { width:18px; height:18px; border-radius:50%; background:var(--film-2); font-size:10px; display:grid; place-items:center; color:var(--ink-3); }
+.fld { display:flex; flex-direction:column; gap:4px; }
+.fld > label, .lbl { font-size:var(--fs-small); color:var(--ink-3); display:flex; justify-content:space-between; }
+.fld > label b { color:var(--danger); font-weight:500; }
+.in, .sel-in, .ta { width:100%; border:1px solid transparent; background:var(--film); border-radius:10px; padding:0 12px; height:32px; outline:none; }
+.in:focus, .ta:focus, .focus { border-color:var(--accent); box-shadow:0 0 0 3px rgba(var(--accent-rgb),.18); background:var(--surface); }
+.ta { height:auto; padding:10px 12px; line-height:1.5; resize:none; }
+.ta.mono { font-family:var(--font-mono); font-size:12px; }
+.invalid { border-color:var(--danger) !important; background:rgba(var(--danger-rgb),.06) !important; }
+.err { color:var(--danger); font-size:var(--fs-small); display:flex; gap:6px; align-items:flex-start; }
+.hint { color:var(--ink-3); font-size:var(--fs-small); line-height:1.45; }
+.hint.warn { color:var(--warn-ink); }
+.grid2 { display:grid; grid-template-columns:1fr 1fr; gap:14px; }
+.grid3 { display:grid; grid-template-columns:1.2fr 1fr 1fr; gap:14px; }
+.swatches { display:flex; gap:8px; align-items:center; }
+.sw { width:26px; height:26px; border-radius:50%; border:2px solid var(--surface); box-shadow:0 0 0 1px var(--hairline); position:relative; }
+.sw.on { box-shadow:0 0 0 2px var(--ink); }
+.sw.on::after { content:'✓'; position:absolute; inset:0; display:grid; place-items:center; color:#fff; font-size:13px; }
+.sw.dark-ink.on::after { color:#181320; }
+.emojis { display:flex; gap:4px; flex-wrap:wrap; }
+.emo { width:30px; height:30px; border-radius:var(--radius-icon); display:grid; place-items:center; font-size:16px; background:var(--film); }
+.emo.on { background:var(--surface); box-shadow:0 0 0 2px var(--ink); }
+.preview { display:flex; align-items:center; gap:10px; padding:10px 12px; border-radius:var(--radius-row); background:var(--film); }
+.checks { display:grid; grid-template-columns:1fr 1fr; gap:6px 16px; }
+.chk { display:flex; gap:8px; align-items:flex-start; min-height:22px; }
+.chk i { width:16px; height:16px; border-radius:5px; border:1.5px solid var(--ink-4); flex:none; margin-top:1px; display:grid; place-items:center; font-style:normal; font-size:11px; color:#fff; }
+.chk.on i { background:var(--accent); border-color:var(--accent); }
+.chk.na { opacity:.5; }
+.chk.na i { background:var(--film-2); border-style:dashed; }
+.chk .t { display:flex; flex-direction:column; }
+.chk .t span:first-child { color:var(--ink); }
+.skill { display:flex; gap:10px; align-items:center; padding:8px 12px; border:1px solid var(--hairline); border-radius:var(--radius-row); }
+.skill.open { flex-direction:column; align-items:stretch; background:var(--film); border-color:transparent; }
+.skill .nm { font-family:var(--font-mono); font-size:12px; color:var(--ink); }
+.counter { display:flex; justify-content:space-between; font-size:var(--fs-small); color:var(--ink-4); }
+.counter.over { color:var(--warn-ink); }
+.banner { display:flex; gap:10px; align-items:flex-start; padding:10px 14px; border-radius:var(--radius-row); background:var(--film); }
+.banner.danger { background:rgba(var(--danger-rgb),.1); color:var(--danger); }
+.banner.warn { background:rgba(var(--warn-rgb),.14); color:var(--warn-ink); }
+.banner.acc { background:rgba(var(--accent-rgb),.08); color:var(--ink-2); }
+.spin { width:12px; height:12px; border-radius:50%; border:2px solid rgba(255,255,255,.45); border-top-color:#fff; display:inline-block; vertical-align:-2px; margin-right:6px; animation:spin .8s linear infinite; }
+.progress { height:3px; background:var(--film-2); position:relative; overflow:hidden; flex:none; }
+.progress::after { content:''; position:absolute; inset:0 60% 0 0; background:var(--accent); animation:slide 1.2s ease-in-out infinite; }
+.lock { opacity:.55; pointer-events:none; }
+.zones { display:flex; flex-wrap:wrap; gap:6px; }
+.zone { padding:4px 12px; border-radius:var(--radius-pill); background:var(--film); }
+.zone.on { background:rgba(var(--accent-rgb),.12); color:var(--accent); box-shadow:inset 0 0 0 1px rgba(var(--accent-rgb),.5); }
+.caps { color:var(--ink-3); }
+.menu { position:absolute; background:var(--surface); border:1px solid var(--hairline); border-radius:var(--radius-row); box-shadow:var(--shadow-toast); padding:4px; min-width:230px; z-index:5; }
+.menu div { padding:7px 12px; border-radius:8px; }
+.menu div:hover, .menu div.on { background:var(--film-2); }
+.modal-veil { position:absolute; inset:0; background:var(--veil); display:grid; place-items:center; z-index:9; }
+.modal { background:var(--surface); border-radius:var(--radius-panel); padding:20px; width:420px; display:flex; flex-direction:column; gap:12px; box-shadow:var(--shadow-toast); }
+.modal-actions { display:flex; justify-content:flex-end; gap:8px; }
+.anno { position:absolute; background:#ffe066; color:#111; font-size:11px; padding:3px 8px; border-radius:6px; z-index:20; font-weight:600; box-shadow:0 1px 4px rgba(0,0,0,.3); }
+@keyframes spin { to { transform:rotate(360deg); } }
+@keyframes slide { 0% { inset:0 100% 0 0; } 50% { inset:0 30% 0 30%; } 100% { inset:0 0 0 100%; } }
+@keyframes pulse { 0% { box-shadow:0 0 0 6px rgba(var(--accent-rgb),.5);} 100% { box-shadow:0 0 0 2px rgba(var(--accent-rgb),.5);} }
+</style>
+</head>
+<body>
+<div class="sheet">
+  <h1>Окно «Команда» → «Создать агента» (T-611)</h1>
+  <p class="lead">Семь экранов: точки входа, пустая форма, ошибки, заполненный пример «Геймдизайнер настольных игр», сохранение, редактирование и «Создать на основе». Форма открывается в правой панели окна «Команда» (там, где обычно карточка роли или пакета), список слева остаётся. Спека — <code>spec.md</code> рядом.</p>
+  <div class="toolbar">
+    <button onclick="document.body.dataset.theme = document.body.dataset.theme==='night' ? 'day' : 'night'; document.documentElement.dataset.theme = document.body.dataset.theme">Светлая / тёмная тема</button>
+    <span class="toc">
+      <a href="#s1">1 · Точки входа</a><a href="#s2">2 · Пустая форма</a><a href="#s3">3 · Ошибки</a><a href="#s4">4 · Пример заполнен</a><a href="#s5">5 · Сохранение и найм</a><a href="#s6">6 · Редактирование</a><a href="#s7">7 · Создать на основе</a>
+    </span>
+  </div>
+
+  <div id="root"></div>
+</div>
+
+<script>
+/* ---------- данные ---------- */
+const COLORS = [['--accent-1',''],['--accent-2',''],['--accent-3',''],['--accent-4',''],['--accent-5',''],['--accent-6','dark-ink'],['--accent-7','dark-ink'],['--accent-8','']];
+const sw = (on) => `<div class="swatches">${COLORS.map(([v,c],i)=>`<span class="sw ${c} ${on===i+1?'on':''}" style="background:var(${v})" title="${v.slice(2)}"></span>`).join('')}</div>`;
+const EMOJIS = ['🎲','🃏','🧩','📜','⚖️','🎯','🧠','🛠️','📐','🏰','🎨','🔬'];
+const emojis = (on) => `<div class="emojis">${EMOJIS.map(e=>`<span class="emo ${e===on?'on':''}">${e}</span>`).join('')}</div>`;
+const chk = (label, sub, on, na) => `<div class="chk ${on?'on':''} ${na?'na':''}"><i>${on?'✓':''}</i><span class="t"><span>${label}</span>${sub?`<span class="hint">${sub}</span>`:''}</span></div>`;
+
+const staff = [
+  ['🧭','Менеджер','Claude · Opus','#f0b429'],
+  ['⚙️','Backend','Claude · Sonnet','#2f7bf6'],
+  ['🖥️','Frontend','Claude · Sonnet','#ec4899'],
+  ['🎨','Дизайнер','Claude · Sonnet','#a855f7'],
+];
+function rows(sel, extra) {
+  let h = staff.map(([e,t,m,c],i)=>`<div class="row ${sel===t?'sel':''}"><span class="ava" style="background:${c}">${e}</span><span class="row-text"><span class="row-title">${t}</span><span class="muted small">${m}</span></span><span class="badge">ask-risky</span></div>`).join('');
+  return h + (extra||'');
+}
+function listStaff({sel, extra, hideCreate, hint}={}) {
+  return `<div class="list-pane">
+    <div class="list-head"><input class="search" placeholder="Поиск сотрудника"><button class="mini go ${hideCreate?'lock':''}">＋ Создать агента</button></div>
+    <div class="group-title">Сотрудники · 4</div>${rows(sel, extra)}${hint||''}
+  </div>`;
+}
+function listMarket({sel, mine}={}) {
+  const card = (e,c,t,sub,b) => `<div class="row ${sel===t?'sel':''}"><span class="ava" style="background:${c}">${e}</span><span class="row-text"><span class="row-title">${t}</span><span class="muted small">${sub}</span></span>${b}</div>`;
+  return `<div class="list-pane">
+    <div class="list-head"><input class="search" placeholder="Поиск в маркете"><button class="mini go">＋ Создать агента</button></div>
+    <div class="seg" style="align-self:flex-start"><button class="${mine?'':'on'}">Все</button><button class="${mine?'on':''}">Мои · ${mine?2:1}</button><button>Официальные</button><button>Сообщество</button></div>
+    ${mine ? `<div class="group-title">Мои агенты · на этом компьютере</div>
+      ${card('🎲','var(--accent-3)','Геймдизайнер настольных игр','@local/boardgame-designer · v0.1.0','<span class="badge acc">Мой</span>')}
+      ${card('📝','var(--accent-8)','Редактор писем','@local/mail-editor · v0.2.1','<span class="badge acc">Мой</span><span class="badge ok">в офисе 1</span>')}` :
+    `${card('⚙️','var(--accent-1)','Backend','@office/backend · 1.4.0','<span class="badge">Официальный</span>')}
+     ${card('🎲','var(--accent-3)','Геймдизайнер настольных игр','@local/boardgame-designer · v0.1.0','<span class="badge acc">Мой</span>')}
+     ${card('🧩','var(--accent-6)','Unity-разработчик','@office/unity · 0.9.2','<span class="badge">Официальный</span>')}`}
+  </div>`;
+}
+function win({tab='staff', list, detail, extra='', cls='', counts=[4,7]}) {
+  return `<div class="win ${cls}">
+    <div class="win-head"><h2>Команда <span class="seg"><button class="${tab==='staff'?'on':''}">В офисе <span class="tab-count">${counts[0]}</span></button><button class="${tab==='market'?'on':''}">Маркет <span class="tab-count">${counts[1]}</span></button></span></h2><span class="sp"></span><button class="sq">✕</button></div>
+    <div class="win-body">${list}${detail}</div>${extra}</div>`;
+}
+
+/* ---------- форма ---------- */
+const TEMPLATE = `Ты — <кто ты>.
+
+## Что делаешь
+- …
+
+## Чего не делаешь (границы)
+- …
+
+## Как сдаёшь результат
+- файлы, формат, что писать в отчёте`;
+
+const EXAMPLE_BRIEF = `Ты — геймдизайнер настольных игр в команде игровой студии.
+
+## Что делаешь
+- Пишешь правила: цель игры, ход, победа, спорные случаи — по порядку и без воды.
+- Балансируешь: считаешь вероятности и стоимости, ведёшь таблицу «карта → цена → сила».
+- Делаешь карточки: название, стоимость, текст эффекта, ограничение в одну строку.
+- Описываешь прототип для печати: список компонентов и их количество.
+
+## Чего не делаешь
+- Не запускаешь команды и не правишь код. Таблицы и тексты — только в docs/boardgame/.
+- Не меняешь правила молча: любое изменение — строка в CHANGELOG.md.
+
+## Как сдаёшь результат
+- docs/boardgame/rules.md, cards.csv, balance.md; в отчёте — что изменилось и что проверить игрокам на тесте.`;
+
+function formHead({title, sub, saving, mode}) {
+  return `<div class="form-head">
+    <button class="sq" title="Назад" ${saving?'disabled':''}>←</button>
+    <div><h3>${title}</h3>${sub?`<div class="muted small">${sub}</div>`:''}</div><span class="sp"></span>
+  </div>${saving?'<div class="progress"></div>':''}`;
+}
+function nav(on, errs={}) {
+  const items=[['Кто'],['Инструкции'],['Модель и работа'],['Инструменты'],['Закрепление']];
+  return `<div class="form-nav">${items.map(([n],i)=>`<a class="${on===i?'on':''}">${i+1} · ${n}${errs[i]?`<span class="dot" title="${errs[i]} ошибк."></span>`:''}</a>`).join('')}</div>`;
+}
+function secWho(v={}) {
+  const {title='', summary='', emoji='🎲', color=3, titleErr, summaryErr, empty} = v;
+  const ph = (t)=>`<span style="color:var(--ink-4)">${t}</span>`;
+  return `<section class="sec"><h4><span class="n">1</span>Кто это</h4>
+    <div class="grid2">
+      <div class="fld"><label>Название <b>*</b><span>${title.length}/60</span></label>
+        <div class="in ${titleErr?'invalid':''} ${v.focusTitle?'focus':''}" style="display:flex;align-items:center">${title||ph('Например: Геймдизайнер настольных игр')}</div>
+        ${titleErr?`<div class="err">⚠ ${titleErr}</div>`:'<div class="hint">Так агента видят в списке и в чате. Уникально в этом офисе.</div>'}
+      </div>
+      <div class="fld"><label>Короткое описание<span>${summary.length}/140</span></label>
+        <div class="in ${summaryErr?'invalid':''}" style="display:flex;align-items:center">${summary||ph('Одна строка: что умеет — для карточки в маркете')}</div>
+        ${summaryErr?`<div class="err">⚠ ${summaryErr}</div>`:'<div class="hint">Показывается в маркете и при выборе, кого нанять.</div>'}
+      </div>
+    </div>
+    <div class="grid2">
+      <div class="fld"><span class="lbl">Значок</span>${emojis(empty?'':emoji)}</div>
+      <div class="fld"><span class="lbl">Цвет <span>палитра офиса</span></span>${sw(color)}</div>
+    </div>
+    <div class="preview"><span class="ava" style="background:var(--accent-${color})">${emoji}</span><span class="row-text"><span class="row-title">${title||'Новый агент'}</span><span class="muted small">${summary||'Так он будет выглядеть в списке'}</span></span><span class="badge acc">Мой</span><span class="hint">внешность на сцене — по цвету, <u>сменить</u></span></div>
+  </section>`;
+}
+function secBrief(v={}) {
+  const {text='', err, warnTokens} = v;
+  const len = text.length, tok = Math.round(len/3.5);
+  return `<section class="sec"><h4><span class="n">2</span>Инструкции</h4>
+    <div class="fld"><label>Бриф — системный промпт агента <b>*</b><span><u style="color:var(--accent)">Вставить шаблон</u></span></label>
+      <div class="ta mono ${err?'invalid':''}" style="height:${text?250:180}px;white-space:pre-wrap;overflow:hidden">${text?text.replace(/</g,'&lt;'):`<span style="color:var(--ink-4)">${TEMPLATE.replace(/</g,'&lt;')}</span>`}</div>
+      <div class="counter ${warnTokens?'over':''}"><span>${len} симв. · ≈ ${tok} токенов${warnTokens?' · длинновато: часть лучше вынести в скил':''}</span><span>мягкий потолок 8 000 · максимум 30 000</span></div>
+      ${err?`<div class="err">⚠ ${err}</div>`:''}
+      <div class="hint">Бриф — это роль и границы, он идёт в каждый запрос. Подробную инструкцию к одному делу вынесите в скил (раздел 4): он подгружается по требованию.</div>
+    </div>
+  </section>`;
+}
+function secModel(v={}) {
+  const {mode='docs', tier='Как в офисе'} = v;
+  return `<section class="sec"><h4><span class="n">3</span>Модель и режим работы</h4>
+    <div class="grid3">
+      <div class="fld"><label>Движок</label><div class="in sel-in" style="display:flex;align-items:center;justify-content:space-between">Как в офисе · Claude Code <span>▾</span></div></div>
+      <div class="fld"><label>Уровень модели</label><div class="in sel-in" style="display:flex;align-items:center;justify-content:space-between">${tier} <span>▾</span></div></div>
+      <div class="fld"><label>Доступ к действиям</label><div class="in sel-in" style="display:flex;align-items:center;justify-content:space-between">Как в офисе <span>▾</span></div></div>
+    </div>
+    <div class="fld"><span class="lbl">С чем работает</span>
+      <div class="seg" style="align-self:flex-start"><button class="${mode==='docs'?'on':''}">📄 С документами в своей папке</button><button class="${mode==='code'?'on':''}">🌿 С кодом в своей ветке</button></div>
+      <div class="hint">${mode==='docs'?'Пишет только в папку <code>docs/boardgame</code> (можно сменить). Код проекта не трогает.':'Каждая задача — отдельная ветка и рабочая копия, слияние через ревью.'}</div>
+      ${mode==='docs'?`<div class="in" style="margin-top:4px;max-width:320px;font-family:var(--font-mono);font-size:12px;display:flex;align-items:center">docs/boardgame</div>`:''}
+    </div>
+  </section>`;
+}
+const BUILTIN = [
+  ['Read','чтение файлов'],['Write','создание файлов'],['Edit','правка файлов'],['Glob','поиск по имени'],['Grep','поиск по тексту'],
+  ['Bash','команды в терминале'],['TodoWrite','список шагов'],['WebSearch','поиск в интернете'],['WebFetch','открыть страницу',],
+];
+function secTools(v={}) {
+  const {preset='Документы', on=['Read','Write','Edit','Glob','Grep','TodoWrite','WebSearch','WebFetch'], mcp=['imagegen'], skills=[], openSkill, engine='Claude Code', toolsErr} = v;
+  return `<section class="sec"><h4><span class="n">4</span>Инструменты</h4>
+    <div class="fld"><span class="lbl">Набор для начала</span>
+      <div class="seg" style="align-self:flex-start">${['Код','Документы','Исследование','Свой набор'].map(p=>`<button class="${p===preset?'on':''}">${p}</button>`).join('')}</div>
+      <div class="hint">«Документы»: без терминала, пишет только в свою папку. Дальше галочки можно менять — набор станет «Свой».</div></div>
+    <div class="fld"><span class="lbl">Встроенные инструменты · ${engine}</span>
+      <div class="checks">${BUILTIN.map(([n,d])=>chk(n,d,on.includes(n),false)).join('')}</div>
+      ${toolsErr?`<div class="err">⚠ ${toolsErr}</div>`:''}
+      <div class="hint">Недоступное выбранному движку показывается серым с пояснением (например, WebFetch у Codex).</div></div>
+    <div class="fld"><span class="lbl">Серверы MCP из каталога офиса <u style="color:var(--accent)">Каталог →</u></span>
+      <div class="checks">
+        ${chk('imagegen','картинки по описанию',mcp.includes('imagegen'))}
+        ${chk('browser','браузер (Playwright)',mcp.includes('browser'))}
+        ${chk('figma-bridge','Figma',false)}
+        ${chk('unity','Unity Editor',false,true).replace('<span class="hint"></span>','')}
+      </div>
+      <div class="hint">Подписка по имени сервера; определения секретов не хранятся. Серверы без бинарника в этой системе помечаются «не установлен».</div></div>
+    <div class="fld"><span class="lbl">Скилы <span class="muted">подробные инструкции к делу, грузятся по требованию</span></span>
+      ${skills.map(s=>`<div class="skill"><span class="nm">${s[0]}</span><span class="muted" style="flex:1">${s[1]}</span><span class="badge">${s[2]} симв.</span><button class="mini ghost">Править</button><button class="mini ghost danger">Убрать</button></div>`).join('')}
+      ${openSkill?`<div class="skill open"><div class="grid2"><div class="fld"><label>Имя скила</label><div class="in" style="display:flex;align-items:center;font-family:var(--font-mono)">card-template</div></div><div class="fld"><label>Когда применять</label><div class="in" style="display:flex;align-items:center">Когда нужно оформить новую карточку</div></div></div><div class="fld"><label>SKILL.md</label><div class="ta mono" style="height:90px;overflow:hidden"># Шаблон карточки\n\n1. Название (до 24 символов)\n2. Стоимость — число в кружке\n3. Эффект — не больше двух предложений</div></div><div style="display:flex;gap:8px;justify-content:flex-end"><button class="mini">Отмена</button><button class="mini go">Добавить скил</button></div></div>`:`<button class="mini" style="align-self:flex-start">＋ Добавить скил</button>`}
+    </div>
+    <details style="display:block"><summary class="muted small" style="cursor:default">▸ Способности (выводятся сами: <span class="caps">docs.write, research.web</span>) · изменить</summary></details>
+  </section>`;
+}
+function secZone(v={}) {
+  const {zones=[1]} = v;
+  const Z=['Весь проект','docs','Rewind · клиент','Сервер'];
+  return `<section class="sec"><h4><span class="n">5</span>Закрепление</h4>
+    <div class="fld"><span class="lbl">Зона проекта, с которой работает</span>
+      <div class="zones">${Z.map((z,i)=>`<span class="zone ${zones.includes(i)?'on':''}">${z}</span>`).join('')}</div>
+      <div class="hint">Зоны этого офиса. Если не выбрать — агент работает в корне проекта, как остальные.</div></div>
+    <div class="banner acc"><span>ℹ</span><span>Агент сохраняется <b>на этом компьютере</b> — его можно нанять и в другие офисы. Правка агента потом применится ко всем его копиям.</span></div>
+  </section>`;
+}
+function foot({hire=true, saving, disabled, errCount, mode='create', extra=''}) {
+  if (mode==='edit') return `<div class="form-foot"><button class="danger ghost mini" ${saving?'disabled':''}>Удалить агента</button><span class="sp"></span>${errCount?`<span class="err">⚠ ${errCount} ошибк. — исправьте отмеченные поля</span>`:''}<button ${saving?'disabled':''}>Отмена</button><button class="go" ${saving||disabled?'disabled':''}>${saving?'<span class="spin"></span>Сохраняю…':'Сохранить'}</button></div>`;
+  return `<div class="form-foot">
+    <span class="muted small">${extra}</span><span class="sp"></span>
+    ${errCount?`<span class="err">⚠ ${errCount} ошибк. — исправьте отмеченные поля</span>`:''}
+    <button ${saving?'disabled':''}>Отмена</button>
+    <button ${saving||disabled?'disabled':''}>Сохранить</button>
+    <button class="go" ${saving||disabled?'disabled':''}>${saving?'<span class="spin"></span>Нанимаю…':'Сохранить и нанять'}</button>
+  </div>`;
+}
+function form({head, navOn=0, banner='', who, brief, model, tools, zone, foot:f, lock}) {
+  return `<div class="detail noscroll">${head}${nav(navOn, f.navErr)}<div class="form-scroll ${lock?'lock':''}">${banner}${who}${brief}${model}${tools}${zone}</div>${foot(f)}</div>`;
+}
+
+/* ---------- экраны ---------- */
+const S = [];
+
+// 1. Точки входа
+S.push(`<div class="shot" id="s1"><h2>1 · Точки входа</h2>
+<p class="cap">Кнопка «＋ Создать агента» стоит в шапке списка на обеих вкладках. «Создать на основе» — в меню «⋯» на странице агента (вкладка «В офисе») и на карточке пакета (вкладка «Маркет»). У своих агентов на карточке — «Нанять», «Править», «Удалить».</p>
+${win({tab:'staff', list:listStaff({sel:'Backend'}), detail:`<div class="detail">
+  <div style="display:flex;align-items:center;gap:12px;margin-bottom:16px"><span class="ava" style="background:var(--accent-1)">⚙️</span><div><div class="row-title" style="font-size:15px">Backend</div><div class="muted small">@office/backend · 1.4.0</div></div><span style="flex:1"></span><button class="mini">Нанять ещё</button><button class="mini" style="position:relative">⋯</button></div>
+  <div class="menu" style="right:24px;top:62px"><div class="on">⧉ Создать на основе…</div><div>Экспортировать в пакет</div><div>Отвязать от пакета</div><div class="danger" style="color:var(--danger)">Убрать из офиса</div></div>
+  <div class="seg"><button class="on">Профиль</button><button>Модель</button><button>Доступ</button><button>Инструкция</button><button>Итоги</button></div>
+  <p class="muted" style="margin-top:20px">…страница агента как сейчас…</p>
+</div>`, cls:''})}
+<div class="note"><b>Менеджеру</b> «Создать на основе» не предлагается (менеджер один). <b>Архивные</b> роли — тоже без пункта.</div>
+</div>`);
+
+// Маркет — карточки своих
+S[0] += '';
+S.push(`<div class="shot"><h2>1б · Вкладка «Маркет»: фильтр «Мои»</h2>
+<p class="cap">Рядом с остальными пакетами появляется источник «Мой» (<code>origin: local</code>) и фильтр. У карточки своего агента кнопки «Нанять», «Править», «Создать на основе», «Подготовить к публикации», «Удалить».</p>
+${win({tab:'market', list:listMarket({sel:'Геймдизайнер настольных игр', mine:true}), counts:[4,9], detail:`<div class="detail">
+  <div style="display:flex;align-items:center;gap:12px;margin-bottom:12px"><span class="ava" style="background:var(--accent-3)">🎲</span><div><div class="row-title" style="font-size:15px">Геймдизайнер настольных игр</div><div class="muted small">@local/boardgame-designer · v0.1.0 · этот компьютер</div></div></div>
+  <p style="margin-bottom:12px">Правила, баланс, карточки и описание прототипа. Не запускает команды.</p>
+  <div style="display:flex;gap:8px;flex-wrap:wrap"><button class="go">Нанять в этот офис</button><button>Править</button><button>Создать на основе</button><button>Подготовить к публикации</button><button class="danger ghost">Удалить</button></div>
+  <div class="hint" style="margin-top:12px">Нанят в офисах: ни в одном. Удаление возможно, пока агент нигде не нанят.</div>
+</div>`})}
+</div>`);
+
+// 2. Пустая форма
+S.push(`<div class="shot" id="s2"><h2>2 · Пустая форма «Создать агента»</h2>
+<p class="cap">Правая панель окна «Команда» занята формой; список слева остаётся (строки по-прежнему выбираются — но смена выбора при несохранённой форме спросит подтверждение, как уже сделано для страницы агента). Кнопка «Сохранить и нанять» недоступна, пока нет названия и брифа. Бриф пуст, в поле — шаблон-подсказка.</p>
+${win({tab:'staff', list:listStaff({hideCreate:true}), detail:form({
+  head: formHead({title:'Создать агента', sub:'Новый сотрудник, которого вы описываете сами'}),
+  who: secWho({title:'', summary:'', emoji:'', color:1, empty:true, focusTitle:true}),
+  brief: secBrief({}),
+  model: secModel({mode:'docs'}),
+  tools: secTools({preset:'Документы', skills:[], mcp:[]}),
+  zone: secZone({zones:[0]}),
+  foot:{disabled:true, extra:'Агент: @local/… · сохранится при первом сохранении'}
+})})}
+<div class="note"><b>Умолчания:</b> уровень «Как в офисе», режим «с документами», пресет «Документы» (без Bash — безопаснее), MCP — ничего, цвет — первый из палитры, значок — по выбору, зона — «Весь проект». Фокус — в поле «Название».</div>
+</div>`);
+
+// 3. Ошибки
+S.push(`<div class="shot" id="s3"><h2>3 · Ошибки проверки</h2>
+<p class="cap">Проверка идёт при нажатии «Сохранить…» и по уходу из поля (название — сразу по вводу, занятость имени проверяет сервер). Ошибка — красная рамка, строка под полем, точка у раздела вверху, счётчик у кнопки; фокус уходит в первое поле с ошибкой. Предупреждение о длине брифа не блокирует.</p>
+${win({tab:'staff', list:listStaff({hideCreate:true}), detail:form({
+  head: formHead({title:'Создать агента', sub:'Новый сотрудник, которого вы описываете сами'}),
+  navOn:0,
+  banner:`<div class="banner danger"><span>⚠</span><span><b>Не сохранено.</b> Исправьте 3 поля: название, бриф, инструменты. Агент ещё не создан.</span></div>`,
+  who: secWho({title:'Дизайнер', summary:'', emoji:'🎲', color:3, titleErr:'Такое название уже занято в этом офисе — «Дизайнер». Добавьте уточнение.'}),
+  brief: secBrief({text:'Пиши правила.', err:'Бриф слишком короткий: нужно хотя бы 40 символов — кто агент, что делает, чего не делает.'}),
+  model: secModel({mode:'docs'}),
+  tools: secTools({preset:'Свой набор', on:[], toolsErr:'Выберите хотя бы один инструмент или набор — без них агент не сможет читать файлы.'}),
+  zone: secZone({}),
+  foot:{errCount:3, navErr:{0:1,1:1,3:1}, extra:''}
+})})}
+<div class="note"><b>Тексты ошибок</b> и правила — в spec.md §5. Ошибки от сервера (<code>my_agent.error { errors: FieldError[] }</code>) раскладываются по тем же полям; ошибка без поля — баннер сверху («Не удалось записать пакет на диск: нет прав»).</div>
+</div>`);
+
+// 4. Пример заполнен
+const exSkills = [['card-template','Когда нужно оформить новую карточку',212],['balance-sheet','Как вести таблицу «карта → цена → сила»',486]];
+S.push(`<div class="shot" id="s4"><h2>4 · Пример «Геймдизайнер настольных игр» — заполнено, без Bash</h2>
+<p class="cap">Всё готово к найму. В «Инструментах» набор «Документы»: Read, Write, Edit, Glob, Grep, TodoWrite, WebSearch, WebFetch — <b>Bash не отмечен</b>. MCP — imagegen (иллюстрации к карточкам). Два своих скила. Закреплён за зоной «docs».</p>
+${win({tab:'staff', list:listStaff({hideCreate:true}), detail:form({
+  head: formHead({title:'Создать агента', sub:'Новый сотрудник, которого вы описываете сами'}),
+  navOn:3,
+  who: secWho({title:'Геймдизайнер настольных игр', summary:'Правила, баланс и карточки для настольных игр', emoji:'🎲', color:3}),
+  brief: secBrief({text:EXAMPLE_BRIEF}),
+  model: secModel({mode:'docs', tier:'Мощная (Opus)'}),
+  tools: secTools({preset:'Документы', skills:exSkills, openSkill:false, mcp:['imagegen']}),
+  zone: secZone({zones:[1]}),
+  foot:{extra:'Будет создан @local/boardgame-designer'}
+})})}
+<div class="note">Строка «Bash — команды в терминале» без галочки; чтобы убедиться, в «Своём наборе» её видно в списке, но она снята. Способности выведены автоматически: <code>docs.write</code>, <code>research.web</code> (нет <code>code.write</code> — нет Bash и режима с ветками).</div>
+</div>`);
+
+// 5. Сохранение и найм
+S.push(`<div class="shot" id="s5"><h2>5 · Сохранение и найм</h2>
+<p class="cap"><b>Пока идёт запись</b> — форма заблокирована, под шапкой полоса прогресса, главная кнопка показывает «Нанимаю…». <b>После успеха</b> форма закрывается, открывается вкладка «В офисе», новый сотрудник выделен в списке (рамка, слегка мигает) и показана его страница; снизу тост.</p>
+${win({tab:'staff', list:listStaff({hideCreate:true}), detail:form({
+  head: formHead({title:'Создать агента', sub:'Записываю пакет на диск и нанимаю в офис…', saving:true}),
+  who: secWho({title:'Геймдизайнер настольных игр', summary:'Правила, баланс и карточки для настольных игр', emoji:'🎲', color:3}),
+  brief: secBrief({text:EXAMPLE_BRIEF}),
+  model: secModel({mode:'docs', tier:'Мощная (Opus)'}),
+  tools: secTools({preset:'Документы', skills:exSkills}),
+  zone: secZone({zones:[1]}),
+  foot:{saving:true}, lock:true
+})})}
+<div style="height:16px"></div>
+${win({tab:'staff', counts:[5,7], list:listStaff({sel:'Геймдизайнер настольных игр', extra:`<div class="row sel new"><span class="ava" style="background:var(--accent-3)">🎲</span><span class="row-text"><span class="row-title">Геймдизайнер настольных игр</span><span class="muted small">Claude · Opus · @local</span></span><span class="badge acc">Мой</span><span class="badge">ask-risky</span></div>`}).replace('class="row sel"','class="row"'), detail:`<div class="detail">
+  <div style="display:flex;align-items:center;gap:12px;margin-bottom:16px"><span class="ava" style="background:var(--accent-3)">🎲</span><div><div class="row-title" style="font-size:15px">Геймдизайнер настольных игр</div><div class="muted small">@local/boardgame-designer · v0.1.0 · нанят только что</div></div><span style="flex:1"></span><button class="mini">Править агента</button><button class="mini">⋯</button></div>
+  <div class="seg"><button class="on">Профиль</button><button>Модель</button><button>Доступ</button><button>Инструкция</button><button>Итоги</button></div>
+  <p class="muted" style="margin-top:20px">…страница агента как сейчас: профиль, доступ, инструкция…</p>
+  <div class="toast"><span>🎲 Нанят: Геймдизайнер настольных игр. Дайте ему задачу в чате с PM.</span><button class="mini ghost" style="color:var(--surface)">Написать PM</button></div>
+</div>`})}
+<div class="note"><b>Ошибка при сохранении</b> (диск, права, коллизия имени): форма разблокируется, данные не теряются, вверху баннер с причиной и «Повторить». <b>«Сохранить» без найма</b> — агент остаётся только в маркете («Мои»), открывается его карточка с кнопкой «Нанять». Если офису некуда посадить сотрудника (нет свободного места) — агент сохраняется, а найм сообщает причину в баннере и тосте, ничего не теряется.</div>
+</div>`);
+
+// 6. Редактирование
+S.push(`<div class="shot" id="s6"><h2>6 · Редактирование уже созданного агента</h2>
+<p class="cap">Открывается кнопкой «Править» на карточке своего агента в маркете или «Править агента» на странице нанятого. Форма та же; в заголовке — имя пакета и версия, сверху баннер о том, кого заденет правка. Кнопки: «Сохранить» (версия поднимется до v0.1.1), «Отмена», слева «Удалить агента» (недоступно, пока агент нанят где-либо: подсказка).</p>
+${win({tab:'staff', list:listStaff({sel:'Геймдизайнер настольных игр', hideCreate:true, extra:`<div class="row sel"><span class="ava" style="background:var(--accent-3)">🎲</span><span class="row-text"><span class="row-title">Геймдизайнер настольных игр</span><span class="muted small">Claude · Opus · @local</span></span><span class="badge acc">Мой</span></div>`}).replace('class="row sel"','class="row"'), detail:form({
+  head: formHead({title:'Править агента', sub:'@local/boardgame-designer · v0.1.0 → v0.1.1 при сохранении'}),
+  navOn:1,
+  banner:`<div class="banner warn"><span>⚠</span><span>Это изменит агента <b>везде</b>: нанят в 2 офисах (этот и «Rewind»). Новые инструкции и инструменты заработают со следующей задачи. Настройки офиса — приписка, доступ, модель офиса — не затрагиваются.</span></div>`,
+  who: secWho({title:'Геймдизайнер настольных игр', summary:'Правила, баланс и карточки для настольных игр', emoji:'🎲', color:3}),
+  brief: secBrief({text:EXAMPLE_BRIEF + '\n- Ведёшь список вопросов к плейтесту в docs/boardgame/playtest.md.', warnTokens:false}),
+  model: secModel({mode:'docs', tier:'Мощная (Opus)'}),
+  tools: secTools({preset:'Документы', skills:exSkills}),
+  zone: secZone({zones:[1]}),
+  foot:{mode:'edit'}
+})})}
+<div style="height:16px"></div>
+${win({tab:'market', counts:[4,9], list:listMarket({sel:'Геймдизайнер настольных игр', mine:true}), detail:`<div class="detail"><div class="ava" style="background:var(--accent-3);display:none"></div>
+  <div class="banner danger" style="margin-bottom:12px"><span>⚠</span><span>Удалить «Геймдизайнер настольных игр» нельзя: он нанят в 2 офисах. Уберите его из офисов или отвяжите (форк) — тогда пакет можно удалить.</span></div>
+  <div style="display:flex;gap:8px"><button class="go">Нанять в этот офис</button><button>Править</button><button class="danger ghost" disabled>Удалить</button></div></div>`})}
+</div>`);
+
+// 7. Создать на основе
+S.push(`<div class="shot" id="s7"><h2>7 · «Создать на основе» — копия с правками</h2>
+<p class="cap">Открывает ту же форму «Создать агента», уже заполненную из источника (роль офиса, пакет маркета или свой агент). Название — «<i>Источник</i> — копия» (выделено, чтобы сразу переписать), бриф скопирован целиком, инструменты, MCP, модель, цвет — те же. Баннер сверху объясняет, что это самостоятельная копия, не связанная с источником.</p>
+${win({tab:'staff', list:listStaff({sel:'Дизайнер', hideCreate:true}), detail:form({
+  head: formHead({title:'Создать на основе «Дизайнер»', sub:'Копия @office/design 2.1.0 — дальше живёт сама по себе'}),
+  navOn:0,
+  banner:`<div class="banner acc"><span>⧉</span><span>Скопированы бриф, модель, инструменты (Read, Write, Edit, Glob, Grep, Artifact), MCP <b>figma-bridge, figma-console</b> и скилы. <b>Не копируется:</b> приписка этого офиса, личный режим доступа, закрепление за зонами, итоги задач. Связи с источником не будет — обновления @office/design сюда не приходят.</span></div>`,
+  who: secWho({title:'Дизайнер — копия', summary:'UI/UX: экраны, состояния, макеты в Figma', emoji:'🎨', color:3, focusTitle:true}),
+  brief: secBrief({text:'Ты — UI/UX дизайнер в команде AI-агентов…\n(бриф источника целиком — 3 180 симв.)\n…'}),
+  model: secModel({mode:'docs', tier:'Как в офисе'}),
+  tools: secTools({preset:'Свой набор', on:['Read','Write','Edit','Glob','Grep'], mcp:['figma-bridge','figma-console'], skills:[['design-review','Проверка макета перед сдачей',140]]}),
+  zone: secZone({zones:[0]}),
+  foot:{extra:'Будет создан @local/dizajner-kopiya'}
+})})}
+<div class="note"><b>Источник — пакет без брифа на нужном языке</b>: берётся бриф любого из языков пакета, в баннере предупреждение. <b>Источник — роль, заведённая руками</b>: копируются её поля, бриф берётся из <code>role.brief</code>. <b>Менеджер</b> как основа недоступен.</div>
+</div>`);
+
+// 8. Уход с несохранённой формой
+S.push(`<div class="shot" id="s8"><h2>8 · Выход с несохранённой формой</h2>
+<p class="cap">Закрытие окна, «Отмена», переключение вкладки или выбор строки слева при несохранённых правках — тот же диалог, что уже есть у страницы агента (<code>team-close-ask</code>), с названием изменённых разделов.</p>
+${win({tab:'staff', cls:'short', list:listStaff({hideCreate:true}), detail:`<div class="detail" style="height:300px"><p class="muted">…форма…</p></div>`, extra:`<div class="modal-veil"><div class="modal"><h3 style="color:var(--ink)">Закрыть без сохранения?</h3><p class="muted">Несохранённое: название, инструкции, инструменты. Агент ещё не создан — введённое пропадёт.</p><div class="modal-actions"><button>Остаться</button><button class="danger">Закрыть без сохранения</button></div></div></div>`})}
+</div>`);
+
+document.getElementById('root').innerHTML = S.join('');
+</script>
+</body>
+</html>
