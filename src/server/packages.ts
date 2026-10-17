@@ -652,14 +652,17 @@ export function packageIntegrity(dir: string): string {
 }
 
 /**
- * Пакет роли по её ссылке. С источником — из кеша, по имени и версии; без
- * источника — встроенный из `packages/`. null — на диске нет: роль тогда
+ * Пакет роли по её ссылке. С источником — из кеша, по имени и версии; свой
+ * агент офиса — из папки `local`; без того и другого — встроенный из `packages/`. null — на диске нет: роль тогда
  * поднимается из сохранения, а ссылка ждёт, пока пакет вернётся.
  */
 export function resolvePackage(
-  link: { name: string; version: string; source?: { repo: string } | null },
+  link: { name: string; version: string; source?: { repo: string } | null; local?: string },
   cache = PACKAGE_CACHE,
 ): AgentPackage | null {
+  // Свой агент офиса — в папке своих агентов этого офиса, без версий:
+  // это рабочая копия, которую правит владелец (myagents.ts).
+  if (link.local && !link.source) return loadPackage(link.name, link.local);
   if (!link.source) return loadPackage(link.name);
   if (!PACKAGE_NAME_RE.test(link.name) || !link.version) return null;
   const { pkg } = readPackage(cacheDir(link.name, link.version, cache));

@@ -44,6 +44,7 @@ import { handleDocsHttp } from './docs-api';
 import { handleTaskFiles } from './taskfiles';
 import { handleProjectFile } from './files';
 import { handleFigcraft } from './figcraft';
+import { handleMyAgentsHttp } from './myagents';
 // hasCommits и repoProblem здесь больше не нужны: проверку репозитория и
 // выставление gitReady целиком делает envcheck — одно место на все проверки.
 import { initRepo, isRepo } from './git';
@@ -306,6 +307,8 @@ const httpServer = createServer((req, res) => {
   if (handleProjectFile(req, res, url, query)) return;
   // Макеты FigCraft: список и «открыть в FigCraft» — см. figcraft.ts.
   if (handleFigcraft(req, res, url, query)) return;
+  // Свои агенты офиса: список, создание, правка, удаление — см. myagents.ts.
+  if (handleMyAgentsHttp(req, res, url, query)) return;
   // Журнал офиса — постранично: `?limit=50&cursor=J-120&office=<id>`.
   // Снапшот по сокету отдаёт журнал целиком, и это правильно для интерфейса,
   // который держит его весь; всем остальным (скрипты, проверки, сторонний

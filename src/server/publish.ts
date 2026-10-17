@@ -17,6 +17,7 @@ import {
   installFromGit, latestVersion, parseRegistry, type Registry, type RegistryEntry,
 } from './market';
 import { compareVersions, OFFICIAL_SCOPE, PACKAGE_NAME_RE, readPackage, type AgentPackage } from './packages';
+import { LOCAL_SCOPE } from './scopes';
 
 /** Репозиторий, которому принадлежит область `@office`. */
 export const OFFICIAL_REPO = 'OctopBP/ai-office';
@@ -36,6 +37,8 @@ export function githubSlug(repo: string): string | null {
 export function scopeProblem(name: string, repo: string): string | null {
   const scope = name.split('/')[0];
   const slug = githubSlug(repo);
+  // Свой агент офиса живёт под `@local` только в офисе; в реестр — под своей областью.
+  if (scope === LOCAL_SCOPE) return `scope ${LOCAL_SCOPE} is reserved for office agents: export under your own scope`;
   if (scope === OFFICIAL_SCOPE) {
     return slug?.toLowerCase() === OFFICIAL_REPO.toLowerCase() ? null : `scope ${OFFICIAL_SCOPE} is reserved for ${OFFICIAL_REPO}`;
   }

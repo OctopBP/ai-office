@@ -73,6 +73,7 @@
     "test:journal": "node --import tsx scripts/test-journal-superseded.ts",
     "import:docs": "node --import tsx scripts/import-docs.ts",
     "test:docs": "node --import tsx scripts/test-docs.ts",
+    "test:customagents": "node --import tsx/esm scripts/test-custom-agents.ts",
     "test:docstools": "node --import tsx scripts/test-docs-tools.ts",
     "test:docs-api": "node --import tsx scripts/test-docs-api.ts",
     "test:staleness": "node --import tsx scripts/test-staleness.ts && node --import tsx scripts/test-freshness-ritual.ts",

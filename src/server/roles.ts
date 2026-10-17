@@ -201,6 +201,13 @@ export interface RoleLink {
   version: string;
   /** Откуда взят. Нет поля — встроенный пакет из `packages/`. */
   source?: PackageSource;
+  /**
+   * Свой агент офиса (`@local/*`): папка своих агентов этого офиса, где лежит
+   * пакет (`OfficeState.agentsDir`). Взаимоисключающе с `source`. Путь
+   * абсолютный, и при подъёме офиса переписывается на текущий — переезд
+   * данных офиса ссылку не рвёт.
+   */
+  local?: string;
   /** Правки человека поверх умолчаний пакета — только то, что отличается. */
   overrides: LinkOverrides;
   /** Приписка к брифу пакета снизу. */
@@ -250,6 +257,7 @@ export function roleFromPackage(pkg: AgentPackage, lang: Lang, id: string, link?
     name: pkg.name,
     version: pkg.version,
     ...(link?.source ? { source: { ...link.source } } : {}),
+    ...(link?.local && !link.source ? { local: link.local } : {}),
     overrides: { ...(link?.overrides ?? {}) },
     briefExtra: link?.briefExtra ?? '',
     ...(link?.copy && link.copy > 1 ? { copy: link.copy } : {}),

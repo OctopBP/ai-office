@@ -69,6 +69,7 @@ import {
 } from './mcp';
 import { ensureChromium } from './chromium';
 import { employeeServers } from './skills';
+import { LOCAL_SCOPE } from './scopes';
 import { effectiveMode, isPermissionMode, modeLabel } from './permissions';
 import type { MessageQueue } from './queue';
 import {
@@ -378,10 +379,14 @@ function sanitizeLink(raw: unknown): RoleLink | null {
   const source: PackageSource | null = src && typeof src.repo === 'string' && typeof src.commit === 'string'
     ? { repo: src.repo, path: typeof src.path === 'string' ? src.path : '', commit: src.commit }
     : null;
+  // Свой агент офиса: путь к папке своих агентов. При подъёме офиса его
+  // переписывает restore — здесь только форма.
+  const local = !source && typeof link.local === 'string' && link.local ? link.local : null;
   return {
     name: link.name,
     version: typeof link.version === 'string' ? link.version : '',
     ...(source ? { source } : {}),
+    ...(local ? { local } : {}),
     overrides: { ...overrides },
     briefExtra: typeof link.briefExtra === 'string' ? link.briefExtra : '',
     // Номер копии — часть названия сотрудника, и без него «Бэкенд 2» после
@@ -1624,6 +1629,16 @@ export class OfficeState {
   }
 
   /**
+   * Папка своих агентов офиса (myagents.ts): рядом с файлом состояния, как
+   * библиотека, — `.office/offices/o-2.json` → `.office/offices/o-2.agents`,
+   * внутри `@local/<имя>/` в формате пакета. Агент принадлежит офису
+   * (решение владельца Q-206): в другой офис он попадает только через маркет.
+   */
+  agentsDir(): string {
+    return this.stateFile.replace(/\.json$/i, '') + '.agents';
+  }
+
+  /**
    * Проводить состояние из памяти: дописать хвост отложенной записи и дальше
    * молчать — ни в файл, ни зрителям.
    *
@@ -2209,6 +2224,12 @@ export class OfficeState {
     // Нет поля или оно битое — провайдер не выбран (null), а не Claude Code.
     // Годная пара не трогается, поэтому повторная загрузка ничего не меняет.
     const officeModel = sanitizeModelChoice(settingsOnDisk.model) ?? null;
+    // Ссылки своих агентов ведут в папку этого офиса, где бы она ни лежала
+    // сейчас: данные офиса могли переехать вместе с файлом состояния.
+    for (const raw of Array.isArray(data.roles) ? data.roles : []) {
+      const link = (raw as { package?: { local?: unknown } } | null)?.package;
+      if (link && typeof link === 'object' && typeof link.local === 'string') link.local = this.agentsDir();
+    }
     this.roleList = rolesFromSave(data, lang, pendingMigrations, officeModel);
     this.roleMigrations = [...new Set([...doneMigrations, ...ROLE_MIGRATIONS])];
     // Сохранения старше настройки движка не знают про облако — дополняем.
@@ -4311,6 +4332,7 @@ export class OfficeState {
       name: role.package.name,
       version: pkg?.version ?? role.package.version,
       brief: pkg ? packageBrief(pkg, this.lang()) : '',
+      ...(role.package.local ? { local: true } : {}),
     };
   }
 
@@ -4699,8 +4721,10 @@ export class OfficeState {
       const look = this.freeLook();
       if (look) overrides.sprite = look;
     }
+    // Свой агент офиса ссылается на папку своих агентов, а не на кеш или packages/.
+    const local = !source && pkg.name.startsWith(`${LOCAL_SCOPE}/`) ? this.agentsDir() : null;
     const link: RoleLink = {
-      name: pkg.name, version: pkg.version, ...(source ? { source } : {}),
+      name: pkg.name, version: pkg.version, ...(source ? { source } : {}), ...(local ? { local } : {}),
       overrides, briefExtra: '', ...(copy > 1 ? { copy } : {}),
     };
     const role = roleFromPackage(pkg, this.lang(), id, link);
