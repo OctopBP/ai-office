@@ -86,6 +86,7 @@
     "test:contradictions": "node --import tsx scripts/test-contradictions.ts && node --import tsx scripts/test-contradictions-ritual.ts && node --import tsx scripts/test-contradictions-history.ts && node --import tsx scripts/test-contradictions-delegate.ts",
     "test:review": "tsx scripts/test-review.ts",
     "test:workflow": "tsx scripts/test-workflow.ts",
+    "test:workflow-overrides": "node --import tsx/esm scripts/test-workflow-overrides.ts",
     "test:flows": "tsx scripts/test-flows.ts",
     "test:releases": "tsx scripts/test-releases.ts",
     "test:channels": "node --import tsx scripts/test-release-channels.ts",

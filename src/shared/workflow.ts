@@ -355,6 +355,14 @@ export interface Run {
   note: string;
   startedAt: number;
   updatedAt: number;
+  /**
+   * Действующий процесс на момент старта, если у офиса были правки процесса
+   * (src/shared/workflow-overrides.ts). Прогон доезжает по нему, даже если
+   * правки потом поменяли или сбросили. Нет поля — прогон идёт по базе.
+   */
+  plan?: Workflow;
+  /** Ревизия правок офиса, с которой собран `plan`. */
+  overridesRev?: number;
 }
 
 /** Один пройденный узел: чем кончился, сколько шёл, сколько стоил. */
@@ -384,6 +392,15 @@ export interface WorkflowEntry {
   text: string;
   /** Файл проекта не разобрался: причина. Офис едет по встроенному. */
   problem: string | null;
+  /**
+   * Правки офиса поверх этого процесса (src/shared/workflow-overrides.ts):
+   * действующие правила и история. Нет поля — правок не было.
+   */
+  officeEdits?: {
+    rev: number;
+    rules: { node: string; when?: { roles?: string[]; types?: TaskType[]; zones?: string[] }; outcome?: string }[];
+    history: { at: number; by: string; why: string; action: 'disable' | 'enable' | 'reset'; node?: string }[];
+  };
 }
 
 export interface NodeStats {

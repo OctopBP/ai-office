@@ -432,6 +432,16 @@ export const en = {
   'wf.saved': 'Process "{id}" saved into the project\'s workflows/ — new runs follow it.',
   'wf.reset': 'Own process "{id}" removed — the office is back to the built-in one.',
   'wf.saveFailed': 'The process was not saved: {problem}',
+  'wfo.disabled': 'Process "{workflow}": node "{node}" turned off ({when}). Reason: {why}. New tasks go without it, running ones finish on the old process.',
+  'wfo.enabled': 'Process "{workflow}": node "{node}" turned back on. Reason: {why}.',
+  'wfo.reset': 'Process "{workflow}": office edits reset, the process is the base one again (were off: {nodes}). Reason: {why}.',
+  'wfo.nothingToReset': 'Process "{workflow}" has no edits — nothing to reset.',
+  'wfo.rejected': 'Process edit rejected: {problem}',
+  'wfo.broken': 'Edits of process "{workflow}" no longer fit it and are not applied, the task follows the base: {problem}',
+  'wfo.always': 'always',
+  'wfo.when.roles': 'role: {list}',
+  'wfo.when.types': 'task type: {list}',
+  'wfo.when.zones': 'zone: {list}',
 
   // ------------------------------------------------- office processes
   'flow.skip': 'Process "{flow}" did not start: {why}',

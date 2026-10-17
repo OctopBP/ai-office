@@ -19,6 +19,7 @@ import type { Run, Workflow, WorkflowNode } from '../shared/workflow';
 import type { OfficeState } from './state';
 import { isOpenQuestion } from '../shared/questions';
 import { workflowCatalog } from './workflows';
+import { effectiveWorkflow } from './workflow-overrides';
 import { drive, newRun, type Executor, type Resolve, type RunHooks, type StepResult } from './runs';
 import { quiet } from './rituals';
 import { initiativeBudget, proposeFeature, type FeatureProposal } from './initiatives';
@@ -400,7 +401,7 @@ export const isFlowRunning = (state: OfficeState, flowId: string): boolean =>
 
 /** Процессы офиса с триггером по состоянию — в порядке файлов, свои поверх встроенных. */
 export const stateFlows = (state: OfficeState): Workflow[] =>
-  workflowCatalog(state).map((e) => e.workflow).filter((w) => w.trigger.on === 'board.idle');
+  workflowCatalog(state).map((e) => effectiveWorkflow(state, e.workflow)).filter((w) => w.trigger.on === 'board.idle');
 
 /**
  * Пора ли процессу: триггер сработал, затухание прошло, не идёт прямо

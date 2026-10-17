@@ -56,6 +56,7 @@ import { taskResultFiles } from './questions';
 import { githubToken } from './cloud';
 import { commentOnPr, createPullRequest, githubFor, mergePullRequest } from './github';
 import { builtinWorkflow, workflowFor } from './workflows';
+import { effectiveWorkflow, effectiveWorkflowById, planRun, runWorkflow, subjectOf } from './workflow-overrides';
 import {
   drive, newRun, resumeRun, type Executor, type Halt, type Resolve, type RunHooks, type StepResult,
 } from './runs';
@@ -66,7 +67,8 @@ const WORKFLOW_ID = 'feature';
 /**
  * Какой процесс ведёт задачу (spec §7.2): по типу, через настройку офиса.
  * Задача без типа, но с веткой — код: так работали все задачи до типов.
- * null — процесса нет: сдал и всё.
+ * null — процесса нет: сдал и всё. Это БАЗА — без правок офиса; действующий
+ * процесс задачи даёт effectiveWorkflowForTask.
  */
 export function workflowForTask(state: OfficeState, task: Task): Workflow | null {
   const type: TaskType | null = task.type ?? (task.branch ? 'code' : null);
@@ -75,13 +77,19 @@ export function workflowForTask(state: OfficeState, task: Task): Workflow | null
   return workflowFor(state, id);
 }
 
+/** Действующий процесс задачи: база с правками офиса под эту задачу. */
+export function effectiveWorkflowForTask(state: OfficeState, task: Task): Workflow | null {
+  const base = workflowForTask(state, task);
+  return base ? effectiveWorkflow(state, base, subjectOf(task)) : null;
+}
+
 /**
  * Сколько раз ревьюер может вернуть работу автору, прежде чем позовём
  * менеджера. Число живёт в файле процесса — своём у проекта или встроенном;
  * здесь оно нужно промпту ревьюера.
  */
 export const maxRounds = (state: OfficeState): number =>
-  loopMax(workflowFor(state, WORKFLOW_ID) ?? builtinWorkflow(WORKFLOW_ID), 'office:review', 'changes') ?? 2;
+  loopMax(effectiveWorkflowById(state, WORKFLOW_ID) ?? builtinWorkflow(WORKFLOW_ID), 'office:review', 'changes') ?? 2;
 
 export interface ReviewOutcome {
   verdict: ReviewVerdict;
@@ -296,8 +304,8 @@ async function pipeline(state: OfficeState, taskId: string): Promise<void> {
   // we can merge», а задача встала бы навсегда (T-18).
   const base = (await taskBase(state, task)) as string;
 
-  const workflow = workflowForTask(state, task);
-  if (!workflow) {
+  const baseWorkflow = workflowForTask(state, task);
+  if (!baseWorkflow) {
     state.addLog(null, 'system', state.say('pipe.notStarted', {
       task: taskId, problem: state.say('pipe.noWorkflow', { type: task.type ?? '' }),
     }));
@@ -314,11 +322,19 @@ async function pipeline(state: OfficeState, taskId: string): Promise<void> {
   // же с узла, где он встал. Круги ревью при этом не обнуляются — они
   // считаются по задаче, а не по сессии. Прогон другого процесса (тип
   // задачи поменяли) — заводим заново.
+  //
+  // Правки процесса офиса (workflow-overrides.ts) действуют на новый прогон:
+  // он собирается из базы с правками и запоминает этот процесс в себе.
+  // Продолжение идёт по тому, что прогон запомнил, — правка посреди пути
+  // задачу не разворачивает.
   let run = state.runOf(taskId);
-  if (!run || run.workflowId !== workflow.id || run.status === 'done') {
+  if (!run || run.workflowId !== baseWorkflow.id || run.status === 'done') {
     if (run) state.runs.delete(run.id);
-    run = newRun(workflow, { taskId });
+    const planned = effectiveWorkflow(state, baseWorkflow, subjectOf(task));
+    run = newRun(planned, { taskId });
+    planRun(state, run, planned, baseWorkflow);
   }
+  const workflow = runWorkflow(run, baseWorkflow);
   resumeRun(run);
   // Отчёт исполнителя с запиской — артефакт, который есть у прогона с самого
   // начала: его читают ревьюер, юрист, владелец.

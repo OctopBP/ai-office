@@ -40,6 +40,7 @@ import { githubToken } from './cloud';
 import { maskValues, secretsEnv } from './secrets';
 import { githubFor, type GithubRepo } from './github';
 import { workflowFor } from './workflows';
+import { effectiveWorkflow, planRun, runWorkflow } from './workflow-overrides';
 import { countWorking } from './busy';
 import { checkReleaseTarget, hasBlocking, type TargetProblem } from './release-check';
 import { gateAnswerYes, tellPm, withMergeLock } from './review';
@@ -1688,13 +1689,18 @@ async function driveOnce(state: OfficeState, releaseId: string, signal: AbortSig
     markStopped(state, releaseId, '', { note: state.say('rel.targetGone', { id: release.targetId }), needsDecision: true });
     return;
   }
-  const workflow = workflowFor(state, WORKFLOW_ID);
-  if (!workflow) return;
+  const base = workflowFor(state, WORKFLOW_ID);
+  if (!base) return;
   let run = runOfRelease(state, releaseId);
-  if (!run || run.workflowId !== workflow.id) {
+  // Новый выпуск идёт по процессу с правками офиса и запоминает его в
+  // прогоне; продолжение — по запомненному (workflow-overrides.ts).
+  if (!run || run.workflowId !== base.id) {
     if (run) state.runs.delete(run.id);
-    run = newRun(workflow, { releaseId });
+    const planned = effectiveWorkflow(state, base);
+    run = newRun(planned, { releaseId });
+    planRun(state, run, planned, base);
   }
+  const workflow = runWorkflow(run, base);
   if (run.status === 'done') return;
   resumeRun(run);
   state.saveRun(run);
@@ -1745,7 +1751,8 @@ export function resumeRelease(state: OfficeState, releaseId: string): StartResul
   if (other && other.id !== releaseId) return { ok: false, message: state.say('rel.busy', { target: release.targetId, id: other.id, stage: other.stage }) };
   const run = runOfRelease(state, releaseId);
   if (run && release.needsDecision) {
-    const workflow = workflowFor(state, WORKFLOW_ID);
+    const base = workflowFor(state, WORKFLOW_ID);
+    const workflow = base ? runWorkflow(run, base) : null;
     if (workflow) {
       run.nodeId = workflow.nodes[0].id;
       run.from = null;
@@ -1874,7 +1881,8 @@ export async function cancelRelease(state: OfficeState, releaseId: string, reaso
   const run = runOfRelease(state, releaseId);
   const going = running.get(key);
   // Итог уже пишется: ветка канала двигается и вливается вниз — отменять поздно.
-  const workflow = workflowFor(state, WORKFLOW_ID);
+  const base = workflowFor(state, WORKFLOW_ID);
+  const workflow = base ? runWorkflow(run, base) : null;
   if (going && run && workflow && nodeOf(workflow, run.nodeId)?.run === 'office:release-publish') {
     return { ok: false, message: state.say('rel.cancel.tooLate', { id: releaseId }) };
   }

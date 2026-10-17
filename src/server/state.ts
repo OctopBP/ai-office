@@ -38,7 +38,8 @@ import {
   CHECK_NAME_RE, TASK_TYPES, emptyFlowMemory, isCapability, typeForCapabilities,
   type Capability, type FlowMemory, type Handoff, type Run, type TaskType,
 } from '../shared/workflow';
-import { workflowCatalog } from './workflows';
+import { catalogWithEdits } from './workflow-overrides';
+import type { WorkflowOverrides } from '../shared/workflow-overrides';
 import {
   parseReleaseConfig, type EpicRelease, type Release, type ReleasePlan, type ReleaseSetup, type ReleaseTarget,
 } from '../shared/release';
@@ -1326,6 +1327,11 @@ export class OfficeState {
   /** Предложения целей выпуска от менеджера, ключ — id вопроса владельцу. */
   releaseSetups = new Map<string, ReleaseSetup>();
   /**
+   * Правки процессов офиса поверх базовых, ключ — id процесса
+   * (src/server/workflow-overrides.ts). Файлы процессов они не меняют.
+   */
+  workflowOverrides = new Map<string, WorkflowOverrides>();
+  /**
    * Пауза офиса: новая работа не запускается, а живые сессии замирают
    * на следующем вызове инструмента. Сохраняется — в реестре офисов
    * (`OfficeEntry.paused`), а не в файле состояния: пауза относится к офису,
@@ -1724,6 +1730,7 @@ export class OfficeState {
       releasePlanSeq: this.releasePlanSeq,
       releaseSince: this.releaseSince,
       releaseSetups: [...this.releaseSetups.values()],
+      workflowOverrides: [...this.workflowOverrides.values()],
       chat: this.chat,
       pmChats: [...this.pmChats.values()],
       pmChatSeq: this.pmChatSeq,
@@ -2111,9 +2118,15 @@ export class OfficeState {
     for (const old of mine.slice(Math.max(0, keep))) this.runs.delete(old.id);
   }
 
+  /** Записать правки процесса офиса (workflow-overrides.ts) и сохранить состояние. */
+  setWorkflowOverrides(set: WorkflowOverrides): void {
+    this.workflowOverrides.set(set.workflowId, set);
+    this.markDirty();
+  }
+
   /** Показать интерфейсу процессы заново: файл проекта сохранили или убрали. */
   emitWorkflows(): void {
-    this.emit({ t: 'workflows', workflows: workflowCatalog(this) });
+    this.emit({ t: 'workflows', workflows: catalogWithEdits(this) });
   }
 
   // ---------- выпуски (docs/design/releases/spec.md) ----------
@@ -2464,6 +2477,10 @@ export class OfficeState {
     this.releasePlanSeq = data.releasePlanSeq ?? this.releasePlans.size;
     this.releaseSince = { ...(data.releaseSince ?? {}) };
     for (const setup of data.releaseSetups ?? []) this.releaseSetups.set(setup.id, setup);
+    this.workflowOverrides.clear();
+    for (const set of data.workflowOverrides ?? []) {
+      this.workflowOverrides.set(set.workflowId, { ...set, rules: set.rules ?? [], history: set.history ?? [] });
+    }
 
     // Состав команды берём из сохранения целиком, а не дополняем им seed():
     // seed() сажает по одному сотруднику на роль и ничего не знает ни про
@@ -5677,7 +5694,7 @@ export class OfficeState {
       mergeRun: this.mergeRun,
       prs: [...this.prs.values()],
       runs: [...this.runs.values()],
-      workflows: workflowCatalog(this),
+      workflows: catalogWithEdits(this),
       facts: this.factList().map(toFactView),
       questions: this.questionList(),
       openQuestions: this.openQuestionCount(),

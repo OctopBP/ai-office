@@ -21,6 +21,7 @@ import { isMergeQueueRunning, mergeQueue, refreshMergeChecks } from './merge';
 import { retryPipeline, runningPipelines } from './review';
 import { closeReleasePlan, resumeRelease, runningReleases, saveReleasePlan, startCheckedRelease } from './releases';
 import { resetProjectWorkflow, saveProjectWorkflow } from './workflows';
+import { disableNode, enableNode, resetOverrides } from './workflow-overrides';
 import { startSupervisor } from './supervisor';
 import { answerQuestion, deleteQuestion, dismissQuestion, editQuestion, mergeQuestion } from './questions';
 import { archiveFact, confirmFact, pageFacts } from './journal';
@@ -573,6 +574,15 @@ wss.on('connection', (ws, req) => {
       if (problem) state.addChat(OFFICE_SENDER, state.say('wf.saveFailed', { problem }));
       else state.addChat(OFFICE_SENDER, state.say('wf.reset', { id: cmd.id }));
       state.emitWorkflows();
+    } else if (cmd.c === 'workflow_node_off') {
+      const out = disableNode(state, cmd);
+      state.addChat(OFFICE_SENDER, out.message);
+    } else if (cmd.c === 'workflow_node_on') {
+      const out = enableNode(state, cmd);
+      state.addChat(OFFICE_SENDER, out.message);
+    } else if (cmd.c === 'workflow_edits_reset') {
+      const out = resetOverrides(state, cmd);
+      state.addChat(OFFICE_SENDER, out.message);
     } else if (cmd.c === 'release_start') {
       const out = startCheckedRelease(state, cmd.targetId, 'manual');
       if (!out.ok) state.addChat(OFFICE_SENDER, out.message);

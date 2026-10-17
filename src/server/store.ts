@@ -5,6 +5,7 @@ import type {
   SpendEntryView, Usage,
 } from '../shared/types';
 import type { Run } from '../shared/workflow';
+import type { WorkflowOverrides } from '../shared/workflow-overrides';
 import type { AgentRunEntry } from './spend';
 import type { Release, ReleasePlan, ReleaseSetup } from '../shared/release';
 import type { Direction, Epic, Fact, LifeState, PersistedPmSession, Proposal, Task } from './state';
@@ -69,6 +70,8 @@ export interface Persisted {
   releaseSince?: Record<string, number>;
   /** Предложения целей выпуска от менеджера, ждущие владельца. */
   releaseSetups?: ReleaseSetup[];
+  /** Правки процессов офиса с историей. В сохранениях до правок их нет — процессы как в базе. */
+  workflowOverrides?: WorkflowOverrides[];
   chat: ChatEntry[];
   /**
    * Чаты с менеджером. Поля нет в сохранениях до нескольких чатов — тогда

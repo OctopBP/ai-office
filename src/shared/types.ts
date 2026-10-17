@@ -3116,6 +3116,17 @@ export type ClientCommand =
   | { c: 'pr_retry'; taskId: string }
   | { c: 'workflow_save'; id: string; text: string }
   | { c: 'workflow_reset'; id: string }
+  /**
+   * Правки процесса офиса поверх базового (src/server/workflow-overrides.ts):
+   * выключить узел всегда или по условию, включить обратно, сбросить всё.
+   * Файлы процессов не меняются; причина обязательна — она идёт в историю и ленту.
+   */
+  | {
+    c: 'workflow_node_off'; workflowId: string; node: string; why: string;
+    when?: { roles?: string[]; types?: TaskType[]; zones?: string[] }; outcome?: string;
+  }
+  | { c: 'workflow_node_on'; workflowId: string; node: string; why: string }
+  | { c: 'workflow_edits_reset'; workflowId: string; why: string }
   /** Выпустить цель сейчас — кнопка «Выпустить» (docs/design/releases/spec.md §5). */
   | { c: 'release_start'; targetId: string }
   /** Снова пустить вставший выпуск: с начала, если он ждал решения, иначе — с узла. */
