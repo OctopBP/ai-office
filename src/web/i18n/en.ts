@@ -2051,4 +2051,10 @@ export const en = {
   "agent.custom.toast.hired": "Hired: {title}",
   "agent.custom.toast.saved": "Saved: {title}",
   "agent.custom.toast.noHire": "Agent saved, but not hired",
+  "agent.custom.formName": "Custom agent form",
+  "agent.custom.delete": "Delete agent",
+  "agent.custom.deleting": "Deleting…",
+  "agent.custom.deleteAsk": "Delete the agent “{title}” from this office?",
+  "agent.custom.deleteHired": "Can’t delete the agent: it is hired in this office. Dismiss its copies first, then delete the agent. {reason}",
+  "agent.custom.toast.deleted": "Agent deleted: {title}",
 } as const;

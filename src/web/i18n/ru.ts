@@ -2050,4 +2050,10 @@ export const ru: Record<keyof typeof en, string> = {
   "agent.custom.toast.hired": "Нанят: {title}",
   "agent.custom.toast.saved": "Сохранено: {title}",
   "agent.custom.toast.noHire": "Агент сохранён, но не нанят",
+  "agent.custom.formName": "Форма своего агента",
+  "agent.custom.delete": "Удалить агента",
+  "agent.custom.deleting": "Удаляю…",
+  "agent.custom.deleteAsk": "Удалить агента «{title}» из этого офиса?",
+  "agent.custom.deleteHired": "Агента нельзя удалить: он нанят в этом офисе. Сначала уволите его копии, потом удалите агента. {reason}",
+  "agent.custom.toast.deleted": "Агент удалён: {title}",
 };

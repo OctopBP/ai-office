@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import {
-  clearTeamRequest, hireCopy, marketAddLink, marketCheck, marketOpen, roleProviderChip, updateSettings, useStore,
+  clearTeamRequest, hireCopy, marketAddLink, marketCheck, marketOpen, pushToast, roleProviderChip, updateSettings, useStore,
 } from './store';
 import { AgentSettings, type AgentTab } from './AgentSettings';
 import { PackageCard } from './PackageCard';
@@ -16,6 +16,9 @@ import { Hint, Tooltip } from './Tooltip';
 import { HOTKEY } from './hotkeys';
 import { ShellPage } from './shell/ShellPage';
 import { ZoneChips, ZonePinning } from './TeamZones';
+import { MyAgentForm, type MyAgentFormMode } from './MyAgentForm';
+import { deleteMyAgent, isLocalPackage, loadMyAgents, useMyAgents } from './myAgents';
+import type { MyAgentView } from '../shared/myagent';
 
 const stateLabel = (state: AgentState): string => t(`agent.state.${state}`);
 
@@ -83,10 +86,29 @@ export function TeamWindow({ onClose }: { onClose: () => void }) {
   const agentGuard = useRef<(() => string[]) | null>(null);
   const [closeAsk, setCloseAsk] = useState<string[] | null>(null);
   const requestClose = () => {
-    const unsaved = agentGuard.current?.() ?? [];
+    const unsaved = [...(agentGuard.current?.() ?? [])];
+    if (formDirty.current) unsaved.push(t('agent.custom.formName'));
     if (unsaved.length) setCloseAsk(unsaved);
     else onClose();
   };
+
+  // Форма своего агента занимает правую панель; пока она открыта, выбор строки
+  // списка при несохранённом спрашивает, как и закрытие окна.
+  const [form, setForm] = useState<MyAgentFormMode | null>(null);
+  const formDirty = useRef(false);
+  const [leaveAsk, setLeaveAsk] = useState<(() => void) | null>(null);
+  const myAgents = useMyAgents((s) => s.agents);
+  const [delAsk, setDelAsk] = useState(false);
+  const [delBusy, setDelBusy] = useState(false);
+  const [delError, setDelError] = useState<string | null>(null);
+  const closeForm = () => { formDirty.current = false; setForm(null); setDelAsk(false); setDelError(null); };
+  const openForm = (mode: MyAgentFormMode) => { formDirty.current = false; setDelAsk(false); setDelError(null); setForm(mode); };
+  // Действие, уводящее с формы: при несохранённом сначала спрашиваем.
+  const leaveForm = (fn: () => void) => {
+    if (form && formDirty.current) setLeaveAsk(() => fn);
+    else { closeForm(); fn(); }
+  };
+  useEffect(() => { void loadMyAgents(); }, []);
 
   // Запрос на конкретную роль прочитан в начальном состоянии (см. useState
   // выше) и сбрасывается, чтобы повторное открытие не залипало на той же роли.
@@ -137,6 +159,39 @@ export function TeamWindow({ onClose }: { onClose: () => void }) {
     row?.scrollIntoView({ block: 'nearest' });
   }, [tab, selectedKey]);
 
+  // Агент сохранён: на вкладке «В офисе» выделяем нанятого так же, как при
+  // найме из маркета; правка — копию, которая уже сидит в офисе.
+  const onSaved = (agent: MyAgentView, roleIds: string[]) => {
+    const edited = form?.kind === 'edit';
+    closeForm();
+    void loadMyAgents();
+    setTab('staff');
+    setQuery('');
+    const existing = Object.values(instances).find((i) => roleIds.includes(i.roleId));
+    if (edited) {
+      if (existing) setStaffSel(existing.id);
+    } else {
+      awaiting.current = { known: new Set(Object.keys(instances)), until: Date.now() + HIRE_WAIT_MS };
+    }
+    pushToast({
+      id: `my-agent-${agent.name}-${Date.now()}`, kind: 'info',
+      title: t(edited ? 'agent.custom.toast.saved' : roleIds.length ? 'agent.custom.toast.hired' : 'agent.custom.toast.noHire', { title: agent.title }),
+    });
+  };
+  const removeAgent = async (agent: MyAgentView) => {
+    setDelBusy(true);
+    const errors = await deleteMyAgent(agent.name);
+    setDelBusy(false);
+    setDelAsk(false);
+    if (errors) {
+      const text = errors.map((e) => e.message).filter(Boolean).join(' ');
+      setDelError(t('agent.custom.deleteHired', { reason: text }));
+      return;
+    }
+    closeForm();
+    pushToast({ id: `my-agent-del-${agent.name}-${Date.now()}`, kind: 'info', title: t('agent.custom.toast.deleted', { title: agent.title }) });
+  };
+
   const act = (fn: () => void) => { markPending(); fn(); };
   const submitLink = () => {
     const url = link.trim();
@@ -179,6 +234,8 @@ export function TeamWindow({ onClose }: { onClose: () => void }) {
 
   const selectedInst = tab === 'staff' && staffSel ? instances[staffSel] : undefined;
   const selectedRole = selectedInst ? roleOf(selectedInst) ?? null : null;
+  const ownAgent = selectedRole && isLocalPackage(selectedRole.package?.name)
+    ? myAgents.find((a) => a.name === selectedRole.package?.name) ?? null : null;
   const selectedPackage = tab === 'market' && pkgSel ? packages.find((p) => p.name === pkgSel) ?? null : null;
 
   return (
@@ -186,15 +243,18 @@ export function TeamWindow({ onClose }: { onClose: () => void }) {
       <span className="team-head-left">
         {t('hud.team')}
         <span className="seg team-tabs">
-          <button className={tab === 'staff' ? 'on' : ''} onClick={() => setTab('staff')}>
+          <button className={tab === 'staff' ? 'on' : ''} onClick={() => leaveForm(() => setTab('staff'))}>
             {t('team.tab.staff')} <span className="team-tab-count">{seated}</span>
           </button>
-          <button className={tab === 'market' ? 'on' : ''} onClick={() => setTab('market')}>
+          <button className={tab === 'market' ? 'on' : ''} onClick={() => leaveForm(() => setTab('market'))}>
             {t('team.tab.market')} <span className="team-tab-count">{packages.length}</span>
           </button>
         </span>
       </span>
     } actions={<>
+      <button className="mini" onClick={() => leaveForm(() => openForm({ kind: 'create' }))}>
+        <Icon name="plus" size={12} /> {t('agent.custom.create')}
+      </button>
       {tab === 'market' && (
         <>
           <button className="mini" disabled={busy} onClick={() => act(marketCheck)} title={t('market.check')}>
@@ -240,7 +300,7 @@ export function TeamWindow({ onClose }: { onClose: () => void }) {
                     key={inst.id}
                     data-row={inst.id}
                     className={`team-role-row market-row${staffSel === inst.id ? ' selected' : ''}${role?.archived ? ' archived' : ''}`}
-                    onClick={() => setStaffSel(inst.id)}
+                    onClick={() => leaveForm(() => setStaffSel(inst.id))}
                   >
                     <Avatar roleId={inst.roleId} instanceId={inst.id} />
                     <span className="market-row-text">
@@ -281,7 +341,7 @@ export function TeamWindow({ onClose }: { onClose: () => void }) {
                       key={p.name}
                       data-row={p.name}
                       className={`team-role-row market-row${pkgSel === p.name ? ' selected' : ''}`}
-                      onClick={() => setPkgSel(p.name)}
+                      onClick={() => leaveForm(() => setPkgSel(p.name))}
                     >
                       <span className="market-emoji" style={{ background: p.color || 'var(--film-2)' }}>{p.emoji || '📦'}</span>
                       <span className="market-row-text">
@@ -330,8 +390,37 @@ export function TeamWindow({ onClose }: { onClose: () => void }) {
         </div>
 
         <div className="team-detail">
-          {selectedInst && selectedRole && !selectedRole.archived && <ZonePinning role={selectedRole} />}
-          {selectedInst && (
+          {form && (
+            <div className="my-agent-pane">
+              {form.kind === 'edit' && (
+                <div className="my-agent-bar">
+                  {delAsk ? (
+                    <span className="my-agent-del-ask" role="alertdialog">
+                      <span>{t('agent.custom.deleteAsk', { title: form.agent.title })}</span>
+                      <button className="mini danger" disabled={delBusy} onClick={() => removeAgent(form.agent)}>
+                        {delBusy ? t('agent.custom.deleting') : t('agent.custom.delete')}
+                      </button>
+                      <button className="mini" disabled={delBusy} onClick={() => setDelAsk(false)}>{t('common.cancel')}</button>
+                    </span>
+                  ) : (
+                    <button className="mini danger" onClick={() => { setDelError(null); setDelAsk(true); }}>
+                      {t('agent.custom.delete')}
+                    </button>
+                  )}
+                </div>
+              )}
+              {delError && <div className="team-notice" role="alert">{delError}</div>}
+              <MyAgentForm
+                key={form.kind === 'edit' ? form.agent.name : form.kind === 'from' ? `from-${form.role.id}` : 'create'}
+                mode={form}
+                onSaved={onSaved}
+                onCancel={() => leaveForm(() => undefined)}
+                onDirty={(d) => { formDirty.current = d; }}
+              />
+            </div>
+          )}
+          {!form && selectedInst && selectedRole && !selectedRole.archived && <ZonePinning role={selectedRole} />}
+          {!form && selectedInst && (
             <AgentSettings
               key={selectedInst.id}
               instanceId={selectedInst.id}
@@ -343,21 +432,42 @@ export function TeamWindow({ onClose }: { onClose: () => void }) {
               marketBusy={busy}
               act={act}
               actions={selectedRole && !selectedRole.isManager && !selectedRole.archived ? (
-                <button
-                  className="mini" disabled={busy} title={t('team.hireOne')}
-                  onClick={() => hire(() => hireCopy(selectedInst.roleId))}
-                >
-                  {t('team.hire')}
-                </button>
+                <>
+                  <button
+                    className="mini" disabled={busy} title={t('team.hireOne')}
+                    onClick={() => hire(() => hireCopy(selectedInst.roleId))}
+                  >
+                    {t('team.hire')}
+                  </button>
+                  {ownAgent ? (
+                    <button className="mini" onClick={() => leaveForm(() => openForm({ kind: 'edit', agent: ownAgent }))}>
+                      {t('agent.custom.edit')}
+                    </button>
+                  ) : null}
+                  <button className="mini" onClick={() => leaveForm(() => openForm({ kind: 'from', role: selectedRole }))}>
+                    {t('agent.custom.fromRole')}
+                  </button>
+                </>
               ) : null}
             />
           )}
-          {selectedPackage && <PackageCard p={selectedPackage} busy={busy} act={act} hire={hire} />}
-          {!selectedInst && !selectedPackage && (
+          {!form && selectedPackage && <PackageCard p={selectedPackage} busy={busy} act={act} hire={hire} />}
+          {!form && !selectedInst && !selectedPackage && (
             <p className="muted small">{t(tab === 'staff' ? 'team.pickHint' : 'market.pick')}</p>
           )}
         </div>
       </div>
+      {leaveAsk && (
+        <div className="team-close-ask access-confirm" role="alertdialog">
+          <p>{t('agent.custom.leaveAsk')}</p>
+          <div className="modal-actions">
+            <button onClick={() => setLeaveAsk(null)}>{t('agent.custom.leaveStay')}</button>
+            <button className="danger" onClick={() => { const go = leaveAsk; setLeaveAsk(null); closeForm(); go(); }}>
+              {t('agent.custom.leaveGo')}
+            </button>
+          </div>
+        </div>
+      )}
       {closeAsk && (
         <div className="team-close-ask access-confirm" role="alertdialog">
           <p>{t('agent.save.closeAsk', { fields: closeAsk.join(', ') })}</p>

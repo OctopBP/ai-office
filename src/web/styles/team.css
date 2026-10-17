@@ -230,3 +230,8 @@
 .my-agent-skill-desc { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .my-agent-skill-form { display: flex; flex-direction: column; gap: var(--space-2); }
 .my-agent-form .form-hint.warn { color: var(--warn-ink); }
+
+/* Форма своего агента в правой панели окна «Команда» */
+.my-agent-pane { display: flex; flex-direction: column; gap: var(--space-3); }
+.my-agent-bar { display: flex; justify-content: flex-end; }
+.my-agent-del-ask { display: flex; align-items: center; flex-wrap: wrap; gap: var(--space-3); }
