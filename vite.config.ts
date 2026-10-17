@@ -279,6 +279,13 @@ export default defineConfig({
    * срабатывать. Симптом — модели грузятся, но остаются без материалов.
    */
   resolve: { dedupe: ['three'] },
+  /**
+   * Кеш оптимизатора по умолчанию лежит в node_modules/.vite, а node_modules
+   * у рабочей копии задачи — ссылка на общий из основного репозитория. Стенд
+   * (`scripts/stand.mjs`) уводит кеш в свою папку: иначе vite из копии
+   * переписывал бы чужой кеш, а в песочнице и вовсе падал бы на записи.
+   */
+  cacheDir: process.env.VITE_CACHE_DIR || undefined,
   server: {
     port: 5173,
     /**

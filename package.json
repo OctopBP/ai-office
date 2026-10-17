@@ -18,6 +18,7 @@
     "desktop": "npm run build:desktop && npm --prefix desktop start",
     "desktop:dist": "npm run build:desktop && npm --prefix desktop run dist",
     "office": "bash scripts/office.sh",
+    "stand": "node scripts/stand.mjs",
     "typecheck": "tsc --noEmit",
     "smoke": "tsx scripts/smoke.ts",
     "probe": "tsx scripts/probe.ts",
