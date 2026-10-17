@@ -20,7 +20,8 @@ import { FlowsPage } from '../FlowsPage';
 import { ReleasesPage } from '../ReleasesPage';
 import { FirstLaunch, useFirstLaunch } from '../FirstLaunch';
 import { isRailView, useStore } from '../store';
-import { openDocked } from '../layout/docked';
+import { DocsWindow } from '../docs/DocsWindow';
+import { RailPage } from './RailPages';
 import { t } from '../i18n';
 import type { SpotTarget } from '../office3d/Hotspots3D';
 
@@ -59,8 +60,8 @@ export function Shell(props: OverlayProps) {
   // Стол переговорки ведёт в окно совещаний: стенограмма идущего и история прошлых.
   const open = (kind: SpotTarget) => {
     if (kind === 'board') setView('board');
-    else if (kind === 'meeting') openDocked('meetings');
-    else openDocked(kind);
+    else if (kind === 'meeting') setView('meetings');
+    else setView(kind);
   };
   const door = () => setModal('offices');
 
@@ -119,6 +120,10 @@ export function Shell(props: OverlayProps) {
         {view === 'team' && <TeamWindow onClose={() => setView('office')} />}
         {view === 'flows' && <FlowsPage />}
         {view === 'releases' && <ReleasesPage />}
+        {view === 'docs' && <DocsWindow onClose={() => setView('office')} />}
+        {(view === 'log' || view === 'money' || view === 'meetings') && (
+          <RailPage view={view} onClose={() => setView('office')} onCall={() => setModal('meeting')} />
+        )}
         {view === 'life' && (
           <div className="shell-view shell-life">
             <h2 className="shell-life-title">{t('life.title')}</h2>

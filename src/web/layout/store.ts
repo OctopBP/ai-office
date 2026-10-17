@@ -9,6 +9,7 @@ import {
   toggleDock, type DockId, type Extent, type Layout, type LayoutRuntime, type WindowRef,
 } from './model';
 import { applyDrop, type DropTarget } from './dropzone';
+import { PAGE_KINDS } from './docked';
 import { createSaver, loadLayout } from './persist';
 
 const saver = createSaver();
@@ -65,7 +66,12 @@ export const useLayout = create<LayoutState>((set, get) => {
 
     load(officeId) {
       saver.flush();
-      set({ officeId, layout: officeId ? loadLayout(officeId) : defaultLayout(), maximized: null, drag: null });
+      const loaded = officeId ? loadLayout(officeId) : defaultLayout();
+      const layout = Object.values(loaded.docks)
+        .flatMap((d) => d?.tabs ?? [])
+        .filter((w) => PAGE_KINDS.includes(w.kind))
+        .reduce((l, w) => closeWindow(l, w.id), loaded);
+      set({ officeId, layout, maximized: null, drag: null });
     },
     flush: () => saver.flush(),
     setViewport: (w, h) => set({ viewport: { w, h } }),

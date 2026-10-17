@@ -17,7 +17,6 @@ import { displayLayout, dockRange, effectiveSize, findWindow, makeRef, type Dock
 import type { DockStatus } from '../layout/Dock';
 import { TerminalWindow } from '../terminal/TerminalWindow';
 import { useTermViews, type TermStatus } from '../terminal/sessions';
-import { DocsWindow } from '../docs/DocsWindow';
 import { RailPage } from './RailPages';
 import { t } from '../i18n';
 
@@ -29,8 +28,7 @@ function WindowBody({ win, onCall }: { win: WindowRef; onCall: () => void }): Re
   const close = () => useLayout.getState().closeWindow(win.id);
   switch (win.kind) {
     case 'terminal': return <TerminalWindow winId={win.id} />;
-    case 'docs': return <DocsWindow onClose={close} />;
-    case 'log': case 'money': case 'merge': case 'meetings':
+    case 'merge':
       return <RailPage view={win.kind} onClose={close} onCall={onCall} />;
     default: return <p className="dock-empty">{t('dock.empty')}</p>;
   }

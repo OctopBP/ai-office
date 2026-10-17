@@ -1,12 +1,16 @@
 /**
- * Окна рейла, которые живут в доках (спека window-system §1): документы, лог,
- * расходы, очередь слияния и совещания. Открытие — через стор раскладки; куда
+ * Окна рейла, которые живут в доках (спека window-system §1): очередь слияния.
+ * Документы, лог, расходы и совещания — страницы главной области (`RailView`),
+ * в доках их больше нет. Открытие — через стор раскладки; куда
  * класть, решает DEFAULT_DOCK, а перенесённое пользователем помнит раскладка.
  */
 import { makeRef, findWindow, type WindowKind } from './model';
 import { useLayout } from './store';
 
-export const DOCKED_KINDS = ['docs', 'log', 'money', 'merge', 'meetings'] as const;
+export const DOCKED_KINDS = ['merge'] as const;
+
+/** Виды, переехавшие из доков в главную область: их вкладки из старых раскладок убираем при загрузке. */
+export const PAGE_KINDS: readonly string[] = ['docs', 'log', 'money', 'meetings'];
 export type DockedKind = (typeof DOCKED_KINDS)[number];
 export const isDockedKind = (k: string): k is DockedKind => (DOCKED_KINDS as readonly string[]).includes(k);
 

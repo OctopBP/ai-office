@@ -6,7 +6,7 @@ import { focusComposer } from './shell/Composer';
 import { closeDiff, connect, setPaused, useStore } from './store';
 import { startRouting } from './routeSync';
 import { startNotify } from './notify';
-import { openDocked, toggleDocked } from './layout/docked';
+import { toggleDocked } from './layout/docked';
 import { FirstLaunch, useFirstLaunch } from './FirstLaunch';
 
 export function App() {
@@ -57,7 +57,7 @@ export function App() {
   // запрос на окно, App открывает его страницу и сразу сбрасывает запрос.
   useEffect(() => {
     if (!panelRequest) return;
-    openDocked(panelRequest);
+    setView(panelRequest);
     useStore.setState({ panelRequest: null });
   }, [panelRequest, setView]);
 
@@ -107,9 +107,9 @@ export function App() {
       if (k === 'b' || k === 'и') setView(view === 'board' ? 'office' : 'board');
       // E — доска расходов. Буква занята под «expenses»/«расходы»: свободных
       // мнемоничных клавиш немного, а «$» на русской раскладке не набрать.
-      // Расходы, лог и очередь слияния — окна в доках: повтор клавиши закрывает вкладку.
-      else if (k === 'e' || k === 'у') toggleDocked('money');
-      else if (k === 'l' || k === 'д') toggleDocked('log');
+      // Расходы и лог — страницы главной области, очередь слияния — вкладка дока: повтор клавиши закрывает.
+      else if (k === 'e' || k === 'у') setView(view === 'money' ? 'office' : 'money');
+      else if (k === 'l' || k === 'д') setView(view === 'log' ? 'office' : 'log');
       // J — жизнь офиса: вопросы, журнал, ритуалы. Это вид, как доска: повтор возвращает в офис.
       else if (k === 'j' || k === 'о') setView(view === 'life' ? 'office' : 'life');
       // P — процессы: доска прогонов, файлы процессов, проверки, расход.

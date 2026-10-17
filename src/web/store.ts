@@ -529,10 +529,10 @@ export type TopView = 'office' | 'board' | 'chat' | 'life';
  * Виды, которые выбирают пункты рейла (Rail.tsx): окно офиса открывается
  * страницей в главной области, а не модалкой.
  */
-export type RailView = 'team' | 'settings' | 'flows' | 'releases';
+export type RailView = 'team' | 'settings' | 'flows' | 'releases' | 'docs' | 'log' | 'money' | 'meetings';
 /** Один вид на главную область: сверху и слева — просто две группы кнопок. */
 export type View = TopView | RailView;
-export const RAIL_VIEWS: readonly RailView[] = ['team', 'settings', 'flows', 'releases'];
+export const RAIL_VIEWS: readonly RailView[] = ['team', 'settings', 'flows', 'releases', 'docs', 'log', 'money', 'meetings'];
 export const isRailView = (v: string): v is RailView => (RAIL_VIEWS as readonly string[]).includes(v);
 export type ThemeMode = Theme | 'system';
 
