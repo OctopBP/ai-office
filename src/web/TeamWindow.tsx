@@ -17,6 +17,7 @@ import { HOTKEY } from './hotkeys';
 import { ShellPage } from './shell/ShellPage';
 import { ZoneChips, ZonePinning } from './TeamZones';
 import { MyAgentForm, type MyAgentFormMode } from './MyAgentForm';
+import { MyAgentPublishDialog } from './MyAgentPublishDialog';
 import { deleteMyAgent, isLocalPackage, loadMyAgents, useMyAgents } from './myAgents';
 import type { MyAgentView } from '../shared/myagent';
 
@@ -101,6 +102,7 @@ export function TeamWindow({ onClose }: { onClose: () => void }) {
   const [delAsk, setDelAsk] = useState(false);
   const [delBusy, setDelBusy] = useState(false);
   const [delError, setDelError] = useState<string | null>(null);
+  const [publishFor, setPublishFor] = useState<MyAgentView | null>(null);
   const closeForm = () => { formDirty.current = false; setForm(null); setDelAsk(false); setDelError(null); };
   const openForm = (mode: MyAgentFormMode) => { formDirty.current = false; setDelAsk(false); setDelError(null); setForm(mode); };
   // Действие, уводящее с формы: при несохранённом сначала спрашиваем.
@@ -394,6 +396,11 @@ export function TeamWindow({ onClose }: { onClose: () => void }) {
             <div className="my-agent-pane">
               {form.kind === 'edit' && (
                 <div className="my-agent-bar">
+                  {!delAsk && (
+                    <button className="mini" onClick={() => setPublishFor(form.agent)}>
+                      <Icon name="arrow-up" size={12} /> {t('agent.publish.action')}
+                    </button>
+                  )}
                   {delAsk ? (
                     <span className="my-agent-del-ask" role="alertdialog">
                       <span>{t('agent.custom.deleteAsk', { title: form.agent.title })}</span>
@@ -410,6 +417,14 @@ export function TeamWindow({ onClose }: { onClose: () => void }) {
                 </div>
               )}
               {delError && <div className="team-notice" role="alert">{delError}</div>}
+              {form.kind === 'edit' && (() => {
+                const pub = (myAgents.find((a) => a.name === form.agent.name) ?? form.agent).published;
+                return pub ? (
+                  <div className="form-banner my-agent-published" role="status">
+                    <span className="mono">{pub.name} {pub.version}</span> · {t('agent.publish.done', { name: pub.name, version: pub.version })}
+                  </div>
+                ) : null;
+              })()}
               <MyAgentForm
                 key={form.kind === 'edit' ? form.agent.name : form.kind === 'from' ? `from-${form.role.id}` : 'create'}
                 mode={form}
@@ -457,6 +472,16 @@ export function TeamWindow({ onClose }: { onClose: () => void }) {
           )}
         </div>
       </div>
+      {publishFor && (
+        <MyAgentPublishDialog
+          agent={myAgents.find((a) => a.name === publishFor.name) ?? publishFor}
+          onClose={() => setPublishFor(null)}
+          onPublished={(p) => {
+            setPublishFor(null);
+            pushToast({ id: `my-agent-pub-${p.name}-${Date.now()}`, kind: 'info', title: t('agent.publish.toast', { name: p.name, version: p.version }) });
+          }}
+        />
+      )}
       {leaveAsk && (
         <div className="team-close-ask access-confirm" role="alertdialog">
           <p>{t('agent.custom.leaveAsk')}</p>

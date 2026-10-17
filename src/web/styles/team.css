@@ -233,5 +233,7 @@
 
 /* Форма своего агента в правой панели окна «Команда» */
 .my-agent-pane { display: flex; flex-direction: column; gap: var(--space-3); }
-.my-agent-bar { display: flex; justify-content: flex-end; }
+.my-agent-bar { display: flex; justify-content: flex-end; flex-wrap: wrap; gap: var(--space-2); }
+.my-agent-published { margin-bottom: 0; overflow-wrap: anywhere; }
+.publish-dialog { max-height: calc(100vh - 40px); overflow-y: auto; }
 .my-agent-del-ask { display: flex; align-items: center; flex-wrap: wrap; gap: var(--space-3); }

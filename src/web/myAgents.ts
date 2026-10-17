@@ -1,7 +1,7 @@
 import { create } from 'zustand';
 import { useStore } from './store';
 import type { FieldError } from '../shared/types';
-import type { MyAgentDraft, MyAgentView } from '../shared/myagent';
+import type { MyAgentDraft, MyAgentPublished, MyAgentPublishRequest, MyAgentView } from '../shared/myagent';
 
 /**
  * Свои агенты этого офиса: список с сервера и запросы к `/api/my-agents`.
@@ -132,3 +132,29 @@ export async function deleteMyAgent(name: string): Promise<FieldError[] | null> 
 
 /** Роль — копия своего агента: пакет в области `@local`. */
 export const isLocalPackage = (name: string | undefined): boolean => Boolean(name?.startsWith('@local/'));
+
+/** Итог публикации: пакет в маркете либо ошибки по полям (`name`, `version`, `repoDir`, `token`, `package:*`). */
+export type PublishResult =
+  | { ok: true; agent: MyAgentView; published: MyAgentPublished; warnings: FieldError[] }
+  | { ok: false; errors: FieldError[] };
+
+/** Опубликовать своего агента в маркет: сервер сам проверяет пакет, пушит репозиторий и вписывает запись в реестр. */
+export async function publishMyAgent(name: string, req: MyAgentPublishRequest): Promise<PublishResult> {
+  try {
+    const { code, data } = await send('POST', `/api/my-agents/${encodeURIComponent(name)}/publish${officeQuery()}`, req);
+    if (code >= 200 && code < 300 && data.published) {
+      void loadMyAgents();
+      return {
+        ok: true,
+        agent: data.agent as MyAgentView,
+        published: data.published as MyAgentPublished,
+        warnings: (data.warnings as FieldError[] | undefined) ?? [],
+      };
+    }
+    const errors = data.errors as FieldError[] | undefined;
+    if (errors?.length) return { ok: false, errors };
+    return { ok: false, errors: [{ field: '', message: String(data.error ?? `HTTP ${code}`) }] };
+  } catch (err) {
+    return { ok: false, errors: [{ field: '', message: (err as Error).message }] };
+  }
+}
