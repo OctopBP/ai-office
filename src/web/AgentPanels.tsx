@@ -57,7 +57,7 @@ function FieldError({ save, f }: { save: AgentAutosave; f: AgentField }) {
 }
 
 /** Строка шаблона `.form-row`: подпись с подсказкой слева, поле справа. `wide` — длинный текст под подписью во всю ширину. */
-function Row({ id, label, hint, wide, children }: {
+export function Row({ id, label, hint, wide, children }: {
   id?: string; label: ReactNode; hint?: ReactNode; wide?: boolean; children: ReactNode;
 }) {
   return (
@@ -102,7 +102,7 @@ function Confirm({ text, yes, onYes, onNo, disabled }: {
 }
 
 /** Группа шаблона `.form-section`; опасная — с красным заголовком, как в настройках офиса. */
-function Section({ title, desc, badge, children, danger }: {
+export function Section({ title, desc, badge, children, danger }: {
   title: string; desc?: ReactNode; badge?: ReactNode; children: ReactNode; danger?: boolean;
 }) {
   return (

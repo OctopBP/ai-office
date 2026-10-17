@@ -201,3 +201,32 @@
 .team-pin-opt:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 .team-pin-opt.on { background: var(--film-2); color: var(--ink); border-color: var(--ink-3); }
 .team-pin-opt:disabled { opacity: .55; cursor: not-allowed; }
+
+/* Свой агент: форма в правой панели (T-625). Только токены. */
+.team-create { align-self: flex-start; }
+.my-agent-form { display: flex; flex-direction: column; min-height: 0; }
+.my-agent-head { padding-bottom: var(--space-3); }
+.my-agent-lock { border: 0; margin: 0; padding: 0; min-width: 0; }
+.my-agent-lock:disabled { opacity: .6; }
+.my-agent-foot {
+  position: sticky; bottom: 0; display: flex; align-items: center; justify-content: flex-end; gap: var(--space-2);
+  padding: var(--space-3) 0; background: var(--surface); border-top: 1px solid var(--hairline);
+}
+.my-agent-foot > span { margin-right: auto; }
+.my-agent-brief { min-height: 180px; max-height: 60vh; resize: vertical; width: 100%; }
+.my-agent-choices { display: flex; flex-wrap: wrap; gap: var(--space-2); }
+.my-agent-emoji, .my-agent-swatch {
+  min-width: 32px; min-height: 32px; border: 2px solid transparent; border-radius: var(--radius-icon);
+  background: var(--film); font-size: var(--fs-title); cursor: pointer; display: inline-flex; align-items: center; justify-content: center;
+}
+.my-agent-swatch { border-radius: var(--radius-pill); font: 700 var(--fs-md)/1 var(--font); }
+.my-agent-emoji.on, .my-agent-swatch.on { border-color: var(--ink); }
+.my-agent-emoji:focus-visible, .my-agent-swatch:focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; }
+.my-agent-checks { display: flex; flex-direction: column; gap: var(--space-2); }
+.my-agent-check { display: flex; align-items: baseline; gap: var(--space-2); flex-wrap: wrap; }
+.my-agent-check.off { border: 1px dashed var(--hairline); border-radius: var(--radius-icon); padding: var(--space-1) var(--space-2); }
+.my-agent-skills { list-style: none; margin: 0 0 var(--space-2); padding: 0; display: flex; flex-direction: column; gap: var(--space-1); }
+.my-agent-skills li { display: flex; align-items: center; gap: var(--space-2); }
+.my-agent-skill-desc { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.my-agent-skill-form { display: flex; flex-direction: column; gap: var(--space-2); }
+.my-agent-form .form-hint.warn { color: var(--warn-ink); }
