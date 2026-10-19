@@ -6,6 +6,7 @@ import { focusComposer } from './shell/Composer';
 import { closeDiff, connect, setPaused, useStore } from './store';
 import { startRouting } from './routeSync';
 import { startNotify } from './notify';
+import { startSound } from './sound';
 import { toggleDocked } from './layout/docked';
 import { FirstLaunch, useFirstLaunch } from './FirstLaunch';
 
@@ -38,6 +39,7 @@ export function App() {
   useEffect(() => startRouting(), []);
   // Системные уведомления: слушают события сервера, а не рендер (notify.ts).
   useEffect(() => startNotify(), []);
+  useEffect(() => startSound(), []);
 
   // Ссылка «настройки раскладки» из карточки безместного сотрудника: стор
   // получает запрос на раздел «Проект», а страницу настроек открывает уже

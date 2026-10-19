@@ -67,6 +67,7 @@
     "test:spendreport": "tsx scripts/test-spend-report.ts",
     "test:runguard": "node --import tsx scripts/test-runguard.ts",
     "test:busy": "node --import tsx scripts/test-busy.ts",
+    "test:sound": "node --import tsx scripts/test-sound.ts",
     "test:work-count": "node --import tsx scripts/test-work-count.ts",
     "test:rules": "tsx scripts/test-rules.ts",
     "test:subprojects": "node --import tsx scripts/test-subprojects.ts",
