@@ -4,6 +4,7 @@ import { pmChatMeta, pmChatSections, useStore } from '../store';
 import { t } from '../i18n';
 import { Avatar } from '../Avatar';
 import { formatFullDateTime, formatListTime } from '../dates';
+import { play } from '../sound';
 import { focusComposer } from './Composer';
 
 /**
@@ -123,7 +124,7 @@ function PmChatRow({ chat, active, unread, tasks, questions }: {
   return (
     <div
       className={`pm-chat-row${active ? ' on' : ''}${chat.archived ? ' archived' : ''}`}
-      onClick={() => { if (!editing) open(chat.id); }}
+      onClick={() => { if (!editing) { play('tick'); open(chat.id); } }}
     >
       <div className="pm-chat-body">
         <div className="pm-chat-line">

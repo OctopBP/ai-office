@@ -12,6 +12,7 @@ import { t } from '../i18n';
 import { useLayout } from '../layout/store';
 import { narrowMode } from '../layout/narrow';
 import { isDockedKind, isDockedOn, openDocked } from '../layout/docked';
+import { play } from '../sound';
 import { Icon, type IconName } from '../icons';
 import { Kbd } from '../Kbd';
 import { Hint, Tooltip } from '../Tooltip';
@@ -264,6 +265,7 @@ export function Rail({ onPanel, onModal }: {
   const share = cap ? Math.min(1, today / cap) : 0;
 
   const openWindow = (kind: WindowKind) => {
+    play('tick');
     if (isDockedKind(kind)) openDocked(kind);
     else if (isRailView(kind)) setView(kind);
     else onPanel(kind);

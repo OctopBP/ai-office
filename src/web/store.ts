@@ -1,4 +1,5 @@
 import { create } from 'zustand';
+import { play } from './sound/engine';
 import type {
   ChatDraft,
   ChatEntry, DayUsage, FieldError, InstanceView, Layout, LayoutOption, LayoutOverride, LogEntry,
@@ -1869,6 +1870,7 @@ export function permissionSource(
 export function send(text: string, { newChat = false }: { newChat?: boolean } = {}): void {
   const { thread, pmChatId, pmChatDraft } = useStore.getState();
   // Черновик нового чата: чат заводит сервер вместе с первой репликой.
+  if (thread === 'pm#1') play('sent'); // тихий отклик на своё сообщение в чат PM
   if (thread === 'pm#1' && (newChat || pmChatDraft)) {
     pendingPmChatNonce = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
     socket?.send(JSON.stringify({ c: 'user_message', text, newChat: true, nonce: pendingPmChatNonce }));
@@ -2676,6 +2678,7 @@ export function reset(): void {
 
 /** Ответ на вопрос офиса: ложится в журнал, менеджер узнаёт системным сообщением. */
 export function answerQuestion(id: string, answer: string): void {
+  play('sent');
   socket?.send(JSON.stringify({ c: 'answer_question', id, answer }));
 }
 
@@ -2818,5 +2821,6 @@ export function dropRule(id: string): void {
 
 /** Принять или отклонить предложение офиса. Принятая фича встаёт в план согласованной. */
 export function decideProposal(id: string, accept: boolean): void {
+  if (accept) play('sent');
   socket?.send(JSON.stringify({ c: 'proposal_decide', id, accept }));
 }

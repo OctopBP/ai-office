@@ -20,6 +20,7 @@ import { OfficeSecrets } from './OfficeSecrets';
 import { OfficeSubprojects } from './OfficeSubprojects';
 import { AppVersion, UpdateChannelSetting, hasChannelBridge } from './UpdateChannel';
 import { Icon } from './icons';
+import { SoundSettings } from './SoundSettings';
 import { ShellPage } from './shell/ShellPage';
 import { ProviderCard } from './ProviderCard';
 import { CustomApiGroup } from './CustomApiForm';
@@ -485,6 +486,7 @@ export function SettingsPage({ onClose }: { onClose: () => void }) {
                     </span>
                   </label>
                 </Row>
+                <SoundSettings />
               </Group>
 
               {/* Только в приложении: в браузере моста обновлений нет. */}
