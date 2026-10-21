@@ -26,7 +26,7 @@ import type { WorkflowNode } from '../shared/workflow';
 import { builtinWorkflows } from './workflows';
 import { drive, newRun, type Executor } from './runs';
 import { dayKey, HEALTH_DIRECTION, limitReset, OFFICE_SENDER } from '../shared/types';
-import type { BranchMark, FactView, HealthEntry, OwnerQuestion, QuestionQuote, QuestionRef, RitualId, RitualRun, RuleKind } from '../shared/types';
+import type { BranchMark, FactView, HealthEntry, OwnerQuestion, ProposalProbe, QuestionQuote, QuestionRef, RitualId, RitualRun, RuleKind } from '../shared/types';
 import { refsInText } from '../shared/questions';
 import type { ServerKey } from './i18n';
 import { LANG_LOCALE } from '../shared/i18n';
@@ -52,6 +52,9 @@ import { officeHealth } from './health';
 import { isRepo } from './git';
 import { planSummary } from './plan';
 import { pendingProposals, proposeFeature, type FeatureProposal } from './initiatives';
+import { probeRule, readBenchCases } from './bench';
+import { resolvePackage } from './packages';
+import type { Role } from './roles';
 
 /** Если планёрки ещё не было ни разу — «с прошлой» значит «за сутки». */
 const FIRST_WINDOW_MS = 24 * 60 * 60 * 1000;
@@ -981,6 +984,70 @@ export function ruleProposal(rule: ReflectionOutput['rules'][number]): Parameter
   };
 }
 
+/**
+ * Проба правила (T-670, D-8 идеи A и E): чем гонять стенд и как понять, что
+ * окно подписки за порогом. Тесты подменяют через setRuleProbe.
+ */
+export interface RuleProbeDeps {
+  run: typeof probeRule;
+  /** Папка пакета роли, где лежит bench/cases.json. */
+  dir: (role: Role) => string | undefined;
+  busy: (state: OfficeState, now: number) => { percent: number } | null;
+}
+
+const packageDir = (role: Role): string | undefined => (role.package ? resolvePackage(role.package)?.dir : undefined);
+const defaultProbe: RuleProbeDeps = { run: probeRule, dir: packageDir, busy: limitsBusy };
+let ruleProbe = defaultProbe;
+
+export function setRuleProbe(next: Partial<RuleProbeDeps>): void {
+  ruleProbe = { ...defaultProbe, ...next };
+}
+
+const emptyProbe = (status: ProposalProbe['status'], at: number, note: string): ProposalProbe => ({
+  status, at, runs: 0, costUsd: 0, turnsDelta: 0, costDelta: 0, broke: 0, fixed: 0, cases: [], note,
+});
+
+/**
+ * Прогнать правило на стенде роли до показа владельцу. Проба только
+ * прикладывается к предложению: принять или отклонить правило владелец
+ * волен при любом её исходе. Лимит проверяется перед каждым правилом —
+ * предыдущая проба могла его доесть.
+ */
+export async function probeRuleProposal(
+  state: OfficeState, rule: ReflectionOutput['rules'][number], now = Date.now(),
+): Promise<ProposalProbe> {
+  // Знание о проекте ложится в журнал, а не в бриф: стенд роли тут ничего не скажет.
+  if (rule.kind === 'domain') return emptyProbe('nothing-to-check', now, state.say('reflect.probe.domain'));
+  const role = state.role(rule.roleId);
+  const dir = role ? ruleProbe.dir(role) : undefined;
+  if (!role || !dir || !readBenchCases(dir).length) {
+    return emptyProbe('nothing-to-check', now, state.say('reflect.probe.noCases'));
+  }
+  const hot = ruleProbe.busy(state, now);
+  if (hot) {
+    return emptyProbe('skipped-limit', now, state.say('reflect.probe.limit', { percent: hot.percent, threshold: state.ritualLimit() }));
+  }
+  try {
+    const result = await ruleProbe.run(role, rule.text.trim(), {
+      lang: state.lang(), settings: state.settings, runtime: state.officeRuntime() ?? undefined,
+      cwd: state.projectDir || undefined, dir,
+    });
+    if (result.status !== 'done') return emptyProbe('nothing-to-check', now, result.reason);
+    return {
+      status: 'checked', at: now, runs: result.runs, costUsd: result.costUsd,
+      turnsDelta: result.turnsDelta, costDelta: result.costDelta, broke: result.broke, fixed: result.fixed,
+      cases: result.cases.map((c) => ({
+        what: c.what, openedAdded: c.openedAdded, openedRemoved: c.openedRemoved,
+        calledAdded: c.calledAdded, calledRemoved: c.calledRemoved,
+        turnsDelta: c.turnsDelta, costDelta: c.costDelta, broke: c.broke, fixed: c.fixed,
+      })),
+      ...(result.errors.length ? { note: result.errors.join('; ') } : {}),
+    };
+  } catch (err) {
+    return emptyProbe('error', now, (err as Error).message);
+  }
+}
+
 const runners: Record<RitualId, Runner> = {
   async standup(state, now) {
     runStandup(state, now);
@@ -1048,12 +1115,17 @@ const runners: Record<RitualId, Runner> = {
     // Правило из повторов — предложение, а не правка: бриф роли меняет
     // поведение исполнителя, и без одобрения владельца офис его не трогает.
     let rules = 0;
+    let probeCost = 0;
     for (const rule of out.rules) {
       if (!rule.text.trim() || !state.role(rule.roleId)) continue;
       const dup = state.proposalList().some((p) =>
         p.kind === 'rule' && p.status === 'pending' && p.roleId === rule.roleId && p.text.trim() === rule.text.trim());
       if (dup) continue;
-      state.addProposal(ruleProposal(rule));
+      // Прежде чем показать правило владельцу — проба на стенде роли: что
+      // меняет эта строка в поведении. На учебном офисе живых сессий нет.
+      const probe = state.dryRun ? undefined : await probeRuleProposal(state, rule, now);
+      probeCost += probe?.costUsd ?? 0;
+      state.addProposal({ ...ruleProposal(rule), ...(probe ? { probe } : {}) });
       state.addChat(OFFICE_SENDER, state.say('proposal.ruleProposedChat', {
         role: rule.roleId, text: clip(rule.text, 200), rationale: clip(rule.rationale, 200),
       }));
@@ -1066,7 +1138,7 @@ const runners: Record<RitualId, Runner> = {
     }
     const all = { ...produced, features, rules };
     return {
-      ritual: 'reflect', at: now, costUsd: out.costUsd, produced: all,
+      ritual: 'reflect', at: now, costUsd: out.costUsd + probeCost, produced: all,
       note: state.say('reflect.note', all),
     };
   },

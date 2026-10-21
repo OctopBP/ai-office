@@ -30,6 +30,7 @@
     "test:browser-input": "node tools/browser/input.mjs",
     "test:gitread": "node --import tsx/esm scripts/test-git-read.ts",
     "test:probe-rule": "node --import tsx/esm scripts/test-probe-rule.ts",
+    "test:reflect-probe": "node --import tsx/esm scripts/test-reflect-probe.ts",
     "test:providers": "node --import tsx scripts/test-providers.ts",
     "test:secrets": "node --import tsx scripts/test-secrets.ts",
     "test:skills": "tsx scripts/test-skills.ts",

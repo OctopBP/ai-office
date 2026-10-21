@@ -1010,6 +1010,9 @@ export const ru: Record<keyof typeof en, string> = {
   'health.red': 'красные',
 
   'reflect.note': 'фич {features}, записей {facts}, вопросов {questions}',
+  'reflect.probe.domain': 'знание о проекте ложится в журнал, а не в бриф — стенду роли проверять нечего',
+  'reflect.probe.noCases': 'у пакета роли нет случаев стенда — правило нечем проверить',
+  'reflect.probe.limit': 'проба пропущена: окно подписки занято на {percent}%, порог ритуалов {threshold}%',
   'reflect.chat': '🪞 Недельная рефлексия:\n{summary}',
   'reflect.standup': 'После рефлексии:',
   'reflect.off': 'рефлексия выключена',

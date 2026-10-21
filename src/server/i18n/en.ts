@@ -1010,6 +1010,9 @@ export const en = {
   'health.red': 'red',
 
   'reflect.note': 'features {features}, entries {facts}, questions {questions}',
+  'reflect.probe.domain': 'project knowledge goes to the journal, not the brief — nothing for the role bench to check',
+  'reflect.probe.noCases': 'the role package has no bench cases — nothing to check the rule against',
+  'reflect.probe.limit': 'probe skipped: the subscription window is at {percent}%, ritual threshold {threshold}%',
   'reflect.chat': '🪞 Weekly reflection:\n{summary}',
   'reflect.standup': 'Since the reflection:',
   'reflect.off': 'reflection is off',

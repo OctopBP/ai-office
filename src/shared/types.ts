@@ -2214,6 +2214,45 @@ export type ProposalKind = 'feature' | 'rule' | 'setting';
 export type RuleKind = 'how' | 'domain';
 export type ProposalStatus = 'pending' | 'accepted' | 'rejected';
 
+/**
+ * Итог пробы правила на стенде (T-670): 'checked' — прогнано без правила и с
+ * ним; 'nothing-to-check' — у пакета роли нет случаев стенда (или правило не
+ * про бриф); 'skipped-limit' — окно подписки за порогом ритуалов; 'error' —
+ * проба сорвалась.
+ */
+export type ProposalProbeStatus = 'checked' | 'nothing-to-check' | 'skipped-limit' | 'error';
+
+/** Разница одного случая стенда: «с правилом» минус «без». */
+export interface ProposalProbeCase {
+  what: string;
+  openedAdded: string[];
+  openedRemoved: string[];
+  calledAdded: string[];
+  calledRemoved: string[];
+  turnsDelta: number;
+  costDelta: number;
+  /** Случай перестал проходить / начал проходить. */
+  broke: boolean;
+  fixed: boolean;
+}
+
+/** Проба правила, приложенная к предложению. На принятие не влияет. */
+export interface ProposalProbe {
+  status: ProposalProbeStatus;
+  at: number;
+  /** Сколько прогонов ушло и во что обошлась проба. */
+  runs: number;
+  costUsd: number;
+  /** Сумма по случаям: ходы и деньги «с правилом» минус «без». */
+  turnsDelta: number;
+  costDelta: number;
+  broke: number;
+  fixed: number;
+  cases: ProposalProbeCase[];
+  /** Почему не проверено, текст ошибки или превышение бюджета. */
+  note?: string;
+}
+
 export interface ProposalView {
   id: string;
   kind: ProposalKind;
@@ -2230,6 +2269,8 @@ export interface ProposalView {
    * бриф, чтобы не уехать в пакет роли. Нет — как раньше, в бриф.
    */
   ruleKind?: RuleKind;
+  /** Проба правила на стенде роли, если kind === 'rule' (T-670). */
+  probe?: ProposalProbe;
   /** Настройка, если kind === 'setting'. */
   setting: { key: string; value: unknown } | null;
   /** Направление, по которому предложена фича. */
