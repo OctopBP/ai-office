@@ -87,6 +87,11 @@ function Proposals() {
       <div className="life-row-head">
         <span className="mono dim">{p.id}</span>
         <span className={`chip ${p.kind}`}>{t(`life.proposals.kind.${p.kind}`)}</span>
+        {p.kind === 'rule' && (
+          <span className="chip rulekind" title={t(`life.proposals.ruleKind.${p.ruleKind ?? 'how'}.hint`)}>
+            {t(`life.proposals.ruleKind.${p.ruleKind ?? 'how'}`)}
+          </span>
+        )}
         {p.roleId && <span className="muted small">{t('life.proposals.role', { role: p.roleId })}</span>}
         {p.directionId && <span className="muted small">{p.directionId}</span>}
         <span className="muted small">{when(p.createdAt)}</span>
