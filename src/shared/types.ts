@@ -1007,6 +1007,13 @@ export interface Settings {
    * `src/server/runguard.ts` → `runThreshold`.
    */
   spendFuseTokens?: number | null;
+  /**
+   * Порог постоянного контекста роли в символах: бриф, приписка, правила,
+   * журнал и описания скилов (`src/server/context-budget.ts`). Нет поля —
+   * 24 000; разово перебивается переменной `OFFICE_ALWAYS_ON_MAX`. Порог
+   * ничего не блокирует: превышение — только предупреждение.
+   */
+  alwaysOnMax?: number;
 }
 
 /**

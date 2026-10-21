@@ -76,6 +76,13 @@ export interface EmployeePack {
    * гадать, почему навык не работает.
    */
   servers: McpServerDef[];
+  /**
+   * Описания своих и подключённых скилов по полному имени — из заголовка
+   * SKILL.md. Встроенных здесь нет: их файлы у агента, а не на диске пакета.
+   * Описание каждого скила модель видит в каждой сессии роли, поэтому его
+   * длину считает замер постоянного контекста (context-budget.ts).
+   */
+  descriptions: Record<string, string>;
 }
 
 /**
@@ -113,12 +120,36 @@ interface Plugin {
   name: string;
   dir: string;
   skills: string[];
+  /** Описание из SKILL.md по полному имени скила; пустое — не нашлось. */
+  descriptions: Record<string, string>;
 }
 
 /** Имя скила из заголовка SKILL.md; пусто — берётся имя папки. */
 function skillName(file: string): string {
   const head = readFileSync(file, 'utf8').slice(0, 2000);
   return /^name:\s*(\S+)/m.exec(head)?.[1] ?? '';
+}
+
+/**
+ * Описание скила из заголовка SKILL.md: `description:` одной строкой, в
+ * кавычках или блоком YAML (`|`, `>`) с отступом. Нет заголовка или поля —
+ * пустая строка: такой скил модель видит без пояснения, и это тоже находка.
+ */
+export function skillDescription(text: string): string {
+  const head = /^---\r?\n([\s\S]*?)\r?\n---/.exec(text.slice(0, 8000))?.[1];
+  if (!head) return '';
+  const lines = head.split(/\r?\n/);
+  const at = lines.findIndex((line) => /^description:/.test(line));
+  if (at < 0) return '';
+  const first = lines[at].slice('description:'.length).trim();
+  if (first && !/^[|>][-+]?$/.test(first)) return first.replace(/^(['"])([\s\S]*)\1$/, '$2').trim();
+  // Блок: строки с отступом под полем, до первой без отступа.
+  const body: string[] = [];
+  for (const line of lines.slice(at + 1)) {
+    if (line.trim() && !/^\s/.test(line)) break;
+    body.push(line.trim());
+  }
+  return body.join(first.startsWith('|') ? '\n' : ' ').trim();
 }
 
 /**
@@ -143,15 +174,18 @@ function pluginAt(dir: string, fallbackName: string): Plugin | null {
   const skillsDir = resolve(dir, 'skills');
   if (!existsSync(skillsDir)) return null;
   const skills: string[] = [];
+  const descriptions: Record<string, string> = {};
   for (const entry of readdirSync(skillsDir, { withFileTypes: true })) {
     if (!entry.isDirectory()) continue;
     const file = resolve(skillsDir, entry.name, 'SKILL.md');
     if (!existsSync(file)) continue;
     // Полное имя, а не короткое: короткое SDK сопоставляет по суффиксу, и два
     // плагина с одинаково названным скилом разъехались бы молча.
-    skills.push(`${name}:${skillName(file) || entry.name}`);
+    const full = `${name}:${skillName(file) || entry.name}`;
+    skills.push(full);
+    descriptions[full] = skillDescription(readFileSync(file, 'utf8'));
   }
-  return skills.length ? { name, dir, skills } : null;
+  return skills.length ? { name, dir, skills, descriptions } : null;
 }
 
 /** Путь из pack.json: `~` — домашняя директория, остальное как есть. */
@@ -256,8 +290,12 @@ export function employeePack(role: Role): EmployeePack | null {
   // одного невидимого навыка — сессия молча не покажет его модели.
   const builtin = (pack.builtin ?? []).map((s) => s.trim()).filter(Boolean);
   const skills = [...picked, ...builtin];
+  const descriptions: Record<string, string> = {};
+  for (const plugin of plugins) {
+    for (const skill of plugin.skills) if (picked.includes(skill)) descriptions[skill] = plugin.descriptions[skill];
+  }
   return skills.length || servers.length
-    ? { dirs: plugins.map((p) => p.dir), skills, servers }
+    ? { dirs: plugins.map((p) => p.dir), skills, servers, descriptions }
     : null;
 }
 

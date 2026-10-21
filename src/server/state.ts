@@ -5127,6 +5127,12 @@ export class OfficeState {
       if (!Number.isInteger(n) || n < 0 || n > 365) delete next.cleanupDays;
       else next.cleanupDays = n;
     }
+    if ('alwaysOnMax' in next) {
+      // Мусор оставляет прежнее значение, как и у остальных чисел настроек.
+      const n = Number(next.alwaysOnMax);
+      if (!Number.isInteger(n) || n < 1000 || n > 1_000_000) delete next.alwaysOnMax;
+      else next.alwaysOnMax = n;
+    }
     if ('spendFuseTokens' in next) {
       // 0 и null — «не задан»: порог по истории роли. Вне границ — мусор,
       // оставляем прежнее значение, как и у остальных чисел настроек.
