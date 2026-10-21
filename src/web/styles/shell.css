@@ -437,3 +437,35 @@ body.office-dragging, body.office-dragging * { cursor: grabbing !important; user
 .work-col.has-l .work-main { --edge: calc(var(--space-4) * -1); }
 .work-col.maxi .work-dock:not(.off) { flex: 1 1 auto; }
 .dock-empty { margin: 0; padding: var(--space-4); color: var(--ink-3); font-size: var(--fs-body); }
+
+/* Индикаторы офиса на иконке (T-674): вопросы владельцу — справа сверху,
+   задачи в работе — справа снизу. Числа с сервера, веб их не считает. */
+.rail-office-icon { position: relative; flex: none; width: 24px; height: 24px; }
+.office-badge-q {
+  position: absolute; top: -6px; right: -8px; min-width: 16px; height: 16px; padding: 0 4px;
+  display: flex; align-items: center; justify-content: center;
+  border-radius: var(--radius-pill); background: var(--warn); color: var(--accent-6-ink);
+  font-size: var(--fs-caption); font-weight: 600; line-height: 1;
+  box-shadow: 0 0 0 2px var(--surface);
+}
+.office-badge-work {
+  position: absolute; bottom: -3px; right: -4px; width: 10px; height: 10px;
+  border-radius: 50%; background: var(--accent); box-shadow: 0 0 0 2px var(--surface);
+}
+/* Кольцо расходится от точки: видно, что офис работает. */
+.office-badge-work::after {
+  content: ''; position: absolute; inset: -2px; border-radius: 50%;
+  border: 2px solid var(--accent); opacity: 0;
+  animation: office-work-pulse 1.6s ease-out infinite;
+}
+@keyframes office-work-pulse {
+  0% { transform: scale(0.8); opacity: 0.8; }
+  100% { transform: scale(1.9); opacity: 0; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .office-badge-work::after { animation: none; }
+}
+.sr-only {
+  position: absolute; width: 1px; height: 1px; margin: -1px; padding: 0; overflow: hidden;
+  clip: rect(0 0 0 0); white-space: nowrap; border: 0;
+}

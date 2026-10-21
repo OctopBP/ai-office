@@ -30,6 +30,32 @@ import { UpdateBlock } from './UpdateBlock';
 const DRAG_THRESHOLD_PX = 5;
 
 /**
+ * Индикаторы на иконке офиса: кружок с числом вопросов владельцу (справа
+ * сверху) и пульсирующая синяя точка задач в работе (справа снизу). Числа
+ * приходят с сервера в `OfficeView`, веб ничего не считает. Смысл дублируется
+ * подсказкой и скрытым текстом, не только цветом.
+ */
+export function OfficeBadges({ office }: { office: OfficeView }) {
+  const q = office.openQuestions ?? 0;
+  const work = office.activity?.inProgress ?? 0;
+  return (
+    <>
+      {q > 0 && (
+        <span className="office-badge-q" title={t('office.questions.hint', { n: q })}>
+          <span aria-hidden>{q > 9 ? '9+' : q}</span>
+          <span className="sr-only">{t('office.questions.hint', { n: q })}</span>
+        </span>
+      )}
+      {work > 0 && (
+        <span className="office-badge-work" title={t('office.work.hint', { n: work })}>
+          <span className="sr-only">{t('office.work.hint', { n: work })}</span>
+        </span>
+      )}
+    </>
+  );
+}
+
+/**
  * Список офисов в порядке `ids`. Офис, которого нет в `ids` (список успел
  * измениться, пока прикидка ещё висела — например, завёлся новый офис), не
  * теряется — он просто уходит в конец в своём прежнем относительном порядке.
@@ -339,9 +365,12 @@ export function Rail({ onPanel, onModal }: {
               }}
               disabled={pending === 'enter'}
               title={`${collapsed ? `${o.name} · ${status}` : o.projectDir}\n${t('offices.menu')}`}>
-              <span className="rail-office-avatar"
-                style={officeAvatarStyle(o)}>
-                <OfficeAvatarIcon office={o} imgClass="rail-office-icon-img" />
+              <span className="rail-office-icon">
+                <span className="rail-office-avatar"
+                  style={officeAvatarStyle(o)}>
+                  <OfficeAvatarIcon office={o} imgClass="rail-office-icon-img" />
+                </span>
+                <OfficeBadges office={o} />
               </span>
               <span className="rail-office-text">
                 <span className="rail-office-name">{o.name}</span>

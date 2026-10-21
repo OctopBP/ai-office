@@ -67,6 +67,7 @@ export function OfficesModal({ onClose }: { onClose: () => void }) {
                   <div className="office-who">
                     <b>{o.name}</b>
                     <OfficeStatusMark office={o} />
+                    <OfficeCounts office={o} />
                     <div className="muted mono">{o.projectDir}</div>
                   </div>
                   {o.current ? (
@@ -217,6 +218,27 @@ function OfficeStatusMark({ office }: { office: OfficeView }) {
     <span className={`office-status ${mark}`} title={hint}>
       {a.paused && <Icon name="player-pause" size={10} />}
       {a.paused ? t('office.paused') : a.text}
+    </span>
+  );
+}
+
+/** Подпись «3 в работе · 2 вопроса» у строки офиса; цифры — с сервера. */
+function OfficeCounts({ office }: { office: OfficeView }) {
+  const work = office.activity?.inProgress ?? 0;
+  const q = office.openQuestions ?? 0;
+  if (work <= 0 && q <= 0) return null;
+  return (
+    <span className="office-counts">
+      {work > 0 && (
+        <span className="office-count work" title={t('office.work.hint', { n: work })}>
+          <span className="office-count-dot" aria-hidden />{t('office.inProgress', { n: work })}
+        </span>
+      )}
+      {q > 0 && (
+        <span className="office-count ask" title={t('office.questions.hint', { n: q })}>
+          <span className="office-count-dot" aria-hidden />{t('office.questions.short', { n: q })}
+        </span>
+      )}
     </span>
   );
 }
