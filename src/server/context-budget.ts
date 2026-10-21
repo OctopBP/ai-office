@@ -16,20 +16,14 @@
  * Замер ничего не блокирует: превышение порога и скилы без внятного описания —
  * повод поправить пакет, а не отказ запускать сессию.
  */
+import { alwaysOnMax, MIN_SKILL_DESCRIPTION } from './context-limits';
 import { journalBrief } from './journal';
 import type { Role } from './roles';
 import { rulesBrief } from './rules';
 import { employeePack } from './skills';
 import type { OfficeState } from './state';
 
-/** Порог по умолчанию — как `always_on_max` в harness2. */
-export const DEFAULT_ALWAYS_ON_MAX = 24_000;
-
-/**
- * Описание скила короче этого — «слишком общее»: по нему модель не поймёт,
- * когда скил открывать, и либо не откроет его вовсе, либо будет открывать зря.
- */
-export const MIN_SKILL_DESCRIPTION = 40;
+export { alwaysOnMax, DEFAULT_ALWAYS_ON_MAX, MIN_SKILL_DESCRIPTION } from './context-limits';
 
 export type ContextPart = 'brief' | 'briefExtra' | 'rules' | 'journal' | 'skills';
 
@@ -59,20 +53,6 @@ export interface ContextBudget {
    * что не посчитано.
    */
   unmeasuredSkills: string[];
-}
-
-/**
- * Действующий порог: переменная `OFFICE_ALWAYS_ON_MAX`, затем настройка офиса
- * `alwaysOnMax`, затем 24 000. Негодное значение (не целое, ноль, меньше
- * нуля) пропускается, а не обнуляет порог.
- */
-export function alwaysOnMax(setting?: number | null, env = process.env.OFFICE_ALWAYS_ON_MAX): number {
-  for (const raw of [env, setting]) {
-    if (raw === undefined || raw === null || raw === '') continue;
-    const n = Number(raw);
-    if (Number.isInteger(n) && n > 0) return n;
-  }
-  return DEFAULT_ALWAYS_ON_MAX;
 }
 
 /**
@@ -133,4 +113,39 @@ export function contextBudget(state: OfficeState, role: Role): ContextBudget {
     skillWarnings: skills.warnings,
     unmeasuredSkills: skills.unmeasured,
   };
+}
+
+/** Не чаще раза в сутки на роль — лента не должна повторять одно и то же. */
+export const BUDGET_NOTE_EVERY_MS = 24 * 60 * 60 * 1000;
+
+/**
+ * Когда роль последний раз попала в ленту с превышением — по офису. В памяти:
+ * после перезапуска сервера роль скажет о себе ещё раз, и это не беда.
+ */
+const lastNoted = new WeakMap<OfficeState, Map<string, number>>();
+
+/**
+ * Старт сессии исполнителя: превысила роль порог — одна строка в ленту офиса,
+ * не чаще раза в сутки на роль. Ничего не блокирует; ошибка замера (битый
+ * пакет, нечитаемый файл) сессию не роняет. Возвращает, записано ли событие.
+ */
+export function noteContextBudget(state: OfficeState, role: Role, now = Date.now()): boolean {
+  let budget: ContextBudget;
+  try {
+    budget = contextBudget(state, role);
+  } catch {
+    return false;
+  }
+  if (!budget.over) return false;
+  let seen = lastNoted.get(state);
+  if (!seen) lastNoted.set(state, (seen = new Map()));
+  const last = seen.get(role.id);
+  if (last !== undefined && now - last < BUDGET_NOTE_EVERY_MS) return false;
+  seen.set(role.id, now);
+  const p = budget.parts;
+  state.addLog(null, 'system', state.say('budget.session.over', {
+    role: role.title, total: budget.total, limit: budget.limit, over: budget.over,
+    brief: p.brief, extra: p.briefExtra, rules: p.rules, journal: p.journal, skills: p.skills,
+  }));
+  return true;
 }

@@ -1,12 +1,13 @@
 /**
  * Замер постоянного контекста роли (src/server/context-budget.ts, T-667):
  * разбивка по частям, итог, порог из настройки и `OFFICE_ALWAYS_ON_MAX`,
- * скилы с пустым или общим описанием. Ни одного токена: всё во времянке.
+ * скилы с пустым или общим описанием; предупреждения валидатора пакета и
+ * строка в ленту при старте сессии (T-668). Ни одного токена: всё во времянке.
  *
  * Запуск: npm run test:context-budget
  */
 import assert from 'node:assert/strict';
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { cpSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { resolve } from 'node:path';
 
@@ -23,6 +24,9 @@ const { blankRole } = await import('../src/server/roles');
 const { rulesBrief } = await import('../src/server/rules');
 const { journalBrief } = await import('../src/server/journal');
 const { getOffice } = await import('../src/server/state');
+const { BUDGET_NOTE_EVERY_MS, noteContextBudget } = await import('../src/server/context-budget');
+const { packageBudget, validatePackage } = await import('../src/server/packages');
+const { ROOT } = await import('../src/server/root');
 
 let passed = 0;
 function check(name: string, fn: () => void): void {
@@ -159,6 +163,92 @@ check('настройка офиса alwaysOnMax доезжает до заме�
     assert.equal(contextBudget(office, role).limit, 50_000);
   } finally {
     delete office.settings.alwaysOnMax;
+  }
+});
+
+console.log('валидатор пакета');
+
+// Живой пакет из репозитория во времянку — и к нему скилы.
+const pkgDir = resolve(root, 'pkg');
+cpSync(resolve(ROOT, 'packages/@office/backend'), pkgDir, { recursive: true });
+rmSync(resolve(pkgDir, 'skills'), { recursive: true, force: true });
+const addSkill = (slug: string, head: string) => {
+  mkdirSync(resolve(pkgDir, 'skills', slug), { recursive: true });
+  writeFileSync(resolve(pkgDir, 'skills', slug, 'SKILL.md'), `---\nname: ${slug}\n${head}---\n\nТело.\n`);
+};
+addSkill('good', `description: ${longText}\n`);
+addSkill('vague', `description: ${shortText}\n`);
+addSkill('blank', 'description: |\n');
+
+const warnsAt = (lang: 'ru' | 'en') => validatePackage(pkgDir, lang).filter((p) => p.level === 'warn');
+
+check('скил с пустым и с общим описанием — предупреждения, внятный — нет', () => {
+  const warns = warnsAt('ru');
+  const at = (slug: string) => warns.filter((p) => p.path === `skills/${slug}/SKILL.md`).map((p) => p.message);
+  assert.equal(at('good').length, 0);
+  assert.equal(at('blank').length, 1);
+  assert.match(at('blank')[0], /пустое описание/);
+  assert.equal(at('vague').length, 1);
+  assert.match(at('vague')[0], new RegExp(`короче ${MIN_SKILL_DESCRIPTION}`));
+});
+
+check('предупреждения на языке валидатора', () => {
+  const blank = warnsAt('en').find((p) => p.path === 'skills/blank/SKILL.md');
+  assert.match(blank?.message ?? '', /empty skill description/);
+});
+
+check('замер пакета: бриф по языкам и описания скилов', () => {
+  const budget = packageBudget(pkgDir);
+  assert.ok(budget.briefs.ru && budget.briefs.en, 'оба брифа посчитаны');
+  assert.equal(budget.brief, Math.max(budget.briefs.ru!, budget.briefs.en!));
+  assert.ok(budget.skills >= longText.length + shortText.length);
+  assert.equal(budget.total, budget.brief + budget.skills);
+  assert.equal(budget.over, 0);
+});
+
+check('превышение порога — предупреждение, не ошибка', () => {
+  assert.ok(!warnsAt('ru').some((p) => /порог/.test(p.message)), 'в пороге молчим');
+  process.env.OFFICE_ALWAYS_ON_MAX = '100';
+  try {
+    const problems = validatePackage(pkgDir, 'ru');
+    const over = problems.filter((p) => /постоянный контекст/.test(p.message));
+    assert.equal(over.length, 1);
+    assert.equal(over[0].level, 'warn');
+    assert.ok(!problems.some((p) => p.level === 'error'));
+    assert.match(over[0].message, /при пороге 100/);
+  } finally {
+    delete process.env.OFFICE_ALWAYS_ON_MAX;
+  }
+});
+
+console.log('событие при старте сессии');
+
+check('в пороге — в ленте пусто', () => {
+  const before = office.log.length;
+  assert.equal(noteContextBudget(office, role), false);
+  assert.equal(office.log.length, before);
+});
+
+check('превышение — одна строка в ленту, не чаще раза в сутки на роль', () => {
+  process.env.OFFICE_ALWAYS_ON_MAX = '100';
+  try {
+    const fat = { ...role, brief: 'х'.repeat(500) };
+    const before = office.log.length;
+    const t0 = 1_000_000;
+    assert.equal(noteContextBudget(office, fat, t0), true);
+    assert.equal(office.log.length, before + 1);
+    const entry = office.log[office.log.length - 1];
+    assert.equal(entry.kind, 'system');
+    assert.match(entry.text, /при пороге 100/);
+    // Повтор в те же сутки — тишина; другая роль — своя строка.
+    assert.equal(noteContextBudget(office, fat, t0 + BUDGET_NOTE_EVERY_MS - 1), false);
+    assert.equal(noteContextBudget(office, { ...linked, brief: 'х'.repeat(500) }, t0 + 1), true);
+    assert.equal(office.log.length, before + 2);
+    // Сутки прошли — снова.
+    assert.equal(noteContextBudget(office, fat, t0 + BUDGET_NOTE_EVERY_MS), true);
+    assert.equal(office.log.length, before + 3);
+  } finally {
+    delete process.env.OFFICE_ALWAYS_ON_MAX;
   }
 });
 

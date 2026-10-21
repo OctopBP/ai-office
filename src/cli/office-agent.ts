@@ -4,9 +4,9 @@ import { isProviderId } from '../shared/providers';
  *
  *   init <dir> --name @scope/name [--title "…"] [--lang ru|en]
  *       заготовка пакета: манифест, бриф, стенд, README, CHANGELOG
- *   validate [dir]
+ *   validate [dir] [--lang ru|en]
  *       схема манифеста, plugin.json, скилы, секреты, части плагина, которые
- *       офис не берёт; ошибки — код выхода 1
+ *       офис не берёт, разбивка постоянного контекста; ошибки — код выхода 1
  *   bench [dir] [n]
  *       стенд срабатывания скилов по bench/cases.json пакета (стоит токенов)
  *   publish [dir] [--registry <file>] [--repo <url>] [--tag] [--write] [--to <url> --token <github token>]
@@ -25,7 +25,8 @@ import { resolve } from 'node:path';
 import { git } from '../server/git';
 import { benchRuntime, benchRuntimeLabel, formatOutcome, readBenchCases, runBenchCase } from '../server/bench';
 import { scaffoldPackage } from '../server/export';
-import { validatePackage, type PackageProblem } from '../server/packages';
+import { packageBudget, validatePackage, type PackageProblem } from '../server/packages';
+import { consoleLang, t } from '../server/i18n';
 import {
   checkRegistry, marketplaceFromRegistry, packageAt, publishInfo, readRegistryFile, upsertEntry, writeRegistryFile,
 } from '../server/publish';
@@ -57,11 +58,24 @@ function printProblems(problems: PackageProblem[]): void {
   for (const p of problems) console.log(`  ${p.level === 'error' ? 'ERROR' : 'warn '} ${p.path}: ${p.message}`);
 }
 
+/** Разбивка постоянного контекста пакета: бриф по языкам, скилы, итог против порога. */
+function printBudget(dir: string, lang: Lang): void {
+  const budget = packageBudget(dir);
+  const rows: [string, number][] = [
+    ...Object.entries(budget.briefs).map(([l, n]): [string, number] => [t(lang, 'budget.cli.brief', { lang: l }), n]),
+    [t(lang, 'budget.cli.skills'), budget.skills],
+  ];
+  const width = Math.max(...rows.map(([label]) => label.length));
+  console.log(t(lang, 'budget.cli.title'));
+  for (const [label, n] of rows) console.log(`  ${label.padEnd(width)}  ${String(n).padStart(6)}`);
+  console.log(`  ${t(lang, budget.over ? 'budget.cli.over' : 'budget.cli.total', { total: budget.total, limit: budget.limit, over: budget.over })}`);
+}
+
 function usage(): never {
   console.log([
     'office-agent <command>',
     '  init <dir> --name @scope/name [--title "…"] [--lang ru|en]',
-    '  validate [dir]',
+    '  validate [dir] [--lang ru|en]',
     '  bench [dir] [n]',
     '  publish [dir] [--registry <file>] [--repo <url>] [--tag] [--write] [--to <url> --token <github token>]',
     '  registry-check <file> [--fetch]',
@@ -98,10 +112,12 @@ async function main(argv: string[]): Promise<number> {
 
   if (command === 'validate') {
     const dir = resolve(positional[0] ?? '.');
-    const problems = validatePackage(dir);
+    const lang: Lang = str(flags.lang) ? asLang(str(flags.lang)) : consoleLang();
+    const problems = validatePackage(dir, lang);
     const errors = problems.filter((p) => p.level === 'error').length;
     console.log(`${dir}: ${errors ? `${errors} error(s)` : 'ok'}${problems.length - errors ? `, ${problems.length - errors} warning(s)` : ''}`);
     printProblems(problems);
+    printBudget(dir, lang);
     return errors ? 1 : 0;
   }
 

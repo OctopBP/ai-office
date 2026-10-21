@@ -57,6 +57,7 @@ import { cancelTask, closeIfDone, recordOutcome } from './outcomes';
 import { deleteTask, dropTask, editTask } from './tasks';
 import { limitBlock, resetClock } from './limits';
 import { journalBrief } from './journal';
+import { noteContextBudget } from './context-budget';
 import { docsBrief, docTools } from './docs-tools';
 import { workflowTools } from './workflow-tools';
 import { addRule, dropRule, editRule, ruleScopes, rulesBrief, rulesText, sessionZone, zoneBrief } from './rules';
@@ -3191,6 +3192,8 @@ function startWorker(
   }
 
   occupySlot(taskOffice);
+  // Раздутый постоянный контекст — строка в ленту раз в сутки на роль; сессию не держит.
+  noteContextBudget(taskOffice, role);
 
   const systemPrompt = [
     taskOffice.say('prompt.worker.system', { role: role.title }),

@@ -40,6 +40,8 @@ import {
   MAX_HIRE_COUNT, MAX_TASK_MAX_TURNS, MIN_HIRE_COUNT, MIN_TASK_MAX_TURNS,
   type McpServerDef, type PermissionMode,
 } from '../shared/types';
+import { alwaysOnMax, MIN_SKILL_DESCRIPTION, skillDescription } from './context-limits';
+import { consoleLang, t } from './i18n';
 import { checkMcpServers } from './mcp';
 import { isPermissionMode } from './permissions';
 import { ROOT } from './root';
@@ -443,8 +445,10 @@ function readBriefs(dir: string): Localized {
  * грузиться, а который не грузится — обязан объяснить почему.
  *
  * `pkg` есть, только если ошибок нет: половину пакета в роль не превратить.
+ * `lang` — язык предупреждений о постоянном контексте; остальные пока
+ * по-английски.
  */
-export function readPackage(dir: string): { pkg: AgentPackage | null; problems: PackageProblem[] } {
+export function readPackage(dir: string, lang: Lang = consoleLang()): { pkg: AgentPackage | null; problems: PackageProblem[] } {
   const problems: PackageProblem[] = [];
   const fallbackName = dir.split('/').slice(-2).join('/');
   if (!existsSync(dir) || !statSync(dir).isDirectory()) {
@@ -488,6 +492,15 @@ export function readPackage(dir: string): { pkg: AgentPackage | null; problems: 
   if (!Object.keys(briefs).length && !parsed.manifest.manager && parsed.manifest.kind === 'agent') {
     problems.push({ level: 'warn', path: 'brief/', message: 'no brief in any language: the role will run on the office prompt alone' });
   }
+  // Постоянный контекст пакета: бриф и описания скилов модель несёт в каждой
+  // сессии. Правила и журнал зависят от офиса и добавятся сверху — порог
+  // пакет превышает уже сам, без них.
+  const budget = packageBudget(dir, briefs);
+  if (budget.over) {
+    problems.push({ level: 'warn', path: 'brief/', message: t(lang, 'budget.package.over', {
+      total: budget.total, limit: budget.limit, over: budget.over, brief: budget.brief, skills: budget.skills,
+    }) });
+  }
   for (const part of IGNORED_PLUGIN_PARTS) {
     if (existsSync(resolve(dir, part))) {
       problems.push({ level: 'warn', path: part, message: 'the office does not load this part of a plugin' });
@@ -505,6 +518,14 @@ export function readPackage(dir: string): { pkg: AgentPackage | null; problems: 
       const head = readFileSync(file, 'utf8').slice(0, 2000);
       if (!/^---\s*\n[\s\S]*?^name:\s*\S+[\s\S]*?^description:\s*\S/m.test(head)) {
         problems.push({ level: 'warn', path: `skills/${entry.name}/SKILL.md`, message: 'front matter needs name and description: the model picks skills by description' });
+        continue;
+      }
+      // Поле есть, а описания нет (пустой блок `|`) или оно в два слова.
+      const description = skillDescription(readFileSync(file, 'utf8'));
+      if (!description) {
+        problems.push({ level: 'warn', path: `skills/${entry.name}/SKILL.md`, message: t(lang, 'budget.skill.empty') });
+      } else if (description.length < MIN_SKILL_DESCRIPTION) {
+        problems.push({ level: 'warn', path: `skills/${entry.name}/SKILL.md`, message: t(lang, 'budget.skill.short', { min: MIN_SKILL_DESCRIPTION }) });
       }
     }
   }
@@ -552,7 +573,48 @@ export function listPackages(root = PACKAGES_DIR): AgentPackage[] {
 }
 
 /** Проверить пакет в папке. Для валидатора и тестов: возвращает все замечания. */
-export const validatePackage = (dir: string): PackageProblem[] => readPackage(dir).problems;
+export const validatePackage = (dir: string, lang?: Lang): PackageProblem[] => readPackage(dir, lang).problems;
+
+/** Постоянный контекст пакета в символах — то, что пакет приносит роли сам. */
+export interface PackageBudget {
+  /** Бриф по языкам. */
+  briefs: Partial<Record<Lang, number>>;
+  /** Самый длинный бриф: роль получает один, и мерить надо худший. */
+  brief: number;
+  /** Имена и описания скилов из `skills/`. */
+  skills: number;
+  total: number;
+  limit: number;
+  over: number;
+}
+
+/**
+ * Замер пакета без офиса: бриф и описания своих скилов. Правила, журнал и
+ * приписка роли зависят от офиса — их считает `contextBudget` на роли.
+ * Порог — `alwaysOnMax` без настройки офиса (переменная или 24 000).
+ */
+export function packageBudget(dir: string, briefs: Localized = readBriefs(dir)): PackageBudget {
+  const sizes: Partial<Record<Lang, number>> = {};
+  for (const lang of LANGS) if (typeof briefs[lang] === 'string') sizes[lang] = briefs[lang]!.length;
+  const brief = Math.max(0, ...Object.values(sizes));
+  const plugin = readJson(resolve(dir, '.claude-plugin/plugin.json')).value;
+  const pluginName = typeof asRecord(plugin)?.name === 'string' ? String(asRecord(plugin)!.name) : '';
+  let skills = 0;
+  const skillsDir = resolve(dir, 'skills');
+  if (existsSync(skillsDir)) {
+    for (const entry of readdirSync(skillsDir, { withFileTypes: true })) {
+      const file = resolve(skillsDir, entry.name, 'SKILL.md');
+      if (!entry.isDirectory() || !existsSync(file)) continue;
+      const text = readFileSync(file, 'utf8');
+      const name = /^name:\s*(\S+)/m.exec(text.slice(0, 2000))?.[1] ?? entry.name;
+      // Модель видит полное имя `<плагин>:<скил>` и описание — как в skillsBudget.
+      skills += (pluginName ? `${pluginName}:${name}` : name).length + skillDescription(text).length;
+    }
+  }
+  const total = brief + skills;
+  const limit = alwaysOnMax();
+  return { briefs: sizes, brief, skills, total, limit, over: Math.max(0, total - limit) };
+}
 
 // ------------------------------------------------------------ слова пакета
 

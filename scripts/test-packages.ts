@@ -50,7 +50,7 @@ function makePackage(name: string, manifest: Record<string, unknown>, opts: {
   if (opts.skill) {
     mkdirSync(resolve(dir, 'skills', opts.skill), { recursive: true });
     writeFileSync(resolve(dir, 'skills', opts.skill, 'SKILL.md'),
-      `---\nname: ${opts.skill}\ndescription: Проверочный навык.\n---\n\nСкажи слово «пакет».\n`);
+      `---\nname: ${opts.skill}\ndescription: Проверочный навык: отвечает словом «пакет», когда его об этом просят.\n---\n\nСкажи слово «пакет».\n`);
   }
   for (const part of opts.extra ?? []) mkdirSync(resolve(dir, part), { recursive: true });
   return dir;
