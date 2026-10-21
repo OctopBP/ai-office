@@ -26,6 +26,7 @@ export function MergeQueue() {
   const checks = useStore((s) => s.mergeChecks);
   const checking = useStore((s) => s.mergeChecking);
   const run = useStore((s) => s.mergeRun);
+  const slots = useStore((s) => s.mergeSlots);
 
   const candidates = candidatesOf(tasks);
   const candidateIds = candidates.map((t) => t.id).join(',');
@@ -39,8 +40,15 @@ export function MergeQueue() {
   const roleTitle = (roleId: string | null) =>
     roles.find((r) => r.id === roleId)?.title ?? roleId ?? t('common.none');
 
+  const waiting = new Set(slots.waitingTaskIds);
+
   return (
     <div className="merge-queue">
+      {slots.limit > 0 && (
+        <div className="mq-slots small">
+          {t('mq.slots', { busy: slots.busy, limit: slots.limit, waiting: slots.waiting })}
+        </div>
+      )}
       {candidates.length === 0 && (
         <p className="empty">{t('mq.empty')}</p>
       )}
@@ -54,7 +62,7 @@ export function MergeQueue() {
           {candidates.map((t) => {
             const check = checks[t.id];
             const step = mergeStepFor(run, t.id);
-            const badge = mergeBadge(t, step, check);
+            const badge = mergeBadge(t, step, check, waiting.has(t.id));
             const order = selection.indexOf(t.id);
             return (
               <label key={t.id} className="mq-row">

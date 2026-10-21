@@ -11,7 +11,7 @@ import type {
   McpServerDef, McpServerState, RoleEditable, RoleView, ServerEvent, Settings, TaskStatus,
   TaskPriority, TaskView, Usage,
   EpicHold, EpicStatus, EpicView,
-  CloudStatus, EnvCheck, EnvReport, OfficeView, MergeCheck, MergeRun, LayoutOption,
+  CloudStatus, EnvCheck, EnvReport, OfficeView, MergeCheck, MergeRun, MergeSlots, LayoutOption,
   Layout, LayoutOverride, LayoutPropEdit,
   PullRequestView, PrStage, ReviewNote, TaskOutcome, TaskDelivery, BranchMark,
   FactView, LifeView, OwnerQuestion, RitualId, RitualPolicy, RitualRun,
@@ -55,6 +55,7 @@ import {
   layoutOptions,
   layoutTitle, type DeskPlan,
 } from './layout';
+import { checkSlots, slotsView } from './checkslots';
 import { OFFICE_PERSON, repoProblem, type GitPerson } from './git';
 import {
   limitsView, noteRateLimit as recordRateLimit, pollLimits,
@@ -1469,6 +1470,15 @@ export class OfficeState {
 
   constructor(officeId: string) {
     this.officeId = officeId;
+    // Слоты проверок общие на процесс: каждое изменение уходит зрителям офиса.
+    this.unsubSlots = checkSlots().subscribe(() => this.emit({ t: 'merge.slots', slots: this.mergeSlots() }));
+  }
+
+  private unsubSlots: () => void;
+
+  /** Слоты проверок и задачи этого офиса, что ждут слот. */
+  mergeSlots(): MergeSlots {
+    return slotsView(this.tasks.keys());
   }
 
   // ---------- роли этого офиса ----------
@@ -1668,6 +1678,7 @@ export class OfficeState {
     if (this.opened) flushFile(this.stateFile);
     this.retired = true;
     this.opened = false;
+    this.unsubSlots();
   }
 
   /** Стереть сохранение этого офиса вместе с отложенной записью. */
@@ -5692,6 +5703,7 @@ export class OfficeState {
       env: this.env,
       mergeChecks: [...this.mergeChecks.values()],
       mergeRun: this.mergeRun,
+      mergeSlots: this.mergeSlots(),
       prs: [...this.prs.values()],
       runs: [...this.runs.values()],
       workflows: catalogWithEdits(this),

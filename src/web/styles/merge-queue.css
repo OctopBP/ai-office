@@ -6,6 +6,8 @@
 .chip.merge-chip.merged { color: var(--ok-ink); }
 .chip.merge-chip.conflict { color: var(--danger); }
 .chip.merge-chip.checking { color: var(--accent); }
+.chip.merge-chip.waiting { color: var(--warn-ink); }
+.mq-slots { color: var(--ink-2); }
 .chip.merge-chip.unknown { color: var(--ink-3); }
 .chip.merge-chip.nothing { color: var(--ink-3); }
 

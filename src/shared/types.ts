@@ -2398,6 +2398,22 @@ export interface MergeRun {
   finishedAt: number | null;
 }
 
+/**
+ * Слоты общего ограничителя проверок (src/server/checkslots.ts): сколько
+ * занято, сколько ждёт и каким задачам слот ещё не дали. Слоты общие для
+ * всех офисов процесса.
+ */
+export interface MergeSlots {
+  /** Идут проверки. */
+  busy: number;
+  /** Предел одновременных проверок. */
+  limit: number;
+  /** Ждут свободного слота. */
+  waiting: number;
+  /** Задачи, чья проверка стоит в очереди на слот. */
+  waitingTaskIds: string[];
+}
+
 export type RiskLevel = 'safe' | 'write' | 'danger';
 
 export interface PermissionRequest {
@@ -2839,6 +2855,8 @@ export type ServerEvent =
       mcpStatus: McpServerState[];
       /** Статусы слияния по завершённым задачам и последний прогон очереди. */
       mergeChecks: MergeCheck[]; mergeRun: MergeRun | null;
+      /** Слоты проверок: занято, ждут, какие задачи ждут. */
+      mergeSlots: MergeSlots;
       /** Пулл-реквесты конвейера ревью — по одному на сданную задачу. */
       prs: PullRequestView[];
       /** Прогоны процессов по задачам (docs/design/workflows/spec.md §8). */
@@ -3002,6 +3020,7 @@ export type ServerEvent =
   | { t: 'merge.checks'; checks: MergeCheck[]; checking: boolean }
   /** Ход и итог очереди слияния. */
   | { t: 'merge.run'; run: MergeRun }
+  | { t: 'merge.slots'; slots: MergeSlots }
   /** Пулл-реквест завели или он сдвинулся по конвейеру. */
   | { t: 'pr'; pr: PullRequestView }
   /**

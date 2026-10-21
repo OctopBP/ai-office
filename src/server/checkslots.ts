@@ -13,6 +13,7 @@
  * Запуск теста: node --import tsx/esm scripts/test-checkslots.ts
  */
 import { cpus } from 'node:os';
+import type { MergeSlots } from '../shared/types';
 
 /** Отпускает слот. Повторный вызов ничего не делает. */
 export type Release = () => void;
@@ -34,6 +35,8 @@ export interface CheckSlots {
   running(): SlotEntry[];
   /** Предел одновременных проверок. */
   limit(): number;
+  /** Подписка на любое изменение занятых и ждущих слотов; возвращает отписку. */
+  subscribe(fn: () => void): () => void;
 }
 
 /** Предел из OFFICE_CHECK_SLOTS или по числу ядер. */
@@ -55,10 +58,13 @@ export function createCheckSlots(max: number): CheckSlots {
   const cap = Math.max(1, Math.floor(max) || 1);
   const holders = new Set<SlotEntry>();
   const queue: Waiter[] = [];
+  const listeners = new Set<() => void>();
+  const changed = (): void => { for (const fn of [...listeners]) fn(); };
 
   const grant = (label: string): Release => {
     const entry: SlotEntry = { label, since: Date.now() };
     holders.add(entry);
+    changed();
     let released = false;
     return () => {
       if (released) return;
@@ -67,6 +73,7 @@ export function createCheckSlots(max: number): CheckSlots {
       // Слот переходит первому в очереди сразу, без гонки с новыми acquire.
       const next = queue.shift();
       if (next) next.grant(grant(next.label));
+      else changed();
     };
   };
 
@@ -74,6 +81,7 @@ export function createCheckSlots(max: number): CheckSlots {
     if (holders.size < cap && queue.length === 0) return Promise.resolve(grant(label));
     return new Promise<Release>((resolve) => {
       queue.push({ label, since: Date.now(), grant: resolve });
+      changed();
     });
   };
 
@@ -90,6 +98,10 @@ export function createCheckSlots(max: number): CheckSlots {
     waiting: () => queue.map(({ label, since }) => ({ label, since })),
     running: () => [...holders].map(({ label, since }) => ({ label, since })),
     limit: () => cap,
+    subscribe(fn) {
+      listeners.add(fn);
+      return () => { listeners.delete(fn); };
+    },
   };
 }
 
@@ -106,3 +118,18 @@ export const withSlot = <T>(label: string, fn: () => Promise<T> | T): Promise<T>
   checkSlots().withSlot(label, fn);
 export const waiting = (): SlotEntry[] => checkSlots().waiting();
 export const running = (): SlotEntry[] => checkSlots().running();
+
+/**
+ * Слоты для UI: занято, предел, ждут и задачи в очереди. Метка слота —
+ * «команда @ путь», а путь копии задачи кончается её номером, по нему и
+ * узнаём задачу.
+ */
+export function slotsView(taskIds: Iterable<string>, slots: CheckSlots = checkSlots()): MergeSlots {
+  const wait = slots.waiting();
+  const ids = [...taskIds];
+  const waitingTaskIds = ids.filter((id) => {
+    const re = new RegExp(`[/\\\\]${id.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}(?![0-9A-Za-z-])`);
+    return wait.some((w) => re.test(w.label));
+  });
+  return { busy: slots.running().length, limit: slots.limit(), waiting: wait.length, waitingTaskIds };
+}

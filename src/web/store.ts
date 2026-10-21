@@ -3,7 +3,7 @@ import { play } from './sound/engine';
 import type {
   ChatDraft,
   ChatEntry, DayUsage, FieldError, InstanceView, Layout, LayoutOption, LayoutOverride, LogEntry,
-  McpServerState, MergeCheck, MergeCheckState, MergeRun, MergeStep, MergeStepStatus,
+  McpServerState, MergeCheck, MergeCheckState, MergeRun, MergeSlots, MergeStep, MergeStepStatus,
   PermissionDecision,
   MarketView, PermissionMode, PermissionRequest, MeetingView, RoleDraft, RoleEditable, RoleOp, RoleView,
   SubprojectDraft, SubprojectField, SubprojectView,
@@ -369,6 +369,8 @@ interface State {
   mergeChecking: boolean;
   /** Последний (или ещё идущий) прогон очереди слияния. */
   mergeRun: MergeRun | null;
+  /** Слоты проверок: занято, ждут, какие задачи ждут слот. */
+  mergeSlots: MergeSlots;
   /** Пулл-реквесты конвейера ревью, по taskId. */
   prs: Record<string, PullRequestView>;
   /** Прогоны процессов, по taskId (docs/design/workflows/spec.md §8). */
@@ -737,6 +739,7 @@ export const useStore = create<State>((set, get) => ({
   mergeChecks: {},
   mergeChecking: false,
   mergeRun: null,
+  mergeSlots: { busy: 0, limit: 0, waiting: 0, waitingTaskIds: [] },
   prs: {},
   runs: {},
   workflows: [],
@@ -987,6 +990,7 @@ export const useStore = create<State>((set, get) => ({
           mcpStatus: Object.fromEntries(e.mcpStatus.map((m) => [m.id, m])),
           mergeChecks: Object.fromEntries(e.mergeChecks.map((c) => [c.taskId, c])),
           mergeRun: e.mergeRun,
+          mergeSlots: e.mergeSlots,
           prs: Object.fromEntries(e.prs.map((pr) => [pr.taskId, pr])),
           runs: Object.fromEntries(e.runs.map((r) => [r.subject.taskId ?? r.id, r])),
           workflows: e.workflows,
@@ -1371,6 +1375,9 @@ export const useStore = create<State>((set, get) => ({
         break;
       case 'merge.run':
         set({ mergeRun: e.run });
+        break;
+      case 'merge.slots':
+        set({ mergeSlots: e.slots });
         break;
       case 'pr':
         set((s) => ({ prs: { ...s.prs, [e.pr.taskId]: e.pr } }));
@@ -2003,10 +2010,13 @@ export function mergeStepFor(run: MergeRun | null, taskId: string): MergeStep | 
  * задачи есть исход (шаг не 'pending'), он важнее статичной предпроверки —
  * он и приоритетнее, потому что новее.
  */
-export function mergeBadge(t: TaskView, step: MergeStep | undefined, check: MergeCheck | undefined): { label: string; cls: string } | null {
+export function mergeBadge(
+  t: TaskView, step: MergeStep | undefined, check: MergeCheck | undefined, waitsSlot = false,
+): { label: string; cls: string } | null {
   if (!t.branch) return null;
   if (t.merged) return { label: tr('merge.merged'), cls: 'merged' };
   if (t.status !== 'done') return null;
+  if (waitsSlot) return { label: tr('mq.waitsSlot'), cls: 'waiting' };
   if (step && step.status !== 'pending') {
     return { label: mergeStepLabel(step.status), cls: mergeStepClass(step.status) };
   }

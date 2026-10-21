@@ -384,6 +384,8 @@ export const en = {
   "mq.empty": "No task is waiting for a manual merge.",
   "mq.manual": "Merge by hand (the emergency route)",
   "mq.checking": "checking…",
+  "mq.slots": "Checks: {busy} of {limit} running, {waiting} waiting",
+  "mq.waitsSlot": "waiting for checks",
   "mq.order": "Merge order",
   "mq.clear": "clear",
   "mq.running": "The merge is running — the queue stops by itself at the first conflict or broken build.",
