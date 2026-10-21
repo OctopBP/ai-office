@@ -74,7 +74,7 @@
     "test:subprojects": "node --import tsx scripts/test-subprojects.ts",
     "test:zone-write": "node --import tsx scripts/test-zone-write.ts",
     "test:life": "tsx scripts/test-life.ts",
-    "test:journal": "node --import tsx scripts/test-journal-superseded.ts",
+    "test:journal": "node --import tsx scripts/test-journal-superseded.ts && node --import tsx scripts/test-journal-lesson.ts",
     "import:docs": "node --import tsx scripts/import-docs.ts",
     "test:docs": "node --import tsx scripts/test-docs.ts",
     "test:customagents": "node --import tsx/esm scripts/test-custom-agents.ts",

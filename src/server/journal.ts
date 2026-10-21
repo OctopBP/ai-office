@@ -52,8 +52,31 @@ export function factsFor(state: OfficeState, roleId: string | null): Fact[] {
 export function journalBrief(state: OfficeState, roleId: string | null): string {
   const facts = factsFor(state, roleId);
   if (!facts.length) return '';
-  const lines = facts.map((f) => `- [${state.say(`journal.kind.${f.kind}`)}] ${f.text}`);
+  const lines = facts.map((f) => `- [${state.say(`journal.kind.${f.kind}`)}] ${f.text}${lessonTail(state, f)}`);
   return `\n\n${state.say('journal.header')}\n${lines.join('\n')}`;
+}
+
+/** Сколько ссылок основания показываем в промпте: остальные — числом. */
+const BRIEF_EVIDENCE = 3;
+
+/**
+ * Хвост строки урока (T-665): когда применять и на чём основан — кратко, в
+ * скобках. Промпт едет в каждую сессию, поэтому основание урезано до
+ * нескольких ссылок; полный список — в самой записи.
+ */
+export function lessonTail(state: OfficeState, fact: Pick<Fact, 'cue' | 'evidence' | 'unfounded'>): string {
+  const parts: string[] = [];
+  if (fact.cue) parts.push(state.say('journal.cue', { cue: fact.cue }));
+  if (fact.evidence?.length) {
+    const shown = fact.evidence.slice(0, BRIEF_EVIDENCE).join(', ');
+    const more = fact.evidence.length - BRIEF_EVIDENCE;
+    parts.push(state.say('journal.evidence', {
+      refs: more > 0 ? `${shown} ${state.say('journal.evidenceMore', { n: more })}` : shown,
+    }));
+  } else if (fact.unfounded) {
+    parts.push(state.say('journal.unfounded'));
+  }
+  return parts.length ? ` (${parts.join('; ')})` : '';
 }
 
 // ------------------------------------------------------- постраничная выдача

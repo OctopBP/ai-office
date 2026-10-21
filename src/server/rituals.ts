@@ -81,7 +81,10 @@ export interface ConsolidationInput {
 
 /** Что ритуал на модели произвёл. Один формат на консолидацию и противоречия. */
 export interface RitualOutput {
-  facts: Array<{ kind: 'fact' | 'decision' | 'lesson'; text: string; scope: string; taskId?: string }>;
+  facts: Array<{
+    kind: 'fact' | 'decision' | 'lesson'; text: string; scope: string; taskId?: string;
+    cue?: string; evidence?: string[];
+  }>;
   contradictions: Array<{ a: string; b: string; text: string }>;
   questions: Array<{
     text: string; assumption: string; options?: string[]; replaces?: string[]; title?: string; details?: string;
@@ -906,7 +909,7 @@ async function applyOutput(state: OfficeState, ritual: RitualId, out: RitualOutp
   for (const f of out.facts) {
     if (!f.text.trim()) continue;
     const fact = state.addFact({
-      kind: f.kind, text: f.text, scope: f.scope || 'project',
+      kind: f.kind, text: f.text, scope: f.scope || 'project', cue: f.cue, evidence: f.evidence,
       source: { ritual, ...(f.taskId ? { taskId: f.taskId } : {}) },
     });
     state.addLog(null, 'system', state.say('journal.noted', { id: fact.id, text: clip(fact.text) }));

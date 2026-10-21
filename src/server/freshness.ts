@@ -192,9 +192,11 @@ export function freshnessPrompt(state: OfficeState, facts: Fact[], now = Date.no
   const rows = facts.map((fact) => {
     const hints = planStalenessCheck(fact, now).hints;
     for (const id of hints.tasks) if (!taskIds.includes(id)) taskIds.push(id);
+    // Задачи из основания урока — в общий список с доски, как и подсказки.
+    for (const id of fact.evidence ?? []) if (/^T-\d+$/.test(id) && !taskIds.includes(id)) taskIds.push(id);
     return state.say('prompt.freshness.fact', {
       id: fact.id, kind: fact.kind, days: days(fact, now), text: fact.text, hints: hintsText(state, hints),
-    });
+    }) + lessonText(state, fact);
   });
   const tasks = taskIds.slice(0, 20).flatMap((id) => {
     const task = state.tasks.get(id);
@@ -206,6 +208,20 @@ export function freshnessPrompt(state: OfficeState, facts: Fact[], now = Date.no
     facts: rows.join('\n\n'),
     tasks: tasks.length ? tasks.join('\n') : state.say('prompt.resolveContradiction.noTasks'),
   });
+}
+
+/**
+ * Урок проверяется по его основанию (T-665): агент сверяет, держится ли ещё
+ * то, на что урок ссылается. Нет основания — так и сказано, проверка по тексту.
+ */
+function lessonText(state: OfficeState, fact: Fact): string {
+  if (fact.kind !== 'lesson') return '';
+  const parts: string[] = [];
+  if (fact.cue) parts.push(state.say('prompt.freshness.cue', { cue: fact.cue }));
+  parts.push(fact.evidence?.length
+    ? state.say('prompt.freshness.evidence', { refs: fact.evidence.join(', ') })
+    : state.say('prompt.freshness.noEvidence'));
+  return `\n${parts.join('\n')}`;
 }
 
 function hintsText(state: OfficeState, hints: StalenessHints): string {

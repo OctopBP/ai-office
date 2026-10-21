@@ -1690,6 +1690,8 @@ const teamTools = (state: OfficeState, chatId: string) => createSdkMcpServer({
         kind: z.enum(['fact', 'decision', 'lesson']).describe(state.say('tool.noteFact.kind')),
         text: z.string().describe(state.say('tool.noteFact.text')),
         roleId: z.string().default('').describe(state.say('tool.noteFact.role')),
+        cue: z.string().optional().describe(state.say('tool.noteFact.cue')),
+        evidence: z.array(z.string()).optional().describe(state.say('tool.noteFact.evidence')),
       },
       async (args) => {
         const roleId = args.roleId?.trim() ?? '';
@@ -1706,9 +1708,11 @@ const teamTools = (state: OfficeState, chatId: string) => createSdkMcpServer({
         }
         const fact = state.addFact({
           kind: args.kind, text: args.text, scope: roleId ? `role:${roleId}` : 'project',
+          cue: args.cue, evidence: args.evidence,
         });
         state.addLog('pm#1', 'system', state.say('journal.noted', { id: fact.id, text: clip(fact.text, 120) }));
-        return { content: [{ type: 'text', text: state.say('tool.noteFact.ok', { id: fact.id }) }] };
+        const ok = state.say('tool.noteFact.ok', { id: fact.id });
+        return { content: [{ type: 'text', text: fact.unfounded ? `${ok} ${state.say('tool.noteFact.unfounded')}` : ok }] };
       },
     ),
 
@@ -4796,10 +4800,15 @@ function ritualTools(state: OfficeState, out: RitualOutput) {
           text: z.string().describe(state.say('tool.noteFact.text')),
           scope: z.string().default('project').describe(state.say('tool.ritualFact.scope')),
           taskId: z.string().default('').describe(state.say('tool.ritualFact.task')),
+          cue: z.string().optional().describe(state.say('tool.noteFact.cue')),
+          evidence: z.array(z.string()).optional().describe(state.say('tool.noteFact.evidence')),
         },
         async (args) => {
           const scope = args.scope && args.scope !== 'project' ? `role:${args.scope.replace(/^role:/, '')}` : 'project';
-          out.facts.push({ kind: args.kind, text: args.text, scope, ...(args.taskId ? { taskId: args.taskId } : {}) });
+          out.facts.push({
+            kind: args.kind, text: args.text, scope, ...(args.taskId ? { taskId: args.taskId } : {}),
+            ...(args.cue ? { cue: args.cue } : {}), ...(args.evidence?.length ? { evidence: args.evidence } : {}),
+          });
           return { content: [{ type: 'text', text: state.say('tool.ok') }] };
         },
       ),

@@ -48,6 +48,7 @@ import {
 } from './spend';
 import { capabilitiesOf } from './roles';
 import { migrateSuperseded } from './superseded';
+import { lessonFields } from './lesson';
 import { t, c, type ServerKey } from './i18n';
 import { activityFromFile, openQuestionsFromFile, summarize } from './activity';
 import {
@@ -1818,6 +1819,7 @@ export class OfficeState {
 
   addFact(input: {
     kind: FactView['kind']; text: string; scope: string; source?: FactView['source'];
+    cue?: string; evidence?: string[];
   }): Fact {
     this.factSeq += 1;
     const now = Date.now();
@@ -1831,6 +1833,8 @@ export class OfficeState {
       confirmedAt: now,
       status: 'live',
       askedAt: null,
+      // Урок без основания берёт задачу, из которой родился; нет и её — пометка.
+      ...lessonFields(input.kind, input, input.source?.taskId ? [input.source.taskId] : []),
     };
     this.facts.set(fact.id, fact);
     this.emit({ t: 'fact', fact: toFactView(fact) });
@@ -2360,7 +2364,12 @@ export class OfficeState {
     this.agentRunSeqNo = data.agentRunSeq
       ?? this.agentRuns.reduce((max, r) => Math.max(max, agentRunSeq(r.id) ?? 0), 0);
     for (const fact of data.facts ?? []) {
-      this.facts.set(fact.id, { ...fact, askedAt: fact.askedAt ?? null, status: fact.status ?? 'live' });
+      // T-665: cue и evidence необязательны; у старых записей их нет, и
+      // пометку «без основания» задним числом не ставим — только чистим мусор.
+      const { cue, evidence, unfounded, ...rest } = fact;
+      const extra = lessonFields(fact.kind, { cue, evidence });
+      if (!unfounded) delete extra.unfounded;
+      this.facts.set(fact.id, { ...rest, ...extra, askedAt: fact.askedAt ?? null, status: fact.status ?? 'live' });
     }
     this.factSeq = data.factSeq ?? this.facts.size;
     // T-331: ответы на противоречия, данные до появления пометки «заменена».
@@ -5730,6 +5739,9 @@ export const toFactView = (f: Fact): FactView => ({
   id: f.id, kind: f.kind, text: f.text, scope: f.scope, source: f.source,
   createdAt: f.createdAt, confirmedAt: f.confirmedAt, status: f.status,
   ...(f.supersededBy ? { supersededBy: f.supersededBy } : {}),
+  ...(f.cue ? { cue: f.cue } : {}),
+  ...(f.evidence?.length ? { evidence: f.evidence } : {}),
+  ...(f.unfounded ? { unfounded: true as const } : {}),
 });
 
 /** Предложение для клиента: без плана фичи — он нужен только серверу. */
