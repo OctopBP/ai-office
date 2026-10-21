@@ -72,7 +72,7 @@ import {
 } from './rituals';
 import { resolveModel } from '../shared/models';
 import { reviewStatusText, taskDetails } from './task-view';
-import { notePmText, offerReplies, settlePmReply } from './replies';
+import { notePmText, offerReplies, settlePmReply, turnHasText } from './replies';
 import { formatBoard, isSelection, type BoardOpts, type BoardSay } from './board-view';
 import { isAbsolute, relative, resolve } from 'node:path';
 import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync } from 'node:fs';
@@ -1515,10 +1515,16 @@ const teamTools = (state: OfficeState, chatId: string) => createSdkMcpServer({
         options: z.array(z.string()).describe(state.say('tool.offerReplies.options')),
       },
       async (args) => {
-        const replies = offerReplies(state.pmSession(chatId), args.options);
-        return replies
-          ? { content: [{ type: 'text', text: state.say('tool.offerReplies.ok', { replies: replies.join(' · ') }) }] }
-          : { content: [{ type: 'text', text: state.say('tool.offerReplies.invalid') }], isError: true };
+        const pm = state.pmSession(chatId);
+        const replies = offerReplies(pm, args.options);
+        if (!replies) return { content: [{ type: 'text', text: state.say('tool.offerReplies.invalid') }], isError: true };
+        // Сообщения сессии разбирает свой цикл; даём ему дочитать уже пришедшее,
+        // прежде чем решать, был ли в ходе текст.
+        await new Promise((resolve) => setImmediate(resolve));
+        // Ответ, написанный в рассуждениях, владелец не видит — под кнопками
+        // остался бы один хвост (T-664). Просим дописать реплику текстом.
+        const key = turnHasText(pm) ? 'tool.offerReplies.ok' : 'tool.offerReplies.noText';
+        return { content: [{ type: 'text', text: state.say(key, { replies: replies.join(' · ') }) }] };
       },
     ),
 
@@ -2004,6 +2010,7 @@ function startPm(state: OfficeState, pm: PmSession): void {
         consume(state, 'pm#1', msg, false);
         notePmSession(state, pm, msg);
         notePmText(pm, msg);
+        notePmDraftBlock(pm, msg);
         // Любое сообщение сессии — признак жизни: черновик отодвигает своего
         // сторожа, иначе долгий ход с одними вызовами инструментов сняли бы
         // как зависший.
@@ -2039,10 +2046,12 @@ function startPm(state: OfficeState, pm: PmSession): void {
           // Ход закончился — «печатает…» снимаем до того, как реплика ляжет в
           // чат: иначе веб на миг покажет и готовый ответ, и черновик.
           endPmTurn(state, pm);
-          if (isOk(msg) && msg.result?.trim()) {
-            settlePmReply(state, pm, msg.result.trim());
-            void maybeAutoTitle(state, chatId);
-          } else if (!isOk(msg)) {
+          if (isOk(msg)) {
+            // Реплика — весь текст хода, а не только `result`: тот у Claude —
+            // последний блок, и текст до вызова инструмента терялся (T-664).
+            // Пустой итог при сказанном раньше тоже не теряем.
+            if (settlePmReply(state, pm, msg.result ?? '')) void maybeAutoTitle(state, chatId);
+          } else {
             const reason = resultReason(msg, state.lang());
             state.addChat(OFFICE_SENDER, state.say('agent.pm.noAnswer', { reason: clip(reason, 300) }), 'pm#1', undefined, chatId);
             state.setState('pm#1', 'failed', state.say('agent.state.error'));
@@ -2051,6 +2060,7 @@ function startPm(state: OfficeState, pm: PmSession): void {
           // они не переезжают: там будет другой вопрос.
           pm.replies = null;
           pm.turnText = [];
+          resetPmDraft(state, pm);
           settlePm(state);
           pm.lastUsedAt = Date.now();
           // Набор ролей меняли, пока менеджер отвечал: ход закончен, обрывать
@@ -2069,6 +2079,7 @@ function startPm(state: OfficeState, pm: PmSession): void {
       endPmTurn(state, pm, 'error');
       pm.replies = null;
       pm.turnText = [];
+      pmDrafts.delete(pm);
       state.addLog('pm#1', 'error', state.say('agent.log.pmCrashed', { error: message }));
       if (resumeId) {
         // Скорее всего прошлой сессии уже нет на диске — забываем её,
@@ -2186,8 +2197,10 @@ export function makeRoomForPm(state: OfficeState, pm: PmSession): void {
  *
  * Берём только текст верхнего уровня: `thinking_delta` — это размышление, его
  * место в ленте, а не в чате, а непустой `parent_tool_use_id` — речь подагента.
- * `message_start` начинает текст заново: подводку перед вызовом инструмента в
- * готовую реплику SDK не включит, и показывать её как ответ нельзя.
+ * Новое сообщение (`message_start`) текст не стирает: в готовую реплику идёт
+ * весь текст хода (`settlePmReply`), и черновик копит его так же — новый блок
+ * отделяется пустой строкой. Раньше черновик начинался заново, и текст до
+ * вызова инструмента пропадал с экрана прямо по ходу (T-664).
  *
  * Пока менеджер ужимает память или пишет передачу дел (`rotating`), ход
  * вообще не про разговор с пользователем — такие куски пропускаем.
@@ -2195,13 +2208,38 @@ export function makeRoomForPm(state: OfficeState, pm: PmSession): void {
 function streamPmChunk(state: OfficeState, pm: PmSession, msg: SDKPartialAssistantMessage): void {
   if (msg.parent_tool_use_id || pm.rotating || pm.turns === 0) return;
   const event = msg.event;
-  if (event.type === 'message_start') {
-    state.clearDraftText('pm#1', pm.chatId);
+  const draft = pmDrafts.get(pm) ?? { said: false, gap: false };
+  pmDrafts.set(pm, draft);
+  // Новый блок — с новой строки. Codex шлёт `message_start` один раз на ход,
+  // поэтому граница ещё и законченный текстовый блок (`notePmDraftBlock`).
+  if (event.type === 'message_start' || event.type === 'content_block_start') {
+    draft.gap = draft.said;
     return;
   }
-  if (event.type === 'content_block_delta' && event.delta.type === 'text_delta') {
-    state.appendDraft('pm#1', 'pm#1', event.delta.text, pm.chatId);
+  if (event.type === 'content_block_delta' && event.delta.type === 'text_delta' && event.delta.text) {
+    state.appendDraft('pm#1', 'pm#1', (draft.gap ? '\n\n' : '') + event.delta.text, pm.chatId);
+    draft.said = true;
+    draft.gap = false;
   }
+}
+
+/** Что черновик реплики менеджера уже показал в этом ходе: был ли текст и нужна ли граница. */
+const pmDrafts = new WeakMap<PmSession, { said: boolean; gap: boolean }>();
+
+/** Законченный текстовый блок менеджера — следующий кусок черновика пойдёт с новой строки. */
+function notePmDraftBlock(pm: PmSession, msg: SDKMessage): void {
+  if (msg.type !== 'assistant' || msg.parent_tool_use_id) return;
+  const draft = pmDrafts.get(pm);
+  if (draft?.said && msg.message.content?.some((b) => b.type === 'text')) draft.gap = true;
+}
+
+/**
+ * Реплика хода легла в чат — черновик начинает с чистого. Если следом идёт
+ * ещё один ход, его черновик не должен повторять уже лёгшую реплику.
+ */
+function resetPmDraft(state: OfficeState, pm: PmSession): void {
+  pmDrafts.delete(pm);
+  if (pm.turns > 0) state.clearDraftText('pm#1', pm.chatId);
 }
 
 /**

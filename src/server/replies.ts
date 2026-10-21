@@ -5,12 +5,16 @@
  * инструмент уже отработал, поэтому варианты копятся на сессии чата
  * (`PmSession.replies`) и прикрепляются к реплике в конце хода.
  *
- * `result` у SDK — только последний текстовый блок хода. Суть вариантов
- * менеджер обычно пишет до вызова `offer_replies`, а после него — короткий
- * хвост, и в чат попадал один хвост: кнопки без объяснения (T-643). Поэтому
- * текстовые блоки хода копятся тоже (`PmSession.turnText`), и реплика с
- * кнопками собирается из всех них. Реплика без кнопок по-прежнему — итог хода:
- * там подводка перед инструментами («сейчас посмотрю доску») ответом не была.
+ * `result` у SDK Claude — только последний текстовый блок хода. Суть ответа
+ * менеджер обычно пишет до вызова инструмента (`offer_replies`, `create_task`),
+ * а после него — короткий хвост, и в чат попадал один хвост (T-643, T-664).
+ * Поэтому текстовые блоки хода копятся (`PmSession.turnText`), и реплика
+ * собирается из всех них по порядку. У Codex и OpenCode `result` — уже все
+ * блоки хода подряд, второй раз их не дописываем.
+ *
+ * Рассуждения (thinking) в реплику не идут никогда: это не речь владельцу.
+ * Если модель написала ответ в рассуждениях, а текстом — только хвост,
+ * `offer_replies` возвращает ей подсказку дописать реплику текстом (T-664).
  */
 import type { ChatEntry } from '../shared/types';
 import { tidyReplies } from '../shared/types';
@@ -45,26 +49,46 @@ export function notePmText(pm: PmSession, msg: SDKMessage): void {
   }
 }
 
-/**
- * Реплика хода с кнопками: все текстовые блоки хода по порядку, итог хода —
- * последним, если SDK его ещё не прислал отдельным сообщением.
- */
-function turnReply(blocks: readonly string[], result: string): string {
-  const parts = blocks.filter(Boolean);
-  if (!parts.length || parts[parts.length - 1] !== result) parts.push(result);
-  return parts.join('\n\n');
+/** Есть ли в текущем ходе текст, который владелец увидит в реплике. */
+export function turnHasText(pm: PmSession): boolean {
+  return pm.turnText.length > 0;
+}
+
+/** Текст без различий в пробелах и переводах строк — для сравнения блоков с `result`. */
+function flat(text: string): string {
+  return text.replace(/\s+/g, ' ').trim();
 }
 
 /**
- * Ход менеджера закончился репликой: положить её в чат вместе с вариантами,
- * если он их предложил, и забыть варианты и текст хода — следующий ход
- * начинает с чистого. С вариантами в реплику идёт весь текст хода, чтобы
- * описание того, из чего выбирать, стояло прямо над кнопками.
+ * Реплика хода: все текстовые блоки хода по порядку. Итог хода дописывается
+ * в конец, только если его ещё нет среди блоков: у Claude это последний блок,
+ * у Codex и OpenCode — все блоки, склеенные переводом строки. Блоков нет
+ * (сообщения не пришли) — реплика из одного итога.
  */
-export function settlePmReply(state: OfficeState, pm: PmSession, text: string): ChatEntry {
+export function turnReply(blocks: readonly string[], result: string): string {
+  const parts = blocks.map((b) => b.trim()).filter(Boolean);
+  const tail = result.trim();
+  if (!parts.length) return tail;
+  if (!tail) return parts.join('\n\n');
+  const said = flat(parts.join(' '));
+  const ending = flat(tail);
+  if (said.endsWith(ending)) return parts.join('\n\n');
+  // Итог шире блоков (часть сообщений до нас не дошла) — он и есть реплика.
+  if (ending.endsWith(said)) return tail;
+  return [...parts, tail].join('\n\n');
+}
+
+/**
+ * Ход менеджера закончился: положить реплику в чат вместе с вариантами,
+ * если он их предложил, и забыть варианты и текст хода — следующий ход
+ * начинает с чистого. В реплику идёт весь текст хода по порядку, кнопки — под
+ * ней. null — сказать нечего: ни текста хода, ни итога.
+ */
+export function settlePmReply(state: OfficeState, pm: PmSession, text: string): ChatEntry | null {
   const replies = pm.replies ?? undefined;
-  const body = replies ? turnReply(pm.turnText, text) : text;
+  const body = turnReply(pm.turnText, text);
   pm.replies = null;
   pm.turnText = [];
+  if (!body) return null;
   return state.addChat('pm#1', body, 'pm#1', undefined, pm.chatId, undefined, replies);
 }

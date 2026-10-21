@@ -5,14 +5,15 @@
  * той, что ложится в чат по `result`. Реплика с вариантами уходит на веб
  * событием `chat`, сохраняется в состоянии и переживает перезапуск; кнопки
  * гаснут, как только владелец ответил в этом чате. Ход из нескольких
- * текстовых блоков с кнопками даёт реплику со всем текстом хода (T-643).
+ * текстовых блоков с кнопками даёт реплику со всем текстом хода (T-643), и
+ * без кнопок тоже; рассуждения в реплику не идут, итог Codex не дублируется (T-664).
  *
  * Запуск: npm run test:replies
  */
 import assert from 'node:assert/strict';
 import type { ChatEntry, ServerEvent } from '../src/shared/types';
 import { REPLY_LEN, repliesOpen, tidyReplies } from '../src/shared/types';
-import { notePmText, offerReplies, settlePmReply } from '../src/server/replies';
+import { notePmText, offerReplies, settlePmReply as settleOrNull, turnHasText, turnReply } from '../src/server/replies';
 import type { SDKMessage } from '../src/server/engines/types';
 import { getOffice, unloadOfficeState } from '../src/server/state';
 
@@ -37,6 +38,24 @@ function assistant(texts: string[], opts: { tool?: string; parent?: string } = {
     session_id: 's-replies',
     uuid: `u-${Math.random()}`,
     message: { role: 'assistant', content },
+  } as unknown as SDKMessage;
+}
+
+/** Реплика хода, которая обязана лечь в чат. */
+function settlePmReply(...args: Parameters<typeof settleOrNull>): ChatEntry {
+  const entry = settleOrNull(...args);
+  assert.ok(entry, 'реплика легла в чат');
+  return entry;
+}
+
+/** Готовое сообщение SDK с блоком рассуждений. */
+function thinking(text: string): SDKMessage {
+  return {
+    type: 'assistant',
+    parent_tool_use_id: null,
+    session_id: 's-replies',
+    uuid: `u-${Math.random()}`,
+    message: { role: 'assistant', content: [{ type: 'thinking', thinking: text, signature: 'sig' }] },
   } as unknown as SDKMessage;
 }
 
@@ -142,11 +161,11 @@ function main(): void {
     const reply = settlePmReply(office, pm, 'Что выбираем?');
     assert.equal(reply.text, 'Есть два пути: А — быстро, Б — надёжно.\n\nЧто выбираем?');
   });
-  check('реплика без кнопок — по-прежнему итог хода, без подводки', () => {
-    notePmText(pm, assistant(['Сейчас посмотрю доску.'], { tool: 'mcp__team__list_tasks' }));
-    notePmText(pm, assistant(['На доске две задачи в работе.']));
-    const reply = settlePmReply(office, pm, 'На доске две задачи в работе.');
-    assert.equal(reply.text, 'На доске две задачи в работе.');
+  check('реплика без кнопок тоже несёт весь текст хода (T-664)', () => {
+    notePmText(pm, assistant(['Предлагаю разбить фичу на три задачи: сервер, веб, тест.'], { tool: 'mcp__team__create_task' }));
+    notePmText(pm, assistant(['Завёл T-5.']));
+    const reply = settlePmReply(office, pm, 'Завёл T-5.');
+    assert.equal(reply.text, 'Предлагаю разбить фичу на три задачи: сервер, веб, тест.\n\nЗавёл T-5.');
     assert.equal(reply.replies, undefined);
     assert.deepEqual(pm.turnText, []);
   });
@@ -155,6 +174,55 @@ function main(): void {
     notePmText(pm, assistant(['Передача дел: …']));
     pm.rotating = false;
     assert.deepEqual(pm.turnText, []);
+  });
+
+  console.log('текст до вызова инструмента (T-664)');
+  check('ход «текст → offer_replies → текст»: оба текста по порядку, кнопки под ними', () => {
+    const before = office.chat.length;
+    // Claude шлёт каждый блок отдельным сообщением: текст, затем вызов, затем хвост.
+    notePmText(pm, assistant(['Ссылки на файлы в чате нигде не описаны. Могу поставить ресёрч: исполнитель посмотрит docs и код веба.']));
+    assert.equal(turnHasText(pm), true, 'текст до вызова уже учтён');
+    notePmText(pm, assistant([], { tool: 'mcp__team__offer_replies' }));
+    offerReplies(pm, ['Да, поставь ресёрч', 'Не надо']);
+    notePmText(pm, assistant(['Как поступим?']));
+    const reply = settlePmReply(office, pm, 'Как поступим?');
+    assert.equal(reply.text,
+      'Ссылки на файлы в чате нигде не описаны. Могу поставить ресёрч: исполнитель посмотрит docs и код веба.\n\nКак поступим?');
+    assert.ok(reply.text.indexOf('Ссылки') < reply.text.indexOf('Как поступим?'), 'порядок блоков сохранён');
+    assert.deepEqual(reply.replies, ['Да, поставь ресёрч', 'Не надо']);
+    assert.equal(office.chat.length, before + 1, 'одна реплика, без дублей');
+    assert.equal(office.chat[office.chat.length - 1].id, reply.id, 'кнопки — под последней репликой хода');
+    assert.equal(repliesOpen(reply, office.chat), true);
+  });
+  check('рассуждения в реплику не идут, а их отсутствие в тексте видно инструменту', () => {
+    notePmText(pm, thinking('Я проверил библиотеку — про ссылки ничего нет. Могу поставить ресёрч.'));
+    assert.equal(turnHasText(pm), false, 'ответ в рассуждениях текстом хода не считается');
+    offerReplies(pm, ['Да', 'Нет']);
+    notePmText(pm, assistant(['Про ссылки ничего не записано. Поставить ресёрч?']));
+    const reply = settlePmReply(office, pm, 'Про ссылки ничего не записано. Поставить ресёрч?');
+    assert.equal(reply.text, 'Про ссылки ничего не записано. Поставить ресёрч?');
+  });
+  check('итог Codex — все блоки через перевод строки — второй раз не дописывается', () => {
+    notePmText(pm, assistant(['Вариант А — быстро.'], { tool: 'offer_replies' }));
+    offerReplies(pm, ['А', 'Б']);
+    notePmText(pm, assistant(['Что берём?']));
+    const reply = settlePmReply(office, pm, 'Вариант А — быстро.\nЧто берём?');
+    assert.equal(reply.text, 'Вариант А — быстро.\n\nЧто берём?');
+  });
+  check('пустой итог при сказанном раньше: реплика из текста хода, кнопки на месте', () => {
+    notePmText(pm, assistant(['Готово к запуску, запускать?'], { tool: 'offer_replies' }));
+    offerReplies(pm, ['Да', 'Нет']);
+    const reply = settlePmReply(office, pm, '');
+    assert.equal(reply.text, 'Готово к запуску, запускать?');
+    assert.deepEqual(reply.replies, ['Да', 'Нет']);
+  });
+  check('ни текста, ни итога — реплики нет', () => {
+    assert.equal(settleOrNull(office, pm, '  '), null);
+  });
+  check('сборка реплики: итог шире пришедших блоков — берётся итог', () => {
+    assert.equal(turnReply(['Второй.'], 'Первый.\nВторой.'), 'Первый.\nВторой.');
+    assert.equal(turnReply([], 'Только итог'), 'Только итог');
+    assert.equal(turnReply(['Раз.', 'Два.'], 'Три.'), 'Раз.\n\nДва.\n\nТри.');
   });
 
   off();
