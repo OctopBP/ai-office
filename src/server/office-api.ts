@@ -130,7 +130,11 @@ export function broadcast(event: ServerEvent, officeId: string): void {
   // ровно тогда, когда он и нужен: пока человек работает в соседнем проекте.
   // Запрос доступа важен не меньше задачи: он останавливает работу до
   // возвращения человека, и в списке это должно быть видно сразу.
-  if (event.t === 'task' || event.t === 'permission.request' || event.t === 'permission.resolved') {
+  // Вопрос владельцу — так же: в списке офисов видно, где человека ждут
+  // вопросы, и число меняется на любом движении вопроса (новый, ответ, снятие,
+  // слияние — все они приходят событием `question` или `question.remove`).
+  if (event.t === 'task' || event.t === 'permission.request' || event.t === 'permission.resolved'
+    || event.t === 'question' || event.t === 'question.remove') {
     scheduleOffices();
   }
   // Пауза — редкое ручное действие одного человека, а не поток событий доски,

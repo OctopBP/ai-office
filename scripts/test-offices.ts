@@ -32,6 +32,7 @@ import {
   watching, type Sink,
 } from '../src/server/office-api';
 import { createOffice, currentOffice, loadRegistry, offices, uiLanguage } from '../src/server/offices';
+import { countOpenQuestions, openQuestionsFromFile } from '../src/server/activity';
 import type { Lang } from '../src/shared/i18n';
 
 // Проверки сверяют тексты офиса дословно и написаны по-русски — значит,
@@ -261,6 +262,54 @@ async function main(): Promise<void> {
   mark = a.events.length;
   handleOfficeCommand({ c: 'list_offices' }, a);
   check('list_offices отдаёт список', (a.last('offices', mark)?.offices.length ?? 0) === 2);
+
+  // 9а. Открытые вопросы владельцу в списке офисов: считаются только открытые —
+  //     отвеченный, снятый и влитый в другой нет, — и число доезжает до клиента,
+  //     который смотрит ДРУГОЙ офис, без опроса по таймеру.
+  const questionsOf = (id: string): number | undefined =>
+    officeViews().find((o) => o.id === id)?.openQuestions;
+  check('у каждого офиса в списке есть openQuestions',
+    officeViews().every((o) => o.openQuestions === 0));
+  const ask = (text: string) => stateB.addQuestion({
+    from: 'pm', taskId: null, kind: 'assumption', text, assumption: '',
+  });
+  mark = a.events.length;
+  const qOpen = ask('открытый');
+  const qAnswered = ask('отвеченный');
+  const qDismissed = ask('отозванный');
+  const qMerged = ask('влитый');
+  check('новые вопросы сразу видны в списке', questionsOf(madeId) === 4);
+  stateB.updateQuestion(qAnswered.id, { answer: 'да', answeredAt: Date.now() });
+  stateB.updateQuestion(qDismissed.id, { dismissedAt: Date.now() });
+  stateB.updateQuestion(qMerged.id, { mergedInto: qOpen.id });
+  check('отвеченный, отозванный и влитый не считаются', questionsOf(madeId) === 1);
+  check('вопросы чужого офиса не попадают в счётчик этого', questionsOf('o-1') === 0);
+  await sleep(1200);
+  const pushed = a.events.slice(mark).filter((e) => e.t === 'offices');
+  check('движение вопросов в другом офисе разослало список офисов',
+    pushed.at(-1)?.t === 'offices'
+    && pushed.at(-1)!.offices.find((o) => o.id === madeId)?.openQuestions === 1);
+  check('пачка вопросов склеилась в одну рассылку списка', pushed.length === 1);
+  mark = a.events.length;
+  stateB.removeQuestion(qOpen.id);
+  await sleep(1200);
+  check('удалённый вопрос тоже обновляет список',
+    a.last('offices', mark)?.offices.find((o) => o.id === madeId)?.openQuestions === 0);
+
+  // Неподнятый офис считается по файлу состояния — тем же правилом.
+  const qFile = resolve(ROOT, 'questions-state.json');
+  writeFileSync(qFile, JSON.stringify({
+    questions: [
+      { id: 'Q-1', answeredAt: null, dismissedAt: null },
+      { id: 'Q-2', answeredAt: 1, dismissedAt: null },
+      { id: 'Q-3', answeredAt: null, dismissedAt: 1 },
+      { id: 'Q-4', answeredAt: null, dismissedAt: null, mergedInto: 'Q-1' },
+      { id: 'Q-5', answeredAt: null },
+    ],
+  }), 'utf8');
+  check('по файлу считаются только открытые вопросы', openQuestionsFromFile(qFile) === 2);
+  check('нет файла — ноль вопросов', openQuestionsFromFile(resolve(ROOT, 'нет.json')) === 0);
+  check('countOpenQuestions без вопросов — ноль', countOpenQuestions(undefined) === 0);
 
   // 10. Переименование.
   mark = b.events.length;

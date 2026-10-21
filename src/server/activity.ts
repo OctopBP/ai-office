@@ -8,8 +8,9 @@
  * реестра, и лезть за этим на диск каждый раз незачем.
  */
 import { readFileSync, statSync } from 'node:fs';
-import type { ChatEntry, LogEntry, OfficeActivity, TaskStatus, Usage } from '../shared/types';
+import type { ChatEntry, LogEntry, OfficeActivity, OwnerQuestion, TaskStatus, Usage } from '../shared/types';
 import { dayKey, emptyUsage } from '../shared/types';
+import { isOpenQuestion } from '../shared/questions';
 import { countDoneUnmerged, countInWork } from '../shared/work';
 import { c } from './i18n';
 
@@ -33,6 +34,8 @@ interface StateLike {
   /** Расход офиса за всё время и по дням — то же, что лежит в сохранении. */
   usage?: Usage;
   daily?: Record<string, Usage>;
+  /** Вопросы владельцу — ради счётчика открытых в списке офисов. */
+  questions?: Pick<OwnerQuestion, 'answeredAt' | 'dismissedAt' | 'mergedInto'>[];
 }
 
 export const emptyActivity = (): OfficeActivity => ({
@@ -89,19 +92,45 @@ interface Cached {
    */
   day: string;
   activity: OfficeActivity;
+  /** Открытые вопросы владельцу — читаются тем же проходом по файлу. */
+  openQuestions: number;
 }
 
 const cache = new Map<string, Cached>();
+
+/**
+ * Сколько вопросов владельцу ещё ждут ответа. Правило «открыт» общее с вебом
+ * и снапшотом (`isOpenQuestion`): отвеченный, снятый и влитый в другой вопрос
+ * не считается — иначе метка в списке офисов расходилась бы со значком внутри.
+ */
+export function countOpenQuestions(questions: StateLike['questions']): number {
+  let n = 0;
+  for (const q of questions ?? []) if (q && isOpenQuestion(q as OwnerQuestion)) n += 1;
+  return n;
+}
 
 /**
  * Сводка по файлу состояния офиса. Файла нет или он битый — отдаём нули:
  * из-за одной цифры список офисов падать не должен.
  */
 export function activityFromFile(stateFile: string): OfficeActivity {
+  return readFileSummary(stateFile).activity;
+}
+
+/**
+ * Открытые вопросы владельцу неподнятого офиса — по его файлу состояния, без
+ * подъёма офиса и агентов. Кеш общий со сводкой активности: файл читается
+ * один раз на оба числа.
+ */
+export function openQuestionsFromFile(stateFile: string): number {
+  return readFileSummary(stateFile).openQuestions;
+}
+
+function readFileSummary(stateFile: string): Cached {
   const now = Date.now();
   const day = dayKey(now);
   const hit = cache.get(stateFile);
-  if (hit && hit.day === day && now - hit.checkedAt < RECHECK_MS) return hit.activity;
+  if (hit && hit.day === day && now - hit.checkedAt < RECHECK_MS) return hit;
 
   let mtimeMs = 0;
   let size = 0;
@@ -111,17 +140,18 @@ export function activityFromFile(stateFile: string): OfficeActivity {
     size = st.size;
   } catch {
     // Офис ни разу не открывали — сохранять было нечего.
-    const activity = emptyActivity();
-    cache.set(stateFile, { checkedAt: now, mtimeMs: 0, size: 0, day, activity });
-    return activity;
+    const entry: Cached = { checkedAt: now, mtimeMs: 0, size: 0, day, activity: emptyActivity(), openQuestions: 0 };
+    cache.set(stateFile, entry);
+    return entry;
   }
 
   if (hit && hit.day === day && hit.mtimeMs === mtimeMs && hit.size === size) {
     hit.checkedAt = now;
-    return hit.activity;
+    return hit;
   }
 
   let activity = emptyActivity();
+  let openQuestions = 0;
   try {
     const data = JSON.parse(readFileSync(stateFile, 'utf8')) as StateLike;
     // Файл мог быть дописан наполовину или отредактирован руками.
@@ -132,9 +162,11 @@ export function activityFromFile(stateFile: string): OfficeActivity {
       usage: data?.usage,
       daily: data?.daily,
     });
+    openQuestions = countOpenQuestions(Array.isArray(data?.questions) ? data.questions : []);
   } catch (err) {
     console.log(c('activity.summaryFailed', { file: stateFile, error: (err as Error).message }));
   }
-  cache.set(stateFile, { checkedAt: now, mtimeMs, size, day, activity });
-  return activity;
+  const entry: Cached = { checkedAt: now, mtimeMs, size, day, activity, openQuestions };
+  cache.set(stateFile, entry);
+  return entry;
 }

@@ -49,7 +49,7 @@ import {
 import { capabilitiesOf } from './roles';
 import { migrateSuperseded } from './superseded';
 import { t, c, type ServerKey } from './i18n';
-import { activityFromFile, summarize } from './activity';
+import { activityFromFile, openQuestionsFromFile, summarize } from './activity';
 import {
   DEFAULT_LAYOUT_ID, FALLBACK_LAYOUT_ID, catalog, checkPropEdit, deskPlan, effectiveLayout, hasLayout,
   layoutOptions,
@@ -5774,6 +5774,9 @@ export const officeViews = (): OfficeView[] => {
       ...(icon ? { icon } : {}),
       // Цвет так же: нет поля — веб рисует умолчание.
       ...(o.color ? { color: o.color } : {}),
+      // Вопросы поднятого офиса — из памяти (файл отстаёт на дебаунс записи),
+      // остальных — из файла состояния, без подъёма офиса и его агентов.
+      openQuestions: live ? live.openQuestionCount() : openQuestionsFromFile(o.stateFile),
       activity: live?.opened
         ? {
           ...summarize({
