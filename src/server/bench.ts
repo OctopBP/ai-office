@@ -21,12 +21,13 @@
  */
 import { existsSync, readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
-import { engineFor, startSession as query } from './engines';
+import { engineFor, startSession, type EngineSession, type SessionRequest } from './engines';
 import { isConnected, PROVIDER_IDS, PROVIDERS, type ModelChoice } from '../shared/providers';
 import type { Lang } from '../shared/i18n';
 import type { Settings } from '../shared/types';
 import { t } from './i18n';
 import { DEFAULT_MCP_SERVERS, externalMcp, mcpBrief } from './mcp';
+import { resolvePackage } from './packages';
 import { classify } from './permissions';
 import { roleRuntime, type Role } from './roles';
 import { employeePlugins, employeeSkills, sessionTools } from './skills';
@@ -100,10 +101,19 @@ export const benchRuntimeLabel = (r: ModelChoice): string => `${PROVIDERS[r.prov
 /** Потолок ходов: скил открывается на первом-втором, дальше платить незачем. */
 const MAX_TURNS = 4;
 
+export interface BenchRunOptions {
+  lang: Lang;
+  settings?: Settings;
+  cwd?: string;
+  runtime?: ModelChoice;
+  /** Дополнительная строка брифа — правило-кандидат, которое пробуем. */
+  extraBrief?: string;
+  /** Запуск сессии. По умолчанию — движок провайдера; тесты подставляют заглушку. */
+  start?: (request: SessionRequest) => EngineSession;
+}
+
 /** Прогнать один случай живой сессией роли. */
-export async function runBenchCase(
-  role: Role, c: BenchCase, opts: { lang: Lang; settings?: Settings; cwd?: string; runtime?: ModelChoice } ,
-): Promise<BenchOutcome> {
+export async function runBenchCase(role: Role, c: BenchCase, opts: BenchRunOptions): Promise<BenchOutcome> {
   const settings = opts.settings ?? ({ mcpServers: DEFAULT_MCP_SERVERS } as Settings);
   const runtime = opts.runtime ?? await benchRuntime(role, opts.settings);
   if (!runtime) {
@@ -119,6 +129,8 @@ export async function runBenchCase(
   let turns = 0;
   let cost = 0;
 
+  const query = opts.start ?? startSession;
+  const rule = opts.extraBrief?.trim();
   const session = query({
     prompt: c.prompt,
     options: {
@@ -128,7 +140,7 @@ export async function runBenchCase(
         preset: 'claude_code',
         // Тот же системный промпт, что у исполнителя, минус бриф проекта:
         // он про конкретный офис, а на срабатывание скила не влияет.
-        append: [t(opts.lang, 'prompt.worker.system', { role: role.title }), role.brief].join('\n')
+        append: [t(opts.lang, 'prompt.worker.system', { role: role.title }), role.brief, ...(rule ? [rule] : [])].join('\n')
           + mcpBrief(settings, role, opts.lang),
       },
       cwd,
@@ -178,6 +190,137 @@ export async function runBenchCase(
     what: c.what, ok: !missing.length && !extra.length,
     opened: [...opened], called: [...new Set(called)], denied: [...new Set(denied)],
     missing, extra, stopped, turns, costUsd: cost,
+  };
+}
+
+/**
+ * Проба правила (D-8, идеи A и E): прежде чем вписать строку в бриф, прогнать
+ * случаи роли дважды — без правила и с ним — и посмотреть, что поменялось.
+ * Стенд не говорит, стала ли работа лучше; он говорит, изменилось ли
+ * поведение: какие скилы открылись, что модель пыталась вызвать, сколько
+ * ходов и денег ушло.
+ *
+ * Бюджет задаётся до прогона: прогонов ровно 2 × число случаев, денег — не
+ * больше предела. После прогона фактические числа сверяются с ним, и
+ * превышение — ошибка в результате, а не исключение: потраченное уже
+ * потрачено, и вызывающему важнее увидеть сколько, чем поймать throw.
+ */
+
+/** Предел денег на прогон по умолчанию: случай стенда стоит порядка десятка центов. */
+export const PROBE_USD_PER_RUN = 0.25;
+
+export interface ProbeBudget {
+  runs: number;
+  maxUsd: number;
+}
+
+/** Разница одного случая: «после» минус «до». */
+export interface ProbeCaseDiff {
+  what: string;
+  without: BenchOutcome;
+  with: BenchOutcome;
+  /** Скилы, которые открылись только с правилом / только без него. */
+  openedAdded: string[];
+  openedRemoved: string[];
+  calledAdded: string[];
+  calledRemoved: string[];
+  turnsDelta: number;
+  costDelta: number;
+  /** Случай перестал проходить / начал проходить. */
+  broke: boolean;
+  fixed: boolean;
+}
+
+export type ProbeResult =
+  | { status: 'nothing-to-check'; reason: string; budget: ProbeBudget; runs: 0; costUsd: 0; cases: []; errors: [] }
+  | {
+    status: 'done';
+    budget: ProbeBudget;
+    /** Сколько прогонов и денег ушло на деле. */
+    runs: number;
+    costUsd: number;
+    cases: ProbeCaseDiff[];
+    /** Сумма по случаям: ходы и деньги «с правилом» минус «без». */
+    turnsDelta: number;
+    costDelta: number;
+    broke: number;
+    fixed: number;
+    /** Превышение бюджета и остановка на нём. Пусто — уложились. */
+    errors: string[];
+  };
+
+export interface ProbeOptions extends Omit<BenchRunOptions, 'extraBrief'> {
+  /** Папка пакета роли. Нет — берётся по ссылке роли на пакет. */
+  dir?: string;
+  /** Предел денег на всю пробу. По умолчанию — PROBE_USD_PER_RUN за прогон. */
+  maxUsd?: number;
+}
+
+const added = (from: string[], to: string[]): string[] => to.filter((s) => !from.includes(s));
+
+/** Сравнить два исхода одного случая. */
+export function diffOutcomes(without: BenchOutcome, withRule: BenchOutcome): ProbeCaseDiff {
+  return {
+    what: without.what,
+    without,
+    with: withRule,
+    openedAdded: added(without.opened, withRule.opened),
+    openedRemoved: added(withRule.opened, without.opened),
+    calledAdded: added(without.called, withRule.called),
+    calledRemoved: added(withRule.called, without.called),
+    turnsDelta: withRule.turns - without.turns,
+    costDelta: withRule.costUsd - without.costUsd,
+    broke: without.ok && !withRule.ok,
+    fixed: !without.ok && withRule.ok,
+  };
+}
+
+/** Прогнать случаи роли без правила и с ним и вернуть разницу. */
+export async function probeRule(role: Role, ruleText: string, opts: ProbeOptions): Promise<ProbeResult> {
+  const dir = opts.dir ?? (role.package ? resolvePackage(role.package)?.dir : undefined);
+  const cases = dir ? readBenchCases(dir) : [];
+  const runs = 2 * cases.length;
+  const budget: ProbeBudget = { runs, maxUsd: opts.maxUsd ?? runs * PROBE_USD_PER_RUN };
+  if (!cases.length) {
+    return {
+      status: 'nothing-to-check', reason: t(opts.lang, 'bench.probe.noCases'),
+      budget, runs: 0, costUsd: 0, cases: [], errors: [],
+    };
+  }
+
+  // Провайдер выбирается один раз: обе половины пары обязаны идти на одной
+  // модели, иначе разница будет про модель, а не про правило.
+  const runtime = opts.runtime ?? await benchRuntime(role, opts.settings) ?? undefined;
+  const { dir: _dir, maxUsd: _max, ...base } = opts;
+  const diffs: ProbeCaseDiff[] = [];
+  const errors: string[] = [];
+  let done = 0;
+  let spent = 0;
+  for (const c of cases) {
+    // Предел уже выбран — следующую пару не начинаем: дальше были бы деньги
+    // сверх того, на что согласились.
+    if (spent >= budget.maxUsd) {
+      errors.push(t(opts.lang, 'bench.probe.stopped', { done: diffs.length, total: cases.length }));
+      break;
+    }
+    const without = await runBenchCase(role, c, { ...base, runtime });
+    const withRule = await runBenchCase(role, c, { ...base, runtime, extraBrief: ruleText });
+    done += 2;
+    spent += without.costUsd + withRule.costUsd;
+    diffs.push(diffOutcomes(without, withRule));
+  }
+
+  if (done > budget.runs) errors.push(t(opts.lang, 'bench.probe.overRuns', { actual: done, budget: budget.runs }));
+  if (spent > budget.maxUsd) {
+    errors.push(t(opts.lang, 'bench.probe.overUsd', { actual: spent.toFixed(4), budget: budget.maxUsd.toFixed(4) }));
+  }
+  return {
+    status: 'done', budget, runs: done, costUsd: spent, cases: diffs,
+    turnsDelta: diffs.reduce((n, d) => n + d.turnsDelta, 0),
+    costDelta: diffs.reduce((n, d) => n + d.costDelta, 0),
+    broke: diffs.filter((d) => d.broke).length,
+    fixed: diffs.filter((d) => d.fixed).length,
+    errors,
   };
 }
 
