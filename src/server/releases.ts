@@ -788,7 +788,7 @@ async function currentVersion(ctx: Ctx): Promise<VersionPoint> {
       if (v) found = { version: v, build: null };
     } catch { /* нет package.json — берём историю */ }
   } else if (source === 'command' && target.version.read) {
-    const out = await runProjectCheck(commandDir(repo, target) ?? repo, target.version.read, state.lang(), { timeoutMs: 60_000 });
+    const out = await runProjectCheck(commandDir(repo, target) ?? repo, target.version.read, state.lang(), { timeoutMs: 60_000, slots: false });
     const line = out.output.split('\n').map((l) => l.trim()).filter(Boolean).pop();
     if (out.ok && line) found = { version: line, build: /^\d+$/.test(line) ? Number(line) : null };
   }
@@ -992,7 +992,7 @@ const bump: Executor<Ctx> = {
     if (!secrets.ok) return fail(say(ctx, 'rel.secretsFailed', { error: secrets.error }), { needsDecision: true });
     patch(ctx, { stage: say(ctx, 'rel.stage.bump', { version: label(r) }) });
     const out = await runProjectCheck(cwd, fillVersion(target.bump, point(r)), state.lang(), {
-      timeoutMs: 5 * 60_000, env: secrets.env, mask: secrets.mask, signal: ctx.signal,
+      timeoutMs: 5 * 60_000, env: secrets.env, mask: secrets.mask, signal: ctx.signal, slots: false,
     });
     alive(ctx);
     if (!out.ok) {
@@ -1316,6 +1316,7 @@ const build: Executor<Ctx> = {
       record(ctx, { buildRan: true });
       const out = await runProjectCheck(cwd, command, state.lang(), {
         signal: ctx.signal,
+        slots: false,
         timeoutMs: min * 60_000,
         outputLimit: 8000,
         // Вывод замаскирован внутри: и лог провала, и строка OFFICE_RESULT

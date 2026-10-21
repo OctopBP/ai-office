@@ -285,6 +285,7 @@ export const en = {
   'merge.outputClipped': '… (the start of the output was dropped)',
   'checks.timedOut': 'The check did not finish within {min} min and was stopped — a timeout: it never got to report its checks.',
   'checks.killed': 'The check was killed by signal {signal} before it could finish and report.',
+  'checks.waitingSlot': 'waiting for a free check slot ({busy} of {limit} busy)',
   'merge.noTypecheck': 'The project has no “npm run typecheck” script — the build check was skipped.',
   'merge.typecheckOk': 'npm run typecheck passed with no errors.',
   'merge.noNpm': 'npm was not found — there is nothing to run the build check with.',

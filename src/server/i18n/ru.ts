@@ -285,6 +285,7 @@ export const ru: Record<keyof typeof en, string> = {
   'merge.outputClipped': '… (начало вывода отброшено)',
   'checks.timedOut': 'Проверка не уложилась в {min} мин и была остановлена — это таймаут: до отчёта о проверках она не дошла.',
   'checks.killed': 'Проверку сняли сигналом {signal}, она не успела закончиться и отчитаться.',
+  'checks.waitingSlot': 'ждёт свободного слота проверок (занято {busy} из {limit})',
   'merge.noTypecheck': 'В проекте нет скрипта «npm run typecheck» — проверка сборки пропущена.',
   'merge.typecheckOk': 'npm run typecheck прошёл без ошибок.',
   'merge.noNpm': 'npm не найден — проверку сборки прогнать нечем.',

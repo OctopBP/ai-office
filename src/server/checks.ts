@@ -15,6 +15,7 @@ import type { TypecheckResult } from '../shared/types';
 import type { Lang } from '../shared/i18n';
 import { t } from './i18n';
 import { projectEnv } from './childenv';
+import { checkSlots, type CheckSlots, type Release } from './checkslots';
 
 const run = promisify(execFile);
 
@@ -26,6 +27,26 @@ const OUTPUT_LIMIT = 4000;
 export const tail = (s: string, lang: Lang, limit = OUTPUT_LIMIT): string => (s.length > limit
   ? `${t(lang, 'merge.outputClipped')}\n${s.slice(-limit)}`
   : s);
+
+/**
+ * Взять слот общего ограничителя (checkslots.ts) перед запуском проверки.
+ * Если слот сразу не дали, в вывод проверки уходит строка об ожидании с
+ * числами «занято N из M» — иначе долгая проверка выглядела бы зависшей.
+ * Таймаут проверки считается уже после того, как слот получен.
+ */
+export async function takeCheckSlot(
+  label: string, lang: Lang, slots: CheckSlots = checkSlots(),
+): Promise<{ release: Release; note: string }> {
+  const busy = slots.running().length;
+  const limit = slots.limit();
+  const waits = busy >= limit || slots.waiting().length > 0;
+  const note = waits ? t(lang, 'checks.waitingSlot', { busy: String(busy), limit: String(limit) }) : '';
+  const release = await slots.acquire(label);
+  return { release, note };
+}
+
+/** Строка об ожидании слота — первой строкой вывода. */
+const withNote = (note: string, output: string): string => (note ? (output ? `${note}\n${output}` : note) : output);
 
 /**
  * Своя проверка проекта (spec процессов §8.2): команда оболочки в рабочей
@@ -50,7 +71,33 @@ export async function runProjectCheck(
      * и сигнал ей одной оставил бы сборщик работать.
      */
     signal?: AbortSignal;
+    /**
+     * Через какой ограничитель идти. По умолчанию — общий семафор процесса;
+     * `false` — без слота (команды выпуска: версия, сборка — не проверки гейта).
+     */
+    slots?: CheckSlots | false;
   } = {},
+): Promise<{ ok: boolean; output: string; message: string; durationMs: number; timedOut?: boolean; aborted?: boolean }> {
+  const { release, note } = opts.slots === false
+    ? { release: () => {}, note: '' }
+    : await takeCheckSlot(`${command} @ ${cwd}`, lang, opts.slots ?? checkSlots());
+  try {
+    const res = await runProjectCheckNow(cwd, command, lang, opts);
+    if (!note) return res;
+    const output = withNote(note, res.output);
+    return { ...res, output, message: output };
+  } finally {
+    release();
+  }
+}
+
+/** Сама проверка, слот уже получен: отсюда идут и таймаут, и длительность. */
+async function runProjectCheckNow(
+  cwd: string, command: string, lang: Lang,
+  opts: {
+    timeoutMs?: number; env?: NodeJS.ProcessEnv; outputLimit?: number;
+    mask?: (text: string) => string; signal?: AbortSignal;
+  },
 ): Promise<{ ok: boolean; output: string; message: string; durationMs: number; timedOut?: boolean; aborted?: boolean }> {
   const started = Date.now();
   const mask = opts.mask ?? ((text: string) => text);
@@ -162,14 +209,27 @@ export function hasScript(repoDir: string, name: string): boolean {
  * каждого успешного слияния: две ветки по отдельности собираются, а вместе
  * могут и не собраться — узнать об этом лучше сразу, а не через три слияния.
  */
-export async function runTypecheck(repoDir: string, lang: Lang): Promise<TypecheckResult> {
-  const started = Date.now();
+export async function runTypecheck(
+  repoDir: string, lang: Lang, slots: CheckSlots = checkSlots(),
+): Promise<TypecheckResult> {
   if (!hasScript(repoDir, 'typecheck')) {
     return {
       ok: true, skipped: true, output: '', durationMs: 0,
       message: t(lang, 'merge.noTypecheck'),
     };
   }
+  const { release, note } = await takeCheckSlot(`npm run typecheck @ ${repoDir}`, lang, slots);
+  try {
+    const res = await runTypecheckNow(repoDir, lang);
+    return note ? { ...res, output: withNote(note, res.output) } : res;
+  } finally {
+    release();
+  }
+}
+
+/** Сама проверка сборки, слот уже получен. */
+async function runTypecheckNow(repoDir: string, lang: Lang): Promise<TypecheckResult> {
+  const started = Date.now();
   try {
     const { stdout, stderr } = await run('npm', ['run', '--silent', 'typecheck'], {
       cwd: repoDir,

@@ -5,13 +5,16 @@
  *  1. предел: из OFFICE_CHECK_SLOTS, по ядрам, и больше предела слоты не выдаются;
  *  2. порядок: ожидающие получают слот строго в порядке прихода (FIFO);
  *  3. освобождение: слот отпускается, если держатель упал с исключением,
- *     а повторный release не отдаёт лишний слот.
+ *     а повторный release не отдаёт лишний слот;
+ *  4. проверка гейта (runProjectCheck): ожидание слота не съедает таймаут,
+ *     в выводе есть строка «занято N из M», слот отпускается после проверки.
  *
  * Запуск: npm run test:checkslots
  */
 import assert from 'node:assert/strict';
 import { cpus } from 'node:os';
 import { createCheckSlots, defaultCheckSlotsLimit } from '../src/server/checkslots';
+import { runProjectCheck } from '../src/server/checks';
 
 const tick = () => new Promise<void>((r) => setImmediate(r));
 
@@ -124,7 +127,35 @@ async function testReleaseOnError(): Promise<void> {
   console.log('✓ освобождение при ошибке');
 }
 
+async function testQueueKeepsTimeout(): Promise<void> {
+  const slots = createCheckSlots(1);
+  const holder = await slots.acquire('занятый слот');
+  const timeoutMs = 1500;
+  const queued = runProjectCheck(process.cwd(), 'sleep 0.3; echo готово', 'ru', { timeoutMs, slots });
+  // Стоим в очереди дольше всего таймаута: если бы он тикал с постановки
+  // в очередь, проверку сняли бы, едва она получила слот.
+  await new Promise((r) => setTimeout(r, timeoutMs + 700));
+  assert.deepEqual(slots.waiting().map((e) => e.label.split(' @ ')[0]), ['sleep 0.3; echo готово'], 'проверка ждёт слот');
+  holder();
+  const res = await queued;
+  assert.equal(res.ok, true, `проверка прошла, а не упала по таймауту: ${res.output}`);
+  assert.ok(!res.timedOut, "таймаут не сработал");
+  assert.match(res.output, /ждёт свободного слота проверок \(занято 1 из 1\)/);
+  assert.match(res.output, /готово/);
+  assert.ok(res.durationMs < timeoutMs, 'длительность считается от получения слота');
+  assert.equal(slots.running().length, 0, 'слот отпущен после проверки');
+
+  // Свободный слот — строки об ожидании нет; упавшая проверка тоже отпускает слот.
+  const free = await runProjectCheck(process.cwd(), 'echo сразу', 'ru', { slots });
+  assert.doesNotMatch(free.output, /слота проверок/);
+  const bad = await runProjectCheck(process.cwd(), 'exit 3', 'ru', { slots });
+  assert.equal(bad.ok, false);
+  assert.equal(slots.running().length, 0, 'слот отпущен и после провала');
+  console.log('✓ очередь не съедает таймаут');
+}
+
 await testLimit();
 await testFifo();
 await testReleaseOnError();
+await testQueueKeepsTimeout();
 console.log('checkslots: все проверки прошли');
