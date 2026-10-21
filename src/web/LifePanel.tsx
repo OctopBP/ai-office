@@ -419,9 +419,56 @@ function RuleRow({ rule, editable }: { rule: RuleView; editable: boolean }) {
   );
 }
 
+const EVIDENCE_REF = /\b(?:T|J)-\d+\b/g;
+
+/** Основание урока: T-N открывает карточку задачи, J-N ведёт к записи журнала, остальное — текст. */
+function Evidence({ items, onTask, onFact }: {
+  items: string[]; onTask: (id: string) => void; onFact: (id: string) => void;
+}) {
+  const facts = useStore((s) => s.facts);
+  return (
+    <div className="fact-evidence small">
+      <span className="fact-label">{t('life.journal.evidence')}</span>
+      <ul>
+        {items.map((e, i) => {
+          const parts: React.ReactNode[] = [];
+          let last = 0;
+          for (const m of e.matchAll(EVIDENCE_REF)) {
+            const id = m[0];
+            const idx = m.index ?? 0;
+            if (id.startsWith('J-') && !facts.some((f) => f.id === id)) continue;
+            if (idx > last) parts.push(e.slice(last, idx));
+            parts.push(
+              <button
+                key={`${id}-${idx}`} type="button" className="link-btn mono"
+                title={t(id.startsWith('T-') ? 'chatCard.openTask' : 'life.journal.openFact')}
+                onClick={() => (id.startsWith('T-') ? onTask(id) : onFact(id))}
+              >{id}</button>,
+            );
+            last = idx + id.length;
+          }
+          if (last < e.length) parts.push(e.slice(last));
+          return <li key={i}>{parts}</li>;
+        })}
+      </ul>
+    </div>
+  );
+}
+
 function Journal() {
   const facts = useStore((s) => s.facts);
+  const openTaskCard = useStore((s) => s.openTaskCard);
   const [status, setStatus] = useState<FactStatus>('live');
+  const [focusId, setFocusId] = useState<string | null>(null);
+  useEffect(() => {
+    if (focusId) document.getElementById(`fact-${focusId}`)?.scrollIntoView({ block: 'center' });
+  }, [focusId, status]);
+  const showFact = (id: string) => {
+    const target = facts.find((f) => f.id === id);
+    if (!target) return;
+    setStatus(target.status);
+    setFocusId(id);
+  };
   const shown = facts.filter((f) => f.status === status).sort((a, b) => b.confirmedAt - a.confirmedAt);
   if (!facts.length) return <p className="empty">{t('life.journal.empty')}</p>;
   return (
@@ -434,13 +481,18 @@ function Journal() {
         ))}
       </div>
       {shown.map((f) => (
-        <div key={f.id} className={`life-row fact ${f.kind} ${f.status}`}>
+        <div key={f.id} id={`fact-${f.id}`} className={`life-row fact ${f.kind} ${f.status}${focusId === f.id ? ' focus' : ''}`}>
           <div className="life-row-head">
             <span className="mono dim">{f.id}</span>
             <span className={`chip ${f.kind}`}>{t(`life.journal.kind.${f.kind}`)}</span>
             <span className="muted small">{scopeLabel(f.scope)}</span>
             {f.source.taskId && <span className="muted small">{f.source.taskId}</span>}
             {f.source.questionId && <span className="muted small">{f.source.questionId}</span>}
+            {f.unfounded && (
+              <span className="chip unfounded" title={t('life.journal.unfoundedHint')}>
+                {t('life.journal.unfounded')}
+              </span>
+            )}
             {f.supersededBy && (
               <span className="chip superseded" title={t('life.journal.supersededHint')}>
                 {t('life.journal.superseded', { id: f.supersededBy })}
@@ -449,6 +501,12 @@ function Journal() {
             <span className="muted small">{t('life.journal.confirmed', { when: when(f.confirmedAt) })}</span>
           </div>
           <div className="life-text"><Markdown source={f.text} compact /></div>
+          {f.cue && (
+            <div className="fact-cue muted small">
+              <span className="fact-label">{t('life.journal.cue')}</span> {f.cue}
+            </div>
+          )}
+          {!!f.evidence?.length && <Evidence items={f.evidence} onTask={openTaskCard} onFact={showFact} />}
           {f.status !== 'archived' && (
             <div className="life-actions">
               <button className="mini" onClick={() => confirmFact(f.id)}>{t('life.journal.confirm')}</button>
