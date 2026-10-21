@@ -2209,6 +2209,9 @@ export const MAX_INITIATIVE_SHARE = 0.5;
  * сам — только предлагает; принять или отклонить решает человек.
  */
 export type ProposalKind = 'feature' | 'rule' | 'setting';
+
+/** Вид правила из рефлексии: как работать или знание о проекте. */
+export type RuleKind = 'how' | 'domain';
 export type ProposalStatus = 'pending' | 'accepted' | 'rejected';
 
 export interface ProposalView {
@@ -2221,6 +2224,12 @@ export interface ProposalView {
   rationale: string;
   /** Роль, которой предназначено правило. null — не про роль. */
   roleId: string | null;
+  /**
+   * Вид правила, если kind === 'rule' (T-666): 'how' — как работать, ложится
+   * в бриф роли; 'domain' — знание о проекте, ложится в журнал офиса, а не в
+   * бриф, чтобы не уехать в пакет роли. Нет — как раньше, в бриф.
+   */
+  ruleKind?: RuleKind;
   /** Настройка, если kind === 'setting'. */
   setting: { key: string; value: unknown } | null;
   /** Направление, по которому предложена фича. */

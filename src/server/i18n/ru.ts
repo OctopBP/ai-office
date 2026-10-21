@@ -968,6 +968,7 @@ export const ru: Record<keyof typeof en, string> = {
   'proposal.noSuch': 'Ожидающего предложения {id} нет.',
   'proposal.featureLog': 'Предложение {id} принято — фича {epic} в плане',
   'proposal.ruleLog': 'Предложение {id} принято — правило дописано в бриф роли {role}',
+  'proposal.domainRuleLog': 'Предложение {id} принято — это знание о проекте, поэтому оно записано в журнал ({fact}) для роли {role}, а не в бриф',
   'proposal.settingLog': 'Предложение {id} принято — настройка {key} = {value}',
   'proposal.settingRefused': 'Офис не вправе менять настройку {key}: её нет в белом списке.',
 
@@ -1051,6 +1052,7 @@ export const ru: Record<keyof typeof en, string> = {
   'journal.evidenceMore': 'и ещё {n}',
   'journal.unfounded': 'без основания',
   'journal.noted': 'Журнал {id}: {text}',
+  'journal.lessonUnfounded': 'Ритуал {ritual} не записал урок без основания (нужны «когда применять» и ссылки на задачи или записи): {text}',
   'journal.staleLog': '{id} не подтверждалась неделями — в промпты больше не идёт',
   'journal.archivedLog': '{id} в архиве: протухла и так и не подтвердилась',
   'journal.staleQuestion': 'Это ещё в силе? «{text}» (журнал {id}, последнее подтверждение {days} дней назад)',

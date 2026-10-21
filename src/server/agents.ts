@@ -5205,6 +5205,7 @@ setRitualAgents({
             roleId: z.string().describe(state.say('tool.proposeRule.role')),
             text: z.string().describe(state.say('tool.proposeRule.text')),
             rationale: z.string().describe(state.say('tool.proposeRule.rationale')),
+            kind: z.enum(['how', 'domain']).optional().describe(state.say('tool.proposeRule.kind')),
           },
           async (args) => {
             if (!state.workerRoles().some((r) => r.id === args.roleId)) {
@@ -5215,7 +5216,9 @@ setRitualAgents({
                 isError: true,
               };
             }
-            out.rules.push({ roleId: args.roleId, text: args.text, rationale: args.rationale });
+            out.rules.push({
+              roleId: args.roleId, text: args.text, rationale: args.rationale, ...(args.kind ? { kind: args.kind } : {}),
+            });
             return { content: [{ type: 'text', text: state.say('tool.proposeRule.ok', { id: `#${out.rules.length}` }) }] };
           },
         ),

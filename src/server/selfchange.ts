@@ -5,7 +5,8 @@
  * Правило одно: всё, что меняет поведение исполнителей, офис не пишет молча.
  * Правило для роли — в приписку к брифу пакета (`briefExtra`; сам бриф
  * пакета неприкосновенен) либо, у роли без пакета, в конец её брифа под
- * заголовком. Настройка — только из белого списка, и это короткие числа,
+ * заголовком; правило вида 'domain' (знание о проекте) — в журнал, а не в
+ * бриф. Настройка — только из белого списка, и это короткие числа,
  * которые нельзя перепутать с правами: модель, инструменты и режим доступа
  * офис не трогает никогда.
  */
@@ -36,6 +37,17 @@ export function applyProposal(
     const role = proposal.roleId ? state.role(proposal.roleId) : undefined;
     if (!role) return state.say('state.role.missing', { role: proposal.roleId ?? '—' });
     const rule = proposal.text.trim();
+    // Знание о проекте в бриф не пишем: бриф с припиской уезжает в пакет
+    // роли при экспорте, а нашему проекту там не место (D-8 §3, идея D).
+    // Ложится решением в журнал, в круг этой роли.
+    if (proposal.ruleKind === 'domain') {
+      const fact = state.addFact({
+        kind: 'decision', text: rule, scope: `role:${role.id}`,
+        evidence: [proposal.id], source: { ritual: 'reflect' },
+      });
+      state.addLog(null, 'system', state.say('proposal.domainRuleLog', { id: proposal.id, role: role.id, fact: fact.id }));
+      return null;
+    }
     if (role.package) {
       const extra = role.package.briefExtra.trim();
       state.updateRole(role.id, { briefExtra: extra ? `${extra}\n${rule}` : rule });

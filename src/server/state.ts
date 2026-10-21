@@ -5754,6 +5754,7 @@ export const toFactView = (f: Fact): FactView => ({
 export const toProposalView = (p: Proposal): ProposalView => ({
   id: p.id, kind: p.kind, title: p.title, text: p.text, rationale: p.rationale,
   roleId: p.roleId, setting: p.setting, directionId: p.directionId,
+  ...(p.ruleKind ? { ruleKind: p.ruleKind } : {}),
   status: p.status, createdAt: p.createdAt, decidedAt: p.decidedAt,
 });
 

@@ -26,7 +26,7 @@ import type { WorkflowNode } from '../shared/workflow';
 import { builtinWorkflows } from './workflows';
 import { drive, newRun, type Executor } from './runs';
 import { dayKey, HEALTH_DIRECTION, limitReset, OFFICE_SENDER } from '../shared/types';
-import type { BranchMark, FactView, HealthEntry, OwnerQuestion, QuestionQuote, QuestionRef, RitualId, RitualRun } from '../shared/types';
+import type { BranchMark, FactView, HealthEntry, OwnerQuestion, QuestionQuote, QuestionRef, RitualId, RitualRun, RuleKind } from '../shared/types';
 import { refsInText } from '../shared/questions';
 import type { ServerKey } from './i18n';
 import { LANG_LOCALE } from '../shared/i18n';
@@ -110,7 +110,15 @@ export interface ReflectionInput {
 export interface ReflectionOutput extends RitualOutput {
   features: FeatureProposal[];
   /** Правила из повторов (§5.5, §8.1) — становятся предложениями владельцу. */
-  rules: Array<{ roleId: string; text: string; rationale: string }>;
+  rules: Array<{
+    roleId: string; text: string; rationale: string;
+    /**
+     * 'how' — как работать (инструменты, порядок шагов, проверка
+     * результата): в бриф роли. 'domain' — знание о проекте: в журнал, не в
+     * бриф, чтобы не уехать в пакет роли. Нет — как раньше, в бриф.
+     */
+    kind?: RuleKind;
+  }>;
   summary: string;
 }
 
@@ -903,11 +911,34 @@ export function closeRepeatedContradictions(state: OfficeState): string[] {
   return closed;
 }
 
+/** Ритуалы, которые пишут уроки только с основанием (D-8 §3, идея B). */
+const GROUNDED_RITUALS: ReadonlySet<RitualId> = new Set(['consolidate', 'reflect']);
+
+/** Ссылка, на которую можно опереться: задача, запись журнала, вопрос, документ, предложение или коммит. */
+const REF_RE = /\b(?:[TJQDP]-\d+|[0-9a-f]{7,40})\b/;
+
+/**
+ * Есть ли у урока основание: «когда применять» и хоть одна ссылка на задачу,
+ * запись или коммит (задача, из которой урок родился, тоже ссылка). Не урок —
+ * проверять нечего.
+ */
+export function groundedLesson(f: RitualOutput['facts'][number]): boolean {
+  if (f.kind !== 'lesson') return true;
+  if (!f.cue?.trim()) return false;
+  return [...(f.evidence ?? []), ...(f.taskId ? [f.taskId] : [])].some((e) => REF_RE.test(e));
+}
+
 /** Положить то, что ритуал произвёл: записи, противоречия, вопросы. */
 async function applyOutput(state: OfficeState, ritual: RitualId, out: RitualOutput): Promise<Record<string, number>> {
   let facts = 0;
   for (const f of out.facts) {
     if (!f.text.trim()) continue;
+    // Урок без основания консолидация и рефлексия не пишут: такой урок
+    // нельзя ни проверить на свежесть, ни применить к месту.
+    if (GROUNDED_RITUALS.has(ritual) && !groundedLesson(f)) {
+      state.addLog(null, 'system', state.say('journal.lessonUnfounded', { ritual, text: clip(f.text) }));
+      continue;
+    }
     const fact = state.addFact({
       kind: f.kind, text: f.text, scope: f.scope || 'project', cue: f.cue, evidence: f.evidence,
       source: { ritual, ...(f.taskId ? { taskId: f.taskId } : {}) },
@@ -938,6 +969,16 @@ async function applyOutput(state: OfficeState, ritual: RitualId, out: RitualOutp
     questions += 1;
   }
   return { facts, contradictions, resolved, questions };
+}
+
+/** Предложение владельцу из правила рефлексии; вид правила едет с ним до применения. */
+export function ruleProposal(rule: ReflectionOutput['rules'][number]): Parameters<OfficeState['addProposal']>[0] {
+  const ruleKind = rule.kind === 'how' || rule.kind === 'domain' ? rule.kind : undefined;
+  return {
+    kind: 'rule', title: clip(rule.text, 80), text: rule.text.trim(), rationale: rule.rationale,
+    roleId: rule.roleId, setting: null, directionId: null, plan: null,
+    ...(ruleKind ? { ruleKind } : {}),
+  };
 }
 
 const runners: Record<RitualId, Runner> = {
@@ -1012,10 +1053,7 @@ const runners: Record<RitualId, Runner> = {
       const dup = state.proposalList().some((p) =>
         p.kind === 'rule' && p.status === 'pending' && p.roleId === rule.roleId && p.text.trim() === rule.text.trim());
       if (dup) continue;
-      state.addProposal({
-        kind: 'rule', title: clip(rule.text, 80), text: rule.text.trim(), rationale: rule.rationale,
-        roleId: rule.roleId, setting: null, directionId: null, plan: null,
-      });
+      state.addProposal(ruleProposal(rule));
       state.addChat(OFFICE_SENDER, state.say('proposal.ruleProposedChat', {
         role: rule.roleId, text: clip(rule.text, 200), rationale: clip(rule.rationale, 200),
       }));

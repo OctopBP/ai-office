@@ -408,7 +408,10 @@ async function main(): Promise<void> {
     async consolidate(state, input) {
       consolidations += 1;
       return {
-        facts: [{ kind: 'lesson', text: `Урок из ${input.closed.map((c) => c.id).join(',')}`, scope: 'role:backend' }],
+        facts: [{
+          kind: 'lesson', text: `Урок из ${input.closed.map((c) => c.id).join(',')}`, scope: 'role:backend',
+          cue: 'когда закрываешь задачу', evidence: input.closed.map((c) => c.id),
+        }],
         contradictions: [{ a: 'A', b: 'не A', text: 'расходится' }],
         questions: [{ text: 'Спросить владельца', assumption: 'пока так' }],
         costUsd: 0.01,
@@ -663,7 +666,14 @@ async function main(): Promise<void> {
     async contradictions() { return { facts: [], contradictions: [], questions: [], costUsd: 0 }; },
     async reflect(_state, input) {
       return {
-        facts: [{ kind: 'lesson', text: `Урок недели по ${input.reports.length} табелям`, scope: 'project' }],
+        facts: [
+          {
+            kind: 'lesson', text: `Урок недели по ${input.reports.length} табелям`, scope: 'project',
+            cue: 'когда подводишь неделю', evidence: ['T-1'],
+          },
+          // Без основания — рефлексия такой урок не пишет.
+          { kind: 'lesson', text: 'Урок без основания', scope: 'project' },
+        ],
         contradictions: [], questions: [], costUsd: 0.05,
         features: [feature('Из рефлексии')],
         rules: [{ roleId: 'backend', text: 'Перед сдачей прогоняй проверки.', rationale: 'три возврата подряд' }],
@@ -676,6 +686,8 @@ async function main(): Promise<void> {
   check('рефлексия завела фичу по направлению', refl?.ritual === 'reflect'
     && d.epicList().some((e) => e.title === 'Из рефлексии' && e.origin === 'office'));
   check('рефлексия записала урок', d.factList().some((f) => f.source.ritual === 'reflect'));
+  check('урок без основания рефлексия не записала', !d.factList().some((f) => f.text === 'Урок без основания')
+    && d.log.some((l) => l.text.includes('не записал урок без основания')));
   check('правило из рефлексии — предложение, а не правка',
     d.proposalList().some((p) => p.kind === 'rule' && p.status === 'pending' && p.roleId === 'backend')
     && !(d.role('backend')?.package?.briefExtra ?? '').includes('прогоняй проверки'));

@@ -968,6 +968,7 @@ export const en = {
   'proposal.noSuch': 'There is no pending proposal {id}.',
   'proposal.featureLog': 'Proposal {id} accepted — feature {epic} is on the plan',
   'proposal.ruleLog': 'Proposal {id} accepted — rule added to the brief of role {role}',
+  'proposal.domainRuleLog': 'Proposal {id} accepted — it is project knowledge, so it went into the journal ({fact}) for role {role}, not into the brief',
   'proposal.settingLog': 'Proposal {id} accepted — setting {key} = {value}',
   'proposal.settingRefused': 'The office may not change the setting {key}: it is not in the allowed list.',
 
@@ -1051,6 +1052,7 @@ export const en = {
   'journal.evidenceMore': 'and {n} more',
   'journal.unfounded': 'no evidence',
   'journal.noted': 'Journal {id}: {text}',
+  'journal.lessonUnfounded': 'Ritual {ritual} skipped a lesson without grounds (it needs “when to apply” and links to tasks or entries): {text}',
   'journal.staleLog': '{id} has not been confirmed for weeks — no longer goes into prompts',
   'journal.archivedLog': '{id} archived: stale and still unconfirmed',
   'journal.staleQuestion': 'Is this still in force? “{text}” (journal {id}, last confirmed {days} days ago)',
