@@ -159,3 +159,13 @@ button.oq-chip { cursor: pointer; }
   display: grid; place-items: center; font-size: var(--fs-head); }
 .oq button:focus-visible, .oq-bar button:focus-visible, .oq-qfoot button:focus-visible, .oq-fold:focus-visible,
 .oq-closedlink:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+/* Проба правила на стенде в карточке предложения: знак и слово, не цвет один. */
+.probe { display: flex; flex-direction: column; gap: var(--space-1); padding: var(--space-2) var(--space-3); border-radius: var(--radius-card); box-shadow: inset 0 0 0 1px var(--hairline); font-size: var(--fs-row); }
+.probe-title { font-size: var(--fs-caption); text-transform: uppercase; color: var(--ink-2); }
+.probe-row { display: flex; gap: var(--space-3); align-items: baseline; min-width: 0; }
+.probe-k { flex: none; width: 5.5em; color: var(--ink-2); }
+.probe-v { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--ink); }
+.probe-row.better .probe-v { color: var(--ok-ink); }
+.probe-row.worse .probe-v { color: var(--warn-ink); }
+.probe-line { overflow-wrap: anywhere; }

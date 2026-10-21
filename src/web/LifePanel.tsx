@@ -5,7 +5,7 @@ import {
 } from './store';
 import { buildQueue, cardTitle, isOpenQuestion, queueSegments } from '../shared/questions';
 import type {
-  FactStatus, HealthEntry, OwnerQuestion, ProposalView, RitualId, RuleScopeView, RuleView,
+  FactStatus, HealthEntry, OwnerQuestion, ProposalView, ProposalProbe, RitualId, RuleScopeView, RuleView,
 } from '../shared/types';
 import { RITUAL_IDS, isOfficeSender } from '../shared/types';
 import { locale, t } from './i18n';
@@ -72,6 +72,61 @@ export function LifePanel() {
   );
 }
 
+/** Знак изменения числа: ▲ больше, ▼ меньше, = без изменений. */
+function deltaSign(n: number): string {
+  return n > 0 ? '▲' : n < 0 ? '▼' : '=';
+}
+
+/** Список добавленного/убранного одной строкой: «+a, b · −c». */
+function setDiff(added: string[], removed: string[]): string {
+  const parts = [] as string[];
+  if (added.length) parts.push(`+ ${added.join(', ')}`);
+  if (removed.length) parts.push(`− ${removed.join(', ')}`);
+  return parts.join(' · ');
+}
+
+/**
+ * Проба правила на стенде (T-670/T-671): что изменилось с правилом против
+ * без него. Без прогона — одна строка с причиной. Решение принимает человек,
+ * проба на него не влияет.
+ */
+function ProbeBlock({ probe }: { probe: ProposalProbe }) {
+  const title = <div className="probe-title">{t('life.probe.title')}</div>;
+  if (probe.status !== 'checked') {
+    const why = t(`life.probe.${probe.status}`);
+    return (
+      <div className="probe" role="group" aria-label={t('life.probe.title')}>
+        {title}
+        <div className="probe-line muted small">{probe.note ? `${why}: ${probe.note}` : why}</div>
+      </div>
+    );
+  }
+  const sum = <K extends 'openedAdded' | 'calledAdded'>(a: K, r: K extends 'openedAdded' ? 'openedRemoved' : 'calledRemoved') =>
+    setDiff([...new Set(probe.cases.flatMap((c) => c[a]))], [...new Set(probe.cases.flatMap((c) => c[r]))]);
+  const skills = sum('openedAdded', 'openedRemoved');
+  const calls = sum('calledAdded', 'calledRemoved');
+  const money = (n: number) => `${n > 0 ? '+' : n < 0 ? '−' : ''}$${Math.abs(n).toFixed(3)}`;
+  const num = (n: number) => `${n > 0 ? '+' : n < 0 ? '−' : ''}${Math.abs(n)}`;
+  const cls = (n: number) => (n > 0 ? 'worse' : n < 0 ? 'better' : '');
+  const row = (label: string, value: string, c = '') => (
+    <div className={`probe-row ${c}`}>
+      <span className="probe-k">{label}</span>
+      <span className="probe-v" title={value}>{value}</span>
+    </div>
+  );
+  return (
+    <div className="probe" role="group" aria-label={t('life.probe.title')}>
+      {title}
+      {row(t('life.probe.skills'), skills || t('life.probe.same'))}
+      {row(t('life.probe.calls'), calls || t('life.probe.same'))}
+      {row(t('life.probe.turns'), probe.turnsDelta ? `${deltaSign(probe.turnsDelta)} ${num(probe.turnsDelta)}` : t('life.probe.same'), cls(probe.turnsDelta))}
+      {row(t('life.probe.cost'), probe.costDelta ? `${deltaSign(probe.costDelta)} ${money(probe.costDelta)}` : t('life.probe.same'), cls(probe.costDelta))}
+      {(probe.broke > 0 || probe.fixed > 0) && row(t('life.probe.cases'), t('life.probe.casesValue', { fixed: probe.fixed, broke: probe.broke }), probe.broke > 0 ? 'worse' : 'better')}
+      <div className="probe-line muted small">{t('life.probe.price', { runs: probe.runs, cost: `$${probe.costUsd.toFixed(3)}` })}</div>
+    </div>
+  );
+}
+
 /**
  * Предложения офиса (§8.1): правило для роли, настройка, фича при
  * выключенных инициативах. Офис ничего из этого не делает сам — принять или
@@ -100,6 +155,7 @@ function Proposals() {
       <div className="life-text"><b>{p.title}</b></div>
       {p.text && p.text !== p.title && <div className="life-text"><Markdown source={p.text} compact /></div>}
       <div className="muted small">{p.rationale}</div>
+      {p.probe && <ProbeBlock probe={p.probe} />}
       {p.status === 'pending' && (
         <div className="life-actions">
           <button className="allow" onClick={() => decideProposal(p.id, true)}>{t('life.proposals.accept')}</button>
