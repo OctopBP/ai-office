@@ -11,6 +11,7 @@
  * Всё, что не выражается ими, выражается действием (`run`) внутри узла.
  */
 import { z } from 'zod';
+import type { Lang } from './i18n';
 
 export const NODE_KINDS = ['step', 'check', 'gate', 'decide', 'fanout', 'meeting'] as const;
 export type NodeKind = typeof NODE_KINDS[number];
@@ -85,6 +86,21 @@ const transitionSchema = z.union([
   z.object({ to: id, max: z.number().int().min(1).optional() }).strict(),
 ]);
 
+/** Пункт «что считать сделанным»: строка как есть или вариант на каждый язык. */
+const doneItemSchema = z.union([
+  z.string(),
+  z.object({ ru: z.string().min(1), en: z.string().min(1) }).strict(),
+]);
+export type DoneItem = z.infer<typeof doneItemSchema>;
+
+/**
+ * Текст пункта `done` на нужном языке. Строка — старый формат, отдаётся как
+ * есть на любом языке: процессы офисов, написанные до двуязычных пунктов,
+ * продолжают работать без правок.
+ */
+export const doneText = (item: DoneItem, lang: Lang): string =>
+  typeof item === 'string' ? item : item[lang];
+
 const nodeSchema = z.object({
   id,
   kind: z.enum(NODE_KINDS),
@@ -122,8 +138,12 @@ const nodeSchema = z.object({
   in: z.array(id).optional(),
   /** Под каким именем узел кладёт свой артефакт в прогон. */
   out: id.optional(),
-  /** Что считать сделанным — проверяемые пункты, как критерии задачи. */
-  done: z.array(z.string()).optional(),
+  /**
+   * Что считать сделанным — проверяемые пункты, как критерии задачи. Пункт —
+   * строка (старый формат, уходит агенту как есть) или `{ ru, en }`: тогда
+   * агенту уходит вариант на языке общения офиса (`doneText`).
+   */
+  done: z.array(doneItemSchema).optional(),
   limits: z.object({
     turns: z.number().int().min(1).optional(),
     usd: z.number().min(0).optional(),

@@ -1,12 +1,12 @@
 import { useMemo, useState } from 'react';
 import { resetWorkflow, saveWorkflow, updateSettings, useStore } from './store';
 import {
-  parseWorkflow, workflowStats, END, TASK_TYPES,
+  doneText, parseWorkflow, workflowStats, END, TASK_TYPES,
   type Run, type Workflow, type WorkflowEntry,
 } from '../shared/workflow';
 import { FlowGraph, FlowLegend } from './FlowGraph';
 import { ShellPage } from './shell/ShellPage';
-import { t } from './i18n';
+import { lang, t } from './i18n';
 
 type Tab = 'board' | 'processes' | 'checks' | 'stats';
 
@@ -145,7 +145,7 @@ function Editor({ entry }: { entry: WorkflowEntry }) {
           {node.in && node.in.length > 0 && <><dt>{t('flows.node.in')}</dt><dd className="mono">{node.in.join(', ')}</dd></>}
           {node.out && <><dt>{t('flows.node.out')}</dt><dd className="mono">{node.out}</dd></>}
           {node.done && node.done.length > 0 && (
-            <><dt>{t('flows.node.done')}</dt><dd><ul>{node.done.map((d) => <li key={d}>{d}</li>)}</ul></dd></>
+            <><dt>{t('flows.node.done')}</dt><dd><ul>{node.done.map((d, i) => <li key={i}>{doneText(d, lang())}</li>)}</ul></dd></>
           )}
           {node.limits && (
             <><dt>{t('flows.node.limits')}</dt>

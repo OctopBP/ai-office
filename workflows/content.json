@@ -5,14 +5,14 @@
   "nodes": [
     { "id": "legal", "kind": "step", "needs": ["docs.legal"], "noRole": "ok", "notSameAs": "author", "stage": "review",
       "in": ["report"], "out": "legal",
-      "done": ["Текст прочитан целиком", "Юридические риски названы или их нет", "Вердикт вынесен инструментом"],
+      "done": [{ "ru": "Текст прочитан целиком", "en": "The text is read in full" }, { "ru": "Юридические риски названы или их нет", "en": "Legal risks are named, or there are none" }, { "ru": "Вердикт вынесен инструментом", "en": "The verdict is given with the tool" }],
       "next": { "ok": "publish", "risky": { "to": "rework", "max": 2 }, "failed": "stuck" } },
     { "id": "rework", "kind": "step", "needs": ["docs.write"], "same": "author", "stage": "rework",
       "in": ["legal", "decision"],
-      "done": ["Замечания учтены", "Текст обновлён в папке задачи"],
+      "done": [{ "ru": "Замечания учтены", "en": "The comments are addressed" }, { "ru": "Текст обновлён в папке задачи", "en": "The text is updated in the task folder" }],
       "next": { "done": "legal", "failed": "stuck" } },
     { "id": "publish", "kind": "gate", "stage": "review", "in": ["report", "legal"], "out": "decision",
-      "done": ["Владелец согласен публиковать"],
+      "done": [{ "ru": "Владелец согласен публиковать", "en": "The owner agrees to publish" }],
       "next": { "yes": "sync", "no": { "to": "rework", "max": 2 } } },
 
     { "id": "sync", "kind": "check", "run": "office:sync-base", "stage": "sync", "out": "conflict",

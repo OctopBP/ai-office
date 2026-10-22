@@ -5,14 +5,14 @@
   "nodes": [
     { "id": "verify", "kind": "step", "needs": ["research.web"], "noRole": "ok", "stage": "review",
       "shell": "git-read", "in": ["report"], "out": "verify",
-      "done": ["Ключевые утверждения проверены по источникам", "Пробелы и спорные места названы"],
+      "done": [{ "ru": "Ключевые утверждения проверены по источникам", "en": "Key claims are checked against sources" }, { "ru": "Пробелы и спорные места названы", "en": "Gaps and disputed points are named" }],
       "next": { "ok": "accept", "gaps": { "to": "rework", "max": 1 }, "failed": "stuck" } },
     { "id": "rework", "kind": "step", "needs": ["research.web"], "same": "author", "stage": "rework",
       "in": ["verify", "decision"],
-      "done": ["Пробелы закрыты", "Документ обновлён в папке задачи"],
+      "done": [{ "ru": "Пробелы закрыты", "en": "The gaps are closed" }, { "ru": "Документ обновлён в папке задачи", "en": "The document is updated in the task folder" }],
       "next": { "done": "verify", "failed": "stuck" } },
     { "id": "accept", "kind": "gate", "stage": "review", "in": ["report", "verify"], "out": "decision",
-      "done": ["Владелец принял выводы"],
+      "done": [{ "ru": "Владелец принял выводы", "en": "The owner accepted the conclusions" }],
       "next": { "yes": "sync", "no": { "to": "rework", "max": 1 } } },
 
     { "id": "sync", "kind": "check", "run": "office:sync-base", "stage": "sync", "out": "conflict",

@@ -33,7 +33,7 @@ import { OFFICE_SENDER } from '../shared/types';
 import type { Lang } from '../shared/i18n';
 import type { ServerKey } from './i18n';
 import {
-  AUTHOR, REPORT_ARTIFACT, loopMax, nodeOf,
+  AUTHOR, REPORT_ARTIFACT, doneText, loopMax, nodeOf,
   type Run, type TaskType, type Workflow, type WorkflowNode,
 } from '../shared/workflow';
 import { t } from './i18n';
@@ -928,6 +928,14 @@ export function verdictOf(text: string): 'pass' | 'fail' | null {
   return found ? (found[1].toUpperCase() === 'PASS' ? 'pass' : 'fail') : null;
 }
 
+/**
+ * Пункты «что считать сделанным» узла — нумерованным списком для промпта шага,
+ * на языке общения офиса: это критерии для агента, а с ним офис говорит на нём.
+ */
+export function doneList(node: Pick<WorkflowNode, 'done'>, lang: Lang): string {
+  return (node.done ?? []).map((d, i) => `${i + 1}. ${doneText(d, lang)}`).join('\n');
+}
+
 /** Артефакты узла на вход — текстом для промпта. */
 function artifactsText(ctx: Ctx): string {
   const { state, node, run } = ctx;
@@ -978,9 +986,7 @@ const step: Executor<Ctx> = {
       task.description,
       '',
       artifactsText(ctx),
-      node.done?.length
-        ? `\n${state.say('prompt.step.done')}\n${node.done.map((d, i) => `${i + 1}. ${d}`).join('\n')}`
-        : '',
+      node.done?.length ? `\n${state.say('prompt.step.done')}\n${doneList(node, state.lang())}` : '',
       '',
       state.say('prompt.step.finish', { outcomes: outcomes.join(', ') }),
     ].filter(Boolean).join('\n');
@@ -1124,7 +1130,8 @@ const gate: Executor<Ctx> = {
   async run(ctx) {
     const { state, task, node, run, workflow } = ctx;
     const key = GATE_WHAT[`${workflow.id}.${node.id}`];
-    const what = key ? state.say(key) : node.done?.[0] ?? node.id;
+    const first = node.done?.[0];
+    const what = key ? state.say(key) : first !== undefined ? doneText(first, state.lang()) : node.id;
     const mine = (q: OwnerQuestion) => q.kind === 'gate' && q.taskId === task.id;
     const asked = [...state.questions.values()].filter(mine).sort((a, b) => b.askedAt - a.askedAt);
     const since = workChangedAt(ctx);

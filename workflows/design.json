@@ -4,11 +4,11 @@
   "trigger": { "on": "task.finished", "type": "design" },
   "nodes": [
     { "id": "approve", "kind": "gate", "stage": "review", "in": ["report"], "out": "decision",
-      "done": ["Макет согласован владельцем"],
+      "done": [{ "ru": "Макет согласован владельцем", "en": "The mockup is approved by the owner" }],
       "next": { "yes": "sync", "no": { "to": "rework", "max": 2 } } },
     { "id": "rework", "kind": "step", "needs": ["design.ui"], "same": "author", "stage": "rework",
       "in": ["decision"],
-      "done": ["Замечания владельца учтены", "Макет обновлён в папке задачи"],
+      "done": [{ "ru": "Замечания владельца учтены", "en": "The owner's comments are addressed" }, { "ru": "Макет обновлён в папке задачи", "en": "The mockup is updated in the task folder" }],
       "next": { "done": "approve", "failed": "stuck" } },
 
     { "id": "sync", "kind": "check", "run": "office:sync-base", "stage": "sync", "out": "conflict",

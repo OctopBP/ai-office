@@ -95,6 +95,7 @@
     "test:workflow": "tsx scripts/test-workflow.ts",
     "test:workflow-overrides": "node --import tsx/esm scripts/test-workflow-overrides.ts",
     "test:workflow-tools": "node --import tsx/esm scripts/test-workflow-tools.ts",
+    "test:workflow-done-lang": "node --import tsx/esm scripts/test-workflow-done-lang.ts",
     "test:flows": "tsx scripts/test-flows.ts",
     "test:releases": "tsx scripts/test-releases.ts",
     "test:channels": "node --import tsx scripts/test-release-channels.ts",

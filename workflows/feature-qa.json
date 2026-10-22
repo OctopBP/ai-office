@@ -27,13 +27,13 @@
 
     { "id": "qa", "kind": "step", "needs": ["qa.play"], "notSameAs": "author", "stage": "review",
       "in": ["report", "review"], "out": "qa", "verdict": "docs/qa/{task}/report.md",
-      "done": ["Критерии проверки записаны в docs/qa/<номер задачи>/criteria.md",
-               "Работа пройдена руками на устройствах из критериев, находки подтверждены скриншотами",
-               "Итог записан в docs/qa/<номер задачи>/report.md строкой «Вердикт: PASS» или «Вердикт: FAIL»"],
+      "done": [{ "ru": "Критерии проверки записаны в docs/qa/<номер задачи>/criteria.md", "en": "Test criteria are written to docs/qa/<task id>/criteria.md" },
+               { "ru": "Работа пройдена руками на устройствах из критериев, находки подтверждены скриншотами", "en": "The work is walked through by hand on the devices from the criteria, findings are backed by screenshots" },
+               { "ru": "Итог записан в docs/qa/<номер задачи>/report.md строкой «Вердикт: PASS» или «Вердикт: FAIL» (на английском языке реализации — «Verdict: PASS» или «Verdict: FAIL»)", "en": "The result is written to docs/qa/<task id>/report.md as the line \"Verdict: PASS\" or \"Verdict: FAIL\" (with Russian as the implementation language — \"Вердикт: PASS\" or \"Вердикт: FAIL\")" }],
       "next": { "pass": "resync", "fail": { "to": "qa-fix", "max": 2 }, "failed": "stuck" } },
     { "id": "qa-fix", "kind": "step", "needs": ["code.write"], "same": "author", "stage": "rework",
       "in": ["qa"],
-      "done": ["Находки QA уровня BLOCKER и MAJOR исправлены", "Ответ на каждую находку — в отчёте исполнителя"],
+      "done": [{ "ru": "Находки QA уровня BLOCKER и MAJOR исправлены", "en": "QA findings of BLOCKER and MAJOR level are fixed" }, { "ru": "Ответ на каждую находку — в отчёте исполнителя", "en": "Every finding is answered in the worker's report" }],
       "next": { "done": "sync", "failed": "stuck" } },
 
     { "id": "resync", "kind": "check", "run": "office:sync-base", "stage": "sync", "out": "conflict",
