@@ -174,8 +174,8 @@ export function seedReadme(dir: string, text: string): string | null {
 
 /**
  * Папка роли: завести, положить README и сделать репозиторий. Готовую не трогаем.
- * `lang` — язык ответа человеку (отказы), `codeLang` — язык README: это файл
- * проекта, он пишется на языке реализации офиса.
+ * `lang` — язык ответа человеку (отказы), `codeLang` — язык README и первого
+ * коммита: это артефакты проекта, они пишутся на языке реализации офиса.
  */
 export async function ensureRoleRepo(dir: string, lang: Lang, codeLang: Lang): Promise<string | null> {
   try {
@@ -192,7 +192,7 @@ export async function ensureRoleRepo(dir: string, lang: Lang, codeLang: Lang): P
   // Пустому репозиторию нечего коммитить, а без первого коммита нет ветки,
   // от которой ветвятся задачи, — README и есть этот первый коммит.
   if (!readdirSync(dir).length) writeFileSync(resolve(dir, 'README.md'), t(codeLang, 'setup.readme', { name: dir.split('/').pop() ?? dir }));
-  return (await initRepo(dir, lang)) ? null : t(lang, 'setup.gitInitFailed', { dir });
+  return (await initRepo(dir, codeLang)) ? null : t(lang, 'setup.gitInitFailed', { dir });
 }
 
 /**

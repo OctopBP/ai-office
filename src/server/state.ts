@@ -4252,6 +4252,10 @@ export class OfficeState {
    * Фраза для файла, который офис сам кладёт в репозиторий проекта: шапка
    * `RULES.md`, README новой папки. Это артефакт проекта, а не реплика
    * человеку, поэтому язык — реализации (`codeLang`), а не общения.
+   *
+   * Тексты для git и GitHub (коммиты, теги, заметки о выпуске, PR) сюда не
+   * идут: они в `vcs-messages.ts` и берутся `vcsText(codeLang(), key)`. Язык
+   * у обоих путей один, правило выбора описано в шапке `vcs-messages.ts`.
    */
   projectSay(key: ServerKey, vars?: Vars): string {
     return t(this.codeLang(), key, vars);

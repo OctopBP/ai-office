@@ -20,6 +20,7 @@ import { scaffoldPackage } from '../src/server/export';
 import { createMyAgent, type MyAgentCtx } from '../src/server/myagents';
 import { addRule, findRoleRules, readRulesFile, ROLE_RULES_HEADERS, roleRulesText, ruleScopes } from '../src/server/rules';
 import { ensureRoleRepo, seedReadme } from '../src/server/setup';
+import { vcsText } from '../src/server/vcs-messages';
 import { applyProposal } from '../src/server/selfchange';
 import { getOffice, unloadOfficeState } from '../src/server/state';
 import { ruleProposal } from '../src/server/rituals';
@@ -139,6 +140,8 @@ async function main(): Promise<void> {
     const dir = resolve(tmp, 'wizard', 'web');
     assert.equal(await ensureRoleRepo(dir, 'ru', 'en'), null);
     assert.equal(readFileSync(resolve(dir, 'README.md'), 'utf8'), t('en', 'setup.readme', { name: 'web' }));
+    const subject = execFileSync('git', ['log', '-1', '--format=%s'], { cwd: dir, encoding: 'utf8' }).trim();
+    assert.equal(subject, vcsText('en', 'initCommit'), 'первый коммит — тоже на языке реализации');
     const file = resolve(tmp, 'wizard', 'file');
     writeFileSync(file, 'x');
     assert.equal(await ensureRoleRepo(file, 'ru', 'en'), t('ru', 'offices.notADir', { dir: file }));
