@@ -38,7 +38,7 @@ import {
 } from '../shared/workflow';
 import { t } from './i18n';
 import {
-  taskRepo, criteriaProgress, worktreesRoot, type OfficeState, type PmAbout, type Task,
+  taskRepo, worktreesRoot, type OfficeState, type PmAbout, type Task,
 } from './state';
 import { dispatch } from './plan';
 import {
@@ -55,6 +55,7 @@ import { deliveryAt } from './taskfiles';
 import { taskResultFiles } from './questions';
 import { githubToken } from './cloud';
 import { commentOnPr, createPullRequest, githubFor, mergePullRequest } from './github';
+import { prBody, taskSubject, vcsText } from './vcs-messages';
 import { builtinWorkflow, workflowFor } from './workflows';
 import { effectiveWorkflow, effectiveWorkflowById, planRun, runWorkflow, subjectOf } from './workflow-overrides';
 import {
@@ -385,7 +386,7 @@ async function settle(
 ): Promise<void> {
   if (await mergeInProgress(worktree) || await isDirty(worktree)) {
     const author = state.gitPerson(authorId ?? authorOf(state, task));
-    await commitAll(worktree, `${task.id}: ${message}`, { author });
+    await commitAll(worktree, message, { author });
   }
 }
 
@@ -444,7 +445,8 @@ const syncBase: Executor<Ctx> = {
 
     const ref = await baseRef(repo, base);
     const result = await mergeBaseInto(
-      worktree, ref, state.lang(), { author: state.gitPerson(authorOf(state, task)) });
+      worktree, ref, state.lang(), { author: state.gitPerson(authorOf(state, task)) },
+      vcsText(state.codeLang(), 'syncMerge', { base: ref, branch: ctx.branch }));
     if (result.kind === 'nothing' || result.kind === 'merged') {
       if (result.kind === 'merged') {
         state.addLog(null, 'system',
@@ -493,8 +495,10 @@ const fixConflict: Executor<Ctx> = {
     if (!worktree) return failed(state.say('pipe.noWorktree', { branch: ctx.branch }));
     let files = (ctx.run.artifacts.conflict?.text ?? '').split(', ').filter(Boolean);
     if (!(await mergeInProgress(worktree))) {
+      const ref = await baseRef(repo, base);
       const again = await mergeBaseInto(
-        worktree, await baseRef(repo, base), state.lang(), { author: state.gitPerson(authorOf(state, task)) });
+        worktree, ref, state.lang(), { author: state.gitPerson(authorOf(state, task)) },
+        vcsText(state.codeLang(), 'syncMerge', { base: ref, branch: ctx.branch }));
       if (again.kind === 'nothing' || again.kind === 'merged') return { outcome: 'done' };
       if (again.kind === 'failed') return failed(again.message);
       files = again.conflicts;
@@ -506,7 +510,7 @@ const fixConflict: Executor<Ctx> = {
         state.say('pipe.conflictUnresolved', { base, problem: fix.message }), fix.needsDecision);
     }
     // Автор мог оставить слияние незакоммиченным — доводим сами, как и обычную работу.
-    await settle(state, worktree, task, state.say('pipe.note.merge', { base }));
+    await settle(state, worktree, task, vcsText(state.codeLang(), 'settleMerge', { task: task.id, base }));
     return { outcome: 'done' };
   },
 };
@@ -548,7 +552,7 @@ const fixChecks: Executor<Ctx> = {
     const output = ctx.run.artifacts.checks?.text ?? '';
     const fix = await agents.rework(state, task, checksPrompt(state, task, output));
     const worktree = state.tasks.get(task.id)?.worktreePath ?? null;
-    if (worktree) await settle(state, worktree, task, state.say('pipe.note.fixChecks'));
+    if (worktree) await settle(state, worktree, task, vcsText(state.codeLang(), 'settleFixChecks', { task: task.id }));
     if (!fix.ok) {
       return failed(state.say('pipe.checksFixFailed', { problem: fix.message }), fix.needsDecision);
     }
@@ -570,7 +574,7 @@ const openPr: Executor<Ctx> = {
     const push = await pushBranch(repo, branch, gh.token, state.lang());
     if (!push.ok) return fail(state.say('pipe.pushFailed', { problem: push.message }));
     const created = await createPullRequest(gh, {
-      head: branch, base, title: `${task.id}: ${task.title}`, body: prBody(state, task),
+      head: branch, base, title: taskSubject(state.codeLang(), task.id, task.title), body: prBodyOf(state, task),
     });
     if (!created.ok || !created.data) {
       return fail(state.say('pipe.prFailed', { error: created.error ?? '' }));
@@ -644,7 +648,7 @@ const rework: Executor<Ctx> = {
     state.patchPr(task.id, { note: state.say('wf.reworkNote') });
     const fix = await agents.rework(state, task, reworkPrompt(state, task, text));
     const worktree = state.tasks.get(task.id)?.worktreePath ?? null;
-    if (worktree) await settle(state, worktree, task, state.say('pipe.note.rework'));
+    if (worktree) await settle(state, worktree, task, vcsText(state.codeLang(), 'settleRework', { task: task.id }));
     if (!fix.ok) {
       return failed(state.say('pipe.reworkFailed', { problem: fix.message }), fix.needsDecision);
     }
@@ -781,7 +785,7 @@ const merge: Executor<Ctx> = {
       // В основную ветка задачи ложится одним коммитом «T-N: заголовок»
       // (squash, T-140): по этому префиксу её потом находят в истории.
       const message = taskCommitMessage(
-        task.id, task.title, (state.tasks.get(task.id) ?? task).result);
+        task.id, task.title, (state.tasks.get(task.id) ?? task).result, state.codeLang());
 
       const gh = await githubFor(repo);
       const fresh = state.prOf(task.id);
@@ -995,7 +999,7 @@ const step: Executor<Ctx> = {
       const who = state.instances.get(out.actor)?.label ?? out.actor;
       state.addOfficeNote(state.say('wf.stepStart', { task: task.id, node: node.id, who }), { taskId: task.id });
     }
-    await settle(state, worktree, task, node.id, out.actor);
+    await settle(state, worktree, task, vcsText(state.codeLang(), 'settleStep', { task: task.id, node: node.id }), out.actor);
     if (!out.ok || !out.outcome) {
       return {
         outcome: 'failed', actor: out.actor, needsDecision: out.needsDecision,
@@ -1297,24 +1301,12 @@ export function retryPipeline(state: OfficeState, taskId: string): Promise<void>
 
 // ---------- тексты, которые видят агенты ----------
 
-function prBody(state: OfficeState, task: Task): string {
-  const { done, total } = criteriaProgress(task);
-  return [
-    state.say('pipe.prBody.title', { task: task.id, title: task.title }),
-    '',
-    task.description,
-    '',
-    task.criteria.length
-      ? `${state.say('pipe.prBody.criteria', { done, total })}\n` +
-        task.criteria.map((c) => `- [${c.done ? 'x' : ' '}] ${c.text}`).join('\n')
-      : '',
-    '',
-    task.result ? `${state.say('pipe.prBody.report')}\n${task.result}` : '',
-    task.handoff?.assumed ? `\n${state.say('pipe.prBody.assumed')}\n${task.handoff.assumed}` : '',
-    task.handoff?.left ? `\n${state.say('pipe.prBody.left')}\n${task.handoff.left}` : '',
-    '',
-    state.say('pipe.prBody.footer'),
-  ].filter(Boolean).join('\n');
+/** Тело PR — артефакт проекта: на языке реализации, по шаблону из vcs-messages. */
+function prBodyOf(state: OfficeState, task: Task): string {
+  return prBody(state.codeLang(), {
+    taskId: task.id, title: task.title, description: task.description, criteria: task.criteria,
+    report: task.result, assumed: task.handoff?.assumed, left: task.handoff?.left,
+  });
 }
 
 function conflictPrompt(

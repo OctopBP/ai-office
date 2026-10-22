@@ -6,6 +6,7 @@ import { existsSync, mkdirSync, readFileSync, realpathSync, statSync, symlinkSyn
 import { mkdtemp, rm } from 'node:fs/promises';
 import type { Lang } from '../shared/i18n';
 import { t } from './i18n';
+import { VCS_FALLBACK, vcsText } from './vcs-messages';
 import { projectEnv } from './childenv';
 
 
@@ -206,10 +207,10 @@ export async function liveBase(repoDir: string, recorded: string): Promise<strin
 }
 
 /** Инициализировать репозиторий с первым коммитом — только для директории, которую создали мы сами. */
-export async function initRepo(dir: string, lang: Lang): Promise<boolean> {
+export async function initRepo(dir: string, codeLang: Lang): Promise<boolean> {
   if (!(await git(dir, ['init', '-b', 'main'])).ok) return false;
   await git(dir, ['add', '-A']);
-  const commit = await git(dir, ['commit', '-m', t(lang, 'git.initCommit')], signed());
+  const commit = await git(dir, ['commit', '-m', vcsText(codeLang, 'initCommit')], signed());
   return commit.ok;
 }
 
@@ -790,11 +791,13 @@ export interface AssembledMerge {
  * ложится на базу одним обычным коммитом с одним родителем, как «squash and
  * merge» пулл-реквеста: в истории основной ветки на задачу ровно один коммит,
  * без промежуточных «доработок». Не задано — merge-коммитом, как раньше: так
- * вливается ветка выпуска, у которой своя история.
+ * вливается ветка выпуска, у которой своя история. Сообщение такого коммита —
+ * mergeMessage (шаблон `branchMerge` на языке реализации), без него — английский
+ * шаблон, как у самого git.
  */
 export async function assembleMerge(
   repoDir: string, branch: string, base: string, integrationDir: string, lang: Lang,
-  sign?: Signature, squash?: string,
+  sign?: Signature, squash?: string, mergeMessage?: string,
 ): Promise<AssembledMerge> {
   const warnings: string[] = [];
   const stop = (message: string, kind: AssembledMerge['kind']): AssembledMerge => ({
@@ -843,7 +846,9 @@ export async function assembleMerge(
   // возвращаем к базе сбросом — она у нас и так стояла ровно на базе.
   const merge = squash
     ? await git(worktree, ['merge', '--squash', branch], signed(sign))
-    : await git(worktree, ['merge', '--no-ff', '--no-edit', branch], signed(sign));
+    : await git(worktree, [
+      'merge', '--no-ff', '-m', mergeMessage ?? vcsText(VCS_FALLBACK, 'branchMerge', { branch, base }), branch,
+    ], signed(sign));
   const undo = (): Promise<unknown> => (squash
     ? git(worktree, ['reset', '--hard', '-q', 'HEAD'])
     : git(worktree, ['merge', '--abort']));
@@ -910,7 +915,7 @@ export async function dropAssembled(worktree: string, base: string): Promise<voi
 export async function mergeBranch(
   repoDir: string, branch: string, base: string, integrationDir: string, lang: Lang,
   verify?: (worktree: string) => Promise<{ ok: boolean; message: string }>,
-  sign?: Signature, squash?: string,
+  sign?: Signature, squash?: string, mergeMessage?: string,
 ): Promise<MergeOutcome> {
   const warnings: string[] = [];
   const nothingToDo = (message: string, kind: MergeOutcome['kind'] = 'nothing'): MergeOutcome => ({
@@ -918,7 +923,7 @@ export async function mergeBranch(
     checkout: { state: 'not-here', files: [], message: '' },
   });
 
-  const built = await assembleMerge(repoDir, branch, base, integrationDir, lang, sign, squash);
+  const built = await assembleMerge(repoDir, branch, base, integrationDir, lang, sign, squash, mergeMessage);
   warnings.push(...built.warnings);
   // Запасную копию отпускаем на любом исходе: она нужна ровно на время сборки,
   // а остаться должна только постоянная копия офиса.
@@ -1233,40 +1238,8 @@ export async function isAncestor(dir: string, commit: string, ref: string): Prom
 
 // ------------------------------------------------------------ коммиты задач
 
-/** Сколько тела из отчёта уезжает в сообщение коммита: пара строк, не отчёт целиком. */
-const BODY_MAX = 280;
-const BODY_WIDTH = 72;
-
-/**
- * Сообщение коммита задачи в основной ветке: «T-N: заголовок», пустая строка и
- * первый абзац отчёта, если он есть. По префиксу «T-N:» задачу потом находят
- * в истории (`taskCommitRe`), поэтому формат заголовка менять нельзя.
- *
- * Из отчёта берём только первый абзац и режем по слову: хвосты вроде
- * «⚠️ дубль правки» и списки файлов — это мусор для истории git.
- */
-export function taskCommitMessage(taskId: string, title: string, report?: string | null): string {
-  const subject = `${taskId}: ${title.replace(/\s+/g, ' ').trim()}`;
-  const para = (report ?? '').trim().split(/\n\s*\n/)[0] ?? '';
-  let body = para.replace(/\s+/g, ' ').trim();
-  if (!body || body.startsWith('⚠️')) return subject;
-  if (body.length > BODY_MAX) {
-    const cut = body.slice(0, BODY_MAX);
-    body = `${cut.slice(0, Math.max(cut.lastIndexOf(' '), BODY_MAX / 2)).trimEnd()}…`;
-  }
-  const lines: string[] = [];
-  let line = '';
-  for (const word of body.split(' ')) {
-    if (line && line.length + 1 + word.length > BODY_WIDTH) {
-      lines.push(line);
-      line = word;
-    } else {
-      line = line ? `${line} ${word}` : word;
-    }
-  }
-  if (line) lines.push(line);
-  return `${subject}\n\n${lines.join('\n')}`;
-}
+/** Сообщение коммита задачи живёт с остальными шаблонами истории git. */
+export { taskCommitMessage } from './vcs-messages';
 
 const escapeRe = (s: string): string => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
@@ -1334,16 +1307,20 @@ export interface BaseMerge {
  *
  * Конфликт НЕ отменяем: рабочая копия остаётся в состоянии незавершённого
  * слияния — именно её и чинит автор, а потом коммитит результат.
+ *
+ * message — сообщение merge-коммита (шаблон `syncMerge` на языке реализации).
+ * При конфликте git кладёт его в MERGE_MSG, и коммит автора выйдет с ним же.
+ * Не задано — сообщение git по умолчанию.
  */
 export async function mergeBaseInto(
-  worktreePath: string, base: string, lang: Lang, sign?: Signature,
+  worktreePath: string, base: string, lang: Lang, sign?: Signature, message?: string,
 ): Promise<BaseMerge> {
   const behind = await git(worktreePath, ['rev-list', '--count', `HEAD..${base}`]);
   if (behind.ok && behind.stdout === '0') {
     return { kind: 'nothing', conflicts: [], message: t(lang, 'git.alreadyIncludes', { base }) };
   }
 
-  const merge = await git(worktreePath, ['merge', '--no-edit', base], signed(sign));
+  const merge = await git(worktreePath, ['merge', ...(message ? ['-m', message] : ['--no-edit']), base], signed(sign));
   if (merge.ok) {
     return { kind: 'merged', conflicts: [], message: t(lang, 'git.baseMergedIn', { base }) };
   }
@@ -1598,7 +1575,7 @@ export interface MergeDownResult {
  */
 export async function mergeDown(
   repoDir: string, from: string, into: string, integrationDir: string, lang: Lang,
-  opts: { sign?: Signature; autoFiles?: (mergeBase: string) => Promise<string[]> } = {},
+  opts: { sign?: Signature; autoFiles?: (mergeBase: string) => Promise<string[]>; codeLang?: Lang } = {},
 ): Promise<MergeDownResult> {
   const fromSha = await revision(repoDir, `refs/heads/${from}`);
   const intoSha = await revision(repoDir, `refs/heads/${into}`);
@@ -1622,7 +1599,10 @@ export async function mergeDown(
     await releaseIntegration(repoDir, wt, copy.temporary, lang);
     return out;
   };
-  const merge = await git(wt, ['merge', '--no-ff', '--no-edit', from], signed(opts.sign));
+  // Сообщение — на языке реализации; при конфликте в строках версии git
+  // кладёт его в MERGE_MSG, и коммит ниже (`--no-edit`) выйдет с ним же.
+  const message = vcsText(opts.codeLang ?? VCS_FALLBACK, 'branchMerge', { branch: from, base: into });
+  const merge = await git(wt, ['merge', '--no-ff', '-m', message, from], signed(opts.sign));
   if (!merge.ok) {
     const files = splitLines((await git(wt, ['diff', '--name-only', '--diff-filter=U'])).stdout);
     const base = (await git(repoDir, ['merge-base', fromSha, intoSha])).stdout;

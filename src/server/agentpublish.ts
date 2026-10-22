@@ -27,6 +27,7 @@ import type { MyAgentPublished, MyAgentPublishRequest, MyAgentView } from '../sh
 import type { FieldError } from '../shared/types';
 import { git } from './git';
 import { t } from './i18n';
+import { vcsText } from './vcs-messages';
 import { loadRegistry, REGISTRY_SOURCE, serviceBase } from './market';
 import { bumpPatch, getMyAgent, LOCAL_META, writePublished, type MyAgentCtx } from './myagents';
 import { compareVersions, PACKAGE_NAME_RE, validatePackage } from './packages';
@@ -206,7 +207,7 @@ export async function publishMyAgent(
     if (!added.ok) return gitFail('git add', added.stderr);
     const staged2 = await git(repoDir, ['diff', '--cached', '--quiet', '--', path]);
     if (!staged2.ok) {
-      const made = await git(repoDir, ['commit', '--quiet', '-m', `${name}@${version}: публикация своего агента офиса`, '--', path]);
+      const made = await git(repoDir, ['commit', '--quiet', '-m', vcsText(lang, 'agentPublish', { name, version }), '--', path]);
       if (!made.ok) return gitFail('git commit', made.stderr);
     }
     const info = await publishInfo(target, { repo: origin });

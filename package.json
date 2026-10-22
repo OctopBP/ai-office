@@ -108,6 +108,7 @@
     "test:archiveboot": "node --import tsx scripts/test-office-archive-boot.ts",
     "test:setup": "tsx scripts/test-setup.ts",
     "test:doctemplates": "node --import tsx scripts/test-doc-templates.ts",
+    "test:vcs-messages": "node --import tsx scripts/test-vcs-messages.ts",
     "test:presets": "tsx scripts/test-presets.ts",
     "test:terminal": "tsx scripts/test-terminal.ts",
     "presets:catalog": "tsx scripts/presets-catalog.ts",

@@ -45,9 +45,9 @@ function commitsSincePrevious(name) {
   const range = prev ? `${prev}..${name}` : name;
   const log = git('log', '--first-parent', '--no-merges', '--max-count=100', '--format=%s', range);
   const lines = log.split('\n').map((s) => s.trim()).filter(Boolean)
-    // Коммит «Выпуск …» (раньше — «Версия …») ставит сам офис — это не
-    // изменение, а сам выпуск.
-    .filter((s) => !/^(Выпуск |Версия \d)/u.test(s));
+    // Коммит «Выпуск …» / «Release …» (раньше — «Версия …») ставит сам офис
+    // на языке реализации — это не изменение, а сам выпуск.
+    .filter((s) => !/^(Выпуск |Release |Версия \d)/u.test(s));
   const list = lines.map((s) => `- ${s}`).join('\n');
   if (!list) return prev ? `Изменений с ${prev} нет.` : 'Первый выпуск.';
   return prev ? `Изменения с ${prev}:\n\n${list}` : list;

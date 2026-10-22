@@ -31,6 +31,7 @@ import { taskClosed } from '../shared/types';
 import { worktreesRoot, type OfficeState, type Task } from './state';
 import { soleZone, zoneRepo } from './subprojects';
 import { t, type ServerKey } from './i18n';
+import { releaseSubjects as releaseSubjectsFor, releaseTagMessage, vcsText } from './vcs-messages';
 import {
   OFFICE_PERSON, baseBranch, commitAll, detachedWorktree, filesOfOfficeCommits, git, isAncestor, isRepo, mergeBranch,
   mergeDown, promoteBranch, pushRef, remoteHasRef, remoteUrl, revision, syncChannelBranch,
@@ -435,9 +436,9 @@ async function downChain(repo: string, target: ReleaseTarget, channel: ReleaseCh
   return chain;
 }
 
-/** Темы коммитов «Выпуск» цели на обоих языках — их строки версии сливаются сами (§3.5). */
+/** Темы коммитов «Выпуск» цели на всех языках шаблонов — их строки версии сливаются сами (§3.5). */
 const releaseSubjects = (target: ReleaseTarget): string[] =>
-  (['ru', 'en'] as const).map((lang) => `${t(lang, 'rel.commit', { target: target.title, version: '' }).trimEnd()} `);
+  releaseSubjectsFor(target.title);
 
 interface ChainResult {
   /** Куда влито (или уже было влито) по цепочке: ['beta', 'main']. */
@@ -465,6 +466,7 @@ async function mergeChain(ctx: Ctx, channel: ReleaseChannel, base: string): Prom
     const from = chain[i];
     const into = chain[i + 1];
     const merged = await withMergeLock(repo, () => mergeDown(repo, from, into, integrationDir(state, repo), state.lang(), {
+      codeLang: state.codeLang(),
       sign: { author: OFFICE_PERSON, committer: OFFICE_PERSON },
       autoFiles: async (mergeBase) => [...new Set([
         ...await filesOfOfficeCommits(repo, `${mergeBase}..${from}`, subjects),
@@ -1010,7 +1012,7 @@ const bump: Executor<Ctx> = {
       const gap = head && !head.endsWith('\n\n') ? '\n' : '';
       writeFileSync(log, `${head}${gap}${changelogEntry(r, Date.now())}${old.slice(at)}`);
     }
-    const committed = await commitAll(dir, say(ctx, 'rel.commit', { target: target.title, version: label(r) }),
+    const committed = await commitAll(dir, vcsText(state.codeLang(), 'release', { target: target.title, version: label(r) }),
       { author: OFFICE_PERSON, committer: OFFICE_PERSON });
     if (committed === 'failed') return fail(say(ctx, 'rel.commitFailed'));
     if (committed === 'committed') {
@@ -1061,7 +1063,7 @@ const tag: Executor<Ctx> = {
     const name = fillVersion(target.tag ?? DEFAULT_TAG, point(r));
     const again = r.attempts > 0;
     patch(ctx, { status: 'building', attempts: r.attempts + 1, stage: say(ctx, 'rel.stage.tag', { tag: name }) });
-    const made = await git(repo, ['tag', '-a', ...(again ? ['-f'] : []), name, '-m', `${target.title} ${label(r)}\n\n${r.notes}`, sha],
+    const made = await git(repo, ['tag', '-a', ...(again ? ['-f'] : []), name, '-m', releaseTagMessage(state.codeLang(), target.title, label(r), r.notes), sha],
       { GIT_COMMITTER_NAME: OFFICE_PERSON.name, GIT_COMMITTER_EMAIL: OFFICE_PERSON.email });
     if (!made.ok) return fail(say(ctx, 'rel.tagFailed', { tag: name, error: made.stderr }), { needsDecision: true });
     record(ctx, { tag: name });
@@ -1423,7 +1425,8 @@ const publish: Executor<Ctx> = {
     } else if (base) {
       const out = await withMergeLock(repo, () => mergeBranch(
         repo, r.branch, base, integrationDir(state, repo), state.lang(), undefined,
-        { author: OFFICE_PERSON, committer: OFFICE_PERSON },
+        { author: OFFICE_PERSON, committer: OFFICE_PERSON }, undefined,
+        vcsText(state.codeLang(), 'branchMerge', { branch: r.branch, base }),
       ));
       if (!out.ok) {
         mergedBack = false;

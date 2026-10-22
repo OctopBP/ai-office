@@ -24,6 +24,7 @@ import {
 } from '../shared/types';
 import { LANG_NAME_EN, type Lang, type Vars } from '../shared/i18n';
 import { t, type ServerKey } from './i18n';
+import { taskSubject, vcsText } from './vcs-messages';
 import type { BudgetStop, MeetingView, PmChat, PrStage, PullRequestView, ReviewVerdict, TaskEdit } from '../shared/types';
 import { cloudProblem, runCloudTask, stopCloudTask } from './cloud';
 import type { Role } from './roles';
@@ -3350,7 +3351,7 @@ function startWorker(
       // Коммитим сами: полагаться на то, что исполнитель не забудет, нельзя.
       if (fresh?.branch) {
         const outcome = await commitAll(
-          workRoot, `${task.id}: ${task.title}`, { author: taskOffice.gitPerson(inst.id) });
+          workRoot, taskSubject(taskOffice.codeLang(), task.id, task.title), { author: taskOffice.gitPerson(inst.id) });
         if (outcome === 'committed') {
           taskOffice.addLog(inst.id, 'system',
             taskOffice.say('agent.log.committed', { branch: fresh.branch }));
@@ -3403,7 +3404,7 @@ function startWorker(
         let note = taskOffice.say('agent.task.cancelled');
         if (fresh?.branch) {
           const outcome = await commitAll(
-            workRoot, taskOffice.say('agent.task.cancelledCommit', { task: task.id }),
+            workRoot, vcsText(taskOffice.codeLang(), 'partialCancelled', { task: task.id }),
             { author: taskOffice.gitPerson(inst.id) });
           note += outcome === 'committed'
             ? taskOffice.say('agent.task.stoppedKept', { branch: fresh.branch })
@@ -3421,7 +3422,7 @@ function startWorker(
         let note = taskOffice.say('agent.task.stopped');
         if (fresh?.branch) {
           const outcome = await commitAll(
-            workRoot, taskOffice.say('agent.task.stoppedCommit', { task: task.id }),
+            workRoot, vcsText(taskOffice.codeLang(), 'partialStopped', { task: task.id }),
             { author: taskOffice.gitPerson(inst.id) });
           note += outcome === 'committed'
             ? taskOffice.say('agent.task.stoppedKept', { branch: fresh.branch })
@@ -3439,7 +3440,7 @@ function startWorker(
         let note = taskOffice.say('agent.task.budgetStopped', { reason: message });
         if (fresh?.branch) {
           const outcome = await commitAll(
-            workRoot, taskOffice.say('agent.task.budgetCommit', { task: task.id }),
+            workRoot, vcsText(taskOffice.codeLang(), 'partialBudget', { task: task.id }),
             { author: taskOffice.gitPerson(inst.id) });
           if (outcome === 'committed') note += taskOffice.say('agent.task.stoppedKept', { branch: fresh.branch });
         }
@@ -3472,7 +3473,7 @@ function startWorker(
         let note = taskOffice.say('agent.task.limited', { when });
         if (fresh?.branch) {
           const outcome = await commitAll(
-            workRoot, taskOffice.say('agent.task.limitedCommit', { task: task.id }),
+            workRoot, vcsText(taskOffice.codeLang(), 'partialLimited', { task: task.id }),
             { author: taskOffice.gitPerson(inst.id) });
           if (outcome === 'committed') {
             note += taskOffice.say('agent.task.stoppedKept', { branch: fresh.branch });
@@ -4469,7 +4470,7 @@ async function reworkTask(
   // Коммитим за автора, как и после обычной задачи: полагаться на то, что
   // он не забудет, нельзя — а незакоммиченная правка до ревью не доедет.
   const committed = await commitAll(
-    worktree, state.say('review.reworkCommit', { task: task.id }), { author: state.gitPerson(inst.id) });
+    worktree, vcsText(state.codeLang(), 'rework', { task: task.id }), { author: state.gitPerson(inst.id) });
   if (committed === 'failed') return { ok: false, message: state.say('review.commitFailed') };
   return {
     ok: true,

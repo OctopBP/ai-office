@@ -86,7 +86,7 @@ const usingKey = (): boolean => Boolean(providerKey('claude-code'));
  */
 async function setupGit(state: OfficeState, dir: string, ours: boolean): Promise<void> {
   if (ours && !(await isRepo(dir))) {
-    const ok = await initRepo(dir, state.lang());
+    const ok = await initRepo(dir, state.codeLang());
     console.log(state.say(ok ? 'boot.gitInit' : 'boot.gitInitFailed'));
   }
 }

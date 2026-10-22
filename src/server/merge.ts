@@ -231,7 +231,7 @@ export async function mergeQueue(taskIds: string[], state: OfficeState): Promise
         // Ручная очередь: работа исполнителя, а влил её по команде человека сам офис.
         { author: state.gitPerson(task.assigneeId), committer: OFFICE_PERSON },
         // Одним коммитом «T-N: заголовок», как и в конвейере (T-140).
-        taskCommitMessage(task.id, task.title, task.result));
+        taskCommitMessage(task.id, task.title, task.result, state.codeLang()));
       if (checks.result) step.typecheck = checks.result;
       state.addOfficeNote(
         state.say('merge.stepOutcome', { task: task.id, message: outcome.message }), { taskId: task.id });
