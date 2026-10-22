@@ -31,6 +31,7 @@ import { taskClosed } from '../shared/types';
 import { worktreesRoot, type OfficeState, type Task } from './state';
 import { soleZone, zoneRepo } from './subprojects';
 import { t, type ServerKey } from './i18n';
+import { LANG_NAME_EN } from '../shared/i18n';
 import { releaseSubjects as releaseSubjectsFor, releaseTagMessage, vcsText } from './vcs-messages';
 import {
   OFFICE_PERSON, baseBranch, commitAll, detachedWorktree, filesOfOfficeCommits, git, isAncestor, isRepo, mergeBranch,
@@ -81,6 +82,22 @@ export interface NotesInput {
   version: string;
   tasks: Array<{ id: string; title: string; did: string; epic: string | null }>;
   epics: Array<{ id: string; title: string; goal: string }>;
+}
+
+/**
+ * Промпт заметок о выпуске. Инструкция модели — на языке общения (её читает
+ * только модель), а сами заметки просим на языке РЕАЛИЗАЦИИ: тот же текст
+ * уходит в CHANGELOG.md, аннотацию тега и OFFICE_RELEASE_NOTES — артефакты
+ * проекта. Карточка согласования показывает владельцу его же, второй версии нет.
+ */
+export function releaseNotesPrompt(state: OfficeState, input: NotesInput): string {
+  return state.say('prompt.release.notes', {
+    target: input.target,
+    version: input.version,
+    lang: LANG_NAME_EN[state.codeLang()],
+    epics: input.epics.map((e) => `- ${e.id} ${e.title}: ${e.goal}`).join('\n') || '—',
+    tasks: input.tasks.map((t) => `- ${t.id} ${t.title}${t.epic ? ` [${t.epic}]` : ''}${t.did ? `: ${t.did}` : ''}`).join('\n'),
+  });
 }
 
 export interface ReleaseAgents {
@@ -882,10 +899,12 @@ const notes: Executor<Ctx> = {
     // Последние полсотни: первый выпуск без истории иначе тащил бы в заметки весь проект.
     const tasks = r.taskIds.map((id) => state.tasks.get(id)).filter((t): t is Task => Boolean(t)).slice(-50);
     const epics = r.epicIds.map((id) => state.epics.get(id)).filter((e) => Boolean(e));
+    // Запасной список — названия фич и задач как их написали люди: перевести их
+    // нечем, поэтому они идут как есть. На языке реализации только своя фраза.
     const plain = [
       ...epics.map((e) => `- ${e!.title}${e!.goal ? ` — ${clip(e!.goal, 120)}` : ''}`),
       ...tasks.filter((t) => !t.epicId).map((t) => `- ${clip(t.title, 120)}`),
-    ].join('\n') || say(ctx, 'rel.notesEmpty');
+    ].join('\n') || vcsText(state.codeLang(), 'notesEmpty');
     let text = '';
     if (tasks.length) {
       const out = await agents.notes(state, {

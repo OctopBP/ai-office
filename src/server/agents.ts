@@ -40,7 +40,7 @@ import {
 import { outsideZone, writeZone, zonePath } from './subprojects';
 import { worktreeOwnFiles } from './premerge';
 import {
-  cancelRelease, closeReleasePlan, proposeReleaseTarget, proposedAssets, proposedChannels, proposedDirs, releaseStatusText, releaseText, restartRelease, resumeRelease, saveReleasePlan, setReleaseAgents,
+  cancelRelease, closeReleasePlan, proposeReleaseTarget, proposedAssets, proposedChannels, proposedDirs, releaseStatusText, releaseText, restartRelease, resumeRelease, saveReleasePlan, setReleaseAgents, releaseNotesPrompt,
   startCheckedRelease,
 } from './releases';
 import type { ReleaseTarget } from '../shared/release';
@@ -5304,13 +5304,7 @@ setReleaseAgents({
   async notes(state, input) {
     if (state.dryRun) return { text: '', costUsd: 0 };
     const say = state.say.bind(state);
-    const prompt = say('prompt.release.notes', {
-      target: input.target,
-      version: input.version,
-      lang: LANG_NAME_EN[state.lang()],
-      epics: input.epics.map((e) => `- ${e.id} ${e.title}: ${e.goal}`).join('\n') || '—',
-      tasks: input.tasks.map((t) => `- ${t.id} ${t.title}${t.epic ? ` [${t.epic}]` : ''}${t.did ? `: ${t.did}` : ''}`).join('\n'),
-    });
+    const prompt = releaseNotesPrompt(state, input);
     const before = state.instances.get('pm#1')?.usage.costUsd ?? 0;
     let text = '';
     let error: string | undefined;

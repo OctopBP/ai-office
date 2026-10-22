@@ -1326,7 +1326,6 @@ export const en = {
   'rel.noTargets': 'No release targets — set them up in the Releases panel.',
   'rel.noWorkflow': 'There is no release process.',
   'rel.notResumable': 'Release {id} is already finished.',
-  'rel.notesEmpty': '- small fixes',
   'rel.notesFailed': 'Release notes failed: {error}. Using the task list.',
   'rel.nothingNew': '"{target}": nothing new since {version} — nothing to release.',
   'rel.optYes': 'Ship it',

@@ -1326,7 +1326,6 @@ export const ru: Record<keyof typeof en, string> = {
   'rel.noTargets': 'Целей выпуска нет — их задают в панели «Выпуски».',
   'rel.noWorkflow': 'Процесса release нет — выпускать нечем.',
   'rel.notResumable': 'Выпуск {id} уже закончен.',
-  'rel.notesEmpty': '- мелкие правки',
   'rel.notesFailed': 'Заметки о выпуске не написались: {error}. Беру список задач.',
   'rel.nothingNew': '«{target}»: с выпуска {version} нового нет — выпускать нечего.',
   'rel.optYes': 'Выпускай',

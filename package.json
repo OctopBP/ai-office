@@ -105,6 +105,7 @@
     "test:release-repo": "node --import tsx scripts/test-release-repo.ts",
     "test:release-fresh": "node --import tsx scripts/test-release-fresh.ts",
     "test:release-check": "node --import tsx scripts/test-release-check.ts",
+    "test:release-notes-lang": "node --import tsx scripts/test-release-notes-lang.ts",
     "test:offices": "tsx scripts/test-offices.ts",
     "test:archiveboot": "node --import tsx scripts/test-office-archive-boot.ts",
     "test:setup": "tsx scripts/test-setup.ts",
