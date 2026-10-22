@@ -73,6 +73,7 @@
     "test:sound": "node --import tsx scripts/test-sound.ts",
     "test:work-count": "node --import tsx scripts/test-work-count.ts",
     "test:rules": "tsx scripts/test-rules.ts",
+    "test:project-lang": "node --import tsx/esm scripts/test-project-lang.ts",
     "test:context-budget": "node --import tsx/esm scripts/test-context-budget.ts",
     "test:subprojects": "node --import tsx scripts/test-subprojects.ts",
     "test:zone-write": "node --import tsx scripts/test-zone-write.ts",

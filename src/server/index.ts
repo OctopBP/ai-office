@@ -1,6 +1,6 @@
 import { WebSocketServer, type WebSocket } from 'ws';
 import { createServer, type ServerResponse } from 'node:http';
-import { mkdirSync, existsSync, writeFileSync, readFileSync, statSync } from 'node:fs';
+import { mkdirSync, existsSync, readFileSync, statSync } from 'node:fs';
 import { basename, extname, resolve, sep } from 'node:path';
 import type { ClientCommand, FieldError, RoleOp, ServerEvent } from '../shared/types';
 import { asTaskPriority, OFFICE_SENDER } from '../shared/types';
@@ -46,6 +46,7 @@ import { handleTaskFiles } from './taskfiles';
 import { handleProjectFile } from './files';
 import { handleFigcraft } from './figcraft';
 import { handleMyAgentsHttp } from './myagents';
+import { seedReadme } from './setup';
 // hasCommits и repoProblem здесь больше не нужны: проверку репозитория и
 // выставление gitReady целиком делает envcheck — одно место на все проверки.
 import { initRepo, isRepo } from './git';
@@ -108,12 +109,6 @@ async function openOffice(entry: OfficeEntry): Promise<void> {
     if (!existsSync(entry.projectDir)) {
       mkdirSync(entry.projectDir, { recursive: true });
     }
-    if (ours && !existsSync(resolve(entry.projectDir, 'README.md'))) {
-      writeFileSync(
-        resolve(entry.projectDir, 'README.md'),
-        c('boot.readme'),
-      );
-    }
   } catch (err) {
     console.log(c('boot.dirFailed', { dir: entry.projectDir, error: (err as Error).message }));
   }
@@ -121,6 +116,10 @@ async function openOffice(entry: OfficeEntry): Promise<void> {
   // Состояние берётся из реестра: у каждого офиса оно своё и живёт до конца
   // процесса — вернувшийся офис продолжается, а не читается заново.
   const { state, restored, reused } = openOfficeState(entry);
+  // README — файл проекта, а не реплика человеку: пишем его на языке
+  // реализации офиса, поэтому только когда состояние уже поднято.
+  const readmeError = ours ? seedReadme(entry.projectDir, state.projectSay('boot.readme')) : null;
+  if (readmeError) console.log(c('boot.dirFailed', { dir: entry.projectDir, error: readmeError }));
   // Язык процесса — язык ИНТЕРФЕЙСА: терминал читает тот же человек, что и
   // подписи на экране, и язык у них один на всё приложение. Раньше его брал
   // открытый офис, но язык офиса теперь про общение с командой, а не про то,

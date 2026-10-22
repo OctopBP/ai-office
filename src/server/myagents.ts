@@ -71,7 +71,14 @@ const COLOR_RE = /^#[0-9a-f]{6}$/i;
 
 /** Что модулю нужно знать об офисе. */
 export interface MyAgentCtx {
+  /**
+   * Язык ОБЩЕНИЯ офиса (`state.lang()`), а не интерфейса: на нём владелец
+   * пишет бриф, название и описание, и под этим ключом они ложатся в пакет
+   * (`brief/<lang>.md`, `title.<lang>`) — ключ обязан совпадать с языком текста.
+   */
   lang: Lang;
+  /** Язык реализации офиса (`state.codeLang()`) — для README и CHANGELOG пакета. Нет — `lang`. */
+  codeLang?: Lang;
   /** id серверов каталога MCP офиса. */
   mcpIds: readonly string[];
   /** Роли офиса — кто нанят из своего агента. */
@@ -345,6 +352,7 @@ function writeAgent(
       builtin: draft.builtin ?? base.builtin ?? [],
       briefs: { [ctx.lang]: draft.brief.trim() },
       skillsFrom: undefined,
+      docsLang: ctx.codeLang ?? ctx.lang,
     });
     if (caps.length) {
       // scaffoldPackage способностей не пишет — дописываем в манифест сами.
@@ -628,7 +636,7 @@ const defaultEnv: MyAgentsHttpEnv = {
     const state = getOffice(office.id);
     return {
       root: state.agentsDir(),
-      ctx: { lang: state.lang(), mcpIds: mcpCatalog(state.settings).map((d) => d.id), roles: state.roles() },
+      ctx: { lang: state.lang(), codeLang: state.codeLang(), mcpIds: mcpCatalog(state.settings).map((d) => d.id), roles: state.roles() },
       role: (id) => state.role(id),
       office: state,
     };

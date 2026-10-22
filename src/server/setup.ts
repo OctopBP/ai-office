@@ -29,7 +29,7 @@ import { catalogPackages, ensureInstalled, installedPackage } from './market';
 import { createOffice, defaultRoot, expandHome, offices, type OfficeEntry } from './offices';
 import { FOLDER_NAME_RE, PACKAGE_NAME_RE, type TeamSettings } from './packages';
 import { folderPickerAvailable } from './pickfolder';
-import type { OfficeState } from './state';
+import { newOfficeLang, type OfficeState } from './state';
 
 /** Что сборке нужно снаружи: поднять офис и доставить прогресс. */
 export interface SetupHooks {
@@ -156,8 +156,28 @@ function samePath(a: string, b: string): boolean {
   }
 }
 
-/** Папка роли: завести, положить README и сделать репозиторий. Готовую не трогаем. */
-async function ensureRoleRepo(dir: string, lang: Lang): Promise<string | null> {
+/**
+ * Положить README.md в корень, если его там ещё нет. Текст готовит вызывающий:
+ * README — файл проекта, и язык (реализации) знает тот, кто знает офис.
+ * Возвращает причину провала или null.
+ */
+export function seedReadme(dir: string, text: string): string | null {
+  const file = resolve(dir, 'README.md');
+  if (existsSync(file)) return null;
+  try {
+    writeFileSync(file, text);
+    return null;
+  } catch (err) {
+    return (err as Error).message;
+  }
+}
+
+/**
+ * Папка роли: завести, положить README и сделать репозиторий. Готовую не трогаем.
+ * `lang` — язык ответа человеку (отказы), `codeLang` — язык README: это файл
+ * проекта, он пишется на языке реализации офиса.
+ */
+export async function ensureRoleRepo(dir: string, lang: Lang, codeLang: Lang): Promise<string | null> {
   try {
     if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
     else if (!isDir(dir)) return t(lang, 'offices.notADir', { dir });
@@ -171,7 +191,7 @@ async function ensureRoleRepo(dir: string, lang: Lang): Promise<string | null> {
   if (top && samePath(top, dir)) return null;
   // Пустому репозиторию нечего коммитить, а без первого коммита нет ветки,
   // от которой ветвятся задачи, — README и есть этот первый коммит.
-  if (!readdirSync(dir).length) writeFileSync(resolve(dir, 'README.md'), t(lang, 'setup.readme', { name: dir.split('/').pop() ?? dir }));
+  if (!readdirSync(dir).length) writeFileSync(resolve(dir, 'README.md'), t(codeLang, 'setup.readme', { name: dir.split('/').pop() ?? dir }));
   return (await initRepo(dir, lang)) ? null : t(lang, 'setup.gitInitFailed', { dir });
 }
 
@@ -253,8 +273,12 @@ export async function buildOffice(plan: OfficeSetupPlan, lang: Lang, hooks: Setu
     progress.start(stepDirs);
     const problems: string[] = [];
     const ready: string[] = [];
+    // Офис ещё не открыт, и своего языка реализации у него нет: в плане мастера
+    // языка нет, а настройки команды его не задают. Берём тот, с которым
+    // откроется новый офис, — иначе README разошёлся бы с его настройкой.
+    const codeLang = newOfficeLang();
     for (const folder of folders) {
-      const problem = await ensureRoleRepo(resolve(entry.projectDir, folder), lang);
+      const problem = await ensureRoleRepo(resolve(entry.projectDir, folder), lang, codeLang);
       if (problem) problems.push(problem);
       else ready.push(folder);
     }

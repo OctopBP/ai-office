@@ -44,6 +44,12 @@ export interface Scaffold {
   use?: string[];
   servers?: McpServerDef[];
   requires?: Partial<AgentManifest['requires']>;
+  /**
+   * Язык README и CHANGELOG заготовки. Пакет для маркета читают все — по
+   * умолчанию английский; «свой агент» живёт в офисе и пишет их на языке
+   * реализации офиса.
+   */
+  docsLang?: Lang;
   /** Брифы по языкам; пусто — файлов брифа не будет. */
   briefs?: Localized;
   /** Папка со скилами, которую скопировать в пакет целиком. */
@@ -59,6 +65,53 @@ export function modelAlias(model: string): string {
   const found = (Object.entries(MODEL_ALIASES) as Array<[string, string]>).find(([, id]) => id === model);
   return found ? found[0] : model;
 }
+
+/** Тексты README и CHANGELOG заготовки по языкам (см. `Scaffold.docsLang`). */
+const SCAFFOLD_DOCS: Record<Lang, {
+  intro: (name: string) => string;
+  installHead: string;
+  install: string[];
+  developHead: string;
+  develop: string[];
+  layout: string;
+  versions: (inRepo: string, single: string) => string;
+  firstVersion: string;
+}> = {
+  en: {
+    intro: (name) => `Package \`${name}\` for AI Office — an agent with a brief, model, tools and skills.`,
+    installHead: '## Install',
+    install: [
+      'Open the office → Agent market → “Add by link” and paste this repository URL',
+      '(for a folder inside a repository: `owner/repo#path/to/package`).',
+    ],
+    developHead: '## Develop',
+    develop: [
+      'office-agent validate .     # manifest, skills, secrets',
+      'office-agent bench .        # do the skills trigger on typical requests (costs tokens)',
+      'office-agent publish .      # registry entry for the current commit',
+    ],
+    layout: 'Brief lives in `brief/<lang>.md`, skills in `skills/<name>/SKILL.md`, the manifest is `agent.json`.',
+    versions: (inRepo, single) => `Versions are git tags: \`${inRepo}\` for a package inside a repository, \`${single}\` for a single-package one.`,
+    firstVersion: 'First version.',
+  },
+  ru: {
+    intro: (name) => `Пакет \`${name}\` для AI Office — агент с брифом, моделью, инструментами и скилами.`,
+    installHead: '## Установка',
+    install: [
+      'Откройте офис → Маркет агентов → «Добавить по ссылке» и вставьте адрес этого репозитория',
+      '(для папки внутри репозитория: `owner/repo#path/to/package`).',
+    ],
+    developHead: '## Разработка',
+    develop: [
+      'office-agent validate .     # манифест, скилы, секреты',
+      'office-agent bench .        # срабатывают ли скилы на типичных запросах (тратит токены)',
+      'office-agent publish .      # запись в реестр для текущего коммита',
+    ],
+    layout: 'Бриф лежит в `brief/<lang>.md`, скилы — в `skills/<name>/SKILL.md`, манифест — `agent.json`.',
+    versions: (inRepo, single) => `Версии — теги git: \`${inRepo}\` для пакета внутри репозитория, \`${single}\` для репозитория с одним пакетом.`,
+    firstVersion: 'Первая версия.',
+  },
+};
 
 /** Последний сегмент имени: `@acme/lawyer` → `lawyer`. */
 const shortName = (name: string): string => name.split('/').pop() ?? name;
@@ -134,29 +187,28 @@ export function scaffoldPackage(dir: string, spec: Scaffold): { problems: Packag
       { what: 'describe a typical request for this role', prompt: 'Replace me with a real request.', expect: [], avoid: [] },
     ],
   }, null, 2)}\n`);
+  const docsLang = spec.docsLang ?? 'en';
+  const text = SCAFFOLD_DOCS[docsLang];
   writeFileSync(resolve(dir, 'README.md'), [
-    `# ${title.en ?? title.ru ?? short}`,
+    `# ${title[docsLang] ?? title.en ?? title.ru ?? short}`,
     '',
-    `Package \`${spec.name}\` for AI Office — an agent with a brief, model, tools and skills.`,
+    text.intro(spec.name),
     '',
-    '## Install',
+    text.installHead,
     '',
-    'Open the office → Agent market → “Add by link” and paste this repository URL',
-    '(for a folder inside a repository: `owner/repo#path/to/package`).',
+    ...text.install,
     '',
-    '## Develop',
+    text.developHead,
     '',
     '```',
-    'office-agent validate .     # manifest, skills, secrets',
-    'office-agent bench .        # do the skills trigger on typical requests (costs tokens)',
-    'office-agent publish .      # registry entry for the current commit',
+    ...text.develop,
     '```',
     '',
-    'Brief lives in `brief/<lang>.md`, skills in `skills/<name>/SKILL.md`, the manifest is `agent.json`.',
-    'Versions are git tags: `' + `${short}@${version}` + '` for a package inside a repository, `v${version}` for a single-package one.',
+    text.layout,
+    text.versions(`${short}@${version}`, `v${version}`),
     '',
   ].join('\n'));
-  writeFileSync(resolve(dir, 'CHANGELOG.md'), `# Changelog\n\n## ${version}\n\n- First version.\n`);
+  writeFileSync(resolve(dir, 'CHANGELOG.md'), `# Changelog\n\n## ${version}\n\n- ${text.firstVersion}\n`);
 
   return { problems: validatePackage(dir) };
 }

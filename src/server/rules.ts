@@ -15,6 +15,7 @@
  */
 import { readFileSync, writeFileSync } from 'node:fs';
 import { basename, resolve } from 'node:path';
+import type { Lang } from '../shared/i18n';
 import type { RuleScopeView, RuleView, Subproject } from '../shared/types';
 import type { Role } from './roles';
 import type { OfficeState } from './state';
@@ -23,8 +24,37 @@ import { soleZone, zonePath } from './subprojects';
 /** Имя файла правил. Одно и то же в корне офиса и в корне зоны. */
 export const RULES_FILE = 'RULES.md';
 
-/** Заголовок, под которым правила роли лежат в брифе (см. selfchange.ts). */
-const ROLE_RULES_HEADER = '## Правила офиса';
+/**
+ * Заголовок, под которым правила роли лежат в брифе (см. selfchange.ts). Бриф
+ * написан на языке общения офиса, и заголовок пишется на нём же; читаем оба —
+ * иначе правила, дописанные до смены языка, пропали бы из вида.
+ */
+export const ROLE_RULES_HEADERS: Readonly<Record<Lang, string>> = {
+  ru: '## Правила офиса',
+  en: '## Office rules',
+};
+
+/**
+ * Где в брифе начинаются правила роли: позиция заголовка и его длина, или null,
+ * если раздела нет. Заголовок любого из языков, причём только целой строкой,
+ * а не упоминанием внутри фразы; при нескольких — первый.
+ */
+export function findRoleRules(brief: string): { at: number; header: string } | null {
+  let found: { at: number; header: string } | null = null;
+  for (const header of Object.values(ROLE_RULES_HEADERS)) {
+    const at = new RegExp(`(^|\n)${header}[ \t]*(?=\n|$)`).exec(brief);
+    if (!at) continue;
+    const pos = at.index + at[1].length;
+    if (!found || pos < found.at) found = { at: pos, header };
+  }
+  return found;
+}
+
+/** Текст правил роли в брифе — всё после заголовка; раздела нет — пусто. */
+export function roleRulesText(brief: string): string {
+  const found = findRoleRules(brief);
+  return found ? brief.slice(found.at + found.header.length) : '';
+}
 
 export const MAX_RULE_LEN = 500;
 export const MAX_RULES = 50;
@@ -105,7 +135,8 @@ export function readRulesFile(dir: string): RulesDoc {
  * который откроет `RULES.md` в репозитории, почему список не стоит ломать.
  */
 function writeRulesFile(state: OfficeState, dir: string, doc: RulesDoc): string | null {
-  const head = doc.head.trim() || state.say('rules.fileHead');
+  // Шапка — часть файла в репозитории проекта: язык реализации, не общения.
+  const head = doc.head.trim() || state.projectSay('rules.fileHead');
   try {
     writeFileSync(filePath(dir), serializeRules({ ...doc, head }), 'utf8');
     return null;
@@ -118,7 +149,7 @@ function writeRulesFile(state: OfficeState, dir: string, doc: RulesDoc): string 
 function roleRules(role: Role): string[] {
   const text = role.package
     ? role.package.briefExtra
-    : role.brief.split(ROLE_RULES_HEADER)[1] ?? '';
+    : roleRulesText(role.brief);
   return text.split('\n').map((l) => l.replace(BULLET, '').trim()).filter(Boolean);
 }
 

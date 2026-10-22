@@ -11,6 +11,7 @@
  * офис не трогает никогда.
  */
 import type { ProposalView } from '../shared/types';
+import { findRoleRules, ROLE_RULES_HEADERS } from './rules';
 import type { OfficeState, PlannedEpicLike } from './state';
 import { sanitizeFocus, sanitizeMaxTurns, sanitizeRitualLimit } from './state';
 
@@ -23,8 +24,6 @@ const SETTING_WHITELIST: Record<string, (value: unknown) => number | null | unde
 
 export const isProposableSetting = (key: string): boolean => key in SETTING_WHITELIST;
 
-/** Заголовок, под которым правила офиса дописываются в бриф роли без пакета. */
-const RULES_HEADER = '## Правила офиса';
 
 /**
  * Применить принятое предложение. Возвращает причину отказа готовым
@@ -53,7 +52,9 @@ export function applyProposal(
       state.updateRole(role.id, { briefExtra: extra ? `${extra}\n${rule}` : rule });
     } else {
       const brief = role.brief.trimEnd();
-      const tail = brief.includes(RULES_HEADER) ? `\n${rule}` : `\n\n${RULES_HEADER}\n${rule}`;
+      // Раздел уже есть (на любом из языков) — дописываем в него; нет —
+      // заводим заголовком на языке брифа, то есть общения офиса.
+      const tail = findRoleRules(brief) ? `\n${rule}` : `\n\n${ROLE_RULES_HEADERS[state.lang()]}\n${rule}`;
       state.updateRole(role.id, { brief: brief + tail });
     }
     state.addLog(null, 'system', state.say('proposal.ruleLog', { id: proposal.id, role: role.id }));

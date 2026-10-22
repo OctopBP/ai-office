@@ -220,7 +220,7 @@ export function sanitizeWorkerContextLimit(value: unknown): number | undefined {
  * Читается на каждое открытие, а не один раз при загрузке модуля: язык
  * интерфейса меняется на ходу, да и проверки поднимают офисы в одном процессе.
  */
-const newOfficeLang = (): Lang => uiLanguage();
+export const newOfficeLang = (): Lang => uiLanguage();
 
 /**
  * Привести лимит ходов к допустимому: целое в границах либо null («без
@@ -4246,6 +4246,15 @@ export class OfficeState {
    */
   say(key: ServerKey, vars?: Vars): string {
     return t(this.lang(), key, vars);
+  }
+
+  /**
+   * Фраза для файла, который офис сам кладёт в репозиторий проекта: шапка
+   * `RULES.md`, README новой папки. Это артефакт проекта, а не реплика
+   * человеку, поэтому язык — реализации (`codeLang`), а не общения.
+   */
+  projectSay(key: ServerKey, vars?: Vars): string {
+    return t(this.codeLang(), key, vars);
   }
 
   /**
