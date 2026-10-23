@@ -64,6 +64,9 @@ import {
 } from './limits';
 import { BUDGET_DEFAULT_TOKENS, BUDGET_ROLE_MAX_TOKENS, sanitizeSpendFuse } from './runguard';
 import {
+  SANDBOX_LIST_LIMIT, badSandboxEntries, cleanAllowedHost, cleanAllowedHosts, cleanWritePath, cleanWritePaths,
+} from '../shared/sandbox';
+import {
   currentOffice, officeArchived, officeIconView, officePaused, offices, setOfficePaused,
   uiLanguage,
 } from './offices';
@@ -312,7 +315,7 @@ export const criticalEnvFail = (checks: EnvCheck[]): EnvCheck | null =>
  */
 const ROLE_EDITABLE_KEYS: readonly (keyof RoleEditable)[] = [
   'title', 'emoji', 'color', 'model', 'provider', 'tier', 'permissionMode',
-  'isolate', 'maxTurns', 'allowLocalBinding', 'spendFuseTokens', 'repoDir', 'subprojects', 'sprite', 'brief', 'briefExtra', 'mcp', 'capabilities',
+  'isolate', 'maxTurns', 'allowLocalBinding', 'writePaths', 'allowedHosts', 'spendFuseTokens', 'repoDir', 'subprojects', 'sprite', 'brief', 'briefExtra', 'mcp', 'capabilities',
   'mcpProjectPath',
 ];
 
@@ -492,6 +495,10 @@ function sanitizeRole(raw: Partial<Role>, id: string, lang: Lang): Role {
         && sanitizeSpendFuse(link.overrides.spendFuseTokens) === undefined) {
         delete link.overrides.spendFuseTokens;
       }
+      // Пути и хосты песочницы уезжают прямо в Seatbelt: из правленого руками
+      // файла берём только годные, остальное молча отбрасываем.
+      if ('writePaths' in link.overrides) link.overrides.writePaths = cleanWritePaths(link.overrides.writePaths);
+      if ('allowedHosts' in link.overrides) link.overrides.allowedHosts = cleanAllowedHosts(link.overrides.allowedHosts);
       if ('provider' in link.overrides && !isProviderId(link.overrides.provider)) delete link.overrides.provider;
       if (typeof link.overrides.model === 'string' && !MODEL_RE.test(link.overrides.model)) {
         delete link.overrides.model;
@@ -552,6 +559,10 @@ function sanitizeRole(raw: Partial<Role>, id: string, lang: Lang): Role {
     // остальные её настройки останутся на месте.
     maxTurns: turns === undefined ? (base.maxTurns ?? null) : turns,
     allowLocalBinding: raw.allowLocalBinding === true,
+    // Пути и хосты песочницы появились в T-684: у старых сохранений поля нет —
+    // это пусто, то есть только умолчания по способностям.
+    writePaths: cleanWritePaths(raw.writePaths),
+    allowedHosts: cleanAllowedHosts(raw.allowedHosts),
     // Свой порог предохранителя: непригодный выкидываем — действует общий.
     // null храним как есть: это «владелец снял порог», а не «не задано».
     ...(sanitizeSpendFuse(raw.spendFuseTokens) !== undefined
@@ -4367,6 +4378,8 @@ export class OfficeState {
       permissionMode: r.permissionMode,
       isolate: r.isolate, maxTurns: r.maxTurns ?? null,
       allowLocalBinding: r.allowLocalBinding === true,
+      writePaths: [...(r.writePaths ?? [])],
+      allowedHosts: [...(r.allowedHosts ?? [])],
       spendFuseTokens: r.spendFuseTokens ?? null,
       ...(r.mcpProjectPath ? { mcpProjectPath: r.mcpProjectPath } : {}),
       repoDir: roleRepoDir(r, this.subprojectList), sprite: r.sprite ?? '', brief: r.brief,
@@ -4522,6 +4535,23 @@ export class OfficeState {
         }),
       });
     }
+    // Пути и хосты песочницы: непригодное не чиним молча — человек должен
+    // видеть, что его исключение не применится.
+    const lists = [
+      ['writePaths', cleanWritePath, 'state.role.badWritePaths'],
+      ['allowedHosts', cleanAllowedHost, 'state.role.badAllowedHosts'],
+    ] as const;
+    for (const [field, clean, key] of lists) {
+      if (!(field in patch) || patch[field] === undefined) continue;
+      const bad = badSandboxEntries(patch[field], clean);
+      const many = Array.isArray(patch[field]) && patch[field]!.length > SANDBOX_LIST_LIMIT;
+      if (bad.length || many) {
+        errors.push({
+          field,
+          message: this.say(key, { limit: SANDBOX_LIST_LIMIT, bad: bad.join(', ') || '—' }),
+        });
+      }
+    }
     if ('permissionMode' in patch
         && patch.permissionMode !== null && !isPermissionMode(patch.permissionMode)) {
       errors.push({ field: 'permissionMode', message: this.say('state.role.badMode') });
@@ -4585,6 +4615,8 @@ export class OfficeState {
       capabilities: Array.isArray(draft.capabilities) ? draft.capabilities.map((c) => String(c)).filter(isCapability) : [],
       maxTurns: draft.maxTurns ?? null,
       allowLocalBinding: draft.allowLocalBinding === true,
+      writePaths: Array.isArray(draft.writePaths) ? draft.writePaths : [],
+      allowedHosts: Array.isArray(draft.allowedHosts) ? draft.allowedHosts : [],
       spendFuseTokens: draft.spendFuseTokens ?? null,
       repoDir: typeof draft.repoDir === 'string' ? draft.repoDir.trim() : '',
       sprite: typeof draft.sprite === 'string' ? draft.sprite.trim() : '',
@@ -4607,6 +4639,8 @@ export class OfficeState {
       isolate: wanted.isolate,
       maxTurns: wanted.maxTurns,
       ...(wanted.allowLocalBinding ? { allowLocalBinding: true } : {}),
+      writePaths: cleanWritePaths(wanted.writePaths),
+      allowedHosts: cleanAllowedHosts(wanted.allowedHosts),
       ...(wanted.spendFuseTokens ? { spendFuseTokens: wanted.spendFuseTokens } : {}),
       // Подписка кладётся всегда, даже пустая: без поля роль получила бы
       // умолчания по id, а они заведены для базовых ролей, не для этой.
@@ -5008,6 +5042,10 @@ export class OfficeState {
     if ('allowLocalBinding' in clean && typeof clean.allowLocalBinding !== 'boolean') {
       delete clean.allowLocalBinding;
     }
+    // Пути и хосты песочницы проверены в checkRolePatch; здесь остаются
+    // только пустые строки недописанной формы — их и убираем.
+    if ('writePaths' in clean) clean.writePaths = cleanWritePaths(clean.writePaths);
+    if ('allowedHosts' in clean) clean.allowedHosts = cleanAllowedHosts(clean.allowedHosts);
     // Порог предохранителя уже проверен в checkRolePatch; сюда непригодное
     // доходит только мимо него — выкидываем, как и остальное.
     if ('spendFuseTokens' in clean && sanitizeSpendFuse(clean.spendFuseTokens) === undefined) {

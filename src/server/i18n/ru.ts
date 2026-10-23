@@ -79,6 +79,8 @@ export const ru: Record<keyof typeof en, string> = {
   'state.role.noModel': 'Выберите модель — без неё сессию роли не запустить.',
   'state.role.turnsRange': 'Лимит ходов — целое от {min} до {max} либо пусто, чтобы взять офисный.',
   'state.role.fuseRange': 'Порог предохранителя расхода — целое число токенов от {min} до {max} либо пусто, чтобы взять общий.',
+  'state.role.badWritePaths': 'Путь на запись — абсолютный (/…) или от домашнего каталога (~/…), без «..», не корень и не весь домашний каталог; до {limit} путей. Не подошло: {bad}.',
+  'state.role.badAllowedHosts': 'Хост — имя (api.unity.com) или маска поддоменов (*.unity.com), не шире домена второго уровня; до {limit} хостов. Не подошло: {bad}.',
   'state.role.badMode': 'Неизвестный режим доступа.',
   'state.role.noSprite': 'Внешности «{sprite}» нет в наборе — выберите одну из предложенных.',
   'state.role.created': 'Заведена роль {title} ({id})',

@@ -332,7 +332,8 @@ check('менеджер в нашем каталоге первый', ourTeam[0]
     excluded.includes('/Applications/Unity/Hub/Editor/*/Unity.app/Contents/MacOS/Unity *'),
   ], [true, true, true, true]);
   check('unity: Blender не достаётся', excluded.some((c) => c.includes('blender')), false);
-  check('unity: сеть и запись не расширены', [unityBox.network, unityBox.filesystem], [undefined, undefined]);
+  // С T-684 у Unity есть свои каталоги и домены — подробно в test:sandbox.
+  check('unity: сеть — только домены Unity, без портов', unityBox.network, { allowedDomains: ['*.unity.com', '*.unity3d.com'] });
   check('unity: UNITY_PATH попадает в исключения',
     unityUnsandboxed({ UNITY_PATH: '/opt/Unity/Unity' }).includes('/opt/Unity/Unity:*'), true);
   check('backend без game.unity: Unity в песочнице', sandboxFor({ ...backend, capabilities: ['code.write'] }, cwd), SANDBOX);

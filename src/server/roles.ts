@@ -50,6 +50,14 @@ export interface Role {
    */
   allowLocalBinding?: boolean;
   /**
+   * Свои пути на запись в песочнице — поверх рабочей копии и умолчаний по
+   * способностям (`sandboxFor`). `~/…` или абсолютные; `~` разворачивается
+   * при старте сессии. Нет поля или пусто — только умолчания.
+   */
+  writePaths?: string[];
+  /** Свои сетевые хосты песочницы: имя или маска `*.домен`. Пусто — только умолчания. */
+  allowedHosts?: string[];
+  /**
    * Свой порог предохранителя расхода — входные токены одного запуска
    * (`runThreshold` в runguard.ts). Пусто или null — действует общий порог.
    */
@@ -237,7 +245,7 @@ export const copyTitle = (title: string, copy: number | undefined): string =>
 /** Поля, по которым считается разница роли с пакетом. */
 export const OVERRIDABLE_KEYS: readonly (keyof LinkOverrides)[] = [
   'title', 'emoji', 'color', 'model', 'provider', 'tier', 'permissionMode', 'isolate',
-  'maxTurns', 'allowLocalBinding', 'spendFuseTokens', 'repoDir', 'subprojects', 'sprite', 'mcp', 'capabilities',
+  'maxTurns', 'allowLocalBinding', 'writePaths', 'allowedHosts', 'spendFuseTokens', 'repoDir', 'subprojects', 'sprite', 'mcp', 'capabilities',
   'mcpProjectPath',
 ];
 
@@ -281,6 +289,10 @@ export function roleFromPackage(pkg: AgentPackage, lang: Lang, id: string, link?
     isolate: m.runtime.isolate,
     maxTurns: m.runtime.maxTurns,
     allowLocalBinding: m.runtime.allowLocalBinding === true,
+    // Свои пути и хосты песочницы — дело офиса, а не пакета: у пакета их
+    // нет, умолчания по способностям добавляет `sandboxFor`.
+    writePaths: [],
+    allowedHosts: [],
     ...(m.runtime.spendFuseTokens ? { spendFuseTokens: m.runtime.spendFuseTokens } : {}),
     ...(m.runtime.tools ? { tools: [...m.runtime.tools] } : {}),
     mcp: [...m.runtime.mcp],

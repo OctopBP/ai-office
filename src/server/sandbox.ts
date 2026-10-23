@@ -1,5 +1,6 @@
 import { realpathSync } from 'node:fs';
 import { basename, dirname, join } from 'node:path';
+import { cleanAllowedHosts, cleanWritePaths } from '../shared/sandbox';
 import { capabilitiesOf, type Role } from './roles';
 
 /**
@@ -110,12 +111,54 @@ function viteCacheDirs(cwd: string | undefined): string[] {
 }
 
 /**
+ * Пути на запись для роли Unity (T-684). Скрипты проекта вроде
+ * Tools/unity-compile.sh поднимают редактор в batchmode прямо из песочницы —
+ * исключение `unityUnsandboxed` их не покрывает, а без этих каталогов редактор
+ * не стартует:
+ *  - ~/Library/Unity — кеши и лицензия редактора;
+ *  - ~/Library/Logs/Unity — журнал редактора и клиента лицензий;
+ *  - ~/Library/Application Support/Unity — данные клиента лицензий;
+ *  - ~/Library/Preferences — plist-настройки редактора (com.unity3d.*);
+ *  - /private/tmp/.dotnet — именованные мьютексы .NET: без них клиент
+ *    лицензий падает в GlobalMutex.AcquireMutex.
+ */
+const UNITY_WRITE_PATHS = [
+  '~/Library/Unity',
+  '~/Library/Logs/Unity',
+  '~/Library/Application Support/Unity',
+  '~/Library/Preferences',
+  '/private/tmp/.dotnet',
+];
+
+/** Сеть роли Unity: лицензия, вход в аккаунт и пакеты — всё на этих доменах. */
+const UNITY_HOSTS = ['*.unity.com', '*.unity3d.com'];
+
+/**
+ * Каталоги, которые Unity заводит в корне проекта. Рабочая копия задачи и так
+ * открыта на запись как cwd сессии, но Seatbelt сверяет настоящие пути, а
+ * копия лежит под ~/Library/Application Support — путь с пробелом и, бывает,
+ * через симлинк. Поэтому корень копии и эти каталоги перечисляем явно, уже
+ * развёрнутыми: «Project folder or disk is read only» редактор пишет, когда
+ * не может создать Temp/UnityLockfile или Library/.
+ */
+const UNITY_PROJECT_DIRS = ['Library', 'Temp', 'Logs', 'UserSettings'];
+
+/** `~/…` — от домашнего каталога машины офиса; затем — без симлинков. */
+function expandPath(path: string, home: string | undefined): string | null {
+  if (path.startsWith('~/')) return home ? real(join(home, path.slice(2))) : null;
+  return real(path);
+}
+
+const uniq = (list: string[]): string[] => [...new Set(list)];
+
+/**
  * Песочница под роль.
  *
  * Исключение для Blender получают только роли со способностью `design.3d`
  * (3D-художник и его копии): остальным незачем выходить из песочницы, и
  * лишняя дыра им не нужна. Так же исключение для Unity — только роли со
  * способностью `game.unity` (пакет @office/unity), а не всем, кто пишет код.
+ * Ей же — каталоги Unity на запись и домены Unity в сети (`UNITY_*`).
  *
  * Настройка роли `allowLocalBinding` открывает то, без чего не поднять свой
  * сервер для проверки в браузере (тестировщику — свой офис на 3003 и vite):
@@ -124,26 +167,43 @@ function viteCacheDirs(cwd: string | undefined): string[] {
  *  - unix-сокеты внутри временной папки песочницы — `network.allowUnixSockets`
  *    (IPC tsx); сокеты вне неё, вроде ssh-agent или docker, закрыты;
  *  - запись в кеш vite в node_modules — `filesystem.allowWrite`.
+ *
+ * Свои пути `writePaths` и хосты `allowedHosts` роли (правятся в окне роли)
+ * ложатся поверх умолчаний: добавляются, ничего не убирая. Песочница
+ * собирается заново при старте каждой сессии, поэтому правка доезжает до
+ * следующей сессии без перезапуска офиса.
  */
 export function sandboxFor(
-  role: Pick<Role, 'capabilities' | 'isolate' | 'tools' | 'docsDir' | 'isManager' | 'allowLocalBinding'>,
+  role: Pick<Role, 'capabilities' | 'isolate' | 'tools' | 'docsDir' | 'isManager' | 'allowLocalBinding'
+    | 'writePaths' | 'allowedHosts'>,
   cwd?: string,
+  env: NodeJS.ProcessEnv = process.env,
 ) {
   const caps = capabilitiesOf(role);
+  const unity = caps.includes('game.unity');
   const excluded = [
     ...(caps.includes('design.3d') ? BLENDER_UNSANDBOXED : []),
-    ...(caps.includes('game.unity') ? unityUnsandboxed() : []),
+    ...(unity ? unityUnsandboxed(env) : []),
   ];
-  if (!excluded.length && !role.allowLocalBinding) return SANDBOX;
+  const writes = uniq([
+    ...(role.allowLocalBinding ? viteCacheDirs(cwd) : []),
+    ...(unity && cwd ? [real(cwd), ...UNITY_PROJECT_DIRS.map((dir) => real(join(cwd, dir)))] : []),
+    ...(unity ? UNITY_WRITE_PATHS : []),
+    ...cleanWritePaths(role.writePaths),
+  ].map((path) => expandPath(path, env.HOME)).filter((path): path is string => Boolean(path)));
+  const hosts = uniq([...(unity ? UNITY_HOSTS : []), ...cleanAllowedHosts(role.allowedHosts)]);
+  if (!excluded.length && !role.allowLocalBinding && !writes.length && !hosts.length) return SANDBOX;
+  const network = {
+    ...(role.allowLocalBinding ? {
+      allowLocalBinding: true,
+      allowUnixSockets: [real(sandboxTmpDir(env))],
+    } : {}),
+    ...(hosts.length ? { allowedDomains: hosts } : {}),
+  };
   return {
     ...SANDBOX,
     ...(excluded.length ? { excludedCommands: excluded } : {}),
-    ...(role.allowLocalBinding ? {
-      network: {
-        allowLocalBinding: true,
-        allowUnixSockets: [real(sandboxTmpDir())],
-      },
-      filesystem: { allowWrite: viteCacheDirs(cwd) },
-    } : {}),
+    ...(Object.keys(network).length ? { network } : {}),
+    ...(writes.length ? { filesystem: { allowWrite: writes } } : {}),
   };
 }

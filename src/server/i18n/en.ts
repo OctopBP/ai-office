@@ -79,6 +79,8 @@ export const en = {
   'state.role.noModel': 'Pick a model — without one the role has no session to start.',
   'state.role.turnsRange': 'Turn limit is a whole number from {min} to {max}, or empty to use the office one.',
   'state.role.fuseRange': 'The spending guard threshold is a whole number of tokens from {min} to {max}, or empty to use the common one.',
+  'state.role.badWritePaths': 'A write path is absolute (/…) or under the home folder (~/…), without “..”, and not the root or the whole home folder; up to {limit} paths. Rejected: {bad}.',
+  'state.role.badAllowedHosts': 'A host is a name (api.unity.com) or a subdomain mask (*.unity.com), no wider than a second-level domain; up to {limit} hosts. Rejected: {bad}.',
   'state.role.badMode': 'Unknown access mode.',
   'state.role.noSprite': 'There is no look “{sprite}” in the set — pick one of the offered ones.',
   'state.role.created': 'Role {title} ({id}) created',
