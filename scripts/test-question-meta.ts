@@ -220,16 +220,25 @@ async function main(): Promise<void> {
   console.log('свежесть решений');
   const aged = office.addFact({ kind: 'decision', text: 'Хранилище — JSON-файл, не БД', scope: 'project' });
   office.updateFact(aged.id, { confirmedAt: Date.now() - 90 * 86_400_000 });
-  await runFreshness(office);
+  // Владельца спрашивают только о решении, с которым проверка нашла противоречие.
+  await runFreshness(office, Date.now(), async () => ({
+    text: JSON.stringify({ verdicts: [{
+      factId: aged.id, verdict: 'contradicted', reason: 'в коде появилась БД', basis: { kind: 'code', ref: 'src/server/db.ts:open' },
+    }] }),
+    costUsd: 0,
+  }));
   const fresh = openQuestions(office).find((x) => x.kind === 'stale' && x.text.includes(aged.id));
-  await check('цитаты решений, ссылки на записи, группа с темой и общим ответом', () => {
+  await check('цитата решения, основание, ссылки на запись и файл, группа с темой и общим ответом', () => {
     assert.ok(fresh, 'вопроса о свежести нет');
     assert.deepEqual(fresh!.quotes?.map((x) => x.ref), [aged.id]);
     assert.equal(fresh!.quotes![0].text, aged.text);
     assert.ok(fresh!.refs?.some((r) => r.kind === 'journal' && r.id === aged.id), JSON.stringify(fresh!.refs));
+    assert.ok(fresh!.refs?.some((r) => r.kind === 'file' && r.id === 'src/server/db.ts'), JSON.stringify(fresh!.refs));
+    assert.ok(fresh!.basis?.includes('в коде появилась БД'), String(fresh!.basis));
+    assert.ok(fresh!.title && !/\bJ-\d+\b/.test(fresh!.title), String(fresh!.title));
     assert.equal(fresh!.groupKey, 'journal-freshness');
     assert.equal(fresh!.groupTitle, 'про свежесть решений');
-    assert.deepEqual(fresh!.groupOptions, ['Все в силе', 'Пересмотреть']);
+    assert.deepEqual(fresh!.groupOptions, ['В силе', 'Пересмотреть']);
   });
 
   console.log('ask_owner с title и details');

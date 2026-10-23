@@ -6,8 +6,8 @@
  */
 import assert from 'node:assert/strict';
 import {
-  isVerifiableBasis, normalizeVerdict, planStalenessCheck, stalenessHints, summarizeVerdicts,
-  type AgingFact,
+  isVerifiableBasis, normalizeVerdict, parseFreshnessVerdicts, planStalenessCheck, stalenessHints, summarizeVerdicts,
+  verdictForKind, type AgingFact,
 } from '../src/server/staleness';
 
 let passed = 0;
@@ -25,11 +25,11 @@ const aging = (kind: AgingFact['kind'], text: string, extra: Partial<AgingFact> 
 
 console.log('План проверки');
 
-check('решение всегда уходит владельцу, без подсказок', () => {
+check('старое решение — на самопроверку с подсказками, не владельцу', () => {
   const plan = planStalenessCheck(aging('decision', 'Репозиторий один, см. src/server/git.ts и T-12'), NOW);
-  assert.equal(plan.route, 'owner');
+  assert.equal(plan.route, 'self');
   assert.equal(plan.ageDays, 40);
-  assert.deepEqual(plan.hints, { files: [], symbols: [], tasks: [], facts: [] });
+  assert.deepEqual(plan.hints, { files: ['src/server/git.ts'], symbols: [], tasks: ['T-12'], facts: [] });
 });
 
 check('факт и урок уходят на самопроверку', () => {
@@ -89,8 +89,49 @@ check('три вердикта: устарела с основанием, акт
     { factId: 'J-3', verdict: 'unknown', reason: 'не нашёл, где проверить' },
   ]);
   assert.deepEqual(s.outcomes.map(o => [o.factId, o.verdict]), [['J-1', 'stale'], ['J-2', 'actual'], ['J-3', 'unknown']]);
-  assert.deepEqual(s.counts, { stale: 1, actual: 1, unknown: 1 });
+  assert.deepEqual(s.counts, { stale: 1, actual: 1, implementation: 0, contradicted: 0, unknown: 1 });
   assert.deepEqual(s.downgraded, []);
+});
+
+check('вердикты решений: описание реализации и противоречие с основанием', () => {
+  const s = summarizeVerdicts([
+    { factId: 'J-4', verdict: 'implementation', reason: 'это про сортировку в коде' },
+    { factId: 'J-5', verdict: 'contradicted', reason: 'в коде иначе', basis: { kind: 'code', ref: 'src/server/offices.ts' } },
+  ]);
+  assert.deepEqual(s.outcomes.map(o => [o.factId, o.verdict]), [['J-4', 'implementation'], ['J-5', 'contradicted']]);
+  assert.deepEqual(s.downgraded, []);
+});
+
+check('противоречие без основания понижается до «не знаю» — владельца не спрашиваем', () => {
+  const o = normalizeVerdict({ factId: 'J-5', verdict: 'contradicted', reason: 'кажется, иначе' });
+  assert.equal(o.verdict, 'unknown');
+  assert.equal(o.downgraded, true);
+  assert.equal(normalizeVerdict({ factId: 'J-5', verdict: 'contradicted', reason: 'сам себе', basis: { kind: 'newer', ref: 'J-5' } }).verdict, 'unknown');
+});
+
+check('разные определённые вердикты по решению — «не знаю» с пометкой спора', () => {
+  const s = summarizeVerdicts([
+    { factId: 'J-6', verdict: 'actual', reason: 'соблюдается' },
+    { factId: 'J-6', verdict: 'contradicted', reason: 'расходится', basis: { kind: 'task', ref: 'T-9' } },
+  ]);
+  assert.equal(s.outcomes[0].verdict, 'unknown');
+  assert.equal(s.outcomes[0].conflict, true);
+});
+
+check('вердикт по виду записи: у факта и урока «реализация» — верно, «противоречие» — устарела', () => {
+  const impl = { factId: 'J-7', verdict: 'implementation' as const, reason: 'r' };
+  const contra = { factId: 'J-7', verdict: 'contradicted' as const, reason: 'r', basis: { kind: 'git' as const, ref: 'abc' } };
+  assert.equal(verdictForKind(impl, 'decision').verdict, 'implementation');
+  assert.equal(verdictForKind(contra, 'decision').verdict, 'contradicted');
+  assert.equal(verdictForKind(impl, 'fact').verdict, 'actual');
+  assert.equal(verdictForKind(contra, 'lesson').verdict, 'stale');
+});
+
+check('разбор ответа понимает новые вердикты', () => {
+  const v = parseFreshnessVerdicts('{"verdicts":[{"factId":"J-1","verdict":"implementation","reason":"код"},'
+    + '{"factId":"J-2","verdict":"contradicted","reason":"иначе","basis":{"kind":"newer","ref":"J-9"}},'
+    + '{"factId":"J-3","verdict":"maybe"}]}');
+  assert.deepEqual(v.map(x => x.verdict), ['implementation', 'contradicted']);
 });
 
 check('устарела без основания понижается до «не знаю»', () => {
@@ -102,7 +143,7 @@ check('устарела без основания понижается до «н
     { factId: 'J-2', verdict: 'stale', reason: 'по задаче', basis: { kind: 'task', ref: 'какая-то' } },
     { factId: 'J-3', verdict: 'stale', reason: 'есть новее', basis: { kind: 'newer', ref: 'J-3' } },
   ]);
-  assert.deepEqual(s.counts, { stale: 0, actual: 0, unknown: 3 });
+  assert.deepEqual(s.counts, { stale: 0, actual: 0, implementation: 0, contradicted: 0, unknown: 3 });
   assert.deepEqual(s.downgraded, ['J-1', 'J-2', 'J-3']);
 });
 
@@ -132,7 +173,9 @@ check('определённый вердикт побеждает «не зна�
 });
 
 check('пустой список — пустой итог', () => {
-  assert.deepEqual(summarizeVerdicts([]), { outcomes: [], counts: { stale: 0, actual: 0, unknown: 0 }, downgraded: [] });
+  assert.deepEqual(summarizeVerdicts([]), {
+    outcomes: [], counts: { stale: 0, actual: 0, implementation: 0, contradicted: 0, unknown: 0 }, downgraded: [],
+  });
 });
 
 console.log(`\n${passed} проверок прошли`);

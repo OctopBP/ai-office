@@ -1,14 +1,16 @@
 /**
  * Вердикт свежести записи журнала: чистый модуль без сессий и состояния.
  *
- * Стареющая запись (давно не подтверждалась) получает план проверки:
- * решение владельца уходит владельцу — офис его сам не отменяет; факт и урок
- * офис проверяет сам, и план подсказывает, где смотреть: файлы и символы из
- * текста, задачи T-N, записи J-N.
+ * Стареющая запись (давно не подтверждалась) получает план проверки: факт,
+ * урок и решение офис проверяет сам агентом только на чтение, и план
+ * подсказывает, где смотреть: файлы и символы из текста, задачи T-N, записи
+ * J-N. Решение владельца от времени не протухает — владельца спрашивают,
+ * только если проверка нашла противоречие с основанием (T-690).
  *
  * Вердикты агента проверки сводятся в итог тем же правилом, что в разборе
- * противоречий (contradictions.ts → decideContradiction): «устарела» без
- * проверяемого основания ничего не закрывает и считается «не знаю».
+ * противоречий (contradictions.ts → decideContradiction): «устарела» и
+ * «противоречие» без проверяемого основания ничего не закрывают и не
+ * спрашивают владельца — считаются «не знаю».
  */
 import type { FactKind } from '../shared/types';
 
@@ -83,21 +85,33 @@ export function stalenessHints(fact: Pick<AgingFact, 'id' | 'text' | 'taskId'>):
 }
 
 /**
- * План проверки стареющей записи. Решение — всегда владельцу, без подсказок:
- * отменить решение может только он. Факт и урок — на самопроверку с
- * подсказками. Остальные виды (запись-противоречие) тоже владельцу: у них нет
- * одного утверждения, которое можно проверить по коду.
+ * План проверки стареющей записи. Факт, урок и решение — на самопроверку с
+ * подсказками: возраст решения сам по себе не повод тревожить владельца.
+ * Запись-противоречие — владельцу: у неё нет одного утверждения, которое
+ * можно проверить по коду.
  */
 export function planStalenessCheck(fact: AgingFact, now = Date.now()): StalenessPlan {
   const ageDays = Math.max(0, Math.floor((now - fact.confirmedAt) / DAY));
-  if (fact.kind === 'fact' || fact.kind === 'lesson') {
+  if (fact.kind === 'fact' || fact.kind === 'lesson' || fact.kind === 'decision') {
     return { route: 'self', ageDays, hints: stalenessHints(fact) };
   }
   return { route: 'owner', ageDays, hints: { files: [], symbols: [], tasks: [], facts: [] } };
 }
 
-/** Вердикт агента проверки по одной записи. */
-export type FreshnessVerdictKind = 'stale' | 'actual' | 'unknown';
+/**
+ * Вердикт агента проверки по одной записи:
+ * - stale — запись больше не верна (у решения — явно устарело), нужно основание;
+ * - actual — верна сейчас (решение соблюдается, противоречий нет);
+ * - implementation — только у решения: это не выбор владельца, а описание
+ *   того, как сделан код; запись переводится в факт;
+ * - contradicted — только у решения: код, доска или более новая запись
+ *   расходятся с ним, нужно основание; единственный повод спросить владельца;
+ * - unknown — проверить нечем или есть сомнения.
+ */
+export type FreshnessVerdictKind = 'stale' | 'actual' | 'implementation' | 'contradicted' | 'unknown';
+
+/** Вердикты, которым нужно проверяемое основание. */
+const NEEDS_BASIS: ReadonlySet<FreshnessVerdictKind> = new Set(['stale', 'contradicted']);
 
 /**
  * Проверяемое основание вердикта:
@@ -142,9 +156,9 @@ export interface FreshnessOutcome {
   verdict: FreshnessVerdictKind;
   reason: string;
   basis?: FreshnessBasis;
-  /** «Устарела» понижена до «не знаю»: основания нет или его не проверить. */
+  /** «Устарела» или «противоречие» понижены до «не знаю»: основания нет или его не проверить. */
   downgraded?: boolean;
-  /** По записи пришли «устарела» и «актуальна» сразу — итог «не знаю». */
+  /** По записи пришли разные определённые вердикты (например, «устарела» и «актуальна») — итог «не знаю». */
   conflict?: boolean;
 }
 
@@ -152,13 +166,13 @@ export interface FreshnessSummary {
   /** Итог по каждой записи, в порядке первого упоминания. */
   outcomes: FreshnessOutcome[];
   counts: Record<FreshnessVerdictKind, number>;
-  /** Записи, где «устарела» понижена до «не знаю». */
+  /** Записи, где «устарела» или «противоречие» понижены до «не знаю». */
   downgraded: string[];
 }
 
 /** Один вердикт после правила об основании. */
 export function normalizeVerdict(v: FreshnessVerdict): FreshnessOutcome {
-  if (v.verdict === 'stale' && !isVerifiableBasis(v.basis, v.factId)) {
+  if (NEEDS_BASIS.has(v.verdict) && !isVerifiableBasis(v.basis, v.factId)) {
     return { factId: v.factId, verdict: 'unknown', reason: v.reason, basis: v.basis, downgraded: true };
   }
   return { factId: v.factId, verdict: v.verdict, reason: v.reason, ...(v.basis ? { basis: v.basis } : {}) };
@@ -166,9 +180,10 @@ export function normalizeVerdict(v: FreshnessVerdict): FreshnessOutcome {
 
 /**
  * Свести вердикты агента в итог. Вердиктов по одной записи может быть
- * несколько (повторный проход, несколько проверок): «устарела» с основанием
- * и «актуальна» вместе дают «не знаю» — забыть запись по спорному выводу
- * хуже, чем оставить её ещё на круг. Иначе побеждает определённый вердикт.
+ * несколько (повторный проход, несколько проверок): разные определённые
+ * вердикты (например, «устарела» с основанием и «актуальна») вместе дают
+ * «не знаю» — забыть запись или спросить владельца по спорному выводу хуже,
+ * чем оставить её ещё на круг. Иначе побеждает определённый вердикт.
  */
 export function summarizeVerdicts(verdicts: FreshnessVerdict[]): FreshnessSummary {
   const byFact = new Map<string, FreshnessOutcome[]>();
@@ -179,21 +194,23 @@ export function summarizeVerdicts(verdicts: FreshnessVerdict[]): FreshnessSummar
   }
   const outcomes: FreshnessOutcome[] = [];
   for (const [factId, list] of byFact) {
-    const stale = list.find(o => o.verdict === 'stale');
-    const actual = list.find(o => o.verdict === 'actual');
+    const definite = list.filter(o => o.verdict !== 'unknown');
+    const kinds = new Set(definite.map(o => o.verdict));
     const downgraded = list.some(o => o.downgraded);
-    if (stale && actual) {
+    if (kinds.size > 1) {
+      // Первый вердикт каждого вида — в причину, чтобы спор было видно.
+      const reasons = [...kinds].map(k => definite.find(o => o.verdict === k)!.reason);
       outcomes.push({
-        factId, verdict: 'unknown', reason: `${stale.reason} / ${actual.reason}`, conflict: true,
+        factId, verdict: 'unknown', reason: reasons.join(' / '), conflict: true,
         ...(downgraded ? { downgraded } : {}),
       });
-    } else if (stale || actual) {
-      outcomes.push((stale ?? actual)!);
+    } else if (definite.length) {
+      outcomes.push(definite[0]);
     } else {
       outcomes.push(list[0]);
     }
   }
-  const counts: Record<FreshnessVerdictKind, number> = { stale: 0, actual: 0, unknown: 0 };
+  const counts: Record<FreshnessVerdictKind, number> = { stale: 0, actual: 0, implementation: 0, contradicted: 0, unknown: 0 };
   for (const o of outcomes) counts[o.verdict]++;
   return {
     outcomes,
@@ -202,7 +219,20 @@ export function summarizeVerdicts(verdicts: FreshnessVerdict[]): FreshnessSummar
   };
 }
 
-const VERDICT_KINDS: ReadonlySet<string> = new Set(['stale', 'actual', 'unknown']);
+/**
+ * Вердикт по виду записи. «Описание реализации» и «противоречие» имеют смысл
+ * только у решения: у факта и урока «описание реализации» значит «верно» —
+ * это и есть факт, а «противоречие» с проверенным основанием значит
+ * «устарела».
+ */
+export function verdictForKind(outcome: FreshnessOutcome, kind: FactKind): FreshnessOutcome {
+  if (kind === 'decision') return outcome;
+  if (outcome.verdict === 'implementation') return { ...outcome, verdict: 'actual' };
+  if (outcome.verdict === 'contradicted') return { ...outcome, verdict: 'stale' };
+  return outcome;
+}
+
+const VERDICT_KINDS: ReadonlySet<string> = new Set(['stale', 'actual', 'implementation', 'contradicted', 'unknown']);
 const BASIS_KINDS: ReadonlySet<string> = new Set(['code', 'git', 'task', 'newer']);
 
 /**

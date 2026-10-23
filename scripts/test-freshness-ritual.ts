@@ -1,9 +1,11 @@
 /**
  * Ритуал свежести журнала (freshness.ts через rituals.ts → forget) на заглушке
- * агента проверки. Стареющие факт и урок офис проверяет сам: «устарела» с
- * основанием — архив с пометкой «заменена» и строкой в ленте, «актуальна» —
- * новая дата подтверждения, «не знаю» — отложена. Все решения, которые пора
- * подтвердить, — один вопрос владельцу за прогон; «Все в силе» их
+ * агента проверки. Стареющие факт, урок и решение офис проверяет сам:
+ * «устарела» с основанием — архив с пометкой «заменена» и строкой в ленте,
+ * «актуальна» — новая дата подтверждения, «не знаю» — отложена. Решение
+ * владельцу по возрасту не уходит (T-690): соблюдаемое — подтверждается
+ * молча, описание реализации — становится фактом, и только противоречие с
+ * основанием — вопрос владельцу про эту одну запись; «В силе» её
  * подтверждает. Разобранная запись повторно не поднимается, пока её не
  * переписали.
  *
@@ -14,7 +16,7 @@ import { getOffice, unloadOfficeState } from '../src/server/state';
 import { runRitual, setRitualAgents, type RitualOutput } from '../src/server/rituals';
 import { answerQuestion, openQuestions } from '../src/server/questions';
 import { STALE_AFTER_MS, factsFor } from '../src/server/journal';
-import { isAllInForce } from '../src/server/freshness';
+import { isAllInForce, runFreshness } from '../src/server/freshness';
 import { isFreshnessChecked, parseFreshnessVerdicts } from '../src/server/staleness';
 
 process.env.OFFICE_LANG = 'ru';
@@ -60,10 +62,14 @@ async function main(): Promise<void> {
   const actualFact = office.addFact({ kind: 'fact', text: 'Журнал лежит в `journal.ts`', scope: 'project' });
   const unknownLesson = office.addFact({ kind: 'lesson', text: 'Большие файлы читать срезами', scope: 'project' });
   const bareStale = office.addFact({ kind: 'fact', text: 'Кнопка экспорта в шапке', scope: 'project' });
-  const dec1 = office.addFact({ kind: 'decision', text: 'Хранилище — JSON-файл', scope: 'project' });
-  const dec2 = office.addFact({ kind: 'decision', text: 'Приоритет задачи по умолчанию normal', scope: 'project' });
+  const keptDec = office.addFact({ kind: 'decision', text: 'Хранилище — JSON-файл', scope: 'project' });
+  const implDec = office.addFact({ kind: 'decision', text: 'Офисы в списке сортируются по дате открытия', scope: 'project' });
+  const conflictDec = office.addFact({ kind: 'decision', text: 'Приоритет задачи по умолчанию normal', scope: 'project' });
+  const bareConflictDec = office.addFact({ kind: 'decision', text: 'Отчёты исполнителя короткие', scope: 'project' });
+  const outdatedDec = office.addFact({ kind: 'decision', text: 'Затор слияний разбираем руками', scope: 'project' });
   const fresh = office.addFact({ kind: 'decision', text: 'Свежее решение', scope: 'project' });
-  for (const f of [staleFact, actualFact, unknownLesson, bareStale, dec1, dec2]) office.updateFact(f.id, { confirmedAt: old });
+  const decisions = [keptDec, implDec, conflictDec, bareConflictDec, outdatedDec];
+  for (const f of [staleFact, actualFact, unknownLesson, bareStale, ...decisions]) office.updateFact(f.id, { confirmedAt: old });
 
   let reply = '';
   let calls = 0;
@@ -83,6 +89,12 @@ async function main(): Promise<void> {
     { factId: actualFact.id, verdict: 'actual', reason: 'файл на месте', basis: { kind: 'code', ref: 'src/server/journal.ts' } },
     { factId: unknownLesson.id, verdict: 'unknown', reason: 'это про привычку' },
     { factId: bareStale.id, verdict: 'stale', reason: 'кажется, убрали' },
+    { factId: keptDec.id, verdict: 'actual', reason: 'state.json на месте', basis: { kind: 'code', ref: 'src/server/state.ts' } },
+    { factId: implDec.id, verdict: 'implementation', reason: 'это описание сортировки в коде' },
+    // Основание — другая старая запись: «В силе» владельца её не подтверждает.
+    { factId: conflictDec.id, verdict: 'contradicted', reason: 'в коде умолчание high', basis: { kind: 'newer', ref: bareStale.id } },
+    { factId: bareConflictDec.id, verdict: 'contradicted', reason: 'кажется, отчёты длинные' },
+    { factId: outdatedDec.id, verdict: 'stale', reason: 'затор разобран', basis: { kind: 'task', ref: 'T-56' } },
   ] });
 
   const stalesBefore = openQuestions(office).filter((q) => q.kind === 'stale').length;
@@ -91,19 +103,49 @@ async function main(): Promise<void> {
   const staleQs = () => openQuestions(office).filter((q) => q.kind === 'stale');
 
   console.log('первый прогон');
-  await check('агент получил на проверку факты и урок, но не решения', () => {
+  await check('агент получил на проверку факты, урок и старые решения, но не свежее', () => {
     assert.equal(calls, 1);
-    for (const f of [staleFact, actualFact, unknownLesson, bareStale]) assert.ok(prompts[0].includes(`[${f.id}]`));
-    for (const f of [dec1, dec2, fresh]) assert.ok(!prompts[0].includes(`[${f.id}]`));
+    for (const f of [staleFact, actualFact, unknownLesson, bareStale, ...decisions]) assert.ok(prompts[0].includes(`[${f.id}]`));
+    assert.ok(!prompts[0].includes(`[${fresh.id}]`));
     assert.ok(prompts[0].includes('src/server/old-port.ts'), 'подсказка-файл в задании');
   });
-  await check('владелец получил ровно один вопрос со всеми решениями и вариантами', () => {
+  await check('старое соблюдаемое решение — новая дата, без вопроса владельцу', () => {
+    const f = office.facts.get(keptDec.id)!;
+    assert.equal(f.kind, 'decision');
+    assert.ok(f.confirmedAt > old + 1000);
+    assert.ok(isFreshnessChecked(office.life, f));
+    assert.ok(!staleQs().some((q) => q.text.includes(keptDec.id)));
+  });
+  await check('описание реализации — переведено в факт, без вопроса владельцу', () => {
+    const f = office.facts.get(implDec.id)!;
+    assert.equal(f.kind, 'fact');
+    assert.equal(f.status, 'live');
+    assert.ok(f.confirmedAt > old + 1000);
+    assert.ok(!staleQs().some((q) => q.text.includes(implDec.id)));
+    assert.ok(office.log.slice(logBefore).some((l) => l.text.includes(`${implDec.id} — не решение владельца`)));
+  });
+  await check('явно устаревшее решение с основанием — в архив без вопроса, основание в ленте', () => {
+    const f = office.facts.get(outdatedDec.id)!;
+    assert.equal(f.status, 'archived');
+    assert.equal(f.supersededBy, 'T-56');
+    assert.ok(office.log.slice(logBefore).some((l) => l.text.includes(`${outdatedDec.id} устарела`) && l.text.includes('задача T-56')));
+    assert.ok(!staleQs().some((q) => q.text.includes(outdatedDec.id)));
+  });
+  await check('противоречие — ровно один вопрос про одну запись, с сутью и основанием', () => {
     const qs = staleQs();
     assert.equal(qs.length - stalesBefore, 1);
     const q = qs[qs.length - 1];
-    assert.ok(q.text.includes(dec1.id) && q.text.includes(dec2.id));
-    assert.ok(!q.text.includes(fresh.id));
-    assert.deepEqual(q.options, ['Все в силе', 'Пересмотреть']);
+    assert.ok(q.text.includes(conflictDec.id));
+    assert.ok(q.text.includes('в коде умолчание high') && q.text.includes(`более новая запись ${bareStale.id}`), q.text);
+    assert.deepEqual(q.quotes?.map((x) => x.ref), [conflictDec.id]);
+    assert.ok(q.basis?.includes('в коде умолчание high'), String(q.basis));
+    assert.deepEqual(q.options, ['В силе', 'Пересмотреть']);
+    for (const d of [keptDec, implDec, bareConflictDec, outdatedDec, fresh]) assert.ok(!q.text.includes(d.id));
+  });
+  await check('противоречие без основания не спрашивается — отложено', () => {
+    const f = office.facts.get(bareConflictDec.id)!;
+    assert.equal(f.confirmedAt, old);
+    assert.ok(!isFreshnessChecked(office.life, f));
   });
   await check('устаревший факт — в архиве с пометкой «заменена» и строкой в ленте с основанием', () => {
     const f = office.facts.get(staleFact.id)!;
@@ -129,9 +171,10 @@ async function main(): Promise<void> {
     assert.equal(run?.ritual, 'forget');
     assert.equal(run?.costUsd, 0.03);
     assert.equal(run?.produced.asked, 1);
-    assert.equal(run?.produced.actual, 1);
-    assert.equal(run?.produced.archived, 1);
-    assert.equal(run?.produced.deferred, 2);
+    assert.equal(run?.produced.actual, 2);
+    assert.equal(run?.produced.archived, 2);
+    assert.equal(run?.produced.converted, 1);
+    assert.equal(run?.produced.deferred, 3);
   });
 
   console.log('второй прогон');
@@ -145,9 +188,11 @@ async function main(): Promise<void> {
     assert.equal(office.questions.size, questionsBefore);
   });
   await check('разобранная запись не поднимается повторно, отложенные — поднимаются', () => {
-    assert.ok(!prompts[1].includes(`[${actualFact.id}]`));
-    assert.ok(!prompts[1].includes(`[${staleFact.id}]`));
+    for (const f of [actualFact, staleFact, keptDec, conflictDec, outdatedDec]) assert.ok(!prompts[1].includes(`[${f.id}]`), f.id);
+    // Бывшее решение теперь факт с новой датой — ждёт своего срока.
+    assert.ok(!prompts[1].includes(`[${implDec.id}]`));
     assert.ok(prompts[1].includes(`[${unknownLesson.id}]`) && prompts[1].includes(`[${bareStale.id}]`));
+    assert.ok(prompts[1].includes(`[${bareConflictDec.id}]`));
     assert.ok(office.facts.get(unknownLesson.id)!.confirmedAt > old);
   });
   await check('переписанная запись поднимается снова', async () => {
@@ -159,24 +204,35 @@ async function main(): Promise<void> {
   });
 
   console.log('ответ владельца');
-  await check('«Все в силе» подтверждает каждое решение и не плодит записей', () => {
+  await check('«В силе» подтверждает решение из вопроса, но не запись-основание, и не плодит записей', () => {
     const q = staleQs()[staleQs().length - 1];
     const factsBefore = office.facts.size;
-    assert.ok(answerQuestion(office, q.id, 'Все в силе'));
+    assert.ok(answerQuestion(office, q.id, 'В силе'));
     assert.equal(office.facts.size, factsBefore);
-    for (const d of [dec1, dec2]) {
-      const f = office.facts.get(d.id)!;
-      assert.ok(f.confirmedAt > old);
-      assert.equal(f.askedAt, null);
-      assert.ok(isFreshnessChecked(office.life, f));
-    }
+    const f = office.facts.get(conflictDec.id)!;
+    assert.ok(f.confirmedAt > old);
+    assert.equal(f.askedAt, null);
+    assert.ok(isFreshnessChecked(office.life, f));
+    assert.equal(office.facts.get(bareStale.id)!.confirmedAt, old);
   });
   await check('подтверждённые решения не поднимаются, даже когда снова состарятся', async () => {
-    for (const d of [dec1, dec2]) office.updateFact(d.id, { confirmedAt: old });
+    for (const d of [keptDec, conflictDec]) office.updateFact(d.id, { confirmedAt: old });
     office.life.lastRun = {};
     const before = office.questions.size;
     await runRitual(office, 'forget');
     assert.equal(office.questions.size, before);
+  });
+
+  console.log('без агента проверки');
+  await check('старое решение без агента ждёт, а не уходит владельцу', async () => {
+    const lone = office.addFact({ kind: 'decision', text: 'Язык интерфейса — русский', scope: 'project' });
+    office.updateFact(lone.id, { confirmedAt: old });
+    const before = office.questions.size;
+    const result = await runFreshness(office);
+    assert.equal(office.questions.size, before);
+    assert.equal(result.asked, 0);
+    assert.equal(office.facts.get(lone.id)!.confirmedAt, old);
+    assert.ok(!isFreshnessChecked(office.life, office.facts.get(lone.id)!));
   });
 
   unloadOfficeState('o-freshness-ritual');
