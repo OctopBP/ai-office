@@ -500,6 +500,13 @@ function sanitizeRole(raw: Partial<Role>, id: string, lang: Lang): Role {
       // файла берём только годные, остальное молча отбрасываем.
       if ('writePaths' in link.overrides) link.overrides.writePaths = cleanWritePaths(link.overrides.writePaths);
       if ('allowedHosts' in link.overrides) link.overrides.allowedHosts = cleanAllowedHosts(link.overrides.allowedHosts);
+      // Путь проекта для MCP (T-687) — так же: только абсолютный, иначе
+      // оверрайд снимаем, и мост выбирает проект сам.
+      if ('mcpProjectPath' in link.overrides) {
+        const path = sanitizeProjectPath(link.overrides.mcpProjectPath);
+        if (path) link.overrides.mcpProjectPath = path;
+        else delete link.overrides.mcpProjectPath;
+      }
       if ('provider' in link.overrides && !isProviderId(link.overrides.provider)) delete link.overrides.provider;
       if (typeof link.overrides.model === 'string' && !MODEL_RE.test(link.overrides.model)) {
         delete link.overrides.model;
@@ -4620,6 +4627,7 @@ export class OfficeState {
       writePaths: Array.isArray(draft.writePaths) ? draft.writePaths : [],
       allowedHosts: Array.isArray(draft.allowedHosts) ? draft.allowedHosts : [],
       spendFuseTokens: draft.spendFuseTokens ?? null,
+      ...(sanitizeProjectPath(draft.mcpProjectPath) ? { mcpProjectPath: sanitizeProjectPath(draft.mcpProjectPath) } : {}),
       repoDir: typeof draft.repoDir === 'string' ? draft.repoDir.trim() : '',
       sprite: typeof draft.sprite === 'string' ? draft.sprite.trim() : '',
       brief: typeof draft.brief === 'string' ? draft.brief : '',
@@ -4644,6 +4652,7 @@ export class OfficeState {
       writePaths: cleanWritePaths(wanted.writePaths),
       allowedHosts: cleanAllowedHosts(wanted.allowedHosts),
       ...(wanted.spendFuseTokens ? { spendFuseTokens: wanted.spendFuseTokens } : {}),
+      ...(wanted.mcpProjectPath ? { mcpProjectPath: wanted.mcpProjectPath } : {}),
       // Подписка кладётся всегда, даже пустая: без поля роль получила бы
       // умолчания по id, а они заведены для базовых ролей, не для этой.
       mcp: [...(wanted.mcp ?? [])],

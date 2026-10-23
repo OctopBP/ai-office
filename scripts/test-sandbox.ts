@@ -159,6 +159,63 @@ check('после перезапуска настройки на месте',
   [again.role('unity')?.writePaths, again.role('unity')?.allowedHosts], [['~/Unity/Cache'], ['*.example.org']]);
 await again.editRole('unity', { writePaths: [], allowedHosts: [] });
 check('очистили — оверрайда нет', again.role('unity')?.package?.overrides, {});
+
+// Поля песочницы (T-684) и путь проекта для MCP (T-687) влиты подряд и правят
+// одни и те же списки роли: правка одного поля не должна стирать другие.
+const mcpPath = resolve(root, 'UnityProject');
+const fields = (id: string): unknown => {
+  const v = again.roleViews().find((r) => r.id === id)!;
+  return [v.writePaths, v.allowedHosts, v.mcpProjectPath];
+};
+for (const id of ['unity', 'tools']) {
+  check(`${id}: путь MCP задан`, await again.editRole(id, { mcpProjectPath: mcpPath }), []);
+  check(`${id}: пути задан`, await again.editRole(id, { writePaths: ['~/Unity/Cache'] }), []);
+  check(`${id}: хосты заданы`, await again.editRole(id, { allowedHosts: ['*.example.org'] }), []);
+  check(`${id}: RoleView отдаёт все три поля`, fields(id), [['~/Unity/Cache'], ['*.example.org'], mcpPath]);
+  check(`${id}: правка пути MCP не стирает песочницу`,
+    (await again.editRole(id, { mcpProjectPath: `${mcpPath}/` }), fields(id)),
+    [['~/Unity/Cache'], ['*.example.org'], mcpPath]);
+  check(`${id}: правка хостов не стирает путь MCP`,
+    (await again.editRole(id, { allowedHosts: ['cdn.example.org'] }), fields(id)),
+    [['~/Unity/Cache'], ['cdn.example.org'], mcpPath]);
+}
+check('unity: все три поля — оверрайд пакета', again.role('unity')?.package?.overrides,
+  { mcpProjectPath: mcpPath, writePaths: ['~/Unity/Cache'], allowedHosts: ['cdn.example.org'] });
+// Испорченный руками оверрайд пути MCP миграция снимает, песочница остаётся.
+save(stateFile, () => {
+  const saved = again.toPersisted();
+  const link = saved.roles?.find((r) => r.id === 'unity')?.package;
+  if (link) (link.overrides as Record<string, unknown>).mcpProjectPath = 'relative/Project';
+  return saved;
+});
+flushAll();
+unloadOfficeState('o-sandbox');
+const third = openOfficeState({ id: 'o-sandbox', projectDir, stateFile }).state;
+const after = (id: string): unknown => {
+  const v = third.roleViews().find((r) => r.id === id)!;
+  return [v.writePaths, v.allowedHosts, v.mcpProjectPath];
+};
+check('перезапуск: ручная роль хранит все три поля', after('tools'), [['~/Unity/Cache'], ['cdn.example.org'], mcpPath]);
+check('перезапуск: мусорный путь MCP снят, песочница цела',
+  [after('unity'), third.role('unity')?.package?.overrides],
+  [[['~/Unity/Cache'], ['cdn.example.org'], undefined],
+    { writePaths: ['~/Unity/Cache'], allowedHosts: ['cdn.example.org'] }]);
+await third.editRole('unity', { mcpProjectPath: mcpPath });
+check('пакет обновился — оверрайды на месте',
+  (() => {
+    const link = third.role('unity')!.package!;
+    const r = roleFromPackage(loadPackage('@office/unity')!, 'ru', 'unity', { ...link, version: '99.0.0' });
+    return [r.writePaths, r.allowedHosts, r.mcpProjectPath];
+  })(),
+  [['~/Unity/Cache'], ['cdn.example.org'], mcpPath]);
+check('пустой путь MCP снимает только его',
+  (await third.editRole('unity', { mcpProjectPath: '' }), after('unity')),
+  [['~/Unity/Cache'], ['cdn.example.org'], undefined]);
+const created = await third.createRole({
+  title: 'Новая', mcpProjectPath: mcpPath, writePaths: ['~/x'], allowedHosts: ['x.example.org'],
+} as never);
+check('создание роли: все три поля доехали',
+  'role' in created ? after(created.role.id) : created, [['~/x'], ['x.example.org'], mcpPath]);
 unloadOfficeState('o-sandbox');
 wipe(stateFile);
 rmSync(root, { recursive: true, force: true });
