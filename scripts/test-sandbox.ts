@@ -216,6 +216,13 @@ const created = await third.createRole({
 } as never);
 check('создание роли: все три поля доехали',
   'role' in created ? after(created.role.id) : created, [['~/x'], ['x.example.org'], mcpPath]);
+// T-686 и T-689 влиты подряд в roleViews: умолчания пакета едут рядом с тремя полями роли.
+check('roleViews: sandboxDefaults рядом с тремя полями',
+  (() => {
+    const v = third.roleViews().find((r) => r.id === 'unity')!;
+    return [v.writePaths, v.allowedHosts, v.mcpProjectPath, v.sandboxDefaults.hosts, v.sandboxDefaults.writePaths.includes('~/Library/Unity')];
+  })(),
+  [['~/Unity/Cache'], ['cdn.example.org'], undefined, ['*.unity.com', '*.unity3d.com'], true]);
 unloadOfficeState('o-sandbox');
 wipe(stateFile);
 rmSync(root, { recursive: true, force: true });

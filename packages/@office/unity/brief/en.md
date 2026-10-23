@@ -4,6 +4,33 @@ source of truth is the files in git: whatever was done in the editor by hand
 or through the bridge counts as done only once it is saved and committed to
 the task branch.
 
+## Task start: permissions and what is open where
+
+1. **First thing — `sandbox_status`.** It shows the permissions the session
+   started with and where each rule comes from: the working copy, Unity
+   directories (`~/Library/Unity`, logs, license, `/private/tmp/.dotnet`),
+   the `*.unity.com` and `*.unity3d.com` hosts, commands outside the sandbox
+   and the bridge project path. Compare it with what the task needs before
+   the first run.
+2. **"Operation not permitted", "read only" or the network refuses** — call
+   `sandbox_status` again: is the path or host missing? Then ask the owner
+   through `ask_owner` with `sandboxRequest { writePaths, allowedHosts }`:
+   paths absolute or `~/…`, hosts a name or `*.domain`, only what is really
+   needed. Consent writes them into the role sandbox, and they open from the
+   next session. Do not ask for access in free text ("give me access to
+   Library"): the office cannot apply such a question itself and the owner
+   has to configure it by hand. Do not wait for the answer — keep working
+   with what you have and mention the request in the report.
+3. **Compiling your copy — batchmode.** If the project has
+   `Tools/unity-compile.sh`, run it from the copy root with a timeout:
+   `perl -e 'alarm shift; exec @ARGV' 900 sh Tools/unity-compile.sh`.
+   It starts the editor in batchmode on your working copy; the role sandbox
+   already opens the directories it needs.
+4. **The `mcp__unity__*` bridge is the owner's editor on the main project
+   folder**, not your copy. It does not see your edits until they are merged:
+   the console and scene in the bridge show the main branch. Do not check
+   your branch's compile errors through the bridge console — only batchmode.
+
 ## Project
 
 - Stack: C# and Unity; the editor version is in `ProjectSettings/ProjectVersion.txt`.
@@ -58,10 +85,12 @@ Always top to bottom; at each step use what the machine has.
 1. **Static checks without Unity.** `.meta` pairing, unique GUIDs, no
    `Library/` in the index, Force Text, binaries as LFS pointers. With the
    Unity CLI, `unity vcs status` and `unity vcs doctor` do this for you.
-2. **Editor bridge** (`mcp__unity__*`). If the tools exist and answer, the
-   editor is open: read the console for compile errors and run tests through
-   an editor command if there is one. No tools or "not connected" — do not
-   wait or retry, go straight to the next step.
+2. **Compiling the copy.** If `Tools/unity-compile.sh` exists, run
+   `sh Tools/unity-compile.sh` (with a timeout, see below): that is batchmode
+   on your working copy. The `mcp__unity__*` bridge looks at the owner's main
+   folder — its console speaks about main, not your branch; use it for
+   reconnaissance. No tools or "not connected" — do not wait or retry, go
+   straight to the next step.
 3. **Unity CLI** (https://docs.unity.com/en-us/unity-cli/unity-cli). Check it
    is there: `unity --version`, editors — `unity editors -i`. Read flags from
    `unity <command> --help` on the machine. Set `UNITY_NON_INTERACTIVE=1` in
@@ -109,9 +138,11 @@ Every feature comes with a test: logic — EditMode, in-frame behaviour — Play
 
 ## Editor bridge (MCP)
 
-With the `unity` bridge connected and the editor open you have a live
-editor: look at a scene, read the console, run an editor command. That is
-reconnaissance, not a way to deliver and not a replacement for CLI tests.
+With the `unity` bridge connected and the editor open you have the owner's
+live editor: look at a scene, read the console, run an editor command. It is
+open on the main project folder (or the path set in the role settings), so it
+shows the main branch, not your copy. That is reconnaissance, not a way to
+deliver and not a replacement for CLI and batchmode tests.
 `eval` and arbitrary C# in the owner's editor only when no ready command
 exists: every such call asks the owner.
 

@@ -137,6 +137,11 @@
       "path": "packages/@office/unity",
       "versions": [
         {
+          "version": "0.3.0",
+          "commit": "1370559fb44b99c98892415483ec13853ee83cb0",
+          "at": "2026-10-23"
+        },
+        {
           "version": "0.2.0",
           "commit": "e629aab94a3c0e1c3cf397a5397b47c9c1673d69",
           "at": "2026-10-14"
