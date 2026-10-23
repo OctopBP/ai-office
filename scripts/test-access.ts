@@ -162,6 +162,19 @@ const pendingAt = status.indexOf('со следующей сессии:');
 check('status: выданное после старта — в ожидании следующей сессии',
   pendingAt > 0 && status.slice(pendingAt).includes(join(home, 'Unity/Extra')), true);
 check('status: подсказка про sandboxRequest', status.includes('sandboxRequest'), true);
+// T-691: показанное агенту и применённое — один и тот же набор из трёх
+// источников, без потерь и дублей, даже когда настройка роли повторяет
+// умолчание пакета.
+const mixed = { ...startRole, writePaths: [...startRole.writePaths, '~/Library/Unity'], allowedHosts: ['packages.example.com', '*.unity.com'] };
+const shown = sandboxRules(mixed, worktree, process.env, { grants: sandboxGrants(office, 'unity') });
+const applied = sandboxFor(mixed, worktree) as Box;
+check('status = sandboxFor: пути на запись', shown.write.map((r) => r.value), applied.filesystem?.allowWrite);
+check('status = sandboxFor: хосты', shown.hosts.map((r) => r.value), applied.network?.allowedDomains);
+check('три источника на месте',
+  ['package', 'role', 'owner'].map((s) => shown.write.some((r) => r.source === s)), [true, true, true]);
+check('повтор умолчания пакета не задваивается',
+  [shown.write.filter((r) => r.value === join(home, 'Library/Unity')).length,
+    shown.hosts.filter((r) => r.value === '*.unity.com').length], [1, 1]);
 const fresh = sandboxStatusFor(office, 'нет-такого', 'T-404');
 check('status: без сотрудника — понятный отказ', fresh.length > 0, true);
 

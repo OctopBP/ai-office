@@ -49,6 +49,7 @@
     "office-agent": "tsx src/cli/office-agent.ts",
     "registry": "tsx src/registry/main.ts",
     "test:registry": "tsx scripts/test-registry.ts",
+    "test:registry-commits": "tsx scripts/test-registry-commits.ts",
     "test:cli": "tsx scripts/test-cli.ts",
     "test:state": "tsx scripts/test-state.ts",
     "test:nav": "tsx scripts/test-nav.ts",
