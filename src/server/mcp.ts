@@ -425,7 +425,7 @@ function resolveEnv(env: Record<string, string>): Record<string, string> {
  * этой переменной складывал бы их в корень офиса мимо ветки — то есть в
  * никуда. Мостам до Figma и Blender переменная не мешает: они её не читают.
  */
-function toSdkConfig(def: McpServerDef, cwd?: string, project?: string | readonly string[]): McpServerConfig {
+function toSdkConfig(def: McpServerDef, cwd?: string, project?: UnityPlaces): McpServerConfig {
   const env = resolveEnv(def.env);
   if (def.transport === 'stdio') {
     const node = nodeCommand(toolCommand(def.command));
@@ -509,55 +509,141 @@ function gitWorktrees(dir: string): string[] {
 }
 
 /**
+ * Где мосту Unity искать проект. `copy` — копия задачи (корень зоны в копии,
+ * сама копия), `main` — основная папка: репозиторий роли или зоны и корень
+ * зоны в нём. `explicit` — настройка роли «Путь проекта для MCP»
+ * (`Role.mcpProjectPath`), абсолютный путь; задана — выбор не нужен.
+ */
+export interface UnityPlaces {
+  copy: readonly string[];
+  main: readonly string[];
+  explicit?: string;
+}
+
+/**
+ * Почему выбран этот путь:
+ *  - `setting` — задан руками в настройке роли;
+ *  - `editorInCopy` — редактор открыт на копии задачи;
+ *  - `main` — основная папка репозитория (редактор открыт там или нигде);
+ *  - `copy` — Unity-проекта в основной папке нет, остаётся копия задачи.
+ */
+export type UnityProjectReason = 'setting' | 'editorInCopy' | 'main' | 'copy';
+
+export interface UnityProjectChoice {
+  path: string;
+  reason: UnityProjectReason;
+  /** Лежит ли в выбранной папке `Temp/UnityLockfile` на момент выбора. */
+  editorOpen: boolean;
+}
+
+/** Папки без пустых, абсолютные и без повторов — в исходном порядке. */
+const dirs = (list: readonly (string | undefined)[]): string[] =>
+  [...new Set(list.filter((d): d is string => !!d).map((d) => resolve(d)))];
+
+/**
+ * Выбрать Unity-проект для моста (T-687). Роль работает в копии задачи
+ * (.office/worktrees/…), а владелец открывает редактор на основной папке
+ * проекта, и мост с путём копии отвечал «No Pipeline instance found». Порядок:
+ *  1. явная настройка роли — как есть, без проверок: человек знает лучше;
+ *  2. копия задачи, если редактор открыт именно на ней (`Temp/UnityLockfile`);
+ *  3. основная папка: переданные `main`, затем основная рабочая копия
+ *     репозитория из `git worktree list` (на случай, когда `main` — не она);
+ *  4. копия задачи — только когда Unity-проекта в основной папке нет вовсе.
+ * В каждой папке проект ищется в ней самой или на один-два уровня ниже.
+ * Соседние копии других задач не смотрим: их редактор — не наш.
+ */
+export function chooseUnityProject(places: UnityPlaces): UnityProjectChoice | null {
+  const explicit = places.explicit?.trim();
+  if (explicit) return { path: resolve(explicit), reason: 'setting', editorOpen: editorOpenOn(explicit) };
+  const copy = dirs(places.copy);
+  const given = dirs(places.main);
+  const worktrees = [...given, ...copy].map(gitWorktrees).find((list) => list.length) ?? [];
+  const main = dirs([...given, worktrees[0]]).filter((d) => !copy.includes(d));
+  const inCopy = [...new Set(copy.flatMap(unityProjectsIn))];
+  const inMain = [...new Set(main.flatMap(unityProjectsIn))];
+  const open = inCopy.find(editorOpenOn);
+  if (open) return { path: open, reason: 'editorInCopy', editorOpen: true };
+  const home = inMain.find(editorOpenOn) ?? inMain[0];
+  if (home) return { path: home, reason: 'main', editorOpen: editorOpenOn(home) };
+  return inCopy[0] ? { path: inCopy[0], reason: 'copy', editorOpen: false } : null;
+}
+
+/** Свой ли это мост Unity из умолчаний и не задан ли путь в его аргументах. */
+const ownUnityBridge = (def: McpServerDef): boolean =>
+  def.id === 'unity' && basename(def.command) === 'unity' && !def.args.includes('--project-path');
+
+/** Старый вид мест: `cwd` — копия задачи, `project` — основная папка. */
+function toPlaces(cwd?: string, project?: string | readonly string[] | UnityPlaces): UnityPlaces {
+  if (project && typeof project === 'object' && 'copy' in project) return project;
+  const main = typeof project === 'string' ? [project] : (project as readonly string[] | undefined) ?? [];
+  return { copy: cwd ? [cwd] : [], main };
+}
+
+/**
  * Путь проекта для моста к Unity (`unity mcp --project-path <путь>`, T-572).
  * Без него мост цепляется к первому найденному редактору, а открытых может
- * быть несколько — и роль смотрела бы в чужой проект.
- *
- * Роль работает в копии задачи (.office/worktrees/…), а владелец открывает
- * редактор на своей папке проекта — основной рабочей копии репозитория зоны
- * (T-575). Поэтому кандидаты — не только `cwd` и `project`, но и все рабочие
- * копии того же git-репозитория, а в каждой — Unity-проект в ней самой или
- * на один-два уровня ниже. Порядок выбора:
- *  1. проект, на котором редактор открыт сейчас (`Temp/UnityLockfile`), где бы
- *     он ни лежал — в копии задачи, в основной папке или в соседней копии;
- *  2. проект в копии задачи (`cwd` и первые папки `project`);
- *  3. проект в репозитории зоны и её корне, затем в основной рабочей копии
- *     репозитория и прочих копиях — в порядке `git worktree list`.
- * Мост поднимается вместе с сессией, так что редактор, открытый позже, он
- * найдёт по выбранному пути.
+ * быть несколько — и роль смотрела бы в чужой проект. Выбор — в
+ * `chooseUnityProject`.
  *
  * Дописываем только своему серверу из умолчаний (id и команда `unity`),
  * только если путь в аргументах не задан руками и только Unity-проекту:
  * иначе мост искал бы редактор, которого нет, и роль осталась бы без
  * инструментов там, где раньше их получала.
  */
-export function unityProjectArgs(def: McpServerDef, cwd?: string, project?: string | readonly string[]): string[] {
-  if (def.id !== 'unity' || basename(def.command) !== 'unity') return [];
-  if (def.args.includes('--project-path')) return [];
-  const given = [cwd, ...(typeof project === 'string' ? [project] : project ?? [])]
-    .filter((d): d is string => !!d);
-  if (!given.length) return [];
-  const worktrees = given.map(gitWorktrees).find((list) => list.length) ?? [];
-  // Переданные папки идут первыми: копия задачи, затем репозиторий зоны и её
-  // корень. Основная рабочая копия из git нужна, когда `project` — не она.
-  const roots = [...new Set([...given, ...worktrees].map((d) => resolve(d)))];
-  const found = [...new Set(roots.flatMap(unityProjectsIn))];
-  const dir = found.find(editorOpenOn) ?? found[0];
-  return dir ? ['--project-path', dir] : [];
+export function unityProjectArgs(
+  def: McpServerDef, cwd?: string, project?: string | readonly string[] | UnityPlaces,
+): string[] {
+  if (!ownUnityBridge(def)) return [];
+  const choice = chooseUnityProject(toPlaces(cwd, project));
+  return choice ? ['--project-path', choice.path] : [];
 }
+
+/**
+ * Путь моста Unity для роли: null — у роли нет нашего моста (или путь у него
+ * задан в аргументах сервера) либо Unity-проекта нигде не нашлось.
+ */
+export function unityProjectForRole(
+  settings: Settings, role: Role, places: UnityPlaces,
+): UnityProjectChoice | null {
+  if (!serversFor(settings, role).some(ownUnityBridge)) return null;
+  return chooseUnityProject({ ...places, explicit: places.explicit ?? role.mcpProjectPath });
+}
+
+/**
+ * Какой путь получил мост Unity в сессии — по id задачи или сотрудника.
+ * Офис запоминает его на старте сессии (`rememberUnityProject`), а
+ * `sandbox_status` и прочие показывают, не пересчитывая: редактор с тех пор
+ * могли открыть или закрыть, а мост живёт с тем путём, что получил.
+ */
+const unitySessions = new Map<string, UnityProjectChoice>();
+
+export function rememberUnityProject(keys: readonly string[], choice: UnityProjectChoice | null): void {
+  for (const key of keys) {
+    if (choice) unitySessions.set(key, choice);
+    else unitySessions.delete(key);
+  }
+}
+
+/** Выбранный для сессии путь проекта Unity и причина; null — моста нет. */
+export const unityProjectForSession = (key: string): UnityProjectChoice | null =>
+  unitySessions.get(key) ?? null;
 
 /**
  * Внешние MCP-серверы роли — в том виде, в каком их ждёт опция сессии.
  * `cwd` — рабочая копия сотрудника: она нужна серверам, которые пишут файлы
- * (§ `toSdkConfig`). `project` — корень репозитория задачи или список папок
- * (копия задачи, репозиторий, корень зоны): по ним и по `cwd` мост Unity
- * находит свой редактор (§ `unityProjectArgs`). Пусто — серверы поднимаются
- * как раньше.
+ * (§ `toSdkConfig`). `project` — места для моста Unity (`UnityPlaces`) или,
+ * по-старому, основная папка либо их список (тогда копия задачи — `cwd`):
+ * по ним мост находит свой проект (§ `chooseUnityProject`). Настройка роли
+ * `mcpProjectPath` перекрывает автовыбор. Пусто — серверы поднимаются как
+ * раньше.
  */
-export const externalMcp = (
-  settings: Settings, role: Role, cwd?: string, project?: string | readonly string[],
-): Record<string, McpServerConfig> =>
-  Object.fromEntries(serversFor(settings, role).map((s) => [s.id, toSdkConfig(s, cwd, project)]));
+export function externalMcp(
+  settings: Settings, role: Role, cwd?: string, project?: string | readonly string[] | UnityPlaces,
+): Record<string, McpServerConfig> {
+  const places = toPlaces(cwd, project);
+  const withRole = { ...places, explicit: places.explicit ?? role.mcpProjectPath };
+  return Object.fromEntries(serversFor(settings, role).map((s) => [s.id, toSdkConfig(s, cwd, withRole)]));
+}
 
 /**
  * Дополнение к системному промпту: чем роль умеет пользоваться и что делать,

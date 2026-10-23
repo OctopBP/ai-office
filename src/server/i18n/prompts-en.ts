@@ -620,6 +620,11 @@ Keep your replies to the user short. Which language to write them in is said in 
   'agent.pm.compacted': 'The manager’s memory was compacted: the context reached {tokens}k tokens with a threshold of {limit}k, {to}k remain after compaction. The conversation continues in the same session; the board, the plan and the journal are untouched.',
   'agent.log.compacting': 'Context {tokens}k tokens with a threshold of {limit}k — compacting the session’s memory',
   'agent.log.compacted': 'Memory compacted: context {from}k → {to}k tokens',
+  'agent.log.unityProject': 'Unity bridge: project {path} — {reason}',
+  'agent.log.unityProject.setting': 'set in the role setting “MCP project path”',
+  'agent.log.unityProject.editorInCopy': 'the editor is open on the task copy',
+  'agent.log.unityProject.main': 'the main folder of the role repository',
+  'agent.log.unityProject.copy': 'no Unity project in the main folder, using the task copy',
   'agent.log.compactFailed': 'Could not compact memory: {reason} — asking for a handover and closing the session',
   'agent.log.compactNoBoundary': 'the session sent no compact boundary',
   'agent.log.resumeBroke': 'the session broke off after compaction before reaching the task',
@@ -875,6 +880,10 @@ Keep your replies to the user short. Which language to write them in is said in 
     'If the tools answer that there is no connection, the editor is closed or the',
     '`com.unity.pipeline` package is not installed. Do not wait and do not stop: switch to the',
     'Unity CLI and batchmode, and mention in the report that the bridge was unavailable.',
+    'Keep in mind: the owner’s editor is open on the main project folder, while you work in the',
+    'task’s working copy. The editor does not see your edits until they are merged — the console',
+    'and scene in the bridge show the main branch. To check that your copy compiles, run',
+    'batchmode via `Tools/unity-compile.sh`, not the editor console.',
   ].join('\n'),
 
   // ------------------------------------------------------- ход и итог задачи

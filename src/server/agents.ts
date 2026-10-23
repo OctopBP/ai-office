@@ -29,7 +29,9 @@ import type { BudgetStop, MeetingView, PmChat, PrStage, PullRequestView, ReviewV
 import { cloudProblem, runCloudTask, stopCloudTask } from './cloud';
 import type { Role } from './roles';
 import { admitProblem, consultWorkdir, reviewerFor, zoneForRole, zonesText } from './subprojects';
-import { externalMcp, mcpBrief, serversFor } from './mcp';
+import {
+  externalMcp, mcpBrief, rememberUnityProject, serversFor, unityProjectForRole, type UnityPlaces,
+} from './mcp';
 import { SANDBOX, sandboxFor } from './sandbox';
 import { ensureChromium } from './chromium';
 import { employeePlugins, employeeSkills, sessionTools } from './skills';
@@ -3082,21 +3084,23 @@ function limitWhen(state: OfficeState, role: Role): string {
 }
 
 /**
- * Папки, где мост Unity ищет проект и открытый редактор (`unityProjectArgs`):
- * копия задачи, репозиторий зоны и корень зоны — и в репозитории, и в копии.
- * У зоны-папки корень лежит глубже корня репозитория, и неглубокий поиск
- * вниз до него мог бы не дотянуться. Остальные рабочие копии репозитория
- * mcp.ts находит сам через git.
+ * Папки, где мост Unity ищет проект и открытый редактор (`chooseUnityProject`):
+ * копия задачи — корень зоны в копии и сама копия, основная папка —
+ * репозиторий зоны (роли) и корень зоны в нём. У зоны-папки корень лежит
+ * глубже корня репозитория, и неглубокий поиск вниз до него мог бы не
+ * дотянуться. Основную рабочую копию репозитория mcp.ts находит и сам через
+ * git, если `repoDir` — не она.
  */
-function unityPlaces(office: OfficeState, task: Task, workRoot: string, repoDir: string): string[] {
+function unityPlaces(office: OfficeState, task: Task, workRoot: string, repoDir: string): UnityPlaces {
   const zone = task.subprojectId ? office.subprojects().find((s) => s.id === task.subprojectId) : undefined;
-  if (!zone) return [workRoot, repoDir];
+  if (!zone) return { copy: [workRoot], main: [repoDir] };
   const root = zonePath(zone, office.projectDir);
   const inRepo = relative(repoDir, root);
   const inside = !inRepo.startsWith('..') && !isAbsolute(inRepo);
-  return [
-    ...(inside ? [resolve(workRoot, inRepo)] : []), workRoot, repoDir, root,
-  ];
+  return {
+    copy: [...(inside ? [resolve(workRoot, inRepo)] : []), workRoot],
+    main: [...(inside ? [root] : []), repoDir, root],
+  };
 }
 
 /**
@@ -3293,6 +3297,17 @@ function startWorker(
       if (serversFor(taskOffice.settings, role).some((s) => s.id === 'browser')) {
         await ensureChromium(taskOffice, inst.label);
       }
+      // Путь проекта для моста Unity выбираем один раз на сессию и пишем в
+      // лог: «No Pipeline instance found» без этого не разобрать, а
+      // sandbox_status показывает его через unityProjectForSession.
+      const places = unityPlaces(taskOffice, task, workRoot, repoDir);
+      const unity = unityProjectForRole(taskOffice.settings, role, places);
+      rememberUnityProject([task.id, inst.id], unity);
+      if (unity) {
+        taskOffice.addLog(inst.id, 'system', taskOffice.say('agent.log.unityProject', {
+          path: unity.path, reason: taskOffice.say(`agent.log.unityProject.${unity.reason}`),
+        }));
+      }
       const run = await driveWorker(taskOffice, inst, role, {
         resume: resumeId,
         prompt: resumed?.prompt ?? workerPrompt(taskOffice, task, artifactsDir, repoDir),
@@ -3315,7 +3330,7 @@ function startWorker(
           tools: sessionTools(role),
           mcpServers: {
             office: workerTools(taskOffice, inst.id, task),
-            ...externalMcp(taskOffice.settings, role, workdir, unityPlaces(taskOffice, task, workRoot, repoDir)),
+            ...externalMcp(taskOffice.settings, role, workdir, places),
           },
           // Скилы роли — из её пакета в employees/<роль>/. Пакета нет, обе
           // опции undefined, и сессия собирается ровно как прежде.

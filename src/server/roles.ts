@@ -55,6 +55,13 @@ export interface Role {
    */
   spendFuseTokens?: number | null;
   /**
+   * Путь проекта для MCP — абсолютная папка Unity-проекта, которую получит
+   * мост `unity mcp --project-path` (T-687). Пусто — офис выбирает сам
+   * (`chooseUnityProject` в mcp.ts): копия задачи с открытым редактором,
+   * иначе основная папка репозитория роли или зоны.
+   */
+  mcpProjectPath?: string;
+  /**
    * Ограничение набора встроенных инструментов. undefined — все.
    * Юристу и SMM оболочка не нужна: чем уже поверхность, тем меньше поводов
    * для подтверждений и меньше шансов сделать что-то необратимое. Дизайнеру
@@ -231,6 +238,7 @@ export const copyTitle = (title: string, copy: number | undefined): string =>
 export const OVERRIDABLE_KEYS: readonly (keyof LinkOverrides)[] = [
   'title', 'emoji', 'color', 'model', 'provider', 'tier', 'permissionMode', 'isolate',
   'maxTurns', 'allowLocalBinding', 'spendFuseTokens', 'repoDir', 'subprojects', 'sprite', 'mcp', 'capabilities',
+  'mcpProjectPath',
 ];
 
 /**

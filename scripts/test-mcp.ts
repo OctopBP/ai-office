@@ -6,8 +6,9 @@
 // которому сказано «делай макет в Figma», займётся не своим делом.
 import {
   checkMcpServers, DEFAULT_MCP_SERVERS, externalMcp, MCP_NOT_IN_SESSION, mcpBrief, mcpCatalog, mcpCatalogView, pollMcpStatus, serversFor,
-  toolCommand, unityProjectArgs,
+  chooseUnityProject, rememberUnityProject, toolCommand, unityProjectArgs, unityProjectForRole, unityProjectForSession,
 } from '../src/server/mcp';
+import { sanitizeProjectPath } from '../src/server/state';
 import { execFileSync } from 'node:child_process';
 import { mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -207,6 +208,7 @@ check('без рабочей копии переменной нет', wd() === u
 // Роль работает в копии задачи, а редактор владелец открывает на основной
 // папке репозитория зоны (T-575). Мост с --project-path <копия> открытый
 // редактор не найдёт, поэтому выбор пути проверяем на настоящих git-копиях.
+// Порядок (T-687): настройка роли → копия с открытым редактором → основная папка.
 {
   const unity = DEFAULT_MCP_SERVERS.find((s) => s.id === 'unity')!;
   const pathOf = (cwd?: string, project?: string | string[]): string =>
@@ -235,8 +237,49 @@ check('без рабочей копии переменной нет', wd() === u
     const copy = join(tmp, 'worktrees', 'T-1');
     git(main, 'worktree', 'add', '-q', '-b', 'task/T-1', copy);
 
-    check('Unity: редактор нигде — копия задачи', pathOf(copy, main) === `--project-path ${copy}`, pathOf(copy, main));
+    // Случай 3: lockfile нигде — основная папка, а не копия задачи.
+    check('Unity: редактор нигде — основная папка', pathOf(copy, main) === `--project-path ${main}`, pathOf(copy, main));
+    const places = { copy: [copy], main: [main] };
+    const why = (p: Parameters<typeof chooseUnityProject>[0]): string => {
+      const c = chooseUnityProject(p);
+      return c ? `${c.reason} ${c.path}` : '(нет)';
+    };
+    check('Unity: причина без редактора — main', why(places) === `main ${main}`, why(places));
+
+    // Случай 2: редактор открыт именно на копии задачи — берём копию.
+    openEditor(copy);
+    check('Unity: редактор на копии задачи — копия', why(places) === `editorInCopy ${copy}`, why(places));
+    // Открыт и там, и там — копия всё равно сильнее: её редактор видит правки.
     openEditor(main);
+    check('Unity: редактор и на копии, и в основной — копия', why(places) === `editorInCopy ${copy}`, why(places));
+    rmSync(join(copy, 'Temp'), { recursive: true, force: true });
+
+    // Случай 1: явная настройка перекрывает автовыбор, даже открытый редактор.
+    const own = join(tmp, 'elsewhere', 'Game');
+    check('Unity: явная настройка перекрывает автовыбор',
+      why({ ...places, explicit: own }) === `setting ${own}`, why({ ...places, explicit: own }));
+    check('Unity: пустая настройка — автовыбор', why({ ...places, explicit: '  ' }) === `main ${main}`, why({ ...places, explicit: '  ' }));
+
+    // Настройка роли доезжает до аргументов моста, путь и причина — до сессии.
+    const unityRole: Role = { ...role('backend'), mcp: ['unity'] };
+    const argsOf = (r: Role): string =>
+      ((externalMcp(catalog(), r, copy, places).unity as { args?: string[] }).args ?? []).join(' ');
+    check('Unity: настройка роли в аргументах моста',
+      argsOf({ ...unityRole, mcpProjectPath: own }) === `mcp --project-path ${own}`, argsOf({ ...unityRole, mcpProjectPath: own }));
+    check('Unity: без настройки роли — основная папка', argsOf(unityRole) === `mcp --project-path ${main}`, argsOf(unityRole));
+    const chosen = unityProjectForRole(catalog(), { ...unityRole, mcpProjectPath: own }, places);
+    rememberUnityProject(['T-1', 'agent-1'], chosen);
+    const seen = unityProjectForSession('T-1');
+    check('Unity: путь сессии отдаётся наружу',
+      seen?.path === own && seen.reason === 'setting' && unityProjectForSession('agent-1') === seen,
+      seen ? `${seen.reason} ${seen.path}` : '(нет)');
+    check('Unity: роли без моста пути нет', unityProjectForRole(catalog(), role('backend'), places) === null, 'null');
+    rememberUnityProject(['T-1'], null);
+    check('Unity: забытая сессия — null', unityProjectForSession('T-1') === null, 'null');
+    check('Unity: настройка только абсолютная',
+      sanitizeProjectPath('/a/b/') === '/a/b' && sanitizeProjectPath('a/b') === undefined && sanitizeProjectPath('') === undefined,
+      String(sanitizeProjectPath('/a/b/')));
+
     check('Unity: редактор в основной папке, задача в копии',
       pathOf(copy, main) === `--project-path ${main}`, pathOf(copy, main));
     // project указывает не туда (например, на копию) — основную папку
@@ -256,7 +299,13 @@ check('без рабочей копии переменной нет', wd() === u
     const nestedCopy = join(tmp, 'worktrees', 'T-2');
     git(nested, 'worktree', 'add', '-q', '-b', 'task/T-2', nestedCopy);
     check('Unity: проект на два уровня ниже, редактора нет',
-      pathOf(nestedCopy, nested) === `--project-path ${join(nestedCopy, 'client', 'Game')}`, pathOf(nestedCopy, nested));
+      pathOf(nestedCopy, nested) === `--project-path ${join(nested, 'client', 'Game')}`, pathOf(nestedCopy, nested));
+    // Unity-проект есть только в копии (основная папка — не Unity) — копия.
+    const solo = join(tmp, 'solo');
+    unityAt(join(solo, 'Game'));
+    const soloPlaces = { copy: [solo], main: [join(tmp, 'plain-main')] };
+    check('Unity: в основной папке проекта нет — копия',
+      why(soloPlaces) === `copy ${join(solo, 'Game')}`, why(soloPlaces));
     openEditor(join(nested, 'client', 'Game'));
     check('Unity: проект в подпапке, редактор в основной папке',
       pathOf(nestedCopy, nested) === `--project-path ${join(nested, 'client', 'Game')}`, pathOf(nestedCopy, nested));

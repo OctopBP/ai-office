@@ -313,7 +313,18 @@ export const criticalEnvFail = (checks: EnvCheck[]): EnvCheck | null =>
 const ROLE_EDITABLE_KEYS: readonly (keyof RoleEditable)[] = [
   'title', 'emoji', 'color', 'model', 'provider', 'tier', 'permissionMode',
   'isolate', 'maxTurns', 'allowLocalBinding', 'spendFuseTokens', 'repoDir', 'subprojects', 'sprite', 'brief', 'briefExtra', 'mcp', 'capabilities',
+  'mcpProjectPath',
 ];
+
+/**
+ * Путь проекта для MCP (`Role.mcpProjectPath`): непустой абсолютный путь без
+ * хвостового слеша. Иное — undefined, «не задано».
+ */
+export function sanitizeProjectPath(value: unknown): string | undefined {
+  if (typeof value !== 'string') return undefined;
+  const path = value.trim().replace(/(?<=.)\/+$/, '');
+  return path && isAbsolute(path) ? path : undefined;
+}
 
 /** Свои проверки проекта: имя по форме, команда непустая и не бесконечная. */
 function sanitizeChecks(value: unknown): Record<string, string> | undefined {
@@ -431,6 +442,7 @@ function linkFromSave(raw: Partial<Role>, pkg: AgentPackage, id: string, lang: L
     if (key === 'maxTurns' && sanitizeMaxTurns(value) === undefined) continue;
     if (key === 'allowLocalBinding' && typeof value !== 'boolean') continue;
     if (key === 'spendFuseTokens' && sanitizeSpendFuse(value) === undefined) continue;
+    if (key === 'mcpProjectPath' && sanitizeProjectPath(value) === undefined) continue;
     if ((key === 'provider' || key === 'model') && sameValue(value, literal[key])) continue;
     if (!sameValue(value, defaults[key as keyof Role])) {
       (link.overrides as Record<string, unknown>)[key] = value;
@@ -544,6 +556,8 @@ function sanitizeRole(raw: Partial<Role>, id: string, lang: Lang): Role {
     // null храним как есть: это «владелец снял порог», а не «не задано».
     ...(sanitizeSpendFuse(raw.spendFuseTokens) !== undefined
       ? { spendFuseTokens: sanitizeSpendFuse(raw.spendFuseTokens) } : {}),
+    // Путь проекта для MCP: только абсолютный, остальное — «выбирать самому».
+    ...(sanitizeProjectPath(raw.mcpProjectPath) ? { mcpProjectPath: sanitizeProjectPath(raw.mcpProjectPath) } : {}),
     // Набор инструментов из UI не правится (его нет в RoleEditable), так что
     // у роли без пакета сохранение — единственный его источник. Роль,
     // отвязанная от нашего пакета, набор пакета берёт по-прежнему из него:
@@ -4354,6 +4368,7 @@ export class OfficeState {
       isolate: r.isolate, maxTurns: r.maxTurns ?? null,
       allowLocalBinding: r.allowLocalBinding === true,
       spendFuseTokens: r.spendFuseTokens ?? null,
+      ...(r.mcpProjectPath ? { mcpProjectPath: r.mcpProjectPath } : {}),
       repoDir: roleRepoDir(r, this.subprojectList), sprite: r.sprite ?? '', brief: r.brief,
       // Закрепление за зонами: без него веб видит роль как «весь проект», и
       // карточка сотрудника каждым кликом заменяет закрепление, а не дополняет.
@@ -4997,6 +5012,14 @@ export class OfficeState {
     // доходит только мимо него — выкидываем, как и остальное.
     if ('spendFuseTokens' in clean && sanitizeSpendFuse(clean.spendFuseTokens) === undefined) {
       delete clean.spendFuseTokens;
+    }
+    // Путь проекта для MCP: пустая строка снимает настройку, относительный
+    // путь — мусор (мост искал бы его от папки офиса), его выкидываем.
+    if ('mcpProjectPath' in clean) {
+      const path = sanitizeProjectPath(clean.mcpProjectPath);
+      if (path !== undefined) clean.mcpProjectPath = path;
+      else if (typeof clean.mcpProjectPath === 'string' && !clean.mcpProjectPath.trim()) clean.mcpProjectPath = '';
+      else delete clean.mcpProjectPath;
     }
     // Правка ложится в набор ролей самого офиса: соседний работает со своими.
     // Роль заменяется новым объектом, а не правится на месте: снимок, который
