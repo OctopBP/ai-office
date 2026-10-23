@@ -152,6 +152,103 @@ function expandPath(path: string, home: string | undefined): string | null {
 const uniq = (list: string[]): string[] => [...new Set(list)];
 
 /**
+ * Откуда правило песочницы (T-685): сама сессия (рабочая копия, временная
+ * папка), умолчание пакета (способности роли, локальные серверы), настройка
+ * роли из окна «Песочница» или ответ владельца на запрос доступа.
+ */
+export type SandboxSource = 'session' | 'package' | 'role' | 'owner';
+
+/**
+ * Почему правило есть — код для текста `sandbox_status`:
+ * cwd — рабочая копия; read — каталог,
+ * открытый сессии на чтение; vite — кеш vite при локальных серверах;
+ * unityProject — корень копии и каталоги Unity в ней; unity — каталоги и
+ * домены Unity; setting — настройка роли; answer — ответ владельца.
+ */
+export type SandboxReason = 'cwd' | 'read' | 'vite' | 'unityProject' | 'unity' | 'setting' | 'answer';
+
+export interface SandboxRule {
+  /** Путь (уже развёрнутый, без симлинков) или хост. */
+  value: string;
+  source: SandboxSource;
+  reason: SandboxReason;
+  /** Вопрос владельцу (Q-N), ответом на который правило добавлено. */
+  questionId?: string;
+}
+
+/** Действующие права сессии по правилам — то, что видит `sandbox_status`. */
+export interface SandboxView {
+  /** Рабочая копия сессии; null — сессия без своей директории. */
+  cwd: string | null;
+  write: SandboxRule[];
+  read: SandboxRule[];
+  hosts: SandboxRule[];
+  /** Можно ли слушать локальные порты (`allowLocalBinding`). */
+  localBinding: boolean;
+  /** Команды, которые идут вне песочницы. */
+  unsandboxed: string[];
+}
+
+/**
+ * Права песочницы по правилам, с источником каждого. `grants` — какие
+ * записи роли пришли ответом владельца: запись → id вопроса. Из этого же
+ * списка собирается и сама песочница (`sandboxFor`), так что показанное
+ * агенту и применённое не расходятся.
+ */
+export function sandboxRules(
+  role: Pick<Role, 'capabilities' | 'isolate' | 'tools' | 'docsDir' | 'isManager' | 'allowLocalBinding'
+    | 'writePaths' | 'allowedHosts'>,
+  cwd?: string,
+  env: NodeJS.ProcessEnv = process.env,
+  opts: { readDirs?: readonly string[]; grants?: ReadonlyMap<string, string> } = {},
+): SandboxView {
+  const caps = capabilitiesOf(role);
+  const unity = caps.includes('game.unity');
+  const fromRole = (value: string): Pick<SandboxRule, 'source' | 'reason' | 'questionId'> => {
+    const questionId = opts.grants?.get(value);
+    return questionId ? { source: 'owner', reason: 'answer', questionId } : { source: 'role', reason: 'setting' };
+  };
+  const write: SandboxRule[] = [];
+  const addWrite = (path: string, rule: Omit<SandboxRule, 'value'>): void => {
+    const value = expandPath(path, env.HOME);
+    if (value && !write.some((r) => r.value === value)) write.push({ value, ...rule });
+  };
+  for (const dir of role.allowLocalBinding ? viteCacheDirs(cwd) : []) addWrite(dir, { source: 'package', reason: 'vite' });
+  if (unity && cwd) {
+    for (const dir of [cwd, ...UNITY_PROJECT_DIRS.map((d) => join(cwd, d))]) {
+      addWrite(dir, { source: 'package', reason: 'unityProject' });
+    }
+  }
+  for (const path of unity ? UNITY_WRITE_PATHS : []) addWrite(path, { source: 'package', reason: 'unity' });
+  for (const path of cleanWritePaths(role.writePaths)) addWrite(path, fromRole(path));
+
+  const hosts: SandboxRule[] = [];
+  for (const host of unity ? UNITY_HOSTS : []) hosts.push({ value: host, source: 'package', reason: 'unity' });
+  for (const host of cleanAllowedHosts(role.allowedHosts)) {
+    if (!hosts.some((r) => r.value === host)) hosts.push({ value: host, ...fromRole(host) });
+  }
+
+  const read: SandboxRule[] = [];
+  for (const dir of [cwd, ...(opts.readDirs ?? [])]) {
+    if (!dir) continue;
+    const value = real(dir);
+    if (!read.some((r) => r.value === value)) read.push({ value, source: 'session', reason: dir === cwd ? 'cwd' : 'read' });
+  }
+
+  return {
+    cwd: cwd ? real(cwd) : null,
+    write,
+    read,
+    hosts,
+    localBinding: role.allowLocalBinding === true,
+    unsandboxed: [
+      ...(caps.includes('design.3d') ? BLENDER_UNSANDBOXED : []),
+      ...(unity ? unityUnsandboxed(env) : []),
+    ],
+  };
+}
+
+/**
  * Что песочница разрешает роли сама, по способностям: для показа в окне роли
  * (только чтение). Должно совпадать с тем, что кладёт `sandboxFor`.
  */
@@ -162,6 +259,20 @@ export function sandboxDefaultsFor(role: Parameters<typeof capabilitiesOf>[0]): 
     hosts: unity ? [...UNITY_HOSTS] : [],
   };
 }
+
+/**
+ * Права, с которыми стартовала сессия, — по id задачи и сотрудника. Роль с
+ * тех пор могли поправить (ответом владельца в том числе), а песочница
+ * сессии остаётся прежней: `sandbox_status` показывает именно её.
+ */
+const sandboxSessions = new Map<string, SandboxView>();
+
+export function rememberSandbox(keys: readonly (string | null | undefined)[], view: SandboxView): void {
+  for (const key of keys) if (key) sandboxSessions.set(key, view);
+}
+
+/** Права песочницы, с которыми стартовала сессия; null — офис её не запускал. */
+export const sandboxForSession = (key: string): SandboxView | null => sandboxSessions.get(key) ?? null;
 
 /**
  * Песочница под роль.
@@ -191,19 +302,10 @@ export function sandboxFor(
   cwd?: string,
   env: NodeJS.ProcessEnv = process.env,
 ) {
-  const caps = capabilitiesOf(role);
-  const unity = caps.includes('game.unity');
-  const excluded = [
-    ...(caps.includes('design.3d') ? BLENDER_UNSANDBOXED : []),
-    ...(unity ? unityUnsandboxed(env) : []),
-  ];
-  const writes = uniq([
-    ...(role.allowLocalBinding ? viteCacheDirs(cwd) : []),
-    ...(unity && cwd ? [real(cwd), ...UNITY_PROJECT_DIRS.map((dir) => real(join(cwd, dir)))] : []),
-    ...(unity ? UNITY_WRITE_PATHS : []),
-    ...cleanWritePaths(role.writePaths),
-  ].map((path) => expandPath(path, env.HOME)).filter((path): path is string => Boolean(path)));
-  const hosts = uniq([...(unity ? UNITY_HOSTS : []), ...cleanAllowedHosts(role.allowedHosts)]);
+  const view = sandboxRules(role, cwd, env);
+  const excluded = view.unsandboxed;
+  const writes = uniq(view.write.map((r) => r.value));
+  const hosts = uniq(view.hosts.map((r) => r.value));
   if (!excluded.length && !role.allowLocalBinding && !writes.length && !hosts.length) return SANDBOX;
   const network = {
     ...(role.allowLocalBinding ? {

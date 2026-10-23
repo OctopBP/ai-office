@@ -37,6 +37,7 @@
     "test:roletools": "node --import tsx/esm scripts/test-role-tools.ts",
     "test:packages": "tsx scripts/test-packages.ts",
     "test:sandbox": "node --import tsx scripts/test-sandbox.ts",
+    "test:access": "node --import tsx scripts/test-access.ts",
     "test:market": "tsx scripts/test-market.ts",
     "test:mcp": "tsx scripts/test-mcp.ts",
     "test:figcraft": "node --import tsx scripts/test-figcraft.ts",

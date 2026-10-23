@@ -23,6 +23,7 @@ import { supersedeFacts } from './journal';
 import { supersededByAnswer } from './superseded';
 import { applyFreshnessAnswer } from './freshness';
 import { isDelegateAnswer, withDelegateOption } from './contradictions';
+import { accessOptions, applyAccessAnswer, looksLikeAccessQuestion, parseSandboxRequest, requestText } from './access';
 
 /** Сколько вопросов можно задать по одной задаче — как у `ask_colleague`. */
 export const MAX_QUESTIONS_PER_TASK = 2;
@@ -95,8 +96,27 @@ export function askOwner(
   chatId?: string | null,
   /** Короткая суть и детали (`title`, `details`); нет — вопрос как раньше. */
   meta: Pick<QuestionMeta, 'title' | 'details'> = {},
+  /**
+   * Запрос доступа песочницы от исполнителя (T-685): сырой `sandboxRequest`
+   * и роль спросившего. Нет роли — вопрос не про доступ роли.
+   */
+  sandbox: { request?: unknown; roleId: string | null } = { roleId: null },
 ): { ok: boolean; text: string; question: OwnerQuestion | null } {
   if (!text.trim()) return { ok: false, text: state.say('questions.empty'), question: null };
+  const parsed = sandbox.roleId ? parseSandboxRequest(sandbox.request) : { request: null, bad: [] };
+  // Мусор в запросе — назад агенту: молча открыть меньше, чем просили, хуже отказа.
+  if (parsed.bad.length) return { ok: false, text: state.say('access.badRequest', { items: parsed.bad.join(', ') }), question: null };
+  const access = parsed.request && sandbox.roleId ? { ...parsed.request, roleId: sandbox.roleId } : null;
+  const manual = !access && Boolean(sandbox.roleId) && looksLikeAccessQuestion(`${text}\n${meta.details ?? ''}`);
+  // Что именно просят и что права изменятся только со следующей сессии —
+  // прямо в тексте вопроса: его владелец и читает. Свободный текст о доступе
+  // помечается ручной настройкой, чтобы ответ ничего не обещал.
+  const note = access ? requestText(state, access.roleId, access) : manual ? state.say('access.manualText') : '';
+  if (note) {
+    text = `${text.trim()}\n\n${note}`;
+    // С короткой сутью карточка показывает её и подробности, а не текст.
+    if (meta.title) meta = { ...meta, details: [meta.details?.trim(), note].filter(Boolean).join('\n\n') };
+  }
   // Такой вопрос уже ждёт владельца — второй раз его не заводим и лимит не
   // тратим. Заменить старый можно только явно: `replaces`.
   const same = findDuplicate({ taskId, text }, openQuestions(state));
@@ -110,17 +130,25 @@ export function askOwner(
     }
     state.questionsByTask.set(taskId, used + 1);
   }
-  const question = state.addQuestion({
+  const added = state.addQuestion({
     from, taskId, kind: 'assumption', text, assumption: assumption || state.say('questions.noAssumption'),
-    options: questionOptions(options, text), chatId: questionChat(state, taskId, chatId),
+    // У запроса доступа кнопки свои: согласие и отказ — по ним ответ и разбирается.
+    options: access ? accessOptions(state, access.roleId) : questionOptions(options, text),
+    chatId: questionChat(state, taskId, chatId),
     title: meta.title, details: meta.details,
   });
+  const question = (access || manual
+    ? state.updateQuestion(added.id, access ? { sandboxRequest: access } : { sandboxManual: true })
+    : null) ?? added;
   state.addLog(from === OFFICE_SENDER ? null : from, 'system',
     state.say('questions.askedLog', { id: question.id, text: clip(text, 120) }));
   state.addChatRef({ kind: 'question', id: question.id }, question.chatId);
   const merged = replaces.filter((id) => mergeQuestion(state, id, question.id).ok);
-  const note = merged.length ? ` ${state.say('questions.replacedOk', { ids: merged.join(', ') })}` : '';
-  return { ok: true, text: state.say('questions.askedOk', { id: question.id }) + note, question };
+  const tail = merged.length ? ` ${state.say('questions.replacedOk', { ids: merged.join(', ') })}` : '';
+  const asked = access
+    ? state.say('access.askedOk', { id: question.id, role: access.roleId })
+    : manual ? state.say('access.manualOk', { id: question.id }) : state.say('questions.askedOk', { id: question.id });
+  return { ok: true, text: asked + tail, question };
 }
 
 /**
@@ -278,12 +306,18 @@ export function answerQuestion(state: OfficeState, askedId: string, answer: stri
   // Откуда бы ни пришёл ответ — кнопкой в карточке, строкой «Q-3: да» в
   // любом чате или из «Жизни офиса», — подтверждение и весть менеджеру идут
   // в чат вопроса: там его задали и там его ждёт сессия менеджера.
-  state.addOfficeNote(state.say('questions.answeredChat', { id, fact: fact.id }),
+  // Запрос доступа: согласие пишет пути и хосты в песочницу роли, отказ —
+  // ничего. Вопрос о доступе свободным текстом прав не меняет — так и говорим.
+  const access = question.sandboxRequest
+    ? applyAccessAnswer(state, question, text)
+    : question.sandboxManual ? state.say('access.manualAnswered') : '';
+  state.addOfficeNote(state.say('questions.answeredChat', { id, fact: fact.id }) + (access ? ` ${access}` : ''),
     { chatId: question.chatId, taskId: question.taskId });
   tellPm(state, state.say('questions.pmAnswered', {
     id, question: question.text, assumption: question.assumption, answer: text,
     task: [question.taskId, ...along.map((q) => q.taskId)].filter(Boolean).join(', ') || '—',
-  }) + (along.length ? `\n${state.say('questions.pmAlong', { ids: along.map((q) => q.id).join(', ') })}` : ''),
+  }) + (along.length ? `\n${state.say('questions.pmAlong', { ids: along.map((q) => q.id).join(', ') })}` : '')
+    + (access ? `\n${access}` : ''),
   { chatId: question.chatId, taskId: question.taskId });
   return true;
 }

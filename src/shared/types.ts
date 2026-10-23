@@ -2048,6 +2048,25 @@ export interface OwnerQuestion {
   closedWhy?: string;
   /** Когда текст правили — владелец или менеджер. */
   editedAt?: number;
+  /**
+   * Запрос доступа песочницы от исполнителя (T-685): какие пути на запись и
+   * хосты нужны и какой роли. Согласие владельца дописывает их в настройку
+   * песочницы роли, отказ ничего не меняет.
+   */
+  sandboxRequest?: SandboxRequest & { roleId: string };
+  /** Что согласие владельца на самом деле добавило роли (без уже бывших). */
+  sandboxGranted?: SandboxRequest;
+  /**
+   * Вопрос о доступе свободным текстом, без структуры: ответ права не
+   * меняет, это ручная настройка — Настройки роли → Песочница.
+   */
+  sandboxManual?: boolean;
+}
+
+/** Пути на запись и сетевые хосты песочницы, о которых просит исполнитель. */
+export interface SandboxRequest {
+  writePaths: string[];
+  allowedHosts: string[];
 }
 
 export type RitualId =

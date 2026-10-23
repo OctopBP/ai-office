@@ -30,9 +30,10 @@ import { cloudProblem, runCloudTask, stopCloudTask } from './cloud';
 import type { Role } from './roles';
 import { admitProblem, consultWorkdir, reviewerFor, zoneForRole, zonesText } from './subprojects';
 import {
-  externalMcp, mcpBrief, rememberUnityProject, serversFor, unityProjectForRole, type UnityPlaces,
+  externalMcp, mcpBrief, rememberUnityProject, serversFor, unityProjectForRole, unityProjectForSession, type UnityPlaces,
 } from './mcp';
-import { SANDBOX, sandboxFor } from './sandbox';
+import { rememberSandbox, SANDBOX, sandboxFor, sandboxForSession, sandboxRules } from './sandbox';
+import { sandboxGrants, sandboxStatusText } from './access';
 import { ensureChromium } from './chromium';
 import { employeePlugins, employeeSkills, sessionTools } from './skills';
 import {
@@ -2936,6 +2937,56 @@ async function consultRole(
  * инструмент вызывается из живой сессии, и «текущий» офис к этому моменту может
  * быть уже другим — тогда отметка критерия ушла бы на чужую доску.
  */
+/** Поле запроса доступа песочницы в ask_owner исполнителя (T-685). */
+const sandboxRequestSchema = (state: OfficeState) => z.object({
+  writePaths: z.array(z.string()).default([]),
+  allowedHosts: z.array(z.string()).default([]),
+}).optional().describe(state.say('tool.askOwner.sandboxRequest'));
+
+/**
+ * Песочница сессии: собрать и запомнить, с какими правами сессия стартовала
+ * и откуда каждое, — `sandbox_status` покажет именно их, даже если роль с
+ * тех пор поправили.
+ */
+function sessionSandbox(
+  state: OfficeState, role: Role, cwd: string | undefined, keys: readonly (string | null | undefined)[],
+  readDirs: readonly string[],
+) {
+  rememberSandbox(keys, sandboxRules(role, cwd, process.env, { readDirs, grants: sandboxGrants(state, role.id) }));
+  return sandboxFor(role, cwd);
+}
+
+/**
+ * `sandbox_status`: права текущей сессии с источником каждого правила,
+ * рабочая копия и путь моста Unity. Сессия офисом не запускалась (облако) —
+ * права по нынешней настройке роли.
+ */
+function sandboxStatusTool(state: OfficeState, instanceId: string, taskId: string) {
+  return tool(
+    'sandbox_status',
+    state.say('tool.sandboxStatus.desc'),
+    {},
+    async () => ({ content: [{ type: 'text' as const, text: sandboxStatusFor(state, instanceId, taskId) }] }),
+  );
+}
+
+/** Текст `sandbox_status` для сотрудника и задачи. Вынесен для тестов. */
+export function sandboxStatusFor(state: OfficeState, instanceId: string, taskId: string): string {
+  const roleId = state.instances.get(instanceId)?.roleId;
+  const role = roleId ? state.role(roleId) : undefined;
+  // Сначала по сотруднику: по той же задаче потом идёт и сессия ревьюера.
+  const session = sandboxForSession(instanceId) ?? sandboxForSession(taskId);
+  const next = role
+    ? sandboxRules(role, session?.cwd ?? undefined, process.env, {
+      readDirs: session?.read.map((r) => r.value), grants: sandboxGrants(state, role.id),
+    })
+    : null;
+  const view = session ?? next;
+  if (!view) return state.say('review.roleGone', { role: roleId ?? instanceId });
+  return sandboxStatusText(state, view, session ? next : null,
+    unityProjectForSession(instanceId) ?? unityProjectForSession(taskId));
+}
+
 function workerTools(state: OfficeState, instanceId: string, task: Task) {
   return createSdkMcpServer({
     name: 'office',
@@ -2985,13 +3036,16 @@ function workerTools(state: OfficeState, instanceId: string, task: Task) {
           options: z.array(z.string()).default([]).describe(state.say('tool.askOwner.options')),
           title: z.string().optional().describe(state.say('tool.askOwner.title')),
           details: z.string().optional().describe(state.say('tool.askOwner.details')),
+          sandboxRequest: sandboxRequestSchema(state),
         },
         async (args) => {
           const asked = askOwner(state, instanceId, task.id, args.question, args.assumption, args.options, [], null,
-            { title: args.title, details: args.details });
+            { title: args.title, details: args.details },
+            { request: args.sandboxRequest, roleId: state.instances.get(instanceId)?.roleId ?? null });
           return { content: [{ type: 'text', text: asked.text }], isError: !asked.ok };
         },
       ),
+      sandboxStatusTool(state, instanceId, task.id),
       ...docTools(state, instanceId, task.id),
       tool(
         'finish_task',
@@ -3214,6 +3268,7 @@ function startWorker(
     languageBrief(taskOffice, 'worker'),
     '',
     taskOffice.say('prompt.worker.life'),
+    taskOffice.say('prompt.worker.sandbox'),
   ].join('\n') + projectBrief(taskOffice, role.id, task.subprojectId ?? null);
 
   if (taskOffice.settings.engine === 'cloud') {
@@ -3339,7 +3394,7 @@ function startWorker(
           permissionMode: 'default',
           canUseTool: permissionHandler(taskOffice, inst.id, task.id, workdir),
           settingSources: [],
-          sandbox: sandboxFor(role, workdir),
+          sandbox: sessionSandbox(taskOffice, role, workdir, [task.id, inst.id], artifactsDir ? [workRoot] : []),
           // Лимит ходов берём из настроек офиса задачи, а не из константы:
           // задачи разной величины упираются в него по-разному, и поднять его
           // должно быть можно без правки кода. Свой лимит роли сильнее
@@ -4386,7 +4441,7 @@ async function runAgentSession(
           ? gitReadGuard(state, inst.id, permissionHandler(state, inst.id, opts.taskId, opts.cwd))
           : permissionHandler(state, inst.id, opts.taskId, opts.cwd),
         settingSources: [],
-        sandbox: sandboxFor(role, opts.cwd),
+        sandbox: sessionSandbox(state, role, opts.cwd, [opts.taskId, inst.id], opts.extraDirs ?? []),
         // Доработка по отзыву и разбор конфликта — та же работа исполнителя,
         // и лимит ходов у них тот же: свой у роли, иначе офисный.
         maxTurns: state.turnsFor(role) ?? undefined,
@@ -4427,6 +4482,8 @@ export function workerSystemPrompt(role: Role, state: OfficeState, subprojectId?
     role.brief,
     '',
     languageBrief(state, 'worker'),
+    '',
+    state.say('prompt.worker.sandbox'),
   ].join('\n') + projectBrief(state, role.id, subprojectId);
 }
 
@@ -4569,13 +4626,15 @@ async function runStep(state: OfficeState, task: Task, req: StepRequest): Promis
           options: z.array(z.string()).default([]).describe(state.say('tool.askOwner.options')),
           title: z.string().optional().describe(state.say('tool.askOwner.title')),
           details: z.string().optional().describe(state.say('tool.askOwner.details')),
+          sandboxRequest: sandboxRequestSchema(state),
         },
         async (args) => {
           const asked = askOwner(state, inst.id, task.id, args.question, args.assumption, args.options, [], null,
-            { title: args.title, details: args.details });
+            { title: args.title, details: args.details }, { request: args.sandboxRequest, roleId: inst.roleId });
           return { content: [{ type: 'text', text: asked.text }], isError: !asked.ok };
         },
       ),
+      sandboxStatusTool(state, inst.id, task.id),
       ...docTools(state, inst.id, task.id),
       tool(
         'finish_step',
