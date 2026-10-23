@@ -22,7 +22,7 @@ const TABS: AgentTab[] = ['profile', 'model', 'access', 'brief', 'results'];
 const TAB_FIELDS: Record<AgentTab, AgentField[]> = {
   profile: ['name', 'title', 'sprite'],
   model: ['provider', 'model', 'ownModel', 'maxTurns', 'spendFuseTokens', 'repoDir', 'isolate', 'allowLocalBinding'],
-  access: ['permissionMode', 'personalMode', 'mcp', 'capabilities'],
+  access: ['permissionMode', 'personalMode', 'mcp', 'capabilities', 'writePaths', 'allowedHosts', 'mcpProjectPath'],
   brief: ['brief', 'briefExtra'],
   results: [],
 };
@@ -45,6 +45,9 @@ const FIELD_LABEL: Record<AgentField, UiKey> = {
   repoDir: 'role.repo',
   mcp: 'role.mcp',
   capabilities: 'role.capabilities',
+  writePaths: 'sandbox.writePaths',
+  allowedHosts: 'sandbox.hosts',
+  mcpProjectPath: 'sandbox.mcpPath',
   brief: 'role.brief',
   briefExtra: 'role.briefExtra',
 };

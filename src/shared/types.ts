@@ -686,6 +686,8 @@ export interface RoleView extends RoleEditable {
   writePaths: string[];
   /** Свои сетевые хосты роли; без умолчаний по способностям. */
   allowedHosts: string[];
+  /** Что песочница разрешает роли сама по способностям пакета; только для показа. */
+  sandboxDefaults: { writePaths: string[]; hosts: string[] };
   /** Что роль умеет — по манифесту пакета или по инструментам (§5 спеки процессов). */
   capabilities: string[];
   /**

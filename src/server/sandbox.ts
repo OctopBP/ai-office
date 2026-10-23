@@ -152,6 +152,18 @@ function expandPath(path: string, home: string | undefined): string | null {
 const uniq = (list: string[]): string[] => [...new Set(list)];
 
 /**
+ * Что песочница разрешает роли сама, по способностям: для показа в окне роли
+ * (только чтение). Должно совпадать с тем, что кладёт `sandboxFor`.
+ */
+export function sandboxDefaultsFor(role: Parameters<typeof capabilitiesOf>[0]): { writePaths: string[]; hosts: string[] } {
+  const unity = capabilitiesOf(role).includes('game.unity');
+  return {
+    writePaths: unity ? [...UNITY_WRITE_PATHS] : [],
+    hosts: unity ? [...UNITY_HOSTS] : [],
+  };
+}
+
+/**
  * Песочница под роль.
  *
  * Исключение для Blender получают только роли со способностью `design.3d`

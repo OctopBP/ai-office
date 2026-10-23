@@ -546,6 +546,8 @@ export function AccessPanel({ save, role, inst, busy }: PanelProps) {
         ))}
         <FieldError save={save} f="capabilities" />
       </Section>
+
+      <SandboxSection save={save} role={role} busy={busy} />
     </>
   );
 }
@@ -712,5 +714,94 @@ export function ResultsPanel({ role, inst }: PanelProps) {
         </div>
       </Section>
     </>
+  );
+}
+
+// ------------------------------------------------------------- «Песочница»
+
+/** Список строк с добавлением и удалением: каждая правка уходит сразу. */
+function ListEditor({ save, f, id, label, placeholder, defaults, defaultsTitle, addLabel }: {
+  save: AgentAutosave; f: 'writePaths' | 'allowedHosts'; id: string; label: string; placeholder: string;
+  defaults: string[]; defaultsTitle: string; addLabel: string;
+}) {
+  const list = save.value<string[]>(f);
+  const [draft, setDraft] = useState('');
+  const add = () => {
+    const v = draft.trim();
+    if (!v) return;
+    if (!list.includes(v)) save.set({ [f]: [...list, v] });
+    setDraft('');
+  };
+  return (
+    <div className="sandbox-list">
+      <label className="field-label" htmlFor={id}>{label}</label>
+      {list.length > 0 && (
+        <ul className="sandbox-items">
+          {list.map((item) => (
+            <li key={item}>
+              <code className="mono sandbox-item" title={item}>{item}</code>
+              <button
+                type="button" className="sandbox-remove" aria-label={t('sandbox.remove', { item })} title={t('sandbox.remove', { item })}
+                onClick={() => save.set({ [f]: list.filter((x) => x !== item) })}
+              ><Icon name="x" size={14} /></button>
+            </li>
+          ))}
+        </ul>
+      )}
+      <div className="sandbox-add">
+        <input
+          id={id} value={draft} placeholder={placeholder} aria-invalid={Boolean(save.field(f).error)}
+          onChange={(e) => setDraft(e.target.value)}
+          onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); add(); } }}
+        />
+        <button type="button" onClick={add} disabled={!draft.trim()}>{addLabel}</button>
+      </div>
+      <FieldError save={save} f={f} />
+      {defaults.length > 0 && (
+        <div className="sandbox-defaults">
+          <span className="form-hint">{defaultsTitle}</span>
+          <ul className="sandbox-items sandbox-items-ro">
+            {defaults.map((item) => (
+              <li key={item}><code className="mono sandbox-item" title={item}>{item}</code></li>
+            ))}
+          </ul>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function SandboxSection({ save, role, busy }: { save: AgentAutosave; role: RoleView; busy: boolean }) {
+  const defaults = role.sandboxDefaults ?? { writePaths: [], hosts: [] };
+  const unity = (role.mcp ?? []).some((id) => id.toLowerCase().includes('unity'))
+    || (role.capabilities ?? []).includes('game.unity');
+  const project = blurField(save, 'mcpProjectPath');
+  return (
+    <Section
+      title={t('sandbox.title')} desc={t('sandbox.desc')}
+      badge={busy && <span className="chip field-chip">{t('agent.busy.next')}</span>}
+    >
+      <ListEditor
+        save={save} f="writePaths" id="agent-write-paths" label={t('sandbox.writePaths')}
+        placeholder={t('sandbox.writePaths.ph')} addLabel={t('sandbox.add')}
+        defaults={defaults.writePaths} defaultsTitle={t('sandbox.defaults.paths')}
+      />
+      <ListEditor
+        save={save} f="allowedHosts" id="agent-hosts" label={t('sandbox.hosts')}
+        placeholder={t('sandbox.hosts.ph')} addLabel={t('sandbox.add')}
+        defaults={defaults.hosts} defaultsTitle={t('sandbox.defaults.hosts')}
+      />
+      <p className="form-hint">{t('sandbox.nextSession')}</p>
+      {unity && (
+        <Row
+          id="agent-mcp-project" label={<FieldLabel text={t('sandbox.mcpPath')} save={save} f="mcpProjectPath" when="next" busy={busy} />}
+          hint={t('sandbox.mcpPath.hint')}
+        >
+          <input id="agent-mcp-project" {...project} className={`mono${project.className ? ` ${project.className}` : ''}`}
+            placeholder={t('sandbox.mcpPath.ph')} spellCheck={false} />
+          <FieldError save={save} f="mcpProjectPath" />
+        </Row>
+      )}
+    </Section>
   );
 }

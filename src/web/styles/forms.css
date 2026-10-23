@@ -45,3 +45,14 @@ label.form-check input { width: auto; margin: 2px 0 0; }
 @media (max-width: 720px) {
   .form-row { grid-template-columns: minmax(0, 1fr); }
 }
+
+/* Песочница роли: списки путей и хостов */
+.sandbox-list { display: flex; flex-direction: column; gap: var(--space-2); }
+.sandbox-items { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: var(--space-1); }
+.sandbox-items li { display: flex; align-items: center; gap: var(--space-2); min-width: 0; }
+.sandbox-item { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sandbox-items-ro .sandbox-item { color: var(--ink-3); }
+.sandbox-remove { min-width: 24px; min-height: 24px; padding: 0; display: inline-flex; align-items: center; justify-content: center; }
+.sandbox-add { display: flex; gap: var(--space-2); }
+.sandbox-add input { flex: 1; min-width: 0; }
+.sandbox-defaults { display: flex; flex-direction: column; gap: var(--space-1); }

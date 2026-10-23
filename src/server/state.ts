@@ -3,6 +3,7 @@ import {
 } from '../shared/providers';
 import { isModelTier } from '../shared/models';
 import { randomUUID } from 'node:crypto';
+import { sandboxDefaultsFor } from './sandbox';
 import { statSync } from 'node:fs';
 import { isAbsolute, relative, resolve, sep } from 'node:path';
 import type {
@@ -4380,6 +4381,7 @@ export class OfficeState {
       allowLocalBinding: r.allowLocalBinding === true,
       writePaths: [...(r.writePaths ?? [])],
       allowedHosts: [...(r.allowedHosts ?? [])],
+      sandboxDefaults: sandboxDefaultsFor(r),
       spendFuseTokens: r.spendFuseTokens ?? null,
       ...(r.mcpProjectPath ? { mcpProjectPath: r.mcpProjectPath } : {}),
       repoDir: roleRepoDir(r, this.subprojectList), sprite: r.sprite ?? '', brief: r.brief,

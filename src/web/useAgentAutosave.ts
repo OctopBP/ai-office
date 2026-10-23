@@ -25,7 +25,8 @@ import {
 export type AgentField =
   | 'name' | 'personalMode'
   | 'title' | 'sprite' | 'provider' | 'model' | 'ownModel' | 'tier' | 'permissionMode' | 'isolate' | 'allowLocalBinding'
-  | 'maxTurns' | 'spendFuseTokens' | 'repoDir' | 'mcp' | 'capabilities' | 'brief' | 'briefExtra';
+  | 'maxTurns' | 'spendFuseTokens' | 'repoDir' | 'mcp' | 'capabilities' | 'brief' | 'briefExtra'
+  | 'writePaths' | 'allowedHosts' | 'mcpProjectPath';
 
 type RoleField = Exclude<AgentField, 'name' | 'personalMode'>;
 type InstField = 'name' | 'personalMode';
@@ -33,6 +34,7 @@ type InstField = 'name' | 'personalMode';
 /** Выбор из списка: ошибка откатывает значение к серверному, а не оставляет его в поле. */
 const INSTANT: ReadonlySet<AgentField> = new Set<AgentField>([
   'personalMode', 'sprite', 'provider', 'model', 'ownModel', 'tier', 'permissionMode', 'isolate', 'allowLocalBinding', 'mcp', 'capabilities',
+  'writePaths', 'allowedHosts',
 ]);
 
 /** Длинные тексты сохраняются сами через эту паузу в наборе. */
@@ -89,6 +91,7 @@ function serverValue(f: AgentField, role: RoleView, inst: InstanceView): unknown
     // Без провайдера у роли и у офиса (T-243) — null, а не подставленный Claude Code.
     case 'provider': return role.provider ?? null;
     case 'tier': return role.tier ?? null;
+    case 'mcpProjectPath': return role.mcpProjectPath ?? '';
     default: return role[f];
   }
 }
