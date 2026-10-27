@@ -30,14 +30,17 @@ import { UpdateBlock } from './UpdateBlock';
 const DRAG_THRESHOLD_PX = 5;
 
 /**
- * Индикаторы на иконке офиса: кружок с числом вопросов владельцу (справа
- * сверху) и пульсирующая синяя точка задач в работе (справа снизу). Числа
- * приходят с сервера в `OfficeView`, веб ничего не считает. Смысл дублируется
- * подсказкой и скрытым текстом, не только цветом.
+ * Индикаторы на иконке офиса (вариант D, T-703): зелёная точка — офис работает,
+ * янтарный бейдж ⏸ — офис на паузе (пауза вытесняет точку), число вопросов
+ * владельцу — только в свёрнутом рейле (в развёрнутом их говорит правый
+ * столбец строки). Числа приходят с сервера в `OfficeView`, веб ничего не
+ * считает. Смысл дублируется подсказкой и скрытым текстом, не только цветом.
  */
 export function OfficeBadges({ office }: { office: OfficeView }) {
   const q = office.openQuestions ?? 0;
   const work = office.activity?.inProgress ?? 0;
+  const paused = !!office.activity?.paused;
+  const live = !!office.activity?.live;
   return (
     <>
       {q > 0 && (
@@ -46,12 +49,44 @@ export function OfficeBadges({ office }: { office: OfficeView }) {
           <span className="sr-only">{t('office.questions.hint', { n: q })}</span>
         </span>
       )}
-      {work > 0 && (
-        <span className="office-badge-work" title={t('office.work.hint', { n: work })}>
-          <span className="sr-only">{t('office.work.hint', { n: work })}</span>
+      {paused ? (
+        <span className="office-badge-pause" title={t('office.paused.hint')}>
+          <Icon name="player-pause" size={7} />
+          <span className="sr-only">{t('office.paused')}</span>
+        </span>
+      ) : (live || work > 0) && (
+        <span className="office-badge-work" title={t('office.working.hint')}>
+          <span className="sr-only">{t('office.working')}</span>
         </span>
       )}
     </>
+  );
+}
+
+/** Правый столбец строки офиса: вопросы и задачи в работе, нули скрыты. */
+function OfficeCounts({ office }: { office: OfficeView }) {
+  const q = office.openQuestions ?? 0;
+  const work = office.activity?.inProgress ?? 0;
+  const paused = !!office.activity?.paused;
+  if (!q && !work && !paused) return null;
+  return (
+    <span className="rail-office-counts">
+      {q > 0 && (
+        <span className="rail-office-count q" title={t('office.questions.hint', { n: q })}>
+          {t('office.questions.short', { n: q })}
+        </span>
+      )}
+      {paused ? (
+        <span className="rail-office-count paused" title={t('office.paused.hint')}>
+          <Icon name="player-pause" size={8} />
+          {work > 0 ? t('office.inProgress', { n: work }) : t('office.paused')}
+        </span>
+      ) : work > 0 && (
+        <span className="rail-office-count w" title={t('office.work.hint', { n: work })}>
+          {t('office.inProgress', { n: work })}
+        </span>
+      )}
+    </span>
   );
 }
 
@@ -336,17 +371,14 @@ export function Rail({ onPanel, onModal }: {
             : o.current
               ? t('shell.officeStatus', { n: Object.keys(instances).length, working })
               : activity.text;
-          const mark = activity.paused ? 'paused' : activity.live ? 'live' : 'idle';
-          const markHint = activity.paused
-            ? t('office.paused.hint')
-            : activity.live ? t('office.working.hint') : t('office.idle.hint');
-          // Архивный офис перетащить нечем (T-64/T-65 его не показывают
+                    // Архивный офис перетащить нечем (T-64/T-65 его не показывают
           // человеку как рабочий) — строка остаётся кликабельной, но без
           // ручки перетаскивания и её курсора.
           const draggable = !o.archived;
           const cls = [
             'rail-office',
             o.current && 'current',
+            activity.paused && 'paused',
             draggable && 'draggable',
             isDragging(o.id) && 'dragging',
             dropIndicator?.before === o.id && 'drop-before',
@@ -364,7 +396,7 @@ export function Rail({ onPanel, onModal }: {
                 setMenu({ id: o.id, x: e.clientX, y: e.clientY });
               }}
               disabled={pending === 'enter'}
-              title={`${collapsed ? `${o.name} · ${status}` : o.projectDir}\n${t('offices.menu')}`}>
+              title={`${collapsed ? `${o.name} · ${status}` : `${o.name} · ${o.projectDir}`}\n${t('offices.menu')}`}>
               <span className="rail-office-icon">
                 <span className="rail-office-avatar"
                   style={officeAvatarStyle(o)}>
@@ -372,18 +404,9 @@ export function Rail({ onPanel, onModal }: {
                 </span>
                 <OfficeBadges office={o} />
               </span>
-              <span className="rail-office-text">
-                <span className="rail-office-name">{o.name}</span>
-                <span className="rail-office-status">{status}</span>
-              </span>
-              {/* Метка статуса есть у каждого офиса — иначе «на паузе» и
-                  «простаивает» в списке выглядят одинаково. Пауза помечена не
-                  только цветом, но и знаком ⏸: по одному цвету статус читают
-                  не все. Подсказка висит на самой метке: заголовок строки
-                  занят путём проекта. */}
-              <span className={`rail-office-dot ${mark}`} title={markHint}>
-                {activity.paused && <Icon name="player-pause" size={9} />}
-              </span>
+              <span className="rail-office-name">{o.name}</span>
+              <span className="sr-only">{status}</span>
+              <OfficeCounts office={o} />
             </button>
           );
         })}

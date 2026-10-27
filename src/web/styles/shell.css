@@ -130,14 +130,20 @@
   display: flex; align-items: center; justify-content: flex-start; gap: var(--space-2);
   /* Свёрнутому рейлу метка паузы вешается в угол строки — отсюда relative. */
   position: relative;
-  height: 40px; min-height: 0; padding: 0 var(--space-2); text-align: left;
+  height: 44px; min-height: 0; padding: 0 var(--space-2); text-align: left;
   background: none; border: 1px solid transparent; border-radius: var(--radius-row);
 }
 .rail-office:hover:not(:disabled) { background: var(--film); }
 .rail-office.current { background: var(--film-2); border-color: var(--hairline); cursor: default; }
 .rail-office:disabled { opacity: 1; }
+/* На паузе (вариант D, T-703): янтарная подложка и рамка всей строки; у
+   выбранного подложка плотнее. Отличает паузу и от тихого, и от работы. */
+.rail-office.paused, .rail-office.paused:hover:not(:disabled) {
+  background: rgba(var(--warn-rgb), .12); border-color: rgba(var(--warn-rgb), .6);
+}
+.rail-office.paused.current { background: rgba(var(--warn-rgb), .22); }
 .rail-office-avatar {
-  width: 24px; height: 24px; border-radius: var(--radius-icon); flex: none;
+  width: 28px; height: 28px; border-radius: var(--radius-icon); flex: none;
   display: flex; align-items: center; justify-content: center; overflow: hidden;
   /* Заливку и краску инициала ставит Rail.tsx из общей палитры
      (officeColor.ts): на янтарном и лаймовом чернила тёмные, на остальных
@@ -145,29 +151,20 @@
   font-size: var(--fs-body); font-weight: 600; color: var(--accent-1-ink);
 }
 .rail-office-icon-img { width: 100%; height: 100%; object-fit: cover; }
-.rail-office-text { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
 .rail-office-name {
-  font-size: var(--fs-md); font-weight: 500; color: var(--ink);
+  flex: 1; min-width: 0; font-size: var(--fs-md); font-weight: 500; color: var(--ink);
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
-.rail-office-status {
-  font-size: var(--fs-small); font-weight: 400; color: var(--ink-3);
-  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+/* Правый столбец: вопросы (янтарь) над задачами в работе (синий), нули скрыты. */
+.rail-office-counts {
+  flex: none; display: flex; flex-direction: column; align-items: flex-end; gap: 2px;
+  max-width: 78px; font-size: var(--fs-small); line-height: 1.15;
 }
-.rail-office.current .rail-office-status { color: var(--ink-4); }
-/* Метка статуса офиса. Размер держим фиксированным для всех трёх состояний:
-   строка рейла высотой 40px, и подросшая метка растянула бы её. */
-.rail-office-dot {
-  width: 12px; height: 12px; border-radius: 50%; flex: none;
-  display: flex; align-items: center; justify-content: center;
-  background: none; color: var(--warn-ink);
-}
-.rail-office-dot.live, .rail-office-dot.idle {
-  width: 7px; height: 7px; margin: 0 2px; background: var(--ok);
-}
-/* Простаивает — метка на месте, но приглушена: пустота на её месте читалась бы
-   как «данных нет», а это другое. */
-.rail-office-dot.idle { background: var(--ink-4); }
+.rail-office-count { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; display: inline-flex; align-items: center; gap: 3px; }
+.rail-office-count.q { color: var(--warn-ink); font-weight: 600; }
+.rail-office-count.w { color: var(--accent); font-weight: 500; }
+.rail-office-count.paused { color: var(--ink-3); font-weight: 400; }
+.rail-office-count.paused svg { color: var(--warn-ink); flex: none; }
 
 /* Перетаскивание строки офиса (Rail.tsx, useOfficeDrag): ручка — вся строка,
    архивный офис (T-64) её не получает вовсе. */
@@ -255,19 +252,15 @@ body.office-dragging, body.office-dragging * { cursor: grabbing !important; user
 /* Свёрнутый рейл: только квадратики, подписи в title. */
 .rail-collapsed .shell-rail { padding: var(--space-3) var(--space-2); align-items: center; }
 .rail-collapsed .rail-brand { flex-direction: column; height: auto; gap: var(--space-1); }
-.rail-collapsed .rail-name, .rail-collapsed .section-title, .rail-collapsed .rail-office-text,
-.rail-collapsed .rail-office-dot, .rail-collapsed .rail-win-label, .rail-collapsed .rail-win-count,
+.rail-collapsed .rail-name, .rail-collapsed .section-title, .rail-collapsed .rail-office-name, .rail-collapsed .rail-office-counts, .rail-collapsed .rail-win-label, .rail-collapsed .rail-win-count,
 .rail-collapsed .rail-win-key,
 .rail-collapsed .rail-spend, .rail-collapsed .meter, .rail-collapsed .rail-user-text { display: none; }
 .rail-collapsed .rail-offices, .rail-collapsed .rail-windows { width: 52px; align-items: center; }
 .rail-collapsed .rail-office-list { width: 52px; align-items: center; margin: 0; padding: 0; scrollbar-width: none; }
-.rail-collapsed .rail-office { width: 52px; padding: 0 10px; justify-content: center; }
-/* Пауза видна и в свёрнутом рейле: подписи там прячутся, но «офис стоит» —
-   не подпись, а предупреждение. Место для неё берём в углу строки, чтобы её
-   высота (40px) и центрированная аватарка остались прежними. */
-.rail-collapsed .rail-office-dot.paused {
-  display: flex; position: absolute; top: 3px; right: 3px;
-}
+.rail-collapsed .rail-office { width: 52px; height: 40px; padding: 0 10px; justify-content: center; }
+.rail-collapsed .rail-office-avatar { width: 24px; height: 24px; }
+.rail-collapsed .rail-office-icon { width: 24px; height: 24px; }
+.rail-collapsed .office-badge-q { display: flex; }
 .rail-collapsed .rail-section-head { justify-content: center; }
 .rail-collapsed .rail-sep { width: 52px; }
 .rail-collapsed .rail-win { width: 52px; justify-content: center; padding: 0; margin: 0; }
@@ -440,22 +433,27 @@ body.office-dragging, body.office-dragging * { cursor: grabbing !important; user
 
 /* Индикаторы офиса на иконке (T-674): вопросы владельцу — справа сверху,
    задачи в работе — справа снизу. Числа с сервера, веб их не считает. */
-.rail-office-icon { position: relative; flex: none; width: 24px; height: 24px; }
+.rail-office-icon { position: relative; flex: none; width: 28px; height: 28px; }
 .office-badge-q {
-  position: absolute; top: -6px; right: -8px; min-width: 16px; height: 16px; padding: 0 4px;
-  display: flex; align-items: center; justify-content: center;
+  display: none; position: absolute; top: -6px; right: -8px; min-width: 16px; height: 16px; padding: 0 4px;
+  align-items: center; justify-content: center;
   border-radius: var(--radius-pill); background: var(--warn); color: var(--accent-6-ink);
   font-size: var(--fs-caption); font-weight: 600; line-height: 1;
   box-shadow: 0 0 0 2px var(--surface);
 }
 .office-badge-work {
   position: absolute; bottom: -3px; right: -4px; width: 10px; height: 10px;
-  border-radius: 50%; background: var(--accent); box-shadow: 0 0 0 2px var(--surface);
+  border-radius: 50%; background: var(--ok); box-shadow: 0 0 0 2px var(--surface);
+}
+.office-badge-pause {
+  position: absolute; bottom: -4px; right: -5px; width: 14px; height: 14px; border-radius: 50%;
+  display: flex; align-items: center; justify-content: center;
+  background: var(--warn); color: var(--accent-6-ink); box-shadow: 0 0 0 2px var(--surface);
 }
 /* Кольцо расходится от точки: видно, что офис работает. */
 .office-badge-work::after {
   content: ''; position: absolute; inset: -2px; border-radius: 50%;
-  border: 2px solid var(--accent); opacity: 0;
+  border: 2px solid var(--ok); opacity: 0;
   animation: office-work-pulse 1.6s ease-out infinite;
 }
 @keyframes office-work-pulse {
