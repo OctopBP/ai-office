@@ -32,6 +32,7 @@ Node + TypeScript, React 19 + Zustand на фронте, `ws` для связи,
 | `src/server/setup.ts`, `src/server/pickfolder.ts` | Мастер нового офиса: витрина, разбор плана, сборка шагами (корень, папки ролей, найм, направление) с прогрессом; нативный диалог выбора папки на машине сервера — `docs/design/office-setup/spec.md` |
 | `src/server/permissions.ts` | Классификатор риска вызова инструмента; фильтр `gitReadOnlyProblem` — Bash шага процесса с `shell: "git-read"` (verify в `workflows/research.json`) только на одну git-команду на чтение (`npm run test:gitread`) |
 | `src/server/mcp.ts` | Внешние MCP-серверы ролей: каталог и умолчания по ролям |
+| `src/server/abilities.ts` | Что умеет роль для менеджера: пакет, MCP-серверы с подписью (`mcp.<id>.about`, `mcpAbout`), скилы и плагины — блок «умеет» в list_team и сводка «Кто что умеет» в промпте PM, строка на роль (`npm run test:abilities`) |
 | `src/server/figcraft.ts` | Макеты FigCraft: список `.figcraft` задачи (живая копия или файлы слияния в main) и офиса, «открыть в FigCraft» на машине сервера (`FIGCRAFT_APP`, только `.figcraft` внутри офиса и копий задач, удалённый запрос — отказ) — `npm run test:figcraft` |
 | `src/server/packages.ts` | Пакеты агентов: манифест `agent.json`, брифы, валидатор, роль из пакета (`packages/@office/<роль>/`) |
 | `src/server/skills.ts` | Что из пакета уезжает в сессию: скилы, плагины, просьбы о серверах |

@@ -36,6 +36,7 @@ import { rememberSandbox, SANDBOX, sandboxFor, sandboxForSession, sandboxRules }
 import { sandboxGrants, sandboxStatusText } from './access';
 import { ensureChromium } from './chromium';
 import { employeePlugins, employeeSkills, sessionTools } from './skills';
+import { abilitiesBlock, abilitiesBrief, roleAbilities } from './abilities';
 import {
   autoApprovedText, classify, decide, effectiveMode, gitReadOnlyProblem, releaseCommandBlocked,
   type ClassifyZone,
@@ -803,10 +804,23 @@ export const pmPrompt = (state: OfficeState, fresh: boolean, handoff: string | n
   + state.say('prompt.pm.life')
   + state.say('prompt.pm.directions', { directions: directionsText(state) || state.say('prompt.pm.noDirections') })
   + subprojectsBrief(state)
+  + abilitiesPrompt(state)
   // Передача дел — только новой сессии, и в промпт, а не первым сообщением:
   // она нужна на каждом ходу, а не один раз, и не должна выглядеть репликой.
   // Продолжаемая сессия несёт то же в своей стенограмме — пересказом сжатия.
   + (fresh && handoff ? state.say('prompt.pm.handoff', { text: handoff }) : '');
+
+/**
+ * Сводка «Кто что умеет» в промпте менеджера: роль → серверы и скилы одной
+ * строкой. Собирается при старте сессии; подробности и свежие правки — в
+ * list_team, на который сводка и ссылается.
+ */
+export function abilitiesPrompt(state: OfficeState): string {
+  const roles = state.workerRoles().map((role) => ({
+    id: role.id, abilities: roleAbilities(state.settings, role, state.lang()),
+  }));
+  return abilitiesBrief(roles, (key, vars) => state.say(key, vars));
+}
 
 /**
  * Блок «Подпроекты» в промпте менеджера (spec подпроектов §6.1): зоны с
@@ -891,6 +905,7 @@ export function admitGate(
  */
 export function teamSummary(state: OfficeState): string {
   const subs = state.subprojects();
+  const say = (key: ServerKey, vars?: Vars): string => state.say(key, vars);
   const lines = state.workerRoles().map((role) => {
     const insts = state.staffOf(role.id);
     // Роль без сотрудников — открытая вакансия: она есть в реестре, но
@@ -919,8 +934,11 @@ export function teamSummary(state: OfficeState): string {
         }).join(', ')
         : state.say('prompt.team.wholeProject')}`;
     const result = state.say(role.isolate ? 'prompt.team.isolated' : 'prompt.team.direct');
+    // Что роль умеет — пакет, серверы, скилы: без этого менеджер переспрашивал
+    // владельца про инструмент, который у роли давно подключён.
+    const abilities = abilitiesBlock(roleAbilities(state.settings, role, state.lang()), say);
     return `- ${role.id} (${role.title})${first ? ` — ${first}` : ''}\n  ${desc}${zones}${where}` +
-      `\n  ${state.say('prompt.team.result')}: ${result}`;
+      `\n  ${state.say('prompt.team.result')}: ${result}\n${abilities}`;
   });
   return `${state.say('prompt.team.header')}\n${lines.join('\n')}`;
 }

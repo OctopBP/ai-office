@@ -666,6 +666,19 @@ export function mcpBrief(settings: Settings, role: Role, lang: Lang): string {
   return notes.length ? `\n\n${notes.join('\n\n')}` : '';
 }
 
+/**
+ * Что это за сервер — одной строкой для менеджера (list_team и сводка «Кто что
+ * умеет» в его промпте). У серверов каталога по умолчанию строка своя в
+ * словаре (`mcp.<id>.about`); у заведённого из интерфейса её нет, и тогда
+ * говорит подпись, а нет и её — id. Без этой строки менеджер видел только
+ * «figcraft» и переспрашивал владельца, что это такое.
+ */
+export function mcpAbout(def: McpServerDef, lang: Lang): string {
+  const key = `mcp.${def.id}.about`;
+  if (hasKey(key)) return t(lang, key);
+  return def.title.trim() || def.id;
+}
+
 // ------------------------------------------------- проверка каталога из UI
 
 /** Что не так с каталогом. Пусто — каталог годный. */

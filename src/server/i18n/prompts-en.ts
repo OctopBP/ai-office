@@ -180,6 +180,21 @@ export const promptsEn = {
   'prompt.team.result': 'result',
   'prompt.team.isolated': 'in a separate branch, needs merging',
   'prompt.team.direct': 'straight into the working directory',
+  'prompt.team.abilities': 'can use',
+  'prompt.team.package': 'package',
+  'prompt.team.skill': 'skill',
+  'prompt.team.plugins': 'plugins',
+  'prompt.team.builtin': 'built-in',
+  'prompt.team.nothing': 'built-in tools only, no MCP servers or skills',
+  'prompt.team.skills': 'skills',
+  'prompt.pm.abilities': [
+    '',
+    '',
+    'Who can use what — MCP servers and skills connected to each role (details, with packages and descriptions, are in list_team):',
+    '{lines}',
+    'When the owner names a tool, service or format (“figcraft”, “Penpot”, “Blender”, “Notion”), first check this summary and list_team: if some role has it, give the task to that role and do not ask the owner what it is. Ask only if nobody has it.',
+  ].join('\n'),
+  'prompt.pm.abilitiesNone': 'no role has any MCP servers or skills connected — built-in tools only',
   'agent.noStaff': 'Role {role} ({title}) has no staff at all right now — the position is open, there is nobody to do the work.',
 
   // ------------------------------------------------------- системный промпт PM
@@ -373,7 +388,7 @@ Keep your replies to the user short. Which language to write them in is said in 
 
   // -------------------------------------------------- инструменты менеджера
   'tool.team.instructions': 'Tools for running the office team.',
-  'tool.listTeam.desc': 'Show the team: roles, the individual workers and who is free right now. Call this first, before creating and handing out tasks.',
+  'tool.listTeam.desc': 'Show the team: roles, the individual workers, who is free right now and what each role can use (package, MCP servers, skills and plugins). Call this first, before creating and handing out tasks.',
   'tool.listSubprojects.desc': 'The office subprojects (zones of responsibility): id, name, kind, root, pinned roles, universal roles and the number of open tasks per zone. Read-only. You can re-pin a role to a zone or change its path yourself — set_role_base; creating new zones is the owner\'s decision.',
   'tool.createTask.desc': 'Create a task on the board. One task = one worker = one tangible result. Returns the task id, which you pass to assign_task.',
   'tool.createTask.title': 'Short headline, up to 60 characters',
@@ -807,6 +822,16 @@ Keep your replies to the user short. Which language to write them in is said in 
   ].join('\n'),
 
   // --------------------------------------------------- внешние инструменты
+  // Что это за сервер — одной строкой для менеджера (mcpAbout в mcp.ts).
+  'mcp.figma-bridge.about': 'Figma through a plugin bridge: read and edit the open Figma file',
+  'mcp.figma-console.about': 'Figma Console: components, variants and Figma variables, arbitrary Plugin API',
+  'mcp.penpot.about': 'Penpot, an open-source design editor that replaces Figma for new mock-ups',
+  'mcp.figcraft.about': 'design editor, a windowless Figma clone, .figcraft files',
+  'mcp.blender.about': 'live Blender: look at the scene, measure, render a frame',
+  'mcp.unity.about': 'the owner’s Unity editor: scene, console, editor commands',
+  'mcp.imagegen.about': 'image generation from a description into files of the working copy',
+  'mcp.browser.about': 'browser for checking the web app: open a page, click, take a screenshot',
+
   'mcp.figma-bridge.brief': [
     'Figma is available to you directly, through the `mcp__figma-bridge__*` tools: read the',
     'document and the current selection, take screenshots, create frames, text and shapes,',

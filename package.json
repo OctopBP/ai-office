@@ -34,6 +34,7 @@
     "test:providers": "node --import tsx scripts/test-providers.ts",
     "test:secrets": "node --import tsx scripts/test-secrets.ts",
     "test:skills": "tsx scripts/test-skills.ts",
+    "test:abilities": "node --import tsx scripts/test-abilities.ts",
     "test:roletools": "node --import tsx/esm scripts/test-role-tools.ts",
     "test:packages": "tsx scripts/test-packages.ts",
     "test:sandbox": "node --import tsx scripts/test-sandbox.ts",

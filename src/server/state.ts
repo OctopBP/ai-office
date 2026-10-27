@@ -4472,7 +4472,11 @@ export class OfficeState {
     const pm = this.activeRoles().find((r) => r.isManager);
     const choice = pm ? this.runtimeOf(pm) : null;
     const runtime = choice ? `${choice.provider}\u0000${choice.model}` : '';
-    return `${runtime}\u0002${this.workerRoles().map((r) => `${r.id}\u0000${r.title}`).join('\u0001')}`;
+    // Серверы роли — тоже: сводка «Кто что умеет» в промпте менеджера
+    // собирается при старте сессии, и подключённый figcraft иначе дошёл бы до
+    // него только со следующим перезапуском.
+    return `${runtime}\u0002${this.workerRoles()
+      .map((r) => `${r.id}\u0000${r.title}\u0000${(r.mcp ?? []).join(',')}`).join('\u0001')}`;
   }
 
   /**
