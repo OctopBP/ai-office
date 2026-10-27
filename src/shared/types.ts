@@ -2618,7 +2618,29 @@ export interface ChatEntry {
    * (`repliesOpen`), — так их нечем рассинхронизировать.
    */
   replies?: string[];
+  /**
+   * Файлы, приложенные владельцем к реплике в чате с менеджером (T-699):
+   * только метаданные, сами файлы лежат в папке вложений офиса и отдаются
+   * по `url`. Есть только у реплик владельца ветки 'pm#1'.
+   */
+  attachments?: ChatAttachment[];
 }
+
+/**
+ * Вложение чата с менеджером: ответ `POST /api/chat/attachment` и запись в
+ * истории чата. `url` — адрес отдачи для превью (`GET` того же маршрута).
+ */
+export interface ChatAttachment {
+  id: string;
+  name: string;
+  size: number;
+  mime: string;
+  url: string;
+}
+
+/** Потолки вложений: размер одного файла и число файлов в одном сообщении. */
+export const ATTACHMENT_MAX_BYTES = 20 * 1024 * 1024;
+export const ATTACHMENTS_PER_MESSAGE = 10;
 
 /** Вариантов быстрого ответа — не меньше и не больше. */
 export const REPLIES_MIN = 2;
@@ -3154,8 +3176,11 @@ export type ClientCommand =
    * основной, как было до нескольких чатов. `newChat` — реплика с главного
    * экрана офиса: сервер заводит под неё новый чат (`chatId` тогда не
    * смотрится), а `nonce` вернётся в его `pm.chat`, чтобы вкладка его выделила.
+   * `attachments` — id файлов, загруженных заранее через
+   * `POST /api/chat/attachment` (не больше ATTACHMENTS_PER_MESSAGE); с ними
+   * `text` может быть пустым.
    */
-  | { c: 'user_message'; text: string; chatId?: string; newChat?: boolean; nonce?: string }
+  | { c: 'user_message'; text: string; chatId?: string; newChat?: boolean; nonce?: string; attachments?: string[] }
   /** Завести чат с менеджером. Нет названия — «Новый чат» до первой реплики. */
   | { c: 'pm_chat_create'; title?: string; nonce?: string }
   /** Переименовать чат руками. Пустое название игнорируется. */

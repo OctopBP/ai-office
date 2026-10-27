@@ -11,7 +11,8 @@ import type {
   EngineSession,
 } from './engines';
 import { z } from 'zod';
-import { MessageQueue } from './queue';
+import { MessageQueue, type UserContent } from './queue';
+import { attachmentView, pmContent, takeAttachments } from './attachments';
 import {
   criteriaProgress, loadedOffices, onEnvReady, onRoleSetChanged, onWorkerLimitChanged, taskRepo,
   totalRunningWorkers, worktreesRoot,
@@ -20,7 +21,7 @@ import {
 import { clearEnvWait, envBlock, markEnvWait, roleProviderProblem } from './envcheck';
 import { setRoleBase } from './rolebase';
 import {
-  DEFAULT_PROCESS_WORKERS, DEFAULT_TASK_PRIORITY, emptyUsage, OFFICE_SENDER, TASK_PRIORITIES,
+  ATTACHMENTS_PER_MESSAGE, DEFAULT_PROCESS_WORKERS, DEFAULT_TASK_PRIORITY, emptyUsage, OFFICE_SENDER, TASK_PRIORITIES,
 } from '../shared/types';
 import { LANG_NAME_EN, type Lang, type Vars } from '../shared/i18n';
 import { t, type ServerKey } from './i18n';
@@ -2475,12 +2476,28 @@ onRoleSetChanged(restartPm);
  * чат, в котором оно написано: реплика уходит в сессию этого чата, ответ
  * ляжет туда же. Чат неизвестен — основной, как до нескольких чатов.
  */
-export function sendUserMessage(state: OfficeState, text: string, chatId?: string): void {
-  state.addChat('user', text, 'pm#1', undefined, chatId);
+export function sendUserMessage(
+  state: OfficeState, text: string, chatId?: string, attachmentIds: readonly unknown[] = [],
+): void {
+  // Вложения — файлы, загруженные заранее (attachments.ts). Сверх потолка
+  // реплика не уходит вовсе: обрезать молча значило бы потерять чужие файлы.
+  if (attachmentIds.length > ATTACHMENTS_PER_MESSAGE) {
+    state.addChat(OFFICE_SENDER, state.say('attach.tooMany', { max: ATTACHMENTS_PER_MESSAGE }), 'pm#1', undefined, chatId);
+    return;
+  }
+  const { taken, lost } = takeAttachments(state, attachmentIds);
+  if (!text && !taken.length) {
+    if (lost.length) state.addChat(OFFICE_SENDER, state.say('attach.lost', { ids: lost.join(', ') }), 'pm#1', undefined, chatId);
+    return;
+  }
+  const entry = state.addChat('user', text, 'pm#1', undefined, chatId, undefined, undefined,
+    taken.map((a) => attachmentView(state, a.meta)));
+  if (lost.length) state.addChat(OFFICE_SENDER, state.say('attach.lost', { ids: lost.join(', ') }), 'pm#1', undefined, entry.chatId);
   // «Q-3: да, оставляем» — ответ на вопрос офиса, а не реплика менеджеру:
   // ответ ложится в журнал, а менеджер узнаёт о нём системным сообщением.
-  if (answerFromChat(state, text)) return;
-  pushToPm(state, state.pmSession(chatId), text, true);
+  // С вложениями реплика — всегда менеджеру: файлы в журнал не лягут.
+  if (!taken.length && answerFromChat(state, text)) return;
+  pushToPm(state, state.pmSession(chatId), pmContent(state, text, taken), true);
 }
 
 /**
@@ -2529,7 +2546,7 @@ export function pmNeedsRotation(state: OfficeState, pm: PmSession = state.pmSess
  * порогом, сначала ужимаем — иначе первый же ход снова перечитал бы всё
  * накопленное, и ответил бы пользователю разросшийся разговор.
  */
-function pushToPm(state: OfficeState, pm: PmSession, text: string, fromUser: boolean): void {
+function pushToPm(state: OfficeState, pm: PmSession, text: UserContent, fromUser: boolean): void {
   if (!pm.rotating && !pm.loop && pmNeedsRotation(state, pm)) compactPm(state, pm);
   if (pm.rotating) {
     pm.pending.push({ text, fromUser });
@@ -2587,7 +2604,7 @@ export function compactPm(state: OfficeState, pm: PmSession = state.pmSession())
  */
 export function completePmCompaction(
   state: OfficeState, pm: PmSession, error: string | null,
-): { text: string; fromUser: boolean }[] {
+): { text: UserContent; fromUser: boolean }[] {
   const tokens = Math.round(pm.rotatingFrom / 1000);
   const limit = Math.round(state.pmContextLimit() / 1000);
   pm.rotating = false;
@@ -2636,7 +2653,7 @@ export function rotatePm(state: OfficeState, pm: PmSession = state.pmSession()):
  */
 export function completePmRotation(
   state: OfficeState, pm: PmSession, handoff: string | null,
-): { text: string; fromUser: boolean }[] {
+): { text: UserContent; fromUser: boolean }[] {
   const tokens = Math.round(pm.rotatingFrom / 1000);
   const limit = Math.round(state.pmContextLimit() / 1000);
   pm.rotating = false;

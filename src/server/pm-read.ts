@@ -107,11 +107,15 @@ export interface PmReadOffice {
   projectDir: string;
   subprojects(): readonly Subproject[];
   tasks: ReadonlyMap<string, { worktreePath: string | null; repoDir?: string | null }>;
+  /** Папка вложений чата (attachments.ts): файлы владельца менеджер открывает по пути из реплики. */
+  attachmentsDir?(): string;
 }
 
 /**
  * Корни, где менеджер читает без вопроса: корень офиса, зоны и их
- * репозитории (то же, что видит list_subprojects), рабочие копии задач.
+ * репозитории (то же, что видит list_subprojects), рабочие копии задач и
+ * папка вложений чата. Секреты отсекаются раньше корней, так что и во
+ * вложениях `.env` или ключ остаются отказом.
  */
 export function pmReadScope(office: PmReadOffice): PmReadScope {
   const dir = office.projectDir;
@@ -127,6 +131,8 @@ export function pmReadScope(office: PmReadOffice): PmReadScope {
     if (task.worktreePath) roots.add(resolve(task.worktreePath));
     if (task.repoDir) roots.add(resolve(task.repoDir));
   }
+  const attachments = office.attachmentsDir?.();
+  if (attachments) roots.add(resolve(attachments));
   return { roots: [...roots], cwd: dir || homedir() };
 }
 

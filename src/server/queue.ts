@@ -1,6 +1,12 @@
 import type { SDKUserMessage } from './engines';
 
 /**
+ * Содержимое пользовательского сообщения: строка или блоки контента — текст и
+ * картинки base64 (вложения владельца в чате с менеджером, attachments.ts).
+ */
+export type UserContent = SDKUserMessage['message']['content'];
+
+/**
  * Очередь сообщений для streaming-input режима Agent SDK.
  * Позволяет держать сессию живой и «вбрасывать» в неё новые сообщения
  * (например, отчёт о завершённой задаче) без пересоздания сессии —
@@ -11,11 +17,11 @@ export class MessageQueue implements AsyncIterable<SDKUserMessage> {
   private resolver: ((v: IteratorResult<SDKUserMessage>) => void) | null = null;
   private closed = false;
 
-  push(text: string): void {
+  push(content: UserContent): void {
     if (this.closed) return;
     const msg = {
       type: 'user' as const,
-      message: { role: 'user' as const, content: text },
+      message: { role: 'user' as const, content },
       parent_tool_use_id: null,
       session_id: '',
     } as SDKUserMessage;

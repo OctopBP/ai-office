@@ -44,6 +44,7 @@ import { handleSecretsHttp } from './secrets-api';
 import { handleDocsHttp } from './docs-api';
 import { handleTaskFiles } from './taskfiles';
 import { handleProjectFile } from './files';
+import { handleChatAttachment } from './attachments';
 import { handleFigcraft } from './figcraft';
 import { handleMyAgentsHttp } from './myagents';
 import { seedReadme } from './setup';
@@ -305,6 +306,8 @@ const httpServer = createServer((req, res) => {
   if (handleTaskFiles(req, res, url, query)) return;
   // Файл проекта по пути — для ссылок в чате с PM, см. files.ts.
   if (handleProjectFile(req, res, url, query)) return;
+  // Вложения чата с менеджером: загрузка, превью, снятие — см. attachments.ts.
+  if (handleChatAttachment(req, res, url, query)) return;
   // Макеты FigCraft: список и «открыть в FigCraft» — см. figcraft.ts.
   if (handleFigcraft(req, res, url, query)) return;
   // Свои агенты офиса: список, создание, правка, удаление — см. myagents.ts.
@@ -537,14 +540,15 @@ wss.on('connection', (ws, req) => {
       return;
     }
 
-    if (cmd.c === 'user_message' && cmd.text.trim()) {
+    const attachments = cmd.c === 'user_message' && Array.isArray(cmd.attachments) ? cmd.attachments : [];
+    if (cmd.c === 'user_message' && (String(cmd.text ?? '').trim() || attachments.length)) {
       // С главного экрана — всегда в свой новый чат: выделенный последним чат
       // мог быть о чём угодно, и задачи из просьбы привязались бы к нему.
       // Чатов нет вовсе — первая реплика и так заведёт основной, со своим названием.
       const chatId = cmd.newChat && state.pmChats.size > 0
         ? state.createPmChat(undefined, cmd.nonce).id
         : cmd.chatId;
-      sendUserMessage(state, cmd.text.trim(), chatId);
+      sendUserMessage(state, String(cmd.text ?? '').trim(), chatId, attachments);
     } else if (cmd.c === 'pm_chat_create') {
       state.createPmChat(cmd.title, cmd.nonce);
     } else if (cmd.c === 'pm_chat_rename') {

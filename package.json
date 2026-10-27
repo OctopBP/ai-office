@@ -40,6 +40,7 @@
     "test:sandbox": "node --import tsx scripts/test-sandbox.ts",
     "test:access": "node --import tsx scripts/test-access.ts",
     "test:pm-read": "node --import tsx scripts/test-pm-read.ts",
+    "test:attachments": "node --import tsx scripts/test-attachments.ts",
     "test:market": "tsx scripts/test-market.ts",
     "test:mcp": "tsx scripts/test-mcp.ts",
     "test:figcraft": "node --import tsx scripts/test-figcraft.ts",

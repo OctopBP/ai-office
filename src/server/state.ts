@@ -7,7 +7,7 @@ import { sandboxDefaultsFor } from './sandbox';
 import { statSync } from 'node:fs';
 import { isAbsolute, relative, resolve, sep } from 'node:path';
 import type {
-  AgentState, ChatDraft, ChatEntry, ChatRef, Criterion, DayUsage, Desk, FieldError, InstanceView, LogEntry,
+  AgentState, ChatAttachment, ChatDraft, ChatEntry, ChatRef, Criterion, DayUsage, Desk, FieldError, InstanceView, LogEntry,
   PermissionDecision, AuthSource, MeetingView, PermissionMode, PermissionRequest, RoleDraft,
   McpServerDef, McpServerState, RoleEditable, RoleView, ServerEvent, Settings, TaskStatus,
   TaskPriority, TaskView, Usage,
@@ -78,7 +78,7 @@ import { ensureChromium } from './chromium';
 import { employeeServers } from './skills';
 import { LOCAL_SCOPE } from './scopes';
 import { effectiveMode, isPermissionMode, modeLabel } from './permissions';
-import type { MessageQueue } from './queue';
+import type { MessageQueue, UserContent } from './queue';
 import {
   basePackageName, blankRole, defaultRole, defaultRoles, newRoleId, newRoleTitle,
   currentModel, OVERRIDABLE_KEYS, paletteColor, roleFromPackage, roleIdFor, rolesFromOverrides, roleRuntime, sameValue,
@@ -1161,7 +1161,7 @@ export class PmSession {
    */
   rotating = false;
   rotationKind: 'compact' | 'handoff' = 'compact';
-  pending: { text: string; fromUser: boolean }[] = [];
+  pending: { text: UserContent; fromUser: boolean }[] = [];
   /** Контекст на момент запроса сжатия — пользователю говорят, до чего сессия доросла. */
   rotatingFrom = 0;
   /** Сколько осталось после сжатия; null — граница сжатия ещё не пришла. */
@@ -1693,6 +1693,15 @@ export class OfficeState {
    */
   agentsDir(): string {
     return this.stateFile.replace(/\.json$/i, '') + '.agents';
+  }
+
+  /**
+   * Папка вложений чата с менеджером (attachments.ts): рядом с файлом
+   * состояния — `.office/offices/o-2.json` → `.office/offices/o-2.attachments`,
+   * внутри `<чат>/<id>/<имя файла>`. Менеджер читает её без вопроса (pm-read.ts).
+   */
+  attachmentsDir(): string {
+    return this.stateFile.replace(/\.json$/i, '') + '.attachments';
   }
 
   /**
@@ -3621,11 +3630,12 @@ export class OfficeState {
    */
   addChat(
     from: string, text: string, thread = 'pm#1', meetingId?: string, chatId?: string, ref?: ChatRef,
-    replies?: readonly string[],
+    replies?: readonly string[], attachments?: readonly ChatAttachment[],
   ): ChatEntry {
     const entry: ChatEntry = { id: randomUUID(), thread, from, text, at: Date.now() };
     if (meetingId) entry.meetingId = meetingId;
     if (ref) entry.ref = ref;
+    if (attachments?.length) entry.attachments = attachments.map((a) => ({ ...a }));
     const tidy = tidyReplies(replies);
     if (tidy.length) entry.replies = tidy;
     const pmChat = thread === 'pm#1' ? this.routePmChat(chatId) : null;
