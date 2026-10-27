@@ -102,6 +102,7 @@ export const promptsEn = {
   'pmRead.why.token': 'by its name it is a file with tokens, passwords or credentials',
   'pmRead.deny.tooBig': 'The file {path} is large ({lines} lines, {kb} KB) — do not read it whole. Find the place you need with Grep and read a range: Read with offset and limit, no more than {max} lines at a time.',
   'pmRead.deny.limit': 'limit {limit} is above the cap of {max} lines. Read the file in chunks of at most {max} lines.',
+  'pmRead.grepCut': 'Grep output had matches from secret files removed ({count}): {files}. Their contents are closed to the manager — do not try to get at them another way.',
   'agent.deny.foreignZone': 'Denied: {path} is outside the “{zone}” zone. Your task changes only its folder ({roots}) and the zone\'s shared paths; reading other folders is fine. If another zone needs a change, describe it in your report and the manager will file a task for that zone.',
   'agent.deny.user': 'The user denied this action. Do NOT try to reach the same result by another route — through an interpreter (python -c, node -e), a different utility or any other trick: that is a direct violation of the ban. If the task cannot be solved without this action, stop trying and write in your report what exactly is blocked.',
 

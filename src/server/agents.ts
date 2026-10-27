@@ -41,7 +41,7 @@ import {
   autoApprovedText, classify, classifyPmRead, decide, effectiveMode, gitReadOnlyProblem, releaseCommandBlocked,
   type ClassifyZone, type Verdict,
 } from './permissions';
-import { isPmReadTool, pmReadScope, PM_READ_TOOLS } from './pm-read';
+import { filterPmGrepOutput, isPmReadTool, pmReadScope, PM_READ_TOOLS } from './pm-read';
 import { outsideZone, writeZone, zonePath } from './subprojects';
 import { worktreeOwnFiles } from './premerge';
 import {
@@ -580,7 +580,7 @@ function classifyZone(state: OfficeState, taskId: string | null, workdir: string
  * Решает сама, если действие безопасно; иначе поднимает модалку пользователю
  * и блокирует агента до ответа.
  */
-function permissionHandler(
+export function permissionHandler(
   /**
    * Офис сессии. Передаётся явно: сессия живёт минутами, а пользователь за это
    * время может уйти в другой офис — вопрос о разрешении обязан всплыть там,
@@ -1997,16 +1997,35 @@ const PM_LIVE_MAX = 3;
 /** Встроенные инструменты сессии менеджера: только чтение (T-694). */
 export const pmSessionTools = (): string[] => [...PM_READ_TOOLS];
 
+/** Как хук спрашивает владельца: та же функция, что `canUseTool` сессии. */
+export type PmAskOwner = (
+  toolName: string,
+  input: Record<string, unknown>,
+  options: { signal: AbortSignal },
+) => Promise<PermissionResult>;
+
 /**
  * Хук PreToolUse на чтение менеджера. Нужен сверх `canUseTool`: встроенная
  * проверка Claude пропускает Read внутри cwd, не спрашивая обработчик, и
  * `.env` в корне офиса прочитался бы молча. Секрет и большой файл целиком —
- * отказ здесь же; путь вне офиса — «спросить», и вопрос уходит в
- * `permissionHandler`, а оттуда владельцу; внутри — пропустить, подставив
- * потолок выдачи Grep, если он нужен.
+ * отказ здесь же; внутри — пропустить, подставив потолок выдачи Grep, если
+ * он нужен.
+ *
+ * Путь вне офиса хук не отдаёт SDK ответом «ask» (T-696): что «ask» дойдёт до
+ * `canUseTool`, SDK не обещает — без обработчика он конечный отказ, а правило
+ * настроек может перебить его молча. Поэтому хук сам зовёт `ask` — это
+ * `permissionHandler` менеджера, тот же путь, что у `canUseTool`, с модалкой
+ * владельцу, — и отдаёт SDK уже готовое allow или deny.
  */
-export function pmReadHook(state: Pick<OfficeState, 'addLog' | 'lang' | 'projectDir' | 'subprojects' | 'tasks'>) {
-  return async (input: { hook_event_name: string; tool_name?: string; tool_input?: unknown }) => {
+export function pmReadHook(
+  state: Pick<OfficeState, 'addLog' | 'lang' | 'projectDir' | 'subprojects' | 'tasks'>,
+  ask: PmAskOwner,
+) {
+  return async (
+    input: { hook_event_name: string; tool_name?: string; tool_input?: unknown },
+    _toolUseId?: string,
+    options?: { signal?: AbortSignal },
+  ) => {
     if (input.hook_event_name !== 'PreToolUse' || !input.tool_name || !isPmReadTool(input.tool_name)) return {};
     const args = (input.tool_input ?? {}) as Record<string, unknown>;
     const verdict = classifyPmRead(input.tool_name, args, pmReadScope(state), state.lang());
@@ -2021,11 +2040,21 @@ export function pmReadHook(state: Pick<OfficeState, 'addLog' | 'lang' | 'project
       };
     }
     if (verdict.risk !== 'safe') {
+      const answer = await ask(input.tool_name, args, { signal: options?.signal ?? new AbortController().signal });
+      if (answer.behavior !== 'allow') {
+        return {
+          hookSpecificOutput: {
+            hookEventName: 'PreToolUse' as const,
+            permissionDecision: 'deny' as const,
+            permissionDecisionReason: answer.message,
+          },
+        };
+      }
       return {
         hookSpecificOutput: {
           hookEventName: 'PreToolUse' as const,
-          permissionDecision: 'ask' as const,
-          permissionDecisionReason: verdict.reason,
+          permissionDecision: 'allow' as const,
+          updatedInput: answer.updatedInput ?? args,
         },
       };
     }
@@ -2039,6 +2068,29 @@ export function pmReadHook(state: Pick<OfficeState, 'addLog' | 'lang' | 'project
       };
     }
     return {};
+  };
+}
+
+/**
+ * Хук PostToolUse на Grep менеджера (T-696): вырезать из выдачи строки и
+ * имена файлов-секретов. Grep по папке видит и скрытые файлы, и строки
+ * незаигноренного `.env` иначе дошли бы до модели, хотя Read его закрыт.
+ */
+export function pmGrepFilterHook(state: Pick<OfficeState, 'addLog' | 'lang' | 'projectDir' | 'subprojects' | 'tasks'>) {
+  return async (input: { hook_event_name: string; tool_name?: string; tool_input?: unknown; tool_response?: unknown }) => {
+    if (input.hook_event_name !== 'PostToolUse' || input.tool_name !== 'Grep') return {};
+    const args = (input.tool_input ?? {}) as Record<string, unknown>;
+    const cut = filterPmGrepOutput(input.tool_response, args, pmReadScope(state));
+    if (!cut) return {};
+    const note = t(state.lang(), 'pmRead.grepCut', { count: cut.dropped.length, files: cut.dropped.join(', ') });
+    state.addLog('pm#1', 'system', note);
+    return {
+      hookSpecificOutput: {
+        hookEventName: 'PostToolUse' as const,
+        updatedToolOutput: cut.output,
+        additionalContext: note,
+      },
+    };
   };
 }
 
@@ -2093,7 +2145,8 @@ function startPm(state: OfficeState, pm: PmSession): void {
       // приходят следом ровно как раньше (см. streamPmChunk).
       includePartialMessages: true,
       hooks: {
-        PreToolUse: [{ matcher: PM_READ_TOOLS.join('|'), hooks: [pmReadHook(state)] }],
+        PreToolUse: [{ matcher: PM_READ_TOOLS.join('|'), hooks: [pmReadHook(state, permissionHandler(state, 'pm#1'))] }],
+        PostToolUse: [{ matcher: 'Grep', hooks: [pmGrepFilterHook(state)] }],
         // Пересказ, который SDK пишет при сжатии, запоминаем как передачу
         // дел: не удастся продолжить сессию — новая начнёт хотя бы с него.
         PostCompact: [{

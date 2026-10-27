@@ -15,7 +15,9 @@
  *    контекст менеджера держит весь разговор с владельцем, его не тратят на
  *    файл в тысячу строк;
  *  - внутри корня офиса, зон и рабочих копий задач — без вопроса;
- *  - вне их — вопрос владельцу через обычную модалку разрешения.
+ *  - вне их — вопрос владельцу через обычную модалку разрешения;
+ *  - выдача Grep по папке — без строк и имён файлов-секретов
+ *    (`filterPmGrepOutput`, хук PostToolUse).
  */
 import { realpathSync, statSync, readFileSync } from 'node:fs';
 import { homedir } from 'node:os';
@@ -239,4 +241,126 @@ export function checkPmRead(
     return { kind: 'inside', path: target, grepHeadLimit: PM_GREP_HEAD_LIMIT };
   }
   return { kind: 'inside', path: target };
+}
+
+// ------------------------------------------------- выдача Grep (T-696)
+
+/**
+ * Секрет ли файл из выдачи Grep — по имени и по реальному пути (симлинк в
+ * офисе на ключ — всё ещё ключ).
+ */
+function secretFile(path: string, home: string): boolean {
+  return secretWhy(path, home) !== null || secretWhy(real(path), home) !== null;
+}
+
+/** Есть ли такой файл на диске. */
+function isFile(path: string): boolean {
+  try {
+    return statSync(path).isFile();
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Файл, к которому относится строка выдачи ripgrep: «путь:12:текст»,
+ * «путь-12-текст» (контекст), «путь:3» (count), «путь:текст» (без -n).
+ * Имя файла само может содержать «:» и «-», поэтому берём самый короткий
+ * префикс до такого знака, который есть на диске как файл. null — строка без
+ * пути (разделитель «--», продолжение multiline).
+ */
+function lineFile(line: string, bases: string[]): string | null {
+  const head = line.slice(0, 1024);
+  for (let i = 1; i < head.length; i++) {
+    const c = head[i];
+    if (c !== ':' && c !== '-') continue;
+    const prefix = head.slice(0, i);
+    for (const base of bases) {
+      const p = isAbsolute(prefix) ? prefix : resolve(base, prefix);
+      if (isFile(p)) return p;
+    }
+  }
+  return null;
+}
+
+/** Что осталось от выдачи Grep после фильтра. */
+export interface PmGrepFiltered {
+  /** Выдача без строк и имён файлов-секретов, той же формы, что пришла. */
+  output: unknown;
+  /** Какие файлы-секреты вырезаны — для ленты и подсказки менеджеру. */
+  dropped: string[];
+}
+
+/**
+ * Вырезать из выдачи Grep менеджера всё, что пришло из файлов-секретов.
+ *
+ * Grep по папке ищет и в скрытых файлах, а незаигноренный `.env` — обычное
+ * дело. Исключить его через параметры надёжно нельзя: у Grep одно поле
+ * `glob`, и как оно делится на несколько `--glob`, решает сам инструмент —
+ * отрицания склеились бы с шаблоном менеджера непредсказуемо. Поэтому фильтр
+ * стоит на выходе (хук PostToolUse): что бы ни нашёл ripgrep, строки и имена
+ * файлов-секретов до модели не доходят.
+ *
+ * Понимает выдачу Claude (`GrepOutput`: `filenames`, `content`) и голую
+ * строку. null — вырезать нечего, выдачу не трогать.
+ */
+export function filterPmGrepOutput(
+  output: unknown,
+  input: Record<string, unknown>,
+  scope: PmReadScope,
+): PmGrepFiltered | null {
+  const home = scope.home ?? homedir();
+  const searchPath = typeof input.path === 'string' && input.path.trim()
+    ? resolve(scope.cwd, input.path.trim())
+    : scope.cwd;
+  // Относительные пути выдачи считаются от cwd сессии, но на всякий случай
+  // пробуем и от папки поиска.
+  const bases = [...new Set([scope.cwd, searchPath])];
+  const dropped = new Set<string>();
+
+  const filterText = (text: string): string => {
+    const lines = text.split('\n');
+    const kept = lines.filter((line) => {
+      const file = lineFile(line, bases);
+      if (file && secretFile(file, home)) {
+        dropped.add(file);
+        return false;
+      }
+      return true;
+    });
+    return kept.length === lines.length ? text : kept.join('\n');
+  };
+
+  if (typeof output === 'string') {
+    const text = filterText(output);
+    return dropped.size ? { output: text, dropped: [...dropped] } : null;
+  }
+  if (!output || typeof output !== 'object') return null;
+
+  const out = { ...(output as Record<string, unknown>) };
+  if (Array.isArray(out.filenames)) {
+    const names = out.filenames as unknown[];
+    const kept = names.filter((n) => {
+      if (typeof n !== 'string') return true;
+      const p = isAbsolute(n) ? n : resolve(scope.cwd, n);
+      if (secretFile(p, home)) {
+        dropped.add(p);
+        return false;
+      }
+      return true;
+    });
+    if (kept.length !== names.length) {
+      out.filenames = kept;
+      if (typeof out.numFiles === 'number') out.numFiles = kept.length;
+    }
+  }
+  if (typeof out.content === 'string') {
+    const before = out.content as string;
+    const after = filterText(before);
+    if (after !== before) {
+      out.content = after;
+      if (typeof out.numLines === 'number') out.numLines = after ? after.split('\n').length : 0;
+    }
+  }
+  return dropped.size ? { output: out, dropped: [...dropped] } : null;
 }
