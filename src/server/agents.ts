@@ -38,9 +38,10 @@ import { ensureChromium } from './chromium';
 import { employeePlugins, employeeSkills, sessionTools } from './skills';
 import { abilitiesBlock, abilitiesBrief, roleAbilities } from './abilities';
 import {
-  autoApprovedText, classify, decide, effectiveMode, gitReadOnlyProblem, releaseCommandBlocked,
-  type ClassifyZone,
+  autoApprovedText, classify, classifyPmRead, decide, effectiveMode, gitReadOnlyProblem, releaseCommandBlocked,
+  type ClassifyZone, type Verdict,
 } from './permissions';
+import { isPmReadTool, pmReadScope, PM_READ_TOOLS } from './pm-read';
 import { outsideZone, writeZone, zonePath } from './subprojects';
 import { worktreeOwnFiles } from './premerge';
 import {
@@ -237,8 +238,8 @@ onEnvReady((state) => {
 });
 
 /**
- * Бриф проекта — OFFICE.md в рабочей директории. Он идёт во все сессии: у PM
- * вообще нет доступа к файлам, и без брифа он декомпозирует вслепую, а
+ * Бриф проекта — OFFICE.md в рабочей директории. Он идёт во все сессии: PM
+ * читает файлы только по вопросу и без брифа декомпозирует вслепую, а
  * исполнителю CLAUDE.md проекта не достаётся (settingSources пуст намеренно).
  *
  * Читаем на каждом старте сессии, а не при запуске сервера: правку брифа
@@ -638,6 +639,24 @@ function permissionHandler(
       }
     }
 
+    // Чтение менеджера (T-694): свои границы — офис, зоны и копии задач без
+    // вопроса, снаружи — вопрос владельцу в любом режиме, секреты и большие
+    // файлы целиком — отказ с причиной. Обычный разбор здесь не годится: для
+    // него Read безопасен всегда и где угодно.
+    if (role?.isManager && isPmReadTool(toolName)) {
+      const verdict = classifyPmRead(toolName, input, pmReadScope(state), state.lang());
+      if (verdict.deny) {
+        state.addLog(instanceId, 'system', verdict.reason);
+        return { behavior: 'deny', message: verdict.reason };
+      }
+      if (verdict.risk === 'safe') return { behavior: 'allow', updatedInput: verdict.updatedInput };
+      if (state.isAlwaysDenied(role.id, verdict.key)) {
+        return { behavior: 'deny', message: state.say('agent.deny.sessionBan', { key: verdict.key }) };
+      }
+      if (state.isAlwaysAllowed(role.id, verdict.key)) return { behavior: 'allow', updatedInput: input };
+      return askOwner(verdict, toolName, input, options.signal);
+    }
+
     const zone = classifyZone(state, taskId, workdir);
     const verdict = classify(toolName, input, workdir, state.lang(), zone);
 
@@ -695,6 +714,17 @@ function permissionHandler(
       return { behavior: 'allow', updatedInput: input };
     }
 
+    return askOwner(verdict, toolName, input, options.signal);
+  };
+
+  /** Поднять модалку владельцу и ждать ответа; агент на это время «ждёт разрешения». */
+  async function askOwner(
+    verdict: Verdict,
+    toolName: string,
+    input: Record<string, unknown>,
+    signal: AbortSignal,
+  ): Promise<PermissionResult> {
+    const inst = state.instances.get(instanceId);
     const prevState = inst?.state ?? 'working';
     const prevNote = inst?.note ?? null;
     state.setState(instanceId, 'waiting_approval',
@@ -713,7 +743,7 @@ function permissionHandler(
         reason: verdict.reason,
         key: verdict.key,
       },
-      options.signal,
+      signal,
     );
 
     state.setState(instanceId, prevState, prevNote);
@@ -725,7 +755,7 @@ function permissionHandler(
 
     state.addLog(instanceId, 'system', state.say('agent.log.userAllowed', { what: verdict.summary }));
     return { behavior: 'allow', updatedInput: input };
-  };
+  }
 }
 
 // ---------------------------------------------------------------- PM
@@ -772,7 +802,7 @@ const stageText = (stage: PrStage, lang: Lang): string => t(lang, `pr.stage.${st
 
 /**
  * Доска задач текстом — инструменту get_board и реплике менеджера на
- * совещании. Файлов менеджер не видит, и доска для него — единственный способ
+ * совещании. Доска для менеджера — главный способ
  * говорить о делах предметно. Текст строит board-view.ts: без условий —
  * компактная сводка, с условиями — выборка; к сводке сверху добавляются
  * направления, они объясняют, откуда взялись инициативы.
@@ -1964,6 +1994,54 @@ const PM_SLEEP_MS = 15 * 60 * 1000;
  */
 const PM_LIVE_MAX = 3;
 
+/** Встроенные инструменты сессии менеджера: только чтение (T-694). */
+export const pmSessionTools = (): string[] => [...PM_READ_TOOLS];
+
+/**
+ * Хук PreToolUse на чтение менеджера. Нужен сверх `canUseTool`: встроенная
+ * проверка Claude пропускает Read внутри cwd, не спрашивая обработчик, и
+ * `.env` в корне офиса прочитался бы молча. Секрет и большой файл целиком —
+ * отказ здесь же; путь вне офиса — «спросить», и вопрос уходит в
+ * `permissionHandler`, а оттуда владельцу; внутри — пропустить, подставив
+ * потолок выдачи Grep, если он нужен.
+ */
+export function pmReadHook(state: Pick<OfficeState, 'addLog' | 'lang' | 'projectDir' | 'subprojects' | 'tasks'>) {
+  return async (input: { hook_event_name: string; tool_name?: string; tool_input?: unknown }) => {
+    if (input.hook_event_name !== 'PreToolUse' || !input.tool_name || !isPmReadTool(input.tool_name)) return {};
+    const args = (input.tool_input ?? {}) as Record<string, unknown>;
+    const verdict = classifyPmRead(input.tool_name, args, pmReadScope(state), state.lang());
+    if (verdict.deny) {
+      state.addLog('pm#1', 'system', verdict.reason);
+      return {
+        hookSpecificOutput: {
+          hookEventName: 'PreToolUse' as const,
+          permissionDecision: 'deny' as const,
+          permissionDecisionReason: verdict.reason,
+        },
+      };
+    }
+    if (verdict.risk !== 'safe') {
+      return {
+        hookSpecificOutput: {
+          hookEventName: 'PreToolUse' as const,
+          permissionDecision: 'ask' as const,
+          permissionDecisionReason: verdict.reason,
+        },
+      };
+    }
+    if (verdict.updatedInput !== args) {
+      return {
+        hookSpecificOutput: {
+          hookEventName: 'PreToolUse' as const,
+          permissionDecision: 'allow' as const,
+          updatedInput: verdict.updatedInput,
+        },
+      };
+    }
+    return {};
+  };
+}
+
 /**
  * Поднять сессию менеджера чата. У каждого чата она своя (решение Q-20):
  * переключение чата переключает и то, с чем разговаривает менеджер.
@@ -2000,7 +2078,10 @@ function startPm(state: OfficeState, pm: PmSession): void {
       // правка поведения менеджера, и делать её надо отдельно, с test:pm.
       systemPrompt: pmPrompt(state, !resumeId, pm.handoff) + projectBrief(state),
       cwd: state.projectDir,
-      tools: [],                         // у PM нет доступа к файлам — только командные инструменты
+      // Только чтение (T-694): ответить владельцу о коде и точнее поставить
+      // задачу. Пишущих инструментов и Bash у менеджера нет; границы чтения
+      // держат хук ниже и обработчик разрешений (pm-read.ts).
+      tools: pmSessionTools(),
       mcpServers: { team: teamTools(state, chatId) },
       permissionMode: 'default',
       canUseTool: permissionHandler(state, 'pm#1'),
@@ -2011,9 +2092,10 @@ function startPm(state: OfficeState, pm: PmSession): void {
       // добавляются сообщения `stream_event`, а готовое сообщение и `result`
       // приходят следом ровно как раньше (см. streamPmChunk).
       includePartialMessages: true,
-      // Пересказ, который SDK пишет при сжатии, запоминаем как передачу
-      // дел: не удастся продолжить сессию — новая начнёт хотя бы с него.
       hooks: {
+        PreToolUse: [{ matcher: PM_READ_TOOLS.join('|'), hooks: [pmReadHook(state)] }],
+        // Пересказ, который SDK пишет при сжатии, запоминаем как передачу
+        // дел: не удастся продолжить сессию — новая начнёт хотя бы с него.
         PostCompact: [{
           hooks: [async (input) => {
             if (input.hook_event_name === 'PostCompact') state.setPmHandoff(pm, input.compact_summary);

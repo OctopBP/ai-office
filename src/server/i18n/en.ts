@@ -25,6 +25,7 @@ export const en = {
   'perm.why.historyClear': 'clears the command history',
   'perm.why.mv': 'moves files',
   'perm.reason.outside': 'file outside the working directory',
+  'perm.reason.pmReadOutside': 'the manager reads a file outside the office, its zones and task working copies — read only, no writing',
   'perm.reason.foreignZone': 'this is outside the “{zone}” zone: other folders are readable, not writable',
   'perm.reason.write': 'write to a project file',
   'perm.reason.bash': 'shell command',

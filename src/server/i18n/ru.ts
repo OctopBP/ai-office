@@ -24,6 +24,7 @@ export const ru: Record<keyof typeof en, string> = {
   'perm.why.historyClear': 'очищает историю команд',
   'perm.why.mv': 'перемещает файлы',
   'perm.reason.outside': 'файл за пределами рабочей директории',
+  'perm.reason.pmReadOutside': 'менеджер читает файл вне офиса, его зон и рабочих копий задач — только чтение, без записи',
   'perm.reason.foreignZone': 'это вне зоны «{zone}»: чужие папки можно читать, но не менять',
   'perm.reason.write': 'запись в файл проекта',
   'perm.reason.bash': 'команда в оболочке',

@@ -4,6 +4,7 @@ import type { Lang } from '../shared/i18n';
 import { t, type ServerKey } from './i18n';
 import type { Settings } from '../shared/types';
 import { inWriteZone, type WriteZone } from './subprojects';
+import { checkPmRead, PM_READ_MAX_LINES, type PmReadScope } from './pm-read';
 
 export interface Verdict {
   risk: RiskLevel;
@@ -289,6 +290,58 @@ export function classify(
     detail: clip(JSON.stringify(input), 400),
     key: toolName,
   };
+}
+
+/** Вердикт чтения менеджера: с входом, который надо передать инструменту. */
+export interface PmReadVerdict extends Verdict {
+  updatedInput: Record<string, unknown>;
+}
+
+/**
+ * Чтение менеджером (Read, Glob, Grep — T-694). Границы считает
+ * `checkPmRead`, здесь они превращаются в вердикт для обработчика:
+ *  - внутри офиса — `safe`;
+ *  - вне — `danger` без запрета: владелец решает модалкой в любом режиме,
+ *    «разрешать всегда» — для этого же пути, а не для чтения вообще;
+ *  - секрет, большой файл целиком, слишком большой limit — `deny`, а `reason`
+ *    — готовый текст отказа агенту с причиной и тем, как читать правильно.
+ */
+export function classifyPmRead(
+  toolName: string,
+  input: Record<string, unknown>,
+  scope: PmReadScope,
+  lang: Lang,
+): PmReadVerdict {
+  const check = checkPmRead(toolName, input, scope);
+  const summary = `${toolName} → ${check.path}`;
+  const denied = (reason: string): PmReadVerdict => ({
+    risk: 'danger', reason, summary, detail: check.path, key: `${toolName}:${check.path}`,
+    deny: true, updatedInput: input,
+  });
+  switch (check.kind) {
+    case 'inside':
+      return {
+        risk: 'safe', reason: '', summary, detail: '', key: toolName,
+        updatedInput: check.grepHeadLimit ? { ...input, head_limit: check.grepHeadLimit } : input,
+      };
+    case 'outside':
+      return {
+        risk: 'danger',
+        reason: t(lang, 'perm.reason.pmReadOutside'),
+        summary,
+        detail: check.path,
+        key: `${toolName}:${check.path}`,
+        updatedInput: input,
+      };
+    case 'secret':
+      return denied(t(lang, 'pmRead.deny.secret', { path: check.path, why: t(lang, `pmRead.why.${check.why}`) }));
+    case 'tooBig':
+      return denied(t(lang, 'pmRead.deny.tooBig', {
+        path: check.path, lines: check.lines, kb: Math.ceil(check.bytes / 1024), max: PM_READ_MAX_LINES,
+      }));
+    case 'limitTooBig':
+      return denied(t(lang, 'pmRead.deny.limit', { limit: check.limit, max: PM_READ_MAX_LINES }));
+  }
 }
 
 // ------------------------------------------------------- режим доступа
