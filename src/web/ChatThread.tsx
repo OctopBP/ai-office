@@ -1,5 +1,7 @@
 import { useLayoutEffect, useRef, useState } from 'react';
-import type { ChatEntry } from '../shared/types';
+import type { ChatAttachment, ChatEntry } from '../shared/types';
+import { Icon } from './icons';
+import { formatSize } from './result/api';
 import { isOfficeSender, repliesOpen } from '../shared/types';
 import { inPmChat, send, shownDraft, useStore } from './store';
 import { t } from './i18n';
@@ -125,7 +127,10 @@ export function ChatThread() {
                   <CardGroup title={t('chatCard.group.tasks', { n: group.length })}>
                     {group.map((g) => g.ref?.kind === 'task' && <TaskCard key={g.id} id={g.ref.id} entry={g} bare />)}
                   </CardGroup>
-                ) : m.ref ? <RefCard refTo={m.ref} entry={m} /> : <div className="msg-text"><Markdown source={m.text} compact files={{ task: mentionedTask(m.text) }} /></div>}
+                ) : m.ref ? <RefCard refTo={m.ref} entry={m} /> : <>
+                  {(m.text.trim() || !m.attachments?.length) && <div className="msg-text"><Markdown source={m.text} compact files={{ task: mentionedTask(m.text) }} /></div>}
+                  {m.attachments && m.attachments.length > 0 && <MsgAttachments list={m.attachments} />}
+                </>}
                 {thread === 'pm#1' && m === last && !draft && repliesOpen(m, chat) && (
                   <QuickReplies options={m.replies ?? []} disabled={!connected} />
                 )}
@@ -148,6 +153,24 @@ export function ChatThread() {
         )}
       </div>
     </>
+  );
+}
+
+/** Вложения реплики владельца: картинки миниатюрой, прочие ссылкой с именем. */
+function MsgAttachments({ list }: { list: ChatAttachment[] }) {
+  return (
+    <ul className="msg-files">
+      {list.map((a) => (
+        <li key={a.id}>
+          <a href={a.url} target="_blank" rel="noreferrer" title={t('attach.open', { name: a.name })}
+            className={a.mime.startsWith('image/') ? 'msg-file-img' : 'msg-file'}>
+            {a.mime.startsWith('image/')
+              ? <img src={a.url} alt={a.name} loading="lazy" />
+              : <><Icon name="file" size={14} /><span className="msg-file-name">{a.name}</span><span className="msg-file-size">{formatSize(a.size)}</span></>}
+          </a>
+        </li>
+      ))}
+    </ul>
   );
 }
 

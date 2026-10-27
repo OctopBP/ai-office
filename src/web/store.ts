@@ -1874,17 +1874,22 @@ export function permissionSource(
  * сервер заводит под неё новый чат, и по эху `pm.chat` с нашим nonce вкладка
  * выделит его, не меняя вида.
  */
-export function send(text: string, { newChat = false }: { newChat?: boolean } = {}): void {
+export function send(
+  text: string,
+  { newChat = false, attachments }: { newChat?: boolean; attachments?: string[] } = {},
+): void {
   const { thread, pmChatId, pmChatDraft } = useStore.getState();
+  // Вложения — id файлов, загруженных заранее (POST /api/chat/attachment); только менеджеру.
+  const files = thread === 'pm#1' && attachments?.length ? { attachments } : {};
   // Черновик нового чата: чат заводит сервер вместе с первой репликой.
   if (thread === 'pm#1') play('sent'); // тихий отклик на своё сообщение в чат PM
   if (thread === 'pm#1' && (newChat || pmChatDraft)) {
     pendingPmChatNonce = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
-    socket?.send(JSON.stringify({ c: 'user_message', text, newChat: true, nonce: pendingPmChatNonce }));
+    socket?.send(JSON.stringify({ c: 'user_message', text, newChat: true, nonce: pendingPmChatNonce, ...files }));
     return;
   }
   socket?.send(thread === 'pm#1'
-    ? JSON.stringify(pmChatId ? { c: 'user_message', text, chatId: pmChatId } : { c: 'user_message', text })
+    ? JSON.stringify(pmChatId ? { c: 'user_message', text, chatId: pmChatId, ...files } : { c: 'user_message', text, ...files })
     : JSON.stringify({ c: 'talk', instanceId: thread, text }));
 }
 

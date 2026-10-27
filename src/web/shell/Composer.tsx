@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { accessLabel, openProviderSettings, pushToast, send, useInputDraft, useStore } from '../store';
 import { money } from '../money';
 import { t } from '../i18n';
@@ -7,6 +8,8 @@ import { Hint, Tooltip } from '../Tooltip';
 import { HOTKEY } from '../hotkeys';
 import { ChatPeer } from '../ChatPeer';
 import { displayInstance } from '../instanceName';
+import { addFiles, clearSent, filesOf, isUploading, namedPaste, readyIds, removeFile, retryFile, useAttachments } from '../chat/attachments';
+import { formatSize } from '../result/api';
 
 /**
  * Курсор в композер просят снаружи — клавиша Enter и кнопка нового чата.
@@ -51,6 +54,9 @@ export function Composer({ onSettings, inline = false }: {
   const input = useRef<HTMLTextAreaElement>(null);
   const box = useRef<HTMLDivElement>(null);
   const menuBox = useRef<HTMLDivElement>(null);
+  const picker = useRef<HTMLInputElement>(null);
+  const attached = useAttachments((s) => s.items);
+  const [dragging, setDragging] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
   const closeMenu = () => { setMenuOpen(false); input.current?.focus(); };
 
@@ -111,13 +117,51 @@ export function Composer({ onSettings, inline = false }: {
   }, [draft]);
 
   const meeting = thread === 'meeting';
+  // Файлы прикладываются только к реплике менеджеру.
+  const canAttach = thread === 'pm#1' && !noProvider;
+  const uploading = isUploading(attached);
+  const ids = readyIds(attached);
+
+  // Перетаскивание на всё окно: без preventDefault браузер (и Electron) открыл
+  // бы файл вместо приложения. Подсветка — пока над окном файлы.
+  useEffect(() => {
+    const hasFiles = (e: DragEvent) => [...(e.dataTransfer?.types ?? [])].includes('Files');
+    let depth = 0;
+    const over = (e: DragEvent) => {
+      if (!hasFiles(e)) return;
+      e.preventDefault();
+      if (e.dataTransfer) e.dataTransfer.dropEffect = canAttach ? 'copy' : 'none';
+    };
+    const enter = (e: DragEvent) => { if (hasFiles(e)) { depth++; if (canAttach) setDragging(true); } };
+    const leave = (e: DragEvent) => { if (hasFiles(e) && --depth <= 0) { depth = 0; setDragging(false); } };
+    const drop = (e: DragEvent) => {
+      if (!hasFiles(e)) return;
+      e.preventDefault();
+      depth = 0;
+      setDragging(false);
+      if (canAttach) addFiles(filesOf(e.dataTransfer));
+    };
+    window.addEventListener('dragover', over);
+    window.addEventListener('dragenter', enter);
+    window.addEventListener('dragleave', leave);
+    window.addEventListener('drop', drop);
+    return () => {
+      window.removeEventListener('dragover', over);
+      window.removeEventListener('dragenter', enter);
+      window.removeEventListener('dragleave', leave);
+      window.removeEventListener('drop', drop);
+      setDragging(false);
+    };
+  }, [canAttach]);
+
   const submit = () => {
     const text = draft.trim();
-    if (!text || meeting || !connected || noProvider) return;
+    if ((!text && !ids.length) || uploading || meeting || !connected || noProvider) return;
     // Вне вида «Чат» открытого чата на экране нет — реплика менеджеру
     // заводит новый, а не уходит в тот, что выделяли когда-то раньше.
-    send(text, { newChat: view !== 'chat' });
+    send(text, { newChat: view !== 'chat', attachments: ids });
     setDraft('');
+    clearSent();
     // Из «Офиса» и «Доски» вид не меняем: человек смотрел на офис — пусть и
     // дальше смотрит. Вместо перескока — короткое подтверждение, а о том, что
     // менеджер ответил, скажет точка на сегменте «Чат».
@@ -125,7 +169,7 @@ export function Composer({ onSettings, inline = false }: {
       pushToast({
         id: `sent:${Date.now()}`, kind: 'info',
         title: t('toast.sent'),
-        detail: text.length > 80 ? `${text.slice(0, 80)}…` : text,
+        detail: text.length > 80 ? `${text.slice(0, 80)}…` : (text || t('attach.count', { n: ids.length })),
         ttl: 2500,
       });
     }
@@ -154,10 +198,54 @@ export function Composer({ onSettings, inline = false }: {
         </div>
       )}
       {view !== 'chat' && <ChatPeer compact />}
+      {dragging && createPortal(
+        <div className="attach-drop" role="status"><span>{t('attach.drop')}</span></div>, document.body)}
+      {attached.length > 0 && (
+        <ul className="attach-chips" aria-label={t('attach.list')}>
+          {attached.map((a) => (
+            <li key={a.key} className={`attach-chip ${a.status}`}>
+              {a.preview
+                ? <img className="attach-thumb" src={a.preview} alt="" />
+                : <Icon name={a.mime.startsWith('image/') ? 'photo' : 'file'} size={16} />}
+              <span className="attach-meta">
+                <span className="attach-name" title={a.name}>{a.name}</span>
+                {a.status === 'error'
+                  ? <span className="attach-err" role="alert"><Icon name="alert-triangle" size={12} /> {a.error}</span>
+                  : <span className="attach-size">
+                    {a.status === 'uploading' ? <><i className="spinner" /> {t('attach.uploading')}</> : formatSize(a.size)}
+                  </span>}
+              </span>
+              {a.status === 'error' && a.retry && (
+                <button type="button" className="mini" onClick={() => retryFile(a.key)}>{t('attach.retry')}</button>
+              )}
+              <button type="button" className="attach-x" aria-label={t('attach.remove', { name: a.name })}
+                title={t('attach.remove', { name: a.name })} onClick={() => removeFile(a.key)}>
+                <Icon name="x" size={12} />
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
       <div className="shell-composer-row">
+        <input ref={picker} type="file" multiple hidden onChange={(e) => {
+          addFiles([...(e.target.files ?? [])]);
+          e.target.value = '';
+        }} />
+        {canAttach && (
+          <button type="button" className="sq shell-attach" aria-label={t('attach.add')} title={t('attach.add')}
+            onClick={() => picker.current?.click()}>
+            <Icon name="paperclip" size={16} />
+          </button>
+        )}
         <textarea
           ref={input} value={draft} rows={1} placeholder={placeholder} disabled={meeting || noProvider}
           onChange={(e) => setDraft(e.target.value)}
+          onPaste={(e) => {
+            const pasted = canAttach ? filesOf(e.clipboardData) : [];
+            if (!pasted.length) return;
+            e.preventDefault();
+            addFiles(pasted.map(namedPaste));
+          }}
           onKeyDown={(e) => {
             if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); submit(); }
             // Escape отдаёт клавиши обратно офису: пока курсор в поле, хоткеи
@@ -189,7 +277,8 @@ export function Composer({ onSettings, inline = false }: {
           )}
         </div>
         <Tooltip tip={<><Hint label={t('shell.send')} keys={HOTKEY.task} /><Hint label={t('shell.newline')} keys="SHIFT+ENTER" /></>}>
-          <button className="sq primary shell-send" onClick={submit} disabled={!connected || meeting || noProvider || !draft.trim()}>
+          <button className="sq primary shell-send" onClick={submit} disabled={!connected || meeting || noProvider || uploading || (!draft.trim() && !ids.length)}
+            title={uploading ? t('attach.wait') : undefined}>
             <Icon name="arrow-up" size={16} />
           </button>
         </Tooltip>

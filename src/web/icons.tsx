@@ -68,6 +68,7 @@ export type IconName =
   | 'forbid-2'
   | 'percentage-40'
   | 'x'
+  | 'paperclip'
   | 'plus'
   | 'minus'
   | 'chevron-up'
@@ -362,6 +363,7 @@ const ICON_PATHS: Record<IconName, string[]> = {
     'M3 12a9 9 0 1 0 18 0a9 9 0 1 0 -18 0',
   ],
   x: ['M18 6l-12 12', 'M6 6l12 12'],
+  paperclip: ['M15 7l-6.5 6.5a1.5 1.5 0 0 0 3 3l6.5 -6.5a3 3 0 0 0 -6 -6l-6.5 6.5a4.5 4.5 0 0 0 9 9l6.5 -6.5'],
   plus: ['M12 5l0 14', 'M5 12l14 0'],
   minus: ['M5 12l14 0'],
   'chevron-up': ['M6 15l6 -6l6 6'],
