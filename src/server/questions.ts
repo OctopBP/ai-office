@@ -441,6 +441,77 @@ onOutcome((state, task, outcome) => {
   closeQuestionsOfTask(state, task.id, state.say(`questions.closedTask.${outcome.kind}`, { task: task.id }));
 });
 
+/** Чем кончился разбор вопроса ритуала о «пропавшем» вопросе (T-698). */
+export type LostFate =
+  /** Задача пропавшего вопроса закрыта или её нет — спрашивать не о чем. */
+  | 'closedTask'
+  /** Владелец снял вопрос сам — его выбор, не потеря. */
+  | 'ownerDismissed'
+  /** Вопрос влит в другой, и тот открыт: он и ждёт ответа. */
+  | 'stillOpen'
+  /** Задача жива, текст есть — офис задал исходный вопрос заново. */
+  | 'reasked'
+  /** Задача жива, а текста нет — разбираться менеджеру, не владельцу. */
+  | 'toPm';
+
+const QUESTION_REF = /\bQ-\d+\b/g;
+const TASK_REF = /\bT-\d+\b/;
+const CLOSED_TASK: ReadonlySet<Task['status']> = new Set(['done', 'failed', 'cancelled']);
+
+/**
+ * Вопрос ритуала о «пропавшем» вопросе владельца: «Q-N пропал из списка
+ * открытых — ответьте или перезадайте» (T-698). Ритуал видит в отчётах и
+ * замечаниях ревью ссылку на вопрос, а среди открытых его нет — и спрашивает
+ * владельца о вопросе, содержания которого тот не видит. Чаще всего вопрос
+ * снят по замыслу: его задачу сняли, и `closeQuestionsOfTask` закрыл её
+ * вопросы. Такой вопрос офис разбирает сам и владельца ссылкой на номер не
+ * спрашивает никогда.
+ *
+ * null — вопрос ритуала не о закрытом вопросе: задавать как обычно.
+ */
+export function settleLostQuestion(
+  state: OfficeState, ask: { text: string; title?: string; details?: string },
+): { fate: LostFate; id: string; questionId?: string } | null {
+  const all = `${ask.title ?? ''}\n${ask.text}\n${ask.details ?? ''}`;
+  // Отвеченный вопрос не потерян: его ответ уже в журнале.
+  const id = [...new Set(all.match(QUESTION_REF) ?? [])].find((ref) => {
+    const q = state.questions.get(ref);
+    return !q || (!q.answeredAt && !isOpenQuestion(q));
+  });
+  if (!id) return null;
+  const record = state.questions.get(id) ?? null;
+  const root = record ? rootQuestion(state, id) : null;
+  if (record && root && root.id !== id && isOpenQuestion(root)) {
+    state.addLog(null, 'system', state.say('questions.lost.stillOpen', { id, root: root.id }));
+    return { fate: 'stillOpen', id, questionId: root.id };
+  }
+  const taskId = record?.taskId ?? all.match(TASK_REF)?.[0] ?? null;
+  const task = taskId ? state.tasks.get(taskId) : undefined;
+  if (taskId && (!task || CLOSED_TASK.has(task.status) || task.merged)) {
+    state.addLog(null, 'system', state.say('questions.lost.closedTask', { id, task: taskId }));
+    return { fate: 'closedTask', id };
+  }
+  // Снятый владельцем вопрос (кнопкой, без причины) — его решение.
+  if (record?.dismissedAt && !record.closedWhy) {
+    state.addLog(null, 'system', state.say('questions.lost.ownerDismissed', { id }));
+    return { fate: 'ownerDismissed', id };
+  }
+  // Согласование заново как допущение не задать: процесс ждёт ответа на
+  // свой вопрос, а не на копию. Это — к менеджеру.
+  if (record && record.text.trim() && record.kind !== 'gate') {
+    const again = officeAsks(state, record.kind, record.text, record.assumption, record.taskId, record.options, {
+      title: record.title, details: record.details,
+    });
+    state.addLog(null, 'system', state.say('questions.lost.reasked', { id, task: record.taskId ?? '—', newId: again.id }));
+    return { fate: 'reasked', id, questionId: again.id };
+  }
+  const where = taskId ?? '—';
+  state.addLog(null, 'system', state.say('questions.lost.toPmLog', { id, task: where }));
+  tellPm(state, state.say('questions.lost.toPm', { id, task: where, title: task?.title ?? '' }),
+    { chatId: state.pmChatFor({ taskId }), taskId });
+  return { fate: 'toPm', id };
+}
+
 /** Открытые вопросы строками — менеджеру и ритуалам, чтобы не спрашивали дважды. */
 export function openQuestionsText(state: OfficeState): string {
   const list = openQuestions(state);

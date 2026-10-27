@@ -44,6 +44,7 @@ import {
 import { findPriorContradiction, repeatedQuestions } from './contradiction-history';
 import {
   askOwner, dismissQuestion, ensureDelegateOptions, officeAsks, openQuestions, pickForStandup, setContradictionDelegate,
+  settleLostQuestion,
 } from './questions';
 import { limitsView } from './limits';
 import { tellPm } from './review';
@@ -960,6 +961,9 @@ async function applyOutput(state: OfficeState, ritual: RitualId, out: RitualOutp
   let questions = 0;
   for (const q of out.questions) {
     if (!q.text.trim()) continue;
+    // «Q-N пропал — ответьте или перезадайте» владельцу бессмыслен: такой
+    // вопрос офис разбирает сам (закрытая задача, перезадать, менеджеру).
+    if (settleLostQuestion(state, q)) continue;
     // Замена — как у менеджера: новый вопрос забирает старые себе.
     const meta = { title: q.title, details: q.details };
     if (q.replaces?.length) askOwner(state, OFFICE_SENDER, null, q.text, q.assumption, q.options, q.replaces, null, meta);
