@@ -792,7 +792,7 @@ export const en = {
   'attach.badChat': 'Chat “{chat}” is not allowed: letters, digits, “-” and “_” only.',
   'attach.badId': 'Attachment id “{id}” is not allowed.',
   'attach.notFound': 'Attachment “{id}” was not found in chat “{chat}”.',
-  'attach.tooBig': 'File “{name}” is larger than {max} MB ({got} MB) — not saved.',
+  'attach.tooBig': 'File “{name}” is larger than {max} MB — not saved.',
   'attach.tooMany': 'At most {max} files per message — remove the extra ones and send again.',
   'attach.empty': 'File “{name}” is empty — nothing to save.',
   'attach.cut': 'The upload broke off, the file was not saved.',

@@ -207,7 +207,7 @@ export function saveAttachment(
   const name = cleanAttachmentName(input.name);
   if (!bytes.length) return { ok: false, code: 400, error: state.say('attach.empty', { name }) };
   if (bytes.length > ATTACHMENT_MAX_BYTES) {
-    return { ok: false, code: 413, error: tooBig(name, bytes.length, (k, v) => state.say(k, v)) };
+    return { ok: false, code: 413, error: tooBig(name, (k, v) => state.say(k, v)) };
   }
   if (unsentCount(state, chat) >= ATTACHMENTS_PER_MESSAGE) {
     return { ok: false, code: 400, error: state.say('attach.tooMany', { max: ATTACHMENTS_PER_MESSAGE }) };
@@ -227,9 +227,9 @@ export function saveAttachment(
   return { ok: true, attachment };
 }
 
-function tooBig(name: string, got: number, say: (k: 'attach.tooBig', v: Record<string, string | number>) => string): string {
+function tooBig(name: string, say: (k: 'attach.tooBig', v: Record<string, string | number>) => string): string {
   const mb = (n: number): number => Math.round((n / 1024 / 1024) * 10) / 10;
-  return say('attach.tooBig', { name, max: mb(ATTACHMENT_MAX_BYTES), got: mb(got) });
+  return say('attach.tooBig', { name, max: mb(ATTACHMENT_MAX_BYTES) });
 }
 
 /**
@@ -410,12 +410,12 @@ async function serve(req: IncomingMessage, res: ServerResponse, query: string, e
     // Длина известна заранее — отказываем, не читая тела.
     const declared = Number(req.headers?.['content-length'] ?? NaN);
     if (Number.isFinite(declared) && declared > ATTACHMENT_MAX_BYTES) {
-      json(res, 413, { error: tooBig(name, declared, (k, v) => state.say(k, v)) }, { Connection: 'close' });
+      json(res, 413, { error: tooBig(name, (k, v) => state.say(k, v)) }, { Connection: 'close' });
       return;
     }
     const body = await readBody(req, ATTACHMENT_MAX_BYTES);
     if ('over' in body) {
-      json(res, 413, { error: tooBig(name, body.over, (k, v) => state.say(k, v)) }, { Connection: 'close' });
+      json(res, 413, { error: tooBig(name, (k, v) => state.say(k, v)) }, { Connection: 'close' });
       return;
     }
     if ('cut' in body) {

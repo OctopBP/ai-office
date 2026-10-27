@@ -792,7 +792,7 @@ export const ru: Record<keyof typeof en, string> = {
   'attach.badChat': 'Чат «{chat}» недопустим: только буквы, цифры, «-» и «_».',
   'attach.badId': 'Id вложения «{id}» недопустим.',
   'attach.notFound': 'Вложение «{id}» не найдено в чате «{chat}».',
-  'attach.tooBig': 'Файл «{name}» больше {max} МБ ({got} МБ) — не сохранён.',
+  'attach.tooBig': 'Файл «{name}» больше {max} МБ — не сохранён.',
   'attach.tooMany': 'К одному сообщению — не больше {max} файлов: уберите лишние и отправьте снова.',
   'attach.empty': 'Файл «{name}» пустой — сохранять нечего.',
   'attach.cut': 'Загрузка оборвалась, файл не сохранён.',
