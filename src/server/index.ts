@@ -29,6 +29,7 @@ import { pageSpend } from './spend';
 import { officeSpendReport } from './spendReport';
 import { addRule, dropRule, editRule, ruleScopes } from './rules';
 import { officeHealth, watchHealth } from './health';
+import { resourcesAnswer, resourceRing, startResources } from './resources';
 import { runRitual } from './rituals';
 import { decideProposal } from './initiatives';
 import { applyProposal } from './selfchange';
@@ -435,6 +436,26 @@ const httpServer = createServer((req, res) => {
     }
     res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' });
     res.end(JSON.stringify(officeHealth(getOffice(office.id), Date.now())));
+    return;
+  }
+  // Замер памяти и нагрузки: `?office=<id>` — последний срез и ряд за 24 ч
+  // (resources.ts). Нагрузка и память общие на процесс, сессии — офиса из
+  // запроса. Ряд живёт только в памяти: после перезапуска начинается заново.
+  if (url === '/api/resources') {
+    if (req.method !== 'GET') {
+      res.writeHead(405, { 'Content-Type': 'application/json; charset=utf-8', Allow: 'GET' });
+      res.end(JSON.stringify({ error: c('boot.resourcesGetOnly') }));
+      return;
+    }
+    const wantedId = new URL(req.url ?? '/', 'http://office').searchParams.get('office');
+    const office = wantedId ? officeById(wantedId) : currentOffice();
+    if (!office) {
+      res.writeHead(404, { 'Content-Type': 'application/json; charset=utf-8' });
+      res.end(JSON.stringify({ error: c('offices.notFound', { id: wantedId ?? '' }) }));
+      return;
+    }
+    res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' });
+    res.end(JSON.stringify(resourcesAnswer(resourceRing(), office.id)));
     return;
   }
   if (url.startsWith('/api/')) {
@@ -873,4 +894,11 @@ const hello = (): void => {
     if (claude && isConnected(claude.status)) console.log(c('boot.subscription'));
   });
 };
+// Замер нагрузки — раз в 30 с по всем открытым офисам (resources.ts).
+startResources({
+  offices: () => loadedOffices().map((s) => ({
+    id: s.officeId,
+    sessions: { workers: s.running, pm: [...s.pmSessions.values()].filter((p) => p.loop !== null).length },
+  })),
+});
 if (HOST) httpServer.listen(PORT, HOST, hello); else httpServer.listen(PORT, hello);

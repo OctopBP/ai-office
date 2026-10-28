@@ -41,6 +41,7 @@ Node + TypeScript, React 19 + Zustand на фронте, `ws` для связи,
 | `src/server/market.ts` | Маркет агентов: реестр `registry/registry.json`, установка из git в кеш `~/.office/packages`, найм из пакета, обновления |
 | `src/server/export.ts`, `src/server/publish.ts`, `src/server/bench.ts`, `src/cli/office-agent.ts` | Авторский путь: экспорт роли в пакет, заготовка, валидатор, стенд, публикация в реестр, проверка реестра |
 | `src/registry/service.ts`, `src/registry/main.ts` | Сервис индекса: реестр по адресу, поиск, страницы, зеркало с отпечатком, публикация по GitHub-токену, админ, marketplace.json |
+| `src/server/resources.ts` | Замер памяти и нагрузки: раз в 30 с loadavg, ядра, свободная память, RSS/heap сервера, живые сессии агентов по офисам и проверки из `checkslots.ts`; кольцевой буфер за 24 ч только в памяти, `GET /api/resources?office=` — последний срез и ряд (`npm run test:resources`) |
 | `src/server/limits.ts` | Лимиты плана подписки: проценты и время сброса из событий SDK; отказ по лимиту и ожидание сброса (`limitBlock`) |
 | `src/server/outcomes.ts`, `src/shared/report.ts` | Живой офис: исход задачи (чисто, с доработкой, вставала, провал, снята, откачена), поиск откатов по git, табель роли |
 | `src/server/journal.ts`, `src/server/questions.ts` | Журнал офиса (записи, области, забывание) и вопросы владельцу (`ask_owner`, ответы в журнал, порция для планёрки); вопрос ритуала о «пропавшем» Q-N владельцу не уходит — `settleLostQuestion`: задача закрыта — тишина, текст есть — перезадать, нет — менеджеру (`npm run test:lost-question`) |

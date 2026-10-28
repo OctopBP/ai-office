@@ -770,6 +770,7 @@ export const ru: Record<keyof typeof en, string> = {
   'spend.anomaly.lowCache': 'Из кэша читается {share} ввода задачи — меньше {threshold}.',
   'boot.healthGetOnly': 'Сводка здоровья офиса отдаётся только по GET.',
   'boot.healthClosed': 'Офис «{office}» не открыт — сводку здоровья считать не из чего. Откройте его и повторите запрос.',
+  'boot.resourcesGetOnly': 'Замер памяти и нагрузки отдаётся только по GET.',
   'boot.notFound': 'Не найдено',
   'files.getOnly': 'Файлы результата задачи отдаются только по GET.',
   'files.closed': 'Офис «{office}» не открыт — задач читать негде. Откройте его и повторите запрос.',

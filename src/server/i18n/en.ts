@@ -770,6 +770,7 @@ export const en = {
   'spend.anomaly.lowCache': 'Only {share} of the task’s input is read from cache — below {threshold}.',
   'boot.healthGetOnly': 'The office health summary is served over GET only.',
   'boot.healthClosed': 'Office “{office}” is not open — there is nothing to build a health summary from. Open it and retry.',
+  'boot.resourcesGetOnly': 'Memory and load samples are served over GET only.',
   'boot.notFound': 'Not found',
   'files.getOnly': 'Task result files are served over GET only.',
   'files.closed': 'Office “{office}” is not open — there are no tasks to read. Open it and retry.',

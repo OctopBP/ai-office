@@ -68,6 +68,7 @@
     "test:overlap": "tsx scripts/test-overlap.ts",
     "test:cleanup": "node --import tsx scripts/test-cleanup.ts",
     "test:checkslots": "node --import tsx/esm scripts/test-checkslots.ts",
+    "test:resources": "node --import tsx/esm scripts/test-resources.ts",
     "test:layout": "node --import tsx/esm scripts/test-layout.ts",
     "test:boardview": "node --import tsx/esm scripts/test-board-view.ts",
     "test:squash": "tsx scripts/test-squash.ts",
