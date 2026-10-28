@@ -26,7 +26,7 @@ import type { WorkflowNode } from '../shared/workflow';
 import { builtinWorkflows } from './workflows';
 import { drive, newRun, type Executor } from './runs';
 import { dayKey, HEALTH_DIRECTION, limitReset, OFFICE_SENDER } from '../shared/types';
-import type { BranchMark, FactView, HealthEntry, OwnerQuestion, ProposalProbe, QuestionQuote, QuestionRef, RitualId, RitualRun, RuleKind } from '../shared/types';
+import type { BranchMark, CheckOverload, FactView, HealthEntry, OwnerQuestion, ProposalProbe, QuestionQuote, QuestionRef, RitualId, RitualRun, RuleKind } from '../shared/types';
 import { refsInText } from '../shared/questions';
 import type { ServerKey } from './i18n';
 import { LANG_LOCALE } from '../shared/i18n';
@@ -49,6 +49,7 @@ import {
 import { limitsView } from './limits';
 import { tellPm } from './review';
 import { runTypecheck } from './merge';
+import { retryWhenCalm } from './checks';
 import { officeHealth } from './health';
 import { isRepo } from './git';
 import { planSummary } from './plan';
@@ -358,6 +359,65 @@ export function dueRitual(state: OfficeState, now = Date.now()): RitualId | null
 const HEALTH_EVERY_MS = 24 * 60 * 60 * 1000;
 /** Как часто офис разбирает завалы. */
 const TRIAGE_EVERY_MS = 24 * 60 * 60 * 1000;
+
+/** Фича «Починить проверки проекта»: красные проверки основной ветки — на роль для кода. */
+function proposeChecksFix(state: OfficeState, message: string): void {
+  const fixer = state.workerRoles().find((r) => r.id === 'backend' && r.isolate)
+    ?? state.workerRoles().find((r) => r.isolate);
+  if (!fixer) {
+    state.addLog(null, 'error', state.say('health.noRole'));
+    return;
+  }
+  const made = proposeFeature(state, {
+    title: state.say('health.checksFailedTitle'),
+    goal: state.say('health.checksFailedGoal'),
+    rationale: state.say('health.checksRationale'),
+    directionId: HEALTH_DIRECTION,
+    tasks: [{
+      key: 'fix', title: state.say('health.checksFailedTask'),
+      description: state.say('health.checksFailedDesc', { output: clip(message, 1500) }),
+      acceptanceCriteria: [state.say('health.checksCriterion1'), state.say('health.checksCriterion2')],
+      roleId: fixer.id,
+    }],
+  });
+  if (!made.ok) state.addLog(null, 'system', made.message);
+}
+
+/** Цифры перегруза для строки в ленту. */
+const overloadVars = (o: CheckOverload): Record<string, string> => ({
+  load: o.load.toFixed(1),
+  cpus: String(o.cpus),
+  free: String(Math.round(o.freeShare * 100)),
+  freeGb: (o.freeMem / 1024 ** 3).toFixed(1),
+});
+
+/** Офисы, у которых повтор проверки после перегруза уже ждёт спада. */
+const overloadRetries = new Set<OfficeState>();
+
+/**
+ * Один повтор проверки основной ветки после перегруза (T-707): ждём, пока
+ * нагрузка спадёт, и прогоняем ещё раз. Красные без перегруза — фича
+ * починки как обычно; снова перегруз — только строка в ленту, второго
+ * повтора нет: следующий раз проверки посмотрит завтрашний ритуал.
+ */
+function retryChecksAfterOverload(state: OfficeState): void {
+  if (overloadRetries.has(state)) return;
+  overloadRetries.add(state);
+  void (async () => {
+    try {
+      const result = await retryWhenCalm(() => runTypecheck(state.projectDir, state.lang()));
+      if (!result) state.addLog(null, 'system', state.say('health.overloadNoRetry'));
+      else if (result.ok) state.addLog(null, 'system', state.say('health.overloadRetryOk'));
+      else if (result.overload) {
+        state.addLog(null, 'system', state.say('health.overloadAgain', overloadVars(result.overload)));
+      } else proposeChecksFix(state, result.message);
+    } catch (err) {
+      console.warn('[health] повтор проверки после перегруза:', err);
+    } finally {
+      overloadRetries.delete(state);
+    }
+  })();
+}
 
 // -------------------------------------------------- разбор завалов
 
@@ -1158,27 +1218,15 @@ const runners: Record<RitualId, Runner> = {
     let checks = 'ok';
     if (await isRepo(state.projectDir)) {
       const result = await runTypecheck(state.projectDir, state.lang());
-      if (!result.ok) {
+      if (!result.ok && result.overload) {
+        // Сняли по таймауту при перегрузе машины — это не код (T-707):
+        // фичу починки не заводим, пишем цифры и повторяем, когда спадёт.
+        checks = 'overload';
+        state.addLog(null, 'system', state.say('health.checksOverload', overloadVars(result.overload)));
+        retryChecksAfterOverload(state);
+      } else if (!result.ok) {
         checks = 'red';
-        const fixer = state.workerRoles().find((r) => r.id === 'backend' && r.isolate)
-          ?? state.workerRoles().find((r) => r.isolate);
-        if (!fixer) {
-          state.addLog(null, 'error', state.say('health.noRole'));
-        } else {
-          const made = proposeFeature(state, {
-            title: state.say('health.checksFailedTitle'),
-            goal: state.say('health.checksFailedGoal'),
-            rationale: state.say('health.checksRationale'),
-            directionId: HEALTH_DIRECTION,
-            tasks: [{
-              key: 'fix', title: state.say('health.checksFailedTask'),
-              description: state.say('health.checksFailedDesc', { output: clip(result.message, 1500) }),
-              acceptanceCriteria: [state.say('health.checksCriterion1'), state.say('health.checksCriterion2')],
-              roleId: fixer.id,
-            }],
-          });
-          if (!made.ok) state.addLog(null, 'system', made.message);
-        }
+        proposeChecksFix(state, result.message);
       }
     }
     let stale = 0;
@@ -1202,9 +1250,10 @@ const runners: Record<RitualId, Runner> = {
     const tidy = await tidyOffice(state, now);
     const removed = tidy ? tidy.branches + tidy.worktrees : 0;
     const produced = { checks: checks === 'red' ? 1 : 0, stale, removed };
+    const checksWord = checks === 'red' ? 'health.red' : checks === 'overload' ? 'health.overload' : 'health.ok';
     return {
       ritual: 'health', at: now, costUsd: 0, produced,
-      note: state.say('health.note', { checks: state.say(checks === 'red' ? 'health.red' : 'health.ok'), stale })
+      note: state.say('health.note', { checks: state.say(checksWord), stale })
         + (removed ? state.say('health.tidyNote', { removed }) : ''),
     };
   },

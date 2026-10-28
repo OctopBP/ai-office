@@ -2483,6 +2483,23 @@ export interface TypecheckResult {
   skipped: boolean;
   message: string;
   durationMs: number;
+  /** Проверку сняли по таймауту или сигналом. */
+  timedOut?: boolean;
+  /** Снята при перегрузе машины — это не провал кода (T-707). */
+  overload?: CheckOverload;
+}
+
+/**
+ * Перегруз машины в момент, когда проверку сняли по таймауту или сигналом
+ * (T-707): нагрузка за минуту, ядра и свободная память из среза resources.ts.
+ */
+export interface CheckOverload {
+  load: number;
+  cpus: number;
+  freeMem: number;
+  totalMem: number;
+  /** Доля свободной памяти, 0..1. */
+  freeShare: number;
 }
 
 /**

@@ -11,11 +11,12 @@ import { execFile, spawn } from 'node:child_process';
 import { promisify } from 'node:util';
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
-import type { TypecheckResult } from '../shared/types';
+import type { CheckOverload, TypecheckResult } from '../shared/types';
 import type { Lang } from '../shared/i18n';
 import { t } from './i18n';
 import { projectEnv } from './childenv';
 import { checkSlots, type CheckSlots, type Release } from './checkslots';
+import { currentPressure, overloadOf, RESOURCES_INTERVAL_MS, type Pressure } from './resources';
 
 const run = promisify(execFile);
 
@@ -43,6 +44,52 @@ export async function takeCheckSlot(
   const note = waits ? t(lang, 'checks.waitingSlot', { busy: String(busy), limit: String(limit) }) : '';
   const release = await slots.acquire(label);
   return { release, note };
+}
+
+/**
+ * Перегруз вместо провала (T-707). Дважды «проверки main красные» оказывались
+ * перегрузом машины (T-659, T-693): проверку снимал таймаут, а офис заводил
+ * фичу чинить код. Здесь провал, снятый по таймауту или сигналом, сверяется
+ * со срезом нагрузки: машина перегружена — итог помечается `overload` с
+ * цифрами. Отменённая снаружи проверка (выпуск) — не наш случай.
+ */
+export function classifyCheckFailure(
+  res: { ok: boolean; timedOut?: boolean; signal?: string; aborted?: boolean },
+  pressure: Pressure,
+): CheckOverload | null {
+  if (res.ok || res.aborted) return null;
+  if (!res.timedOut && !res.signal) return null;
+  return overloadOf(pressure);
+}
+
+/** Откуда брать нагрузку — подставляется в тесте. */
+let pressureSource: () => Pressure = () => currentPressure();
+
+/** Для тестов: подставить срез нагрузки; без аргумента — живой замер. */
+export function setPressureSource(src?: () => Pressure): void {
+  pressureSource = src ?? (() => currentPressure());
+}
+
+/**
+ * Дождаться, пока нагрузка спадёт, и прогнать проверку ещё раз — ровно один.
+ * Нагрузка не спала за `maxWaitMs` — `null`: повтора не было.
+ */
+export async function retryWhenCalm<T>(
+  run: () => Promise<T>,
+  opts: {
+    pressure?: () => Pressure; intervalMs?: number; maxWaitMs?: number;
+    sleep?: (ms: number) => Promise<void>;
+  } = {},
+): Promise<T | null> {
+  const pressure = opts.pressure ?? pressureSource;
+  const step = opts.intervalMs ?? RESOURCES_INTERVAL_MS;
+  const maxWait = opts.maxWaitMs ?? 60 * 60 * 1000;
+  const sleep = opts.sleep ?? ((ms: number) => new Promise<void>((r) => setTimeout(r, ms).unref?.()));
+  for (let waited = 0; ; waited += step) {
+    if (!overloadOf(pressure())) return run();
+    if (waited >= maxWait) return null;
+    await sleep(step);
+  }
 }
 
 /** Строка об ожидании слота — первой строкой вывода. */
@@ -77,7 +124,10 @@ export async function runProjectCheck(
      */
     slots?: CheckSlots | false;
   } = {},
-): Promise<{ ok: boolean; output: string; message: string; durationMs: number; timedOut?: boolean; aborted?: boolean }> {
+): Promise<{
+  ok: boolean; output: string; message: string; durationMs: number; timedOut?: boolean; aborted?: boolean;
+  overload?: CheckOverload;
+}> {
   const { release, note } = opts.slots === false
     ? { release: () => {}, note: '' }
     : await takeCheckSlot(`${command} @ ${cwd}`, lang, opts.slots ?? checkSlots());
@@ -98,7 +148,10 @@ async function runProjectCheckNow(
     timeoutMs?: number; env?: NodeJS.ProcessEnv; outputLimit?: number;
     mask?: (text: string) => string; signal?: AbortSignal;
   },
-): Promise<{ ok: boolean; output: string; message: string; durationMs: number; timedOut?: boolean; aborted?: boolean }> {
+): Promise<{
+  ok: boolean; output: string; message: string; durationMs: number; timedOut?: boolean; aborted?: boolean;
+  overload?: CheckOverload;
+}> {
   const started = Date.now();
   const mask = opts.mask ?? ((text: string) => text);
   const stop = opts.signal;
@@ -130,8 +183,10 @@ async function runProjectCheckNow(
       : e.signal ? t(lang, 'checks.killed', { signal: e.signal }) : '';
     const text = tail(mask(`${e.stdout ?? ''}${e.stderr ?? ''}`.trim() || (e.message ?? '')), lang, opts.outputLimit);
     const output = killed ? `${text}\n${killed}` : text;
+    const overload = classifyCheckFailure({ ok: false, timedOut, signal: e.signal, aborted }, pressureSource());
     return {
       ok: false, output, message: output, durationMs: Date.now() - started, timedOut, ...(aborted ? { aborted } : {}),
+      ...(overload ? { overload } : {}),
     };
   }
 }
@@ -243,7 +298,9 @@ async function runTypecheckNow(repoDir: string, lang: Lang): Promise<TypecheckRe
       durationMs: Date.now() - started,
     };
   } catch (err) {
-    const e = err as { stdout?: string; stderr?: string; message?: string; code?: string | number; killed?: boolean };
+    const e = err as {
+      stdout?: string; stderr?: string; message?: string; code?: string | number; killed?: boolean; signal?: string;
+    };
     const output = tail(`${e.stdout ?? ''}${e.stderr ?? ''}`.trim() || (e.message ?? ''), lang);
     // npm вообще не запустился — это не провал сборки, а отсутствие инструмента.
     if (e.code === 'ENOENT') {
@@ -252,15 +309,18 @@ async function runTypecheckNow(repoDir: string, lang: Lang): Promise<TypecheckRe
         message: t(lang, 'merge.noNpm'),
       };
     }
+    const timedOut = Boolean(e.killed);
+    const overload = classifyCheckFailure({ ok: false, timedOut, signal: e.signal ?? undefined }, pressureSource());
+    const extra = { ...(timedOut ? { timedOut } : {}), ...(overload ? { overload } : {}) };
     if (e.killed) {
       return {
         ok: false, skipped: false, output, durationMs: Date.now() - started,
-        message: t(lang, 'merge.typecheckTimeout'),
+        message: t(lang, 'merge.typecheckTimeout'), ...extra,
       };
     }
     return {
       ok: false, skipped: false, output, durationMs: Date.now() - started,
-      message: t(lang, 'merge.typecheckFailed'),
+      message: t(lang, 'merge.typecheckFailed'), ...extra,
     };
   }
 }

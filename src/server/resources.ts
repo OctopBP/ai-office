@@ -15,6 +15,7 @@
  */
 import { cpus, freemem, loadavg, totalmem } from 'node:os';
 import { checkSlots } from './checkslots';
+import type { CheckOverload } from '../shared/types';
 
 /** Шаг замера. */
 export const RESOURCES_INTERVAL_MS = 30_000;
@@ -177,4 +178,35 @@ export function startResources(src: ResourceSources, intervalMs = RESOURCES_INTE
 export function stopResources(): void {
   if (timer) clearInterval(timer);
   timer = null;
+}
+
+/** Что из среза нужно, чтобы судить о перегрузе. */
+export type Pressure = Pick<ResourceSample, 'load' | 'cpus' | 'freeMem' | 'totalMem'>;
+
+/** Перегруз: нагрузка за минуту больше стольких ядер… */
+export const OVERLOAD_LOAD_PER_CPU = 2;
+/** …или свободной памяти меньше этой доли. */
+export const OVERLOAD_FREE_SHARE = 0.1;
+
+/**
+ * Перегружена ли машина по срезу (T-707): loadavg за 1 мин больше 2× ядер
+ * или свободной памяти меньше 10%. Не перегружена — `null`.
+ */
+export function overloadOf(s: Pressure): CheckOverload | null {
+  const load = s.load[0];
+  const freeShare = s.totalMem > 0 ? s.freeMem / s.totalMem : 1;
+  const busy = load > OVERLOAD_LOAD_PER_CPU * Math.max(1, s.cpus) || freeShare < OVERLOAD_FREE_SHARE;
+  return busy ? { load, cpus: s.cpus, freeMem: s.freeMem, totalMem: s.totalMem, freeShare } : null;
+}
+
+/**
+ * Нагрузка прямо сейчас. Срез из буфера берём, только если он свежий (не
+ * старше двух шагов замера): иначе — замер на месте, чтобы не судить о
+ * перегрузе по картине получасовой давности.
+ */
+export function currentPressure(now = Date.now()): Pressure {
+  const last = ring?.latest();
+  if (last && now - last.at <= 2 * RESOURCES_INTERVAL_MS) return last;
+  const [l1 = 0, l5 = 0, l15 = 0] = loadavg();
+  return { load: [l1, l5, l15], cpus: cpus().length, freeMem: freemem(), totalMem: totalmem() };
 }
