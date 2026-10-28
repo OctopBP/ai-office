@@ -5,6 +5,7 @@ import {
 } from './store';
 import type { TaskView } from '../shared/types';
 import { t } from './i18n';
+import { ResourceLoad } from './ResourceLoad';
 
 /**
  * Ручное слияние — аварийный путь. В обычном порядке ветки вливает конвейер
@@ -49,6 +50,7 @@ export function MergeQueue() {
           {t('mq.slots', { busy: slots.busy, limit: slots.limit, waiting: slots.waiting })}
         </div>
       )}
+      <ResourceLoad />
       {candidates.length === 0 && (
         <p className="empty">{t('mq.empty')}</p>
       )}
