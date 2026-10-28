@@ -17,6 +17,7 @@ import { cpus } from 'node:os';
 import { createRequire } from 'node:module';
 import {
   RESOURCES_INTERVAL_MS, RESOURCES_WINDOW_MS, ResourceRing, resourceRing, resourcesAnswer,
+  OVERLOAD_FREE_SHARE, OVERLOAD_LOAD_PER_CPU, overloadOf,
   startResources, stopResources, takeSample, type ResourceSample,
 } from '../src/server/resources';
 import { checkSlots } from '../src/server/checkslots';
@@ -92,6 +93,22 @@ function testAnswer(): void {
   assert.deepEqual(resourcesAnswer(ring, 'o-404').latest!.office, { workers: 0, pm: 0 });
   assert.equal(resourcesAnswer(new ResourceRing(), 'o-1').latest, null);
   JSON.parse(JSON.stringify(a));
+
+  // Пороги и признак перегруза — те же, что у гейта (T-709).
+  assert.deepEqual(a.thresholds, { loadPerCpu: OVERLOAD_LOAD_PER_CPU, freeShare: OVERLOAD_FREE_SHARE });
+  for (const p of [...a.series, a.latest!]) {
+    assert.equal(p.overload !== null, overloadOf(p) !== null, 'признак совпадает с overloadOf');
+  }
+  const hot = (over: Partial<ResourceSample>): ResourceSample => ({ ...sample(3), ...over });
+  const r2 = new ResourceRing();
+  const gb = 1024 ** 3;
+  r2.push(hot({ at: 1, cpus: 4, load: [8, 0, 0], freeMem: 8 * gb, totalMem: 16 * gb }));
+  r2.push(hot({ at: 2, cpus: 4, load: [8.01, 0, 0], freeMem: 8 * gb, totalMem: 16 * gb }));
+  r2.push(hot({ at: 3, cpus: 4, load: [1, 0, 0], freeMem: 1 * gb, totalMem: 16 * gb }));
+  const b = resourcesAnswer(r2, 'o-1').series;
+  assert.equal(b[0]!.overload, null, 'ровно 2× ядер — ещё не перегруз');
+  assert.deepEqual(b[1]!.overload, { load: true, mem: false });
+  assert.deepEqual(b[2]!.overload, { load: false, mem: true });
 }
 
 function testTimer(): void {

@@ -5,7 +5,7 @@ import { t } from './i18n';
 /**
  * Строка нагрузки в шапке очереди слияния (T-708): load, свободная память, RSS
  * сервера и живые сессии из GET /api/resources (T-706). Клик раскрывает график
- * за 24 ч. Перегруз — загрузка на ядро ≥ 1 или свободной памяти меньше 10 %.
+ * за 24 ч. Признак перегруза и пороги приходят с сервера (T-709) — те же, что у гейта проверок.
  */
 interface Sample {
   at: number;
@@ -15,19 +15,15 @@ interface Sample {
   totalMem: number;
   rss: number;
   sessions: number;
+  overload: { load: boolean; mem: boolean } | null;
 }
-interface Answer { latest: Sample | null; series: Sample[] }
+interface Answer {
+  latest: Sample | null;
+  series: Sample[];
+  thresholds: { loadPerCpu: number; freeShare: number };
+}
 
 const POLL_MS = 30_000;
-const LOAD_PER_CORE_LIMIT = 1;
-const FREE_MEM_LIMIT = 0.1;
-
-export function overloadOf(s: Sample): { load: boolean; mem: boolean } {
-  return {
-    load: s.cpus > 0 && s.load[0] / s.cpus >= LOAD_PER_CORE_LIMIT,
-    mem: s.totalMem > 0 && s.freeMem / s.totalMem < FREE_MEM_LIMIT,
-  };
-}
 
 function bytes(n: number): string {
   const gb = n / 1024 ** 3;
@@ -107,8 +103,9 @@ export function ResourceLoad() {
       </div>
     ) : null;
   }
-  const over = overloadOf(s);
-  const hot = over.load || over.mem;
+  const over = s.overload ?? { load: false, mem: false };
+  const hot = s.overload !== null;
+  const th = data!.thresholds;
   const series = data?.series ?? [];
 
   return (
@@ -134,15 +131,15 @@ export function ResourceLoad() {
           <Chart
             title={t('res.chartLoad')}
             values={series.map((p) => p.load[0])}
-            max={Math.max(s.cpus, ...series.map((p) => p.load[0]))}
-            mark={s.cpus * LOAD_PER_CORE_LIMIT}
+            max={Math.max(s.cpus * th.loadPerCpu, ...series.map((p) => p.load[0]))}
+            mark={s.cpus * th.loadPerCpu}
             unit="{v}"
           />
           <Chart
             title={t('res.chartFree')}
             values={series.map((p) => p.freeMem / 1024 ** 3)}
             max={s.totalMem / 1024 ** 3}
-            mark={(s.totalMem * FREE_MEM_LIMIT) / 1024 ** 3}
+            mark={(s.totalMem * th.freeShare) / 1024 ** 3}
             unit={`{v} ${t('res.gb')}`}
           />
         </div>

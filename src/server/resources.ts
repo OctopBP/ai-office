@@ -127,6 +127,16 @@ export class ResourceRing {
 /** Срез глазами одного офиса: его сессии отдельным полем, чужие — только суммой. */
 export interface OfficeResourceSample extends Omit<ResourceSample, 'offices'> {
   office: OfficeSessions;
+  /** Перегруз по `overloadOf` (T-709): `null` — в норме, иначе что именно превышено. */
+  overload: { load: boolean; mem: boolean } | null;
+}
+
+/** Пороги перегруза, по которым считает `overloadOf`: клиент рисует по ним пунктир. */
+export interface OverloadThresholds {
+  /** Множитель: load за 1 мин на ядро. */
+  loadPerCpu: number;
+  /** Доля свободной памяти (0..1). */
+  freeShare: number;
 }
 
 export interface ResourcesAnswer {
@@ -135,11 +145,12 @@ export interface ResourcesAnswer {
   windowMs: number;
   latest: OfficeResourceSample | null;
   series: OfficeResourceSample[];
+  thresholds: OverloadThresholds;
 }
 
 function forOffice(s: ResourceSample, officeId: string): OfficeResourceSample {
   const { offices, ...rest } = s;
-  return { ...rest, office: offices[officeId] ?? { workers: 0, pm: 0 } };
+  return { ...rest, office: offices[officeId] ?? { workers: 0, pm: 0 }, overload: overloadFlags(s) };
 }
 
 /** Ответ маршрута по буферу. */
@@ -151,6 +162,7 @@ export function resourcesAnswer(ring: ResourceRing, officeId: string): Resources
     windowMs: ring.windowMs,
     latest: series[series.length - 1] ?? null,
     series,
+    thresholds: { loadPerCpu: OVERLOAD_LOAD_PER_CPU, freeShare: OVERLOAD_FREE_SHARE },
   };
 }
 
@@ -197,6 +209,13 @@ export function overloadOf(s: Pressure): CheckOverload | null {
   const freeShare = s.totalMem > 0 ? s.freeMem / s.totalMem : 1;
   const busy = load > OVERLOAD_LOAD_PER_CPU * Math.max(1, s.cpus) || freeShare < OVERLOAD_FREE_SHARE;
   return busy ? { load, cpus: s.cpus, freeMem: s.freeMem, totalMem: s.totalMem, freeShare } : null;
+}
+
+/** Признак для ответа маршрута: тот же `overloadOf`, плюс какая из причин сработала. */
+function overloadFlags(s: Pressure): { load: boolean; mem: boolean } | null {
+  const o = overloadOf(s);
+  if (!o) return null;
+  return { load: o.load > OVERLOAD_LOAD_PER_CPU * Math.max(1, o.cpus), mem: o.freeShare < OVERLOAD_FREE_SHARE };
 }
 
 /**
