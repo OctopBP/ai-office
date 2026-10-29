@@ -106,9 +106,11 @@
 .shell-rail {
   position: absolute; top: var(--gap); left: var(--gap); bottom: var(--gap); width: var(--rail-w);
   display: flex; flex-direction: column; padding: var(--space-4) var(--space-3) var(--space-3);
-  border-radius: var(--radius-panel); z-index: var(--z-hud); overflow: hidden;
+  border-radius: var(--radius-panel); z-index: var(--z-hud);
+  overflow-x: hidden; overflow-y: auto;
 }
-/* Сжимается только список офисов (ниже), остальное держит свою высоту. */
+/* Сначала сжимается список офисов. Если даже одна строка вместе с нижними
+   блоками не помещается, прокручивается весь рейл, не обрезая действия. */
 .shell-rail > * { flex: none; }
 .rail-brand { display: flex; align-items: center; gap: var(--space-1); margin-bottom: var(--space-3); }
 .rail-name { font: 600 var(--fs-title)/1.2 var(--font-brand); color: var(--ink); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -121,27 +123,33 @@
 @media (prefers-reduced-motion: reduce) {
   .rail-brand button { transition: none; }
 }
-.shell-rail .section-title { margin-bottom: var(--space-3); }
+.shell-rail .section-title { margin-bottom: var(--space-1); }
 
-/* Офисов может быть много: список сжимается и прокручивается, а кнопка «Новый офис»,
-   окна и низ рейла остаются на месте. Меньше двух строк список не ужимается. */
-.rail-offices { display: flex; flex-direction: column; gap: var(--space-1); margin-bottom: var(--space-5); flex: 0 1 auto; min-height: 0; }
+/* Список рисуется только в своей области: его содержимое и тени перетаскивания
+   не выходят к разделителю. Минимум — одна строка с местом для фокуса. */
+.rail-offices {
+  display: flex; flex-direction: column; margin-bottom: var(--space-2);
+  flex: 0 1 auto; min-height: calc(var(--control-h) + var(--space-3)); overflow: hidden;
+}
 .rail-office-list {
-  display: flex; flex-direction: column; gap: var(--space-1); flex: 0 1 auto; min-height: 84px;
+  display: flex; flex-direction: column; gap: var(--space-1); flex: 0 1 auto; min-height: 0;
   overflow-y: auto; overscroll-behavior: contain; scrollbar-width: thin;
-  margin: 0 calc(-1 * var(--space-1)); padding: 0 var(--space-1);
+  margin: 0; padding: var(--space-1);
 }
 .rail-office-list > * { flex: none; }
 .rail-office {
   display: flex; align-items: center; justify-content: flex-start; gap: var(--space-2);
   /* Свёрнутому рейлу метка паузы вешается в угол строки — отсюда relative. */
   position: relative;
-  height: 44px; min-height: 0; padding: 0 var(--space-2); text-align: left;
+  height: calc(var(--control-h) + var(--space-1)); min-height: 0; padding: 0 var(--space-1); text-align: left;
   background: none; border: 1px solid transparent; border-radius: var(--radius-row);
 }
 .rail-office:hover:not(:disabled) { background: var(--film); }
 .rail-office.current { background: var(--film-2); border-color: var(--hairline); cursor: default; }
 .rail-office:disabled { opacity: 1; }
+.rail-office:focus-visible, .rail-win:focus-visible, .rail-foot button:focus-visible {
+  outline: 2px solid var(--ink-2); outline-offset: -2px;
+}
 /* На паузе (вариант D, T-703): янтарная подложка и рамка всей строки; у
    выбранного подложка плотнее. Отличает паузу и от тихого, и от работы. */
 .rail-office.paused, .rail-office.paused:hover:not(:disabled) {
@@ -191,13 +199,13 @@
 /* Пока строку тащат, курсор «хватания» держится и вне неё самой — иначе он
    на долю секунды переключался бы на обычный при быстром движении мыши. */
 body.office-dragging, body.office-dragging * { cursor: grabbing !important; user-select: none; }
-.rail-sep { height: 1px; background: var(--hairline); margin-bottom: var(--space-5); flex: none; }
+.rail-sep { height: 0; border-top: 1px solid var(--hairline); margin-bottom: var(--space-2); flex: none; }
 
 .rail-windows { display: flex; flex-direction: column; flex: none; }
 .rail-win {
   text-align: left;
   display: flex; align-items: center; justify-content: flex-start; gap: var(--space-2);
-  height: 34px; min-height: 0; padding: 0 var(--space-1); margin: 0 calc(-1 * var(--space-1));
+  height: var(--control-h); min-height: var(--control-h); padding: 0 var(--space-1); margin: 0 calc(-1 * var(--space-1));
   background: none; border-radius: var(--radius-icon);
   font-weight: 400; color: var(--ink-2);
 }
@@ -214,15 +222,15 @@ body.office-dragging, body.office-dragging * { cursor: grabbing !important; user
 .rail-win-count { font-size: var(--fs-small); font-weight: 500; color: var(--ink-3); }
 .rail-win-key kbd { color: var(--ink-3); }
 
-.rail-foot { margin-top: auto; padding: 0 var(--space-2); }
-.rail-spend { display: flex; justify-content: space-between; gap: var(--space-2); font-size: var(--fs-small); margin-bottom: var(--space-2); }
+.rail-foot { margin-top: auto; padding: var(--space-2) var(--space-1) 0; }
+.rail-spend { display: flex; justify-content: space-between; gap: var(--space-2); font-size: var(--fs-small); margin-bottom: var(--space-1); }
 .rail-spend b { font-weight: 500; color: var(--ink-2); }
-.rail-user { position: relative; margin: var(--space-4) calc(-1 * var(--space-2)) 0; padding-top: var(--space-3); border-top: 1px solid var(--hairline); }
+.rail-user { position: relative; margin: var(--space-2) calc(-1 * var(--space-1)) 0; padding-top: var(--space-1); border-top: 1px solid var(--hairline); }
 .rail-user-btn {
   width: 100%; justify-content: flex-start; gap: var(--space-2); padding: var(--space-1) var(--space-2); min-height: 0; text-align: left;
   border-radius: var(--radius-row);
 }
-.rail-user-avatar { width: 30px; height: 30px; flex: none; display: flex; align-items: center; justify-content: center; }
+.rail-user-avatar { width: var(--chip-h); height: var(--chip-h); flex: none; display: flex; align-items: center; justify-content: center; }
 .rail-user-letter {
   width: 100%; height: 100%; display: flex; align-items: center; justify-content: center;
   border-radius: var(--radius-row); border: 1px solid var(--hairline);
@@ -257,8 +265,8 @@ body.office-dragging, body.office-dragging * { cursor: grabbing !important; user
 .rail-collapsed .rail-win-key,
 .rail-collapsed .rail-spend, .rail-collapsed .meter, .rail-collapsed .rail-user-text { display: none; }
 .rail-collapsed .rail-offices, .rail-collapsed .rail-windows { width: 52px; align-items: center; }
-.rail-collapsed .rail-office-list { width: 52px; align-items: center; margin: 0; padding: 0; scrollbar-width: none; }
-.rail-collapsed .rail-office { width: 52px; height: 40px; padding: 0 10px; justify-content: center; }
+.rail-collapsed .rail-office-list { width: 52px; align-items: center; margin: 0; padding: var(--space-1) 0; scrollbar-width: none; }
+.rail-collapsed .rail-office { width: 52px; height: calc(var(--control-h) + var(--space-1)); padding: 0 var(--space-2); justify-content: center; }
 .rail-collapsed .rail-office-avatar { width: 24px; height: 24px; }
 .rail-collapsed .rail-office-icon { width: 24px; height: 24px; }
 .rail-collapsed .office-badge-q { display: flex; }
@@ -266,7 +274,7 @@ body.office-dragging, body.office-dragging * { cursor: grabbing !important; user
 .rail-collapsed .rail-win { width: 52px; justify-content: center; padding: 0; margin: 0; }
 .rail-collapsed .rail-home { flex: none; width: var(--control-h); justify-content: center; padding: 0; }
 .rail-collapsed .rail-foot { padding: 0; }
-.rail-collapsed .rail-user { margin: 0; padding-top: var(--space-3); width: 52px; }
+.rail-collapsed .rail-user { margin: 0; padding-top: var(--space-1); width: 52px; }
 .rail-collapsed .rail-user-btn { justify-content: center; padding: var(--space-1); }
 .rail-collapsed .rail-menu { left: 0; width: 220px; }
 
@@ -366,8 +374,8 @@ body.office-dragging, body.office-dragging * { cursor: grabbing !important; user
 
 /* ---------- блок обновления внизу рейла ---------- */
 .rail-update {
-  display: flex; flex-direction: column; align-items: flex-start; gap: var(--space-2);
-  margin: 0 calc(-1 * var(--space-2)) var(--space-3); padding: var(--space-3);
+  display: flex; flex-direction: column; align-items: flex-start; gap: var(--space-1);
+  margin: 0 calc(-1 * var(--space-1)) var(--space-2); padding: var(--space-2);
   background: var(--surface); color: var(--ink-2);
   border: 1px solid var(--hairline); border-radius: var(--radius-card);
 }
