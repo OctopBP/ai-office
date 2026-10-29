@@ -41,7 +41,7 @@ interface ProviderSpec {
  */
 export const PROVIDERS = {
   'claude-code': { label: 'Claude Code', engine: 'claude-code', defaultModel: 'claude-sonnet-5-5', cloud: true },
-  codex: { label: 'Codex', engine: 'codex', defaultModel: 'default', cloud: false },
+  codex: { label: 'OpenAI (ChatGPT / Codex)', engine: 'codex', defaultModel: 'default', cloud: false },
   xai: {
     label: 'xAI (Grok)', engine: 'opencode', defaultModel: 'grok-4.7', cloud: false,
     baseUrl: 'https://api.x.ai/v1', keyUrl: 'https://console.x.ai/',

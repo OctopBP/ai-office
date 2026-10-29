@@ -934,7 +934,7 @@ export const en = {
   "usage.costPartial": "{money} + {tokens} unpriced",
   "role.provider": "Provider",
   "role.model.codexDefault": "Codex default model",
-  "role.codexHint": "Local Codex. Use default or an exact model ID. Cloud execution is available only for Claude.",
+  "role.codexHint": "OpenAI through Codex: a ChatGPT subscription or API key. Use default or an exact model ID. Access depends on your account and Codex model support. Cloud execution is available only for Claude.",
   "role.openaiHint": "The provider's model: pick from the server's list or type an exact ID (e.g. deepseek/deepseek-chat on OpenRouter). default is the first model the server lists. Cloud execution is available only for Claude.",
   "role.model.serverDefault": "first model on the server",
   "role.model.claude-opus-5-5": "Opus 5.5 — $4/$20, hard tasks",

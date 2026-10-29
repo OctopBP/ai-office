@@ -933,7 +933,7 @@ export const ru: Record<keyof typeof en, string> = {
   "usage.costPartial": "{money} + {tokens} без цены",
   "role.provider": "Провайдер",
   "role.model.codexDefault": "Модель по умолчанию в Codex",
-  "role.codexHint": "Локальный Codex. default — модель по умолчанию; можно указать точный ID модели. Облачный режим доступен только Claude.",
+  "role.codexHint": "OpenAI через Codex: подписка ChatGPT или ключ API. default — модель по умолчанию; можно указать точный ID. Доступ зависит от аккаунта и поддержки модели в Codex. Облачный режим доступен только Claude.",
   "role.openaiHint": "Модель провайдера: выберите из списка сервера или впишите точный ID (например, deepseek/deepseek-chat у OpenRouter). default — первая модель, которую отдаёт сервер. Облачный режим доступен только Claude.",
   "role.model.serverDefault": "первая модель сервера",
   "role.model.claude-opus-5-5": "Opus 5.5 — $4/$20, сложные задачи",
