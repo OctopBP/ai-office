@@ -33,7 +33,7 @@ export function codexStatus(force = false): Promise<CodexStatus> {
       let cursor: string | undefined;
       try {
         do {
-          const page = await rpc.request('model/list', { cursor, limit: 100 }, 10_000);
+          const page = await rpc.request('model/list', { cursor, limit: 100, includeHidden: true }, 10_000);
           for (const model of page.data ?? []) models.push({ id: model.model, label: model.displayName });
           cursor = page.nextCursor ?? undefined;
         } while (cursor);

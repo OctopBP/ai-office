@@ -57,9 +57,10 @@ export const codexEngine: EngineAdapter = {
     const status = await codexStatus(opts?.force);
     if (!status.available) return { state: 'not-installed', engine: 'codex', sizeMb: codexEngine.sizeMb, detail: status.error };
     if (!status.authenticated) return { state: 'needs-login', auth: ['subscription', 'api-key'], detail: status.error };
+    const apiKey = providerKey('codex');
     const block = limitBlock(Date.now(), 'codex');
     if (block) return { state: 'limited', kind: 'plan', resetsAt: block.resetsAt ?? undefined };
-    return { state: 'ready', auth: providerKey('codex') ? 'api-key' : 'subscription' };
+    return { state: 'ready', auth: apiKey ? 'api-key' : 'subscription' };
   },
 
   // Архив пакета платформы — столько и качаем.

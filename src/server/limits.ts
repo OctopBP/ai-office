@@ -19,6 +19,7 @@ import type { LimitKind, LimitsView, LimitWindow } from '../shared/types';
 import { emptyLimits, LIMIT_ORDER } from '../shared/types';
 import { LANG_LOCALE, type Lang } from '../shared/i18n';
 import { DEFAULT_STATE_FILE } from './store';
+import { providerKey } from './engines/keys';
 
 /**
  * Файл рядом с состоянием офисов, а не внутри него: лимит общий, а состояний
@@ -342,7 +343,10 @@ const trackers = Object.fromEntries(PROVIDER_IDS.map(id => [id, createLimitTrack
 export const noteRateLimit = (info: RateLimitInfo, provider: ProviderId = 'claude-code') => trackers[provider].noteRateLimit(info);
 export const noteUsageReport = (info: UsageReport, provider: ProviderId = 'claude-code') => trackers[provider].noteUsageReport(info);
 export const pollLimits = (session: LimitSource) => trackers[session.provider ?? 'claude-code'].pollLimits(session);
-export const limitBlock = (now = Date.now(), provider: ProviderId = 'claude-code') => trackers[provider].limitBlock(now);
+// Лимиты подписки ChatGPT не относятся к отдельно оплачиваемым API-сессиям.
+// Это учитывает и надзор, когда решает, можно ли возобновить ожидающую работу.
+export const limitBlock = (now = Date.now(), provider: ProviderId = 'claude-code') =>
+  provider === 'codex' && providerKey('codex') ? null : trackers[provider].limitBlock(now);
 export const forgetLimits = () => { for (const tracker of Object.values(trackers)) tracker.forgetLimits(); };
 export function limitsView(provider?: ProviderId): LimitsView {
   if (provider) return trackers[provider].limitsView();

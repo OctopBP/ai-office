@@ -7,7 +7,10 @@ import { z } from 'zod';
 const root = mkdtempSync(resolve(tmpdir(), 'office-providers-'));
 process.env.OFFICE_STATE_FILE = resolve(root, 'state.json');
 process.env.OFFICE_CODEX_HOME = resolve(root, 'codex');
-process.env.CODEX_HOME = resolve(root, 'no-owner-auth');
+process.env.CODEX_HOME = resolve(root, 'owner-auth');
+mkdirSync(process.env.CODEX_HOME);
+const входChatGPT = JSON.stringify({ tokens: { access_token: 'test-chatgpt-token' } });
+writeFileSync(resolve(process.env.CODEX_HOME, 'auth.json'), входChatGPT);
 // Связка ключей — в памяти, движки — во временной папке: тест не трогает
 // Keychain и установки владельца.
 process.env.OFFICE_KEYCHAIN = 'memory';
@@ -33,8 +36,8 @@ const complete = (status='completed', result='done') => {
 };
 readline.createInterface({input:process.stdin}).on('line',line=>{
   const m=JSON.parse(line);
-  if(m.method==='initialize') return reply(m,{});
-  if(m.method==='thread/start') { tools=m.params.dynamicTools; fs.writeFileSync(process.env.OFFICE_CODEX_HOME+'/tools.json',JSON.stringify(tools)); return reply(m,{thread:{id:thread},model:'test-model'}); }
+  if(m.method==='initialize') { fs.writeFileSync(process.env.OFFICE_CODEX_HOME+'/argv.json',JSON.stringify(process.argv.slice(2))); return reply(m,{}); }
+  if(m.method==='thread/start') { tools=m.params.dynamicTools; fs.writeFileSync(process.env.OFFICE_CODEX_HOME+'/start.json',JSON.stringify(m.params)); fs.writeFileSync(process.env.OFFICE_CODEX_HOME+'/tools.json',JSON.stringify(tools)); return reply(m,{thread:{id:thread},model:'test-model'}); }
   if(m.method==='thread/resume') { thread=m.params.threadId; tools=JSON.parse(fs.readFileSync(process.env.OFFICE_CODEX_HOME+'/tools.json')); return reply(m,{thread:{id:thread},model:'test-model'}); }
   if(m.method==='turn/start') {
     active++; mode=m.params.input[0].text; reply(m,{turn:{id:'turn-'+active}});
@@ -48,7 +51,10 @@ readline.createInterface({input:process.stdin}).on('line',line=>{
   if(m.method==='turn/interrupt') {reply(m,{}); return complete('interrupted');}
   if(m.method==='thread/compact/start') {reply(m,{}); return send({method:'item/completed',params:{threadId:thread,item:{type:'contextCompaction'}}});}
   if(m.method==='account/read') return reply(m,{account:{type:'chatgpt'}});
-  if(m.method==='model/list') return reply(m,{data:[{model:'test-model',displayName:'Test model'}],nextCursor:null});
+  if(m.method==='model/list') {
+    if(m.params.cursor==='hidden-page') return reply(m,{data:m.params.includeHidden ? [{model:'hidden-model',displayName:'Hidden model',hidden:true}] : [],nextCursor:null});
+    return reply(m,{data:[{model:'test-model',displayName:'Test model'}],nextCursor:m.params.includeHidden ? 'hidden-page' : null});
+  }
   if(m.method==='account/rateLimits/read') return reply(m,{rateLimits:{planType:'plus',primary:{usedPercent:0.5,resetsAt:2000000000},secondary:{usedPercent:90,resetsAt:2000000000}}});
 });
 `, { mode: 0o755 });
@@ -56,7 +62,7 @@ process.env.OFFICE_CODEX_PATH = fake;
 const { startSession: query, tool, createSdkMcpServer, engineFor, LoginError } = await import('../src/server/engines');
 const { providerOf, sessionForProvider } = await import('../src/shared/providers');
 const { MessageQueue } = await import('../src/server/queue');
-const { createLimitTracker, pollLimits, limitsView, noteRateLimit, forgetLimits } = await import('../src/server/limits');
+const { createLimitTracker, pollLimits, limitsView, noteRateLimit, forgetLimits, limitBlock } = await import('../src/server/limits');
 const { readablePath, writablePath } = await import('../src/server/providers/codex-tools');
 const { scaffoldPackage } = await import('../src/server/export');
 const { readPackage } = await import('../src/server/packages');
@@ -84,6 +90,37 @@ assert.equal(called, 1);
 assert(denied.some(m => m.type === 'result' && 'result' in m && m.result === 'tool denied'));
 const resumed = await collect(query({ prompt: 'tool', options: { ...options(), resume: 'codex:test-thread' } }));
 assert(resumed.some(m => m.type === 'result' && m.subtype === 'success'));
+
+// Точный ID модели доходит до Codex без изменений. Ключ явно выбирает API,
+// а сессии по подписке сохраняют обычного провайдера Codex.
+{
+  const прежнийКлюч = process.env.OPENAI_API_KEY;
+  try {
+    delete process.env.OPENAI_API_KEY;
+    await collect(query({ prompt: 'hello', options: { ...options(), model: 'gpt-test-exact' } }));
+    assert.equal(JSON.parse(readFileSync(resolve(root, 'codex/start.json'), 'utf8')).model, 'gpt-test-exact');
+    assert.deepEqual(JSON.parse(readFileSync(resolve(root, 'codex/argv.json'), 'utf8')), ['app-server', '--listen', 'stdio://']);
+    process.env.OPENAI_API_KEY = 'test-office-key';
+    assert.equal(limitBlock(Date.now(), 'codex'), null);
+    await collect(query({ prompt: 'hello', options: options() }));
+    const аргументы: string[] = JSON.parse(readFileSync(resolve(root, 'codex/argv.json'), 'utf8'));
+    assert(аргументы.includes('model_provider="office_openai_api"'));
+    assert(аргументы.includes('model_providers.office_openai_api.env_key="OPENAI_API_KEY"'));
+    assert(аргументы.includes('model_providers.office_openai_api.requires_openai_auth=false'));
+    assert(!аргументы.some(v => v.includes('test-office-key')));
+    assert.equal(JSON.parse(readFileSync(resolve(root, 'codex/start.json'), 'utf8')).model, null);
+    assert(аргументы.includes('model_providers.office_openai_api.base_url="https://api.openai.com/v1"'));
+    assert(аргументы.includes('model_providers.office_openai_api.wire_api="responses"'));
+    assert.equal(readFileSync(resolve(process.env.CODEX_HOME!, 'auth.json'), 'utf8'), входChatGPT);
+    assert.equal(readFileSync(resolve(root, 'codex/auth.json'), 'utf8'), входChatGPT);
+    delete process.env.OPENAI_API_KEY;
+    await collect(query({ prompt: 'hello', options: options() }));
+    assert.deepEqual(JSON.parse(readFileSync(resolve(root, 'codex/argv.json'), 'utf8')), ['app-server', '--listen', 'stdio://']);
+  } finally {
+    if (прежнийКлюч === undefined) delete process.env.OPENAI_API_KEY;
+    else process.env.OPENAI_API_KEY = прежнийКлюч;
+  }
+}
 
 const queue = new MessageQueue(); queue.push('one'); queue.push('/compact'); queue.push('two'); queue.close();
 const queued = await collect(query({ prompt: queue, options: options() }));
@@ -121,7 +158,34 @@ forgetLimits();
 assert.equal((await engineFor('claude-code').status('claude-code')).state, 'ready');
 assert((await engineFor('claude-code').models('claude-code')).some(m => m.tier === 'top'));
 assert.equal((await engineFor('codex').status('codex', { force: true })).state, 'ready');
-assert.deepEqual(await engineFor('codex').models('codex'), [{ id: 'test-model', label: 'Test model' }]);
+assert.deepEqual(await engineFor('codex').models('codex'), [
+  { id: 'test-model', label: 'Test model' }, { id: 'hidden-model', label: 'Hidden model' },
+]);
+assert.equal(engineFor('codex').capabilities().subscriptionLogin, true);
+assert.equal(engineFor('codex').capabilities().apiKeyLogin, true);
+assert.equal(engineFor('codex').capabilities().streamingInput, true);
+assert.deepEqual(roleRuntime({}, { provider: 'codex', model: 'gpt-test-exact' }),
+  { provider: 'codex', model: 'gpt-test-exact' });
+{
+  const прежнийКлюч = process.env.OPENAI_API_KEY;
+  try {
+    delete process.env.OPENAI_API_KEY;
+    noteRateLimit({ status: 'rejected', resetsAt: 2000000000 }, 'codex');
+    assert.equal((await engineFor('codex').status('codex')).state, 'limited');
+    process.env.OPENAI_API_KEY = 'test-office-key';
+    assert.equal(limitBlock(Date.now(), 'codex'), null);
+    assert.deepEqual(await engineFor('codex').status('codex', { force: true }), { state: 'ready', auth: 'api-key' });
+    delete process.env.OPENAI_API_KEY;
+    assert(limitBlock(Date.now(), 'codex'));
+    assert.equal((await engineFor('codex').status('codex')).state, 'limited');
+    forgetLimits();
+    assert.deepEqual(await engineFor('codex').status('codex', { force: true }), { state: 'ready', auth: 'subscription' });
+  } finally {
+    forgetLimits();
+    if (прежнийКлюч === undefined) delete process.env.OPENAI_API_KEY;
+    else process.env.OPENAI_API_KEY = прежнийКлюч;
+  }
+}
 
 // Проверка окружения provider:<id> строится только из статуса адаптера (spec §5.3).
 {
@@ -465,6 +529,11 @@ assert.equal(role.provider, 'codex'); assert.equal(role.model, 'default');
   globalThis.fetch = (async (input: string | URL | Request, init?: RequestInit) => {
     const url = String(input);
     const auth = (init?.headers as Record<string, string> | undefined)?.Authorization;
+    // Фоновая рассылка после входа Claude может проверять локальный Ollama.
+    // Отвечаем ему отдельно: это не запрос проверки ключей Gemini или Qwen.
+    if (url === `${baseUrlOf('ollama')}/models` && !auth) {
+      return new Response(JSON.stringify({ data: [] }), { status: 200 });
+    }
     asked.push({ url, auth });
     if (auth !== 'Bearer good-key') return new Response('{}', { status: 401 });
     const ids = url.includes('googleapis') ? ['models/gemini-2.5-pro', 'models/gemini-2.5-flash'] : ['qwen-max', 'qwen-plus'];
@@ -479,7 +548,7 @@ assert.equal(role.provider, 'codex'); assert.equal(role.model, 'default');
       const done = await engineFor(id).login({ provider: id, kind: 'api-key', apiKey: 'good-key' });
       assert(done.done && done.status.state === 'ready', `${id}: после входа готов`);
       assert.deepEqual(providerKey(id), { key: 'good-key', source: 'keychain' });
-      assert(asked.every((a) => a.url.startsWith(baseUrlOf(a.url.includes('googleapis') ? 'google' : 'alibaba'))));
+      assert(asked.every((a) => a.url.startsWith(baseUrlOf(a.url.includes('googleapis') ? 'google' : 'alibaba'))), JSON.stringify(asked.map(a => a.url)));
       await engineFor(id).logout(id);
       assert.equal(providerKey(id), null);
     }

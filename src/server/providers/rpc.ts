@@ -13,7 +13,19 @@ export class CodexRpc {
   onError: (error: Error) => void = () => {};
 
   constructor(binary: string, cwd: string, env: NodeJS.ProcessEnv = process.env) {
-    this.child = spawn(binary, ['app-server', '--listen', 'stdio://'], { cwd, env, stdio: 'pipe' });
+    // Ключ офиса выбирает оплату через API даже при сохранённом входе ChatGPT.
+    // Одной OPENAI_API_KEY недостаточно для выбора режима авторизации Codex.
+    // Отдельный Responses-провайдер не перезаписывает общий auth.json
+    // владельца и сохраняет его вход по подписке.
+    const настройкиAPI = env.OPENAI_API_KEY ? [
+      '-c', 'model_provider="office_openai_api"',
+      '-c', 'model_providers.office_openai_api.name="OpenAI API"',
+      '-c', 'model_providers.office_openai_api.base_url="https://api.openai.com/v1"',
+      '-c', 'model_providers.office_openai_api.env_key="OPENAI_API_KEY"',
+      '-c', 'model_providers.office_openai_api.wire_api="responses"',
+      '-c', 'model_providers.office_openai_api.requires_openai_auth=false',
+    ] : [];
+    this.child = spawn(binary, ['app-server', '--listen', 'stdio://', ...настройкиAPI], { cwd, env, stdio: 'pipe' });
     this.child.stderr.on('data', b => { this.stderr = (this.stderr + String(b)).slice(-4000); });
     this.child.on('error', e => this.fail(e));
     this.child.on('exit', (code, signal) => this.fail(new Error(`Codex app-server exited (${code ?? signal}). ${this.stderr}`)));
