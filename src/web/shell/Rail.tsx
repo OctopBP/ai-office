@@ -335,29 +335,25 @@ export function Rail({ onPanel, onModal }: {
   return (
     <aside className="shell-rail float">
       <div className="rail-brand">
-        <span className="rail-name">AI Office</span>
-        <button className="ghost rail-toggle" onClick={() => setCollapsed(!collapsed)}
-          title={t(collapsed ? 'shell.rail.expand' : 'shell.rail.collapse')}>
-          {collapsed ? '›' : '‹'}
-        </button>
-      </div>
-
-      {/* Выход на главный экран — на виду, а не в меню пользователя: это единственный
-          путь назад к списку офисов, расходам и настройкам без клавиатуры. */}
-      <Tooltip tip={collapsed && <Hint label={t('shell.home')} keys={HOTKEY.close} />}>
-        <button className="rail-win rail-home" onClick={leaveOffice} disabled={pending === 'enter'}>
-          <span className="rail-win-icon"><Icon name="home" size={12} /></span>
-          <span className="rail-win-label">{t('shell.home')}</span>
-          <Kbd keys={HOTKEY.close} className="rail-win-key" />
-        </button>
-      </Tooltip>
-
-      <div className="rail-section-head">
-        <div className="section-title">{t('shell.offices')}</div>
-        <button className="ghost rail-new" onClick={() => onModal('offices')}
-          title={t('shell.newOffice')} aria-label={t('shell.newOffice')}>
-          <Icon name="plus" size={14} />
-        </button>
+        <Tooltip tip={<Hint label={t('shell.home')} keys={HOTKEY.close} />}>
+          <button className="ghost rail-home" onClick={leaveOffice} disabled={pending === 'enter'}
+            aria-label={t('shell.home')}>
+            <Icon name="home" size={16} />
+            <span className="rail-name">AI Office</span>
+          </button>
+        </Tooltip>
+        <Tooltip tip={t('shell.newOffice')}>
+          <button className="ghost rail-new" onClick={() => onModal('offices')}
+            aria-label={t('shell.newOffice')}>
+            <Icon name="plus" size={14} />
+          </button>
+        </Tooltip>
+        <Tooltip tip={t(collapsed ? 'shell.rail.expand' : 'shell.rail.collapse')}>
+          <button className="ghost rail-toggle" onClick={() => setCollapsed(!collapsed)}
+            aria-label={t(collapsed ? 'shell.rail.expand' : 'shell.rail.collapse')}>
+            <span aria-hidden>{collapsed ? '›' : '‹'}</span>
+          </button>
+        </Tooltip>
       </div>
       <div className="rail-offices">
         <div className="rail-office-list">

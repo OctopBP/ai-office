@@ -110,12 +110,18 @@
 }
 /* Сжимается только список офисов (ниже), остальное держит свою высоту. */
 .shell-rail > * { flex: none; }
-.rail-brand { display: flex; align-items: center; gap: var(--space-2); height: 28px; margin-bottom: var(--space-5); }
-.rail-name { font: 600 var(--fs-title)/1.2 var(--font-brand); color: var(--ink); flex: 1; }
-.rail-toggle { width: 24px; min-height: 24px; padding: 0; color: var(--ink-3); font-size: 16px; }
+.rail-brand { display: flex; align-items: center; gap: var(--space-1); margin-bottom: var(--space-3); }
+.rail-name { font: 600 var(--fs-title)/1.2 var(--font-brand); color: var(--ink); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.rail-home { flex: 1; min-width: 0; justify-content: flex-start; gap: var(--space-2); padding: 0 var(--space-1); }
+.rail-home svg { flex: none; }
+.rail-brand .rail-toggle, .rail-brand .rail-new { width: var(--control-h); min-height: var(--control-h); padding: 0; color: var(--ink-2); flex: none; }
+.rail-toggle { font-size: var(--fs-title); }
+.rail-brand button:focus-visible { outline: 2px solid var(--ink-2); outline-offset: -2px; }
+.rail-brand button:active:not(:disabled) { background: var(--film-3); }
+@media (prefers-reduced-motion: reduce) {
+  .rail-brand button { transition: none; }
+}
 .shell-rail .section-title { margin-bottom: var(--space-3); }
-/* Выход на главный экран — та же строка, что у окон офиса, но над списком офисов. */
-.rail-home { margin-bottom: var(--space-4); }
 
 /* Офисов может быть много: список сжимается и прокручивается, а кнопка «Новый офис»,
    окна и низ рейла остаются на месте. Меньше двух строк список не ужимается. */
@@ -185,11 +191,6 @@
 /* Пока строку тащат, курсор «хватания» держится и вне неё самой — иначе он
    на долю секунды переключался бы на обычный при быстром движении мыши. */
 body.office-dragging, body.office-dragging * { cursor: grabbing !important; user-select: none; }
-.rail-section-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: var(--space-3); }
-.rail-section-head .section-title { margin-bottom: 0; }
-/* Кнопка «+» у заголовка секции: 24px — минимальная область нажатия. */
-.rail-new { width: 24px; min-height: 24px; padding: 0; color: var(--ink-2); flex: none; }
-
 .rail-sep { height: 1px; background: var(--hairline); margin-bottom: var(--space-5); flex: none; }
 
 .rail-windows { display: flex; flex-direction: column; flex: none; }
@@ -261,10 +262,9 @@ body.office-dragging, body.office-dragging * { cursor: grabbing !important; user
 .rail-collapsed .rail-office-avatar { width: 24px; height: 24px; }
 .rail-collapsed .rail-office-icon { width: 24px; height: 24px; }
 .rail-collapsed .office-badge-q { display: flex; }
-.rail-collapsed .rail-section-head { justify-content: center; }
 .rail-collapsed .rail-sep { width: 52px; }
 .rail-collapsed .rail-win { width: 52px; justify-content: center; padding: 0; margin: 0; }
-.rail-collapsed .rail-home { margin-bottom: var(--space-4); }
+.rail-collapsed .rail-home { flex: none; width: var(--control-h); justify-content: center; padding: 0; }
 .rail-collapsed .rail-foot { padding: 0; }
 .rail-collapsed .rail-user { margin: 0; padding-top: var(--space-3); width: 52px; }
 .rail-collapsed .rail-user-btn { justify-content: center; padding: var(--space-1); }
