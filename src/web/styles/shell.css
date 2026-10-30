@@ -150,12 +150,10 @@
 .rail-office:focus-visible, .rail-win:focus-visible, .rail-foot button:focus-visible {
   outline: 2px solid var(--ink-2); outline-offset: -2px;
 }
-/* На паузе (вариант D, T-703): янтарная подложка и рамка всей строки; у
-   выбранного подложка плотнее. Отличает паузу и от тихого, и от работы. */
-.rail-office.paused, .rail-office.paused:hover:not(:disabled) {
-  background: rgba(var(--warn-rgb), .12); border-color: rgba(var(--warn-rgb), .6);
-}
-.rail-office.paused.current { background: rgba(var(--warn-rgb), .22); }
+/* Пауза приглушает только название и аватар: выбор, фокус, метка паузы
+   и счётчики сохраняют обычную читаемость в обоих видах рейла. */
+.rail-office.paused .rail-office-name { color: var(--ink-3); }
+.rail-office.paused .rail-office-avatar { filter: grayscale(1); }
 .rail-office-avatar {
   width: 28px; height: 28px; border-radius: var(--radius-icon); flex: none;
   display: flex; align-items: center; justify-content: center; overflow: hidden;
