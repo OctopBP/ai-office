@@ -89,7 +89,6 @@ export function codexQuery({ prompt, options }: SessionRequest): AgentSession {
   let usage = { input_tokens: 0, output_tokens: 0, cache_read_input_tokens: 0, cache_creation_input_tokens: 0 };
   let finish: (() => void) | null = null;
   let rejectTurn: ((e: Error) => void) | null = null;
-  let compacting = false;
   let stopping = false;
   let cancelWait!: (error: Error) => void;
   const cancelled = new Promise<never>((_, reject) => { cancelWait = reject; });
@@ -204,7 +203,8 @@ export function codexQuery({ prompt, options }: SessionRequest): AgentSession {
           trigger: 'manual', pre_tokens: usage.input_tokens + usage.cache_read_input_tokens,
           post_tokens: usage.input_tokens + usage.cache_read_input_tokens,
         } });
-        if (compacting) { compacting = false; result(); finish?.(); }
+        // Это граница контекста, а не завершение хода Compact. Следующий
+        // ввод разрешён только после turn/completed, как и в обычном ходе.
       }
     }
     if (msg.method === 'turn/completed') {
@@ -277,15 +277,15 @@ export function codexQuery({ prompt, options }: SessionRequest): AgentSession {
         text = ''; calls = 0; turnError = null; totalCost = 0; turnActive = true;
         usage = { input_tokens: 0, output_tokens: 0, cache_read_input_tokens: 0, cache_creation_input_tokens: 0 };
         const done = new Promise<void>((resolve, reject) => { finish = resolve; rejectTurn = reject; });
-        // Register the completion waiter before sending: a mock or short turn can finish immediately.
+        // Регистрируем ожидание до отправки: короткий ход может закончиться сразу.
         void done.catch(() => {});
         if (message.startsWith('/compact')) {
-          compacting = true; await rpc.request('thread/compact/start', { threadId: thread });
+          await rpc.request('thread/compact/start', { threadId: thread });
         } else {
           emit({ type: 'stream_event', parent_tool_use_id: null, event: { type: 'message_start' } });
           const response = await rpc.request('turn/start', { threadId: thread,
             input: [{ type: 'text', text: message, text_elements: [] }] });
-          turn = response.turn.id;
+          if (turnActive) turn = response.turn.id;
         }
         await done; finish = null; rejectTurn = null;
       }

@@ -26,7 +26,8 @@ const readline = require('node:readline');
 const fs = require('node:fs');
 const send = m => process.stdout.write(JSON.stringify(m)+'\\n');
 const reply = (m,result) => send({id:m.id,result});
-let thread='test-thread', tools=[], active=0, mode='', total=0;
+let thread='test-thread', tools=[], active=0, mode='', total=0, compactActive=false;
+const запись = m => fs.appendFileSync(process.env.OFFICE_CODEX_HOME+'/compact.jsonl',JSON.stringify(m)+'\\n');
 const complete = (status='completed', result='done') => {
   total += 150;
   send({method:'thread/tokenUsage/updated',params:{threadId:thread,tokenUsage:{total:{totalTokens:total},last:{inputTokens:100,cachedInputTokens:20,outputTokens:50}}}});
@@ -40,8 +41,15 @@ readline.createInterface({input:process.stdin}).on('line',line=>{
   if(m.method==='thread/start') { tools=m.params.dynamicTools; fs.writeFileSync(process.env.OFFICE_CODEX_HOME+'/start.json',JSON.stringify(m.params)); fs.writeFileSync(process.env.OFFICE_CODEX_HOME+'/tools.json',JSON.stringify(tools)); return reply(m,{thread:{id:thread},model:'test-model'}); }
   if(m.method==='thread/resume') { thread=m.params.threadId; tools=JSON.parse(fs.readFileSync(process.env.OFFICE_CODEX_HOME+'/tools.json')); return reply(m,{thread:{id:thread},model:'test-model'}); }
   if(m.method==='turn/start') {
+    запись({ввод:m.params.input[0].text,compactActive});
+    if(compactActive) return send({id:m.id,error:{message:'failed to submit turn input: ActiveTurnNotSteerable { turn_kind: Compact }'}});
     active++; mode=m.params.input[0].text; reply(m,{turn:{id:'turn-'+active}});
     send({method:'turn/started',params:{threadId:thread,turn:{id:'turn-'+active}}});
+    if(mode==='auto-compact') {
+      compactActive=true;
+      send({method:'item/completed',params:{threadId:thread,item:{type:'contextCompaction'}}});
+      return setTimeout(()=>{compactActive=false;complete();},80);
+    }
     if(mode==='hang') return;
     if(mode==='crash') return process.exit(17);
     if(mode==='tool') return send({id:900,method:'item/tool/call',params:{threadId:thread,turnId:'turn-'+active,callId:'call',tool:tools[0].name,arguments:{text:'hello'}}});
@@ -49,7 +57,24 @@ readline.createInterface({input:process.stdin}).on('line',line=>{
   }
   if(m.id===900) return complete('completed',m.result.success ? 'tool allowed' : 'tool denied');
   if(m.method==='turn/interrupt') {reply(m,{}); return complete('interrupted');}
-  if(m.method==='thread/compact/start') {reply(m,{}); return send({method:'item/completed',params:{threadId:thread,item:{type:'contextCompaction'}}});}
+  if(m.method==='thread/compact/start') {
+    compactActive=true; active++;
+    запись({событие:'compact/start'});
+    reply(m,{});
+    send({method:'turn/started',params:{threadId:thread,turn:{id:'turn-'+active}}});
+    if(thread==='compact-error') {
+      compactActive=false;
+      return send({method:'turn/completed',params:{threadId:thread,turn:{id:'turn-'+active,status:'failed',error:{message:'Сжатие не удалось'}}}});
+    }
+    send({method:'item/completed',params:{threadId:thread,item:{type:'contextCompaction'}}});
+    if(thread==='compact-hang') return;
+    if(thread==='compact-crash') return process.exit(17);
+    return setTimeout(()=>{
+      compactActive=false;
+      запись({событие:'compact/completed'});
+      send({method:'turn/completed',params:{threadId:thread,turn:{id:'turn-'+active,status:'completed'}}});
+    },80);
+  }
   if(m.method==='account/read') return reply(m,{account:{type:'chatgpt'}});
   if(m.method==='model/list') {
     if(m.params.cursor==='hidden-page') return reply(m,{data:m.params.includeHidden ? [{model:'hidden-model',displayName:'Hidden model',hidden:true}] : [],nextCursor:null});
@@ -126,6 +151,58 @@ const queue = new MessageQueue(); queue.push('one'); queue.push('/compact'); que
 const queued = await collect(query({ prompt: queue, options: options() }));
 assert.equal(queued.filter(m => m.type === 'result').length, 3);
 assert(queued.some(m => m.type === 'system' && m.subtype === 'compact_boundary'));
+
+// Автосжатие внутри обычного хода не завершает его и не выпускает следующий ввод.
+const очередьАвтосжатия = new MessageQueue();
+очередьАвтосжатия.push('auto-compact'); очередьАвтосжатия.push('обычный ход'); очередьАвтосжатия.close();
+const автосжатие = await collect(query({ prompt: очередьАвтосжатия, options: options() }));
+assert.equal(автосжатие.filter(m => m.type === 'result').length, 2);
+assert(автосжатие.filter(m => m.type === 'result').every(m => m.subtype === 'success'));
+
+// Продолжение ревью: задание кладётся в очередь только на result команды.
+// Между границей контекста и turn/completed движок ещё занят Compact.
+const журналCompact = resolve(root, 'codex/compact.jsonl');
+writeFileSync(журналCompact, '');
+const очередьРевью = new MessageQueue();
+очередьРевью.push('/compact');
+const событияРевью = [];
+for await (const событие of query({ prompt: очередьРевью, options: { ...options(), resume: 'codex:test-thread' } })) {
+  событияРевью.push(событие);
+  if (событие.type === 'result') {
+    if (событияРевью.filter(m => m.type === 'result').length === 1) очередьРевью.push('продолжить ревью');
+    else очередьРевью.close();
+  }
+}
+assert.equal(событияРевью.filter(m => m.type === 'result').length, 2);
+assert(событияРевью.filter(m => m.type === 'result').every(m => m.subtype === 'success'));
+assert.deepEqual(readFileSync(журналCompact, 'utf8').trim().split('\n').map(s => JSON.parse(s)), [
+  { событие: 'compact/start' }, { событие: 'compact/completed' },
+  { ввод: 'продолжить ревью', compactActive: false },
+]);
+
+// Компакт как последний ввод всё равно ждёт терминального события.
+const одиночноеСжатие = await collect(query({ prompt: '/compact', options: options() }));
+assert.equal(одиночноеСжатие.filter(m => m.type === 'result').length, 1);
+assert.equal(одиночноеСжатие.at(-1)?.type, 'result');
+const ошибкаСжатия = await collect(query({ prompt: '/compact', options: { ...options(), resume: 'codex:compact-error' } }));
+assert.equal(ошибкаСжатия.filter(m => m.type === 'result').length, 1);
+assert(ошибкаСжатия.some(m => m.type === 'result' && 'errors' in m && m.errors?.includes('Сжатие не удалось')));
+
+// Отмена в промежутке после границы: задание не отправляется и result не дублируется.
+writeFileSync(журналCompact, '');
+const отменаСжатия = new AbortController();
+const очередьОтмены = new MessageQueue();
+очередьОтмены.push('/compact'); очередьОтмены.push('не отправлять'); очередьОтмены.close();
+const событияОтмены: import('../src/server/engines/types').SDKMessage[] = [];
+await assert.rejects(async () => {
+  for await (const событие of query({ prompt: очередьОтмены, options: { ...options(), resume: 'codex:compact-hang', abortController: отменаСжатия } })) {
+    событияОтмены.push(событие);
+    if (событие.type === 'system' && событие.subtype === 'compact_boundary') отменаСжатия.abort();
+  }
+}, /stopped/);
+assert.equal(событияОтмены.filter(m => m.type === 'result').length, 0);
+assert.deepEqual(readFileSync(журналCompact, 'utf8').trim().split('\n').map(s => JSON.parse(s)), [{ событие: 'compact/start' }]);
+await assert.rejects(collect(query({ prompt: '/compact', options: { ...options(), resume: 'codex:compact-crash' } })), /exited/);
 
 const abort = new AbortController();
 const hung = collect(query({ prompt: 'hang', options: { ...options(), abortController: abort } }));
