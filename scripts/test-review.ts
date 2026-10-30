@@ -8,6 +8,8 @@
  * Запуск: npm run test:review
  */
 import './_isolate'; // первым: до чтения окружения в root.ts и store.ts
+import { проверкаИсследования, рольДляПроверки } from '../src/server/проверка-исследования';
+import { serversFor } from '../src/server/mcp';
 import { execFileSync } from 'node:child_process';
 import {
   appendFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync,
@@ -744,6 +746,7 @@ async function main(): Promise<void> {
   {
     const task = taskBranch(dir, 'S', { 's.md': 'Выводы\n' },
       { roleId: 'legal', type: 'research', assigneeId: 'legal#1' });
+    office.updateTask(task.id, { result: 'Основной артефакт: D-15 v2; код не менялся. Будущая реализация: T-727.' });
     let verifies = 0;
     const s = stub({
       step: (_state, _task, req) => {
@@ -761,6 +764,21 @@ async function main(): Promise<void> {
     say('▶ Исследование проверяют, пробелы закрывает автор');
     check('проверка, доработка, проверка', s.calls.steps.map((r) => r.node).join(',') === 'verify,rework,verify');
     check('доработке передали отзыв проверяющего', s.calls.steps[1]?.prompt.includes('нет источника'));
+    const запрос = s.calls.steps[0]!;
+    check('проверке передан D-15 как артефакт', запрос.prompt.includes('D-15 v2'));
+    check('проверка получает отдельную рамку, доработка — обычную',
+      запрос.проверкаИсследования === true && s.calls.steps[1]?.проверкаИсследования === false
+      && запрос.prompt.includes(office.say('prompt.step.researchVerify')));
+    const дизайнер = { ...office.role('legal')!, mcp: ['figma-bridge', 'figma-console', 'figcraft'] };
+    const проверяющий = рольДляПроверки(дизайнер, запрос.проверкаИсследования === true);
+    check('MCP редакторов не попадают в веб-проверку',
+      serversFor(office.settings, проверяющий).length === 0 && дизайнер.mcp.length === 3);
+    check('модель, права и встроенные инструменты роли сохранены',
+      проверяющий.tools === дизайнер.tools && проверяющий.model === дизайнер.model);
+    check('другие шаги сохраняют серверы роли', рольДляПроверки(дизайнер, false) === дизайнер);
+    check('дополнительные способности и чужие процессы не урезаются',
+      !проверкаИсследования('research', { id: 'verify', needs: ['research.web', 'design.figma'] } as never)
+      && !проверкаИсследования('feature', { id: 'verify', needs: ['research.web'] } as never));
     check('влито', office.prOf(task.id)?.stage === 'merged');
   }
 

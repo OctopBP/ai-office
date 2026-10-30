@@ -29,6 +29,7 @@ import { taskSubject, vcsText } from './vcs-messages';
 import type { BudgetStop, MeetingView, PmChat, PrStage, PullRequestView, ReviewVerdict, TaskEdit } from '../shared/types';
 import { cloudProblem, runCloudTask, stopCloudTask } from './cloud';
 import type { Role } from './roles';
+import { рольДляПроверки } from './проверка-исследования';
 import { admitProblem, consultWorkdir, reviewerFor, zoneForRole, zonesText } from './subprojects';
 import {
   externalMcp, mcpBrief, rememberUnityProject, serversFor, unityProjectForRole, unityProjectForSession, type UnityPlaces,
@@ -4828,7 +4829,8 @@ async function runStep(state: OfficeState, task: Task, req: StepRequest): Promis
     ],
   });
 
-  const run = await runAgentSession(state, inst, role, {
+  const рольСессии = рольДляПроверки(role, req.проверкаИсследования === true);
+  const run = await runAgentSession(state, inst, рольСессии, {
     cwd,
     prompt: req.prompt + extra,
     systemPrompt: workerSystemPrompt(role, state, task.subprojectId ?? null),

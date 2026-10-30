@@ -26,6 +26,7 @@
  * с подставными агентами.
  */
 import { readFile } from 'node:fs/promises';
+import { проверкаИсследования } from './проверка-исследования';
 import { resolve } from 'node:path';
 import type { OwnerQuestion, PullRequestView, ReviewVerdict } from '../shared/types';
 import { countWorking } from './busy';
@@ -111,6 +112,8 @@ export interface ReworkOutcome {
 
 /** Шаг процесса глазами агентов: кого искать, где работать, чем кончить. */
 export interface StepRequest {
+  /** Узкая проверка артефакта исследования по веб-источникам. */
+  проверкаИсследования?: boolean;
   node: string;
   needs: readonly string[];
   /** Кого просили (`same`): его берём, если свободен. */
@@ -979,6 +982,7 @@ const step: Executor<Ctx> = {
     if (!worktree) return failed(state.say('pipe.noWorktree', { branch: ctx.branch }));
     const excluded = actorOf(node.notSameAs);
     const outcomes = Object.keys(node.next).filter((o) => o !== 'failed');
+    const проверка = проверкаИсследования(workflow.id, node);
     const prompt = [
       state.say('prompt.step.header', { node: node.id, workflow: workflow.id, task: task.id, title: task.title }),
       '',
@@ -986,6 +990,7 @@ const step: Executor<Ctx> = {
       task.description,
       '',
       artifactsText(ctx),
+      проверка ? state.say('prompt.step.researchVerify') : '',
       node.done?.length ? `\n${state.say('prompt.step.done')}\n${doneList(node, state.lang())}` : '',
       '',
       state.say('prompt.step.finish', { outcomes: outcomes.join(', ') }),
@@ -998,7 +1003,7 @@ const step: Executor<Ctx> = {
     });
     const out = await agents.step(state, task, {
       node: node.id, needs, prefer, exclude: excluded ? [excluded] : [],
-      cwd: worktree, prompt, outcomes, shell: node.shell,
+      cwd: worktree, prompt, outcomes, shell: node.shell, проверкаИсследования: проверка,
     });
     if (out.actor) {
       // Владельцу в чат — подпись исполнителя: код экземпляра ему ни о чём.
