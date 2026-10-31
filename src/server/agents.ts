@@ -4655,6 +4655,7 @@ export function workerSystemPrompt(role: Role, state: OfficeState, subprojectId?
     languageBrief(state, 'worker'),
     '',
     state.say('prompt.worker.sandbox'),
+    state.say('prompt.worker.life'),
   ].join('\n') + projectBrief(state, role.id, subprojectId);
 }
 
