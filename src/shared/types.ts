@@ -2367,6 +2367,19 @@ export interface GateOverlapView {
   symbols: string[];
 }
 
+/** Диагностика завершения команды; полный вывод остаётся локальным файлом. */
+export interface ДиагностикаПроверки {
+  кодВыхода: number | string | null;
+  сигнал: string | null;
+  таймаут: boolean;
+  лимитМс: number;
+  /** Первая распознанная ошибка; отсутствие совпадения не доказывает успех. */
+  перваяОшибка: string | null;
+  файлВывода?: string;
+  выводОбрезан?: boolean;
+  ошибкаСохранения?: string;
+}
+
 /**
  * Итог пред-merge гейта (premerge.ts) — зелёно/красно, какая команда упала и
  * с каким выводом, список файлов-дублей. Кладётся на пулл-реквест задачи, как
@@ -2378,7 +2391,7 @@ export interface GateReportView {
   message: string;
   checks: GateCheckView[];
   /** Проверка, которая остановила гейт. null — гейт зелёный или до проверок не дошло. */
-  failed: { command: string; output: string; files: string[] } | null;
+  failed: { command: string; output: string; files: string[]; диагностика?: ДиагностикаПроверки } | null;
   overlaps: GateOverlapView[];
   gateMs: number;
   checkedAt: number;

@@ -38,11 +38,12 @@ import { outsideZone, type WriteZone } from './subprojects';
 export interface PreMergeCheck {
   command: string;
   ok: boolean;
-  /** Хвост вывода команды — в нём и лежит текст ошибки. */
+  /** Краткий вывод команды с причиной и путём к локальному логу. */
   output: string;
   /** Файлы, на которые ругнулась проверка (разобраны из вывода). */
   files: string[];
   durationMs: number;
+  диагностика?: import('../shared/types').ДиагностикаПроверки;
 }
 
 /**
@@ -405,7 +406,7 @@ export async function preMergeGate(options: PreMergeOptions): Promise<PreMergeRe
     for (const command of commands) {
       const res = await runProjectCheck(cwd, command, lang);
       const check: PreMergeCheck = {
-        command, ok: res.ok, output: res.output,
+        command, ok: res.ok, output: res.output, диагностика: res.диагностика,
         files: res.ok ? [] : errorFiles(res.output), durationMs: res.durationMs,
       };
       report.checks.push(check);
@@ -498,7 +499,7 @@ export function toGateView(report: PreMergeReport): GateReportView {
     message: report.message,
     checks: report.checks.map((c) => ({ command: c.command, ok: c.ok, durationMs: c.durationMs })),
     failed: report.failed
-      ? { command: report.failed.command, output: report.failed.output, files: report.failed.files }
+      ? { command: report.failed.command, output: report.failed.output, files: report.failed.files, диагностика: report.failed.диагностика }
       : null,
     overlaps: report.overlaps.map((o) => ({ file: o.file, symbols: o.symbols })),
     gateMs: report.gateMs,

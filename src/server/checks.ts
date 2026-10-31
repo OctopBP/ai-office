@@ -10,8 +10,10 @@
 import { execFile, spawn } from 'node:child_process';
 import { promisify } from 'node:util';
 import { readFileSync } from 'node:fs';
-import { resolve } from 'node:path';
-import type { CheckOverload, TypecheckResult } from '../shared/types';
+import { mkdtemp, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { resolve, join } from 'node:path';
+import type { CheckOverload, TypecheckResult, ДиагностикаПроверки } from '../shared/types';
 import type { Lang } from '../shared/i18n';
 import { t } from './i18n';
 import { projectEnv } from './childenv';
@@ -22,7 +24,7 @@ const run = promisify(execFile);
 
 /** Сколько ждём проверку, прежде чем считать её зависшей. */
 export const CHECK_TIMEOUT_MS = 5 * 60 * 1000;
-/** Хвост вывода: в интерфейс уходит конец лога, где и лежат ошибки. */
+/** Краткий хвост вывода; первая ошибка и локальный файл сохраняются отдельно. */
 const OUTPUT_LIMIT = 4000;
 
 export const tail = (s: string, lang: Lang, limit = OUTPUT_LIMIT): string => (s.length > limit
@@ -126,7 +128,7 @@ export async function runProjectCheck(
   } = {},
 ): Promise<{
   ok: boolean; output: string; message: string; durationMs: number; timedOut?: boolean; aborted?: boolean;
-  overload?: CheckOverload;
+  overload?: CheckOverload; диагностика?: ДиагностикаПроверки;
 }> {
   const { release, note } = opts.slots === false
     ? { release: () => {}, note: '' }
@@ -150,7 +152,7 @@ async function runProjectCheckNow(
   },
 ): Promise<{
   ok: boolean; output: string; message: string; durationMs: number; timedOut?: boolean; aborted?: boolean;
-  overload?: CheckOverload;
+  overload?: CheckOverload; диагностика?: ДиагностикаПроверки;
 }> {
   const started = Date.now();
   const mask = opts.mask ?? ((text: string) => text);
@@ -172,9 +174,10 @@ async function runProjectCheckNow(
     const output = tail(mask(`${stdout}${stderr}`.trim()), lang, opts.outputLimit);
     return { ok: true, output, message: output, durationMs: Date.now() - started };
   } catch (err) {
-    const e = err as { stdout?: string; stderr?: string; message?: string; killed?: boolean; signal?: string };
+    const e = err as { stdout?: string; stderr?: string; message?: string; killed?: boolean; signal?: string; code?: number | string; timedOut?: boolean };
     const aborted = Boolean(stop?.aborted);
-    const timedOut = !aborted && Boolean(e.killed && e.signal === 'SIGTERM');
+    const timedOut = !aborted && (e.timedOut ?? Boolean(e.killed && e.signal === 'SIGTERM'
+      && e.code !== 'ERR_CHILD_PROCESS_STDIO_MAXBUFFER'));
     // Снятая сигналом проверка часто не успевает напечатать ничего: скрипты
     // проверок копят результаты до конца. Без этой строки в гейте оставалось
     // голое «Command failed», неотличимое от настоящего падения (T-508).
@@ -182,13 +185,48 @@ async function runProjectCheckNow(
       ? t(lang, 'checks.timedOut', { min: String(Math.round((opts.timeoutMs ?? CHECK_TIMEOUT_MS) / 60_000)) })
       : e.signal ? t(lang, 'checks.killed', { signal: e.signal }) : '';
     const text = tail(mask(`${e.stdout ?? ''}${e.stderr ?? ''}`.trim() || (e.message ?? '')), lang, opts.outputLimit);
-    const output = killed ? `${text}\n${killed}` : text;
+    const диагностика = await сохранитьДиагностику(e, timedOut, opts.timeoutMs ?? CHECK_TIMEOUT_MS, mask);
+    const причина = диагностика.перваяОшибка ? `Первая ошибка: ${диагностика.перваяОшибка}\n` : '';
+    const статус = `Код: ${диагностика.кодВыхода ?? 'нет'}; сигнал: ${диагностика.сигнал ?? 'нет'}; таймаут: ${timedOut}; лимит: ${диагностика.лимитМс} мс`;
+    const файл = диагностика.файлВывода ? `Вывод: ${диагностика.файлВывода}${диагностика.выводОбрезан ? ' (обрезан по лимиту)' : ''}`
+      : `Не удалось сохранить вывод: ${диагностика.ошибкаСохранения}`;
+    const output = `${причина}${статус}\n${файл}\n${text}${killed ? `\n${killed}` : ''}`;
     const overload = classifyCheckFailure({ ok: false, timedOut, signal: e.signal, aborted }, pressureSource());
     return {
-      ok: false, output, message: output, durationMs: Date.now() - started, timedOut, ...(aborted ? { aborted } : {}),
+      ok: false, output, message: output, durationMs: Date.now() - started, диагностика, timedOut, ...(aborted ? { aborted } : {}),
       ...(overload ? { overload } : {}),
     };
   }
+}
+
+/** На диске не больше 64 МиБ: execFile собирает до 32 МиБ на каждый поток.
+ * Секреты маскируются до записи. Ошибка диска не меняет результат проверки.
+ */
+async function сохранитьДиагностику(
+  ошибка: { stdout?: string; stderr?: string; message?: string; code?: number | string; signal?: string; outputTruncated?: boolean },
+  таймаут: boolean, лимитМс: number, маска: (текст: string) => string,
+): Promise<ДиагностикаПроверки> {
+  const вывод = маска(`--- stdout ---\n${ошибка.stdout ?? ''}\n--- stderr ---\n${ошибка.stderr ?? ''}`);
+  const чистый = вывод.replace(/\x1b\[[0-9;]*m/g, '');
+  const перваяОшибка = чистый.split('\n').find((строка) =>
+    /❌|AssertionError|(?:^|\s)(?:Error|TypeError|SyntaxError|ReferenceError):|error TS\d+|ERR!|^not ok\b/.test(строка));
+  const диагностика: ДиагностикаПроверки = {
+    кодВыхода: ошибка.code ?? null, сигнал: ошибка.signal ?? null, таймаут, лимитМс,
+    перваяОшибка: перваяОшибка?.slice(0, 1500) ?? null,
+  };
+  try {
+    const предел = 64 * 1024 * 1024;
+    const данные = Buffer.from(вывод);
+    // maxBuffer означает, что источник уже усечён самим сборщиком вывода.
+    диагностика.выводОбрезан = данные.length > предел || Boolean(ошибка.outputTruncated) || ошибка.code === 'ERR_CHILD_PROCESS_STDIO_MAXBUFFER';
+    const каталог = await mkdtemp(join(tmpdir(), 'office-check-'));
+    диагностика.файлВывода = join(каталог, 'вывод.log');
+    await writeFile(диагностика.файлВывода, данные.subarray(0, предел), { mode: 0o600 });
+  } catch (ошибкаЗаписи) {
+    delete диагностика.файлВывода;
+    диагностика.ошибкаСохранения = маска(String(ошибкаЗаписи)).slice(0, 500);
+  }
+  return диагностика;
 }
 
 /**
@@ -209,21 +247,24 @@ function runGroup(
     let stdout = '';
     let stderr = '';
     let killed = false;
+    let timedOut = false;
+    let outputTruncated = false;
     let settled = false;
     const kill = () => killTree(child.pid);
-    const timer = setTimeout(() => { killed = true; kill(); }, options.timeout);
+    const timer = setTimeout(() => { timedOut = true; killed = true; kill(); }, options.timeout);
     stop.addEventListener('abort', kill, { once: true });
     const settle = (err: Error | null, signal: NodeJS.Signals | null = null) => {
       if (settled) return;
       settled = true;
       clearTimeout(timer);
       stop.removeEventListener('abort', kill);
-      if (err) reject(Object.assign(err, { stdout, stderr, killed, signal: signal ?? (killed ? 'SIGTERM' : undefined) }));
+      if (err) reject(Object.assign(err, { stdout, stderr, killed, timedOut, outputTruncated, signal: signal ?? (killed ? 'SIGTERM' : undefined) }));
       else done({ stdout, stderr });
     };
     const keep = (chunk: string, was: string): string => {
       const next = was + chunk;
       if (next.length <= options.maxBuffer) return next;
+      outputTruncated = true;
       killed = true;
       kill();
       return next.slice(0, options.maxBuffer);
@@ -231,7 +272,7 @@ function runGroup(
     child.stdout.setEncoding('utf8').on('data', (chunk: string) => { stdout = keep(chunk, stdout); });
     child.stderr.setEncoding('utf8').on('data', (chunk: string) => { stderr = keep(chunk, stderr); });
     child.on('error', (err) => settle(err));
-    child.on('close', (code, signal) => settle(code === 0 && !signal ? null : new Error(`Command failed: ${file} ${args.join(' ')}`), signal));
+    child.on('close', (code, signal) => settle(code === 0 && !signal ? null : Object.assign(new Error(`Command failed: ${file} ${args.join(' ')}`), { code }), signal));
   });
 }
 
