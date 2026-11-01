@@ -1,0 +1,22 @@
+/* Только раскладка стенда. Компоненты и Tooltip используют продуктовый CSS. */
+body { overflow: auto; }
+.preview.shell {
+  position: static; padding: var(--space-4);
+  display: flex; flex-direction: column; align-items: flex-start; gap: var(--space-2);
+  min-height: 100dvh; color: var(--ink-2);
+}
+.preview h1 { font-size: var(--fs-title); font-weight: 500; }
+.preview p { max-width: 80ch; }
+.preview form { display: flex; flex-wrap: wrap; align-items: end; gap: var(--space-4); }
+.preview label { display: flex; flex-direction: column; gap: var(--space-1); max-width: 100%; }
+.preview select {
+  min-height: var(--control-h); max-width: 100%;
+  padding: var(--space-1) var(--space-2); font: inherit;
+  background: var(--surface); color: var(--ink-2);
+  border: calc(var(--space-1) / 4) solid var(--ink-3); border-radius: var(--radius-icon);
+}
+.preview :focus-visible { outline: calc(var(--space-1) / 2) solid var(--ink-2); }
+.preview-rail {
+  width: min(var(--rail-w), 100%); padding: var(--space-2); margin-top: auto;
+  background: var(--surface); border-radius: var(--radius-panel);
+}
