@@ -92,9 +92,42 @@ results.push(
   `роль без запусков — по умолчанию: ${runThreshold(mixed, 'designer', 'task').source === 'default'}`,
 );
 
-// Пустые запуски не дают порог ноль: такой останавливал бы всё подряд.
-const zeros = runThreshold(Array.from({ length: 10 }, () => entry({})), 'backend', 'task');
-results.push(`медиана нулей не обнуляет порог: ${zeros.source === 'history' && zeros.tokens > 0}`);
+// Пустые записи — нулевые счётчики без usage; они не составляют историю.
+const пустые = Array.from({ length: BUDGET_HISTORY }, () => entry({}));
+const нулевойПорог = runThreshold(пустые, 'backend', 'task');
+results.push(`30 пустых записей — порог по умолчанию: ${нулевойПорог.source === 'default'
+  && нулевойПорог.tokens === BUDGET_DEFAULT_TOKENS && нулевойПорог.median === null && нулевойПорог.samples === 0}`);
+
+const смешанныйПорог = runThreshold([...short, ...пустые], 'backend', 'task');
+results.push(`пустые записи не дополняют короткую историю: ${смешанныйПорог.source === 'default'
+  && смешанныйПорог.tokens === BUDGET_DEFAULT_TOKENS && смешанныйПорог.median === null
+  && смешанныйПорог.samples === BUDGET_MIN_HISTORY - 1}`);
+const пригодныйПорог = runThreshold([...ten, ...пустые], 'backend', 'task');
+results.push(`пустые записи не вытесняют пригодную историю: ${пригодныйПорог.source === 'history'
+  && пригодныйПорог.tokens === tenT.tokens && пригодныйПорог.median === tenT.median && пригодныйПорог.samples === 10}`);
+
+// Неполная старая запись и повреждённые счётчики не дают достоверной суммы.
+const непригодные = [undefined, null, NaN, Infinity, -1].map((значение) =>
+  entry({ input_tokens: 100_000, cache_read_input_tokens: значение as unknown as number }));
+const повреждённыйПорог = runThreshold([...short, ...непригодные,
+  entry({ input_tokens: Number.MAX_VALUE, cache_read_input_tokens: Number.MAX_VALUE })], 'backend', 'task');
+results.push(`неполные и повреждённые замеры пропущены: ${повреждённыйПорог.source === 'default'
+  && повреждённыйПорог.tokens === BUDGET_DEFAULT_TOKENS && повреждённыйПорог.samples === short.length}`);
+
+// Малый положительный расход реален: никаких отсечек по размеру и цене.
+const малыйПорог = runThreshold(Array.from({ length: BUDGET_MIN_HISTORY }, () => spent(1)), 'backend', 'task');
+results.push(`малые положительные запуски учитываются: ${малыйПорог.source === 'history'
+  && малыйПорог.samples === BUDGET_MIN_HISTORY && малыйПорог.median === 1
+  && малыйПорог.tokens === BUDGET_DEFAULT_TOKENS / 10}`);
+
+const явныйПорогРоли = runThreshold(пустые, 'backend', 'task', 5_000_000, 4_000_000);
+const явныйПорогОфиса = runThreshold([...short, ...пустые], 'backend', 'task', null, 4_000_000);
+results.push(
+  `пустая история сохраняет приоритет роли: ${явныйПорогРоли.source === 'role'
+    && явныйПорогРоли.tokens === 5_000_000 && явныйПорогРоли.samples === 0 && явныйПорогРоли.median === null}`,
+  `смешанная история сохраняет приоритет офиса: ${явныйПорогОфиса.source === 'office'
+    && явныйПорогОфиса.tokens === 4_000_000 && явныйПорогОфиса.samples === short.length && явныйПорогОфиса.median === null}`,
+);
 
 // ---------- триггер токенов на счётчиках ----------
 

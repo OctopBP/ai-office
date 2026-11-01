@@ -28,7 +28,7 @@ import type { BudgetStop } from '../shared/types';
 export const BUDGET_DEFAULT_TOKENS = 2_000_000;
 /** Потолок своего порога роли: выше — уже не предохранитель. */
 export const BUDGET_ROLE_MAX_TOKENS = 20_000_000;
-/** Сколько последних запусков берётся в медиану. */
+/** Сколько последних запусков с пригодным замером берётся в медиану. */
 export const BUDGET_HISTORY = 30;
 /** С какого числа запусков истории уже верим больше, чем константе. */
 export const BUDGET_MIN_HISTORY = 10;
@@ -74,7 +74,7 @@ export interface RunThreshold {
   source: BudgetStop['limitSource'];
   /** Медиана по истории; null — истории мало. */
   median: number | null;
-  /** Сколько запусков нашлось в истории (не больше `BUDGET_HISTORY`). */
+  /** Сколько пригодных замеров нашлось в истории (не больше `BUDGET_HISTORY`). */
   samples: number;
 }
 
@@ -102,7 +102,13 @@ export function runThreshold(
   for (let i = runs.length - 1; i >= 0 && history.length < BUDGET_HISTORY; i--) {
     const r = runs[i];
     if (r.roleId !== roleId || r.taskId === null || runKind(r.nodeId) !== kind) continue;
-    history.push(runInputTokens(r));
+    // Нули не подтверждают измеренный расход, а неполные и повреждённые
+    // счётчики не годятся для медианы. Размер запуска снизу не ограничиваем.
+    const счётчики = [r.input_tokens, r.cache_read_input_tokens, r.cache_creation_input_tokens];
+    if (!счётчики.every((значение) => Number.isFinite(значение) && значение >= 0)) continue;
+    const токены = runInputTokens(r);
+    if (!Number.isFinite(токены) || токены <= 0) continue;
+    history.push(токены);
   }
   const enough = history.length >= BUDGET_MIN_HISTORY;
   const medianOrNull = enough ? Math.round(median(history)) : null;
@@ -114,8 +120,8 @@ export function runThreshold(
     return { tokens: BUDGET_DEFAULT_TOKENS, source: 'default', median: null, samples: history.length };
   }
   const m = median(history);
-  // Медиана из пустых запусков дала бы порог ноль и останавливала бы всё
-  // подряд: ниже константы по умолчанию порог опускаться не может.
+  // Для пригодной истории сохраняем нижнюю границу в десятую часть
+  // порога по умолчанию, даже если реальные запуски были очень короткими.
   return {
     tokens: Math.max(Math.round(m * BUDGET_FACTOR), BUDGET_DEFAULT_TOKENS / 10),
     source: 'history', median: Math.round(m), samples: history.length,
