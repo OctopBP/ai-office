@@ -43,8 +43,8 @@ import {
 } from './state';
 import { dispatch } from './plan';
 import {
-  abortMerge, branchHasChanges, commitAll, deleteBranch, deleteRemoteBranch, diffBranch,
-  ensureWorktree, fastForward, fetchRemote, isDirty, isRepo, mergeBaseInto, mergeInProgress,
+  abortMerge, branchHasChanges, зафиксироватьДоработку, deleteBranch, deleteRemoteBranch, diffBranch,
+  ensureWorktree, fastForward, fetchRemote, isRepo, mergeBaseInto, mergeInProgress,
   pushBranch, removeWorktree, revision, taskCommitMessage, type Signature,
 } from './git';
 import { integrationDir, runProjectCheck, runTypecheck, taskBase } from './merge';
@@ -387,10 +387,11 @@ function reportText(state: OfficeState, task: Task): string {
 async function settle(
   state: OfficeState, worktree: string, task: Task, message: string, authorId?: string | null,
 ): Promise<void> {
-  if (await mergeInProgress(worktree) || await isDirty(worktree)) {
-    const author = state.gitPerson(authorId ?? authorOf(state, task));
-    await commitAll(worktree, message, { author });
-  }
+  const author = state.gitPerson(authorId ?? authorOf(state, task));
+  const результат = await зафиксироватьДоработку(worktree, message, { author });
+  // Исключение останавливает прогон на текущем узле и сохраняет доработку:
+  // повторный запуск не попадёт в syncBase.exhausted с merge --abort.
+  if (результат.kind === 'failed') throw new Error(результат.message);
 }
 
 /** Чья это работа: исполнитель задачи по свежему состоянию — доработку мог взять другой. */

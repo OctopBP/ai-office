@@ -290,11 +290,38 @@ export async function linkNodeModules(repoDir: string, worktreePath: string): Pr
 export async function commitAll(
   worktreePath: string, message: string, sign?: Signature,
 ): Promise<'committed' | 'empty' | 'failed'> {
-  if (!(await git(worktreePath, ['add', '-A'])).ok) return 'failed';
-  const status = await git(worktreePath, ['status', '--porcelain']);
-  if (status.ok && status.stdout === '') return 'empty';
-  const commit = await git(worktreePath, ['commit', '-m', message], signed(sign));
-  return commit.ok ? 'committed' : 'failed';
+  return (await зафиксироватьДоработку(worktreePath, message, sign)).kind;
+}
+
+/** Фиксация офисом: отказ содержит основание, успех подтверждён состоянием git. */
+export async function зафиксироватьДоработку(
+  worktreePath: string, message: string, sign?: Signature,
+): Promise<{ kind: 'committed' | 'empty' | 'failed'; message: string }> {
+  const отказ = (шаг: string, результат: GitResult) =>
+    ({ kind: 'failed' as const, message: `Не удалось сохранить доработку (${шаг}): ${[результат.stdout, результат.stderr].filter(Boolean).join('\n')}` });
+  const добавление = await git(worktreePath, ['add', '-A']);
+  if (!добавление.ok) return отказ('git add', добавление);
+
+  // --check учитывает также уже подготовленные автором файлы и размер меток
+  // из атрибутов git. Обычные предупреждения о пробелах фиксацию не запрещают.
+  const метки = await git(worktreePath, ['diff', '--cached', '--check'], { LC_ALL: 'C' });
+  if (!метки.ok && !(метки.code === 2 && метки.stdout && !метки.stdout.includes('leftover conflict marker'))) {
+    return отказ('проверка конфликтных меток', метки);
+  }
+  const индекс = await git(worktreePath, ['diff', '--name-only', '--diff-filter=U']);
+  if (!индекс.ok || индекс.stdout) return отказ('незавершённый индекс', индекс);
+  const статус = await git(worktreePath, ['status', '--porcelain']);
+  if (!статус.ok) return отказ('git status', статус);
+  // Разрешение могло полностью совпасть с HEAD: merge-коммит всё равно нужен.
+  const слияние = await mergeInProgress(worktreePath);
+  if (!статус.stdout && !слияние) return { kind: 'empty', message: '' };
+  const коммит = await git(worktreePath, ['commit', '-m', message], signed(sign));
+  if (!коммит.ok) return отказ('git commit', коммит);
+  const остаток = await git(worktreePath, ['status', '--porcelain']);
+  if (!остаток.ok || остаток.stdout || await mergeInProgress(worktreePath)) {
+    return отказ('проверка завершения фиксации', остаток);
+  }
+  return { kind: 'committed', message: '' };
 }
 
 export interface MergeOutcome {

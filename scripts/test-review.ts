@@ -279,6 +279,61 @@ async function main(): Promise<void> {
       && git(dir, 'show', 'main:shared.txt').includes('от задачи'));
   }
 
+  // Отказ служебного индекса или коммита не превращает доработку в done.
+  for (const отказ of ['индекс', 'коммит', 'метки']) {
+    const task = taskBranch(dir, `отказ-${отказ}`, { 'shared.txt': 'работа автора\n' });
+    moveBase(dir, 'shared.txt', `новая база ${отказ}\n`);
+    const база = git(dir, 'rev-parse', 'main');
+    let служебныйФайл = '';
+    let содержимое = '';
+    const s = stub({
+      rework: (_state, t) => {
+        const wt = office.tasks.get(t.id)?.worktreePath as string;
+        содержимое = отказ === 'метки'
+          ? readFileSync(resolve(wt, 'shared.txt'), 'utf8')
+          : 'разрешено: база и работа автора\n';
+        writeFileSync(resolve(wt, 'shared.txt'), содержимое);
+        const gitdir = git(wt, 'rev-parse', '--absolute-git-dir');
+        if (отказ === 'индекс') {
+          служебныйФайл = resolve(gitdir, 'index.lock');
+          writeFileSync(служебныйФайл, '');
+        } else if (отказ === 'коммит') {
+          const hooks = resolve(gitdir, 'hooks-проверки');
+          mkdirSync(hooks, { recursive: true });
+          git(wt, 'config', 'core.hooksPath', hooks);
+          служебныйФайл = resolve(hooks, 'pre-commit');
+          writeFileSync(служебныйФайл, '#!/bin/sh\nexit 1\n', { mode: 0o755 });
+        }
+        return { ok: true, message: 'Доработка выполнена' };
+      },
+    });
+    await runPipeline(office, task.id);
+    const wt = office.tasks.get(task.id)?.worktreePath as string;
+    say(`▶ Отказ фиксации: ${отказ}`);
+    check('конвейер остановился с причиной сохранения',
+      office.prOf(task.id)?.stage === 'stuck'
+      && (office.runOf(task.id)?.note ?? '').includes('Не удалось сохранить доработку'));
+    check('успех доработки не записан',
+      !office.runOf(task.id)?.steps?.some((шаг) => шаг.node === 'fix-conflict' && шаг.outcome === 'done'));
+    check('ревью не начиналось', s.calls.reviews === 0);
+    check('main цел', git(dir, 'rev-parse', 'main') === база);
+    check('доработка не отменена', readFileSync(resolve(wt, 'shared.txt'), 'utf8') === содержимое);
+    check('слияние сохранено для повтора', !!git(wt, 'rev-parse', '--verify', 'MERGE_HEAD'));
+    if (служебныйФайл) rmSync(служебныйФайл, { force: true });
+    git(wt, 'config', '--unset', 'core.hooksPath');
+    if (отказ !== 'метки') {
+      stub({
+        rework: () => ({ ok: true, message: 'Содержимое уже разрешено' }),
+      });
+      await runPipeline(office, task.id);
+      check('после устранения отказа повтор завершает конвейер',
+        office.prOf(task.id)?.stage === 'merged'
+        && git(dir, 'show', 'main:shared.txt') + '\n' === содержимое);
+    } else {
+      git(wt, 'merge', '--abort');
+    }
+  }
+
   // 2б. Дубль правки: одну и ту же функцию правят обе стороны, но в разных
   //     строках. Git сливает молча — офис обязан сказать вслух (урок T-138).
   {
