@@ -41,6 +41,13 @@ export function Tooltip({ tip, focus = true, className, children }: {
     timer.current = window.setTimeout(() => setOpen(true), delay);
   };
   const hide = () => { clearTimeout(timer.current); setOpen(false); };
+  // Даём указателю пересечь зазор до многострочной подсказки.
+  const отложитьЗакрытие = () => {
+    clearTimeout(timer.current);
+    timer.current = window.setTimeout(() => {
+      if (!wantFocus.current || document.activeElement !== anchor.current) setOpen(false);
+    }, DELAY);
+  };
   useEffect(() => () => clearTimeout(timer.current), []);
   useEffect(() => {
     if (!open) return;
@@ -59,14 +66,14 @@ export function Tooltip({ tip, focus = true, className, children }: {
     const onEnter = () => show(DELAY);
     const onFocus = () => { if (wantFocus.current) show(0); };
     el.addEventListener('mouseenter', onEnter);
-    el.addEventListener('mouseleave', hide);
+    el.addEventListener('mouseleave', отложитьЗакрытие);
     // Нажали — подсказка больше не нужна, а по клику часто уходит и сам элемент.
     el.addEventListener('mousedown', hide);
     el.addEventListener('focus', onFocus);
     el.addEventListener('blur', hide);
     return () => {
       el.removeEventListener('mouseenter', onEnter);
-      el.removeEventListener('mouseleave', hide);
+      el.removeEventListener('mouseleave', отложитьЗакрытие);
       el.removeEventListener('mousedown', hide);
       el.removeEventListener('focus', onFocus);
       el.removeEventListener('blur', hide);
@@ -78,11 +85,24 @@ export function Tooltip({ tip, focus = true, className, children }: {
     if (!open) { setPos(null); return; }
     const a = anchor.current, b = box.current;
     if (!a || !b) return;
-    const r = a.getBoundingClientRect();
-    const w = b.offsetWidth, h = b.offsetHeight;
-    const above = r.bottom + GAP + h > window.innerHeight - EDGE;
-    const x = Math.min(Math.max(EDGE, r.left + r.width / 2 - w / 2), window.innerWidth - EDGE - w);
-    setPos({ x, y: above ? r.top - GAP - h : r.bottom + GAP, above });
+    const разместить = () => {
+      const r = a.getBoundingClientRect();
+      const w = b.offsetWidth, h = b.offsetHeight;
+      const above = r.bottom + GAP + h > window.innerHeight - EDGE;
+      const x = Math.max(EDGE, Math.min(r.left + r.width / 2 - w / 2, window.innerWidth - EDGE - w));
+      const y = Math.max(EDGE, Math.min(above ? r.top - GAP - h : r.bottom + GAP, window.innerHeight - EDGE - h));
+      setPos({ x, y, above });
+    };
+    разместить();
+    const размер = new ResizeObserver(разместить);
+    размер.observe(b);
+    window.addEventListener('resize', разместить);
+    window.addEventListener('scroll', разместить, true);
+    return () => {
+      размер.disconnect();
+      window.removeEventListener('resize', разместить);
+      window.removeEventListener('scroll', разместить, true);
+    };
   }, [open]);
 
   if (!tip) return children;
@@ -91,7 +111,9 @@ export function Tooltip({ tip, focus = true, className, children }: {
     <>
       {cloneElement(children, { ref: setAnchor })}
       {open && createPortal(
-        <div ref={box} role="tooltip" className={`tip${className ? ` ${className}` : ''}${pos?.above ? ' above' : ''}`}
+        <div ref={box} role="tooltip"
+          onMouseEnter={() => clearTimeout(timer.current)} onMouseLeave={отложитьЗакрытие}
+          className={`tip${className ? ` ${className}` : ''}${pos?.above ? ' above' : ''}`}
           style={{ left: pos?.x ?? 0, top: pos?.y ?? 0, visibility: pos ? 'visible' : 'hidden' }}>
           {tip}
         </div>,

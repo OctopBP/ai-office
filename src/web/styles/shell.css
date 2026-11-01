@@ -240,7 +240,8 @@ body.office-dragging, body.office-dragging * { cursor: grabbing !important; user
   flex-direction: column; gap: var(--space-1); white-space: normal;
   max-width: min(48ch, calc(100vw - var(--space-4)));
   padding: var(--space-2) var(--space-3); font-size: var(--fs-row);
-  overflow-wrap: anywhere;
+  overflow-wrap: anywhere; pointer-events: auto;
+  max-height: calc(100dvh - var(--space-4)); overflow-y: auto;
 }
 .rail-user { position: relative; margin: var(--space-2) calc(-1 * var(--space-1)) 0; padding-top: var(--space-1); border-top: 1px solid var(--hairline); }
 .rail-user-btn {

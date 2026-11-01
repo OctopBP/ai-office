@@ -19,9 +19,11 @@ export function данныеСтроки(
   const процент = свежий && Number.isFinite(окно.utilization) && окно.utilization >= 0 && окно.utilization <= 100
     ? окно.utilization : null;
   const сброс = подписка ? окно ?? прошлое : null;
-  const время = сброс ? resetLine(сброс, сейчас) : t('limits.resetUnknown');
-  const точно = сброс?.resetsAt != null && Number.isFinite(сброс.resetsAt)
-    ? new Date(сброс.resetsAt).toLocaleString(locale(), {
+  const датаСброса = сброс?.resetsAt != null ? new Date(сброс.resetsAt) : null;
+  const известенСброс = датаСброса !== null && Number.isFinite(датаСброса.getTime());
+  const время = сброс && известенСброс ? resetLine(сброс, сейчас) : t('limits.resetUnknown');
+  const точно = известенСброс
+    ? датаСброса.toLocaleString(locale(), {
       year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', timeZoneName: 'short',
     }) : t('rail.spend.resetUnknown');
   return {
