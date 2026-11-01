@@ -58,7 +58,9 @@ export async function codexTools(options: SessionOptions, rpc: CodexRpc) {
   return officeCatalog(options, async (command, cwd, timeoutMs) => {
     const result = await rpc.request('command/exec', { command, cwd, timeoutMs,
       outputBytesCap: 100_000,
-      sandboxPolicy: { type: 'workspaceWrite', writableRoots: [cwd], networkAccess: false,
+      // sandboxFor уже развернул пути из настроек роли; тред модели остаётся только для чтения.
+      sandboxPolicy: { type: 'workspaceWrite',
+        writableRoots: [...new Set([cwd, ...(options.sandbox?.filesystem?.allowWrite ?? [])])], networkAccess: false,
         excludeTmpdirEnvVar: false, excludeSlashTmp: false },
     }, timeoutMs + 10_000);
     return { stdout: String(result.stdout ?? ''), stderr: String(result.stderr ?? ''), exitCode: Number(result.exitCode ?? 0) };
