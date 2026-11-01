@@ -5,6 +5,7 @@ import { randomUUID, createHash } from 'node:crypto';
 import type { EngineSession as AgentSession, SessionRequest, SDKMessage } from '../engines/types';
 import { CodexRpc, type RpcMessage } from './rpc';
 import { codexTools } from './codex-tools';
+import { песочницаКомандCodex } from './codex-sandbox';
 import { DEFAULT_STATE_FILE } from '../store';
 import { codexPrice, tokenCost, type TokenPrice } from './pricing';
 import { engineEnv } from '../childenv';
@@ -231,11 +232,20 @@ export function codexQuery({ prompt, options }: SessionRequest): AgentSession {
   }
 
   const ready = (async () => {
-    rpc = new CodexRpc(codexBinary(), options.cwd ?? process.cwd(), runtimeEnv());
+    const песочница = песочницаКомандCodex(options);
+    rpc = new CodexRpc(codexBinary(), options.cwd ?? process.cwd(), runtimeEnv(), песочница.аргументы);
     rpc.onMessage = notification; rpc.onError = fail;
     await rpc.request('initialize', { clientInfo: { name: 'ai-office', version: '1.0.0' }, capabilities: { experimentalApi: true } });
     rpc.send({ method: 'initialized' });
-    catalog = await codexTools(options, rpc);
+    if (песочница.профиль) {
+      // Старый или управляемый извне app-server не должен молча потерять фильтр.
+      const доступные = await rpc.request('permissionProfile/list', { cwd: options.cwd });
+      if (!доступные.data?.some((п: { id: string; allowed: boolean }) =>
+        п.id === песочница.профиль && п.allowed)) {
+        throw new Error('Codex не подтвердил ограниченный сетевой профиль команд; выполнение закрыто');
+      }
+    }
+    catalog = await codexTools(options, rpc, песочница);
     const system = (typeof options.systemPrompt === 'string' ? options.systemPrompt
       : Array.isArray(options.systemPrompt) ? options.systemPrompt.join('\n\n')
       : options.systemPrompt?.type === 'custom' ? [options.systemPrompt.prompt].flat().join('\n\n')

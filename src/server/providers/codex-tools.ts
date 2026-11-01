@@ -8,6 +8,7 @@ import { SSEClientTransport } from '@modelcontextprotocol/sdk/client/sse.js';
 import { localTools } from '../engines/claude-code';
 import type { SessionOptions } from '../engines/types';
 import type { CodexRpc } from './rpc';
+import { песочницаКомандCodex } from './codex-sandbox';
 import { projectEnv, UNSET_PROVIDER_SECRETS } from '../childenv';
 
 export interface OfficeTool {
@@ -54,14 +55,12 @@ export async function readablePath(roots: string[], cwd: string, file: string): 
 export type CommandExec = (command: string[], cwd: string, timeoutMs: number) =>
   Promise<{ stdout: string; stderr: string; exitCode: number }>;
 
-export async function codexTools(options: SessionOptions, rpc: CodexRpc) {
+export async function codexTools(options: SessionOptions, rpc: CodexRpc,
+  песочница = песочницаКомандCodex(options)) {
   return officeCatalog(options, async (command, cwd, timeoutMs) => {
     const result = await rpc.request('command/exec', { command, cwd, timeoutMs,
       outputBytesCap: 100_000,
-      // sandboxFor уже развернул пути из настроек роли; тред модели остаётся только для чтения.
-      sandboxPolicy: { type: 'workspaceWrite',
-        writableRoots: [...new Set([cwd, ...(options.sandbox?.filesystem?.allowWrite ?? [])])], networkAccess: false,
-        excludeTmpdirEnvVar: false, excludeSlashTmp: false },
+      ...песочница.политика,
     }, timeoutMs + 10_000);
     return { stdout: String(result.stdout ?? ''), stderr: String(result.stderr ?? ''), exitCode: Number(result.exitCode ?? 0) };
   }, 'Run a shell command in the Codex OS sandbox. Writes stay in the workspace.');

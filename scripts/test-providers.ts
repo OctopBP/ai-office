@@ -45,11 +45,17 @@ readline.createInterface({input:process.stdin}).on('line',line=>{
   if(m.method==='initialize') { fs.writeFileSync(process.env.OFFICE_CODEX_HOME+'/argv.json',JSON.stringify(process.argv.slice(2))); return reply(m,{}); }
   if(m.method==='thread/start') { tools=m.params.dynamicTools; fs.writeFileSync(process.env.OFFICE_CODEX_HOME+'/start.json',JSON.stringify(m.params)); fs.writeFileSync(process.env.OFFICE_CODEX_HOME+'/tools.json',JSON.stringify(tools)); return reply(m,{thread:{id:thread},model:m.params.model==='catalog-model'?'catalog-model':'test-model'}); }
   if(m.method==='thread/resume') { thread=m.params.threadId; tools=JSON.parse(fs.readFileSync(process.env.OFFICE_CODEX_HOME+'/tools.json')); return reply(m,{thread:{id:thread},model:'test-model'}); }
+  if(m.method==='permissionProfile/list') return reply(m,{data:process.env.OFFICE_TEST_DENY_PROFILE ? [] : [{id:'office-command',allowed:true}]});
+  if(m.method==='command/exec') {
+    fs.writeFileSync(process.env.OFFICE_CODEX_HOME+'/command.json',JSON.stringify(m.params));
+    return reply(m,{stdout:'проверка команды',stderr:'',exitCode:0});
+  }
   if(m.method==='turn/start') {
     запись({ввод:m.params.input[0].text,compactActive});
     if(compactActive) return send({id:m.id,error:{message:'failed to submit turn input: ActiveTurnNotSteerable { turn_kind: Compact }'}});
     active++; mode=m.params.input[0].text; reply(m,{turn:{id:'turn-'+active}});
     send({method:'turn/started',params:{threadId:thread,turn:{id:'turn-'+active}}});
+    if(mode==='bash') return send({id:900,method:'item/tool/call',params:{threadId:thread,turnId:'turn-'+active,callId:'bash-call',tool:tools.find(t=>t.description.startsWith('Bash:')).name,arguments:{command:'curl -I https://traictory.com',timeout:1000}}});
     if(mode==='limits') send({method:'account/rateLimits/updated',params:{rateLimits:{planType:'plus',primary:{usedPercent:31,windowDurationMins:10080,resetsAt:2000000000},secondary:{usedPercent:0.5,windowDurationMins:300,resetsAt:2000000000}}}});
     if(mode==='multi') {
       total += 150;
@@ -134,6 +140,56 @@ assert.deepEqual(чужоеЗавершение.filter(m => m.type === 'result')
 
 const resumed = await collect(query({ prompt: 'tool', options: { ...options(), resume: 'codex:test-thread' } }));
 assert(resumed.some(m => m.type === 'result' && m.subtype === 'success'));
+
+// Регрессия T-736: проверяем весь путь startSession → app-server → Bash,
+// а не только сборку объекта прав для sandbox_status. Сеть теста — заглушка
+// транспорта: реальные запросы и ключи для проверки передачи прав не нужны.
+{
+  const { sandboxFor } = await import('../src/server/sandbox');
+  const { песочницаКомандCodex } = await import('../src/server/providers/codex-sandbox');
+  const роль = { isManager: false, isolate: true, tools: ['Bash'], allowedHosts: ['Traictory.com'] };
+  const разрешённаяПапка = resolve(root, 'approved-write');
+  const исходнаяПесочница = sandboxFor(роль, root);
+  const sandbox = { ...исходнаяПесочница,
+    filesystem: { allowWrite: [root, разрешённаяПапка, разрешённаяПапка] } };
+  const события = await collect(query({ prompt: 'bash', options: { ...options(), tools: ['Bash'], sandbox } }));
+  assert(события.some(m => m.type === 'result' && m.subtype === 'success'));
+  const аргументы: string[] = JSON.parse(readFileSync(resolve(root, 'codex/argv.json'), 'utf8'));
+  const профиль = аргументы.find(a => a.startsWith('permissions.office-command='));
+  assert.equal(профиль,
+    `permissions.office-command={extends=":workspace",workspace_roots=${JSON.stringify([root, разрешённаяПапка])},network={mode="limited",domains={"traictory.com"="allow"}}}`);
+  assert(аргументы.includes('default_permissions=":read-only"'));
+  assert(!профиль.includes('unapproved.example') && !профиль.includes('mode="full"'));
+  const команда = JSON.parse(readFileSync(resolve(root, 'codex/command.json'), 'utf8'));
+  assert.equal(команда.permissionProfile, 'office-command');
+  assert.equal(команда.sandboxPolicy, undefined);
+  assert(команда.command[2].includes('curl -I https://traictory.com'));
+  assert.equal(JSON.parse(readFileSync(resolve(root, 'codex/start.json'), 'utf8')).sandbox, 'read-only');
+
+  await collect(query({ prompt: 'bash', options: { ...options(), tools: ['Bash'] } }));
+  const закрытая = JSON.parse(readFileSync(resolve(root, 'codex/command.json'), 'utf8'));
+  assert.equal(закрытая.permissionProfile, undefined);
+  assert.equal(закрытая.sandboxPolicy.networkAccess, false);
+  assert.deepEqual(закрытая.sandboxPolicy.writableRoots, [root]);
+  // Правки main: одобренные папки не теряются ни с сетью, ни без неё; повторы убираются.
+  await collect(query({ prompt: 'bash', options: { ...options(), tools: ['Bash'],
+    sandbox: { ...sandbox, network: { allowedDomains: [] } } } }));
+  const безСети = JSON.parse(readFileSync(resolve(root, 'codex/command.json'), 'utf8'));
+  assert.equal(безСети.sandboxPolicy.networkAccess, false);
+  assert.deepEqual(безСети.sandboxPolicy.writableRoots, [root, разрешённаяПапка]);
+  assert.equal(песочницаКомандCodex({ cwd: root, sandbox: { network: { allowedDomains: ['*', '*.com', 'https://bad.example'] } } }).профиль, null);
+
+  // Нет поддержки профиля / профиль запрещён политикой машины — отказ,
+  // без повторного запуска команды с ослабленными ограничениями.
+  process.env.OFFICE_TEST_DENY_PROFILE = '1';
+  rmSync(resolve(root, 'codex/command.json'));
+  try {
+    await assert.rejects(() => collect(query({ prompt: 'bash', options: { ...options(), tools: ['Bash'], sandbox } })),
+      /не подтвердил ограниченный сетевой профиль/);
+    assert(!readFileSync(resolve(root, 'codex/argv.json'), 'utf8').includes('danger-full-access'));
+    assert.throws(() => readFileSync(resolve(root, 'codex/command.json')), /ENOENT/);
+  } finally { delete process.env.OFFICE_TEST_DENY_PROFILE; }
+}
 
 // Точный ID модели доходит до Codex без изменений. Ключ явно выбирает API,
 // а сессии по подписке сохраняют обычного провайдера Codex.
