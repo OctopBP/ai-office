@@ -45,7 +45,7 @@ import {
   parseReleaseConfig, type EpicRelease, type Release, type ReleasePlan, type ReleaseSetup, type ReleaseTarget,
 } from '../shared/release';
 import {
-  agentRunSeq, foldSpend, spendSeq, trimAgentRuns, RUNS_MAX, SPEND_MAX, type AgentRunEntry,
+  agentRunSeq, foldSpend, расходыЗаПериоды, spendSeq, trimAgentRuns, RUNS_MAX, SPEND_MAX, type AgentRunEntry,
 } from './spend';
 import { capabilitiesOf } from './roles';
 import { migrateSuperseded } from './superseded';
@@ -1465,6 +1465,7 @@ export class OfficeState {
    * и `daily` отвечают «сколько», эти записи — «на что и когда».
    */
   spend: SpendEntryView[] = [];
+  private spendHistoryFrom = Date.now();
   private spendSeqNo = 0;
   /** Сутки последней свёртки: гонять её на каждую трату незачем. */
   private spendFoldedDay = '';
@@ -1811,6 +1812,7 @@ export class OfficeState {
       daily: this.daily,
       life: this.life,
       spend: this.spend,
+      spendHistoryFrom: this.spendHistoryFrom,
       spendSeq: this.spendSeqNo,
       agentRuns: this.agentRuns,
       agentRunSeq: this.agentRunSeqNo,
@@ -2396,6 +2398,10 @@ export class OfficeState {
     // был выключен, сутки могли смениться не раз, и без этого файл вернулся бы
     // с диска ровно таким же большим, каким на него лёг.
     this.spend = foldSpend(data.spend ?? []);
+    this.spendHistoryFrom = data.spendHistoryFrom ?? (data.spend?.[0]?.at ?? Date.now());
+    if (data.spend?.length && this.spend[0]?.id !== data.spend[0].id) {
+      this.spendHistoryFrom = Math.max(this.spendHistoryFrom, this.spend[0]?.at ?? Date.now());
+    }
     this.spendFoldedDay = dayKey();
     // Счётчик — не длина массива: свёртка и подрезка выкидывают записи, а
     // номера должны продолжаться, иначе новая трата получит чужой id.
@@ -2808,6 +2814,7 @@ export class OfficeState {
     this.usage = emptyUsage();
     this.daily = {};
     this.spend = [];
+    this.spendHistoryFrom = Date.now();
     this.spendSeqNo = 0;
     this.spendFoldedDay = '';
     this.agentRuns = [];
@@ -3204,7 +3211,7 @@ export class OfficeState {
     accumulate(this.usage, delta);
     accumulate(dayOf(this.daily, day), delta);
     trimJournal(this.daily);
-    this.emit({ t: 'usage', total: this.usage, days: this.usageDays() });
+    this.emit({ t: 'usage', total: this.usage, days: this.usageDays(), windows: this.spendWindows() });
     this.markDirty();
     // Токены тратятся — значит, кто-то работает. Ритуал сам тоже тратит,
     // но он один за раз и следующий ждёт своей тишины.
@@ -3242,7 +3249,7 @@ export class OfficeState {
   private addSpend(inst: Instance, delta: Usage, model: string | null): void {
     const empty = !delta.costUsd && !delta.tokensIn && !delta.tokensOut
       && !delta.cacheRead && !delta.cacheWrite;
-    if (empty) return;
+    if (empty && !delta.costUnavailable) return;
     this.spendSeqNo += 1;
     this.spend.push({
       id: `S-${this.spendSeqNo}`,
@@ -3266,7 +3273,14 @@ export class OfficeState {
     const today = dayKey();
     if (today === this.spendFoldedDay && this.spend.length <= SPEND_MAX) return;
     this.spendFoldedDay = today;
+    const first = this.spend[0]?.id;
     this.spend = foldSpend(this.spend);
+    if (this.spend[0]?.id !== first) this.spendHistoryFrom = Math.max(this.spendHistoryFrom, this.spend[0]?.at ?? Date.now());
+  }
+
+  /** Скользящий расход офиса с явной доступностью стоимости и истории. */
+  spendWindows(now = Date.now()) {
+    return расходыЗаПериоды(this.spend, this.spendHistoryFrom, now);
   }
 
   /** Детализация трат, от старых к свежим. */
@@ -5806,7 +5820,7 @@ export class OfficeState {
       meetings: this.meetings,
       busy: this.busy,
       paused: this.paused,
-      usage: { total: this.usage, days: this.usageDays() },
+      usage: { total: this.usage, days: this.usageDays(), windows: this.spendWindows() },
       limits: limitsView(),
       offices: officeViews(),
       layouts: this.layouts(),

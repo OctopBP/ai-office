@@ -183,7 +183,7 @@ export const taskOver = (
  * и без разделения непонятно, почему 200k токенов стоили копейки.
  */
 export interface Usage {
-  /** At least one session did not report a dollar cost. Zero must not imply free. */
+  /** Хотя бы один запуск без цены: нулевая сумма не означает бесплатность. */
   costUnavailable?: boolean;
   costUsd: number;
   /** Свежий ввод — то, что модель читает по полной цене. */
@@ -280,6 +280,8 @@ export interface SpendBucket {
  * всему периоду, а не по странице, — иначе шкала менялась бы от листания.
  */
 export interface SpendPage {
+  /** Свежие скользящие периоды, в том числе для обновления UI в простое. */
+  windows: РасходЗаПериоды;
   /** Строки страницы, от свежих к старым. */
   items: SpendEntryView[];
   /** Агрегаты по выбранному шагу за весь период, от свежих к старым. */
@@ -298,6 +300,25 @@ export interface SpendPage {
   /** Границы периода после нормализации, мс включительно. */
   from: number;
   to: number;
+}
+
+/** Расход по времени регистрации результата, а не по времени каждого токена. */
+export interface РасходОкна {
+  from: number;
+  to: number;
+  /** Известная часть суммы. null — записей с известной ценой нет. */
+  costUsd: number | null;
+  costStatus: 'available' | 'partial' | 'unavailable';
+  /** История отсутствует на части периода либо пересекает посуточную свёртку. */
+  historyPartial: boolean;
+  unknownCostEntries: number;
+  entries: number;
+}
+export interface РасходЗаПериоды {
+  calculatedAt: number;
+  historyFrom: number;
+  fiveHour: РасходОкна;
+  sevenDay: РасходОкна;
 }
 
 /**
@@ -325,6 +346,8 @@ export const LIMIT_ORDER: LimitKind[] = [
 ];
 
 export interface LimitWindow {
+  /** Длительность окна провайдера в минутах; отсутствие означает «неизвестна». */
+  windowMinutes?: number;
   provider?: ProviderId;
   kind: LimitKind;
   /** Сколько окна съедено, 0–100. */
@@ -363,6 +386,15 @@ export const emptyLimits = (): LimitsView => ({
 /** Окно уже сброшено: время сброса прошло, а свежих цифр ещё не приезжало. */
 export const limitReset = (w: LimitWindow, now = Date.now()): boolean =>
   w.resetsAt !== null && w.resetsAt <= now;
+
+/** Выбранный провайдер обязателен; неизвестное или сброшенное окно — null. */
+export function окноЛимита(limits: LimitsView, provider: ProviderId, period: '5h' | '1w', now = Date.now()): LimitWindow | null {
+  const minutes = period === '5h' ? 300 : 10080;
+  return limits.windows.filter(w => (w.provider ?? 'claude-code') === provider && !limitReset(w, now))
+    .filter(w => provider === 'codex' ? w.windowMinutes === minutes
+      : w.kind === (period === '5h' ? 'five_hour' : 'seven_day'))
+    .sort((a, b) => b.updatedAt - a.updatedAt)[0] ?? null;
+}
 
 /** Пункт критерия готовности: исполнитель отмечает их по ходу работы. */
 export interface Criterion {
@@ -2989,7 +3021,7 @@ export type ServerEvent =
        * сейчас за столом, а это — про то, что было сказано.
        */
       meetings: MeetingView[];
-      usage: { total: Usage; days: DayUsage[] };
+      usage: { total: Usage; days: DayUsage[]; windows: РасходЗаПериоды };
       /** Лимиты плана подписки: сколько окон съедено и когда они обнулятся. */
       limits: LimitsView;
       offices: OfficeView[]; cloud: CloudStatus;
@@ -3156,7 +3188,7 @@ export type ServerEvent =
   | { t: 'cloud'; cloud: CloudStatus }
   /** Проверки окружения пересчитали — список целиком, он мал. */
   | { t: 'env'; env: EnvReport }
-  | { t: 'usage'; total: Usage; days: DayUsage[] }
+  | { t: 'usage'; total: Usage; days: DayUsage[]; windows: РасходЗаПериоды }
   | { t: 'limits'; limits: LimitsView }
   | { t: 'roles'; roles: RoleView[] }
   /**

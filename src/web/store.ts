@@ -221,6 +221,7 @@ interface State {
   /** Расход офиса за всё время и по дням — для HUD и панели расходов. */
   usage: Usage;
   usageDays: DayUsage[];
+  spendWindows: import('../shared/types').РасходЗаПериоды | null;
   /**
    * Лимиты плана подписки: сколько окон съедено и когда они обнулятся.
    * Приезжают от SDK по ходу работы, поэтому до первой сессии их может не
@@ -692,6 +693,7 @@ export const useStore = create<State>((set, get) => ({
   cloud: { hasKey: false, hasToken: false },
   usage: emptyUsage(),
   usageDays: [],
+  spendWindows: null,
   limits: emptyLimits(),
   projectDir: '',
   authSource: 'unknown',
@@ -985,7 +987,7 @@ export const useStore = create<State>((set, get) => ({
           layouts: e.layouts, layout: e.layout, layoutOverride: e.layoutOverride,
           projectDir: e.projectDir, authSource: e.authSource, meeting: e.meeting, meetings: e.meetings,
           busy: e.busy,
-          paused: e.paused, usage: e.usage.total, usageDays: e.usage.days, limits: e.limits,
+          paused: e.paused, usage: e.usage.total, usageDays: e.usage.days, spendWindows: e.usage.windows, limits: e.limits,
           offices: e.offices, cloud: e.cloud, env: e.env,
           mcpStatus: Object.fromEntries(e.mcpStatus.map((m) => [m.id, m])),
           mergeChecks: Object.fromEntries(e.mergeChecks.map((c) => [c.taskId, c])),
@@ -1302,7 +1304,7 @@ export const useStore = create<State>((set, get) => ({
         set({ cloud: e.cloud });
         break;
       case 'usage':
-        set({ usage: e.total, usageDays: e.days });
+        set({ usage: e.total, usageDays: e.days, spendWindows: e.windows });
         break;
       case 'limits':
         set({ limits: e.limits });

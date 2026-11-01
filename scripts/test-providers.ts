@@ -20,6 +20,11 @@ process.env.CLAUDE_CONFIG_DIR = resolve(root, 'claude');
 delete process.env.CLAUDE_CODE_OAUTH_TOKEN;
 mkdirSync(process.env.CLAUDE_CONFIG_DIR);
 writeFileSync(resolve(process.env.CLAUDE_CONFIG_DIR, '.credentials.json'), '{}');
+// Фикстура каталога исключает сеть и проверяет цену без переменной окружения.
+writeFileSync(resolve(root, 'model-prices.json'), JSON.stringify({
+  codex: { 'catalog-model': { id: 'catalog-model', name: 'Модель из каталога', price: { input: 2, cachedInput: 1, output: 4 } } },
+  deepseek: { 'deepseek-flash': { id: 'deepseek-flash', name: 'DeepSeek Flash', price: { input: 0.3, output: 1.2, cachedInput: 0.03 } } },
+}));
 const fake = resolve(root, 'codex-mock.cjs');
 writeFileSync(fake, `#!/usr/bin/env node
 const readline = require('node:readline');
@@ -38,13 +43,19 @@ const complete = (status='completed', result='done') => {
 readline.createInterface({input:process.stdin}).on('line',line=>{
   const m=JSON.parse(line);
   if(m.method==='initialize') { fs.writeFileSync(process.env.OFFICE_CODEX_HOME+'/argv.json',JSON.stringify(process.argv.slice(2))); return reply(m,{}); }
-  if(m.method==='thread/start') { tools=m.params.dynamicTools; fs.writeFileSync(process.env.OFFICE_CODEX_HOME+'/start.json',JSON.stringify(m.params)); fs.writeFileSync(process.env.OFFICE_CODEX_HOME+'/tools.json',JSON.stringify(tools)); return reply(m,{thread:{id:thread},model:'test-model'}); }
+  if(m.method==='thread/start') { tools=m.params.dynamicTools; fs.writeFileSync(process.env.OFFICE_CODEX_HOME+'/start.json',JSON.stringify(m.params)); fs.writeFileSync(process.env.OFFICE_CODEX_HOME+'/tools.json',JSON.stringify(tools)); return reply(m,{thread:{id:thread},model:m.params.model==='catalog-model'?'catalog-model':'test-model'}); }
   if(m.method==='thread/resume') { thread=m.params.threadId; tools=JSON.parse(fs.readFileSync(process.env.OFFICE_CODEX_HOME+'/tools.json')); return reply(m,{thread:{id:thread},model:'test-model'}); }
   if(m.method==='turn/start') {
     запись({ввод:m.params.input[0].text,compactActive});
     if(compactActive) return send({id:m.id,error:{message:'failed to submit turn input: ActiveTurnNotSteerable { turn_kind: Compact }'}});
     active++; mode=m.params.input[0].text; reply(m,{turn:{id:'turn-'+active}});
     send({method:'turn/started',params:{threadId:thread,turn:{id:'turn-'+active}}});
+    if(mode==='limits') send({method:'account/rateLimits/updated',params:{rateLimits:{planType:'plus',primary:{usedPercent:31,windowDurationMins:10080,resetsAt:2000000000},secondary:{usedPercent:0.5,windowDurationMins:300,resetsAt:2000000000}}}});
+    if(mode==='multi') {
+      total += 150;
+      const event={method:'thread/tokenUsage/updated',params:{threadId:thread,tokenUsage:{total:{totalTokens:total},last:{inputTokens:100,cachedInputTokens:20,outputTokens:50}}}};
+      send(event); send(event);
+    }
     if(mode==='auto-compact') {
       compactActive=true;
       send({method:'item/completed',params:{threadId:thread,item:{type:'contextCompaction'}}});
@@ -84,7 +95,7 @@ readline.createInterface({input:process.stdin}).on('line',line=>{
     if(m.params.cursor==='hidden-page') return reply(m,{data:m.params.includeHidden ? [{model:'hidden-model',displayName:'Hidden model',hidden:true}] : [],nextCursor:null});
     return reply(m,{data:[{model:'test-model',displayName:'Test model'}],nextCursor:m.params.includeHidden ? 'hidden-page' : null});
   }
-  if(m.method==='account/rateLimits/read') return reply(m,{rateLimits:{planType:'plus',primary:{usedPercent:0.5,resetsAt:2000000000},secondary:{usedPercent:90,resetsAt:2000000000}}});
+  if(m.method==='account/rateLimits/read') return reply(m,{rateLimits:{planType:'plus',primary:{usedPercent:0.5,windowDurationMins:10080,resetsAt:2000000000},secondary:{usedPercent:90,windowDurationMins:300,resetsAt:2000000000}}});
 });
 `, { mode: 0o755 });
 process.env.OFFICE_CODEX_PATH = fake;
@@ -221,6 +232,18 @@ await assert.rejects(collect(query({ prompt: 'no', options: { ...options(), maxB
 process.env.OFFICE_CODEX_PRICING = JSON.stringify({ 'test-model': { input: 2, cachedInput: 1, output: 4 } });
 const priced = await collect(query({ prompt: 'cost', options: options() }));
 assert.equal(priced.find(m => m.type === 'result')?.total_cost_usd, 0.00038);
+const несколько = await collect(query({ prompt: 'multi', options: options() }));
+assert.equal(несколько.find(m => m.type === 'result')?.total_cost_usd, 0.00076);
+assert.equal((несколько.find(m => m.type === 'result') as any).usage.input_tokens, 160);
+assert.equal((несколько.find(m => m.type === 'assistant') as any).message.usage.input_tokens, 80);
+delete process.env.OFFICE_CODEX_PRICING;
+
+const каталог = await collect(query({ prompt: 'cost', options: { ...options(), model: 'catalog-model' } }));
+assert.equal(каталог.find(m => m.type === 'result')?.total_cost_usd, 0.00038);
+assert.equal((каталог.find(m => m.type === 'result') as any).cost_unavailable, false);
+assert.equal((result as any).cost_unavailable, true);
+process.env.OFFICE_CODEX_PRICING = '{неверно';
+assert.equal(await (await import('../src/server/providers/pricing')).codexPrice('unknown'), null);
 delete process.env.OFFICE_CODEX_PRICING;
 
 const claude = createLimitTracker('claude-code'), codex = createLimitTracker('codex');
@@ -231,6 +254,17 @@ const q = new MessageQueue();
 const session = query({ prompt: q, options: options() });
 await pollLimits(session); q.close(); await collect(session);
 assert.equal(limitsView('codex').windows.find(w => w.kind === 'codex_primary')?.utilization, 0.5);
+
+// Push-события обновляют проценты без повторного poll; primary здесь недельное.
+const обновления = await collect(query({ prompt: 'limits', options: options() }));
+const событие = обновления.find(m => m.type === 'rate_limit_event') as any;
+assert(событие.rate_limit_info.usageReport);
+noteRateLimit(событие.rate_limit_info, 'codex');
+const { окноЛимита } = await import('../src/shared/types');
+assert.equal(окноЛимита(limitsView(), 'codex', '5h')?.utilization, 0.5);
+assert.equal(окноЛимита(limitsView(), 'codex', '1w')?.utilization, 31);
+assert.equal(окноЛимита(limitsView(), 'codex', '1w')?.windowMinutes, 10080);
+assert.equal(окноЛимита({ ...limitsView(), windows: [] }, 'codex', '5h'), null);
 
 // Адаптеры движков: статус, модели и матрица — без платного хода.
 assert.equal(engineFor('claude-code').id, 'claude-code'); assert.equal(engineFor('codex').id, 'codex');

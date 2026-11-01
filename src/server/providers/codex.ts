@@ -87,6 +87,8 @@ export function codexQuery({ prompt, options }: SessionRequest): AgentSession {
   let turnActive = false;
   let turnError: string | null = null;
   let usage = { input_tokens: 0, output_tokens: 0, cache_read_input_tokens: 0, cache_creation_input_tokens: 0 };
+  // Контекст assistant относится к последнему запросу, result — ко всему ходу.
+  let usageПоследнегоЗапроса = { ...usage };
   let finish: (() => void) | null = null;
   let rejectTurn: ((e: Error) => void) | null = null;
   let stopping = false;
@@ -101,19 +103,23 @@ export function codexQuery({ prompt, options }: SessionRequest): AgentSession {
     const windows = [['codex_primary', bucket.primary], ['codex_secondary', bucket.secondary]] as const;
     const exhausted = windows.filter(([, w]) => w && w.usedPercent >= 100);
     const resets = exhausted.map(([, w]) => w.resetsAt).filter((v): v is number => typeof v === 'number');
+    const report = { rate_limits_available: true, subscription_type: bucket.planType,
+      rate_limits: Object.fromEntries(windows.filter(([, w]) => w).map(([name, w]) => [name, {
+        utilization: w.usedPercent,
+        window_minutes: w.windowDurationMins,
+        resets_at: typeof w.resetsAt === 'number' ? new Date(w.resetsAt * 1000).toISOString() : null,
+      }])) };
     emit({ type: 'rate_limit_event', provider: 'codex', rate_limit_info: {
       status: exhausted.length ? 'rejected' : 'allowed',
       ...(resets.length ? { resetsAt: Math.max(...resets) } : {}),
+      usageReport: report,
     } });
-    return { rate_limits_available: true, subscription_type: bucket.planType,
-      rate_limits: Object.fromEntries(windows.filter(([, w]) => w).map(([name, w]) => [name, {
-        utilization: w.usedPercent, resets_at: w.resetsAt ? new Date(w.resetsAt * 1000).toISOString() : null,
-      }])) };
+    return report;
   };
   const assistant = (content: unknown[]) => {
-    const measured = usage.input_tokens + usage.output_tokens + usage.cache_read_input_tokens + usage.cache_creation_input_tokens > 0;
+    const measured = usageПоследнегоЗапроса.input_tokens + usageПоследнегоЗапроса.output_tokens + usageПоследнегоЗапроса.cache_read_input_tokens + usageПоследнегоЗапроса.cache_creation_input_tokens > 0;
     emit({ type: 'assistant', parent_tool_use_id: null,
-      message: { role: 'assistant', content, ...(measured ? { usage } : {}) } });
+      message: { role: 'assistant', content, ...(measured ? { usage: usageПоследнегоЗапроса } : {}) } });
   };
   const result = (error?: string) => emit({ type: 'result', subtype: error ? (turnError === 'maxTurns' ? 'error_max_turns' : turnError === 'budget' ? 'error_max_budget_usd' : 'error_during_execution') : 'success',
     is_error: Boolean(error), result: error ?? text, errors: error ? [error] : [],
@@ -177,9 +183,15 @@ export function codexQuery({ prompt, options }: SessionRequest): AgentSession {
     if (msg.method === 'thread/tokenUsage/updated') {
       const u = p.tokenUsage.last;
       if (turnActive && p.tokenUsage.total.totalTokens !== lastTotalTokens) {
-        usage = { input_tokens: Math.max(0, u.inputTokens - (u.cachedInputTokens ?? 0)),
+        usageПоследнегоЗапроса = {
+          input_tokens: Math.max(0, u.inputTokens - (u.cachedInputTokens ?? 0)),
           output_tokens: u.outputTokens, cache_read_input_tokens: u.cachedInputTokens ?? 0,
-          cache_creation_input_tokens: u.cacheWriteInputTokens ?? 0 };
+          cache_creation_input_tokens: u.cacheWriteInputTokens ?? 0,
+        };
+        usage.input_tokens += usageПоследнегоЗапроса.input_tokens;
+        usage.output_tokens += usageПоследнегоЗапроса.output_tokens;
+        usage.cache_read_input_tokens += usageПоследнегоЗапроса.cache_read_input_tokens;
+        usage.cache_creation_input_tokens += usageПоследнегоЗапроса.cache_creation_input_tokens;
         if (price) {
           const next = tokenCost(price, usage.input_tokens, usage.cache_read_input_tokens, usage.output_tokens);
           budgetSpent += next - totalCost;
@@ -200,8 +212,8 @@ export function codexQuery({ prompt, options }: SessionRequest): AgentSession {
       if (p.item.type === 'reasoning') assistant([{ type: 'thinking', thinking: (p.item.summary ?? []).join('\n') }]);
       if (p.item.type === 'contextCompaction') {
         emit({ type: 'system', subtype: 'compact_boundary', compact_metadata: {
-          trigger: 'manual', pre_tokens: usage.input_tokens + usage.cache_read_input_tokens,
-          post_tokens: usage.input_tokens + usage.cache_read_input_tokens,
+          trigger: 'manual', pre_tokens: usageПоследнегоЗапроса.input_tokens + usageПоследнегоЗапроса.cache_read_input_tokens,
+          post_tokens: usageПоследнегоЗапроса.input_tokens + usageПоследнегоЗапроса.cache_read_input_tokens,
         } });
         // Это граница контекста, а не завершение хода Compact. Следующий
         // ввод разрешён только после turn/completed, как и в обычном ходе.
@@ -249,7 +261,7 @@ export function codexQuery({ prompt, options }: SessionRequest): AgentSession {
       : await rpc.request('thread/start', { ...common, dynamicTools });
     thread = response.thread.id;
     paidModel = response.model ?? options.model ?? 'default';
-    price = codexPrice(paidModel);
+    price = await codexPrice(paidModel);
     if (options.maxBudgetUsd && !price) throw new Error('Codex does not report USD cost. Configure OFFICE_CODEX_PRICING for this model before using a dollar budget.');
     emit({ type: 'system', subtype: 'init', cwd: options.cwd, model: response.model, apiKeySource: 'codex' });
   })();
@@ -278,6 +290,7 @@ export function codexQuery({ prompt, options }: SessionRequest): AgentSession {
         const message = next.value;
         text = ''; calls = 0; turnError = null; totalCost = 0; turnActive = true;
         usage = { input_tokens: 0, output_tokens: 0, cache_read_input_tokens: 0, cache_creation_input_tokens: 0 };
+        usageПоследнегоЗапроса = { ...usage };
         const done = new Promise<void>((resolve, reject) => { finish = resolve; rejectTurn = reject; });
         // Регистрируем ожидание до отправки: короткий ход может закончиться сразу.
         void done.catch(() => {});

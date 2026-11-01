@@ -49,9 +49,9 @@ const num = (v: unknown): v is number => typeof v === 'number' && Number.isFinit
 /** Из полного каталога (5 МБ) оставить только наших провайдеров и нужные поля. */
 function shrink(raw: Record<string, { models?: Record<string, RawModel> }>): Catalog {
   const out: Catalog = {};
-  // Id провайдеров офиса совпадают с id каталога models.dev.
-  for (const provider of ['xai', 'deepseek', 'openrouter', 'google', 'alibaba'] as const) {
-    const models = raw[provider]?.models;
+  // Codex использует модели OpenAI; остальные id совпадают с каталогом.
+  for (const provider of ['codex', 'xai', 'deepseek', 'openrouter', 'google', 'alibaba'] as const) {
+    const models = raw[provider === 'codex' ? 'openai' : provider]?.models;
     if (!models) continue;
     const list: Record<string, CatalogModel> = {};
     for (const [id, m] of Object.entries(models)) {
@@ -88,7 +88,7 @@ export function priceCatalog(): Promise<Catalog> {
   if (memory) return Promise.resolve(memory);
   loading ??= (async () => {
     const disk = fromDisk();
-    if (disk?.fresh) return (memory = disk.catalog);
+    if (disk?.fresh && disk.catalog.codex) return (memory = disk.catalog);
     try {
       const res = await fetch(CATALOG_URL, { signal: AbortSignal.timeout(20_000) });
       if (!res.ok) throw new Error(`HTTP ${res.status}`);

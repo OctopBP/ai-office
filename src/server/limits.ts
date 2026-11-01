@@ -36,6 +36,8 @@ export interface RateLimitInfo {
   resetsAt?: number;
   rateLimitType?: string;
   utilization?: number;
+  /** Полный отчёт в push-событии Codex, проценты уже в шкале 0–100. */
+  usageReport?: UsageReport;
 }
 
 /**
@@ -179,7 +181,7 @@ function saveSoon(): void {
 function noteRateLimit(info: RateLimitInfo): boolean {
   if (!loaded) load();
   const now = Date.now();
-  let changed = false;
+  let changed = info.usageReport ? noteUsageReport(info.usageReport) : false;
 
   const next = info.status ?? null;
   if (next !== null && next !== status) { status = next; changed = true; }
@@ -240,17 +242,19 @@ function noteUsageReport(report: UsageReport): boolean {
   if (report.rate_limits_available === false || !limits) return changed;
 
   for (const kind of REPORT_KINDS) {
-    const raw = limits[kind] as { utilization?: number | null; resets_at?: string | null } | null;
-    if (!raw || typeof raw.utilization !== 'number') continue;
+    const raw = limits[kind] as { utilization?: number | null; resets_at?: string | null; window_minutes?: number } | null;
+    if (!raw || typeof raw.utilization !== 'number' || !Number.isFinite(raw.utilization)) continue;
     const utilization = Math.max(0, Math.min(100, raw.utilization));
     // Время сброса здесь строкой ISO 8601, а не числом: разбираем и молча
     // пропускаем то, что не разобралось, — окно без времени сброса лучше
     // окна со сбросом в 1970-м.
     const parsed = raw.resets_at ? Date.parse(raw.resets_at) : NaN;
     const resetsAt = Number.isFinite(parsed) ? parsed : null;
+    const windowMinutes = typeof raw.window_minutes === 'number' && Number.isFinite(raw.window_minutes) && raw.window_minutes > 0
+      ? raw.window_minutes : undefined;
     const was = windows.get(kind);
-    if (!was || was.utilization !== utilization || was.resetsAt !== resetsAt) changed = true;
-    windows.set(kind, { kind, utilization, resetsAt, updatedAt: now });
+    if (!was || was.utilization !== utilization || was.resetsAt !== resetsAt || was.windowMinutes !== windowMinutes) changed = true;
+    windows.set(kind, { kind, utilization, resetsAt, updatedAt: now, ...(windowMinutes ? { windowMinutes } : {}) });
   }
 
   updatedAt = now;

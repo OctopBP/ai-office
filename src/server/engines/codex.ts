@@ -100,12 +100,10 @@ export const codexEngine: EngineAdapter = {
 
   async models(): Promise<ModelInfo[]> {
     const { models } = await codexStatus();
-    return models.map(({ id, label }) => {
-      // Цены — только из OFFICE_CODEX_PRICING; кривая запись не роняет список.
-      let price: ReturnType<typeof codexPrice> = null;
-      try { price = codexPrice(id); } catch { /* стоимость просто не считается */ }
+    return Promise.all(models.map(async ({ id, label }) => {
+      const price = await codexPrice(id);
       return price ? { id, label, price } : { id, label };
-    });
+    }));
   },
 
   start: codexQuery,
