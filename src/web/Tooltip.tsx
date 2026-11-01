@@ -42,6 +42,12 @@ export function Tooltip({ tip, focus = true, className, children }: {
   };
   const hide = () => { clearTimeout(timer.current); setOpen(false); };
   useEffect(() => () => clearTimeout(timer.current), []);
+  useEffect(() => {
+    if (!open) return;
+    const закрыть = (событие: KeyboardEvent) => { if (событие.key === 'Escape') hide(); };
+    window.addEventListener('keydown', закрыть);
+    return () => window.removeEventListener('keydown', закрыть);
+  }, [open]);
 
   // Ref-колбэк с очисткой: элемент может смениться, слушатели переезжают с ним.
   const outerRef = children.props.ref;

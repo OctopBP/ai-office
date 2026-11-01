@@ -223,8 +223,25 @@ body.office-dragging, body.office-dragging * { cursor: grabbing !important; user
 .rail-win-key kbd { color: var(--ink-3); }
 
 .rail-foot { padding: var(--space-2) var(--space-1) 0; }
-.rail-spend { display: flex; justify-content: space-between; gap: var(--space-2); font-size: var(--fs-small); margin-bottom: var(--space-1); }
-.rail-spend b { font-weight: 500; color: var(--ink-2); }
+.rail-spend { display: flex; flex-direction: column; font-size: var(--fs-row); color: var(--ink-2); }
+.rail-spend-row {
+  display: grid; grid-template-columns: 3ch minmax(var(--space-4), 1fr) auto;
+  align-items: center; gap: var(--space-2); min-height: var(--space-6);
+  border-radius: var(--radius-icon);
+}
+.rail-spend-row:focus-visible { outline: calc(var(--space-1) / 2) solid var(--ink-2); outline-offset: 0; }
+.rail-spend-row:hover { background: var(--film); }
+.rail-spend-period { font-variant-numeric: tabular-nums; }
+.rail-spend b { min-width: 6ch; max-width: 10ch; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 500; color: var(--ink-2); text-align: right; font-variant-numeric: tabular-nums; }
+.rail-spend .meter { background: transparent; outline: calc(var(--space-1) / 4) solid var(--ink-3); }
+.rail-spend .meter i { background: var(--ink-2); }
+.rail-spend-unknown { color: var(--ink-3); text-align: center; }
+.tip.rail-spend-tip {
+  flex-direction: column; gap: var(--space-1); white-space: normal;
+  max-width: min(48ch, calc(100vw - var(--space-4)));
+  padding: var(--space-2) var(--space-3); font-size: var(--fs-row);
+  overflow-wrap: anywhere;
+}
 .rail-user { position: relative; margin: var(--space-2) calc(-1 * var(--space-1)) 0; padding-top: var(--space-1); border-top: 1px solid var(--hairline); }
 .rail-user-btn {
   width: 100%; justify-content: flex-start; gap: var(--space-2); padding: var(--space-1) var(--space-2); min-height: 0; text-align: left;

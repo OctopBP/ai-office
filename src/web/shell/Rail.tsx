@@ -7,7 +7,7 @@ import {
 import type { ModalKind, PanelKind } from '../Overlays';
 import type { OfficeView } from '../../shared/types';
 import { countInWork } from '../../shared/work';
-import { money } from '../money';
+import { RailSpend } from './RailSpend';
 import { t } from '../i18n';
 import { useLayout } from '../layout/store';
 import { narrowMode } from '../layout/narrow';
@@ -252,7 +252,7 @@ const WINDOWS: Array<{ kind: WindowKind; icon: IconName }> = [
 ];
 
 /**
- * Левый рейл: офисы, окна офиса, расход за день и пользователь. Развёрнутый
+ * Левый рейл: офисы, окна офиса, расход 5h / 1w и пользователь. Развёрнутый
  * (264) и свёрнутый до иконок (70) — переключается кнопкой у логотипа и
  * переживает перезагрузку.
  *
@@ -269,7 +269,6 @@ export function Rail({ onPanel, onModal }: {
   const offices = useStore((s) => s.offices);
   const instances = useStore((s) => s.instances);
   const tasks = useStore((s) => s.tasks);
-  const settings = useStore((s) => s.settings);
   const pending = useStore((s) => s.pending);
   const enterOffice = useStore((s) => s.enterOffice);
   // Ниже 1100 px рейл сворачивается сам (спека окон §2.9); сохранённый выбор не трогаем.
@@ -319,11 +318,6 @@ export function Rail({ onPanel, onModal }: {
   const counts: Partial<Record<WindowKind, number>> = {
     merge: readyToMerge, meetings: meetingLive ? 1 : 0, releases: releasesLive,
   };
-
-  // «Сегодня» — по агентам, как в HUD: общая сумма врала после перезапуска.
-  const today = Object.values(instances).reduce((sum, i) => sum + i.today.costUsd, 0);
-  const cap = settings.globalBudgetUsd;
-  const share = cap ? Math.min(1, today / cap) : 0;
 
   const openWindow = (kind: WindowKind) => {
     play('tick');
@@ -467,11 +461,7 @@ export function Rail({ onPanel, onModal }: {
 
       <div className="rail-foot">
         <UpdateBlock collapsed={collapsed} />
-        <div className="rail-spend">
-          <span className="muted">{t('shell.spendToday')}</span>
-          <b>{cap !== null ? t('shell.spendOf', { today: money(today), cap: money(cap) }) : money(today)}</b>
-        </div>
-        <div className="meter"><i className={share > .9 ? 'danger' : share > .75 ? 'warn' : ''} style={{ width: `${share * 100}%` }} /></div>
+        <RailSpend />
         <User />
       </div>
     </aside>
