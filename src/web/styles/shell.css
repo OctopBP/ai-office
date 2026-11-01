@@ -197,7 +197,9 @@
 /* Пока строку тащат, курсор «хватания» держится и вне неё самой — иначе он
    на долю секунды переключался бы на обычный при быстром движении мыши. */
 body.office-dragging, body.office-dragging * { cursor: grabbing !important; user-select: none; }
-.rail-sep { height: 0; border-top: 1px solid var(--hairline); margin-bottom: var(--space-2); flex: none; }
+/* Свободное место — перед меню вместе с разделителем и заголовком.
+   При нехватке высоты auto-отступ обнуляется, рейл сохраняет прокрутку. */
+.rail-sep { height: 0; border-top: 1px solid var(--hairline); margin-top: auto; margin-bottom: var(--space-2); flex: none; }
 
 .rail-windows { display: flex; flex-direction: column; flex: none; }
 .rail-win {
@@ -220,7 +222,7 @@ body.office-dragging, body.office-dragging * { cursor: grabbing !important; user
 .rail-win-count { font-size: var(--fs-small); font-weight: 500; color: var(--ink-3); }
 .rail-win-key kbd { color: var(--ink-3); }
 
-.rail-foot { margin-top: auto; padding: var(--space-2) var(--space-1) 0; }
+.rail-foot { padding: var(--space-2) var(--space-1) 0; }
 .rail-spend { display: flex; justify-content: space-between; gap: var(--space-2); font-size: var(--fs-small); margin-bottom: var(--space-1); }
 .rail-spend b { font-weight: 500; color: var(--ink-2); }
 .rail-user { position: relative; margin: var(--space-2) calc(-1 * var(--space-1)) 0; padding-top: var(--space-1); border-top: 1px solid var(--hairline); }
