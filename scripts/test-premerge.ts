@@ -778,6 +778,107 @@ async function zoneRootGate(check: (name: string, ok: boolean) => void): Promise
   }
 }
 
+/**
+ * T-757: маркеры в коммите не являются конфликтом для git, но являются им
+ * для гейта. Воспроизводим прежний порядок merge → npm и проверяем оба
+ * способа сборки, настоящие U-конфликты и переиспользование своей копии.
+ */
+async function manifestConflictGate(check: (name: string, ok: boolean) => void): Promise<void> {
+  const dir = fixture();
+  const integrationDir = resolve(dir, '.office', 'integration');
+  const git = (...args: string[]) => execFileSync('git', args, { cwd: dir, encoding: 'utf8', stdio: 'pipe' }).trim();
+  const вКопии = (...args: string[]) => execFileSync('git', args, {
+    cwd: integrationDir, encoding: 'utf8', stdio: 'pipe',
+  }).trim();
+  const исходный = readFileSync(resolve(dir, 'package.json'), 'utf8');
+  const маркеры = '{\n<<<<<<< HEAD\n"name": "задача"\n=======\n"name": "база"\n>>>>>>> main\n}\n';
+  try {
+    writeFileSync(resolve(dir, '.gitignore'), '.office/\nnode_modules/\n');
+    writeFileSync(resolve(dir, 'package-lock.json'), JSON.stringify({
+      name: 'fixture', lockfileVersion: 3, packages: {},
+    }));
+    git('add', '.gitignore', 'package-lock.json');
+    git('commit', '-qm', 'База с lock и игнорированием зависимостей');
+    git('checkout', '-q', '-b', 'task/маркеры', 'main');
+    writeFileSync(resolve(dir, 'package.json'), маркеры);
+    git('add', 'package.json');
+    git('commit', '-qm', 'Закоммиченный конфликт манифеста');
+    const задача = git('rev-parse', 'HEAD');
+    git('checkout', '-q', 'main');
+    const база = git('rev-parse', 'main');
+    mkdirSync(resolve(integrationDir, '..'), { recursive: true });
+    git('worktree', 'add', '--detach', integrationDir, 'main');
+    вКопии('merge', '--no-ff', '-m', 'Воспроизведение прежней сборки', 'task/маркеры');
+    check('T-757: git успешно слил закоммиченные маркеры без U',
+      вКопии('ls-files', '-u') === ''
+      && readFileSync(resolve(integrationDir, 'package.json'), 'utf8') === маркеры);
+    let вывод = '';
+    try {
+      execFileSync('npm', ['ci', '--ignore-scripts', '--no-audit', '--no-fund', '--offline'], {
+        cwd: integrationDir, encoding: 'utf8', stdio: 'pipe',
+        env: { ...process.env, npm_config_cache: resolve(dir, '.office', 'npm-cache') },
+      });
+    } catch (ошибка) {
+      const сбой = ошибка as { stdout?: string; stderr?: string };
+      вывод = String(сбой.stdout ?? '') + String(сбой.stderr ?? ошибка);
+    }
+    check('T-757: прежний порядок воспроизводит npm EJSONPARSE', вывод.includes('EJSONPARSE'));
+    // Оставляем собранное дерево: следующий гейт переиспользует эту копию.
+    mkdirSync(resolve(integrationDir, 'node_modules'), { recursive: true });
+    const метка = resolve(integrationDir, 'node_modules', 'не-трогать');
+    writeFileSync(метка, 'зависимости не запускались');
+    for (const message of [undefined, 'Сборка squash']) {
+      const отчёт = await preMergeGate({
+        repoDir: dir, branch: 'task/маркеры', base: 'main', integrationDir,
+        merge: false, message, checks: ['node -e "process.exit(0)"'],
+      });
+      check('T-757: маркеры возвращаются штатным конфликтом до npm',
+        отчёт.stage === 'conflict' && !отчёт.ok
+        && отчёт.conflicts.includes('package.json')
+        && отчёт.checks.length === 0 && отчёт.failed === null && existsSync(метка));
+      check('T-757: убрано только собранное дерево, ссылки базы и задачи целы',
+        вКопии('rev-parse', 'HEAD') === база
+        && git('rev-parse', 'main') === база && git('rev-parse', 'task/маркеры') === задача);
+    }
+
+    // Маркеры lock и вложенного проекта также должны остановить гейт.
+    git('checkout', '-q', '-b', 'task/вложенный', 'main');
+    mkdirSync(resolve(dir, 'zone'), { recursive: true });
+    writeFileSync(resolve(dir, 'zone/package.json'), маркеры);
+    writeFileSync(resolve(dir, 'package-lock.json'), маркеры);
+    git('add', '-A');
+    git('commit', '-qm', 'Маркеры в lock и зоне');
+    git('checkout', '-q', 'main');
+    const вложенный = await preMergeGate({
+      repoDir: dir, branch: 'task/вложенный', base: 'main', integrationDir, merge: false, checks: [],
+    });
+    check('T-757: lock и вложенный манифест проверяются даже без команд',
+      вложенный.stage === 'conflict' && вложенный.conflicts.includes('package-lock.json')
+      && вложенный.conflicts.includes('zone/package.json'));
+
+    // Настоящий конфликт main + task остаётся на прежнем пути.
+    writeFileSync(resolve(dir, 'package.json'), исходный.replace('fixture', 'новая-база'));
+    git('add', 'package.json');
+    git('commit', '-qm', 'База меняет тот же манифест');
+    const конфликт = await preMergeGate({
+      repoDir: dir, branch: 'task/маркеры', base: 'main', integrationDir,
+      merge: false, checks: ['node -e "process.exit(0)"'],
+    });
+    check('T-757: реальный конфликт останавливается до npm',
+      конфликт.stage === 'conflict' && конфликт.conflicts.includes('package.json')
+      && конфликт.checks.length === 0 && existsSync(метка));
+
+    // Чистая ветка после отказов проходит в той же integration-копии.
+    const чистый = await preMergeGate({
+      repoDir: dir, branch: 'task/T-green', base: 'main', integrationDir, merge: false,
+    });
+    check('T-757: повторное использование после конфликтов остаётся рабочим',
+      чистый.ok && чистый.stage === 'checked' && чистый.checks.every((c) => c.ok));
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+}
+
 async function main(): Promise<void> {
   const dir = fixture();
   const git = (...args: string[]) => execFileSync('git', args, { cwd: dir, encoding: 'utf8' }).trim();
@@ -886,6 +987,7 @@ async function main(): Promise<void> {
   rmSync(defaultIntegrationDir(dir), { recursive: true, force: true });
   rmSync(dir, { recursive: true, force: true });
 
+  await manifestConflictGate(check);
   await busyIntegration(check);
   await pipelineGate(check);
   await depsGate(check);

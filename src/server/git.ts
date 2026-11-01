@@ -868,6 +868,33 @@ export async function assembleMerge(
     });
   }
 
+  // Git принимает уже закоммиченные маркеры как обычный текст: merge успешен,
+  // индекс без U, но npm на таком манифесте падает с EJSONPARSE. Проверяем
+  // индекс результата до коммита squash и до передачи дерева гейту. В JSON
+  // отдельная строка маркера недопустима; строки внутри значений не совпадут.
+  // Учитываем также манифесты вложенных проектов (проверки зоны).
+  const markers = await git(worktree, [
+    '-c', 'core.quotepath=false', 'grep', '--cached', '-l', '-z', '-E',
+    '^(<{7,}|={7,}|>{7,})([[:space:]].*)?$', '--',
+    ':(glob)**/package.json', ':(glob)**/package-lock.json',
+  ]);
+  if (markers.code !== 1) {
+    // Это наше только что собранное дерево в проверенной integration-копии.
+    // Успешный обычный merge уже сделал коммит: merge --abort его не уберёт.
+    await git(worktree, ['reset', '--hard', baseSha]);
+    if (!markers.ok) {
+      return assembled({
+        kind: 'failed',
+        message: t(lang, 'git.mergeFailed', { error: markers.stderr, repo: repoDir }),
+      });
+    }
+    const files = markers.stdout.split('\0').filter(Boolean);
+    return assembled({
+      kind: 'conflict', conflicts: files,
+      message: t(lang, 'git.mergeConflict', { files: files.join(', ') }),
+    });
+  }
+
   if (squash) {
     // Коммиты в ветке есть, а изменений нет: всё это уже лежит в базе (ветку
     // влили раньше и не удалили). Пустой коммит задачи в истории ни к чему.
