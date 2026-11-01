@@ -1055,6 +1055,12 @@ Keep your replies to the user short. Which language to write them in is said in 
   'review.noReviewerRole': 'There is no reviewer role in the registry.',
   'review.noReviewerStaff': 'The reviewer role has no staff — there is nobody to review. A reviewer has to be hired.',
   'review.reviewerBusy': 'The reviewer has been busy for more than ten minutes.',
+  'review.noSessionResult': 'session ended without a final result',
+  'review.cancelled': "review cancelled",
+  'review.alreadyDecided': "A verdict has already been recorded; duplicate call rejected.",
+  'review.finishRetry': "Review finished without a verdict call: one continuation of the same session without repeating checks.",
+  'review.noVerdictAfterRetry': "reviewer finished twice without calling approve_pr/request_changes; the single continuation is exhausted, text is not a verdict",
+  'prompt.review.finishVerdict': "The review analysis is complete. Do not repeat the full checks or reread the diff. Give an explicit verdict from the existing results now with exactly one call to approve_pr({summary}) or request_changes({summary}). Plain text does not complete the review.",
   'review.noVerdict': 'the reviewer finished without giving a verdict (neither approve_pr nor request_changes)',
   'review.sessionBroke': 'the reviewer session broke off: {error}',
 

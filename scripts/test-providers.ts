@@ -50,6 +50,10 @@ readline.createInterface({input:process.stdin}).on('line',line=>{
       send({method:'item/completed',params:{threadId:thread,item:{type:'contextCompaction'}}});
       return setTimeout(()=>{compactActive=false;complete();},80);
     }
+    if(mode==='stale-completion') {
+      send({method:'turn/completed',params:{threadId:thread,turn:{id:'previous-turn',status:'completed'}}});
+      return setTimeout(()=>complete('completed','актуальный результат'),30);
+    }
     if(mode==='hang') return;
     if(mode==='crash') return process.exit(17);
     if(mode==='tool') return send({id:900,method:'item/tool/call',params:{threadId:thread,turnId:'turn-'+active,callId:'call',tool:tools[0].name,arguments:{text:'hello'}}});
@@ -113,6 +117,10 @@ assert.equal(result.type === 'result' && result.usage.cache_read_input_tokens, 2
 const denied = await collect(query({ prompt: 'tool', options: { ...options(), canUseTool: async () => ({ behavior: 'deny', message: 'No' }) } }));
 assert.equal(called, 1);
 assert(denied.some(m => m.type === 'result' && 'result' in m && m.result === 'tool denied'));
+// Позднее завершение чужого хода не выдаёт пустой успех и не обрывает текущий.
+const чужоеЗавершение = await collect(query({ prompt: 'stale-completion', options: options() }));
+assert.deepEqual(чужоеЗавершение.filter(m => m.type === 'result').map(m => 'result' in m ? m.result : null), ['актуальный результат']);
+
 const resumed = await collect(query({ prompt: 'tool', options: { ...options(), resume: 'codex:test-thread' } }));
 assert(resumed.some(m => m.type === 'result' && m.subtype === 'success'));
 

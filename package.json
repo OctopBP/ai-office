@@ -100,6 +100,7 @@
     "test:question-queue": "node --import tsx scripts/test-question-queue.ts",
     "test:lost-question": "node --import tsx scripts/test-lost-question.ts",
     "test:contradictions": "node --import tsx scripts/test-contradictions.ts && node --import tsx scripts/test-contradictions-ritual.ts && node --import tsx scripts/test-contradictions-history.ts && node --import tsx scripts/test-contradictions-delegate.ts",
+    "test:review-verdict": "node --import tsx scripts/test-вердикт-ревью.ts",
     "test:review": "node --import tsx scripts/test-review.ts",
     "test:workflow": "tsx scripts/test-workflow.ts",
     "test:workflow-overrides": "node --import tsx/esm scripts/test-workflow-overrides.ts",

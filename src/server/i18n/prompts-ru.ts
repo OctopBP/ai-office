@@ -1041,6 +1041,12 @@ export const promptsRu: Record<keyof typeof promptsEn, string> = {
   'review.noReviewerRole': 'Роли ревьюера нет в реестре.',
   'review.noReviewerStaff': 'В роли ревьюера нет сотрудников — ревьюить некому. Нужно нанять ревьюера.',
   'review.reviewerBusy': 'Ревьюер занят дольше десяти минут.',
+  'review.noSessionResult': 'сессия завершилась без итогового результата',
+  'review.cancelled': "ревью отменено",
+  'review.alreadyDecided': "Вердикт уже принят; повторный вызов отклонён.",
+  'review.finishRetry': "Ревью завершилось без вызова вердикта: одно продолжение той же сессии без повторной проверки.",
+  'review.noVerdictAfterRetry': "ревьюер дважды завершился без вызова approve_pr/request_changes; единственное продолжение исчерпано, текст не считается вердиктом",
+  'prompt.review.finishVerdict': "Анализ ревью уже проведён. Не запускай повторную полную проверку и не перечитывай дифф. Сейчас вынеси явный вердикт по уже полученным результатам ровно одним вызовом approve_pr({summary}) или request_changes({summary}). Обычный текст не завершает ревью.",
   'review.noVerdict': 'ревьюер закончил, не вынеся вердикта (ни approve_pr, ни request_changes)',
   'review.sessionBroke': 'сессия ревьюера оборвалась: {error}',
 

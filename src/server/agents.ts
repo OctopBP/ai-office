@@ -4367,6 +4367,7 @@ async function collectWorker(
 
   const run: WorkerRun = { text: '', failed: null, thrashed: false, budget: null };
   let measured = !fresh;
+  let полученРезультат = false;
   let releaseHalt = () => {};
   let stoppedAt = 0;
   const onGuard = (signal: GuardSignal | null) => {
@@ -4411,6 +4412,7 @@ async function collectWorker(
         if (run.budget) break;
         guard.turnEnded();
         if (resumed?.onResult(msg)) continue;
+        полученРезультат = true;
         if (isOk(msg)) {
           run.text = msg.result ?? '';
         } else {
@@ -4440,7 +4442,7 @@ async function collectWorker(
     // Что бы ни ответила прерванная сессия, причина одна — предохранитель.
     return { text: '', failed: budgetReason(state, run.budget, role), thrashed: false, budget: run.budget };
   }
-  run.failed ??= resumed?.unanswered() ?? null;
+  run.failed ??= resumed?.unanswered() ?? (!полученРезультат ? state.say('review.noSessionResult') : null);
   return run;
 }
 
@@ -4496,7 +4498,10 @@ export async function driveWorker(
  * это был результат команды — цикл его пропускает; сорвавшееся сжатие
  * задание не отменяет, оно лишь пойдёт по несжатому разговору.
  */
-function resumedPrompt(state: OfficeState, instanceId: string, text: string): {
+function resumedPrompt(
+  state: OfficeState, instanceId: string, text: string,
+  послеОтвета?: () => string | null, сжать = true,
+): {
   prompt: MessageQueue;
   /** true — это был результат команды: задание только что ушло, цикл идёт дальше. */
   onResult(msg: SDKMessage & { type: 'result' }): boolean;
@@ -4504,13 +4509,21 @@ function resumedPrompt(state: OfficeState, instanceId: string, text: string): {
   unanswered(): string | null;
 } {
   const prompt = new MessageQueue();
-  let stage: 'compact' | 'task' | 'done' = 'compact';
+  let stage: 'compact' | 'task' | 'done' = сжать ? 'compact' : 'task';
   let compactError: string | null = null;
-  prompt.push(`/compact ${state.say('agent.worker.compactAsk')}`);
+  prompt.push(сжать ? `/compact ${state.say('agent.worker.compactAsk')}` : text);
   return {
     prompt,
     onResult(msg) {
+      if (stage === 'done') return false;
       if (stage !== 'compact') {
+        // Продолжение остаётся в том же потоке и под тем же предохранителем.
+        const далее = isOk(msg) && !state.instances.get(instanceId)?.abort?.signal.aborted
+          ? послеОтвета?.() : null;
+        if (далее) {
+          prompt.push(далее);
+          return true;
+        }
         stage = 'done';
         prompt.close();
         return false;
@@ -4526,7 +4539,8 @@ function resumedPrompt(state: OfficeState, instanceId: string, text: string): {
     // Сессия кончилась, не ответив на задание: скорее всего, продолжать было
     // нечего, и результат команды был первым и последним. Без этого обрыв
     // выглядел бы как задача, сделанная без отчёта.
-    unanswered: () => (stage === 'done' ? null : compactError ?? state.say('agent.log.resumeBroke')),
+    unanswered: () => (stage === 'done' ? null : compactError
+      ?? state.say(сжать ? 'agent.log.resumeBroke' : 'review.noSessionResult')),
   };
 }
 
@@ -4568,6 +4582,8 @@ async function runAgentSession(
     extraDirs?: string[];
     /** Оболочка шага процесса сверх инструментов роли (узел `shell`). */
     shell?: 'git-read';
+    /** Однократное завершение ревью после успешного ответа без инструмента. */
+    послеОтвета?: () => string | null;
   },
 ): Promise<SessionRun> {
   if (state.budgetExhausted()) {
@@ -4586,7 +4602,8 @@ async function runAgentSession(
   try {
     // Продолжаемый разговор сначала ужимаем: доработка не должна платить за
     // каждый ход первой попытки.
-    const resumed = opts.resume ? resumedPrompt(state, inst.id, opts.prompt) : null;
+    const resumed = opts.resume || opts.послеОтвета
+      ? resumedPrompt(state, inst.id, opts.prompt, opts.послеОтвета, !!opts.resume) : null;
     const run = await driveWorker(state, inst, role, {
       resume: opts.resume,
       prompt: resumed?.prompt ?? opts.prompt,
@@ -4631,6 +4648,7 @@ async function runAgentSession(
         { taskId: opts.taskId });
       return { ok: false, text: '', error: failed, needsDecision: true };
     }
+    if (abort.signal.aborted) return { ok: false, text: '', error: state.say('review.cancelled') };
     return { ok: !failed, text: finalText, error: failed };
   } catch (err) {
     return { ok: false, text: '', error: (err as Error).message };
@@ -4851,7 +4869,7 @@ async function runStep(state: OfficeState, task: Task, req: StepRequest): Promis
 }
 
 /** Ревью пулл-реквеста: смотрит живой ревьюер и выносит вердикт инструментом. */
-async function reviewPr(
+export async function reviewPr(
   state: OfficeState, task: Task, pr: PullRequestView,
 ): Promise<ReviewOutcome> {
   // Ревьюер с допуском к зоне задачи (subprojects.ts → reviewerFor). Ревьюеры
@@ -4897,6 +4915,7 @@ async function reviewPr(
         state.say('tool.approvePr.desc'),
         { summary: z.string().describe(state.say('tool.approvePr.summary')) },
         async (args) => {
+          if (verdict) return { content: [{ type: 'text', text: state.say('review.alreadyDecided') }], isError: true };
           verdict = 'approve';
           text = args.summary;
           return { content: [{ type: 'text', text: state.say('tool.approvePr.ok') }] };
@@ -4907,6 +4926,7 @@ async function reviewPr(
         state.say('tool.requestChanges.desc'),
         { summary: z.string().describe(state.say('tool.requestChanges.summary')) },
         async (args) => {
+          if (verdict) return { content: [{ type: 'text', text: state.say('review.alreadyDecided') }], isError: true };
           verdict = 'changes';
           text = args.summary;
           return { content: [{ type: 'text', text: state.say('tool.requestChanges.ok') }] };
@@ -4973,6 +4993,7 @@ async function reviewPr(
         ...tail,
       ].filter(Boolean).join('\n');
 
+  let продолжено = false;
   const run = await runAgentSession(state, inst, role, {
     cwd: task.worktreePath ?? pr.repoDir,
     prompt,
@@ -4981,16 +5002,22 @@ async function reviewPr(
     mcp: { office: tools },
     note: state.say('agent.state.reviewing', { task: task.id }),
     resume: resumeId,
+    послеОтвета: () => {
+      if (verdict || продолжено) return null;
+      продолжено = true;
+      state.addLog(inst.id, 'system', state.say('review.finishRetry'));
+      return state.say('prompt.review.finishVerdict');
+    },
   });
   if (inst.sessionId) state.updateTask(task.id, { reviewerSessionId: inst.sessionId });
 
-  if (!verdict) {
+  if (!run.ok || !verdict) {
     return {
       verdict: 'changes', text: '', reviewerId: inst.id,
       needsDecision: run.needsDecision,
       error: run.error
         ? state.say('review.sessionBroke', { error: run.error })
-        : state.say('review.noVerdict'),
+        : state.say(продолжено ? 'review.noVerdictAfterRetry' : 'review.noVerdict'),
     };
   }
   return { verdict, text, reviewerId: inst.id };

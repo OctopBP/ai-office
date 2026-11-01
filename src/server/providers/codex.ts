@@ -166,7 +166,7 @@ export function codexQuery({ prompt, options }: SessionRequest): AgentSession {
     const p = msg.params ?? {};
     if (msg.method === 'account/rateLimits/updated') rateReport(p);
     if (p.threadId && thread && p.threadId !== thread) return;
-    if (msg.method === 'turn/started') turn = p.turn.id;
+    if (msg.method === 'turn/started' && turnActive) turn = p.turn.id;
     if (msg.method === 'item/agentMessage/delta') {
       emit({ type: 'stream_event', parent_tool_use_id: null,
         event: { type: 'content_block_delta', index: 0, delta: { type: 'text_delta', text: p.delta } } });
@@ -208,6 +208,8 @@ export function codexQuery({ prompt, options }: SessionRequest): AgentSession {
       }
     }
     if (msg.method === 'turn/completed') {
+      // Поздний или повторный результат прошлого хода не закрывает текущий.
+      if (!turnActive || p.turn.id !== turn) return;
       const error = turnError === 'maxTurns' ? 'Reached maximum number of turns' : turnError === 'budget' ? 'Reached the USD budget'
         : turnError ?? (p.turn.status === 'completed' ? undefined
         : p.turn.error?.message ?? `Codex turn ${p.turn.status}`);
