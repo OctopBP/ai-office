@@ -40,6 +40,7 @@ export type { ModelTier } from '../../shared/models';
 
 export interface ModelInfo {
   id: string;
+  opencode?: import('../../shared/providers').МодельOpenCode;
   label: string;
   tier?: ModelTier;
   contextWindow?: number;
@@ -77,7 +78,7 @@ export class LoginError extends Error {
 }
 
 /** Параметры сессии. `provider` выбирает адаптер; остальное — общий словарь офиса. */
-export type SessionOptions = Options & { provider?: ProviderId };
+export type SessionOptions = Options & { provider?: ProviderId; opencode?: import('../../shared/providers').ПараметрыOpenCode };
 export type SessionRequest = { prompt: string | AsyncIterable<SDKUserMessage>; options: SessionOptions };
 /** Живая сессия: поток сообщений, лимиты без платного хода и состояние MCP-серверов. */
 export type EngineSession = AsyncIterable<SDKMessage> & LimitSource & McpStatusSource;

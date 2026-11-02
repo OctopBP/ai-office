@@ -20,7 +20,7 @@ import { setEngineSecrets } from '../childenv';
 import { LoginError } from './types';
 
 /** Под каким именем ключ провайдера живёт в окружении движка. */
-export const KEY_VAR: Record<ProviderId, string> = {
+export const KEY_VAR: Partial<Record<ProviderId, string>> = {
   'claude-code': 'ANTHROPIC_API_KEY',
   codex: 'OPENAI_API_KEY',
   xai: 'XAI_API_KEY',
@@ -240,7 +240,7 @@ let keychainOk = false;
 
 function publish(): void {
   const secrets: Record<string, string> = {};
-  for (const [provider, key] of cache) secrets[KEY_VAR[provider]] = key;
+  for (const [provider, key] of cache) if (KEY_VAR[provider]) secrets[KEY_VAR[provider]!] = key;
   setEngineSecrets(secrets);
 }
 
@@ -249,7 +249,7 @@ export function loadKeys(): Promise<void> {
   loaded ??= (async () => {
     keychainOk = await store.available().catch(() => false);
     if (!keychainOk) return;
-    for (const provider of PROVIDER_IDS) {
+    for (const provider of PROVIDER_IDS.filter(id => id !== 'opencode')) {
       try {
         const key = await store.get(account(provider));
         if (key) cache.set(provider, key);
@@ -270,15 +270,17 @@ export async function keychainAvailable(): Promise<boolean> {
 
 /** Ключ провайдера: из связки, а если там нет — из переменной окружения сервера. */
 export function providerKey(provider: ProviderId): { key: string; source: 'keychain' | 'env' } | null {
+  if (provider === 'opencode') return null;
   const stored = cache.get(provider);
   if (stored) return { key: stored, source: 'keychain' };
-  const env = process.env[KEY_VAR[provider]]
+  const env = (KEY_VAR[provider] ? process.env[KEY_VAR[provider]!] : undefined)
     || (provider === 'claude-code' ? process.env.ANTHROPIC_AUTH_TOKEN : undefined);
   return env ? { key: env, source: 'env' } : null;
 }
 
 /** Положить ключ в связку и сразу отдать его движкам. */
 export async function saveKey(provider: ProviderId, secret: string): Promise<void> {
+  if (provider === 'opencode') throw new Error('OpenCode использует отдельные ключи поставщиков');
   await loadKeys();
   if (!keychainOk) throw new Error('keychain unavailable');
   await store.set(account(provider), secret);
@@ -287,6 +289,7 @@ export async function saveKey(provider: ProviderId, secret: string): Promise<voi
 }
 
 export async function deleteKey(provider: ProviderId): Promise<void> {
+  if (provider === 'opencode') throw new Error('OpenCode использует отдельные ключи поставщиков');
   await loadKeys();
   if (keychainOk) await store.delete(account(provider));
   cache.delete(provider);

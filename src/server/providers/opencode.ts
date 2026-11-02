@@ -288,7 +288,7 @@ interface Server {
 export interface OcEvent { type: string; properties: Record<string, any> }
 
 /** Поднять `opencode serve` на свободном порту и дождаться адреса в выводе. */
-async function startServer(cwd: string, env: NodeJS.ProcessEnv, signal: AbortSignal): Promise<Server> {
+export async function startServer(cwd: string, env: NodeJS.ProcessEnv, signal: AbortSignal): Promise<Server> {
   const password = randomBytes(24).toString('base64url');
   const auth = `Basic ${Buffer.from(`office:${password}`).toString('base64')}`;
   const child = spawn(opencodeBinary(), ['serve', '--hostname=127.0.0.1', '--port=0'], {

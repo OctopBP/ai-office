@@ -22,7 +22,7 @@ import { installFromNpm } from './install';
 import { deleteKey, providerKey, saveKey, verifyKey } from './keys';
 import { LoginError, type EngineAdapter, type EngineCapabilities, type ModelInfo, type ProviderStatus } from './types';
 
-const OPENCODE_PROVIDERS: ProviderId[] = ['xai', 'deepseek', 'openrouter', 'google', 'alibaba', 'ollama', 'custom'];
+const OPENCODE_PROVIDERS: ProviderId[] = ['opencode', 'xai', 'deepseek', 'openrouter', 'google', 'alibaba', 'ollama', 'custom'];
 
 /** Найденный движок: запуск `--version` — сотни миллисекунд, а статус спрашивают часто. */
 let located: { at: number; value: { path: string; version: string } | null } | null = null;
@@ -88,6 +88,8 @@ export const opencodeEngine: EngineAdapter = {
   locate: () => locate(),
 
   async status(provider, opts): Promise<ProviderStatus> {
+    // Каталог готов отдельно; API и запуск нативного подключения подключаются следующими частями.
+    if (provider === 'opencode') return { state: 'error', detail: 'Нативное подключение OpenCode ещё не подключено к API и сессиям' };
     const force = opts?.force === true;
     if (!await locate(force)) {
       return { state: 'not-installed', engine: 'opencode', sizeMb: opencodeEngine.sizeMb,
@@ -125,6 +127,7 @@ export const opencodeEngine: EngineAdapter = {
 
   async login(req) {
     const { provider } = req;
+    if (provider === 'opencode') throw new LoginError('unsupported', 'Используйте отдельное подключение нативного поставщика OpenCode');
     // Подписки у OpenAI-совместимых провайдеров нет: без отказа запрос входа
     // по подписке ушёл бы проверкой ключа и вернул «нужен ключ» вместо «не умею».
     if (req.kind !== 'api-key') throw new LoginError('unsupported', `login kind ${req.kind} is not supported`);
@@ -164,6 +167,7 @@ export const opencodeEngine: EngineAdapter = {
   },
 
   async logout(provider) {
+    if (provider === 'opencode') throw new LoginError('unsupported', 'Используйте отдельное подключение нативного поставщика OpenCode');
     await deleteKey(provider);
     forgetBaseUrl(provider);
     if (provider === 'custom') forgetCustomApi();
@@ -171,6 +175,7 @@ export const opencodeEngine: EngineAdapter = {
   },
 
   async models(provider): Promise<ModelInfo[]> {
+    if (provider === 'opencode') return []; // Каталог доступен через каталогOpenCode, HTTP подключается отдельно.
     // Ключа нет или сервер молчит — хотя бы модели из каталога цен: форма
     // роли покажет их подсказкой, а ввести свою модель можно всё равно.
     const ids = await fetchModels(provider).catch(async () =>
@@ -186,5 +191,8 @@ export const opencodeEngine: EngineAdapter = {
     }));
   },
 
-  start: opencodeQuery,
+  start(request) {
+    if (request.options.provider === 'opencode') throw new Error('Запуск нативных сессий OpenCode ещё не подключён');
+    return opencodeQuery(request);
+  },
 };

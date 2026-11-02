@@ -40,6 +40,7 @@ interface ProviderSpec {
  * Google условия Google запрещают (docs/legal/T-210/antigravity.md).
  */
 export const PROVIDERS = {
+  opencode: { label: 'OpenCode', engine: 'opencode', defaultModel: 'default', cloud: false },
   'claude-code': { label: 'Claude Code', engine: 'claude-code', defaultModel: 'claude-sonnet-5-5', cloud: true },
   codex: { label: 'OpenAI (ChatGPT / Codex)', engine: 'codex', defaultModel: 'default', cloud: false },
   xai: {
@@ -95,6 +96,7 @@ export const providerOf = (role?: { provider?: ProviderId }): ProviderId => role
 export interface ModelChoice {
   provider: ProviderId;
   model: string;
+  opencode?: ПараметрыOpenCode;
 }
 
 /**
@@ -108,7 +110,8 @@ export const DEFAULT_MODEL_CHOICE: ModelChoice = {
 
 /** Один ли выбор. null — «провайдер не выбран», равен только себе. */
 export const sameChoice = (a: ModelChoice | null, b: ModelChoice | null): boolean =>
-  a === b || (a !== null && b !== null && a.provider === b.provider && a.model === b.model);
+  a === b || (a !== null && b !== null && a.provider === b.provider && a.model === b.model
+    && (a.provider !== 'opencode' || JSON.stringify(очиститьПараметрыOpenCode(a.opencode)) === JSON.stringify(очиститьПараметрыOpenCode(b.opencode))));
 
 /**
  * Id сессии для движка провайдера. Чужие движки помечают свои id префиксом
@@ -242,4 +245,42 @@ export interface EngineCapabilities {
   skills: 'plugin' | 'tool' | 'none';
   webSearch: boolean;
   cloud: boolean;
+}
+
+/** Только типизированные настройки: произвольный конфиг движка не принимается. */
+export interface ПараметрыOpenCode {
+  вариант?: string;
+  температура?: number;
+  пределОтвета?: number;
+}
+export function проверитьФормуOpenCode(raw: unknown): ПараметрыOpenCode {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) throw new Error('opencode: ожидается объект параметров');
+  const r = raw as Record<string, unknown>;
+  for (const k of Object.keys(r)) if (!['вариант', 'температура', 'пределОтвета'].includes(k)) throw new Error(`opencode.${k}: неизвестный параметр`);
+  if ('вариант' in r && (typeof r.вариант !== 'string' || !r.вариант || r.вариант.length > 100)) throw new Error('opencode.вариант: неверное имя');
+  if ('температура' in r && (typeof r.температура !== 'number' || !Number.isFinite(r.температура) || r.температура < 0 || r.температура > 2)) throw new Error('opencode.температура: ожидается число от 0 до 2');
+  if ('пределОтвета' in r && (typeof r.пределОтвета !== 'number' || !Number.isInteger(r.пределОтвета) || r.пределОтвета < 1 || r.пределОтвета > 32000)) throw new Error('opencode.пределОтвета: ожидается целое от 1 до 32000');
+  return { ...(r.вариант !== undefined ? { вариант: r.вариант as string } : {}), ...(r.температура !== undefined ? { температура: r.температура as number } : {}), ...(r.пределОтвета !== undefined ? { пределОтвета: r.пределОтвета as number } : {}) };
+}
+/** Чтение старых сохранений: мусор отбрасывается с диагностикой. */
+export function очиститьПараметрыOpenCode(raw: unknown): ПараметрыOpenCode {
+  if (raw === undefined) return {};
+  try { return проверитьФормуOpenCode(raw); }
+  catch { console.warn('[opencode] Некорректные сохранённые параметры очищены'); return {}; }
+}
+export interface МодельOpenCode {
+  провайдер: string; модель: string; статус: string;
+  инструменты: boolean; рассуждение: boolean; варианты: string[];
+  температура?: { мин: number; макс: number };
+  пределОтвета?: { мин: number; макс: number };
+  контекст?: number; вход?: number; выход?: number;
+  доступна: boolean; причина?: string;
+  причиныПараметров?: { температура?: string; пределОтвета?: string };
+}
+export interface КаталогOpenCode {
+  версия: string; совместима: boolean; проверенныеВерсии: string[];
+  ревизия: string; обновлёнВ: number; устарел: boolean;
+  провайдеры: { id: string; название: string; доступен: boolean; причина?: string;
+    авторизация: { состояние: 'нет' | 'ключ' | 'не-проверен' | 'отклонён' | 'без-входа' | 'не-поддерживается'; хвост?: string };
+    модели: { id: string; label: string; contextWindow?: number; price?: { input: number; output: number; cachedInput?: number }; opencode: МодельOpenCode }[] }[];
 }

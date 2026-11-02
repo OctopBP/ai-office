@@ -573,6 +573,7 @@ export interface SubprojectView extends Subproject {
 
 /** Поля роли, которые пользователь может менять из UI. */
 export interface RoleEditable {
+  opencode?: import('./providers').ПараметрыOpenCode;
   /**
    * Провайдер и модель, на которых роль работает. В `RoleView` — уже
    * разрешённые: свой выбор роли или выбор офиса (`Settings.model`).

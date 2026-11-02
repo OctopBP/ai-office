@@ -65,6 +65,7 @@ export const PROVIDER_SECRET_VARS: readonly string[] = [
   'OPENROUTER_API_KEY',
   'OLLAMA_API_KEY',
   'OFFICE_CUSTOM_API_KEY',
+  'OFFICE_OPENCODE_API_KEY',
 ];
 
 /**

@@ -677,7 +677,7 @@ assert.equal(role.provider, 'codex'); assert.equal(role.model, 'default');
     // Своя переменная ключа: ни у кого больше её нет, и из команд агента она вычищается.
     const shared = Object.entries(KEY_VAR).filter(([other, v]) => other !== id && v === KEY_VAR[id]);
     assert.deepEqual(shared, [], `${id}: переменная ключа ни с кем не делится`);
-    assert(PROVIDER_SECRET_VARS.includes(KEY_VAR[id]), `${id}: ключ не попадает в команды агента`);
+    assert(PROVIDER_SECRET_VARS.includes(KEY_VAR[id]!), `${id}: ключ не попадает в команды агента`);
   }
   assert.equal(KEY_VAR.google, 'GEMINI_API_KEY'); assert.equal(KEY_VAR.alibaba, 'DASHSCOPE_API_KEY');
   assert.equal(ALL.alibaba.defaultModel, 'qwen-plus');
