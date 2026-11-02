@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 // Прогон ввода и темы MCP-сервера браузера: пишет страницу с формой во временную папку,
 // запускает server.mjs как MCP-клиент по stdio, отдаёт её через serve и проверяет type,
-// press_key и set_color_scheme. Каждый шаг — строка ОК/ОШИБКА, как в smoke.mjs.
+// hover, press_key и set_color_scheme. Каждый шаг — строка ОК/ОШИБКА, как в smoke.mjs.
 // Запуск: node tools/browser/input.mjs   (npm run test:browser-input)
 import { mkdtemp, mkdir, writeFile } from 'node:fs/promises';
 import os from 'node:os';
@@ -26,9 +26,22 @@ const PAGE = `<!doctype html><html><head><meta charset="utf-8"><title>QA input</
   <input id="next" name="next">
   <button>Отправить</button>
 </form>
+<button id="hint">Навести для подсказки</button>
+<span id="tooltip" role="tooltip" hidden>Локальная подсказка</span>
+<button id="outside">Увести указатель сюда</button>
 <script>
 const state = { name: 'старое', bio: 'старый текст', inputs: 0, changes: 0, submitted: null, escape: 0, keys: '' };
 window.__QA_STATE__ = state;
+// Считаем только доверенные события браузера; dispatchEvent такую проверку не пройдёт.
+state.hover = { pointerenter: 0, mouseenter: 0, pointerleave: 0, mouseleave: 0 };
+const мишень = document.getElementById('hint'), подсказка = document.getElementById('tooltip');
+for (const тип of Object.keys(state.hover)) {
+  мишень.addEventListener(тип, (событие) => {
+    if (событие.isTrusted) state.hover[тип]++;
+    подсказка.hidden = тип.endsWith('leave');
+  });
+}
+Object.defineProperty(state.hover, 'visible', { enumerable: true, get: () => !подсказка.hidden });
 const render = () => { for (const id of ['name', 'bio']) { const el = document.getElementById(id); if (el.value !== state[id]) el.value = state[id]; } };
 for (const id of ['name', 'bio']) {
   const el = document.getElementById(id);
@@ -85,6 +98,35 @@ await step('serve и open формы', async () => {
   assert(d.status === 200, `статус ${d.status}`);
   assert(d.device?.colorScheme === 'light', `схема по умолчанию не light: ${short(d.device)}`);
   return `${d.status} «${d.title}»`;
+});
+await step('hover зарегистрирован и возвращает только подтверждение', async () => {
+  const { tools } = await client.listTools();
+  assert(tools.some((t) => t.name === 'hover'), 'hover нет в списке MCP');
+  const r = await must('hover', { selector: '#hint' });
+  assert(JSON.stringify(r) === '{"hovered":true}', `лишние данные в ответе: ${short(r)}`);
+});
+await step('hover вызывает доверенные pointerenter/mouseenter и показывает подсказку', async () => {
+  const s = await app('hover');
+  assert(s.pointerenter >= 1 && s.mouseenter >= 1, `события наведения не пришли: ${short(s)}`);
+  assert(s.visible === true, 'подсказка не появилась');
+  return short(s);
+});
+await step('hover другого элемента вызывает уход и скрывает подсказку', async () => {
+  await must('hover', { selector: '#outside' });
+  const s = await app('hover');
+  assert(s.pointerleave >= 1 && s.mouseleave >= 1, `события ухода не пришли: ${short(s)}`);
+  assert(s.visible === false, 'подсказка осталась видимой');
+  return short(s);
+});
+await step('hover отсутствующего селектора возвращает понятную ошибку', async () => {
+  const r = await call('hover', { selector: '#no-hover-element' });
+  assert(r.error?.includes('селектор не нашёл элемент: #no-hover-element'), `ошибка: ${short(r)}`);
+  return r.error;
+});
+await step('hover неоднозначного селектора требует один элемент', async () => {
+  const r = await call('hover', { selector: 'button' });
+  assert(r.error?.includes('нужен один: button'), `ошибка: ${short(r)}`);
+  return r.error;
 });
 await step('type в input заменяет значение, state видит его', async () => {
   const r = await must('type', { selector: '#name', text: 'Иван Петров' });

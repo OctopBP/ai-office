@@ -926,7 +926,7 @@ server.registerTool(
   }),
 );
 
-// ——— Ввод с клавиатуры ———
+// ——— Наведение и ввод с клавиатуры ———
 
 const INPUT_TIMEOUT = 5_000;
 
@@ -980,6 +980,23 @@ server.registerTool(
     const value = await fieldValue(loc);
     if (press) await loc.press(press, { timeout: INPUT_TIMEOUT });
     return { selector, value, ...(press ? { pressed: press } : {}) };
+  }),
+);
+
+server.registerTool(
+  'hover',
+  {
+    description:
+      'Навести указатель на один элемент по селектору Playwright. Для ухода с элемента вызовите hover ' +
+      'с селектором другого элемента. Возвращает только подтверждение.',
+    inputSchema: {
+      selector: z.string().min(1).describe('Селектор ровно одного элемента, например #hint или .rail-spend-row'),
+    },
+  },
+  tool(async ({ selector: селектор }) => {
+    const элемент = await fieldBy(селектор);
+    await элемент.hover({ timeout: INPUT_TIMEOUT });
+    return { hovered: true };
   }),
 );
 
