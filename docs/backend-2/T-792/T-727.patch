@@ -1,0 +1,631 @@
+diff --git "a/docs/backend/T-727/\320\277\320\273\320\260\320\275.md" "b/docs/backend/T-727/\320\277\320\273\320\260\320\275.md"
+new file mode 100644
+index 0000000..6ae3ffe
+--- /dev/null
++++ "b/docs/backend/T-727/\320\277\320\273\320\260\320\275.md"
+@@ -0,0 +1,5 @@
++# T-727
++
++Реализация отдельного подключения OpenCode по контракту T-726.
++
++Контракт прочитан.
+diff --git a/src/server/engines/keys.ts b/src/server/engines/keys.ts
+index 37bdf1b..1ca77ba 100644
+--- a/src/server/engines/keys.ts
++++ b/src/server/engines/keys.ts
+@@ -20,7 +20,7 @@ import { setEngineSecrets } from '../childenv';
+ import { LoginError } from './types';
+ 
+ /** Под каким именем ключ провайдера живёт в окружении движка. */
+-export const KEY_VAR: Record<ProviderId, string> = {
++export const KEY_VAR: Partial<Record<ProviderId, string>> = {
+   'claude-code': 'ANTHROPIC_API_KEY',
+   codex: 'OPENAI_API_KEY',
+   xai: 'XAI_API_KEY',
+@@ -240,7 +240,7 @@ let keychainOk = false;
+ 
+ function publish(): void {
+   const secrets: Record<string, string> = {};
+-  for (const [provider, key] of cache) secrets[KEY_VAR[provider]] = key;
++  for (const [provider, key] of cache) if (KEY_VAR[provider]) secrets[KEY_VAR[provider]!] = key;
+   setEngineSecrets(secrets);
+ }
+ 
+@@ -249,7 +249,7 @@ export function loadKeys(): Promise<void> {
+   loaded ??= (async () => {
+     keychainOk = await store.available().catch(() => false);
+     if (!keychainOk) return;
+-    for (const provider of PROVIDER_IDS) {
++    for (const provider of PROVIDER_IDS.filter(id => id !== 'opencode')) {
+       try {
+         const key = await store.get(account(provider));
+         if (key) cache.set(provider, key);
+@@ -272,7 +272,7 @@ export async function keychainAvailable(): Promise<boolean> {
+ export function providerKey(provider: ProviderId): { key: string; source: 'keychain' | 'env' } | null {
+   const stored = cache.get(provider);
+   if (stored) return { key: stored, source: 'keychain' };
+-  const env = process.env[KEY_VAR[provider]]
++  const env = (KEY_VAR[provider] ? process.env[KEY_VAR[provider]!] : undefined)
+     || (provider === 'claude-code' ? process.env.ANTHROPIC_AUTH_TOKEN : undefined);
+   return env ? { key: env, source: 'env' } : null;
+ }
+diff --git a/src/server/engines/opencode.ts b/src/server/engines/opencode.ts
+index aa43fa4..0720232 100644
+--- a/src/server/engines/opencode.ts
++++ b/src/server/engines/opencode.ts
+@@ -14,6 +14,7 @@ import {
+   OPENCODE_BIN, OPENCODE_PKG, OPENCODE_VERSION, fetchModels, opencodeBinary, opencodeEnv, opencodeQuery,
+   providerHeaders, sandboxAvailable,
+ } from '../providers/opencode';
++import { каталогOpenCode, моделиКаталога } from '../providers/подключение-opencode';
+ import { catalogModel, modelPrice, priceCatalog } from '../providers/model-prices';
+ import {
+   baseUrlOf, forgetBaseUrl, forgetCustomApi, normalizeBaseUrl, probeModels, saveBaseUrl, saveCustomApi,
+@@ -22,7 +23,7 @@ import { installFromNpm } from './install';
+ import { deleteKey, providerKey, saveKey, verifyKey } from './keys';
+ import { LoginError, type EngineAdapter, type EngineCapabilities, type ModelInfo, type ProviderStatus } from './types';
+ 
+-const OPENCODE_PROVIDERS: ProviderId[] = ['xai', 'deepseek', 'openrouter', 'google', 'alibaba', 'ollama', 'custom'];
++const OPENCODE_PROVIDERS: ProviderId[] = ['opencode', 'xai', 'deepseek', 'openrouter', 'google', 'alibaba', 'ollama', 'custom'];
+ 
+ /** Найденный движок: запуск `--version` — сотни миллисекунд, а статус спрашивают часто. */
+ let located: { at: number; value: { path: string; version: string } | null } | null = null;
+@@ -93,6 +94,15 @@ export const opencodeEngine: EngineAdapter = {
+       return { state: 'not-installed', engine: 'opencode', sizeMb: opencodeEngine.sizeMb,
+         ...(OPENCODE_PKG ? {} : { detail: `OpenCode is not built for ${process.platform}-${process.arch}` }) };
+     }
++    if (provider === 'opencode') {
++      const found = await locate(force);
++      if (found!.version !== OPENCODE_VERSION) return { state: 'error', detail: 'Версия OpenCode ' + found!.version + ' не проверена; нужна ' + OPENCODE_VERSION };
++      try {
++        const snap = await каталогOpenCode(found!.version, force);
++        if (snap.dto.устарел) return { state: 'unreachable', detail: 'Каталог OpenCode устарел' };
++        return моделиКаталога(snap).length ? { state: 'ready', auth: 'api-key' } : { state: 'needs-login', auth: ['api-key'] };
++      } catch { return { state: 'unreachable', detail: 'Не удалось загрузить каталог OpenCode' }; }
++    }
+     const spec = providerSpec(provider);
+     const url = baseUrlOf(provider);
+     const key = providerKey(provider);
+@@ -125,6 +135,7 @@ export const opencodeEngine: EngineAdapter = {
+ 
+   async login(req) {
+     const { provider } = req;
++    if (provider === 'opencode') throw new LoginError('unsupported', 'Укажите нативного поставщика в API подключения OpenCode');
+     // Подписки у OpenAI-совместимых провайдеров нет: без отказа запрос входа
+     // по подписке ушёл бы проверкой ключа и вернул «нужен ключ» вместо «не умею».
+     if (req.kind !== 'api-key') throw new LoginError('unsupported', `login kind ${req.kind} is not supported`);
+@@ -164,6 +175,7 @@ export const opencodeEngine: EngineAdapter = {
+   },
+ 
+   async logout(provider) {
++    if (provider === 'opencode') throw new LoginError('unsupported', 'Укажите нативного поставщика для выхода');
+     await deleteKey(provider);
+     forgetBaseUrl(provider);
+     if (provider === 'custom') forgetCustomApi();
+@@ -171,6 +183,10 @@ export const opencodeEngine: EngineAdapter = {
+   },
+ 
+   async models(provider): Promise<ModelInfo[]> {
++    if (provider === 'opencode') {
++      const found = await locate();
++      return found ? моделиКаталога(await каталогOpenCode(found.version)) : [];
++    }
+     // Ключа нет или сервер молчит — хотя бы модели из каталога цен: форма
+     // роли покажет их подсказкой, а ввести свою модель можно всё равно.
+     const ids = await fetchModels(provider).catch(async () =>
+diff --git a/src/server/engines/types.ts b/src/server/engines/types.ts
+index 05213c4..0e62dd3 100644
+--- a/src/server/engines/types.ts
++++ b/src/server/engines/types.ts
+@@ -40,6 +40,7 @@ export type { ModelTier } from '../../shared/models';
+ 
+ export interface ModelInfo {
+   id: string;
++  opencode?: import('../../shared/providers').МодельOpenCode;
+   label: string;
+   tier?: ModelTier;
+   contextWindow?: number;
+@@ -77,7 +78,7 @@ export class LoginError extends Error {
+ }
+ 
+ /** Параметры сессии. `provider` выбирает адаптер; остальное — общий словарь офиса. */
+-export type SessionOptions = Options & { provider?: ProviderId };
++export type SessionOptions = Options & { provider?: ProviderId; opencode?: import('../../shared/providers').ПараметрыOpenCode };
+ export type SessionRequest = { prompt: string | AsyncIterable<SDKUserMessage>; options: SessionOptions };
+ /** Живая сессия: поток сообщений, лимиты без платного хода и состояние MCP-серверов. */
+ export type EngineSession = AsyncIterable<SDKMessage> & LimitSource & McpStatusSource;
+diff --git a/src/server/providers/opencode.ts b/src/server/providers/opencode.ts
+index c0057ff..3aa922b 100644
+--- a/src/server/providers/opencode.ts
++++ b/src/server/providers/opencode.ts
+@@ -32,6 +32,7 @@ import { officeCatalog, type CommandExec, type OfficeTool } from './codex-tools'
+ import { startBridge, type Bridge } from './mcp-bridge';
+ import { catalogModel, modelPrice } from './model-prices';
+ import { tokenCost, type TokenPrice } from './pricing';
++import { разрешитьOpenCode, нативныйКонфиг, проверитьИзоляциюOpenCode } from './подключение-opencode';
+ 
+ /** Версия, на которой проверен протокол сервера. Ставится с экрана «Провайдеры» ровно она. */
+ export const OPENCODE_VERSION = '1.18.34';
+@@ -69,8 +70,8 @@ const OC_AGENT = 'office';
+  * офиса: личные настройки и провайдеры владельца в OpenCode сессию агента не
+  * меняют, а история сессий переживает перезапуск.
+  */
+-export function opencodeEnv(extra: NodeJS.ProcessEnv = {}): NodeJS.ProcessEnv {
+-  const home = resolve(process.env.OFFICE_OPENCODE_HOME ?? resolve(dirname(DEFAULT_STATE_FILE), 'opencode-runtime'));
++export function opencodeEnv(extra: NodeJS.ProcessEnv = {}, изолированныйДом?: string): NodeJS.ProcessEnv {
++  const home = изолированныйДом ?? resolve(process.env.OFFICE_OPENCODE_HOME ?? resolve(dirname(DEFAULT_STATE_FILE), 'opencode-runtime'));
+   const dirs = { XDG_DATA_HOME: 'data', XDG_CONFIG_HOME: 'config', XDG_CACHE_HOME: 'cache', XDG_STATE_HOME: 'state' };
+   const env: NodeJS.ProcessEnv = {};
+   for (const [name, sub] of Object.entries(dirs)) {
+@@ -78,7 +79,12 @@ export function opencodeEnv(extra: NodeJS.ProcessEnv = {}): NodeJS.ProcessEnv {
+     mkdirSync(dir, { recursive: true, mode: 0o700 });
+     env[name] = dir;
+   }
+-  return engineEnv({
++  const чистое = engineEnv();
++  for (const name of Object.keys(чистое)) {
++    if (/^OPENCODE_/.test(name) || /(?:API_KEY|AUTH_TOKEN|ACCESS_KEY|SECRET|CREDENTIAL|TOKEN)$/.test(name)) delete чистое[name];
++  }
++  return {
++    ...чистое,
+     ...env,
+     OPENCODE_DISABLE_AUTOUPDATE: '1',
+     OPENCODE_DISABLE_SHARE: '1',
+@@ -90,7 +96,7 @@ export function opencodeEnv(extra: NodeJS.ProcessEnv = {}): NodeJS.ProcessEnv {
+     OPENCODE_DISABLE_EXTERNAL_SKILLS: '1',
+     OPENCODE_PURE: '1',
+     ...extra,
+-  });
++  };
+ }
+ 
+ // ─── Руки: команды в песочнице ОС ─────────────────────────────────────────
+@@ -194,7 +200,7 @@ export async function resolveModel(provider: ProviderId, model: string | undefin
+  * Встроенные инструменты OpenCode. Все выключены: руки — через мост офиса,
+  * иначе запись в файлы и команды шли бы мимо шлюза разрешений.
+  */
+-const NATIVE_TOOLS = ['bash', 'edit', 'write', 'read', 'glob', 'grep', 'list', 'patch', 'apply_patch', 'multiedit',
++export const NATIVE_TOOLS = ['bash', 'edit', 'write', 'read', 'glob', 'grep', 'list', 'patch', 'apply_patch', 'multiedit',
+   'webfetch', 'websearch', 'codesearch', 'todowrite', 'todoread', 'task', 'lsp', 'skill', 'question'];
+ 
+ export interface ConfigInput {
+@@ -288,7 +294,7 @@ interface Server {
+ export interface OcEvent { type: string; properties: Record<string, any> }
+ 
+ /** Поднять `opencode serve` на свободном порту и дождаться адреса в выводе. */
+-async function startServer(cwd: string, env: NodeJS.ProcessEnv, signal: AbortSignal): Promise<Server> {
++export async function startServer(cwd: string, env: NodeJS.ProcessEnv, signal: AbortSignal): Promise<Server> {
+   const password = randomBytes(24).toString('base64url');
+   const auth = `Basic ${Buffer.from(`office:${password}`).toString('base64')}`;
+   const child = spawn(opencodeBinary(), ['serve', '--hostname=127.0.0.1', '--port=0'], {
+@@ -420,6 +426,8 @@ export function opencodeQuery({ prompt, options }: SessionRequest): EngineSessio
+   let catalog = null as Awaited<ReturnType<typeof officeCatalog>> | null;
+   let session = '';
+   let model = '';
++  let нативныйПровайдер = OC_PROVIDER;
++  let вариант: string | undefined;
+   let price: TokenPrice | null = null;
+   let text = '';
+   let calls = 0;
+@@ -580,10 +588,15 @@ export function opencodeQuery({ prompt, options }: SessionRequest): EngineSessio
+   };
+ 
+   const ready = (async () => {
+-    const base = baseUrlOf(provider);
++    const native = provider === 'opencode';
++    const resolved = native ? await разрешитьOpenCode({ provider, model: options.model ?? '', opencode: options.opencode },
++      (await (await import('../engines/opencode')).opencodeEngine.locate())?.version ?? '') : undefined;
++    const base = native ? 'native' : baseUrlOf(provider);
+     if (!base) throw new Error(`${provider}: provider address is not set`);
+-    model = await resolveModel(provider, options.model);
+-    price = await modelPrice(provider, model);
++    model = resolved ? resolved.info.opencode.модель : await resolveModel(provider, options.model);
++    нативныйПровайдер = resolved?.info.opencode.провайдер ?? OC_PROVIDER;
++    вариант = resolved?.выбор.opencode?.вариант;
++    price = resolved ? resolved.info.price ?? null : await modelPrice(provider, model);
+     if (options.maxBudgetUsd && !price) {
+       throw new Error(`No price is known for ${model}. Set OFFICE_MODEL_PRICING for this model before using a dollar budget.`);
+     }
+@@ -592,16 +605,20 @@ export function opencodeQuery({ prompt, options }: SessionRequest): EngineSessio
+         ? 'Run a shell command in the OS sandbox. Writes stay in the workspace; no network.'
+         : 'Run a shell command in the workspace.');
+     bridge = await startBridge(catalog.tools, call);
+-    const known = await catalogModel(provider, model);
++    const known = resolved ? undefined : await catalogModel(provider, model);
+     const sdk = providerSpec(provider).sdk;
+-    const config = buildConfig({
++    const config = resolved ? нативныйКонфиг(resolved, systemText(options), { url: bridge.url, authorization: bridge.authorization }) : buildConfig({
+       provider, baseUrl: sdk?.baseUrl ?? base, npm: sdk?.npm, model, system: systemText(options),
+       keyVar: providerKey(provider) ? KEY_VAR[provider] : undefined,
+       contextWindow: known?.contextWindow,
+       bridge: { url: bridge.url, authorization: bridge.authorization },
+     });
+     if (abort.signal.aborted) throw new Error('OpenCode session stopped');
+-    server = await startServer(cwd, opencodeEnv({ OPENCODE_CONFIG_CONTENT: JSON.stringify(config) }), abort.signal);
++    const keyVar = KEY_VAR[provider];
++    server = await startServer(cwd, opencodeEnv({ OPENCODE_CONFIG_CONTENT: JSON.stringify(config),
++      ...(!native && keyVar && providerKey(provider) ? { [keyVar]: providerKey(provider)!.key } : {}),
++    }), abort.signal);
++    if (resolved) await проверитьИзоляциюOpenCode(server, нативныйПровайдер);
+     server.child.once('exit', (code) => { if (!stopping) fail(new Error(`OpenCode exited with code ${code}`)); });
+ 
+     const stream = await server.events(streamStop.signal);
+@@ -654,7 +671,7 @@ export function opencodeQuery({ prompt, options }: SessionRequest): EngineSessio
+           // Сжатие — синхронный вызов; граница приходит событием session.compacted.
+           try {
+             await server!.request('POST', `/session/${session}/summarize`,
+-              { providerID: OC_PROVIDER, modelID: model, auto: false }, 30 * 60_000);
++              { providerID: нативныйПровайдер, modelID: model, auto: false }, 30 * 60_000);
+             result();
+           } catch (err) {
+             result((err as Error).message);
+@@ -667,7 +684,8 @@ export function opencodeQuery({ prompt, options }: SessionRequest): EngineSessio
+         emit({ type: 'stream_event', parent_tool_use_id: null, event: { type: 'message_start' } });
+         await server!.request('POST', `/session/${session}/prompt_async`, {
+           agent: OC_AGENT,
+-          model: { providerID: OC_PROVIDER, modelID: model },
++          model: { providerID: нативныйПровайдер, modelID: model },
++          ...(вариант !== undefined ? { variant: вариант } : {}),
+           parts: [{ type: 'text', text: message }],
+         });
+         await done; finish = null; rejectTurn = null;
+diff --git "a/src/server/providers/\320\277\320\276\320\264\320\272\320\273\321\216\321\207\320\265\320\275\320\270\320\265-opencode.ts" "b/src/server/providers/\320\277\320\276\320\264\320\272\320\273\321\216\321\207\320\265\320\275\320\270\320\265-opencode.ts"
+new file mode 100644
+index 0000000..5afbf16
+--- /dev/null
++++ "b/src/server/providers/\320\277\320\276\320\264\320\272\320\273\321\216\321\207\320\265\320\275\320\270\320\265-opencode.ts"
+@@ -0,0 +1,216 @@
++/**
++ * Нативное подключение OpenCode. Каталог — белый DTO, ключи — только Keychain.
++ * Управляющий процесс работает в пустой папке и не получает профиль владельца.
++ */
++import { randomUUID, createHash } from 'node:crypto';
++import { mkdtempSync, readFileSync, writeFileSync, renameSync, rmSync, mkdirSync } from 'node:fs';
++import { tmpdir } from 'node:os';
++import { dirname, resolve } from 'node:path';
++import type { КаталогOpenCode, ModelChoice } from '../../shared/providers';
++import { проверитьФормуOpenCode } from '../../shared/providers';
++import type { ModelInfo } from '../engines/types';
++import { keychain, keychainAvailable } from '../engines/keys';
++import { DEFAULT_STATE_FILE } from '../store';
++import { OPENCODE_VERSION, opencodeEnv, startServer, NATIVE_TOOLS, buildConfig } from './opencode';
++
++const SDK: Record<string, string> = {
++  opencode: '@ai-sdk/openai-compatible', openai: '@ai-sdk/openai', anthropic: '@ai-sdk/anthropic',
++  google: '@ai-sdk/google', deepseek: '@ai-sdk/deepseek', openrouter: '@openrouter/ai-sdk-provider', xai: '@ai-sdk/xai',
++};
++export class ОшибкаOpenCode extends Error {
++  constructor(readonly статус: number, readonly код: string, сообщение: string, readonly поле?: string) { super(сообщение); }
++}
++const ошибка = (сообщение: string, поле?: string): never => { throw new ОшибкаOpenCode(400, 'invalid-choice', сообщение, поле); };
++const файл = () => resolve(dirname(DEFAULT_STATE_FILE), 'подключения-opencode.json');
++interface Подключения { версия: 1; ревизия: string; провайдеры: string[] }
++let настройки: Подключения | undefined;
++function подключения(): Подключения {
++  if (настройки) return настройки;
++  try {
++    const r = JSON.parse(readFileSync(файл(), 'utf8'));
++    if (r.версия === 1 && Array.isArray(r.провайдеры) && r.провайдеры.every((id: unknown) => typeof id === 'string' && Object.hasOwn(SDK, id))) {
++      return настройки = { версия: 1, ревизия: String(r.ревизия), провайдеры: r.провайдеры };
++    }
++  } catch { /* Первое подключение. Секретов в этом файле нет. */ }
++  return настройки = { версия: 1, ревизия: '0', провайдеры: [] };
++}
++function сохранить(провайдеры: string[]): void {
++  const next: Подключения = { версия: 1, ревизия: randomUUID(), провайдеры };
++  mkdirSync(dirname(файл()), { recursive: true });
++  const temp = файл() + '.' + randomUUID() + '.tmp';
++  try { writeFileSync(temp, JSON.stringify(next), { mode: 0o600 }); renameSync(temp, файл()); настройки = next; }
++  finally { rmSync(temp, { force: true }); }
++  снимок = undefined;
++}
++const учётка = (id: string) => 'provider:opencode:' + id;
++async function ключ(id: string): Promise<string | null> {
++  if (!подключения().провайдеры.includes(id)) return null;
++  return keychain.get(учётка(id));
++}
++type Сырой = Record<string, any>;
++interface Снимок { dto: КаталогOpenCode; модели: Map<string, Сырой> }
++let снимок: Снимок | undefined;
++let загрузка: Promise<Снимок> | undefined;
++const TTL = 15 * 60_000;
++const число = (v: unknown): v is number => typeof v === 'number' && Number.isFinite(v) && v >= 0;
++const имя = (v: unknown, fallback: string): string => typeof v === 'string' && !/[\r\n\x00]/.test(v) ? v.slice(0, 200) : fallback;
++/** Преобразование не переносит options, headers, npm, auth и содержимое variants в браузер. */
++export function каталогDTO(raw: Сырой, версия: string, авторизации: Record<string, string> = {}): Снимок {
++  const совместима = версия === OPENCODE_VERSION;
++  const модели = new Map<string, Сырой>();
++  const провайдеры: КаталогOpenCode['провайдеры'] = [];
++  for (const p of Array.isArray(raw.all) ? raw.all : []) {
++    if (typeof p.id !== 'string' || !/^[a-z0-9-]+$/.test(p.id)) continue;
++    const поддержан = Object.hasOwn(SDK, p.id) && p.npm === SDK[p.id];
++    const key = авторизации[p.id];
++    const список = Object.entries(p.models ?? {}).flatMap(([id, m]: [string, any]) => {
++      if (!id || /[\x00-\x20]/.test(id)) return [];
++      const cap = m.capabilities ?? {};
++      const limit = m.limit ?? {};
++      const sdk = m.api?.npm ?? p.npm;
++      const пригодна = cap.toolcall === true && cap.input?.text === true && cap.output?.text === true && m.status !== 'deprecated' && sdk === SDK[p.id];
++      // Только явно нулевые цены подтверждают публичную модель Zen без ключа.
++      const бесплатна = p.id === 'opencode' && m.cost?.input === 0 && m.cost?.output === 0;
++      const доступна = совместима && поддержан && пригодна && Boolean(key || бесплатна);
++      const причина = !совместима ? 'Версия движка не проверена офисом' : !поддержан ? 'Пока не поддерживается офисом'
++        : !пригодна ? 'Не подтверждены текст, инструменты или проверенный SDK' : !key && !бесплатна ? 'Нужен отдельный ключ API' : undefined;
++      const температура = cap.temperature === true && cap.reasoning === false && поддержан
++        ? { мин: 0, макс: p.id === 'anthropic' ? 1 : 2 } : undefined;
++      const пределОтвета = cap.reasoning === false && число(limit.output) && limit.output >= 1
++        ? { мин: 1, макс: Math.min(limit.output, 32000) } : undefined;
++      const full = p.id + '/' + id;
++      модели.set(full, m);
++      return [{ id: full, label: имя(m.name, id),
++        ...(число(limit.context) ? { contextWindow: limit.context } : {}),
++        ...(число(m.cost?.input) && число(m.cost?.output) ? { price: { input: m.cost.input, output: m.cost.output,
++          ...(число(m.cost?.cache?.read) ? { cachedInput: m.cost.cache.read } : {}) } } : {}),
++        opencode: { провайдер: p.id, модель: id, статус: имя(m.status, 'active'), инструменты: cap.toolcall === true,
++          рассуждение: cap.reasoning === true, варианты: Object.keys(m.variants ?? {}).filter(v => v && v.length <= 100),
++          ...(температура ? { температура } : {}), ...(пределОтвета ? { пределОтвета } : {}),
++          ...(число(limit.context) ? { контекст: limit.context } : {}), ...(число(limit.input) ? { вход: limit.input } : {}),
++          ...(число(limit.output) ? { выход: limit.output } : {}), доступна, ...(причина ? { причина } : {}),
++          причиныПараметров: { ...(!температура ? { температура: 'Поддержка температуры для этой модели не подтверждена' } : {}),
++            ...(!пределОтвета ? { пределОтвета: 'Неизвестен предел или модель использует рассуждение' } : {}) },
++        } }];
++    });
++    провайдеры.push({ id: p.id, название: имя(p.name, p.id), доступен: совместима && поддержан,
++      ...(!поддержан ? { причина: 'Пока не поддерживается офисом' } : {}),
++      авторизация: { состояние: !поддержан ? 'не-поддерживается' : key ? 'ключ'
++        : список.some(m => m.opencode.доступна) ? 'без-входа' : 'нет', ...(key ? { хвост: key.slice(-4) } : {}) },
++      модели: список });
++  }
++  const dto: КаталогOpenCode = { версия, совместима, проверенныеВерсии: [OPENCODE_VERSION], ревизия: '',
++    обновлёнВ: Date.now(), устарел: false, провайдеры };
++  dto.ревизия = createHash('sha256').update(JSON.stringify({ версия, провайдеры, настройки: подключения().ревизия })).digest('hex').slice(0, 24);
++  return { dto, модели };
++}
++async function управляющий<T>(run: (server: Awaited<ReturnType<typeof startServer>>) => Promise<T>, auth: Record<string, string> = {}): Promise<T> {
++  const dir = mkdtempSync(resolve(tmpdir(), 'office-opencode-'));
++  const abort = new AbortController();
++  let server: Awaited<ReturnType<typeof startServer>> | undefined;
++  try {
++    // Никаких ключей в окружении: только явно переданная авторизация в памяти процесса.
++    const config = { autoupdate: false, share: 'disabled', snapshot: false, plugin: [], mcp: {}, tools: { '*': false }, permission: { '*': 'deny' },
++      provider: Object.fromEntries(Object.entries(auth).map(([id, apiKey]) => [id, { options: { apiKey } }])) };
++    server = await startServer(dir, opencodeEnv({ OPENCODE_CONFIG_CONTENT: JSON.stringify(config) }, dir), abort.signal);
++    return await run(server);
++  } catch (e) {
++    if (e instanceof ОшибкаOpenCode) throw e;
++    throw new ОшибкаOpenCode(502, 'upstream', 'Не удалось получить метаданные OpenCode');
++  } finally { server?.close(); abort.abort(); rmSync(dir, { recursive: true, force: true }); }
++}
++export async function каталогOpenCode(версия: string, force = false): Promise<Снимок> {
++  if (!force && снимок && снимок.dto.версия === версия && Date.now() - снимок.dto.обновлёнВ < TTL) return снимок;
++  if (загрузка) return загрузка;
++  загрузка = (async () => {
++    const auth: Record<string, string> = {};
++    for (const id of подключения().провайдеры) { const k = await ключ(id); if (k) auth[id] = k; }
++    try {
++      снимок = await управляющий(async server => {
++        const raw = await server.request<Сырой>('GET', '/provider');
++        return каталогDTO(raw, версия, auth);
++      }, auth);
++      return снимок;
++    } catch (e) {
++      if (снимок && снимок.dto.версия === версия) { снимок.dto.устарел = true; return снимок; }
++      throw e;
++    }
++  })();
++  try { return await загрузка; } finally { загрузка = undefined; }
++}
++export function проверитьВыбор(выбор: ModelChoice, snapshot: Снимок, ревизия?: string): ModelChoice {
++  if (ревизия !== undefined && ревизия !== snapshot.dto.ревизия) throw new ОшибкаOpenCode(409, 'catalog-changed', 'Каталог изменился; обновите описание модели');
++  if (выбор.provider !== 'opencode') ошибка('Ожидается провайдер opencode', 'provider');
++  const m = snapshot.dto.провайдеры.flatMap(p => p.модели).find(m => m.id === выбор.model);
++  if (!m || !m.opencode.доступна) ошибка(m?.opencode.причина ?? 'Сохранённая модель отсутствует в каталоге', 'model');
++  let параметры;
++  try { параметры = проверитьФормуOpenCode(выбор.opencode ?? {}); } catch (e) { ошибка((e as Error).message, 'opencode'); }
++  const meta = m!.opencode;
++  if (параметры!.вариант !== undefined && !meta.варианты.includes(параметры!.вариант)) ошибка('Вариант не поддерживается моделью', 'opencode.вариант');
++  if (параметры!.температура !== undefined && (!meta.температура || параметры!.температура > meta.температура.макс)) ошибка('Температура не поддерживается моделью', 'opencode.температура');
++  if (параметры!.пределОтвета !== undefined && (!meta.пределОтвета || параметры!.пределОтвета > meta.пределОтвета.макс)) ошибка('Предел ответа не поддерживается моделью', 'opencode.пределОтвета');
++  return { provider: 'opencode', model: m!.id, opencode: параметры };
++}
++/** Синхронная запись настроек проверяется по снимку, полученному формой validate. */
++export function проверитьСохранениеOpenCode(выбор: ModelChoice): ModelChoice {
++  if (!снимок || снимок.dto.устарел || Date.now() - снимок.dto.обновлёнВ >= TTL) throw new ОшибкаOpenCode(409, 'catalog-required', 'Обновите каталог OpenCode перед сохранением');
++  return проверитьВыбор(выбор, снимок);
++}
++export async function авторизоватьOpenCode(id: unknown, secret: unknown, версия: string): Promise<void> {
++  if (typeof id !== 'string' || !Object.hasOwn(SDK, id)) ошибка('Неподдерживаемый поставщик', 'провайдер');
++  if (typeof secret !== 'string' || !secret.trim() || /\s/.test(secret)) ошибка('Нужен непустой ключ API', 'apiKey');
++  if (версия !== OPENCODE_VERSION) throw new ОшибкаOpenCode(503, 'incompatible-version', 'Версия OpenCode не проверена');
++  if (!await keychainAvailable()) throw new ОшибкаOpenCode(503, 'keychain', 'Системная связка ключей недоступна');
++  const snap = await управляющий(async server => каталогDTO(await server.request<Сырой>('GET', '/provider'), версия, { [id as string]: secret as string }), { [id as string]: secret as string });
++  if (!snap.dto.провайдеры.some(p => p.id === id && p.доступен)) ошибка('Поставщик не поддерживается установленным движком', 'провайдер');
++  // Каталог подтверждает конфигурацию, но не совершает платного запроса и не доказывает валидность ключа.
++  await keychain.set(учётка(id as string), (secret as string).trim());
++  сохранить([...new Set([...подключения().провайдеры, id as string])]);
++}
++export async function отключитьOpenCode(id: unknown): Promise<void> {
++  if (typeof id !== 'string' || !Object.hasOwn(SDK, id)) ошибка('Укажите поставщика для выхода', 'провайдер');
++  await keychain.delete(учётка(id as string));
++  сохранить(подключения().провайдеры.filter(p => p !== id));
++}
++export async function разрешитьOpenCode(выбор: ModelChoice, версия: string) {
++  if (версия !== OPENCODE_VERSION) throw new ОшибкаOpenCode(503, 'incompatible-version', 'Версия OpenCode не проверена');
++  const snapshot = await каталогOpenCode(версия);
++  if (snapshot.dto.устарел) throw new ОшибкаOpenCode(502, 'stale-catalog', 'Каталог OpenCode устарел');
++  const clean = проверитьВыбор(выбор, snapshot);
++  const info = snapshot.dto.провайдеры.flatMap(p => p.модели).find(m => m.id === clean.model)!;
++  return { выбор: clean, info, raw: snapshot.модели.get(clean.model)!, ключ: await ключ(info.opencode.провайдер) };
++}
++export function моделиКаталога(snapshot: Снимок): ModelInfo[] {
++  return snapshot.dto.провайдеры.flatMap(p => p.модели).filter(m => m.opencode.доступна);
++}
++/** Новая ветка сохраняет настоящий SDK и меняет только проверенные поля. */
++export function нативныйКонфиг(resolved: Awaited<ReturnType<typeof разрешитьOpenCode>>, system: string, bridge: { url: string; authorization: string }): Record<string, any> {
++  const { выбор, info, raw } = resolved;
++  const { провайдер, модель } = info.opencode;
++  const config: any = buildConfig({ provider: 'opencode', baseUrl: '', model: модель, system, bridge });
++  config.enabled_providers = [провайдер];
++  config.model = config.small_model = выбор.model;
++  config.plugin = [];
++  config.provider = { [провайдер]: { options: { ...(resolved.ключ ? { apiKey: resolved.ключ } : {}), timeout: false },
++    models: { [модель]: { ...(выбор.opencode?.пределОтвета !== undefined ? { limit: {
++      context: raw.limit.context, ...(raw.limit.input !== undefined ? { input: raw.limit.input } : {}), output: выбор.opencode.пределОтвета } } : {}) } } } };
++  config.agent.office.temperature = выбор.opencode?.температура;
++  config.permission = { '*': 'deny', ...config.permission };
++  config.agent.office.permission = { '*': 'deny', ...config.agent.office.permission };
++  return config;
++}
++/** После слияния конфигов движком проверяем права и полный список нативных инструментов. */
++export async function проверитьИзоляциюOpenCode(server: Awaited<ReturnType<typeof startServer>>, native: string): Promise<void> {
++  const config = await server.request<Сырой>('GET', '/config');
++  if (JSON.stringify(config.enabled_providers) !== JSON.stringify([native]) || Object.keys(config.mcp ?? {}).some(k => k !== 'office')
++    || (config.plugin ?? []).length || config.instructions?.length || config.agent?.office?.permission?.['*'] !== 'deny') {
++    throw new ОшибкаOpenCode(503, 'unsafe-config', 'Движок добавил неподтверждённую конфигурацию');
++  }
++  const ids = await server.request<string[]>('GET', '/tool/ids');
++  for (const id of ids) {
++    if (id.startsWith('office_')) continue;
++    if (!NATIVE_TOOLS.includes(id) || config.tools?.[id] !== false || config.agent?.office?.tools?.[id] !== false) {
++      throw new ОшибкаOpenCode(503, 'unsafe-tools', 'Обнаружен неподтверждённый инструмент движка');
++    }
++  }
++}
+diff --git a/src/server/roles.ts b/src/server/roles.ts
+index 8c4e5f4..4369f19 100644
+--- a/src/server/roles.ts
++++ b/src/server/roles.ts
+@@ -23,6 +23,7 @@ export interface Role {
+    * на выборе офиса (`Settings.model`), и узнавать её провайдера и модель
+    * надо через `roleRuntime`, а не из этих полей.
+    */
++  opencode?: import('../shared/providers').ПараметрыOpenCode;
+   provider?: ProviderId;
+   model?: string;
+   /**
+@@ -150,7 +151,7 @@ export interface Role {
+  * провайдером офиса. Конкретная модель (`fable`, полный id) или другой
+  * движок — уже выбор пакета, и тогда пара прибита к его движку.
+  */
+-export function packageRuntime(pkg: AgentPackage): Pick<Role, 'provider' | 'model' | 'tier'> {
++export function packageRuntime(pkg: AgentPackage): Pick<Role, 'provider' | 'model' | 'tier' | 'opencode'> {
+   const { engine, model } = pkg.manifest.runtime;
+   const tier = engine === 'claude-code' && isModelAlias(model) ? TIER_OF_ALIAS[model] : undefined;
+   return tier ? { tier } : { provider: engine, model: packageModel(pkg) };
+@@ -174,12 +175,13 @@ function pairRuntime(role: Role, engine: ProviderId): void {
+  * Офис без выбора (`null`) и роль без своего — null: Claude Code тут не
+  * подставляется, вызывающий останавливает задачу с причиной.
+  */
+-export function roleRuntime(role: Pick<Role, 'provider' | 'model' | 'tier'>, office: ModelChoice | null): ModelChoice | null {
++export function roleRuntime(role: Pick<Role, 'provider' | 'model' | 'tier' | 'opencode'>, office: ModelChoice | null): ModelChoice | null {
+   if (role.provider) {
+     // Свой провайдер с уровнем: уровень разрешается у него, и balanced тоже —
+     // модель офиса чужому провайдеру ничего не говорит.
+     const tiered = role.tier ? TIER_MODELS[role.provider]?.[role.tier] : undefined;
+     return {
++      ...(role.provider === 'opencode' && role.opencode ? { opencode: { ...role.opencode } } : {}),
+       provider: role.provider,
+       model: role.model ?? tiered
+         ?? (role.provider === office?.provider ? office.model : PROVIDERS[role.provider].defaultModel),
+@@ -187,7 +189,7 @@ export function roleRuntime(role: Pick<Role, 'provider' | 'model' | 'tier'>, off
+   }
+   if (!office) return null;
+   const tiered = role.tier && role.tier !== 'balanced' ? TIER_MODELS[office.provider]?.[role.tier] : undefined;
+-  return { provider: office.provider, model: tiered ?? office.model };
++  return { ...office, ...(office.opencode ? { opencode: { ...office.opencode } } : {}), model: tiered ?? office.model };
+ }
+ 
+ /**
+@@ -244,7 +246,7 @@ export const copyTitle = (title: string, copy: number | undefined): string =>
+ 
+ /** Поля, по которым считается разница роли с пакетом. */
+ export const OVERRIDABLE_KEYS: readonly (keyof LinkOverrides)[] = [
+-  'title', 'emoji', 'color', 'model', 'provider', 'tier', 'permissionMode', 'isolate',
++  'title', 'emoji', 'color', 'model', 'provider', 'opencode', 'tier', 'permissionMode', 'isolate',
+   'maxTurns', 'allowLocalBinding', 'writePaths', 'allowedHosts', 'spendFuseTokens', 'repoDir', 'subprojects', 'sprite', 'mcp', 'capabilities',
+   'mcpProjectPath',
+ ];
+diff --git a/src/shared/providers.ts b/src/shared/providers.ts
+index d3905b8..ed3bc81 100644
+--- a/src/shared/providers.ts
++++ b/src/shared/providers.ts
+@@ -40,6 +40,7 @@ interface ProviderSpec {
+  * Google условия Google запрещают (docs/legal/T-210/antigravity.md).
+  */
+ export const PROVIDERS = {
++  opencode: { label: 'OpenCode', engine: 'opencode', defaultModel: 'default', cloud: false },
+   'claude-code': { label: 'Claude Code', engine: 'claude-code', defaultModel: 'claude-sonnet-5-5', cloud: true },
+   codex: { label: 'OpenAI (ChatGPT / Codex)', engine: 'codex', defaultModel: 'default', cloud: false },
+   xai: {
+@@ -95,6 +96,7 @@ export const providerOf = (role?: { provider?: ProviderId }): ProviderId => role
+ export interface ModelChoice {
+   provider: ProviderId;
+   model: string;
++  opencode?: ПараметрыOpenCode;
+ }
+ 
+ /**
+@@ -108,7 +110,8 @@ export const DEFAULT_MODEL_CHOICE: ModelChoice = {
+ 
+ /** Один ли выбор. null — «провайдер не выбран», равен только себе. */
+ export const sameChoice = (a: ModelChoice | null, b: ModelChoice | null): boolean =>
+-  a === b || (a !== null && b !== null && a.provider === b.provider && a.model === b.model);
++  a === b || (a !== null && b !== null && a.provider === b.provider && a.model === b.model
++    && JSON.stringify(очиститьПараметрыOpenCode(a.opencode)) === JSON.stringify(очиститьПараметрыOpenCode(b.opencode)));
+ 
+ /**
+  * Id сессии для движка провайдера. Чужие движки помечают свои id префиксом
+@@ -243,3 +246,41 @@ export interface EngineCapabilities {
+   webSearch: boolean;
+   cloud: boolean;
+ }
++
++/** Только типизированные настройки: произвольный конфиг движка не принимается. */
++export interface ПараметрыOpenCode {
++  вариант?: string;
++  температура?: number;
++  пределОтвета?: number;
++}
++export function проверитьФормуOpenCode(raw: unknown): ПараметрыOpenCode {
++  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) throw new Error('opencode: ожидается объект параметров');
++  const r = raw as Record<string, unknown>;
++  for (const k of Object.keys(r)) if (!['вариант', 'температура', 'пределОтвета'].includes(k)) throw new Error(`opencode.${k}: неизвестный параметр`);
++  if ('вариант' in r && (typeof r.вариант !== 'string' || !r.вариант || r.вариант.length > 100)) throw new Error('opencode.вариант: неверное имя');
++  if ('температура' in r && (typeof r.температура !== 'number' || !Number.isFinite(r.температура) || r.температура < 0 || r.температура > 2)) throw new Error('opencode.температура: ожидается число от 0 до 2');
++  if ('пределОтвета' in r && (typeof r.пределОтвета !== 'number' || !Number.isInteger(r.пределОтвета) || r.пределОтвета < 1 || r.пределОтвета > 32000)) throw new Error('opencode.пределОтвета: ожидается целое от 1 до 32000');
++  return { ...(r.вариант !== undefined ? { вариант: r.вариант as string } : {}), ...(r.температура !== undefined ? { температура: r.температура as number } : {}), ...(r.пределОтвета !== undefined ? { пределОтвета: r.пределОтвета as number } : {}) };
++}
++/** Чтение старых сохранений: мусор отбрасывается с диагностикой. */
++export function очиститьПараметрыOpenCode(raw: unknown): ПараметрыOpenCode {
++  if (raw === undefined) return {};
++  try { return проверитьФормуOpenCode(raw); }
++  catch { console.warn('[opencode] Некорректные сохранённые параметры очищены'); return {}; }
++}
++export interface МодельOpenCode {
++  провайдер: string; модель: string; статус: string;
++  инструменты: boolean; рассуждение: boolean; варианты: string[];
++  температура?: { мин: number; макс: number };
++  пределОтвета?: { мин: number; макс: number };
++  контекст?: number; вход?: number; выход?: number;
++  доступна: boolean; причина?: string;
++  причиныПараметров?: { температура?: string; пределОтвета?: string };
++}
++export interface КаталогOpenCode {
++  версия: string; совместима: boolean; проверенныеВерсии: string[];
++  ревизия: string; обновлёнВ: number; устарел: boolean;
++  провайдеры: { id: string; название: string; доступен: boolean; причина?: string;
++    авторизация: { состояние: 'нет' | 'ключ' | 'не-проверен' | 'отклонён' | 'без-входа' | 'не-поддерживается'; хвост?: string };
++    модели: { id: string; label: string; contextWindow?: number; price?: { input: number; output: number; cachedInput?: number }; opencode: МодельOpenCode }[] }[];
++}
+diff --git a/src/shared/types.ts b/src/shared/types.ts
+index 7684d4d..c985be3 100644
+--- a/src/shared/types.ts
++++ b/src/shared/types.ts
+@@ -573,6 +573,7 @@ export interface SubprojectView extends Subproject {
+ 
+ /** Поля роли, которые пользователь может менять из UI. */
+ export interface RoleEditable {
++  opencode?: import('./providers').ПараметрыOpenCode;
+   /**
+    * Провайдер и модель, на которых роль работает. В `RoleView` — уже
+    * разрешённые: свой выбор роли или выбор офиса (`Settings.model`).
