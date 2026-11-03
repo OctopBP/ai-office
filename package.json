@@ -31,6 +31,7 @@
     "test:gitread": "node --import tsx/esm scripts/test-git-read.ts",
     "test:probe-rule": "node --import tsx/esm scripts/test-probe-rule.ts",
     "test:reflect-probe": "node --import tsx/esm scripts/test-reflect-probe.ts",
+    "test:opencode-http": "OFFICE_KEYCHAIN=memory node --import tsx scripts/test-opencode-http.ts",
     "test:opencode-каталог": "OFFICE_KEYCHAIN=memory node --import tsx scripts/test-opencode-каталог.ts",
     "test:providers": "node --import tsx scripts/test-providers.ts",
     "test:secrets": "node --import tsx scripts/test-secrets.ts",
