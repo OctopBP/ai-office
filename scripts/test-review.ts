@@ -19,7 +19,7 @@ import { resolve } from 'node:path';
 import { getOffice, worktreesRoot, type OfficeState, type Task } from '../src/server/state';
 import { mergeableTasks } from '../src/server/merge';
 import {
-  gateAnswerYes, pipelineProblem, runPipeline, setPipelineAgents, verdictOf, whenPipelinesIdle,
+  gateAnswerYes, pipelineProblem, retryPipeline, runPipeline, setPipelineAgents, verdictOf, whenPipelinesIdle,
   type ReviewOutcome, type ReworkOutcome, type StepOutcome, type StepRequest,
 } from '../src/server/review';
 import { answerQuestion } from '../src/server/questions';
@@ -203,6 +203,28 @@ async function main(): Promise<void> {
   office.seed();
   office.projectDir = dir;
   office.settings.autoPipeline = true;
+
+  // Явная доработка без остановленного PR отклоняется до запуска автора.
+  {
+    const задача = taskBranch(dir, 'без-остановленного-pr', { 'работа.txt': 'готово\n' });
+    const заглушка = stub();
+    const задачаДо = JSON.stringify(office.tasks.get(задача.id));
+    const прДо = office.prOf(задача.id);
+    const снимокПрДо = JSON.stringify(прДо);
+
+    const отказ = await retryPipeline(office, задача.id, 'rework').then(
+      () => null,
+      (ошибка: unknown) => ошибка,
+    );
+
+    say('▶ Явная доработка без остановленного PR отклоняется');
+    check('до запроса PR отсутствует', прДо === null);
+    check('запрос отклонён с причиной отказа доработки',
+      отказ instanceof Error && отказ.message === office.say('tool.retryReview.noRework'));
+    check('автор не запускался', заглушка.calls.reworks === 0 && заглушка.calls.steps.length === 0);
+    check('задача не изменилась', JSON.stringify(office.tasks.get(задача.id)) === задачаДо);
+    check('PR не изменился', JSON.stringify(office.prOf(задача.id)) === снимокПрДо);
+  }
 
   // 1. Чистая ветка + одобрение ревьюера: влито и убрано за собой.
   {
