@@ -1,5 +1,9 @@
 /* Окно «Документы»: только раскладка, цвета и размеры — из токенов. */
-.docs-list-pane { display: flex; flex-direction: column; gap: var(--space-1); }
+/* Высоту ограничивает .team-window-body (min-height: 0), прокрутку даёт
+   .team-list-pane. Содержимое не сжимаем: даже в низком окне поиск,
+   фильтры и последняя строка остаются доступны через прокрутку колонки. */
+.docs-list-pane { display: flex; flex-direction: column; min-height: 0; gap: var(--space-1); }
+.docs-list-pane > * { flex-shrink: 0; }
 .docs-list-head { display: flex; flex-direction: column; gap: var(--space-2); padding-bottom: var(--space-2); }
 .docs-search { display: flex; align-items: center; gap: var(--space-2); color: var(--ink-3); }
 .docs-search input { flex: 1; min-width: 0; }
