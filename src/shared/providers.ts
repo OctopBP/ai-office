@@ -1,3 +1,5 @@
+import type { ПараметрыCodex } from './codex.js';
+
 /** Движок — программа, которая ведёт цикл агента. Провайдер обслуживается ровно одним движком. */
 export type EngineId = 'claude-code' | 'codex' | 'opencode';
 
@@ -97,6 +99,7 @@ export interface ModelChoice {
   provider: ProviderId;
   model: string;
   opencode?: ПараметрыOpenCode;
+  codex?: ПараметрыCodex;
 }
 
 /**
@@ -111,7 +114,8 @@ export const DEFAULT_MODEL_CHOICE: ModelChoice = {
 /** Один ли выбор. null — «провайдер не выбран», равен только себе. */
 export const sameChoice = (a: ModelChoice | null, b: ModelChoice | null): boolean =>
   a === b || (a !== null && b !== null && a.provider === b.provider && a.model === b.model
-    && (a.provider !== 'opencode' || JSON.stringify(очиститьПараметрыOpenCode(a.opencode)) === JSON.stringify(очиститьПараметрыOpenCode(b.opencode))));
+    && (a.provider !== 'opencode' || JSON.stringify(очиститьПараметрыOpenCode(a.opencode)) === JSON.stringify(очиститьПараметрыOpenCode(b.opencode)))
+    && (a.provider !== 'codex' || a.codex?.reasoningEffort === b.codex?.reasoningEffort));
 
 /**
  * Id сессии для движка провайдера. Чужие движки помечают свои id префиксом
