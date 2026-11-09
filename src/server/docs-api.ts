@@ -19,6 +19,7 @@ import type { IncomingMessage, ServerResponse } from 'node:http';
 import type { DocKind } from '../shared/types';
 import { createDoc, docHistory, DOC_KINDS, listDocs, readDoc, updateDoc } from './docs';
 import { c } from './i18n';
+import { обработатьОригиналыHttp } from './doc-files-api';
 import { readBody } from './officeicon';
 import { currentOffice, officeById } from './offices';
 import { isOpened } from './state';
@@ -250,6 +251,7 @@ export function handleDocsHttp(
   req: IncomingMessage, res: ServerResponse, url: string, query: string,
   env: DocsHttpEnv = defaultEnv,
 ): boolean {
+  if (обработатьОригиналыHttp(req, res, url, query, env)) return true;
   const r = route(url);
   if (!r) return false;
   void serve(req, res, r, query, env);
