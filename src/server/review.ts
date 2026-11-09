@@ -144,7 +144,7 @@ export interface StepOutcome {
  */
 export interface PipelineAgents {
   review(state: OfficeState, task: Task, pr: PullRequestView): Promise<ReviewOutcome>;
-  rework(state: OfficeState, task: Task, instruction: string): Promise<ReworkOutcome>;
+  rework(state: OfficeState, task: Task, instruction: string, новаяСессия?: boolean): Promise<ReworkOutcome>;
   /** Шаг процесса сессией сотрудника по способностям. Нет — шаги встают. */
   step?(state: OfficeState, task: Task, req: StepRequest): Promise<StepOutcome>;
   /** `about` — задача или фича: по ней выбирается чат, в сессию которого уйдёт сообщение. */
@@ -215,11 +215,11 @@ export const withMergeLock = <T>(repo: string, fn: () => Promise<T>): Promise<T>
  * виден по стадиям пулл-реквеста; обещание возвращается ради тестов и
  * повторного запуска, и никогда не падает: любая беда — это стадия 'stuck'.
  */
-export function runPipeline(state: OfficeState, taskId: string): Promise<void> {
+export function runPipeline(state: OfficeState, taskId: string, доработка = false): Promise<void> {
   const key = `${state.officeId}:${taskId}`;
   const already = running.get(key);
   if (already) return already;
-  const run = pipeline(state, taskId)
+  const run = pipeline(state, taskId, доработка)
     .catch((err) => {
       const task = state.tasks.get(taskId);
       state.addLog(null, 'error',
@@ -283,6 +283,7 @@ interface Ctx {
   task: Task;
   pr: PullRequestView;
   workflow: Workflow;
+  новаяСессия: boolean;
   node: WorkflowNode;
   run: Run;
   repo: string;
@@ -290,7 +291,7 @@ interface Ctx {
   base: string;
 }
 
-async function pipeline(state: OfficeState, taskId: string): Promise<void> {
+async function pipeline(state: OfficeState, taskId: string, доработка: boolean): Promise<void> {
   const task = state.tasks.get(taskId);
   if (!task) return;
   const problem = await pipelineProblem(state, task);
@@ -339,6 +340,16 @@ async function pipeline(state: OfficeState, taskId: string): Promise<void> {
     planRun(state, run, planned, baseWorkflow);
   }
   const workflow = runWorkflow(run, baseWorkflow);
+  if (доработка) {
+    const отказ = причинаОтказаДоработки(state, taskId);
+    if (отказ) throw new Error(отказ);
+    const отзыв = nodeOf(workflow, run.nodeId)!;
+    // Меняем только точку продолжения. История и исчерпанный счётчик остаются:
+    // следующий отказ ревьюера снова остановит процесс перед автором.
+    run.from = отзыв.id;
+    run.nodeId = отзыв.next.changes.to;
+  }
+  let новаяСессия = доработка;
   resumeRun(run);
   // Отчёт исполнителя с запиской — артефакт, который есть у прогона с самого
   // начала: его читают ревьюер, юрист, владелец.
@@ -346,9 +357,14 @@ async function pipeline(state: OfficeState, taskId: string): Promise<void> {
   state.saveRun(run);
 
   const hooks: RunHooks<Ctx> = {
-    context: (node) => ({
-      state, task: state.tasks.get(taskId) ?? task, pr, workflow, node, run, repo, branch, base,
-    }),
+    context: (node) => {
+      const контекст = {
+        state, task: state.tasks.get(taskId) ?? task, pr, workflow, node, run, repo, branch, base,
+        новаяСессия,
+      };
+      новаяСессия = false;
+      return контекст;
+    },
     enter: (ctx, node) => {
       if (node.stage) state.patchPr(ctx.task.id, { stage: node.stage });
     },
@@ -650,11 +666,11 @@ const rework: Executor<Ctx> = {
     const text = ctx.run.artifacts.review?.text ?? '';
     // Подпись описывает текущий узел, а не прошлый (T-361).
     state.patchPr(task.id, { note: state.say('wf.reworkNote') });
-    const fix = await agents.rework(state, task, reworkPrompt(state, task, text));
+    const fix = await agents.rework(state, task, reworkPrompt(state, task, text), ctx.новаяСессия);
     const worktree = state.tasks.get(task.id)?.worktreePath ?? null;
     if (worktree) await settle(state, worktree, task, vcsText(state.codeLang(), 'settleRework', { task: task.id }));
     if (!fix.ok) {
-      return failed(state.say('pipe.reworkFailed', { problem: fix.message }), fix.needsDecision);
+      return failed(state.say('pipe.reworkFailed', { problem: fix.message }), ctx.новаяСессия || fix.needsDecision);
     }
     return { outcome: 'done' };
   },
@@ -1305,7 +1321,34 @@ function markStuck(
  * (кнопка), и менеджеру: после починки чужой задачи вставший PR часто едет
  * дальше без единой правки.
  */
-export function retryPipeline(state: OfficeState, taskId: string): Promise<void> {
+/** Причина отказа явного продолжения по последнему отзыву; ничего не меняет. */
+export function причинаОтказаДоработки(state: OfficeState, taskId: string): string | null {
+  const задача = state.tasks.get(taskId);
+  const прогон = state.runOf(taskId);
+  const процесс = задача && workflowForTask(state, задача);
+  const узел = прогон && процесс && nodeOf(runWorkflow(прогон, процесс), прогон.nodeId);
+  const переход = узел?.next.changes;
+  const цель = прогон && процесс && переход && nodeOf(runWorkflow(прогон, процесс), переход.to);
+  const последнийШаг = прогон?.steps.at(-1);
+  if (state.prOf(taskId)?.stage !== 'stuck' || прогон?.status !== 'stuck'
+    || узел?.run !== 'office:review' || цель?.run !== 'office:rework'
+    || последнийШаг?.node !== узел.id || последнийШаг.outcome !== 'changes'
+    || прогон.artifacts[узел.out ?? 'review']?.ref !== 'changes'
+    || переход?.max === undefined || (прогон.loops[`${узел.id}>${переход.to}`] ?? 0) <= переход.max
+    || !задача?.worktreePath) {
+    return state.say('tool.retryReview.noRework');
+  }
+  return null;
+}
+
+export function retryPipeline(state: OfficeState, taskId: string, mode: 'continue' | 'rework' = 'continue'): Promise<void> {
+  if (isPipelineRunning(state, taskId)) return runPipeline(state, taskId);
+  if (mode === 'rework') {
+    const отказ = причинаОтказаДоработки(state, taskId);
+    if (отказ) return Promise.reject(new Error(отказ));
+    // Проверка в pipeline ещё должна видеть исходную остановку.
+    return runPipeline(state, taskId, true);
+  }
   if (state.prOf(taskId)) {
     state.patchPr(taskId, { note: state.say('pipe.retrying'), needsDecision: false });
   }

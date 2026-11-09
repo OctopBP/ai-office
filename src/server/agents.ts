@@ -57,7 +57,7 @@ import {
   reorderEpics, setPlanAgents, type PlannedEpic,
 } from './plan';
 import {
-  prDiff, retryPipeline, runPipeline, setPipelineAgents, maxRounds, tellPmByChat,
+  prDiff, retryPipeline, причинаОтказаДоработки, runPipeline, setPipelineAgents, maxRounds, tellPmByChat,
   type StepOutcome, type StepRequest,
   type ReviewOutcome, type ReworkOutcome,
 } from './review';
@@ -1405,7 +1405,10 @@ const teamTools = (state: OfficeState, chatId: string) => createSdkMcpServer({
     tool(
       'retry_review',
       state.say('tool.retryReview.desc'),
-      { taskId: z.string().describe(state.say('tool.retryReview.taskId')) },
+      {
+        taskId: z.string().describe(state.say('tool.retryReview.taskId')),
+        mode: z.enum(['continue', 'rework']).default('continue').describe(state.say('tool.retryReview.mode')),
+      },
       async (args) => {
         const pr = state.prOf(args.taskId);
         if (!pr) {
@@ -1428,7 +1431,11 @@ const teamTools = (state: OfficeState, chatId: string) => createSdkMcpServer({
             isError: true,
           };
         }
-        void retryPipeline(state, args.taskId);
+        if (args.mode === 'rework') {
+          const отказ = причинаОтказаДоработки(state, args.taskId);
+          if (отказ) return { content: [{ type: 'text', text: отказ }], isError: true };
+        }
+        void retryPipeline(state, args.taskId, args.mode);
         return {
           content: [{ type: 'text', text: state.say('tool.retryReview.ok', { task: args.taskId }) }],
         };
@@ -4682,7 +4689,7 @@ export function workerSystemPrompt(role: Role, state: OfficeState, subprojectId?
  * ревьюера, по упавшим проверкам или разбирая конфликт с основной веткой.
  */
 async function reworkTask(
-  state: OfficeState, task: Task, instruction: string,
+  state: OfficeState, task: Task, instruction: string, новаяСессия = false,
 ): Promise<ReworkOutcome> {
   const roleId = task.roleId ?? 'backend';
   const worktree = task.worktreePath;
@@ -4717,9 +4724,9 @@ async function reworkTask(
     taskId: task.id,
     mcp: { office: workerTools(state, inst.id, task) },
     note: state.say('agent.state.reworking'),
-    // Тот же исполнитель уже видел задачу и код — продолжаем его сессию,
-    // а не пересказываем всё с нуля.
-    resume: task.workerSessionId ?? undefined,
+    // Явная доработка после решения начинает новый разговор. Права собирает
+    // runAgentSession из актуальной роли штатным sessionSandbox.
+    resume: новаяСессия ? undefined : task.workerSessionId ?? undefined,
   });
   if (inst.sessionId) state.updateTask(task.id, { workerSessionId: inst.sessionId });
   if (!run.ok) {

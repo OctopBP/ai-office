@@ -483,6 +483,8 @@ Keep your replies to the user short. Which language to write them in is said in 
   'taskView.changes': 'changes requested',
 
   'tool.retryReview.desc': 'Push a stuck pipeline for a task: it continues from the stage where it stopped. This helps when the cause is already gone — a neighbouring task was fixed, say, and the conflict will not happen again. If the cause is still there, the pipeline stops again: pushing it repeatedly without changes is pointless.',
+  'tool.retryReview.mode': 'continue: retry the stopped node (default); rework: one author rework in a fresh session with current permissions after review returns are exhausted, then normal checks and review.',
+  'tool.retryReview.noRework': 'Rework requires a pipeline stopped after exhausted review returns, its saved run, review and task worktree.',
   'tool.retryReview.taskId': 'Task id, for example T-3',
   'tool.restartTask.desc': 'Start a task again — from scratch, but against its current brief. This is what edit_task needs afterwards: once you have rewritten a failed or stopped task, restart it, otherwise it just sits there. The previous attempt is not lost: its branch is kept under another name. A task that is running right now or already merged cannot be restarted; one stopped by the subscription plan limit is continued with resume_task instead.',
   'tool.restartTask.taskId': 'Task id, e.g. T-3',
