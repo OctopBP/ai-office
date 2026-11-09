@@ -25,6 +25,7 @@ import { broadcastAll, send } from './office-api';
 import { openedOffices } from './state';
 import { refreshEnvChecks } from './envcheck';
 import { handleOpenCodeHttp } from './providers/opencode-http';
+import { обработатьHttpКаталогаCodex } from './providers/каталог-codex';
 
 type Sink = Parameters<typeof send>[0];
 
@@ -314,6 +315,7 @@ function readJson(req: IncomingMessage): Promise<Record<string, unknown>> {
  */
 export function handleProvidersHttp(req: IncomingMessage, res: ServerResponse, url: string, query: string): boolean {
   if (url !== '/api/providers' && !url.startsWith('/api/providers/')) return false;
+  if (обработатьHttpКаталогаCodex(req, res, url)) return true;
   if (handleOpenCodeHttp(req, res, url, query)) return true;
   const json = (status: number, body: unknown): void => {
     res.writeHead(status, { 'Content-Type': 'application/json; charset=utf-8' });

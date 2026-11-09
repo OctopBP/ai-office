@@ -33,6 +33,7 @@
     "test:reflect-probe": "node --import tsx/esm scripts/test-reflect-probe.ts",
     "test:opencode-http": "OFFICE_KEYCHAIN=memory node --import tsx scripts/test-opencode-http.ts",
     "test:opencode-каталог": "OFFICE_KEYCHAIN=memory node --import tsx scripts/test-opencode-каталог.ts",
+    "test:codex-каталог": "node --import tsx scripts/test-codex-каталог.ts",
     "test:providers": "node --import tsx scripts/test-providers.ts",
     "test:secrets": "node --import tsx scripts/test-secrets.ts",
     "test:skills": "tsx scripts/test-skills.ts",
