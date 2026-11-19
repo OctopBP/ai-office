@@ -330,6 +330,8 @@ export interface РасходЗаПериоды {
 export type LimitKind =
   | 'codex_primary'
   | 'codex_secondary'
+  | 'kimi_primary'
+  | 'kimi_secondary'
   | 'five_hour'
   | 'seven_day'
   | 'seven_day_opus'
@@ -340,7 +342,7 @@ export type LimitKind =
 
 /** Порядок показа окон: сначала то, во что упираются раньше всего. */
 export const LIMIT_ORDER: LimitKind[] = [
-  'codex_primary', 'codex_secondary',
+  'codex_primary', 'codex_secondary', 'kimi_primary', 'kimi_secondary',
   'five_hour', 'seven_day', 'seven_day_opus', 'seven_day_sonnet',
   'seven_day_oauth_apps', 'seven_day_overage_included', 'overage',
 ];

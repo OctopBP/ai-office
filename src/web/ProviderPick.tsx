@@ -82,7 +82,8 @@ export const freeModel = (provider: ProviderId): boolean => engineOf(provider) !
 /** Подсказка под полем модели: у каждого движка своя. */
 export function modelHint(provider: ProviderId): UiKey | undefined {
   const engine = engineOf(provider);
-  return engine === 'codex' ? 'role.codexHint' : engine === 'opencode' ? 'role.openaiHint' : undefined;
+  return engine === 'codex' ? 'role.codexHint' : engine === 'kimi-code' ? 'role.kimiHint'
+    : engine === 'opencode' ? 'role.openaiHint' : undefined;
 }
 
 /**

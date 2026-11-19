@@ -7,12 +7,13 @@ import { c } from '../i18n';
 import { claudeCodeEngine } from './claude-code';
 import { codexEngine } from './codex';
 import { opencodeEngine } from './opencode';
+import { kimiCodeEngine } from './kimi-code';
 import type { EngineAdapter, EngineSession, SessionRequest } from './types';
 
 export * from './types';
 export { tool, createSdkMcpServer, localTools, claudeBin, SYSTEM_PROMPT_DYNAMIC_BOUNDARY, type LocalTool } from './claude-code';
 
-export const ENGINES: readonly EngineAdapter[] = [claudeCodeEngine, codexEngine, opencodeEngine];
+export const ENGINES: readonly EngineAdapter[] = [claudeCodeEngine, codexEngine, opencodeEngine, kimiCodeEngine];
 
 /** Адаптер, который обслуживает провайдера. */
 export function engineFor(provider: ProviderId): EngineAdapter {

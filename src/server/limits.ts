@@ -94,7 +94,7 @@ export interface Rejection {
  * превратиться в шкалу с непонятной подписью.
  */
 const REPORT_KINDS: LimitKind[] = [
-  'codex_primary', 'codex_secondary',
+  'codex_primary', 'codex_secondary', 'kimi_primary', 'kimi_secondary',
   'five_hour', 'seven_day', 'seven_day_opus', 'seven_day_sonnet', 'seven_day_oauth_apps',
 ];
 

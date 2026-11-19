@@ -31,6 +31,7 @@ const STATUS_KEY: Record<ProviderStatus['state'], UiKey> = {
 const SUBSCRIPTION_NOTE: Record<string, UiKey> = {
   'claude-code': 'providers.login.noteClaude',
   codex: 'providers.login.noteOpenai',
+  'kimi-code': 'providers.login.noteKimi',
 };
 
 /** Откуда ключ, если это не очевидно по названию провайдера. */
@@ -42,6 +43,8 @@ const KEY_NOTE: Partial<Record<ProviderView['id'], UiKey>> = {
 const LIMIT_KIND_KEY: Record<LimitKind, UiKey> = {
   codex_primary: 'limits.kind.codexPrimary',
   codex_secondary: 'limits.kind.codexSecondary',
+  kimi_primary: 'limits.kind.kimiPrimary',
+  kimi_secondary: 'limits.kind.kimiSecondary',
   five_hour: 'limits.kind.fiveHour',
   seven_day: 'limits.kind.sevenDay',
   seven_day_opus: 'limits.kind.sevenDayOpus',

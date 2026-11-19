@@ -15,6 +15,8 @@ import { t, type UiKey } from './i18n';
 const KIND_KEY: Record<LimitKind, UiKey> = {
   codex_primary: 'limits.kind.codexPrimary',
   codex_secondary: 'limits.kind.codexSecondary',
+  kimi_primary: 'limits.kind.kimiPrimary',
+  kimi_secondary: 'limits.kind.kimiSecondary',
   five_hour: 'limits.kind.fiveHour',
   seven_day: 'limits.kind.sevenDay',
   seven_day_opus: 'limits.kind.sevenDayOpus',

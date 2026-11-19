@@ -23,6 +23,7 @@ import { LoginError } from './types';
 export const KEY_VAR: Partial<Record<ProviderId, string>> = {
   'claude-code': 'ANTHROPIC_API_KEY',
   codex: 'OPENAI_API_KEY',
+  'kimi-code': 'KIMI_API_KEY',
   xai: 'XAI_API_KEY',
   deepseek: 'DEEPSEEK_API_KEY',
   openrouter: 'OPENROUTER_API_KEY',

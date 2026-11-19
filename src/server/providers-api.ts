@@ -30,7 +30,9 @@ import { обработатьHttpКаталогаCodex } from './providers/ка�
 type Sink = Parameters<typeof send>[0];
 
 /** Подпись движка — мелкой строкой под названием провайдера. */
-const ENGINE_LABEL: Record<EngineId, string> = { 'claude-code': 'Claude Code', codex: 'Codex', opencode: 'OpenCode' };
+const ENGINE_LABEL: Record<EngineId, string> = {
+  'claude-code': 'Claude Code', codex: 'Codex', opencode: 'OpenCode', 'kimi-code': 'Kimi Code',
+};
 
 /** Идущие установки — по движку: движок общий для всех его провайдеров. */
 const installs = new Map<EngineId, { share: number; bytes?: number; totalBytes?: number; abort: AbortController }>();

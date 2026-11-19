@@ -739,4 +739,6 @@ assert.equal(role.provider, 'codex'); assert.equal(role.model, 'default');
   }
 }
 
-console.log('Provider tests passed: routing, events, tools, denials, resume, queue, compaction, cancellation, failures, cost, quotas, engine adapters, sandbox paths, packages, opencode, gemini and qwen presets.');
+await import('./test-kimi');
+
+console.log('Provider tests passed: routing, events, tools, denials, resume, queue, compaction, cancellation, failures, cost, quotas, engine adapters, sandbox paths, packages, opencode, gemini, qwen and Kimi Code.');

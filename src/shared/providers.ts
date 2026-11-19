@@ -1,7 +1,7 @@
 import type { ПараметрыCodex } from './codex.js';
 
 /** Движок — программа, которая ведёт цикл агента. Провайдер обслуживается ровно одним движком. */
-export type EngineId = 'claude-code' | 'codex' | 'opencode';
+export type EngineId = 'claude-code' | 'codex' | 'opencode' | 'kimi-code';
 
 interface ProviderSpec {
   label: string;
@@ -45,6 +45,7 @@ export const PROVIDERS = {
   opencode: { label: 'OpenCode', engine: 'opencode', defaultModel: 'default', cloud: false },
   'claude-code': { label: 'Claude Code', engine: 'claude-code', defaultModel: 'claude-sonnet-5-5', cloud: true },
   codex: { label: 'OpenAI (ChatGPT / Codex)', engine: 'codex', defaultModel: 'default', cloud: false },
+  'kimi-code': { label: 'Kimi Code', engine: 'kimi-code', defaultModel: 'default', cloud: false },
   xai: {
     label: 'xAI (Grok)', engine: 'opencode', defaultModel: 'grok-4.7', cloud: false,
     baseUrl: 'https://api.x.ai/v1', keyUrl: 'https://console.x.ai/',
@@ -126,7 +127,7 @@ export const sameChoice = (a: ModelChoice | null, b: ModelChoice | null): boolea
 export function sessionForProvider(id: string | undefined, provider: ProviderId): string | undefined {
   if (!id) return undefined;
   const engine = engineOf(provider);
-  const prefix = /^(codex|opencode):/.exec(id)?.[1];
+  const prefix = /^(codex|opencode|kimi-code):/.exec(id)?.[1];
   if (engine === 'claude-code') return prefix ? undefined : id;
   return prefix === engine ? id.slice(engine.length + 1) : undefined;
 }
@@ -209,6 +210,8 @@ export const ENGINE_BUILTIN_TOOLS: Record<EngineId, readonly string[]> = {
   codex: [...OFFICE_HANDS_TOOLS, 'WebSearch'],
   // Свои webfetch и websearch OpenCode выключены (providers/opencode.ts).
   opencode: [...OFFICE_HANDS_TOOLS],
+  // Все встроенные инструменты Kimi запрещены в изолированном config.toml.
+  'kimi-code': [...OFFICE_HANDS_TOOLS],
 };
 
 /** Инструменты, которые офис добавляет сам и которые не проверяются по списку движка. */

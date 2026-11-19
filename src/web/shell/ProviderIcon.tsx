@@ -32,6 +32,16 @@ export function ProviderIcon({ provider, size = 14 }: { provider?: string; size?
     );
   }
 
+  if (provider === 'kimi-code') {
+    return (
+      <svg {...common}>
+        <rect x="1.5" y="1.5" width="21" height="21" rx="6" fill="currentColor" />
+        <path d="M7 6.5v11M17 6.5l-7 5.5 7 5.5" fill="none" stroke="var(--surface)"
+          strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" />
+      </svg>
+    );
+  }
+
   return (
     <svg {...common}>
       <rect x="1.5" y="1.5" width="21" height="21" rx="6" fill="currentColor" />
