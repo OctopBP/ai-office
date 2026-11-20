@@ -47,8 +47,12 @@ export function runtimeKimiHome(): string {
   return resolve(process.env.OFFICE_KIMI_CODE_HOME ?? resolve(dirname(DEFAULT_STATE_FILE), 'kimi-code-runtime'));
 }
 
+const NODE_RUNTIME = { ELECTRON_RUN_AS_NODE: '1' } as const;
+
 export function ownerEnv(): NodeJS.ProcessEnv {
-  return engineEnv({ KIMI_CODE_HOME: ownerKimiHome() });
+  // Сервер desktop-приложения сам является Electron: для его Node-режима эта
+  // переменная обязательна, а установленный системный Node её просто игнорирует.
+  return engineEnv({ ...NODE_RUNTIME, KIMI_CODE_HOME: ownerKimiHome() });
 }
 
 /** Заменить ровно секцию [tools], не трогая модели и OAuth владельца. */
@@ -86,7 +90,7 @@ export function runtimeEnv(): NodeJS.ProcessEnv {
       throw new Error(`Kimi Code runtime credentials is not a shared credentials link: ${link}`);
     }
   }
-  return engineEnv({ KIMI_CODE_HOME: home });
+  return engineEnv({ ...NODE_RUNTIME, KIMI_CODE_HOME: home });
 }
 
 interface KimiModel { id: string; label: string }
@@ -479,5 +483,5 @@ export function kimiQuery({ prompt, options }: SessionRequest): EngineSession {
 
 /** Для входа используется owner home, не изолированный runtime офиса. */
 export function loginEnv(): NodeJS.ProcessEnv {
-  return projectEnv({ KIMI_CODE_HOME: ownerKimiHome() });
+  return projectEnv({ ...NODE_RUNTIME, KIMI_CODE_HOME: ownerKimiHome() });
 }

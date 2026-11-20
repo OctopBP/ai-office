@@ -22,6 +22,7 @@ import { basename, join, resolve } from 'node:path';
 import { Readable } from 'node:stream';
 import { pipeline } from 'node:stream/promises';
 import type { EngineId, InstallProgress } from './types';
+import { projectEnv } from '../childenv';
 
 /**
  * Куда ставятся движки. Приложение передаёт папку данных (`OFFICE_ENGINE_DIR`),
@@ -96,8 +97,36 @@ export interface NpmEngine {
   version: string;
   /** Путь к бинарю внутри пакета (`package/` уже снят). */
   bin: string;
+  /** У пакета есть runtime-зависимости: поставить их до переноса в папку движков. */
+  dependencies?: boolean;
   /** Под каким именем версии класть: по умолчанию — то, что ответил npm. */
   folder?: (npmVersion: string) => string;
+}
+
+/** Runtime-зависимости без install-скриптов; dev-зависимости даже не разрешаем. */
+export async function installNpmDependencies(dir: string, signal: AbortSignal): Promise<void> {
+  const { readFileSync, writeFileSync } = await import('node:fs');
+  const manifest = resolve(dir, 'package.json');
+  const original = readFileSync(manifest, 'utf8');
+  const pkg = JSON.parse(original) as { devDependencies?: Record<string, string> };
+  delete pkg.devDependencies;
+  // `--omit=dev` всё равно строит ideal tree по devDependencies и падает о
+  // недоступные приватные пакеты. Временно убираем их из манифеста совсем.
+  writeFileSync(manifest, JSON.stringify(pkg));
+  try {
+    await new Promise<void>((done, fail) => {
+      const npm = process.platform === 'win32' ? 'npm.cmd' : 'npm';
+      execFile(npm, [
+        'install', '--omit=dev', '--ignore-scripts', '--no-audit', '--no-fund', '--package-lock=false', '--loglevel=error',
+      ], { cwd: dir, env: projectEnv(), signal, timeout: 5 * 60_000, windowsHide: true }, (error, stdout, stderr) => {
+        if (!error) { done(); return; }
+        const detail = (stderr.trim() || stdout.trim() || error.message).slice(-3000);
+        fail(new Error(`npm не смог поставить зависимости движка: ${detail}`));
+      });
+    });
+  } finally {
+    writeFileSync(manifest, original);
+  }
 }
 
 /**
@@ -143,6 +172,10 @@ export async function installFromNpm(
     await untar(archive, work);
     const unpacked = join(work, 'package');
     if (!existsSync(join(unpacked, spec.bin))) throw new Error(`в архиве движка нет ${spec.bin}`);
+    if (spec.dependencies) {
+      onProgress({ share: 0.95, bytes: got, totalBytes: total });
+      await installNpmDependencies(unpacked, signal);
+    }
 
     const target = join(engineDir(), spec.engine, spec.folder?.(meta.version) ?? meta.version);
     mkdirSync(join(engineDir(), spec.engine), { recursive: true });

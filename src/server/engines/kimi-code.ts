@@ -13,13 +13,15 @@ import { startCliLogin } from './login';
 import { LoginError, type EngineAdapter, type EngineCapabilities, type ModelInfo, type ProviderStatus } from './types';
 
 let located: { at: number; value: { path: string; version: string } | null } | null = null;
+let locateError = '';
 
 function locate(force = false): Promise<{ path: string; version: string } | null> {
   if (!force && located && Date.now() - located.at < 30_000) return Promise.resolve(located.value);
   const bin = kimiCodeBinary();
   const command = kimiCommand(['--version'], bin);
   const value = new Promise<{ path: string; version: string } | null>((done) => {
-    execFile(command.file, command.args, { timeout: 10_000, env: ownerEnv() }, (error, stdout) => {
+    execFile(command.file, command.args, { timeout: 10_000, env: ownerEnv() }, (error, stdout, stderr) => {
+      locateError = error ? (stderr.trim() || error.message).slice(-3000) : '';
       done(error ? null : { path: bin, version: String(stdout).match(/\d+\.\d+\.\d+/)?.[0] ?? String(stdout).trim() });
     });
   });
@@ -85,9 +87,11 @@ export const kimiCodeEngine: EngineAdapter = {
 
   async install(onProgress, signal) {
     const done = await installFromNpm({
-      engine: 'kimi-code', pkg: KIMI_CODE_PKG, version: KIMI_CODE_VERSION, bin: KIMI_CODE_BIN,
+      engine: 'kimi-code', pkg: KIMI_CODE_PKG, version: KIMI_CODE_VERSION, bin: KIMI_CODE_BIN, dependencies: true,
     }, onProgress, signal);
-    await locate(true);
+    if (!await locate(true)) {
+      throw new Error(`Kimi Code скачан, но проверка --version не прошла: ${locateError || 'неизвестная ошибка запуска'}`);
+    }
     return done;
   },
 

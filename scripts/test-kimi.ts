@@ -148,6 +148,7 @@ const ownerConfig = 'default_model = "kimi-for-coding"\n\n[tools]\nwhitelist = [
 writeFileSync(resolve(owner, 'config.toml'), ownerConfig);
 const isolated = runtimeEnv();
 assert.equal(isolated.KIMI_CODE_HOME, runtime);
+assert.equal(isolated.ELECTRON_RUN_AS_NODE, '1');
 assert.equal(readFileSync(resolve(owner, 'config.toml'), 'utf8'), ownerConfig);
 const generated = readFileSync(resolve(runtime, 'config.toml'), 'utf8');
 assert.equal((generated.match(/\[tools\]/g) ?? []).length, 1);
@@ -268,5 +269,23 @@ await engine.logout('kimi-code');
 assert.equal(state().authenticated, false);
 account(true);
 
+// Пакеты с внешними runtime-зависимостями после распаковки действительно запускаются.
+const dependency = resolve(root, 'local-dependency');
+const npmApp = resolve(root, 'npm-app');
+mkdirSync(dependency, { recursive: true });
+mkdirSync(npmApp, { recursive: true });
+writeFileSync(resolve(dependency, 'package.json'), JSON.stringify({ name: 'office-test-dependency', version: '1.0.0', main: 'index.js' }));
+writeFileSync(resolve(dependency, 'index.js'), 'module.exports = "installed";');
+const npmManifest = JSON.stringify({
+  name: 'office-test-install', version: '1.0.0', private: true,
+  dependencies: { 'office-test-dependency': 'file:../local-dependency' },
+  devDependencies: { 'office-test-missing': 'file:../must-not-be-resolved' },
+});
+writeFileSync(resolve(npmApp, 'package.json'), npmManifest);
+const { installNpmDependencies } = await import('../src/server/engines/install');
+await installNpmDependencies(npmApp, new AbortController().signal);
+assert.equal(readFileSync(resolve(npmApp, 'node_modules/office-test-dependency/index.js'), 'utf8'), 'module.exports = "installed";');
+assert.equal(readFileSync(resolve(npmApp, 'package.json'), 'utf8'), npmManifest);
+
 rmSync(root, { recursive: true, force: true });
-console.log('Kimi Code tests passed: OAuth, models, quotas, ACP, MCP permissions, resume, queue, cancellation and config isolation.');
+console.log('Kimi Code tests passed: OAuth, models, quotas, ACP, MCP permissions, resume, queue, cancellation, config isolation and npm dependencies.');
