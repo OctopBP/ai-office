@@ -108,9 +108,9 @@ interface Kap {
   close(): void;
 }
 
-/** Поднять metadata-only KAP с одноразовым токеном на свободном loopback-порту. */
+/** Поднять metadata-only KAP на свободном loopback-порту, не открывая браузер. */
 async function startKap(): Promise<Kap> {
-  const command = kimiCommand(['web', '--host=127.0.0.1', '--port=0', '--json']);
+  const command = kimiCommand(['web', '--host=127.0.0.1', '--port=0', '--no-open']);
   const child = spawn(command.file, command.args, {
     cwd: process.cwd(), env: ownerEnv(), stdio: ['pipe', 'pipe', 'pipe'], windowsHide: true,
   });
@@ -122,12 +122,16 @@ async function startKap(): Promise<Kap> {
     const stop = (error: Error) => { clearTimeout(timer); fail(error); };
     child.stdout.on('data', (chunk: Buffer) => {
       output = (output + chunk.toString('utf8')).slice(-16_384);
-      const line = output.split(/\r?\n/).find((row) => row.trim().startsWith('{'));
-      if (!line) return;
+      // Kimi Code 2.x печатает `Local: http://127.0.0.1:PORT/#token=TOKEN`.
+      // JSON-режима у `kimi web` нет; адрес разбираем только с loopback.
+      const match = /(?:^|\r?\n)\s*Local:\s+(https?:\/\/[^\s]+)/.exec(output);
+      if (!match) return;
       try {
-        const data = JSON.parse(line) as { origin?: string; token?: string };
-        if (data.origin && data.token) { clearTimeout(timer); done({ origin: data.origin, token: data.token }); }
-      } catch { /* дождаться завершенной JSON-строки */ }
+        const url = new URL(match[1]);
+        if (!['127.0.0.1', 'localhost', '::1'].includes(url.hostname) || !url.hash.startsWith('#token=')) return;
+        const token = decodeURIComponent(url.hash.slice('#token='.length));
+        if (token) { clearTimeout(timer); done({ origin: url.origin, token }); }
+      } catch { /* дождаться завершенной строки адреса */ }
     });
     child.once('error', (err) => stop(err));
     child.once('exit', (code) => stop(new Error(`Kimi Code metadata server exited (${code}): ${stderr.trim()}`)));

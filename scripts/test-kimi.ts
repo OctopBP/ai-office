@@ -35,6 +35,7 @@ if (args[0] === 'login') {
   console.error('Opening browser for Kimi device login: https://kimi.example/device?code=abc');
   setTimeout(() => { save({...state(), authenticated:true}); process.exit(0); }, 120);
 } else if (args[0] === 'web') {
+  if (args.includes('--json') || !args.includes('--no-open')) { console.error('invalid web args', args); process.exit(2); }
   const server = http.createServer((req,res) => {
     if (req.headers.authorization !== 'Bearer test-kap') { res.writeHead(401).end(); return; }
     const current = state();
@@ -60,7 +61,7 @@ if (args[0] === 'login') {
   });
   server.listen(0,'127.0.0.1',() => {
     const origin = 'http://127.0.0.1:' + server.address().port;
-    console.log(JSON.stringify({origin,token:'test-kap',ws_url:'ws://unused'}));
+    console.log('  Local:    ' + origin + '/#token=test-kap');
   });
   process.on('SIGTERM',() => { server.close(); process.exit(0); });
 } else if (args[0] === 'acp') {
