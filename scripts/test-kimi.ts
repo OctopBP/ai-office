@@ -144,7 +144,7 @@ assert.equal(engine.capabilities().planLimits, true);
 assert.equal(sessionForProvider('kimi-code:kimi-session', 'kimi-code'), 'kimi-session');
 assert.equal(sessionForProvider('codex:kimi-session', 'kimi-code'), undefined);
 
-// Конфиг владельца сохраняется, а любая прежняя [tools] заменяется одним whitelist.
+// Конфиг владельца сохраняется, а управляемые секции заменяются одним allow-правилом.
 const ownerConfig = 'default_model = "kimi-for-coding"\n\n[tools]\nwhitelist = ["*"]\n\n[providers.managed]\ntype = "kimi"\n';
 writeFileSync(resolve(owner, 'config.toml'), ownerConfig);
 const isolated = runtimeEnv();
@@ -152,11 +152,12 @@ assert.equal(isolated.KIMI_CODE_HOME, runtime);
 assert.equal(isolated.ELECTRON_RUN_AS_NODE, '1');
 assert.equal(readFileSync(resolve(owner, 'config.toml'), 'utf8'), ownerConfig);
 const generated = readFileSync(resolve(runtime, 'config.toml'), 'utf8');
-assert.equal((generated.match(/\[tools\]/g) ?? []).length, 1);
-assert(generated.includes('whitelist = ["mcp__office__*"]'));
-assert(!generated.includes('whitelist = ["*"]'));
+assert.equal((generated.match(/\[permission\]/g) ?? []).length, 1);
+assert(generated.includes('pattern = "mcp__office__*"'));
+assert(!generated.includes('whitelist'));
+assert(!generated.includes('[tools]'));
 assert(generated.includes('[providers.managed]'));
-assert.equal(officeConfig('[tools]\nwhitelist = ["Bash"]'), '[tools]\nwhitelist = ["mcp__office__*"]\n');
+assert.equal(officeConfig('[tools]\nwhitelist = ["Bash"]'), '[permission]\nrules = [ { decision = "allow", scope = "user", pattern = "mcp__office__*" } ]\n');
 
 // Статусы: нет движка → нужен OAuth → готов → исчерпан лимит.
 const savedPath = process.env.OFFICE_KIMI_CODE_PATH;

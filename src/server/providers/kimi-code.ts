@@ -55,17 +55,23 @@ export function ownerEnv(): NodeJS.ProcessEnv {
   return engineEnv({ ...NODE_RUNTIME, KIMI_CODE_HOME: ownerKimiHome() });
 }
 
-/** Заменить ровно секцию [tools], не трогая модели и OAuth владельца. */
+/**
+ * Заменить ровно управляемые секции [tools] и [permission], не трогая модели
+ * и OAuth владельца. Allow-правило для инструментов моста обязательно: без
+ * него Kimi Code на каждый вызов MCP-инструмента шлёт session/request_permission.
+ * Прежний `[tools] whitelist` не работал — такого ключа в конфиге Kimi Code 2.6.3
+ * нет; реальная политика живёт в секции [permission] (rules: allow/ask/deny).
+ */
 export function officeConfig(source: string): string {
   const kept: string[] = [];
-  let inTools = false;
+  let inManaged = false;
   for (const line of source.split('\n')) {
-    if (/^\s*\[tools\]\s*$/.test(line)) { inTools = true; continue; }
-    if (/^\s*\[/.test(line)) inTools = false;
-    if (!inTools) kept.push(line);
+    if (/^\s*\[(tools|permission)\]\s*$/.test(line)) { inManaged = true; continue; }
+    if (/^\s*\[/.test(line)) inManaged = false;
+    if (!inManaged) kept.push(line);
   }
-  const withoutTools = kept.join('\n').trimEnd();
-  return `${withoutTools}${withoutTools ? '\n\n' : ''}[tools]\nwhitelist = ["mcp__office__*"]\n`;
+  const withoutManaged = kept.join('\n').trimEnd();
+  return `${withoutManaged}${withoutManaged ? '\n\n' : ''}[permission]\nrules = [ { decision = "allow", scope = "user", pattern = "mcp__office__*" } ]\n`;
 }
 
 /** Общие только учётные данные; история, политика и кеши офиса изолированы. */
